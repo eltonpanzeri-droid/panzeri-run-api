@@ -1,0 +1,218 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String              @id @default(uuid())
+  email        String              @unique
+  passwordHash String
+  name         String
+  birthDate    DateTime?
+  sex          String?
+  heightCm     Int?
+  weightKg     Float?
+  address      String?
+  role         String              @default("student")
+  refreshTokenHash String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  healthProfile HealthProfile?
+  preferences   UserPreferences?
+  availability  WeeklyAvailability[]
+  tests         FitnessTest[]
+  plans         TrainingPlan[]
+  workouts      WorkoutCompletion[]
+  achievements  UserAchievement[]
+}
+
+model HealthProfile {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id])
+  systolic          Int?
+  diastolic         Int?
+  diabetes          Boolean?
+  previousSurgeries String?
+  previousInjuries  String?
+  healthProblems    String?
+  medications       String?
+  averageSleep      String?
+  stressLevel       String?
+  anxietyLevel      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model UserPreferences {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id])
+  preferredModalities String[]
+  otherModalities     String[]
+  trainingLocations   String[]
+  mainGoal            String
+  targetRaceDate      DateTime?
+  strengthAddOn       String?
+  experienceLevel     String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model WeeklyAvailability {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  weekday      Int
+  noTraining   Boolean  @default(false)
+  modalities   String[]
+  availableMin Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, weekday])
+}
+
+model FitnessTest {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id])
+  testType          String   @default("3km")
+  totalSeconds      Int
+  avgHeartRate      Int?
+  maxHeartRate      Int?
+  environment       String
+  vo2maxEstimated   Float
+  vvo2Kmh           Float
+  paceSecondsPerKm  Int
+  notes             String?
+  createdAt         DateTime @default(now())
+}
+
+model TrainingPlan {
+  id               String            @id @default(uuid())
+  userId           String
+  user             User              @relation(fields: [userId], references: [id])
+  name             String
+  goal             String
+  status           String            @default("active")
+  version          Int               @default(1)
+  startDate        DateTime
+  endDate          DateTime?
+  generatedBy      String            @default("mock")
+  inputSnapshot    Json
+  aiRecommendation String?
+  createdAt        DateTime          @default(now())
+  sessions         TrainingSession[]
+}
+
+model TrainingSession {
+  id                 String             @id @default(uuid())
+  planId             String
+  plan               TrainingPlan       @relation(fields: [planId], references: [id])
+  userId             String
+  scheduledDate      DateTime
+  weekday            Int
+  modality           String
+  title              String
+  sessionType        String?
+  locationSuggestion String?
+  durationMin        Int?
+  distanceKm         Float?
+  intensityZone      String?
+  paceMinSec         String?
+  structure          Json
+  notes              String?
+  videoRefs          String[]
+  createdAt          DateTime           @default(now())
+  completion         WorkoutCompletion?
+}
+
+model WorkoutCompletion {
+  id                 String           @id @default(uuid())
+  userId             String
+  user               User             @relation(fields: [userId], references: [id])
+  sessionId          String?          @unique
+  session            TrainingSession? @relation(fields: [sessionId], references: [id])
+  completedAt        DateTime         @default(now())
+  status             String
+  durationMin        Int?
+  distanceKm         Float?
+  avgPaceSecondsKm   Int?
+  avgHeartRate       Int?
+  maxHeartRate       Int?
+  perceivedEffort    Int?
+  notes              String?
+  source             String           @default("manual")
+}
+
+model StravaConnection {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  athleteId    String
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model StravaActivity {
+  id             String   @id @default(uuid())
+  userId         String
+  stravaId       String   @unique
+  name           String?
+  type           String?
+  startDate      DateTime
+  distanceKm     Float?
+  movingTimeSec  Int?
+  avgPaceSecKm   Int?
+  avgHeartRate   Int?
+  maxHeartRate   Int?
+  raw            Json
+  createdAt      DateTime @default(now())
+}
+
+model Achievement {
+  id          String @id @default(uuid())
+  code        String @unique
+  name        String
+  description String
+  criteria    Json
+  users       UserAchievement[]
+}
+
+model UserAchievement {
+  id            String      @id @default(uuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id])
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id])
+  unlockedAt    DateTime    @default(now())
+}
+
+model Challenge {
+  id          String @id @default(uuid())
+  code        String @unique
+  name        String
+  description String
+  type        String
+  criteria    Json
+  active      Boolean @default(true)
+  progress    ChallengeProgress[]
+}
+
+model ChallengeProgress {
+  id          String   @id @default(uuid())
+  userId      String
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id])
+  weekStart   DateTime
+  progress    Json
+  completed   Boolean  @default(false)
+}

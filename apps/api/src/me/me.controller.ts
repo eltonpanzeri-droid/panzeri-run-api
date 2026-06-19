@@ -1,0 +1,34 @@
+import { Body, Controller, Put, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { CurrentUser, CurrentUserPayload } from '../common/current-user';
+import { UpdateAvailabilityDto } from './dto/update-availability.dto';
+import { UpdateHealthDto } from './dto/update-health.dto';
+import { UpdatePreferencesDto } from './dto/update-preferences.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { MeService } from './me.service';
+
+@UseGuards(AuthGuard('jwt'))
+@Controller('me')
+export class MeController {
+  constructor(private readonly meService: MeService) {}
+
+  @Put('profile')
+  updateProfile(@CurrentUser() user: CurrentUserPayload, @Body() dto: UpdateProfileDto) {
+    return this.meService.updateProfile(user.sub, dto);
+  }
+
+  @Put('health')
+  updateHealth(@CurrentUser() user: CurrentUserPayload, @Body() dto: UpdateHealthDto) {
+    return this.meService.updateHealth(user.sub, dto);
+  }
+
+  @Put('preferences')
+  updatePreferences(@CurrentUser() user: CurrentUserPayload, @Body() dto: UpdatePreferencesDto) {
+    return this.meService.updatePreferences(user.sub, dto);
+  }
+
+  @Put('availability')
+  updateAvailability(@CurrentUser() user: CurrentUserPayload, @Body() dto: UpdateAvailabilityDto) {
+    return this.meService.updateAvailability(user.sub, dto);
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "panzeri-run",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Monorepo do MVP Panzeri Run: app mobile, painel admin e API.",
+  "packageManager": "pnpm@11.8.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "pnpm --recursive --parallel --if-present dev",
+    "lint": "pnpm --recursive --if-present lint",
+    "test": "pnpm --recursive --if-present test",
+    "format": "prettier --write .",
+    "db:generate": "pnpm --filter @panzeri/api db:generate",
+    "db:migrate": "pnpm --filter @panzeri/api db:migrate"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.5.4"
+  }
+}
