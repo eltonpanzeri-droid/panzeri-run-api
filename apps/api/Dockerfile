@@ -4,12 +4,16 @@ WORKDIR /app
 
 RUN corepack enable
 
-COPY . .
+COPY package.json ./
 RUN pnpm install --no-frozen-lockfile
 
-RUN pnpm --filter @panzeri/api db:generate
-RUN pnpm --filter @panzeri/api build
+COPY prisma ./prisma
+RUN pnpm db:generate
+
+COPY tsconfig.json nest-cli.json ./
+COPY src ./src
+RUN pnpm build
 
 EXPOSE 3333
 
-CMD ["sh", "-c", "pnpm --filter @panzeri/api db:deploy && pnpm --filter @panzeri/api start:prod"]
+CMD ["sh", "-c", "pnpm db:deploy && pnpm start:prod"]
