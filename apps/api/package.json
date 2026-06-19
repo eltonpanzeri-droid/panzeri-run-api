@@ -12,7 +12,8 @@
     "test": "jest",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy",
+    "db:deploy": "node dist/main.js",
+    "db:migrate:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio"
   },
   "dependencies": {
