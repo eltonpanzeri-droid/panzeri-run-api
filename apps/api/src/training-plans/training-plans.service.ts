@@ -10,6 +10,13 @@ interface SessionTemplate {
   notes: string;
 }
 
+interface WeeklyAvailabilityInput {
+  weekday: number;
+  noTraining: boolean;
+  modalities: string[];
+  availableMin?: number | null;
+}
+
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
 
 @Injectable()
@@ -30,7 +37,7 @@ export class TrainingPlansService {
     return plan ? this.presentPlan(plan) : null;
   }
 
-  async generateWeek(userId: string) {
+  async generateWeek(userId: string, weeklyOverride?: WeeklyAvailabilityInput[]) {
     const [user, latestTest, availability] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
@@ -50,8 +57,11 @@ export class TrainingPlansService {
     ]);
 
     const weekStart = startOfWeek(new Date());
+    const adjustedAvailability = weeklyOverride?.filter((day) => !day.noTraining) ?? [];
     const availableDays =
-      availability.length > 0
+      adjustedAvailability.length > 0
+        ? adjustedAvailability
+        : availability.length > 0
         ? availability
         : [
             { weekday: 1, modalities: ['forca'], availableMin: 45 },
@@ -113,6 +123,7 @@ export class TrainingPlansService {
             stress: user.healthProfile?.stressLevel,
           },
           latestTestId: latestTest?.id,
+          weeklyOverrideUsed: adjustedAvailability.length > 0,
           availabilityDays: availableDays.map((day) => ({
             weekday: day.weekday,
             modalities: day.modalities,
