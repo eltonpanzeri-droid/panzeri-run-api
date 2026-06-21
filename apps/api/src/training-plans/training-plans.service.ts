@@ -80,6 +80,10 @@ export class TrainingPlansService {
         const modalityDurations = 'modalityDurations' in day ? day.modalityDurations : undefined;
         const requestedDuration = modalityDurations?.[modality] ?? day.availableMin ?? template.durationMin;
         const durationMin = Math.min(requestedDuration, template.durationMin);
+        const prescription =
+          modality === 'forca'
+            ? this.strengthPrescription(durationMin)
+            : this.runPrescription(durationMin, template.zone, latestTest?.paceSecondsPerKm ?? null, modality);
 
         return {
           userId,
@@ -90,15 +94,10 @@ export class TrainingPlansService {
           sessionType: template.sessionType,
           locationSuggestion: 'Livre',
           durationMin,
+          distanceKm: prescription.distanceKm,
           intensityZone: template.zone,
           paceMinSec: latestTest?.paceSecondsPerKm ? this.zonePace(template.zone, latestTest.paceSecondsPerKm) : null,
-          structure: {
-            blocks: [
-              { label: 'Aquecimento', durationMin: Math.min(8, durationMin) },
-              { label: 'Principal', durationMin: Math.max(durationMin - 13, 10), zone: template.zone },
-              { label: 'Desaquecimento', durationMin: 5 },
-            ],
-          },
+          structure: prescription,
           notes: template.notes,
           videoRefs: [],
         };
@@ -193,6 +192,77 @@ export class TrainingPlansService {
     return formatPace(Math.round(paceSecondsPerKm * (factors[zone] ?? 1.25)));
   }
 
+  private runPrescription(durationMin: number, zone: string, paceSecondsPerKm: number | null, modality: string) {
+    const targetPaceSeconds = paceSecondsPerKm ? this.zonePaceSeconds(zone, paceSecondsPerKm) : 420;
+    const distanceKm = Number(((durationMin * 60) / targetPaceSeconds).toFixed(1));
+    const speedKmh = Number((3600 / targetPaceSeconds).toFixed(1));
+
+    return {
+      type: 'run',
+      modality,
+      distanceKm,
+      durationMin,
+      speedKmh,
+      zone,
+      paceRange: paceSecondsPerKm ? this.zonePaceRange(zone, paceSecondsPerKm) : null,
+      blocks: [
+        { label: 'Aquecimento', durationMin: Math.min(8, durationMin), zone: 'Z1' },
+        {
+          label: 'Principal',
+          durationMin: Math.max(durationMin - 13, 10),
+          zone,
+          paceRange: paceSecondsPerKm ? this.zonePaceRange(zone, paceSecondsPerKm) : null,
+          speedKmh,
+        },
+        { label: 'Desaquecimento', durationMin: 5, zone: 'Z1' },
+      ],
+      reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
+    };
+  }
+
+  private strengthPrescription(durationMin: number) {
+    return {
+      type: 'strength',
+      durationMin,
+      distanceKm: null,
+      exercises: [
+        { name: 'Agachamento goblet', sets: 3, reps: '8 a 10', restSeconds: 90, cadence: '3s excentrica / 1s concentrica', loadField: true },
+        { name: 'Remada baixa ou curvada', sets: 3, reps: '10 a 12', restSeconds: 75, cadence: '2s concentrica / 2s excentrica', loadField: true },
+        { name: 'Ponte de gluteo', sets: 3, reps: '10 a 12', restSeconds: 75, cadence: '2s concentrica / 2s excentrica', loadField: true },
+        { name: 'Prancha frontal', sets: 3, reps: '30 a 45s', restSeconds: 60, cadence: 'controle total', loadField: false },
+        { name: 'Panturrilha em pe', sets: 3, reps: '12 a 15', restSeconds: 60, cadence: '2s concentrica / 2s excentrica', loadField: true },
+      ],
+      reportFields: ['exercise', 'sets', 'reps', 'load', 'rpe', 'notes'],
+    };
+  }
+
+  private zonePaceSeconds(zone: string, paceSecondsPerKm: number) {
+    const factors: Record<string, number> = {
+      Z1: 1.55,
+      Z2: 1.35,
+      Z3: 1.18,
+      Z4: 1.05,
+      Z5: 0.95,
+      Base: 1.4,
+    };
+
+    return Math.round(paceSecondsPerKm * (factors[zone] ?? 1.25));
+  }
+
+  private zonePaceRange(zone: string, paceSecondsPerKm: number) {
+    const ranges: Record<string, [number, number]> = {
+      Z1: [1.65, 1.5],
+      Z2: [1.45, 1.3],
+      Z3: [1.28, 1.14],
+      Z4: [1.12, 1.02],
+      Z5: [1, 0.9],
+      Base: [1.55, 1.35],
+    };
+    const [slow, fast] = ranges[zone] ?? [1.35, 1.2];
+
+    return `${formatPace(Math.round(paceSecondsPerKm * slow))} a ${formatPace(Math.round(paceSecondsPerKm * fast))}`;
+  }
+
   private presentPlan(plan: {
     id: string;
     name: string;
@@ -208,6 +278,8 @@ export class TrainingPlansService {
       durationMin: number | null;
       intensityZone: string | null;
       paceMinSec: string | null;
+      distanceKm: number | null;
+      structure: unknown;
       notes: string | null;
     }>;
   }) {
@@ -227,6 +299,9 @@ export class TrainingPlansService {
           .join(' - '),
         modality: session.modality,
         zone: session.intensityZone ?? '',
+        durationMin: session.durationMin,
+        distanceKm: session.distanceKm,
+        structure: session.structure,
         notes: session.notes,
       })),
     };
