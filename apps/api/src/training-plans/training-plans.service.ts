@@ -15,6 +15,7 @@ interface WeeklyAvailabilityInput {
   noTraining: boolean;
   modalities: string[];
   availableMin?: number | null;
+  modalityDurations?: Record<string, number>;
 }
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
@@ -70,33 +71,38 @@ export class TrainingPlansService {
             { weekday: 6, modalities: ['corrida'], availableMin: 55 },
           ];
 
-    const templates = this.buildTemplates(Boolean(latestTest));
-    const sessions = availableDays.slice(0, 5).map((day, index) => {
-      const template = templates[index % templates.length];
-      const durationMin = Math.min(day.availableMin ?? template.durationMin, template.durationMin);
+    const sessions = availableDays.slice(0, 7).flatMap((day) => {
       const scheduledDate = addDays(weekStart, day.weekday);
+      const modalities = day.modalities.length ? day.modalities : ['corrida'];
 
-      return {
-        userId,
-        scheduledDate,
-        weekday: day.weekday,
-        modality: pickModality(day.modalities, template.modality),
-        title: template.title,
-        sessionType: template.sessionType,
-        locationSuggestion: 'Livre',
-        durationMin,
-        intensityZone: template.zone,
-        paceMinSec: latestTest?.paceSecondsPerKm ? this.zonePace(template.zone, latestTest.paceSecondsPerKm) : null,
-        structure: {
-          blocks: [
-            { label: 'Aquecimento', durationMin: Math.min(8, durationMin) },
-            { label: 'Principal', durationMin: Math.max(durationMin - 13, 10), zone: template.zone },
-            { label: 'Desaquecimento', durationMin: 5 },
-          ],
-        },
-        notes: template.notes,
-        videoRefs: [],
-      };
+      return modalities.map((modality) => {
+        const template = this.templateForModality(modality, Boolean(latestTest));
+        const modalityDurations = 'modalityDurations' in day ? day.modalityDurations : undefined;
+        const requestedDuration = modalityDurations?.[modality] ?? day.availableMin ?? template.durationMin;
+        const durationMin = Math.min(requestedDuration, template.durationMin);
+
+        return {
+          userId,
+          scheduledDate,
+          weekday: day.weekday,
+          modality,
+          title: template.title,
+          sessionType: template.sessionType,
+          locationSuggestion: 'Livre',
+          durationMin,
+          intensityZone: template.zone,
+          paceMinSec: latestTest?.paceSecondsPerKm ? this.zonePace(template.zone, latestTest.paceSecondsPerKm) : null,
+          structure: {
+            blocks: [
+              { label: 'Aquecimento', durationMin: Math.min(8, durationMin) },
+              { label: 'Principal', durationMin: Math.max(durationMin - 13, 10), zone: template.zone },
+              { label: 'Desaquecimento', durationMin: 5 },
+            ],
+          },
+          notes: template.notes,
+          videoRefs: [],
+        };
+      });
     });
 
     await this.prisma.trainingPlan.updateMany({
@@ -144,41 +150,37 @@ export class TrainingPlansService {
     return this.presentPlan(plan);
   }
 
-  private buildTemplates(hasTest: boolean): SessionTemplate[] {
-    return [
-      {
+  private templateForModality(modality: string, hasTest: boolean): SessionTemplate {
+    if (modality === 'forca') {
+      return {
         title: 'Forca geral',
         modality: 'forca',
         sessionType: 'strength',
         zone: 'Base',
         durationMin: 45,
         notes: 'Priorizar tecnica limpa, controle de carga e pausa completa entre series.',
-      },
-      {
-        title: 'Corrida leve',
-        modality: 'corrida',
-        sessionType: 'easy_run',
+      };
+    }
+
+    if (modality === 'bike' || modality === 'esteira') {
+      return {
+        title: modality === 'bike' ? 'Aerobico leve' : 'Corrida na esteira',
+        modality,
+        sessionType: 'aerobic',
         zone: 'Z2',
-        durationMin: 35,
-        notes: hasTest ? 'Manter ritmo confortavel dentro da zona indicada.' : 'Manter conforto respiratorio.',
-      },
-      {
-        title: 'Intervalado controlado',
-        modality: 'corrida',
-        sessionType: 'interval',
-        zone: 'Z4',
-        durationMin: 42,
-        notes: 'Tiros curtos com recuperacao ampla. Parar se houver dor ou tontura.',
-      },
-      {
-        title: 'Longao leve',
-        modality: 'corrida',
-        sessionType: 'long_run',
-        zone: 'Z2',
-        durationMin: 60,
-        notes: 'Rodagem sem pressa, buscando terminar com sensacao de controle.',
-      },
-    ];
+        durationMin: 45,
+        notes: 'Manter intensidade controlada e respiracao confortavel.',
+      };
+    }
+
+    return {
+      title: 'Corrida leve',
+      modality: 'corrida',
+      sessionType: 'easy_run',
+      zone: 'Z2',
+      durationMin: 50,
+      notes: hasTest ? 'Manter ritmo confortavel dentro da zona indicada.' : 'Manter conforto respiratorio.',
+    };
   }
 
   private zonePace(zone: string, paceSecondsPerKm: number) {

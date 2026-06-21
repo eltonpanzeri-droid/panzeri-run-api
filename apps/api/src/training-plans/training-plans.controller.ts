@@ -24,4 +24,5 @@ interface WeeklyAvailabilityInput {
   noTraining: boolean;
   modalities: string[];
   availableMin?: number | null;
+  modalityDurations?: Record<string, number>;
 }
