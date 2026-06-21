@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { runnerStrengthCategory, selectRunnerStrengthExercises } from './runner-strength-library';
 
 interface SessionTemplate {
   title: string;
@@ -152,7 +153,7 @@ export class TrainingPlansService {
   private templateForModality(modality: string, hasTest: boolean): SessionTemplate {
     if (modality === 'forca') {
       return {
-        title: 'Forca geral',
+        title: runnerStrengthCategory,
         modality: 'forca',
         sessionType: 'strength',
         zone: 'Base',
@@ -221,18 +222,26 @@ export class TrainingPlansService {
   }
 
   private strengthPrescription(durationMin: number) {
+    const selectedExercises = selectRunnerStrengthExercises(durationMin);
+
     return {
       type: 'strength',
+      category: runnerStrengthCategory,
       durationMin,
       distanceKm: null,
-      exercises: [
-        { name: 'Agachamento goblet', sets: 3, reps: '8 a 10', restSeconds: 90, cadence: '3s excentrica / 1s concentrica', loadField: true },
-        { name: 'Remada baixa ou curvada', sets: 3, reps: '10 a 12', restSeconds: 75, cadence: '2s concentrica / 2s excentrica', loadField: true },
-        { name: 'Ponte de gluteo', sets: 3, reps: '10 a 12', restSeconds: 75, cadence: '2s concentrica / 2s excentrica', loadField: true },
-        { name: 'Prancha frontal', sets: 3, reps: '30 a 45s', restSeconds: 60, cadence: 'controle total', loadField: false },
-        { name: 'Panturrilha em pe', sets: 3, reps: '12 a 15', restSeconds: 60, cadence: '2s concentrica / 2s excentrica', loadField: true },
-      ],
-      reportFields: ['exercise', 'sets', 'reps', 'load', 'rpe', 'notes'],
+      exercises: selectedExercises.map((exercise) => ({
+        id: exercise.id,
+        category: exercise.category,
+        name: exercise.name,
+        description: exercise.description,
+        videoUrl: exercise.videoUrl,
+        sets: exercise.focus.includes('core') ? 3 : 3,
+        reps: exercise.focus.includes('core') ? '30 a 45s' : '10 a 12',
+        restSeconds: exercise.level === 'advanced' ? 90 : 60,
+        cadence: exercise.focus.includes('pliometria') || exercise.focus.includes('reatividade') ? 'execucao rapida com controle' : '2s concentrica / 2s excentrica',
+        loadField: exercise.equipment !== 'bodyweight',
+      })),
+      reportFields: ['exercise', 'sets', 'reps', 'load', 'rpe', 'completed', 'notes', 'videoUrl'],
     };
   }
 
