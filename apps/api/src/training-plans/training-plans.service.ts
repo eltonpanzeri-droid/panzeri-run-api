@@ -20,12 +20,14 @@ interface WeeklyAvailabilityInput {
 }
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+const planEngineVersion = 'rules-v2';
 
 @Injectable()
 export class TrainingPlansService {
   constructor(private readonly prisma: PrismaService) {}
 
   async current(userId: string) {
+    const weekStart = startOfWeek(new Date());
     const plan = await this.prisma.trainingPlan.findFirst({
       where: { userId, status: 'active' },
       orderBy: { createdAt: 'desc' },
@@ -36,7 +38,11 @@ export class TrainingPlansService {
       },
     });
 
-    return plan ? this.presentPlan(plan) : null;
+    if (!plan || plan.generatedBy !== planEngineVersion || plan.startDate.getTime() !== weekStart.getTime()) {
+      return this.generateWeek(userId);
+    }
+
+    return this.presentPlan(plan);
   }
 
   async generateWeek(userId: string, weeklyOverride?: WeeklyAvailabilityInput[]) {
@@ -78,14 +84,17 @@ export class TrainingPlansService {
 
       return modalities.map((modality) => {
         const template = this.templateForModality(modality, Boolean(latestTest));
-        const modalityDurations = 'modalityDurations' in day ? day.modalityDurations : undefined;
+        const modalityDurations = normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined);
         const requestedDuration = modalityDurations?.[modality] ?? day.availableMin ?? template.durationMin;
         const durationMin = Math.min(requestedDuration, template.durationMin);
         const prescription =
           modality === 'forca' || modality === 'fortalecimento_corredores'
             ? this.strengthPrescription(durationMin, modality)
+            : modality === 'bike'
+            ? this.aerobicPrescription(durationMin, template.zone, modality)
             : this.runPrescription(durationMin, template.zone, latestTest?.paceSecondsPerKm ?? null, modality);
         const isStrength = modality === 'forca' || modality === 'fortalecimento_corredores';
+        const isAerobic = modality === 'bike';
 
         return {
           userId,
@@ -98,7 +107,7 @@ export class TrainingPlansService {
           durationMin,
           distanceKm: prescription.distanceKm,
           intensityZone: template.zone,
-          paceMinSec: !isStrength && latestTest?.paceSecondsPerKm ? this.zonePace(template.zone, latestTest.paceSecondsPerKm) : null,
+          paceMinSec: !isStrength && !isAerobic && latestTest?.paceSecondsPerKm ? this.zonePace(template.zone, latestTest.paceSecondsPerKm) : null,
           structure: prescription,
           notes: template.notes,
           videoRefs: [],
@@ -118,7 +127,7 @@ export class TrainingPlansService {
         goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
         startDate: weekStart,
         endDate: addDays(weekStart, 6),
-        generatedBy: 'rules-v1',
+        generatedBy: planEngineVersion,
         aiRecommendation: latestTest
           ? 'Semana montada com base no teste de 3 km mais recente e na disponibilidade informada.'
           : 'Semana conservadora. Cadastre o teste de 3 km para refinar zonas e ritmos.',
@@ -135,6 +144,7 @@ export class TrainingPlansService {
             weekday: day.weekday,
             modalities: day.modalities,
             availableMin: day.availableMin,
+            modalityDurations: normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined),
           })),
         },
         sessions: {
@@ -176,12 +186,15 @@ export class TrainingPlansService {
 
     if (modality === 'bike' || modality === 'esteira') {
       return {
-        title: modality === 'bike' ? 'Aerobico leve' : 'Corrida na esteira',
+        title: modality === 'bike' ? 'Bike ou aerobico leve' : 'Corrida na esteira',
         modality,
         sessionType: 'aerobic',
         zone: 'Z2',
         durationMin: 45,
-        notes: 'Manter intensidade controlada e respiracao confortavel.',
+        notes:
+          modality === 'bike'
+            ? 'Aerobico complementar em intensidade controlada, sem competir com os treinos de corrida.'
+            : 'Manter intensidade controlada e respiracao confortavel.',
       };
     }
 
@@ -230,6 +243,32 @@ export class TrainingPlansService {
         { label: 'Desaquecimento', durationMin: 5, zone: 'Z1' },
       ],
       reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
+    };
+  }
+
+  private aerobicPrescription(durationMin: number, zone: string, modality: string) {
+    const mainDuration = Math.max(durationMin - 10, 15);
+
+    return {
+      type: 'aerobic',
+      modality,
+      distanceKm: null,
+      durationMin,
+      speedKmh: null,
+      zone,
+      paceRange: null,
+      guidance: `Fazer ${durationMin} min de exercicio aerobico, de preferencia bike ou outro aparelho aerobico, em intensidade ${zone}. Manter esforco controlado para nao atrapalhar os treinos de corrida dos outros dias.`,
+      blocks: [
+        { label: 'Aquecimento', durationMin: 5, zone: 'Z1', guidance: 'Comecar leve e soltar a musculatura.' },
+        {
+          label: 'Principal',
+          durationMin: mainDuration,
+          zone,
+          guidance: 'Manter respiracao confortavel, sem transformar em treino forte.',
+        },
+        { label: 'Desaquecimento', durationMin: 5, zone: 'Z1', guidance: 'Reduzir gradualmente a intensidade.' },
+      ],
+      reportFields: ['durationMin', 'modality', 'zone', 'heartRate', 'rpe', 'notes'],
     };
   }
 
@@ -421,6 +460,20 @@ function addDays(date: Date, days: number) {
 
 function weekdayOffsetFromMonday(weekday: number) {
   return weekday === 0 ? 6 : weekday - 1;
+}
+
+function normalizeModalityDurations(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return Object.entries(value).reduce<Record<string, number>>((acc, [key, duration]) => {
+    const parsedDuration = Number(duration);
+    if (Number.isFinite(parsedDuration) && parsedDuration > 0) {
+      acc[key] = parsedDuration;
+    }
+    return acc;
+  }, {});
 }
 
 function formatDate(date: Date) {

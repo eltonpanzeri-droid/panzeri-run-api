@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsInt, IsOptional, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsObject, IsOptional, ValidateNested } from 'class-validator';
 
 export class AvailabilityDayDto {
   @IsInt()
@@ -14,6 +14,10 @@ export class AvailabilityDayDto {
   @IsOptional()
   @IsInt()
   availableMin?: number | null;
+
+  @IsOptional()
+  @IsObject()
+  modalityDurations?: Record<string, number>;
 }
 
 export class UpdateAvailabilityDto {

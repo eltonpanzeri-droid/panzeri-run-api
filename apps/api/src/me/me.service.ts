@@ -54,9 +54,14 @@ export class MeService {
             noTraining: day.noTraining,
             modalities: day.noTraining ? [] : day.modalities,
             availableMin: day.noTraining ? 0 : day.availableMin,
+            modalityDurations: day.noTraining ? undefined : day.modalityDurations ?? {},
           },
         }),
       ),
+      this.prisma.trainingPlan.updateMany({
+        where: { userId, status: 'active' },
+        data: { status: 'archived' },
+      }),
     ]);
 
     return this.prisma.weeklyAvailability.findMany({

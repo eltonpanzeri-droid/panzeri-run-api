@@ -72,6 +72,7 @@ model WeeklyAvailability {
   noTraining   Boolean  @default(false)
   modalities   String[]
   availableMin Int?
+  modalityDurations Json?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
