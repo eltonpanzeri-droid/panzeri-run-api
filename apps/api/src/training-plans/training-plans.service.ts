@@ -73,7 +73,7 @@ export class TrainingPlansService {
           ];
 
     const sessions = availableDays.slice(0, 7).flatMap((day) => {
-      const scheduledDate = addDays(weekStart, day.weekday);
+      const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(day.weekday));
       const modalities = day.modalities.length ? day.modalities : ['corrida'];
 
       return modalities.map((modality) => {
@@ -82,9 +82,10 @@ export class TrainingPlansService {
         const requestedDuration = modalityDurations?.[modality] ?? day.availableMin ?? template.durationMin;
         const durationMin = Math.min(requestedDuration, template.durationMin);
         const prescription =
-          modality === 'forca'
-            ? this.strengthPrescription(durationMin)
+          modality === 'forca' || modality === 'fortalecimento_corredores'
+            ? this.strengthPrescription(durationMin, modality)
             : this.runPrescription(durationMin, template.zone, latestTest?.paceSecondsPerKm ?? null, modality);
+        const isStrength = modality === 'forca' || modality === 'fortalecimento_corredores';
 
         return {
           userId,
@@ -97,7 +98,7 @@ export class TrainingPlansService {
           durationMin,
           distanceKm: prescription.distanceKm,
           intensityZone: template.zone,
-          paceMinSec: latestTest?.paceSecondsPerKm ? this.zonePace(template.zone, latestTest.paceSecondsPerKm) : null,
+          paceMinSec: !isStrength && latestTest?.paceSecondsPerKm ? this.zonePace(template.zone, latestTest.paceSecondsPerKm) : null,
           structure: prescription,
           notes: template.notes,
           videoRefs: [],
@@ -151,14 +152,25 @@ export class TrainingPlansService {
   }
 
   private templateForModality(modality: string, hasTest: boolean): SessionTemplate {
-    if (modality === 'forca') {
+    if (modality === 'fortalecimento_corredores') {
       return {
         title: runnerStrengthCategory,
-        modality: 'forca',
+        modality,
         sessionType: 'strength',
         zone: 'Base',
         durationMin: 45,
-        notes: 'Priorizar tecnica limpa, controle de carga e pausa completa entre series.',
+        notes: 'Fortalecimento especifico para corredores com videos de execucao cadastrados.',
+      };
+    }
+
+    if (modality === 'forca') {
+      return {
+        title: 'Musculacao',
+        modality,
+        sessionType: 'strength',
+        zone: 'Base',
+        durationMin: 45,
+        notes: 'Treino de musculacao geral. Registrar carga, controle de execucao e pausas.',
       };
     }
 
@@ -221,7 +233,11 @@ export class TrainingPlansService {
     };
   }
 
-  private strengthPrescription(durationMin: number) {
+  private strengthPrescription(durationMin: number, modality: string) {
+    if (modality !== 'fortalecimento_corredores') {
+      return this.genericStrengthPrescription(durationMin);
+    }
+
     const selectedExercises = selectRunnerStrengthExercises(durationMin);
 
     return {
@@ -238,10 +254,72 @@ export class TrainingPlansService {
         sets: exercise.focus.includes('core') ? 3 : 3,
         reps: exercise.focus.includes('core') ? '30 a 45s' : '10 a 12',
         restSeconds: exercise.level === 'advanced' ? 90 : 60,
-        cadence: exercise.focus.includes('pliometria') || exercise.focus.includes('reatividade') ? 'execucao rapida com controle' : '2s concentrica / 2s excentrica',
-        loadField: exercise.equipment !== 'bodyweight',
+        cadence: null,
+        loadField: false,
       })),
       reportFields: ['exercise', 'sets', 'reps', 'load', 'rpe', 'completed', 'notes', 'videoUrl'],
+    };
+  }
+
+  private genericStrengthPrescription(durationMin: number) {
+    return {
+      type: 'strength',
+      category: 'Musculacao',
+      durationMin,
+      distanceKm: null,
+      exercises: [
+        {
+          name: 'Agachamento goblet',
+          description: 'Agachamento com carga a frente do corpo.',
+          videoUrl: null,
+          sets: 3,
+          reps: '8 a 10',
+          restSeconds: 90,
+          cadence: '3s excentrica / 1s concentrica',
+          loadField: true,
+        },
+        {
+          name: 'Remada baixa ou curvada',
+          description: 'Remada para fortalecimento de costas e postura.',
+          videoUrl: null,
+          sets: 3,
+          reps: '10 a 12',
+          restSeconds: 75,
+          cadence: '2s concentrica / 2s excentrica',
+          loadField: true,
+        },
+        {
+          name: 'Ponte de gluteo',
+          description: 'Elevacao de quadril para ativacao de gluteos.',
+          videoUrl: null,
+          sets: 3,
+          reps: '10 a 12',
+          restSeconds: 75,
+          cadence: '2s concentrica / 2s excentrica',
+          loadField: true,
+        },
+        {
+          name: 'Prancha frontal',
+          description: 'Isometria para fortalecimento do core.',
+          videoUrl: null,
+          sets: 3,
+          reps: '30 a 45s',
+          restSeconds: 60,
+          cadence: 'controle total',
+          loadField: false,
+        },
+        {
+          name: 'Panturrilha em pe',
+          description: 'Elevacao de panturrilha para fortalecimento do tornozelo.',
+          videoUrl: null,
+          sets: 3,
+          reps: '12 a 15',
+          restSeconds: 60,
+          cadence: '2s concentrica / 2s excentrica',
+          loadField: true,
+        },
+      ],
+      reportFields: ['exercise', 'sets', 'reps', 'load', 'rpe', 'completed', 'notes'],
     };
   }
 
@@ -277,6 +355,7 @@ export class TrainingPlansService {
     name: string;
     goal: string;
     startDate: Date;
+    endDate: Date | null;
     aiRecommendation: string | null;
     sessions: Array<{
       id: string;
@@ -297,6 +376,7 @@ export class TrainingPlansService {
       name: plan.name,
       goal: plan.goal,
       startDate: plan.startDate,
+      endDate: plan.endDate,
       recommendation: plan.aiRecommendation,
       sessions: plan.sessions.map((session) => ({
         id: session.id,
@@ -337,6 +417,10 @@ function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
   return next;
+}
+
+function weekdayOffsetFromMonday(weekday: number) {
+  return weekday === 0 ? 6 : weekday - 1;
 }
 
 function formatDate(date: Date) {
