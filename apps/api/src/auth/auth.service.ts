@@ -65,7 +65,19 @@ export class AuthService {
   async me(userId: string) {
     return this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: this.publicUserSelect(),
+      select: {
+        ...this.publicUserSelect(),
+        healthProfile: true,
+        preferences: true,
+        availability: {
+          orderBy: { weekday: 'asc' },
+        },
+        tests: {
+          where: { testType: '3km' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
     });
   }
 
