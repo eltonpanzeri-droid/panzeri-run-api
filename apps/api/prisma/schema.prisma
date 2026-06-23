@@ -149,6 +149,7 @@ model WorkoutCompletion {
   maxHeartRate       Int?
   perceivedEffort    Int?
   notes              String?
+  details            Json?
   source             String           @default("manual")
 }
 
