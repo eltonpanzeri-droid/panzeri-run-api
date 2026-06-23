@@ -10,6 +10,13 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 export class MeService {
   constructor(private readonly prisma: PrismaService) {}
 
+  availability(userId: string) {
+    return this.prisma.weeklyAvailability.findMany({
+      where: { userId },
+      orderBy: { weekday: 'asc' },
+    });
+  }
+
   updateProfile(userId: string, dto: UpdateProfileDto) {
     return this.prisma.user.update({
       where: { id: userId },

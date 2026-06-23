@@ -1,4 +1,4 @@
-import { Body, Controller, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { UpdateAvailabilityDto } from './dto/update-availability.dto';
@@ -30,5 +30,10 @@ export class MeController {
   @Put('availability')
   updateAvailability(@CurrentUser() user: CurrentUserPayload, @Body() dto: UpdateAvailabilityDto) {
     return this.meService.updateAvailability(user.sub, dto);
+  }
+
+  @Get('availability')
+  availability(@CurrentUser() user: CurrentUserPayload) {
+    return this.meService.availability(user.sub);
   }
 }

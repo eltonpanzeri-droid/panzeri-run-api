@@ -28,17 +28,28 @@ export class TrainingPlansService {
 
   async current(userId: string) {
     const weekStart = startOfWeek(new Date());
-    const plan = await this.prisma.trainingPlan.findFirst({
-      where: { userId, status: 'active' },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        sessions: {
-          orderBy: { scheduledDate: 'asc' },
+    const [plan, availability] = await Promise.all([
+      this.prisma.trainingPlan.findFirst({
+        where: { userId, status: 'active' },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          sessions: {
+            orderBy: { scheduledDate: 'asc' },
+          },
         },
-      },
-    });
+      }),
+      this.prisma.weeklyAvailability.findMany({
+        where: { userId, noTraining: false },
+        orderBy: { weekday: 'asc' },
+      }),
+    ]);
 
-    if (!plan || plan.generatedBy !== planEngineVersion || plan.startDate.getTime() !== weekStart.getTime()) {
+    if (
+      !plan ||
+      plan.generatedBy !== planEngineVersion ||
+      plan.startDate.getTime() !== weekStart.getTime() ||
+      !planMatchesAvailability(plan.inputSnapshot, availability)
+    ) {
       return this.generateWeek(userId);
     }
 
@@ -474,6 +485,61 @@ function normalizeModalityDurations(value: unknown) {
     }
     return acc;
   }, {});
+}
+
+function planMatchesAvailability(inputSnapshot: unknown, availability: Array<{ weekday: number; modalities: string[]; availableMin: number | null; modalityDurations: unknown }>) {
+  if (snapshotUsedWeeklyOverride(inputSnapshot)) {
+    return true;
+  }
+
+  const snapshotAvailability = readSnapshotAvailability(inputSnapshot);
+  if (!snapshotAvailability) {
+    return false;
+  }
+
+  return JSON.stringify(snapshotAvailability) === JSON.stringify(availabilitySignature(availability));
+}
+
+function snapshotUsedWeeklyOverride(inputSnapshot: unknown) {
+  return Boolean(inputSnapshot && typeof inputSnapshot === 'object' && (inputSnapshot as { weeklyOverrideUsed?: unknown }).weeklyOverrideUsed);
+}
+
+function readSnapshotAvailability(inputSnapshot: unknown) {
+  if (!inputSnapshot || typeof inputSnapshot !== 'object' || !('availabilityDays' in inputSnapshot)) {
+    return null;
+  }
+
+  const availabilityDays = (inputSnapshot as { availabilityDays?: unknown }).availabilityDays;
+  if (!Array.isArray(availabilityDays)) {
+    return null;
+  }
+
+  return availabilityDays
+    .map((day) => {
+      if (!day || typeof day !== 'object') {
+        return null;
+      }
+      const item = day as { weekday?: unknown; modalities?: unknown; availableMin?: unknown; modalityDurations?: unknown };
+      return {
+        weekday: Number(item.weekday),
+        modalities: Array.isArray(item.modalities) ? [...item.modalities].map(String).sort() : [],
+        availableMin: Number(item.availableMin ?? 0),
+        modalityDurations: normalizeModalityDurations(item.modalityDurations) ?? {},
+      };
+    })
+    .filter((day): day is { weekday: number; modalities: string[]; availableMin: number; modalityDurations: Record<string, number> } => Boolean(day))
+    .sort((left, right) => left.weekday - right.weekday);
+}
+
+function availabilitySignature(availability: Array<{ weekday: number; modalities: string[]; availableMin: number | null; modalityDurations: unknown }>) {
+  return availability
+    .map((day) => ({
+      weekday: day.weekday,
+      modalities: [...day.modalities].sort(),
+      availableMin: day.availableMin ?? 0,
+      modalityDurations: normalizeModalityDurations(day.modalityDurations) ?? {},
+    }))
+    .sort((left, right) => left.weekday - right.weekday);
 }
 
 function formatDate(date: Date) {
