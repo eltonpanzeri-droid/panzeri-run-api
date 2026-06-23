@@ -20,4 +20,4 @@ RUN pnpm build
 
 EXPOSE 3333
 
-CMD ["sh", "-c", "pnpm db:deploy && pnpm start:prod"]
+CMD ["sh", "-c", "pnpm db:migrate:deploy && pnpm start:prod"]
