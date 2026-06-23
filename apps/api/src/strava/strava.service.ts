@@ -125,7 +125,7 @@ export class StravaService {
     const plan = await this.prisma.trainingPlan.findFirst({
       where: { userId, status: 'active' },
       orderBy: { createdAt: 'desc' },
-      include: { sessions: { orderBy: { scheduledDate: 'asc' } } },
+      include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
     });
 
     if (!plan) {
@@ -145,10 +145,13 @@ export class StravaService {
 
     const items = plan.sessions.map((session) => {
       const activity = activities.find((candidate) => sameDay(candidate.startDate, session.scheduledDate) && activityMatchesSession(candidate.type, session.modality));
+      const completion = session.completion;
+      const completionIsDone = completion?.status === 'done' || completion?.status === 'adjusted';
       const prescribedDistance = session.distanceKm ?? null;
       const prescribedDuration = session.durationMin ?? null;
-      const actualDistance = activity?.distanceKm ?? null;
-      const actualDuration = activity?.movingTimeSec ? Math.round(activity.movingTimeSec / 60) : null;
+      const actualDistance = activity?.distanceKm ?? completion?.distanceKm ?? null;
+      const actualDuration = activity?.movingTimeSec ? Math.round(activity.movingTimeSec / 60) : completion?.durationMin ?? null;
+      const status = activity ? 'matched_strava' : completionIsDone ? 'matched_manual' : completion?.status === 'missed' ? 'missed' : 'not_found';
 
       return {
         sessionId: session.id,
@@ -163,8 +166,11 @@ export class StravaService {
         actualDuration,
         durationDiff: prescribedDuration !== null && actualDuration !== null ? actualDuration - prescribedDuration : null,
         pace: activity?.avgPaceSecKm ? formatPace(activity.avgPaceSecKm) : null,
-        status: activity ? 'matched' : 'not_found',
+        source: activity ? 'strava' : completionIsDone ? 'manual' : null,
+        status,
         activityName: activity?.name ?? null,
+        completionStatus: completion?.status ?? null,
+        perceivedEffort: completion?.perceivedEffort ?? null,
       };
     });
 
@@ -172,7 +178,7 @@ export class StravaService {
     const actualKm = sum(items.map((item) => item.actualDistance));
     const prescribedMinutes = sum(items.map((item) => item.prescribedDuration));
     const actualMinutes = sum(items.map((item) => item.actualDuration));
-    const matched = items.filter((item) => item.status === 'matched').length;
+    const matched = items.filter((item) => item.status === 'matched_strava' || item.status === 'matched_manual').length;
 
     return {
       summary: {
