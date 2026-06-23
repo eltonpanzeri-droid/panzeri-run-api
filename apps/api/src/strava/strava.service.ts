@@ -144,7 +144,7 @@ export class StravaService {
     });
 
     const items = plan.sessions.map((session) => {
-      const activity = activities.find((candidate) => sameDay(candidate.startDate, session.scheduledDate) && activityMatchesSession(candidate.type, session.modality));
+      const activity = activities.find((candidate) => sameDay(candidate.startDate, session.scheduledDate) && activityMatchesSession(candidate, session.modality));
       const completion = session.completion;
       const completionIsDone = completion?.status === 'done' || completion?.status === 'adjusted';
       const prescribedDistance = session.distanceKm ?? null;
@@ -274,13 +274,27 @@ function sameDay(left: Date, right: Date) {
   return left.toISOString().slice(0, 10) === right.toISOString().slice(0, 10);
 }
 
-function activityMatchesSession(type: string | null, modality: string) {
-  const normalized = (type ?? '').toLowerCase();
+function activityMatchesSession(activity: { type: string | null; name: string | null }, modality: string) {
+  const normalized = `${activity.type ?? ''} ${activity.name ?? ''}`.toLowerCase();
   if (modality === 'bike') {
     return normalized.includes('ride') || normalized.includes('bike');
   }
   if (modality === 'corrida' || modality === 'esteira') {
     return normalized.includes('run');
+  }
+  if (modality === 'forca' || modality === 'fortalecimento_corredores') {
+    return (
+      normalized.includes('weight') ||
+      normalized.includes('strength') ||
+      normalized.includes('workout') ||
+      normalized.includes('training') ||
+      normalized.includes('treinamento') ||
+      normalized.includes('peso') ||
+      normalized.includes('musculacao') ||
+      normalized.includes('musculação') ||
+      normalized.includes('forca') ||
+      normalized.includes('força')
+    );
   }
   return false;
 }
