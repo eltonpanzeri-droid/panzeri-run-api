@@ -144,14 +144,25 @@ export class StravaService {
     });
 
     const items = plan.sessions.map((session) => {
-      const activity = activities.find((candidate) => sameDay(candidate.startDate, session.scheduledDate) && activityMatchesSession(candidate, session.modality));
+      const sameDayActivities = activities.filter((candidate) => sameDay(candidate.startDate, session.scheduledDate));
+      const activity = sameDayActivities.find((candidate) => activityMatchesSession(candidate, session.modality));
+      const alternateActivity = activity ? null : sameDayActivities[0] ?? null;
+      const foundActivity = activity ?? alternateActivity;
       const completion = session.completion;
       const completionIsDone = completion?.status === 'done' || completion?.status === 'adjusted';
       const prescribedDistance = session.distanceKm ?? null;
       const prescribedDuration = session.durationMin ?? null;
-      const actualDistance = activity?.distanceKm ?? completion?.distanceKm ?? null;
-      const actualDuration = activity?.movingTimeSec ? Math.round(activity.movingTimeSec / 60) : completion?.durationMin ?? null;
-      const status = activity ? 'matched_strava' : completionIsDone ? 'matched_manual' : completion?.status === 'missed' ? 'missed' : 'not_found';
+      const actualDistance = foundActivity?.distanceKm ?? completion?.distanceKm ?? null;
+      const actualDuration = foundActivity?.movingTimeSec ? Math.round(foundActivity.movingTimeSec / 60) : completion?.durationMin ?? null;
+      const status = activity
+        ? 'matched_strava'
+        : alternateActivity
+          ? 'different_strava'
+          : completionIsDone
+            ? 'matched_manual'
+            : completion?.status === 'missed'
+              ? 'missed'
+              : 'not_found';
 
       return {
         sessionId: session.id,
@@ -161,14 +172,15 @@ export class StravaService {
         modality: session.modality,
         prescribedDistance,
         actualDistance,
-        distanceDiff: prescribedDistance !== null && actualDistance !== null ? Number((actualDistance - prescribedDistance).toFixed(2)) : null,
+        distanceDiff: activity && prescribedDistance !== null && actualDistance !== null ? Number((actualDistance - prescribedDistance).toFixed(2)) : null,
         prescribedDuration,
         actualDuration,
-        durationDiff: prescribedDuration !== null && actualDuration !== null ? actualDuration - prescribedDuration : null,
-        pace: activity?.avgPaceSecKm ? formatPace(activity.avgPaceSecKm) : null,
-        source: activity ? 'strava' : completionIsDone ? 'manual' : null,
+        durationDiff: activity && prescribedDuration !== null && actualDuration !== null ? actualDuration - prescribedDuration : null,
+        pace: foundActivity?.avgPaceSecKm ? formatPace(foundActivity.avgPaceSecKm) : null,
+        source: foundActivity ? 'strava' : completionIsDone ? 'manual' : null,
         status,
-        activityName: activity?.name ?? null,
+        activityName: foundActivity?.name ?? null,
+        activityType: foundActivity?.type ?? null,
         completionStatus: completion?.status ?? null,
         perceivedEffort: completion?.perceivedEffort ?? null,
       };
@@ -179,11 +191,13 @@ export class StravaService {
     const prescribedMinutes = sum(items.map((item) => item.prescribedDuration));
     const actualMinutes = sum(items.map((item) => item.actualDuration));
     const matched = items.filter((item) => item.status === 'matched_strava' || item.status === 'matched_manual').length;
+    const different = items.filter((item) => item.status === 'different_strava').length;
 
     return {
       summary: {
         prescribedSessions: items.length,
         matchedSessions: matched,
+        differentSessions: different,
         adherencePercent: items.length ? Math.round((matched / items.length) * 100) : 0,
         prescribedKm,
         actualKm,
