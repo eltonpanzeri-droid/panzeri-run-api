@@ -192,19 +192,25 @@ export class StravaService {
     const actualMinutes = sum(items.map((item) => item.actualDuration));
     const matched = items.filter((item) => item.status === 'matched_strava' || item.status === 'matched_manual').length;
     const different = items.filter((item) => item.status === 'different_strava').length;
+    const missed = items.filter((item) => item.status === 'missed' || item.status === 'not_found').length;
+    const summary = {
+      prescribedSessions: items.length,
+      matchedSessions: matched,
+      differentSessions: different,
+      missedSessions: missed,
+      adherencePercent: items.length ? Math.round((matched / items.length) * 100) : 0,
+      prescribedKm,
+      actualKm,
+      kmDiff: Number((actualKm - prescribedKm).toFixed(2)),
+      prescribedMinutes,
+      actualMinutes,
+      minutesDiff: actualMinutes - prescribedMinutes,
+    };
 
     return {
       summary: {
-        prescribedSessions: items.length,
-        matchedSessions: matched,
-        differentSessions: different,
-        adherencePercent: items.length ? Math.round((matched / items.length) * 100) : 0,
-        prescribedKm,
-        actualKm,
-        kmDiff: Number((actualKm - prescribedKm).toFixed(2)),
-        prescribedMinutes,
-        actualMinutes,
-        minutesDiff: actualMinutes - prescribedMinutes,
+        ...summary,
+        coachAnalysis: buildCoachAnalysis(summary),
       },
       items,
     };
@@ -336,4 +342,53 @@ function formatPace(secondsPerKm: number) {
 
 function toJsonObject(value: unknown) {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonObject;
+}
+
+function buildCoachAnalysis(summary: {
+  prescribedSessions: number;
+  matchedSessions: number;
+  differentSessions: number;
+  missedSessions: number;
+  adherencePercent: number;
+  prescribedKm: number;
+  actualKm: number;
+  kmDiff: number;
+  prescribedMinutes: number;
+  actualMinutes: number;
+  minutesDiff: number;
+}) {
+  const notes: string[] = [];
+
+  if (summary.adherencePercent >= 80) {
+    notes.push('Boa aderencia aos treinos propostos.');
+  } else if (summary.adherencePercent >= 50) {
+    notes.push('Aderencia parcial: parte importante da semana foi executada, mas ainda houve perdas.');
+  } else {
+    notes.push('Aderencia baixa aos treinos propostos nesta semana.');
+  }
+
+  if (summary.differentSessions > 0) {
+    notes.push(`${summary.differentSessions} treino(s) tiveram atividade diferente da prescrita.`);
+  }
+
+  if (summary.missedSessions > 0) {
+    notes.push(`${summary.missedSessions} treino(s) ficaram sem registro encontrado.`);
+  }
+
+  if (summary.kmDiff < -1) {
+    notes.push(`Volume de corrida ficou ${Math.abs(summary.kmDiff)} km abaixo do planejado.`);
+  } else if (summary.kmDiff > 1) {
+    notes.push(`Volume de corrida ficou ${summary.kmDiff} km acima do planejado.`);
+  }
+
+  if (summary.minutesDiff < -20) {
+    notes.push(`Tempo total ficou ${Math.abs(summary.minutesDiff)} min abaixo do planejado.`);
+  } else if (summary.minutesDiff > 20) {
+    notes.push(`Tempo total ficou ${summary.minutesDiff} min acima do planejado.`);
+  }
+
+  return {
+    title: summary.adherencePercent >= 80 ? 'Semana bem executada' : summary.adherencePercent >= 50 ? 'Semana parcialmente executada' : 'Semana abaixo do planejado',
+    text: notes.join(' '),
+  };
 }
