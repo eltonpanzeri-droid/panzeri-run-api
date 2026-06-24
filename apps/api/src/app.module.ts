@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
+import { CoachModule } from './coach/coach.module';
 import { FitnessTestsModule } from './fitness-tests/fitness-tests.module';
 import { MeModule } from './me/me.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -16,6 +17,7 @@ import { WorkoutCompletionsModule } from './workout-completions/workout-completi
     }),
     PrismaModule,
     AuthModule,
+    CoachModule,
     MeModule,
     FitnessTestsModule,
     StravaModule,
