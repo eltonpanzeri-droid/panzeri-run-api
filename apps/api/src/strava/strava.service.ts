@@ -143,13 +143,31 @@ export class StravaService {
       orderBy: { startDate: 'asc' },
     });
 
-    const items = plan.sessions.map((session) => {
-      const sameDayActivities = activities.filter((candidate) => sameDay(candidate.startDate, session.scheduledDate));
-      const activity = sameDayActivities.find((candidate) => activityMatchesSession(candidate, session.modality));
-      const alternateActivity = activity ? null : sameDayActivities[0] ?? null;
+    const usedActivityIds = new Set<string>();
+    const sessionMatches = plan.sessions.map((session) => {
+      const activity = activities.find(
+        (candidate) =>
+          !usedActivityIds.has(candidate.id) &&
+          sameDay(candidate.startDate, session.scheduledDate) &&
+          activityMatchesSession(candidate, session.modality),
+      );
+      if (activity) {
+        usedActivityIds.add(activity.id);
+      }
+      return { session, activity };
+    });
+
+    const items = sessionMatches.map(({ session, activity }) => {
+      const alternateActivity = activity
+        ? null
+        : activities.find((candidate) => !usedActivityIds.has(candidate.id) && sameDay(candidate.startDate, session.scheduledDate)) ?? null;
+      if (alternateActivity) {
+        usedActivityIds.add(alternateActivity.id);
+      }
       const foundActivity = activity ?? alternateActivity;
       const completion = session.completion;
       const completionIsDone = completion?.status === 'done' || completion?.status === 'adjusted';
+      const isFutureSession = startOfDay(session.scheduledDate).getTime() > startOfDay(new Date()).getTime();
       const prescribedDistance = session.distanceKm ?? null;
       const prescribedDuration = session.durationMin ?? null;
       const actualDistance = foundActivity?.distanceKm ?? completion?.distanceKm ?? null;
@@ -162,7 +180,9 @@ export class StravaService {
             ? 'matched_manual'
             : completion?.status === 'missed'
               ? 'missed'
-              : 'not_found';
+              : isFutureSession
+                ? 'future'
+                : 'not_found';
 
       return {
         sessionId: session.id,
@@ -181,6 +201,7 @@ export class StravaService {
         status,
         activityName: foundActivity?.name ?? null,
         activityType: foundActivity?.type ?? null,
+        actualModality: foundActivity ? modalityFromActivity(foundActivity) : null,
         completionStatus: completion?.status ?? null,
         perceivedEffort: completion?.perceivedEffort ?? null,
       };
@@ -294,6 +315,12 @@ function sameDay(left: Date, right: Date) {
   return left.toISOString().slice(0, 10) === right.toISOString().slice(0, 10);
 }
 
+function startOfDay(date: Date) {
+  const next = new Date(date);
+  next.setUTCHours(0, 0, 0, 0);
+  return next;
+}
+
 function activityMatchesSession(activity: { type: string | null; name: string | null }, modality: string) {
   const normalized = `${activity.type ?? ''} ${activity.name ?? ''}`.toLowerCase();
   if (modality === 'bike') {
@@ -317,6 +344,31 @@ function activityMatchesSession(activity: { type: string | null; name: string | 
     );
   }
   return false;
+}
+
+function modalityFromActivity(activity: { type: string | null; name: string | null }) {
+  const normalized = `${activity.type ?? ''} ${activity.name ?? ''}`.toLowerCase();
+  if (normalized.includes('ride') || normalized.includes('bike')) {
+    return 'bike';
+  }
+  if (normalized.includes('run')) {
+    return 'corrida';
+  }
+  if (
+    normalized.includes('weight') ||
+    normalized.includes('strength') ||
+    normalized.includes('workout') ||
+    normalized.includes('training') ||
+    normalized.includes('treinamento') ||
+    normalized.includes('peso') ||
+    normalized.includes('musculacao') ||
+    normalized.includes('musculaÃ§Ã£o') ||
+    normalized.includes('forca') ||
+    normalized.includes('forÃ§a')
+  ) {
+    return 'forca';
+  }
+  return 'outra';
 }
 
 function addDays(date: Date, days: number) {
