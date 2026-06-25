@@ -59,14 +59,16 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais invalidas.');
     }
 
+    const role = this.effectiveRole(user.email, user.role);
+
     return {
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: user.role,
+        role,
       },
-      tokens: await this.signTokens(user.id, user.email, user.role),
+      tokens: await this.signTokens(user.id, user.email, role),
     };
   }
 
@@ -188,6 +190,19 @@ export class AuthService {
 
   private publicAppUrl() {
     return this.config.get<string>('APP_PUBLIC_URL') ?? 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
+  }
+
+  private effectiveRole(email: string, role: string) {
+    const coachEmails = (this.config.get<string>('COACH_EMAILS') ?? '')
+      .split(',')
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean);
+
+    if (coachEmails.includes(email.toLowerCase())) {
+      return 'coach';
+    }
+
+    return role;
   }
 }
 

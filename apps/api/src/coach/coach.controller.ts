@@ -1,11 +1,14 @@
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { Roles } from '../common/roles.decorator';
+import { RolesGuard } from '../common/roles.guard';
 import { CoachService } from './coach.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles('coach', 'admin')
 @Controller('coach')
 export class CoachController {
   constructor(private readonly coachService: CoachService) {}

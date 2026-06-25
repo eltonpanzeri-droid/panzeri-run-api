@@ -17,23 +17,34 @@ export class CoachService {
       throw new BadRequestException('E-mail ja cadastrado.');
     }
 
-    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const temporaryPassword = dto.password ?? randomBytes(18).toString('hex');
+    const passwordHash = await bcrypt.hash(temporaryPassword, 12);
     const user = await this.prisma.user.create({
       data: {
         email,
         name: dto.name.trim(),
         passwordHash,
         role: 'student',
-        accountStatus: 'active',
+        accountStatus: dto.password ? 'active' : 'paused',
       },
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
+        accountStatus: true,
         createdAt: true,
       },
     });
+
+    if (!dto.password) {
+      const invite = await this.createStudentInvite(user.id);
+      return {
+        user,
+        message: 'Aluno criado. Envie o convite para ele criar a propria senha.',
+        ...invite,
+      };
+    }
 
     return {
       user,
