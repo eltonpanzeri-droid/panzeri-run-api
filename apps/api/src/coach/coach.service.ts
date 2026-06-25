@@ -1,9 +1,41 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateStudentDto } from './dto/create-student.dto';
 
 @Injectable()
 export class CoachService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async createStudent(dto: CreateStudentDto) {
+    const email = dto.email.toLowerCase().trim();
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      throw new BadRequestException('E-mail ja cadastrado.');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        name: dto.name.trim(),
+        passwordHash,
+        role: 'student',
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      user,
+      message: 'Aluno criado. Envie o e-mail e a senha inicial para ele acessar o app.',
+    };
+  }
 
   async dashboard() {
     const students = await this.prisma.user.findMany({
