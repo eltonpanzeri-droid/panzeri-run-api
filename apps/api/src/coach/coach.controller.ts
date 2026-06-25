@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CoachService } from './coach.service';
 import { CreateStudentDto } from './dto/create-student.dto';
+import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
+import { UpdateStudentDto } from './dto/update-student.dto';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('coach')
@@ -21,5 +23,15 @@ export class CoachController {
   @Get('students/:studentId')
   student(@Param('studentId') studentId: string) {
     return this.coachService.student(studentId);
+  }
+
+  @Patch('students/:studentId')
+  updateStudent(@Param('studentId') studentId: string, @Body() dto: UpdateStudentDto) {
+    return this.coachService.updateStudent(studentId, dto);
+  }
+
+  @Patch('students/:studentId/password')
+  resetStudentPassword(@Param('studentId') studentId: string, @Body() dto: ResetStudentPasswordDto) {
+    return this.coachService.resetStudentPassword(studentId, dto);
   }
 }

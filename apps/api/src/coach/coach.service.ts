@@ -2,6 +2,8 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateStudentDto } from './dto/create-student.dto';
+import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
+import { UpdateStudentDto } from './dto/update-student.dto';
 
 @Injectable()
 export class CoachService {
@@ -34,6 +36,50 @@ export class CoachService {
     return {
       user,
       message: 'Aluno criado. Envie o e-mail e a senha inicial para ele acessar o app.',
+    };
+  }
+
+  async updateStudent(studentId: string, dto: UpdateStudentDto) {
+    const data: { name?: string; email?: string } = {};
+
+    if (dto.name) {
+      data.name = dto.name.trim();
+    }
+
+    if (dto.email) {
+      const email = dto.email.toLowerCase().trim();
+      const existing = await this.prisma.user.findUnique({ where: { email } });
+      if (existing && existing.id !== studentId) {
+        throw new BadRequestException('E-mail ja cadastrado.');
+      }
+      data.email = email;
+    }
+
+    if (!Object.keys(data).length) {
+      throw new BadRequestException('Nenhum dado para atualizar.');
+    }
+
+    return this.prisma.user.update({
+      where: { id: studentId },
+      data,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  async resetStudentPassword(studentId: string, dto: ResetStudentPasswordDto) {
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    await this.prisma.user.update({
+      where: { id: studentId },
+      data: { passwordHash },
+    });
+
+    return {
+      message: 'Senha do aluno atualizada.',
     };
   }
 
