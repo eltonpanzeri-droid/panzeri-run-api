@@ -172,17 +172,26 @@ export class StravaService {
       const prescribedDuration = session.durationMin ?? null;
       const actualDistance = foundActivity?.distanceKm ?? completion?.distanceKm ?? null;
       const actualDuration = foundActivity?.movingTimeSec ? Math.round(foundActivity.movingTimeSec / 60) : completion?.durationMin ?? null;
+      const sameModalityExecutionStatus = executionMatchesPrescription({
+        prescribedDistance,
+        actualDistance,
+        prescribedDuration,
+        actualDuration,
+        modality: session.modality,
+      })
+        ? 'as_prescribed'
+        : 'same_modality_changed_execution';
       const status = activity
-        ? 'matched_strava'
+        ? sameModalityExecutionStatus
         : alternateActivity
-          ? 'different_strava'
+          ? 'different_modality'
           : completionIsDone
-            ? 'matched_manual'
+            ? sameModalityExecutionStatus
             : completion?.status === 'missed'
-              ? 'missed'
+              ? 'not_done'
               : isFutureSession
                 ? 'future'
-                : 'not_found';
+                : 'not_done';
 
       return {
         sessionId: session.id,
@@ -211,30 +220,66 @@ export class StravaService {
     const actualKm = sum(items.map((item) => item.actualDistance));
     const prescribedMinutes = sum(items.map((item) => item.prescribedDuration));
     const actualMinutes = sum(items.map((item) => item.actualDuration));
-    const matched = items.filter((item) => item.status === 'matched_strava' || item.status === 'matched_manual').length;
-    const different = items.filter((item) => item.status === 'different_strava').length;
-    const missed = items.filter((item) => item.status === 'missed' || item.status === 'not_found').length;
+    const asPrescribed = items.filter((item) => item.status === 'as_prescribed').length;
+    const sameModalityChanged = items.filter((item) => item.status === 'same_modality_changed_execution').length;
+    const different = items.filter((item) => item.status === 'different_modality').length;
+    const missed = items.filter((item) => item.status === 'not_done').length;
+    const future = items.filter((item) => item.status === 'future').length;
+    const eligibleItems = items.filter((item) => item.status !== 'future');
+    const eligiblePrescribedKm = sum(eligibleItems.map((item) => item.prescribedDistance));
+    const eligiblePrescribedMinutes = sum(eligibleItems.map((item) => item.prescribedDuration));
+    const eligibleActualKm = sum(eligibleItems.map((item) => item.actualDistance));
+    const eligibleActualMinutes = sum(eligibleItems.map((item) => item.actualDuration));
+    const eligibleSessions = eligibleItems.length;
+    const executedSessions = asPrescribed + sameModalityChanged + different;
     const summary = {
       prescribedSessions: items.length,
-      matchedSessions: matched,
+      eligibleSessions,
+      asPrescribedSessions: asPrescribed,
+      sameModalityChangedSessions: sameModalityChanged,
       differentSessions: different,
       missedSessions: missed,
-      adherencePercent: items.length ? Math.round((matched / items.length) * 100) : 0,
+      futureSessions: future,
+      executedSessions,
+      executionPercent: eligibleSessions ? Math.round((executedSessions / eligibleSessions) * 100) : 0,
+      adherencePercent: eligibleSessions ? Math.round((asPrescribed / eligibleSessions) * 100) : 0,
       prescribedKm,
       actualKm,
       kmDiff: Number((actualKm - prescribedKm).toFixed(2)),
       prescribedMinutes,
       actualMinutes,
       minutesDiff: actualMinutes - prescribedMinutes,
+      eligiblePrescribedKm,
+      eligibleActualKm,
+      eligibleKmDiff: Number((eligibleActualKm - eligiblePrescribedKm).toFixed(2)),
+      eligiblePrescribedMinutes,
+      eligibleActualMinutes,
+      eligibleMinutesDiff: eligibleActualMinutes - eligiblePrescribedMinutes,
     };
 
-    return {
+    const report = {
       summary: {
         ...summary,
         coachAnalysis: buildCoachAnalysis(summary),
       },
       items,
     };
+
+    await this.prisma.trainingExecutionInsight.upsert({
+      where: { planId: plan.id },
+      create: {
+        userId,
+        planId: plan.id,
+        summary: toJsonValue(report.summary),
+        items: toJsonValue(items),
+      },
+      update: {
+        summary: toJsonValue(report.summary),
+        items: toJsonValue(items),
+      },
+    });
+
+    return report;
   }
 
   private async getValidConnection(userId: string) {
@@ -371,6 +416,31 @@ function modalityFromActivity(activity: { type: string | null; name: string | nu
   return 'outra';
 }
 
+function executionMatchesPrescription(input: {
+  prescribedDistance: number | null;
+  actualDistance: number | null;
+  prescribedDuration: number | null;
+  actualDuration: number | null;
+  modality: string;
+}) {
+  if (input.modality === 'forca' || input.modality === 'fortalecimento_corredores') {
+    return withinTolerance(input.prescribedDuration, input.actualDuration, 12, 0.25);
+  }
+
+  const distanceOk = input.prescribedDistance === null || withinTolerance(input.prescribedDistance, input.actualDistance, 0.75, 0.15);
+  const durationOk = input.prescribedDuration === null || withinTolerance(input.prescribedDuration, input.actualDuration, 10, 0.2);
+
+  return distanceOk && durationOk;
+}
+
+function withinTolerance(prescribed: number | null, actual: number | null, absoluteTolerance: number, relativeTolerance: number) {
+  if (prescribed === null || actual === null) {
+    return false;
+  }
+  const allowedDifference = Math.max(absoluteTolerance, Math.abs(prescribed) * relativeTolerance);
+  return Math.abs(actual - prescribed) <= allowedDifference;
+}
+
 function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
@@ -396,11 +466,20 @@ function toJsonObject(value: unknown) {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonObject;
 }
 
+function toJsonValue(value: unknown) {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
 function buildCoachAnalysis(summary: {
   prescribedSessions: number;
-  matchedSessions: number;
+  eligibleSessions: number;
+  asPrescribedSessions: number;
+  sameModalityChangedSessions: number;
   differentSessions: number;
   missedSessions: number;
+  futureSessions: number;
+  executedSessions: number;
+  executionPercent: number;
   adherencePercent: number;
   prescribedKm: number;
   actualKm: number;
@@ -408,39 +487,42 @@ function buildCoachAnalysis(summary: {
   prescribedMinutes: number;
   actualMinutes: number;
   minutesDiff: number;
+  eligiblePrescribedKm: number;
+  eligibleActualKm: number;
+  eligibleKmDiff: number;
+  eligiblePrescribedMinutes: number;
+  eligibleActualMinutes: number;
+  eligibleMinutesDiff: number;
 }) {
   const notes: string[] = [];
 
-  if (summary.adherencePercent >= 80) {
-    notes.push('Boa aderencia aos treinos propostos.');
-  } else if (summary.adherencePercent >= 50) {
-    notes.push('Aderencia parcial: parte importante da semana foi executada, mas ainda houve perdas.');
-  } else {
-    notes.push('Aderencia baixa aos treinos propostos nesta semana.');
+  notes.push(`${summary.asPrescribedSessions} ${plural(summary.asPrescribedSessions, 'treino teve modalidade e execucao conforme a prescricao', 'treinos tiveram modalidade e execucao conforme a prescricao')}.`);
+  notes.push(`${summary.sameModalityChangedSessions} ${plural(summary.sameModalityChangedSessions, 'treino manteve a modalidade proposta, mas com execucao diferente', 'treinos mantiveram a modalidade proposta, mas com execucao diferente')}.`);
+  notes.push(`${summary.differentSessions} ${plural(summary.differentSessions, 'treino foi realizado em modalidade diferente da proposta', 'treinos foram realizados em modalidade diferente da proposta')}.`);
+  notes.push(`${summary.missedSessions} ${plural(summary.missedSessions, 'treino previsto ate agora nao teve registro', 'treinos previstos ate agora nao tiveram registro')}.`);
+
+  if (summary.eligibleKmDiff < -1) {
+    notes.push(`Volume registrado ate agora: ${summary.eligibleActualKm} km de ${summary.eligiblePrescribedKm} km planejados.`);
+  } else if (summary.eligibleKmDiff > 1) {
+    notes.push(`Volume registrado ate agora ficou ${summary.eligibleKmDiff} km acima do planejado.`);
   }
 
-  if (summary.differentSessions > 0) {
-    notes.push(`${summary.differentSessions} treino(s) tiveram atividade diferente da prescrita.`);
+  if (summary.eligibleMinutesDiff < -20) {
+    notes.push(`Tempo registrado ate agora: ${summary.eligibleActualMinutes} min de ${summary.eligiblePrescribedMinutes} min planejados.`);
+  } else if (summary.eligibleMinutesDiff > 20) {
+    notes.push(`Tempo registrado ate agora ficou ${summary.eligibleMinutesDiff} min acima do planejado.`);
   }
 
-  if (summary.missedSessions > 0) {
-    notes.push(`${summary.missedSessions} treino(s) ficaram sem registro encontrado.`);
-  }
-
-  if (summary.kmDiff < -1) {
-    notes.push(`Volume de corrida ficou ${Math.abs(summary.kmDiff)} km abaixo do planejado.`);
-  } else if (summary.kmDiff > 1) {
-    notes.push(`Volume de corrida ficou ${summary.kmDiff} km acima do planejado.`);
-  }
-
-  if (summary.minutesDiff < -20) {
-    notes.push(`Tempo total ficou ${Math.abs(summary.minutesDiff)} min abaixo do planejado.`);
-  } else if (summary.minutesDiff > 20) {
-    notes.push(`Tempo total ficou ${summary.minutesDiff} min acima do planejado.`);
+  if (summary.futureSessions > 0) {
+    notes.push(`${summary.futureSessions} ${plural(summary.futureSessions, 'treino ainda esta', 'treinos ainda estao')} programado(s) para os proximos dias.`);
   }
 
   return {
-    title: summary.adherencePercent >= 80 ? 'Semana bem executada' : summary.adherencePercent >= 50 ? 'Semana parcialmente executada' : 'Semana abaixo do planejado',
+    title: 'Leitura da execucao semanal',
     text: notes.join(' '),
   };
+}
+
+function plural(count: number, singular: string, pluralText: string) {
+  return count === 1 ? singular : pluralText;
 }
