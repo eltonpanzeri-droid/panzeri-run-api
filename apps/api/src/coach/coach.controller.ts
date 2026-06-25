@@ -34,4 +34,9 @@ export class CoachController {
   resetStudentPassword(@Param('studentId') studentId: string, @Body() dto: ResetStudentPasswordDto) {
     return this.coachService.resetStudentPassword(studentId, dto);
   }
+
+  @Post('students/:studentId/invite')
+  createStudentInvite(@Param('studentId') studentId: string) {
+    return this.coachService.createStudentInvite(studentId);
+  }
 }

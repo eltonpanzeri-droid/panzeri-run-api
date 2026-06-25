@@ -2,9 +2,11 @@ import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @Injectable()
 export class AuthService {
@@ -30,6 +32,8 @@ export class AuthService {
         email: dto.email.toLowerCase(),
         name: dto.name.trim(),
         passwordHash,
+        acceptedTermsAt: new Date(),
+        acceptedPrivacyAt: new Date(),
       },
       select: this.publicUserSelect(),
     });
@@ -44,6 +48,10 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
     if (!user) {
       throw new UnauthorizedException('Credenciais invalidas.');
+    }
+
+    if (user.accountStatus !== 'active') {
+      throw new UnauthorizedException('Conta sem acesso ativo.');
     }
 
     const validPassword = await bcrypt.compare(dto.password, user.passwordHash);
@@ -82,10 +90,52 @@ export class AuthService {
   }
 
   async startPasswordReset(email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+    if (!user) {
+      return {
+        email,
+        message: 'Se o e-mail existir, enviaremos instrucoes de recuperacao.',
+      };
+    }
+
+    const token = randomBytes(32).toString('hex');
+    await this.prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
+      },
+    });
+
     return {
       email,
       message: 'Se o e-mail existir, enviaremos instrucoes de recuperacao.',
+      resetLink: `${this.publicAppUrl()}/reset-password?token=${token}`,
     };
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const record = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash: hashToken(dto.token) },
+    });
+
+    if (!record || record.usedAt || record.expiresAt.getTime() < Date.now()) {
+      throw new BadRequestException('Link de recuperacao invalido ou expirado.');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: record.userId },
+        data: { passwordHash, accountStatus: 'active' },
+      }),
+      this.prisma.passwordResetToken.update({
+        where: { id: record.id },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+
+    return { message: 'Senha atualizada.' };
   }
 
   async refresh(refreshToken: string) {
@@ -125,6 +175,7 @@ export class AuthService {
       email: true,
       name: true,
       role: true,
+      accountStatus: true,
       birthDate: true,
       sex: true,
       heightCm: true,
@@ -134,4 +185,12 @@ export class AuthService {
       updatedAt: true,
     };
   }
+
+  private publicAppUrl() {
+    return this.config.get<string>('APP_PUBLIC_URL') ?? 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
+  }
+}
+
+function hashToken(token: string) {
+  return createHash('sha256').update(token).digest('hex');
 }

@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class UpdateStudentDto {
   @IsOptional()
@@ -9,4 +9,8 @@ export class UpdateStudentDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  @IsOptional()
+  @IsIn(['active', 'paused', 'canceled', 'overdue'])
+  accountStatus?: string;
 }
