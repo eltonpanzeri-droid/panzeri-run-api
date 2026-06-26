@@ -17,6 +17,15 @@ type Screen = 'login' | 'app';
 type Tab = 'week' | 'anamnese' | 'test' | 'progress' | 'profile';
 type AuthMode = 'login' | 'register';
 
+function initialAuthMode(): AuthMode {
+  if (typeof window === 'undefined') {
+    return 'login';
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return params.get('cadastro') === '1' ? 'register' : 'login';
+}
+
 interface RoutineDay {
   weekday: number;
   day: string;
@@ -516,7 +525,7 @@ function Login({
   onTermsChange: (value: boolean) => void;
   onEnter: (session: AuthSession) => void;
 }) {
-  const [mode, setMode] = useState<AuthMode>('login');
+  const [mode, setMode] = useState<AuthMode>(initialAuthMode);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
