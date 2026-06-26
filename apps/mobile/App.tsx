@@ -1,0 +1,3157 @@
+import { Ionicons } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Pressable,
+  SafeAreaView,
+  Linking,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+
+type Screen = 'login' | 'app';
+type Tab = 'week' | 'anamnese' | 'test' | 'progress' | 'profile';
+type AuthMode = 'login' | 'register';
+
+interface RoutineDay {
+  weekday: number;
+  day: string;
+  label: string;
+  modalities: string[];
+  minutesByModality: Record<string, string>;
+}
+
+interface AuthSession {
+  email: string;
+  name: string;
+  accessToken: string;
+}
+
+interface AuthResponse {
+  user?: {
+    email?: string;
+    name?: string;
+    role?: string;
+  };
+  tokens?: {
+    accessToken?: string;
+    refreshToken?: string;
+  };
+}
+
+interface WeekPlanSession {
+  id: string;
+  day: string;
+  date: string;
+  title: string;
+  detail: string;
+  modality: string;
+  zone: string;
+  durationMin?: number | null;
+  distanceKm?: number | null;
+  structure?: SessionStructure;
+  notes?: string;
+}
+
+type SessionStructure =
+  | {
+      type: 'run';
+      distanceKm?: number;
+      durationMin?: number;
+      speedKmh?: number;
+      zone?: string;
+      paceRange?: string | null;
+      blocks?: Array<{ label: string; durationMin: number; zone?: string; paceRange?: string | null; speedKmh?: number }>;
+    }
+  | {
+      type: 'aerobic';
+      modality?: string;
+      durationMin?: number;
+      zone?: string;
+      guidance?: string;
+      blocks?: Array<{ label: string; durationMin: number; zone?: string; guidance?: string }>;
+    }
+  | {
+      type: 'strength';
+      category?: string;
+      exercises?: Array<{
+        id?: string;
+        category?: string;
+        name: string;
+        description?: string;
+        videoUrl?: string | null;
+        sets: number;
+        reps: string;
+        restSeconds: number;
+        cadence?: string | null;
+        loadField: boolean;
+      }>;
+    };
+
+interface WeekPlan {
+  id: string;
+  name: string;
+  startDate?: string;
+  endDate?: string;
+  recommendation?: string;
+  sessions: WeekPlanSession[];
+}
+
+interface CompletionDraft {
+  status: 'done' | 'missed' | 'adjusted';
+  perceivedEffort: string;
+  durationMin: string;
+  distanceKm: string;
+  avgPace: string;
+  notes: string;
+  loadsText: string;
+}
+
+interface StravaReport {
+  summary?: {
+    prescribedSessions: number;
+    eligibleSessions?: number;
+    asPrescribedSessions?: number;
+    sameModalityChangedSessions?: number;
+    differentSessions?: number;
+    missedSessions?: number;
+    futureSessions?: number;
+    executedSessions?: number;
+    executionPercent?: number;
+    adherencePercent: number;
+    prescribedKm: number;
+    actualKm: number;
+    kmDiff: number;
+    prescribedMinutes: number;
+    actualMinutes: number;
+    minutesDiff: number;
+    coachAnalysis?: {
+      title: string;
+      text: string;
+    };
+  } | null;
+  items: Array<{
+    date: string;
+    title: string;
+    modality?: string | null;
+    status: string;
+    prescribedDistance?: number | null;
+    actualDistance?: number | null;
+    distanceDiff?: number | null;
+    prescribedDuration?: number | null;
+    actualDuration?: number | null;
+    durationDiff?: number | null;
+    pace?: string | null;
+    activityName?: string | null;
+    activityType?: string | null;
+    actualModality?: string | null;
+    source?: string | null;
+    completionStatus?: string | null;
+    perceivedEffort?: number | null;
+  }>;
+}
+
+interface SavedAvailabilityDay {
+  weekday: number;
+  noTraining: boolean;
+  modalities: string[];
+  availableMin?: number | null;
+  modalityDurations?: Record<string, number> | null;
+}
+
+interface MeResponse {
+  email?: string;
+  name?: string;
+  birthDate?: string | null;
+  heightCm?: number | null;
+  weightKg?: number | null;
+  healthProfile?: {
+    averageSleep?: string | null;
+    stressLevel?: string | null;
+    anxietyLevel?: string | null;
+    previousInjuries?: string | null;
+    healthProblems?: string | null;
+    medications?: string | null;
+  } | null;
+  preferences?: {
+    preferredModalities?: string[];
+    otherModalities?: string[];
+    trainingLocations?: string[];
+    mainGoal?: string | null;
+  } | null;
+  availability?: SavedAvailabilityDay[];
+  weeklyAvailability?: SavedAvailabilityDay[];
+  tests?: Array<{ totalSeconds?: number | null }>;
+  fitnessTests?: Array<{ totalSeconds?: number | null }>;
+}
+
+interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  read: boolean;
+}
+
+const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
+
+type AuthPopup = {
+  document?: { write: (html: string) => void };
+  location?: { href: string };
+  close?: () => void;
+} | null;
+
+function openAuthPopup(): AuthPopup {
+  const browserWindow = (globalThis as unknown as {
+    window?: { open?: (url?: string, target?: string, features?: string) => AuthPopup };
+  }).window;
+
+  return browserWindow?.open?.(
+    '',
+    'panzeri_strava',
+    'width=520,height=760,menubar=no,toolbar=no,location=yes,status=no',
+  ) ?? null;
+}
+
+const modalityOptions = [
+  'Musculacao',
+  'Fortalecimento para corredores',
+  'CrossFit',
+  'Natacao',
+  'Corrida',
+  'Bike',
+  'Beach Tenis',
+  'Futebol',
+  'Pilates',
+  'Outra',
+];
+const locationOptions = ['Academia de musculacao', 'Academia de funcional', 'Esteira', 'Treino em casa', 'Corrida na rua'];
+const dayTrainingOptions = [
+  'Sem treinos',
+  'Musculacao',
+  'Fortalecimento para corredores',
+  'Treino de forca em casa',
+  'Corrida na rua',
+  'Corrida na esteira',
+  'Bike ou outro aparelho aerobico',
+];
+const timeOptions = ['30', '45', '60', '75', '90', '120'];
+const goalOptions = [
+  'Correr primeiros 5km',
+  'Melhorar nos 5km',
+  'Primeiros 10km',
+  'Melhorar nos 10km',
+  'Primeiros 21km',
+  'Melhorar nos 21km',
+  'Primeira Maratona',
+  'Melhorar na Maratona',
+];
+
+const defaultRoutineDays: RoutineDay[] = [
+  { weekday: 1, day: 'Seg', label: 'Segunda-feira', modalities: ['Musculacao'], minutesByModality: { Musculacao: '60' } },
+  { weekday: 2, day: 'Ter', label: 'Terca-feira', modalities: ['Corrida na rua'], minutesByModality: { 'Corrida na rua': '45' } },
+  { weekday: 3, day: 'Qua', label: 'Quarta-feira', modalities: ['Sem treinos'], minutesByModality: {} },
+  { weekday: 4, day: 'Qui', label: 'Quinta-feira', modalities: ['Corrida na rua'], minutesByModality: { 'Corrida na rua': '60' } },
+  { weekday: 5, day: 'Sex', label: 'Sexta-feira', modalities: ['Sem treinos'], minutesByModality: {} },
+  { weekday: 6, day: 'Sab', label: 'Sabado', modalities: ['Corrida na rua'], minutesByModality: { 'Corrida na rua': '75' } },
+  { weekday: 0, day: 'Dom', label: 'Domingo', modalities: ['Sem treinos'], minutesByModality: {} },
+];
+
+const weekSessions = [
+  {
+    day: 'Seg',
+    date: '22/06',
+    title: 'Forca geral',
+    detail: '45 min - RPE 7',
+    icon: 'barbell' as const,
+    modality: 'forca',
+    zone: 'Base',
+  },
+  {
+    day: 'Ter',
+    date: '23/06',
+    title: 'Corrida leve',
+    detail: '35 min - Z2',
+    icon: 'walk' as const,
+    modality: 'corrida',
+    zone: 'Z2',
+  },
+  {
+    day: 'Qua',
+    date: '24/06',
+    title: 'Sem treino',
+    detail: 'Recuperacao',
+    icon: 'moon' as const,
+    modality: 'descanso',
+    zone: 'Off',
+  },
+  {
+    day: 'Qui',
+    date: '25/06',
+    title: 'Intervalado curto',
+    detail: '42 min - Z4/Z5',
+    icon: 'flash' as const,
+    modality: 'corrida',
+    zone: 'Z4',
+  },
+  {
+    day: 'Sab',
+    date: '27/06',
+    title: 'Longao leve',
+    detail: '55 min - Z2',
+    icon: 'trail-sign' as const,
+    modality: 'corrida',
+    zone: 'Z2',
+  },
+];
+
+export default function App() {
+  const [screen, setScreen] = useState<Screen>('login');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>('week');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [completedToday, setCompletedToday] = useState(false);
+  const [threeKmSeconds, setThreeKmSeconds] = useState('1200');
+  const [userEmail, setUserEmail] = useState('');
+  const [userName, setUserName] = useState('');
+  const [accessToken, setAccessToken] = useState('');
+  const [anamneseRoutine, setAnamneseRoutine] = useState<RoutineDay[]>(cloneRoutine(defaultRoutineDays));
+  const [savedMe, setSavedMe] = useState<MeResponse | null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+
+  const metrics = useMemo(() => calculateThreeKmMetrics(Number(threeKmSeconds)), [threeKmSeconds]);
+
+  useEffect(() => {
+    registerWebApp();
+  }, []);
+
+  useEffect(() => {
+    if (!accessToken) {
+      return;
+    }
+
+    loadSavedMe(accessToken).then((me) => {
+      if (!me) {
+        return;
+      }
+
+      setSavedMe(me);
+      if (me.name) {
+        setUserName(me.name);
+      }
+      if (me.email) {
+        setUserEmail(me.email);
+      }
+      const latestTestSeconds = me.tests?.[0]?.totalSeconds ?? me.fitnessTests?.[0]?.totalSeconds;
+      if (latestTestSeconds) {
+        setThreeKmSeconds(String(latestTestSeconds));
+      }
+      const savedRoutine = routineFromSavedAvailability(me.availability ?? me.weeklyAvailability ?? []);
+      if (savedRoutine.length) {
+        setAnamneseRoutine(savedRoutine);
+      }
+    });
+    loadNotifications(accessToken).then(setNotifications);
+  }, [accessToken]);
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar style="dark" />
+      {screen === 'login' && (
+        <Login
+          acceptedTerms={acceptedTerms}
+          onTermsChange={setAcceptedTerms}
+          onEnter={(session) => {
+            setUserEmail(session.email);
+            setUserName(session.name);
+            setAccessToken(session.accessToken);
+            setActiveTab('week');
+            setScreen('app');
+          }}
+        />
+      )}
+      {screen === 'app' && (
+        <View style={styles.appShell}>
+          <AppHeader userEmail={userEmail} userName={userName} onOpenMenu={() => setMenuOpen((open) => !open)} />
+          {menuOpen ? (
+            <AppMenu
+              activeTab={activeTab}
+              onChange={(tab) => {
+                setActiveTab(tab);
+                setMenuOpen(false);
+              }}
+            />
+          ) : null}
+          <ScrollView contentContainerStyle={styles.appContent}>
+            {activeTab === 'anamnese' && (
+              <Anamnese
+                accessToken={accessToken}
+                userEmail={userEmail}
+                userName={userName}
+                savedMe={savedMe}
+                onSavedMeChange={setSavedMe}
+                onNameChange={setUserName}
+                routineDays={anamneseRoutine}
+                onRoutineChange={setAnamneseRoutine}
+              />
+            )}
+            {activeTab === 'test' && (
+              <ThreeKmTest
+                threeKmSeconds={threeKmSeconds}
+                onChangeSeconds={setThreeKmSeconds}
+                metrics={metrics}
+                accessToken={accessToken}
+              />
+            )}
+            {activeTab === 'week' && (
+              <>
+                <NotificationList notifications={notifications} />
+                <Week accessToken={accessToken} baseRoutineDays={anamneseRoutine} />
+              </>
+            )}
+            {activeTab === 'progress' && <Progress completedToday={completedToday} metrics={metrics} accessToken={accessToken} />}
+            {activeTab === 'profile' && (
+              <Anamnese
+                accessToken={accessToken}
+                userEmail={userEmail}
+                userName={userName}
+                savedMe={savedMe}
+                onSavedMeChange={setSavedMe}
+                onNameChange={setUserName}
+                routineDays={anamneseRoutine}
+                onRoutineChange={setAnamneseRoutine}
+              />
+            )}
+          </ScrollView>
+        </View>
+      )}
+    </SafeAreaView>
+  );
+}
+
+function registerWebApp() {
+  const browser = globalThis as unknown as {
+    document?: {
+      head?: { appendChild: (element: unknown) => void };
+      querySelector: (selector: string) => unknown;
+      createElement: (tag: string) => {
+        rel?: string;
+        href?: string;
+        name?: string;
+        content?: string;
+      };
+    };
+    navigator?: { serviceWorker?: { register: (path: string) => Promise<unknown> } };
+  };
+
+  if (browser.document && !browser.document.querySelector('link[rel="manifest"]')) {
+    const manifest = browser.document.createElement('link');
+    manifest.rel = 'manifest';
+    manifest.href = '/manifest.json';
+    browser.document.head?.appendChild(manifest);
+
+    const theme = browser.document.createElement('meta');
+    theme.name = 'theme-color';
+    theme.content = '#0f766e';
+    browser.document.head?.appendChild(theme);
+  }
+
+  browser.navigator?.serviceWorker?.register('/sw.js').catch(() => undefined);
+}
+
+function Onboarding({ onStart }: { onStart: () => void }) {
+  return (
+    <View style={[styles.screen, styles.onboardingScreen]}>
+      <View style={styles.brandRow}>
+        <View style={styles.logoMark}>
+          <Ionicons name="pulse" size={24} color="#ffffff" />
+        </View>
+        <Text style={styles.brand}>Panzeri Run</Text>
+      </View>
+
+      <View style={styles.heroBlock}>
+        <Text style={styles.heroEyebrow}>Corrida, forca e evolucao</Text>
+        <Text style={styles.title}>Seu treino da semana, ajustado ao seu momento.</Text>
+        <Text style={styles.heroCopy}>Entre, registre seus dados e acompanhe um plano simples de executar.</Text>
+      </View>
+
+      <View style={styles.startGrid}>
+        <View style={styles.startItem}>
+          <Ionicons name="calendar" size={22} color="#0f766e" />
+          <Text style={styles.startTitle}>Semana pronta</Text>
+          <Text style={styles.startText}>Treinos claros para cada dia disponivel.</Text>
+        </View>
+        <View style={styles.startItem}>
+          <Ionicons name="stopwatch" size={22} color="#0f766e" />
+          <Text style={styles.startTitle}>Ritmos por teste</Text>
+          <Text style={styles.startText}>Zonas calculadas pelo teste de 3 km.</Text>
+        </View>
+        <View style={styles.startItem}>
+          <Ionicons name="stats-chart" size={22} color="#0f766e" />
+          <Text style={styles.startTitle}>Evolucao visivel</Text>
+          <Text style={styles.startText}>Acompanhe consistencia, treinos e marcas.</Text>
+        </View>
+      </View>
+
+      <Pressable style={styles.heroButton} onPress={onStart}>
+        <Text style={styles.primaryButtonText}>Entrar no app</Text>
+        <Ionicons name="arrow-forward" size={18} color="#ffffff" />
+      </Pressable>
+
+      <Text style={styles.safetyFootnote}>Treine com seguranca. Em caso de dor ou sintomas, procure avaliacao profissional.</Text>
+    </View>
+  );
+}
+
+function Login({
+  acceptedTerms,
+  onTermsChange,
+  onEnter,
+}: {
+  acceptedTerms: boolean;
+  onTermsChange: (value: boolean) => void;
+  onEnter: (session: AuthSession) => void;
+}) {
+  const [mode, setMode] = useState<AuthMode>('login');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
+  const [status, setStatus] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function forgotPassword() {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      setStatus('Informe seu e-mail primeiro.');
+      return;
+    }
+
+    setStatus('Solicitando recuperacao...');
+    try {
+      const response = await fetch(`${API_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail }),
+      });
+
+      if (!response.ok) {
+        setStatus('Nao consegui solicitar recuperacao.');
+        return;
+      }
+
+      const data = (await response.json()) as { resetLink?: string };
+      setStatus(data.resetLink ? `Link de recuperacao gerado: ${data.resetLink}` : 'Se o e-mail existir, a recuperacao sera enviada.');
+    } catch {
+      setStatus('Nao consegui conectar com a API agora.');
+    }
+  }
+
+  async function submit(mode: AuthMode) {
+    const cleanEmail = email.trim().toLowerCase();
+    setStatus('');
+
+    if (!cleanEmail || password.length < 8) {
+      setStatus('Preencha e-mail e uma senha com pelo menos 8 caracteres.');
+      return;
+    }
+
+    if (mode === 'register' && !name.trim()) {
+      setStatus('Preencha seu nome para criar a conta.');
+      return;
+    }
+
+    if (mode === 'register' && password !== passwordConfirm) {
+      setStatus('A confirmacao de senha precisa ser igual a senha.');
+      return;
+    }
+
+    if (mode === 'register' && !acceptedTerms) {
+      setStatus('Aceite os termos para criar a conta.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      if (mode === 'login') {
+        const loginResponse = await fetch(`${API_URL}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: cleanEmail,
+            password,
+          }),
+        });
+
+        if (!loginResponse.ok) {
+          setStatus('Nao consegui entrar. Confira e-mail e senha.');
+          return;
+        }
+
+        const data = (await loginResponse.json()) as AuthResponse;
+        if (data.user?.role && data.user.role !== 'student') {
+          setStatus('Este acesso e do treinador. Use o painel web.');
+          return;
+        }
+
+        const accessToken = data.tokens?.accessToken;
+        if (!accessToken) {
+          setStatus('Login feito, mas nao recebi a liberacao de acesso.');
+          return;
+        }
+
+        setStatus('Login realizado.');
+        onEnter({ email: data.user?.email ?? cleanEmail, name: data.user?.name ?? '', accessToken });
+        return;
+      }
+
+      const registerResponse = await fetch(`${API_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: cleanEmail,
+          password,
+          acceptedTerms,
+        }),
+      });
+
+      if (!registerResponse.ok) {
+        setStatus('Nao consegui criar a conta. Se ela ja existir, use Entrar.');
+        return;
+      }
+
+      const data = (await registerResponse.json()) as AuthResponse;
+      if (data.user?.role && data.user.role !== 'student') {
+        setStatus('Este acesso e do treinador. Use o painel web.');
+        return;
+      }
+
+      const accessToken = data.tokens?.accessToken;
+      if (!accessToken) {
+        setStatus('Conta criada, mas nao recebi a liberacao de acesso.');
+        return;
+      }
+
+      setStatus('Conta criada com sucesso.');
+      onEnter({ email: data.user?.email ?? cleanEmail, name: data.user?.name ?? name.trim(), accessToken });
+    } catch {
+      setStatus('Nao consegui conectar com a API agora.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <ScrollView contentContainerStyle={styles.screen}>
+      <View style={styles.brandRow}>
+        <View style={styles.logoMark}>
+          <Ionicons name="pulse" size={24} color="#ffffff" />
+        </View>
+        <Text style={styles.brand}>Panzeri Run</Text>
+      </View>
+
+      <Text style={styles.sectionLabel}>Conta</Text>
+      <Text style={styles.titleSmall}>{mode === 'login' ? 'Entrar' : 'Criar conta'}</Text>
+
+      {mode === 'register' && (
+        <TextInput style={styles.input} placeholder="Nome completo" value={name} onChangeText={setName} />
+      )}
+      <TextInput
+        style={styles.input}
+        placeholder="E-mail"
+        value={email}
+        onChangeText={setEmail}
+        autoCapitalize="none"
+        keyboardType="email-address"
+      />
+      <TextInput style={styles.input} placeholder="Senha" value={password} onChangeText={setPassword} secureTextEntry />
+
+      {mode === 'register' && (
+        <>
+          <TextInput
+            style={styles.input}
+            placeholder="Confirmacao de senha"
+            value={passwordConfirm}
+            onChangeText={setPasswordConfirm}
+            secureTextEntry
+          />
+
+          <View style={styles.termsRow}>
+            <Switch value={acceptedTerms} onValueChange={onTermsChange} />
+            <Text style={styles.termsText}>
+              Aceito os termos de uso, a politica de privacidade e autorizo o uso dos meus dados de saude e treino para prescricao e acompanhamento.
+            </Text>
+          </View>
+        </>
+      )}
+
+      <View style={styles.authActions}>
+        <Pressable
+          style={[styles.primaryButton, styles.authButton, isSubmitting && styles.disabledButton]}
+          disabled={isSubmitting}
+          onPress={() => submit(mode)}
+        >
+          <Text style={styles.primaryButtonText}>{isSubmitting ? 'Conectando...' : mode === 'login' ? 'Entrar' : 'Criar conta'}</Text>
+          <Ionicons name={mode === 'login' ? 'log-in-outline' : 'person-add'} size={18} color="#ffffff" />
+        </Pressable>
+
+        <Pressable
+          style={[styles.secondaryOutlineButton, styles.authButton, isSubmitting && styles.disabledButton]}
+          disabled={isSubmitting}
+          onPress={() => setMode(mode === 'login' ? 'register' : 'login')}
+        >
+          <Text style={styles.secondaryOutlineButtonText}>{mode === 'login' ? 'Criar conta' : 'Ja tenho conta'}</Text>
+          <Ionicons name={mode === 'login' ? 'person-add' : 'log-in-outline'} size={18} color="#0f766e" />
+        </Pressable>
+      </View>
+
+      {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+
+      <Pressable style={styles.secondaryButton} onPress={forgotPassword}>
+        <Text style={styles.secondaryButtonText}>Esqueci minha senha</Text>
+      </Pressable>
+    </ScrollView>
+  );
+}
+
+function AppHeader({ userEmail, userName, onOpenMenu }: { userEmail: string; userName: string; onOpenMenu: () => void }) {
+  return (
+    <View style={styles.appHeader}>
+      <View>
+        <Text style={styles.headerOverline}>MVP Panzeri Run</Text>
+        <Text style={styles.headerTitle}>{userName || 'Plano inicial 10 km'}</Text>
+        {userEmail ? <Text style={styles.headerEmail}>{userEmail}</Text> : null}
+      </View>
+      <Pressable style={styles.menuButton} onPress={onOpenMenu}>
+        <Ionicons name="menu" size={24} color="#ffffff" />
+      </Pressable>
+    </View>
+  );
+}
+
+function NotificationList({ notifications }: { notifications: AppNotification[] }) {
+  const visible = notifications.slice(0, 3);
+  if (!visible.length) {
+    return null;
+  }
+
+  return (
+    <View style={styles.alertBox}>
+      <Text style={styles.formSectionTitle}>Avisos</Text>
+      {visible.map((notification) => (
+        <View style={styles.alertItem} key={notification.id}>
+          <Text style={styles.alertTitle}>{notification.title}</Text>
+          <Text style={styles.alertText}>{notification.message}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function Today({
+  completedToday,
+  onComplete,
+}: {
+  completedToday: boolean;
+  onComplete: () => void;
+}) {
+  return (
+    <View style={styles.section}>
+      <View style={styles.headerLine}>
+        <View>
+          <Text style={styles.sectionLabel}>Hoje</Text>
+          <Text style={styles.titleSmall}>Treino do dia</Text>
+        </View>
+        <View style={[styles.statusPill, completedToday && styles.donePill]}>
+          <Text style={[styles.statusText, completedToday && styles.doneText]}>
+            {completedToday ? 'Feito' : 'Pendente'}
+          </Text>
+        </View>
+      </View>
+
+      <SessionCard
+        icon="walk"
+        title="Corrida leve com caminhada"
+        detail="35 min - Z2 - conforto respiratorio"
+        note="Aquecimento 8 min, bloco principal 22 min, desaquecimento 5 min. Se precisar, alternar 3 min correndo e 1 min caminhando."
+      />
+      <SessionCard
+        icon="barbell"
+        title="Forca geral"
+        detail="3 series - RPE 7 - pausa 90s"
+        note="Agachamento livre, ponte de gluteo, remada, prancha e panturrilha. Priorizar tecnica limpa."
+      />
+
+      <View style={styles.coachBox}>
+        <Text style={styles.coachTitle}>Recomendacao do motor</Text>
+        <Text style={styles.coachText}>
+          Semana de adaptacao. Manter conforto respiratorio e registrar sensacao apos o treino.
+        </Text>
+      </View>
+
+      <Pressable style={[styles.primaryButton, completedToday && styles.disabledButton]} onPress={onComplete}>
+        <Text style={styles.primaryButtonText}>{completedToday ? 'Treino registrado' : 'Marcar como feito'}</Text>
+        <Ionicons name="checkmark-circle" size={18} color="#ffffff" />
+      </Pressable>
+    </View>
+  );
+}
+
+function Week({ accessToken, baseRoutineDays }: { accessToken: string; baseRoutineDays: RoutineDay[] }) {
+  const [plan, setPlan] = useState<WeekPlan | null>(null);
+  const [weeklyRoutine, setWeeklyRoutine] = useState<RoutineDay[]>(cloneRoutine(baseRoutineDays));
+  const [completionDrafts, setCompletionDrafts] = useState<Record<string, CompletionDraft>>({});
+  const [status, setStatus] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (accessToken) {
+      loadPlan();
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    setWeeklyRoutine(cloneRoutine(baseRoutineDays));
+  }, [baseRoutineDays]);
+
+  async function loadPlan() {
+    setIsLoading(true);
+    setStatus('');
+    try {
+      const response = await fetch(`${API_URL}/training-plans/current`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        setStatus('Nao consegui carregar a semana.');
+        return;
+      }
+
+      const data = (await response.json()) as WeekPlan | null;
+      if (data && !isDetailedPlan(data)) {
+        setPlan(null);
+        setStatus('Plano antigo detectado. Gere uma nova semana para ver os treinos detalhados.');
+        return;
+      }
+
+      setPlan(data);
+      if (!data) {
+        setStatus('Gerando sua semana de treino...');
+        await generatePlan();
+        return;
+      }
+    } catch {
+      setStatus('Nao consegui conectar com a API agora.');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function generatePlan() {
+    setIsLoading(true);
+    setStatus('');
+    try {
+      const response = await fetch(`${API_URL}/training-plans/week`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          availability: routineToAvailability(weeklyRoutine),
+        }),
+      });
+
+      if (!response.ok) {
+        setStatus('Nao consegui gerar a semana.');
+        return;
+      }
+
+      const data = (await response.json()) as WeekPlan;
+      if (!isDetailedPlan(data)) {
+        setPlan(null);
+        setStatus('A API ainda esta com a versao antiga. Publique no EasyPanel e gere novamente.');
+        return;
+      }
+
+      setPlan(data);
+      setStatus('Plano detalhado da semana gerado.');
+    } catch {
+      setStatus('Nao consegui conectar com a API agora.');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function moveSession(sessionId: string, direction: -1 | 1) {
+    setPlan((currentPlan) => {
+      if (!currentPlan) {
+        return currentPlan;
+      }
+
+      const nextSessions = currentPlan.sessions.map((session) =>
+        session.id === sessionId ? shiftSessionDay(session, direction) : session,
+      );
+
+      return { ...currentPlan, sessions: sortSessionsByWeek(nextSessions) };
+    });
+    setStatus('Treino movido apenas nesta semana.');
+  }
+
+  function updateCompletionDraft(session: WeekPlanSession, patch: Partial<CompletionDraft>) {
+    setCompletionDrafts((current) => ({
+      ...current,
+      [session.id]: {
+        ...defaultCompletionDraft(session),
+        ...current[session.id],
+        ...patch,
+      },
+    }));
+  }
+
+  async function saveCompletion(session: WeekPlanSession) {
+    const draft = completionDrafts[session.id] ?? defaultCompletionDraft(session);
+    const body = {
+      sessionId: session.id,
+      status: draft.status,
+      perceivedEffort: Number(draft.perceivedEffort) || undefined,
+      durationMin: Number(draft.durationMin) || undefined,
+      distanceKm: Number(draft.distanceKm.replace(',', '.')) || undefined,
+      avgPaceSecondsKm: paceInputToSeconds(draft.avgPace) ?? undefined,
+      notes: draft.notes || undefined,
+      details: {
+        loadsText: draft.loadsText,
+      },
+    };
+
+    setStatus('');
+    try {
+      const response = await fetch(`${API_URL}/workout-completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        setStatus('Nao consegui salvar o registro do treino.');
+        return;
+      }
+
+      setStatus('Registro do treino salvo.');
+    } catch {
+      setStatus('Nao consegui conectar com a API agora.');
+    }
+  }
+
+  const sessions = plan?.sessions.length ? plan.sessions : [];
+  const weekRange = plan ? planWeekRange(plan) : currentWeekRange();
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Treino da semana</Text>
+      <Text style={styles.titleSmall}>{weekRange}</Text>
+      <Text style={styles.copyTight}>Seu treino aparece primeiro. Use o ajuste no final da tela quando a rotina desta semana mudar.</Text>
+
+      {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+
+      <View style={styles.weekList}>
+        {plan?.recommendation ? (
+          <View style={styles.coachBox}>
+            <Text style={styles.coachTitle}>Orientacao da semana</Text>
+            <Text style={styles.coachText}>{plan.recommendation}</Text>
+          </View>
+        ) : null}
+        {sessions.map((session) => (
+          <View style={styles.weekItem} key={`${session.day}-${session.title}-${session.id}`}>
+            <View style={styles.weekDate}>
+              <Text style={styles.weekDay}>{session.day}</Text>
+              <Text style={styles.weekNumber}>{session.date}</Text>
+            </View>
+            <View style={styles.weekIcon}>
+              <Ionicons name={iconForModality(session.modality)} size={20} color="#111827" />
+            </View>
+            <View style={styles.weekText}>
+              <Text style={styles.sessionTitle}>{session.title}</Text>
+              <Text style={styles.sessionDetail}>{session.detail}</Text>
+              {'notes' in session && session.notes ? <Text style={styles.sessionNote}>{session.notes}</Text> : null}
+              <SessionPrescription session={session} />
+              <CompletionForm
+                session={session}
+                draft={completionDrafts[session.id] ?? defaultCompletionDraft(session)}
+                onChange={(patch) => updateCompletionDraft(session, patch)}
+                onSave={() => saveCompletion(session)}
+              />
+              <View style={styles.moveActions}>
+                <Pressable style={styles.moveButton} onPress={() => moveSession(session.id, -1)}>
+                  <Ionicons name="chevron-back" size={15} color="#0f766e" />
+                  <Text style={styles.moveButtonText}>Dia anterior</Text>
+                </Pressable>
+                <Pressable style={styles.moveButton} onPress={() => moveSession(session.id, 1)}>
+                  <Text style={styles.moveButtonText}>Proximo dia</Text>
+                  <Ionicons name="chevron-forward" size={15} color="#0f766e" />
+                </Pressable>
+              </View>
+            </View>
+            <View style={styles.zonePill}>
+              <Text style={styles.zoneText}>{session.zone}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Ajustar esta semana</Text>
+        <Text style={styles.formHint}>Mude dias, modalidades e tempos apenas para esta semana. Depois gere a semana novamente.</Text>
+        <RoutineEditor routineDays={weeklyRoutine} onChange={setWeeklyRoutine} />
+        <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generatePlan}>
+          <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar semana com estes ajustes'}</Text>
+          <Ionicons name="sparkles" size={18} color="#ffffff" />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function ThreeKmTest({
+  threeKmSeconds,
+  onChangeSeconds,
+  metrics,
+  accessToken,
+}: {
+  threeKmSeconds: string;
+  onChangeSeconds: (value: string) => void;
+  metrics: ThreeKmMetrics;
+  accessToken: string;
+}) {
+  const [saveStatus, setSaveStatus] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function saveTest() {
+    const totalSeconds = Number(threeKmSeconds);
+    setSaveStatus('');
+
+    if (!Number.isFinite(totalSeconds) || totalSeconds < 300 || totalSeconds > 7200) {
+      setSaveStatus('Informe um tempo valido entre 5 minutos e 2 horas.');
+      return;
+    }
+
+    if (!accessToken) {
+      setSaveStatus('Entre novamente na conta para salvar o teste.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/fitness-tests/3km`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          totalSeconds,
+          environment: 'rua',
+          notes: 'Teste registrado no app Panzeri Run.',
+        }),
+      });
+
+      if (!response.ok) {
+        setSaveStatus('Nao consegui salvar. Tente entrar novamente e repetir.');
+        return;
+      }
+
+      setSaveStatus('Teste salvo no banco real.');
+    } catch {
+      setSaveStatus('Nao consegui conectar com a API agora.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Teste fisico</Text>
+      <Text style={styles.titleSmall}>Teste de 3 km</Text>
+      <Text style={styles.copyTight}>
+        Informe o tempo total em segundos. Exemplo: 20 minutos = 1200 segundos.
+      </Text>
+
+      <TextInput
+        style={styles.input}
+        value={threeKmSeconds}
+        onChangeText={(value) => onChangeSeconds(value.replace(/[^0-9]/g, ''))}
+        keyboardType="numeric"
+        placeholder="Tempo total em segundos"
+      />
+
+      <View style={styles.metricGrid}>
+        <Metric icon="speedometer" label="Pace medio" value={metrics.pace} />
+        <Metric icon="analytics" label="VO2max est." value={metrics.vo2max} />
+        <Metric icon="flash" label="vVO2max" value={metrics.vvo2} />
+      </View>
+
+      <View style={styles.zoneTable}>
+        <ZoneRow zone="Z1" label="Recuperacao" pace={metrics.zones.z1} />
+        <ZoneRow zone="Z2" label="Base aerobica" pace={metrics.zones.z2} />
+        <ZoneRow zone="Z3" label="Moderado" pace={metrics.zones.z3} />
+        <ZoneRow zone="Z4" label="Forte" pace={metrics.zones.z4} />
+        <ZoneRow zone="Z5" label="Tiros curtos" pace={metrics.zones.z5} />
+      </View>
+
+      <Pressable style={[styles.primaryButton, isSaving && styles.disabledButton]} disabled={isSaving} onPress={saveTest}>
+        <Text style={styles.primaryButtonText}>{isSaving ? 'Salvando...' : 'Salvar teste de 3 km'}</Text>
+        <Ionicons name="cloud-upload" size={18} color="#ffffff" />
+      </Pressable>
+
+      {saveStatus ? <Text style={styles.statusMessage}>{saveStatus}</Text> : null}
+    </View>
+  );
+}
+
+function Progress({ completedToday, metrics, accessToken }: { completedToday: boolean; metrics: ThreeKmMetrics; accessToken: string }) {
+  const [stravaStatus, setStravaStatus] = useState('');
+  const [stravaReport, setStravaReport] = useState<StravaReport | null>(null);
+
+  async function connectStrava() {
+    setStravaStatus('');
+    const authPopup = openAuthPopup();
+    authPopup?.document?.write(
+      '<p style="font-family: Arial, sans-serif; padding: 24px;">Abrindo autorizacao do Strava...</p>',
+    );
+
+    try {
+      const response = await fetch(`${API_URL}/strava/connect-url`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!response.ok) {
+        authPopup?.close?.();
+        setStravaStatus('Configure o Strava no servidor antes de conectar.');
+        return;
+      }
+
+      const data = (await response.json()) as { url: string };
+      if (authPopup?.location) {
+        authPopup.location.href = data.url;
+      } else {
+        Linking.openURL(data.url);
+      }
+      setStravaStatus('Autorize o Strava na janela aberta. Depois toque em Sincronizar e comparar.');
+    } catch {
+      authPopup?.close?.();
+      setStravaStatus('Nao consegui abrir a conexao com o Strava.');
+    }
+  }
+
+  async function syncStrava() {
+    setStravaStatus('Sincronizando Strava...');
+    try {
+      const syncResponse = await fetch(`${API_URL}/strava/sync`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!syncResponse.ok) {
+        setStravaStatus('Conecte o Strava antes de sincronizar.');
+        return;
+      }
+
+      const reportResponse = await fetch(`${API_URL}/strava/report`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!reportResponse.ok) {
+        setStravaStatus('Sincronizei, mas nao consegui gerar o relatorio.');
+        return;
+      }
+
+      setStravaReport((await reportResponse.json()) as StravaReport);
+      setStravaStatus('Relatorio atualizado com dados do Strava.');
+    } catch {
+      setStravaStatus('Nao consegui conectar com a API agora.');
+    }
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Evolucao</Text>
+      <Text style={styles.titleSmall}>Resumo do aluno</Text>
+
+      <View style={styles.metricGrid}>
+        <Metric icon="checkmark-done" label="Aderencia" value={completedToday ? '82%' : '76%'} />
+        <Metric icon="map" label="Km no mes" value="42,8" />
+        <Metric icon="trophy" label="Melhor 3 km" value={metrics.pace} />
+      </View>
+
+      <View style={styles.badgeRow}>
+        <Badge icon="medal" title="1 semana ativa" />
+        <Badge icon="flame" title="3 treinos na semana" />
+        <Badge icon="barbell" title="Forca registrada" />
+      </View>
+
+      <View style={styles.coachBox}>
+        <Text style={styles.coachTitle}>Proxima revisao</Text>
+        <Text style={styles.coachText}>
+          Se a aderencia ficar acima de 85% por 3 semanas, o plano pode evoluir volume ou intensidade de forma gradual.
+        </Text>
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Strava</Text>
+        <Text style={styles.formHint}>Conecte o Strava para comparar o treino prescrito com o que o aluno realmente fez.</Text>
+        <Pressable style={styles.secondaryOutlineButton} onPress={connectStrava}>
+          <Text style={styles.secondaryOutlineButtonText}>Conectar Strava</Text>
+          <Ionicons name="link" size={18} color="#0f766e" />
+        </Pressable>
+        <Pressable style={styles.primaryButton} onPress={syncStrava}>
+          <Text style={styles.primaryButtonText}>Sincronizar e comparar</Text>
+          <Ionicons name="sync" size={18} color="#ffffff" />
+        </Pressable>
+        {stravaStatus ? <Text style={styles.statusMessage}>{stravaStatus}</Text> : null}
+      </View>
+
+      {stravaReport?.summary ? (
+        <View style={styles.formSection}>
+          <Text style={styles.formSectionTitle}>Prescrito x feito</Text>
+          {stravaReport.summary.coachAnalysis ? (
+            <View style={styles.coachBox}>
+              <Text style={styles.coachTitle}>{stravaReport.summary.coachAnalysis.title}</Text>
+              <Text style={styles.coachText}>{stravaReport.summary.coachAnalysis.text}</Text>
+            </View>
+          ) : null}
+          <View style={styles.metricGrid}>
+            <Metric icon="checkmark-done" label="Aderencia geral" value={`${stravaReport.summary.adherencePercent}%`} />
+            <Metric icon="map" label="Km prescrito/feito" value={`${stravaReport.summary.prescribedKm} / ${stravaReport.summary.actualKm}`} />
+            <Metric icon="time" label="Min prescrito/feito" value={`${stravaReport.summary.prescribedMinutes} / ${stravaReport.summary.actualMinutes}`} />
+          </View>
+          {stravaReport.items.map((item) => (
+            <View style={styles.reportRow} key={`${item.date}-${item.title}`}>
+              <Text style={styles.reportTitle}>{item.date} - {item.title}</Text>
+              <Text style={styles.reportText}>
+                {reportStatusLabel(item)}
+                {item.distanceDiff !== null && item.distanceDiff !== undefined ? ` | diferenca: ${item.distanceDiff} km` : ''}
+                {item.durationDiff !== null && item.durationDiff !== undefined ? ` | ${item.durationDiff} min` : ''}
+                {item.pace ? ` | pace ${item.pace}` : ''}
+                {item.perceivedEffort ? ` | esforco ${item.perceivedEffort}/10` : ''}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function Anamnese({
+  accessToken,
+  userEmail,
+  userName,
+  savedMe,
+  onSavedMeChange,
+  onNameChange,
+  routineDays,
+  onRoutineChange,
+}: {
+  accessToken: string;
+  userEmail: string;
+  userName: string;
+  savedMe: MeResponse | null;
+  onSavedMeChange: (me: MeResponse | null) => void;
+  onNameChange: (name: string) => void;
+  routineDays: RoutineDay[];
+  onRoutineChange: (routineDays: RoutineDay[]) => void;
+}) {
+  const [name, setName] = useState(userName);
+  const [birthDate, setBirthDate] = useState('');
+  const [heightCm, setHeightCm] = useState('');
+  const [weightKg, setWeightKg] = useState('');
+  const [sleep, setSleep] = useState('6_7');
+  const [stress, setStress] = useState('moderado');
+  const [anxiety, setAnxiety] = useState('nao');
+  const [healthProblems, setHealthProblems] = useState('');
+  const [medications, setMedications] = useState('');
+  const [injuries, setInjuries] = useState('Sem lesao impeditiva informada.');
+  const [preferredModalities, setPreferredModalities] = useState<string[]>(['Corrida']);
+  const [otherModalities, setOtherModalities] = useState<string[]>([]);
+  const [trainingLocations, setTrainingLocations] = useState<string[]>(['Corrida na rua']);
+  const [mainGoal, setMainGoal] = useState('Primeiros 10km');
+  const [status, setStatus] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!savedMe) {
+      return;
+    }
+
+    setName(savedMe.name ?? userName);
+    setBirthDate(savedMe.birthDate ? formatDateFromApi(savedMe.birthDate) : '');
+    setHeightCm(savedMe.heightCm ? String(savedMe.heightCm) : '');
+    setWeightKg(savedMe.weightKg ? String(savedMe.weightKg).replace('.', ',') : '');
+    setSleep(savedMe.healthProfile?.averageSleep ?? '6_7');
+    setStress(savedMe.healthProfile?.stressLevel ?? 'moderado');
+    setAnxiety(savedMe.healthProfile?.anxietyLevel ?? 'nao');
+    setHealthProblems(savedMe.healthProfile?.healthProblems ?? '');
+    setMedications(savedMe.healthProfile?.medications ?? '');
+    setInjuries(savedMe.healthProfile?.previousInjuries ?? 'Sem lesao impeditiva informada.');
+    setPreferredModalities(savedMe.preferences?.preferredModalities?.length ? savedMe.preferences.preferredModalities : ['Corrida']);
+    setOtherModalities(savedMe.preferences?.otherModalities ?? []);
+    setTrainingLocations(savedMe.preferences?.trainingLocations?.length ? savedMe.preferences.trainingLocations : ['Corrida na rua']);
+    setMainGoal(savedMe.preferences?.mainGoal ?? 'Primeiros 10km');
+  }, [savedMe, userName]);
+
+  async function saveProfile() {
+    const cleanName = name.trim();
+    const apiBirthDate = parseBrazilianDate(birthDate);
+    const parsedHeight = Number(heightCm);
+    const parsedWeight = Number(weightKg.replace(',', '.'));
+
+    setStatus('');
+
+    if (!accessToken) {
+      setStatus('Entre novamente na conta para salvar o perfil.');
+      return;
+    }
+
+    if (!cleanName || !userEmail || !apiBirthDate || !Number.isFinite(parsedHeight) || !Number.isFinite(parsedWeight)) {
+      setStatus('Preencha nome, nascimento em dia/mes/ano, altura e peso.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const headers = {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      };
+
+      const profileResponse = await fetch(`${API_URL}/me/profile`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          name: cleanName,
+          email: userEmail,
+          birthDate: apiBirthDate,
+          sex: 'prefiro_nao_informar',
+          heightCm: Math.round(parsedHeight),
+          weightKg: parsedWeight,
+        }),
+      });
+
+      if (!profileResponse.ok) {
+        setStatus('Nao consegui salvar os dados pessoais.');
+        return;
+      }
+
+      const healthResponse = await fetch(`${API_URL}/me/health`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          averageSleep: sleep,
+          stressLevel: stress,
+          anxietyLevel: anxiety,
+          previousInjuries: injuries,
+          healthProblems,
+          medications,
+        }),
+      });
+
+      if (!healthResponse.ok) {
+        setStatus('Salvei dados pessoais, mas falta revisar saude.');
+        return;
+      }
+
+      const preferencesResponse = await fetch(`${API_URL}/me/preferences`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          preferredModalities,
+          otherModalities,
+          trainingLocations,
+          mainGoal,
+          experienceLevel: 'iniciante_intermediario',
+        }),
+      });
+
+      if (!preferencesResponse.ok) {
+        setStatus('Salvei perfil e saude, mas falta revisar preferencias.');
+        return;
+      }
+
+      const availabilityResponse = await fetch(`${API_URL}/me/availability`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          availability: routineToAvailability(routineDays),
+        }),
+      });
+
+      if (!availabilityResponse.ok) {
+        setStatus('Salvei perfil e saude, mas falta revisar disponibilidade.');
+        return;
+      }
+
+      onNameChange(cleanName);
+      const refreshedMe = await loadSavedMe(accessToken);
+      if (refreshedMe) {
+        onSavedMeChange(refreshedMe);
+      }
+      setStatus('Anamnese salva.');
+    } catch {
+      setStatus('Nao consegui conectar com a API agora.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Anamnese</Text>
+      <Text style={styles.titleSmall}>Suas informacoes</Text>
+
+      <View style={styles.formGrid}>
+        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Nome" />
+        <TextInput
+          style={styles.input}
+          value={birthDate}
+          onChangeText={(value) => setBirthDate(formatBrazilianDateInput(value))}
+          keyboardType="numeric"
+          placeholder="Nascimento: DD/MM/AAAA"
+        />
+        <TextInput
+          style={styles.input}
+          value={heightCm}
+          onChangeText={(value) => setHeightCm(value.replace(/[^0-9]/g, ''))}
+          keyboardType="numeric"
+          placeholder="Altura em cm"
+        />
+        <TextInput
+          style={styles.input}
+          value={weightKg}
+          onChangeText={(value) => setWeightKg(value.replace(/[^0-9,.]/g, ''))}
+          keyboardType="numeric"
+          placeholder="Peso em kg"
+        />
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Saude e seguranca</Text>
+        <Text style={styles.formHint}>Sono medio</Text>
+        <OptionGroup
+          options={[
+            { label: 'Menos de 5h', value: 'menos_5' },
+            { label: '5 a 6h', value: '5_6' },
+            { label: '6 a 7h', value: '6_7' },
+            { label: '7 a 8h', value: '7_8' },
+            { label: 'Mais de 8h', value: 'mais_8' },
+          ]}
+          selected={[sleep]}
+          onToggle={(value) => setSleep(value)}
+        />
+
+        <Text style={styles.formHint}>Nivel de estresse</Text>
+        <OptionGroup
+          options={[
+            { label: 'Baixo', value: 'baixo' },
+            { label: 'Moderado', value: 'moderado' },
+            { label: 'Alto', value: 'alto' },
+            { label: 'Muito alto', value: 'muito_alto' },
+          ]}
+          selected={[stress]}
+          onToggle={(value) => setStress(value)}
+        />
+
+        <Text style={styles.formHint}>Ansiedade</Text>
+        <OptionGroup
+          options={[
+            { label: 'Nao', value: 'nao' },
+            { label: 'Leve', value: 'leve' },
+            { label: 'Moderada', value: 'moderada' },
+            { label: 'Alta', value: 'alta' },
+          ]}
+          selected={[anxiety]}
+          onToggle={(value) => setAnxiety(value)}
+        />
+
+        <TextInput
+          style={[styles.input, styles.multilineInput]}
+          value={injuries}
+          onChangeText={setInjuries}
+          multiline
+          placeholder="Lesoes, cirurgias ou limitacoes"
+        />
+        <TextInput
+          style={[styles.input, styles.multilineInput]}
+          value={healthProblems}
+          onChangeText={setHealthProblems}
+          multiline
+          placeholder="Problemas de saude relevantes"
+        />
+        <TextInput
+          style={styles.input}
+          value={medications}
+          onChangeText={setMedications}
+          placeholder="Medicamentos em uso"
+        />
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Objetivo</Text>
+        <OptionGroup options={toOptions(goalOptions)} selected={[mainGoal]} onToggle={setMainGoal} />
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Modalidades preferidas</Text>
+        <OptionGroup options={toOptions(modalityOptions)} selected={preferredModalities} onToggle={(value) => toggleSelection(preferredModalities, value, setPreferredModalities)} />
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Outras modalidades</Text>
+        <Text style={styles.formHint}>Marque se ja pratica ou vai iniciar junto com o programa.</Text>
+        <OptionGroup options={toOptions(modalityOptions)} selected={otherModalities} onToggle={(value) => toggleSelection(otherModalities, value, setOtherModalities)} />
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Locais disponiveis</Text>
+        <OptionGroup options={toOptions(locationOptions)} selected={trainingLocations} onToggle={(value) => toggleSelection(trainingLocations, value, setTrainingLocations)} />
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Dias e disponibilidade</Text>
+        <Text style={styles.formHint}>Em cada dia, escolha o que pode fazer. Se marcar Sem treinos, as outras opcoes saem.</Text>
+        <RoutineEditor routineDays={routineDays} onChange={onRoutineChange} />
+      </View>
+
+      <Pressable style={[styles.primaryButton, isSaving && styles.disabledButton]} disabled={isSaving} onPress={saveProfile}>
+        <Text style={styles.primaryButtonText}>{isSaving ? 'Salvando...' : 'Salvar anamnese'}</Text>
+        <Ionicons name="save" size={18} color="#ffffff" />
+      </Pressable>
+
+      {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+    </View>
+  );
+}
+
+function AppMenu({ activeTab, onChange }: { activeTab: Tab; onChange: (tab: Tab) => void }) {
+  const tabs: Array<{ id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
+    { id: 'week', label: 'Treino da semana', icon: 'calendar' },
+    { id: 'anamnese', label: 'Anamnese', icon: 'clipboard' },
+    { id: 'test', label: 'Teste de VO2 max', icon: 'stopwatch' },
+    { id: 'progress', label: 'Evolucao', icon: 'stats-chart' },
+    { id: 'profile', label: 'Perfil', icon: 'person' },
+  ];
+
+  return (
+    <View style={styles.appMenu}>
+      {tabs.map((tab) => {
+        const active = tab.id === activeTab;
+        return (
+          <Pressable style={[styles.menuItem, active && styles.menuItemActive]} key={tab.id} onPress={() => onChange(tab.id)}>
+            <Ionicons name={tab.icon} size={21} color={active ? '#0f766e' : '#64748b'} />
+            <Text style={[styles.menuItemText, active && styles.menuItemTextActive]}>{tab.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function Metric({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string }) {
+  return (
+    <View style={styles.metricCard}>
+      <Ionicons name={icon} size={22} color="#0f766e" />
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={styles.metricValue}>{value}</Text>
+    </View>
+  );
+}
+
+function SessionCard({
+  icon,
+  title,
+  detail,
+  note,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  detail: string;
+  note: string;
+}) {
+  return (
+    <View style={styles.sessionCard}>
+      <View style={styles.sessionIcon}>
+        <Ionicons name={icon} size={22} color="#111827" />
+      </View>
+      <View style={styles.sessionText}>
+        <Text style={styles.sessionTitle}>{title}</Text>
+        <Text style={styles.sessionDetail}>{detail}</Text>
+        <Text style={styles.sessionNote}>{note}</Text>
+      </View>
+    </View>
+  );
+}
+
+function SessionPrescription({ session }: { session: WeekPlanSession }) {
+  const structure = session.structure;
+  if (!structure) {
+    return null;
+  }
+
+  if (structure.type === 'strength') {
+    return (
+      <View style={styles.prescriptionBox}>
+        {structure.category ? <Text style={styles.prescriptionCategory}>{structure.category}</Text> : null}
+        {structure.exercises?.map((exercise) => (
+          <View style={styles.exerciseRow} key={exercise.name}>
+            <Text style={styles.exerciseName}>{exercise.name}</Text>
+            {exercise.description ? <Text style={styles.prescriptionText}>{exercise.description}</Text> : null}
+            <Text style={styles.prescriptionText}>
+              {exercise.sets} series x {exercise.reps} | pausa {exercise.restSeconds}s
+            </Text>
+            {exercise.cadence ? <Text style={styles.prescriptionText}>Cadencia: {exercise.cadence}</Text> : null}
+            {exercise.loadField ? <Text style={styles.loadField}>Carga usada: ______ kg</Text> : null}
+            {exercise.videoUrl ? (
+              <Pressable style={styles.videoButton} onPress={() => Linking.openURL(exercise.videoUrl!)}>
+                <Ionicons name="play-circle" size={15} color="#0f766e" />
+                <Text style={styles.videoButtonText}>Ver execucao</Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.noVideoText}>Exercicio sem video cadastrado.</Text>
+            )}
+          </View>
+        ))}
+      </View>
+    );
+  }
+
+  if (structure.type === 'aerobic') {
+    return (
+      <View style={styles.prescriptionBox}>
+        {structure.guidance ? <Text style={styles.prescriptionText}>{structure.guidance}</Text> : null}
+        {structure.blocks?.map((block) => (
+          <Text style={styles.prescriptionText} key={block.label}>
+            {block.label}: {block.durationMin} min {block.zone ? `| ${block.zone}` : ''}
+            {block.guidance ? ` | ${block.guidance}` : ''}
+          </Text>
+        ))}
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.prescriptionBox}>
+      <Text style={styles.prescriptionText}>
+        Distancia alvo: {structure.distanceKm ?? session.distanceKm ?? '-'} km | Velocidade: {structure.speedKmh ?? '-'} km/h
+      </Text>
+      <Text style={styles.prescriptionText}>
+        Zona: {structure.zone ?? session.zone} | Pace: {structure.paceRange ?? 'calcular apos teste'}
+      </Text>
+      {structure.blocks?.map((block) => (
+        <Text style={styles.prescriptionText} key={block.label}>
+          {block.label}: {block.durationMin} min {block.zone ? `| ${block.zone}` : ''}{' '}
+          {block.paceRange ? `| ${block.paceRange}` : ''}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+function CompletionForm({
+  session,
+  draft,
+  onChange,
+  onSave,
+}: {
+  session: WeekPlanSession;
+  draft: CompletionDraft;
+  onChange: (patch: Partial<CompletionDraft>) => void;
+  onSave: () => void;
+}) {
+  const isRun = session.structure?.type === 'run';
+  const isAerobic = session.structure?.type === 'aerobic';
+  const isStrength = session.structure?.type === 'strength';
+
+  return (
+    <View style={styles.completionBox}>
+      <Text style={styles.completionTitle}>Registro do treino</Text>
+      <View style={styles.completionStatusRow}>
+        {[
+          { label: 'Feito', value: 'done' },
+          { label: 'Nao feito', value: 'missed' },
+          { label: 'Ajustado', value: 'adjusted' },
+        ].map((option) => (
+          <Pressable
+            key={option.value}
+            style={[styles.completionChip, draft.status === option.value && styles.completionChipActive]}
+            onPress={() => onChange({ status: option.value as CompletionDraft['status'] })}
+          >
+            <Text style={[styles.completionChipText, draft.status === option.value && styles.completionChipTextActive]}>{option.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {(isRun || isAerobic) && (
+        <View style={styles.completionGrid}>
+          <TextInput
+            style={styles.compactInput}
+            value={draft.durationMin}
+            onChangeText={(value) => onChange({ durationMin: value.replace(/[^0-9]/g, '') })}
+            keyboardType="numeric"
+            placeholder="Tempo min"
+          />
+          {isRun ? (
+            <>
+              <TextInput
+                style={styles.compactInput}
+                value={draft.distanceKm}
+                onChangeText={(value) => onChange({ distanceKm: value.replace(/[^0-9,.]/g, '') })}
+                keyboardType="numeric"
+                placeholder="Km"
+              />
+              <TextInput
+                style={styles.compactInput}
+                value={draft.avgPace}
+                onChangeText={(value) => onChange({ avgPace: value })}
+                placeholder="Pace mm:ss"
+              />
+            </>
+          ) : null}
+        </View>
+      )}
+
+      {isStrength ? (
+        <TextInput
+          style={[styles.compactInput, styles.multilineInput]}
+          value={draft.loadsText}
+          onChangeText={(value) => onChange({ loadsText: value })}
+          multiline
+          placeholder="Cargas usadas por exercicio"
+        />
+      ) : null}
+
+      <View style={styles.completionGrid}>
+        <TextInput
+          style={styles.compactInput}
+          value={draft.perceivedEffort}
+          onChangeText={(value) => onChange({ perceivedEffort: value.replace(/[^0-9]/g, '').slice(0, 2) })}
+          keyboardType="numeric"
+          placeholder="RPE 1-10"
+        />
+      </View>
+
+      <TextInput
+        style={[styles.compactInput, styles.multilineInput]}
+        value={draft.notes}
+        onChangeText={(value) => onChange({ notes: value })}
+        multiline
+        placeholder="Observacao do aluno"
+      />
+
+      <Pressable style={styles.saveCompletionButton} onPress={onSave}>
+        <Ionicons name="checkmark-circle" size={16} color="#ffffff" />
+        <Text style={styles.saveCompletionText}>Salvar registro</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function ZoneRow({ zone, label, pace }: { zone: string; label: string; pace: string }) {
+  return (
+    <View style={styles.zoneRow}>
+      <Text style={styles.zoneName}>{zone}</Text>
+      <Text style={styles.zoneLabel}>{label}</Text>
+      <Text style={styles.zonePace}>{pace}</Text>
+    </View>
+  );
+}
+
+function Badge({
+  icon,
+  title,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+}) {
+  return (
+    <View style={styles.badge}>
+      <Ionicons name={icon} size={19} color="#92400e" />
+      <Text style={styles.badgeText}>{title}</Text>
+    </View>
+  );
+}
+
+function RoutineEditor({
+  routineDays,
+  onChange,
+}: {
+  routineDays: RoutineDay[];
+  onChange: (routineDays: RoutineDay[]) => void;
+}) {
+  function updateDay(weekday: number, patch: Partial<RoutineDay>) {
+    onChange(routineDays.map((day) => (day.weekday === weekday ? { ...day, ...patch } : day)));
+  }
+
+  function toggleDayModality(day: RoutineDay, option: string) {
+    if (option === 'Sem treinos') {
+      updateDay(day.weekday, { modalities: ['Sem treinos'], minutesByModality: {} });
+      return;
+    }
+
+    const withoutRest = day.modalities.filter((item) => item !== 'Sem treinos');
+    const next = withoutRest.includes(option) ? withoutRest.filter((item) => item !== option) : [...withoutRest, option];
+    const nextMinutes = next.reduce<Record<string, string>>((acc, modality) => {
+      acc[modality] = day.minutesByModality[modality] ?? '45';
+      return acc;
+    }, {});
+
+    updateDay(day.weekday, {
+      modalities: next.length ? next : ['Sem treinos'],
+      minutesByModality: next.length ? nextMinutes : {},
+    });
+  }
+
+  function updateMinutes(day: RoutineDay, modality: string, minutes: string) {
+    updateDay(day.weekday, {
+      minutesByModality: {
+        ...day.minutesByModality,
+        [modality]: minutes,
+      },
+    });
+  }
+
+  return (
+    <View style={styles.routineList}>
+      {routineDays.map((day) => (
+        <View style={styles.routineCard} key={day.weekday}>
+          <Text style={styles.routineTitle}>{day.label}</Text>
+          <OptionGroup
+            options={toOptions(dayTrainingOptions)}
+            selected={day.modalities}
+            onToggle={(value) => toggleDayModality(day, value)}
+          />
+          {!day.modalities.includes('Sem treinos') && (
+            <View style={styles.modalityTimeList}>
+              {day.modalities.map((modality) => (
+                <View style={styles.modalityTimeRow} key={`${day.weekday}-${modality}`}>
+                  <Text style={styles.modalityTimeLabel}>{modality}</Text>
+                  <TimeDropdown value={day.minutesByModality[modality] ?? '45'} onChange={(minutes) => updateMinutes(day, modality, minutes)} />
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function OptionGroup({
+  options,
+  selected,
+  onToggle,
+}: {
+  options: Array<{ label: string; value: string }>;
+  selected: string[];
+  onToggle: (value: string) => void;
+}) {
+  return (
+    <View style={styles.optionWrap}>
+      {options.map((option) => {
+        const active = selected.includes(option.value);
+        return (
+          <Pressable style={[styles.optionChip, active && styles.optionChipActive]} key={option.value} onPress={() => onToggle(option.value)}>
+            <Text style={[styles.optionChipText, active && styles.optionChipTextActive]}>{option.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function TimeDropdown({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const label = timeLabel(value);
+
+  return (
+    <View style={styles.dropdownBox}>
+      <Pressable style={styles.dropdownButton} onPress={() => setOpen(!open)}>
+        <Text style={styles.dropdownButtonText}>{label}</Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color="#0f766e" />
+      </Pressable>
+      {open && (
+        <View style={styles.dropdownMenu}>
+          {timeOptions.map((option) => (
+            <Pressable
+              style={[styles.dropdownOption, value === option && styles.dropdownOptionActive]}
+              key={option}
+              onPress={() => {
+                onChange(option);
+                setOpen(false);
+              }}
+            >
+              <Text style={[styles.dropdownOptionText, value === option && styles.dropdownOptionTextActive]}>{timeLabel(option)}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function iconForModality(modality: string): keyof typeof Ionicons.glyphMap {
+  if (modality === 'forca' || modality === 'fortalecimento_corredores') {
+    return 'barbell';
+  }
+  if (modality === 'descanso') {
+    return 'moon';
+  }
+  return 'walk';
+}
+
+function shiftSessionDay(session: WeekPlanSession, direction: -1 | 1): WeekPlanSession {
+  const currentWeekday = dayToWeekday(session.day);
+  const nextWeekday = (currentWeekday + direction + 7) % 7;
+  const nextDate = shiftDayMonth(session.date, direction);
+
+  return {
+    ...session,
+    day: weekdayShortLabel(nextWeekday),
+    date: nextDate ?? session.date,
+  };
+}
+
+function sortSessionsByWeek(sessions: WeekPlanSession[]) {
+  return [...sessions].sort((left, right) => {
+    const leftOrder = weekSortValue(left.day);
+    const rightOrder = weekSortValue(right.day);
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+    return left.title.localeCompare(right.title);
+  });
+}
+
+function weekSortValue(day: string) {
+  const weekday = dayToWeekday(day);
+  return weekday === 0 ? 7 : weekday;
+}
+
+function dayToWeekday(day: string) {
+  const normalized = day.toLowerCase();
+  if (normalized.startsWith('seg')) return 1;
+  if (normalized.startsWith('ter')) return 2;
+  if (normalized.startsWith('qua')) return 3;
+  if (normalized.startsWith('qui')) return 4;
+  if (normalized.startsWith('sex')) return 5;
+  if (normalized.startsWith('sab')) return 6;
+  return 0;
+}
+
+function weekdayShortLabel(weekday: number) {
+  return ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'][weekday] ?? 'Seg';
+}
+
+function planWeekRange(plan: WeekPlan) {
+  const start = plan.startDate ? new Date(plan.startDate) : null;
+  const end = plan.endDate ? new Date(plan.endDate) : null;
+
+  if (start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+    return `${formatDayMonth(start)} ${weekdayFullLabel(start)} ate ${formatDayMonth(end)} ${weekdayFullLabel(end)}`;
+  }
+
+  if (plan.sessions.length) {
+    const first = plan.sessions[0];
+    const last = plan.sessions[plan.sessions.length - 1];
+    return `${first.date} ${weekdayFullFromShort(first.day)} ate ${last.date} ${weekdayFullFromShort(last.day)}`;
+  }
+
+  return currentWeekRange();
+}
+
+function currentWeekRange() {
+  const today = new Date();
+  const day = today.getDay();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + (day === 0 ? -6 : 1 - day));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return `${formatDayMonth(monday)} segunda ate ${formatDayMonth(sunday)} domingo`;
+}
+
+function formatDayMonth(date: Date) {
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function weekdayFullLabel(date: Date) {
+  return ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'][date.getDay()] ?? '';
+}
+
+function weekdayFullFromShort(day: string) {
+  const labels: Record<string, string> = {
+    Dom: 'domingo',
+    Seg: 'segunda',
+    Ter: 'terca',
+    Qua: 'quarta',
+    Qui: 'quinta',
+    Sex: 'sexta',
+    Sab: 'sabado',
+  };
+  return labels[day] ?? '';
+}
+
+function shiftDayMonth(value: string, direction: -1 | 1) {
+  const [day, month] = value.split('/').map(Number);
+  if (!day || !month) {
+    return null;
+  }
+
+  const date = new Date(new Date().getFullYear(), month - 1, day);
+  date.setDate(date.getDate() + direction);
+  const nextDay = String(date.getDate()).padStart(2, '0');
+  const nextMonth = String(date.getMonth() + 1).padStart(2, '0');
+  return `${nextDay}/${nextMonth}`;
+}
+
+function isDetailedPlan(plan: WeekPlan) {
+  return plan.sessions.every(
+    (session) => session.structure?.type === 'run' || session.structure?.type === 'strength' || session.structure?.type === 'aerobic',
+  );
+}
+
+function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
+  return {
+    status: 'done',
+    perceivedEffort: '',
+    durationMin: session.durationMin ? String(session.durationMin) : '',
+    distanceKm: session.distanceKm ? String(session.distanceKm).replace('.', ',') : '',
+    avgPace: '',
+    notes: '',
+    loadsText: '',
+  };
+}
+
+function reportStatusLabel(item: StravaReport['items'][number]) {
+  if (item.status === 'as_prescribed') {
+    return `Modalidade e execucao conforme prescrito${item.activityName ? `: ${item.activityName}` : ''}`;
+  }
+  if (item.status === 'same_modality_changed_execution') {
+    return `Modalidade proposta realizada, mas execucao diferente${item.activityName ? `: ${item.activityName}` : ''}`;
+  }
+  if (item.status === 'different_modality') {
+    return `Treinou, mas em outra modalidade: ${modalityLabel(item.actualModality)}${item.activityName ? ` - ${item.activityName}` : ''}`;
+  }
+  if (item.status === 'not_done') {
+    return `Sem registro de ${modalityLabel(item.modality)}`;
+  }
+  if (item.status === 'future') {
+    return 'Treino ainda nao realizado';
+  }
+  return `Sem registro de ${modalityLabel(item.modality)}`;
+}
+
+function modalityLabel(modality?: string | null) {
+  if (modality === 'corrida' || modality === 'esteira') return 'corrida';
+  if (modality === 'bike') return 'bike/aerobico';
+  if (modality === 'forca') return 'musculacao';
+  if (modality === 'fortalecimento_corredores') return 'fortalecimento';
+  return 'outra atividade';
+}
+
+function paceInputToSeconds(value: string) {
+  const cleanValue = value.trim();
+  if (!cleanValue) {
+    return null;
+  }
+
+  const match = cleanValue.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function routineToAvailability(routineDays: RoutineDay[]) {
+  return routineDays.map((day) => ({
+    weekday: day.weekday,
+    noTraining: day.modalities.includes('Sem treinos'),
+    modalities: day.modalities.includes('Sem treinos') ? [] : day.modalities.map(normalizeModality),
+    modalityDurations: day.modalities.reduce<Record<string, number>>((acc, modality) => {
+      acc[normalizeModality(modality)] = Number(day.minutesByModality[modality]) || 30;
+      return acc;
+    }, {}),
+    availableMin: day.modalities.includes('Sem treinos')
+      ? 0
+      : Math.max(...day.modalities.map((modality) => Number(day.minutesByModality[modality]) || 30)),
+  }));
+}
+
+function normalizeModality(modality: string) {
+  const lower = modality.toLowerCase();
+  if (lower.includes('fortalecimento para corredores')) {
+    return 'fortalecimento_corredores';
+  }
+  if (lower.includes('musculacao') || lower.includes('forca')) {
+    return 'forca';
+  }
+  if (lower.includes('bike')) {
+    return 'bike';
+  }
+  if (lower.includes('esteira')) {
+    return 'esteira';
+  }
+  return 'corrida';
+}
+
+async function loadSavedMe(accessToken: string) {
+  try {
+    const response = await fetch(`${API_URL}/me`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as MeResponse;
+  } catch {
+    return null;
+  }
+}
+
+async function loadNotifications(accessToken: string) {
+  try {
+    const response = await fetch(`${API_URL}/notifications`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) return [];
+    const data = (await response.json()) as { items?: AppNotification[] };
+    return data.items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function routineFromSavedAvailability(availability: SavedAvailabilityDay[]) {
+  if (!availability.length) {
+    return [];
+  }
+
+  return defaultRoutineDays.map((defaultDay) => {
+      const savedDay = availability.find((day) => day.weekday === defaultDay.weekday);
+      if (!savedDay || savedDay.noTraining || !savedDay.modalities.length) {
+        return { ...defaultDay, modalities: ['Sem treinos'], minutesByModality: {} };
+      }
+
+      const modalities = savedDay.modalities.map(labelFromSavedModality);
+      const minutesByModality = modalities.reduce<Record<string, string>>((acc, modalityLabel, index) => {
+        const savedModality = savedDay.modalities[index];
+        const duration = savedDay.modalityDurations?.[savedModality] ?? savedDay.availableMin ?? 45;
+        acc[modalityLabel] = String(duration);
+        return acc;
+      }, {});
+
+      return {
+        ...defaultDay,
+        modalities,
+        minutesByModality,
+      };
+    });
+}
+
+function labelFromSavedModality(modality: string) {
+  if (modality === 'forca') {
+    return 'Musculacao';
+  }
+  if (modality === 'fortalecimento_corredores') {
+    return 'Fortalecimento para corredores';
+  }
+  if (modality === 'esteira') {
+    return 'Corrida na esteira';
+  }
+  if (modality === 'bike') {
+    return 'Bike ou outro aparelho aerobico';
+  }
+  return 'Corrida na rua';
+}
+
+function toOptions(options: string[]) {
+  return options.map((option) => ({ label: option, value: option }));
+}
+
+function toggleSelection(selected: string[], value: string, onChange: (next: string[]) => void) {
+  onChange(selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value]);
+}
+
+function cloneRoutine(routineDays: RoutineDay[]) {
+  return routineDays.map((day) => ({
+    ...day,
+    modalities: [...day.modalities],
+    minutesByModality: { ...day.minutesByModality },
+  }));
+}
+
+function timeLabel(value: string) {
+  if (value === '120') {
+    return 'Mais que 90 min';
+  }
+  return `0 a ${value} min`;
+}
+
+interface ThreeKmMetrics {
+  pace: string;
+  vo2max: string;
+  vvo2: string;
+  zones: {
+    z1: string;
+    z2: string;
+    z3: string;
+    z4: string;
+    z5: string;
+  };
+}
+
+function calculateThreeKmMetrics(totalSeconds: number): ThreeKmMetrics {
+  const safeSeconds = Number.isFinite(totalSeconds) && totalSeconds > 0 ? totalSeconds : 1200;
+  const timeMinutes = safeSeconds / 60;
+  const vo2max = 483 / timeMinutes + 3.5;
+  const vvo2 = 3 / (safeSeconds / 3600);
+  const paceSeconds = Math.round(safeSeconds / 3);
+
+  return {
+    pace: formatPace(paceSeconds),
+    vo2max: vo2max.toFixed(1),
+    vvo2: `${vvo2.toFixed(1)} km/h`,
+    zones: {
+      z1: paceFromSpeed(vvo2 * 0.55),
+      z2: `${paceFromSpeed(vvo2 * 0.65)} a ${paceFromSpeed(vvo2 * 0.55)}`,
+      z3: `${paceFromSpeed(vvo2 * 0.8)} a ${paceFromSpeed(vvo2 * 0.65)}`,
+      z4: `${paceFromSpeed(vvo2)} a ${paceFromSpeed(vvo2 * 0.8)}`,
+      z5: `mais rapido que ${paceFromSpeed(vvo2)}`,
+    },
+  };
+}
+
+function paceFromSpeed(speedKmh: number) {
+  if (!Number.isFinite(speedKmh) || speedKmh <= 0) {
+    return '--';
+  }
+  return formatPace(Math.round(3600 / speedKmh));
+}
+
+function formatPace(secondsPerKm: number) {
+  const minutes = Math.floor(secondsPerKm / 60);
+  const seconds = secondsPerKm % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}/km`;
+}
+
+function formatBrazilianDateInput(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) {
+    return digits;
+  }
+  if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+function parseBrazilianDate(value: string) {
+  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) {
+    return '';
+  }
+
+  const [, day, month, year] = match;
+  const parsedDate = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+  if (
+    Number.isNaN(parsedDate.getTime()) ||
+    parsedDate.getUTCDate() !== Number(day) ||
+    parsedDate.getUTCMonth() + 1 !== Number(month) ||
+    parsedDate.getUTCFullYear() !== Number(year)
+  ) {
+    return '';
+  }
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateFromApi(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${date.getUTCFullYear()}`;
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  screen: {
+    flexGrow: 1,
+    padding: 24,
+    gap: 18,
+    width: '100%',
+    maxWidth: 520,
+    alignSelf: 'center',
+  },
+  onboardingScreen: {
+    justifyContent: 'center',
+    gap: 24,
+  },
+  appShell: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  appHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#dbe4ea',
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  appContent: {
+    padding: 20,
+    paddingBottom: 44,
+  },
+  section: {
+    gap: 16,
+  },
+  alertBox: {
+    borderWidth: 1,
+    borderColor: '#dbe4ea',
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    padding: 14,
+    gap: 10,
+    marginBottom: 14,
+  },
+  alertItem: {
+    borderWidth: 1,
+    borderColor: '#ccfbf1',
+    borderRadius: 8,
+    backgroundColor: '#f0fdfa',
+    padding: 10,
+    gap: 4,
+  },
+  alertTitle: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  alertText: {
+    color: '#334155',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  logoMark: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: '#111827',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brand: {
+    color: '#111827',
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  title: {
+    color: '#111827',
+    fontSize: 34,
+    fontWeight: '800',
+    lineHeight: 40,
+  },
+  heroBlock: {
+    gap: 10,
+  },
+  heroEyebrow: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  heroCopy: {
+    color: '#475569',
+    fontSize: 17,
+    lineHeight: 25,
+  },
+  startGrid: {
+    gap: 10,
+  },
+  startItem: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dbe4ea',
+    backgroundColor: '#ffffff',
+    padding: 16,
+    gap: 6,
+  },
+  startTitle: {
+    color: '#111827',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  startText: {
+    color: '#475569',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  heroButton: {
+    minHeight: 58,
+    borderRadius: 8,
+    backgroundColor: '#0f766e',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  safetyFootnote: {
+    color: '#64748b',
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  titleSmall: {
+    color: '#111827',
+    fontSize: 26,
+    fontWeight: '800',
+  },
+  headerTitle: {
+    color: '#111827',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  headerEmail: {
+    color: '#64748b',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  headerOverline: {
+    color: '#0f766e',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  menuButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    backgroundColor: '#111827',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  appMenu: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#dbe4ea',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  menuItem: {
+    minHeight: 44,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  menuItemActive: {
+    backgroundColor: '#f0fdfa',
+  },
+  menuItemText: {
+    color: '#334155',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  menuItemTextActive: {
+    color: '#0f766e',
+  },
+  copy: {
+    color: '#475569',
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  copyTight: {
+    color: '#475569',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  sectionLabel: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  metricGrid: {
+    gap: 10,
+  },
+  metricCard: {
+    minHeight: 86,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dbe4ea',
+    backgroundColor: '#ffffff',
+    padding: 16,
+    gap: 4,
+  },
+  metricLabel: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  metricValue: {
+    color: '#111827',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  input: {
+    minHeight: 54,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 16,
+    color: '#111827',
+    fontSize: 16,
+  },
+  darkInput: {
+    minHeight: 46,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#475569',
+    backgroundColor: '#1f2937',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#ffffff',
+    fontSize: 14,
+  },
+  multilineInput: {
+    minHeight: 88,
+    textAlignVertical: 'top',
+  },
+  termsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  termsText: {
+    flex: 1,
+    color: '#475569',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  primaryButton: {
+    minHeight: 54,
+    borderRadius: 8,
+    backgroundColor: '#0f766e',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  authActions: {
+    gap: 10,
+  },
+  authButton: {
+    width: '100%',
+  },
+  primaryButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  secondaryOutlineButton: {
+    minHeight: 54,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0f766e',
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  secondaryOutlineButtonText: {
+    color: '#0f766e',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  disabledButton: {
+    opacity: 0.55,
+  },
+  secondaryButton: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryButtonText: {
+    color: '#0f766e',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  statusMessage: {
+    color: '#334155',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  noticeBox: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#99f6e4',
+    backgroundColor: '#f0fdfa',
+    padding: 14,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  noticeText: {
+    flex: 1,
+    color: '#115e59',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  headerLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  statusPill: {
+    borderRadius: 8,
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  statusText: {
+    color: '#92400e',
+    fontWeight: '800',
+  },
+  donePill: {
+    backgroundColor: '#dcfce7',
+  },
+  doneText: {
+    color: '#166534',
+  },
+  sessionCard: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dbe4ea',
+    backgroundColor: '#ffffff',
+    padding: 16,
+    flexDirection: 'row',
+    gap: 12,
+  },
+  sessionIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    backgroundColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sessionText: {
+    flex: 1,
+    gap: 5,
+  },
+  sessionTitle: {
+    color: '#111827',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  sessionDetail: {
+    color: '#0f766e',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  sessionNote: {
+    color: '#475569',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  prescriptionBox: {
+    marginTop: 8,
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 10,
+    gap: 6,
+  },
+  exerciseRow: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    paddingBottom: 8,
+    gap: 3,
+  },
+  exerciseName: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  prescriptionCategory: {
+    color: '#0f766e',
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  prescriptionText: {
+    color: '#334155',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  loadField: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  videoButton: {
+    alignSelf: 'flex-start',
+    minHeight: 30,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#99f6e4',
+    backgroundColor: '#f0fdfa',
+    paddingHorizontal: 9,
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  videoButtonText: {
+    color: '#0f766e',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  noVideoText: {
+    color: '#92400e',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  completionBox: {
+    marginTop: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#ffffff',
+    padding: 10,
+    gap: 8,
+  },
+  completionTitle: {
+    color: '#111827',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  completionStatusRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  completionChip: {
+    minHeight: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    paddingHorizontal: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completionChipActive: {
+    borderColor: '#0f766e',
+    backgroundColor: '#ccfbf1',
+  },
+  completionChipText: {
+    color: '#334155',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  completionChipTextActive: {
+    color: '#115e59',
+  },
+  completionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  compactInput: {
+    minHeight: 42,
+    minWidth: 112,
+    flex: 1,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 10,
+    color: '#111827',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  saveCompletionButton: {
+    minHeight: 40,
+    borderRadius: 8,
+    backgroundColor: '#0f766e',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  saveCompletionText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  reportRow: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+    padding: 10,
+    gap: 4,
+  },
+  reportTitle: {
+    color: '#111827',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  reportText: {
+    color: '#334155',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  coachBox: {
+    borderRadius: 8,
+    backgroundColor: '#111827',
+    padding: 16,
+    gap: 6,
+  },
+  coachTitle: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  coachText: {
+    color: '#cbd5e1',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  weekList: {
+    gap: 10,
+  },
+  weekItem: {
+    minHeight: 74,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dbe4ea',
+    backgroundColor: '#ffffff',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  weekDate: {
+    width: 50,
+  },
+  weekDay: {
+    color: '#111827',
+    fontWeight: '800',
+  },
+  weekNumber: {
+    color: '#64748b',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  weekIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    backgroundColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekText: {
+    flex: 1,
+  },
+  zonePill: {
+    minWidth: 44,
+    borderRadius: 8,
+    backgroundColor: '#ccfbf1',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  zoneText: {
+    color: '#115e59',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  moveActions: {
+    marginTop: 10,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  moveButton: {
+    minHeight: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#99f6e4',
+    backgroundColor: '#f0fdfa',
+    paddingHorizontal: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  moveButtonText: {
+    color: '#0f766e',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  zoneTable: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dbe4ea',
+    overflow: 'hidden',
+    backgroundColor: '#ffffff',
+  },
+  zoneRow: {
+    minHeight: 48,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    gap: 10,
+  },
+  zoneName: {
+    width: 34,
+    color: '#0f766e',
+    fontWeight: '900',
+  },
+  zoneLabel: {
+    flex: 1,
+    color: '#334155',
+    fontWeight: '700',
+  },
+  zonePace: {
+    color: '#111827',
+    fontWeight: '800',
+  },
+  badgeRow: {
+    gap: 10,
+  },
+  badge: {
+    minHeight: 48,
+    borderRadius: 8,
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  badgeText: {
+    color: '#92400e',
+    fontWeight: '800',
+  },
+  formGrid: {
+    gap: 10,
+  },
+  formSection: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dbe4ea',
+    backgroundColor: '#ffffff',
+    padding: 16,
+    gap: 12,
+  },
+  formSectionTitle: {
+    color: '#111827',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  formHint: {
+    color: '#475569',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  optionWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  optionChip: {
+    minHeight: 38,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionChipActive: {
+    borderColor: '#0f766e',
+    backgroundColor: '#ccfbf1',
+  },
+  optionChipText: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  optionChipTextActive: {
+    color: '#115e59',
+  },
+  availabilityBox: {
+    borderRadius: 8,
+    backgroundColor: '#334155',
+    padding: 16,
+    gap: 8,
+  },
+  availabilityText: {
+    color: '#e2e8f0',
+    fontSize: 14,
+  },
+  routineList: {
+    gap: 12,
+  },
+  routineCard: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+    padding: 12,
+    gap: 10,
+  },
+  routineTitle: {
+    color: '#111827',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  modalityTimeList: {
+    gap: 8,
+  },
+  modalityTimeRow: {
+    minHeight: 48,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  modalityTimeLabel: {
+    flex: 1,
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '800',
+    paddingTop: 9,
+  },
+  dropdownBox: {
+    width: 154,
+  },
+  dropdownButton: {
+    minHeight: 38,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0f766e',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  dropdownButtonText: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  dropdownMenu: {
+    marginTop: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#ffffff',
+    overflow: 'hidden',
+  },
+  dropdownOption: {
+    minHeight: 36,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  dropdownOptionActive: {
+    backgroundColor: '#ccfbf1',
+  },
+  dropdownOptionText: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  dropdownOptionTextActive: {
+    color: '#115e59',
+    fontWeight: '900',
+  },
+  tabBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    minHeight: 78,
+    borderTopWidth: 1,
+    borderTopColor: '#dbe4ea',
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingHorizontal: 6,
+  },
+  tabButton: {
+    minWidth: 58,
+    minHeight: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  tabText: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  tabTextActive: {
+    color: '#0f766e',
+  },
+});
