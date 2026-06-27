@@ -1,4 +1,4 @@
-const CACHE_NAME = 'panzeri-run-v2';
+const CACHE_NAME = 'panzeri-run-v3';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

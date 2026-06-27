@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -38,6 +39,7 @@ interface AuthSession {
   email: string;
   name: string;
   accessToken: string;
+  refreshToken: string;
 }
 
 interface AuthResponse {
@@ -207,6 +209,7 @@ interface AppNotification {
 }
 
 const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
+const AUTH_SESSION_KEY = 'panzeri-run-auth-session';
 
 type AuthPopup = {
   document?: { write: (html: string) => void };
@@ -320,6 +323,7 @@ const weekSessions = [
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('login');
+  const [isRestoringSession, setIsRestoringSession] = useState(true);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('week');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -328,6 +332,7 @@ export default function App() {
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
   const [accessToken, setAccessToken] = useState('');
+  const [refreshToken, setRefreshToken] = useState('');
   const [anamneseRoutine, setAnamneseRoutine] = useState<RoutineDay[]>(cloneRoutine(defaultRoutineDays));
   const [savedMe, setSavedMe] = useState<MeResponse | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -337,6 +342,51 @@ export default function App() {
   useEffect(() => {
     registerWebApp();
   }, []);
+
+  useEffect(() => {
+    restoreAuthSession().then((session) => {
+      if (session) {
+        applyAuthSession(session);
+      }
+      setIsRestoringSession(false);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!refreshToken) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      refreshAuthSession(refreshToken, { email: userEmail, name: userName, accessToken, refreshToken }).then((session) => {
+        if (session) {
+          applyAuthSession(session);
+        }
+      });
+    }, 12 * 60 * 1000);
+
+    return () => clearInterval(timer);
+  }, [refreshToken, userEmail, userName]);
+
+  function applyAuthSession(session: AuthSession) {
+    setUserEmail(session.email);
+    setUserName(session.name);
+    setAccessToken(session.accessToken);
+    setRefreshToken(session.refreshToken);
+    setActiveTab('week');
+    setScreen('app');
+    void AsyncStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+  }
+
+  function logout() {
+    setAccessToken('');
+    setRefreshToken('');
+    setUserEmail('');
+    setUserName('');
+    setMenuOpen(false);
+    setScreen('login');
+    void AsyncStorage.removeItem(AUTH_SESSION_KEY);
+  }
 
   useEffect(() => {
     if (!accessToken) {
@@ -367,6 +417,17 @@ export default function App() {
     loadNotifications(accessToken).then(setNotifications);
   }, [accessToken]);
 
+  if (isRestoringSession) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingState}>
+          <Text style={styles.sectionLabel}>Panzeri Run</Text>
+          <Text style={styles.statusMessage}>Abrindo aplicativo...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
@@ -374,13 +435,7 @@ export default function App() {
         <Login
           acceptedTerms={acceptedTerms}
           onTermsChange={setAcceptedTerms}
-          onEnter={(session) => {
-            setUserEmail(session.email);
-            setUserName(session.name);
-            setAccessToken(session.accessToken);
-            setActiveTab('week');
-            setScreen('app');
-          }}
+          onEnter={applyAuthSession}
         />
       )}
       {screen === 'app' && (
@@ -389,6 +444,7 @@ export default function App() {
           {menuOpen ? (
             <AppMenu
               activeTab={activeTab}
+              onLogout={logout}
               onChange={(tab) => {
                 setActiveTab(tab);
                 setMenuOpen(false);
@@ -450,6 +506,7 @@ function registerWebApp() {
       createElement: (tag: string) => {
         rel?: string;
         href?: string;
+        sizes?: string;
         name?: string;
         content?: string;
       };
@@ -467,6 +524,27 @@ function registerWebApp() {
     theme.name = 'theme-color';
     theme.content = '#0f766e';
     browser.document.head?.appendChild(theme);
+
+    const iosCapable = browser.document.createElement('meta');
+    iosCapable.name = 'apple-mobile-web-app-capable';
+    iosCapable.content = 'yes';
+    browser.document.head?.appendChild(iosCapable);
+
+    const iosStatusBar = browser.document.createElement('meta');
+    iosStatusBar.name = 'apple-mobile-web-app-status-bar-style';
+    iosStatusBar.content = 'default';
+    browser.document.head?.appendChild(iosStatusBar);
+
+    const iosTitle = browser.document.createElement('meta');
+    iosTitle.name = 'apple-mobile-web-app-title';
+    iosTitle.content = 'Panzeri Run';
+    browser.document.head?.appendChild(iosTitle);
+
+    const iosIcon = browser.document.createElement('link');
+    iosIcon.rel = 'apple-touch-icon';
+    iosIcon.href = '/icon.svg';
+    iosIcon.sizes = '512x512';
+    browser.document.head?.appendChild(iosIcon);
   }
 
   browser.navigator?.serviceWorker?.register('/sw.js').catch(() => undefined);
@@ -614,7 +692,12 @@ function Login({
         }
 
         setStatus('Login realizado.');
-        onEnter({ email: data.user?.email ?? cleanEmail, name: data.user?.name ?? '', accessToken });
+        const refreshToken = data.tokens?.refreshToken;
+        if (!refreshToken) {
+          setStatus('Login feito, mas nao recebi a renovacao de acesso.');
+          return;
+        }
+        onEnter({ email: data.user?.email ?? cleanEmail, name: data.user?.name ?? '', accessToken, refreshToken });
         return;
       }
 
@@ -647,7 +730,12 @@ function Login({
       }
 
       setStatus('Conta criada com sucesso.');
-      onEnter({ email: data.user?.email ?? cleanEmail, name: data.user?.name ?? name.trim(), accessToken });
+      const refreshToken = data.tokens?.refreshToken;
+      if (!refreshToken) {
+        setStatus('Conta criada, mas nao recebi a renovacao de acesso.');
+        return;
+      }
+      onEnter({ email: data.user?.email ?? cleanEmail, name: data.user?.name ?? name.trim(), accessToken, refreshToken });
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
     } finally {
@@ -1549,7 +1637,7 @@ function Anamnese({
   );
 }
 
-function AppMenu({ activeTab, onChange }: { activeTab: Tab; onChange: (tab: Tab) => void }) {
+function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: (tab: Tab) => void; onLogout: () => void }) {
   const tabs: Array<{ id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
     { id: 'week', label: 'Treino da semana', icon: 'calendar' },
     { id: 'anamnese', label: 'Anamnese', icon: 'clipboard' },
@@ -1569,8 +1657,59 @@ function AppMenu({ activeTab, onChange }: { activeTab: Tab; onChange: (tab: Tab)
           </Pressable>
         );
       })}
+      <Pressable style={styles.menuItem} onPress={onLogout}>
+        <Ionicons name="log-out-outline" size={21} color="#64748b" />
+        <Text style={styles.menuItemText}>Sair</Text>
+      </Pressable>
     </View>
   );
+}
+
+async function refreshAuthSession(refreshToken: string, saved?: AuthSession): Promise<AuthSession | null> {
+  try {
+    const response = await fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const data = (await response.json()) as AuthResponse;
+    if (!data.tokens?.accessToken || !data.tokens.refreshToken) {
+      return null;
+    }
+    return {
+      email: saved?.email ?? '',
+      name: saved?.name ?? '',
+      accessToken: data.tokens.accessToken,
+      refreshToken: data.tokens.refreshToken,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function restoreAuthSession(): Promise<AuthSession | null> {
+  try {
+    const raw = await AsyncStorage.getItem(AUTH_SESSION_KEY);
+    if (!raw) {
+      return null;
+    }
+    const saved = JSON.parse(raw) as AuthSession;
+    if (!saved.refreshToken) {
+      await AsyncStorage.removeItem(AUTH_SESSION_KEY);
+      return null;
+    }
+    const refreshed = await refreshAuthSession(saved.refreshToken, saved);
+    if (!refreshed) {
+      await AsyncStorage.removeItem(AUTH_SESSION_KEY);
+    }
+    return refreshed;
+  } catch {
+    await AsyncStorage.removeItem(AUTH_SESSION_KEY);
+    return null;
+  }
 }
 
 function Metric({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string }) {
@@ -2304,6 +2443,12 @@ function formatDateFromApi(value: string) {
 }
 
 const styles = StyleSheet.create({
+  loadingState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
   safeArea: {
     flex: 1,
     backgroundColor: '#f8fafc',

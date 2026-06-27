@@ -8,6 +8,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "build:android:test": "npx eas-cli build --platform android --profile preview",
+    "build:android:store": "npx eas-cli build --platform android --profile production",
     "lint": "eslint \"**/*.{ts,tsx}\"",
     "test": "echo \"Mobile tests pending\""
   },
@@ -15,7 +17,9 @@
     "@babel/runtime": "^8.0.0",
     "@expo/metro-runtime": "~3.2.3",
     "@expo/vector-icons": "^14.0.4",
+    "@react-native-async-storage/async-storage": "1.23.1",
     "expo": "^51.0.28",
+    "expo-splash-screen": "~0.27.7",
     "expo-status-bar": "^1.12.1",
     "react": "18.2.0",
     "react-dom": "18.2.0",

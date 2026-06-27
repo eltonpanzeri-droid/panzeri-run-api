@@ -2,14 +2,22 @@
   "expo": {
     "name": "Panzeri Run",
     "slug": "panzeri-run",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "panzerirun",
     "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#f8fafc"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.panzerirun.app",
+      "buildNumber": "1"
     },
     "android": {
+      "package": "com.panzerirun.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#111827"
       }
@@ -21,6 +29,11 @@
       "backgroundColor": "#f8fafc",
       "display": "standalone",
       "startUrl": "/"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "05a84b0a-c324-4b87-be3b-2cdb43a56e7a"
+      }
     }
   }
 }
