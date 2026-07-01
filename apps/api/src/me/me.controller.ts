@@ -2,6 +2,7 @@ import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { UpdateAvailabilityDto } from './dto/update-availability.dto';
+import { UpdateAnamneseDto } from './dto/update-anamnese.dto';
 import { UpdateHealthDto } from './dto/update-health.dto';
 import { UpdatePreferencesDto } from './dto/update-preferences.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -30,6 +31,11 @@ export class MeController {
   @Put('availability')
   updateAvailability(@CurrentUser() user: CurrentUserPayload, @Body() dto: UpdateAvailabilityDto) {
     return this.meService.updateAvailability(user.sub, dto);
+  }
+
+  @Put('anamnese')
+  updateAnamnese(@CurrentUser() user: CurrentUserPayload, @Body() dto: UpdateAnamneseDto) {
+    return this.meService.updateAnamnese(user.sub, dto);
   }
 
   @Get('availability')

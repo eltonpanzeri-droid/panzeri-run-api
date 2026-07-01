@@ -54,7 +54,8 @@ export class CoachService {
   }
 
   async updateStudent(studentId: string, dto: UpdateStudentDto) {
-    const data: { name?: string; email?: string; accountStatus?: string } = {};
+    await this.assertStudent(studentId);
+    const data: { name?: string; email?: string; accountStatus?: string; refreshTokenHash?: null } = {};
 
     if (dto.name) {
       data.name = dto.name.trim();
@@ -71,6 +72,9 @@ export class CoachService {
 
     if (dto.accountStatus) {
       data.accountStatus = dto.accountStatus;
+      if (dto.accountStatus !== 'active') {
+        data.refreshTokenHash = null;
+      }
     }
 
     if (!Object.keys(data).length) {
@@ -91,10 +95,11 @@ export class CoachService {
   }
 
   async resetStudentPassword(studentId: string, dto: ResetStudentPasswordDto) {
+    await this.assertStudent(studentId);
     const passwordHash = await bcrypt.hash(dto.password, 12);
     await this.prisma.user.update({
       where: { id: studentId },
-      data: { passwordHash },
+      data: { passwordHash, refreshTokenHash: null },
     });
 
     return {
@@ -104,7 +109,7 @@ export class CoachService {
   }
 
   async createStudentInvite(studentId: string) {
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: studentId } });
+    const user = await this.assertStudent(studentId);
     const token = randomBytes(32).toString('hex');
     await this.prisma.passwordResetToken.create({
       data: {
@@ -152,6 +157,7 @@ export class CoachService {
         adherencePercent: summary.adherencePercent,
         completedSessions: summary.completedSessions,
         prescribedSessions: summary.prescribedSessions,
+        eligibleSessions: summary.eligibleSessions,
         differentSessions: summary.differentSessions,
         missedSessions: summary.missedSessions,
         prescribedKm: summary.prescribedKm,
@@ -167,24 +173,25 @@ export class CoachService {
         students: acc.students + 1,
         activePlans: acc.activePlans + (student.planName === 'Sem plano ativo' ? 0 : 1),
         prescribedSessions: acc.prescribedSessions + student.prescribedSessions,
+        eligibleSessions: acc.eligibleSessions + student.eligibleSessions,
         completedSessions: acc.completedSessions + student.completedSessions,
         differentSessions: acc.differentSessions + student.differentSessions,
       }),
-      { students: 0, activePlans: 0, prescribedSessions: 0, completedSessions: 0, differentSessions: 0 },
+      { students: 0, activePlans: 0, prescribedSessions: 0, eligibleSessions: 0, completedSessions: 0, differentSessions: 0 },
     );
 
     return {
       totals: {
         ...totals,
-        adherencePercent: totals.prescribedSessions ? Math.round((totals.completedSessions / totals.prescribedSessions) * 100) : 0,
+        adherencePercent: totals.eligibleSessions ? Math.round((totals.completedSessions / totals.eligibleSessions) * 100) : 0,
       },
       students: rows,
     };
   }
 
   async student(studentId: string) {
-    const student = await this.prisma.user.findUniqueOrThrow({
-      where: { id: studentId },
+    const student = await this.prisma.user.findFirstOrThrow({
+      where: { id: studentId, role: 'student' },
       include: {
         healthProfile: true,
         preferences: true,
@@ -210,12 +217,30 @@ export class CoachService {
       name: student.name,
       email: student.email,
       accountStatus: student.accountStatus,
+      birthDate: student.birthDate,
+      heightCm: student.heightCm,
+      weightKg: student.weightKg,
       goal: student.preferences?.mainGoal ?? 'Objetivo nao informado',
       health: {
         sleep: student.healthProfile?.averageSleep ?? 'Nao informado',
         stress: student.healthProfile?.stressLevel ?? 'Nao informado',
+        anxiety: student.healthProfile?.anxietyLevel ?? 'Nao informado',
         injuries: student.healthProfile?.previousInjuries ?? 'Nao informado',
+        healthProblems: student.healthProfile?.healthProblems ?? 'Nao informado',
+        medications: student.healthProfile?.medications ?? 'Nao informado',
       },
+      preferences: {
+        preferredModalities: student.preferences?.preferredModalities ?? [],
+        otherModalities: student.preferences?.otherModalities ?? [],
+        trainingLocations: student.preferences?.trainingLocations ?? [],
+      },
+      availability: student.availability.map((day) => ({
+        weekday: day.weekday,
+        noTraining: day.noTraining,
+        modalities: day.modalities,
+        availableMin: day.availableMin,
+        modalityDurations: day.modalityDurations,
+      })),
       tests: student.tests.map((test) => ({
         date: test.createdAt.toISOString(),
         totalSeconds: test.totalSeconds,
@@ -254,10 +279,20 @@ export class CoachService {
       })),
     };
   }
+
+  private assertStudent(studentId: string) {
+    return this.prisma.user.findFirstOrThrow({
+      where: { id: studentId, role: 'student' },
+    });
+  }
 }
 
 function buildAccessText(email: string, password: string) {
-  return `Acesso Panzeri Run\n\nLink: ${publicAppUrl()}\nE-mail: ${email}\nSenha inicial: ${password}`;
+  return `Acesso Panzeri Run\n\nLink: ${studentAppUrl()}\nE-mail: ${email}\nSenha inicial: ${password}`;
+}
+
+function studentAppUrl() {
+  return process.env.STUDENT_APP_URL ?? 'https://agenteselton-panzeri-run-app.hbljgk.easypanel.host';
 }
 
 function publicAppUrl() {
@@ -268,28 +303,34 @@ function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex');
 }
 
-function summarizeSessions(sessions: Array<{ durationMin: number | null; distanceKm: number | null; completion: { status: string; distanceKm: number | null } | null }>) {
+function summarizeSessions(sessions: Array<{ scheduledDate: Date; durationMin: number | null; distanceKm: number | null; completion: { status: string; distanceKm: number | null } | null }>) {
+  const today = new Date();
+  today.setUTCHours(23, 59, 59, 999);
   const prescribedSessions = sessions.length;
-  const completedSessions = sessions.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted').length;
-  const missedSessions = sessions.filter((session) => session.completion?.status === 'missed' || !session.completion).length;
-  const differentSessions = sessions.filter((session) => session.completion?.status === 'adjusted').length;
+  const eligible = sessions.filter((session) => session.scheduledDate <= today);
+  const eligibleSessions = eligible.length;
+  const completedSessions = eligible.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted').length;
+  const missedSessions = eligible.filter((session) => session.completion?.status === 'missed' || !session.completion).length;
+  const differentSessions = eligible.filter((session) => session.completion?.status === 'adjusted').length;
   const prescribedKm = round(sessions.reduce((total, session) => total + (session.distanceKm ?? 0), 0));
   const completedKm = round(sessions.reduce((total, session) => total + (session.completion?.distanceKm ?? 0), 0));
 
   return {
     prescribedSessions,
+    eligibleSessions,
     completedSessions,
     missedSessions,
     differentSessions,
     prescribedKm,
     completedKm,
-    adherencePercent: prescribedSessions ? Math.round((completedSessions / prescribedSessions) * 100) : 0,
+    adherencePercent: eligibleSessions ? Math.round((completedSessions / eligibleSessions) * 100) : 0,
   };
 }
 
 function emptySummary() {
   return {
     prescribedSessions: 0,
+    eligibleSessions: 0,
     completedSessions: 0,
     missedSessions: 0,
     differentSessions: 0,
@@ -299,8 +340,9 @@ function emptySummary() {
   };
 }
 
-function statusFromSummary(summary: { prescribedSessions: number; adherencePercent: number; differentSessions: number }) {
+function statusFromSummary(summary: { prescribedSessions: number; eligibleSessions: number; adherencePercent: number; differentSessions: number }) {
   if (!summary.prescribedSessions) return 'Sem plano';
+  if (!summary.eligibleSessions) return 'Aguardando';
   if (summary.adherencePercent >= 80) return 'Boa execucao';
   if (summary.differentSessions > 0) return 'Fez diferente';
   if (summary.adherencePercent >= 50) return 'Acompanhar';

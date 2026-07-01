@@ -21,7 +21,8 @@ export class AuthService {
       throw new BadRequestException('Aceite de termos e LGPD e obrigatorio.');
     }
 
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const email = dto.email.trim().toLowerCase();
+    const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
       throw new BadRequestException('E-mail ja cadastrado.');
     }
@@ -29,7 +30,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email.toLowerCase(),
+        email,
         name: dto.name.trim(),
         passwordHash,
         acceptedTermsAt: new Date(),
@@ -92,27 +93,9 @@ export class AuthService {
   }
 
   async startPasswordReset(email: string) {
-    const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
-    if (!user) {
-      return {
-        email,
-        message: 'Se o e-mail existir, enviaremos instrucoes de recuperacao.',
-      };
-    }
-
-    const token = randomBytes(32).toString('hex');
-    await this.prisma.passwordResetToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: hashToken(token),
-        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
-      },
-    });
-
     return {
       email,
-      message: 'Se o e-mail existir, enviaremos instrucoes de recuperacao.',
-      resetLink: `${this.publicAppUrl()}/reset-password?token=${token}`,
+      message: 'Solicite ao treinador um link seguro para criar uma nova senha.',
     };
   }
 
@@ -129,7 +112,7 @@ export class AuthService {
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: record.userId },
-        data: { passwordHash, accountStatus: 'active' },
+        data: { passwordHash, accountStatus: 'active', refreshTokenHash: null },
       }),
       this.prisma.passwordResetToken.update({
         where: { id: record.id },
@@ -146,8 +129,16 @@ export class AuthService {
         secret: this.config.get<string>('JWT_REFRESH_SECRET') ?? 'dev-refresh-secret',
       });
 
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { email: true, role: true, accountStatus: true, refreshTokenHash: true },
+      });
+      if (!user || user.accountStatus !== 'active' || user.refreshTokenHash !== hashToken(refreshToken)) {
+        throw new UnauthorizedException('Refresh token invalido.');
+      }
+
       return {
-        tokens: await this.signTokens(payload.sub, payload.email, payload.role),
+        tokens: await this.signTokens(payload.sub, user.email, this.effectiveRole(user.email, user.role)),
       };
     } catch {
       throw new UnauthorizedException('Refresh token invalido.');
@@ -160,13 +151,18 @@ export class AuthService {
     const [accessToken, refreshToken] = await Promise.all([
       this.jwt.signAsync(payload, {
         secret: this.config.get<string>('JWT_ACCESS_SECRET') ?? 'dev-access-secret',
-        expiresIn: '15m',
+        expiresIn: '12h',
       }),
       this.jwt.signAsync(payload, {
         secret: this.config.get<string>('JWT_REFRESH_SECRET') ?? 'dev-refresh-secret',
         expiresIn: '30d',
       }),
     ]);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { refreshTokenHash: hashToken(refreshToken) },
+    });
 
     return { accessToken, refreshToken };
   }

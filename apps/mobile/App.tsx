@@ -328,7 +328,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('week');
   const [menuOpen, setMenuOpen] = useState(false);
   const [completedToday, setCompletedToday] = useState(false);
-  const [threeKmSeconds, setThreeKmSeconds] = useState('1200');
+  const [threeKmSeconds, setThreeKmSeconds] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
   const [accessToken, setAccessToken] = useState('');
@@ -631,8 +631,7 @@ function Login({
         return;
       }
 
-      const data = (await response.json()) as { resetLink?: string };
-      setStatus(data.resetLink ? `Link de recuperacao gerado: ${data.resetLink}` : 'Se o e-mail existir, a recuperacao sera enviada.');
+      setStatus('Solicite ao treinador um link seguro para criar uma nova senha.');
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
     }
@@ -1215,9 +1214,21 @@ function ThreeKmTest({
   );
 }
 
-function Progress({ completedToday, metrics, accessToken }: { completedToday: boolean; metrics: ThreeKmMetrics; accessToken: string }) {
+function Progress({ completedToday: _completedToday, metrics, accessToken }: { completedToday: boolean; metrics: ThreeKmMetrics; accessToken: string }) {
   const [stravaStatus, setStravaStatus] = useState('');
   const [stravaReport, setStravaReport] = useState<StravaReport | null>(null);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    fetch(`${API_URL}/strava/report`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((report) => {
+        if (report) setStravaReport(report as StravaReport);
+      })
+      .catch(() => undefined);
+  }, [accessToken]);
 
   async function connectStrava() {
     setStravaStatus('');
@@ -1284,23 +1295,12 @@ function Progress({ completedToday, metrics, accessToken }: { completedToday: bo
       <Text style={styles.titleSmall}>Resumo do aluno</Text>
 
       <View style={styles.metricGrid}>
-        <Metric icon="checkmark-done" label="Aderencia" value={completedToday ? '82%' : '76%'} />
-        <Metric icon="map" label="Km no mes" value="42,8" />
+        <Metric icon="checkmark-done" label="Aderencia" value={stravaReport?.summary ? `${stravaReport.summary.adherencePercent}%` : 'Sem dados'} />
+        <Metric icon="map" label="Km realizados" value={stravaReport?.summary ? String(stravaReport.summary.actualKm) : 'Sem dados'} />
         <Metric icon="trophy" label="Melhor 3 km" value={metrics.pace} />
       </View>
 
-      <View style={styles.badgeRow}>
-        <Badge icon="medal" title="1 semana ativa" />
-        <Badge icon="flame" title="3 treinos na semana" />
-        <Badge icon="barbell" title="Forca registrada" />
-      </View>
-
-      <View style={styles.coachBox}>
-        <Text style={styles.coachTitle}>Proxima revisao</Text>
-        <Text style={styles.coachText}>
-          Se a aderencia ficar acima de 85% por 3 semanas, o plano pode evoluir volume ou intensidade de forma gradual.
-        </Text>
-      </View>
+      {!stravaReport?.summary ? <Text style={styles.formHint}>Sincronize o Strava para atualizar os indicadores de evolucao.</Text> : null}
 
       <View style={styles.formSection}>
         <Text style={styles.formSectionTitle}>Strava</Text>
@@ -1407,6 +1407,7 @@ function Anamnese({
 
   async function saveProfile() {
     const cleanName = name.trim();
+    const cleanEmail = (savedMe?.email ?? userEmail).trim().toLowerCase();
     const apiBirthDate = parseBrazilianDate(birthDate);
     const parsedHeight = Number(heightCm);
     const parsedWeight = Number(weightKg.replace(',', '.'));
@@ -1418,8 +1419,18 @@ function Anamnese({
       return;
     }
 
-    if (!cleanName || !userEmail || !apiBirthDate || !Number.isFinite(parsedHeight) || !Number.isFinite(parsedWeight)) {
+    if (!cleanName || !cleanEmail || !apiBirthDate || !Number.isFinite(parsedHeight) || !Number.isFinite(parsedWeight)) {
       setStatus('Preencha nome, nascimento em dia/mes/ano, altura e peso.');
+      return;
+    }
+
+    if (parsedHeight < 100 || parsedHeight > 230) {
+      setStatus('Informe uma altura entre 100 e 230 cm.');
+      return;
+    }
+
+    if (parsedWeight < 30 || parsedWeight > 250) {
+      setStatus('Informe um peso entre 30 e 250 kg.');
       return;
     }
 
@@ -1430,78 +1441,48 @@ function Anamnese({
         'Content-Type': 'application/json',
       };
 
-      const profileResponse = await fetch(`${API_URL}/me/profile`, {
+      const response = await fetch(`${API_URL}/me/anamnese`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({
-          name: cleanName,
-          email: userEmail,
-          birthDate: apiBirthDate,
-          sex: 'prefiro_nao_informar',
-          heightCm: Math.round(parsedHeight),
-          weightKg: parsedWeight,
+          profile: {
+            name: cleanName,
+            email: cleanEmail,
+            birthDate: apiBirthDate,
+            sex: 'prefiro_nao_informar',
+            heightCm: Math.round(parsedHeight),
+            weightKg: parsedWeight,
+          },
+          health: {
+            averageSleep: sleep,
+            stressLevel: stress,
+            anxietyLevel: anxiety,
+            previousInjuries: injuries,
+            healthProblems,
+            medications,
+          },
+          preferences: {
+            preferredModalities,
+            otherModalities,
+            trainingLocations,
+            mainGoal,
+            experienceLevel: 'iniciante_intermediario',
+          },
+          availability: {
+            availability: routineToAvailability(routineDays),
+          },
         }),
       });
 
-      if (!profileResponse.ok) {
-        setStatus('Nao consegui salvar os dados pessoais.');
-        return;
-      }
-
-      const healthResponse = await fetch(`${API_URL}/me/health`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({
-          averageSleep: sleep,
-          stressLevel: stress,
-          anxietyLevel: anxiety,
-          previousInjuries: injuries,
-          healthProblems,
-          medications,
-        }),
-      });
-
-      if (!healthResponse.ok) {
-        setStatus('Salvei dados pessoais, mas falta revisar saude.');
-        return;
-      }
-
-      const preferencesResponse = await fetch(`${API_URL}/me/preferences`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({
-          preferredModalities,
-          otherModalities,
-          trainingLocations,
-          mainGoal,
-          experienceLevel: 'iniciante_intermediario',
-        }),
-      });
-
-      if (!preferencesResponse.ok) {
-        setStatus('Salvei perfil e saude, mas falta revisar preferencias.');
-        return;
-      }
-
-      const availabilityResponse = await fetch(`${API_URL}/me/availability`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({
-          availability: routineToAvailability(routineDays),
-        }),
-      });
-
-      if (!availabilityResponse.ok) {
-        setStatus('Salvei perfil e saude, mas falta revisar disponibilidade.');
+      if (!response.ok) {
+        const apiMessage = await readApiError(response);
+        setStatus(response.status === 401 ? 'Sua sessao expirou. Saia e entre novamente.' : `Nao consegui salvar: ${apiMessage}`);
         return;
       }
 
       onNameChange(cleanName);
-      const refreshedMe = await loadSavedMe(accessToken);
-      if (refreshedMe) {
-        onSavedMeChange(refreshedMe);
-      }
-      setStatus('Anamnese salva.');
+      onSavedMeChange((await response.json()) as MeResponse);
+      setStatus('Anamnese salva. O treino da semana sera atualizado.');
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
     } finally {
@@ -2277,6 +2258,18 @@ async function loadSavedMe(accessToken: string) {
   }
 }
 
+async function readApiError(response: Response) {
+  try {
+    const data = (await response.json()) as { message?: string | string[] };
+    if (Array.isArray(data.message)) {
+      return data.message.join(' ');
+    }
+    return data.message || 'revise os dados informados.';
+  } catch {
+    return 'revise os dados informados.';
+  }
+}
+
 async function loadNotifications(accessToken: string) {
   try {
     const response = await fetch(`${API_URL}/notifications`, {
@@ -2370,7 +2363,16 @@ interface ThreeKmMetrics {
 }
 
 function calculateThreeKmMetrics(totalSeconds: number): ThreeKmMetrics {
-  const safeSeconds = Number.isFinite(totalSeconds) && totalSeconds > 0 ? totalSeconds : 1200;
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
+    return {
+      pace: 'Sem teste',
+      vo2max: '--',
+      vvo2: '--',
+      zones: { z1: '--', z2: '--', z3: '--', z4: '--', z5: '--' },
+    };
+  }
+
+  const safeSeconds = totalSeconds;
   const timeMinutes = safeSeconds / 60;
   const vo2max = 483 / timeMinutes + 3.5;
   const vvo2 = 3 / (safeSeconds / 3600);
