@@ -1162,11 +1162,26 @@ function ThreeKmTest({
       });
 
       if (!response.ok) {
-        setSaveStatus('Nao consegui salvar. Tente entrar novamente e repetir.');
+        setSaveStatus(`Nao consegui salvar: ${await readApiError(response)}`);
         return;
       }
 
-      setSaveStatus('Teste salvo no banco real.');
+      setSaveStatus('Teste salvo. Recalculando a semana...');
+      const planResponse = await fetch(`${API_URL}/training-plans/week`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+
+      if (!planResponse.ok) {
+        setSaveStatus('Teste salvo. O treino sera recalculado quando voce abrir a semana.');
+        return;
+      }
+
+      setSaveStatus('Teste salvo e treino da semana recalculado com os novos paces.');
     } catch {
       setSaveStatus('Nao consegui conectar com a API agora.');
     } finally {

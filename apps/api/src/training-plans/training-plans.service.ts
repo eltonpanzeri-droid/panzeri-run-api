@@ -28,7 +28,7 @@ export class TrainingPlansService {
 
   async current(userId: string) {
     const weekStart = startOfWeek(new Date());
-    const [plan, availability] = await Promise.all([
+    const [plan, availability, latestTest] = await Promise.all([
       this.prisma.trainingPlan.findFirst({
         where: { userId, status: 'active' },
         orderBy: { createdAt: 'desc' },
@@ -42,12 +42,18 @@ export class TrainingPlansService {
         where: { userId, noTraining: false },
         orderBy: { weekday: 'asc' },
       }),
+      this.prisma.fitnessTest.findFirst({
+        where: { userId, testType: '3km' },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      }),
     ]);
 
     if (
       !plan ||
       plan.generatedBy !== planEngineVersion ||
       plan.startDate.getTime() !== weekStart.getTime() ||
+      !planMatchesLatestTest(plan.inputSnapshot, latestTest?.id ?? null) ||
       !planMatchesAvailability(plan.inputSnapshot, availability)
     ) {
       return this.generateWeek(userId);
@@ -498,6 +504,15 @@ function planMatchesAvailability(inputSnapshot: unknown, availability: Array<{ w
   }
 
   return JSON.stringify(snapshotAvailability) === JSON.stringify(availabilitySignature(availability));
+}
+
+function planMatchesLatestTest(inputSnapshot: unknown, latestTestId: string | null) {
+  if (!inputSnapshot || typeof inputSnapshot !== 'object') {
+    return latestTestId === null;
+  }
+
+  const snapshotTestId = (inputSnapshot as { latestTestId?: unknown }).latestTestId;
+  return (typeof snapshotTestId === 'string' ? snapshotTestId : null) === latestTestId;
 }
 
 function snapshotUsedWeeklyOverride(inputSnapshot: unknown) {
