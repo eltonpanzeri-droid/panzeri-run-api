@@ -20,7 +20,7 @@ interface WeeklyAvailabilityInput {
 }
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
-const planEngineVersion = 'rules-v3';
+const planEngineVersion = 'rules-v4';
 
 @Injectable()
 export class TrainingPlansService {
@@ -409,31 +409,35 @@ export class TrainingPlansService {
   }
 
   private zonePaceRange(zone: string, paceSecondsPerKm: number) {
-    const ranges: Record<string, [number, number]> = {
-      Z1: [1.65, 1.5],
-      Z2: [1.45, 1.3],
-      Z3: [1.28, 1.14],
-      Z4: [1.12, 1.02],
-      Z5: [1, 0.9],
-      Base: [1.55, 1.35],
+    const targetFactors: Record<string, number> = {
+      Z1: 1.57,
+      Z2: 1.36,
+      Z3: 1.21,
+      Z4: 1.07,
+      Z5: 0.95,
+      Base: 1.45,
     };
-    const [slow, fast] = ranges[zone] ?? [1.35, 1.2];
+    const target = Math.round(paceSecondsPerKm * (targetFactors[zone] ?? 1.3));
+    const fast = Math.max(target - 12, 1);
+    const slow = target + 12;
 
-    return `${formatPace(Math.round(paceSecondsPerKm * slow))} a ${formatPace(Math.round(paceSecondsPerKm * fast))}`;
+    return `${formatPace(fast)} a ${formatPace(slow)}`;
   }
 
   private zoneSpeedRange(zone: string, paceSecondsPerKm: number) {
-    const ranges: Record<string, [number, number]> = {
-      Z1: [1.65, 1.5],
-      Z2: [1.45, 1.3],
-      Z3: [1.28, 1.14],
-      Z4: [1.12, 1.02],
-      Z5: [1, 0.9],
-      Base: [1.55, 1.35],
+    const targetFactors: Record<string, number> = {
+      Z1: 1.57,
+      Z2: 1.36,
+      Z3: 1.21,
+      Z4: 1.07,
+      Z5: 0.95,
+      Base: 1.45,
     };
-    const [slow, fast] = ranges[zone] ?? [1.35, 1.2];
-    const minimum = (3600 / (paceSecondsPerKm * slow)).toFixed(1);
-    const maximum = (3600 / (paceSecondsPerKm * fast)).toFixed(1);
+    const target = Math.round(paceSecondsPerKm * (targetFactors[zone] ?? 1.3));
+    const fast = Math.max(target - 12, 1);
+    const slow = target + 12;
+    const minimum = (3600 / slow).toFixed(1);
+    const maximum = (3600 / fast).toFixed(1);
     return `${minimum} a ${maximum} km/h`;
   }
 

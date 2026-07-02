@@ -86,7 +86,20 @@ type SessionStructure =
       speedRange?: string | null;
       zone?: string;
       paceRange?: string | null;
-      blocks?: Array<{ label: string; durationMin: number; zone?: string; paceRange?: string | null; speedKmh?: number; speedRange?: string | null }>;
+      blocks?: Array<{
+        label: string;
+        durationMin?: number;
+        durationType?: string;
+        distanceValue?: string | number;
+        distanceUnit?: string;
+        intensityMode?: string;
+        zone?: string;
+        rpe?: string;
+        paceRange?: string | null;
+        speedKmh?: number;
+        speedRange?: string | null;
+        guidance?: string;
+      }>;
     }
   | {
       type: 'aerobic';
@@ -1873,13 +1886,15 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
           <View style={styles.runBlock} key={block.label}>
             <View style={styles.runBlockHeader}>
               <Text style={styles.runBlockTitle}>{block.label}</Text>
-              <Text style={styles.runBlockDuration}>{block.durationMin} min</Text>
+              <Text style={styles.runBlockDuration}>{runBlockDurationLabel(block)}</Text>
             </View>
             <View style={styles.runBlockMetrics}>
               <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Zona</Text>{'\n'}{block.zone ?? mainZone}</Text>
               <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Pace</Text>{'\n'}{pace ?? 'Cadastre o teste de 3 km'}</Text>
               <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Velocidade</Text>{'\n'}{speed ?? 'Cadastre o teste de 3 km'}</Text>
             </View>
+            {block.rpe ? <Text style={styles.prescriptionText}>Percepcao de esforco: {rpeLabel(block.rpe)}</Text> : null}
+            {block.guidance ? <Text style={styles.prescriptionText}>{block.guidance}</Text> : null}
           </View>
         );
       })}
@@ -2553,6 +2568,24 @@ function paceFromSpeed(speedKmh: number) {
     return '--';
   }
   return formatPace(Math.round(3600 / speedKmh));
+}
+
+function runBlockDurationLabel(block: { durationMin?: number; durationType?: string; distanceValue?: string | number; distanceUnit?: string }) {
+  if (block.durationType === 'distance' && block.distanceValue) {
+    return `${block.distanceValue} ${block.distanceUnit === 'm' ? 'm' : 'km'}`;
+  }
+  return `${block.durationMin ?? 0} min`;
+}
+
+function rpeLabel(value: string) {
+  const labels: Record<string, string> = {
+    muito_fraco: 'Muito fraco',
+    fraco: 'Fraco',
+    moderado: 'Moderado',
+    forte: 'Forte',
+    muito_forte: 'Muito forte',
+  };
+  return labels[value] ?? value;
 }
 
 function metricPaceForZone(zone: string | undefined, metrics: ThreeKmMetrics) {
