@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -126,6 +127,7 @@ export class CoachService {
       ...(dto.distanceKm !== undefined ? { distanceKm: dto.distanceKm || null } : {}),
       ...(dto.intensityZone !== undefined ? { intensityZone: dto.intensityZone.trim() || null } : {}),
       ...(dto.notes !== undefined ? { notes: dto.notes.trim() || null } : {}),
+      ...(dto.structure !== undefined ? { structure: dto.structure as Prisma.InputJsonObject } : {}),
     };
     if (!Object.keys(data).length) {
       throw new BadRequestException('Nenhuma alteracao informada.');
