@@ -476,7 +476,7 @@ export default function App() {
             {activeTab === 'week' && (
               <>
                 <NotificationList notifications={notifications} />
-                <Week accessToken={accessToken} baseRoutineDays={anamneseRoutine} />
+                <Week accessToken={accessToken} baseRoutineDays={anamneseRoutine} metrics={metrics} />
               </>
             )}
             {activeTab === 'progress' && <Progress completedToday={completedToday} metrics={metrics} accessToken={accessToken} />}
@@ -899,7 +899,7 @@ function Today({
   );
 }
 
-function Week({ accessToken, baseRoutineDays }: { accessToken: string; baseRoutineDays: RoutineDay[] }) {
+function Week({ accessToken, baseRoutineDays, metrics }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   const [weeklyRoutine, setWeeklyRoutine] = useState<RoutineDay[]>(cloneRoutine(baseRoutineDays));
   const [completionDrafts, setCompletionDrafts] = useState<Record<string, CompletionDraft>>({});
@@ -1083,7 +1083,7 @@ function Week({ accessToken, baseRoutineDays }: { accessToken: string; baseRouti
               <Text style={styles.sessionTitle}>{session.title}</Text>
               <Text style={styles.sessionDetail}>{session.detail}</Text>
               {'notes' in session && session.notes ? <Text style={styles.sessionNote}>{session.notes}</Text> : null}
-              <SessionPrescription session={session} />
+              <SessionPrescription session={session} metrics={metrics} />
               <CompletionForm
                 session={session}
                 draft={completionDrafts[session.id] ?? defaultCompletionDraft(session)}
@@ -1787,7 +1787,7 @@ function SessionCard({
   );
 }
 
-function SessionPrescription({ session }: { session: WeekPlanSession }) {
+function SessionPrescription({ session, metrics }: { session: WeekPlanSession; metrics: ThreeKmMetrics }) {
   const structure = session.structure;
   if (!structure) {
     return null;
@@ -1834,21 +1834,39 @@ function SessionPrescription({ session }: { session: WeekPlanSession }) {
     );
   }
 
+  const mainZone = structure.zone ?? session.zone;
+  const mainPace = structure.paceRange ?? metricPaceForZone(mainZone, metrics);
+  const mainSpeed = structure.speedRange ?? speedRangeFromPace(mainPace) ?? (structure.speedKmh ? `${formatDecimal(structure.speedKmh)} km/h` : null);
+
   return (
     <View style={styles.prescriptionBox}>
-      <Text style={styles.prescriptionText}>
-        Distancia alvo: {structure.distanceKm ?? session.distanceKm ?? '-'} km | Velocidade: {structure.speedRange ?? (structure.speedKmh ? `${structure.speedKmh} km/h` : '-')}
-      </Text>
-      <Text style={styles.prescriptionText}>
-        Zona: {structure.zone ?? session.zone} | Pace: {structure.paceRange ?? 'calcular apos teste'}
-      </Text>
-      {structure.blocks?.map((block) => (
-        <Text style={styles.prescriptionText} key={block.label}>
-          {block.label}: {block.durationMin} min {block.zone ? `| ${block.zone}` : ''}{' '}
-          {block.paceRange ? `| ${block.paceRange}` : ''}
-          {block.speedRange ? ` | ${block.speedRange}` : block.speedKmh ? ` | ${block.speedKmh} km/h` : ''}
-        </Text>
-      ))}
+      <View style={styles.runSummary}>
+        <View>
+          <Text style={styles.runMetricLabel}>Distancia prevista</Text>
+          <Text style={styles.runMetricValue}>{structure.distanceKm ?? session.distanceKm ?? '-'} km</Text>
+        </View>
+        <View>
+          <Text style={styles.runMetricLabel}>Duracao total</Text>
+          <Text style={styles.runMetricValue}>{structure.durationMin ?? session.durationMin ?? '-'} min</Text>
+        </View>
+      </View>
+      {(structure.blocks?.length ? structure.blocks : [{ label: 'Treino principal', durationMin: structure.durationMin ?? session.durationMin ?? 0, zone: mainZone, paceRange: mainPace, speedRange: mainSpeed }]).map((block) => {
+        const pace = block.paceRange ?? metricPaceForZone(block.zone, metrics);
+        const speed = block.speedRange ?? speedRangeFromPace(pace) ?? (block.speedKmh ? `${formatDecimal(block.speedKmh)} km/h` : null);
+        return (
+          <View style={styles.runBlock} key={block.label}>
+            <View style={styles.runBlockHeader}>
+              <Text style={styles.runBlockTitle}>{block.label}</Text>
+              <Text style={styles.runBlockDuration}>{block.durationMin} min</Text>
+            </View>
+            <View style={styles.runBlockMetrics}>
+              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Zona</Text>{'\n'}{block.zone ?? mainZone}</Text>
+              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Pace</Text>{'\n'}{pace ?? 'Cadastre o teste de 3 km'}</Text>
+              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Velocidade</Text>{'\n'}{speed ?? 'Cadastre o teste de 3 km'}</Text>
+            </View>
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -2494,6 +2512,30 @@ function paceFromSpeed(speedKmh: number) {
   return formatPace(Math.round(3600 / speedKmh));
 }
 
+function metricPaceForZone(zone: string | undefined, metrics: ThreeKmMetrics) {
+  if (!zone) return null;
+  const key = zone.toLowerCase() as keyof ThreeKmMetrics['zones'];
+  const value = metrics.zones[key];
+  return value && value !== '--' ? value : null;
+}
+
+function speedRangeFromPace(pace: string | null | undefined) {
+  if (!pace) return null;
+  const matches = [...pace.matchAll(/(\d+):(\d{2})/g)];
+  if (!matches.length) return null;
+  const speeds = matches
+    .map((match) => 3600 / (Number(match[1]) * 60 + Number(match[2])))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  if (!speeds.length) return null;
+  if (speeds.length === 1) return `${formatDecimal(speeds[0])} km/h`;
+  return `${formatDecimal(speeds[0])} a ${formatDecimal(speeds[speeds.length - 1])} km/h`;
+}
+
+function formatDecimal(value: number) {
+  return value.toFixed(1).replace('.', ',');
+}
+
 function formatPace(secondsPerKm: number) {
   const minutes = Math.floor(secondsPerKm / 60);
   const seconds = secondsPerKm % 60;
@@ -2977,6 +3019,62 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '600',
+  },
+  runSummary: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 16,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#cbd5e1',
+  },
+  runMetricLabel: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  runMetricValue: {
+    color: '#111827',
+    fontSize: 15,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  runBlock: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    gap: 8,
+  },
+  runBlockHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  runBlockTitle: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  runBlockDuration: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  runBlockMetrics: {
+    gap: 6,
+  },
+  runBlockMetric: {
+    color: '#111827',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  runBlockLabel: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
   },
   loadField: {
     color: '#0f766e',
