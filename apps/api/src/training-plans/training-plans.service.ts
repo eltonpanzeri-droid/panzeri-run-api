@@ -35,6 +35,7 @@ export class TrainingPlansService {
         include: {
           sessions: {
             orderBy: { scheduledDate: 'asc' },
+            include: { completion: true },
           },
         },
       }),
@@ -171,6 +172,7 @@ export class TrainingPlansService {
       include: {
         sessions: {
           orderBy: { scheduledDate: 'asc' },
+          include: { completion: true },
         },
       },
     });
@@ -454,6 +456,15 @@ export class TrainingPlansService {
       distanceKm: number | null;
       structure: unknown;
       notes: string | null;
+      completion?: {
+        status: string;
+        durationMin: number | null;
+        distanceKm: number | null;
+        avgPaceSecondsKm: number | null;
+        perceivedEffort: number | null;
+        notes: string | null;
+        details: unknown;
+      } | null;
     }>;
   }) {
     return {
@@ -477,6 +488,17 @@ export class TrainingPlansService {
         distanceKm: session.distanceKm,
         structure: session.structure,
         notes: session.notes,
+        completion: session.completion
+          ? {
+              status: session.completion.status,
+              durationMin: session.completion.durationMin,
+              distanceKm: session.completion.distanceKm,
+              avgPaceSecondsKm: session.completion.avgPaceSecondsKm,
+              perceivedEffort: session.completion.perceivedEffort,
+              notes: session.completion.notes,
+              details: session.completion.details,
+            }
+          : null,
       })),
     };
   }

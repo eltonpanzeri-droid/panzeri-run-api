@@ -66,6 +66,15 @@ interface WeekPlanSession {
   distanceKm?: number | null;
   structure?: SessionStructure;
   notes?: string;
+  completion?: {
+    status: CompletionDraft['status'];
+    durationMin?: number | null;
+    distanceKm?: number | null;
+    avgPaceSecondsKm?: number | null;
+    perceivedEffort?: number | null;
+    notes?: string | null;
+    details?: { loadsText?: string } | null;
+  } | null;
 }
 
 type SessionStructure =
@@ -945,6 +954,9 @@ function Week({ accessToken, baseRoutineDays, metrics }: { accessToken: string; 
         await generatePlan();
         return;
       }
+      setCompletionDrafts(
+        Object.fromEntries(data.sessions.filter((session) => session.completion).map((session) => [session.id, completionDraftFromSession(session)])),
+      );
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
     } finally {
@@ -1047,6 +1059,10 @@ function Week({ accessToken, baseRoutineDays, metrics }: { accessToken: string; 
       }
 
       setCompletionMessages((current) => ({ ...current, [session.id]: 'Treino salvo e feedback enviado ao treinador.' }));
+      setPlan((current) => current ? {
+        ...current,
+        sessions: current.sessions.map((item) => item.id === session.id ? { ...item, completion: body } : item),
+      } : current);
     } catch {
       setCompletionMessages((current) => ({ ...current, [session.id]: 'Sem conexao. Tente salvar novamente.' }));
     }
@@ -2174,7 +2190,7 @@ function planWeekRange(plan: WeekPlan) {
   const end = plan.endDate ? new Date(plan.endDate) : null;
 
   if (start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
-    return `${formatDayMonth(start)} ${weekdayFullLabel(start)} ate ${formatDayMonth(end)} ${weekdayFullLabel(end)}`;
+    return `${formatDayMonthUtc(start)} ${weekdayFullLabelUtc(start)} ate ${formatDayMonthUtc(end)} ${weekdayFullLabelUtc(end)}`;
   }
 
   if (plan.sessions.length) {
@@ -2184,6 +2200,14 @@ function planWeekRange(plan: WeekPlan) {
   }
 
   return currentWeekRange();
+}
+
+function formatDayMonthUtc(date: Date) {
+  return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function weekdayFullLabelUtc(date: Date) {
+  return ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'][date.getUTCDay()] ?? '';
 }
 
 function currentWeekRange() {
@@ -2246,6 +2270,25 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     notes: '',
     loadsText: '',
   };
+}
+
+function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
+  const completion = session.completion;
+  if (!completion) return defaultCompletionDraft(session);
+  return {
+    status: completion.status,
+    perceivedEffort: completion.perceivedEffort ? String(completion.perceivedEffort) : '',
+    durationMin: completion.durationMin ? String(completion.durationMin) : '',
+    distanceKm: completion.distanceKm ? String(completion.distanceKm).replace('.', ',') : '',
+    avgPace: completion.avgPaceSecondsKm ? paceSecondsToInput(completion.avgPaceSecondsKm) : '',
+    notes: completion.notes ?? '',
+    loadsText: completion.details?.loadsText ?? '',
+  };
+}
+
+function paceSecondsToInput(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
 function reportStatusLabel(item: StravaReport['items'][number]) {
