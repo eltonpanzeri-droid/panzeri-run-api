@@ -74,9 +74,10 @@ type SessionStructure =
       distanceKm?: number;
       durationMin?: number;
       speedKmh?: number;
+      speedRange?: string | null;
       zone?: string;
       paceRange?: string | null;
-      blocks?: Array<{ label: string; durationMin: number; zone?: string; paceRange?: string | null; speedKmh?: number }>;
+      blocks?: Array<{ label: string; durationMin: number; zone?: string; paceRange?: string | null; speedKmh?: number; speedRange?: string | null }>;
     }
   | {
       type: 'aerobic';
@@ -902,6 +903,7 @@ function Week({ accessToken, baseRoutineDays }: { accessToken: string; baseRouti
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   const [weeklyRoutine, setWeeklyRoutine] = useState<RoutineDay[]>(cloneRoutine(baseRoutineDays));
   const [completionDrafts, setCompletionDrafts] = useState<Record<string, CompletionDraft>>({});
+  const [completionMessages, setCompletionMessages] = useState<Record<string, string>>({});
   const [status, setStatus] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -1028,6 +1030,7 @@ function Week({ accessToken, baseRoutineDays }: { accessToken: string; baseRouti
     };
 
     setStatus('');
+    setCompletionMessages((current) => ({ ...current, [session.id]: 'Salvando...' }));
     try {
       const response = await fetch(`${API_URL}/workout-completions`, {
         method: 'POST',
@@ -1039,13 +1042,13 @@ function Week({ accessToken, baseRoutineDays }: { accessToken: string; baseRouti
       });
 
       if (!response.ok) {
-        setStatus('Nao consegui salvar o registro do treino.');
+        setCompletionMessages((current) => ({ ...current, [session.id]: 'Nao consegui salvar. Confira os dados e tente novamente.' }));
         return;
       }
 
-      setStatus('Registro do treino salvo.');
+      setCompletionMessages((current) => ({ ...current, [session.id]: 'Treino salvo e feedback enviado ao treinador.' }));
     } catch {
-      setStatus('Nao consegui conectar com a API agora.');
+      setCompletionMessages((current) => ({ ...current, [session.id]: 'Sem conexao. Tente salvar novamente.' }));
     }
   }
 
@@ -1086,6 +1089,7 @@ function Week({ accessToken, baseRoutineDays }: { accessToken: string; baseRouti
                 draft={completionDrafts[session.id] ?? defaultCompletionDraft(session)}
                 onChange={(patch) => updateCompletionDraft(session, patch)}
                 onSave={() => saveCompletion(session)}
+                message={completionMessages[session.id]}
               />
               <View style={styles.moveActions}>
                 <Pressable style={styles.moveButton} onPress={() => moveSession(session.id, -1)}>
@@ -1833,7 +1837,7 @@ function SessionPrescription({ session }: { session: WeekPlanSession }) {
   return (
     <View style={styles.prescriptionBox}>
       <Text style={styles.prescriptionText}>
-        Distancia alvo: {structure.distanceKm ?? session.distanceKm ?? '-'} km | Velocidade: {structure.speedKmh ?? '-'} km/h
+        Distancia alvo: {structure.distanceKm ?? session.distanceKm ?? '-'} km | Velocidade: {structure.speedRange ?? (structure.speedKmh ? `${structure.speedKmh} km/h` : '-')}
       </Text>
       <Text style={styles.prescriptionText}>
         Zona: {structure.zone ?? session.zone} | Pace: {structure.paceRange ?? 'calcular apos teste'}
@@ -1842,6 +1846,7 @@ function SessionPrescription({ session }: { session: WeekPlanSession }) {
         <Text style={styles.prescriptionText} key={block.label}>
           {block.label}: {block.durationMin} min {block.zone ? `| ${block.zone}` : ''}{' '}
           {block.paceRange ? `| ${block.paceRange}` : ''}
+          {block.speedRange ? ` | ${block.speedRange}` : block.speedKmh ? ` | ${block.speedKmh} km/h` : ''}
         </Text>
       ))}
     </View>
@@ -1853,11 +1858,13 @@ function CompletionForm({
   draft,
   onChange,
   onSave,
+  message,
 }: {
   session: WeekPlanSession;
   draft: CompletionDraft;
   onChange: (patch: Partial<CompletionDraft>) => void;
   onSave: () => void;
+  message?: string;
 }) {
   const isRun = session.structure?.type === 'run';
   const isAerobic = session.structure?.type === 'aerobic';
@@ -1943,6 +1950,7 @@ function CompletionForm({
         <Ionicons name="checkmark-circle" size={16} color="#ffffff" />
         <Text style={styles.saveCompletionText}>Confirmar treino e enviar feedback</Text>
       </Pressable>
+      {message ? <Text style={styles.completionConfirmation}>{message}</Text> : null}
     </View>
   );
 }
@@ -3070,6 +3078,13 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 13,
     fontWeight: '900',
+  },
+  completionConfirmation: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 19,
+    textAlign: 'center',
   },
   reportRow: {
     borderRadius: 8,

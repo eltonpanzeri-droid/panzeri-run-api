@@ -20,7 +20,7 @@ interface WeeklyAvailabilityInput {
 }
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
-const planEngineVersion = 'rules-v2';
+const planEngineVersion = 'rules-v3';
 
 @Injectable()
 export class TrainingPlansService {
@@ -246,18 +246,32 @@ export class TrainingPlansService {
       distanceKm,
       durationMin,
       speedKmh,
+      speedRange: paceSecondsPerKm ? this.zoneSpeedRange(zone, paceSecondsPerKm) : null,
       zone,
       paceRange: paceSecondsPerKm ? this.zonePaceRange(zone, paceSecondsPerKm) : null,
       blocks: [
-        { label: 'Aquecimento', durationMin: Math.min(8, durationMin), zone: 'Z1' },
+        {
+          label: 'Aquecimento',
+          durationMin: Math.min(8, durationMin),
+          zone: 'Z1',
+          paceRange: paceSecondsPerKm ? this.zonePaceRange('Z1', paceSecondsPerKm) : null,
+          speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z1', paceSecondsPerKm) : null,
+        },
         {
           label: 'Principal',
           durationMin: Math.max(durationMin - 13, 10),
           zone,
           paceRange: paceSecondsPerKm ? this.zonePaceRange(zone, paceSecondsPerKm) : null,
           speedKmh,
+          speedRange: paceSecondsPerKm ? this.zoneSpeedRange(zone, paceSecondsPerKm) : null,
         },
-        { label: 'Desaquecimento', durationMin: 5, zone: 'Z1' },
+        {
+          label: 'Desaquecimento',
+          durationMin: 5,
+          zone: 'Z1',
+          paceRange: paceSecondsPerKm ? this.zonePaceRange('Z1', paceSecondsPerKm) : null,
+          speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z1', paceSecondsPerKm) : null,
+        },
       ],
       reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
     };
@@ -404,6 +418,21 @@ export class TrainingPlansService {
     const [slow, fast] = ranges[zone] ?? [1.35, 1.2];
 
     return `${formatPace(Math.round(paceSecondsPerKm * slow))} a ${formatPace(Math.round(paceSecondsPerKm * fast))}`;
+  }
+
+  private zoneSpeedRange(zone: string, paceSecondsPerKm: number) {
+    const ranges: Record<string, [number, number]> = {
+      Z1: [1.65, 1.5],
+      Z2: [1.45, 1.3],
+      Z3: [1.28, 1.14],
+      Z4: [1.12, 1.02],
+      Z5: [1, 0.9],
+      Base: [1.55, 1.35],
+    };
+    const [slow, fast] = ranges[zone] ?? [1.35, 1.2];
+    const minimum = (3600 / (paceSecondsPerKm * slow)).toFixed(1);
+    const maximum = (3600 / (paceSecondsPerKm * fast)).toFixed(1);
+    return `${minimum} a ${maximum} km/h`;
   }
 
   private presentPlan(plan: {
