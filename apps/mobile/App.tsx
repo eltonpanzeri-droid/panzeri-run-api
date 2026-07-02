@@ -1474,6 +1474,46 @@ function Anamnese({
         }),
       });
 
+      if (response.status === 404) {
+        const legacySaved = await saveAnamneseWithLegacyApi({
+          headers,
+          profile: {
+            name: cleanName,
+            email: cleanEmail,
+            birthDate: apiBirthDate,
+            sex: 'prefiro_nao_informar',
+            heightCm: Math.round(parsedHeight),
+            weightKg: parsedWeight,
+          },
+          health: {
+            averageSleep: sleep,
+            stressLevel: stress,
+            anxietyLevel: anxiety,
+            previousInjuries: injuries,
+            healthProblems,
+            medications,
+          },
+          preferences: {
+            preferredModalities,
+            otherModalities,
+            trainingLocations,
+            mainGoal,
+            experienceLevel: 'iniciante_intermediario',
+          },
+          availability: routineToAvailability(routineDays),
+        });
+
+        if (!legacySaved.ok) {
+          setStatus(legacySaved.status === 401 ? 'Sua sessao expirou. Saia e entre novamente.' : `Nao consegui salvar: ${legacySaved.message}`);
+          return;
+        }
+
+        onNameChange(cleanName);
+        onSavedMeChange(await loadSavedMe(accessToken));
+        setStatus('Anamnese salva. O treino da semana sera atualizado.');
+        return;
+      }
+
       if (!response.ok) {
         const apiMessage = await readApiError(response);
         setStatus(response.status === 401 ? 'Sua sessao expirou. Saia e entre novamente.' : `Nao consegui salvar: ${apiMessage}`);
@@ -2268,6 +2308,38 @@ async function readApiError(response: Response) {
   } catch {
     return 'revise os dados informados.';
   }
+}
+
+async function saveAnamneseWithLegacyApi(input: {
+  headers: Record<string, string>;
+  profile: Record<string, unknown>;
+  health: Record<string, unknown>;
+  preferences: Record<string, unknown>;
+  availability: ReturnType<typeof routineToAvailability>;
+}) {
+  const requests = [
+    { path: 'profile', body: input.profile },
+    { path: 'health', body: input.health },
+    { path: 'preferences', body: input.preferences },
+    { path: 'availability', body: { availability: input.availability } },
+  ];
+
+  for (const request of requests) {
+    try {
+      const response = await fetch(`${API_URL}/me/${request.path}`, {
+        method: 'PUT',
+        headers: input.headers,
+        body: JSON.stringify(request.body),
+      });
+      if (!response.ok) {
+        return { ok: false, status: response.status, message: await readApiError(response) };
+      }
+    } catch {
+      return { ok: false, status: 0, message: 'nao consegui conectar com a API.' };
+    }
+  }
+
+  return { ok: true, status: 200, message: '' };
 }
 
 async function loadNotifications(accessToken: string) {
