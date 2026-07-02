@@ -120,6 +120,7 @@ type SessionStructure =
         videoUrl?: string | null;
         sets: number;
         reps: string;
+        intensity?: string;
         restSeconds: number;
         cadence?: string | null;
         loadField: boolean;
@@ -1823,30 +1824,7 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
   }
 
   if (structure.type === 'strength') {
-    return (
-      <View style={styles.prescriptionBox}>
-        {structure.category ? <Text style={styles.prescriptionCategory}>{structure.category}</Text> : null}
-        {structure.exercises?.map((exercise) => (
-          <View style={styles.exerciseRow} key={exercise.name}>
-            <Text style={styles.exerciseName}>{exercise.name}</Text>
-            {exercise.description ? <Text style={styles.prescriptionText}>{exercise.description}</Text> : null}
-            <Text style={styles.prescriptionText}>
-              {exercise.sets} series x {exercise.reps} | pausa {exercise.restSeconds}s
-            </Text>
-            {exercise.cadence ? <Text style={styles.prescriptionText}>Cadencia: {exercise.cadence}</Text> : null}
-            {exercise.loadField ? <Text style={styles.loadField}>Carga usada: ______ kg</Text> : null}
-            {exercise.videoUrl ? (
-              <Pressable style={styles.videoButton} onPress={() => Linking.openURL(exercise.videoUrl!)}>
-                <Ionicons name="play-circle" size={15} color="#0f766e" />
-                <Text style={styles.videoButtonText}>Ver execucao</Text>
-              </Pressable>
-            ) : (
-              <Text style={styles.noVideoText}>Exercicio sem video cadastrado.</Text>
-            )}
-          </View>
-        ))}
-      </View>
-    );
+    return <StrengthExerciseList category={structure.category} exercises={structure.exercises ?? []} />;
   }
 
   if (structure.type === 'aerobic') {
@@ -1900,6 +1878,57 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
       })}
     </View>
   );
+}
+
+function StrengthExerciseList({ category, exercises }: { category?: string; exercises: NonNullable<Extract<SessionStructure, { type: 'strength' }>['exercises']> }) {
+  const [openExercise, setOpenExercise] = useState<number | null>(null);
+  return (
+    <View style={styles.prescriptionBox}>
+      {category ? <Text style={styles.prescriptionCategory}>{category}</Text> : null}
+      <View style={styles.strengthListHeader}>
+        <Text style={styles.strengthHeaderText}>Exercicios</Text>
+        <Text style={styles.strengthHeaderText}>{exercises.length} itens</Text>
+      </View>
+      {exercises.map((exercise, index) => {
+        const isOpen = openExercise === index;
+        return (
+          <View style={styles.strengthExercise} key={`${exercise.name}-${index}`}>
+            <Pressable style={styles.strengthExerciseTop} onPress={() => setOpenExercise(isOpen ? null : index)}>
+              <View style={styles.exerciseNumber}><Text style={styles.exerciseNumberText}>{index + 1}</Text></View>
+              <View style={styles.strengthExerciseName}>
+                <Text style={styles.exerciseName}>{exercise.name}</Text>
+                <Text style={styles.exerciseSummary}>{exercise.sets} series | {exercise.reps} reps | pausa {exercise.restSeconds}s</Text>
+              </View>
+              <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#0f766e" />
+            </Pressable>
+            <View style={styles.exerciseMetrics}>
+              <ExerciseMetric label="Series" value={String(exercise.sets)} />
+              <ExerciseMetric label="Repeticoes" value={exercise.reps} />
+              <ExerciseMetric label="Intensidade" value={exercise.intensity ?? 'Moderada'} />
+              <ExerciseMetric label="Pausa" value={`${exercise.restSeconds}s`} />
+            </View>
+            {exercise.cadence ? <Text style={styles.exerciseCadence}>Cadencia: {exercise.cadence}</Text> : null}
+            {isOpen ? (
+              <View style={styles.exerciseExplanation}>
+                <Text style={styles.explanationTitle}>Explicacao</Text>
+                <Text style={styles.prescriptionText}>{exercise.description || 'Explicacao ainda nao cadastrada.'}</Text>
+                {exercise.videoUrl ? (
+                  <Pressable style={styles.videoButton} onPress={() => Linking.openURL(exercise.videoUrl!)}>
+                    <Ionicons name="play-circle" size={16} color="#0f766e" />
+                    <Text style={styles.videoButtonText}>Assistir demonstracao</Text>
+                  </Pressable>
+                ) : <Text style={styles.noVideoText}>Exercicio sem video cadastrado.</Text>}
+              </View>
+            ) : null}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function ExerciseMetric({ label, value }: { label: string; value: string }) {
+  return <View style={styles.exerciseMetric}><Text style={styles.exerciseMetricLabel}>{label}</Text><Text style={styles.exerciseMetricValue}>{value}</Text></View>;
 }
 
 function CompletionForm({
@@ -3082,6 +3111,93 @@ const styles = StyleSheet.create({
   exerciseName: {
     color: '#111827',
     fontSize: 14,
+    fontWeight: '900',
+  },
+  strengthListHeader: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: '#cbd5e1',
+  },
+  strengthHeaderText: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  strengthExercise: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#dbe4ea',
+    paddingVertical: 10,
+    gap: 8,
+  },
+  strengthExerciseTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  exerciseNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exerciseNumberText: {
+    color: '#111827',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  strengthExerciseName: {
+    flex: 1,
+    gap: 2,
+  },
+  exerciseSummary: {
+    color: '#64748b',
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  exerciseMetrics: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  exerciseMetric: {
+    minWidth: 72,
+    flexGrow: 1,
+    borderLeftWidth: 2,
+    borderLeftColor: '#99f6e4',
+    paddingLeft: 6,
+  },
+  exerciseMetricLabel: {
+    color: '#64748b',
+    fontSize: 9,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  exerciseMetricValue: {
+    color: '#111827',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  exerciseCadence: {
+    color: '#334155',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  exerciseExplanation: {
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    paddingTop: 9,
+    gap: 7,
+  },
+  explanationTitle: {
+    color: '#111827',
+    fontSize: 13,
     fontWeight: '900',
   },
   prescriptionCategory: {

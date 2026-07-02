@@ -20,7 +20,7 @@ interface WeeklyAvailabilityInput {
 }
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
-const planEngineVersion = 'rules-v4';
+const planEngineVersion = 'rules-v5';
 
 @Injectable()
 export class TrainingPlansService {
@@ -325,6 +325,7 @@ export class TrainingPlansService {
         videoUrl: exercise.videoUrl,
         sets: exercise.focus.includes('core') ? 3 : 3,
         reps: exercise.focus.includes('core') ? '30 a 45s' : '10 a 12',
+        intensity: exercise.level === 'advanced' ? 'Forte' : 'Moderada',
         restSeconds: exercise.level === 'advanced' ? 90 : 60,
         cadence: null,
         loadField: false,
@@ -346,6 +347,7 @@ export class TrainingPlansService {
           videoUrl: null,
           sets: 3,
           reps: '8 a 10',
+          intensity: 'RPE 7',
           restSeconds: 90,
           cadence: '3s excentrica / 1s concentrica',
           loadField: true,
@@ -356,6 +358,7 @@ export class TrainingPlansService {
           videoUrl: null,
           sets: 3,
           reps: '10 a 12',
+          intensity: 'RPE 7',
           restSeconds: 75,
           cadence: '2s concentrica / 2s excentrica',
           loadField: true,
@@ -366,6 +369,7 @@ export class TrainingPlansService {
           videoUrl: null,
           sets: 3,
           reps: '10 a 12',
+          intensity: 'RPE 7',
           restSeconds: 75,
           cadence: '2s concentrica / 2s excentrica',
           loadField: true,
@@ -376,6 +380,7 @@ export class TrainingPlansService {
           videoUrl: null,
           sets: 3,
           reps: '30 a 45s',
+          intensity: 'Moderada',
           restSeconds: 60,
           cadence: 'controle total',
           loadField: false,
@@ -386,6 +391,7 @@ export class TrainingPlansService {
           videoUrl: null,
           sets: 3,
           reps: '12 a 15',
+          intensity: 'RPE 7',
           restSeconds: 60,
           cadence: '2s concentrica / 2s excentrica',
           loadField: true,
