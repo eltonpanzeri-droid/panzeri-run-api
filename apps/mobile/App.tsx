@@ -1936,12 +1936,12 @@ function CompletionForm({
         value={draft.notes}
         onChangeText={(value) => onChange({ notes: value })}
         multiline
-        placeholder="Observacao do aluno"
+        placeholder="Como foi o treino? Dificuldades, dores ou observacoes (opcional)"
       />
 
       <Pressable style={styles.saveCompletionButton} onPress={onSave}>
         <Ionicons name="checkmark-circle" size={16} color="#ffffff" />
-        <Text style={styles.saveCompletionText}>Salvar registro</Text>
+        <Text style={styles.saveCompletionText}>Confirmar treino e enviar feedback</Text>
       </Pressable>
     </View>
   );

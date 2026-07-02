@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
+import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
 
 @Injectable()
 export class CoachService {
@@ -106,6 +107,31 @@ export class CoachService {
       message: 'Senha do aluno atualizada.',
       accessText: buildAccessText((await this.prisma.user.findUniqueOrThrow({ where: { id: studentId }, select: { email: true } })).email, dto.password),
     };
+  }
+
+  async updateTrainingSession(studentId: string, sessionId: string, dto: UpdateTrainingSessionDto) {
+    await this.assertStudent(studentId);
+    const session = await this.prisma.trainingSession.findFirst({
+      where: { id: sessionId, userId: studentId },
+      select: { id: true },
+    });
+    if (!session) {
+      throw new BadRequestException('Treino nao encontrado para este aluno.');
+    }
+
+    const data = {
+      ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
+      ...(dto.modality !== undefined ? { modality: dto.modality.trim() } : {}),
+      ...(dto.durationMin !== undefined ? { durationMin: dto.durationMin || null } : {}),
+      ...(dto.distanceKm !== undefined ? { distanceKm: dto.distanceKm || null } : {}),
+      ...(dto.intensityZone !== undefined ? { intensityZone: dto.intensityZone.trim() || null } : {}),
+      ...(dto.notes !== undefined ? { notes: dto.notes.trim() || null } : {}),
+    };
+    if (!Object.keys(data).length) {
+      throw new BadRequestException('Nenhuma alteracao informada.');
+    }
+
+    return this.prisma.trainingSession.update({ where: { id: sessionId }, data });
   }
 
   async createStudentInvite(studentId: string) {
@@ -266,6 +292,8 @@ export class CoachService {
               zone: session.intensityZone,
               completionStatus: session.completion?.status ?? 'sem_registro',
               perceivedEffort: session.completion?.perceivedEffort ?? null,
+              feedback: session.completion?.notes ?? null,
+              notes: session.notes,
             })),
           }
         : null,

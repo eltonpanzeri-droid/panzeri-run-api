@@ -83,6 +83,23 @@ export class NotificationsService {
       });
     }
 
+    const tips = [
+      ['Hidratacao', 'Mantenha sua hidratacao ao longo do dia e observe sede e cor da urina.'],
+      ['Sono e recuperacao', 'Uma noite de sono adequada ajuda na recuperacao e na qualidade do proximo treino.'],
+      ['Preparacao', 'Confira o treino e separe roupa, tenis e hidratacao antes do horario programado.'],
+      ['Alimentacao', 'Organize sua alimentacao e siga as orientacoes do profissional que acompanha voce.'],
+      ['Escute o corpo', 'Registre no treino qualquer dor, desconforto ou dificuldade fora do habitual.'],
+    ];
+    const dayIndex = Math.floor(today.getTime() / 86400000) % tips.length;
+    alerts.push({
+      id: `auto-tip-${dayIndex}`,
+      title: tips[dayIndex][0],
+      message: tips[dayIndex][1],
+      type: 'info',
+      read: false,
+      createdAt: new Date(),
+    });
+
     return alerts;
   }
 }
