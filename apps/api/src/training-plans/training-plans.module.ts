@@ -7,5 +7,6 @@ import { TrainingPlansService } from './training-plans.service';
   imports: [PrismaModule],
   controllers: [TrainingPlansController],
   providers: [TrainingPlansService],
+  exports: [TrainingPlansService],
 })
 export class TrainingPlansModule {}

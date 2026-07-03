@@ -20,7 +20,7 @@ interface WeeklyAvailabilityInput {
 }
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
-const planEngineVersion = 'rules-v5';
+const planEngineVersion = 'rules-v6';
 
 @Injectable()
 export class TrainingPlansService {
@@ -545,7 +545,7 @@ function normalizeModalityDurations(value: unknown) {
     return undefined;
   }
 
-  return Object.entries(value).reduce<Record<string, number>>((acc, [key, duration]) => {
+  return Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).reduce<Record<string, number>>((acc, [key, duration]) => {
     const parsedDuration = Number(duration);
     if (Number.isFinite(parsedDuration) && parsedDuration > 0) {
       acc[key] = parsedDuration;

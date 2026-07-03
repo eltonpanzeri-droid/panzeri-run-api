@@ -7,10 +7,14 @@ import { CreateStudentDto } from './dto/create-student.dto';
 import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
+import { TrainingPlansService } from '../training-plans/training-plans.service';
 
 @Injectable()
 export class CoachService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly trainingPlans: TrainingPlansService,
+  ) {}
 
   async createStudent(dto: CreateStudentDto) {
     const email = dto.email.toLowerCase().trim();
@@ -218,6 +222,8 @@ export class CoachService {
   }
 
   async student(studentId: string) {
+    await this.assertStudent(studentId);
+    await this.trainingPlans.current(studentId);
     const student = await this.prisma.user.findFirstOrThrow({
       where: { id: studentId, role: 'student' },
       include: {
@@ -237,8 +243,15 @@ export class CoachService {
       },
     });
 
-    const plan = student.plans[0] ?? null;
+    const plan = student.plans.find((item) => item.status === 'active') ?? student.plans[0] ?? null;
     const summary = plan ? summarizeSessions(plan.sessions) : emptySummary();
+    const uniqueHistory = Array.from(
+      student.plans.reduce((plans, historyPlan) => {
+        const weekKey = historyPlan.startDate.toISOString().slice(0, 10);
+        if (!plans.has(weekKey)) plans.set(weekKey, historyPlan);
+        return plans;
+      }, new Map<string, (typeof student.plans)[number]>()).values(),
+    );
 
     return {
       id: student.id,
@@ -306,13 +319,28 @@ export class CoachService {
             })),
           }
         : null,
-      history: student.plans.map((historyPlan) => ({
+      history: uniqueHistory.map((historyPlan) => ({
         id: historyPlan.id,
         name: historyPlan.name,
         status: historyPlan.status,
         startDate: historyPlan.startDate,
         endDate: historyPlan.endDate,
         summary: summarizeSessions(historyPlan.sessions),
+        sessions: historyPlan.sessions.map((session) => ({
+          id: session.id,
+          date: session.scheduledDate,
+          weekday: session.weekday,
+          title: session.title,
+          modality: session.modality,
+          durationMin: session.durationMin,
+          distanceKm: session.distanceKm,
+          zone: session.intensityZone,
+          structure: session.structure,
+          notes: session.notes,
+          completionStatus: session.completion?.status ?? 'sem_registro',
+          perceivedEffort: session.completion?.perceivedEffort ?? null,
+          feedback: session.completion?.notes ?? null,
+        })),
       })),
     };
   }
