@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -24,6 +24,9 @@ interface StravaActivityResponse {
 
 @Injectable()
 export class StravaService {
+  private readonly logger = new Logger(StravaService.name);
+  private webhookReady = false;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
@@ -75,7 +78,42 @@ export class StravaService {
       },
     });
 
+    await this.sync(state);
+    void this.ensureWebhookSubscription().catch((error: unknown) => {
+      this.logger.error(`Nao foi possivel ativar o webhook do Strava: ${error instanceof Error ? error.message : String(error)}`);
+    });
+
     return 'Strava conectado ao Panzeri Run. Pode voltar ao app.';
+  }
+
+  async status(userId: string) {
+    const connection = await this.prisma.stravaConnection.findUnique({ where: { userId } });
+    if (!connection) {
+      return { connected: false, automaticSync: false, lastActivityAt: null, lastCheckedAt: null };
+    }
+
+    let automaticSync = true;
+    try {
+      await this.ensureWebhookSubscription();
+    } catch (error) {
+      automaticSync = false;
+      this.logger.error(`Webhook do Strava indisponivel: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    const latestActivity = await this.prisma.stravaActivity.findFirst({
+      where: { userId },
+      orderBy: { startDate: 'desc' },
+    });
+
+    return {
+      connected: true,
+      automaticSync,
+      athleteId: connection.athleteId,
+      connectedAt: connection.createdAt,
+      lastCheckedAt: connection.updatedAt,
+      lastActivityAt: latestActivity?.startDate ?? null,
+      lastActivityName: latestActivity?.name ?? null,
+    };
   }
 
   async sync(userId: string) {
@@ -83,42 +121,55 @@ export class StravaService {
     const after = Math.floor(addDays(new Date(), -90).getTime() / 1000);
     const activities = await this.fetchActivities(connection.accessToken, after);
 
-    for (const activity of activities) {
-      const distanceKm = activity.distance ? Number((activity.distance / 1000).toFixed(3)) : null;
-      const avgPaceSecKm = distanceKm && activity.moving_time ? Math.round(activity.moving_time / distanceKm) : null;
+    for (const activity of activities) await this.saveActivity(userId, activity);
 
-      await this.prisma.stravaActivity.upsert({
-        where: { stravaId: String(activity.id) },
-        create: {
-          userId,
-          stravaId: String(activity.id),
-          name: activity.name,
-          type: activity.sport_type ?? activity.type,
-          startDate: new Date(activity.start_date),
-          distanceKm,
-          movingTimeSec: activity.moving_time,
-          avgPaceSecKm,
-          avgHeartRate: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
-          maxHeartRate: activity.max_heartrate ? Math.round(activity.max_heartrate) : null,
-          raw: toJsonObject(activity),
-        },
-        update: {
-          name: activity.name,
-          type: activity.sport_type ?? activity.type,
-          startDate: new Date(activity.start_date),
-          distanceKm,
-          movingTimeSec: activity.moving_time,
-          avgPaceSecKm,
-          avgHeartRate: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
-          maxHeartRate: activity.max_heartrate ? Math.round(activity.max_heartrate) : null,
-          raw: toJsonObject(activity),
-        },
-      });
-    }
+    await this.prisma.stravaConnection.update({ where: { userId }, data: { updatedAt: new Date() } });
 
     return {
       imported: activities.length,
     };
+  }
+
+  verifyWebhook(mode: string, challenge: string, verifyToken: string) {
+    if (mode !== 'subscribe' || !challenge || verifyToken !== this.webhookVerifyToken()) {
+      throw new BadRequestException('Validacao do webhook do Strava recusada.');
+    }
+    return { 'hub.challenge': challenge };
+  }
+
+  async handleWebhook(event: {
+    object_type: 'activity' | 'athlete';
+    object_id: number;
+    aspect_type: 'create' | 'update' | 'delete';
+    owner_id: number;
+    updates?: Record<string, string | boolean>;
+  }) {
+    try {
+      const connection = await this.prisma.stravaConnection.findFirst({
+        where: { athleteId: String(event.owner_id) },
+      });
+      if (!connection) return;
+
+      if (event.object_type === 'athlete' && (event.updates?.authorized === 'false' || event.updates?.authorized === false)) {
+        await this.prisma.$transaction([
+          this.prisma.stravaActivity.deleteMany({ where: { userId: connection.userId } }),
+          this.prisma.stravaConnection.delete({ where: { userId: connection.userId } }),
+        ]);
+        return;
+      }
+
+      if (event.object_type !== 'activity') return;
+      if (event.aspect_type === 'delete') {
+        await this.prisma.stravaActivity.deleteMany({ where: { stravaId: String(event.object_id) } });
+        return;
+      }
+
+      const validConnection = await this.getValidConnection(connection.userId);
+      const activity = await this.fetchActivity(validConnection.accessToken, event.object_id);
+      await this.saveActivity(connection.userId, activity);
+    } catch (error) {
+      this.logger.error(`Falha ao processar evento do Strava: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   async report(userId: string) {
@@ -345,6 +396,91 @@ export class StravaService {
     }
 
     return (await response.json()) as StravaActivityResponse[];
+  }
+
+  private async fetchActivity(accessToken: string, activityId: number) {
+    const response = await fetch(`https://www.strava.com/api/v3/activities/${activityId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) throw new BadRequestException('Nao consegui buscar a atividade recebida do Strava.');
+    return (await response.json()) as StravaActivityResponse;
+  }
+
+  private async saveActivity(userId: string, activity: StravaActivityResponse) {
+    const distanceKm = activity.distance ? Number((activity.distance / 1000).toFixed(3)) : null;
+    const avgPaceSecKm = distanceKm && activity.moving_time ? Math.round(activity.moving_time / distanceKm) : null;
+    await this.prisma.stravaActivity.upsert({
+      where: { stravaId: String(activity.id) },
+      create: {
+        userId,
+        stravaId: String(activity.id),
+        name: activity.name,
+        type: activity.sport_type ?? activity.type,
+        startDate: new Date(activity.start_date),
+        distanceKm,
+        movingTimeSec: activity.moving_time,
+        avgPaceSecKm,
+        avgHeartRate: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
+        maxHeartRate: activity.max_heartrate ? Math.round(activity.max_heartrate) : null,
+        raw: toJsonObject(activity),
+      },
+      update: {
+        userId,
+        name: activity.name,
+        type: activity.sport_type ?? activity.type,
+        startDate: new Date(activity.start_date),
+        distanceKm,
+        movingTimeSec: activity.moving_time,
+        avgPaceSecKm,
+        avgHeartRate: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
+        maxHeartRate: activity.max_heartrate ? Math.round(activity.max_heartrate) : null,
+        raw: toJsonObject(activity),
+      },
+    });
+  }
+
+  private async ensureWebhookSubscription() {
+    if (this.webhookReady) return;
+    const clientId = this.requiredConfig('STRAVA_CLIENT_ID');
+    const clientSecret = this.requiredConfig('STRAVA_CLIENT_SECRET');
+    const listUrl = new URL('https://www.strava.com/api/v3/push_subscriptions');
+    listUrl.searchParams.set('client_id', clientId);
+    listUrl.searchParams.set('client_secret', clientSecret);
+    const existingResponse = await fetch(listUrl);
+    if (existingResponse.ok) {
+      const existing = (await existingResponse.json()) as Array<{ id: number }>;
+      if (existing.length > 0) {
+        this.webhookReady = true;
+        return existing[0];
+      }
+    }
+
+    const body = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      callback_url: `${this.publicApiUrl()}/strava/webhook`,
+      verify_token: this.webhookVerifyToken(),
+    });
+    const response = await fetch('https://www.strava.com/api/v3/push_subscriptions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    if (!response.ok) throw new Error(`Strava respondeu ${response.status} ao criar webhook.`);
+    const subscription = await response.json();
+    this.webhookReady = true;
+    return subscription;
+  }
+
+  private webhookVerifyToken() {
+    return this.config.get<string>('STRAVA_WEBHOOK_VERIFY_TOKEN') ?? 'panzeri-run-strava-webhook-2026';
+  }
+
+  private publicApiUrl() {
+    const configured = this.config.get<string>('APP_PUBLIC_URL');
+    if (configured) return configured.replace(/\/$/, '');
+    const redirect = this.requiredConfig('STRAVA_REDIRECT_URI');
+    return new URL(redirect).origin;
   }
 
   private requiredConfig(key: string) {

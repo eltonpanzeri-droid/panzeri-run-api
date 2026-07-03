@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { StravaService } from './strava.service';
@@ -30,7 +30,7 @@ export class StravaController {
         <body>
           <main>
             <h2>${message}</h2>
-            <p>Volte ao app e toque em Sincronizar e comparar.</p>
+            <p>A sincronizacao agora e automatica. Pode voltar ao aplicativo.</p>
           </main>
           <script>
             if (window.opener) {
@@ -40,6 +40,12 @@ export class StravaController {
         </body>
       </html>
     `);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('status')
+  status(@CurrentUser() user: CurrentUserPayload) {
+    return this.stravaService.status(user.sub);
   }
 
   @UseGuards(AuthGuard('jwt'))
@@ -53,4 +59,27 @@ export class StravaController {
   report(@CurrentUser() user: CurrentUserPayload) {
     return this.stravaService.report(user.sub);
   }
+
+  @Get('webhook')
+  verifyWebhook(
+    @Query('hub.mode') mode: string,
+    @Query('hub.challenge') challenge: string,
+    @Query('hub.verify_token') verifyToken: string,
+  ) {
+    return this.stravaService.verifyWebhook(mode, challenge, verifyToken);
+  }
+
+  @Post('webhook')
+  receiveWebhook(@Body() event: StravaWebhookEvent) {
+    void this.stravaService.handleWebhook(event);
+    return { received: true };
+  }
+}
+
+interface StravaWebhookEvent {
+  object_type: 'activity' | 'athlete';
+  object_id: number;
+  aspect_type: 'create' | 'update' | 'delete';
+  owner_id: number;
+  updates?: Record<string, string | boolean>;
 }

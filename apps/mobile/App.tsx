@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
   SafeAreaView,
@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'anamnese' | 'test' | 'progress' | 'profile';
+type Tab = 'week' | 'anamnese' | 'test' | 'progress' | 'strava' | 'profile';
 type AuthMode = 'login' | 'register';
 
 function initialAuthMode(): AuthMode {
@@ -188,6 +188,15 @@ interface StravaReport {
     completionStatus?: string | null;
     perceivedEffort?: number | null;
   }>;
+}
+
+interface StravaConnectionStatus {
+  connected: boolean;
+  automaticSync: boolean;
+  connectedAt?: string | null;
+  lastCheckedAt?: string | null;
+  lastActivityAt?: string | null;
+  lastActivityName?: string | null;
 }
 
 interface SavedAvailabilityDay {
@@ -503,6 +512,7 @@ export default function App() {
               </>
             )}
             {activeTab === 'progress' && <Progress completedToday={completedToday} metrics={metrics} accessToken={accessToken} />}
+            {activeTab === 'strava' && <StravaSync accessToken={accessToken} />}
             {activeTab === 'profile' && (
               <Anamnese
                 accessToken={accessToken}
@@ -1264,7 +1274,6 @@ function ThreeKmTest({
 }
 
 function Progress({ completedToday: _completedToday, metrics, accessToken }: { completedToday: boolean; metrics: ThreeKmMetrics; accessToken: string }) {
-  const [stravaStatus, setStravaStatus] = useState('');
   const [stravaReport, setStravaReport] = useState<StravaReport | null>(null);
 
   useEffect(() => {
@@ -1279,65 +1288,6 @@ function Progress({ completedToday: _completedToday, metrics, accessToken }: { c
       .catch(() => undefined);
   }, [accessToken]);
 
-  async function connectStrava() {
-    setStravaStatus('');
-    const authPopup = openAuthPopup();
-    authPopup?.document?.write(
-      '<p style="font-family: Arial, sans-serif; padding: 24px;">Abrindo autorizacao do Strava...</p>',
-    );
-
-    try {
-      const response = await fetch(`${API_URL}/strava/connect-url`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-
-      if (!response.ok) {
-        authPopup?.close?.();
-        setStravaStatus('Configure o Strava no servidor antes de conectar.');
-        return;
-      }
-
-      const data = (await response.json()) as { url: string };
-      if (authPopup?.location) {
-        authPopup.location.href = data.url;
-      } else {
-        Linking.openURL(data.url);
-      }
-      setStravaStatus('Autorize o Strava na janela aberta. Depois toque em Sincronizar e comparar.');
-    } catch {
-      authPopup?.close?.();
-      setStravaStatus('Nao consegui abrir a conexao com o Strava.');
-    }
-  }
-
-  async function syncStrava() {
-    setStravaStatus('Sincronizando Strava...');
-    try {
-      const syncResponse = await fetch(`${API_URL}/strava/sync`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-
-      if (!syncResponse.ok) {
-        setStravaStatus('Conecte o Strava antes de sincronizar.');
-        return;
-      }
-
-      const reportResponse = await fetch(`${API_URL}/strava/report`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-
-      if (!reportResponse.ok) {
-        setStravaStatus('Sincronizei, mas nao consegui gerar o relatorio.');
-        return;
-      }
-
-      setStravaReport((await reportResponse.json()) as StravaReport);
-      setStravaStatus('Relatorio atualizado com dados do Strava.');
-    } catch {
-      setStravaStatus('Nao consegui conectar com a API agora.');
-    }
-  }
-
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Evolucao</Text>
@@ -1349,21 +1299,7 @@ function Progress({ completedToday: _completedToday, metrics, accessToken }: { c
         <Metric icon="trophy" label="Melhor 3 km" value={metrics.pace} />
       </View>
 
-      {!stravaReport?.summary ? <Text style={styles.formHint}>Sincronize o Strava para atualizar os indicadores de evolucao.</Text> : null}
-
-      <View style={styles.formSection}>
-        <Text style={styles.formSectionTitle}>Strava</Text>
-        <Text style={styles.formHint}>Conecte o Strava para comparar o treino prescrito com o que o aluno realmente fez.</Text>
-        <Pressable style={styles.secondaryOutlineButton} onPress={connectStrava}>
-          <Text style={styles.secondaryOutlineButtonText}>Conectar Strava</Text>
-          <Ionicons name="link" size={18} color="#0f766e" />
-        </Pressable>
-        <Pressable style={styles.primaryButton} onPress={syncStrava}>
-          <Text style={styles.primaryButtonText}>Sincronizar e comparar</Text>
-          <Ionicons name="sync" size={18} color="#ffffff" />
-        </Pressable>
-        {stravaStatus ? <Text style={styles.statusMessage}>{stravaStatus}</Text> : null}
-      </View>
+      {!stravaReport?.summary ? <Text style={styles.formHint}>Conecte o Strava na aba propria para atualizar os indicadores automaticamente.</Text> : null}
 
       {stravaReport?.summary ? (
         <View style={styles.formSection}>
@@ -1395,6 +1331,116 @@ function Progress({ completedToday: _completedToday, metrics, accessToken }: { c
       ) : null}
     </View>
   );
+}
+
+function StravaSync({ accessToken }: { accessToken: string }) {
+  const [connection, setConnection] = useState<StravaConnectionStatus | null>(null);
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  async function loadStatus() {
+    try {
+      const response = await fetch(`${API_URL}/strava/status`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (response.ok) setConnection((await response.json()) as StravaConnectionStatus);
+    } catch {
+      setMessage('Nao consegui consultar a conexao agora.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadStatus();
+    const timer = setInterval(() => void loadStatus(), 5000);
+    return () => clearInterval(timer);
+  }, [accessToken]);
+
+  async function connectStrava() {
+    setMessage('');
+    const authPopup = openAuthPopup();
+    authPopup?.document?.write('<p style="font-family: Arial, sans-serif; padding: 24px;">Abrindo autorizacao do Strava...</p>');
+    try {
+      const response = await fetch(`${API_URL}/strava/connect-url`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) {
+        authPopup?.close?.();
+        setMessage('Nao consegui iniciar a autorizacao do Strava.');
+        return;
+      }
+      const data = (await response.json()) as { url: string };
+      if (authPopup?.location) authPopup.location.href = data.url;
+      else Linking.openURL(data.url);
+      setMessage('Conclua a autorizacao. Esta tela reconhecera a conexao automaticamente.');
+    } catch {
+      authPopup?.close?.();
+      setMessage('Nao consegui abrir a autorizacao do Strava.');
+    }
+  }
+
+  async function verifyNow() {
+    setMessage('Verificando atividades...');
+    try {
+      const response = await fetch(`${API_URL}/strava/sync`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) {
+        setMessage('A conta ainda nao esta conectada.');
+        return;
+      }
+      await loadStatus();
+      setMessage('Verificacao concluida. A sincronizacao automatica continua ativa.');
+    } catch {
+      setMessage('Nao consegui verificar agora. Tente novamente mais tarde.');
+    }
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Integracao</Text>
+      <Text style={styles.titleSmall}>Sincronizar com Strava</Text>
+      <Text style={styles.formHint}>Autorize uma vez. Depois, os treinos enviados pelo seu relogio ao Strava chegam automaticamente ao Panzeri Run.</Text>
+
+      <View style={styles.formSection}>
+        <View style={styles.reportRow}>
+          <Text style={styles.reportTitle}>{loading ? 'Consultando conexao...' : connection?.connected ? 'Strava conectado' : 'Strava nao conectado'}</Text>
+          <Text style={styles.reportText}>
+            {connection?.connected
+              ? connection.automaticSync
+                ? 'Sincronizacao automatica ativa. Voce nao precisa apertar nenhum botao depois dos treinos.'
+                : 'Conta conectada. A ativacao da sincronizacao automatica esta sendo concluida.'
+              : 'Conecte sua conta para permitir o acompanhamento dos treinos pelo treinador.'}
+          </Text>
+        </View>
+
+        {connection?.lastActivityAt ? (
+          <View style={styles.reportRow}>
+            <Text style={styles.reportTitle}>Ultima atividade recebida</Text>
+            <Text style={styles.reportText}>{connection.lastActivityName ?? 'Atividade do Strava'} - {formatConnectionDate(connection.lastActivityAt)}</Text>
+          </View>
+        ) : null}
+
+        {!connection?.connected ? (
+          <Pressable style={styles.primaryButton} onPress={connectStrava}>
+            <Text style={styles.primaryButtonText}>Conectar com Strava</Text>
+            <Ionicons name="link" size={18} color="#ffffff" />
+          </Pressable>
+        ) : (
+          <Pressable style={styles.secondaryOutlineButton} onPress={verifyNow}>
+            <Text style={styles.secondaryOutlineButtonText}>Verificar agora</Text>
+            <Ionicons name="refresh" size={18} color="#0f766e" />
+          </Pressable>
+        )}
+        {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+function formatConnectionDate(value: string) {
+  return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
 }
 
 function Anamnese({
@@ -1713,6 +1759,7 @@ function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: 
     { id: 'anamnese', label: 'Anamnese', icon: 'clipboard' },
     { id: 'test', label: 'Teste de VO2 max', icon: 'stopwatch' },
     { id: 'progress', label: 'Evolucao', icon: 'stats-chart' },
+    { id: 'strava', label: 'Sincronizar com Strava', icon: 'sync' },
     { id: 'profile', label: 'Perfil', icon: 'person' },
   ];
 
