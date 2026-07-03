@@ -21,6 +21,7 @@ interface WeeklyAvailabilityInput {
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
 const planEngineVersion = 'rules-v6';
+const subscriptionCheckoutUrl = 'https://mpago.la/23YBr2R';
 
 @Injectable()
 export class TrainingPlansService {
@@ -28,7 +29,7 @@ export class TrainingPlansService {
 
   async current(userId: string) {
     const weekStart = startOfWeek(new Date());
-    const [plan, availability, latestTest] = await Promise.all([
+    const [plan, availability, latestTest, user] = await Promise.all([
       this.prisma.trainingPlan.findFirst({
         where: { userId, status: 'active' },
         orderBy: { createdAt: 'desc' },
@@ -48,6 +49,7 @@ export class TrainingPlansService {
         orderBy: { createdAt: 'desc' },
         select: { id: true },
       }),
+      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { subscriptionStatus: true } }),
     ]);
 
     if (
@@ -60,7 +62,7 @@ export class TrainingPlansService {
       return this.generateWeek(userId);
     }
 
-    return this.presentPlan(plan);
+    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus));
   }
 
   async generateWeek(userId: string, weeklyOverride?: WeeklyAvailabilityInput[]) {
@@ -177,7 +179,7 @@ export class TrainingPlansService {
       },
     });
 
-    return this.presentPlan(plan);
+    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus));
   }
 
   private templateForModality(modality: string, hasTest: boolean): SessionTemplate {
@@ -476,7 +478,21 @@ export class TrainingPlansService {
         details: unknown;
       } | null;
     }>;
-  }) {
+  }, unlocked = true) {
+    if (!unlocked) {
+      return {
+        id: plan.id,
+        name: plan.name,
+        goal: plan.goal,
+        startDate: plan.startDate,
+        endDate: plan.endDate,
+        recommendation: null,
+        locked: true,
+        checkoutUrl: subscriptionCheckoutUrl,
+        priceLabel: 'R$ 19,90 por mes',
+        sessions: [],
+      };
+    }
     return {
       id: plan.id,
       name: plan.name,
@@ -484,6 +500,7 @@ export class TrainingPlansService {
       startDate: plan.startDate,
       endDate: plan.endDate,
       recommendation: plan.aiRecommendation,
+      locked: false,
       sessions: plan.sessions.map((session) => ({
         id: session.id,
         day: dayNames[session.weekday] ?? 'Dia',
@@ -512,6 +529,10 @@ export class TrainingPlansService {
       })),
     };
   }
+}
+
+function hasSubscriptionAccess(status: string) {
+  return status === 'active' || status === 'manual_active' || status === 'grace';
 }
 
 function pickModality(modalities: string[], fallback: string) {

@@ -63,7 +63,7 @@ export class CoachService {
 
   async updateStudent(studentId: string, dto: UpdateStudentDto) {
     await this.assertStudent(studentId);
-    const data: { name?: string; email?: string; accountStatus?: string; refreshTokenHash?: null } = {};
+    const data: { name?: string; email?: string; accountStatus?: string; subscriptionStatus?: string; subscriptionUpdatedAt?: Date; refreshTokenHash?: null } = {};
 
     if (dto.name) {
       data.name = dto.name.trim();
@@ -85,6 +85,11 @@ export class CoachService {
       }
     }
 
+    if (dto.subscriptionStatus) {
+      data.subscriptionStatus = dto.subscriptionStatus;
+      data.subscriptionUpdatedAt = new Date();
+    }
+
     if (!Object.keys(data).length) {
       throw new BadRequestException('Nenhum dado para atualizar.');
     }
@@ -97,6 +102,8 @@ export class CoachService {
         name: true,
         email: true,
         accountStatus: true,
+        subscriptionStatus: true,
+        subscriptionUpdatedAt: true,
         updatedAt: true,
       },
     });
@@ -199,6 +206,7 @@ export class CoachService {
         lastThreeKm: student.tests[0]?.totalSeconds ? formatDuration(student.tests[0].totalSeconds) : 'Sem teste',
         status: statusFromSummary(summary),
         accountStatus: student.accountStatus,
+        subscriptionStatus: student.subscriptionStatus,
       };
     });
 
@@ -283,6 +291,8 @@ export class CoachService {
       name: student.name,
       email: student.email,
       accountStatus: student.accountStatus,
+      subscriptionStatus: student.subscriptionStatus,
+      subscriptionUpdatedAt: student.subscriptionUpdatedAt,
       birthDate: student.birthDate,
       heightCm: student.heightCm,
       weightKg: student.weightKg,

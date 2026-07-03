@@ -13,4 +13,8 @@ export class UpdateStudentDto {
   @IsOptional()
   @IsIn(['active', 'paused', 'canceled', 'overdue'])
   accountStatus?: string;
+
+  @IsOptional()
+  @IsIn(['pending', 'active', 'manual_active', 'grace', 'overdue', 'canceled'])
+  subscriptionStatus?: string;
 }

@@ -19,6 +19,8 @@ model User {
   address      String?
   role         String              @default("student")
   accountStatus String             @default("active")
+  subscriptionStatus String        @default("pending")
+  subscriptionUpdatedAt DateTime   @default(now())
   acceptedTermsAt DateTime?
   acceptedPrivacyAt DateTime?
   refreshTokenHash String?

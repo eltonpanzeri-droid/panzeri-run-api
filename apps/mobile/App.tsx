@@ -133,6 +133,9 @@ interface WeekPlan {
   startDate?: string;
   endDate?: string;
   recommendation?: string;
+  locked?: boolean;
+  checkoutUrl?: string;
+  priceLabel?: string;
   sessions: WeekPlanSession[];
 }
 
@@ -966,7 +969,7 @@ function Week({ accessToken, baseRoutineDays, metrics }: { accessToken: string; 
       }
 
       const data = (await response.json()) as WeekPlan | null;
-      if (data && !isDetailedPlan(data)) {
+      if (data && !data.locked && !isDetailedPlan(data)) {
         setPlan(null);
         setStatus('Plano antigo detectado. Gere uma nova semana para ver os treinos detalhados.');
         return;
@@ -1009,7 +1012,7 @@ function Week({ accessToken, baseRoutineDays, metrics }: { accessToken: string; 
       }
 
       const data = (await response.json()) as WeekPlan;
-      if (!isDetailedPlan(data)) {
+      if (!data.locked && !isDetailedPlan(data)) {
         setPlan(null);
         setStatus('A API ainda esta com a versao antiga. Publique no EasyPanel e gere novamente.');
         return;
@@ -1094,6 +1097,28 @@ function Week({ accessToken, baseRoutineDays, metrics }: { accessToken: string; 
 
   const sessions = plan?.sessions.length ? plan.sessions : [];
   const weekRange = plan ? planWeekRange(plan) : currentWeekRange();
+
+  if (plan?.locked) {
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Treino da semana</Text>
+        <Text style={styles.titleSmall}>{weekRange}</Text>
+        <View style={styles.coachBox}>
+          <Text style={styles.coachTitle}>Seu treino da semana esta pronto</Text>
+          <Text style={styles.coachText}>Efetue o pagamento para comecar a treinar e obter seus resultados.</Text>
+        </View>
+        <View style={styles.formSection}>
+          <Text style={styles.formSectionTitle}>Assinatura Panzeri Run</Text>
+          <Text style={styles.formHint}>{plan.priceLabel ?? 'R$ 19,90 por mes'}. Cancele quando quiser.</Text>
+          <Pressable style={styles.primaryButton} onPress={() => Linking.openURL(plan.checkoutUrl ?? 'https://mpago.la/23YBr2R')}>
+            <Text style={styles.primaryButtonText}>Ativar minha assinatura</Text>
+            <Ionicons name="card" size={18} color="#ffffff" />
+          </Pressable>
+          <Text style={styles.formHint}>A liberacao sera confirmada pelo treinador nesta primeira versao.</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.section}>
