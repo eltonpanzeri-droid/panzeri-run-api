@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
@@ -15,8 +15,12 @@ export class CoachController {
   constructor(private readonly coachService: CoachService) {}
 
   @Get('dashboard')
-  dashboard() {
-    return this.coachService.dashboard();
+  dashboard(@Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return this.coachService.dashboard({
+      search: search?.trim() ?? '',
+      page: Math.max(Number(page) || 1, 1),
+      pageSize: Math.min(Math.max(Number(pageSize) || 25, 5), 100),
+    });
   }
 
   @Post('students')

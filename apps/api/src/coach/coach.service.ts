@@ -166,10 +166,25 @@ export class CoachService {
     };
   }
 
-  async dashboard() {
-    const students = await this.prisma.user.findMany({
-      where: { role: 'student' },
+  async dashboard(input: { search: string; page: number; pageSize: number }) {
+    const studentWhere: Prisma.UserWhereInput = {
+      role: 'student',
+      ...(input.search ? {
+        OR: [
+          { name: { contains: input.search, mode: 'insensitive' } },
+          { email: { contains: input.search, mode: 'insensitive' } },
+        ],
+      } : {}),
+    };
+    const weekStart = coachWeekStart(new Date());
+    const weekEnd = addDays(weekStart, 6);
+    weekEnd.setUTCHours(23, 59, 59, 999);
+    const [students, filteredCount, totalStudents, activePlanUsers, prescribedSessions, eligibleSessions, completedSessions, differentSessions] = await Promise.all([
+      this.prisma.user.findMany({
+      where: studentWhere,
       orderBy: { createdAt: 'desc' },
+      skip: (input.page - 1) * input.pageSize,
+      take: input.pageSize,
       include: {
         preferences: true,
         tests: {
@@ -184,7 +199,15 @@ export class CoachService {
           include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
         },
       },
-    });
+      }),
+      this.prisma.user.count({ where: studentWhere }),
+      this.prisma.user.count({ where: { role: 'student' } }),
+      this.prisma.trainingPlan.findMany({ where: { status: 'active' }, distinct: ['userId'], select: { userId: true } }),
+      this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: weekEnd }, plan: { status: 'active' } } }),
+      this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } }),
+      this.prisma.workoutCompletion.count({ where: { status: { in: ['done', 'adjusted'] }, session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } } }),
+      this.prisma.workoutCompletion.count({ where: { status: 'adjusted', session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } } }),
+    ]);
 
     const rows = students.map((student) => {
       const plan = student.plans[0] ?? null;
@@ -210,24 +233,23 @@ export class CoachService {
       };
     });
 
-    const totals = rows.reduce(
-      (acc, student) => ({
-        students: acc.students + 1,
-        activePlans: acc.activePlans + (student.planName === 'Sem plano ativo' ? 0 : 1),
-        prescribedSessions: acc.prescribedSessions + student.prescribedSessions,
-        eligibleSessions: acc.eligibleSessions + student.eligibleSessions,
-        completedSessions: acc.completedSessions + student.completedSessions,
-        differentSessions: acc.differentSessions + student.differentSessions,
-      }),
-      { students: 0, activePlans: 0, prescribedSessions: 0, eligibleSessions: 0, completedSessions: 0, differentSessions: 0 },
-    );
-
     return {
       totals: {
-        ...totals,
-        adherencePercent: totals.eligibleSessions ? Math.round((totals.completedSessions / totals.eligibleSessions) * 100) : 0,
+        students: totalStudents,
+        activePlans: activePlanUsers.length,
+        prescribedSessions,
+        eligibleSessions,
+        completedSessions,
+        differentSessions,
+        adherencePercent: eligibleSessions ? Math.round((completedSessions / eligibleSessions) * 100) : 0,
       },
       students: rows,
+      pagination: {
+        page: input.page,
+        pageSize: input.pageSize,
+        totalItems: filteredCount,
+        totalPages: Math.max(Math.ceil(filteredCount / input.pageSize), 1),
+      },
     };
   }
 
@@ -436,6 +458,13 @@ function stravaMatchesModality(activity: { type: string | null; name: string | n
 function addDays(date: Date, days: number) {
   const result = new Date(date);
   result.setUTCDate(result.getUTCDate() + days);
+  return result;
+}
+
+function coachWeekStart(date: Date) {
+  const result = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const weekday = result.getUTCDay();
+  result.setUTCDate(result.getUTCDate() + (weekday === 0 ? -6 : 1 - weekday));
   return result;
 }
 

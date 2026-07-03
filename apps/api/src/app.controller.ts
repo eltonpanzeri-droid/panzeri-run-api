@@ -7,7 +7,7 @@ export class AppController {
     return {
       status: 'ok',
       service: 'panzeri-run-api',
-      version: '2026.07.03-r6',
+      version: '2026.07.03-r7',
       planEngine: 'rules-v6',
     };
   }
