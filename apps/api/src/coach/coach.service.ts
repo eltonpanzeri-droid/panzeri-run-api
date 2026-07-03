@@ -8,12 +8,14 @@ import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
 import { TrainingPlansService } from '../training-plans/training-plans.service';
+import { StravaService } from '../strava/strava.service';
 
 @Injectable()
 export class CoachService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly trainingPlans: TrainingPlansService,
+    private readonly strava: StravaService,
   ) {}
 
   async createStudent(dto: CreateStudentDto) {
@@ -224,6 +226,7 @@ export class CoachService {
   async student(studentId: string) {
     await this.assertStudent(studentId);
     await this.trainingPlans.current(studentId);
+    await this.strava.syncIfStale(studentId).catch(() => undefined);
     const student = await this.prisma.user.findFirstOrThrow({
       where: { id: studentId, role: 'student' },
       include: {
@@ -244,6 +247,28 @@ export class CoachService {
     });
 
     const plan = student.plans.find((item) => item.status === 'active') ?? student.plans[0] ?? null;
+    const stravaActivities = plan
+      ? await this.prisma.stravaActivity.findMany({
+          where: {
+            userId: studentId,
+            startDate: { gte: plan.startDate, lte: plan.endDate ?? addDays(plan.startDate, 6) },
+          },
+          orderBy: { startDate: 'asc' },
+        })
+      : [];
+    const usedStravaIds = new Set<string>();
+    const stravaBySession = new Map<string, (typeof stravaActivities)[number]>();
+    for (const session of plan?.sessions ?? []) {
+      const activity = stravaActivities.find((candidate) =>
+        !usedStravaIds.has(candidate.id) &&
+        sameUtcDay(candidate.startDate, session.scheduledDate) &&
+        stravaMatchesModality(candidate, session.modality),
+      );
+      if (activity) {
+        usedStravaIds.add(activity.id);
+        stravaBySession.set(session.id, activity);
+      }
+    }
     const summary = plan ? summarizeSessions(plan.sessions) : emptySummary();
     const uniqueHistory = Array.from(
       student.plans.reduce((plans, historyPlan) => {
@@ -315,10 +340,14 @@ export class CoachService {
               completedDistanceKm: session.completion?.distanceKm ?? null,
               completedPaceSecondsKm: session.completion?.avgPaceSecondsKm ?? null,
               completedAt: session.completion?.completedAt ?? null,
+              stravaActivity: serializeStravaActivity(stravaBySession.get(session.id) ?? null),
               notes: session.notes,
             })),
           }
         : null,
+      unmatchedStravaActivities: stravaActivities
+        .filter((activity) => !usedStravaIds.has(activity.id))
+        .map((activity) => serializeStravaActivity(activity)),
       history: uniqueHistory.map((historyPlan) => ({
         id: historyPlan.id,
         name: historyPlan.name,
@@ -350,6 +379,54 @@ export class CoachService {
       where: { id: studentId, role: 'student' },
     });
   }
+}
+
+function serializeStravaActivity(activity: {
+  id: string;
+  stravaId: string;
+  name: string | null;
+  type: string | null;
+  startDate: Date;
+  distanceKm: number | null;
+  movingTimeSec: number | null;
+  avgPaceSecKm: number | null;
+  avgHeartRate: number | null;
+  maxHeartRate: number | null;
+} | null) {
+  if (!activity) return null;
+  return {
+    id: activity.id,
+    stravaId: activity.stravaId,
+    name: activity.name,
+    type: activity.type,
+    startDate: activity.startDate,
+    distanceKm: activity.distanceKm,
+    durationMin: activity.movingTimeSec ? Math.round(activity.movingTimeSec / 60) : null,
+    paceSecondsKm: activity.avgPaceSecKm,
+    averageHeartRate: activity.avgHeartRate,
+    maxHeartRate: activity.maxHeartRate,
+  };
+}
+
+function sameUtcDay(left: Date, right: Date) {
+  return left.toISOString().slice(0, 10) === right.toISOString().slice(0, 10);
+}
+
+function stravaMatchesModality(activity: { type: string | null; name: string | null }, modality: string) {
+  const value = `${activity.type ?? ''} ${activity.name ?? ''}`.toLowerCase();
+  if (modality === 'corrida' || modality === 'esteira') return value.includes('run');
+  if (modality === 'bike') return value.includes('ride') || value.includes('bike');
+  if (modality === 'forca' || modality === 'fortalecimento_corredores') {
+    return ['weight', 'strength', 'workout', 'training', 'treinamento', 'peso', 'musculacao', 'forca']
+      .some((term) => value.includes(term));
+  }
+  return false;
+}
+
+function addDays(date: Date, days: number) {
+  const result = new Date(date);
+  result.setUTCDate(result.getUTCDate() + days);
+  return result;
 }
 
 function buildAccessText(email: string, password: string) {

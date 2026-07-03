@@ -130,6 +130,14 @@ export class StravaService {
     };
   }
 
+  async syncIfStale(userId: string, staleAfterMinutes = 5) {
+    const connection = await this.prisma.stravaConnection.findUnique({ where: { userId } });
+    if (!connection) return { connected: false, imported: 0 };
+    const staleBefore = Date.now() - staleAfterMinutes * 60_000;
+    if (connection.updatedAt.getTime() >= staleBefore) return { connected: true, imported: 0, cached: true };
+    return this.sync(userId);
+  }
+
   verifyWebhook(mode: string, challenge: string, verifyToken: string) {
     if (mode !== 'subscribe' || !challenge || verifyToken !== this.webhookVerifyToken()) {
       throw new BadRequestException('Validacao do webhook do Strava recusada.');
