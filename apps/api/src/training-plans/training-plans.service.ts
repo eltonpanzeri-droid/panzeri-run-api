@@ -29,7 +29,7 @@ export class TrainingPlansService {
 
   async current(userId: string) {
     const weekStart = startOfWeek(new Date());
-    const [plan, availability, latestTest, user] = await Promise.all([
+    const [plan, availability, latestTest, user, onboarding] = await Promise.all([
       this.prisma.trainingPlan.findFirst({
         where: { userId, status: 'active' },
         orderBy: { createdAt: 'desc' },
@@ -50,7 +50,11 @@ export class TrainingPlansService {
         select: { id: true },
       }),
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { subscriptionStatus: true } }),
+      this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } }),
     ]);
+
+    if (!onboarding?.completedAt) return onboardingRequiredPlan();
+    if (!latestTest) return testRequiredPlan();
 
     if (
       !plan ||
@@ -83,6 +87,10 @@ export class TrainingPlansService {
         orderBy: { weekday: 'asc' },
       }),
     ]);
+
+    const onboarding = await this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } });
+    if (!onboarding?.completedAt) return onboardingRequiredPlan();
+    if (!latestTest) return testRequiredPlan();
 
     const weekStart = startOfWeek(new Date());
     const adjustedAvailability = weeklyOverride?.filter((day) => !day.noTraining) ?? [];
@@ -533,6 +541,36 @@ export class TrainingPlansService {
 
 function hasSubscriptionAccess(status: string) {
   return status === 'active' || status === 'manual_active' || status === 'grace';
+}
+
+function onboardingRequiredPlan() {
+  return {
+    id: 'onboarding-required',
+    name: 'Entrevista inicial',
+    goal: '',
+    startDate: startOfWeek(new Date()),
+    endDate: addDays(startOfWeek(new Date()), 6),
+    recommendation: null,
+    requiresOnboarding: true,
+    requiresTest: false,
+    locked: false,
+    sessions: [],
+  };
+}
+
+function testRequiredPlan() {
+  return {
+    id: 'test-required',
+    name: 'Teste inicial',
+    goal: '',
+    startDate: startOfWeek(new Date()),
+    endDate: addDays(startOfWeek(new Date()), 6),
+    recommendation: null,
+    requiresOnboarding: false,
+    requiresTest: true,
+    locked: false,
+    sessions: [],
+  };
 }
 
 function pickModality(modalities: string[], fallback: string) {

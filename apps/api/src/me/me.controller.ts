@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { UpdateAvailabilityDto } from './dto/update-availability.dto';
@@ -41,5 +41,23 @@ export class MeController {
   @Get('availability')
   availability(@CurrentUser() user: CurrentUserPayload) {
     return this.meService.availability(user.sub);
+  }
+
+  @Get('onboarding')
+  onboarding(@CurrentUser() user: CurrentUserPayload) {
+    return this.meService.onboarding(user.sub);
+  }
+
+  @Put('onboarding/answer')
+  saveOnboardingAnswer(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: { key: string; value: unknown; currentStep: number },
+  ) {
+    return this.meService.saveOnboardingAnswer(user.sub, dto);
+  }
+
+  @Post('onboarding/complete')
+  completeOnboarding(@CurrentUser() user: CurrentUserPayload) {
+    return this.meService.completeOnboarding(user.sub);
   }
 }

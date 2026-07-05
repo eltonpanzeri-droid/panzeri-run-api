@@ -36,6 +36,18 @@ model User {
   achievements  UserAchievement[]
   passwordResetTokens PasswordResetToken[]
   notifications UserNotification[]
+  onboardingInterview OnboardingInterview?
+}
+
+model OnboardingInterview {
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  user        User      @relation(fields: [userId], references: [id])
+  answers     Json      @default("{}")
+  currentStep Int       @default(0)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model PasswordResetToken {

@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'anamnese' | 'test' | 'progress' | 'strava' | 'profile';
+type Tab = 'week' | 'interview' | 'anamnese' | 'test' | 'progress' | 'strava' | 'profile';
 type AuthMode = 'login' | 'register';
 
 function initialAuthMode(): AuthMode {
@@ -136,7 +136,34 @@ interface WeekPlan {
   locked?: boolean;
   checkoutUrl?: string;
   priceLabel?: string;
+  requiresOnboarding?: boolean;
+  requiresTest?: boolean;
   sessions: WeekPlanSession[];
+}
+
+type InterviewAnswer = string | number | string[] | boolean;
+type InterviewAnswers = Record<string, InterviewAnswer>;
+
+interface InterviewState {
+  answers: InterviewAnswers;
+  currentStep: number;
+  completedAt?: string | null;
+}
+
+interface InterviewOption {
+  label: string;
+  value: string;
+}
+
+interface InterviewQuestion {
+  key: string;
+  module: string;
+  prompt: string;
+  type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'notice';
+  options?: InterviewOption[];
+  optional?: boolean;
+  help?: string;
+  condition?: (answers: InterviewAnswers) => boolean;
 }
 
 interface CompletionDraft {
@@ -309,6 +336,85 @@ const defaultRoutineDays: RoutineDay[] = [
   { weekday: 0, day: 'Dom', label: 'Domingo', modalities: ['Sem treinos'], minutesByModality: {} },
 ];
 
+const option = (label: string, value = label) => ({ label, value });
+const activityOptions = ['Corrida', 'Caminhada', 'Musculacao', 'Ciclismo', 'Natacao', 'Funcional', 'CrossFit', 'Pilates', 'Yoga', 'Esportes coletivos', 'Outra'];
+const interviewTimeOptions = [
+  option('Nao posso treinar', 'none'), option('Ate 30 minutos', 'up_to_30'), option('30 a 45 minutos', 'from_30_to_45'),
+  option('45 a 60 minutos', 'from_45_to_60'), option('60 a 90 minutos', 'from_60_to_90'), option('Mais de 90 minutos', 'over_90'),
+];
+const ratingPrompts = [
+  ['rating_energy', 'Energia no dia a dia'], ['rating_training_readiness', 'Disposicao para treinar'], ['rating_fitness', 'Condicionamento fisico'],
+  ['rating_strength', 'Forca fisica'], ['rating_sleep', 'Qualidade do sono'], ['rating_recovery', 'Recuperacao apos os treinos'],
+  ['rating_stress', 'Nivel de estresse'], ['rating_anxiety', 'Nivel de ansiedade'], ['rating_motivation', 'Motivacao para treinar'],
+  ['rating_nutrition', 'Qualidade da alimentacao'], ['rating_hydration', 'Hidratacao'], ['rating_health', 'Saude geral'],
+  ['rating_pain_free', 'Quanto seu corpo esta livre de dores'], ['rating_body_satisfaction', 'Satisfacao com seu corpo'],
+  ['rating_quality_of_life', 'Qualidade de vida'], ['rating_goal_confidence', 'Confianca de que conseguira atingir seu objetivo'],
+  ['rating_routine_support', 'Quanto sua rotina atual favorece seu objetivo'],
+];
+const weekInterviewDays = [
+  ['monday', 'Segunda-feira'], ['tuesday', 'Terca-feira'], ['wednesday', 'Quarta-feira'], ['thursday', 'Quinta-feira'],
+  ['friday', 'Sexta-feira'], ['saturday', 'Sabado'], ['sunday', 'Domingo'],
+];
+
+const interviewQuestions: InterviewQuestion[] = [
+  { key: 'objective', module: 'Objetivo', prompt: 'Qual e seu principal objetivo?', type: 'single', options: [
+    option('Comecar a correr'), option('Completar 5 km'), option('Melhorar meu tempo nos 5 km'), option('Completar 10 km'),
+    option('Melhorar meu tempo nos 10 km'), option('Completar 21 km'), option('Melhorar meu tempo nos 21 km'),
+    option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'),
+  ] },
+  { key: 'running_experience', module: 'Experiencia com corrida', prompt: 'Qual opcao melhor descreve sua experiencia com corrida?', type: 'single', options: [
+    option('Nunca corri regularmente.'), option('Ja tentei correr algumas vezes, mas nunca mantive uma rotina.'),
+    option('Corri regularmente no passado, mas parei ha mais de 2 anos.'), option('Corri regularmente e parei entre 6 meses e 2 anos.'),
+    option('Corri regularmente ate os ultimos 6 meses.'), option('Corro regularmente ha menos de 2 anos.'), option('Corro regularmente ha mais de 2 anos.'),
+  ] },
+  { key: 'longest_distance', module: 'Experiencia com corrida', prompt: 'Qual foi a maior distancia que voce ja correu?', type: 'single', options: ['Nunca consegui correr continuamente.', 'Ate 3 km', '5 km', '10 km', '15 km', '21 km', '30 km', '42 km', 'Mais de 42 km'].map((v) => option(v)) },
+  { key: 'best_comfortable_pace', module: 'Experiencia com corrida', prompt: 'Na epoca em que voce corria melhor, aproximadamente qual era seu pace confortavel?', type: 'single', options: ['Nunca corri regularmente.', 'Acima de 7:00/km', 'Entre 6:00 e 7:00/km', 'Entre 5:30 e 6:00/km', 'Entre 5:00 e 5:30/km', 'Entre 4:30 e 5:00/km', 'Entre 4:00 e 4:30/km', 'Abaixo de 4:00/km', 'Nao lembro.'].map((v) => option(v)) },
+  { key: 'current_continuous_run', module: 'Experiencia com corrida', prompt: 'Hoje voce consegue correr continuamente por quanto tempo?', type: 'single', options: ['Nao consigo correr.', 'Ate 5 minutos.', 'Entre 5 e 15 minutos.', 'Entre 15 e 30 minutos.', 'Entre 30 e 45 minutos.', 'Entre 45 e 60 minutos.', 'Mais de 60 minutos.'].map((v) => option(v)) },
+  { key: 'races_last_12_months', module: 'Experiencia com corrida', prompt: 'Nos ultimos 12 meses, quantas provas voce participou?', type: 'single', options: ['Nenhuma', '1', '2 a 3', '4 a 6', 'Mais de 6'].map((v) => option(v)) },
+  { key: 'current_activities', module: 'Experiencia com corrida', prompt: 'Quais atividades fisicas voce pratica atualmente?', type: 'multi', options: [...activityOptions, 'Nenhuma'].map((v) => option(v)) },
+  { key: 'favorite_activities', module: 'Experiencia com corrida', prompt: 'Quais atividades fisicas voce mais gosta de praticar?', type: 'multi', options: activityOptions.map((v) => option(v)) },
+  { key: 'strength_experience', module: 'Treinamento de forca', prompt: 'Qual sua experiencia com musculacao?', type: 'single', options: ['Nunca fiz.', 'Ja fiz poucas vezes.', 'Ja treinei no passado, mas parei.', 'Estou voltando agora.', 'Treino ha menos de 1 ano.', 'Treino entre 1 e 3 anos.', 'Treino ha mais de 3 anos.'].map((v) => option(v)) },
+  { key: 'training_consistency', module: 'Treinamento de forca', prompt: 'Como costuma ser sua frequencia nos treinos?', type: 'single', options: ['Sempre comeco e abandono.', 'Costumo faltar bastante.', 'Oscilo durante o ano.', 'Sou relativamente consistente.', 'Raramente deixo de treinar.'].map((v) => option(v)) },
+  { key: 'pushups', module: 'Treinamento de forca', prompt: 'Quantas flexoes de braco voce consegue fazer continuamente?', type: 'single', options: ['Nenhuma', '1 a 5', '6 a 10', '11 a 20', 'Mais de 20', 'Nao sei'].map((v) => option(v)) },
+  { key: 'squat_experience', module: 'Treinamento de forca', prompt: 'Em relacao ao agachamento, qual opcao melhor descreve voce?', type: 'single', options: ['Nunca fiz agachamento.', 'Faco apenas com o peso do corpo.', 'Faco com halteres leves.', 'Faco com barra e carga moderada.', 'Faco com cargas elevadas.', 'Nao sei responder.'].map((v) => option(v)) },
+  { key: 'perceived_strength', module: 'Treinamento de forca', prompt: 'Como voce considera sua forca atualmente?', type: 'single', options: ['Muito abaixo da media.', 'Abaixo da media.', 'Na media.', 'Acima da media.', 'Muito acima da media.', 'Nao sei responder.'].map((v) => option(v)) },
+  { key: 'rating_intro', module: 'Autoavaliacao', prompt: 'Nas proximas perguntas, de uma nota de 1 a 10.\n\n1 representa uma condicao muito ruim.\n10 representa uma condicao excelente.', type: 'notice' },
+  ...ratingPrompts.map(([key, prompt]) => ({ key, module: 'Autoavaliacao', prompt, type: 'scale' as const })),
+  { key: 'current_pain', module: 'Saude', prompt: 'Voce sente alguma dor atualmente?', type: 'single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
+  { key: 'pain_region', module: 'Saude', prompt: 'Em qual regiao voce sente dor?', type: 'text', condition: (a) => a.current_pain === 'yes' },
+  { key: 'important_injury', module: 'Saude', prompt: 'Voce ja teve alguma lesao importante?', type: 'single', options: ['Nunca.', 'Sim, totalmente recuperado.', 'Sim, ainda tenho limitacoes.'].map((v) => option(v)) },
+  { key: 'injury_description', module: 'Saude', prompt: 'Descreva brevemente a lesao e suas limitacoes.', type: 'text', optional: true, condition: (a) => a.important_injury !== 'Nunca.' },
+  { key: 'health_conditions', module: 'Saude', prompt: 'Voce possui alguma destas condicoes?', type: 'multi', options: ['Hipertensao', 'Diabetes', 'Colesterol elevado', 'Obesidade', 'Asma', 'Problemas cardiacos', 'Artrose', 'Artrite', 'Hernia de disco', 'Outra', 'Nenhuma'].map((v) => option(v)) },
+  { key: 'continuous_medications', module: 'Saude', prompt: 'Faz uso continuo de medicamentos?', type: 'text', optional: true },
+  { key: 'medical_recommendation', module: 'Saude', prompt: 'Existe alguma recomendacao medica para seus treinos?', type: 'text', optional: true },
+  { key: 'recent_physical_assessment', module: 'Avaliacao fisica recente', prompt: 'Voce realizou alguma avaliacao fisica nos ultimos 6 meses?', type: 'single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
+  { key: 'assessment_method', module: 'Avaliacao fisica recente', prompt: 'Qual metodo foi utilizado?', type: 'single', options: ['Dobras cutaneas (adipometro)', 'Bioimpedancia', 'DEXA', 'Outro', 'Nao sei'].map((v) => option(v)), condition: (a) => a.recent_physical_assessment === 'yes' },
+  ...[
+    ['assessment_weight', 'Peso corporal'], ['body_fat_percentage', 'Percentual de gordura'], ['muscle_mass', 'Massa muscular'],
+    ['lean_mass', 'Massa magra'], ['fat_mass', 'Massa de gordura'], ['visceral_fat', 'Gordura visceral'], ['basal_metabolism', 'Metabolismo basal'],
+  ].map(([key, prompt]) => ({ key, module: 'Avaliacao fisica recente', prompt, type: 'number_or_unknown' as const, condition: (a: InterviewAnswers) => a.recent_physical_assessment === 'yes' })),
+  ...[
+    ['waist_circumference', 'Circunferencia da cintura'], ['abdomen_circumference', 'Circunferencia do abdomen'], ['hip_circumference', 'Circunferencia do quadril'],
+    ['arm_circumference', 'Circunferencia do braco'], ['thigh_circumference', 'Circunferencia da coxa'], ['calf_circumference', 'Circunferencia da panturrilha'],
+  ].map(([key, prompt]) => ({ key, module: 'Avaliacao fisica recente', prompt, type: 'number_or_unknown' as const, help: 'Use uma fita metrica, sem apertar a pele, mantendo-a paralela ao chao. Registre em centimetros.', condition: (a: InterviewAnswers) => a.recent_physical_assessment === 'yes' })),
+  ...weekInterviewDays.flatMap(([key, label]) => [
+    { key: `${key}_run_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem disponivel para corrida?`, type: 'single' as const, options: interviewTimeOptions },
+    { key: `${key}_run_location`, module: 'Rotina semanal', prompt: `${label}: onde voce consegue correr?`, type: 'single' as const, options: [option('Rua', 'street'), option('Esteira', 'treadmill'), option('Tanto faz', 'either')], condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== 'none' },
+    { key: `${key}_strength_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para fortalecimento?`, type: 'single' as const, options: interviewTimeOptions },
+    { key: `${key}_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel?`, type: 'single' as const, options: ['Antes das 6h', 'Entre 6h e 9h', 'Entre 9h e 12h', 'Entre 12h e 15h', 'Entre 15h e 18h', 'Apos 18h'].map((v) => option(v)) },
+  ]),
+  { key: 'sleep_hours', module: 'Habitos', prompt: 'Em media, quantas horas voce dorme?', type: 'single', options: ['Menos de 5 horas', 'Entre 5 e 6 horas', 'Entre 6 e 7 horas', 'Entre 7 e 8 horas', 'Mais de 8 horas'].map((v) => option(v)) },
+  { key: 'smoking', module: 'Habitos', prompt: 'Voce fuma?', type: 'single', options: [option('Nao'), option('Sim')] },
+  { key: 'alcohol_frequency', module: 'Habitos', prompt: 'Com que frequencia voce consome bebida alcoolica?', type: 'single', options: ['Nunca', 'Raramente', 'Semanalmente', 'Algumas vezes por semana', 'Quase todos os dias'].map((v) => option(v)) },
+  { key: 'work_routine', module: 'Habitos', prompt: 'Como e sua rotina de trabalho?', type: 'single', options: ['Predominantemente sentado', 'Predominantemente em pe', 'Trabalho fisico moderado', 'Trabalho fisico intenso', 'Aposentado', 'Outro'].map((v) => option(v)) },
+  { key: 'daily_steps', module: 'Habitos', prompt: 'Em media, quantos passos voce da por dia?', type: 'single', options: ['Menos de 3.000', 'Entre 3.000 e 5.000', 'Entre 5.000 e 8.000', 'Entre 8.000 e 12.000', 'Mais de 12.000', 'Nao sei'].map((v) => option(v)) },
+  { key: 'personal_name', module: 'Dados pessoais', prompt: 'Qual e seu nome completo?', type: 'text' },
+  { key: 'personal_birth_date', module: 'Dados pessoais', prompt: 'Qual e sua data de nascimento?', type: 'text', help: 'Use o formato dia/mes/ano. Exemplo: 19/06/1984.' },
+  { key: 'personal_sex', module: 'Dados pessoais', prompt: 'Como voce prefere informar seu sexo?', type: 'single', options: [option('Feminino'), option('Masculino'), option('Prefiro nao informar')] },
+  { key: 'personal_height', module: 'Dados pessoais', prompt: 'Qual e sua altura em centimetros?', type: 'number' },
+  { key: 'personal_weight', module: 'Dados pessoais', prompt: 'Qual e seu peso atual em quilogramas?', type: 'number' },
+];
+
 const weekSessions = [
   {
     day: 'Seg',
@@ -451,6 +557,11 @@ export default function App() {
       }
     });
     loadNotifications(accessToken).then(setNotifications);
+    loadInterviewState(accessToken).then((interview) => {
+      if (interview && !interview.completedAt) {
+        setActiveTab('interview');
+      }
+    });
   }, [accessToken]);
 
   if (isRestoringSession) {
@@ -488,6 +599,14 @@ export default function App() {
             />
           ) : null}
           <ScrollView contentContainerStyle={styles.appContent}>
+            {activeTab === 'interview' && (
+              <GuidedInterview
+                accessToken={accessToken}
+                userName={userName}
+                onLater={() => setActiveTab('week')}
+                onComplete={() => setActiveTab('test')}
+              />
+            )}
             {activeTab === 'anamnese' && (
               <Anamnese
                 accessToken={accessToken}
@@ -511,7 +630,13 @@ export default function App() {
             {activeTab === 'week' && (
               <>
                 <NotificationList notifications={notifications} />
-                <Week accessToken={accessToken} baseRoutineDays={anamneseRoutine} metrics={metrics} />
+                <Week
+                  accessToken={accessToken}
+                  baseRoutineDays={anamneseRoutine}
+                  metrics={metrics}
+                  onOpenInterview={() => setActiveTab('interview')}
+                  onOpenTest={() => setActiveTab('test')}
+                />
               </>
             )}
             {activeTab === 'progress' && <Progress completedToday={completedToday} metrics={metrics} accessToken={accessToken} />}
@@ -935,7 +1060,137 @@ function Today({
   );
 }
 
-function Week({ accessToken, baseRoutineDays, metrics }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics }) {
+function GuidedInterview({ accessToken, userName, onLater, onComplete }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void }) {
+  const [answers, setAnswers] = useState<InterviewAnswers>({});
+  const [step, setStep] = useState(0);
+  const [started, setStarted] = useState(false);
+  const [finished, setFinished] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState('');
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  const visibleQuestions = useMemo(() => interviewQuestions.filter((question) => !question.condition || question.condition(answers)), [answers]);
+  const question = visibleQuestions[Math.min(step, Math.max(visibleQuestions.length - 1, 0))];
+  const value = question ? answers[question.key] : undefined;
+
+  useEffect(() => {
+    loadInterviewState(accessToken).then((state) => {
+      const loadedAnswers = state?.answers ?? {};
+      if (!loadedAnswers.personal_name && userName) loadedAnswers.personal_name = userName;
+      setAnswers(loadedAnswers);
+      setFinished(Boolean(state?.completedAt));
+      if ((state?.currentStep ?? 0) > 0 && !state?.completedAt) {
+        setStep(state?.currentStep ?? 0);
+        setStarted(true);
+      }
+      setLoading(false);
+    });
+  }, [accessToken, userName]);
+
+  async function persist(key: string, nextValue: InterviewAnswer, nextStep = step) {
+    setSaving(true);
+    setStatus('');
+    try {
+      const response = await fetch(`${API_URL}/me/onboarding/answer`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value: nextValue, currentStep: nextStep }),
+      });
+      if (!response.ok) throw new Error('save');
+      return true;
+    } catch {
+      setStatus('Nao consegui salvar esta resposta. Tente novamente.');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function choose(nextValue: InterviewAnswer) {
+    if (!question) return;
+    const nextAnswers = { ...answers, [question.key]: nextValue };
+    setAnswers(nextAnswers);
+    await persist(question.key, nextValue, step);
+  }
+
+  function hasAnswer() {
+    if (!question || question.optional || question.type === 'notice') return true;
+    if (Array.isArray(value)) return value.length > 0;
+    return value !== undefined && value !== null && String(value).trim() !== '';
+  }
+
+  async function next() {
+    if (!question || !hasAnswer()) {
+      setStatus('Responda para continuar.');
+      return;
+    }
+    if (!(await persist(question.key, question.type === 'notice' ? true : value ?? '', step + 1))) return;
+    if (step < visibleQuestions.length - 1) {
+      setStep(step + 1);
+      setHelpOpen(false);
+      setStatus('');
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/me/onboarding/complete`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) throw new Error('complete');
+      setFinished(true);
+    } catch {
+      setStatus('Nao consegui concluir. Revise as respostas e tente novamente.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <View style={styles.section}><Text style={styles.statusMessage}>Abrindo sua entrevista...</Text></View>;
+  if (finished) return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Entrevista concluida</Text>
+      <Text style={styles.titleSmall}>Agora vamos medir seu condicionamento</Text>
+      <Text style={styles.copyTight}>Suas respostas foram salvas. Faca o teste de corrida de 3 km para gerar seu plano inicial.</Text>
+      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>Ir para o teste de 3 km</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
+    </View>
+  );
+  if (!started) return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Primeiro acesso</Text>
+      <Text style={styles.titleSmall}>Vamos conhecer voce</Text>
+      <Text style={styles.copyTight}>Para criar seu treino de forma personalizada e individualizada para voce, precisamos conhecer mais sobre sua rotina, seu historico e seu condicionamento atual.{`\n\n`}Esta pronto para realizar nossa entrevista?</Text>
+      <Pressable style={styles.primaryButton} onPress={() => setStarted(true)}><Text style={styles.primaryButtonText}>Sim, comecar agora</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>
+      <Pressable style={styles.secondaryButton} onPress={onLater}><Text style={styles.secondaryButtonText}>Fazer depois</Text></Pressable>
+    </View>
+  );
+
+  const progress = visibleQuestions.length ? ((step + 1) / visibleQuestions.length) * 100 : 0;
+  return (
+    <View style={styles.section}>
+      <View style={styles.interviewTop}><Text style={styles.sectionLabel}>{question?.module}</Text><Text style={styles.interviewCounter}>{step + 1} de {visibleQuestions.length}</Text></View>
+      <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress}%` }]} /></View>
+      <Text style={styles.interviewQuestion}>{question?.prompt}</Text>
+      {question?.help ? <Pressable style={styles.helpButton} onPress={() => setHelpOpen(!helpOpen)}><Ionicons name="information-circle-outline" size={18} color="#0f766e" /><Text style={styles.helpButtonText}>Como medir</Text></Pressable> : null}
+      {helpOpen ? <Text style={styles.formHint}>{question?.help}</Text> : null}
+
+      {(question?.type === 'single' || question?.type === 'scale') ? <View style={question.type === 'scale' ? styles.scaleGrid : styles.answerList}>{(question.type === 'scale' ? Array.from({ length: 10 }, (_, i) => option(String(i + 1))) : question.options ?? []).map((item) => { const selected = value === item.value || (question.type === 'scale' && value === Number(item.value)); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive, question.type === 'scale' && styles.scaleButton]} onPress={() => choose(question.type === 'scale' ? Number(item.value) : item.value)}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
+      {question?.type === 'multi' ? <View style={styles.answerList}>{question.options?.map((item) => { const selected = Array.isArray(value) && value.includes(item.value); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive]} onPress={() => choose(selected ? (value as string[]).filter((entry) => entry !== item.value) : [...(Array.isArray(value) ? value : []), item.value])}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
+      {(question?.type === 'text' || question?.type === 'number' || question?.type === 'number_or_unknown') ? <TextInput style={styles.input} value={value === 'unknown' ? '' : String(value ?? '')} keyboardType={question.type === 'text' ? 'default' : 'numeric'} placeholder={question.optional ? 'Opcional' : 'Digite sua resposta'} onChangeText={(text) => setAnswers({ ...answers, [question.key]: text })} /> : null}
+      {question?.type === 'number_or_unknown' ? <Pressable style={[styles.answerButton, value === 'unknown' && styles.answerButtonActive]} onPress={() => choose('unknown')}><Text style={[styles.answerButtonText, value === 'unknown' && styles.answerButtonTextActive]}>Nao sei</Text></Pressable> : null}
+
+      {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+      <View style={styles.interviewActions}><Pressable style={[styles.secondaryButton, step === 0 && styles.disabledButton]} disabled={step === 0} onPress={() => { setStep(Math.max(0, step - 1)); setStatus(''); }}><Text style={styles.secondaryButtonText}>Voltar</Text></Pressable><Pressable style={[styles.primaryButton, saving && styles.disabledButton]} disabled={saving} onPress={next}><Text style={styles.primaryButtonText}>{step === visibleQuestions.length - 1 ? 'Concluir' : 'Continuar'}</Text></Pressable></View>
+    </View>
+  );
+}
+
+async function loadInterviewState(accessToken: string): Promise<InterviewState | null> {
+  try {
+    const response = await fetch(`${API_URL}/me/onboarding`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    return response.ok ? await response.json() as InterviewState : null;
+  } catch { return null; }
+}
+
+function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTest }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; onOpenInterview: () => void; onOpenTest: () => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   const [weeklyRoutine, setWeeklyRoutine] = useState<RoutineDay[]>(cloneRoutine(baseRoutineDays));
   const [completionDrafts, setCompletionDrafts] = useState<Record<string, CompletionDraft>>({});
@@ -969,7 +1224,7 @@ function Week({ accessToken, baseRoutineDays, metrics }: { accessToken: string; 
       }
 
       const data = (await response.json()) as WeekPlan | null;
-      if (data && !data.locked && !isDetailedPlan(data)) {
+      if (data && !data.locked && !data.requiresOnboarding && !data.requiresTest && !isDetailedPlan(data)) {
         setPlan(null);
         setStatus('Plano antigo detectado. Gere uma nova semana para ver os treinos detalhados.');
         return;
@@ -1012,7 +1267,7 @@ function Week({ accessToken, baseRoutineDays, metrics }: { accessToken: string; 
       }
 
       const data = (await response.json()) as WeekPlan;
-      if (!data.locked && !isDetailedPlan(data)) {
+      if (!data.locked && !data.requiresOnboarding && !data.requiresTest && !isDetailedPlan(data)) {
         setPlan(null);
         setStatus('A API ainda esta com a versao antiga. Publique no EasyPanel e gere novamente.');
         return;
@@ -1097,6 +1352,13 @@ function Week({ accessToken, baseRoutineDays, metrics }: { accessToken: string; 
 
   const sessions = plan?.sessions.length ? plan.sessions : [];
   const weekRange = plan ? planWeekRange(plan) : currentWeekRange();
+
+  if (plan?.requiresOnboarding) {
+    return <View style={styles.section}><Text style={styles.sectionLabel}>Treino da semana</Text><Text style={styles.titleSmall}>Vamos preparar seu plano</Text><View style={styles.coachBox}><Text style={styles.coachTitle}>Entrevista inicial pendente</Text><Text style={styles.coachText}>Conclua a entrevista para que seu treino respeite seu objetivo, sua rotina e seu historico.</Text></View><Pressable style={styles.primaryButton} onPress={onOpenInterview}><Text style={styles.primaryButtonText}>Continuar entrevista</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable></View>;
+  }
+  if (plan?.requiresTest) {
+    return <View style={styles.section}><Text style={styles.sectionLabel}>Treino da semana</Text><Text style={styles.titleSmall}>Ultima etapa</Text><View style={styles.coachBox}><Text style={styles.coachTitle}>Teste de 3 km pendente</Text><Text style={styles.coachText}>A entrevista foi concluida. Registre o teste para calcular ritmos, velocidades e gerar seu plano inicial.</Text></View><Pressable style={styles.primaryButton} onPress={onOpenTest}><Text style={styles.primaryButtonText}>Registrar teste de 3 km</Text><Ionicons name="stopwatch" size={18} color="#fff" /></Pressable></View>;
+  }
 
   if (plan?.locked) {
     return (
@@ -1781,7 +2043,7 @@ function Anamnese({
 function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: (tab: Tab) => void; onLogout: () => void }) {
   const tabs: Array<{ id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
     { id: 'week', label: 'Treino da semana', icon: 'calendar' },
-    { id: 'anamnese', label: 'Anamnese', icon: 'clipboard' },
+    { id: 'interview', label: 'Entrevista inicial', icon: 'chatbubbles' },
     { id: 'test', label: 'Teste de VO2 max', icon: 'stopwatch' },
     { id: 'progress', label: 'Evolucao', icon: 'stats-chart' },
     { id: 'strava', label: 'Sincronizar com Strava', icon: 'sync' },
@@ -3621,6 +3883,87 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontSize: 13,
     lineHeight: 18,
+  },
+  interviewTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  interviewCounter: {
+    color: '#64748b',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#e2e8f0',
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#0f766e',
+  },
+  interviewQuestion: {
+    color: '#111827',
+    fontSize: 22,
+    lineHeight: 30,
+    fontWeight: '900',
+  },
+  answerList: {
+    gap: 9,
+  },
+  answerButton: {
+    minHeight: 48,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  answerButtonActive: {
+    borderColor: '#0f766e',
+    backgroundColor: '#ccfbf1',
+  },
+  answerButtonText: {
+    color: '#334155',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  answerButtonTextActive: {
+    color: '#0f766e',
+  },
+  scaleGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  scaleButton: {
+    width: 52,
+    minHeight: 52,
+    paddingHorizontal: 0,
+  },
+  helpButton: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    minHeight: 36,
+  },
+  helpButtonText: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  interviewActions: {
+    flexDirection: 'row',
+    gap: 10,
   },
   optionWrap: {
     flexDirection: 'row',
