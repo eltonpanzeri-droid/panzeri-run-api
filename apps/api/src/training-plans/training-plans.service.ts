@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { runnerStrengthCategory, selectRunnerStrengthExercises } from './runner-strength-library';
+import { buildWeeklyMethodologyDecision, PANZERI_METHODOLOGY_VERSION, PANZERI_PRESCRIPTION_PRINCIPLES } from './training-methodology';
 
 interface SessionTemplate {
   title: string;
@@ -20,7 +21,7 @@ interface WeeklyAvailabilityInput {
 }
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
-const planEngineVersion = 'rules-v6';
+const planEngineVersion = 'rules-v7-' + PANZERI_METHODOLOGY_VERSION;
 const subscriptionCheckoutUrl = 'https://mpago.la/23YBr2R';
 
 @Injectable()
@@ -70,7 +71,8 @@ export class TrainingPlansService {
   }
 
   async generateWeek(userId: string, weeklyOverride?: WeeklyAvailabilityInput[]) {
-    const [user, latestTest, availability] = await Promise.all([
+    const historyStart = addDays(startOfWeek(new Date()), -35);
+    const [user, latestTest, availability, onboarding, previousPlans, recentStrava] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         include: {
@@ -86,9 +88,19 @@ export class TrainingPlansService {
         where: { userId, noTraining: false },
         orderBy: { weekday: 'asc' },
       }),
+      this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true, answers: true } }),
+      this.prisma.trainingPlan.findMany({
+        where: { userId, startDate: { lt: startOfWeek(new Date()) } },
+        orderBy: { startDate: 'desc' },
+        take: 4,
+        include: { sessions: { include: { completion: true } } },
+      }),
+      this.prisma.stravaActivity.findMany({
+        where: { userId, startDate: { gte: historyStart } },
+        orderBy: { startDate: 'desc' },
+      }),
     ]);
 
-    const onboarding = await this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } });
     if (!onboarding?.completedAt) return onboardingRequiredPlan();
     if (!latestTest) return testRequiredPlan();
 
@@ -106,21 +118,57 @@ export class TrainingPlansService {
             { weekday: 6, modalities: ['corrida'], availableMin: 55 },
           ];
 
+    const methodologyHistory = previousPlans.map((historyPlan) => {
+      const runSessions = historyPlan.sessions.filter((session) => isRunningModality(session.modality));
+      const completedRuns = runSessions.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted');
+      return {
+        runMinutes: runSessions.reduce((total, session) => total + (session.durationMin ?? 0), 0),
+        completedRunMinutes: completedRuns.reduce((total, session) => total + (session.completion?.durationMin ?? session.durationMin ?? 0), 0),
+        longestRunMinutes: Math.max(0, ...completedRuns.map((session) => session.completion?.durationMin ?? session.durationMin ?? 0)),
+        prescribedSessions: historyPlan.sessions.length,
+        completedSessions: historyPlan.sessions.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted').length,
+      };
+    });
+    const stravaRuns = recentStrava.filter((activity) => isStravaRunningActivity(activity.type, activity.name));
+    const methodology = buildWeeklyMethodologyDecision({
+      goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
+      experience: user.preferences?.experienceLevel ?? '',
+      answers: jsonObject(onboarding.answers),
+      availability: availableDays.map((day) => ({
+        weekday: day.weekday,
+        modalities: day.modalities,
+        availableMin: day.availableMin,
+        modalityDurations: normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined),
+      })),
+      history: methodologyHistory,
+      stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
+      stravaLongestRunMinutes: Math.round(Math.max(0, ...stravaRuns.map((activity) => activity.movingTimeSec ?? 0)) / 60),
+    });
+
     const sessions = availableDays.slice(0, 7).flatMap((day) => {
       const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(day.weekday));
       const modalities = day.modalities.length ? day.modalities : ['corrida'];
 
       return modalities.map((modality) => {
-        const template = this.templateForModality(modality, Boolean(latestTest));
+        const baseTemplate = this.templateForModality(modality, Boolean(latestTest));
+        const runDecision = isRunningModality(modality) ? methodology.sessions.find((decision) => decision.weekday === day.weekday) : undefined;
+        const template = runDecision ? {
+          ...baseTemplate,
+          title: runDecision.title,
+          sessionType: runDecision.sessionType,
+          zone: runDecision.zone,
+          durationMin: runDecision.durationMin,
+          notes: runDecision.notes,
+        } : baseTemplate;
         const modalityDurations = normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined);
         const requestedDuration = modalityDurations?.[modality] ?? day.availableMin ?? template.durationMin;
-        const durationMin = Math.min(requestedDuration, template.durationMin);
+        const durationMin = Math.min(requestedDuration, runDecision?.durationMin ?? template.durationMin);
         const prescription =
           modality === 'forca' || modality === 'fortalecimento_corredores'
             ? this.strengthPrescription(durationMin, modality)
             : modality === 'bike'
             ? this.aerobicPrescription(durationMin, template.zone, modality)
-            : this.runPrescription(durationMin, template.zone, latestTest?.paceSecondsPerKm ?? null, modality);
+            : this.runPrescription(durationMin, template.zone, latestTest?.paceSecondsPerKm ?? null, modality, template.sessionType);
         const isStrength = modality === 'forca' || modality === 'fortalecimento_corredores';
         const isAerobic = modality === 'bike';
 
@@ -156,9 +204,7 @@ export class TrainingPlansService {
         startDate: weekStart,
         endDate: addDays(weekStart, 6),
         generatedBy: planEngineVersion,
-        aiRecommendation: latestTest
-          ? 'Semana montada com base no teste de 3 km mais recente e na disponibilidade informada.'
-          : 'Semana conservadora. Cadastre o teste de 3 km para refinar zonas e ritmos.',
+        aiRecommendation: methodology.recommendation,
         inputSnapshot: {
           user: {
             heightCm: user.heightCm,
@@ -167,6 +213,15 @@ export class TrainingPlansService {
             stress: user.healthProfile?.stressLevel,
           },
           latestTestId: latestTest?.id,
+          methodology: {
+            version: PANZERI_METHODOLOGY_VERSION,
+            principles: PANZERI_PRESCRIPTION_PRINCIPLES,
+            rationale: methodology.rationale,
+            safetyAdjustment: methodology.safetyAdjustment,
+            targetLowIntensityShare: methodology.targetLowIntensityShare,
+            history: methodologyHistory,
+            stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
+          },
           weeklyOverrideUsed: adjustedAvailability.length > 0,
           availabilityDays: availableDays.map((day) => ({
             weekday: day.weekday,
@@ -247,10 +302,46 @@ export class TrainingPlansService {
     return formatPace(Math.round(paceSecondsPerKm * (factors[zone] ?? 1.25)));
   }
 
-  private runPrescription(durationMin: number, zone: string, paceSecondsPerKm: number | null, modality: string) {
+  private runPrescription(durationMin: number, zone: string, paceSecondsPerKm: number | null, modality: string, sessionType: string) {
     const targetPaceSeconds = paceSecondsPerKm ? this.zonePaceSeconds(zone, paceSecondsPerKm) : 420;
     const distanceKm = Number(((durationMin * 60) / targetPaceSeconds).toFixed(1));
     const speedKmh = Number((3600 / targetPaceSeconds).toFixed(1));
+
+    if (sessionType === 'quality_run') {
+      const intenseMinutes = Math.max(6, Math.min(12, Math.round(durationMin * 0.2)));
+      const warmupMinutes = Math.min(10, Math.max(6, Math.round(durationMin * 0.2)));
+      const cooldownMinutes = 5;
+      const recoveryMinutes = Math.max(durationMin - intenseMinutes - warmupMinutes - cooldownMinutes, 5);
+      const easyPace = paceSecondsPerKm ? this.zonePaceSeconds('Z2', paceSecondsPerKm) : 450;
+      return {
+        type: 'run', modality, distanceKm: Number(((durationMin * 60) / easyPace).toFixed(1)), durationMin, speedKmh, zone,
+        paceRange: paceSecondsPerKm ? this.zonePaceRange(zone, paceSecondsPerKm) : null,
+        speedRange: paceSecondsPerKm ? this.zoneSpeedRange(zone, paceSecondsPerKm) : null,
+        blocks: [
+          { label: 'Aquecimento', durationMin: warmupMinutes, zone: 'Z1', paceRange: paceSecondsPerKm ? this.zonePaceRange('Z1', paceSecondsPerKm) : null, speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z1', paceSecondsPerKm) : null },
+          { label: 'Estimulos', durationMin: intenseMinutes, zone, paceRange: paceSecondsPerKm ? this.zonePaceRange(zone, paceSecondsPerKm) : null, speedRange: paceSecondsPerKm ? this.zoneSpeedRange(zone, paceSecondsPerKm) : null, guidance: 'Tempo intenso total acumulado. Fracionar em repeticoes com recuperacao leve.' },
+          { label: 'Recuperacoes e volume leve', durationMin: recoveryMinutes, zone: 'Z2', paceRange: paceSecondsPerKm ? this.zonePaceRange('Z2', paceSecondsPerKm) : null, speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z2', paceSecondsPerKm) : null },
+          { label: 'Desaquecimento', durationMin: cooldownMinutes, zone: 'Z1', paceRange: paceSecondsPerKm ? this.zonePaceRange('Z1', paceSecondsPerKm) : null, speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z1', paceSecondsPerKm) : null },
+        ],
+        reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
+      };
+    }
+
+    if (sessionType === 'walk_run') {
+      const adjustedPace = Math.round(targetPaceSeconds * 1.2);
+      return {
+        type: 'run', modality, distanceKm: Number(((durationMin * 60) / adjustedPace).toFixed(1)), durationMin,
+        speedKmh: Number((3600 / adjustedPace).toFixed(1)), zone: 'Z2',
+        paceRange: paceSecondsPerKm ? this.zonePaceRange('Z2', paceSecondsPerKm) : null,
+        speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z2', paceSecondsPerKm) : null,
+        blocks: [
+          { label: 'Aquecimento caminhando', durationMin: 5, zone: 'Z1', guidance: 'Caminhar de forma progressiva.' },
+          { label: 'Corrida e caminhada', durationMin: Math.max(durationMin - 10, 15), zone: 'Z2', guidance: 'Alternar corrida leve e caminhada antes de perder o controle respiratorio.' },
+          { label: 'Desaquecimento caminhando', durationMin: 5, zone: 'Z1' },
+        ],
+        reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
+      };
+    }
 
     return {
       type: 'run',
@@ -599,6 +690,18 @@ function weekdayOffsetFromMonday(weekday: number) {
   return weekday === 0 ? 6 : weekday - 1;
 }
 
+function isRunningModality(modality: string) {
+  return modality === 'corrida' || modality === 'esteira';
+}
+
+function isStravaRunningActivity(type: string | null, name: string | null) {
+  const value = `${type ?? ''} ${name ?? ''}`.toLowerCase();
+  return value.includes('run') || value.includes('corrida');
+}
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
 function normalizeModalityDurations(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return undefined;
