@@ -390,9 +390,18 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'recent_physical_assessment', module: 'Avaliacao fisica recente', prompt: 'Voce realizou alguma avaliacao fisica nos ultimos 6 meses?', type: 'single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
   { key: 'assessment_method', module: 'Avaliacao fisica recente', prompt: 'Qual metodo foi utilizado?', type: 'single', options: ['Dobras cutaneas (adipometro)', 'Bioimpedancia', 'DEXA', 'Outro', 'Nao sei'].map((v) => option(v)), condition: (a) => a.recent_physical_assessment === 'yes' },
   ...[
-    ['assessment_weight', 'Peso corporal'], ['body_fat_percentage', 'Percentual de gordura'], ['muscle_mass', 'Massa muscular'],
-    ['lean_mass', 'Massa magra'], ['fat_mass', 'Massa de gordura'], ['visceral_fat', 'Gordura visceral'], ['basal_metabolism', 'Metabolismo basal'],
+    ['assessment_weight', 'Peso corporal'], ['body_fat_percentage', 'Percentual de gordura'],
   ].map(([key, prompt]) => ({ key, module: 'Avaliacao fisica recente', prompt, type: 'number_or_unknown' as const, condition: (a: InterviewAnswers) => a.recent_physical_assessment === 'yes' })),
+  ...[
+    ['muscle_mass', 'Massa muscular'], ['lean_mass', 'Massa magra'], ['fat_mass', 'Massa de gordura'],
+    ['visceral_fat', 'Gordura visceral'], ['basal_metabolism', 'Metabolismo basal'],
+  ].map(([key, prompt]) => ({
+    key,
+    module: 'Avaliacao fisica recente',
+    prompt,
+    type: 'number_or_unknown' as const,
+    condition: (a: InterviewAnswers) => a.recent_physical_assessment === 'yes' && a.assessment_method !== 'Dobras cutaneas (adipometro)',
+  })),
   ...[
     ['waist_circumference', 'Circunferencia da cintura'], ['abdomen_circumference', 'Circunferencia do abdomen'], ['hip_circumference', 'Circunferencia do quadril'],
     ['arm_circumference', 'Circunferencia do braco'], ['thigh_circumference', 'Circunferencia da coxa'], ['calf_circumference', 'Circunferencia da panturrilha'],
@@ -401,7 +410,7 @@ const interviewQuestions: InterviewQuestion[] = [
     { key: `${key}_run_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem disponivel para corrida?`, type: 'single' as const, options: interviewTimeOptions },
     { key: `${key}_run_location`, module: 'Rotina semanal', prompt: `${label}: onde voce consegue correr?`, type: 'single' as const, options: [option('Rua', 'street'), option('Esteira', 'treadmill'), option('Tanto faz', 'either')], condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== 'none' },
     { key: `${key}_strength_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para fortalecimento?`, type: 'single' as const, options: interviewTimeOptions },
-    { key: `${key}_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel?`, type: 'single' as const, options: ['Antes das 6h', 'Entre 6h e 9h', 'Entre 9h e 12h', 'Entre 12h e 15h', 'Entre 15h e 18h', 'Apos 18h'].map((v) => option(v)) },
+    { key: `${key}_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel?`, type: 'single' as const, options: ['Antes das 6h', 'Entre 6h e 9h', 'Entre 9h e 12h', 'Entre 12h e 15h', 'Entre 15h e 18h', 'Apos 18h'].map((v) => option(v)), condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== 'none' || a[`${key}_strength_time`] !== 'none' },
   ]),
   { key: 'sleep_hours', module: 'Habitos', prompt: 'Em media, quantas horas voce dorme?', type: 'single', options: ['Menos de 5 horas', 'Entre 5 e 6 horas', 'Entre 6 e 7 horas', 'Entre 7 e 8 horas', 'Mais de 8 horas'].map((v) => option(v)) },
   { key: 'smoking', module: 'Habitos', prompt: 'Voce fuma?', type: 'single', options: [option('Nao'), option('Sim')] },
@@ -412,7 +421,7 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'personal_birth_date', module: 'Dados pessoais', prompt: 'Qual e sua data de nascimento?', type: 'text', help: 'Use o formato dia/mes/ano. Exemplo: 19/06/1984.' },
   { key: 'personal_sex', module: 'Dados pessoais', prompt: 'Como voce prefere informar seu sexo?', type: 'single', options: [option('Feminino'), option('Masculino'), option('Prefiro nao informar')] },
   { key: 'personal_height', module: 'Dados pessoais', prompt: 'Qual e sua altura em centimetros?', type: 'number' },
-  { key: 'personal_weight', module: 'Dados pessoais', prompt: 'Qual e seu peso atual em quilogramas?', type: 'number' },
+  { key: 'personal_weight', module: 'Dados pessoais', prompt: 'Qual e seu peso atual em quilogramas? Use virgula para decimais. Exemplo: 82,5.', type: 'number' },
 ];
 
 const weekSessions = [
@@ -1192,7 +1201,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
 
       {(question?.type === 'single' || question?.type === 'scale') ? <View style={question.type === 'scale' ? styles.scaleGrid : styles.answerList}>{(question.type === 'scale' ? Array.from({ length: 10 }, (_, i) => option(String(i + 1))) : question.options ?? []).map((item) => { const selected = value === item.value || (question.type === 'scale' && value === Number(item.value)); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive, question.type === 'scale' && styles.scaleButton]} onPress={() => choose(question.type === 'scale' ? Number(item.value) : item.value)}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
       {question?.type === 'multi' ? <View style={styles.answerList}>{question.options?.map((item) => { const selected = Array.isArray(value) && value.includes(item.value); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive]} onPress={() => choose(selected ? (value as string[]).filter((entry) => entry !== item.value) : [...(Array.isArray(value) ? value : []), item.value])}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
-      {(question?.type === 'text' || question?.type === 'number' || question?.type === 'number_or_unknown') ? <TextInput style={styles.input} value={value === 'unknown' ? '' : String(value ?? '')} keyboardType={question.type === 'text' ? 'default' : 'numeric'} placeholder={question.optional ? 'Opcional' : 'Digite sua resposta'} onChangeText={(text) => setAnswers({ ...answers, [question.key]: text })} /> : null}
+      {(question?.type === 'text' || question?.type === 'number' || question?.type === 'number_or_unknown') ? <TextInput style={styles.input} value={value === 'unknown' ? '' : String(value ?? '')} keyboardType={question.type === 'text' ? 'default' : 'decimal-pad'} placeholder={question.optional ? 'Opcional' : 'Digite sua resposta'} onChangeText={(text) => setAnswers({ ...answers, [question.key]: text })} /> : null}
       {question?.type === 'number_or_unknown' ? <Pressable style={[styles.answerButton, value === 'unknown' && styles.answerButtonActive]} onPress={() => choose('unknown')}><Text style={[styles.answerButtonText, value === 'unknown' && styles.answerButtonTextActive]}>Nao sei</Text></Pressable> : null}
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}

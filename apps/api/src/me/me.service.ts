@@ -59,6 +59,18 @@ export class MeService {
     const missing = required.filter((key) => answers[key] === undefined || answers[key] === '');
     if (missing.length) throw new BadRequestException('Conclua todas as perguntas obrigatorias.');
 
+    if (answers.assessment_method === 'Dobras cutaneas (adipometro)') {
+      const assessedWeight = decimalValue(answers.assessment_weight);
+      const bodyFat = decimalValue(answers.body_fat_percentage);
+      if (assessedWeight !== null && bodyFat !== null) {
+        answers.fat_mass = roundedMeasurement(assessedWeight * bodyFat / 100);
+        answers.lean_mass = roundedMeasurement(assessedWeight - assessedWeight * bodyFat / 100);
+      }
+      delete answers.muscle_mass;
+      delete answers.visceral_fat;
+      delete answers.basal_metabolism;
+    }
+
     const availability = buildInterviewAvailability(answers);
     const preferredModalities = stringArray(answers.current_activities);
     const healthConditions = stringArray(answers.health_conditions);
@@ -71,8 +83,8 @@ export class MeService {
           name: String(answers.personal_name),
           birthDate: parseInterviewDate(String(answers.personal_birth_date)),
           sex: String(answers.personal_sex),
-          heightCm: Number(answers.personal_height),
-          weightKg: Number(answers.personal_weight),
+          heightCm: decimalValue(answers.personal_height),
+          weightKg: decimalValue(answers.personal_weight),
         },
       });
       await tx.healthProfile.upsert({
@@ -116,7 +128,7 @@ export class MeService {
       await tx.weeklyAvailability.deleteMany({ where: { userId } });
       for (const day of availability) await tx.weeklyAvailability.create({ data: { userId, ...day } });
       await tx.trainingPlan.updateMany({ where: { userId, status: 'active' }, data: { status: 'archived' } });
-      await tx.onboardingInterview.update({ where: { userId }, data: { completedAt } });
+      await tx.onboardingInterview.update({ where: { userId }, data: { answers, completedAt } });
     });
 
     return { completed: true, completedAt, next: 'three_km_test' };
@@ -349,4 +361,14 @@ function buildInterviewAvailability(answers: Record<string, Prisma.InputJsonValu
 function interviewMinutes(value: unknown) {
   const options: Record<string, number> = { none: 0, up_to_30: 30, from_30_to_45: 45, from_45_to_60: 60, from_60_to_90: 90, over_90: 105 };
   return options[String(value)] ?? 0;
+}
+
+function decimalValue(value: unknown) {
+  if (value === undefined || value === null || value === '' || value === 'unknown') return null;
+  const number = Number(String(value).replace(',', '.'));
+  return Number.isFinite(number) ? number : null;
+}
+
+function roundedMeasurement(value: number) {
+  return Math.round(value * 10) / 10;
 }
