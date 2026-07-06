@@ -68,7 +68,19 @@ export class MeService {
       }
       delete answers.muscle_mass;
       delete answers.visceral_fat;
-      delete answers.basal_metabolism;
+    }
+
+    if (answers.basal_metabolism === 'automatic' || answers.basal_metabolism === undefined) {
+      const basal = harrisBenedict({
+        sex: stringValue(answers.personal_sex),
+        birthDate: parseInterviewDate(stringValue(answers.personal_birth_date)),
+        heightCm: decimalValue(answers.personal_height),
+        weightKg: decimalValue(answers.personal_weight),
+      });
+      answers.basal_metabolism = basal ?? 'Nao foi possivel calcular';
+    } else {
+      const informedBasal = decimalValue(answers.basal_metabolism);
+      if (informedBasal !== null) answers.basal_metabolism = informedBasal;
     }
 
     const availability = buildInterviewAvailability(answers);
@@ -371,4 +383,17 @@ function decimalValue(value: unknown) {
 
 function roundedMeasurement(value: number) {
   return Math.round(value * 10) / 10;
+}
+
+function harrisBenedict(input: { sex: string; birthDate: Date; heightCm: number | null; weightKg: number | null }) {
+  if (!input.heightCm || !input.weightKg || !['Feminino', 'Masculino'].includes(input.sex)) return null;
+  const now = new Date();
+  let age = now.getUTCFullYear() - input.birthDate.getUTCFullYear();
+  const birthdayPassed = now.getUTCMonth() > input.birthDate.getUTCMonth()
+    || (now.getUTCMonth() === input.birthDate.getUTCMonth() && now.getUTCDate() >= input.birthDate.getUTCDate());
+  if (!birthdayPassed) age -= 1;
+  const value = input.sex === 'Masculino'
+    ? 88.362 + 13.397 * input.weightKg + 4.799 * input.heightCm - 5.677 * age
+    : 447.593 + 9.247 * input.weightKg + 3.098 * input.heightCm - 4.330 * age;
+  return Math.round(value);
 }

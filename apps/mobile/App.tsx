@@ -394,7 +394,7 @@ const interviewQuestions: InterviewQuestion[] = [
   ].map(([key, prompt]) => ({ key, module: 'Avaliacao fisica recente', prompt, type: 'number_or_unknown' as const, condition: (a: InterviewAnswers) => a.recent_physical_assessment === 'yes' })),
   ...[
     ['muscle_mass', 'Massa muscular'], ['lean_mass', 'Massa magra'], ['fat_mass', 'Massa de gordura'],
-    ['visceral_fat', 'Gordura visceral'], ['basal_metabolism', 'Metabolismo basal'],
+    ['visceral_fat', 'Gordura visceral'],
   ].map(([key, prompt]) => ({
     key,
     module: 'Avaliacao fisica recente',
@@ -402,6 +402,7 @@ const interviewQuestions: InterviewQuestion[] = [
     type: 'number_or_unknown' as const,
     condition: (a: InterviewAnswers) => a.recent_physical_assessment === 'yes' && a.assessment_method !== 'Dobras cutaneas (adipometro)',
   })),
+  { key: 'basal_metabolism', module: 'Avaliacao fisica recente', prompt: 'Qual foi o metabolismo basal informado na avaliacao?', type: 'number_or_unknown', help: 'Voce pode preencher o valor da avaliacao ou escolher Calcular automaticamente pela formula revisada de Harris-Benedict.', condition: (a) => a.recent_physical_assessment === 'yes' },
   ...[
     ['waist_circumference', 'Circunferencia da cintura'], ['abdomen_circumference', 'Circunferencia do abdomen'], ['hip_circumference', 'Circunferencia do quadril'],
     ['arm_circumference', 'Circunferencia do braco'], ['thigh_circumference', 'Circunferencia da coxa'], ['calf_circumference', 'Circunferencia da panturrilha'],
@@ -1082,6 +1083,10 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
   const visibleQuestions = useMemo(() => interviewQuestions.filter((question) => !question.condition || question.condition(answers)), [answers]);
   const question = visibleQuestions[Math.min(step, Math.max(visibleQuestions.length - 1, 0))];
   const value = question ? answers[question.key] : undefined;
+  const assessedWeight = interviewDecimal(answers.assessment_weight);
+  const assessedBodyFat = interviewDecimal(answers.body_fat_percentage);
+  const calculatedFatMass = assessedWeight !== null && assessedBodyFat !== null ? Math.round(assessedWeight * assessedBodyFat) / 100 : null;
+  const calculatedLeanMass = assessedWeight !== null && calculatedFatMass !== null ? Math.round((assessedWeight - calculatedFatMass) * 10) / 10 : null;
 
   useEffect(() => {
     loadInterviewState(accessToken).then((state) => {
@@ -1201,13 +1206,22 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
 
       {(question?.type === 'single' || question?.type === 'scale') ? <View style={question.type === 'scale' ? styles.scaleGrid : styles.answerList}>{(question.type === 'scale' ? Array.from({ length: 10 }, (_, i) => option(String(i + 1))) : question.options ?? []).map((item) => { const selected = value === item.value || (question.type === 'scale' && value === Number(item.value)); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive, question.type === 'scale' && styles.scaleButton]} onPress={() => choose(question.type === 'scale' ? Number(item.value) : item.value)}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
       {question?.type === 'multi' ? <View style={styles.answerList}>{question.options?.map((item) => { const selected = Array.isArray(value) && value.includes(item.value); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive]} onPress={() => choose(selected ? (value as string[]).filter((entry) => entry !== item.value) : [...(Array.isArray(value) ? value : []), item.value])}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
-      {(question?.type === 'text' || question?.type === 'number' || question?.type === 'number_or_unknown') ? <TextInput style={styles.input} value={value === 'unknown' ? '' : String(value ?? '')} keyboardType={question.type === 'text' ? 'default' : 'decimal-pad'} placeholder={question.optional ? 'Opcional' : 'Digite sua resposta'} onChangeText={(text) => setAnswers({ ...answers, [question.key]: text })} /> : null}
+      {(question?.type === 'text' || question?.type === 'number' || question?.type === 'number_or_unknown') ? <TextInput style={styles.input} value={value === 'unknown' || value === 'automatic' ? '' : String(value ?? '')} keyboardType={question.type === 'text' ? 'default' : 'decimal-pad'} placeholder={question.optional ? 'Opcional' : 'Digite sua resposta'} onChangeText={(text) => setAnswers({ ...answers, [question.key]: text })} /> : null}
+      {(question?.type === 'number' || question?.type === 'number_or_unknown') ? <Pressable style={styles.decimalButton} onPress={() => { const current = String(value === 'unknown' || value === 'automatic' ? '' : value ?? ''); if (!current.includes(',') && !current.includes('.')) setAnswers({ ...answers, [question.key]: `${current},` }); }}><Text style={styles.decimalButtonText}>Inserir virgula</Text></Pressable> : null}
+      {question?.key === 'body_fat_percentage' && calculatedLeanMass !== null && calculatedFatMass !== null ? <View style={styles.calculationBox}><Text style={styles.calculationTitle}>Composicao calculada</Text><Text style={styles.calculationText}>Massa magra: {calculatedLeanMass.toFixed(1).replace('.', ',')} kg</Text><Text style={styles.calculationText}>Massa de gordura: {calculatedFatMass.toFixed(1).replace('.', ',')} kg</Text></View> : null}
       {question?.type === 'number_or_unknown' ? <Pressable style={[styles.answerButton, value === 'unknown' && styles.answerButtonActive]} onPress={() => choose('unknown')}><Text style={[styles.answerButtonText, value === 'unknown' && styles.answerButtonTextActive]}>Nao sei</Text></Pressable> : null}
+      {question?.key === 'basal_metabolism' ? <Pressable style={[styles.answerButton, value === 'automatic' && styles.answerButtonActive]} onPress={() => choose('automatic')}><Text style={[styles.answerButtonText, value === 'automatic' && styles.answerButtonTextActive]}>Calcular automaticamente</Text></Pressable> : null}
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
       <View style={styles.interviewActions}><Pressable style={[styles.secondaryButton, step === 0 && styles.disabledButton]} disabled={step === 0} onPress={() => { setStep(Math.max(0, step - 1)); setStatus(''); }}><Text style={styles.secondaryButtonText}>Voltar</Text></Pressable><Pressable style={[styles.primaryButton, saving && styles.disabledButton]} disabled={saving} onPress={next}><Text style={styles.primaryButtonText}>{step === visibleQuestions.length - 1 ? 'Concluir' : 'Continuar'}</Text></Pressable></View>
     </View>
   );
+}
+
+function interviewDecimal(value: InterviewAnswer | undefined) {
+  if (value === undefined || value === 'unknown' || value === 'automatic' || Array.isArray(value) || typeof value === 'boolean') return null;
+  const number = Number(String(value).replace(',', '.'));
+  return Number.isFinite(number) ? number : null;
 }
 
 async function loadInterviewState(accessToken: string): Promise<InterviewState | null> {
@@ -3988,7 +4002,39 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
-  interviewActions: {
+  decimalButton: {
+    alignSelf: 'flex-start',
+    minHeight: 36,
+    borderWidth: 1,
+    borderColor: '#0f766e',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  decimalButtonText: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  calculationBox: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#99f6e4',
+    backgroundColor: '#f0fdfa',
+    padding: 12,
+    gap: 4,
+  },
+  calculationTitle: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  calculationText: {
+    color: '#334155',
+    fontSize: 14,
+    fontWeight: '700',
+  },  interviewActions: {
     flexDirection: 'row',
     gap: 10,
   },
