@@ -56,4 +56,9 @@ export class CoachController {
   createStudentInvite(@Param('studentId') studentId: string) {
     return this.coachService.createStudentInvite(studentId);
   }
+
+  @Post('students/:studentId/onboarding/reopen')
+  reopenStudentOnboarding(@Param('studentId') studentId: string) {
+    return this.coachService.reopenStudentOnboarding(studentId);
+  }
 }

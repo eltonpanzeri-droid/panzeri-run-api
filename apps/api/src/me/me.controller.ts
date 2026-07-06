@@ -60,4 +60,9 @@ export class MeController {
   completeOnboarding(@CurrentUser() user: CurrentUserPayload) {
     return this.meService.completeOnboarding(user.sub);
   }
+
+  @Post('onboarding/reopen')
+  reopenOnboarding(@CurrentUser() user: CurrentUserPayload) {
+    return this.meService.reopenOnboarding(user.sub);
+  }
 }

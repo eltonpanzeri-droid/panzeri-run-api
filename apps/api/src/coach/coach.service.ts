@@ -166,6 +166,16 @@ export class CoachService {
     };
   }
 
+  async reopenStudentOnboarding(studentId: string) {
+    await this.assertStudent(studentId);
+    await this.prisma.onboardingInterview.upsert({
+      where: { userId: studentId },
+      create: { userId: studentId, answers: {}, currentStep: 0 },
+      update: { completedAt: null, currentStep: 0 },
+    });
+    return { message: 'Entrevista liberada para revisao.' };
+  }
+
   async dashboard(input: { search: string; page: number; pageSize: number }) {
     const studentWhere: Prisma.UserWhereInput = {
       role: 'student',
@@ -260,6 +270,7 @@ export class CoachService {
     const student = await this.prisma.user.findFirstOrThrow({
       where: { id: studentId, role: 'student' },
       include: {
+        onboardingInterview: true,
         healthProfile: true,
         preferences: true,
         availability: { orderBy: { weekday: 'asc' } },
@@ -319,6 +330,12 @@ export class CoachService {
       heightCm: student.heightCm,
       weightKg: student.weightKg,
       goal: student.preferences?.mainGoal ?? 'Objetivo nao informado',
+      interview: student.onboardingInterview ? {
+        answers: student.onboardingInterview.answers,
+        currentStep: student.onboardingInterview.currentStep,
+        completedAt: student.onboardingInterview.completedAt,
+        updatedAt: student.onboardingInterview.updatedAt,
+      } : null,
       health: {
         sleep: student.healthProfile?.averageSleep ?? 'Nao informado',
         stress: student.healthProfile?.stressLevel ?? 'Nao informado',

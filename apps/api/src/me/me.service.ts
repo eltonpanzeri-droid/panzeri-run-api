@@ -21,7 +21,21 @@ export class MeService {
 
   async onboarding(userId: string) {
     const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
+    if (interview?.completedAt && Object.keys(asAnswerObject(interview.answers)).length === 0) {
+      return this.prisma.onboardingInterview.update({
+        where: { userId },
+        data: { completedAt: null, currentStep: 0 },
+      });
+    }
     return interview ?? { userId, answers: {}, currentStep: 0, completedAt: null };
+  }
+
+  reopenOnboarding(userId: string) {
+    return this.prisma.onboardingInterview.upsert({
+      where: { userId },
+      create: { userId, answers: {}, currentStep: 0 },
+      update: { completedAt: null, currentStep: 0 },
+    });
   }
 
   async saveOnboardingAnswer(userId: string, dto: { key: string; value: unknown; currentStep: number }) {

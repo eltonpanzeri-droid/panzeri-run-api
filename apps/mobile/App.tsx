@@ -1144,6 +1144,22 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
     }
   }
 
+  async function reviewInterview() {
+    setSaving(true);
+    setStatus('');
+    try {
+      const response = await fetch(`${API_URL}/me/onboarding/reopen`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) throw new Error('reopen');
+      setFinished(false);
+      setStarted(true);
+      setStep(0);
+    } catch {
+      setStatus('Nao consegui abrir a entrevista para revisao.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) return <View style={styles.section}><Text style={styles.statusMessage}>Abrindo sua entrevista...</Text></View>;
   if (finished) return (
     <View style={styles.section}>
@@ -1151,6 +1167,8 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
       <Text style={styles.titleSmall}>Agora vamos medir seu condicionamento</Text>
       <Text style={styles.copyTight}>Suas respostas foram salvas. Faca o teste de corrida de 3 km para gerar seu plano inicial.</Text>
       <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>Ir para o teste de 3 km</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
+      <Pressable style={styles.secondaryButton} onPress={reviewInterview} disabled={saving}><Text style={styles.secondaryButtonText}>Revisar minhas respostas</Text></Pressable>
+      {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
     </View>
   );
   if (!started) return (
