@@ -1444,12 +1444,17 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
               <Text style={styles.weekDay}>{session.day}</Text>
               <Text style={styles.weekNumber}>{session.date}</Text>
             </View>
-            <View style={styles.weekIcon}>
-              <Ionicons name={iconForModality(session.modality)} size={20} color="#111827" />
-            </View>
-            <View style={styles.weekText}>
-              <Text style={styles.sessionTitle}>{session.title}</Text>
-              <Text style={styles.sessionDetail}>{session.detail}</Text>
+            <View style={styles.weekSessionCard}>
+              <View style={styles.weekSessionHeader}>
+                <View style={styles.weekSessionTitleBlock}>
+                  <Text style={styles.sessionTitle}>{session.title}</Text>
+                  <Text style={styles.sessionDetail}>{session.detail}</Text>
+                  <View style={styles.zonePill}><Text style={styles.zoneText}>{session.zone}</Text></View>
+                </View>
+                <View style={styles.weekIcon}>
+                  <Ionicons name={iconForModality(session.modality)} size={23} color="#111827" />
+                </View>
+              </View>
               {'notes' in session && session.notes ? <Text style={styles.sessionNote}>{session.notes}</Text> : null}
               <SessionPrescription session={session} metrics={metrics} />
               <CompletionForm
@@ -1469,9 +1474,6 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
                   <Ionicons name="chevron-forward" size={15} color="#0f766e" />
                 </Pressable>
               </View>
-            </View>
-            <View style={styles.zonePill}>
-              <Text style={styles.zoneText}>{session.zone}</Text>
             </View>
           </View>
         ))}
@@ -2276,15 +2278,15 @@ function StrengthExerciseList({ category, exercises }: { category?: string; exer
               </View>
               <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#0f766e" />
             </Pressable>
-            <View style={styles.exerciseMetrics}>
-              <ExerciseMetric label="Series" value={String(exercise.sets)} />
-              <ExerciseMetric label="Repeticoes" value={exercise.reps} />
-              <ExerciseMetric label="Intensidade" value={exercise.intensity ?? 'Moderada'} />
-              <ExerciseMetric label="Pausa" value={`${exercise.restSeconds}s`} />
-            </View>
-            {exercise.cadence ? <Text style={styles.exerciseCadence}>Cadencia: {exercise.cadence}</Text> : null}
             {isOpen ? (
               <View style={styles.exerciseExplanation}>
+                <View style={styles.exerciseMetrics}>
+                  <ExerciseMetric label="Series" value={String(exercise.sets)} />
+                  <ExerciseMetric label="Repeticoes" value={exercise.reps} />
+                  <ExerciseMetric label="Intensidade" value={exercise.intensity ?? 'Moderada'} />
+                  <ExerciseMetric label="Pausa" value={`${exercise.restSeconds}s`} />
+                </View>
+                {exercise.cadence ? <Text style={styles.exerciseCadence}>Cadencia: {exercise.cadence}</Text> : null}
                 <Text style={styles.explanationTitle}>Explicacao</Text>
                 <Text style={styles.prescriptionText}>{exercise.description || 'Explicacao ainda nao cadastrada.'}</Text>
                 {exercise.videoUrl ? (
@@ -3103,7 +3105,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   appContent: {
-    padding: 20,
+    paddingHorizontal: 12,
+    paddingTop: 18,
     paddingBottom: 44,
   },
   section: {
@@ -3469,12 +3472,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   prescriptionBox: {
-    marginTop: 8,
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 10,
+    marginTop: 6,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#dbe4ea',
     gap: 6,
   },
   exerciseRow: {
@@ -3505,7 +3506,7 @@ const styles = StyleSheet.create({
   strengthExercise: {
     borderBottomWidth: 1,
     borderBottomColor: '#dbe4ea',
-    paddingVertical: 10,
+    paddingVertical: 12,
     gap: 8,
   },
   strengthExerciseTop: {
@@ -3531,9 +3532,9 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   exerciseSummary: {
-    color: '#64748b',
-    fontSize: 11,
-    lineHeight: 15,
+    color: '#475569',
+    fontSize: 12,
+    lineHeight: 17,
   },
   exerciseMetrics: {
     flexDirection: 'row',
@@ -3790,18 +3791,38 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   weekItem: {
-    minHeight: 74,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    paddingVertical: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  weekDate: {
+    width: 54,
+    paddingTop: 14,
+    alignItems: 'center',
+  },
+  weekSessionCard: {
+    flex: 1,
+    minWidth: 0,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#dbe4ea',
-    backgroundColor: '#ffffff',
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    padding: 14,
     gap: 10,
   },
-  weekDate: {
-    width: 50,
+  weekSessionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  weekSessionTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
   },
   weekDay: {
     color: '#111827',
@@ -3813,8 +3834,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   weekIcon: {
-    width: 38,
-    height: 38,
+    width: 42,
+    height: 42,
     borderRadius: 8,
     backgroundColor: '#e2e8f0',
     alignItems: 'center',
@@ -3824,12 +3845,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   zonePill: {
-    minWidth: 44,
-    borderRadius: 8,
+    alignSelf: 'flex-start',
+    minWidth: 42,
+    borderRadius: 6,
     backgroundColor: '#ccfbf1',
     alignItems: 'center',
     paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingVertical: 4,
+    marginTop: 4,
   },
   zoneText: {
     color: '#115e59',
