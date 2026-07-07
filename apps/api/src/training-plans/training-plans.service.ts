@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { runnerStrengthCategory, selectRunnerStrengthExercises } from './runner-strength-library';
+import { selectGymExercises } from './gym-exercise-library';
 import { buildWeeklyMethodologyDecision, PANZERI_METHODOLOGY_VERSION, PANZERI_PRESCRIPTION_PRINCIPLES } from './training-methodology';
 
 interface SessionTemplate {
@@ -21,7 +22,7 @@ interface WeeklyAvailabilityInput {
 }
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
-const planEngineVersion = 'rules-v7-' + PANZERI_METHODOLOGY_VERSION;
+const planEngineVersion = 'rules-v8-' + PANZERI_METHODOLOGY_VERSION;
 const subscriptionCheckoutUrl = 'https://mpago.la/23YBr2R';
 
 @Injectable()
@@ -165,7 +166,11 @@ export class TrainingPlansService {
         const durationMin = Math.min(requestedDuration, runDecision?.durationMin ?? template.durationMin);
         const prescription =
           modality === 'forca' || modality === 'fortalecimento_corredores'
-            ? this.strengthPrescription(durationMin, modality)
+            ? this.strengthPrescription(durationMin, modality, {
+                experience: user.preferences?.experienceLevel ?? '',
+                safetyAdjustment: methodology.safetyAdjustment,
+                rotation: weekRotation(weekStart),
+              })
             : modality === 'bike'
             ? this.aerobicPrescription(durationMin, template.zone, modality)
             : this.runPrescription(durationMin, template.zone, latestTest?.paceSecondsPerKm ?? null, modality, template.sessionType);
@@ -406,9 +411,9 @@ export class TrainingPlansService {
     };
   }
 
-  private strengthPrescription(durationMin: number, modality: string) {
+  private strengthPrescription(durationMin: number, modality: string, context: { experience: string; safetyAdjustment: boolean; rotation: number }) {
     if (modality !== 'fortalecimento_corredores') {
-      return this.genericStrengthPrescription(durationMin);
+      return this.genericStrengthPrescription(durationMin, context);
     }
 
     const selectedExercises = selectRunnerStrengthExercises(durationMin);
@@ -435,73 +440,30 @@ export class TrainingPlansService {
     };
   }
 
-  private genericStrengthPrescription(durationMin: number) {
+  private genericStrengthPrescription(durationMin: number, context: { experience: string; safetyAdjustment: boolean; rotation: number }) {
+    const selected = selectGymExercises({ durationMin, ...context });
+    const novice = context.safetyAdjustment || ['nunca', 'poucas', 'voltando', 'menos de 1 ano'].some((term) => context.experience.toLowerCase().includes(term));
     return {
       type: 'strength',
       category: 'Musculacao',
       durationMin,
       distanceKm: null,
-      exercises: [
-        {
-          name: 'Agachamento goblet',
-          description: 'Agachamento com carga a frente do corpo.',
-          videoUrl: null,
-          sets: 3,
-          reps: '8 a 10',
-          intensity: 'RPE 7',
-          restSeconds: 90,
-          cadence: '3s excentrica / 1s concentrica',
-          loadField: true,
-        },
-        {
-          name: 'Remada baixa ou curvada',
-          description: 'Remada para fortalecimento de costas e postura.',
-          videoUrl: null,
-          sets: 3,
-          reps: '10 a 12',
-          intensity: 'RPE 7',
-          restSeconds: 75,
-          cadence: '2s concentrica / 2s excentrica',
-          loadField: true,
-        },
-        {
-          name: 'Ponte de gluteo',
-          description: 'Elevacao de quadril para ativacao de gluteos.',
-          videoUrl: null,
-          sets: 3,
-          reps: '10 a 12',
-          intensity: 'RPE 7',
-          restSeconds: 75,
-          cadence: '2s concentrica / 2s excentrica',
-          loadField: true,
-        },
-        {
-          name: 'Prancha frontal',
-          description: 'Isometria para fortalecimento do core.',
-          videoUrl: null,
-          sets: 3,
-          reps: '30 a 45s',
-          intensity: 'Moderada',
-          restSeconds: 60,
-          cadence: 'controle total',
-          loadField: false,
-        },
-        {
-          name: 'Panturrilha em pe',
-          description: 'Elevacao de panturrilha para fortalecimento do tornozelo.',
-          videoUrl: null,
-          sets: 3,
-          reps: '12 a 15',
-          intensity: 'RPE 7',
-          restSeconds: 60,
-          cadence: '2s concentrica / 2s excentrica',
-          loadField: true,
-        },
-      ],
+      exercises: selected.map((exercise) => ({
+        id: exercise.id,
+        category: 'Musculacao',
+        name: exercise.name,
+        description: exercise.description,
+        videoUrl: null,
+        sets: novice ? 2 : exercise.level === 'advanced' ? 4 : 3,
+        reps: novice ? '12 a 15' : exercise.level === 'advanced' ? '6 a 10' : '8 a 12',
+        intensity: novice ? 'RPE 5 a 6' : exercise.level === 'advanced' ? 'RPE 7 a 8' : 'RPE 7',
+        restSeconds: novice ? 60 : exercise.level === 'advanced' ? 90 : 75,
+        cadence: exercise.group === 'core' ? 'Execucao lenta e controlada' : '2s na fase excentrica / subida controlada',
+        loadField: exercise.group !== 'core' && !exercise.id.startsWith('flexao-'),
+      })),
       reportFields: ['exercise', 'sets', 'reps', 'load', 'rpe', 'completed', 'notes'],
     };
   }
-
   private zonePaceSeconds(zone: string, paceSecondsPerKm: number) {
     const factors: Record<string, number> = {
       Z1: 1.55,
@@ -701,6 +663,9 @@ function isStravaRunningActivity(type: string | null, name: string | null) {
 
 function jsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+function weekRotation(date: Date) {
+  return Math.floor(date.getTime() / (7 * 24 * 60 * 60 * 1000));
 }
 function normalizeModalityDurations(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
