@@ -2221,6 +2221,19 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
   const mainZone = structure.zone ?? session.zone;
   const mainPace = structure.paceRange ?? metricPaceForZone(mainZone, metrics);
   const mainSpeed = structure.speedRange ?? speedRangeFromPace(mainPace) ?? (structure.speedKmh ? `${formatDecimal(structure.speedKmh)} km/h` : null);
+  const runBlocks: NonNullable<Extract<SessionStructure, { type: 'run' }>['blocks']> = structure.blocks?.length
+    ? structure.blocks
+    : [{
+        label: 'Treino principal',
+        durationMin: structure.durationMin ?? session.durationMin ?? 0,
+        durationType: 'time',
+        distanceValue: structure.distanceKm ?? session.distanceKm ?? undefined,
+        distanceUnit: 'km',
+        zone: mainZone,
+        paceRange: mainPace,
+        speedKmh: structure.speedKmh,
+        speedRange: mainSpeed,
+      }];
 
   return (
     <View style={styles.prescriptionBox}>
@@ -2234,7 +2247,7 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
           <Text style={styles.runMetricValue}>{structure.durationMin ?? session.durationMin ?? '-'} min</Text>
         </View>
       </View>
-      {(structure.blocks?.length ? structure.blocks : [{ label: 'Treino principal', durationMin: structure.durationMin ?? session.durationMin ?? 0, zone: mainZone, paceRange: mainPace, speedRange: mainSpeed }]).map((block) => {
+      {runBlocks.map((block) => {
         const pace = block.paceRange ?? metricPaceForZone(block.zone, metrics);
         const speed = block.speedRange ?? speedRangeFromPace(pace) ?? (block.speedKmh ? `${formatDecimal(block.speedKmh)} km/h` : null);
         return (
@@ -2244,6 +2257,7 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
               <Text style={styles.runBlockDuration}>{runBlockDurationLabel(block)}</Text>
             </View>
             <View style={styles.runBlockMetrics}>
+              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Distancia</Text>{'\n'}{runBlockDistanceLabel(block)}</Text>
               <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Zona</Text>{'\n'}{block.zone ?? mainZone}</Text>
               <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Pace</Text>{'\n'}{pace ?? 'Cadastre o teste de 3 km'}</Text>
               <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Velocidade</Text>{'\n'}{speed ?? 'Cadastre o teste de 3 km'}</Text>
@@ -2981,6 +2995,13 @@ function runBlockDurationLabel(block: { durationMin?: number; durationType?: str
     return `${block.distanceValue} ${block.distanceUnit === 'm' ? 'm' : 'km'}`;
   }
   return `${block.durationMin ?? 0} min`;
+}
+
+function runBlockDistanceLabel(block: { distanceValue?: string | number; distanceUnit?: string }) {
+  if (block.distanceValue === undefined || block.distanceValue === null || block.distanceValue === '') return '-';
+  const numericValue = typeof block.distanceValue === 'number' ? block.distanceValue : Number(block.distanceValue);
+  const value = Number.isFinite(numericValue) ? formatDecimal(numericValue) : String(block.distanceValue);
+  return `${value} ${block.distanceUnit === 'm' ? 'm' : 'km'}`;
 }
 
 function rpeLabel(value: string) {

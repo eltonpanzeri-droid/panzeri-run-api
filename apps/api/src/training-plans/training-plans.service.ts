@@ -22,7 +22,7 @@ interface WeeklyAvailabilityInput {
 }
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
-const planEngineVersion = 'rules-v8-' + PANZERI_METHODOLOGY_VERSION;
+const planEngineVersion = 'rules-v9-' + PANZERI_METHODOLOGY_VERSION;
 const subscriptionCheckoutUrl = 'https://mpago.la/23YBr2R';
 
 @Injectable()
@@ -309,7 +309,6 @@ export class TrainingPlansService {
 
   private runPrescription(durationMin: number, zone: string, paceSecondsPerKm: number | null, modality: string, sessionType: string) {
     const targetPaceSeconds = paceSecondsPerKm ? this.zonePaceSeconds(zone, paceSecondsPerKm) : 420;
-    const distanceKm = Number(((durationMin * 60) / targetPaceSeconds).toFixed(1));
     const speedKmh = Number((3600 / targetPaceSeconds).toFixed(1));
 
     if (sessionType === 'quality_run') {
@@ -317,72 +316,90 @@ export class TrainingPlansService {
       const warmupMinutes = Math.min(10, Math.max(6, Math.round(durationMin * 0.2)));
       const cooldownMinutes = 5;
       const recoveryMinutes = Math.max(durationMin - intenseMinutes - warmupMinutes - cooldownMinutes, 5);
-      const easyPace = paceSecondsPerKm ? this.zonePaceSeconds('Z2', paceSecondsPerKm) : 450;
+      const blocks = [
+        this.runBlock('Aquecimento', warmupMinutes, 'Z1', paceSecondsPerKm),
+        this.runBlock('Estimulos', intenseMinutes, zone, paceSecondsPerKm, 'Tempo intenso total acumulado. Fracionar em repeticoes com recuperacao leve.'),
+        this.runBlock('Recuperacoes e volume leve', recoveryMinutes, 'Z2', paceSecondsPerKm),
+        this.runBlock('Desaquecimento', cooldownMinutes, 'Z1', paceSecondsPerKm),
+      ];
       return {
-        type: 'run', modality, distanceKm: Number(((durationMin * 60) / easyPace).toFixed(1)), durationMin, speedKmh, zone,
+        type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin, speedKmh, zone,
         paceRange: paceSecondsPerKm ? this.zonePaceRange(zone, paceSecondsPerKm) : null,
         speedRange: paceSecondsPerKm ? this.zoneSpeedRange(zone, paceSecondsPerKm) : null,
-        blocks: [
-          { label: 'Aquecimento', durationMin: warmupMinutes, zone: 'Z1', paceRange: paceSecondsPerKm ? this.zonePaceRange('Z1', paceSecondsPerKm) : null, speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z1', paceSecondsPerKm) : null },
-          { label: 'Estimulos', durationMin: intenseMinutes, zone, paceRange: paceSecondsPerKm ? this.zonePaceRange(zone, paceSecondsPerKm) : null, speedRange: paceSecondsPerKm ? this.zoneSpeedRange(zone, paceSecondsPerKm) : null, guidance: 'Tempo intenso total acumulado. Fracionar em repeticoes com recuperacao leve.' },
-          { label: 'Recuperacoes e volume leve', durationMin: recoveryMinutes, zone: 'Z2', paceRange: paceSecondsPerKm ? this.zonePaceRange('Z2', paceSecondsPerKm) : null, speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z2', paceSecondsPerKm) : null },
-          { label: 'Desaquecimento', durationMin: cooldownMinutes, zone: 'Z1', paceRange: paceSecondsPerKm ? this.zonePaceRange('Z1', paceSecondsPerKm) : null, speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z1', paceSecondsPerKm) : null },
-        ],
+        blocks,
         reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
       };
     }
 
     if (sessionType === 'walk_run') {
       const adjustedPace = Math.round(targetPaceSeconds * 1.2);
+      const mainMinutes = Math.max(durationMin - 10, 15);
+      const blocks = [
+        this.runBlock('Aquecimento caminhando', 5, 'Z1', paceSecondsPerKm, 'Caminhar de forma progressiva.', 600),
+        this.runBlock('Corrida e caminhada', mainMinutes, 'Z2', paceSecondsPerKm, 'Alternar corrida leve e caminhada antes de perder o controle respiratorio.', adjustedPace),
+        this.runBlock('Desaquecimento caminhando', 5, 'Z1', paceSecondsPerKm, undefined, 600),
+      ];
       return {
-        type: 'run', modality, distanceKm: Number(((durationMin * 60) / adjustedPace).toFixed(1)), durationMin,
+        type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin,
         speedKmh: Number((3600 / adjustedPace).toFixed(1)), zone: 'Z2',
         paceRange: paceSecondsPerKm ? this.zonePaceRange('Z2', paceSecondsPerKm) : null,
         speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z2', paceSecondsPerKm) : null,
-        blocks: [
-          { label: 'Aquecimento caminhando', durationMin: 5, zone: 'Z1', guidance: 'Caminhar de forma progressiva.' },
-          { label: 'Corrida e caminhada', durationMin: Math.max(durationMin - 10, 15), zone: 'Z2', guidance: 'Alternar corrida leve e caminhada antes de perder o controle respiratorio.' },
-          { label: 'Desaquecimento caminhando', durationMin: 5, zone: 'Z1' },
-        ],
+        blocks,
         reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
       };
     }
 
+    const blocks = [
+      this.runBlock('Aquecimento', Math.min(8, durationMin), 'Z1', paceSecondsPerKm),
+      this.runBlock('Principal', Math.max(durationMin - 13, 10), zone, paceSecondsPerKm),
+      this.runBlock('Desaquecimento', 5, 'Z1', paceSecondsPerKm),
+    ];
+
     return {
       type: 'run',
       modality,
-      distanceKm,
+      distanceKm: this.totalBlockDistance(blocks),
       durationMin,
       speedKmh,
       speedRange: paceSecondsPerKm ? this.zoneSpeedRange(zone, paceSecondsPerKm) : null,
       zone,
       paceRange: paceSecondsPerKm ? this.zonePaceRange(zone, paceSecondsPerKm) : null,
-      blocks: [
-        {
-          label: 'Aquecimento',
-          durationMin: Math.min(8, durationMin),
-          zone: 'Z1',
-          paceRange: paceSecondsPerKm ? this.zonePaceRange('Z1', paceSecondsPerKm) : null,
-          speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z1', paceSecondsPerKm) : null,
-        },
-        {
-          label: 'Principal',
-          durationMin: Math.max(durationMin - 13, 10),
-          zone,
-          paceRange: paceSecondsPerKm ? this.zonePaceRange(zone, paceSecondsPerKm) : null,
-          speedKmh,
-          speedRange: paceSecondsPerKm ? this.zoneSpeedRange(zone, paceSecondsPerKm) : null,
-        },
-        {
-          label: 'Desaquecimento',
-          durationMin: 5,
-          zone: 'Z1',
-          paceRange: paceSecondsPerKm ? this.zonePaceRange('Z1', paceSecondsPerKm) : null,
-          speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z1', paceSecondsPerKm) : null,
-        },
-      ],
+      blocks,
       reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
     };
+  }
+
+  private runBlock(
+    label: string,
+    durationMin: number,
+    zone: string,
+    testPaceSecondsPerKm: number | null,
+    guidance?: string,
+    prescribedPaceSecondsPerKm?: number,
+  ) {
+    const paceSeconds = prescribedPaceSecondsPerKm
+      ?? (testPaceSecondsPerKm ? this.zonePaceSeconds(zone, testPaceSecondsPerKm) : this.defaultZonePaceSeconds(zone));
+
+    return {
+      label,
+      durationMin,
+      durationType: 'time',
+      distanceValue: Number(((durationMin * 60) / paceSeconds).toFixed(2)),
+      distanceUnit: 'km',
+      zone,
+      paceRange: testPaceSecondsPerKm ? this.zonePaceRange(zone, testPaceSecondsPerKm) : null,
+      speedRange: testPaceSecondsPerKm ? this.zoneSpeedRange(zone, testPaceSecondsPerKm) : null,
+      guidance,
+    };
+  }
+
+  private totalBlockDistance(blocks: Array<{ distanceValue: number }>) {
+    return Number(blocks.reduce((total, block) => total + block.distanceValue, 0).toFixed(1));
+  }
+
+  private defaultZonePaceSeconds(zone: string) {
+    const defaults: Record<string, number> = { Z1: 480, Z2: 420, Z3: 390, Z4: 360, Z5: 330, Base: 450 };
+    return defaults[zone] ?? 420;
   }
 
   private aerobicPrescription(durationMin: number, zone: string, modality: string) {
