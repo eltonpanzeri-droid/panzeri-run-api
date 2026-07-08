@@ -1359,6 +1359,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   const [isLoading, setIsLoading] = useState(false);
   const [recommendationOpen, setRecommendationOpen] = useState(true);
   const [routineAdjustmentOpen, setRoutineAdjustmentOpen] = useState(false);
+  const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (accessToken) {
@@ -1529,6 +1530,13 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   }
   const sessions = plan?.sessions.length ? plan.sessions : [];
   const weekRange = plan ? planWeekRange(plan) : currentWeekRange();
+  const groupedSessions = sessions.reduce<Array<{ key: string; day: string; date: string; sessions: WeekPlanSession[] }>>((groups, session) => {
+    const key = session.date;
+    const group = groups.find((item) => item.key === key);
+    if (group) group.sessions.push(session);
+    else groups.push({ key, day: session.day, date: session.date, sessions: [session] });
+    return groups;
+  }, []);
 
   if (plan?.requiresOnboarding) {
     return <View style={styles.section}><Text style={styles.sectionLabel}>Treino da semana</Text><Text style={styles.titleSmall}>Vamos preparar seu plano</Text><View style={styles.coachBox}><Text style={styles.coachTitle}>Entrevista inicial pendente</Text><Text style={styles.coachText}>Conclua a entrevista para que seu treino respeite seu objetivo, sua rotina e seu historico.</Text></View><Pressable style={styles.primaryButton} onPress={onOpenInterview}><Text style={styles.primaryButtonText}>Continuar entrevista</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable></View>;
@@ -1578,45 +1586,64 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             {recommendationOpen ? <Text style={styles.coachText}>{plan.recommendation}</Text> : null}
           </View>
         ) : null}
-        {sessions.map((session) => (
-          <View style={styles.weekItem} key={`${session.day}-${session.title}-${session.id}`}>
-            <View style={styles.weekDate}>
-              <Text style={styles.weekDay}>{session.day}</Text>
-              <Text style={styles.weekNumber}>{session.date}</Text>
-            </View>
-            <View style={styles.weekSessionCard}>
-              <View style={styles.weekSessionHeader}>
-                <View style={styles.weekSessionTitleBlock}>
-                  <Text style={styles.sessionTitle}>{session.title}</Text>
-                  <Text style={styles.sessionDetail}>{session.detail}</Text>
-                  <View style={styles.zonePill}><Text style={styles.zoneText}>{session.zone}</Text></View>
-                </View>
-                <View style={styles.weekIcon}>
-                  <Ionicons name={iconForModality(session.modality)} size={23} color="#111827" />
-                </View>
+        {groupedSessions.map((group) => {
+          const expanded = Boolean(expandedDays[group.key]);
+          const modalitySummary = group.sessions.map((session) => session.title).join(' + ');
+          return (
+            <View style={styles.weekItem} key={group.key}>
+              <View style={styles.weekDate}>
+                <Text style={styles.weekDay}>{group.day}</Text>
+                <Text style={styles.weekNumber}>{group.date}</Text>
               </View>
-              {'notes' in session && session.notes ? <Text style={styles.sessionNote}>{session.notes}</Text> : null}
-              <SessionPrescription session={session} metrics={metrics} />
-              <CompletionForm
-                session={session}
-                draft={completionDrafts[session.id] ?? defaultCompletionDraft(session)}
-                onChange={(patch) => updateCompletionDraft(session, patch)}
-                onSave={() => saveCompletion(session)}
-                message={completionMessages[session.id]}
-              />
-              <View style={styles.moveActions}>
-                <Pressable style={styles.moveButton} onPress={() => moveSession(session.id, -1)}>
-                  <Ionicons name="chevron-back" size={15} color="#0f766e" />
-                  <Text style={styles.moveButtonText}>Dia anterior</Text>
+              <View style={styles.weekSessionCard}>
+                <Pressable
+                  style={styles.collapseHeader}
+                  onPress={() => setExpandedDays((current) => ({ ...current, [group.key]: !current[group.key] }))}
+                >
+                  <View style={styles.weekSessionTitleBlock}>
+                    <Text style={styles.sessionTitle}>{modalitySummary}</Text>
+                    <Text style={styles.sessionDetail}>{expanded ? 'Toque para recolher' : 'Toque para ver o treino'}</Text>
+                  </View>
+                  <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={22} color="#0f766e" />
                 </Pressable>
-                <Pressable style={styles.moveButton} onPress={() => moveSession(session.id, 1)}>
-                  <Text style={styles.moveButtonText}>Proximo dia</Text>
-                  <Ionicons name="chevron-forward" size={15} color="#0f766e" />
-                </Pressable>
+
+                {expanded ? group.sessions.map((session) => (
+                  <View key={session.id} style={styles.formSection}>
+                    <View style={styles.weekSessionHeader}>
+                      <View style={styles.weekSessionTitleBlock}>
+                        <Text style={styles.sessionTitle}>{session.title}</Text>
+                        <Text style={styles.sessionDetail}>{session.detail}</Text>
+                        <View style={styles.zonePill}><Text style={styles.zoneText}>{session.zone}</Text></View>
+                      </View>
+                      <View style={styles.weekIcon}>
+                        <Ionicons name={iconForModality(session.modality)} size={23} color="#111827" />
+                      </View>
+                    </View>
+                    {'notes' in session && session.notes ? <Text style={styles.sessionNote}>{session.notes}</Text> : null}
+                    <SessionPrescription session={session} metrics={metrics} />
+                    <CompletionForm
+                      session={session}
+                      draft={completionDrafts[session.id] ?? defaultCompletionDraft(session)}
+                      onChange={(patch) => updateCompletionDraft(session, patch)}
+                      onSave={() => saveCompletion(session)}
+                      message={completionMessages[session.id]}
+                    />
+                    <View style={styles.moveActions}>
+                      <Pressable style={styles.moveButton} onPress={() => moveSession(session.id, -1)}>
+                        <Ionicons name="chevron-back" size={15} color="#0f766e" />
+                        <Text style={styles.moveButtonText}>Dia anterior</Text>
+                      </Pressable>
+                      <Pressable style={styles.moveButton} onPress={() => moveSession(session.id, 1)}>
+                        <Text style={styles.moveButtonText}>Proximo dia</Text>
+                        <Ionicons name="chevron-forward" size={15} color="#0f766e" />
+                      </Pressable>
+                    </View>
+                  </View>
+                )) : null}
               </View>
             </View>
-          </View>
-        ))}
+          );
+        })}
       </View>
 
       <View style={styles.formSection}>
@@ -2268,20 +2295,27 @@ function Billing({ accessToken }: { accessToken: string }) {
     nextChargeAt?: string | null;
     checkoutUrl?: string | null;
     canCancel: boolean;
+    syncError?: boolean;
   } | null>(null);
   const [message, setMessage] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
 
-  async function loadBilling() {
+  async function loadBilling(showConfirmation = false) {
+    if (showConfirmation) setMessage('Consultando a Efi...');
     try {
       const response = await fetch(API_URL + '/billing/me', { headers: { Authorization: 'Bearer ' + accessToken } });
-      if (response.ok) setDetails(await response.json());
+      if (!response.ok) throw new Error();
+      const data = await response.json();
+      setDetails(data);
+      if (showConfirmation) {
+        setMessage(data.syncError ? 'Mostrando a ultima situacao salva. A Efi nao respondeu agora.' : 'Situacao atualizada diretamente com a Efi.');
+      }
     } catch {
       setMessage('Nao consegui consultar sua assinatura agora.');
     }
   }
 
-  useEffect(() => { void loadBilling(); }, [accessToken]);
+  useEffect(() => { void loadBilling(false); }, [accessToken]);
 
   async function subscribe() {
     setMessage('Preparando pagamento seguro...');
@@ -2317,6 +2351,8 @@ function Billing({ accessToken }: { accessToken: string }) {
   }
 
   const active = details && ['active', 'manual_active', 'grace'].includes(details.status);
+  const efiCardActive = details?.providerStatus === 'active';
+  const needsEfiSetup = !efiCardActive;
 
   return (
     <View style={styles.section}>
@@ -2326,12 +2362,13 @@ function Billing({ accessToken }: { accessToken: string }) {
         <Text style={styles.formSectionTitle}>Sua assinatura</Text>
         <Text style={styles.reportText}>Valor: {details?.priceLabel ?? 'R$ 19,90 por mes'}</Text>
         <Text style={styles.reportText}>Situacao: {active ? 'Ativa' : details?.status === 'overdue' ? 'Pagamento pendente' : details?.status === 'canceled' ? 'Cancelada' : 'Aguardando ativacao'}</Text>
+        <Text style={styles.reportText}>Cartao: {efiCardActive ? 'Cadastrado e protegido pela Efi' : 'Ainda nao cadastrado na Efi'}</Text>
         {details?.nextChargeAt ? <Text style={styles.reportText}>Proxima cobranca: {new Date(details.nextChargeAt).toLocaleDateString('pt-BR')}</Text> : null}
       </View>
 
-      {!active ? (
+      {needsEfiSetup ? (
         <Pressable style={styles.primaryButton} onPress={subscribe}>
-          <Text style={styles.primaryButtonText}>Ativar assinatura</Text>
+          <Text style={styles.primaryButtonText}>{active ? 'Cadastrar cartao para recorrencia' : 'Ativar assinatura'}</Text>
           <Ionicons name="card" size={18} color="#ffffff" />
         </Pressable>
       ) : null}
@@ -2351,7 +2388,7 @@ function Billing({ accessToken }: { accessToken: string }) {
         </View>
       ) : null}
 
-      <Pressable style={styles.secondaryButton} onPress={loadBilling}>
+      <Pressable style={styles.secondaryButton} onPress={() => loadBilling(true)}>
         <Ionicons name="refresh" size={18} color="#0f766e" />
         <Text style={styles.secondaryButtonText}>Atualizar situacao</Text>
       </Pressable>

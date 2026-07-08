@@ -10,6 +10,12 @@ type EfiCheckout = {
   charge: { id: number; status: string };
   payment_url: string;
 };
+type EfiSubscriptionDetails = {
+  subscription_id: number;
+  status: string;
+  next_execution?: string | null;
+  history?: Array<{ status?: string }>;
+};
 type EfiEvent = {
   identifiers?: { charge_id?: number; subscription_id?: number };
   status?: { current?: string };
@@ -34,22 +40,42 @@ export class BillingService {
       this.prisma.billingSubscription.findUnique({ where: { userId } }),
     ]);
 
+    let appStatus = user.subscriptionStatus;
+    let providerStatus = billing?.providerStatus ?? null;
+    let nextChargeAt = billing?.nextChargeAt ?? null;
+    let syncError = false;
+
+    if (billing?.externalSubscriptionId && this.isConfigured()) {
+      try {
+        const refreshed = await this.refreshFromEfi(billing.id, userId, billing.externalSubscriptionId);
+        appStatus = refreshed.appStatus;
+        providerStatus = refreshed.providerStatus;
+        nextChargeAt = refreshed.nextChargeAt;
+      } catch {
+        syncError = true;
+      }
+    }
+
     return {
       provider: 'efi',
       planName: 'Panzeri Run - Plano mensal',
       priceLabel: 'R$ 19,90 por mes',
-      status: user.subscriptionStatus,
-      providerStatus: billing?.providerStatus ?? null,
+      status: appStatus,
+      providerStatus,
       checkoutUrl: billing?.checkoutUrl ?? null,
-      nextChargeAt: billing?.nextChargeAt ?? null,
+      nextChargeAt,
       updatedAt: user.subscriptionUpdatedAt,
-      canCancel: Boolean(billing?.externalSubscriptionId && ['active', 'manual_active', 'grace'].includes(user.subscriptionStatus)),
+      canCancel: Boolean(billing?.externalSubscriptionId && ['active', 'manual_active', 'grace'].includes(appStatus)),
+      syncError,
     };
   }
 
   async createCheckout(userId: string) {
     this.assertConfigured();
-    const existing = await this.prisma.billingSubscription.findUnique({ where: { userId } });
+    const [existing, user] = await Promise.all([
+      this.prisma.billingSubscription.findUnique({ where: { userId } }),
+      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { subscriptionStatus: true } }),
+    ]);
     if (existing?.checkoutUrl && ['new', 'link', 'waiting'].includes(existing.providerStatus)) {
       return { checkoutUrl: existing.checkoutUrl };
     }
@@ -93,7 +119,10 @@ export class BillingService {
       }),
       this.prisma.user.update({
         where: { id: userId },
-        data: { subscriptionStatus: 'pending', subscriptionUpdatedAt: new Date() },
+        data: {
+          subscriptionStatus: ['active', 'manual_active', 'grace'].includes(user.subscriptionStatus) ? user.subscriptionStatus : 'pending',
+          subscriptionUpdatedAt: new Date(),
+        },
       }),
     ]);
 
@@ -147,6 +176,32 @@ export class BillingService {
     return { received: true };
   }
 
+  private async refreshFromEfi(billingId: string, userId: string, subscriptionId: string) {
+    const response = await this.efiRequest<EfiResponse<EfiSubscriptionDetails>>('/v1/subscription/' + subscriptionId);
+    const providerStatus = response.data.status?.toLowerCase() ?? 'unknown';
+    const latestChargeStatus = response.data.history?.at(-1)?.status?.toLowerCase();
+    const appStatus = CANCELED_STATUSES.has(providerStatus)
+      ? 'canceled'
+      : latestChargeStatus && OVERDUE_STATUSES.has(latestChargeStatus)
+        ? 'overdue'
+        : ACTIVE_STATUSES.has(providerStatus)
+          ? 'active'
+          : 'pending';
+    const nextChargeAt = response.data.next_execution ? new Date(response.data.next_execution + 'T12:00:00.000Z') : null;
+
+    await this.prisma.$transaction([
+      this.prisma.billingSubscription.update({
+        where: { id: billingId },
+        data: { providerStatus, nextChargeAt },
+      }),
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { subscriptionStatus: appStatus, subscriptionUpdatedAt: new Date() },
+      }),
+    ]);
+
+    return { providerStatus, appStatus, nextChargeAt };
+  }
   private async updateStatus(userId: string, providerStatus: string, appStatus: string) {
     await this.prisma.$transaction([
       this.prisma.billingSubscription.update({ where: { userId }, data: { providerStatus } }),
@@ -205,6 +260,10 @@ export class BillingService {
     return this.config.get<string>('EFI_SANDBOX') === 'false'
       ? 'https://cobrancas.api.efipay.com.br'
       : 'https://cobrancas-h.api.efipay.com.br';
+  }
+
+  private isConfigured() {
+    return Boolean(this.config.get<string>('EFI_CLIENT_ID') && this.config.get<string>('EFI_CLIENT_SECRET'));
   }
 
   private assertConfigured() {
