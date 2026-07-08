@@ -23,7 +23,7 @@ interface WeeklyAvailabilityInput {
 }
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
-const planEngineVersion = 'rules-v10-' + PANZERI_METHODOLOGY_VERSION;
+const planEngineVersion = 'rules-v11-' + PANZERI_METHODOLOGY_VERSION;
 const subscriptionCheckoutUrl = 'https://mpago.la/23YBr2R';
 
 @Injectable()
@@ -74,7 +74,7 @@ export class TrainingPlansService {
 
   async generateWeek(userId: string, weeklyOverride?: WeeklyAvailabilityInput[]) {
     const historyStart = addDays(startOfWeek(new Date()), -35);
-    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight] = await Promise.all([
+    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         include: {
@@ -105,6 +105,11 @@ export class TrainingPlansService {
         where: { userId },
         orderBy: { updatedAt: 'desc' },
         select: { summary: true },
+      }),
+      this.prisma.trainingPlan.findFirst({
+        where: { userId, status: 'active' },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
       }),
     ]);
 
@@ -217,6 +222,10 @@ export class TrainingPlansService {
       data: { status: 'archived' },
     });
 
+    const today = todayInSaoPaulo();
+    const sessionsToCreate = weeklyOverride?.length
+      ? sessions.filter((session) => session.scheduledDate.getTime() >= today.getTime())
+      : sessions;
     const plan = await this.prisma.trainingPlan.create({
       data: {
         userId,
@@ -243,6 +252,7 @@ export class TrainingPlansService {
             history: methodologyHistory,
             stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
             analysisAgent: latestExecutionInsight ? executionSummary : null,
+            decisionDateTime: saoPauloDateTime(new Date()),
           },
           weeklyOverrideUsed: adjustedAvailability.length > 0,
           availabilityDays: availableDays.map((day) => ({
@@ -253,7 +263,7 @@ export class TrainingPlansService {
           })),
         }),
         sessions: {
-          create: sessions,
+          create: sessionsToCreate,
         },
       },
       include: {
@@ -263,6 +273,21 @@ export class TrainingPlansService {
         },
       },
     });
+
+    if (weeklyOverride?.length && activePlanBeforeAdjustment) {
+      await this.prisma.trainingSession.updateMany({
+        where: {
+          planId: activePlanBeforeAdjustment.id,
+          scheduledDate: { gte: weekStart, lt: today },
+        },
+        data: { planId: plan.id },
+      });
+      const adjustedPlan = await this.prisma.trainingPlan.findUniqueOrThrow({
+        where: { id: plan.id },
+        include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
+      });
+      return this.presentPlan(adjustedPlan, hasSubscriptionAccess(user.subscriptionStatus));
+    }
 
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus));
   }
@@ -327,20 +352,21 @@ export class TrainingPlansService {
   private runPrescription(durationMin: number, zone: string, paceSecondsPerKm: number | null, modality: string, sessionType: string) {
     const targetPaceSeconds = paceSecondsPerKm ? this.zonePaceSeconds(zone, paceSecondsPerKm) : 420;
     const speedKmh = Number((3600 / targetPaceSeconds).toFixed(1));
+    const targetDistanceKm = Math.max(2, Math.round(((durationMin * 60) / targetPaceSeconds) * 2) / 2);
 
     if (sessionType === 'quality_run') {
-      const intenseMinutes = Math.max(6, Math.min(12, Math.round(durationMin * 0.2)));
-      const warmupMinutes = Math.min(10, Math.max(6, Math.round(durationMin * 0.2)));
-      const cooldownMinutes = 5;
-      const recoveryMinutes = Math.max(durationMin - intenseMinutes - warmupMinutes - cooldownMinutes, 5);
+      const warmupDistance = Math.min(1.5, Math.max(0.5, roundDistance(targetDistanceKm * 0.18)));
+      const cooldownDistance = 0.5;
+      const intenseDistance = Math.max(0.5, roundDistance(targetDistanceKm * 0.22));
+      const recoveryDistance = Math.max(0.5, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance - intenseDistance));
       const blocks = [
-        this.runBlock('Aquecimento', warmupMinutes, 'Z1', paceSecondsPerKm),
-        this.runBlock('Estimulos', intenseMinutes, zone, paceSecondsPerKm, 'Tempo intenso total acumulado. Fracionar em repeticoes com recuperacao leve.'),
-        this.runBlock('Recuperacoes e volume leve', recoveryMinutes, 'Z2', paceSecondsPerKm),
-        this.runBlock('Desaquecimento', cooldownMinutes, 'Z1', paceSecondsPerKm),
+        this.runDistanceBlock('Aquecimento', warmupDistance, 'Z1', paceSecondsPerKm),
+        this.runDistanceBlock('Estimulos', intenseDistance, zone, paceSecondsPerKm, 'Distancia intensa total acumulada. Fracionar em repeticoes com recuperacao leve.'),
+        this.runDistanceBlock('Recuperacoes e volume leve', recoveryDistance, 'Z2', paceSecondsPerKm),
+        this.runDistanceBlock('Desaquecimento', cooldownDistance, 'Z1', paceSecondsPerKm),
       ];
       return {
-        type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin, speedKmh, zone,
+        type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks), speedKmh, zone,
         paceRange: paceSecondsPerKm ? this.zonePaceRange(zone, paceSecondsPerKm) : null,
         speedRange: paceSecondsPerKm ? this.zoneSpeedRange(zone, paceSecondsPerKm) : null,
         blocks,
@@ -350,14 +376,16 @@ export class TrainingPlansService {
 
     if (sessionType === 'walk_run') {
       const adjustedPace = Math.round(targetPaceSeconds * 1.2);
-      const mainMinutes = Math.max(durationMin - 10, 15);
+      const warmupDistance = 0.5;
+      const cooldownDistance = 0.5;
+      const mainDistance = Math.max(1, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance));
       const blocks = [
-        this.runBlock('Aquecimento caminhando', 5, 'Z1', paceSecondsPerKm, 'Caminhar de forma progressiva.', 600),
-        this.runBlock('Corrida e caminhada', mainMinutes, 'Z2', paceSecondsPerKm, 'Alternar corrida leve e caminhada antes de perder o controle respiratorio.', adjustedPace),
-        this.runBlock('Desaquecimento caminhando', 5, 'Z1', paceSecondsPerKm, undefined, 600),
+        this.runDistanceBlock('Aquecimento caminhando', warmupDistance, 'Z1', paceSecondsPerKm, 'Caminhar de forma progressiva.', 600),
+        this.runDistanceBlock('Corrida e caminhada', mainDistance, 'Z2', paceSecondsPerKm, 'Alternar corrida leve e caminhada antes de perder o controle respiratorio.', adjustedPace),
+        this.runDistanceBlock('Desaquecimento caminhando', cooldownDistance, 'Z1', paceSecondsPerKm, undefined, 600),
       ];
       return {
-        type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin,
+        type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks),
         speedKmh: Number((3600 / adjustedPace).toFixed(1)), zone: 'Z2',
         paceRange: paceSecondsPerKm ? this.zonePaceRange('Z2', paceSecondsPerKm) : null,
         speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z2', paceSecondsPerKm) : null,
@@ -366,17 +394,21 @@ export class TrainingPlansService {
       };
     }
 
+    const warmupDistance = Math.min(1, Math.max(0.5, roundDistance(targetDistanceKm * 0.15)));
+    const cooldownDistance = 0.5;
+    const mainDistance = Math.max(1, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance));
     const blocks = [
-      this.runBlock('Aquecimento', Math.min(8, durationMin), 'Z1', paceSecondsPerKm),
-      this.runBlock('Principal', Math.max(durationMin - 13, 10), zone, paceSecondsPerKm),
-      this.runBlock('Desaquecimento', 5, 'Z1', paceSecondsPerKm),
+      this.runDistanceBlock('Aquecimento', warmupDistance, 'Z1', paceSecondsPerKm),
+      this.runDistanceBlock('Principal', mainDistance, zone, paceSecondsPerKm),
+      this.runDistanceBlock('Desaquecimento', cooldownDistance, 'Z1', paceSecondsPerKm),
     ];
 
     return {
       type: 'run',
       modality,
       distanceKm: this.totalBlockDistance(blocks),
-      durationMin,
+      durationMin: this.midpointDuration(blocks),
+      durationRange: this.totalDurationRange(blocks),
       speedKmh,
       speedRange: paceSecondsPerKm ? this.zoneSpeedRange(zone, paceSecondsPerKm) : null,
       zone,
@@ -386,9 +418,9 @@ export class TrainingPlansService {
     };
   }
 
-  private runBlock(
+  private runDistanceBlock(
     label: string,
-    durationMin: number,
+    distanceKm: number,
     zone: string,
     testPaceSecondsPerKm: number | null,
     guidance?: string,
@@ -396,12 +428,20 @@ export class TrainingPlansService {
   ) {
     const paceSeconds = prescribedPaceSecondsPerKm
       ?? (testPaceSecondsPerKm ? this.zonePaceSeconds(zone, testPaceSecondsPerKm) : this.defaultZonePaceSeconds(zone));
+    const paceBounds = testPaceSecondsPerKm
+      ? this.zonePaceBounds(zone, testPaceSecondsPerKm)
+      : { fast: Math.max(paceSeconds - 12, 1), slow: paceSeconds + 12 };
+    const minimumSeconds = Math.round(distanceKm * paceBounds.fast);
+    const maximumSeconds = Math.round(distanceKm * paceBounds.slow);
 
     return {
       label,
-      durationMin,
-      durationType: 'time',
-      distanceValue: Number(((durationMin * 60) / paceSeconds).toFixed(2)),
+      durationMin: Math.round(((minimumSeconds + maximumSeconds) / 2) / 60),
+      durationMinLower: minimumSeconds,
+      durationMinUpper: maximumSeconds,
+      durationRange: formatElapsedRange(minimumSeconds, maximumSeconds),
+      durationType: 'distance',
+      distanceValue: distanceKm,
       distanceUnit: 'km',
       zone,
       paceRange: testPaceSecondsPerKm ? this.zonePaceRange(zone, testPaceSecondsPerKm) : null,
@@ -412,6 +452,19 @@ export class TrainingPlansService {
 
   private totalBlockDistance(blocks: Array<{ distanceValue: number }>) {
     return Number(blocks.reduce((total, block) => total + block.distanceValue, 0).toFixed(1));
+  }
+
+  private totalDurationRange(blocks: Array<{ durationMinLower: number; durationMinUpper: number }>) {
+    return formatElapsedRange(
+      blocks.reduce((total, block) => total + block.durationMinLower, 0),
+      blocks.reduce((total, block) => total + block.durationMinUpper, 0),
+    );
+  }
+
+  private midpointDuration(blocks: Array<{ durationMinLower: number; durationMinUpper: number }>) {
+    const minimum = blocks.reduce((total, block) => total + block.durationMinLower, 0);
+    const maximum = blocks.reduce((total, block) => total + block.durationMinUpper, 0);
+    return Math.round(((minimum + maximum) / 2) / 60);
   }
 
   private defaultZonePaceSeconds(zone: string) {
@@ -512,22 +565,11 @@ export class TrainingPlansService {
   }
 
   private zonePaceRange(zone: string, paceSecondsPerKm: number) {
-    const targetFactors: Record<string, number> = {
-      Z1: 1.57,
-      Z2: 1.36,
-      Z3: 1.21,
-      Z4: 1.07,
-      Z5: 0.95,
-      Base: 1.45,
-    };
-    const target = Math.round(paceSecondsPerKm * (targetFactors[zone] ?? 1.3));
-    const fast = Math.max(target - 12, 1);
-    const slow = target + 12;
-
+    const { fast, slow } = this.zonePaceBounds(zone, paceSecondsPerKm);
     return `${formatPace(fast)} a ${formatPace(slow)}`;
   }
 
-  private zoneSpeedRange(zone: string, paceSecondsPerKm: number) {
+  private zonePaceBounds(zone: string, paceSecondsPerKm: number) {
     const targetFactors: Record<string, number> = {
       Z1: 1.57,
       Z2: 1.36,
@@ -539,6 +581,11 @@ export class TrainingPlansService {
     const target = Math.round(paceSecondsPerKm * (targetFactors[zone] ?? 1.3));
     const fast = Math.max(target - 12, 1);
     const slow = target + 12;
+    return { fast, slow };
+  }
+
+  private zoneSpeedRange(zone: string, paceSecondsPerKm: number) {
+    const { fast, slow } = this.zonePaceBounds(zone, paceSecondsPerKm);
     const minimum = (3600 / slow).toFixed(1);
     const maximum = (3600 / fast).toFixed(1);
     return `${minimum} a ${maximum} km/h`;
@@ -601,7 +648,7 @@ export class TrainingPlansService {
         day: dayNames[session.weekday] ?? 'Dia',
         date: formatDate(session.scheduledDate),
         title: session.title,
-        detail: [session.durationMin ? `${session.durationMin} min` : null, session.intensityZone, session.paceMinSec]
+        detail: [structureDurationLabel(session.structure, session.durationMin), session.intensityZone, session.paceMinSec]
           .filter(Boolean)
           .join(' - '),
         modality: session.modality,
@@ -669,11 +716,31 @@ function pickModality(modalities: string[], fallback: string) {
 }
 
 function startOfWeek(date: Date) {
-  const start = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const parts = saoPauloDateParts(date);
+  const start = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
   const day = start.getUTCDay();
   const diff = day === 0 ? -6 : 1 - day;
   start.setUTCDate(start.getUTCDate() + diff);
   return start;
+}
+
+function todayInSaoPaulo() {
+  const parts = saoPauloDateParts(new Date());
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+}
+
+function saoPauloDateParts(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+  return { year: value('year'), month: value('month'), day: value('day') };
+}
+
+function saoPauloDateTime(date: Date) {
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'medium', hour12: false,
+  }).format(date);
 }
 
 function addDays(date: Date, days: number) {
@@ -697,6 +764,12 @@ function isStravaRunningActivity(type: string | null, name: string | null) {
 
 function jsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function structureDurationLabel(structure: unknown, durationMin: number | null) {
+  const value = jsonObject(structure).durationRange;
+  if (typeof value === 'string' && value) return `Tempo ${value}`;
+  return durationMin ? `${durationMin} min` : null;
 }
 
 function toInputJson(value: unknown) {
@@ -802,4 +875,21 @@ function formatPace(secondsPerKm: number) {
   const minutes = Math.floor(secondsPerKm / 60);
   const seconds = secondsPerKm % 60;
   return `${minutes}:${seconds.toString().padStart(2, '0')}/km`;
+}
+
+function roundDistance(value: number) {
+  return Number((Math.round(value * 10) / 10).toFixed(1));
+}
+
+function formatElapsedRange(minimumSeconds: number, maximumSeconds: number) {
+  return `${formatElapsed(minimumSeconds)} a ${formatElapsed(maximumSeconds)}`;
+}
+
+function formatElapsed(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }

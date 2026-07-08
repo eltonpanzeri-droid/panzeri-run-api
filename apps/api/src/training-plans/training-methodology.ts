@@ -3,6 +3,7 @@ export const PANZERI_METHODOLOGY_VERSION = 'panzeri-methodology-v1';
 export const PANZERI_PRESCRIPTION_PRINCIPLES = [
   'Individualizar acima de qualquer modelo fixo: objetivo, experiencia, condicionamento, rotina, dores, idade, teste e evolucao.',
   'Usar distribuicao polarizada como referencia flexivel, buscando aproximadamente 80% do volume em baixa intensidade.',
+  'Prescrever corrida prioritariamente por distancia: quilometragem fixa por etapa, com pace, velocidade e tempo apresentados em faixas.',
   'Priorizar um treino longo progressivo, inclusive com corrida e caminhada quando isso ampliar o tempo aerobio com seguranca.',
   'Controlar progressao percentual e absoluta, evitando saltos bruscos de volume e do treino longo.',
   'Alternar aumento, manutencao e reducao dos longos quando as distancias e cargas crescerem.',

@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Animated,
+  PanResponder,
   Pressable,
   SafeAreaView,
   Linking,
@@ -82,6 +84,7 @@ type SessionStructure =
       type: 'run';
       distanceKm?: number;
       durationMin?: number;
+      durationRange?: string;
       speedKmh?: number;
       speedRange?: string | null;
       zone?: string;
@@ -89,6 +92,7 @@ type SessionStructure =
       blocks?: Array<{
         label: string;
         durationMin?: number;
+        durationRange?: string;
         durationType?: string;
         distanceValue?: string | number;
         distanceUnit?: string;
@@ -274,6 +278,7 @@ interface AppNotification {
 
 const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
 const AUTH_SESSION_KEY = 'panzeri-run-auth-session';
+const DISMISSED_NOTIFICATIONS_KEY = 'panzeri-run-dismissed-notifications';
 
 type AuthPopup = {
   document?: { write: (html: string) => void };
@@ -317,14 +322,15 @@ const dayTrainingOptions = [
 ];
 const timeOptions = ['30', '45', '60', '75', '90', '120'];
 const goalOptions = [
-  'Correr primeiros 5km',
-  'Melhorar nos 5km',
-  'Primeiros 10km',
-  'Melhorar nos 10km',
-  'Primeiros 21km',
-  'Melhorar nos 21km',
-  'Primeira Maratona',
-  'Melhorar na Maratona',
+  'Comecar a correr',
+  'Completar 5 km',
+  'Melhorar meu tempo nos 5 km',
+  'Completar 10 km',
+  'Melhorar meu tempo nos 10 km',
+  'Completar 21 km',
+  'Melhorar meu tempo nos 21 km',
+  'Completar 42 km',
+  'Melhorar meu tempo nos 42 km',
 ];
 
 const defaultRoutineDays: RoutineDay[] = [
@@ -571,13 +577,21 @@ export default function App() {
         setAnamneseRoutine(savedRoutine);
       }
     });
-    loadNotifications(accessToken).then(setNotifications);
+    Promise.all([loadNotifications(accessToken), loadDismissedNotifications()]).then(([items, dismissed]) => {
+      setNotifications(items.filter((item) => !dismissed.includes(item.id)));
+    });
     loadInterviewState(accessToken).then((interview) => {
       if (interview && !interview.completedAt) {
         setActiveTab('interview');
       }
     });
   }, [accessToken]);
+
+  async function dismissNotification(id: string) {
+    setNotifications((items) => items.filter((item) => item.id !== id));
+    const dismissed = await loadDismissedNotifications();
+    await AsyncStorage.setItem(DISMISSED_NOTIFICATIONS_KEY, JSON.stringify({ date: localDateKey(), ids: Array.from(new Set([...dismissed, id])) }));
+  }
 
   if (isRestoringSession) {
     return (
@@ -604,7 +618,7 @@ export default function App() {
       )}
       {screen === 'app' && (
         <View style={styles.appShell}>
-          <AppHeader userEmail={userEmail} userName={userName} onOpenMenu={() => setMenuOpen((open) => !open)} />
+          <AppHeader userEmail={userEmail} userName={userName} objective={savedMe?.preferences?.mainGoal} onOpenMenu={() => setMenuOpen((open) => !open)} />
           {menuOpen ? (
             <AppMenu
               activeTab={activeTab}
@@ -653,7 +667,7 @@ export default function App() {
             )}
             {activeTab === 'week' && (
               <>
-                <NotificationList notifications={notifications} />
+                <NotificationList notifications={notifications} accessToken={accessToken} onDismiss={dismissNotification} />
                 <Week
                   accessToken={accessToken}
                   baseRoutineDays={anamneseRoutine}
@@ -1069,13 +1083,14 @@ function ExerciseResponsibility({ accessToken, onAccepted }: { accessToken: stri
   );
 }
 
-function AppHeader({ userEmail, userName, onOpenMenu }: { userEmail: string; userName: string; onOpenMenu: () => void }) {
+function AppHeader({ userEmail, userName, objective, onOpenMenu }: { userEmail: string; userName: string; objective?: string | null; onOpenMenu: () => void }) {
   return (
     <View style={styles.appHeader}>
       <View>
-        <Text style={styles.headerOverline}>MVP Panzeri Run</Text>
+        <Text style={styles.headerOverline}>Panzeri Run</Text>
         <Text style={styles.headerTitle}>{userName || 'Plano inicial 10 km'}</Text>
         {userEmail ? <Text style={styles.headerEmail}>{userEmail}</Text> : null}
+        <Text style={styles.headerObjective}>Objetivo: {objective ? shortGoalLabel(objective) : 'ainda nao foi assinalado'}</Text>
       </View>
       <Pressable style={styles.menuButton} onPress={onOpenMenu}>
         <Ionicons name="menu" size={24} color="#ffffff" />
@@ -1084,7 +1099,7 @@ function AppHeader({ userEmail, userName, onOpenMenu }: { userEmail: string; use
   );
 }
 
-function NotificationList({ notifications }: { notifications: AppNotification[] }) {
+function NotificationList({ notifications, accessToken, onDismiss }: { notifications: AppNotification[]; accessToken: string; onDismiss: (id: string) => void }) {
   const visible = notifications.slice(0, 3);
   if (!visible.length) {
     return null;
@@ -1093,13 +1108,33 @@ function NotificationList({ notifications }: { notifications: AppNotification[] 
   return (
     <View style={styles.alertBox}>
       <Text style={styles.formSectionTitle}>Avisos</Text>
+      <Text style={styles.formHint}>Arraste um aviso para o lado para remove-lo.</Text>
       {visible.map((notification) => (
-        <View style={styles.alertItem} key={notification.id}>
-          <Text style={styles.alertTitle}>{notification.title}</Text>
-          <Text style={styles.alertText}>{notification.message}</Text>
-        </View>
+        <DismissibleNotification notification={notification} accessToken={accessToken} onDismiss={onDismiss} key={notification.id} />
       ))}
     </View>
+  );
+}
+
+function DismissibleNotification({ notification, accessToken, onDismiss }: { notification: AppNotification; accessToken: string; onDismiss: (id: string) => void }) {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const dismiss = () => {
+    Animated.timing(translateX, { toValue: 500, duration: 180, useNativeDriver: true }).start(() => onDismiss(notification.id));
+    void fetch(`${API_URL}/notifications/${notification.id}/read`, { method: 'PATCH', headers: { Authorization: `Bearer ${accessToken}` } });
+  };
+  const panResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 8,
+    onPanResponderMove: (_, gesture) => translateX.setValue(gesture.dx),
+    onPanResponderRelease: (_, gesture) => {
+      if (Math.abs(gesture.dx) > 80) dismiss();
+      else Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
+    },
+  }), [notification.id]);
+  return (
+    <Animated.View style={[styles.alertItem, { transform: [{ translateX }] }]} {...panResponder.panHandlers}>
+      <Text style={styles.alertTitle}>{notification.title}</Text>
+      <Text style={styles.alertText}>{notification.message}</Text>
+    </Animated.View>
   );
 }
 
@@ -1320,6 +1355,8 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   const [completionMessages, setCompletionMessages] = useState<Record<string, string>>({});
   const [status, setStatus] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [recommendationOpen, setRecommendationOpen] = useState(true);
+  const [routineAdjustmentOpen, setRoutineAdjustmentOpen] = useState(false);
 
   useEffect(() => {
     if (accessToken) {
@@ -1516,8 +1553,11 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       <View style={styles.weekList}>
         {plan?.recommendation ? (
           <View style={styles.coachBox}>
-            <Text style={styles.coachTitle}>Orientacao da semana</Text>
-            <Text style={styles.coachText}>{plan.recommendation}</Text>
+            <Pressable style={styles.collapseHeader} onPress={() => setRecommendationOpen((open) => !open)}>
+              <Text style={styles.coachTitle}>Orientacao da semana</Text>
+              <Ionicons name={recommendationOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#fff" />
+            </Pressable>
+            {recommendationOpen ? <Text style={styles.coachText}>{plan.recommendation}</Text> : null}
           </View>
         ) : null}
         {sessions.map((session) => (
@@ -1562,13 +1602,20 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       </View>
 
       <View style={styles.formSection}>
-        <Text style={styles.formSectionTitle}>Ajustar esta semana</Text>
-        <Text style={styles.formHint}>Mude dias, modalidades e tempos apenas para esta semana. Depois gere a semana novamente.</Text>
-        <RoutineEditor routineDays={weeklyRoutine} onChange={setWeeklyRoutine} />
-        <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generatePlan}>
-          <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar semana com estes ajustes'}</Text>
-          <Ionicons name="sparkles" size={18} color="#ffffff" />
+        <Pressable style={styles.collapseHeader} onPress={() => setRoutineAdjustmentOpen((open) => !open)}>
+          <Text style={styles.formSectionTitle}>Ajuste de rotina da semana atual</Text>
+          <Ionicons name={routineAdjustmentOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#0f766e" />
         </Pressable>
+        {routineAdjustmentOpen ? (
+          <>
+            <Text style={styles.formHint}>Mude dias, modalidades e tempos somente de hoje em diante. Treinos anteriores serao preservados.</Text>
+            <RoutineEditor routineDays={weeklyRoutine} onChange={setWeeklyRoutine} />
+            <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generatePlan}>
+              <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar ajustes de rotina'}</Text>
+              <Ionicons name="sparkles" size={18} color="#ffffff" />
+            </Pressable>
+          </>
+        ) : null}
       </View>
     </View>
   );
@@ -1654,7 +1701,7 @@ function ThreeKmTest({
       <View style={styles.formSection}>
         <Text style={styles.formSectionTitle}>Como fazer</Text>
         <Text style={styles.formHint}>Este teste deve ser realizado apenas se voce estiver bem e sem dor, febre, tontura ou mal-estar.</Text>
-        <Text style={styles.prescriptionText}>1. Faca de 10 a 15 minutos de aquecimento leve.</Text>
+        <Text style={styles.prescriptionText}>1. Faca um breve aquecimento antes de iniciar.</Text>
         <Text style={styles.prescriptionText}>2. Percorra exatamente 3 km no maior ritmo que consiga sustentar ate o final. Comece controlado e aumente se estiver bem.</Text>
         <Text style={styles.prescriptionText}>3. Cronometre apenas os 3 km do teste e registre o tempo total exato.</Text>
         <Text style={styles.prescriptionText}>4. Caminhe ou trote leve por alguns minutos ao terminar.</Text>
@@ -1677,7 +1724,7 @@ function ThreeKmTest({
         <Text style={styles.noticeTitle}>{environment === 'rua' ? 'Orientacao para rua ou pista' : 'Orientacao para esteira'}</Text>
         <Text style={styles.noticeText}>{environment === 'rua'
           ? 'Use um percurso plano e seguro, com 3 km bem medidos por pista ou GPS. Evite cruzamentos, descidas fortes e locais movimentados.'
-          : 'Use inclinacao de 1%, nao segure nas barras e conte somente o tempo entre o inicio e o final dos 3 km. Ajuste a velocidade progressivamente.'}</Text>
+          : 'Conte somente o tempo entre o inicio e o final dos 3 km. Para um resultado mais fiel, evite apoiar-se nas barras; se precisar delas para se sentir seguro, use-as, pois a seguranca vem primeiro. Ajuste a velocidade progressivamente.'}</Text>
       </View>
 
       <Text style={styles.copyTight}>Informe o tempo total em segundos. Exemplo: 20 minutos = 1200 segundos.</Text>
@@ -1916,7 +1963,7 @@ function Anamnese({
   const [preferredModalities, setPreferredModalities] = useState<string[]>(['Corrida']);
   const [otherModalities, setOtherModalities] = useState<string[]>([]);
   const [trainingLocations, setTrainingLocations] = useState<string[]>(['Corrida na rua']);
-  const [mainGoal, setMainGoal] = useState('Primeiros 10km');
+  const [mainGoal, setMainGoal] = useState('');
   const [status, setStatus] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -1938,7 +1985,7 @@ function Anamnese({
     setPreferredModalities(savedMe.preferences?.preferredModalities?.length ? savedMe.preferences.preferredModalities : ['Corrida']);
     setOtherModalities(savedMe.preferences?.otherModalities ?? []);
     setTrainingLocations(savedMe.preferences?.trainingLocations?.length ? savedMe.preferences.trainingLocations : ['Corrida na rua']);
-    setMainGoal(savedMe.preferences?.mainGoal ?? 'Primeiros 10km');
+    setMainGoal(canonicalGoal(savedMe.preferences?.mainGoal));
   }, [savedMe, userName]);
 
   async function saveProfile() {
@@ -2355,7 +2402,7 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
         </View>
         <View>
           <Text style={styles.runMetricLabel}>Duracao total</Text>
-          <Text style={styles.runMetricValue}>{structure.durationMin ?? session.durationMin ?? '-'} min</Text>
+          <Text style={styles.runMetricValue}>{structure.durationRange ?? `${structure.durationMin ?? session.durationMin ?? '-'} min`}</Text>
         </View>
       </View>
       {runBlocks.map((block) => {
@@ -2985,6 +3032,21 @@ async function loadNotifications(accessToken: string) {
   }
 }
 
+async function loadDismissedNotifications() {
+  try {
+    const raw = await AsyncStorage.getItem(DISMISSED_NOTIFICATIONS_KEY);
+    if (!raw) return [];
+    const saved = JSON.parse(raw) as { date?: string; ids?: string[] };
+    return saved.date === localDateKey() && Array.isArray(saved.ids) ? saved.ids : [];
+  } catch {
+    return [];
+  }
+}
+
+function localDateKey() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+}
+
 function routineFromSavedAvailability(availability: SavedAvailabilityDay[]) {
   if (!availability.length) {
     return [];
@@ -3034,6 +3096,30 @@ function toOptions(options: string[]) {
 
 function toggleSelection(selected: string[], value: string, onChange: (next: string[]) => void) {
   onChange(selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value]);
+}
+
+function canonicalGoal(value?: string | null) {
+  if (!value) return '';
+  const normalized = value.toLowerCase().replace(/\s+/g, '');
+  const aliases: Array<[string[], string]> = [
+    [['comecaracorrer'], 'Comecar a correr'],
+    [['correrprimeiros5km', 'primeiros5km', 'completar5km'], 'Completar 5 km'],
+    [['melhorarnos5km', 'melhorarmeutemponos5km'], 'Melhorar meu tempo nos 5 km'],
+    [['primeiros10km', 'completar10km'], 'Completar 10 km'],
+    [['melhorarnos10km', 'melhorarmeutemponos10km'], 'Melhorar meu tempo nos 10 km'],
+    [['primeiros21km', 'completar21km'], 'Completar 21 km'],
+    [['melhorarnos21km', 'melhorarmeutemponos21km'], 'Melhorar meu tempo nos 21 km'],
+    [['primeiramaratona', 'completar42km'], 'Completar 42 km'],
+    [['melhorarnamaratona', 'melhorarmeutemponos42km'], 'Melhorar meu tempo nos 42 km'],
+  ];
+  return aliases.find(([keys]) => keys.includes(normalized))?.[1] ?? value;
+}
+
+function shortGoalLabel(value: string) {
+  return canonicalGoal(value)
+    .replace('Melhorar meu tempo nos ', 'melhorar ')
+    .replace('Completar ', 'completar ')
+    .replace('Comecar a correr', 'comecar a correr');
 }
 
 function cloneRoutine(routineDays: RoutineDay[]) {
@@ -3101,10 +3187,8 @@ function paceFromSpeed(speedKmh: number) {
   return formatPace(Math.round(3600 / speedKmh));
 }
 
-function runBlockDurationLabel(block: { durationMin?: number; durationType?: string; distanceValue?: string | number; distanceUnit?: string }) {
-  if (block.durationType === 'distance' && block.distanceValue) {
-    return `${block.distanceValue} ${block.distanceUnit === 'm' ? 'm' : 'km'}`;
-  }
+function runBlockDurationLabel(block: { durationMin?: number; durationRange?: string; durationType?: string; distanceValue?: string | number; distanceUnit?: string }) {
+  if (block.durationRange) return `Tempo: ${block.durationRange}`;
   return `${block.durationMin ?? 0} min`;
 }
 
@@ -3360,6 +3444,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
+  headerObjective: {
+    color: '#0f766e',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 5,
+  },
   headerOverline: {
     color: '#0f766e',
     fontSize: 12,
@@ -3560,6 +3650,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  collapseHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
