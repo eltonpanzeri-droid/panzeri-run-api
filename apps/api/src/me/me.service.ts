@@ -12,6 +12,14 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 export class MeService {
   constructor(private readonly prisma: PrismaService) {}
 
+  acceptExerciseResponsibility(userId: string) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { acceptedExerciseResponsibilityAt: new Date() },
+      select: { acceptedExerciseResponsibilityAt: true },
+    });
+  }
+
   availability(userId: string) {
     return this.prisma.weeklyAvailability.findMany({
       where: { userId },

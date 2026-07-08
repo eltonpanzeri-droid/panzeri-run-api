@@ -20,6 +20,9 @@ export class AuthService {
     if (!dto.acceptedTerms) {
       throw new BadRequestException('Aceite de termos e LGPD e obrigatorio.');
     }
+    if (!dto.acceptedExerciseResponsibility) {
+      throw new BadRequestException('A declaracao de aptidao e responsabilidade e obrigatoria.');
+    }
 
     const email = dto.email.trim().toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
@@ -35,6 +38,7 @@ export class AuthService {
         passwordHash,
         acceptedTermsAt: new Date(),
         acceptedPrivacyAt: new Date(),
+        acceptedExerciseResponsibilityAt: new Date(),
       },
       select: this.publicUserSelect(),
     });
@@ -179,6 +183,7 @@ export class AuthService {
       heightCm: true,
       weightKg: true,
       address: true,
+      acceptedExerciseResponsibilityAt: true,
       createdAt: true,
       updatedAt: true,
     };

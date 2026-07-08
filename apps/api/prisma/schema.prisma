@@ -23,6 +23,7 @@ model User {
   subscriptionUpdatedAt DateTime   @default(now())
   acceptedTermsAt DateTime?
   acceptedPrivacyAt DateTime?
+  acceptedExerciseResponsibilityAt DateTime?
   refreshTokenHash String?
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt

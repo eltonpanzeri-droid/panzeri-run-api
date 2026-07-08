@@ -14,4 +14,7 @@ export class RegisterDto {
 
   @IsBoolean()
   acceptedTerms!: boolean;
+
+  @IsBoolean()
+  acceptedExerciseResponsibility!: boolean;
 }

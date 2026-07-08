@@ -243,6 +243,7 @@ interface MeResponse {
   birthDate?: string | null;
   heightCm?: number | null;
   weightKg?: number | null;
+  acceptedExerciseResponsibilityAt?: string | null;
   healthProfile?: {
     averageSleep?: string | null;
     stressLevel?: string | null;
@@ -477,6 +478,8 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('login');
   const [isRestoringSession, setIsRestoringSession] = useState(true);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [acceptedExerciseResponsibility, setAcceptedExerciseResponsibility] = useState(false);
+  const [exerciseResponsibilityRequired, setExerciseResponsibilityRequired] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('week');
   const [menuOpen, setMenuOpen] = useState(false);
   const [completedToday, setCompletedToday] = useState(false);
@@ -535,6 +538,7 @@ export default function App() {
     setRefreshToken('');
     setUserEmail('');
     setUserName('');
+    setExerciseResponsibilityRequired(false);
     setMenuOpen(false);
     setScreen('login');
     void AsyncStorage.removeItem(AUTH_SESSION_KEY);
@@ -551,6 +555,7 @@ export default function App() {
       }
 
       setSavedMe(me);
+      setExerciseResponsibilityRequired(!me.acceptedExerciseResponsibilityAt);
       if (me.name) {
         setUserName(me.name);
       }
@@ -592,6 +597,8 @@ export default function App() {
         <Login
           acceptedTerms={acceptedTerms}
           onTermsChange={setAcceptedTerms}
+          acceptedExerciseResponsibility={acceptedExerciseResponsibility}
+          onExerciseResponsibilityChange={setAcceptedExerciseResponsibility}
           onEnter={applyAuthSession}
         />
       )}
@@ -609,6 +616,13 @@ export default function App() {
             />
           ) : null}
           <ScrollView contentContainerStyle={styles.appContent}>
+            {exerciseResponsibilityRequired ? (
+              <ExerciseResponsibility
+                accessToken={accessToken}
+                onAccepted={() => setExerciseResponsibilityRequired(false)}
+              />
+            ) : (
+              <>
             {activeTab === 'interview' && (
               <GuidedInterview
                 accessToken={accessToken}
@@ -662,6 +676,8 @@ export default function App() {
                 routineDays={anamneseRoutine}
                 onRoutineChange={setAnamneseRoutine}
               />
+            )}
+              </>
             )}
           </ScrollView>
         </View>
@@ -769,10 +785,14 @@ function Onboarding({ onStart }: { onStart: () => void }) {
 function Login({
   acceptedTerms,
   onTermsChange,
+  acceptedExerciseResponsibility,
+  onExerciseResponsibilityChange,
   onEnter,
 }: {
   acceptedTerms: boolean;
   onTermsChange: (value: boolean) => void;
+  acceptedExerciseResponsibility: boolean;
+  onExerciseResponsibilityChange: (value: boolean) => void;
   onEnter: (session: AuthSession) => void;
 }) {
   const [mode, setMode] = useState<AuthMode>(initialAuthMode);
@@ -833,6 +853,11 @@ function Login({
       return;
     }
 
+    if (mode === 'register' && !acceptedExerciseResponsibility) {
+      setStatus('Confirme a declaracao de aptidao e responsabilidade.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       if (mode === 'login') {
@@ -880,6 +905,7 @@ function Login({
           email: cleanEmail,
           password,
           acceptedTerms,
+          acceptedExerciseResponsibility,
         }),
       });
 
@@ -955,6 +981,12 @@ function Login({
               Aceito os termos de uso, a politica de privacidade e autorizo o uso dos meus dados de saude e treino para prescricao e acompanhamento.
             </Text>
           </View>
+          <View style={styles.termsRow}>
+            <Switch value={acceptedExerciseResponsibility} onValueChange={onExerciseResponsibilityChange} />
+            <Text style={styles.termsText}>
+              Declaro que as informacoes fornecidas sao verdadeiras, que estou apto a praticar exercicios fisicos sem comprometer minha saude e que devo interromper o treino e buscar avaliacao profissional diante de dor, mal-estar ou qualquer sinal de risco.
+            </Text>
+          </View>
         </>
       )}
 
@@ -984,6 +1016,56 @@ function Login({
         <Text style={styles.secondaryButtonText}>Esqueci minha senha</Text>
       </Pressable>
     </ScrollView>
+  );
+}
+
+function ExerciseResponsibility({ accessToken, onAccepted }: { accessToken: string; onAccepted: () => void }) {
+  const [confirmed, setConfirmed] = useState(false);
+  const [status, setStatus] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function accept() {
+    if (!confirmed) {
+      setStatus('Marque a declaracao para continuar.');
+      return;
+    }
+    setSaving(true);
+    setStatus('');
+    try {
+      const response = await fetch(`${API_URL}/me/exercise-responsibility`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) {
+        setStatus(`Nao consegui registrar o aceite: ${await readApiError(response)}`);
+        return;
+      }
+      onAccepted();
+    } catch {
+      setStatus('Sem conexao. Tente novamente.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Saude e seguranca</Text>
+      <Text style={styles.titleSmall}>Termo de responsabilidade</Text>
+      <View style={styles.coachBox}>
+        <Text style={styles.coachTitle}>Antes de iniciar seus treinos</Text>
+        <Text style={styles.coachText}>Os treinos sao preparados com base nas informacoes fornecidas por voce. Respostas incompletas ou incorretas podem comprometer a seguranca e a adequacao do plano.</Text>
+      </View>
+      <View style={styles.termsRow}>
+        <Switch value={confirmed} onValueChange={setConfirmed} />
+        <Text style={styles.termsText}>Declaro que minhas informacoes sao verdadeiras, que estou apto a praticar exercicios fisicos sem comprometer minha saude e que interromperei a atividade e procurarei avaliacao profissional se sentir dor, tontura, falta de ar anormal, mal-estar ou outro sinal de risco.</Text>
+      </View>
+      <Pressable style={[styles.primaryButton, (!confirmed || saving) && styles.disabledButton]} disabled={!confirmed || saving} onPress={accept}>
+        <Text style={styles.primaryButtonText}>{saving ? 'Registrando...' : 'Confirmar e continuar'}</Text>
+        <Ionicons name="shield-checkmark" size={18} color="#fff" />
+      </Pressable>
+      {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+    </View>
   );
 }
 
@@ -1505,6 +1587,7 @@ function ThreeKmTest({
 }) {
   const [saveStatus, setSaveStatus] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [environment, setEnvironment] = useState<'rua' | 'esteira'>('rua');
 
   async function saveTest() {
     const totalSeconds = Number(threeKmSeconds);
@@ -1530,8 +1613,8 @@ function ThreeKmTest({
         },
         body: JSON.stringify({
           totalSeconds,
-          environment: 'rua',
-          notes: 'Teste registrado no app Panzeri Run.',
+          environment,
+          notes: `Teste de 3 km realizado ${environment === 'esteira' ? 'na esteira' : 'na rua'}.`,
         }),
       });
 
@@ -1567,9 +1650,37 @@ function ThreeKmTest({
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Teste fisico</Text>
       <Text style={styles.titleSmall}>Teste de 3 km</Text>
-      <Text style={styles.copyTight}>
-        Informe o tempo total em segundos. Exemplo: 20 minutos = 1200 segundos.
-      </Text>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Como fazer</Text>
+        <Text style={styles.formHint}>Este teste deve ser realizado apenas se voce estiver bem e sem dor, febre, tontura ou mal-estar.</Text>
+        <Text style={styles.prescriptionText}>1. Faca de 10 a 15 minutos de aquecimento leve.</Text>
+        <Text style={styles.prescriptionText}>2. Percorra exatamente 3 km no maior ritmo que consiga sustentar ate o final. Comece controlado e aumente se estiver bem.</Text>
+        <Text style={styles.prescriptionText}>3. Cronometre apenas os 3 km do teste e registre o tempo total exato.</Text>
+        <Text style={styles.prescriptionText}>4. Caminhe ou trote leve por alguns minutos ao terminar.</Text>
+        <Text style={styles.formHint}>Interrompa imediatamente se sentir dor no peito, tontura, falta de ar anormal ou qualquer mal-estar.</Text>
+      </View>
+
+      <Text style={styles.inputLabel}>Onde voce vai realizar o teste?</Text>
+      <View style={styles.optionRow}>
+        {(['rua', 'esteira'] as const).map((option) => {
+          const selected = environment === option;
+          return (
+            <Pressable key={option} style={[styles.optionChip, selected && styles.optionChipActive]} onPress={() => setEnvironment(option)}>
+              <Text style={[styles.optionChipText, selected && styles.optionChipTextActive]}>{option === 'rua' ? 'Rua ou pista' : 'Esteira'}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={styles.noticeBox}>
+        <Text style={styles.noticeTitle}>{environment === 'rua' ? 'Orientacao para rua ou pista' : 'Orientacao para esteira'}</Text>
+        <Text style={styles.noticeText}>{environment === 'rua'
+          ? 'Use um percurso plano e seguro, com 3 km bem medidos por pista ou GPS. Evite cruzamentos, descidas fortes e locais movimentados.'
+          : 'Use inclinacao de 1%, nao segure nas barras e conte somente o tempo entre o inicio e o final dos 3 km. Ajuste a velocidade progressivamente.'}</Text>
+      </View>
+
+      <Text style={styles.copyTight}>Informe o tempo total em segundos. Exemplo: 20 minutos = 1200 segundos.</Text>
 
       <TextInput
         style={styles.input}
@@ -3425,14 +3536,28 @@ const styles = StyleSheet.create({
     borderColor: '#99f6e4',
     backgroundColor: '#f0fdfa',
     padding: 14,
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 10,
   },
+  noticeTitle: {
+    color: '#0f766e',
+    fontSize: 15,
+    fontWeight: '900',
+  },
   noticeText: {
-    flex: 1,
     color: '#115e59',
     fontSize: 14,
     lineHeight: 20,
+  },
+  inputLabel: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  optionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   headerLine: {
     flexDirection: 'row',

@@ -65,4 +65,9 @@ export class MeController {
   reopenOnboarding(@CurrentUser() user: CurrentUserPayload) {
     return this.meService.reopenOnboarding(user.sub);
   }
+
+  @Post('exercise-responsibility')
+  acceptExerciseResponsibility(@CurrentUser() user: CurrentUserPayload) {
+    return this.meService.acceptExerciseResponsibility(user.sub);
+  }
 }
