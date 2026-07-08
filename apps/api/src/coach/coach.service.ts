@@ -288,6 +288,9 @@ export class CoachService {
     });
 
     const plan = student.plans.find((item) => item.status === 'active') ?? student.plans[0] ?? null;
+    const analysisInsight = plan
+      ? await this.prisma.trainingExecutionInsight.findUnique({ where: { planId: plan.id } })
+      : null;
     const stravaActivities = plan
       ? await this.prisma.stravaActivity.findMany({
           where: {
@@ -326,6 +329,10 @@ export class CoachService {
       accountStatus: student.accountStatus,
       subscriptionStatus: student.subscriptionStatus,
       subscriptionUpdatedAt: student.subscriptionUpdatedAt,
+      analysisAgent: analysisInsight ? {
+        updatedAt: analysisInsight.updatedAt,
+        summary: analysisInsight.summary,
+      } : null,
       birthDate: student.birthDate,
       heightCm: student.heightCm,
       weightKg: student.weightKg,

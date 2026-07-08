@@ -38,6 +38,14 @@ export interface MethodologyInput {
   history: MethodologyHistoryWeek[];
   stravaRunMinutes: number;
   stravaLongestRunMinutes: number;
+  executionInsight?: {
+    adherencePercent: number;
+    executionPercent: number;
+    actualKm: number;
+    actualMinutes: number;
+    distanceChangePercent: number | null;
+    loadTrend: string;
+  } | null;
 }
 
 export interface RunSessionDecision {
@@ -71,7 +79,9 @@ export function buildWeeklyMethodologyDecision(input: MethodologyInput): WeeklyM
   const previous = input.history[1];
   const observedLongest = Math.max(latest?.longestRunMinutes ?? 0, input.stravaLongestRunMinutes);
   const previousLongest = previous?.longestRunMinutes ?? 0;
-  const adherence = latest?.prescribedSessions ? latest.completedSessions / latest.prescribedSessions : 1;
+  const adherence = input.executionInsight
+    ? input.executionInsight.adherencePercent / 100
+    : latest?.prescribedSessions ? latest.completedSessions / latest.prescribedSessions : 1;
   const longSlot = runSlots.slice().sort((left, right) => right.durationMin - left.durationMin || weekendPriority(right.weekday) - weekendPriority(left.weekday))[0];
   const qualityAllowed = runSlots.length >= 3 && !novice && !safetyAdjustment && adherence >= 0.5;
   const qualitySlot = qualityAllowed ? chooseQualitySlot(runSlots, longSlot?.weekday, input.availability) : undefined;
@@ -81,6 +91,10 @@ export function buildWeeklyMethodologyDecision(input: MethodologyInput): WeeklyM
   if (safetyAdjustment) rationale.push('Carga reduzida por dor, limitacao ou sinal de saude informado.');
   if (input.history.length) rationale.push('Carga comparada com as semanas anteriores e com a aderencia registrada.');
   if (input.stravaRunMinutes > 0) rationale.push('Atividades recentes do Strava consideradas na decisao de carga.');
+  if (input.executionInsight) {
+    rationale.push(`Agente de analise: ${input.executionInsight.executionPercent}% dos treinos previstos tiveram alguma execucao e ${input.executionInsight.adherencePercent}% seguiram modalidade e execucao propostas.`);
+    rationale.push(`Tendencia de carga observada no Strava: ${input.executionInsight.loadTrend}.`);
+  }
   if (longSlot) rationale.push('Treino longo priorizado no dia com maior tempo disponivel.');
   if (!qualityAllowed && runSlots.length >= 2) rationale.push('Semana sem estimulo intenso para preservar recuperacao e consistencia.');
 

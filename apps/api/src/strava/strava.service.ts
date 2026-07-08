@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -23,7 +23,7 @@ interface StravaActivityResponse {
 }
 
 @Injectable()
-export class StravaService {
+export class StravaService implements OnModuleInit {
   private readonly logger = new Logger(StravaService.name);
   private webhookReady = false;
 
@@ -31,6 +31,14 @@ export class StravaService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
   ) {}
+
+  onModuleInit() {
+    setTimeout(() => {
+      void this.ensureWebhookSubscription().catch((error: unknown) => {
+        this.logger.warn(`Webhook automatico do Strava ainda nao ativo: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }, 5_000);
+  }
 
   connectUrl(userId: string) {
     const clientId = this.config.get<string>('STRAVA_CLIENT_ID');
@@ -124,6 +132,9 @@ export class StravaService {
     for (const activity of activities) await this.saveActivity(userId, activity);
 
     await this.prisma.stravaConnection.update({ where: { userId }, data: { updatedAt: new Date() } });
+    if (await this.shouldAnalyze(userId)) {
+      await this.report(userId, { trigger: 'background_sync' });
+    }
 
     return {
       imported: activities.length,
@@ -169,18 +180,27 @@ export class StravaService {
       if (event.object_type !== 'activity') return;
       if (event.aspect_type === 'delete') {
         await this.prisma.stravaActivity.deleteMany({ where: { stravaId: String(event.object_id) } });
+        if (await this.shouldAnalyze(connection.userId)) {
+          await this.report(connection.userId, { trigger: 'strava_webhook_delete', activityId: String(event.object_id) });
+        }
         return;
       }
 
       const validConnection = await this.getValidConnection(connection.userId);
       const activity = await this.fetchActivity(validConnection.accessToken, event.object_id);
       await this.saveActivity(connection.userId, activity);
+      if (await this.shouldAnalyze(connection.userId)) {
+        await this.report(connection.userId, { trigger: `strava_webhook_${event.aspect_type}`, activityId: String(event.object_id) });
+      }
     } catch (error) {
       this.logger.error(`Falha ao processar evento do Strava: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  async report(userId: string) {
+  async report(userId: string, context: { trigger?: string; activityId?: string } = {}) {
+    if (!(await this.shouldAnalyze(userId))) {
+      return { summary: null, items: [], analysisInactive: true };
+    }
     const plan = await this.prisma.trainingPlan.findFirst({
       where: { userId, status: 'active' },
       orderBy: { createdAt: 'desc' },
@@ -316,10 +336,18 @@ export class StravaService {
       eligibleMinutesDiff: eligibleActualMinutes - eligiblePrescribedMinutes,
     };
 
+    const progression = await this.progressionMetrics(userId);
     const report = {
       summary: {
         ...summary,
         coachAnalysis: buildCoachAnalysis(summary),
+        progression,
+        analysisAgent: {
+          version: 'strava-analysis-v1',
+          trigger: context.trigger ?? 'report_request',
+          activityId: context.activityId ?? null,
+          analyzedAt: new Date().toISOString(),
+        },
       },
       items,
     };
@@ -339,6 +367,36 @@ export class StravaService {
     });
 
     return report;
+  }
+
+  private async progressionMetrics(userId: string) {
+    const now = new Date();
+    const currentStart = addDays(now, -28);
+    const previousStart = addDays(now, -56);
+    const activities = await this.prisma.stravaActivity.findMany({
+      where: { userId, startDate: { gte: previousStart } },
+      orderBy: { startDate: 'asc' },
+    });
+    const runs = activities.filter((activity) => modalityFromActivity(activity) === 'corrida');
+    const current = aggregateRunPeriod(runs.filter((activity) => activity.startDate >= currentStart));
+    const previous = aggregateRunPeriod(runs.filter((activity) => activity.startDate < currentStart));
+    const distanceChangePercent = percentChange(current.distanceKm, previous.distanceKm);
+    const durationChangePercent = percentChange(current.durationMin, previous.durationMin);
+    return {
+      last28Days: current,
+      previous28Days: previous,
+      distanceChangePercent,
+      durationChangePercent,
+      loadTrend: distanceChangePercent === null ? 'sem_base_anterior' : distanceChangePercent > 10 ? 'aumentando' : distanceChangePercent < -10 ? 'reduzindo' : 'estavel',
+    };
+  }
+
+  private async shouldAnalyze(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { accountStatus: true, subscriptionStatus: true },
+    });
+    return Boolean(user && user.accountStatus === 'active' && ['active', 'manual_active', 'grace'].includes(user.subscriptionStatus));
   }
 
   private async getValidConnection(userId: string) {
@@ -498,6 +556,30 @@ export class StravaService {
     }
     return value;
   }
+}
+
+function aggregateRunPeriod(activities: Array<{
+  distanceKm: number | null;
+  movingTimeSec: number | null;
+  avgHeartRate: number | null;
+}>) {
+  const distanceKm = Number(activities.reduce((total, activity) => total + (activity.distanceKm ?? 0), 0).toFixed(2));
+  const movingSeconds = activities.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0);
+  const heartRates = activities.map((activity) => activity.avgHeartRate).filter((value): value is number => value !== null);
+  return {
+    sessions: activities.length,
+    distanceKm,
+    durationMin: Math.round(movingSeconds / 60),
+    longestDistanceKm: Number(Math.max(0, ...activities.map((activity) => activity.distanceKm ?? 0)).toFixed(2)),
+    averagePaceSecKm: distanceKm > 0 ? Math.round(movingSeconds / distanceKm) : null,
+    averagePace: distanceKm > 0 ? formatPace(Math.round(movingSeconds / distanceKm)) : null,
+    averageHeartRate: heartRates.length ? Math.round(heartRates.reduce((total, value) => total + value, 0) / heartRates.length) : null,
+  };
+}
+
+function percentChange(current: number, previous: number) {
+  if (previous <= 0) return current > 0 ? null : 0;
+  return Math.round(((current - previous) / previous) * 100);
 }
 
 function sameDay(left: Date, right: Date) {

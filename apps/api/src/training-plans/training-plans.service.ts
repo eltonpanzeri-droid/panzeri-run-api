@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { runnerStrengthCategory, selectRunnerStrengthExercises } from './runner-strength-library';
 import { selectGymExercises } from './gym-exercise-library';
@@ -22,7 +23,7 @@ interface WeeklyAvailabilityInput {
 }
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
-const planEngineVersion = 'rules-v9-' + PANZERI_METHODOLOGY_VERSION;
+const planEngineVersion = 'rules-v10-' + PANZERI_METHODOLOGY_VERSION;
 const subscriptionCheckoutUrl = 'https://mpago.la/23YBr2R';
 
 @Injectable()
@@ -73,7 +74,7 @@ export class TrainingPlansService {
 
   async generateWeek(userId: string, weeklyOverride?: WeeklyAvailabilityInput[]) {
     const historyStart = addDays(startOfWeek(new Date()), -35);
-    const [user, latestTest, availability, onboarding, previousPlans, recentStrava] = await Promise.all([
+    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         include: {
@@ -99,6 +100,11 @@ export class TrainingPlansService {
       this.prisma.stravaActivity.findMany({
         where: { userId, startDate: { gte: historyStart } },
         orderBy: { startDate: 'desc' },
+      }),
+      this.prisma.trainingExecutionInsight.findFirst({
+        where: { userId },
+        orderBy: { updatedAt: 'desc' },
+        select: { summary: true },
       }),
     ]);
 
@@ -131,6 +137,8 @@ export class TrainingPlansService {
       };
     });
     const stravaRuns = recentStrava.filter((activity) => isStravaRunningActivity(activity.type, activity.name));
+    const executionSummary = jsonObject(latestExecutionInsight?.summary);
+    const progression = jsonObject(executionSummary.progression);
     const methodology = buildWeeklyMethodologyDecision({
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
       experience: user.preferences?.experienceLevel ?? '',
@@ -144,6 +152,14 @@ export class TrainingPlansService {
       history: methodologyHistory,
       stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
       stravaLongestRunMinutes: Math.round(Math.max(0, ...stravaRuns.map((activity) => activity.movingTimeSec ?? 0)) / 60),
+      executionInsight: latestExecutionInsight ? {
+        adherencePercent: numericValue(executionSummary.adherencePercent),
+        executionPercent: numericValue(executionSummary.executionPercent),
+        actualKm: numericValue(executionSummary.actualKm),
+        actualMinutes: numericValue(executionSummary.actualMinutes),
+        distanceChangePercent: nullableNumericValue(progression.distanceChangePercent),
+        loadTrend: String(progression.loadTrend ?? 'sem_base_anterior'),
+      } : null,
     });
 
     const sessions = availableDays.slice(0, 7).flatMap((day) => {
@@ -210,7 +226,7 @@ export class TrainingPlansService {
         endDate: addDays(weekStart, 6),
         generatedBy: planEngineVersion,
         aiRecommendation: methodology.recommendation,
-        inputSnapshot: {
+        inputSnapshot: toInputJson({
           user: {
             heightCm: user.heightCm,
             weightKg: user.weightKg,
@@ -226,6 +242,7 @@ export class TrainingPlansService {
             targetLowIntensityShare: methodology.targetLowIntensityShare,
             history: methodologyHistory,
             stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
+            analysisAgent: latestExecutionInsight ? executionSummary : null,
           },
           weeklyOverrideUsed: adjustedAvailability.length > 0,
           availabilityDays: availableDays.map((day) => ({
@@ -234,7 +251,7 @@ export class TrainingPlansService {
             availableMin: day.availableMin,
             modalityDurations: normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined),
           })),
-        },
+        }),
         sessions: {
           create: sessions,
         },
@@ -680,6 +697,21 @@ function isStravaRunningActivity(type: string | null, name: string | null) {
 
 function jsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function toInputJson(value: unknown) {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function numericValue(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function nullableNumericValue(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 function weekRotation(date: Date) {
   return Math.floor(date.getTime() / (7 * 24 * 60 * 60 * 1000));
