@@ -24,7 +24,6 @@ interface WeeklyAvailabilityInput {
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
 const planEngineVersion = 'rules-v11-' + PANZERI_METHODOLOGY_VERSION;
-const subscriptionCheckoutUrl = 'https://mpago.la/23YBr2R';
 
 @Injectable()
 export class TrainingPlansService {
@@ -630,7 +629,7 @@ export class TrainingPlansService {
         endDate: plan.endDate,
         recommendation: null,
         locked: true,
-        checkoutUrl: subscriptionCheckoutUrl,
+        billingProvider: 'efi',
         priceLabel: 'R$ 19,90 por mes',
         sessions: [],
       };

@@ -10,6 +10,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { StravaModule } from './strava/strava.module';
 import { TrainingPlansModule } from './training-plans/training-plans.module';
 import { WorkoutCompletionsModule } from './workout-completions/workout-completions.module';
+import { BillingModule } from './billing/billing.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { WorkoutCompletionsModule } from './workout-completions/workout-completi
     StravaModule,
     TrainingPlansModule,
     WorkoutCompletionsModule,
+    BillingModule,
   ],
   controllers: [AppController],
 })

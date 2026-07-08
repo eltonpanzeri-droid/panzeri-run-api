@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'interview' | 'anamnese' | 'test' | 'progress' | 'strava' | 'profile';
+type Tab = 'week' | 'interview' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile';
 type AuthMode = 'login' | 'register';
 
 function initialAuthMode(): AuthMode {
@@ -679,6 +679,7 @@ export default function App() {
             )}
             {activeTab === 'progress' && <Progress completedToday={completedToday} metrics={metrics} accessToken={accessToken} />}
             {activeTab === 'strava' && <StravaSync accessToken={accessToken} />}
+            {activeTab === 'billing' && <Billing accessToken={accessToken} />}
             {activeTab === 'profile' && (
               <Anamnese
                 accessToken={accessToken}
@@ -1350,6 +1351,7 @@ async function loadInterviewState(accessToken: string): Promise<InterviewState |
 
 function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTest }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; onOpenInterview: () => void; onOpenTest: () => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
+  const [billingMessage, setBillingMessage] = useState('');
   const [weeklyRoutine, setWeeklyRoutine] = useState<RoutineDay[]>(cloneRoutine(baseRoutineDays));
   const [completionDrafts, setCompletionDrafts] = useState<Record<string, CompletionDraft>>({});
   const [completionMessages, setCompletionMessages] = useState<Record<string, string>>({});
@@ -1510,6 +1512,21 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     }
   }
 
+  async function openSubscriptionCheckout() {
+    setBillingMessage('Preparando pagamento seguro...');
+    try {
+      const response = await fetch(API_URL + '/billing/checkout', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.checkoutUrl) throw new Error();
+      setBillingMessage('Pagamento aberto na Efi. Depois de pagar, volte ao aplicativo.');
+      await Linking.openURL(data.checkoutUrl);
+    } catch {
+      setBillingMessage('Nao consegui abrir o pagamento. Tente novamente.');
+    }
+  }
   const sessions = plan?.sessions.length ? plan.sessions : [];
   const weekRange = plan ? planWeekRange(plan) : currentWeekRange();
 
@@ -1532,11 +1549,12 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         <View style={styles.formSection}>
           <Text style={styles.formSectionTitle}>Assinatura Panzeri Run</Text>
           <Text style={styles.formHint}>{plan.priceLabel ?? 'R$ 19,90 por mes'}. Cancele quando quiser.</Text>
-          <Pressable style={styles.primaryButton} onPress={() => Linking.openURL(plan.checkoutUrl ?? 'https://mpago.la/23YBr2R')}>
+          <Pressable style={styles.primaryButton} onPress={openSubscriptionCheckout}>
             <Text style={styles.primaryButtonText}>Ativar minha assinatura</Text>
             <Ionicons name="card" size={18} color="#ffffff" />
           </Pressable>
-          <Text style={styles.formHint}>A liberacao sera confirmada pelo treinador nesta primeira versao.</Text>
+          <Text style={styles.formHint}>A Efi confirma o pagamento e libera o plano automaticamente.</Text>
+          {billingMessage ? <Text style={styles.statusMessage}>{billingMessage}</Text> : null}
         </View>
       </View>
     );
@@ -2241,6 +2259,107 @@ function Anamnese({
   );
 }
 
+function Billing({ accessToken }: { accessToken: string }) {
+  const [details, setDetails] = useState<{
+    planName: string;
+    priceLabel: string;
+    status: string;
+    providerStatus?: string | null;
+    nextChargeAt?: string | null;
+    checkoutUrl?: string | null;
+    canCancel: boolean;
+  } | null>(null);
+  const [message, setMessage] = useState('');
+  const [confirmCancel, setConfirmCancel] = useState(false);
+
+  async function loadBilling() {
+    try {
+      const response = await fetch(API_URL + '/billing/me', { headers: { Authorization: 'Bearer ' + accessToken } });
+      if (response.ok) setDetails(await response.json());
+    } catch {
+      setMessage('Nao consegui consultar sua assinatura agora.');
+    }
+  }
+
+  useEffect(() => { void loadBilling(); }, [accessToken]);
+
+  async function subscribe() {
+    setMessage('Preparando pagamento seguro...');
+    try {
+      const response = await fetch(API_URL + '/billing/checkout', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.checkoutUrl) throw new Error();
+      setMessage('Conclua o pagamento na Efi e volte ao aplicativo.');
+      await Linking.openURL(data.checkoutUrl);
+    } catch {
+      setMessage('Nao consegui abrir o pagamento. Tente novamente.');
+    }
+  }
+
+  async function cancel() {
+    setMessage('Cancelando assinatura...');
+    try {
+      const response = await fetch(API_URL + '/billing/cancel', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken },
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error();
+      setConfirmCancel(false);
+      setMessage(data.message ?? 'Assinatura cancelada.');
+      await loadBilling();
+    } catch {
+      setMessage('Nao consegui cancelar agora. Tente novamente.');
+    }
+  }
+
+  const active = details && ['active', 'manual_active', 'grace'].includes(details.status);
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Plano e faturamento</Text>
+      <Text style={styles.titleSmall}>{details?.planName ?? 'Panzeri Run - Plano mensal'}</Text>
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Sua assinatura</Text>
+        <Text style={styles.reportText}>Valor: {details?.priceLabel ?? 'R$ 19,90 por mes'}</Text>
+        <Text style={styles.reportText}>Situacao: {active ? 'Ativa' : details?.status === 'overdue' ? 'Pagamento pendente' : details?.status === 'canceled' ? 'Cancelada' : 'Aguardando ativacao'}</Text>
+        {details?.nextChargeAt ? <Text style={styles.reportText}>Proxima cobranca: {new Date(details.nextChargeAt).toLocaleDateString('pt-BR')}</Text> : null}
+      </View>
+
+      {!active ? (
+        <Pressable style={styles.primaryButton} onPress={subscribe}>
+          <Text style={styles.primaryButtonText}>Ativar assinatura</Text>
+          <Ionicons name="card" size={18} color="#ffffff" />
+        </Pressable>
+      ) : null}
+
+      {details?.canCancel && !confirmCancel ? (
+        <Pressable style={styles.secondaryButton} onPress={() => setConfirmCancel(true)}>
+          <Text style={styles.secondaryButtonText}>Cancelar assinatura</Text>
+        </Pressable>
+      ) : null}
+
+      {confirmCancel ? (
+        <View style={styles.formSection}>
+          <Text style={styles.formSectionTitle}>Confirmar cancelamento?</Text>
+          <Text style={styles.formHint}>As proximas cobrancas serao interrompidas e o acesso sera encerrado.</Text>
+          <Pressable style={styles.secondaryButton} onPress={cancel}><Text style={styles.secondaryButtonText}>Sim, cancelar</Text></Pressable>
+          <Pressable style={styles.primaryButton} onPress={() => setConfirmCancel(false)}><Text style={styles.primaryButtonText}>Manter assinatura</Text></Pressable>
+        </View>
+      ) : null}
+
+      <Pressable style={styles.secondaryButton} onPress={loadBilling}>
+        <Ionicons name="refresh" size={18} color="#0f766e" />
+        <Text style={styles.secondaryButtonText}>Atualizar situacao</Text>
+      </Pressable>
+      {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
+      <Text style={styles.formHint}>O pagamento e os dados do cartao sao processados com seguranca pela Efi.</Text>
+    </View>
+  );
+}
 function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: (tab: Tab) => void; onLogout: () => void }) {
   const tabs: Array<{ id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
     { id: 'week', label: 'Treino da semana', icon: 'calendar' },
@@ -2248,6 +2367,7 @@ function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: 
     { id: 'test', label: 'Teste de VO2 max', icon: 'stopwatch' },
     { id: 'progress', label: 'Evolucao', icon: 'stats-chart' },
     { id: 'strava', label: 'Sincronizar com Strava', icon: 'sync' },
+    { id: 'billing', label: 'Plano e faturamento', icon: 'card' },
     { id: 'profile', label: 'Perfil', icon: 'person' },
   ];
 
