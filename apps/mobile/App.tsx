@@ -497,6 +497,7 @@ export default function App() {
   const [anamneseRoutine, setAnamneseRoutine] = useState<RoutineDay[]>(cloneRoutine(defaultRoutineDays));
   const [savedMe, setSavedMe] = useState<MeResponse | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [hideWeekNotifications, setHideWeekNotifications] = useState(false);
 
   const metrics = useMemo(() => calculateThreeKmMetrics(Number(threeKmSeconds)), [threeKmSeconds]);
 
@@ -663,17 +664,23 @@ export default function App() {
                 onChangeSeconds={setThreeKmSeconds}
                 metrics={metrics}
                 accessToken={accessToken}
+                onLater={() => setActiveTab('week')}
+                onSaved={() => {
+                  setHideWeekNotifications(true);
+                  setActiveTab('week');
+                }}
               />
             )}
             {activeTab === 'week' && (
               <>
-                <NotificationList notifications={notifications} accessToken={accessToken} onDismiss={dismissNotification} />
+                {!hideWeekNotifications ? <NotificationList notifications={notifications} accessToken={accessToken} onDismiss={dismissNotification} /> : null}
                 <Week
                   accessToken={accessToken}
                   baseRoutineDays={anamneseRoutine}
                   metrics={metrics}
                   onOpenInterview={() => setActiveTab('interview')}
                   onOpenTest={() => setActiveTab('test')}
+                  onPlanStateChange={(state) => setHideWeekNotifications(state.locked || state.requiresTest || state.requiresOnboarding)}
                 />
               </>
             )}
@@ -1349,7 +1356,7 @@ async function loadInterviewState(accessToken: string): Promise<InterviewState |
   } catch { return null; }
 }
 
-function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTest }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; onOpenInterview: () => void; onOpenTest: () => void }) {
+function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTest, onPlanStateChange }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; onOpenInterview: () => void; onOpenTest: () => void; onPlanStateChange?: (state: { locked: boolean; requiresTest: boolean; requiresOnboarding: boolean }) => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   const [billingMessage, setBillingMessage] = useState('');
   const [weeklyRoutine, setWeeklyRoutine] = useState<RoutineDay[]>(cloneRoutine(baseRoutineDays));
@@ -1551,17 +1558,17 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         <Text style={styles.sectionLabel}>Treino da semana</Text>
         <Text style={styles.titleSmall}>{weekRange}</Text>
         <View style={styles.coachBox}>
-          <Text style={styles.coachTitle}>Seu treino da semana esta pronto</Text>
-          <Text style={styles.coachText}>Efetue o pagamento para comecar a treinar e obter seus resultados.</Text>
+          <Text style={styles.coachTitle}>Seu plano personalizado esta pronto</Text>
+          <Text style={styles.coachText}>Com base na sua entrevista e no teste de 3 km, ja montamos sua semana inicial. Ative sua assinatura para liberar o treino completo e comecar hoje.</Text>
         </View>
         <View style={styles.formSection}>
           <Text style={styles.formSectionTitle}>Assinatura Panzeri Run</Text>
-          <Text style={styles.formHint}>{plan.priceLabel ?? 'R$ 19,90 por mes'}. Cancele quando quiser.</Text>
+          <Text style={styles.formHint}>{plan.priceLabel ?? 'R$ 19,90 por mes'}. Plano mensal, sem fidelidade.</Text>
           <Pressable style={styles.primaryButton} onPress={openSubscriptionCheckout}>
             <Text style={styles.primaryButtonText}>Ativar minha assinatura</Text>
             <Ionicons name="card" size={18} color="#ffffff" />
           </Pressable>
-          <Text style={styles.formHint}>Depois do pagamento, o acesso sera liberado assim que confirmado.</Text>
+          <Text style={styles.formHint}>Seu treino ja esta preparado. Apos a confirmacao, o acesso e liberado para iniciar os treinos.</Text>
           {billingMessage ? <Text style={styles.statusMessage}>{billingMessage}</Text> : null}
         </View>
       </View>
@@ -1671,15 +1678,30 @@ function ThreeKmTest({
   onChangeSeconds,
   metrics,
   accessToken,
+  onLater,
+  onSaved,
 }: {
   threeKmSeconds: string;
   onChangeSeconds: (value: string) => void;
   metrics: ThreeKmMetrics;
   accessToken: string;
+  onLater: () => void;
+  onSaved: () => void;
 }) {
   const [saveStatus, setSaveStatus] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [environment, setEnvironment] = useState<'rua' | 'esteira'>('rua');
+  const parsedSeconds = Number(threeKmSeconds);
+  const safeSeconds = Number.isFinite(parsedSeconds) && parsedSeconds > 0 ? parsedSeconds : 1200;
+  const selectedMinutes = Math.floor(safeSeconds / 60);
+  const selectedSeconds = safeSeconds % 60;
+
+  function updateTestTime(part: 'minutes' | 'seconds', value: string) {
+    const numeric = Number(value.replace(/[^0-9]/g, ''));
+    const minutes = part === 'minutes' ? Math.min(Math.max(numeric || 0, 0), 120) : selectedMinutes;
+    const seconds = part === 'seconds' ? Math.min(Math.max(numeric || 0, 0), 59) : selectedSeconds;
+    onChangeSeconds(String(minutes * 60 + seconds));
+  }
 
   async function saveTest() {
     const totalSeconds = Number(threeKmSeconds);
@@ -1726,11 +1748,13 @@ function ThreeKmTest({
       });
 
       if (!planResponse.ok) {
-        setSaveStatus('Teste salvo. O treino sera recalculado quando voce abrir a semana.');
+        setSaveStatus('Teste salvo. Abrindo seu plano...');
+        onSaved();
         return;
       }
 
-      setSaveStatus('Teste salvo e treino da semana recalculado com os novos paces.');
+      setSaveStatus('Teste salvo. Abrindo seu plano personalizado...');
+      onSaved();
     } catch {
       setSaveStatus('Nao consegui conectar com a API agora.');
     } finally {
@@ -1772,15 +1796,30 @@ function ThreeKmTest({
           : 'Conte somente o tempo entre o inicio e o final dos 3 km. Para um resultado mais fiel, evite apoiar-se nas barras; se precisar delas para se sentir seguro, use-as, pois a seguranca vem primeiro. Ajuste a velocidade progressivamente.'}</Text>
       </View>
 
-      <Text style={styles.copyTight}>Informe o tempo total em segundos. Exemplo: 20 minutos = 1200 segundos.</Text>
+      <Text style={styles.copyTight}>Informe o tempo que levou para completar os 3 km. Exemplo: se fez em 20 minutos e 35 segundos, coloque 20 em minutos e 35 em segundos.</Text>
 
-      <TextInput
-        style={styles.input}
-        value={threeKmSeconds}
-        onChangeText={(value) => onChangeSeconds(value.replace(/[^0-9]/g, ''))}
-        keyboardType="numeric"
-        placeholder="Tempo total em segundos"
-      />
+      <View style={styles.testTimeRow}>
+        <View style={styles.testTimeField}>
+          <Text style={styles.inputLabel}>Minutos</Text>
+          <TextInput
+            style={styles.input}
+            value={String(selectedMinutes)}
+            onChangeText={(value) => updateTestTime('minutes', value)}
+            keyboardType="numeric"
+            placeholder="20"
+          />
+        </View>
+        <View style={styles.testTimeField}>
+          <Text style={styles.inputLabel}>Segundos</Text>
+          <TextInput
+            style={styles.input}
+            value={String(selectedSeconds).padStart(2, '0')}
+            onChangeText={(value) => updateTestTime('seconds', value)}
+            keyboardType="numeric"
+            placeholder="00"
+          />
+        </View>
+      </View>
 
       <View style={styles.metricGrid}>
         <Metric icon="speedometer" label="Pace medio" value={metrics.pace} />
@@ -1797,8 +1836,12 @@ function ThreeKmTest({
       </View>
 
       <Pressable style={[styles.primaryButton, isSaving && styles.disabledButton]} disabled={isSaving} onPress={saveTest}>
-        <Text style={styles.primaryButtonText}>{isSaving ? 'Salvando...' : 'Salvar teste de 3 km'}</Text>
+        <Text style={styles.primaryButtonText}>{isSaving ? 'Salvando...' : 'Salvar teste e ver meu plano'}</Text>
         <Ionicons name="cloud-upload" size={18} color="#ffffff" />
+      </Pressable>
+
+      <Pressable style={styles.secondaryButton} onPress={onLater}>
+        <Text style={styles.secondaryButtonText}>Ainda nao fiz o teste</Text>
       </Pressable>
 
       {saveStatus ? <Text style={styles.statusMessage}>{saveStatus}</Text> : null}
