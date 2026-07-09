@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -32,6 +32,8 @@ export class BillingService {
   constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {}
 
   async getMine(userId: string) {
+    const efiConfigured = this.isConfigured();
+    const manualUrl = this.manualPaymentUrl();
     const [user, billing] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
@@ -45,7 +47,7 @@ export class BillingService {
     let nextChargeAt = billing?.nextChargeAt ?? null;
     let syncError = false;
 
-    if (billing?.externalSubscriptionId && this.isConfigured()) {
+    if (billing?.externalSubscriptionId && efiConfigured) {
       try {
         const refreshed = await this.refreshFromEfi(billing.id, userId, billing.externalSubscriptionId);
         appStatus = refreshed.appStatus;
@@ -57,21 +59,23 @@ export class BillingService {
     }
 
     return {
-      provider: 'efi',
+      provider: efiConfigured ? 'efi' : 'manual',
       planName: 'Panzeri Run - Plano mensal',
       priceLabel: 'R$ 19,90 por mes',
       status: appStatus,
       providerStatus,
-      checkoutUrl: billing?.checkoutUrl ?? null,
+      checkoutUrl: billing?.checkoutUrl ?? manualUrl,
       nextChargeAt,
       updatedAt: user.subscriptionUpdatedAt,
-      canCancel: Boolean(billing?.externalSubscriptionId && ['active', 'manual_active', 'grace'].includes(appStatus)),
+      canCancel: Boolean(['active', 'manual_active', 'grace', 'pending'].includes(appStatus)),
       syncError,
     };
   }
 
   async createCheckout(userId: string) {
-    this.assertConfigured();
+    if (!this.isConfigured()) {
+      return this.createManualCheckout(userId);
+    }
     const [existing, user] = await Promise.all([
       this.prisma.billingSubscription.findUnique({ where: { userId } }),
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { subscriptionStatus: true } }),
@@ -131,7 +135,15 @@ export class BillingService {
 
   async cancel(userId: string) {
     const billing = await this.prisma.billingSubscription.findUnique({ where: { userId } });
-    if (!billing?.externalSubscriptionId) throw new NotFoundException('Assinatura Efi nao encontrada.');
+    if (!billing?.externalSubscriptionId) {
+      await this.prisma.$transaction([
+        billing
+          ? this.prisma.billingSubscription.update({ where: { userId }, data: { providerStatus: 'cancel_requested' } })
+          : this.prisma.billingSubscription.create({ data: { userId, provider: 'manual', providerStatus: 'cancel_requested' } }),
+        this.prisma.user.update({ where: { id: userId }, data: { subscriptionStatus: 'canceled', subscriptionUpdatedAt: new Date() } }),
+      ]);
+      return { status: 'canceled', message: 'Solicitacao de cancelamento registrada.' };
+    }
 
     await this.efiRequest('/v1/subscription/' + billing.externalSubscriptionId + '/cancel', {
       method: 'PUT',
@@ -209,6 +221,37 @@ export class BillingService {
     ]);
   }
 
+  private async createManualCheckout(userId: string) {
+    const checkoutUrl = this.manualPaymentUrl();
+    if (!checkoutUrl) throw new BadRequestException('Link de pagamento ainda nao configurado.');
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { subscriptionStatus: true } });
+
+    await this.prisma.$transaction([
+      this.prisma.billingSubscription.upsert({
+        where: { userId },
+        create: {
+          userId,
+          provider: 'manual',
+          providerStatus: 'waiting_payment',
+          checkoutUrl,
+        },
+        update: {
+          provider: 'manual',
+          providerStatus: 'waiting_payment',
+          checkoutUrl,
+        },
+      }),
+      this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          subscriptionStatus: ['active', 'manual_active', 'grace'].includes(user.subscriptionStatus) ? user.subscriptionStatus : 'pending',
+          subscriptionUpdatedAt: new Date(),
+        },
+      }),
+    ]);
+
+    return { checkoutUrl, mode: 'manual' };
+  }
   private async ensurePlan() {
     const saved = await this.prisma.billingProviderConfig.findUnique({ where: { provider: 'efi' } });
     if (saved) return saved.externalPlanId;
@@ -264,6 +307,10 @@ export class BillingService {
 
   private isConfigured() {
     return Boolean(this.config.get<string>('EFI_CLIENT_ID') && this.config.get<string>('EFI_CLIENT_SECRET'));
+  }
+
+  private manualPaymentUrl() {
+    return this.config.get<string>('MANUAL_PAYMENT_URL') || 'https://mpago.la/23YBr2R';
   }
 
   private assertConfigured() {

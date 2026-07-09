@@ -1522,7 +1522,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       });
       const data = await response.json();
       if (!response.ok || !data.checkoutUrl) throw new Error();
-      setBillingMessage('Pagamento aberto na Efi. Depois de pagar, volte ao aplicativo.');
+      setBillingMessage('Pagamento aberto. Depois de pagar, volte ao aplicativo.');
       await Linking.openURL(data.checkoutUrl);
     } catch {
       setBillingMessage('Nao consegui abrir o pagamento. Tente novamente.');
@@ -1561,7 +1561,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             <Text style={styles.primaryButtonText}>Ativar minha assinatura</Text>
             <Ionicons name="card" size={18} color="#ffffff" />
           </Pressable>
-          <Text style={styles.formHint}>A Efi confirma o pagamento e libera o plano automaticamente.</Text>
+          <Text style={styles.formHint}>Depois do pagamento, o acesso sera liberado assim que confirmado.</Text>
           {billingMessage ? <Text style={styles.statusMessage}>{billingMessage}</Text> : null}
         </View>
       </View>
@@ -2301,14 +2301,14 @@ function Billing({ accessToken }: { accessToken: string }) {
   const [confirmCancel, setConfirmCancel] = useState(false);
 
   async function loadBilling(showConfirmation = false) {
-    if (showConfirmation) setMessage('Consultando a Efi...');
+    if (showConfirmation) setMessage('Consultando sua assinatura...');
     try {
       const response = await fetch(API_URL + '/billing/me', { headers: { Authorization: 'Bearer ' + accessToken } });
       if (!response.ok) throw new Error();
       const data = await response.json();
       setDetails(data);
       if (showConfirmation) {
-        setMessage(data.syncError ? 'Mostrando a ultima situacao salva. A Efi nao respondeu agora.' : 'Situacao atualizada diretamente com a Efi.');
+        setMessage(data.syncError ? 'Mostrando a ultima situacao salva. Nao consegui atualizar agora.' : 'Situacao da assinatura atualizada.');
       }
     } catch {
       setMessage('Nao consegui consultar sua assinatura agora.');
@@ -2326,7 +2326,7 @@ function Billing({ accessToken }: { accessToken: string }) {
       });
       const data = await response.json();
       if (!response.ok || !data.checkoutUrl) throw new Error();
-      setMessage('Conclua o pagamento na Efi e volte ao aplicativo.');
+      setMessage('Conclua o pagamento e volte ao aplicativo.');
       await Linking.openURL(data.checkoutUrl);
     } catch {
       setMessage('Nao consegui abrir o pagamento. Tente novamente.');
@@ -2362,13 +2362,13 @@ function Billing({ accessToken }: { accessToken: string }) {
         <Text style={styles.formSectionTitle}>Sua assinatura</Text>
         <Text style={styles.reportText}>Valor: {details?.priceLabel ?? 'R$ 19,90 por mes'}</Text>
         <Text style={styles.reportText}>Situacao: {active ? 'Ativa' : details?.status === 'overdue' ? 'Pagamento pendente' : details?.status === 'canceled' ? 'Cancelada' : 'Aguardando ativacao'}</Text>
-        <Text style={styles.reportText}>Cartao: {efiCardActive ? 'Cadastrado e protegido pela Efi' : 'Ainda nao cadastrado na Efi'}</Text>
+        <Text style={styles.reportText}>Pagamento: {efiCardActive ? 'Cartao cadastrado' : active ? 'Assinatura ativa' : 'Aguardando pagamento'}</Text>
         {details?.nextChargeAt ? <Text style={styles.reportText}>Proxima cobranca: {new Date(details.nextChargeAt).toLocaleDateString('pt-BR')}</Text> : null}
       </View>
 
       {needsEfiSetup ? (
         <Pressable style={styles.primaryButton} onPress={subscribe}>
-          <Text style={styles.primaryButtonText}>{active ? 'Cadastrar cartao para recorrencia' : 'Ativar assinatura'}</Text>
+          <Text style={styles.primaryButtonText}>{active ? 'Atualizar forma de pagamento' : 'Ativar assinatura'}</Text>
           <Ionicons name="card" size={18} color="#ffffff" />
         </Pressable>
       ) : null}
@@ -2393,7 +2393,7 @@ function Billing({ accessToken }: { accessToken: string }) {
         <Text style={styles.secondaryButtonText}>Atualizar situacao</Text>
       </Pressable>
       {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
-      <Text style={styles.formHint}>O pagamento e os dados do cartao sao processados com seguranca pela Efi.</Text>
+      <Text style={styles.formHint}>O pagamento e os dados do cartao sao processados em ambiente seguro.</Text>
     </View>
   );
 }
