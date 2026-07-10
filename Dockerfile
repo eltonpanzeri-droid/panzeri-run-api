@@ -18,5 +18,6 @@ RUN npm run build
 
 EXPOSE 3333
 
-CMD ["sh", "-c", "npm run db:migrate:deploy && npm run start:prod"]
+CMD ["sh", "-c", "npx prisma migrate resolve --rolled-back 20260710120000_add_coupons_and_coach_reports || true; npm run db:migrate:deploy && npm run start:prod"]
+
 
