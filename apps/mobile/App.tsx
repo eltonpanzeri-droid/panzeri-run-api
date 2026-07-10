@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+﻿import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -1359,6 +1359,7 @@ async function loadInterviewState(accessToken: string): Promise<InterviewState |
 function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTest, onPlanStateChange }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; onOpenInterview: () => void; onOpenTest: () => void; onPlanStateChange?: (state: { locked: boolean; requiresTest: boolean; requiresOnboarding: boolean }) => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   const [billingMessage, setBillingMessage] = useState('');
+  const [couponCode, setCouponCode] = useState('');
   const [weeklyRoutine, setWeeklyRoutine] = useState<RoutineDay[]>(cloneRoutine(baseRoutineDays));
   const [completionDrafts, setCompletionDrafts] = useState<Record<string, CompletionDraft>>({});
   const [completionMessages, setCompletionMessages] = useState<Record<string, string>>({});
@@ -1535,6 +1536,28 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       setBillingMessage('Nao consegui abrir o pagamento. Tente novamente.');
     }
   }
+
+  async function applyCoupon() {
+    if (!couponCode.trim()) {
+      setBillingMessage('Digite seu cupom.');
+      return;
+    }
+    setBillingMessage('Aplicando cupom...');
+    try {
+      const response = await fetch(API_URL + '/billing/coupon', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: couponCode }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message ?? 'Cupom invalido.');
+      setCouponCode('');
+      setBillingMessage(data.message ?? 'Cupom aplicado. Acesso liberado.');
+      await loadPlan();
+    } catch (error) {
+      setBillingMessage(error instanceof Error ? error.message : 'Cupom invalido.');
+    }
+  }
   const sessions = plan?.sessions.length ? plan.sessions : [];
   const weekRange = plan ? planWeekRange(plan) : currentWeekRange();
   const groupedSessions = sessions.reduce<Array<{ key: string; day: string; date: string; sessions: WeekPlanSession[] }>>((groups, session) => {
@@ -1569,6 +1592,15 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             <Ionicons name="card" size={18} color="#ffffff" />
           </Pressable>
           <Text style={styles.formHint}>Seu treino ja esta preparado. Apos a confirmacao, o acesso e liberado para iniciar os treinos.</Text>
+          <View style={styles.couponBox}>
+            <Text style={styles.inputLabel}>Tenho um cupom</Text>
+            <View style={styles.couponRow}>
+              <TextInput style={[styles.input, styles.couponInput]} value={couponCode} onChangeText={setCouponCode} placeholder="Digite seu cupom" autoCapitalize="characters" />
+              <Pressable style={styles.couponButton} onPress={applyCoupon}>
+                <Text style={styles.couponButtonText}>Aplicar</Text>
+              </Pressable>
+            </View>
+          </View>
           {billingMessage ? <Text style={styles.statusMessage}>{billingMessage}</Text> : null}
         </View>
       </View>
@@ -2341,6 +2373,7 @@ function Billing({ accessToken }: { accessToken: string }) {
     syncError?: boolean;
   } | null>(null);
   const [message, setMessage] = useState('');
+  const [couponCode, setCouponCode] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
 
   async function loadBilling(showConfirmation = false) {
@@ -2373,6 +2406,28 @@ function Billing({ accessToken }: { accessToken: string }) {
       await Linking.openURL(data.checkoutUrl);
     } catch {
       setMessage('Nao consegui abrir o pagamento. Tente novamente.');
+    }
+  }
+
+  async function applyBillingCoupon() {
+    if (!couponCode.trim()) {
+      setMessage('Digite seu cupom.');
+      return;
+    }
+    setMessage('Aplicando cupom...');
+    try {
+      const response = await fetch(API_URL + '/billing/coupon', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: couponCode }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message ?? 'Cupom invalido.');
+      setCouponCode('');
+      setMessage(data.message ?? 'Cupom aplicado. Acesso liberado.');
+      await loadBilling(false);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Cupom invalido.');
     }
   }
 
@@ -2414,6 +2469,19 @@ function Billing({ accessToken }: { accessToken: string }) {
           <Text style={styles.primaryButtonText}>{active ? 'Atualizar forma de pagamento' : 'Ativar assinatura'}</Text>
           <Ionicons name="card" size={18} color="#ffffff" />
         </Pressable>
+      ) : null}
+
+      {!active ? (
+        <View style={styles.formSection}>
+          <Text style={styles.formSectionTitle}>Cupom de acesso</Text>
+          <Text style={styles.formHint}>Use apenas se voce recebeu um cupom do treinador.</Text>
+          <View style={styles.couponRow}>
+            <TextInput style={[styles.input, styles.couponInput]} value={couponCode} onChangeText={setCouponCode} placeholder="Digite seu cupom" autoCapitalize="characters" />
+            <Pressable style={styles.couponButton} onPress={applyBillingCoupon}>
+              <Text style={styles.couponButtonText}>Aplicar</Text>
+            </Pressable>
+          </View>
+        </View>
       ) : null}
 
       {details?.canCancel && !confirmCancel ? (
@@ -4390,6 +4458,30 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
+  couponBox: {
+    gap: 8,
+  },
+  couponRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  couponInput: {
+    flex: 1,
+  },
+  couponButton: {
+    minHeight: 54,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0f766e',
+  },
+  couponButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
+  },
   interviewTop: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -4656,3 +4748,6 @@ const styles = StyleSheet.create({
     color: '#0f766e',
   },
 });
+
+
+

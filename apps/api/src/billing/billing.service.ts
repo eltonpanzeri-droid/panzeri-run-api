@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, Injectable } from '@nestjs/common';
+﻿import { BadGatewayException, BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -59,15 +59,15 @@ export class BillingService {
     }
 
     return {
-      provider: efiConfigured ? 'efi' : 'manual',
+      provider: billing?.provider ?? (efiConfigured ? 'efi' : 'manual'),
       planName: 'Panzeri Run - Plano mensal',
       priceLabel: 'R$ 19,90 por mes',
       status: appStatus,
       providerStatus,
-      checkoutUrl: billing?.checkoutUrl ?? manualUrl,
+      checkoutUrl: appStatus === 'manual_active' ? null : billing?.checkoutUrl ?? manualUrl,
       nextChargeAt,
       updatedAt: user.subscriptionUpdatedAt,
-      canCancel: Boolean(['active', 'manual_active', 'grace', 'pending'].includes(appStatus)),
+      canCancel: billing?.provider !== 'coupon' && Boolean(['active', 'manual_active', 'grace', 'pending'].includes(appStatus)),
       syncError,
     };
   }
@@ -131,6 +131,39 @@ export class BillingService {
     ]);
 
     return { checkoutUrl: data.payment_url };
+  }
+
+  async applyCoupon(userId: string, code: string) {
+    const normalized = code.trim().toUpperCase();
+    if (!this.validCouponCodes().includes(normalized)) {
+      throw new BadRequestException('Cupom invalido.');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.billingSubscription.upsert({
+        where: { userId },
+        create: {
+          userId,
+          provider: 'coupon',
+          providerStatus: 'coupon:' + normalized,
+          checkoutUrl: null,
+        },
+        update: {
+          provider: 'coupon',
+          providerStatus: 'coupon:' + normalized,
+          externalSubscriptionId: null,
+          externalChargeId: null,
+          checkoutUrl: null,
+          nextChargeAt: null,
+        },
+      }),
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { subscriptionStatus: 'manual_active', subscriptionUpdatedAt: new Date() },
+      }),
+    ]);
+
+    return { status: 'manual_active', message: 'Cupom aplicado. Acesso liberado.' };
   }
 
   async cancel(userId: string) {
@@ -311,6 +344,14 @@ export class BillingService {
 
   private manualPaymentUrl() {
     return this.config.get<string>('MANUAL_PAYMENT_URL') || 'https://mpago.la/23YBr2R';
+  }
+
+  private validCouponCodes() {
+    const configured = this.config.get<string>('ACCESS_COUPONS') || 'PANZERI100';
+    return configured
+      .split(',')
+      .map((code) => code.trim().toUpperCase())
+      .filter(Boolean);
   }
 
   private assertConfigured() {
