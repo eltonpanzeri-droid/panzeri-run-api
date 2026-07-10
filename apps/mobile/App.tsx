@@ -1,4 +1,4 @@
-﻿import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -804,6 +804,18 @@ function Onboarding({ onStart }: { onStart: () => void }) {
   );
 }
 
+function SecureTextInput({ placeholder, value, onChangeText }: { placeholder: string; value: string; onChangeText: (value: string) => void }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <View style={styles.secureInputWrap}>
+      <TextInput style={[styles.input, styles.secureInput]} placeholder={placeholder} value={value} onChangeText={onChangeText} secureTextEntry={!visible} />
+      <Pressable style={styles.showPasswordButton} onPress={() => setVisible((current) => !current)}>
+        <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={18} color="#0f766e" />
+        <Text style={styles.showPasswordText}>{visible ? 'Ocultar' : 'Ver'}</Text>
+      </Pressable>
+    </View>
+  );
+}
 function Login({
   acceptedTerms,
   onTermsChange,
@@ -985,17 +997,11 @@ function Login({
         autoCapitalize="none"
         keyboardType="email-address"
       />
-      <TextInput style={styles.input} placeholder="Senha" value={password} onChangeText={setPassword} secureTextEntry />
+      <SecureTextInput placeholder="Senha" value={password} onChangeText={setPassword} />
 
       {mode === 'register' && (
         <>
-          <TextInput
-            style={styles.input}
-            placeholder="Confirmacao de senha"
-            value={passwordConfirm}
-            onChangeText={setPasswordConfirm}
-            secureTextEntry
-          />
+          <SecureTextInput placeholder="Confirmacao de senha" value={passwordConfirm} onChangeText={setPasswordConfirm} />
 
           <View style={styles.termsRow}>
             <Switch value={acceptedTerms} onValueChange={onTermsChange} />
@@ -3807,6 +3813,31 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontSize: 16,
   },
+  secureInputWrap: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  secureInput: {
+    paddingRight: 96,
+  },
+  showPasswordButton: {
+    position: 'absolute',
+    right: 8,
+    minHeight: 38,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dbe4ea',
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  showPasswordText: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '800',
+  },
   darkInput: {
     minHeight: 46,
     borderRadius: 8,
@@ -4748,6 +4779,10 @@ const styles = StyleSheet.create({
     color: '#0f766e',
   },
 });
+
+
+
+
 
 
 

@@ -135,10 +135,47 @@ export class BillingService {
 
   async applyCoupon(userId: string, code: string) {
     const normalized = code.trim().toUpperCase();
+    if (!normalized) throw new BadRequestException('Informe o cupom.');
+
+    const prisma = this.prisma as any;
+    const coupon = await prisma.coupon.findUnique({ where: { code: normalized } });
+    if (coupon && !coupon.active) throw new BadRequestException('Cupom inativo.');
+
+    if (coupon) {
+      const alreadyUsed = await prisma.couponRedemption.findUnique({
+        where: { couponId_userId: { couponId: coupon.id, userId } },
+      });
+
+      await this.prisma.$transaction([
+        prisma.couponRedemption.upsert({
+          where: { couponId_userId: { couponId: coupon.id, userId } },
+          create: { couponId: coupon.id, userId },
+          update: {},
+        }),
+        ...(alreadyUsed ? [] : [prisma.coupon.update({ where: { id: coupon.id }, data: { usageCount: { increment: 1 } } })]),
+      ]);
+
+      if (coupon.discountPercent >= 100) {
+        await this.activateCouponAccess(userId, normalized);
+        return { status: 'manual_active', discountPercent: coupon.discountPercent, message: 'Cupom aplicado. Acesso liberado.' };
+      }
+
+      return {
+        status: 'pending',
+        discountPercent: coupon.discountPercent,
+        message: `Cupom aplicado: ${coupon.discountPercent}% de desconto. Finalize o pagamento para liberar o acesso.`,
+      };
+    }
+
     if (!this.validCouponCodes().includes(normalized)) {
       throw new BadRequestException('Cupom invalido.');
     }
 
+    await this.activateCouponAccess(userId, normalized);
+    return { status: 'manual_active', discountPercent: 100, message: 'Cupom aplicado. Acesso liberado.' };
+  }
+
+  private async activateCouponAccess(userId: string, normalized: string) {
     await this.prisma.$transaction([
       this.prisma.billingSubscription.upsert({
         where: { userId },
@@ -162,8 +199,6 @@ export class BillingService {
         data: { subscriptionStatus: 'manual_active', subscriptionUpdatedAt: new Date() },
       }),
     ]);
-
-    return { status: 'manual_active', message: 'Cupom aplicado. Acesso liberado.' };
   }
 
   async cancel(userId: string) {
@@ -360,3 +395,5 @@ export class BillingService {
     }
   }
 }
+
+

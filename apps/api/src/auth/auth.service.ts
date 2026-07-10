@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+﻿import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
@@ -97,9 +97,36 @@ export class AuthService {
   }
 
   async startPasswordReset(email: string) {
+    const cleanEmail = (email ?? '').trim().toLowerCase();
+    if (!cleanEmail) {
+      throw new BadRequestException('Informe o e-mail.');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: cleanEmail },
+      select: { id: true, email: true },
+    });
+
+    if (!user) {
+      return {
+        email: cleanEmail,
+        message: 'Se este e-mail estiver cadastrado, um link de recuperacao sera gerado.',
+      };
+    }
+
+    const token = randomBytes(32).toString('hex');
+    await this.prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
+      },
+    });
+
     return {
-      email,
-      message: 'Solicite ao treinador um link seguro para criar uma nova senha.',
+      email: user.email,
+      resetLink: `${this.publicAppUrl()}/reset-password?token=${token}`,
+      message: 'Link de recuperacao gerado. Abra o link para criar uma nova senha.',
     };
   }
 
@@ -210,3 +237,4 @@ export class AuthService {
 function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex');
 }
+

@@ -39,6 +39,8 @@ model User {
   notifications UserNotification[]
   onboardingInterview OnboardingInterview?
   billingSubscription BillingSubscription?
+  couponRedemptions CouponRedemption[]
+  coachReports CoachReport[]
 }
 
 model BillingProviderConfig {
@@ -298,3 +300,40 @@ model ChallengeProgress {
   progress    Json
   completed   Boolean  @default(false)
 }
+
+model Coupon {
+  id              String             @id @default(uuid())
+  code            String             @unique
+  name            String
+  discountPercent Int                @default(100)
+  active          Boolean            @default(true)
+  usageCount      Int                @default(0)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  redemptions     CouponRedemption[]
+}
+
+model CouponRedemption {
+  id        String   @id @default(uuid())
+  couponId  String
+  coupon    Coupon   @relation(fields: [couponId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([couponId, userId])
+  @@index([userId])
+}
+
+model CoachReport {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  reportType String
+  title      String
+  content    Json
+  createdAt  DateTime @default(now())
+
+  @@index([userId, reportType, createdAt])
+}
+

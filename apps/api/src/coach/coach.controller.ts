@@ -13,6 +13,25 @@ import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
 @Controller('coach')
 export class CoachController {
   constructor(private readonly coachService: CoachService) {}
+  @Get('finance')
+  finance() {
+    return this.coachService.finance();
+  }
+
+  @Get('coupons')
+  coupons() {
+    return this.coachService.coupons();
+  }
+
+  @Post('coupons')
+  createCoupon(@Body() dto: { code: string; name?: string; discountPercent?: number; active?: boolean }) {
+    return this.coachService.createCoupon(dto);
+  }
+
+  @Patch('coupons/:couponId')
+  updateCoupon(@Param('couponId') couponId: string, @Body() dto: { code?: string; name?: string; discountPercent?: number; active?: boolean }) {
+    return this.coachService.updateCoupon(couponId, dto);
+  }
 
   @Get('dashboard')
   dashboard(@Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
@@ -57,8 +76,14 @@ export class CoachController {
     return this.coachService.createStudentInvite(studentId);
   }
 
+  @Post('students/:studentId/reports/:reportType')
+  generateStudentReport(@Param('studentId') studentId: string, @Param('reportType') reportType: string) {
+    return this.coachService.generateStudentReport(studentId, reportType);
+  }
   @Post('students/:studentId/onboarding/reopen')
   reopenStudentOnboarding(@Param('studentId') studentId: string) {
     return this.coachService.reopenStudentOnboarding(studentId);
   }
 }
+
+

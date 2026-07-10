@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+﻿import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
@@ -267,7 +267,7 @@ export class CoachService {
     await this.assertStudent(studentId);
     await this.trainingPlans.current(studentId);
     await this.strava.syncIfStale(studentId).catch(() => undefined);
-    const student = await this.prisma.user.findFirstOrThrow({
+    const student = await (this.prisma.user as any).findFirstOrThrow({
       where: { id: studentId, role: 'student' },
       include: {
         onboardingInterview: true,
@@ -284,10 +284,11 @@ export class CoachService {
           take: 8,
           include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
         },
+        coachReports: { orderBy: { createdAt: 'desc' }, take: 20 },
       },
     });
 
-    const plan = student.plans.find((item) => item.status === 'active') ?? student.plans[0] ?? null;
+    const plan = student.plans.find((item: any) => item.status === 'active') ?? student.plans[0] ?? null;
     const analysisInsight = plan
       ? await this.prisma.trainingExecutionInsight.findUnique({ where: { planId: plan.id } })
       : null;
@@ -315,12 +316,12 @@ export class CoachService {
     }
     const summary = plan ? summarizeSessions(plan.sessions) : emptySummary();
     const uniqueHistory = Array.from(
-      student.plans.reduce((plans, historyPlan) => {
+      student.plans.reduce((plans: Map<string, any>, historyPlan: any) => {
         const weekKey = historyPlan.startDate.toISOString().slice(0, 10);
         if (!plans.has(weekKey)) plans.set(weekKey, historyPlan);
         return plans;
-      }, new Map<string, (typeof student.plans)[number]>()).values(),
-    );
+      }, new Map<string, any>()).values(),
+    ) as any[];
 
     return {
       id: student.id,
@@ -356,14 +357,14 @@ export class CoachService {
         otherModalities: student.preferences?.otherModalities ?? [],
         trainingLocations: student.preferences?.trainingLocations ?? [],
       },
-      availability: student.availability.map((day) => ({
+      availability: student.availability.map((day: any) => ({
         weekday: day.weekday,
         noTraining: day.noTraining,
         modalities: day.modalities,
         availableMin: day.availableMin,
         modalityDurations: day.modalityDurations,
       })),
-      tests: student.tests.map((test) => ({
+      tests: student.tests.map((test: any) => ({
         date: test.createdAt.toISOString(),
         totalSeconds: test.totalSeconds,
         pace: formatPace(test.paceSecondsPerKm),
@@ -377,7 +378,7 @@ export class CoachService {
             endDate: plan.endDate,
             recommendation: plan.aiRecommendation,
             summary,
-            sessions: plan.sessions.map((session) => ({
+            sessions: plan.sessions.map((session: any) => ({
               id: session.id,
               date: session.scheduledDate,
               weekday: session.weekday,
@@ -401,17 +402,24 @@ export class CoachService {
             })),
           }
         : null,
+      reports: student.coachReports.map((report: any) => ({
+        id: report.id,
+        reportType: report.reportType,
+        title: report.title,
+        content: report.content,
+        createdAt: report.createdAt,
+      })),
       unmatchedStravaActivities: stravaActivities
         .filter((activity) => !usedStravaIds.has(activity.id))
         .map((activity) => serializeStravaActivity(activity)),
-      history: uniqueHistory.map((historyPlan) => ({
+      history: uniqueHistory.map((historyPlan: any) => ({
         id: historyPlan.id,
         name: historyPlan.name,
         status: historyPlan.status,
         startDate: historyPlan.startDate,
         endDate: historyPlan.endDate,
         summary: summarizeSessions(historyPlan.sessions),
-        sessions: historyPlan.sessions.map((session) => ({
+        sessions: historyPlan.sessions.map((session: any) => ({
           id: session.id,
           date: session.scheduledDate,
           weekday: session.weekday,
@@ -430,6 +438,111 @@ export class CoachService {
     };
   }
 
+  async coupons() {
+    const prisma = this.prisma as any;
+    const coupons = await prisma.coupon.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { redemptions: { include: { user: { select: { id: true, name: true, email: true, subscriptionStatus: true } } } } },
+    });
+    return {
+      coupons: coupons.map((coupon: any) => ({
+        id: coupon.id,
+        code: coupon.code,
+        name: coupon.name,
+        discountPercent: coupon.discountPercent,
+        active: coupon.active,
+        usageCount: coupon.usageCount,
+        createdAt: coupon.createdAt,
+        redemptions: coupon.redemptions.map((redemption: any) => ({
+          id: redemption.id,
+          createdAt: redemption.createdAt,
+          student: redemption.user,
+        })),
+      })),
+    };
+  }
+
+  async createCoupon(dto: { code: string; name?: string; discountPercent?: number; active?: boolean }) {
+    const code = normalizeCouponCode(dto.code);
+    if (!code) throw new BadRequestException('Informe o codigo do cupom.');
+    const discountPercent = clampPercent(dto.discountPercent ?? 100);
+    const prisma = this.prisma as any;
+    return prisma.coupon.create({
+      data: {
+        code,
+        name: dto.name?.trim() || code,
+        discountPercent,
+        active: dto.active ?? true,
+      },
+    });
+  }
+
+  async updateCoupon(couponId: string, dto: { code?: string; name?: string; discountPercent?: number; active?: boolean }) {
+    const data: Record<string, unknown> = {};
+    if (dto.code !== undefined) data.code = normalizeCouponCode(dto.code);
+    if (dto.name !== undefined) data.name = dto.name.trim() || normalizeCouponCode(dto.code ?? 'Cupom');
+    if (dto.discountPercent !== undefined) data.discountPercent = clampPercent(dto.discountPercent);
+    if (dto.active !== undefined) data.active = dto.active;
+    if (!Object.keys(data).length) throw new BadRequestException('Nenhuma alteracao informada.');
+    const prisma = this.prisma as any;
+    return prisma.coupon.update({ where: { id: couponId }, data });
+  }
+
+  async finance() {
+    const [students, subscriptions, coupons] = await Promise.all([
+      this.prisma.user.groupBy({ by: ['subscriptionStatus'], where: { role: 'student' }, _count: true }),
+      this.prisma.billingSubscription.findMany({ include: { user: { select: { id: true, name: true, email: true, subscriptionStatus: true } } } }),
+      (this.prisma as any).coupon.findMany({ include: { redemptions: true } }),
+    ]);
+    const countByStatus = Object.fromEntries(students.map((item) => [item.subscriptionStatus, item._count]));
+    const active = Number(countByStatus.active ?? 0) + Number(countByStatus.manual_active ?? 0) + Number(countByStatus.grace ?? 0);
+    const courtesy = Number(countByStatus.manual_active ?? 0);
+    const paying = Number(countByStatus.active ?? 0) + Number(countByStatus.grace ?? 0);
+    return {
+      priceCents: 1990,
+      priceLabel: 'R$ 19,90',
+      activePlans: active,
+      payingPlans: paying,
+      courtesyPlans: courtesy,
+      pendingPlans: Number(countByStatus.pending ?? 0),
+      overduePlans: Number(countByStatus.overdue ?? 0),
+      canceledPlans: Number(countByStatus.canceled ?? 0),
+      estimatedMonthlyRevenueCents: paying * 1990,
+      subscriptions: subscriptions.map((item) => ({
+        id: item.id,
+        provider: item.provider,
+        providerStatus: item.providerStatus,
+        nextChargeAt: item.nextChargeAt,
+        checkoutUrl: item.checkoutUrl,
+        student: item.user,
+      })),
+      coupons: coupons.map((coupon: any) => ({
+        id: coupon.id,
+        code: coupon.code,
+        discountPercent: coupon.discountPercent,
+        active: coupon.active,
+        usageCount: coupon.usageCount,
+        redemptions: coupon.redemptions.length,
+      })),
+    };
+  }
+
+  async generateStudentReport(studentId: string, reportType: string) {
+    if (!['technical', 'evolution'].includes(reportType)) {
+      throw new BadRequestException('Tipo de relatorio invalido.');
+    }
+    const detail = await this.student(studentId);
+    const content = reportType === 'technical' ? buildTechnicalReportContent(detail) : buildEvolutionReportContent(detail);
+    const prisma = this.prisma as any;
+    return prisma.coachReport.create({
+      data: {
+        userId: studentId,
+        reportType,
+        title: reportType === 'technical' ? 'Prestacao tecnica do agente' : 'Relatorio de evolucao do aluno',
+        content: content as Prisma.InputJsonObject,
+      },
+    });
+  }
   private assertStudent(studentId: string) {
     return this.prisma.user.findFirstOrThrow({
       where: { id: studentId, role: 'student' },
@@ -437,6 +550,107 @@ export class CoachService {
   }
 }
 
+function normalizeCouponCode(value: string) {
+  return value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+}
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function buildTechnicalReportContent(detail: any) {
+  const summary = detail.plan?.summary ?? emptySummary();
+  const tests = detail.tests ?? [];
+  const availability = detail.availability ?? [];
+  return {
+    generatedAt: new Date().toISOString(),
+    type: 'technical',
+    student: { id: detail.id, name: detail.name, email: detail.email, goal: detail.goal },
+    metrics: {
+      sessions: summary.prescribedSessions,
+      weeklyKm: summary.prescribedKm,
+      latest3km: tests[0]?.pace ?? 'Sem teste',
+      availabilityDays: availability.filter((day: any) => !day.noTraining).length,
+    },
+    sections: [
+      {
+        title: 'Leitura inicial do aluno',
+        text: `Objetivo registrado: ${detail.goal}. Teste recente: ${tests[0]?.pace ?? 'nao informado'}. Disponibilidade util na semana: ${availability.filter((day: any) => !day.noTraining).length} dia(s).`,
+      },
+      {
+        title: 'Plano criado',
+        text: `Plano atual: ${detail.plan?.name ?? 'sem plano ativo'}. Foram prescritos ${summary.prescribedSessions} treino(s), com ${summary.prescribedKm} km planejados quando aplicavel.`,
+      },
+      {
+        title: 'Justificativa tecnica',
+        text: 'O plano foi montado cruzando objetivo, teste de 3 km, rotina semanal informada, modalidades disponiveis e sinais de saude/recuperacao. A progressao deve respeitar aderencia, feedback, dor, fadiga e dados externos do Strava quando disponiveis.',
+      },
+      {
+        title: 'Expectativa de resposta',
+        text: 'A expectativa e aumentar consistencia, preservar seguranca e ajustar volume/intensidade conforme execucao real. Caso a aderencia caia, o agente deve reduzir complexidade e adequar rotina antes de elevar carga.',
+      },
+      {
+        title: 'Pontos para supervisao do treinador',
+        text: `Monitorar treinos diferentes do proposto (${summary.differentSessions}), treinos sem registro (${summary.missedSessions}) e comentarios do aluno. Validar manualmente se houver dor, fadiga alta ou queda consistente de desempenho.`,
+      },
+    ],
+  };
+}
+
+function buildEvolutionReportContent(detail: any) {
+  const summary = detail.plan?.summary ?? emptySummary();
+  const sessions = detail.plan?.sessions ?? [];
+  const done = sessions.filter((session: any) => session.completionStatus === 'done' || session.completionStatus === 'adjusted');
+  const strava = [
+    ...sessions.map((session: any) => session.stravaActivity).filter(Boolean),
+    ...(detail.unmatchedStravaActivities ?? []),
+  ];
+  const avgEffort = done.length
+    ? Math.round((done.reduce((total: number, session: any) => total + Number(session.perceivedEffort ?? 0), 0) / done.length) * 10) / 10
+    : null;
+  const stravaKm = round(strava.reduce((total: number, activity: any) => total + Number(activity.distanceKm ?? 0), 0));
+  const stravaMinutes = Math.round(strava.reduce((total: number, activity: any) => total + Number(activity.durationMin ?? 0), 0));
+  const latestInsight = detail.analysisAgent?.summary;
+  return {
+    generatedAt: new Date().toISOString(),
+    type: 'evolution',
+    student: { id: detail.id, name: detail.name, email: detail.email, goal: detail.goal },
+    metrics: {
+      adherencePercent: summary.adherencePercent,
+      completedSessions: summary.completedSessions,
+      prescribedSessions: summary.prescribedSessions,
+      prescribedKm: summary.prescribedKm,
+      completedKm: summary.completedKm,
+      stravaKm,
+      stravaMinutes,
+      averageEffort: avgEffort,
+      trend: latestInsight?.progression?.loadTrend ?? 'sem tendencia calculada',
+    },
+    sections: [
+      {
+        title: 'Execucao do plano',
+        text: `Aderencia atual: ${summary.adherencePercent}%. Foram concluidos ${summary.completedSessions} de ${summary.prescribedSessions} treino(s), com ${summary.completedKm}/${summary.prescribedKm} km registrados no app.`,
+      },
+      {
+        title: 'Feedback do aluno',
+        text: done.length ? `PSE media informada: ${avgEffort ?? 'nao informada'}/10. Comentarios recentes: ${done.map((session: any) => session.feedback).filter(Boolean).slice(0, 3).join(' | ') || 'sem comentarios recentes'}.` : 'Ainda nao ha feedback manual suficiente para conclusao.',
+      },
+      {
+        title: 'Dados do Strava',
+        text: strava.length ? `Foram encontrados ${strava.length} atividade(s) no Strava no periodo observado, somando ${stravaKm} km e ${stravaMinutes} min. O agente deve comparar modalidade, distancia, tempo, pace, frequencia cardiaca e cadencia quando disponiveis.` : 'Ainda nao ha atividades Strava suficientes no periodo observado.',
+      },
+      {
+        title: 'Tendencia observada',
+        text: latestInsight?.coachAnalysis?.text ?? 'Sem tendencia automatica consolidada. A proxima analise deve priorizar consistencia, resposta cardiovascular e diferenca entre prescrito e realizado.',
+      },
+      {
+        title: 'Proximas decisoes sugeridas',
+        text: 'Manter ajuste semanal baseado na rotina real. Se houver boa aderencia e feedback leve/moderado, progredir carga com cautela. Se houver baixa aderencia ou esforco alto, reduzir volume/intensidade e simplificar a semana.',
+      },
+    ],
+  };
+}
 function serializeStravaActivity(activity: {
   id: string;
   stravaId: string;
@@ -569,3 +783,11 @@ function formatPace(secondsPerKm: number) {
   const seconds = secondsPerKm % 60;
   return `${minutes}:${seconds.toString().padStart(2, '0')}/km`;
 }
+
+
+
+
+
+
+
+
