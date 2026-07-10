@@ -6,7 +6,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@11.8.0 --activate
 
 COPY apps/api/package.json ./package.json
 RUN pnpm install --no-frozen-lockfile
@@ -21,3 +21,4 @@ RUN pnpm build
 EXPOSE 3333
 
 CMD ["sh", "-c", "pnpm db:migrate:deploy && pnpm start:prod"]
+
