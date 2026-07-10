@@ -1,8 +1,8 @@
 # Deploy da API no EasyPanel
 
-Use o PostgreSQL do EasyPanel e suba a API como um novo serviço.
+Use o PostgreSQL do EasyPanel e suba a API como o servico `panzeri-run-api`.
 
-## Variaveis do serviço da API
+## Variaveis do servico da API
 
 Configure estas variaveis no EasyPanel:
 
@@ -11,15 +11,24 @@ DATABASE_URL=<URL interna do PostgreSQL>
 JWT_ACCESS_SECRET=<crie uma frase longa>
 JWT_REFRESH_SECRET=<crie outra frase longa>
 API_PORT=3333
+MIGRATION_SECRET=<segredo das migracoes>
+STRAVA_CLIENT_ID=<id do Strava>
+STRAVA_CLIENT_SECRET=<secret do Strava>
+STRAVA_REDIRECT_URI=https://agenteselton-panzeri-run-api.hbljgk.easypanel.host/strava/callback
+COACH_EMAILS=eltonpanzeri@gmail.com
+APP_PUBLIC_URL=https://agenteselton-panzeri-run-api.hbljgk.easypanel.host
 ```
 
-## Configuracao do serviço
+## Configuracao do servico
 
+- Fonte: GitHub
+- Repositorio: `eltonpanzeri-droid/panzeri-run-api`
+- Branch: `main`
 - Build: Dockerfile
-- Dockerfile: `apps/api/Dockerfile`
+- Caminho do Dockerfile: `Dockerfile`
 - Porta interna: `3333`
 
-Quando a API subir, ela executa as migracoes do Prisma e inicia o servidor.
+O Dockerfile da raiz instala somente a API, gera o Prisma Client, compila o NestJS, aplica migracoes e inicia o servidor.
 
 ## Teste
 
