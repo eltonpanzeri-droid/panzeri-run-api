@@ -12,10 +12,11 @@ RUN npm install --include=dev
 COPY apps/api/prisma ./prisma
 RUN npm run db:generate
 
-COPY apps/api/tsconfig.json apps/api/nest-cli.json ./
+COPY apps/api/tsconfig.json apps/api/tsconfig.build.json apps/api/nest-cli.json ./
 COPY apps/api/src ./src
 RUN npm run build
 
 EXPOSE 3333
 
 CMD ["sh", "-c", "npm run db:migrate:deploy && npm run start:prod"]
+
