@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+﻿import { Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -48,6 +48,7 @@ export class AuthController {
             label, input, button { display: block; width: 100%; }
             input { border: 1px solid #cbd5e1; border-radius: 8px; box-sizing: border-box; margin: 8px 0 16px; padding: 12px; }
             button { background: #0f766e; border: 0; border-radius: 8px; color: white; cursor: pointer; font-weight: 700; padding: 12px; }
+            .secondary { background: #ffffff; border: 1px solid #0f766e; color: #0f766e; margin: -4px 0 16px; }
             p { color: #475569; }
           </style>
         </head>
@@ -59,12 +60,21 @@ export class AuthController {
             <input id="password" type="password" minlength="8" />
             <label>Confirmar senha</label>
             <input id="confirm" type="password" minlength="8" />
+            <button id="togglePassword" class="secondary" type="button">Ver senha</button>
             <button id="submit" type="button">Salvar senha</button>
             <p id="status"></p>
           </main>
           <script>
             const token = ${JSON.stringify(token ?? '')};
             const status = document.getElementById('status');
+            document.getElementById('togglePassword').addEventListener('click', function () {
+              const passwordInput = document.getElementById('password');
+              const confirmInput = document.getElementById('confirm');
+              const show = passwordInput.type === 'password';
+              passwordInput.type = show ? 'text' : 'password';
+              confirmInput.type = show ? 'text' : 'password';
+              this.textContent = show ? 'Ocultar senha' : 'Ver senha';
+            });
             document.getElementById('submit').addEventListener('click', async function () {
               const password = document.getElementById('password').value;
               const confirm = document.getElementById('confirm').value;
@@ -96,3 +106,4 @@ export class AuthController {
     return this.authService.me(req.user.sub);
   }
 }
+
