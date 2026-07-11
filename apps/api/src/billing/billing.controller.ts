@@ -1,4 +1,4 @@
-﻿import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { BillingService } from './billing.service';
@@ -27,7 +27,9 @@ export class BillingController {
     return this.billingService.applyCoupon(user.sub, dto.code);
   }
 
+  @Post('asaas/webhook')
+  asaasWebhook(@Body() dto: unknown) { return this.billingService.processAsaasWebhook(dto as any); }
+
   @Post('efi/notification')
   notification(@Body() dto: EfiNotificationDto) { return this.billingService.processNotification(dto.notification); }
 }
-
