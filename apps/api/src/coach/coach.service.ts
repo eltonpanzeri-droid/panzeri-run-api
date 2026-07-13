@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+﻿import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
@@ -563,24 +563,6 @@ function buildTechnicalReportContent(detail: any) {
   const summary = detail.plan?.summary ?? emptySummary();
   const tests = detail.tests ?? [];
   const availability = detail.availability ?? [];
-  const sessions = detail.plan?.sessions ?? [];
-  const runningSessions = sessions.filter((session: any) => isRunningModality(session.modality));
-  const strengthSessions = sessions.filter((session: any) => isStrengthLikeModality(session.modality));
-  const aerobicSessions = sessions.filter((session: any) => isAerobicCrossTraining(session.modality));
-  const runningKm = round(runningSessions.reduce((total: number, session: any) => total + Number(session.distanceKm ?? 0), 0));
-  const runningMinutes = runningSessions.reduce((total: number, session: any) => total + Number(session.durationMin ?? 0), 0);
-  const strengthMinutes = strengthSessions.reduce((total: number, session: any) => total + Number(session.durationMin ?? 0), 0);
-  const aerobicMinutes = aerobicSessions.reduce((total: number, session: any) => total + Number(session.durationMin ?? 0), 0);
-  const zoneDistribution = buildZoneDistribution(runningSessions);
-  const availableDays = availability.filter((day: any) => !day.noTraining);
-  const availableMinutes = availableDays.reduce((total: number, day: any) => total + availabilityMinutes(day), 0);
-  const recentExecution = summarizeRecentExecution(sessions, detail.unmatchedStravaActivities ?? []);
-  const latestTest = tests[0];
-  const easyKm = round((zoneDistribution.Z1?.km ?? 0) + (zoneDistribution.Z2?.km ?? 0));
-  const qualityKm = round((zoneDistribution.Z3?.km ?? 0) + (zoneDistribution.Z4?.km ?? 0) + (zoneDistribution.Z5?.km ?? 0));
-  const easyShare = runningKm ? Math.round((easyKm / runningKm) * 100) : 0;
-  const qualityShare = runningKm ? Math.round((qualityKm / runningKm) * 100) : 0;
-
   return {
     generatedAt: new Date().toISOString(),
     type: 'technical',
@@ -588,221 +570,34 @@ function buildTechnicalReportContent(detail: any) {
     metrics: {
       sessions: summary.prescribedSessions,
       weeklyKm: summary.prescribedKm,
-      runningKm,
-      strengthSessions: strengthSessions.length,
-      easyIntensityShare: `${easyShare}%`,
-      qualityIntensityShare: `${qualityShare}%`,
-      recentCompletionRate: `${recentExecution.completionRate}%`,
-      recentAverageEffort: recentExecution.averageEffort ?? 'Sem PSE',
       latest3km: tests[0]?.pace ?? 'Sem teste',
-      availabilityDays: availableDays.length,
-      availableMinutes,
+      availabilityDays: availability.filter((day: any) => !day.noTraining).length,
     },
     sections: [
       {
-        title: 'Base individual usada',
-        text: [
-          `Objetivo registrado: ${detail.goal ?? 'nao informado'}.`,
-          `Teste de 3 km mais recente: ${latestTest ? `${latestTest.pace} por km, VO2 estimado ${latestTest.vo2max}` : 'nao informado; o plano fica conservador ate o aluno cadastrar o teste'}.`,
-          `Rotina informada: ${availableDays.length} dia(s) com possibilidade de treino, somando aproximadamente ${availableMinutes || 'tempo nao informado'} min disponiveis na semana.`,
-          `Modalidades previstas pela rotina/plano: ${runningSessions.length} corrida(s), ${strengthSessions.length} treino(s) de forca/fortalecimento e ${aerobicSessions.length} aerobico(s) alternativo(s).`,
-        ].join(' '),
+        title: 'Leitura inicial do aluno',
+        text: `Objetivo registrado: ${detail.goal}. Teste recente: ${tests[0]?.pace ?? 'nao informado'}. Disponibilidade util na semana: ${availability.filter((day: any) => !day.noTraining).length} dia(s).`,
       },
       {
-        title: 'Distribuicao de volume e intensidade',
-        text: [
-          `Plano atual: ${detail.plan?.name ?? 'sem plano ativo'}. Foram prescritos ${summary.prescribedSessions} treino(s), ${summary.prescribedKm} km totais e ${runningKm} km de corrida.`,
-          `A distribuicao estimada da corrida por zona ficou: ${formatZoneDistribution(zoneDistribution, runningKm)}.`,
-          `Isso deixa ${easyKm} km em Z1/Z2 (${easyShare}% do volume de corrida) e ${qualityKm} km em Z3/Z4/Z5 (${qualityShare}%).`,
-          `A decisao tecnica e usar a maior parte do volume em baixa intensidade para sustentar consistencia e reduzir risco de fadiga, ajustando intensidade apenas quando o teste, a rotina e a execucao recente permitirem.`,
-        ].join(' '),
+        title: 'Plano criado',
+        text: `Plano atual: ${detail.plan?.name ?? 'sem plano ativo'}. Foram prescritos ${summary.prescribedSessions} treino(s), com ${summary.prescribedKm} km planejados quando aplicavel.`,
       },
       {
-        title: 'Por que este desenho foi escolhido',
-        text: [
-          runningSessions.length
-            ? `A media prescrita por corrida foi de ${round(runningKm / runningSessions.length)} km e ${Math.round(runningMinutes / runningSessions.length)} min.`
-            : 'Nao ha corrida prescrita nesta semana.',
-          strengthSessions.length
-            ? `Foram mantidos ${strengthSessions.length} treino(s) de forca/fortalecimento, somando ${strengthMinutes} min, para dar suporte muscular sem transformar a semana em uma carga apenas cardiovascular.`
-            : 'Nao ha treino de forca nesta semana; isso deve ser revisto se o objetivo exigir maior protecao musculoesqueletica.',
-          aerobicSessions.length
-            ? `Os ${aerobicSessions.length} treino(s) aerobico(s) alternativo(s), somando ${aerobicMinutes} min, devem entrar como manutencao de condicionamento sem competir com a corrida principal.`
-            : 'Nao houve aerobico alternativo planejado nesta semana.',
-          availableDays.length && runningSessions.length
-            ? `Como a rotina oferece ${availableDays.length} dia(s) uteis, o volume precisou ser distribuido em ${runningSessions.length} sessao(oes) de corrida; se a rotina reduzir, o agente deve evitar simplesmente concentrar tudo em poucos dias sem avaliar fadiga.`
-            : 'A rotina ainda nao permite uma leitura completa de distribuicao semanal.',
-        ].join(' '),
+        title: 'Justificativa tecnica',
+        text: 'O plano foi montado cruzando objetivo, teste de 3 km, rotina semanal informada, modalidades disponiveis e sinais de saude/recuperacao. A progressao deve respeitar aderencia, feedback, dor, fadiga e dados externos do Strava quando disponiveis.',
       },
       {
-        title: 'Leitura da execucao recente',
-        text: [
-          `Execucao observada: ${recentExecution.completed}/${recentExecution.eligible} treino(s) elegiveis concluidos (${recentExecution.completionRate}%).`,
-          `Volume registrado no app/Strava: ${recentExecution.completedKm} km de ${recentExecution.prescribedKm} km previstos nos treinos ja vencidos.`,
-          recentExecution.averageEffort !== null
-            ? `PSE media informada: ${recentExecution.averageEffort}/10.`
-            : 'PSE ainda insuficiente para interpretar resposta subjetiva.',
-          recentExecution.paceFindings.length
-            ? `Ritmo observado: ${recentExecution.paceFindings.slice(0, 3).join(' ')}`
-            : 'Ainda nao ha pace suficiente para comparar se o aluno esta correndo acima ou abaixo da faixa prescrita.',
-          recentExecution.feedbacks.length
-            ? `Comentarios recentes do aluno: ${recentExecution.feedbacks.slice(0, 3).join(' | ')}.`
-            : 'Ainda nao ha comentarios recentes relevantes.',
-          recentExecution.unmatchedCount
-            ? `Tambem existem ${recentExecution.unmatchedCount} atividade(s) do Strava sem treino correspondente; isso pode indicar treino extra, troca de modalidade ou falha de pareamento.`
-            : 'Nao ha atividades extras do Strava sem correspondencia no periodo analisado.',
-        ].join(' '),
+        title: 'Expectativa de resposta',
+        text: 'A expectativa e aumentar consistencia, preservar seguranca e ajustar volume/intensidade conforme execucao real. Caso a aderencia caia, o agente deve reduzir complexidade e adequar rotina antes de elevar carga.',
       },
       {
-        title: 'Decisao de progressao',
-        text: buildProgressionDecision(summary, recentExecution, easyShare, qualityShare, runningKm),
-      },
-      {
-        title: 'Pontos objetivos para supervisao',
-        text: [
-          `Conferir ${summary.differentSessions} treino(s) feito(s) diferente do proposto e ${summary.missedSessions} treino(s) sem registro.`,
-          `Validar se a proporcao ${easyShare}% leve / ${qualityShare}% moderada-forte esta coerente com objetivo, teste de 3 km e fadiga relatada.`,
-          `Se o aluno seguir acima do ritmo prescrito, o proximo ajuste deve proteger recuperacao antes de aumentar volume.`,
-          `Se o aluno cumprir o plano com PSE baixa/moderada e sem dor, o agente pode considerar pequeno aumento de volume ou refinamento de pace na proxima semana.`,
-        ].join(' '),
+        title: 'Pontos para supervisao do treinador',
+        text: `Monitorar treinos diferentes do proposto (${summary.differentSessions}), treinos sem registro (${summary.missedSessions}) e comentarios do aluno. Validar manualmente se houver dor, fadiga alta ou queda consistente de desempenho.`,
       },
     ],
   };
 }
 
-function isRunningModality(modality: string | null | undefined) {
-  const value = String(modality ?? '').toLowerCase();
-  return value.includes('corrida') || value.includes('esteira');
-}
-
-function isStrengthLikeModality(modality: string | null | undefined) {
-  const value = String(modality ?? '').toLowerCase();
-  return value.includes('musculacao') || value.includes('forca') || value.includes('fortalecimento');
-}
-
-function isAerobicCrossTraining(modality: string | null | undefined) {
-  const value = String(modality ?? '').toLowerCase();
-  return value.includes('bike') || value.includes('aerobico');
-}
-
-function availabilityMinutes(day: any) {
-  const durations = day?.modalityDurations;
-  if (durations && typeof durations === 'object') {
-    return Object.values(durations).reduce((total: number, value: any) => total + Number(value ?? 0), 0);
-  }
-  return Number(day?.availableMin ?? 0);
-}
-
-function buildZoneDistribution(sessions: any[]) {
-  const distribution: Record<string, { km: number; minutes: number }> = {};
-  for (const session of sessions) {
-    const blocks = extractRunBlocks(session);
-    if (blocks.length) {
-      for (const block of blocks) {
-        const zone = String(block.zone ?? session.zone ?? 'Sem zona').toUpperCase();
-        const distance = Number(block.distanceValue ?? block.distanceKm ?? 0);
-        const minutes = Number(block.durationMin ?? 0);
-        distribution[zone] = distribution[zone] ?? { km: 0, minutes: 0 };
-        distribution[zone].km += Number.isFinite(distance) ? distance : 0;
-        distribution[zone].minutes += Number.isFinite(minutes) ? minutes : 0;
-      }
-      continue;
-    }
-    const zone = String(session.zone ?? 'Sem zona').toUpperCase();
-    distribution[zone] = distribution[zone] ?? { km: 0, minutes: 0 };
-    distribution[zone].km += Number(session.distanceKm ?? 0);
-    distribution[zone].minutes += Number(session.durationMin ?? 0);
-  }
-  for (const value of Object.values(distribution)) {
-    value.km = round(value.km);
-    value.minutes = Math.round(value.minutes);
-  }
-  return distribution;
-}
-
-function extractRunBlocks(session: any) {
-  const structure = session?.structure;
-  if (!structure || typeof structure !== 'object') return [];
-  if (Array.isArray(structure.blocks)) return structure.blocks;
-  if (Array.isArray(structure.steps)) return structure.steps;
-  if (Array.isArray(structure)) return structure;
-  return [];
-}
-
-function formatZoneDistribution(distribution: Record<string, { km: number; minutes: number }>, totalKm: number) {
-  const zones = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5'];
-  const text = zones
-    .filter((zone) => distribution[zone]?.km || distribution[zone]?.minutes)
-    .map((zone) => {
-      const item = distribution[zone];
-      const percent = totalKm ? Math.round((item.km / totalKm) * 100) : 0;
-      return `${zone}: ${item.km} km (${percent}%)`;
-    });
-  return text.length ? text.join(', ') : 'sem zonas calculadas';
-}
-
-function summarizeRecentExecution(sessions: any[], unmatchedStravaActivities: any[]) {
-  const today = new Date();
-  today.setUTCHours(23, 59, 59, 999);
-  const eligibleSessions = sessions.filter((session: any) => new Date(session.date ?? session.scheduledDate) <= today);
-  const completed = eligibleSessions.filter((session: any) => session.completionStatus === 'done' || session.completionStatus === 'adjusted');
-  const prescribedKm = round(eligibleSessions.reduce((total: number, session: any) => total + Number(session.distanceKm ?? 0), 0));
-  const completedKm = round(completed.reduce((total: number, session: any) => total + Number(session.completedDistanceKm ?? session.stravaActivity?.distanceKm ?? 0), 0));
-  const efforts = completed.map((session: any) => Number(session.perceivedEffort)).filter((value: number) => Number.isFinite(value) && value > 0);
-  const averageEffort = efforts.length ? Math.round((efforts.reduce((total: number, value: number) => total + value, 0) / efforts.length) * 10) / 10 : null;
-  const paceFindings = completed
-    .map((session: any) => comparePace(session))
-    .filter(Boolean) as string[];
-  return {
-    eligible: eligibleSessions.length,
-    completed: completed.length,
-    completionRate: eligibleSessions.length ? Math.round((completed.length / eligibleSessions.length) * 100) : 0,
-    prescribedKm,
-    completedKm,
-    averageEffort,
-    paceFindings,
-    feedbacks: completed.map((session: any) => session.feedback).filter(Boolean),
-    unmatchedCount: unmatchedStravaActivities.length,
-  };
-}
-
-function comparePace(session: any) {
-  const completedPace = Number(session.completedPaceSecondsKm ?? session.stravaActivity?.paceSecondsKm);
-  if (!Number.isFinite(completedPace) || completedPace <= 0) return null;
-  const target = parsePaceRange(session.pace ?? session.structure?.paceRange);
-  if (!target) return null;
-  const title = session.title ?? 'treino';
-  if (completedPace < target.fast - 5) return `${title}: correu acima da faixa (${formatPace(Math.round(completedPace))} vs alvo ${formatPace(target.fast)} a ${formatPace(target.slow)}).`;
-  if (completedPace > target.slow + 5) return `${title}: correu abaixo da faixa (${formatPace(Math.round(completedPace))} vs alvo ${formatPace(target.fast)} a ${formatPace(target.slow)}).`;
-  return `${title}: pace dentro da faixa prescrita (${formatPace(Math.round(completedPace))}).`;
-}
-
-function parsePaceRange(value: string | null | undefined) {
-  if (!value) return null;
-  const matches = [...String(value).matchAll(/(\d{1,2}):(\d{2})/g)];
-  if (!matches.length) return null;
-  const seconds = matches.map((match) => Number(match[1]) * 60 + Number(match[2])).sort((a, b) => a - b);
-  return {
-    fast: seconds[0],
-    slow: seconds[seconds.length - 1],
-  };
-}
-
-function buildProgressionDecision(summary: any, execution: ReturnType<typeof summarizeRecentExecution>, easyShare: number, qualityShare: number, runningKm: number) {
-  if (!summary.prescribedSessions) {
-    return 'Ainda nao existe plano suficiente para justificar progressao. Primeiro o agente deve consolidar objetivo, teste de 3 km, rotina e semana inicial.';
-  }
-  if (execution.averageEffort !== null && execution.averageEffort >= 8) {
-    return `A PSE media recente esta alta (${execution.averageEffort}/10). Mesmo que o volume semanal seja ${runningKm} km, a decisao tecnica deve ser segurar progressao e preservar recuperacao antes de aumentar distancia ou intensidade.`;
-  }
-  if (execution.completionRate >= 80 && (execution.averageEffort === null || execution.averageEffort <= 6)) {
-    return `O aluno cumpriu ${execution.completionRate}% dos treinos elegiveis com PSE media ${execution.averageEffort ?? 'nao informada'}. Isso sugere possibilidade de progredir com cautela, priorizando pequeno aumento de volume ou precisao de pace, sem elevar simultaneamente volume e intensidade.`;
-  }
-  if (execution.completionRate < 50) {
-    return `A execucao recente esta baixa (${execution.completionRate}%). A prioridade nao deve ser aumentar carga; deve ser simplificar a semana, adequar dias/horarios e reduzir barreiras para o aluno cumprir o minimo consistente.`;
-  }
-  return `A semana esta em zona intermediaria: ${execution.completionRate}% de execucao, ${easyShare}% do volume em Z1/Z2 e ${qualityShare}% em Z3/Z4/Z5. O agente deve manter progressao conservadora, observando se o aluno consegue transformar o plano prescrito em rotina real.`;
-}
 function buildEvolutionReportContent(detail: any) {
   const summary = detail.plan?.summary ?? emptySummary();
   const sessions = detail.plan?.sessions ?? [];
@@ -988,7 +783,6 @@ function formatPace(secondsPerKm: number) {
   const seconds = secondsPerKm % 60;
   return `${minutes}:${seconds.toString().padStart(2, '0')}/km`;
 }
-
 
 
 

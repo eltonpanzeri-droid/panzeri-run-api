@@ -1628,15 +1628,8 @@ function reportMetricLabel(key: string) {
   const labels: Record<string, string> = {
     sessions: 'Treinos',
     weeklyKm: 'Km semana',
-    runningKm: 'Km corrida',
-    strengthSessions: 'Treinos forca',
-    easyIntensityShare: '% leve',
-    qualityIntensityShare: '% moderado/forte',
-    recentCompletionRate: 'Execucao recente',
-    recentAverageEffort: 'PSE recente',
     latest3km: 'Teste 3 km',
     availabilityDays: 'Dias disponiveis',
-    availableMinutes: 'Min disponiveis',
     adherencePercent: 'Aderencia',
     completedSessions: 'Treinos feitos',
     prescribedSessions: 'Treinos previstos',
@@ -1877,7 +1870,6 @@ async function copyText(text: string) {
   if (!text) return;
   await navigator.clipboard.writeText(text);
 }
-
 
 
 
