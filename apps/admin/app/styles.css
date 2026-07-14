@@ -499,7 +499,7 @@ h3 {
   width: 100%;
   min-height: 62px;
   display: grid;
-  grid-template-columns: 1.35fr 1fr 0.65fr 0.7fr 0.9fr;
+  grid-template-columns: 1.2fr 0.9fr 0.55fr 0.6fr 0.8fr 0.8fr 40px;
   gap: 12px;
   align-items: center;
   border: 1px solid var(--line);
@@ -508,6 +508,32 @@ h3 {
   text-align: left;
   background: var(--paper);
   color: var(--ink);
+  cursor: pointer;
+}
+
+.archivedToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rowArchiveButton {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--danger);
+}
+
+.rowArchiveButton:hover {
+  background: var(--danger-soft);
 }
 
 .row.header {

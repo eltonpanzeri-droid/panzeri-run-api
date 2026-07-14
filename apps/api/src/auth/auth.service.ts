@@ -1,6 +1,7 @@
 ﻿import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -31,17 +32,25 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        name: dto.name.trim(),
-        passwordHash,
-        acceptedTermsAt: new Date(),
-        acceptedPrivacyAt: new Date(),
-        acceptedExerciseResponsibilityAt: new Date(),
-      },
-      select: this.publicUserSelect(),
-    });
+    let user;
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          name: dto.name.trim(),
+          passwordHash,
+          acceptedTermsAt: new Date(),
+          acceptedPrivacyAt: new Date(),
+          acceptedExerciseResponsibilityAt: new Date(),
+        },
+        select: this.publicUserSelect(),
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new BadRequestException('E-mail ja cadastrado.');
+      }
+      throw error;
+    }
 
     return {
       user,

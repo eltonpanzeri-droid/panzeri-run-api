@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, AlertTriangle, Bell, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, CreditCard, Eye, EyeOff, FileText, Gauge, LayoutDashboard, LogIn, Menu, RefreshCw, Save, Search, Ticket, UserRound, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, Bell, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, CreditCard, Eye, EyeOff, FileText, Gauge, LayoutDashboard, LogIn, Menu, RefreshCw, Save, Search, Ticket, Trash2, UserRound, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -231,6 +231,7 @@ export default function AdminHome() {
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [studentDetail, setStudentDetail] = useState<StudentDetail | null>(null);
   const [query, setQuery] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [status, setStatus] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentEmail, setNewStudentEmail] = useState('');
@@ -293,7 +294,7 @@ export default function AdminHome() {
     if (!token) return;
     const timer = window.setTimeout(() => void loadDashboard(token, page, query), 350);
     return () => window.clearTimeout(timer);
-  }, [query, page, token]);
+  }, [query, page, token, showArchived]);
 
   async function login() {
     setStatus('Entrando...');
@@ -342,6 +343,7 @@ export default function AdminHome() {
       }
       const params = new URLSearchParams({ page: String(requestedPage), pageSize: '25' });
       if (search.trim()) params.set('search', search.trim());
+      if (showArchived) params.set('includeArchived', '1');
       const response = await fetch(`${API_URL}/coach/dashboard?${params.toString()}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -510,6 +512,32 @@ export default function AdminHome() {
     }
   }
 
+  async function archiveStudent(studentId: string, name: string) {
+    if (!window.confirm(`Arquivar ${name}? O aluno sai da lista, mas os dados ficam guardados e podem ser reativados depois.`)) {
+      return;
+    }
+    setStatus('Arquivando aluno...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountStatus: 'archived' }),
+      });
+      if (!response.ok) {
+        setStatus('Nao consegui arquivar o aluno.');
+        return;
+      }
+      if (selectedStudentId === studentId) {
+        setSelectedStudentId('');
+        setStudentDetail(null);
+      }
+      setStatus('Aluno arquivado.');
+      await loadDashboard();
+    } catch {
+      setStatus('Nao consegui conectar com a API.');
+    }
+  }
+
   function logout() {
     window.localStorage.removeItem('panzeri_admin_token');
     window.localStorage.removeItem('panzeri_admin_refresh_token');
@@ -562,6 +590,12 @@ export default function AdminHome() {
               <Search size={18} />
               <input placeholder="Buscar por nome ou e-mail" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
             </label> : null}
+            {activeView === 'students' ? (
+              <label className="archivedToggle">
+                <input type="checkbox" checked={showArchived} onChange={(event) => { setShowArchived(event.target.checked); setPage(1); }} />
+                Mostrar arquivados
+              </label>
+            ) : null}
             <button className="iconButton" type="button" onClick={() => loadDashboard()}>
               <RefreshCw size={18} />
             </button>
@@ -638,10 +672,12 @@ export default function AdminHome() {
                 <span>Objetivo</span>
                 <span>Aderencia</span>
                 <span>Teste 3 km</span>
-                <span>Status</span>
+                <span>Treino</span>
+                <span>Pagamento</span>
+                <span></span>
               </div>
               {dashboard?.students.map((student) => (
-                <button className={`row rowButton ${selectedStudentId === student.id ? 'selected' : ''}`} type="button" key={student.id} onClick={() => loadStudent(student.id)}>
+                <div className={`row rowButton ${selectedStudentId === student.id ? 'selected' : ''}`} key={student.id} onClick={() => loadStudent(student.id)}>
                   <span>
                     <strong>{student.name}</strong>
                     <small>{student.email}</small>
@@ -650,7 +686,16 @@ export default function AdminHome() {
                   <span>{student.adherencePercent}%</span>
                   <span>{student.lastThreeKm}</span>
                   <span className={`status ${statusClass(student.status)}`}>{student.status}</span>
-                </button>
+                  <span className={`status ${paymentStatusClass(student.subscriptionStatus)}`}>{paymentStatusLabel(student.subscriptionStatus)}</span>
+                  <button
+                    type="button"
+                    className="rowArchiveButton"
+                    aria-label={`Arquivar ${student.name}`}
+                    onClick={(event) => { event.stopPropagation(); archiveStudent(student.id, student.name); }}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               ))}
             </div>
             <Pagination pagination={dashboard?.pagination} onPageChange={setPage} />
@@ -994,6 +1039,7 @@ function StudentPanel({
           <option value="paused">Pausado</option>
           <option value="overdue">Vencido</option>
           <option value="canceled">Cancelado</option>
+          <option value="archived">Arquivado</option>
         </select>
         <label className="adminFieldLabel">Assinatura
           <select value={subscriptionStatus} onChange={(event) => setSubscriptionStatus(event.target.value)}>
@@ -1656,6 +1702,25 @@ function statusClass(status: string) {
   if (status === 'Boa execucao') return 'good';
   if (status === 'Atencao') return 'danger';
   if (status === 'Fez diferente') return 'warn';
+  return '';
+}
+
+function paymentStatusLabel(status?: string) {
+  const labels: Record<string, string> = {
+    pending: 'Pendente',
+    manual_active: 'Cortesia',
+    active: 'Pago',
+    grace: 'Tolerancia',
+    overdue: 'Atrasado',
+    canceled: 'Cancelado',
+  };
+  return labels[status ?? ''] ?? 'Pendente';
+}
+
+function paymentStatusClass(status?: string) {
+  if (status === 'active' || status === 'manual_active') return 'good';
+  if (status === 'pending' || status === 'grace') return 'warn';
+  if (status === 'overdue' || status === 'canceled') return 'danger';
   return '';
 }
 

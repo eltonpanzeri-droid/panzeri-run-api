@@ -11,7 +11,7 @@ export class UpdateStudentDto {
   email?: string;
 
   @IsOptional()
-  @IsIn(['active', 'paused', 'canceled', 'overdue'])
+  @IsIn(['active', 'paused', 'canceled', 'overdue', 'archived'])
   accountStatus?: string;
 
   @IsOptional()

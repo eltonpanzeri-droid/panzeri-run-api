@@ -20,6 +20,39 @@ type Screen = 'login' | 'app';
 type Tab = 'week' | 'interview' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile';
 type AuthMode = 'login' | 'register';
 
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: { componentStack: string }) {
+    console.error('Panzeri Run crashed:', error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.loadingState}>
+            <Text style={styles.sectionLabel}>Panzeri Run</Text>
+            <Text style={styles.statusMessage}>Algo deu errado ao abrir esta tela.</Text>
+            <Text style={styles.statusMessage}>{this.state.error.message}</Text>
+            <Pressable style={styles.primaryButton} onPress={() => this.setState({ error: null })}>
+              <Text style={styles.primaryButtonText}>Tentar novamente</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function initialAuthMode(): AuthMode {
   if (typeof window === 'undefined') {
     return 'login';
@@ -298,6 +331,16 @@ function openAuthPopup(): AuthPopup {
   ) ?? null;
 }
 
+async function extractErrorMessage(response: Response): Promise<string | null> {
+  try {
+    const data = (await response.json()) as { message?: string | string[] };
+    if (Array.isArray(data.message)) return data.message[0] ?? null;
+    return data.message ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const modalityOptions = [
   'Musculacao',
   'Fortalecimento para corredores',
@@ -480,7 +523,7 @@ const weekSessions = [
   },
 ];
 
-export default function App() {
+function AppInner() {
   const [screen, setScreen] = useState<Screen>('login');
   const [isRestoringSession, setIsRestoringSession] = useState(true);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
@@ -708,6 +751,14 @@ export default function App() {
   );
 }
 
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppInner />
+    </ErrorBoundary>
+  );
+}
+
 function registerWebApp() {
   const browser = globalThis as unknown as {
     document?: {
@@ -912,7 +963,7 @@ function Login({
         });
 
         if (!loginResponse.ok) {
-          setStatus('Nao consegui entrar. Confira e-mail e senha.');
+          setStatus((await extractErrorMessage(loginResponse)) ?? 'Nao consegui entrar. Confira e-mail e senha.');
           return;
         }
 
@@ -951,7 +1002,12 @@ function Login({
       });
 
       if (!registerResponse.ok) {
-        setStatus('Nao consegui criar a conta. Se ela ja existir, use Entrar.');
+        const message = await extractErrorMessage(registerResponse);
+        setStatus(
+          message === 'E-mail ja cadastrado.'
+            ? 'Este e-mail ja tem uma conta. Toque em "Entrar" e use sua senha, ou em "Esqueci minha senha" se nao lembrar.'
+            : message ?? 'Nao consegui criar a conta.',
+        );
         return;
       }
 

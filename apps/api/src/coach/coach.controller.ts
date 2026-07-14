@@ -34,11 +34,17 @@ export class CoachController {
   }
 
   @Get('dashboard')
-  dashboard(@Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+  dashboard(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('includeArchived') includeArchived?: string,
+  ) {
     return this.coachService.dashboard({
       search: search?.trim() ?? '',
       page: Math.max(Number(page) || 1, 1),
       pageSize: Math.min(Math.max(Number(pageSize) || 25, 5), 100),
+      includeArchived: includeArchived === '1' || includeArchived === 'true',
     });
   }
 

@@ -27,23 +27,31 @@ export class CoachService {
 
     const temporaryPassword = dto.password ?? randomBytes(18).toString('hex');
     const passwordHash = await bcrypt.hash(temporaryPassword, 12);
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        name: dto.name.trim(),
-        passwordHash,
-        role: 'student',
-        accountStatus: dto.password ? 'active' : 'paused',
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        accountStatus: true,
-        createdAt: true,
-      },
-    });
+    let user;
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          name: dto.name.trim(),
+          passwordHash,
+          role: 'student',
+          accountStatus: dto.password ? 'active' : 'paused',
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          accountStatus: true,
+          createdAt: true,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new BadRequestException('E-mail ja cadastrado.');
+      }
+      throw error;
+    }
 
     if (!dto.password) {
       const invite = await this.createStudentInvite(user.id);
@@ -176,9 +184,10 @@ export class CoachService {
     return { message: 'Entrevista liberada para revisao.' };
   }
 
-  async dashboard(input: { search: string; page: number; pageSize: number }) {
+  async dashboard(input: { search: string; page: number; pageSize: number; includeArchived?: boolean }) {
     const studentWhere: Prisma.UserWhereInput = {
       role: 'student',
+      ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }),
       ...(input.search ? {
         OR: [
           { name: { contains: input.search, mode: 'insensitive' } },
@@ -211,7 +220,7 @@ export class CoachService {
       },
       }),
       this.prisma.user.count({ where: studentWhere }),
-      this.prisma.user.count({ where: { role: 'student' } }),
+      this.prisma.user.count({ where: { role: 'student', ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }) } }),
       this.prisma.trainingPlan.findMany({ where: { status: 'active' }, distinct: ['userId'], select: { userId: true } }),
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: weekEnd }, plan: { status: 'active' } } }),
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } }),
