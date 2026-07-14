@@ -1,9 +1,9 @@
-﻿import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+﻿import { Body, Controller, Get, Headers, Post, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { BillingService } from './billing.service';
 import { ApplyCouponDto } from './dto/apply-coupon.dto';
-import { EfiNotificationDto } from './dto/efi-notification.dto';
+import { CreateCheckoutDto } from './dto/create-checkout.dto';
 
 @Controller('billing')
 export class BillingController {
@@ -15,7 +15,9 @@ export class BillingController {
 
   @UseGuards(AuthGuard('jwt'))
   @Post('checkout')
-  createCheckout(@CurrentUser() user: CurrentUserPayload) { return this.billingService.createCheckout(user.sub); }
+  createCheckout(@CurrentUser() user: CurrentUserPayload, @Body() dto: CreateCheckoutDto) {
+    return this.billingService.createCheckout(user.sub, dto.cpf);
+  }
 
   @UseGuards(AuthGuard('jwt'))
   @Post('cancel')
@@ -27,7 +29,9 @@ export class BillingController {
     return this.billingService.applyCoupon(user.sub, dto.code);
   }
 
-  @Post('efi/notification')
-  notification(@Body() dto: EfiNotificationDto) { return this.billingService.processNotification(dto.notification); }
+  @Post('asaas/webhook')
+  asaasWebhook(@Headers('asaas-access-token') accessToken: string | undefined, @Body() payload: Record<string, any>) {
+    return this.billingService.processAsaasWebhook(accessToken, payload);
+  }
 }
 

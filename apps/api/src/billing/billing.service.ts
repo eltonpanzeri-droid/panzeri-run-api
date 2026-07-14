@@ -1,46 +1,39 @@
-﻿import { BadGatewayException, BadRequestException, Injectable } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { TelegramService } from './telegram.service';
 
-type EfiResponse<T> = { code: number; data: T };
-type EfiPlan = { plan_id: number };
-type EfiCheckout = {
-  subscription_id: number;
-  status: string;
-  charge: { id: number; status: string };
-  payment_url: string;
-};
-type EfiSubscriptionDetails = {
-  subscription_id: number;
-  status: string;
-  next_execution?: string | null;
-  history?: Array<{ status?: string }>;
-};
-type EfiEvent = {
-  identifiers?: { charge_id?: number; subscription_id?: number };
-  status?: { current?: string };
+type AsaasCustomer = { id: string };
+type AsaasSubscription = { id: string; status: string; nextDueDate?: string | null };
+type AsaasPayment = { id: string; status: string; invoiceUrl?: string | null; dateCreated?: string };
+type AsaasPaymentList = { data: AsaasPayment[] };
+type AsaasWebhookPayload = {
+  event?: string;
+  payment?: { id?: string; subscription?: string; status?: string; value?: number };
 };
 
-const ACTIVE_STATUSES = new Set(['active', 'paid', 'approved', 'settled']);
-const OVERDUE_STATUSES = new Set(['unpaid', 'overdue', 'refunded', 'chargeback']);
-const CANCELED_STATUSES = new Set(['canceled', 'cancelled', 'expired']);
+const ACTIVE_STATUSES = new Set(['received', 'confirmed', 'received_in_cash']);
+const OVERDUE_STATUSES = new Set(['overdue', 'refunded', 'refund_requested', 'chargeback_requested', 'chargeback_dispute']);
+const PLAN_PRICE = 19.9;
+const PLAN_DESCRIPTION = 'Panzeri Run - Plano mensal';
 const WELCOME_NOTIFICATION_TYPE = 'subscription_welcome';
 const WELCOME_NOTIFICATION_TITLE = 'Bem-vindo ao Panzeri Run';
 const WELCOME_NOTIFICATION_MESSAGE = 'Estou muito feliz em poder conduzir você em sua jornada de treinos. Vamos com tudo';
 
 @Injectable()
 export class BillingService {
-  private token?: { value: string; expiresAt: number };
-
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+    private readonly telegram: TelegramService,
+  ) {}
 
   async getMine(userId: string) {
-    const efiConfigured = this.isConfigured();
-    const manualUrl = this.manualPaymentUrl();
+    const asaasConfigured = this.isConfigured();
     const [user, billing] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
-        select: { subscriptionStatus: true, subscriptionUpdatedAt: true },
+        select: { subscriptionStatus: true, subscriptionUpdatedAt: true, cpf: true },
       }),
       this.prisma.billingSubscription.findUnique({ where: { userId } }),
     ]);
@@ -50,9 +43,9 @@ export class BillingService {
     let nextChargeAt = billing?.nextChargeAt ?? null;
     let syncError = false;
 
-    if (billing?.externalSubscriptionId && efiConfigured) {
+    if (billing?.externalSubscriptionId && asaasConfigured) {
       try {
-        const refreshed = await this.refreshFromEfi(billing.id, userId, billing.externalSubscriptionId);
+        const refreshed = await this.refreshFromAsaas(billing.id, userId, billing.externalSubscriptionId);
         appStatus = refreshed.appStatus;
         providerStatus = refreshed.providerStatus;
         nextChargeAt = refreshed.nextChargeAt;
@@ -62,12 +55,13 @@ export class BillingService {
     }
 
     return {
-      provider: billing?.provider ?? (efiConfigured ? 'efi' : 'manual'),
-      planName: 'Panzeri Run - Plano mensal',
+      provider: billing?.provider ?? 'asaas',
+      planName: PLAN_DESCRIPTION,
       priceLabel: 'R$ 19,90 por mes',
       status: appStatus,
       providerStatus,
-      checkoutUrl: appStatus === 'manual_active' ? null : billing?.checkoutUrl ?? manualUrl,
+      hasCpf: Boolean(user.cpf),
+      checkoutUrl: appStatus === 'manual_active' ? null : billing?.checkoutUrl ?? null,
       nextChargeAt,
       updatedAt: user.subscriptionUpdatedAt,
       canCancel: billing?.provider !== 'coupon' && Boolean(['active', 'manual_active', 'grace', 'pending'].includes(appStatus)),
@@ -75,53 +69,63 @@ export class BillingService {
     };
   }
 
-  async createCheckout(userId: string) {
-    if (!this.isConfigured()) {
-      return this.createManualCheckout(userId);
+  async createCheckout(userId: string, cpf?: string) {
+    this.assertConfigured();
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { id: true, name: true, email: true, cpf: true, subscriptionStatus: true } });
+
+    let savedCpf = user.cpf;
+    if (!savedCpf) {
+      const normalized = normalizeCpf(cpf);
+      if (!normalized) throw new BadRequestException('Informe um CPF valido para continuar.');
+      await this.prisma.user.update({ where: { id: userId }, data: { cpf: normalized } });
+      savedCpf = normalized;
     }
-    const [existing, user] = await Promise.all([
-      this.prisma.billingSubscription.findUnique({ where: { userId } }),
-      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { subscriptionStatus: true } }),
-    ]);
-    if (existing?.checkoutUrl && ['new', 'link', 'waiting'].includes(existing.providerStatus)) {
+
+    const existing = await this.prisma.billingSubscription.findUnique({ where: { userId } });
+    if (existing?.providerStatus && ACTIVE_STATUSES.has(existing.providerStatus)) {
+      throw new BadRequestException('A assinatura ja esta ativa.');
+    }
+    if (existing?.checkoutUrl && existing.providerStatus === 'pending') {
       return { checkoutUrl: existing.checkoutUrl };
     }
 
-    const planId = await this.ensurePlan();
-    const publicUrl = this.config.get<string>('APP_PUBLIC_URL')?.replace(/\/$/, '');
-    if (!publicUrl) throw new BadRequestException('APP_PUBLIC_URL nao configurada.');
+    const customerId = existing?.externalCustomerId ?? (await this.ensureCustomer(userId, user.name, user.email, savedCpf));
+    const nextDueDate = formatDate(new Date(Date.now() + 24 * 60 * 60 * 1000));
 
-    const response = await this.efiRequest<EfiResponse<EfiCheckout>>('/v1/plan/' + planId + '/subscription/one-step/link', {
+    const subscription = await this.asaasRequest<AsaasSubscription>('/subscriptions', {
       method: 'POST',
       body: JSON.stringify({
-        items: [{ name: 'Panzeri Run - Plano mensal', value: 1990, amount: 1 }],
-        metadata: {
-          custom_id: 'panzeri-run:' + userId,
-          notification_url: publicUrl + '/billing/efi/notification',
-        },
-        settings: {
-          payment_method: 'credit_card',
-          request_delivery_address: false,
-        },
+        customer: customerId,
+        billingType: 'UNDEFINED',
+        value: PLAN_PRICE,
+        nextDueDate,
+        cycle: 'MONTHLY',
+        description: PLAN_DESCRIPTION,
       }),
     });
 
-    const data = response.data;
+    const payments = await this.asaasRequest<AsaasPaymentList>(`/payments?subscription=${subscription.id}`);
+    const firstPayment = payments.data?.[0] ?? null;
+    const checkoutUrl = firstPayment?.invoiceUrl ?? null;
+    if (!checkoutUrl) throw new BadGatewayException('O Asaas nao retornou o link de pagamento.');
+
     await this.prisma.$transaction([
       this.prisma.billingSubscription.upsert({
         where: { userId },
         create: {
           userId,
-          externalSubscriptionId: String(data.subscription_id),
-          externalChargeId: String(data.charge.id),
-          checkoutUrl: data.payment_url,
-          providerStatus: data.status || data.charge.status,
+          provider: 'asaas',
+          externalCustomerId: customerId,
+          externalSubscriptionId: subscription.id,
+          checkoutUrl,
+          providerStatus: 'pending',
         },
         update: {
-          externalSubscriptionId: String(data.subscription_id),
-          externalChargeId: String(data.charge.id),
-          checkoutUrl: data.payment_url,
-          providerStatus: data.status || data.charge.status,
+          provider: 'asaas',
+          externalCustomerId: customerId,
+          externalSubscriptionId: subscription.id,
+          checkoutUrl,
+          providerStatus: 'pending',
         },
       }),
       this.prisma.user.update({
@@ -133,7 +137,9 @@ export class BillingService {
       }),
     ]);
 
-    return { checkoutUrl: data.payment_url };
+    await this.telegram.notifyCoach(`Nova assinatura gerada no Panzeri Run\n\nAluno: ${user.name}\nE-mail: ${user.email}\nStatus: aguardando pagamento (R$ 19,90/mes)`);
+
+    return { checkoutUrl };
   }
 
   async applyCoupon(userId: string, code: string) {
@@ -216,76 +222,90 @@ export class BillingService {
       return { status: 'canceled', message: 'Solicitacao de cancelamento registrada.' };
     }
 
-    await this.efiRequest('/v1/subscription/' + billing.externalSubscriptionId + '/cancel', {
-      method: 'PUT',
-      body: JSON.stringify({ description: 'Cancelamento solicitado pelo aluno no Panzeri Run.' }),
-    });
+    await this.asaasRequest(`/subscriptions/${billing.externalSubscriptionId}`, { method: 'DELETE' });
     await this.updateStatus(userId, 'canceled', 'canceled');
     return { status: 'canceled', message: 'Assinatura cancelada.' };
   }
 
-  async processNotification(notification: string) {
-    this.assertConfigured();
-    const response = await this.efiRequest<EfiResponse<EfiEvent[]>>('/v1/notification/' + encodeURIComponent(notification));
-    const events = Array.isArray(response.data) ? response.data : [];
-    const identifiers = [...events].reverse().find((event) => event.identifiers)?.identifiers;
-    const billing = identifiers?.subscription_id
-      ? await this.prisma.billingSubscription.findUnique({ where: { externalSubscriptionId: String(identifiers.subscription_id) } })
-      : identifiers?.charge_id
-        ? await this.prisma.billingSubscription.findUnique({ where: { externalChargeId: String(identifiers.charge_id) } })
-        : null;
+  async processAsaasWebhook(accessToken: string | undefined, payload: AsaasWebhookPayload) {
+    const expectedToken = this.config.get<string>('ASAAS_WEBHOOK_TOKEN');
+    if (!expectedToken || accessToken !== expectedToken) {
+      throw new UnauthorizedException('Token de webhook invalido.');
+    }
 
+    const subscriptionId = payload.payment?.subscription;
+    if (!subscriptionId) return { received: true };
+
+    const billing = await this.prisma.billingSubscription.findUnique({ where: { externalSubscriptionId: subscriptionId } });
     if (!billing) return { received: true };
 
-    const current = [...events].reverse().map((event) => event.status?.current?.toLowerCase()).find(Boolean) ?? 'unknown';
-    const appStatus = ACTIVE_STATUSES.has(current)
-      ? 'active'
-      : OVERDUE_STATUSES.has(current)
-        ? 'overdue'
-        : CANCELED_STATUSES.has(current)
-          ? 'canceled'
-          : 'pending';
+    const current = (payload.payment?.status ?? 'unknown').toLowerCase();
+    const appStatus = ACTIVE_STATUSES.has(current) ? 'active' : OVERDUE_STATUSES.has(current) ? 'overdue' : 'pending';
+
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: billing.userId }, select: { name: true, email: true, subscriptionStatus: true } });
+    const wasAlreadyActive = user.subscriptionStatus === 'active';
 
     await this.prisma.$transaction([
       this.prisma.billingSubscription.update({
         where: { id: billing.id },
-        data: { providerStatus: current, lastNotificationToken: notification },
+        data: { providerStatus: current },
       }),
       this.prisma.user.update({
         where: { id: billing.userId },
         data: { subscriptionStatus: appStatus, subscriptionUpdatedAt: new Date() },
       }),
     ]);
-    if (appStatus === 'active') await this.createWelcomeNotificationOnce(billing.userId);
+
+    if (appStatus === 'active') {
+      await this.createWelcomeNotificationOnce(billing.userId);
+      if (!wasAlreadyActive) {
+        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name}\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
+      }
+    }
+
     return { received: true };
   }
 
-  private async refreshFromEfi(billingId: string, userId: string, subscriptionId: string) {
-    const response = await this.efiRequest<EfiResponse<EfiSubscriptionDetails>>('/v1/subscription/' + subscriptionId);
-    const providerStatus = response.data.status?.toLowerCase() ?? 'unknown';
-    const latestChargeStatus = response.data.history?.at(-1)?.status?.toLowerCase();
-    const appStatus = CANCELED_STATUSES.has(providerStatus)
+  private async refreshFromAsaas(billingId: string, userId: string, subscriptionId: string) {
+    const [subscription, payments] = await Promise.all([
+      this.asaasRequest<AsaasSubscription>(`/subscriptions/${subscriptionId}`),
+      this.asaasRequest<AsaasPaymentList>(`/payments?subscription=${subscriptionId}`),
+    ]);
+
+    const providerStatus = subscription.status?.toLowerCase() ?? 'unknown';
+    const latestPayment = [...(payments.data ?? [])].sort((a, b) => (a.dateCreated ?? '').localeCompare(b.dateCreated ?? '')).at(-1);
+    const latestPaymentStatus = latestPayment?.status?.toLowerCase();
+    const appStatus = providerStatus === 'inactive' || providerStatus === 'deleted'
       ? 'canceled'
-      : latestChargeStatus && OVERDUE_STATUSES.has(latestChargeStatus)
-        ? 'overdue'
-        : ACTIVE_STATUSES.has(providerStatus)
-          ? 'active'
+      : latestPaymentStatus && ACTIVE_STATUSES.has(latestPaymentStatus)
+        ? 'active'
+        : latestPaymentStatus && OVERDUE_STATUSES.has(latestPaymentStatus)
+          ? 'overdue'
           : 'pending';
-    const nextChargeAt = response.data.next_execution ? new Date(response.data.next_execution + 'T12:00:00.000Z') : null;
+    const nextChargeAt = subscription.nextDueDate ? new Date(subscription.nextDueDate + 'T12:00:00.000Z') : null;
+
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true, subscriptionStatus: true } });
+    const wasAlreadyActive = user.subscriptionStatus === 'active';
 
     await this.prisma.$transaction([
       this.prisma.billingSubscription.update({
         where: { id: billingId },
-        data: { providerStatus, nextChargeAt },
+        data: { providerStatus: latestPaymentStatus ?? providerStatus, nextChargeAt },
       }),
       this.prisma.user.update({
         where: { id: userId },
         data: { subscriptionStatus: appStatus, subscriptionUpdatedAt: new Date() },
       }),
     ]);
-    if (appStatus === 'active') await this.createWelcomeNotificationOnce(userId);
 
-    return { providerStatus, appStatus, nextChargeAt };
+    if (appStatus === 'active') {
+      await this.createWelcomeNotificationOnce(userId);
+      if (!wasAlreadyActive) {
+        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name}\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
+      }
+    }
+
+    return { providerStatus: latestPaymentStatus ?? providerStatus, appStatus, nextChargeAt };
   }
 
   private async createWelcomeNotificationOnce(userId: string) {
@@ -312,96 +332,42 @@ export class BillingService {
     ]);
   }
 
-  private async createManualCheckout(userId: string) {
-    const checkoutUrl = this.manualPaymentUrl();
-    if (!checkoutUrl) throw new BadRequestException('Link de pagamento ainda nao configurado.');
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { subscriptionStatus: true } });
-
-    await this.prisma.$transaction([
-      this.prisma.billingSubscription.upsert({
-        where: { userId },
-        create: {
-          userId,
-          provider: 'manual',
-          providerStatus: 'waiting_payment',
-          checkoutUrl,
-        },
-        update: {
-          provider: 'manual',
-          providerStatus: 'waiting_payment',
-          checkoutUrl,
-        },
-      }),
-      this.prisma.user.update({
-        where: { id: userId },
-        data: {
-          subscriptionStatus: ['active', 'manual_active', 'grace'].includes(user.subscriptionStatus) ? user.subscriptionStatus : 'pending',
-          subscriptionUpdatedAt: new Date(),
-        },
-      }),
-    ]);
-
-    return { checkoutUrl, mode: 'manual' };
-  }
-  private async ensurePlan() {
-    const saved = await this.prisma.billingProviderConfig.findUnique({ where: { provider: 'efi' } });
-    if (saved) return saved.externalPlanId;
-
-    const response = await this.efiRequest<EfiResponse<EfiPlan>>('/v1/plan', {
+  private async ensureCustomer(userId: string, name: string, email: string, cpf: string) {
+    const customer = await this.asaasRequest<AsaasCustomer>('/customers', {
       method: 'POST',
-      body: JSON.stringify({ name: 'Panzeri Run - Plano mensal', interval: 1, repeats: null }),
+      body: JSON.stringify({ name, email, cpfCnpj: cpf, externalReference: userId }),
     });
-    const planId = String(response.data.plan_id);
-    await this.prisma.billingProviderConfig.upsert({
-      where: { provider: 'efi' },
-      create: { provider: 'efi', externalPlanId: planId },
-      update: { externalPlanId: planId },
-    });
-    return planId;
+    return customer.id;
   }
 
-  private async efiRequest<T>(path: string, init: RequestInit = {}) {
-    const token = await this.accessToken();
+  private async asaasRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const apiKey = this.config.get<string>('ASAAS_API_KEY');
     const response = await fetch(this.baseUrl() + path, {
       ...init,
-      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+      headers: { access_token: apiKey ?? '', 'Content-Type': 'application/json', ...(init.headers ?? {}) },
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new BadGatewayException(payload?.error_description ?? payload?.error ?? 'A Efi nao conseguiu processar a solicitacao.');
+      const message = payload?.errors?.[0]?.description ?? 'O Asaas nao conseguiu processar a solicitacao.';
+      throw new BadGatewayException(message);
     }
     return payload as T;
   }
 
-  private async accessToken() {
-    if (this.token && this.token.expiresAt > Date.now() + 30000) return this.token.value;
-    this.assertConfigured();
-    const clientId = this.config.get<string>('EFI_CLIENT_ID')!;
-    const clientSecret = this.config.get<string>('EFI_CLIENT_SECRET')!;
-    const basic = Buffer.from(clientId + ':' + clientSecret).toString('base64');
-    const response = await fetch(this.baseUrl() + '/v1/authorize', {
-      method: 'POST',
-      headers: { Authorization: 'Basic ' + basic, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ grant_type: 'client_credentials' }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload.access_token) throw new BadGatewayException('Credenciais da Efi recusadas.');
-    this.token = { value: payload.access_token, expiresAt: Date.now() + Number(payload.expires_in ?? 600) * 1000 };
-    return this.token.value;
-  }
-
   private baseUrl() {
-    return this.config.get<string>('EFI_SANDBOX') === 'false'
-      ? 'https://cobrancas.api.efipay.com.br'
-      : 'https://cobrancas-h.api.efipay.com.br';
+    return this.config.get<string>('ASAAS_SANDBOX') === 'false'
+      ? 'https://api.asaas.com/v3'
+      : 'https://sandbox.asaas.com/api/v3';
   }
 
   private isConfigured() {
-    return Boolean(this.config.get<string>('EFI_CLIENT_ID') && this.config.get<string>('EFI_CLIENT_SECRET'));
+    return Boolean(this.config.get<string>('ASAAS_API_KEY'));
   }
 
-  private manualPaymentUrl() {
-    return this.config.get<string>('MANUAL_PAYMENT_URL') || 'https://mpago.la/23YBr2R';
+  private assertConfigured() {
+    if (!this.isConfigured()) {
+      throw new BadRequestException('Integracao com o Asaas ainda nao configurada.');
+    }
   }
 
   private validCouponCodes() {
@@ -411,12 +377,14 @@ export class BillingService {
       .map((code) => code.trim().toUpperCase())
       .filter(Boolean);
   }
-
-  private assertConfigured() {
-    if (!this.config.get<string>('EFI_CLIENT_ID') || !this.config.get<string>('EFI_CLIENT_SECRET')) {
-      throw new BadRequestException('Integracao Efi ainda nao configurada.');
-    }
-  }
 }
 
+function normalizeCpf(value?: string) {
+  if (!value) return null;
+  const digits = value.replace(/\D/g, '');
+  return digits.length === 11 ? digits : null;
+}
 
+function formatDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}

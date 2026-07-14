@@ -12,6 +12,7 @@ model User {
   email        String              @unique
   passwordHash String
   name         String
+  cpf          String?             @unique
   birthDate    DateTime?
   sex          String?
   heightCm     Int?
@@ -54,7 +55,8 @@ model BillingSubscription {
   id                     String   @id @default(uuid())
   userId                 String   @unique
   user                   User     @relation(fields: [userId], references: [id])
-  provider               String   @default("efi")
+  provider               String   @default("asaas")
+  externalCustomerId     String?
   externalSubscriptionId String?  @unique
   externalChargeId       String?  @unique
   checkoutUrl            String?

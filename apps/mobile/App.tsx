@@ -2494,10 +2494,12 @@ function Billing({ accessToken }: { accessToken: string }) {
     checkoutUrl?: string | null;
     canCancel: boolean;
     syncError?: boolean;
+    hasCpf?: boolean;
   } | null>(null);
   const [message, setMessage] = useState('');
   const [couponCode, setCouponCode] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [cpf, setCpf] = useState('');
 
   async function loadBilling(showConfirmation = false) {
     if (showConfirmation) setMessage('Consultando sua assinatura...');
@@ -2517,18 +2519,23 @@ function Billing({ accessToken }: { accessToken: string }) {
   useEffect(() => { void loadBilling(false); }, [accessToken]);
 
   async function subscribe() {
+    if (!details?.hasCpf && cpf.replace(/\D/g, '').length !== 11) {
+      setMessage('Informe um CPF valido (11 numeros) para continuar.');
+      return;
+    }
     setMessage('Preparando pagamento seguro...');
     try {
       const response = await fetch(API_URL + '/billing/checkout', {
         method: 'POST',
-        headers: { Authorization: 'Bearer ' + accessToken },
+        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cpf: cpf.replace(/\D/g, '') }),
       });
-      const data = await response.json();
-      if (!response.ok || !data.checkoutUrl) throw new Error();
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.checkoutUrl) throw new Error(data.message ?? 'checkout');
       setMessage('Conclua o pagamento e volte ao aplicativo.');
       await Linking.openURL(data.checkoutUrl);
-    } catch {
-      setMessage('Nao consegui abrir o pagamento. Tente novamente.');
+    } catch (error) {
+      setMessage(error instanceof Error && error.message !== 'checkout' ? error.message : 'Nao consegui abrir o pagamento. Tente novamente.');
     }
   }
 
@@ -2572,8 +2579,8 @@ function Billing({ accessToken }: { accessToken: string }) {
   }
 
   const active = details && ['active', 'manual_active', 'grace'].includes(details.status);
-  const efiCardActive = details?.providerStatus === 'active';
-  const needsEfiSetup = !efiCardActive;
+  const paymentConfirmed = details?.providerStatus === 'active' || details?.providerStatus === 'confirmed' || details?.providerStatus === 'received';
+  const needsPaymentSetup = !paymentConfirmed;
 
   return (
     <View style={styles.section}>
@@ -2583,15 +2590,24 @@ function Billing({ accessToken }: { accessToken: string }) {
         <Text style={styles.formSectionTitle}>Sua assinatura</Text>
         <Text style={styles.reportText}>Valor: {details?.priceLabel ?? 'R$ 19,90 por mes'}</Text>
         <Text style={styles.reportText}>Situacao: {active ? 'Ativa' : details?.status === 'overdue' ? 'Pagamento pendente' : details?.status === 'canceled' ? 'Cancelada' : 'Aguardando ativacao'}</Text>
-        <Text style={styles.reportText}>Pagamento: {efiCardActive ? 'Cartao cadastrado' : active ? 'Assinatura ativa' : 'Aguardando pagamento'}</Text>
+        <Text style={styles.reportText}>Pagamento: {paymentConfirmed ? 'Pagamento confirmado' : active ? 'Assinatura ativa' : 'Aguardando pagamento'}</Text>
         {details?.nextChargeAt ? <Text style={styles.reportText}>Proxima cobranca: {new Date(details.nextChargeAt).toLocaleDateString('pt-BR')}</Text> : null}
       </View>
 
-      {needsEfiSetup ? (
-        <Pressable style={styles.primaryButton} onPress={subscribe}>
-          <Text style={styles.primaryButtonText}>{active ? 'Atualizar forma de pagamento' : 'Ativar assinatura'}</Text>
-          <Ionicons name="card" size={18} color="#ffffff" />
-        </Pressable>
+      {needsPaymentSetup ? (
+        <View style={styles.formSection}>
+          {!details?.hasCpf ? (
+            <>
+              <Text style={styles.formSectionTitle}>CPF</Text>
+              <Text style={styles.formHint}>Necessario para gerar a cobranca no Asaas.</Text>
+              <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
+            </>
+          ) : null}
+          <Pressable style={styles.primaryButton} onPress={subscribe}>
+            <Text style={styles.primaryButtonText}>{active ? 'Atualizar forma de pagamento' : 'Ativar assinatura'}</Text>
+            <Ionicons name="card" size={18} color="#ffffff" />
+          </Pressable>
+        </View>
       ) : null}
 
       {!active ? (
@@ -2627,7 +2643,7 @@ function Billing({ accessToken }: { accessToken: string }) {
         <Text style={styles.secondaryButtonText}>Atualizar situacao</Text>
       </Pressable>
       {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
-      <Text style={styles.formHint}>O pagamento e os dados do cartao sao processados em ambiente seguro.</Text>
+      <Text style={styles.formHint}>O pagamento e processado em ambiente seguro pelo Asaas (cartao, Pix ou boleto).</Text>
     </View>
   );
 }
