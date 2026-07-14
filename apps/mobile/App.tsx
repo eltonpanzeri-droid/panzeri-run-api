@@ -1442,6 +1442,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   const [billingMessage, setBillingMessage] = useState('');
   const [couponCode, setCouponCode] = useState('');
+  const [cpf, setCpf] = useState('');
   const [weeklyRoutine, setWeeklyRoutine] = useState<RoutineDay[]>(cloneRoutine(baseRoutineDays));
   const [completionDrafts, setCompletionDrafts] = useState<Record<string, CompletionDraft>>({});
   const [completionMessages, setCompletionMessages] = useState<Record<string, string>>({});
@@ -1604,18 +1605,23 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   }
 
   async function openSubscriptionCheckout() {
+    if (cpf.replace(/\D/g, '').length !== 11) {
+      setBillingMessage('Informe um CPF valido (11 numeros) para continuar.');
+      return;
+    }
     setBillingMessage('Preparando pagamento seguro...');
     try {
       const response = await fetch(API_URL + '/billing/checkout', {
         method: 'POST',
-        headers: { Authorization: 'Bearer ' + accessToken },
+        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cpf: cpf.replace(/\D/g, '') }),
       });
-      const data = await response.json();
-      if (!response.ok || !data.checkoutUrl) throw new Error();
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.checkoutUrl) throw new Error(data.message ?? 'checkout');
       setBillingMessage('Pagamento aberto. Depois de pagar, volte ao aplicativo.');
       await Linking.openURL(data.checkoutUrl);
-    } catch {
-      setBillingMessage('Nao consegui abrir o pagamento. Tente novamente.');
+    } catch (error) {
+      setBillingMessage(error instanceof Error && error.message !== 'checkout' ? error.message : 'Nao consegui abrir o pagamento. Tente novamente.');
     }
   }
 
@@ -1654,6 +1660,8 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     <View style={styles.formSection}>
       <Text style={styles.formSectionTitle}>Assinatura Panzeri Run</Text>
       <Text style={styles.formHint}>{plan?.priceLabel ?? 'R$ 19,90 por mes'}. Plano mensal, sem fidelidade.</Text>
+      <Text style={styles.inputLabel}>CPF</Text>
+      <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
       <Pressable style={styles.primaryButton} onPress={openSubscriptionCheckout}>
         <Text style={styles.primaryButtonText}>Ativar minha assinatura</Text>
         <Ionicons name="card" size={18} color="#ffffff" />
@@ -1710,6 +1718,8 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         <View style={styles.formSection}>
           <Text style={styles.formSectionTitle}>Assinatura Panzeri Run</Text>
           <Text style={styles.formHint}>{plan.priceLabel ?? 'R$ 19,90 por mes'}. Plano mensal, sem fidelidade.</Text>
+          <Text style={styles.inputLabel}>CPF</Text>
+          <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
           <Pressable style={styles.primaryButton} onPress={openSubscriptionCheckout}>
             <Text style={styles.primaryButtonText}>Ativar minha assinatura</Text>
             <Ionicons name="card" size={18} color="#ffffff" />
