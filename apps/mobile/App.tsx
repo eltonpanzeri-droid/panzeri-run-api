@@ -1309,9 +1309,10 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
   if (finished) return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Entrevista concluida</Text>
-      <Text style={styles.titleSmall}>Agora vamos medir seu condicionamento</Text>
-      <Text style={styles.copyTight}>Suas respostas foram salvas. Faca o teste de corrida de 3 km para gerar seu plano inicial.</Text>
-      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>Ir para o teste de 3 km</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
+      <Text style={styles.titleSmall}>Seu treino inicial ja pode ser preparado</Text>
+      <Text style={styles.copyTight}>Suas respostas foram salvas. O teste de corrida de 3 km melhora a precisao dos ritmos, velocidades e zonas. Depois que voce registrar o teste, seus treinos serao ajustados automaticamente.</Text>
+      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>Registrar teste de 3 km</Text><Ionicons name="stopwatch" size={18} color="#fff" /></Pressable>
+      <Pressable style={styles.secondaryButton} onPress={onLater}><Text style={styles.secondaryButtonText}>Ver treino da semana</Text></Pressable>
       <Pressable style={styles.secondaryButton} onPress={reviewInterview} disabled={saving}><Text style={styles.secondaryButtonText}>Revisar minhas respostas</Text></Pressable>
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
     </View>
@@ -1588,7 +1589,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         <Text style={styles.titleSmall}>{weekRange}</Text>
         <View style={styles.coachBox}>
           <Text style={styles.coachTitle}>Seu plano personalizado esta pronto</Text>
-          <Text style={styles.coachText}>Com base na sua entrevista e no teste de 3 km, ja montamos sua semana inicial. Ative sua assinatura para liberar o treino completo e comecar hoje.</Text>
+          <Text style={styles.coachText}>Com base na sua entrevista, ja montamos sua semana inicial. Ao registrar o teste de 3 km, seus ritmos, velocidades e zonas serao ajustados automaticamente.</Text>
         </View>
         <View style={styles.formSection}>
           <Text style={styles.formSectionTitle}>Assinatura Panzeri Run</Text>
@@ -1620,6 +1621,15 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       <Text style={styles.copyTight}>Seu treino aparece primeiro. Use o ajuste no final da tela quando a rotina desta semana mudar.</Text>
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+      {metrics.pace === 'Sem teste' ? (
+        <View style={styles.infoBox}>
+          <Text style={styles.infoTitle}>Teste de 3 km melhora a precisao</Text>
+          <Text style={styles.formHint}>Seu treino ja pode ser iniciado por intensidade. Quando voce registrar o teste, o app ajusta pace, velocidade e zonas automaticamente.</Text>
+          <Pressable style={styles.secondaryButton} onPress={onOpenTest}>
+            <Text style={styles.secondaryButtonText}>Registrar teste de 3 km</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <View style={styles.weekList}>
         {plan?.recommendation ? (
@@ -2691,8 +2701,8 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
             <View style={styles.runBlockMetrics}>
               <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Distancia</Text>{'\n'}{runBlockDistanceLabel(block)}</Text>
               <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Zona</Text>{'\n'}{block.zone ?? mainZone}</Text>
-              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Pace</Text>{'\n'}{pace ?? 'Cadastre o teste de 3 km'}</Text>
-              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Velocidade</Text>{'\n'}{speed ?? 'Cadastre o teste de 3 km'}</Text>
+              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Pace</Text>{'\n'}{pace ?? (block.rpe ? 'Apos teste de 3 km' : 'Cadastre o teste de 3 km')}</Text>
+              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Velocidade</Text>{'\n'}{speed ?? (block.rpe ? 'Apos teste de 3 km' : 'Cadastre o teste de 3 km')}</Text>
             </View>
             {block.rpe ? <Text style={styles.prescriptionText}>Percepcao de esforco: {rpeLabel(block.rpe)}</Text> : null}
             {block.guidance ? <Text style={styles.prescriptionText}>{block.guidance}</Text> : null}
@@ -3628,6 +3638,20 @@ const styles = StyleSheet.create({
     color: '#334155',
     fontSize: 13,
     lineHeight: 18,
+  },
+  infoBox: {
+    borderWidth: 1,
+    borderColor: '#ccfbf1',
+    borderRadius: 8,
+    backgroundColor: '#f0fdfa',
+    padding: 14,
+    gap: 10,
+    marginBottom: 14,
+  },
+  infoTitle: {
+    color: '#0f766e',
+    fontSize: 15,
+    fontWeight: '900',
   },
   brandRow: {
     flexDirection: 'row',

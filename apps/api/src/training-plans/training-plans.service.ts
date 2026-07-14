@@ -56,7 +56,6 @@ export class TrainingPlansService {
     ]);
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan();
-    if (!latestTest) return testRequiredPlan();
 
     if (
       !plan ||
@@ -113,7 +112,6 @@ export class TrainingPlansService {
     ]);
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan();
-    if (!latestTest) return testRequiredPlan();
 
     const weekStart = startOfWeek(new Date());
     const adjustedAvailability = weeklyOverride?.filter((day) => !day.noTraining) ?? [];
@@ -171,6 +169,7 @@ export class TrainingPlansService {
       const modalities = day.modalities.length ? day.modalities : ['corrida'];
 
       return modalities.map((modality) => {
+        const hasPaceReference = Boolean(latestTest?.paceSecondsPerKm);
         const baseTemplate = this.templateForModality(modality, Boolean(latestTest));
         const runDecision = isRunningModality(modality) ? methodology.sessions.find((decision) => decision.weekday === day.weekday) : undefined;
         const template = runDecision ? {
@@ -207,8 +206,8 @@ export class TrainingPlansService {
           locationSuggestion: 'Livre',
           durationMin,
           distanceKm: prescription.distanceKm,
-          intensityZone: template.zone,
-          paceMinSec: !isStrength && !isAerobic && latestTest?.paceSecondsPerKm ? this.zonePace(template.zone, latestTest.paceSecondsPerKm) : null,
+          intensityZone: !isStrength && !isAerobic && !hasPaceReference ? perceivedIntensityFromZone(template.zone) : template.zone,
+          paceMinSec: !isStrength && !isAerobic && hasPaceReference ? this.zonePace(template.zone, latestTest!.paceSecondsPerKm) : null,
           structure: prescription,
           notes: template.notes,
           videoRefs: [],
@@ -233,7 +232,9 @@ export class TrainingPlansService {
         startDate: weekStart,
         endDate: addDays(weekStart, 6),
         generatedBy: planEngineVersion,
-        aiRecommendation: methodology.recommendation,
+        aiRecommendation: latestTest
+          ? methodology.recommendation
+          : `${methodology.recommendation} Registre o teste de 3 km para calcular ritmos, velocidades e zonas com maior precisao; quando isso acontecer, a semana sera ajustada automaticamente.`,
         inputSnapshot: toInputJson({
           user: {
             heightCm: user.heightCm,
@@ -445,6 +446,7 @@ export class TrainingPlansService {
       zone,
       paceRange: testPaceSecondsPerKm ? this.zonePaceRange(zone, testPaceSecondsPerKm) : null,
       speedRange: testPaceSecondsPerKm ? this.zoneSpeedRange(zone, testPaceSecondsPerKm) : null,
+      rpe: testPaceSecondsPerKm ? undefined : perceivedIntensityFromZone(zone),
       guidance,
     };
   }
@@ -712,6 +714,18 @@ function pickModality(modalities: string[], fallback: string) {
   }
 
   return modalities[0] ?? fallback;
+}
+
+function perceivedIntensityFromZone(zone: string) {
+  const labels: Record<string, string> = {
+    Z1: 'Muito leve',
+    Z2: 'Leve',
+    Z3: 'Moderado',
+    Z4: 'Forte',
+    Z5: 'Muito forte',
+    Base: 'Leve',
+  };
+  return labels[zone] ?? 'Leve';
 }
 
 function startOfWeek(date: Date) {
