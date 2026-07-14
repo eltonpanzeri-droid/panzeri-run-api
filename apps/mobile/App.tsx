@@ -196,7 +196,7 @@ interface InterviewQuestion {
   key: string;
   module: string;
   prompt: string;
-  type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'notice';
+  type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'duration_mmss' | 'notice';
   options?: InterviewOption[];
   optional?: boolean;
   help?: string;
@@ -419,6 +419,9 @@ const interviewQuestions: InterviewQuestion[] = [
   ] },
   { key: 'longest_distance', module: 'Experiencia com corrida', prompt: 'Qual foi a maior distancia que voce ja correu?', type: 'single', options: ['Nunca consegui correr continuamente.', 'Ate 3 km', '5 km', '10 km', '15 km', '21 km', '30 km', '42 km', 'Mais de 42 km'].map((v) => option(v)) },
   { key: 'best_comfortable_pace', module: 'Experiencia com corrida', prompt: 'Na epoca em que voce corria melhor, aproximadamente qual era seu pace confortavel?', type: 'single', options: ['Nunca corri regularmente.', 'Acima de 7:00/km', 'Entre 6:00 e 7:00/km', 'Entre 5:30 e 6:00/km', 'Entre 5:00 e 5:30/km', 'Entre 4:30 e 5:00/km', 'Entre 4:00 e 4:30/km', 'Abaixo de 4:00/km', 'Nao lembro.'].map((v) => option(v)) },
+  { key: 'ran_5k_recently', module: 'Experiencia com corrida', prompt: 'Voce correu 5 km nos ultimos 3 meses?', type: 'single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
+  { key: 'time_5k', module: 'Experiencia com corrida', prompt: 'Qual foi o seu tempo nesses 5 km?', type: 'duration_mmss', help: 'Vamos usar esse tempo como referencia para calcular seus ritmos de treino ate que voce faca o teste oficial de 3 km.', condition: (a) => a.ran_5k_recently === 'yes' },
+  { key: 'fitness_self_rating', module: 'Experiencia com corrida', prompt: 'Como voce classificaria seu condicionamento para corrida hoje?', type: 'single', options: [option('Muito leve', 'muito_leve'), option('Leve', 'leve'), option('Moderado', 'moderado'), option('Forte', 'forte'), option('Muito forte', 'muito_forte')], condition: (a) => a.ran_5k_recently === 'no' },
   { key: 'current_continuous_run', module: 'Experiencia com corrida', prompt: 'Hoje voce consegue correr continuamente por quanto tempo?', type: 'single', options: ['Nao consigo correr.', 'Ate 5 minutos.', 'Entre 5 e 15 minutos.', 'Entre 15 e 30 minutos.', 'Entre 30 e 45 minutos.', 'Entre 45 e 60 minutos.', 'Mais de 60 minutos.'].map((v) => option(v)) },
   { key: 'races_last_12_months', module: 'Experiencia com corrida', prompt: 'Nos ultimos 12 meses, quantas provas voce participou?', type: 'single', options: ['Nenhuma', '1', '2 a 3', '4 a 6', 'Mais de 6'].map((v) => option(v)) },
   { key: 'current_activities', module: 'Experiencia com corrida', prompt: 'Quais atividades fisicas voce pratica atualmente?', type: 'multi', options: [...activityOptions, 'Nenhuma'].map((v) => option(v)) },
@@ -1338,6 +1341,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
   function hasAnswer() {
     if (!question || question.optional || question.type === 'notice') return true;
     if (Array.isArray(value)) return value.length > 0;
+    if (question.type === 'duration_mmss') return /^\d{1,3}:\d{1,2}$/.test(String(value ?? ''));
     return value !== undefined && value !== null && String(value).trim() !== '';
   }
 
@@ -1396,7 +1400,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Primeiro acesso</Text>
       <Text style={styles.titleSmall}>Vamos conhecer voce</Text>
-      <Text style={styles.copyTight}>Para criar seu treino de forma personalizada e individualizada para voce, precisamos conhecer mais sobre sua rotina, seu historico e seu condicionamento atual.{`\n\n`}Esta pronto para realizar nossa entrevista?</Text>
+      <Text style={styles.copyTight}>Para criar seu treino de forma personalizada e individualizada para voce, precisamos conhecer mais sobre sua rotina, seu historico e seu condicionamento atual.{`\n\n`}Depois da entrevista, tambem vamos te convidar a fazer o teste de 3 km. Ele e opcional, mas e o que deixa o treino ainda mais preciso e individualizado para voce.{`\n\n`}Esta pronto para realizar nossa entrevista?</Text>
       <Pressable style={styles.primaryButton} onPress={() => setStarted(true)}><Text style={styles.primaryButtonText}>Sim, comecar agora</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>
       <Pressable style={styles.secondaryButton} onPress={onLater}><Text style={styles.secondaryButtonText}>Fazer depois</Text></Pressable>
     </View>
@@ -1415,6 +1419,22 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
       {question?.type === 'multi' ? <View style={styles.answerList}>{question.options?.map((item) => { const selected = Array.isArray(value) && value.includes(item.value); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive]} onPress={() => choose(selected ? (value as string[]).filter((entry) => entry !== item.value) : [...(Array.isArray(value) ? value : []), item.value])}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
       {(question?.type === 'text' || question?.type === 'number' || question?.type === 'number_or_unknown') ? <TextInput style={styles.input} value={value === 'unknown' || value === 'automatic' ? '' : String(value ?? '')} keyboardType={question.type === 'text' ? 'default' : 'decimal-pad'} placeholder={question.optional ? 'Opcional' : 'Digite sua resposta'} onChangeText={(text) => setAnswers({ ...answers, [question.key]: text })} /> : null}
       {(question?.type === 'number' || question?.type === 'number_or_unknown') ? <Pressable style={styles.decimalButton} onPress={() => { const current = String(value === 'unknown' || value === 'automatic' ? '' : value ?? ''); if (!current.includes(',') && !current.includes('.')) setAnswers({ ...answers, [question.key]: `${current},` }); }}><Text style={styles.decimalButtonText}>Inserir virgula</Text></Pressable> : null}
+      {question?.type === 'duration_mmss' ? (() => {
+        const raw = typeof value === 'string' ? value : '';
+        const [rawMin, rawSec] = raw.split(':');
+        return (
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.inputLabel}>Minutos</Text>
+              <TextInput style={styles.input} value={rawMin ?? ''} onChangeText={(text) => setAnswers({ ...answers, [question.key]: `${text.replace(/\D/g, '')}:${rawSec ?? ''}` })} keyboardType="number-pad" placeholder="Ex: 25" maxLength={3} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.inputLabel}>Segundos</Text>
+              <TextInput style={styles.input} value={rawSec ?? ''} onChangeText={(text) => setAnswers({ ...answers, [question.key]: `${rawMin ?? ''}:${text.replace(/\D/g, '')}` })} keyboardType="number-pad" placeholder="Ex: 30" maxLength={2} />
+            </View>
+          </View>
+        );
+      })() : null}
       {question?.key === 'body_fat_percentage' && calculatedLeanMass !== null && calculatedFatMass !== null ? <View style={styles.calculationBox}><Text style={styles.calculationTitle}>Composicao calculada</Text><Text style={styles.calculationText}>Massa magra: {calculatedLeanMass.toFixed(1).replace('.', ',')} kg</Text><Text style={styles.calculationText}>Massa de gordura: {calculatedFatMass.toFixed(1).replace('.', ',')} kg</Text></View> : null}
       {question?.type === 'number_or_unknown' ? <Pressable style={[styles.answerButton, value === 'unknown' && styles.answerButtonActive]} onPress={() => choose('unknown')}><Text style={[styles.answerButtonText, value === 'unknown' && styles.answerButtonTextActive]}>Nao sei</Text></Pressable> : null}
       {question?.key === 'basal_metabolism' ? <Pressable style={[styles.answerButton, value === 'automatic' && styles.answerButtonActive]} onPress={() => choose('automatic')}><Text style={[styles.answerButtonText, value === 'automatic' && styles.answerButtonTextActive]}>Calcular automaticamente</Text></Pressable> : null}
@@ -1478,7 +1498,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       }
 
       const data = (await response.json()) as WeekPlan | null;
-      if (data && !data.locked && !data.requiresOnboarding && !data.requiresTest && !isDetailedPlan(data)) {
+      if (data && !data.locked && !data.requiresOnboarding && !isDetailedPlan(data)) {
         setPlan(null);
         setStatus('Plano antigo detectado. Gere uma nova semana para ver os treinos detalhados.');
         return;
@@ -1521,7 +1541,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       }
 
       const data = (await response.json()) as WeekPlan;
-      if (!data.locked && !data.requiresOnboarding && !data.requiresTest && !isDetailedPlan(data)) {
+      if (!data.locked && !data.requiresOnboarding && !isDetailedPlan(data)) {
         setPlan(null);
         setStatus('A API ainda esta com a versao antiga. Publique no EasyPanel e gere novamente.');
         return;
@@ -1702,10 +1722,6 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   if (plan?.requiresOnboarding) {
     return <View style={styles.section}><Text style={styles.sectionLabel}>Treino da semana</Text><Text style={styles.titleSmall}>Vamos preparar seu plano</Text><View style={styles.coachBox}><Text style={styles.coachTitle}>Entrevista inicial pendente</Text><Text style={styles.coachText}>Conclua a entrevista para que seu treino respeite seu objetivo, sua rotina e seu historico.</Text></View><Pressable style={styles.primaryButton} onPress={onOpenInterview}><Text style={styles.primaryButtonText}>Continuar entrevista</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>{subscriptionOffer}</View>;
   }
-  if (plan?.requiresTest) {
-    return <View style={styles.section}><Text style={styles.sectionLabel}>Treino da semana</Text><Text style={styles.titleSmall}>Ultima etapa</Text><View style={styles.coachBox}><Text style={styles.coachTitle}>Teste de 3 km pendente</Text><Text style={styles.coachText}>A entrevista foi concluida. Registre o teste para calcular ritmos, velocidades e gerar seu plano inicial.</Text></View><Pressable style={styles.primaryButton} onPress={onOpenTest}><Text style={styles.primaryButtonText}>Registrar teste de 3 km</Text><Ionicons name="stopwatch" size={18} color="#fff" /></Pressable>{subscriptionOffer}</View>;
-  }
-
   if (plan?.locked) {
     return (
       <View style={styles.section}>
@@ -1747,6 +1763,17 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       <Text style={styles.copyTight}>Seu treino aparece primeiro. Use o ajuste no final da tela quando a rotina desta semana mudar.</Text>
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+
+      {plan?.requiresTest ? (
+        <View style={styles.formSection}>
+          <Text style={styles.formSectionTitle}>Teste de 3 km pendente</Text>
+          <Text style={styles.formHint}>Seu treino ja esta rodando com uma estimativa de ritmo. Fazer o teste de 3 km deixa seus treinos ainda mais precisos e individualizados, e o plano e recalculado automaticamente assim que voce registrar o resultado.</Text>
+          <Pressable style={styles.secondaryButton} onPress={onOpenTest}>
+            <Ionicons name="stopwatch" size={18} color="#0f766e" />
+            <Text style={styles.secondaryButtonText}>Fazer teste de 3 km agora</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <View style={styles.weekList}>
         {plan?.recommendation ? (

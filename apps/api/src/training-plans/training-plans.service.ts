@@ -56,7 +56,6 @@ export class TrainingPlansService {
     ]);
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan();
-    if (!latestTest) return testRequiredPlan();
 
     if (
       !plan ||
@@ -68,7 +67,7 @@ export class TrainingPlansService {
       return this.generateWeek(userId);
     }
 
-    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus));
+    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
   }
 
   async generateWeek(userId: string, weeklyOverride?: WeeklyAvailabilityInput[]) {
@@ -113,7 +112,11 @@ export class TrainingPlansService {
     ]);
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan();
-    if (!latestTest) return testRequiredPlan();
+
+    const answers = jsonObject(onboarding.answers);
+    const paceFallback = latestTest ? null : estimatePaceFromAnswers(answers);
+    const effectivePaceSecondsPerKm = latestTest?.paceSecondsPerKm ?? paceFallback?.paceSecondsPerKm ?? DEFAULT_PACE_SECONDS_PER_KM;
+    const paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default' = latestTest ? 'test' : paceFallback?.source ?? 'default';
 
     const weekStart = startOfWeek(new Date());
     const adjustedAvailability = weeklyOverride?.filter((day) => !day.noTraining) ?? [];
@@ -193,7 +196,7 @@ export class TrainingPlansService {
               })
             : modality === 'bike'
             ? this.aerobicPrescription(durationMin, template.zone, modality)
-            : this.runPrescription(durationMin, template.zone, latestTest?.paceSecondsPerKm ?? null, modality, template.sessionType);
+            : this.runPrescription(durationMin, template.zone, effectivePaceSecondsPerKm, modality, template.sessionType);
         const isStrength = modality === 'forca' || modality === 'fortalecimento_corredores';
         const isAerobic = modality === 'bike';
 
@@ -208,7 +211,7 @@ export class TrainingPlansService {
           durationMin,
           distanceKm: prescription.distanceKm,
           intensityZone: template.zone,
-          paceMinSec: !isStrength && !isAerobic && latestTest?.paceSecondsPerKm ? this.zonePace(template.zone, latestTest.paceSecondsPerKm) : null,
+          paceMinSec: !isStrength && !isAerobic ? this.zonePace(template.zone, effectivePaceSecondsPerKm) : null,
           structure: prescription,
           notes: template.notes,
           videoRefs: [],
@@ -233,7 +236,7 @@ export class TrainingPlansService {
         startDate: weekStart,
         endDate: addDays(weekStart, 6),
         generatedBy: planEngineVersion,
-        aiRecommendation: methodology.recommendation,
+        aiRecommendation: composeRecommendation(paceSource, methodology.recommendation),
         inputSnapshot: toInputJson({
           user: {
             heightCm: user.heightCm,
@@ -242,6 +245,8 @@ export class TrainingPlansService {
             stress: user.healthProfile?.stressLevel,
           },
           latestTestId: latestTest?.id,
+          paceSource,
+          effectivePaceSecondsPerKm,
           methodology: {
             version: PANZERI_METHODOLOGY_VERSION,
             principles: PANZERI_PRESCRIPTION_PRINCIPLES,
@@ -285,10 +290,10 @@ export class TrainingPlansService {
         where: { id: plan.id },
         include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
       });
-      return this.presentPlan(adjustedPlan, hasSubscriptionAccess(user.subscriptionStatus));
+      return this.presentPlan(adjustedPlan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
     }
 
-    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus));
+    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
   }
 
   private templateForModality(modality: string, hasTest: boolean): SessionTemplate {
@@ -619,7 +624,7 @@ export class TrainingPlansService {
         details: unknown;
       } | null;
     }>;
-  }, unlocked = true) {
+  }, unlocked = true, hasTest = true) {
     if (!unlocked) {
       return {
         id: plan.id,
@@ -629,7 +634,8 @@ export class TrainingPlansService {
         endDate: plan.endDate,
         recommendation: null,
         locked: true,
-        billingProvider: 'efi',
+        requiresTest: false,
+        billingProvider: 'asaas',
         priceLabel: 'R$ 19,90 por mes',
         sessions: [],
       };
@@ -638,6 +644,7 @@ export class TrainingPlansService {
       id: plan.id,
       name: plan.name,
       goal: plan.goal,
+      requiresTest: !hasTest,
       startDate: plan.startDate,
       endDate: plan.endDate,
       recommendation: plan.aiRecommendation,
@@ -691,19 +698,55 @@ function onboardingRequiredPlan() {
   };
 }
 
-function testRequiredPlan() {
-  return {
-    id: 'test-required',
-    name: 'Teste inicial',
-    goal: '',
-    startDate: startOfWeek(new Date()),
-    endDate: addDays(startOfWeek(new Date()), 6),
-    recommendation: null,
-    requiresOnboarding: false,
-    requiresTest: true,
-    locked: false,
-    sessions: [],
-  };
+const DEFAULT_PACE_SECONDS_PER_KM = 420;
+
+const QUALITATIVE_PACE_SECONDS: Record<string, number> = {
+  muito_leve: 450,
+  leve: 420,
+  moderado: 390,
+  forte: 360,
+  muito_forte: 330,
+};
+
+function parseMmSsToSeconds(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const match = value.match(/^(\d{1,3}):(\d{1,2})$/);
+  if (!match) return null;
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2]);
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds) || seconds >= 60) return null;
+  const total = minutes * 60 + seconds;
+  return total > 0 ? total : null;
+}
+
+function estimatePaceFromAnswers(answers: Record<string, unknown>): { paceSecondsPerKm: number; source: 'self_report_5k' | 'qualitative' } | null {
+  if (answers.ran_5k_recently === 'yes') {
+    const fiveKmSeconds = parseMmSsToSeconds(answers.time_5k);
+    if (fiveKmSeconds) {
+      const threeKmEquivalentSeconds = fiveKmSeconds * Math.pow(3 / 5, 1.06);
+      return { paceSecondsPerKm: Math.round(threeKmEquivalentSeconds / 3), source: 'self_report_5k' };
+    }
+  }
+
+  const rating = typeof answers.fitness_self_rating === 'string' ? answers.fitness_self_rating : null;
+  if (rating && rating in QUALITATIVE_PACE_SECONDS) {
+    return { paceSecondsPerKm: QUALITATIVE_PACE_SECONDS[rating], source: 'qualitative' };
+  }
+
+  return null;
+}
+
+function composeRecommendation(paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default', recommendation: string) {
+  const note =
+    paceSource === 'self_report_5k'
+      ? 'Como voce ainda nao fez o teste oficial de 3 km, usamos o tempo de 5 km que voce informou para calcular os ritmos do seu treino. Assim que fizer o teste de 3 km, o treino sera recalculado automaticamente com mais precisao.'
+      : paceSource === 'qualitative'
+        ? 'Como voce ainda nao fez o teste oficial de 3 km, usamos o nivel de condicionamento que voce informou para estimar os ritmos do seu treino. Assim que fizer o teste de 3 km, o treino sera recalculado automaticamente com mais precisao.'
+        : paceSource === 'default'
+          ? 'Ainda nao temos seu teste de 3 km nem outra referencia de ritmo, entao usamos um ritmo geral inicial. Faca o teste de 3 km assim que possivel para deixar seu treino muito mais preciso e individualizado.'
+          : null;
+
+  return note ? `${note}\n\n${recommendation}` : recommendation;
 }
 
 function pickModality(modalities: string[], fallback: string) {
