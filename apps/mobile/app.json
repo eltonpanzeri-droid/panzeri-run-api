@@ -25,6 +25,7 @@
     "web": {
       "name": "Panzeri Run",
       "shortName": "Panzeri",
+      "lang": "pt-BR",
       "themeColor": "#0f766e",
       "backgroundColor": "#f8fafc",
       "display": "standalone",
