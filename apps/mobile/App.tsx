@@ -1587,11 +1587,52 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     return groups;
   }, []);
 
+  const subscriptionOffer = (
+    <View style={styles.formSection}>
+      <Text style={styles.formSectionTitle}>Assinatura Panzeri Run</Text>
+      <Text style={styles.formHint}>{plan?.priceLabel ?? 'R$ 19,90 por mes'}. Plano mensal, sem fidelidade.</Text>
+      <Pressable style={styles.primaryButton} onPress={openSubscriptionCheckout}>
+        <Text style={styles.primaryButtonText}>Ativar minha assinatura</Text>
+        <Ionicons name="card" size={18} color="#ffffff" />
+      </Pressable>
+      <Text style={styles.formHint}>O acesso aos treinos sera liberado assim que o pagamento for confirmado.</Text>
+      <View style={styles.couponBox}>
+        <Text style={styles.inputLabel}>Tenho um cupom</Text>
+        <View style={styles.couponRow}>
+          <TextInput style={[styles.input, styles.couponInput]} value={couponCode} onChangeText={setCouponCode} placeholder="Digite seu cupom" autoCapitalize="characters" />
+          <Pressable style={styles.couponButton} onPress={applyCoupon}>
+            <Text style={styles.couponButtonText}>Aplicar</Text>
+          </Pressable>
+        </View>
+      </View>
+      {billingMessage ? <Text style={styles.statusMessage}>{billingMessage}</Text> : null}
+    </View>
+  );
+
+  // A compra precisa estar disponível mesmo quando a semana ainda nao foi criada.
+  // Isso evita deixar novos alunos presos em uma tela vazia sem caminho de assinatura.
+  if (!plan) {
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Treino da semana</Text>
+        <Text style={styles.titleSmall}>Seu acesso esta quase pronto</Text>
+        <View style={styles.coachBox}>
+          <Text style={styles.coachTitle}>Ative seu plano para comecar</Text>
+          <Text style={styles.coachText}>
+            Depois da confirmacao do pagamento, liberaremos seu acesso e montaremos sua semana personalizada com base nas suas respostas e avaliacao.
+          </Text>
+        </View>
+        {subscriptionOffer}
+        {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+      </View>
+    );
+  }
+
   if (plan?.requiresOnboarding) {
-    return <View style={styles.section}><Text style={styles.sectionLabel}>Treino da semana</Text><Text style={styles.titleSmall}>Vamos preparar seu plano</Text><View style={styles.coachBox}><Text style={styles.coachTitle}>Entrevista inicial pendente</Text><Text style={styles.coachText}>Conclua a entrevista para que seu treino respeite seu objetivo, sua rotina e seu historico.</Text></View><Pressable style={styles.primaryButton} onPress={onOpenInterview}><Text style={styles.primaryButtonText}>Continuar entrevista</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable></View>;
+    return <View style={styles.section}><Text style={styles.sectionLabel}>Treino da semana</Text><Text style={styles.titleSmall}>Vamos preparar seu plano</Text><View style={styles.coachBox}><Text style={styles.coachTitle}>Entrevista inicial pendente</Text><Text style={styles.coachText}>Conclua a entrevista para que seu treino respeite seu objetivo, sua rotina e seu historico.</Text></View><Pressable style={styles.primaryButton} onPress={onOpenInterview}><Text style={styles.primaryButtonText}>Continuar entrevista</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>{subscriptionOffer}</View>;
   }
   if (plan?.requiresTest) {
-    return <View style={styles.section}><Text style={styles.sectionLabel}>Treino da semana</Text><Text style={styles.titleSmall}>Ultima etapa</Text><View style={styles.coachBox}><Text style={styles.coachTitle}>Teste de 3 km pendente</Text><Text style={styles.coachText}>A entrevista foi concluida. Registre o teste para calcular ritmos, velocidades e gerar seu plano inicial.</Text></View><Pressable style={styles.primaryButton} onPress={onOpenTest}><Text style={styles.primaryButtonText}>Registrar teste de 3 km</Text><Ionicons name="stopwatch" size={18} color="#fff" /></Pressable></View>;
+    return <View style={styles.section}><Text style={styles.sectionLabel}>Treino da semana</Text><Text style={styles.titleSmall}>Ultima etapa</Text><View style={styles.coachBox}><Text style={styles.coachTitle}>Teste de 3 km pendente</Text><Text style={styles.coachText}>A entrevista foi concluida. Registre o teste para calcular ritmos, velocidades e gerar seu plano inicial.</Text></View><Pressable style={styles.primaryButton} onPress={onOpenTest}><Text style={styles.primaryButtonText}>Registrar teste de 3 km</Text><Ionicons name="stopwatch" size={18} color="#fff" /></Pressable>{subscriptionOffer}</View>;
   }
 
   if (plan?.locked) {
