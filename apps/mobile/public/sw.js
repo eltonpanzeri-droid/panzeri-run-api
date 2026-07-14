@@ -1,8 +1,9 @@
-const CACHE_NAME = 'panzeri-run-v4';
+const CACHE_NAME = 'panzeri-run-v5';
+const APP_SHELL = '/';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(['/']))
+    caches.open(CACHE_NAME).then((cache) => cache.addAll([APP_SHELL]))
   );
   self.skipWaiting();
 });
@@ -21,7 +22,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-store' })
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(APP_SHELL, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(APP_SHELL))
+    );
+    return;
+  }
+
   event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request).then((response) => response ?? caches.match('/')))
+    fetch(event.request).catch(() => caches.match(event.request))
   );
 });

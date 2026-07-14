@@ -721,7 +721,11 @@ function registerWebApp() {
         content?: string;
       };
     };
-    navigator?: { serviceWorker?: { register: (path: string) => Promise<unknown> } };
+    navigator?: {
+      serviceWorker?: {
+        register: (path: string, options?: { updateViaCache?: 'none' }) => Promise<{ update?: () => Promise<void> }>;
+      };
+    };
   };
 
   if (browser.document && !browser.document.querySelector('link[rel="manifest"]')) {
@@ -757,7 +761,10 @@ function registerWebApp() {
     browser.document.head?.appendChild(iosIcon);
   }
 
-  browser.navigator?.serviceWorker?.register('/sw.js').catch(() => undefined);
+  browser.navigator?.serviceWorker
+    ?.register('/sw.js', { updateViaCache: 'none' })
+    .then((registration) => registration.update?.())
+    .catch(() => undefined);
 }
 
 function Onboarding({ onStart }: { onStart: () => void }) {
@@ -3902,6 +3909,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     color: '#111827',
     fontSize: 16,
+  },
+  testTimeRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  testTimeField: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
   },
   secureInputWrap: {
     position: 'relative',
