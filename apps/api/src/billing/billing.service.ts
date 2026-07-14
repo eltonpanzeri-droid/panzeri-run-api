@@ -24,6 +24,9 @@ type EfiEvent = {
 const ACTIVE_STATUSES = new Set(['active', 'paid', 'approved', 'settled']);
 const OVERDUE_STATUSES = new Set(['unpaid', 'overdue', 'refunded', 'chargeback']);
 const CANCELED_STATUSES = new Set(['canceled', 'cancelled', 'expired']);
+const WELCOME_NOTIFICATION_TYPE = 'subscription_welcome';
+const WELCOME_NOTIFICATION_TITLE = 'Bem-vindo ao Panzeri Run';
+const WELCOME_NOTIFICATION_MESSAGE = 'Estou muito feliz em poder conduzir você em sua jornada de treinos. Vamos com tudo';
 
 @Injectable()
 export class BillingService {
@@ -253,6 +256,7 @@ export class BillingService {
         data: { subscriptionStatus: appStatus, subscriptionUpdatedAt: new Date() },
       }),
     ]);
+    if (appStatus === 'active') await this.createWelcomeNotificationOnce(billing.userId);
     return { received: true };
   }
 
@@ -279,9 +283,28 @@ export class BillingService {
         data: { subscriptionStatus: appStatus, subscriptionUpdatedAt: new Date() },
       }),
     ]);
+    if (appStatus === 'active') await this.createWelcomeNotificationOnce(userId);
 
     return { providerStatus, appStatus, nextChargeAt };
   }
+
+  private async createWelcomeNotificationOnce(userId: string) {
+    const existing = await this.prisma.userNotification.findFirst({
+      where: { userId, type: WELCOME_NOTIFICATION_TYPE },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    await this.prisma.userNotification.create({
+      data: {
+        userId,
+        title: WELCOME_NOTIFICATION_TITLE,
+        message: WELCOME_NOTIFICATION_MESSAGE,
+        type: WELCOME_NOTIFICATION_TYPE,
+      },
+    });
+  }
+
   private async updateStatus(userId: string, providerStatus: string, appStatus: string) {
     await this.prisma.$transaction([
       this.prisma.billingSubscription.update({ where: { userId }, data: { providerStatus } }),
