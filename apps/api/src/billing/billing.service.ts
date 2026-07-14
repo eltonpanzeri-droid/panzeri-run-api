@@ -96,7 +96,7 @@ export class BillingService {
       method: 'POST',
       body: JSON.stringify({
         customer: customerId,
-        billingType: 'UNDEFINED',
+        billingType: 'CREDIT_CARD',
         value: PLAN_PRICE,
         nextDueDate,
         cycle: 'MONTHLY',

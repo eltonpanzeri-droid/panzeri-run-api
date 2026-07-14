@@ -2643,7 +2643,7 @@ function Billing({ accessToken }: { accessToken: string }) {
         <Text style={styles.secondaryButtonText}>Atualizar situacao</Text>
       </Pressable>
       {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
-      <Text style={styles.formHint}>O pagamento e processado em ambiente seguro pelo Asaas (cartao, Pix ou boleto).</Text>
+      <Text style={styles.formHint}>O pagamento e processado em ambiente seguro pelo Asaas via cartao de credito. A cobranca e renovada automaticamente todo mes.</Text>
     </View>
   );
 }
