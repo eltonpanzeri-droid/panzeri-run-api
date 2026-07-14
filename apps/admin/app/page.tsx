@@ -878,6 +878,7 @@ function StudentPanel({
   const [subscriptionStatus, setSubscriptionStatus] = useState('pending');
   const [inviteText, setInviteText] = useState('');
   const [expandedHistoryId, setExpandedHistoryId] = useState('');
+  const [mergeSourceEmail, setMergeSourceEmail] = useState('');
 
   useEffect(() => {
     setEditName(student?.name ?? '');
@@ -995,6 +996,35 @@ function StudentPanel({
     }
     onStatus('Entrevista liberada para o aluno revisar.');
     onRefresh();
+  }
+
+  async function mergeFromDuplicate() {
+    if (!student) return;
+    if (!mergeSourceEmail.trim()) {
+      onStatus('Informe o e-mail da conta duplicada.');
+      return;
+    }
+    if (!window.confirm(`Transferir entrevista, saude, preferencias e testes de ${mergeSourceEmail.trim()} para ${student.email}? A conta duplicada sera arquivada.`)) {
+      return;
+    }
+    onStatus('Mesclando contas...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/merge-from`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceEmail: mergeSourceEmail.trim() }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        onStatus(data.message ?? 'Nao consegui mesclar as contas.');
+        return;
+      }
+      setMergeSourceEmail('');
+      onStatus(data.message ?? 'Contas mescladas.');
+      onRefresh();
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    }
   }
 
   async function generateReport(reportType: 'technical' | 'evolution') {
@@ -1173,6 +1203,13 @@ function StudentPanel({
           </div>
         ) : <p>Nenhuma resposta registrada. A conclusao anterior era apenas uma compatibilidade da versao antiga.</p>}
         <button className="secondaryButton" type="button" onClick={reopenInterview}>Liberar revisao da entrevista</button>
+        <div className="mergeBox">
+          <p className="formHintText">Aluno criou conta duplicada e preencheu a entrevista na outra? Informe o e-mail da conta duplicada para transferir os dados para esta conta selecionada.</p>
+          <div className="mergeRow">
+            <input value={mergeSourceEmail} onChange={(event) => setMergeSourceEmail(event.target.value)} placeholder="E-mail da conta duplicada" />
+            <button type="button" onClick={mergeFromDuplicate}>Mesclar para esta conta</button>
+          </div>
+        </div>
       </section>
 
       <section className="miniSection weekWorkspace">

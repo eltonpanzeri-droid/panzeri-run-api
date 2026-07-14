@@ -4,6 +4,7 @@ import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateStudentDto } from './dto/create-student.dto';
+import { MergeStudentDto } from './dto/merge-student.dto';
 import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
@@ -171,6 +172,47 @@ export class CoachService {
     return {
       inviteLink: `${publicAppUrl()}/reset-password?token=${token}`,
       accessText: `Acesso Panzeri Run\n\nLink para criar senha: ${publicAppUrl()}/reset-password?token=${token}\nE-mail: ${user.email}`,
+    };
+  }
+
+  async mergeStudent(targetId: string, dto: MergeStudentDto) {
+    const target = await this.assertStudent(targetId);
+    const sourceEmail = dto.sourceEmail.toLowerCase().trim();
+    const source = await this.prisma.user.findUnique({ where: { email: sourceEmail } });
+
+    if (!source || source.role !== 'student') {
+      throw new BadRequestException('Nao encontrei nenhum aluno com esse e-mail.');
+    }
+    if (source.id === targetId) {
+      throw new BadRequestException('Informe o e-mail da OUTRA conta duplicada, diferente da conta selecionada.');
+    }
+
+    const existingInterview = await this.prisma.onboardingInterview.findUnique({ where: { userId: targetId } });
+    if (existingInterview?.completedAt) {
+      throw new BadRequestException('Esta conta ja tem uma entrevista concluida. Resolva manualmente antes de mesclar.');
+    }
+
+    const [existingHealth, existingPreferences, existingAvailability] = await Promise.all([
+      this.prisma.healthProfile.findUnique({ where: { userId: targetId } }),
+      this.prisma.userPreferences.findUnique({ where: { userId: targetId } }),
+      this.prisma.weeklyAvailability.findMany({ where: { userId: targetId }, select: { id: true } }),
+    ]);
+
+    await this.prisma.$transaction([
+      ...(existingInterview ? [this.prisma.onboardingInterview.delete({ where: { userId: targetId } })] : []),
+      ...(existingHealth ? [this.prisma.healthProfile.delete({ where: { userId: targetId } })] : []),
+      ...(existingPreferences ? [this.prisma.userPreferences.delete({ where: { userId: targetId } })] : []),
+      ...(existingAvailability.length ? [this.prisma.weeklyAvailability.deleteMany({ where: { userId: targetId } })] : []),
+      this.prisma.onboardingInterview.updateMany({ where: { userId: source.id }, data: { userId: targetId } }),
+      this.prisma.healthProfile.updateMany({ where: { userId: source.id }, data: { userId: targetId } }),
+      this.prisma.userPreferences.updateMany({ where: { userId: source.id }, data: { userId: targetId } }),
+      this.prisma.weeklyAvailability.updateMany({ where: { userId: source.id }, data: { userId: targetId } }),
+      this.prisma.fitnessTest.updateMany({ where: { userId: source.id }, data: { userId: targetId } }),
+      this.prisma.user.update({ where: { id: source.id }, data: { accountStatus: 'archived', refreshTokenHash: null } }),
+    ]);
+
+    return {
+      message: `Dados de anamnese, saude, preferencias, disponibilidade e testes de ${source.email} foram transferidos para ${target.email}. A conta duplicada foi arquivada.`,
     };
   }
 

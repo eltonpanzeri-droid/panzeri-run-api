@@ -511,6 +511,45 @@ h3 {
   cursor: pointer;
 }
 
+.mergeBox {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+}
+
+.formHintText {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.mergeRow {
+  display: flex;
+  gap: 8px;
+}
+
+.mergeRow input {
+  flex: 1;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0 10px;
+}
+
+.mergeRow button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .archivedToggle {
   display: flex;
   align-items: center;

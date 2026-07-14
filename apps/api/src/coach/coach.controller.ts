@@ -4,6 +4,7 @@ import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { CoachService } from './coach.service';
 import { CreateStudentDto } from './dto/create-student.dto';
+import { MergeStudentDto } from './dto/merge-student.dto';
 import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
@@ -89,6 +90,11 @@ export class CoachController {
   @Post('students/:studentId/onboarding/reopen')
   reopenStudentOnboarding(@Param('studentId') studentId: string) {
     return this.coachService.reopenStudentOnboarding(studentId);
+  }
+
+  @Post('students/:studentId/merge-from')
+  mergeStudent(@Param('studentId') studentId: string, @Body() dto: MergeStudentDto) {
+    return this.coachService.mergeStudent(studentId, dto);
   }
 }
 
