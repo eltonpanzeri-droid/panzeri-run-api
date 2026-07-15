@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, AlertTriangle, Bell, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, CreditCard, Eye, EyeOff, FileText, Gauge, LayoutDashboard, LogIn, Menu, RefreshCw, Save, Search, Ticket, Trash2, UserRound, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Gauge, LayoutDashboard, LogIn, Menu, RefreshCw, Save, Search, Ticket, Trash2, UserRound, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -25,7 +25,7 @@ interface DashboardResponse {
   };
 }
 
-type AdminView = 'dashboard' | 'students' | 'weeks' | 'coupons' | 'finance';
+type AdminView = 'dashboard' | 'students' | 'weeks' | 'coupons' | 'finance' | 'notifications';
 
 interface StudentRow {
   id: string;
@@ -239,6 +239,7 @@ export default function AdminHome() {
   const [lastInviteText, setLastInviteText] = useState('');
   const [isCreatingStudent, setIsCreatingStudent] = useState(false);
   const [notifications, setNotifications] = useState<CoachNotification[]>([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [apiVersion, setApiVersion] = useState('verificando');
   const [activeView, setActiveView] = useState<AdminView>('dashboard');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -375,6 +376,22 @@ export default function AdminHome() {
     }
   }
 
+  async function markNotificationRead(notificationId: string) {
+    try {
+      const response = await fetch(`${API_URL}/notifications/${notificationId}/read`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        setStatus('Nao consegui marcar a notificacao como lida.');
+        return;
+      }
+      setNotifications((current) => current.map((item) => item.id === notificationId ? { ...item, read: true } : item));
+    } catch {
+      setStatus('Nao consegui conectar com a API.');
+    }
+  }
+
   async function loadCoupons(accessToken = token) {
     if (!accessToken) return;
     try {
@@ -439,7 +456,7 @@ export default function AdminHome() {
     setMenuOpen(false);
     if (view === 'coupons') void loadCoupons();
     if (view === 'finance') void loadFinance();
-    if (view !== 'dashboard' && view !== 'coupons' && view !== 'finance' && !selectedStudentId && dashboard?.students[0]) {
+    if (view !== 'dashboard' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && !selectedStudentId && dashboard?.students[0]) {
       void loadStudent(dashboard.students[0].id);
     }
   }
@@ -581,12 +598,12 @@ export default function AdminHome() {
             </button>
             <div>
               <p className="eyebrow">Painel do treinador</p>
-              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : 'Financeiro'}</h1>
+              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : 'Financeiro'}</h1>
               <small className="apiVersion">API {apiVersion}</small>
             </div>
           </div>
           <div className="topActions">
-            {activeView !== 'dashboard' ? <label className="searchBox">
+            {activeView !== 'dashboard' && activeView !== 'notifications' ? <label className="searchBox">
               <Search size={18} />
               <input placeholder="Buscar por nome ou e-mail" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
             </label> : null}
@@ -612,6 +629,7 @@ export default function AdminHome() {
             <button className={activeView === 'weeks' ? 'active' : ''} type="button" onClick={() => changeView('weeks')}><CalendarDays size={19} />Semanas</button>
             <button className={activeView === 'coupons' ? 'active' : ''} type="button" onClick={() => changeView('coupons')}><Ticket size={19} />Cupons</button>
             <button className={activeView === 'finance' ? 'active' : ''} type="button" onClick={() => changeView('finance')}><CreditCard size={19} />Financeiro</button>
+            <button className={activeView === 'notifications' ? 'active' : ''} type="button" onClick={() => changeView('notifications')}><Bell size={19} />Notificacoes{notifications.length ? ` (${notifications.length})` : ''}</button>
           </nav>
         ) : null}
 
@@ -619,14 +637,45 @@ export default function AdminHome() {
 
         {activeView === 'dashboard' && notifications.length ? (
           <section className="notificationStrip">
-            <div className="notificationHeading"><Bell size={18} /><strong>Atualizacoes dos alunos</strong></div>
-            <div className="notificationList">
-              {notifications.map((notification) => (
-                <div className="coachNotification" key={notification.id}>
-                  <strong>{notification.title}</strong>
-                  <span>{notification.message}</span>
+            <button className="notificationHeading notificationToggle" type="button" onClick={() => setNotificationsOpen((open) => !open)}>
+              <Bell size={18} /><strong>Atualizacoes dos alunos ({notifications.length})</strong>
+              {notificationsOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            </button>
+            {notificationsOpen ? (
+              <div className="notificationList">
+                {notifications.slice(0, 5).map((notification) => (
+                  <div className="coachNotification" key={notification.id}>
+                    <strong>{notification.title}</strong>
+                    <span>{notification.message}</span>
+                  </div>
+                ))}
+                <button className="secondaryButton" type="button" onClick={() => changeView('notifications')}>Ver todas as notificacoes</button>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {activeView === 'notifications' ? (
+          <section className="panel">
+            <div className="panelHeader">
+              <div>
+                <p className="eyebrow">Notificacoes</p>
+                <h2>Atualizacoes dos alunos</h2>
+              </div>
+            </div>
+            <div className="notificationList notificationListFull">
+              {notifications.length ? notifications.map((notification) => (
+                <div className={`coachNotification ${notification.read ? 'notificationRead' : ''}`} key={notification.id}>
+                  <div>
+                    <strong>{notification.title}</strong>
+                    <span>{notification.message}</span>
+                    <small>{dateTimeLabel(notification.createdAt)}</small>
+                  </div>
+                  {!notification.read ? (
+                    <button className="secondaryButton" type="button" onClick={() => markNotificationRead(notification.id)}>Marcar como lida</button>
+                  ) : null}
                 </div>
-              ))}
+              )) : <p>Nenhuma notificacao registrada.</p>}
             </div>
           </section>
         ) : null}
@@ -1240,8 +1289,10 @@ function StudentPanel({
             <p className="eyebrow">Planejamento e execucao</p>
             <h3>Semana atual</h3>
           </div>
-          <span>{student.plan?.name ?? 'Sem plano ativo'}</span>
-          <button className="secondaryButton" type="button" onClick={regenerateWeek}><RefreshCw size={16} />Refazer nova semana de treinos</button>
+          <div className="weekWorkspaceActions">
+            <span>{student.plan?.name ?? 'Sem plano ativo'}</span>
+            <button className="secondaryButton" type="button" onClick={regenerateWeek}><RefreshCw size={16} />Refazer nova semana de treinos</button>
+          </div>
         </div>
         {student.plan?.sessions.length ? (
           <div className="coachWeekBoard">
