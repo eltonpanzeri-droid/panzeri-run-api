@@ -3001,14 +3001,17 @@ function CompletionForm({
         />
       ) : null}
 
-      <View style={styles.completionGrid}>
-        <TextInput
-          style={styles.compactInput}
-          value={draft.perceivedEffort}
-          onChangeText={(value) => onChange({ perceivedEffort: value.replace(/[^0-9]/g, '').slice(0, 2) })}
-          keyboardType="numeric"
-          placeholder={draft.status === 'done' ? 'RPE 1-10 (obrigatorio)' : 'RPE 1-10 (opcional)'}
-        />
+      <Text style={styles.formHint}>Percepcao de dificuldade do treino (RPE){draft.status === 'done' ? ' - obrigatorio' : ' - opcional'}</Text>
+      <View style={styles.completionStatusRow}>
+        {Array.from({ length: 10 }, (_, index) => String(index + 1)).map((value) => (
+          <Pressable
+            key={value}
+            style={[styles.completionChip, draft.perceivedEffort === value && styles.completionChipActive]}
+            onPress={() => onChange({ perceivedEffort: value })}
+          >
+            <Text style={[styles.completionChipText, draft.perceivedEffort === value && styles.completionChipTextActive]}>{value}</Text>
+          </Pressable>
+        ))}
       </View>
 
       <TextInput
