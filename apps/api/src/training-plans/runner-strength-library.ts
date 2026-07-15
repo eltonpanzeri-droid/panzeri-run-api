@@ -424,18 +424,18 @@ export const runnerStrengthExercises: StrengthExercise[] = [
   },
 ];
 
-export function selectRunnerStrengthExercises(durationMin: number) {
-  const exerciseCount = durationMin >= 60 ? 6 : durationMin >= 45 ? 5 : 4;
-  const baseOrder = [
-    'lunge',
-    'step-up',
-    'elevacao-pelvica',
-    'panturrilha',
-    'prancha-lateral',
-    'tibial-anterior',
-  ];
+export function selectRunnerStrengthExercises(durationMin: number, rotation = 0, countAdjustment = 0) {
+  const baseCount = durationMin >= 60 ? 6 : durationMin >= 45 ? 5 : 4;
+  const exerciseCount = Math.max(3, Math.min(7, baseCount + countAdjustment));
 
-  return baseOrder
+  const rotations = [
+    ['lunge', 'step-up', 'elevacao-pelvica', 'panturrilha', 'prancha-lateral', 'tibial-anterior', 'mountain-climber'],
+    ['bulgaro', 'elevacao-pelvica-alternada', 'panturrilha-unilateral', 'abdominal-mao-no-pe', 'aviao', 'tibial-anterior-unilateral', 'flexao-quadril-ajoelhado'],
+    ['levantar-banco-unilateral', 'step-up-lateral', 'panturrilha-saltitos', 'prancha-mao-no-ombro', 'aviao-rodando-quadril', 'tibial-anterior', 'balancinho'],
+  ];
+  const order = rotations[rotation % rotations.length];
+
+  return order
     .map((id) => runnerStrengthExercises.find((exercise) => exercise.id === id))
     .filter((exercise): exercise is StrengthExercise => Boolean(exercise))
     .slice(0, exerciseCount);

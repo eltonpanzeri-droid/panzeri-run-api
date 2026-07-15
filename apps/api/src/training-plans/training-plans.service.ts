@@ -132,6 +132,8 @@ export class TrainingPlansService {
             { weekday: 6, modalities: ['corrida'], availableMin: 55 },
           ];
 
+    const strengthCountAdjustment = strengthFeedbackAdjustment(previousPlans);
+
     const methodologyHistory = previousPlans.map((historyPlan) => {
       const runSessions = historyPlan.sessions.filter((session) => isRunningModality(session.modality));
       const completedRuns = runSessions.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted');
@@ -193,6 +195,7 @@ export class TrainingPlansService {
                 experience: user.preferences?.experienceLevel ?? '',
                 safetyAdjustment: methodology.safetyAdjustment,
                 rotation: weekRotation(weekStart),
+                countAdjustment: strengthCountAdjustment,
               })
             : modality === 'bike'
             ? this.aerobicPrescription(durationMin, template.zone, modality)
@@ -502,12 +505,12 @@ export class TrainingPlansService {
     };
   }
 
-  private strengthPrescription(durationMin: number, modality: string, context: { experience: string; safetyAdjustment: boolean; rotation: number }) {
+  private strengthPrescription(durationMin: number, modality: string, context: { experience: string; safetyAdjustment: boolean; rotation: number; countAdjustment: number }) {
     if (modality !== 'fortalecimento_corredores') {
       return this.genericStrengthPrescription(durationMin, context);
     }
 
-    const selectedExercises = selectRunnerStrengthExercises(durationMin);
+    const selectedExercises = selectRunnerStrengthExercises(durationMin, context.rotation, context.countAdjustment);
 
     return {
       type: 'strength',
@@ -531,7 +534,7 @@ export class TrainingPlansService {
     };
   }
 
-  private genericStrengthPrescription(durationMin: number, context: { experience: string; safetyAdjustment: boolean; rotation: number }) {
+  private genericStrengthPrescription(durationMin: number, context: { experience: string; safetyAdjustment: boolean; rotation: number; countAdjustment: number }) {
     const selected = selectGymExercises({ durationMin, ...context });
     const novice = context.safetyAdjustment || ['nunca', 'poucas', 'voltando', 'menos de 1 ano'].some((term) => context.experience.toLowerCase().includes(term));
     return {
@@ -747,6 +750,24 @@ function composeRecommendation(paceSource: 'test' | 'self_report_5k' | 'qualitat
           : null;
 
   return note ? `${note}\n\n${recommendation}` : recommendation;
+}
+
+function strengthFeedbackAdjustment(previousPlans: Array<{ sessions: Array<{ modality: string; scheduledDate: Date; completion: { notes: string | null } | null }> }>): number {
+  const strengthSessions = previousPlans
+    .flatMap((plan) => plan.sessions)
+    .filter((session) => (session.modality === 'forca' || session.modality === 'fortalecimento_corredores') && session.completion?.notes)
+    .sort((a, b) => b.scheduledDate.getTime() - a.scheduledDate.getTime());
+
+  const latestNote = strengthSessions[0]?.completion?.notes?.toLowerCase() ?? '';
+  if (!latestNote) return 0;
+
+  const tooShort = ['muito curto', 'curto demais', 'acabou rapido', 'pouco tempo', 'rapido demais', 'faltou treino'].some((term) => latestNote.includes(term));
+  if (tooShort) return 1;
+
+  const tooLong = ['muito longo', 'longo demais', 'muito tempo', 'demorado', 'cansativo demais'].some((term) => latestNote.includes(term));
+  if (tooLong) return -1;
+
+  return 0;
 }
 
 function pickModality(modalities: string[], fallback: string) {

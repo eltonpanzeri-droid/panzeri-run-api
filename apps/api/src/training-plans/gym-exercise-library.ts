@@ -96,7 +96,7 @@ export const gymExerciseLibrary: GymExercise[] = [
   item('abdominal-obliquo', 'Abdominal Obliquo', 'core', core),
 ];
 
-export function selectGymExercises(input: { durationMin: number; experience?: string; safetyAdjustment?: boolean; rotation?: number }) {
+export function selectGymExercises(input: { durationMin: number; experience?: string; safetyAdjustment?: boolean; rotation?: number; countAdjustment?: number }) {
   const experience = (input.experience ?? '').toLowerCase();
   const novice = ['nunca', 'poucas', 'voltando', 'menos de 1 ano'].some((term) => experience.includes(term));
   const safeOnly = novice || input.safetyAdjustment;
@@ -111,7 +111,8 @@ export function selectGymExercises(input: { durationMin: number; experience?: st
         ['hack', 'stiff-unilateral', 'elevacao-pelvica-chao-unilateral', 'crucifixo-crossover', 'remada-curvada-polia', 'desenvolvimento-frente-barra', 'panturrilha-aparelho-sentado', 'abdominal-reto'],
       ];
   const ids = rotations[(input.rotation ?? 0) % rotations.length];
-  const count = input.durationMin >= 75 ? 8 : input.durationMin >= 60 ? 7 : input.durationMin >= 45 ? 6 : 5;
+  const baseCount = input.durationMin >= 75 ? 8 : input.durationMin >= 60 ? 7 : input.durationMin >= 45 ? 6 : 5;
+  const count = Math.max(3, Math.min(9, baseCount + (input.countAdjustment ?? 0)));
   return ids
     .map((id) => gymExerciseLibrary.find((exercise) => exercise.id === id))
     .filter((exercise): exercise is GymExercise => Boolean(exercise))
