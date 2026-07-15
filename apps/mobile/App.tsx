@@ -1610,7 +1610,9 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       });
 
       if (!response.ok) {
-        setCompletionMessages((current) => ({ ...current, [session.id]: 'Nao consegui salvar. Confira os dados e tente novamente.' }));
+        const data = await response.json().catch(() => ({}));
+        const message = Array.isArray(data.message) ? data.message[0] : data.message;
+        setCompletionMessages((current) => ({ ...current, [session.id]: message ?? 'Nao consegui salvar. Confira os dados e tente novamente.' }));
         return;
       }
 
@@ -3005,7 +3007,7 @@ function CompletionForm({
           value={draft.perceivedEffort}
           onChangeText={(value) => onChange({ perceivedEffort: value.replace(/[^0-9]/g, '').slice(0, 2) })}
           keyboardType="numeric"
-          placeholder="RPE 1-10"
+          placeholder={draft.status === 'done' ? 'RPE 1-10 (obrigatorio)' : 'RPE 1-10 (opcional)'}
         />
       </View>
 
