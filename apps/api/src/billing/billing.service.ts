@@ -7,7 +7,7 @@ type AsaasCustomer = { id: string };
 type AsaasCustomerList = { data: AsaasCustomer[] };
 type AsaasSubscription = { id: string; status: string; nextDueDate?: string | null };
 type AsaasSubscriptionList = { data: AsaasSubscription[] };
-type AsaasPayment = { id: string; status: string; invoiceUrl?: string | null; dateCreated?: string };
+type AsaasPayment = { id: string; status: string; invoiceUrl?: string | null; dateCreated?: string; dueDate?: string };
 type AsaasPaymentList = { data: AsaasPayment[] };
 type AsaasWebhookPayload = {
   event?: string;
@@ -16,6 +16,17 @@ type AsaasWebhookPayload = {
 
 const ACTIVE_STATUSES = new Set(['received', 'confirmed', 'received_in_cash']);
 const OVERDUE_STATUSES = new Set(['overdue', 'refunded', 'refund_requested', 'chargeback_requested', 'chargeback_dispute']);
+const ACTIVE_EVENTS = new Set(['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED']);
+const OVERDUE_EVENTS = new Set(['PAYMENT_OVERDUE', 'PAYMENT_REFUNDED', 'PAYMENT_REFUND_REQUESTED', 'PAYMENT_CHARGEBACK_REQUESTED', 'PAYMENT_CHARGEBACK_DISPUTE']);
+const CANCELED_EVENTS = new Set(['PAYMENT_DELETED', 'SUBSCRIPTION_DELETED', 'SUBSCRIPTION_INACTIVATED']);
+
+function resolveAppStatusFromEvent(event?: string): 'active' | 'overdue' | 'canceled' | null {
+  if (!event) return null;
+  if (ACTIVE_EVENTS.has(event)) return 'active';
+  if (OVERDUE_EVENTS.has(event)) return 'overdue';
+  if (CANCELED_EVENTS.has(event)) return 'canceled';
+  return null;
+}
 const PLAN_PRICE = 19.9;
 const PLAN_DESCRIPTION = 'Panzeri Run - Plano mensal';
 const WELCOME_NOTIFICATION_TYPE = 'subscription_welcome';
@@ -250,8 +261,12 @@ export class BillingService {
     const billing = await this.prisma.billingSubscription.findUnique({ where: { externalSubscriptionId: subscriptionId } });
     if (!billing) return { received: true };
 
+    const appStatus = resolveAppStatusFromEvent(payload.event);
     const current = (payload.payment?.status ?? 'unknown').toLowerCase();
-    const appStatus = ACTIVE_STATUSES.has(current) ? 'active' : OVERDUE_STATUSES.has(current) ? 'overdue' : 'pending';
+    if (!appStatus) {
+      await this.prisma.billingSubscription.update({ where: { id: billing.id }, data: { providerStatus: current } });
+      return { received: true };
+    }
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: billing.userId }, select: { name: true, email: true, subscriptionStatus: true } });
     const wasAlreadyActive = user.subscriptionStatus === 'active';
@@ -284,7 +299,13 @@ export class BillingService {
     ]);
 
     const providerStatus = subscription.status?.toLowerCase() ?? 'unknown';
-    const latestPayment = [...(payments.data ?? [])].sort((a, b) => (a.dateCreated ?? '').localeCompare(b.dateCreated ?? '')).at(-1);
+    const now = new Date();
+    const relevantPayments = (payments.data ?? []).filter((payment) => {
+      const status = (payment.status ?? '').toLowerCase();
+      const isFuturePending = status === 'pending' && payment.dueDate ? new Date(payment.dueDate) > now : false;
+      return !isFuturePending;
+    });
+    const latestPayment = [...relevantPayments].sort((a, b) => (a.dueDate ?? a.dateCreated ?? '').localeCompare(b.dueDate ?? b.dateCreated ?? '')).at(-1);
     const latestPaymentStatus = latestPayment?.status?.toLowerCase();
     const appStatus = providerStatus === 'inactive' || providerStatus === 'deleted'
       ? 'canceled'
