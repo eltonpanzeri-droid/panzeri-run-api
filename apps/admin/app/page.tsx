@@ -998,6 +998,28 @@ function StudentPanel({
     onRefresh();
   }
 
+  async function regenerateWeek() {
+    if (!student) return;
+    if (!window.confirm('Gerar uma nova semana de treinos para este aluno? Isso substitui os treinos ainda nao realizados desta semana.')) {
+      return;
+    }
+    onStatus('Gerando nova semana de treinos...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/plan/regenerate-week`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        onStatus('Nao consegui gerar uma nova semana.');
+        return;
+      }
+      onStatus('Nova semana de treinos gerada.');
+      onRefresh();
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    }
+  }
+
   async function mergeFromDuplicate() {
     if (!student) return;
     if (!mergeSourceEmail.trim()) {
@@ -1219,6 +1241,7 @@ function StudentPanel({
             <h3>Semana atual</h3>
           </div>
           <span>{student.plan?.name ?? 'Sem plano ativo'}</span>
+          <button className="secondaryButton" type="button" onClick={regenerateWeek}><RefreshCw size={16} />Refazer nova semana de treinos</button>
         </div>
         {student.plan?.sessions.length ? (
           <div className="coachWeekBoard">
@@ -1310,6 +1333,7 @@ function EditableSession({
   const [structure, setStructure] = useState<Record<string, unknown>>(() => normalizeSessionStructure(session));
   const [saveMessage, setSaveMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
 
   useEffect(() => {
     setStructure(normalizeSessionStructure(session));
@@ -1349,6 +1373,31 @@ function EditableSession({
       onStatus('Nao consegui conectar com a API.');
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function regenerateSession() {
+    if (!window.confirm('Gerar um novo treino para este dia? Isso substitui o treino atual (edicoes manuais serao perdidas).')) {
+      return;
+    }
+    onStatus('Gerando novo treino...');
+    setIsRegenerating(true);
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/sessions/${session.id}/regenerate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        onStatus('Nao consegui gerar um novo treino.');
+        return;
+      }
+      onStatus('Novo treino gerado.');
+      setIsEditing(false);
+      onSaved();
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    } finally {
+      setIsRegenerating(false);
     }
   }
 
@@ -1420,6 +1469,7 @@ function EditableSession({
               <label>Orientacoes gerais<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
               {saveMessage ? <p className={`modalSaveMessage ${saveMessage.includes('sucesso') ? 'saveSuccess' : ''}`}>{saveMessage}</p> : null}
               <button className="saveEditButton" type="button" disabled={isSaving} onClick={saveSession}><Save size={16} /> {isSaving ? 'Salvando...' : 'Salvar treino completo'}</button>
+              <button className="secondaryButton" type="button" disabled={isRegenerating} onClick={regenerateSession}><RefreshCw size={16} /> {isRegenerating ? 'Gerando...' : 'Gerar novo treino'}</button>
             </div>
           </div>
         </div>

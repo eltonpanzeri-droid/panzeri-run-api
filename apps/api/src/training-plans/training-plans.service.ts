@@ -1,9 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { runnerStrengthCategory, selectRunnerStrengthExercises } from './runner-strength-library';
 import { selectGymExercises } from './gym-exercise-library';
-import { buildWeeklyMethodologyDecision, PANZERI_METHODOLOGY_VERSION, PANZERI_PRESCRIPTION_PRINCIPLES } from './training-methodology';
+import { buildWeeklyMethodologyDecision, hasSafetyConcern, PANZERI_METHODOLOGY_VERSION, PANZERI_PRESCRIPTION_PRINCIPLES } from './training-methodology';
 
 interface SessionTemplate {
   title: string;
@@ -228,9 +228,7 @@ export class TrainingPlansService {
     });
 
     const today = todayInSaoPaulo();
-    const sessionsToCreate = weeklyOverride?.length
-      ? sessions.filter((session) => session.scheduledDate.getTime() >= today.getTime())
-      : sessions;
+    const sessionsToCreate = sessions.filter((session) => session.scheduledDate.getTime() >= today.getTime());
     const plan = await this.prisma.trainingPlan.create({
       data: {
         userId,
@@ -297,6 +295,50 @@ export class TrainingPlansService {
     }
 
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
+  }
+
+  async regenerateSession(userId: string, sessionId: string) {
+    const session = await this.prisma.trainingSession.findFirst({ where: { id: sessionId, userId } });
+    if (!session) {
+      throw new BadRequestException('Treino nao encontrado para este aluno.');
+    }
+
+    const [user, latestTest, onboarding] = await Promise.all([
+      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { preferences: true } }),
+      this.prisma.fitnessTest.findFirst({ where: { userId, testType: '3km' }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } }),
+    ]);
+
+    const answers = jsonObject(onboarding?.answers);
+    const safetyAdjustment = hasSafetyConcern(answers);
+    const paceFallback = latestTest ? null : estimatePaceFromAnswers(answers);
+    const effectivePaceSecondsPerKm = latestTest?.paceSecondsPerKm ?? paceFallback?.paceSecondsPerKm ?? DEFAULT_PACE_SECONDS_PER_KM;
+
+    const isStrength = session.modality === 'forca' || session.modality === 'fortalecimento_corredores';
+    const isAerobic = session.modality === 'bike';
+    const durationMin = session.durationMin ?? 45;
+    const zone = session.intensityZone ?? 'Z2';
+    const rotation = weekRotation(session.scheduledDate) + 1;
+
+    const prescription = isStrength
+      ? this.strengthPrescription(durationMin, session.modality, {
+          experience: user.preferences?.experienceLevel ?? '',
+          safetyAdjustment,
+          rotation,
+          countAdjustment: 0,
+        })
+      : isAerobic
+        ? this.aerobicPrescription(durationMin, zone, session.modality)
+        : this.runPrescription(durationMin, zone, effectivePaceSecondsPerKm, session.modality, session.sessionType ?? 'easy_run');
+
+    return this.prisma.trainingSession.update({
+      where: { id: sessionId },
+      data: {
+        distanceKm: prescription.distanceKm,
+        paceMinSec: !isStrength && !isAerobic ? this.zonePace(zone, effectivePaceSecondsPerKm) : null,
+        structure: prescription as unknown as Prisma.InputJsonObject,
+      },
+    });
   }
 
   private templateForModality(modality: string, hasTest: boolean): SessionTemplate {

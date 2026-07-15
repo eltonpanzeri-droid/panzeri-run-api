@@ -73,6 +73,16 @@ export class CoachController {
     return this.coachService.updateTrainingSession(studentId, sessionId, dto);
   }
 
+  @Post('students/:studentId/plan/regenerate-week')
+  regenerateStudentWeek(@Param('studentId') studentId: string) {
+    return this.coachService.regenerateStudentWeek(studentId);
+  }
+
+  @Post('students/:studentId/sessions/:sessionId/regenerate')
+  regenerateStudentSession(@Param('studentId') studentId: string, @Param('sessionId') sessionId: string) {
+    return this.coachService.regenerateStudentSession(studentId, sessionId);
+  }
+
   @Patch('students/:studentId/password')
   resetStudentPassword(@Param('studentId') studentId: string, @Body() dto: ResetStudentPasswordDto) {
     return this.coachService.resetStudentPassword(studentId, dto);

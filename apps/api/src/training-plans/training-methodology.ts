@@ -151,7 +151,7 @@ function isNovice(experience: string, currentRun: unknown) {
   return ['nunca', 'algumas vezes', 'nao consigo', 'até 5', 'ate 5', '5 e 15'].some((term) => value.includes(term));
 }
 
-function hasSafetyConcern(answers: Record<string, unknown>) {
+export function hasSafetyConcern(answers: Record<string, unknown>) {
   const injury = String(answers.important_injury ?? '').toLowerCase();
   const pain = answers.current_pain === 'yes';
   return pain || injury.includes('limitacoes') || injury.includes('limitações');

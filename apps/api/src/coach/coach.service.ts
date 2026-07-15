@@ -216,6 +216,17 @@ export class CoachService {
     };
   }
 
+  async regenerateStudentWeek(studentId: string) {
+    await this.assertStudent(studentId);
+    await this.trainingPlans.generateWeek(studentId);
+    return { message: 'Nova semana de treinos gerada.' };
+  }
+
+  async regenerateStudentSession(studentId: string, sessionId: string) {
+    await this.assertStudent(studentId);
+    return this.trainingPlans.regenerateSession(studentId, sessionId);
+  }
+
   async reopenStudentOnboarding(studentId: string) {
     await this.assertStudent(studentId);
     await this.prisma.onboardingInterview.upsert({
