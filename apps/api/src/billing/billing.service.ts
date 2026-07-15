@@ -4,7 +4,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService } from './telegram.service';
 
 type AsaasCustomer = { id: string };
+type AsaasCustomerList = { data: AsaasCustomer[] };
 type AsaasSubscription = { id: string; status: string; nextDueDate?: string | null };
+type AsaasSubscriptionList = { data: AsaasSubscription[] };
 type AsaasPayment = { id: string; status: string; invoiceUrl?: string | null; dateCreated?: string };
 type AsaasPaymentList = { data: AsaasPayment[] };
 type AsaasWebhookPayload = {
@@ -90,21 +92,30 @@ export class BillingService {
     }
 
     const customerId = existing?.externalCustomerId ?? (await this.ensureCustomer(userId, user.name, user.email, savedCpf));
-    const nextDueDate = formatDate(new Date(Date.now() + 24 * 60 * 60 * 1000));
 
-    const subscription = await this.asaasRequest<AsaasSubscription>('/subscriptions', {
-      method: 'POST',
-      body: JSON.stringify({
-        customer: customerId,
-        billingType: 'CREDIT_CARD',
-        value: PLAN_PRICE,
-        nextDueDate,
-        cycle: 'MONTHLY',
-        description: PLAN_DESCRIPTION,
-      }),
-    });
+    const existingSubscriptions = await this.asaasRequest<AsaasSubscriptionList>(`/subscriptions?customer=${customerId}&status=ACTIVE`);
+    const reusableSubscription = existingSubscriptions.data?.[0] ?? null;
 
-    const payments = await this.asaasRequest<AsaasPaymentList>(`/payments?subscription=${subscription.id}`);
+    let subscriptionId: string;
+    if (reusableSubscription) {
+      subscriptionId = reusableSubscription.id;
+    } else {
+      const nextDueDate = formatDate(new Date(Date.now() + 24 * 60 * 60 * 1000));
+      const subscription = await this.asaasRequest<AsaasSubscription>('/subscriptions', {
+        method: 'POST',
+        body: JSON.stringify({
+          customer: customerId,
+          billingType: 'CREDIT_CARD',
+          value: PLAN_PRICE,
+          nextDueDate,
+          cycle: 'MONTHLY',
+          description: PLAN_DESCRIPTION,
+        }),
+      });
+      subscriptionId = subscription.id;
+    }
+
+    const payments = await this.asaasRequest<AsaasPaymentList>(`/payments?subscription=${subscriptionId}`);
     const firstPayment = payments.data?.[0] ?? null;
     const checkoutUrl = firstPayment?.invoiceUrl ?? null;
     if (!checkoutUrl) throw new BadGatewayException('O Asaas nao retornou o link de pagamento.');
@@ -116,14 +127,14 @@ export class BillingService {
           userId,
           provider: 'asaas',
           externalCustomerId: customerId,
-          externalSubscriptionId: subscription.id,
+          externalSubscriptionId: subscriptionId,
           checkoutUrl,
           providerStatus: 'pending',
         },
         update: {
           provider: 'asaas',
           externalCustomerId: customerId,
-          externalSubscriptionId: subscription.id,
+          externalSubscriptionId: subscriptionId,
           checkoutUrl,
           providerStatus: 'pending',
         },
@@ -333,6 +344,11 @@ export class BillingService {
   }
 
   private async ensureCustomer(userId: string, name: string, email: string, cpf: string) {
+    const existing = await this.asaasRequest<AsaasCustomerList>(`/customers?cpfCnpj=${cpf}`);
+    if (existing.data?.length) {
+      return existing.data[0].id;
+    }
+
     const customer = await this.asaasRequest<AsaasCustomer>('/customers', {
       method: 'POST',
       body: JSON.stringify({ name, email, cpfCnpj: cpf, externalReference: userId }),
