@@ -66,13 +66,17 @@ export interface WeeklyMethodologyDecision {
   targetLowIntensityShare: number;
 }
 
-export function buildWeeklyMethodologyDecision(input: MethodologyInput): WeeklyMethodologyDecision {
-  const runSlots = input.availability
+export function computeRunSlots(availability: MethodologyAvailability[]) {
+  return availability
     .flatMap((day) => day.modalities.filter(isRunModality).map((modality) => ({
       weekday: day.weekday,
       durationMin: day.modalityDurations?.[modality] ?? day.availableMin ?? 45,
     })))
     .sort((left, right) => left.weekday - right.weekday);
+}
+
+export function buildWeeklyMethodologyDecision(input: MethodologyInput): WeeklyMethodologyDecision {
+  const runSlots = computeRunSlots(input.availability);
   const answers = input.answers;
   const novice = isNovice(input.experience, answers);
   const safetyAdjustment = hasSafetyConcern(answers);

@@ -645,15 +645,17 @@ function readMethodologySnapshot(inputSnapshot: unknown) {
   if (!inputSnapshot || typeof inputSnapshot !== 'object' || !('methodology' in inputSnapshot)) return null;
   const methodology = (inputSnapshot as { methodology?: unknown }).methodology;
   if (!methodology || typeof methodology !== 'object') return null;
-  const { rationale, safetyAdjustment, targetLowIntensityShare } = methodology as {
+  const { rationale, safetyAdjustment, targetLowIntensityShare, decisionSource } = methodology as {
     rationale?: unknown;
     safetyAdjustment?: unknown;
     targetLowIntensityShare?: unknown;
+    decisionSource?: unknown;
   };
   return {
     rationale: Array.isArray(rationale) ? rationale.filter((item): item is string => typeof item === 'string') : [],
     safetyAdjustment: Boolean(safetyAdjustment),
     targetLowIntensityShare: typeof targetLowIntensityShare === 'number' ? targetLowIntensityShare : null,
+    decisionSource: decisionSource === 'ai' ? 'ai' : 'deterministic',
   };
 }
 
@@ -662,6 +664,8 @@ function buildTechnicalReportContent(detail: any) {
   const tests = detail.tests ?? [];
   const availability = detail.availability ?? [];
   const rationale: string[] = detail.plan?.methodology?.rationale ?? [];
+  const decisionSource = detail.plan?.methodology?.decisionSource;
+  const sourceLabel = decisionSource === 'ai' ? 'Agente de IA (Metodologia Elton Panzeri)' : 'Motor deterministico (regras fixas)';
   return {
     generatedAt: new Date().toISOString(),
     type: 'technical',
@@ -684,7 +688,7 @@ function buildTechnicalReportContent(detail: any) {
       {
         title: 'Justificativa tecnica',
         text: rationale.length
-          ? `Decisoes desta semana: ${rationale.join(' ')}`
+          ? `Decisao gerada por: ${sourceLabel}. Decisoes desta semana: ${rationale.join(' ')}`
           : 'O plano foi montado cruzando objetivo, teste de 3 km, rotina semanal informada, modalidades disponiveis e sinais de saude/recuperacao. A progressao deve respeitar aderencia, feedback, dor, fadiga e dados externos do Strava quando disponiveis.',
       },
       {

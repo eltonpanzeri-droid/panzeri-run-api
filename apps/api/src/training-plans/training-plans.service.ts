@@ -3,7 +3,14 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { runnerStrengthCategory, selectRunnerStrengthExercises } from './runner-strength-library';
 import { selectGymExercises } from './gym-exercise-library';
-import { buildWeeklyMethodologyDecision, hasSafetyConcern, PANZERI_METHODOLOGY_VERSION, PANZERI_PRESCRIPTION_PRINCIPLES } from './training-methodology';
+import {
+  buildWeeklyMethodologyDecision,
+  hasSafetyConcern,
+  MethodologyInput,
+  PANZERI_METHODOLOGY_VERSION,
+  PANZERI_PRESCRIPTION_PRINCIPLES,
+} from './training-methodology';
+import { PrescriptionAgentService } from './prescription-agent.service';
 
 interface SessionTemplate {
   title: string;
@@ -27,7 +34,10 @@ const planEngineVersion = 'rules-v11-' + PANZERI_METHODOLOGY_VERSION;
 
 @Injectable()
 export class TrainingPlansService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly prescriptionAgent: PrescriptionAgentService,
+  ) {}
 
   async current(userId: string) {
     const weekStart = startOfWeek(new Date());
@@ -148,7 +158,7 @@ export class TrainingPlansService {
     const stravaRuns = recentStrava.filter((activity) => isStravaRunningActivity(activity.type, activity.name));
     const executionSummary = jsonObject(latestExecutionInsight?.summary);
     const progression = jsonObject(executionSummary.progression);
-    const methodology = buildWeeklyMethodologyDecision({
+    const methodologyInput: MethodologyInput = {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
       experience: user.preferences?.experienceLevel ?? '',
       answers: jsonObject(onboarding.answers),
@@ -169,7 +179,9 @@ export class TrainingPlansService {
         distanceChangePercent: nullableNumericValue(progression.distanceChangePercent),
         loadTrend: String(progression.loadTrend ?? 'sem_base_anterior'),
       } : null,
-    });
+    };
+    const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput);
+    const methodology = aiDecision ?? { ...buildWeeklyMethodologyDecision(methodologyInput), source: 'deterministic' as const };
 
     const sessions = availableDays.slice(0, 7).flatMap((day) => {
       const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(day.weekday));
@@ -254,6 +266,7 @@ export class TrainingPlansService {
             rationale: methodology.rationale,
             safetyAdjustment: methodology.safetyAdjustment,
             targetLowIntensityShare: methodology.targetLowIntensityShare,
+            decisionSource: methodology.source,
             history: methodologyHistory,
             stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
             analysisAgent: latestExecutionInsight ? executionSummary : null,
