@@ -52,6 +52,7 @@ interface WeeklyAvailabilityInput {
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
 const planEngineVersion = 'rules-v11-' + PANZERI_METHODOLOGY_VERSION;
+const MAX_RUN_PACE_SECONDS = 510; // 8:30/km - nenhuma corrida (qualquer zona) pode ser prescrita mais lenta que isso
 
 @Injectable()
 export class TrainingPlansService {
@@ -432,7 +433,7 @@ export class TrainingPlansService {
       Base: 1.5,
     };
 
-    return formatPace(Math.round(paceSecondsPerKm * (factors[zone] ?? 1.25)));
+    return formatPace(Math.min(Math.round(paceSecondsPerKm * (factors[zone] ?? 1.25)), MAX_RUN_PACE_SECONDS));
   }
 
   private runPrescription(durationMin: number, zone: string, paceSecondsPerKm: number | null, modality: string, sessionType: string) {
@@ -474,9 +475,8 @@ export class TrainingPlansService {
 
     if (sessionType === 'walk_run') {
       const walkPaceSeconds = 660;
-      const deadZoneFloorSeconds = 514; // ~7 km/h: pace minima da corrida para nunca cair na faixa ambigua "nem anda nem corre"
       const minimumGapSeconds = 90; // garante que a corrida sempre seja perceptivelmente mais rapida que a caminhada
-      const runPaceSeconds = Math.min(targetPaceSeconds, deadZoneFloorSeconds, walkPaceSeconds - minimumGapSeconds);
+      const runPaceSeconds = Math.min(targetPaceSeconds, MAX_RUN_PACE_SECONDS, walkPaceSeconds - minimumGapSeconds);
       const warmupDistance = 0.5;
       const cooldownDistance = 0.5;
       const mainDistance = Math.max(1, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance));
@@ -709,7 +709,7 @@ export class TrainingPlansService {
       Base: 1.4,
     };
 
-    return Math.round(paceSecondsPerKm * (factors[zone] ?? 1.25));
+    return Math.min(Math.round(paceSecondsPerKm * (factors[zone] ?? 1.25)), MAX_RUN_PACE_SECONDS);
   }
 
   private zonePaceRange(zone: string, paceSecondsPerKm: number) {
@@ -726,7 +726,7 @@ export class TrainingPlansService {
       Z5: 0.95,
       Base: 1.45,
     };
-    const target = Math.round(paceSecondsPerKm * (targetFactors[zone] ?? 1.3));
+    const target = Math.min(Math.round(paceSecondsPerKm * (targetFactors[zone] ?? 1.3)), MAX_RUN_PACE_SECONDS);
     const fast = Math.max(target - 12, 1);
     const slow = target + 12;
     return { fast, slow };
