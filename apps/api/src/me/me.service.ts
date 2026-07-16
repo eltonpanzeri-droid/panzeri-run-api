@@ -63,7 +63,7 @@ export class MeService {
   async completeOnboarding(userId: string) {
     const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
     const answers = asAnswerObject(interview?.answers);
-    const required = ['objective', 'running_experience', 'current_continuous_run', 'personal_name', 'personal_birth_date', 'personal_sex', 'personal_height', 'personal_weight'];
+    const required = ['objective', 'running_experience', 'ran_5k_recently', 'personal_name', 'personal_birth_date', 'personal_sex', 'personal_height', 'personal_weight'];
     const missing = required.filter((key) => answers[key] === undefined || answers[key] === '');
     if (missing.length) throw new BadRequestException('Conclua todas as perguntas obrigatorias.');
 
