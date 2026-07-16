@@ -213,7 +213,9 @@ export class TrainingPlansService {
     };
     const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput, paceEvidence);
     const methodology = aiDecision ?? { ...buildWeeklyMethodologyDecision(methodologyInput), source: 'deterministic' as const };
-    const appliedPaceSecondsPerKm = methodology.paceAssessment?.effectivePaceSecondsPerKm ?? effectivePaceSecondsPerKm;
+    const resolvedPaces = methodology.paceAssessment
+      ? { easy: methodology.paceAssessment.easyPaceSecondsPerKm, intense: methodology.paceAssessment.intensePaceSecondsPerKm }
+      : this.fallbackPaces(effectivePaceSecondsPerKm);
 
     const sessions = availableDays.slice(0, 7).flatMap((day) => {
       const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(day.weekday));
@@ -243,7 +245,7 @@ export class TrainingPlansService {
               })
             : modality === 'bike'
             ? this.aerobicPrescription(durationMin, template.zone, modality)
-            : this.runPrescription(durationMin, template.zone, appliedPaceSecondsPerKm, modality, template.sessionType);
+            : this.runPrescription(durationMin, template.zone, resolvedPaces, modality, template.sessionType);
         const isStrength = modality === 'forca' || modality === 'fortalecimento_corredores';
         const isAerobic = modality === 'bike';
 
@@ -258,7 +260,7 @@ export class TrainingPlansService {
           durationMin,
           distanceKm: prescription.distanceKm,
           intensityZone: template.zone,
-          paceMinSec: !isStrength && !isAerobic ? this.zonePace(template.zone, appliedPaceSecondsPerKm) : null,
+          paceMinSec: !isStrength && !isAerobic ? formatPace(template.zone === 'Z4' ? resolvedPaces.intense : resolvedPaces.easy) : null,
           structure: prescription as unknown as Prisma.InputJsonObject,
           notes: template.notes,
           videoRefs: [],
@@ -291,7 +293,7 @@ export class TrainingPlansService {
           },
           latestTestId: latestTest?.id,
           paceSource,
-          effectivePaceSecondsPerKm: appliedPaceSecondsPerKm,
+          resolvedPaces,
           paceEvidence,
           methodology: {
             version: PANZERI_METHODOLOGY_VERSION,
@@ -358,8 +360,9 @@ export class TrainingPlansService {
 
     const answers = jsonObject(onboarding?.answers);
     const safetyAdjustment = hasSafetyConcern(answers);
-    const paceFallback = latestTest ? null : estimatePaceFromAnswers(answers);
+    const paceFallback = estimatePaceFromAnswers(answers);
     const effectivePaceSecondsPerKm = latestTest?.paceSecondsPerKm ?? paceFallback?.paceSecondsPerKm ?? DEFAULT_PACE_SECONDS_PER_KM;
+    const resolvedPaces = this.fallbackPaces(effectivePaceSecondsPerKm);
 
     const isStrength = session.modality === 'forca' || session.modality === 'fortalecimento_corredores';
     const isAerobic = session.modality === 'bike';
@@ -376,16 +379,23 @@ export class TrainingPlansService {
         })
       : isAerobic
         ? this.aerobicPrescription(durationMin, zone, session.modality)
-        : this.runPrescription(durationMin, zone, effectivePaceSecondsPerKm, session.modality, session.sessionType ?? 'easy_run');
+        : this.runPrescription(durationMin, zone, resolvedPaces, session.modality, session.sessionType ?? 'easy_run');
 
     return this.prisma.trainingSession.update({
       where: { id: sessionId },
       data: {
         distanceKm: prescription.distanceKm,
-        paceMinSec: !isStrength && !isAerobic ? this.zonePace(zone, effectivePaceSecondsPerKm) : null,
+        paceMinSec: !isStrength && !isAerobic ? formatPace(zone === 'Z4' ? resolvedPaces.intense : resolvedPaces.easy) : null,
         structure: prescription as unknown as Prisma.InputJsonObject,
       },
     });
+  }
+
+  private fallbackPaces(effectivePaceSecondsPerKm: number): { easy: number; intense: number } {
+    return {
+      easy: Math.min(Math.round(effectivePaceSecondsPerKm * 1.15), MAX_RUN_PACE_SECONDS),
+      intense: Math.round(effectivePaceSecondsPerKm * 0.95),
+    };
   }
 
   private templateForModality(modality: string, hasTest: boolean): SessionTemplate {
@@ -435,20 +445,11 @@ export class TrainingPlansService {
     };
   }
 
-  private zonePace(zone: string, paceSecondsPerKm: number) {
-    const factors: Record<string, number> = {
-      Z2: 1.35,
-      Z4: 1.05,
-      Base: 1.5,
-    };
-
-    return formatPace(Math.min(Math.round(paceSecondsPerKm * (factors[zone] ?? 1.25)), MAX_RUN_PACE_SECONDS));
-  }
-
-  private runPrescription(durationMin: number, zone: string, paceSecondsPerKm: number | null, modality: string, sessionType: string) {
-    const targetPaceSeconds = paceSecondsPerKm ? this.zonePaceSeconds(zone, paceSecondsPerKm) : 420;
+  private runPrescription(durationMin: number, zone: string, resolvedPaces: { easy: number; intense: number }, modality: string, sessionType: string) {
+    const targetPaceSeconds = zone === 'Z4' ? resolvedPaces.intense : resolvedPaces.easy;
     const speedKmh = Number((3600 / targetPaceSeconds).toFixed(1));
     const targetDistanceKm = Math.max(2, Math.round(((durationMin * 60) / targetPaceSeconds) * 2) / 2);
+    const { paceRange, speedRange } = this.paceRangeText(targetPaceSeconds);
 
     if (sessionType === 'quality_run') {
       const warmupDistance = Math.min(1.5, Math.max(0.5, roundDistance(targetDistanceKm * 0.18)));
@@ -463,21 +464,19 @@ export class TrainingPlansService {
         zone,
         repeatCount,
         steps: [
-          this.intervalStep('Correr forte', intenseStepKm, targetPaceSeconds),
+          this.intervalStep('Correr forte', intenseStepKm, resolvedPaces.intense),
           this.intervalStep('Recuperar', recoveryStepKm, 900),
         ],
       };
       const blocks = [
-        this.runDistanceBlock('Aquecimento', warmupDistance, 'Z1', paceSecondsPerKm),
+        this.runDistanceBlock('Aquecimento', warmupDistance, 'Z1', resolvedPaces.easy),
         intervalBlock,
-        this.runDistanceBlock('Recuperacoes e volume leve', recoveryDistance, 'Z2', paceSecondsPerKm),
-        this.runDistanceBlock('Desaquecimento', cooldownDistance, 'Z1', paceSecondsPerKm),
+        this.runDistanceBlock('Recuperacoes e volume leve', recoveryDistance, 'Z2', resolvedPaces.easy),
+        this.runDistanceBlock('Desaquecimento', cooldownDistance, 'Z1', resolvedPaces.easy),
       ];
       return {
         type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks), speedKmh, zone,
-        paceRange: paceSecondsPerKm ? this.zonePaceRange(zone, paceSecondsPerKm) : null,
-        speedRange: paceSecondsPerKm ? this.zoneSpeedRange(zone, paceSecondsPerKm) : null,
-        blocks,
+        paceRange, speedRange, blocks,
         reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
       };
     }
@@ -485,7 +484,7 @@ export class TrainingPlansService {
     if (sessionType === 'walk_run') {
       const walkPaceSeconds = 660;
       const minimumGapSeconds = 90; // garante que a corrida sempre seja perceptivelmente mais rapida que a caminhada
-      const runPaceSeconds = Math.min(targetPaceSeconds, MAX_RUN_PACE_SECONDS, walkPaceSeconds - minimumGapSeconds);
+      const runPaceSeconds = Math.min(resolvedPaces.easy, MAX_RUN_PACE_SECONDS, walkPaceSeconds - minimumGapSeconds);
       const warmupDistance = 0.5;
       const cooldownDistance = 0.5;
       const mainDistance = Math.max(1, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance));
@@ -502,16 +501,15 @@ export class TrainingPlansService {
         ],
       };
       const blocks = [
-        this.runDistanceBlock('Aquecimento caminhando', warmupDistance, 'Z1', paceSecondsPerKm, 'Caminhar de forma progressiva.', 600),
+        this.runDistanceBlock('Aquecimento caminhando', warmupDistance, 'Z1', 600, 'Caminhar de forma progressiva.'),
         intervalBlock,
-        this.runDistanceBlock('Desaquecimento caminhando', cooldownDistance, 'Z1', paceSecondsPerKm, undefined, 600),
+        this.runDistanceBlock('Desaquecimento caminhando', cooldownDistance, 'Z1', 600),
       ];
+      const walkRunRange = this.paceRangeText(runPaceSeconds);
       return {
         type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks),
         speedKmh: Number((3600 / runPaceSeconds).toFixed(1)), zone: 'Z2',
-        paceRange: paceSecondsPerKm ? this.zonePaceRange('Z2', paceSecondsPerKm) : null,
-        speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z2', paceSecondsPerKm) : null,
-        blocks,
+        paceRange: walkRunRange.paceRange, speedRange: walkRunRange.speedRange, blocks,
         reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
       };
     }
@@ -520,9 +518,9 @@ export class TrainingPlansService {
     const cooldownDistance = 0.5;
     const mainDistance = Math.max(1, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance));
     const blocks = [
-      this.runDistanceBlock('Aquecimento', warmupDistance, 'Z1', paceSecondsPerKm),
-      this.runDistanceBlock('Principal', mainDistance, zone, paceSecondsPerKm),
-      this.runDistanceBlock('Desaquecimento', cooldownDistance, 'Z1', paceSecondsPerKm),
+      this.runDistanceBlock('Aquecimento', warmupDistance, 'Z1', resolvedPaces.easy),
+      this.runDistanceBlock('Principal', mainDistance, zone, targetPaceSeconds),
+      this.runDistanceBlock('Desaquecimento', cooldownDistance, 'Z1', resolvedPaces.easy),
     ];
 
     return {
@@ -532,29 +530,28 @@ export class TrainingPlansService {
       durationMin: this.midpointDuration(blocks),
       durationRange: this.totalDurationRange(blocks),
       speedKmh,
-      speedRange: paceSecondsPerKm ? this.zoneSpeedRange(zone, paceSecondsPerKm) : null,
+      speedRange,
       zone,
-      paceRange: paceSecondsPerKm ? this.zonePaceRange(zone, paceSecondsPerKm) : null,
+      paceRange,
       blocks,
       reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
     };
   }
 
-  private runDistanceBlock(
-    label: string,
-    distanceKm: number,
-    zone: string,
-    testPaceSecondsPerKm: number | null,
-    guidance?: string,
-    prescribedPaceSecondsPerKm?: number,
-  ) {
-    const paceSeconds = prescribedPaceSecondsPerKm
-      ?? (testPaceSecondsPerKm ? this.zonePaceSeconds(zone, testPaceSecondsPerKm) : this.defaultZonePaceSeconds(zone));
-    const paceBounds = testPaceSecondsPerKm
-      ? this.zonePaceBounds(zone, testPaceSecondsPerKm)
-      : { fast: Math.max(paceSeconds - 12, 1), slow: paceSeconds + 12 };
-    const minimumSeconds = Math.round(distanceKm * paceBounds.fast);
-    const maximumSeconds = Math.round(distanceKm * paceBounds.slow);
+  private paceRangeText(paceSecondsPerKm: number) {
+    const fast = Math.max(paceSecondsPerKm - 12, 1);
+    const slow = paceSecondsPerKm + 12;
+    return {
+      paceRange: `${formatPace(fast)} a ${formatPace(slow)}`,
+      speedRange: `${(3600 / slow).toFixed(1)} a ${(3600 / fast).toFixed(1)} km/h`,
+    };
+  }
+
+  private runDistanceBlock(label: string, distanceKm: number, zone: string, paceSecondsPerKm: number, guidance?: string) {
+    const fast = Math.max(paceSecondsPerKm - 12, 1);
+    const slow = paceSecondsPerKm + 12;
+    const minimumSeconds = Math.round(distanceKm * fast);
+    const maximumSeconds = Math.round(distanceKm * slow);
 
     return {
       label,
@@ -566,8 +563,8 @@ export class TrainingPlansService {
       distanceValue: distanceKm,
       distanceUnit: 'km',
       zone,
-      paceRange: testPaceSecondsPerKm ? this.zonePaceRange(zone, testPaceSecondsPerKm) : null,
-      speedRange: testPaceSecondsPerKm ? this.zoneSpeedRange(zone, testPaceSecondsPerKm) : null,
+      paceRange: `${formatPace(fast)} a ${formatPace(slow)}`,
+      speedRange: `${(3600 / slow).toFixed(1)} a ${(3600 / fast).toFixed(1)} km/h`,
       guidance,
     };
   }
@@ -622,11 +619,6 @@ export class TrainingPlansService {
       paceRange: `${formatPace(fast)} a ${formatPace(slow)}`,
       speedRange: `${(3600 / slow).toFixed(2)} a ${(3600 / fast).toFixed(2)} km/h`,
     };
-  }
-
-  private defaultZonePaceSeconds(zone: string) {
-    const defaults: Record<string, number> = { Z1: 480, Z2: 420, Z3: 390, Z4: 360, Z5: 330, Base: 450 };
-    return defaults[zone] ?? 420;
   }
 
   private aerobicPrescription(durationMin: number, zone: string, modality: string) {
@@ -708,46 +700,6 @@ export class TrainingPlansService {
       reportFields: ['exercise', 'sets', 'reps', 'load', 'rpe', 'completed', 'notes'],
     };
   }
-  private zonePaceSeconds(zone: string, paceSecondsPerKm: number) {
-    const factors: Record<string, number> = {
-      Z1: 1.55,
-      Z2: 1.35,
-      Z3: 1.18,
-      Z4: 1.05,
-      Z5: 0.95,
-      Base: 1.4,
-    };
-
-    return Math.min(Math.round(paceSecondsPerKm * (factors[zone] ?? 1.25)), MAX_RUN_PACE_SECONDS);
-  }
-
-  private zonePaceRange(zone: string, paceSecondsPerKm: number) {
-    const { fast, slow } = this.zonePaceBounds(zone, paceSecondsPerKm);
-    return `${formatPace(fast)} a ${formatPace(slow)}`;
-  }
-
-  private zonePaceBounds(zone: string, paceSecondsPerKm: number) {
-    const targetFactors: Record<string, number> = {
-      Z1: 1.57,
-      Z2: 1.36,
-      Z3: 1.21,
-      Z4: 1.07,
-      Z5: 0.95,
-      Base: 1.45,
-    };
-    const target = Math.min(Math.round(paceSecondsPerKm * (targetFactors[zone] ?? 1.3)), MAX_RUN_PACE_SECONDS);
-    const fast = Math.max(target - 12, 1);
-    const slow = target + 12;
-    return { fast, slow };
-  }
-
-  private zoneSpeedRange(zone: string, paceSecondsPerKm: number) {
-    const { fast, slow } = this.zonePaceBounds(zone, paceSecondsPerKm);
-    const minimum = (3600 / slow).toFixed(1);
-    const maximum = (3600 / fast).toFixed(1);
-    return `${minimum} a ${maximum} km/h`;
-  }
-
   private presentPlan(plan: {
     id: string;
     name: string;

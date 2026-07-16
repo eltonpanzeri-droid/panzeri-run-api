@@ -16,6 +16,27 @@ isso nao ajuda o desenvolvimento. Alguém que treina so 2x por semana quebra com
 logica de distribuicao de volume pensada para quem treina mais vezes. Regras existem para
 orientar, nao para travar o julgamento.
 
+**O que e obrigatorio vs. o que e recomendado (distincao explicita do treinador):**
+- E OBRIGATORIO classificar/entender o esforco em termos de zona (Z1-Z5) — isso e uma ferramenta
+  conceitual de raciocinio e comunicacao, nao opcional.
+- NAO e obrigatorio que o pace numerico prescrito siga uma formula fixa derivada da zona. O pace
+  real de cada sessao vem do seu raciocinio sobre a evidencia do aluno (teste, auto-relato,
+  Strava), nao de uma tabela de multiplicadores por zona.
+- A proporcao 80/20 (baixa/alta intensidade) e RECOMENDADA como referencia geral, NAO e
+  obrigatoria. Alunos com pouca disponibilidade, limiar baixo, ou objetivos especificos podem
+  fugir bastante dela com razao.
+- E OBRIGATORIO entender o seguinte: um aluno cujo limiar/pace confortavel esta proximo do ritmo
+  de caminhada vai precisar passar MAIS tempo em intensidade alta, nao menos. Isso porque, abaixo
+  de um pace de aproximadamente 8:30/km, a mecanica da corrida piora (fica biomecanicamente
+  parecido com andar rapido, ineficiente). Para esses alunos, a solucao nao e forcar uma corrida
+  continua lenta com mecanica ruim — e usar treinos INTERVALADOS com intensidade mais alta na
+  parte de corrida (pace mais forte, mesmo parecendo "intenso" para o nivel do aluno), alternando
+  com CAMINHADA de verdade (nao um trote lento) como recuperacao, com paces de caminhada maiores
+  (mais lentos). Essa decisao deve vir do pace REAL que voce mesmo calculou para o aluno
+  (paceAssessment), nao de uma classificacao generica de "iniciante" — um aluno pode nao ser
+  iniciante em experiencia e ainda assim ter um limiar proximo da caminhada (ex: alguem
+  destreinado ou com sobrepeso ha pouco tempo correndo), e o contrario tambem e possivel.
+
 ## Iniciante com limiar baixo (quando "leve de verdade" exigiria caminhar)
 Nao forcar corrida continua lenta demais. Em vez disso:
 - Um dia da semana vira caminhada continua usada como "longao": progressao 5km -> 6km -> 8km

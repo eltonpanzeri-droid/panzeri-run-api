@@ -27,8 +27,9 @@ const AiWeeklyDecisionSchema = z.object({
   recommendation: z.string().min(1).max(600),
   rationale: z.array(z.string().min(1).max(300)).min(1).max(8),
   paceAssessment: z.object({
-    effectivePaceSecondsPerKm: z.number().int().min(150).max(900),
-    rationale: z.string().min(1).max(400),
+    easyPaceSecondsPerKm: z.number().int().min(150).max(900),
+    intensePaceSecondsPerKm: z.number().int().min(120).max(700),
+    rationale: z.string().min(1).max(500),
   }),
 });
 
@@ -75,9 +76,14 @@ export class PrescriptionAgentService {
       const parsed = response.parsed_output;
       if (!parsed) return null;
 
-      const sessions = this.validateSessions(parsed.sessions, runSlots, safetyAdjustment, novice);
+      if (parsed.paceAssessment.intensePaceSecondsPerKm >= parsed.paceAssessment.easyPaceSecondsPerKm) {
+        this.logger.warn('Decisao do agente de IA rejeitada: pace intenso nao e mais rapido que o pace facil.');
+        return null;
+      }
+
+      const sessions = this.validateSessions(parsed.sessions, runSlots, safetyAdjustment, parsed.paceAssessment.easyPaceSecondsPerKm);
       if (!sessions) {
-        this.logger.warn('Decisao do agente de IA rejeitada na validacao (fora dos limites de seguranca/disponibilidade/experiencia).');
+        this.logger.warn('Decisao do agente de IA rejeitada na validacao (fora dos limites de seguranca/disponibilidade/mecanica de corrida).');
         return null;
       }
 
@@ -100,19 +106,23 @@ export class PrescriptionAgentService {
     sessions: z.infer<typeof AiSessionSchema>[],
     runSlots: RunSlot[],
     safetyAdjustment: boolean,
-    novice: boolean,
+    easyPaceSecondsPerKm: number,
   ): RunSessionDecision[] | null {
     if (sessions.length !== runSlots.length) return null;
     const slotByWeekday = new Map(runSlots.map((slot) => [slot.weekday, slot]));
     const usedWeekdays = new Set<number>();
     const result: RunSessionDecision[] = [];
+    // Se o proprio pace facil que o agente concluiu ja e nitidamente rapido (aluno claramente
+    // corre bem), walk_run nao faz sentido — mas a decisao vem do pace real, nao de um rotulo
+    // de "iniciante" na entrevista.
+    const clearlyCapableOfContinuousRunning = easyPaceSecondsPerKm < 420;
 
     for (const session of sessions) {
       const slot = slotByWeekday.get(session.weekday);
       if (!slot || usedWeekdays.has(session.weekday)) return null;
       if (session.durationMin < 10 || session.durationMin > slot.durationMin) return null;
       if (safetyAdjustment && (session.sessionType === 'quality_run' || session.zone === 'Z4')) return null;
-      if (!novice && session.sessionType === 'walk_run') return null;
+      if (clearlyCapableOfContinuousRunning && session.sessionType === 'walk_run') return null;
 
       usedWeekdays.add(session.weekday);
       result.push({
@@ -139,16 +149,16 @@ export class PrescriptionAgentService {
       safetyAdjustment
         ? '- Este aluno tem um sinal de seguranca ativo (dor ou limitacao relatada): NUNCA use sessionType "quality_run" nem zone "Z4" nesta semana. Toda sessao deve ser leve (Z2, easy_run, walk_run ou long_run leve).'
         : '- Sem sinal de seguranca ativo relatado no momento, mas priorize seguranca e progressao conservadora sempre que os dados sugerirem cautela.',
-      novice
-        ? '- Este aluno FOI CLASSIFICADO COMO INICIANTE com base na experiencia e nas respostas da entrevista: sessionType "walk_run" e apropriado quando fizer sentido.'
-        : '- Este aluno NAO e iniciante (ja corre distancias reais e/ou relata condicionamento razoavel a bom): NUNCA use sessionType "walk_run" para ele. Use easy_run, quality_run ou long_run. Isso vale mesmo que a rotina disponivel seja curta ou pouco frequente — pouca disponibilidade nao torna alguem iniciante.',
-      'Sobre o pace do aluno — ISSO E O PONTO MAIS IMPORTANTE DESTA TAREFA:',
-      'Voce recebe ate tres evidencias separadas de pace no contexto (testeOficial, autoRelatoRecente, mediaStravaRecente), cada uma com sua origem e idade. NAO existe uma regra fixa de qual delas "vale mais" — voce precisa RACIOCINAR sobre qual reflete melhor a capacidade REAL e ATUAL do aluno, da mesma forma que um treinador humano faria. Exemplos de raciocinio esperado:',
-      '- Um teste oficial antigo que contradiz um desempenho recente real e mais forte (ex: aluno correu uma distancia longa de verdade num pace bem mais rapido do que o teste sugere) deve pesar MENOS que a evidencia recente e mais forte. Nunca prescreva treinos baseados cegamente no dado mais antigo ou no primeiro dado disponivel so porque "e o teste oficial".',
-      '- Uma unica corrida curta recente nao tem o mesmo peso que uma distancia longa e consistente com boa sensacao relatada.',
-      '- Quando os dados conflitam, prefira a evidencia mais recente E mais consistente com o volume/objetivo do aluno, e explique isso no rationale do paceAssessment.',
-      '- Voce DEVE retornar um campo paceAssessment com sua propria conclusao (effectivePaceSecondsPerKm) e a justificativa (rationale) de por que chegou nesse numero, considerando todas as evidencias.',
-      '- O erro mais grave possivel nesta tarefa e prescrever um treino "leve" com pace tao lento que fica igual a uma caminhada para um aluno que claramente corre mais rapido que isso. Isso e burrice, nao inteligencia. Pense de verdade sobre o que os dados dizem sobre esse aluno especifico.',
+      '- Classificacao de experiencia/entrevista (classificadoComoIniciante no contexto) e so um dado informativo a mais — a decisao de usar sessionType "walk_run" deve vir do PACE REAL que voce concluir (paceAssessment), nao do rotulo de iniciante. Um aluno pode ter experiencia registrada mas ainda assim ter um pace facil proximo do ritmo de caminhada (destreinado, retorno de pausa, sobrepeso recente); e alguem classificado como iniciante pode ja ter um pace facil claramente de corredor. Se o easyPaceSecondsPerKm que voce concluir for claramente rapido (aluno corre bem de verdade), NUNCA use "walk_run" mesmo que a entrevista sugira pouca experiencia.',
+      '- Zonas (Z1-Z5) sao uma ferramenta OBRIGATORIA de classificacao/raciocinio do esforco, mas NAO existe obrigacao de que o pace numerico siga uma formula fixa de zona — o pace vem do seu raciocinio sobre a evidencia real (ver paceAssessment abaixo). A proporcao 80/20 de baixa/alta intensidade e RECOMENDADA como referencia geral (um NORTE), nao e obrigatoria — varie livremente quando a disponibilidade, o limiar do aluno ou o objetivo pedirem algo diferente.',
+      '- Entenda isto como obrigatorio: um aluno cujo pace facil real esta proximo do ritmo de caminhada vai precisar passar MAIS tempo em intensidade alta, nao menos — porque abaixo de aproximadamente 8:30/km a mecanica da corrida piora (fica parecido com andar rapido). Para esse aluno, prefira treinos intervalados com a parte de corrida mais forte (mesmo parecendo intenso pro nivel dele) alternada com CAMINHADA de verdade como recuperacao (pace de caminhada bem mais lento), em vez de forcar uma corrida continua lenta com mecanica ruim.',
+      'SOBRE O PACE — ISTO E O PONTO MAIS IMPORTANTE DE TODA A TAREFA. NAO EXISTE NENHUMA TABELA OU FORMULA FIXA DE ZONA PARA CALCULAR PACE. Voce mesmo precisa PENSAR e decidir dois numeros, com base em evidencia real, nao em regra:',
+      '- easyPaceSecondsPerKm: o pace confortavel/leve REAL desse aluno agora (usado nas sessoes leves, longao, aquecimento e desaquecimento).',
+      '- intensePaceSecondsPerKm: o pace de esforco forte REAL desse aluno agora (usado nas sessoes de qualidade/intervalado).',
+      'Voce recebe ate tres evidencias de pace no contexto (testeOficial, autoRelatoRecente, mediaStravaRecente), cada uma com sua origem e idade. Nao existe uma regra fixa de qual vale mais — RACIOCINE, do jeito que um treinador humano faria. Exemplo real de raciocinio esperado, dado pelo proprio treinador Elton: "o teste de 3 km deu 6:30/km, mas a aluna correu 18 km reais a um pace de 6:45/km — ou seja, ela SUSTENTA um pace proximo do teste numa distancia longa de verdade. Isso significa que ela tem mais capacidade do que o teste isolado sugeriria, entao para treinos intervalados o pace intenso deve ser mais forte do que o teste indicaria sozinho, e o pace facil dela e claramente mais rapido do que uma formula de zona genérica calcularia."',
+      'Outros pontos de raciocinio: um teste antigo que contradiz um desempenho recente mais forte deve pesar MENOS. Uma unica corrida curta recente pesa menos que uma distancia longa e consistente com boa sensacao relatada. Quando os dados conflitam, prefira a evidencia mais recente E mais consistente com o volume/objetivo do aluno.',
+      'O erro mais grave possivel nesta tarefa e prescrever um treino "leve" com pace tao lento que fica parecido com uma caminhada para um aluno que claramente corre mais rapido que isso. Isso e burrice, nao inteligencia — pense de verdade sobre o que os dados dizem sobre ESTE aluno especifico, nao aplique uma conta generica.',
+      'Voce DEVE retornar paceAssessment com os dois numeros e uma justificativa (rationale) explicando como voce chegou neles a partir das evidencias.',
       'Responda em portugues nos campos de texto (title, notes, recommendation, rationale, paceAssessment.rationale).',
     ].join('\n\n');
   }

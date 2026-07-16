@@ -65,7 +65,8 @@ export interface WeeklyMethodologyDecision {
   safetyAdjustment: boolean;
   targetLowIntensityShare: number;
   paceAssessment?: {
-    effectivePaceSecondsPerKm: number;
+    easyPaceSecondsPerKm: number;
+    intensePaceSecondsPerKm: number;
     rationale: string;
   };
 }
