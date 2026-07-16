@@ -131,6 +131,7 @@ interface StudentDetail {
       structure?: Record<string, unknown> | null;
       completionStatus: string;
       perceivedEffort?: number | null;
+      satisfaction?: string | null;
       feedback?: string | null;
       notes?: string | null;
       completedDurationMin?: number | null;
@@ -168,6 +169,7 @@ interface StudentDetail {
       notes?: string | null;
       completionStatus: string;
       perceivedEffort?: number | null;
+      satisfaction?: string | null;
       feedback?: string | null;
     }>;
   }>;
@@ -1344,7 +1346,7 @@ function StudentPanel({
                     <article className="historySession" key={session.id}>
                       <div><strong>{weekdayLabel(session.weekday)} {dateLabel(session.date)} - {session.title}</strong><span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''}</span></div>
                       <AdminPrescription structure={session.structure} notes={session.notes} />
-                      <p className="historyExecution">{completionLabel(session.completionStatus)}{session.perceivedEffort ? ` | PSE ${session.perceivedEffort}/10` : ''}{session.feedback ? ` | ${session.feedback}` : ''}</p>
+                      <p className="historyExecution">{completionLabel(session.completionStatus)}{session.perceivedEffort ? ` | PSE ${session.perceivedEffort}/10` : ''}{session.satisfaction ? ` | Satisfacao: ${satisfactionLabel(session.satisfaction)}` : ''}{session.feedback ? ` | ${session.feedback}` : ''}</p>
                     </article>
                   ))}
                 </div>
@@ -1488,6 +1490,7 @@ function EditableSession({
               {session.completedPaceSecondsKm ? ` | ${paceLabel(session.completedPaceSecondsKm)}` : ''}
             </span>
             <span>{session.perceivedEffort ? `PSE ${session.perceivedEffort}/10` : 'PSE nao informada'}</span>
+            <span>{session.satisfaction ? `Satisfacao com o treino: ${satisfactionLabel(session.satisfaction)}` : 'Satisfacao nao informada'}</span>
             <span>{session.feedback || 'Sem comentario'}</span>
           </>
         )}
@@ -1869,6 +1872,17 @@ function completionLabel(status: string) {
   return 'sem registro';
 }
 
+function satisfactionLabel(value: string) {
+  const labels: Record<string, string> = {
+    amei: 'Amei',
+    gostei: 'Gostei',
+    neutro: 'Neutro',
+    nao_gostei: 'Nao gostei',
+    detestei: 'Detestei',
+  };
+  return labels[value] ?? value;
+}
+
 function dateLabel(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -2030,6 +2044,10 @@ function interviewLabel(key: string) {
   const labels: Record<string, string> = {
     objective: 'Objetivo principal', running_experience: 'Experiencia com corrida', longest_distance: 'Maior distancia', best_comfortable_pace: 'Melhor pace confortavel',
     current_continuous_run: 'Corrida continua atual', races_last_12_months: 'Provas nos ultimos 12 meses', current_activities: 'Atividades atuais', favorite_activities: 'Atividades preferidas',
+    ran_5k_recently: 'Correu 5km+ nos ultimos 6 meses', longest_distance_recent: 'Maior distancia no ultimo ano', longest_distance_recent_count: 'Vezes na maior distancia',
+    second_longest_distance_recent: 'Segunda maior distancia', second_longest_distance_recent_count: 'Vezes na segunda maior distancia',
+    third_longest_distance_recent: 'Terceira maior distancia', third_longest_distance_recent_count: 'Vezes na terceira maior distancia',
+    longest_distance_recent_time: 'Tempo na maior distancia', recent_running_feeling: 'Sensacao nessas corridas', fitness_self_rating: 'Condicionamento auto-avaliado',
     strength_experience: 'Experiencia com musculacao', training_consistency: 'Frequencia nos treinos', pushups: 'Flexoes continuas', squat_experience: 'Experiencia com agachamento', perceived_strength: 'Forca percebida',
     current_pain: 'Dor atual', pain_region: 'Regiao da dor', important_injury: 'Lesao importante', injury_description: 'Descricao da lesao', health_conditions: 'Condicoes de saude',
     continuous_medications: 'Medicamentos continuos', medical_recommendation: 'Recomendacao medica', recent_physical_assessment: 'Avaliacao nos ultimos 6 meses', assessment_method: 'Metodo da avaliacao',

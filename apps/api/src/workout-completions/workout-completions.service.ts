@@ -41,6 +41,7 @@ export class WorkoutCompletionsService {
         avgHeartRate: dto.avgHeartRate,
         maxHeartRate: dto.maxHeartRate,
         perceivedEffort: dto.perceivedEffort,
+        satisfaction: dto.satisfaction,
         notes: dto.notes,
         details,
         source: 'manual',
@@ -53,6 +54,7 @@ export class WorkoutCompletionsService {
         avgHeartRate: dto.avgHeartRate,
         maxHeartRate: dto.maxHeartRate,
         perceivedEffort: dto.perceivedEffort,
+        satisfaction: dto.satisfaction,
         notes: dto.notes,
         details,
         source: 'manual',
@@ -69,6 +71,7 @@ export class WorkoutCompletionsService {
       const statusLabel = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'registrou com ajustes' : 'marcou como nao feito';
       const details = [
         dto.perceivedEffort ? `Esforco: ${dto.perceivedEffort}/10.` : '',
+        dto.satisfaction ? `Satisfacao com o treino: ${satisfactionLabel(dto.satisfaction)}.` : '',
         dto.notes?.trim() ? `Feedback: ${dto.notes.trim()}` : 'Sem comentario.',
       ].filter(Boolean).join(' ');
       await this.prisma.userNotification.createMany({
@@ -83,4 +86,15 @@ export class WorkoutCompletionsService {
 
     return completion;
   }
+}
+
+function satisfactionLabel(value: string) {
+  const labels: Record<string, string> = {
+    amei: 'Amei',
+    gostei: 'Gostei',
+    neutro: 'Neutro',
+    nao_gostei: 'Nao gostei',
+    detestei: 'Detestei',
+  };
+  return labels[value] ?? value;
 }

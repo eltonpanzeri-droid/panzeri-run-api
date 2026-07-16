@@ -232,6 +232,7 @@ model WorkoutCompletion {
   avgHeartRate       Int?
   maxHeartRate       Int?
   perceivedEffort    Int?
+  satisfaction       String?
   notes              String?
   details            Json?
   source             String           @default("manual")

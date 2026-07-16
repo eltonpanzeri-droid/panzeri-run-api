@@ -764,11 +764,21 @@ function parseMmSsToSeconds(value: unknown): number | null {
   return total > 0 ? total : null;
 }
 
+function numericAnswer(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value > 0 ? value : null;
+  if (typeof value === 'string') {
+    const normalized = Number(value.replace(',', '.'));
+    if (Number.isFinite(normalized) && normalized > 0) return normalized;
+  }
+  return null;
+}
+
 function estimatePaceFromAnswers(answers: Record<string, unknown>): { paceSecondsPerKm: number; source: 'self_report_5k' | 'qualitative' } | null {
   if (answers.ran_5k_recently === 'yes') {
-    const fiveKmSeconds = parseMmSsToSeconds(answers.time_5k);
-    if (fiveKmSeconds) {
-      const threeKmEquivalentSeconds = fiveKmSeconds * Math.pow(3 / 5, 1.06);
+    const distanceKm = numericAnswer(answers.longest_distance_recent);
+    const distanceSeconds = parseMmSsToSeconds(answers.longest_distance_recent_time);
+    if (distanceKm && distanceSeconds) {
+      const threeKmEquivalentSeconds = distanceSeconds * Math.pow(3 / distanceKm, 1.06);
       return { paceSecondsPerKm: Math.round(threeKmEquivalentSeconds / 3), source: 'self_report_5k' };
     }
   }

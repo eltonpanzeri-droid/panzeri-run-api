@@ -44,6 +44,10 @@ export class UpsertWorkoutCompletionDto {
   perceivedEffort?: number;
 
   @IsOptional()
+  @IsIn(['amei', 'gostei', 'neutro', 'nao_gostei', 'detestei'])
+  satisfaction?: string;
+
+  @IsOptional()
   @IsString()
   notes?: string;
 

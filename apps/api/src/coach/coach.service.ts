@@ -439,6 +439,7 @@ export class CoachService {
             startDate: plan.startDate,
             endDate: plan.endDate,
             recommendation: plan.aiRecommendation,
+            methodology: readMethodologySnapshot(plan.inputSnapshot),
             summary,
             sessions: plan.sessions.map((session: any) => ({
               id: session.id,
@@ -454,6 +455,7 @@ export class CoachService {
               structure: session.structure,
               completionStatus: session.completion?.status ?? 'sem_registro',
               perceivedEffort: session.completion?.perceivedEffort ?? null,
+              satisfaction: session.completion?.satisfaction ?? null,
               feedback: session.completion?.notes ?? null,
               completedDurationMin: session.completion?.durationMin ?? null,
               completedDistanceKm: session.completion?.distanceKm ?? null,
@@ -494,6 +496,7 @@ export class CoachService {
           notes: session.notes,
           completionStatus: session.completion?.status ?? 'sem_registro',
           perceivedEffort: session.completion?.perceivedEffort ?? null,
+          satisfaction: session.completion?.satisfaction ?? null,
           feedback: session.completion?.notes ?? null,
         })),
       })),
@@ -600,7 +603,7 @@ export class CoachService {
       data: {
         userId: studentId,
         reportType,
-        title: reportType === 'technical' ? 'Prestacao tecnica do agente' : 'Relatorio de evolucao do aluno',
+        title: reportType === 'technical' ? 'Prestacao de contas tecnica do agente' : 'Relatorio de evolucao do aluno',
         content: content as Prisma.InputJsonObject,
       },
     });
@@ -621,10 +624,44 @@ function clampPercent(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+function satisfactionSummary(sessions: any[]) {
+  const labels: Record<string, string> = {
+    amei: 'Amei',
+    gostei: 'Gostei',
+    neutro: 'Neutro',
+    nao_gostei: 'Nao gostei',
+    detestei: 'Detestei',
+  };
+  const counts = sessions.reduce((acc: Record<string, number>, session: any) => {
+    if (session.satisfaction) acc[session.satisfaction] = (acc[session.satisfaction] ?? 0) + 1;
+    return acc;
+  }, {});
+  const entries = Object.entries(counts);
+  if (!entries.length) return 'sem registro';
+  return entries.map(([value, count]) => `${labels[value] ?? value} (${count})`).join(', ');
+}
+
+function readMethodologySnapshot(inputSnapshot: unknown) {
+  if (!inputSnapshot || typeof inputSnapshot !== 'object' || !('methodology' in inputSnapshot)) return null;
+  const methodology = (inputSnapshot as { methodology?: unknown }).methodology;
+  if (!methodology || typeof methodology !== 'object') return null;
+  const { rationale, safetyAdjustment, targetLowIntensityShare } = methodology as {
+    rationale?: unknown;
+    safetyAdjustment?: unknown;
+    targetLowIntensityShare?: unknown;
+  };
+  return {
+    rationale: Array.isArray(rationale) ? rationale.filter((item): item is string => typeof item === 'string') : [],
+    safetyAdjustment: Boolean(safetyAdjustment),
+    targetLowIntensityShare: typeof targetLowIntensityShare === 'number' ? targetLowIntensityShare : null,
+  };
+}
+
 function buildTechnicalReportContent(detail: any) {
   const summary = detail.plan?.summary ?? emptySummary();
   const tests = detail.tests ?? [];
   const availability = detail.availability ?? [];
+  const rationale: string[] = detail.plan?.methodology?.rationale ?? [];
   return {
     generatedAt: new Date().toISOString(),
     type: 'technical',
@@ -646,7 +683,9 @@ function buildTechnicalReportContent(detail: any) {
       },
       {
         title: 'Justificativa tecnica',
-        text: 'O plano foi montado cruzando objetivo, teste de 3 km, rotina semanal informada, modalidades disponiveis e sinais de saude/recuperacao. A progressao deve respeitar aderencia, feedback, dor, fadiga e dados externos do Strava quando disponiveis.',
+        text: rationale.length
+          ? `Decisoes desta semana: ${rationale.join(' ')}`
+          : 'O plano foi montado cruzando objetivo, teste de 3 km, rotina semanal informada, modalidades disponiveis e sinais de saude/recuperacao. A progressao deve respeitar aderencia, feedback, dor, fadiga e dados externos do Strava quando disponiveis.',
       },
       {
         title: 'Expectativa de resposta',
@@ -696,7 +735,9 @@ function buildEvolutionReportContent(detail: any) {
       },
       {
         title: 'Feedback do aluno',
-        text: done.length ? `PSE media informada: ${avgEffort ?? 'nao informada'}/10. Comentarios recentes: ${done.map((session: any) => session.feedback).filter(Boolean).slice(0, 3).join(' | ') || 'sem comentarios recentes'}.` : 'Ainda nao ha feedback manual suficiente para conclusao.',
+        text: done.length
+          ? `PSE media informada: ${avgEffort ?? 'nao informada'}/10. Satisfacao com o treino proposto: ${satisfactionSummary(done)}. Comentarios recentes: ${done.map((session: any) => session.feedback).filter(Boolean).slice(0, 3).join(' | ') || 'sem comentarios recentes'}.`
+          : 'Ainda nao ha feedback manual suficiente para conclusao.',
       },
       {
         title: 'Dados do Strava',

@@ -74,12 +74,14 @@ export function buildWeeklyMethodologyDecision(input: MethodologyInput): WeeklyM
     })))
     .sort((left, right) => left.weekday - right.weekday);
   const answers = input.answers;
-  const novice = isNovice(input.experience, answers.current_continuous_run);
+  const novice = isNovice(input.experience, answers);
   const safetyAdjustment = hasSafetyConcern(answers);
   const latest = input.history[0];
   const previous = input.history[1];
   const observedLongest = Math.max(latest?.longestRunMinutes ?? 0, input.stravaLongestRunMinutes);
   const previousLongest = previous?.longestRunMinutes ?? 0;
+  const selfReportedLongestMin =
+    answers.ran_5k_recently === 'yes' ? Math.round((parseMmSsToSeconds(answers.longest_distance_recent_time) ?? 0) / 60) || null : null;
   const adherence = input.executionInsight
     ? input.executionInsight.adherencePercent / 100
     : latest?.prescribedSessions ? latest.completedSessions / latest.prescribedSessions : 1;
@@ -89,6 +91,7 @@ export function buildWeeklyMethodologyDecision(input: MethodologyInput): WeeklyM
   const rationale: string[] = [];
 
   if (novice) rationale.push('Progressao conservadora e uso de corrida com caminhada por experiencia ou condicionamento atual.');
+  if (!latest && selfReportedLongestMin) rationale.push('Sem historico ainda: usamos a maior distancia relatada na entrevista como referencia inicial do treino longo.');
   if (safetyAdjustment) rationale.push('Carga reduzida por dor, limitacao ou sinal de saude informado.');
   if (input.history.length) rationale.push('Carga comparada com as semanas anteriores e com a aderencia registrada.');
   if (input.stravaRunMinutes > 0) rationale.push('Atividades recentes do Strava consideradas na decisao de carga.');
@@ -101,7 +104,7 @@ export function buildWeeklyMethodologyDecision(input: MethodologyInput): WeeklyM
 
   const sessions = runSlots.map((slot) => {
     if (slot.weekday === longSlot?.weekday) {
-      const durationMin = longDuration(slot.durationMin, observedLongest, previousLongest, novice, safetyAdjustment, adherence);
+      const durationMin = longDuration(slot.durationMin, observedLongest, previousLongest, novice, safetyAdjustment, adherence, selfReportedLongestMin);
       return {
         weekday: slot.weekday,
         title: novice ? 'Longao com corrida e caminhada' : 'Longao leve',
@@ -146,9 +149,39 @@ function isRunModality(modality: string) {
   return modality === 'corrida' || modality === 'esteira';
 }
 
-function isNovice(experience: string, currentRun: unknown) {
-  const value = `${experience} ${String(currentRun ?? '')}`.toLowerCase();
-  return ['nunca', 'algumas vezes', 'nao consigo', 'até 5', 'ate 5', '5 e 15'].some((term) => value.includes(term));
+function parseMmSsToSeconds(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const match = value.match(/^(\d{1,3}):(\d{1,2})$/);
+  if (!match) return null;
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2]);
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds) || seconds >= 60) return null;
+  const total = minutes * 60 + seconds;
+  return total > 0 ? total : null;
+}
+
+function numericAnswer(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value > 0 ? value : null;
+  if (typeof value === 'string') {
+    const normalized = Number(value.replace(',', '.'));
+    if (Number.isFinite(normalized) && normalized > 0) return normalized;
+  }
+  return null;
+}
+
+function isNovice(experience: string, answers: Record<string, unknown>) {
+  const experienceText = experience.toLowerCase();
+  if (['nunca', 'algumas vezes', 'nao consigo'].some((term) => experienceText.includes(term))) return true;
+
+  if (answers.ran_5k_recently === 'no') {
+    const rating = typeof answers.fitness_self_rating === 'string' ? answers.fitness_self_rating : '';
+    return rating === 'muito_leve' || rating === 'leve';
+  }
+
+  const distanceKm = numericAnswer(answers.longest_distance_recent);
+  const feeling = typeof answers.recent_running_feeling === 'string' ? answers.recent_running_feeling : '';
+  if (distanceKm !== null && distanceKm < 5) return true;
+  return feeling === 'dificil' || feeling === 'muito_dificil';
 }
 
 export function hasSafetyConcern(answers: Record<string, unknown>) {
@@ -181,9 +214,23 @@ function previousWeekday(day: number) {
   return day === 0 ? 6 : day - 1;
 }
 
-function longDuration(available: number, latest: number, previous: number, novice: boolean, safety: boolean, adherence: number) {
+function longDuration(
+  available: number,
+  latest: number,
+  previous: number,
+  novice: boolean,
+  safety: boolean,
+  adherence: number,
+  selfReportedLongestMin?: number | null,
+) {
   if (safety) return Math.min(available, latest || 40, 40);
-  if (!latest) return Math.min(available, novice ? 45 : 70);
+  if (!latest) {
+    if (selfReportedLongestMin) {
+      const ceiling = novice ? selfReportedLongestMin : Math.round(selfReportedLongestMin * 1.1);
+      return Math.max(20, Math.min(available, ceiling));
+    }
+    return Math.min(available, novice ? 45 : 70);
+  }
   if (adherence < 0.5) return Math.min(available, latest);
   const increasedLastWeek = latest > previous && latest > 60;
   const ceiling = increasedLastWeek ? latest : Math.max(latest + 8, Math.round(latest * 1.1));

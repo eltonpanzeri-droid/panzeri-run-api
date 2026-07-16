@@ -107,6 +107,7 @@ interface WeekPlanSession {
     distanceKm?: number | null;
     avgPaceSecondsKm?: number | null;
     perceivedEffort?: number | null;
+    satisfaction?: string | null;
     notes?: string | null;
     details?: { loadsText?: string } | null;
   } | null;
@@ -206,6 +207,7 @@ interface InterviewQuestion {
 interface CompletionDraft {
   status: 'done' | 'missed' | 'adjusted';
   perceivedEffort: string;
+  satisfaction: string;
   durationMin: string;
   distanceKm: string;
   avgPace: string;
@@ -419,10 +421,16 @@ const interviewQuestions: InterviewQuestion[] = [
   ] },
   { key: 'longest_distance', module: 'Experiencia com corrida', prompt: 'Qual foi a maior distancia que voce ja correu, em km?', type: 'number', optional: true, help: 'Digite o numero exato em km (pode usar virgula para casas decimais). Deixe em branco se nunca conseguiu correr continuamente.' },
   { key: 'best_comfortable_pace', module: 'Experiencia com corrida', prompt: 'Na epoca em que voce corria melhor, aproximadamente qual era seu pace confortavel?', type: 'single', options: ['Nunca corri regularmente.', 'Acima de 7:00/km', 'Entre 6:00 e 7:00/km', 'Entre 5:30 e 6:00/km', 'Entre 5:00 e 5:30/km', 'Entre 4:30 e 5:00/km', 'Entre 4:00 e 4:30/km', 'Abaixo de 4:00/km', 'Nao lembro.'].map((v) => option(v)) },
-  { key: 'ran_5k_recently', module: 'Experiencia com corrida', prompt: 'Voce correu 5 km nos ultimos 3 meses?', type: 'single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
-  { key: 'time_5k', module: 'Experiencia com corrida', prompt: 'Qual foi o seu tempo nesses 5 km?', type: 'duration_mmss', help: 'Vamos usar esse tempo como referencia para calcular seus ritmos de treino ate que voce faca o teste oficial de 3 km.', condition: (a) => a.ran_5k_recently === 'yes' },
+  { key: 'ran_5k_recently', module: 'Experiencia com corrida', prompt: 'Voce correu 5 km ou mais nos ultimos 6 meses?', type: 'single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
+  { key: 'longest_distance_recent', module: 'Experiencia com corrida', prompt: 'Qual foi a maior distancia que voce correu no ultimo ano, em km?', type: 'number', condition: (a) => a.ran_5k_recently === 'yes' },
+  { key: 'longest_distance_recent_count', module: 'Experiencia com corrida', prompt: 'Quantas vezes voce correu essa distancia ou mais no ultimo ano?', type: 'number', condition: (a) => a.ran_5k_recently === 'yes' },
+  { key: 'second_longest_distance_recent', module: 'Experiencia com corrida', prompt: 'Qual foi a segunda maior distancia que voce correu no ultimo ano, em km?', type: 'number', optional: true, condition: (a) => a.ran_5k_recently === 'yes' },
+  { key: 'second_longest_distance_recent_count', module: 'Experiencia com corrida', prompt: 'Quantas vezes voce correu essa segunda distancia ou mais no ultimo ano?', type: 'number', optional: true, condition: (a) => a.ran_5k_recently === 'yes' },
+  { key: 'third_longest_distance_recent', module: 'Experiencia com corrida', prompt: 'Qual foi a terceira maior distancia que voce correu no ultimo ano, em km?', type: 'number', optional: true, condition: (a) => a.ran_5k_recently === 'yes' },
+  { key: 'third_longest_distance_recent_count', module: 'Experiencia com corrida', prompt: 'Quantas vezes voce correu essa terceira distancia ou mais no ultimo ano?', type: 'number', optional: true, condition: (a) => a.ran_5k_recently === 'yes' },
+  { key: 'longest_distance_recent_time', module: 'Experiencia com corrida', prompt: 'Qual foi o seu tempo aproximado na sua maior distancia?', type: 'duration_mmss', help: 'Vamos usar esse tempo como referencia para calcular seus ritmos de treino ate que voce faca o teste oficial de 3 km.', condition: (a) => a.ran_5k_recently === 'yes' },
+  { key: 'recent_running_feeling', module: 'Experiencia com corrida', prompt: 'Como voce se sentiu nessas corridas?', type: 'single', options: [option('Tranquila, consegui manter o ritmo com folga', 'tranquila'), option('Moderada, exigiu esforco mas terminei bem', 'moderada'), option('Dificil, precisei desacelerar ou parar algumas vezes', 'dificil'), option('Muito dificil, quase nao consegui terminar', 'muito_dificil')], condition: (a) => a.ran_5k_recently === 'yes' },
   { key: 'fitness_self_rating', module: 'Experiencia com corrida', prompt: 'Como voce classificaria seu condicionamento para corrida hoje?', type: 'single', options: [option('Muito leve', 'muito_leve'), option('Leve', 'leve'), option('Moderado', 'moderado'), option('Forte', 'forte'), option('Muito forte', 'muito_forte')], condition: (a) => a.ran_5k_recently === 'no' },
-  { key: 'current_continuous_run', module: 'Experiencia com corrida', prompt: 'Hoje voce consegue correr continuamente por quanto tempo?', type: 'single', options: ['Nao consigo correr.', 'Ate 5 minutos.', 'Entre 5 e 15 minutos.', 'Entre 15 e 30 minutos.', 'Entre 30 e 45 minutos.', 'Entre 45 e 60 minutos.', 'Mais de 60 minutos.'].map((v) => option(v)) },
   { key: 'races_last_12_months', module: 'Experiencia com corrida', prompt: 'Nos ultimos 12 meses, quantas provas voce participou?', type: 'single', options: ['Nenhuma', '1', '2 a 3', '4 a 6', 'Mais de 6'].map((v) => option(v)) },
   { key: 'current_activities', module: 'Experiencia com corrida', prompt: 'Quais atividades fisicas voce pratica atualmente?', type: 'multi', options: [...activityOptions, 'Nenhuma'].map((v) => option(v)) },
   { key: 'favorite_activities', module: 'Experiencia com corrida', prompt: 'Quais atividades fisicas voce mais gosta de praticar?', type: 'multi', options: activityOptions.map((v) => option(v)) },
@@ -1588,6 +1596,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       sessionId: session.id,
       status: draft.status,
       perceivedEffort: Number(draft.perceivedEffort) || undefined,
+      satisfaction: draft.satisfaction || undefined,
       durationMin: Number(draft.durationMin) || undefined,
       distanceKm: Number(draft.distanceKm.replace(',', '.')) || undefined,
       avgPaceSecondsKm: paceInputToSeconds(draft.avgPace) ?? undefined,
@@ -3014,12 +3023,34 @@ function CompletionForm({
         ))}
       </View>
 
+      <Text style={styles.formHint}>Satisfacao com o treino proposto (opcional)</Text>
+      <View style={styles.completionStatusRow}>
+        {[
+          { label: 'Amei', value: 'amei' },
+          { label: 'Gostei', value: 'gostei' },
+          { label: 'Neutro', value: 'neutro' },
+          { label: 'Nao gostei', value: 'nao_gostei' },
+          { label: 'Detestei', value: 'detestei' },
+        ].map((option) => (
+          <Pressable
+            key={option.value}
+            style={[styles.completionChip, draft.satisfaction === option.value && styles.completionChipActive]}
+            onPress={() => onChange({ satisfaction: option.value })}
+          >
+            <Text style={[styles.completionChipText, draft.satisfaction === option.value && styles.completionChipTextActive]}>{option.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <Text style={styles.formHint}>
+        Quanto mais sincero e detalhado for seu comentario, melhor conseguimos ajustar a qualidade dos seus proximos treinos.
+      </Text>
       <TextInput
         style={[styles.compactInput, styles.multilineInput]}
         value={draft.notes}
         onChangeText={(value) => onChange({ notes: value })}
         multiline
-        placeholder="Como foi o treino? Dificuldades, dores ou observacoes (opcional)"
+        placeholder="Comentario sobre o treino (opcional): o que achou, dificuldades, dores..."
       />
 
       <Pressable style={styles.saveCompletionButton} onPress={onSave}>
@@ -3306,6 +3337,7 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
   return {
     status: 'done',
     perceivedEffort: '',
+    satisfaction: '',
     durationMin: session.durationMin ? String(session.durationMin) : '',
     distanceKm: session.distanceKm ? String(session.distanceKm).replace('.', ',') : '',
     avgPace: '',
@@ -3320,6 +3352,7 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
   return {
     status: completion.status,
     perceivedEffort: completion.perceivedEffort ? String(completion.perceivedEffort) : '',
+    satisfaction: completion.satisfaction ?? '',
     durationMin: completion.durationMin ? String(completion.durationMin) : '',
     distanceKm: completion.distanceKm ? String(completion.distanceKm).replace('.', ',') : '',
     avgPace: completion.avgPaceSecondsKm ? paceSecondsToInput(completion.avgPaceSecondsKm) : '',
