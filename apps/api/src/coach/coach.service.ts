@@ -645,17 +645,22 @@ function readMethodologySnapshot(inputSnapshot: unknown) {
   if (!inputSnapshot || typeof inputSnapshot !== 'object' || !('methodology' in inputSnapshot)) return null;
   const methodology = (inputSnapshot as { methodology?: unknown }).methodology;
   if (!methodology || typeof methodology !== 'object') return null;
-  const { rationale, safetyAdjustment, targetLowIntensityShare, decisionSource } = methodology as {
+  const { rationale, safetyAdjustment, targetLowIntensityShare, decisionSource, paceAssessment } = methodology as {
     rationale?: unknown;
     safetyAdjustment?: unknown;
     targetLowIntensityShare?: unknown;
     decisionSource?: unknown;
+    paceAssessment?: unknown;
   };
+  const paceAssessmentObject = paceAssessment && typeof paceAssessment === 'object' ? (paceAssessment as { effectivePaceSecondsPerKm?: unknown; rationale?: unknown }) : null;
   return {
     rationale: Array.isArray(rationale) ? rationale.filter((item): item is string => typeof item === 'string') : [],
     safetyAdjustment: Boolean(safetyAdjustment),
     targetLowIntensityShare: typeof targetLowIntensityShare === 'number' ? targetLowIntensityShare : null,
     decisionSource: decisionSource === 'ai' ? 'ai' : 'deterministic',
+    paceAssessment: paceAssessmentObject && typeof paceAssessmentObject.effectivePaceSecondsPerKm === 'number' && typeof paceAssessmentObject.rationale === 'string'
+      ? { effectivePaceSecondsPerKm: paceAssessmentObject.effectivePaceSecondsPerKm, rationale: paceAssessmentObject.rationale }
+      : null,
   };
 }
 
@@ -666,6 +671,7 @@ function buildTechnicalReportContent(detail: any) {
   const rationale: string[] = detail.plan?.methodology?.rationale ?? [];
   const decisionSource = detail.plan?.methodology?.decisionSource;
   const sourceLabel = decisionSource === 'ai' ? 'Agente de IA (Metodologia Elton Panzeri)' : 'Motor deterministico (regras fixas)';
+  const paceAssessment = detail.plan?.methodology?.paceAssessment as { effectivePaceSecondsPerKm: number; rationale: string } | null;
   return {
     generatedAt: new Date().toISOString(),
     type: 'technical',
@@ -690,6 +696,12 @@ function buildTechnicalReportContent(detail: any) {
         text: rationale.length
           ? `Decisao gerada por: ${sourceLabel}. Decisoes desta semana: ${rationale.join(' ')}`
           : 'O plano foi montado cruzando objetivo, teste de 3 km, rotina semanal informada, modalidades disponiveis e sinais de saude/recuperacao. A progressao deve respeitar aderencia, feedback, dor, fadiga e dados externos do Strava quando disponiveis.',
+      },
+      {
+        title: 'Avaliacao do pace real do aluno',
+        text: paceAssessment
+          ? `Pace efetivo considerado: ${formatPace(paceAssessment.effectivePaceSecondsPerKm)}. Raciocinio do agente: ${paceAssessment.rationale}`
+          : 'Pace calculado pela regra padrao (teste oficial, senao auto-relato, senao valor generico) — sem avaliacao contextual do agente de IA nesta semana.',
       },
       {
         title: 'Expectativa de resposta',

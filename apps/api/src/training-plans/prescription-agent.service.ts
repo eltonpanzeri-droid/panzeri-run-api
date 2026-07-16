@@ -26,13 +26,18 @@ const AiWeeklyDecisionSchema = z.object({
   sessions: z.array(AiSessionSchema).min(1).max(7),
   recommendation: z.string().min(1).max(600),
   rationale: z.array(z.string().min(1).max(300)).min(1).max(8),
+  paceAssessment: z.object({
+    effectivePaceSecondsPerKm: z.number().int().min(150).max(900),
+    rationale: z.string().min(1).max(400),
+  }),
 });
 
 type RunSlot = ReturnType<typeof computeRunSlots>[number];
 
-interface PaceContext {
-  effectivePaceSecondsPerKm: number;
-  paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default';
+export interface PaceEvidence {
+  testPace?: { secondsPerKm: number; daysAgo: number } | null;
+  selfReportedPace?: { secondsPerKm: number; source: 'self_report_5k' | 'qualitative' } | null;
+  stravaAveragePace?: { secondsPerKm: number; sampleRuns: number } | null;
 }
 
 @Injectable()
@@ -45,7 +50,7 @@ export class PrescriptionAgentService {
     this.client = apiKey ? new Anthropic({ apiKey }) : null;
   }
 
-  async proposeWeeklyDecision(input: MethodologyInput, pace: PaceContext): Promise<(WeeklyMethodologyDecision & { source: 'ai' }) | null> {
+  async proposeWeeklyDecision(input: MethodologyInput, evidence: PaceEvidence): Promise<(WeeklyMethodologyDecision & { source: 'ai' }) | null> {
     if (!this.client) return null;
 
     const runSlots = computeRunSlots(input.availability);
@@ -64,7 +69,7 @@ export class PrescriptionAgentService {
           format: zodOutputFormat(AiWeeklyDecisionSchema),
         },
         system: this.buildSystemPrompt(safetyAdjustment, novice),
-        messages: [{ role: 'user', content: this.buildUserPrompt(input, runSlots, safetyAdjustment, novice, pace) }],
+        messages: [{ role: 'user', content: this.buildUserPrompt(input, runSlots, safetyAdjustment, novice, evidence) }],
       });
 
       const parsed = response.parsed_output;
@@ -82,6 +87,7 @@ export class PrescriptionAgentService {
         rationale: parsed.rationale,
         safetyAdjustment,
         targetLowIntensityShare: 0.8,
+        paceAssessment: parsed.paceAssessment,
         source: 'ai',
       };
     } catch (error) {
@@ -136,20 +142,34 @@ export class PrescriptionAgentService {
       novice
         ? '- Este aluno FOI CLASSIFICADO COMO INICIANTE com base na experiencia e nas respostas da entrevista: sessionType "walk_run" e apropriado quando fizer sentido.'
         : '- Este aluno NAO e iniciante (ja corre distancias reais e/ou relata condicionamento razoavel a bom): NUNCA use sessionType "walk_run" para ele. Use easy_run, quality_run ou long_run. Isso vale mesmo que a rotina disponivel seja curta ou pouco frequente — pouca disponibilidade nao torna alguem iniciante.',
-      '- Preste atencao especial ao pace real do aluno informado no contexto (paceEstimadoSegundosPorKm). Nunca prescreva um trecho "de corrida" com pace tao lento quanto o pace de caminhada — isso e o erro mais grave possivel nesta tarefa. Se o aluno corre rapido, os treinos leves (Z2) ainda devem ser nitidamente mais rapidos que uma caminhada, mesmo sendo "leves" para o padrao dele.',
-      'Responda em portugues nos campos de texto (title, notes, recommendation, rationale).',
+      'Sobre o pace do aluno — ISSO E O PONTO MAIS IMPORTANTE DESTA TAREFA:',
+      'Voce recebe ate tres evidencias separadas de pace no contexto (testeOficial, autoRelatoRecente, mediaStravaRecente), cada uma com sua origem e idade. NAO existe uma regra fixa de qual delas "vale mais" — voce precisa RACIOCINAR sobre qual reflete melhor a capacidade REAL e ATUAL do aluno, da mesma forma que um treinador humano faria. Exemplos de raciocinio esperado:',
+      '- Um teste oficial antigo que contradiz um desempenho recente real e mais forte (ex: aluno correu uma distancia longa de verdade num pace bem mais rapido do que o teste sugere) deve pesar MENOS que a evidencia recente e mais forte. Nunca prescreva treinos baseados cegamente no dado mais antigo ou no primeiro dado disponivel so porque "e o teste oficial".',
+      '- Uma unica corrida curta recente nao tem o mesmo peso que uma distancia longa e consistente com boa sensacao relatada.',
+      '- Quando os dados conflitam, prefira a evidencia mais recente E mais consistente com o volume/objetivo do aluno, e explique isso no rationale do paceAssessment.',
+      '- Voce DEVE retornar um campo paceAssessment com sua propria conclusao (effectivePaceSecondsPerKm) e a justificativa (rationale) de por que chegou nesse numero, considerando todas as evidencias.',
+      '- O erro mais grave possivel nesta tarefa e prescrever um treino "leve" com pace tao lento que fica igual a uma caminhada para um aluno que claramente corre mais rapido que isso. Isso e burrice, nao inteligencia. Pense de verdade sobre o que os dados dizem sobre esse aluno especifico.',
+      'Responda em portugues nos campos de texto (title, notes, recommendation, rationale, paceAssessment.rationale).',
     ].join('\n\n');
   }
 
-  private buildUserPrompt(input: MethodologyInput, runSlots: RunSlot[], safetyAdjustment: boolean, novice: boolean, pace: PaceContext) {
+  private buildUserPrompt(input: MethodologyInput, runSlots: RunSlot[], safetyAdjustment: boolean, novice: boolean, evidence: PaceEvidence) {
     return JSON.stringify(
       {
         objetivo: input.goal,
         experiencia: input.experience,
         classificadoComoIniciante: novice,
-        paceEstimadoSegundosPorKm: pace.effectivePaceSecondsPerKm,
-        paceEstimadoLegivel: formatSecondsPerKm(pace.effectivePaceSecondsPerKm),
-        origemDoPaceEstimado: pace.paceSource,
+        evidenciasDePace: {
+          testeOficial: evidence.testPace
+            ? { paceSegundosPorKm: evidence.testPace.secondsPerKm, paceLegivel: formatSecondsPerKm(evidence.testPace.secondsPerKm), idadeEmDias: evidence.testPace.daysAgo }
+            : null,
+          autoRelatoRecente: evidence.selfReportedPace
+            ? { paceSegundosPorKm: evidence.selfReportedPace.secondsPerKm, paceLegivel: formatSecondsPerKm(evidence.selfReportedPace.secondsPerKm), origem: evidence.selfReportedPace.source }
+            : null,
+          mediaStravaRecente: evidence.stravaAveragePace
+            ? { paceSegundosPorKm: evidence.stravaAveragePace.secondsPerKm, paceLegivel: formatSecondsPerKm(evidence.stravaAveragePace.secondsPerKm), numeroDeCorridas: evidence.stravaAveragePace.sampleRuns }
+            : null,
+        },
         respostasEntrevista: input.answers,
         diasDisponiveisParaCorrida: runSlots,
         historicoSemanal: input.history,

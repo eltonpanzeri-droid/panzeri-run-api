@@ -10,7 +10,7 @@ import {
   PANZERI_METHODOLOGY_VERSION,
   PANZERI_PRESCRIPTION_PRINCIPLES,
 } from './training-methodology';
-import { PrescriptionAgentService } from './prescription-agent.service';
+import { PrescriptionAgentService, PaceEvidence } from './prescription-agent.service';
 
 interface SessionTemplate {
   title: string;
@@ -146,7 +146,7 @@ export class TrainingPlansService {
     if (!onboarding?.completedAt) return onboardingRequiredPlan();
 
     const answers = jsonObject(onboarding.answers);
-    const paceFallback = latestTest ? null : estimatePaceFromAnswers(answers);
+    const paceFallback = estimatePaceFromAnswers(answers);
     const effectivePaceSecondsPerKm = latestTest?.paceSecondsPerKm ?? paceFallback?.paceSecondsPerKm ?? DEFAULT_PACE_SECONDS_PER_KM;
     const paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default' = latestTest ? 'test' : paceFallback?.source ?? 'default';
 
@@ -202,11 +202,18 @@ export class TrainingPlansService {
         loadTrend: String(progression.loadTrend ?? 'sem_base_anterior'),
       } : null,
     };
-    const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput, {
-      effectivePaceSecondsPerKm,
-      paceSource,
-    });
+    const stravaPacedRuns = stravaRuns.filter((activity) => (activity.avgPaceSecKm ?? 0) > 0 && (activity.distanceKm ?? 0) >= 1);
+    const stravaAveragePaceSecondsPerKm = stravaPacedRuns.length
+      ? Math.round(stravaPacedRuns.reduce((total, activity) => total + (activity.avgPaceSecKm ?? 0), 0) / stravaPacedRuns.length)
+      : null;
+    const paceEvidence: PaceEvidence = {
+      testPace: latestTest ? { secondsPerKm: latestTest.paceSecondsPerKm, daysAgo: Math.floor((Date.now() - latestTest.createdAt.getTime()) / 86400000) } : null,
+      selfReportedPace: paceFallback ? { secondsPerKm: paceFallback.paceSecondsPerKm, source: paceFallback.source } : null,
+      stravaAveragePace: stravaAveragePaceSecondsPerKm ? { secondsPerKm: stravaAveragePaceSecondsPerKm, sampleRuns: stravaPacedRuns.length } : null,
+    };
+    const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput, paceEvidence);
     const methodology = aiDecision ?? { ...buildWeeklyMethodologyDecision(methodologyInput), source: 'deterministic' as const };
+    const appliedPaceSecondsPerKm = methodology.paceAssessment?.effectivePaceSecondsPerKm ?? effectivePaceSecondsPerKm;
 
     const sessions = availableDays.slice(0, 7).flatMap((day) => {
       const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(day.weekday));
@@ -236,7 +243,7 @@ export class TrainingPlansService {
               })
             : modality === 'bike'
             ? this.aerobicPrescription(durationMin, template.zone, modality)
-            : this.runPrescription(durationMin, template.zone, effectivePaceSecondsPerKm, modality, template.sessionType);
+            : this.runPrescription(durationMin, template.zone, appliedPaceSecondsPerKm, modality, template.sessionType);
         const isStrength = modality === 'forca' || modality === 'fortalecimento_corredores';
         const isAerobic = modality === 'bike';
 
@@ -251,7 +258,7 @@ export class TrainingPlansService {
           durationMin,
           distanceKm: prescription.distanceKm,
           intensityZone: template.zone,
-          paceMinSec: !isStrength && !isAerobic ? this.zonePace(template.zone, effectivePaceSecondsPerKm) : null,
+          paceMinSec: !isStrength && !isAerobic ? this.zonePace(template.zone, appliedPaceSecondsPerKm) : null,
           structure: prescription as unknown as Prisma.InputJsonObject,
           notes: template.notes,
           videoRefs: [],
@@ -284,7 +291,8 @@ export class TrainingPlansService {
           },
           latestTestId: latestTest?.id,
           paceSource,
-          effectivePaceSecondsPerKm,
+          effectivePaceSecondsPerKm: appliedPaceSecondsPerKm,
+          paceEvidence,
           methodology: {
             version: PANZERI_METHODOLOGY_VERSION,
             principles: PANZERI_PRESCRIPTION_PRINCIPLES,
@@ -292,6 +300,7 @@ export class TrainingPlansService {
             safetyAdjustment: methodology.safetyAdjustment,
             targetLowIntensityShare: methodology.targetLowIntensityShare,
             decisionSource: methodology.source,
+            paceAssessment: methodology.paceAssessment ?? null,
             history: methodologyHistory,
             stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
             analysisAgent: latestExecutionInsight ? executionSummary : null,

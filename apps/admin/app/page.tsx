@@ -1064,8 +1064,8 @@ function StudentPanel({
         onStatus('Nao consegui gerar uma nova semana.');
         return;
       }
+      await onRefresh();
       onStatus('Nova semana de treinos gerada.');
-      onRefresh();
     } catch {
       onStatus('Nao consegui conectar com a API.');
     }

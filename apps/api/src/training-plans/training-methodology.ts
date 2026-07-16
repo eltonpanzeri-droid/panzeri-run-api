@@ -64,6 +64,10 @@ export interface WeeklyMethodologyDecision {
   rationale: string[];
   safetyAdjustment: boolean;
   targetLowIntensityShare: number;
+  paceAssessment?: {
+    effectivePaceSecondsPerKm: number;
+    rationale: string;
+  };
 }
 
 export function computeRunSlots(availability: MethodologyAvailability[]) {
