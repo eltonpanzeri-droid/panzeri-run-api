@@ -1487,6 +1487,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   const [isLoading, setIsLoading] = useState(false);
   const [recommendationOpen, setRecommendationOpen] = useState(true);
   const [routineAdjustmentOpen, setRoutineAdjustmentOpen] = useState(false);
+  const [applyRoutinePermanently, setApplyRoutinePermanently] = useState(false);
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -1571,6 +1572,38 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function applyRoutineAdjustment() {
+    if (!applyRoutinePermanently) {
+      await generatePlan();
+      return;
+    }
+
+    setIsLoading(true);
+    setStatus('');
+    try {
+      const response = await fetch(`${API_URL}/me/availability`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ availability: routineToAvailability(weeklyRoutine) }),
+      });
+
+      if (!response.ok) {
+        setStatus('Nao consegui salvar a rotina permanente.');
+        setIsLoading(false);
+        return;
+      }
+    } catch {
+      setStatus('Nao consegui conectar com a API agora.');
+      setIsLoading(false);
+      return;
+    }
+
+    await generatePlan();
   }
 
   function moveSession(sessionId: string, direction: -1 | 1) {
@@ -1874,8 +1907,12 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
           <>
             <Text style={styles.formHint}>Mude dias, modalidades e tempos somente de hoje em diante. Treinos anteriores serao preservados.</Text>
             <RoutineEditor routineDays={weeklyRoutine} onChange={setWeeklyRoutine} />
-            <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generatePlan}>
-              <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar ajustes de rotina'}</Text>
+            <View style={styles.termsRow}>
+              <Switch value={applyRoutinePermanently} onValueChange={setApplyRoutinePermanently} />
+              <Text style={styles.termsText}>Aplicar essa rotina permanentemente, nao so nesta semana (evita ter que refazer a entrevista).</Text>
+            </View>
+            <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={applyRoutineAdjustment}>
+              <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : applyRoutinePermanently ? 'Salvar rotina permanente e gerar treino' : 'Gerar ajustes so desta semana'}</Text>
               <Ionicons name="sparkles" size={18} color="#ffffff" />
             </Pressable>
           </>

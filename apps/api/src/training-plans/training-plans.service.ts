@@ -201,7 +201,10 @@ export class TrainingPlansService {
         loadTrend: String(progression.loadTrend ?? 'sem_base_anterior'),
       } : null,
     };
-    const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput);
+    const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput, {
+      effectivePaceSecondsPerKm,
+      paceSource,
+    });
     const methodology = aiDecision ?? { ...buildWeeklyMethodologyDecision(methodologyInput), source: 'deterministic' as const };
 
     const sessions = availableDays.slice(0, 7).flatMap((day) => {
@@ -470,13 +473,15 @@ export class TrainingPlansService {
     }
 
     if (sessionType === 'walk_run') {
-      const adjustedPace = Math.round(targetPaceSeconds * 1.2);
+      const walkPaceSeconds = 660;
+      const deadZoneFloorSeconds = 514; // ~7 km/h: pace minima da corrida para nunca cair na faixa ambigua "nem anda nem corre"
+      const minimumGapSeconds = 90; // garante que a corrida sempre seja perceptivelmente mais rapida que a caminhada
+      const runPaceSeconds = Math.min(targetPaceSeconds, deadZoneFloorSeconds, walkPaceSeconds - minimumGapSeconds);
       const warmupDistance = 0.5;
       const cooldownDistance = 0.5;
       const mainDistance = Math.max(1, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance));
       const walkStepKm = 0.3;
       const runStepKm = 0.2;
-      const walkPaceSeconds = 660;
       const repeatCount = Math.max(3, Math.min(14, Math.round(mainDistance / (walkStepKm + runStepKm))));
       const intervalBlock: RunBlock = {
         label: 'Bloco intervalado',
@@ -484,7 +489,7 @@ export class TrainingPlansService {
         repeatCount,
         steps: [
           this.intervalStep('Caminhar', walkStepKm, walkPaceSeconds),
-          this.intervalStep('Correr', runStepKm, adjustedPace),
+          this.intervalStep('Correr', runStepKm, runPaceSeconds),
         ],
       };
       const blocks = [
@@ -494,7 +499,7 @@ export class TrainingPlansService {
       ];
       return {
         type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks),
-        speedKmh: Number((3600 / adjustedPace).toFixed(1)), zone: 'Z2',
+        speedKmh: Number((3600 / runPaceSeconds).toFixed(1)), zone: 'Z2',
         paceRange: paceSecondsPerKm ? this.zonePaceRange('Z2', paceSecondsPerKm) : null,
         speedRange: paceSecondsPerKm ? this.zoneSpeedRange('Z2', paceSecondsPerKm) : null,
         blocks,

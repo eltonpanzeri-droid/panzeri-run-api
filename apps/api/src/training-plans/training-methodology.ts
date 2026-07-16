@@ -173,7 +173,7 @@ function numericAnswer(value: unknown): number | null {
   return null;
 }
 
-function isNovice(experience: string, answers: Record<string, unknown>) {
+export function isNovice(experience: string, answers: Record<string, unknown>) {
   const experienceText = experience.toLowerCase();
   if (['nunca', 'algumas vezes', 'nao consigo'].some((term) => experienceText.includes(term))) return true;
 
