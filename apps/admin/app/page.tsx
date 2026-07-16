@@ -1761,16 +1761,35 @@ function AdminPrescription({ structure, notes }: { structure?: Record<string, un
     const blocks = Array.isArray(structure.blocks) ? structure.blocks as Array<Record<string, unknown>> : [];
     return (
       <div className="adminPrescription">
-        {blocks.map((block) => (
-          <div className="adminBlock" key={String(block.label)}>
-            <strong>{String(block.label)}</strong>
-            <span>{adminStepMeasure(block)} {block.zone ? `| ${String(block.zone)}` : ''}</span>
-            {block.paceRange ? <span>Pace: {String(block.paceRange)}</span> : null}
-            {block.speedRange ? <span>Velocidade: {String(block.speedRange).replaceAll('.', ',')}</span> : null}
-            {block.rpe ? <span>Esforco: {adminRpeLabel(String(block.rpe))}</span> : null}
-            {block.guidance ? <span>{String(block.guidance)}</span> : null}
-          </div>
-        ))}
+        {blocks.map((block) => {
+          const repeatCount = Number(block.repeatCount ?? 0);
+          const steps = Array.isArray(block.steps) ? block.steps as Array<Record<string, unknown>> : [];
+          if (repeatCount && steps.length) {
+            return (
+              <div className="adminBlock" key={String(block.label)}>
+                <strong>Repetir {repeatCount}x</strong>
+                {steps.map((step, index) => (
+                  <span key={`${String(step.label)}-${index}`}>
+                    - {String(step.label)} por {String(step.distanceValue)}{String(step.distanceUnit ?? 'km')}
+                    {step.paceRange ? ` - Pace (${String(step.paceRange)})` : ''}
+                    {step.speedRange ? ` | Velocidade (${String(step.speedRange).replaceAll('.', ',')})` : ''}
+                    {step.durationRange ? ` - completar entre ${String(step.durationRange)}` : ''}
+                  </span>
+                ))}
+              </div>
+            );
+          }
+          return (
+            <div className="adminBlock" key={String(block.label)}>
+              <strong>{String(block.label)}</strong>
+              <span>{adminStepMeasure(block)} {block.zone ? `| ${String(block.zone)}` : ''}</span>
+              {block.paceRange ? <span>Pace: {String(block.paceRange)}</span> : null}
+              {block.speedRange ? <span>Velocidade: {String(block.speedRange).replaceAll('.', ',')}</span> : null}
+              {block.rpe ? <span>Esforco: {adminRpeLabel(String(block.rpe))}</span> : null}
+              {block.guidance ? <span>{String(block.guidance)}</span> : null}
+            </div>
+          );
+        })}
         {notes ? <p className="coachNotes">{notes}</p> : null}
       </div>
     );

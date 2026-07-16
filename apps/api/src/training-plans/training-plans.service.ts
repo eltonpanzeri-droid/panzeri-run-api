@@ -21,6 +21,27 @@ interface SessionTemplate {
   notes: string;
 }
 
+interface RunStep {
+  label: string;
+  durationMin: number;
+  durationMinLower: number;
+  durationMinUpper: number;
+  durationRange: string;
+  durationType: string;
+  distanceValue: number;
+  distanceUnit: string;
+  paceRange?: string | null;
+  speedRange?: string | null;
+  guidance?: string;
+}
+
+interface RunBlock extends Partial<RunStep> {
+  label: string;
+  zone?: string;
+  repeatCount?: number;
+  steps?: RunStep[];
+}
+
 interface WeeklyAvailabilityInput {
   weekday: number;
   noTraining: boolean;
@@ -227,7 +248,7 @@ export class TrainingPlansService {
           distanceKm: prescription.distanceKm,
           intensityZone: template.zone,
           paceMinSec: !isStrength && !isAerobic ? this.zonePace(template.zone, effectivePaceSecondsPerKm) : null,
-          structure: prescription,
+          structure: prescription as unknown as Prisma.InputJsonObject,
           notes: template.notes,
           videoRefs: [],
         };
@@ -421,9 +442,21 @@ export class TrainingPlansService {
       const cooldownDistance = 0.5;
       const intenseDistance = Math.max(0.5, roundDistance(targetDistanceKm * 0.22));
       const recoveryDistance = Math.max(0.5, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance - intenseDistance));
+      const intenseStepKm = Math.max(0.4, Math.min(1.5, roundDistance(intenseDistance / 4)));
+      const recoveryStepKm = 0.4;
+      const repeatCount = Math.max(3, Math.min(8, Math.round(intenseDistance / intenseStepKm)));
+      const intervalBlock: RunBlock = {
+        label: 'Serie intervalada',
+        zone,
+        repeatCount,
+        steps: [
+          this.intervalStep('Correr forte', intenseStepKm, targetPaceSeconds),
+          this.intervalStep('Recuperar', recoveryStepKm, 900),
+        ],
+      };
       const blocks = [
         this.runDistanceBlock('Aquecimento', warmupDistance, 'Z1', paceSecondsPerKm),
-        this.runDistanceBlock('Estimulos', intenseDistance, zone, paceSecondsPerKm, 'Distancia intensa total acumulada. Fracionar em repeticoes com recuperacao leve.'),
+        intervalBlock,
         this.runDistanceBlock('Recuperacoes e volume leve', recoveryDistance, 'Z2', paceSecondsPerKm),
         this.runDistanceBlock('Desaquecimento', cooldownDistance, 'Z1', paceSecondsPerKm),
       ];
@@ -441,9 +474,22 @@ export class TrainingPlansService {
       const warmupDistance = 0.5;
       const cooldownDistance = 0.5;
       const mainDistance = Math.max(1, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance));
+      const walkStepKm = 0.3;
+      const runStepKm = 0.2;
+      const walkPaceSeconds = 660;
+      const repeatCount = Math.max(3, Math.min(14, Math.round(mainDistance / (walkStepKm + runStepKm))));
+      const intervalBlock: RunBlock = {
+        label: 'Bloco intervalado',
+        zone: 'Z2',
+        repeatCount,
+        steps: [
+          this.intervalStep('Caminhar', walkStepKm, walkPaceSeconds),
+          this.intervalStep('Correr', runStepKm, adjustedPace),
+        ],
+      };
       const blocks = [
         this.runDistanceBlock('Aquecimento caminhando', warmupDistance, 'Z1', paceSecondsPerKm, 'Caminhar de forma progressiva.', 600),
-        this.runDistanceBlock('Corrida e caminhada', mainDistance, 'Z2', paceSecondsPerKm, 'Alternar corrida leve e caminhada antes de perder o controle respiratorio.', adjustedPace),
+        intervalBlock,
         this.runDistanceBlock('Desaquecimento caminhando', cooldownDistance, 'Z1', paceSecondsPerKm, undefined, 600),
       ];
       return {
@@ -512,21 +558,56 @@ export class TrainingPlansService {
     };
   }
 
-  private totalBlockDistance(blocks: Array<{ distanceValue: number }>) {
-    return Number(blocks.reduce((total, block) => total + block.distanceValue, 0).toFixed(1));
+  private blockDistance(block: RunBlock): number {
+    if (block.repeatCount && block.steps) {
+      return block.repeatCount * block.steps.reduce((total, step) => total + step.distanceValue, 0);
+    }
+    return block.distanceValue ?? 0;
   }
 
-  private totalDurationRange(blocks: Array<{ durationMinLower: number; durationMinUpper: number }>) {
-    return formatElapsedRange(
-      blocks.reduce((total, block) => total + block.durationMinLower, 0),
-      blocks.reduce((total, block) => total + block.durationMinUpper, 0),
-    );
+  private blockDurationBounds(block: RunBlock): { lower: number; upper: number } {
+    if (block.repeatCount && block.steps) {
+      return {
+        lower: block.repeatCount * block.steps.reduce((total, step) => total + step.durationMinLower, 0),
+        upper: block.repeatCount * block.steps.reduce((total, step) => total + step.durationMinUpper, 0),
+      };
+    }
+    return { lower: block.durationMinLower ?? 0, upper: block.durationMinUpper ?? 0 };
   }
 
-  private midpointDuration(blocks: Array<{ durationMinLower: number; durationMinUpper: number }>) {
-    const minimum = blocks.reduce((total, block) => total + block.durationMinLower, 0);
-    const maximum = blocks.reduce((total, block) => total + block.durationMinUpper, 0);
-    return Math.round(((minimum + maximum) / 2) / 60);
+  private totalBlockDistance(blocks: RunBlock[]) {
+    return Number(blocks.reduce((total, block) => total + this.blockDistance(block), 0).toFixed(1));
+  }
+
+  private totalDurationRange(blocks: RunBlock[]) {
+    const lower = blocks.reduce((total, block) => total + this.blockDurationBounds(block).lower, 0);
+    const upper = blocks.reduce((total, block) => total + this.blockDurationBounds(block).upper, 0);
+    return formatElapsedRange(lower, upper);
+  }
+
+  private midpointDuration(blocks: RunBlock[]) {
+    const lower = blocks.reduce((total, block) => total + this.blockDurationBounds(block).lower, 0);
+    const upper = blocks.reduce((total, block) => total + this.blockDurationBounds(block).upper, 0);
+    return Math.round(((lower + upper) / 2) / 60);
+  }
+
+  private intervalStep(label: string, distanceKm: number, paceSecondsCenter: number, toleranceSeconds = 20) {
+    const fast = Math.max(paceSecondsCenter - toleranceSeconds, 60);
+    const slow = paceSecondsCenter + toleranceSeconds;
+    const minimumSeconds = Math.round(distanceKm * fast);
+    const maximumSeconds = Math.round(distanceKm * slow);
+    return {
+      label,
+      durationMin: Math.round(((minimumSeconds + maximumSeconds) / 2) / 60),
+      durationMinLower: minimumSeconds,
+      durationMinUpper: maximumSeconds,
+      durationRange: formatElapsedRange(minimumSeconds, maximumSeconds),
+      durationType: 'distance',
+      distanceValue: distanceKm,
+      distanceUnit: 'km',
+      paceRange: `${formatPace(fast)} a ${formatPace(slow)}`,
+      speedRange: `${(3600 / slow).toFixed(2)} a ${(3600 / fast).toFixed(2)} km/h`,
+    };
   }
 
   private defaultZonePaceSeconds(zone: string) {

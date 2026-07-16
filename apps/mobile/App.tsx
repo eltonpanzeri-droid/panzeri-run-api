@@ -137,6 +137,15 @@ type SessionStructure =
         speedKmh?: number;
         speedRange?: string | null;
         guidance?: string;
+        repeatCount?: number;
+        steps?: Array<{
+          label: string;
+          distanceValue?: string | number;
+          distanceUnit?: string;
+          durationRange?: string;
+          paceRange?: string | null;
+          speedRange?: string | null;
+        }>;
       }>;
     }
   | {
@@ -2861,6 +2870,21 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
         </View>
       </View>
       {runBlocks.map((block) => {
+        if (block.repeatCount && block.steps?.length) {
+          return (
+            <View style={styles.runBlock} key={block.label}>
+              <Text style={styles.runBlockTitle}>Repetir {block.repeatCount}x</Text>
+              {block.steps.map((step, index) => (
+                <Text style={styles.prescriptionText} key={`${step.label}-${index}`}>
+                  - {step.label} por {step.distanceValue}{step.distanceUnit ?? 'km'}
+                  {step.paceRange ? ` - Pace (${step.paceRange})` : ''}
+                  {step.speedRange ? ` | Velocidade (${step.speedRange})` : ''}
+                  {step.durationRange ? ` - completar entre ${step.durationRange}` : ''}
+                </Text>
+              ))}
+            </View>
+          );
+        }
         const pace = block.paceRange ?? metricPaceForZone(block.zone, metrics);
         const speed = block.speedRange ?? speedRangeFromPace(pace) ?? (block.speedKmh ? `${formatDecimal(block.speedKmh)} km/h` : null);
         return (
