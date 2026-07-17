@@ -50,6 +50,7 @@ interface StudentDetail {
   id: string;
   name: string;
   email: string;
+  phone?: string | null;
   accountStatus: string;
   subscriptionStatus: string;
   subscriptionUpdatedAt?: string | null;
@@ -930,6 +931,9 @@ function StudentPanel({
   const [inviteText, setInviteText] = useState('');
   const [expandedHistoryId, setExpandedHistoryId] = useState('');
   const [mergeSourceEmail, setMergeSourceEmail] = useState('');
+  const [messageText, setMessageText] = useState('');
+  const [messageByEmail, setMessageByEmail] = useState(true);
+  const [sendingMessage, setSendingMessage] = useState(false);
 
   useEffect(() => {
     setEditName(student?.name ?? '');
@@ -939,6 +943,7 @@ function StudentPanel({
     setNewPassword('');
     setInviteText('');
     setExpandedHistoryId('');
+    setMessageText('');
   }, [student?.id, student?.name, student?.email, student?.accountStatus, student?.subscriptionStatus]);
 
   if (!student) {
@@ -1049,6 +1054,41 @@ function StudentPanel({
     onRefresh();
   }
 
+  async function sendMessageToStudent() {
+    if (!student) return;
+    if (!messageText.trim()) {
+      onStatus('Escreva uma mensagem antes de enviar.');
+      return;
+    }
+    if (!messageByEmail) {
+      onStatus('Selecione ao menos um canal de envio.');
+      return;
+    }
+    setSendingMessage(true);
+    onStatus('Enviando mensagem...');
+    try {
+      const channels = messageByEmail ? ['email'] : [];
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/message`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: messageText.trim(), channels }),
+      });
+      if (!response.ok) {
+        onStatus('Nao consegui enviar a mensagem.');
+        return;
+      }
+      setMessageText('');
+      onStatus('Mensagem enviada.');
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    } finally {
+      setSendingMessage(false);
+    }
+  }
+
   async function regenerateWeek() {
     if (!student) return;
     if (!window.confirm('Gerar uma nova semana de treinos para este aluno? Isso substitui os treinos ainda nao realizados desta semana.')) {
@@ -1131,6 +1171,7 @@ function StudentPanel({
         <p className="eyebrow">Aluno selecionado</p>
         <h2>{student.name}</h2>
         <small>{student.email}</small>
+        {student.phone ? <small>{student.phone}</small> : null}
       </div>
 
       <section className="miniSection adminForm">
@@ -1168,6 +1209,23 @@ function StudentPanel({
             </button>
           </div>
         ) : null}
+      </section>
+
+      <section className="miniSection adminForm">
+        <h3>Enviar mensagem para o aluno</h3>
+        <textarea
+          value={messageText}
+          onChange={(event) => setMessageText(event.target.value)}
+          placeholder="Escreva a mensagem para o aluno"
+          rows={4}
+        />
+        <label className="adminFieldLabel checkboxLabel">
+          <input type="checkbox" checked={messageByEmail} onChange={(event) => setMessageByEmail(event.target.checked)} />
+          Enviar por e-mail
+        </label>
+        <button type="button" disabled={sendingMessage} onClick={sendMessageToStudent}>
+          {sendingMessage ? 'Enviando...' : 'Enviar mensagem'}
+        </button>
       </section>
 
       <div className="detailGrid">
@@ -2070,7 +2128,7 @@ function interviewLabel(key: string) {
     current_pain: 'Dor atual', pain_region: 'Regiao da dor', important_injury: 'Lesao importante', injury_description: 'Descricao da lesao', health_conditions: 'Condicoes de saude',
     continuous_medications: 'Medicamentos continuos', medical_recommendation: 'Recomendacao medica', recent_physical_assessment: 'Avaliacao nos ultimos 6 meses', assessment_method: 'Metodo da avaliacao',
     sleep_hours: 'Horas de sono', smoking: 'Tabagismo', alcohol_frequency: 'Consumo de alcool', work_routine: 'Rotina de trabalho', daily_steps: 'Passos diarios',
-    personal_name: 'Nome completo', personal_birth_date: 'Data de nascimento', personal_sex: 'Sexo', personal_height: 'Altura', personal_weight: 'Peso',
+    personal_name: 'Nome completo', personal_phone: 'WhatsApp', personal_birth_date: 'Data de nascimento', personal_sex: 'Sexo', personal_height: 'Altura', personal_weight: 'Peso',
   };
   if (labels[key]) return labels[key];
   const days: Record<string, string> = { monday: 'Segunda-feira', tuesday: 'Terca-feira', wednesday: 'Quarta-feira', thursday: 'Quinta-feira', friday: 'Sexta-feira', saturday: 'Sabado', sunday: 'Domingo' };

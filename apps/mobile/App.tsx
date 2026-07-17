@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   PanResponder,
   Pressable,
@@ -308,8 +309,8 @@ interface MeResponse {
   } | null;
   availability?: SavedAvailabilityDay[];
   weeklyAvailability?: SavedAvailabilityDay[];
-  tests?: Array<{ totalSeconds?: number | null }>;
-  fitnessTests?: Array<{ totalSeconds?: number | null }>;
+  tests?: Array<{ id?: string; totalSeconds?: number | null; createdAt?: string | null }>;
+  fitnessTests?: Array<{ id?: string; totalSeconds?: number | null; createdAt?: string | null }>;
 }
 
 interface AppNotification {
@@ -489,6 +490,7 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'work_routine', module: 'Habitos', prompt: 'Como e sua rotina de trabalho?', type: 'single', options: ['Predominantemente sentado', 'Predominantemente em pe', 'Trabalho fisico moderado', 'Trabalho fisico intenso', 'Aposentado', 'Outro'].map((v) => option(v)) },
   { key: 'daily_steps', module: 'Habitos', prompt: 'Em media, quantos passos voce da por dia?', type: 'single', options: ['Menos de 3.000', 'Entre 3.000 e 5.000', 'Entre 5.000 e 8.000', 'Entre 8.000 e 12.000', 'Mais de 12.000', 'Nao sei'].map((v) => option(v)) },
   { key: 'personal_name', module: 'Dados pessoais', prompt: 'Qual e seu nome completo?', type: 'text' },
+  { key: 'personal_phone', module: 'Dados pessoais', prompt: 'Qual e o seu WhatsApp (com DDD)?', type: 'text', help: 'Usamos para avisos importantes sobre pagamento, treino e acompanhamento.' },
   { key: 'personal_birth_date', module: 'Dados pessoais', prompt: 'Qual e sua data de nascimento?', type: 'text', help: 'Use o formato dia/mes/ano. Exemplo: 19/06/1984.' },
   { key: 'personal_sex', module: 'Dados pessoais', prompt: 'Como voce prefere informar seu sexo?', type: 'single', options: [option('Feminino'), option('Masculino'), option('Prefiro nao informar')] },
   { key: 'personal_height', module: 'Dados pessoais', prompt: 'Qual e sua altura em centimetros?', type: 'number' },
@@ -727,6 +729,7 @@ function AppInner() {
                 onChangeSeconds={setThreeKmSeconds}
                 metrics={metrics}
                 accessToken={accessToken}
+                latestTest={savedMe?.tests?.[0] ?? savedMe?.fitnessTests?.[0] ?? null}
                 onLater={() => setActiveTab('week')}
                 onSaved={() => {
                   setHideWeekNotifications(true);
@@ -1927,6 +1930,7 @@ function ThreeKmTest({
   onChangeSeconds,
   metrics,
   accessToken,
+  latestTest,
   onLater,
   onSaved,
 }: {
@@ -1934,6 +1938,7 @@ function ThreeKmTest({
   onChangeSeconds: (value: string) => void;
   metrics: ThreeKmMetrics;
   accessToken: string;
+  latestTest?: { id?: string; createdAt?: string | null } | null;
   onLater: () => void;
   onSaved: () => void;
 }) {
@@ -1952,7 +1957,7 @@ function ThreeKmTest({
     onChangeSeconds(String(minutes * 60 + seconds));
   }
 
-  async function saveTest() {
+  function saveTest() {
     const totalSeconds = Number(threeKmSeconds);
     setSaveStatus('');
 
@@ -1966,10 +1971,32 @@ function ThreeKmTest({
       return;
     }
 
+    const lastTestDate = latestTest?.id && latestTest.createdAt ? new Date(latestTest.createdAt) : null;
+    const daysSinceLastTest = lastTestDate ? (Date.now() - lastTestDate.getTime()) / 86400000 : null;
+
+    if (latestTest?.id && daysSinceLastTest !== null && daysSinceLastTest < 30) {
+      Alert.alert(
+        'Teste recente encontrado',
+        'Seu ultimo teste foi ha menos de 1 mes. Quer substituir esse teste ou adicionar um novo registro no seu historico?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Adicionar novo', onPress: () => performSave('create') },
+          { text: 'Substituir', onPress: () => performSave('replace') },
+        ],
+      );
+      return;
+    }
+
+    performSave('create');
+  }
+
+  async function performSave(mode: 'create' | 'replace') {
+    const totalSeconds = Number(threeKmSeconds);
     setIsSaving(true);
     try {
-      const response = await fetch(`${API_URL}/fitness-tests/3km`, {
-        method: 'POST',
+      const url = mode === 'replace' && latestTest?.id ? `${API_URL}/fitness-tests/3km/${latestTest.id}` : `${API_URL}/fitness-tests/3km`;
+      const response = await fetch(url, {
+        method: mode === 'replace' ? 'PUT' : 'POST',
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',

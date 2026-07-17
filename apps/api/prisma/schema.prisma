@@ -13,6 +13,7 @@ model User {
   passwordHash String
   name         String
   cpf          String?             @unique
+  phone        String?
   birthDate    DateTime?
   sex          String?
   heightCm     Int?
@@ -38,6 +39,7 @@ model User {
   achievements  UserAchievement[]
   passwordResetTokens PasswordResetToken[]
   notifications UserNotification[]
+  messageLogs   MessageLog[]
   onboardingInterview OnboardingInterview?
   billingSubscription BillingSubscription?
   couponRedemptions CouponRedemption[]
@@ -101,6 +103,22 @@ model UserNotification {
   createdAt DateTime  @default(now())
 
   @@index([userId, createdAt])
+}
+
+model MessageLog {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  channel     String
+  trigger     String
+  subject     String?
+  content     String
+  status      String    @default("sent")
+  errorDetail String?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([trigger, createdAt])
 }
 
 model HealthProfile {

@@ -10,6 +10,8 @@ import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
 import { TrainingPlansService } from '../training-plans/training-plans.service';
 import { StravaService } from '../strava/strava.service';
+import { MessagingService } from '../messaging/messaging.service';
+import { SendStudentMessageDto } from './dto/send-student-message.dto';
 
 @Injectable()
 export class CoachService {
@@ -17,6 +19,7 @@ export class CoachService {
     private readonly prisma: PrismaService,
     private readonly trainingPlans: TrainingPlansService,
     private readonly strava: StravaService,
+    private readonly messaging: MessagingService,
   ) {}
 
   async createStudent(dto: CreateStudentDto) {
@@ -227,6 +230,22 @@ export class CoachService {
     return this.trainingPlans.regenerateSession(studentId, sessionId);
   }
 
+  async sendStudentMessage(studentId: string, dto: SendStudentMessageDto) {
+    await this.assertStudent(studentId);
+    const results: Record<string, boolean> = {};
+
+    if (dto.channels.includes('email')) {
+      const result = await this.messaging.sendEmail(studentId, {
+        subject: 'Mensagem do seu treinador - Panzeri Run',
+        content: dto.message,
+        trigger: 'manual',
+      });
+      results.email = result.ok;
+    }
+
+    return results;
+  }
+
   async reopenStudentOnboarding(studentId: string) {
     await this.assertStudent(studentId);
     await this.prisma.onboardingInterview.upsert({
@@ -389,6 +408,7 @@ export class CoachService {
       id: student.id,
       name: student.name,
       email: student.email,
+      phone: student.phone,
       accountStatus: student.accountStatus,
       subscriptionStatus: student.subscriptionStatus,
       subscriptionUpdatedAt: student.subscriptionUpdatedAt,

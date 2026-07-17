@@ -219,6 +219,7 @@ export class AuthService {
       heightCm: true,
       weightKg: true,
       address: true,
+      phone: true,
       acceptedExerciseResponsibilityAt: true,
       createdAt: true,
       updatedAt: true,

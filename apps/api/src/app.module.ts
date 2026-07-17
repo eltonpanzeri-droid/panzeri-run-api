@@ -11,12 +11,15 @@ import { StravaModule } from './strava/strava.module';
 import { TrainingPlansModule } from './training-plans/training-plans.module';
 import { WorkoutCompletionsModule } from './workout-completions/workout-completions.module';
 import { BillingModule } from './billing/billing.module';
+import { MessagingModule } from './messaging/messaging.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
     CoachModule,
@@ -27,6 +30,7 @@ import { BillingModule } from './billing/billing.module';
     TrainingPlansModule,
     WorkoutCompletionsModule,
     BillingModule,
+    MessagingModule,
   ],
   controllers: [AppController],
 })

@@ -728,6 +728,13 @@ h3 {
   font-weight: 800;
 }
 
+.adminFieldLabel.checkboxLabel {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
 .sessionLine {
   border: 1px solid var(--line);
   border-radius: 8px;

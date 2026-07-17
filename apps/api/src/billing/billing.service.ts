@@ -2,6 +2,7 @@ import { BadGatewayException, BadRequestException, Injectable, UnauthorizedExcep
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService } from './telegram.service';
+import { MessagingService } from '../messaging/messaging.service';
 
 type AsaasCustomer = { id: string };
 type AsaasCustomerList = { data: AsaasCustomer[] };
@@ -39,6 +40,7 @@ export class BillingService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly telegram: TelegramService,
+    private readonly messaging: MessagingService,
   ) {}
 
   async getMine(userId: string) {
@@ -286,6 +288,11 @@ export class BillingService {
       await this.createWelcomeNotificationOnce(billing.userId);
       if (!wasAlreadyActive) {
         await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name}\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
+        await this.messaging.sendEmail(billing.userId, {
+          trigger: 'payment_confirmed',
+          subject: 'Pagamento confirmado - seu treino ja esta disponivel!',
+          content: `Ola ${user.name},\n\nSeu pagamento foi confirmado e seu treino ja esta disponivel no aplicativo. Bons treinos!\n\nPanzeri Run`,
+        });
       }
     }
 
@@ -334,6 +341,11 @@ export class BillingService {
       await this.createWelcomeNotificationOnce(userId);
       if (!wasAlreadyActive) {
         await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name}\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
+        await this.messaging.sendEmail(userId, {
+          trigger: 'payment_confirmed',
+          subject: 'Pagamento confirmado - seu treino ja esta disponivel!',
+          content: `Ola ${user.name},\n\nSeu pagamento foi confirmado e seu treino ja esta disponivel no aplicativo. Bons treinos!\n\nPanzeri Run`,
+        });
       }
     }
 

@@ -3,9 +3,10 @@ import { CoachController } from './coach.controller';
 import { CoachService } from './coach.service';
 import { TrainingPlansModule } from '../training-plans/training-plans.module';
 import { StravaModule } from '../strava/strava.module';
+import { MessagingModule } from '../messaging/messaging.module';
 
 @Module({
-  imports: [TrainingPlansModule, StravaModule],
+  imports: [TrainingPlansModule, StravaModule, MessagingModule],
   controllers: [CoachController],
   providers: [CoachService],
 })
