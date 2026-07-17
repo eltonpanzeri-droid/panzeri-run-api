@@ -1859,9 +1859,8 @@ function Detail({ icon, label, value }: { icon: ReactNode; label: string; value:
 }
 
 function statusClass(status: string) {
-  if (status === 'Boa execucao') return 'good';
-  if (status === 'Atencao') return 'danger';
-  if (status === 'Fez diferente') return 'warn';
+  if (status === 'Acesso liberado') return 'good';
+  if (status === 'Sem plano') return 'warn';
   return '';
 }
 

@@ -887,13 +887,13 @@ function emptySummary() {
   };
 }
 
-function statusFromSummary(summary: { prescribedSessions: number; eligibleSessions: number; adherencePercent: number; differentSessions: number }) {
+function statusFromSummary(summary: { prescribedSessions: number; eligibleSessions: number }) {
+  // Este status reflete apenas o estagio de acesso ao treino (existe plano? ja teve algum treino
+  // elegivel?) — a qualidade da aderencia ja aparece na coluna "Aderencia" e no detalhe do aluno,
+  // nao deve ser duplicada aqui como um rotulo de alerta que confunde quem acabou de comecar.
   if (!summary.prescribedSessions) return 'Sem plano';
-  if (!summary.eligibleSessions) return 'Aguardando';
-  if (summary.adherencePercent >= 80) return 'Boa execucao';
-  if (summary.differentSessions > 0) return 'Fez diferente';
-  if (summary.adherencePercent >= 50) return 'Acompanhar';
-  return 'Atencao';
+  if (!summary.eligibleSessions) return 'Aguardando primeiro treino';
+  return 'Acesso liberado';
 }
 
 function round(value: number) {
