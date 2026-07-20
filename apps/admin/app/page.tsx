@@ -2028,25 +2028,6 @@ function statusClass(status: string) {
   return '';
 }
 
-function paymentStatusLabel(status?: string) {
-  const labels: Record<string, string> = {
-    pending: 'Pendente',
-    manual_active: 'Cortesia',
-    active: 'Pago',
-    grace: 'Tolerancia',
-    overdue: 'Atrasado',
-    canceled: 'Cancelado',
-  };
-  return labels[status ?? ''] ?? 'Pendente';
-}
-
-function paymentStatusClass(status?: string) {
-  if (status === 'active' || status === 'manual_active') return 'good';
-  if (status === 'pending' || status === 'grace') return 'warn';
-  if (status === 'overdue' || status === 'canceled') return 'danger';
-  return '';
-}
-
 function completionLabel(status: string) {
   if (status === 'done') return 'feito';
   if (status === 'adjusted') return 'ajustado';
