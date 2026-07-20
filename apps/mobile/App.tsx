@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'interview' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile';
+type Tab = 'week' | 'interview' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -432,6 +432,7 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'longest_distance', module: 'Experiencia com corrida', prompt: 'Qual foi a maior distancia que voce ja correu, em km?', type: 'number', optional: true, help: 'Digite o numero exato em km (pode usar virgula para casas decimais). Deixe em branco se nunca conseguiu correr continuamente.' },
   { key: 'best_comfortable_pace', module: 'Experiencia com corrida', prompt: 'Na epoca em que voce corria melhor, aproximadamente qual era seu pace confortavel?', type: 'single', options: ['Nunca corri regularmente.', 'Acima de 7:00/km', 'Entre 6:00 e 7:00/km', 'Entre 5:30 e 6:00/km', 'Entre 5:00 e 5:30/km', 'Entre 4:30 e 5:00/km', 'Entre 4:00 e 4:30/km', 'Abaixo de 4:00/km', 'Nao lembro.'].map((v) => option(v)) },
   { key: 'ran_5k_recently', module: 'Experiencia com corrida', prompt: 'Voce correu 5 km ou mais nos ultimos 6 meses?', type: 'single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
+  { key: 'weekly_running_km', module: 'Experiencia com corrida', prompt: 'Em media, quantos quilometros voce corre por semana atualmente?', type: 'number', help: 'Some aproximadamente todos os treinos de corrida de uma semana normal recente. Isso ajuda o treinador a calibrar o volume dos seus treinos com precisao.', condition: (a) => a.ran_5k_recently === 'yes' },
   { key: 'longest_distance_recent', module: 'Experiencia com corrida', prompt: 'Qual foi a maior distancia que voce correu no ultimo ano, em km?', type: 'number', condition: (a) => a.ran_5k_recently === 'yes' },
   { key: 'longest_distance_recent_count', module: 'Experiencia com corrida', prompt: 'Quantas vezes voce correu essa distancia ou mais no ultimo ano?', type: 'number', condition: (a) => a.ran_5k_recently === 'yes' },
   { key: 'second_longest_distance_recent', module: 'Experiencia com corrida', prompt: 'Qual foi a segunda maior distancia que voce correu no ultimo ano, em km?', type: 'number', optional: true, condition: (a) => a.ran_5k_recently === 'yes' },
@@ -495,6 +496,19 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'personal_sex', module: 'Dados pessoais', prompt: 'Como voce prefere informar seu sexo?', type: 'single', options: [option('Feminino'), option('Masculino'), option('Prefiro nao informar')] },
   { key: 'personal_height', module: 'Dados pessoais', prompt: 'Qual e sua altura em centimetros?', type: 'number' },
   { key: 'personal_weight', module: 'Dados pessoais', prompt: 'Qual e seu peso atual em quilogramas? Use virgula para decimais. Exemplo: 82,5.', type: 'number' },
+];
+
+const reassessmentQuestions: InterviewQuestion[] = [
+  { key: 'reassessment_goal_change', module: 'Reavaliacao', prompt: 'Seu objetivo com a corrida continua o mesmo de antes?', type: 'single', options: [option('Sim, continua o mesmo', 'same'), option('Mudou', 'changed')] },
+  { key: 'reassessment_goal_new', module: 'Reavaliacao', prompt: 'Qual e o seu objetivo agora?', type: 'text', condition: (a) => a.reassessment_goal_change === 'changed' },
+  { key: 'reassessment_routine_change', module: 'Reavaliacao', prompt: 'Sua rotina (trabalho, tempo disponivel, dias livres) mudou desde a ultima avaliacao?', type: 'single', options: [option('Nao mudou', 'no'), option('Mudou um pouco', 'a_little'), option('Mudou bastante', 'a_lot')] },
+  { key: 'reassessment_weekly_km_now', module: 'Reavaliacao', prompt: 'Em media, quantos quilometros voce corre por semana atualmente?', type: 'number', help: 'Some aproximadamente todos os treinos de corrida de uma semana normal recente.' },
+  { key: 'reassessment_perceived_evolution', module: 'Reavaliacao', prompt: 'Comparando com a ultima avaliacao, como voce sente sua evolucao na corrida?', type: 'single', options: [option('Piorou', 'piorou'), option('Continua igual', 'igual'), option('Melhorou um pouco', 'melhorou_pouco'), option('Melhorou bastante', 'melhorou_muito')] },
+  { key: 'reassessment_satisfaction', module: 'Reavaliacao', prompt: 'Como voce avalia sua satisfacao com os treinos neste periodo?', type: 'single', options: [option('Muito insatisfeito', 'muito_insatisfeito'), option('Insatisfeito', 'insatisfeito'), option('Neutro', 'neutro'), option('Satisfeito', 'satisfeito'), option('Muito satisfeito', 'muito_satisfeito')] },
+  { key: 'reassessment_new_pain', module: 'Reavaliacao', prompt: 'Voce sentiu alguma dor ou teve alguma lesao nova desde a ultima avaliacao?', type: 'single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
+  { key: 'reassessment_new_pain_detail', module: 'Reavaliacao', prompt: 'Descreva a dor ou limitacao que voce sentiu.', type: 'text', condition: (a) => a.reassessment_new_pain === 'yes' },
+  { key: 'reassessment_weight', module: 'Reavaliacao', prompt: 'Qual e o seu peso atual em quilogramas? Use virgula para decimais. Exemplo: 82,5.', type: 'number', optional: true },
+  { key: 'reassessment_notes', module: 'Reavaliacao', prompt: 'Quer contar mais alguma coisa para o seu treinador?', type: 'text', optional: true },
 ];
 
 const weekSessions = [
@@ -646,7 +660,7 @@ function AppInner() {
     Promise.all([loadNotifications(accessToken), loadDismissedNotifications()]).then(([items, dismissed]) => {
       setNotifications(items.filter((item) => !dismissed.includes(item.id)));
     });
-    loadInterviewState(accessToken).then((interview) => {
+    loadInterviewState(`${API_URL}/me/onboarding`, accessToken).then((interview) => {
       if (interview && !interview.completedAt) {
         setActiveTab('interview');
       }
@@ -709,6 +723,16 @@ function AppInner() {
                 userName={userName}
                 onLater={() => setActiveTab('week')}
                 onComplete={() => setActiveTab('test')}
+              />
+            )}
+            {activeTab === 'reassessment' && (
+              <GuidedInterview
+                accessToken={accessToken}
+                userName={userName}
+                onLater={() => setActiveTab('week')}
+                onComplete={() => setActiveTab('week')}
+                questions={reassessmentQuestions}
+                mode="reassessment"
               />
             )}
             {activeTab === 'anamnese' && (
@@ -1300,7 +1324,7 @@ function Today({
   );
 }
 
-function GuidedInterview({ accessToken, userName, onLater, onComplete }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void }) {
+function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding' }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment' }) {
   const [answers, setAnswers] = useState<InterviewAnswers>({});
   const [step, setStep] = useState(0);
   const [started, setStarted] = useState(false);
@@ -1310,7 +1334,11 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
   const [status, setStatus] = useState('');
   const [helpOpen, setHelpOpen] = useState(false);
 
-  const visibleQuestions = useMemo(() => interviewQuestions.filter((question) => !question.condition || question.condition(answers)), [answers]);
+  const loadUrl = mode === 'reassessment' ? `${API_URL}/me/reassessment` : `${API_URL}/me/onboarding`;
+  const answerUrl = mode === 'reassessment' ? `${API_URL}/me/reassessment/answer` : `${API_URL}/me/onboarding/answer`;
+  const completeUrl = mode === 'reassessment' ? `${API_URL}/me/reassessment/complete` : `${API_URL}/me/onboarding/complete`;
+
+  const visibleQuestions = useMemo(() => questions.filter((question) => !question.condition || question.condition(answers)), [answers, questions]);
   const question = visibleQuestions[Math.min(step, Math.max(visibleQuestions.length - 1, 0))];
   const value = question ? answers[question.key] : undefined;
   const assessedWeight = interviewDecimal(answers.assessment_weight);
@@ -1319,9 +1347,9 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
   const calculatedLeanMass = assessedWeight !== null && calculatedFatMass !== null ? Math.round((assessedWeight - calculatedFatMass) * 10) / 10 : null;
 
   useEffect(() => {
-    loadInterviewState(accessToken).then((state) => {
+    loadInterviewState(loadUrl, accessToken).then((state) => {
       const loadedAnswers = state?.answers ?? {};
-      if (!loadedAnswers.personal_name && userName) loadedAnswers.personal_name = userName;
+      if (mode === 'onboarding' && !loadedAnswers.personal_name && userName) loadedAnswers.personal_name = userName;
       setAnswers(loadedAnswers);
       setFinished(Boolean(state?.completedAt));
       if ((state?.currentStep ?? 0) > 0 && !state?.completedAt) {
@@ -1330,13 +1358,13 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
       }
       setLoading(false);
     });
-  }, [accessToken, userName]);
+  }, [accessToken, userName, loadUrl, mode]);
 
   async function persist(key: string, nextValue: InterviewAnswer, nextStep = step) {
     setSaving(true);
     setStatus('');
     try {
-      const response = await fetch(`${API_URL}/me/onboarding/answer`, {
+      const response = await fetch(answerUrl, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, value: nextValue, currentStep: nextStep }),
@@ -1379,7 +1407,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
     }
     setSaving(true);
     try {
-      const response = await fetch(`${API_URL}/me/onboarding/complete`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      const response = await fetch(completeUrl, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
       if (!response.ok) throw new Error('complete');
       setFinished(true);
     } catch {
@@ -1405,22 +1433,26 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete }: { acces
     }
   }
 
-  if (loading) return <View style={styles.section}><Text style={styles.statusMessage}>Abrindo sua entrevista...</Text></View>;
+  if (loading) return <View style={styles.section}><Text style={styles.statusMessage}>{mode === 'reassessment' ? 'Abrindo sua reavaliacao...' : 'Abrindo sua entrevista...'}</Text></View>;
   if (finished) return (
     <View style={styles.section}>
-      <Text style={styles.sectionLabel}>Entrevista concluida</Text>
-      <Text style={styles.titleSmall}>Agora vamos medir seu condicionamento</Text>
-      <Text style={styles.copyTight}>Suas respostas foram salvas. Faca o teste de corrida de 3 km para gerar seu plano inicial.</Text>
-      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>Ir para o teste de 3 km</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
-      <Pressable style={styles.secondaryButton} onPress={reviewInterview} disabled={saving}><Text style={styles.secondaryButtonText}>Revisar minhas respostas</Text></Pressable>
+      <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao concluida' : 'Entrevista concluida'}</Text>
+      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : 'Agora vamos medir seu condicionamento'}</Text>
+      <Text style={styles.copyTight}>{mode === 'reassessment' ? 'Suas respostas foram salvas. Seu treinador vai revisar sua evolucao e ajustar seu treino conforme necessario.' : 'Suas respostas foram salvas. Faca o teste de corrida de 3 km para gerar seu plano inicial.'}</Text>
+      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : 'Ir para o teste de 3 km'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
+      {mode === 'onboarding' ? <Pressable style={styles.secondaryButton} onPress={reviewInterview} disabled={saving}><Text style={styles.secondaryButtonText}>Revisar minhas respostas</Text></Pressable> : null}
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
     </View>
   );
   if (!started) return (
     <View style={styles.section}>
-      <Text style={styles.sectionLabel}>Primeiro acesso</Text>
-      <Text style={styles.titleSmall}>Vamos conhecer voce</Text>
-      <Text style={styles.copyTight}>Para criar seu treino de forma personalizada e individualizada para voce, precisamos conhecer mais sobre sua rotina, seu historico e seu condicionamento atual.{`\n\n`}Depois da entrevista, tambem vamos te convidar a fazer o teste de 3 km. Ele e opcional, mas e o que deixa o treino ainda mais preciso e individualizado para voce.{`\n\n`}Esta pronto para realizar nossa entrevista?</Text>
+      <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao periodica' : 'Primeiro acesso'}</Text>
+      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Vamos atualizar seus dados' : 'Vamos conhecer voce'}</Text>
+      <Text style={styles.copyTight}>
+        {mode === 'reassessment'
+          ? 'De tempos em tempos pedimos para voce responder algumas perguntas rapidas, para atualizarmos seu treino e acompanharmos sua evolucao ao longo do tempo.'
+          : 'Para criar seu treino de forma personalizada e individualizada para voce, precisamos conhecer mais sobre sua rotina, seu historico e seu condicionamento atual.\n\nDepois da entrevista, tambem vamos te convidar a fazer o teste de 3 km. Ele e opcional, mas e o que deixa o treino ainda mais preciso e individualizado para voce.\n\nEsta pronto para realizar nossa entrevista?'}
+      </Text>
       <Pressable style={styles.primaryButton} onPress={() => setStarted(true)}><Text style={styles.primaryButtonText}>Sim, comecar agora</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>
       <Pressable style={styles.secondaryButton} onPress={onLater}><Text style={styles.secondaryButtonText}>Fazer depois</Text></Pressable>
     </View>
@@ -1471,9 +1503,9 @@ function interviewDecimal(value: InterviewAnswer | undefined) {
   return Number.isFinite(number) ? number : null;
 }
 
-async function loadInterviewState(accessToken: string): Promise<InterviewState | null> {
+async function loadInterviewState(url: string, accessToken: string): Promise<InterviewState | null> {
   try {
-    const response = await fetch(`${API_URL}/me/onboarding`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
     return response.ok ? await response.json() as InterviewState : null;
   } catch { return null; }
 }
@@ -2772,6 +2804,7 @@ function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: 
   const tabs: Array<{ id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
     { id: 'week', label: 'Treino da semana', icon: 'calendar' },
     { id: 'interview', label: 'Entrevista inicial', icon: 'chatbubbles' },
+    { id: 'reassessment', label: 'Reavaliacao periodica', icon: 'refresh-circle' },
     { id: 'test', label: 'Teste de VO2 max', icon: 'stopwatch' },
     { id: 'progress', label: 'Evolucao', icon: 'stats-chart' },
     { id: 'strava', label: 'Sincronizar com Strava', icon: 'sync' },

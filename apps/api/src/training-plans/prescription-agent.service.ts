@@ -10,6 +10,7 @@ import {
   computeRunSlots,
   hasSafetyConcern,
   isNovice,
+  numericAnswer,
 } from './training-methodology';
 import { PANZERI_METHODOLOGY_KNOWLEDGE } from './panzeri-methodology-knowledge';
 
@@ -146,6 +147,7 @@ export class PrescriptionAgentService {
       'Regras obrigatorias, nao negociaveis (sobrepoe qualquer outra decisao):',
       '- Retorne exatamente uma sessao de corrida para cada dia disponivel informado, usando o mesmo numero de weekday (0=domingo...6=sabado).',
       '- durationMin de cada sessao nunca pode exceder o tempo disponivel informado para aquele dia.',
+      '- Se o aluno relatou uma media semanal de quilometragem atual (mediaSemanalKmAtualRelatada) e/ou volume real recente no Strava, a soma aproximada da distancia de todas as sessoes da semana que voce prescrever NUNCA deve ficar muito abaixo desse volume que ele ja sustenta na pratica, a nao ser que haja um motivo real de seguranca, deload ou retorno de pausa. O erro classico a evitar: um aluno que corre 19 km por semana recebendo uma sessao "leve" de 4 km (dos quais 1,1 km e so aquecimento/desaquecimento) — isso e um treino curto e ruim demais para a capacidade real dele, e deve ser tratado como falha grave.',
       safetyAdjustment
         ? '- Este aluno tem um sinal de seguranca ativo (dor ou limitacao relatada): NUNCA use sessionType "quality_run" nem zone "Z4" nesta semana. Toda sessao deve ser leve (Z2, easy_run, walk_run ou long_run leve).'
         : '- Sem sinal de seguranca ativo relatado no momento, mas priorize seguranca e progressao conservadora sempre que os dados sugerirem cautela.',
@@ -159,6 +161,7 @@ export class PrescriptionAgentService {
       'Outros pontos de raciocinio: um teste antigo que contradiz um desempenho recente mais forte deve pesar MENOS. Uma unica corrida curta recente pesa menos que uma distancia longa e consistente com boa sensacao relatada. Quando os dados conflitam, prefira a evidencia mais recente E mais consistente com o volume/objetivo do aluno.',
       'O erro mais grave possivel nesta tarefa e prescrever um treino "leve" com pace tao lento que fica parecido com uma caminhada para um aluno que claramente corre mais rapido que isso. Isso e burrice, nao inteligencia — pense de verdade sobre o que os dados dizem sobre ESTE aluno especifico, nao aplique uma conta generica.',
       'Voce DEVE retornar paceAssessment com os dois numeros e uma justificativa (rationale) explicando como voce chegou neles a partir das evidencias.',
+      'Se analiseAprofundadaStrava estiver preenchida (vem de outro agente que ja mastigou cadencia, frequencia cardiaca, padroes e outras modalidades do Strava para voce), use o campo "summary" e as "flags" como evidencia adicional real de como o aluno esta respondendo ao treino agora — nao ignore isso, mas tambem nao superestime; combine com o resto das evidencias.',
       'Responda em portugues nos campos de texto (title, notes, recommendation, rationale, paceAssessment.rationale).',
     ].join('\n\n');
   }
@@ -181,11 +184,13 @@ export class PrescriptionAgentService {
             : null,
         },
         respostasEntrevista: input.answers,
+        mediaSemanalKmAtualRelatada: numericAnswer(input.answers.weekly_running_km),
         diasDisponiveisParaCorrida: runSlots,
         historicoSemanal: input.history,
         minutosCorridosStravaRecente: input.stravaRunMinutes,
         maiorCorridaStravaRecenteMin: input.stravaLongestRunMinutes,
         analiseExecucao: input.executionInsight,
+        analiseAprofundadaStrava: input.stravaAnalysis ?? null,
         sinalDeSeguranca: safetyAdjustment,
       },
       null,

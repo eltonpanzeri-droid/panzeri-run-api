@@ -40,6 +40,7 @@ model User {
   passwordResetTokens PasswordResetToken[]
   notifications UserNotification[]
   messageLogs   MessageLog[]
+  reassessments Reassessment[]
   onboardingInterview OnboardingInterview?
   billingSubscription BillingSubscription?
   couponRedemptions CouponRedemption[]
@@ -78,6 +79,22 @@ model OnboardingInterview {
   completedAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+model Reassessment {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+  answers           Json      @default("{}")
+  currentStep       Int       @default(0)
+  completedAt       DateTime?
+  evolutionSummary  String?
+  evolutionWins     Json?
+  evolutionConcerns Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([userId, createdAt])
 }
 
 model PasswordResetToken {
@@ -279,6 +296,7 @@ model StravaActivity {
   avgPaceSecKm   Int?
   avgHeartRate   Int?
   maxHeartRate   Int?
+  cadence        Int?
   raw            Json
   createdAt      DateTime @default(now())
 }

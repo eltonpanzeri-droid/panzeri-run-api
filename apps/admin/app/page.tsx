@@ -106,6 +106,13 @@ interface StudentDetail {
     modalityDurations?: Record<string, number> | null;
   }>;
   tests: Array<{ date: string; totalSeconds: number; pace: string; vo2max: number }>;
+  reassessments?: Array<{
+    completedAt: string | null;
+    answers: Record<string, unknown>;
+    evolutionSummary?: string | null;
+    evolutionWins?: string[];
+    evolutionConcerns?: string[];
+  }>;
   plan: {
     name: string;
     recommendation?: string | null;
@@ -1315,6 +1322,22 @@ function StudentPanel({
           <p>Sem teste cadastrado.</p>
         )}
       </section>
+
+      <section className="miniSection">
+        <h3>Reavaliacoes e evolucao</h3>
+        {student.reassessments?.length ? (
+          student.reassessments.map((reassessment, index) => (
+            <div key={reassessment.completedAt ?? index} className="adminBlock">
+              <strong>{reassessment.completedAt ? dateLabel(reassessment.completedAt) : 'Data nao registrada'}</strong>
+              {reassessment.evolutionSummary ? <p>{reassessment.evolutionSummary}</p> : <p>Sem analise de evolucao gerada.</p>}
+              {reassessment.evolutionWins?.length ? <p>Avancos: {reassessment.evolutionWins.join(' | ')}</p> : null}
+              {reassessment.evolutionConcerns?.length ? <p>Pontos de atencao: {reassessment.evolutionConcerns.join(' | ')}</p> : null}
+            </div>
+          ))
+        ) : (
+          <p>Nenhuma reavaliacao concluida ainda.</p>
+        )}
+      </section>
       </div>
 
       <section className="miniSection interviewPanel">
@@ -1613,13 +1636,44 @@ function dateTimeLabel(value: string) {
   return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
 }
 
+interface ExerciseLibraryItem {
+  id: string;
+  name: string;
+  description: string;
+  hasVideo: boolean;
+  videoUrl: string | null;
+}
+
 function StructureEditor({ structure, testPaceSeconds, onChange }: { structure: Record<string, unknown>; testPaceSeconds: number | null; onChange: (value: Record<string, unknown>) => void }) {
   const type = String(structure.type ?? 'run');
   const blocks = Array.isArray(structure.blocks) ? structure.blocks as Array<Record<string, unknown>> : [];
   const exercises = Array.isArray(structure.exercises) ? structure.exercises as Array<Record<string, unknown>> : [];
+  const category = String(structure.category ?? '');
+  const [exerciseOptions, setExerciseOptions] = useState<ExerciseLibraryItem[]>([]);
+
+  useEffect(() => {
+    if (type !== 'strength') return;
+    const token = window.localStorage.getItem('panzeri_admin_token') ?? '';
+    fetch(`${API_URL}/coach/exercise-library`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { fortalecimentoCorredores: ExerciseLibraryItem[]; musculacao: ExerciseLibraryItem[] } | null) => {
+        if (!data) return;
+        setExerciseOptions(category === 'Musculacao' ? data.musculacao : data.fortalecimentoCorredores);
+      })
+      .catch(() => setExerciseOptions([]));
+  }, [type, category]);
 
   function updateExercise(index: number, key: string, value: string | number) {
     const next = exercises.map((exercise, exerciseIndex) => exerciseIndex === index ? { ...exercise, [key]: value } : exercise);
+    onChange({ ...structure, exercises: next });
+  }
+
+  function selectExerciseFromLibrary(index: number, exerciseId: string) {
+    const picked = exerciseOptions.find((option) => option.id === exerciseId);
+    if (!picked) return;
+    const next = exercises.map((exercise, exerciseIndex) => exerciseIndex === index
+      ? { ...exercise, name: picked.name, description: picked.description, videoUrl: picked.videoUrl ?? '' }
+      : exercise);
     onChange({ ...structure, exercises: next });
   }
 
@@ -1637,7 +1691,15 @@ function StructureEditor({ structure, testPaceSeconds, onChange }: { structure: 
         </div>
         {exercises.map((exercise, index) => (
           <div className="structureEditRow strengthEditRow" key={index}>
-            <label>Exercicio<input value={String(exercise.name ?? '')} onChange={(event) => updateExercise(index, 'name', event.target.value)} /></label>
+            <label>Exercicio
+              <select value={exerciseOptions.find((option) => option.name === exercise.name)?.id ?? ''} onChange={(event) => selectExerciseFromLibrary(index, event.target.value)}>
+                <option value="">Escolher da biblioteca...</option>
+                {exerciseOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.name}{option.hasVideo ? '' : ' (sem video)'}</option>
+                ))}
+              </select>
+              <input value={String(exercise.name ?? '')} onChange={(event) => updateExercise(index, 'name', event.target.value)} placeholder="Ou digite manualmente" />
+            </label>
             <label>Series<input value={String(exercise.sets ?? '')} onChange={(event) => updateExercise(index, 'sets', Number(event.target.value) || 0)} inputMode="numeric" /></label>
             <label>Repeticoes<input value={String(exercise.reps ?? '')} onChange={(event) => updateExercise(index, 'reps', event.target.value)} /></label>
             <label>Intensidade<input value={String(exercise.intensity ?? '')} onChange={(event) => updateExercise(index, 'intensity', event.target.value)} placeholder="RPE 7" /></label>

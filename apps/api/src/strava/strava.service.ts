@@ -20,6 +20,7 @@ interface StravaActivityResponse {
   moving_time?: number;
   average_heartrate?: number;
   max_heartrate?: number;
+  average_cadence?: number;
 }
 
 @Injectable()
@@ -64,7 +65,12 @@ export class StravaService implements OnModuleInit {
 
   async callback(code: string, state: string) {
     if (!code || !state) {
-      throw new BadRequestException('Codigo do Strava invalido.');
+      throw new BadRequestException('A autorizacao do Strava foi cancelada ou nao concluida.');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: state }, select: { id: true } });
+    if (!user) {
+      throw new BadRequestException('Nao foi possivel identificar o aluno para esta conexao.');
     }
 
     const token = await this.exchangeCode(code);
@@ -488,6 +494,7 @@ export class StravaService implements OnModuleInit {
         avgPaceSecKm,
         avgHeartRate: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
         maxHeartRate: activity.max_heartrate ? Math.round(activity.max_heartrate) : null,
+        cadence: activity.average_cadence ? Math.round(activity.average_cadence) : null,
         raw: toJsonObject(activity),
       },
       update: {
@@ -500,6 +507,7 @@ export class StravaService implements OnModuleInit {
         avgPaceSecKm,
         avgHeartRate: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
         maxHeartRate: activity.max_heartrate ? Math.round(activity.max_heartrate) : null,
+        cadence: activity.average_cadence ? Math.round(activity.average_cadence) : null,
         raw: toJsonObject(activity),
       },
     });
@@ -633,9 +641,9 @@ function modalityFromActivity(activity: { type: string | null; name: string | nu
     normalized.includes('treinamento') ||
     normalized.includes('peso') ||
     normalized.includes('musculacao') ||
-    normalized.includes('musculaÃ§Ã£o') ||
+    normalized.includes('musculação') ||
     normalized.includes('forca') ||
-    normalized.includes('forÃ§a')
+    normalized.includes('força')
   ) {
     return 'forca';
   }

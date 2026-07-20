@@ -11,6 +11,7 @@ import {
   PANZERI_PRESCRIPTION_PRINCIPLES,
 } from './training-methodology';
 import { PrescriptionAgentService, PaceEvidence } from './prescription-agent.service';
+import { StravaAnalysisAgentService } from './strava-analysis-agent.service';
 
 interface SessionTemplate {
   title: string;
@@ -59,6 +60,7 @@ export class TrainingPlansService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly prescriptionAgent: PrescriptionAgentService,
+    private readonly stravaAnalysisAgent: StravaAnalysisAgentService,
   ) {}
 
   async current(userId: string) {
@@ -180,6 +182,7 @@ export class TrainingPlansService {
     const stravaRuns = recentStrava.filter((activity) => isStravaRunningActivity(activity.type, activity.name));
     const executionSummary = jsonObject(latestExecutionInsight?.summary);
     const progression = jsonObject(executionSummary.progression);
+    const stravaAnalysis = await this.stravaAnalysisAgent.analyze(recentStrava);
     const methodologyInput: MethodologyInput = {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
       experience: user.preferences?.experienceLevel ?? '',
@@ -201,6 +204,7 @@ export class TrainingPlansService {
         distanceChangePercent: nullableNumericValue(progression.distanceChangePercent),
         loadTrend: String(progression.loadTrend ?? 'sem_base_anterior'),
       } : null,
+      stravaAnalysis,
     };
     const stravaPacedRuns = stravaRuns.filter((activity) => (activity.avgPaceSecKm ?? 0) > 0 && (activity.distanceKm ?? 0) >= 1);
     const stravaAveragePaceSecondsPerKm = stravaPacedRuns.length
@@ -240,7 +244,7 @@ export class TrainingPlansService {
             ? this.strengthPrescription(durationMin, modality, {
                 experience: user.preferences?.experienceLevel ?? '',
                 safetyAdjustment: methodology.safetyAdjustment,
-                rotation: weekRotation(weekStart),
+                rotation: weekRotation(weekStart) * 7 + day.weekday,
                 countAdjustment: strengthCountAdjustment,
               })
             : modality === 'bike'
@@ -254,7 +258,7 @@ export class TrainingPlansService {
           scheduledDate,
           weekday: day.weekday,
           modality,
-          title: template.title,
+          title: isRunningModality(modality) ? 'Treino de corrida' : template.title,
           sessionType: template.sessionType,
           locationSuggestion: 'Livre',
           durationMin,
@@ -306,6 +310,7 @@ export class TrainingPlansService {
             history: methodologyHistory,
             stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
             analysisAgent: latestExecutionInsight ? executionSummary : null,
+            stravaAnalysis,
             decisionDateTime: saoPauloDateTime(new Date()),
           },
           weeklyOverrideUsed: adjustedAvailability.length > 0,
@@ -368,7 +373,7 @@ export class TrainingPlansService {
     const isAerobic = session.modality === 'bike';
     const durationMin = session.durationMin ?? 45;
     const zone = session.intensityZone ?? 'Z2';
-    const rotation = weekRotation(session.scheduledDate) + 1;
+    const rotation = weekRotation(session.scheduledDate) * 7 + session.weekday + 1;
 
     const prescription = isStrength
       ? this.strengthPrescription(durationMin, session.modality, {

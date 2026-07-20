@@ -20,6 +20,11 @@ export class CoachController {
     return this.coachService.finance();
   }
 
+  @Get('exercise-library')
+  exerciseLibrary() {
+    return this.coachService.exerciseLibrary();
+  }
+
   @Get('coupons')
   coupons() {
     return this.coachService.coupons();

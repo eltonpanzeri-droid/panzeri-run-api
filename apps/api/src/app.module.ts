@@ -12,6 +12,7 @@ import { TrainingPlansModule } from './training-plans/training-plans.module';
 import { WorkoutCompletionsModule } from './workout-completions/workout-completions.module';
 import { BillingModule } from './billing/billing.module';
 import { MessagingModule } from './messaging/messaging.module';
+import { ReassessmentModule } from './reassessment/reassessment.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -31,6 +32,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     WorkoutCompletionsModule,
     BillingModule,
     MessagingModule,
+    ReassessmentModule,
   ],
   controllers: [AppController],
 })

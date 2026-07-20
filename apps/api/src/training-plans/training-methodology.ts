@@ -47,6 +47,11 @@ export interface MethodologyInput {
     distanceChangePercent: number | null;
     loadTrend: string;
   } | null;
+  stravaAnalysis?: {
+    summary: string;
+    flags: string[];
+    crossTrainingNote: string | null;
+  } | null;
 }
 
 export interface RunSessionDecision {
@@ -169,7 +174,7 @@ function parseMmSsToSeconds(value: unknown): number | null {
   return total > 0 ? total : null;
 }
 
-function numericAnswer(value: unknown): number | null {
+export function numericAnswer(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value > 0 ? value : null;
   if (typeof value === 'string') {
     const normalized = Number(value.replace(',', '.'));

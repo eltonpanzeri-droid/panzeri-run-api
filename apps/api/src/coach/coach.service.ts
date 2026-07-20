@@ -12,6 +12,8 @@ import { TrainingPlansService } from '../training-plans/training-plans.service';
 import { StravaService } from '../strava/strava.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { SendStudentMessageDto } from './dto/send-student-message.dto';
+import { runnerStrengthExercises } from '../training-plans/runner-strength-library';
+import { gymExerciseLibrary } from '../training-plans/gym-exercise-library';
 
 @Injectable()
 export class CoachService {
@@ -230,6 +232,25 @@ export class CoachService {
     return this.trainingPlans.regenerateSession(studentId, sessionId);
   }
 
+  exerciseLibrary() {
+    return {
+      fortalecimentoCorredores: runnerStrengthExercises.map((exercise) => ({
+        id: exercise.id,
+        name: exercise.name,
+        description: exercise.description,
+        hasVideo: Boolean(exercise.videoUrl),
+        videoUrl: exercise.videoUrl,
+      })),
+      musculacao: gymExerciseLibrary.map((exercise) => ({
+        id: exercise.id,
+        name: exercise.name,
+        description: exercise.description,
+        hasVideo: Boolean(exercise.videoUrl),
+        videoUrl: exercise.videoUrl,
+      })),
+    };
+  }
+
   async sendStudentMessage(studentId: string, dto: SendStudentMessageDto) {
     await this.assertStudent(studentId);
     const results: Record<string, boolean> = {};
@@ -366,6 +387,11 @@ export class CoachService {
           include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
         },
         coachReports: { orderBy: { createdAt: 'desc' }, take: 20 },
+        reassessments: {
+          where: { completedAt: { not: null } },
+          orderBy: { completedAt: 'desc' },
+          take: 5,
+        },
       },
     });
 
@@ -451,6 +477,13 @@ export class CoachService {
         totalSeconds: test.totalSeconds,
         pace: formatPace(test.paceSecondsPerKm),
         vo2max: test.vo2maxEstimated,
+      })),
+      reassessments: student.reassessments.map((reassessment: any) => ({
+        completedAt: reassessment.completedAt,
+        answers: reassessment.answers,
+        evolutionSummary: reassessment.evolutionSummary,
+        evolutionWins: reassessment.evolutionWins ?? [],
+        evolutionConcerns: reassessment.evolutionConcerns ?? [],
       })),
       plan: plan
         ? {
