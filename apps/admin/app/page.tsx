@@ -565,6 +565,26 @@ export default function AdminHome() {
     }
   }
 
+  async function updateStudentField(studentId: string, field: 'accountStatus' | 'subscriptionStatus', value: string) {
+    setStatus('Atualizando aluno...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: value }),
+      });
+      if (!response.ok) {
+        setStatus('Nao consegui atualizar o aluno.');
+        return;
+      }
+      setStatus('Aluno atualizado.');
+      await loadDashboard();
+      if (selectedStudentId === studentId) await loadStudent(studentId);
+    } catch {
+      setStatus('Nao consegui conectar com a API.');
+    }
+  }
+
   function logout() {
     window.localStorage.removeItem('panzeri_admin_token');
     window.localStorage.removeItem('panzeri_admin_refresh_token');
@@ -732,7 +752,8 @@ export default function AdminHome() {
                 <span>Aderencia</span>
                 <span>Teste 3 km</span>
                 <span>Treino</span>
-                <span>Pagamento</span>
+                <span>Acesso ao app</span>
+                <span>Assinatura</span>
                 <span></span>
               </div>
               {dashboard?.students.map((student) => (
@@ -745,7 +766,29 @@ export default function AdminHome() {
                   <span>{student.adherencePercent}%</span>
                   <span>{student.lastThreeKm}</span>
                   <span className={`status ${statusClass(student.status)}`}>{student.status}</span>
-                  <span className={`status ${paymentStatusClass(student.subscriptionStatus)}`}>{paymentStatusLabel(student.subscriptionStatus)}</span>
+                  <select
+                    value={student.accountStatus}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => updateStudentField(student.id, 'accountStatus', event.target.value)}
+                  >
+                    <option value="active">Ativo</option>
+                    <option value="paused">Pausado</option>
+                    <option value="overdue">Vencido</option>
+                    <option value="canceled">Cancelado</option>
+                    <option value="archived">Arquivado</option>
+                  </select>
+                  <select
+                    value={student.subscriptionStatus ?? 'pending'}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => updateStudentField(student.id, 'subscriptionStatus', event.target.value)}
+                  >
+                    <option value="pending">Pagamento pendente</option>
+                    <option value="manual_active">Cortesia / liberacao manual</option>
+                    <option value="active">Pagamento confirmado</option>
+                    <option value="grace">Prazo de tolerancia</option>
+                    <option value="overdue">Pagamento atrasado</option>
+                    <option value="canceled">Assinatura cancelada</option>
+                  </select>
                   <button
                     type="button"
                     className="rowArchiveButton"
@@ -1981,6 +2024,7 @@ function Detail({ icon, label, value }: { icon: ReactNode; label: string; value:
 function statusClass(status: string) {
   if (status === 'Acesso liberado') return 'good';
   if (status === 'Sem plano') return 'warn';
+  if (status === 'Bloqueado (pagamento)') return 'danger';
   return '';
 }
 

@@ -8,7 +8,7 @@ import { MergeStudentDto } from './dto/merge-student.dto';
 import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
-import { TrainingPlansService } from '../training-plans/training-plans.service';
+import { TrainingPlansService, hasSubscriptionAccess } from '../training-plans/training-plans.service';
 import { StravaService } from '../strava/strava.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { SendStudentMessageDto } from './dto/send-student-message.dto';
@@ -339,7 +339,7 @@ export class CoachService {
         prescribedKm: summary.prescribedKm,
         completedKm: summary.completedKm,
         lastThreeKm: student.tests[0]?.totalSeconds ? formatDuration(student.tests[0].totalSeconds) : 'Sem teste',
-        status: statusFromSummary(summary),
+        status: statusFromSummary(summary, student.subscriptionStatus),
         accountStatus: student.accountStatus,
         subscriptionStatus: student.subscriptionStatus,
       };
@@ -940,11 +940,15 @@ function emptySummary() {
   };
 }
 
-function statusFromSummary(summary: { prescribedSessions: number; eligibleSessions: number }) {
+function statusFromSummary(summary: { prescribedSessions: number; eligibleSessions: number }, subscriptionStatus: string) {
   // Este status reflete apenas o estagio de acesso ao treino (existe plano? ja teve algum treino
   // elegivel?) — a qualidade da aderencia ja aparece na coluna "Aderencia" e no detalhe do aluno,
   // nao deve ser duplicada aqui como um rotulo de alerta que confunde quem acabou de comecar.
+  // Um plano pode existir no banco (gerado antes do pagamento cair) sem que o aluno realmente
+  // consiga ve-lo no app — "Acesso liberado" so pode refletir a mesma regra usada para o aluno
+  // (hasSubscriptionAccess), nunca so a existencia de sessoes prescritas.
   if (!summary.prescribedSessions) return 'Sem plano';
+  if (!hasSubscriptionAccess(subscriptionStatus)) return 'Bloqueado (pagamento)';
   if (!summary.eligibleSessions) return 'Aguardando primeiro treino';
   return 'Acesso liberado';
 }

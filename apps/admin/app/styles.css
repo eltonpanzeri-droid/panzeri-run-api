@@ -499,7 +499,7 @@ h3 {
   width: 100%;
   min-height: 62px;
   display: grid;
-  grid-template-columns: 1.2fr 0.9fr 0.55fr 0.6fr 0.8fr 0.8fr 40px;
+  grid-template-columns: 1.1fr 0.75fr 0.45fr 0.5fr 0.75fr 0.85fr 0.95fr 40px;
   gap: 12px;
   align-items: center;
   border: 1px solid var(--line);
@@ -558,6 +558,16 @@ h3 {
   font-weight: 700;
   color: var(--muted);
   white-space: nowrap;
+}
+
+.row select {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--ink);
 }
 
 .rowArchiveButton {

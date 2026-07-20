@@ -789,7 +789,7 @@ export class TrainingPlansService {
   }
 }
 
-function hasSubscriptionAccess(status: string) {
+export function hasSubscriptionAccess(status: string) {
   return status === 'active' || status === 'manual_active' || status === 'grace';
 }
 
