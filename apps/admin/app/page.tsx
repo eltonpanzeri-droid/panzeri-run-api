@@ -1265,6 +1265,26 @@ function StudentPanel({
     }
   }
 
+  async function syncAvailability() {
+    if (!student) return;
+    onStatus('Sincronizando disponibilidade a partir da entrevista...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/sync-availability`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        onStatus('Nao consegui sincronizar a disponibilidade.');
+        return;
+      }
+      const data = (await response.json()) as { synced: boolean; days: number };
+      await onRefresh();
+      onStatus(`Disponibilidade sincronizada: ${data.days} dia(s) com treino a partir da entrevista.`);
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    }
+  }
+
   async function recoverSessions() {
     if (!student) return;
     onStatus('Verificando treinos presos em planos antigos...');
@@ -1562,7 +1582,11 @@ function StudentPanel({
             {groupInterviewAnswers(student.interview.answers).map((group) => (
               <details key={group.title} open={group.title === 'Objetivo' || group.title === 'Rotina semanal'}>
                 <summary>{group.title}</summary>
-                {group.items.map(([key, value]) => <p key={key}><strong>{interviewLabel(key)}:</strong> {interviewValue(value)}</p>)}
+                {group.title === 'Rotina semanal' ? (
+                  <RoutineAvailabilityTable answers={student.interview!.answers} />
+                ) : (
+                  group.items.map(([key, value]) => <p key={key}><strong>{interviewLabel(key)}:</strong> {interviewValue(value)}</p>)
+                )}
               </details>
             ))}
           </div>
@@ -1587,6 +1611,7 @@ function StudentPanel({
             <span>{student.plan?.name ?? 'Sem plano ativo'}</span>
             <button className="secondaryButton" type="button" onClick={regenerateWeek}><RefreshCw size={16} />Refazer nova semana de treinos</button>
             <button className="secondaryButton" type="button" onClick={recoverSessions}><RefreshCw size={16} />Recuperar treinos presos em plano antigo</button>
+            <button className="secondaryButton" type="button" onClick={syncAvailability}><RefreshCw size={16} />Sincronizar disponibilidade da entrevista</button>
           </div>
         </div>
         {student.plan?.sessions.length ? (
@@ -2363,6 +2388,57 @@ function normalizeSessionStructure(session: NonNullable<StudentDetail['plan']>['
   }
   if (existing.type === 'run' || existing.type === 'aerobic') return existing;
   return { type: session.modality === 'bike' ? 'aerobic' : 'run', blocks: [] };
+}
+
+const ROUTINE_DAYS: Array<[string, string]> = [
+  ['monday', 'Seg'], ['tuesday', 'Ter'], ['wednesday', 'Qua'], ['thursday', 'Qui'], ['friday', 'Sex'], ['saturday', 'Sab'], ['sunday', 'Dom'],
+];
+
+function routineTimeLabel(value: unknown) {
+  const labels: Record<string, string> = {
+    none: 'NAO',
+    up_to_30: 'Ate 30 min',
+    from_30_to_45: '30-45 min',
+    from_45_to_60: '45-60 min',
+    from_60_to_90: '60-90 min',
+    over_90: '90+ min',
+  };
+  return labels[String(value ?? '')] ?? 'NAO';
+}
+
+function RoutineAvailabilityTable({ answers }: { answers: Record<string, unknown> }) {
+  const rows: Array<{ label: string; suffix: string }> = [
+    { label: 'Corrida', suffix: 'run_time' },
+    { label: 'Fortalecimento/Musculacao', suffix: 'strength_time' },
+  ];
+  return (
+    <table className="routineTable">
+      <thead>
+        <tr>
+          <th>Modalidade</th>
+          {ROUTINE_DAYS.map(([key, label]) => <th key={key}>{label}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.suffix}>
+            <td>{row.label}</td>
+            {ROUTINE_DAYS.map(([dayKey]) => {
+              const value = answers[`${dayKey}_${row.suffix}`];
+              const isNone = !value || value === 'none';
+              return <td key={dayKey} className={isNone ? 'routineCellOff' : 'routineCellOn'}>{routineTimeLabel(value)}</td>;
+            })}
+          </tr>
+        ))}
+        <tr>
+          <td>Horario disponivel</td>
+          {ROUTINE_DAYS.map(([dayKey]) => (
+            <td key={dayKey}>{interviewValue(answers[`${dayKey}_available_time`])}</td>
+          ))}
+        </tr>
+      </tbody>
+    </table>
+  );
 }
 
 function groupInterviewAnswers(answers: Record<string, unknown>) {

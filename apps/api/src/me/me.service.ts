@@ -155,6 +155,29 @@ export class MeService {
     return { completed: true, completedAt, next: 'three_km_test' };
   }
 
+  // As respostas de rotina da entrevista (${dia}_run_time etc.) so viram registros de
+  // WeeklyAvailability dentro de completeOnboarding. Se o aluno reabre a entrevista para
+  // revisar/atualizar essas respostas mas nao chega a concluir de novo (ou outra tela de
+  // rotina sobrescreve depois), a disponibilidade real usada para gerar o treino fica
+  // desatualizada em relacao ao que a entrevista diz. Este metodo recalcula
+  // WeeklyAvailability a partir do que ja esta salvo em OnboardingInterview.answers, sem
+  // exigir que o aluno refaca a entrevista.
+  async syncAvailabilityFromInterview(userId: string) {
+    const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
+    if (!interview) {
+      throw new BadRequestException('Aluno ainda nao respondeu a entrevista.');
+    }
+    const answers = asAnswerObject(interview.answers);
+    const availability = buildInterviewAvailability(answers);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.weeklyAvailability.deleteMany({ where: { userId } });
+      for (const day of availability) await tx.weeklyAvailability.create({ data: { userId, ...day } });
+    });
+
+    return { synced: true, days: availability.filter((day) => !day.noTraining).length };
+  }
+
   updateProfile(userId: string, dto: UpdateProfileDto) {
     return this.prisma.user.update({
       where: { id: userId },

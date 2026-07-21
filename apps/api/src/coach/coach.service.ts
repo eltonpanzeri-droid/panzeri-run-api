@@ -15,6 +15,7 @@ import { SendStudentMessageDto } from './dto/send-student-message.dto';
 import { runnerStrengthExercises } from '../training-plans/runner-strength-library';
 import { gymExerciseLibrary } from '../training-plans/gym-exercise-library';
 import { BackupService } from '../backup/backup.service';
+import { MeService } from '../me/me.service';
 
 @Injectable()
 export class CoachService {
@@ -24,6 +25,7 @@ export class CoachService {
     private readonly strava: StravaService,
     private readonly messaging: MessagingService,
     private readonly backup: BackupService,
+    private readonly meService: MeService,
   ) {}
 
   async createStudent(dto: CreateStudentDto) {
@@ -232,6 +234,11 @@ export class CoachService {
   async recoverStudentSessions(studentId: string) {
     await this.assertStudent(studentId);
     return this.trainingPlans.recoverOrphanedSessions(studentId);
+  }
+
+  async syncStudentAvailability(studentId: string) {
+    await this.assertStudent(studentId);
+    return this.meService.syncAvailabilityFromInterview(studentId);
   }
 
   async runDatabaseBackup() {

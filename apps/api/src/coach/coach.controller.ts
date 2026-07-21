@@ -94,6 +94,11 @@ export class CoachController {
     return this.coachService.recoverStudentSessions(studentId);
   }
 
+  @Post('students/:studentId/sync-availability')
+  syncStudentAvailability(@Param('studentId') studentId: string) {
+    return this.coachService.syncStudentAvailability(studentId);
+  }
+
   @Post('students/:studentId/sessions/:sessionId/regenerate')
   regenerateStudentSession(@Param('studentId') studentId: string, @Param('sessionId') sessionId: string) {
     return this.coachService.regenerateStudentSession(studentId, sessionId);

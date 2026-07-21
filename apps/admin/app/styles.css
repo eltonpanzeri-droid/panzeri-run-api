@@ -1021,6 +1021,42 @@ h3 {
   line-height: 1.35;
 }
 
+.routineTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.routineTable th,
+.routineTable td {
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  text-align: center;
+}
+
+.routineTable th:first-child,
+.routineTable td:first-child {
+  text-align: left;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.routineTable th {
+  background: #eef3f7;
+  color: var(--muted);
+}
+
+.routineCellOn {
+  background: var(--accent-soft);
+  color: #115e59;
+  font-weight: 700;
+}
+
+.routineCellOff {
+  color: var(--muted);
+}
+
 .directiveList {
   display: grid;
   gap: 6px;
