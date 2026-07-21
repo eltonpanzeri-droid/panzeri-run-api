@@ -1021,6 +1021,61 @@ h3 {
   line-height: 1.35;
 }
 
+.directiveList {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.directiveItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.chatTranscript {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: var(--panel);
+}
+
+.chatBubble {
+  display: grid;
+  gap: 2px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  max-width: 90%;
+}
+
+.chatBubble p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.chatBubbleCoach {
+  background: var(--accent-soft);
+  justify-self: end;
+}
+
+.chatBubbleAgent {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  justify-self: start;
+}
+
 .executionPanel {
   border-top: 2px solid var(--accent);
   background: #ecfdf5;

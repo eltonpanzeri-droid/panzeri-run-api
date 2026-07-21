@@ -44,6 +44,8 @@ interface StudentRow {
   status: string;
   accountStatus: string;
   subscriptionStatus?: string;
+  stravaConnected?: boolean;
+  stravaLastSyncAt?: string | null;
 }
 
 interface StudentDetail {
@@ -54,6 +56,7 @@ interface StudentDetail {
   accountStatus: string;
   subscriptionStatus: string;
   subscriptionUpdatedAt?: string | null;
+  strava?: { connected: boolean; automaticSync: boolean; lastActivityAt?: string | null };
   birthDate?: string | null;
   heightCm?: number | null;
   weightKg?: number | null;
@@ -793,6 +796,7 @@ export default function AdminHome() {
                   <span>
                     <strong>{student.name}</strong>
                     <small>{student.email}</small>
+                    <small className={`status ${student.stravaConnected ? 'good' : 'warn'}`}>{student.stravaConnected ? 'Strava conectado' : 'Strava nao conectado'}</small>
                   </span>
                   <span>{student.goal}</span>
                   <span>{student.adherencePercent}%</span>
@@ -1018,6 +1022,10 @@ function StudentPanel({
   const [messageText, setMessageText] = useState('');
   const [messageByEmail, setMessageByEmail] = useState(true);
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Array<{ id: string; role: string; content: string; createdAt: string }>>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [sendingChat, setSendingChat] = useState(false);
+  const [directives, setDirectives] = useState<Array<{ id: string; content: string; createdAt: string }>>([]);
 
   useEffect(() => {
     setEditName(student?.name ?? '');
@@ -1028,7 +1036,69 @@ function StudentPanel({
     setInviteText('');
     setExpandedHistoryId('');
     setMessageText('');
+    setChatMessages([]);
+    setChatInput('');
+    setDirectives([]);
   }, [student?.id, student?.name, student?.email, student?.accountStatus, student?.subscriptionStatus]);
+
+  useEffect(() => {
+    if (!student?.id) return;
+    void loadTechnicalManagerData(student.id);
+  }, [student?.id, token]);
+
+  async function loadTechnicalManagerData(studentId: string) {
+    try {
+      const [historyResponse, directivesResponse] = await Promise.all([
+        fetch(`${API_URL}/coach/students/${studentId}/technical-manager/chat`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/coach/students/${studentId}/technical-manager/directives`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (historyResponse.ok) setChatMessages(await historyResponse.json());
+      if (directivesResponse.ok) setDirectives(await directivesResponse.json());
+    } catch {
+      // Falha silenciosa - o restante do painel continua funcionando normalmente.
+    }
+  }
+
+  async function sendChatMessage() {
+    if (!student || !chatInput.trim() || sendingChat) return;
+    const outgoing = chatInput.trim();
+    setSendingChat(true);
+    setChatMessages((previous) => [...previous, { id: `pendente-${Date.now()}`, role: 'coach', content: outgoing, createdAt: new Date().toISOString() }]);
+    setChatInput('');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/technical-manager/chat`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: outgoing }),
+      });
+      if (!response.ok) {
+        onStatus('Nao consegui conversar com o agente agora.');
+        return;
+      }
+      await loadTechnicalManagerData(student.id);
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    } finally {
+      setSendingChat(false);
+    }
+  }
+
+  async function removeDirective(directiveId: string) {
+    if (!student) return;
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/technical-manager/directives/${directiveId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        onStatus('Nao consegui remover a diretriz.');
+        return;
+      }
+      await loadTechnicalManagerData(student.id);
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    }
+  }
 
   if (!student) {
     return (
@@ -1276,6 +1346,14 @@ function StudentPanel({
         <h2>{student.name}</h2>
         <small>{student.email}</small>
         {student.phone ? <small>{student.phone}</small> : null}
+        <div>
+          <span className={`status ${student.strava?.connected ? 'good' : 'warn'}`}>
+            {student.strava?.connected ? 'Strava conectado' : 'Strava nao conectado'}
+          </span>
+          {student.strava?.connected && student.strava.lastActivityAt ? (
+            <small> ultima atividade: {dateTimeLabel(student.strava.lastActivityAt)}</small>
+          ) : null}
+        </div>
       </div>
 
       <section className="miniSection adminForm">
@@ -1329,6 +1407,42 @@ function StudentPanel({
         </label>
         <button type="button" disabled={sendingMessage} onClick={sendMessageToStudent}>
           {sendingMessage ? 'Enviando...' : 'Enviar mensagem'}
+        </button>
+      </section>
+
+      <section className="miniSection technicalManagerPanel">
+        <h3>Gerente tecnico</h3>
+        <p className="formHintText">Converse sobre o caso deste aluno especifico: peca relatorios, opiniao, ou combine regras permanentes so para ele.</p>
+
+        {directives.length ? (
+          <div className="directiveList">
+            <strong>Diretrizes ativas para {student.name}</strong>
+            {directives.map((directive) => (
+              <div className="directiveItem" key={directive.id}>
+                <span>{directive.content}</span>
+                <button type="button" className="removeStructureButton" onClick={() => removeDirective(directive.id)}>Remover</button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="chatTranscript">
+          {chatMessages.length ? chatMessages.map((chatMessage) => (
+            <div className={`chatBubble ${chatMessage.role === 'coach' ? 'chatBubbleCoach' : 'chatBubbleAgent'}`} key={chatMessage.id}>
+              <strong>{chatMessage.role === 'coach' ? 'Voce' : 'Gerente tecnico'}</strong>
+              <p>{chatMessage.content}</p>
+            </div>
+          )) : <p className="formHintText">Nenhuma conversa ainda sobre este aluno.</p>}
+        </div>
+
+        <textarea
+          value={chatInput}
+          onChange={(event) => setChatInput(event.target.value)}
+          placeholder="Pergunte sobre o treino, peca o relatorio do Strava, ou combine uma regra para este aluno"
+          rows={3}
+        />
+        <button type="button" disabled={sendingChat || !chatInput.trim()} onClick={sendChatMessage}>
+          {sendingChat ? 'Consultando o agente...' : 'Enviar'}
         </button>
       </section>
 

@@ -106,7 +106,7 @@ export class TrainingPlansService {
 
   async generateWeek(userId: string, weeklyOverride?: WeeklyAvailabilityInput[]) {
     const historyStart = addDays(startOfWeek(new Date()), -35);
-    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment] = await Promise.all([
+    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         include: {
@@ -142,6 +142,11 @@ export class TrainingPlansService {
         where: { userId, status: 'active' },
         orderBy: { createdAt: 'desc' },
         select: { id: true },
+      }),
+      this.prisma.studentDirective.findMany({
+        where: { userId, active: true },
+        orderBy: { createdAt: 'desc' },
+        select: { content: true },
       }),
     ]);
 
@@ -205,6 +210,7 @@ export class TrainingPlansService {
         loadTrend: String(progression.loadTrend ?? 'sem_base_anterior'),
       } : null,
       stravaAnalysis,
+      studentDirectives: activeDirectives.map((directive) => directive.content),
     };
     const stravaPacedRuns = stravaRuns.filter((activity) => (activity.avgPaceSecKm ?? 0) > 0 && (activity.distanceKm ?? 0) >= 1);
     const stravaAveragePaceSecondsPerKm = stravaPacedRuns.length
@@ -311,6 +317,7 @@ export class TrainingPlansService {
             stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
             analysisAgent: latestExecutionInsight ? executionSummary : null,
             stravaAnalysis,
+            studentDirectives: activeDirectives.map((directive) => directive.content),
             decisionDateTime: saoPauloDateTime(new Date()),
           },
           weeklyOverrideUsed: adjustedAvailability.length > 0,

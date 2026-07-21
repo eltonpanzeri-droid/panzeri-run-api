@@ -332,9 +332,16 @@ export class CoachService {
       this.prisma.workoutCompletion.count({ where: { status: 'adjusted', session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } } }),
     ]);
 
+    const stravaConnections = await this.prisma.stravaConnection.findMany({
+      where: { userId: { in: students.map((student) => student.id) } },
+      select: { userId: true, updatedAt: true },
+    });
+    const stravaConnectionByUserId = new Map(stravaConnections.map((connection) => [connection.userId, connection]));
+
     const rows = students.map((student) => {
       const plan = student.plans[0] ?? null;
       const summary = plan ? summarizeSessions(plan.sessions) : emptySummary();
+      const stravaConnection = stravaConnectionByUserId.get(student.id);
       return {
         id: student.id,
         name: student.name,
@@ -353,6 +360,8 @@ export class CoachService {
         status: statusFromSummary(summary, student.subscriptionStatus),
         accountStatus: student.accountStatus,
         subscriptionStatus: student.subscriptionStatus,
+        stravaConnected: Boolean(stravaConnection),
+        stravaLastSyncAt: stravaConnection?.updatedAt ?? null,
       };
     });
 
@@ -380,6 +389,7 @@ export class CoachService {
     await this.assertStudent(studentId);
     await this.trainingPlans.current(studentId);
     await this.strava.syncIfStale(studentId).catch(() => undefined);
+    const stravaStatus = await this.strava.status(studentId).catch(() => null);
     const student = await (this.prisma.user as any).findFirstOrThrow({
       where: { id: studentId, role: 'student' },
       include: {
@@ -449,6 +459,11 @@ export class CoachService {
       accountStatus: student.accountStatus,
       subscriptionStatus: student.subscriptionStatus,
       subscriptionUpdatedAt: student.subscriptionUpdatedAt,
+      strava: stravaStatus ? {
+        connected: stravaStatus.connected,
+        automaticSync: stravaStatus.automaticSync,
+        lastActivityAt: stravaStatus.lastActivityAt,
+      } : { connected: false, automaticSync: false, lastActivityAt: null },
       analysisAgent: analysisInsight ? {
         updatedAt: analysisInsight.updatedAt,
         summary: analysisInsight.summary,

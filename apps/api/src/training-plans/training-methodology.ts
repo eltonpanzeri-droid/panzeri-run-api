@@ -52,6 +52,7 @@ export interface MethodologyInput {
     flags: string[];
     crossTrainingNote: string | null;
   } | null;
+  studentDirectives?: string[];
 }
 
 export interface RunSessionDecision {

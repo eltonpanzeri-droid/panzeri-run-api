@@ -45,6 +45,8 @@ model User {
   billingSubscription BillingSubscription?
   couponRedemptions CouponRedemption[]
   coachReports CoachReport[]
+  studentDirectives StudentDirective[]
+  coachChatMessages CoachChatMessage[]
 }
 
 model BillingProviderConfig {
@@ -93,6 +95,29 @@ model Reassessment {
   evolutionConcerns Json?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+model StudentDirective {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  content   String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, active])
+}
+
+model CoachChatMessage {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  role      String
+  content   String
+  createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
 }
