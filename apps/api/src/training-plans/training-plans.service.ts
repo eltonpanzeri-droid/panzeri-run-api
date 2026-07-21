@@ -141,7 +141,7 @@ export class TrainingPlansService {
       this.prisma.trainingPlan.findFirst({
         where: { userId, status: 'active' },
         orderBy: { createdAt: 'desc' },
-        select: { id: true },
+        select: { id: true, startDate: true },
       }),
       this.prisma.studentDirective.findMany({
         where: { userId, active: true },
@@ -284,7 +284,16 @@ export class TrainingPlansService {
     });
 
     const today = todayInSaoPaulo();
-    const sessionsToCreate = sessions.filter((session) => session.scheduledDate.getTime() >= today.getTime());
+    // So faz sentido excluir dias ja passados desta semana quando ja existe um plano ativo
+    // PARA ESTA MESMA SEMANA (o caso de regenerar no meio da semana) — os dias passados dele
+    // serao migrados logo abaixo (activePlanBeforeAdjustment). Se nao existe plano ativo para
+    // esta semana (primeira geracao, ou o ciclo anterior nunca foi renovado a tempo), filtrar
+    // por "hoje em diante" pode zerar a semana inteira quando os dias disponiveis do aluno
+    // caem antes de hoje — nesse caso mantemos a semana completa.
+    const isRegeneratingSameWeek = activePlanBeforeAdjustment?.startDate.getTime() === weekStart.getTime();
+    const sessionsToCreate = isRegeneratingSameWeek
+      ? sessions.filter((session) => session.scheduledDate.getTime() >= today.getTime())
+      : sessions;
     const plan = await this.prisma.trainingPlan.create({
       data: {
         userId,
