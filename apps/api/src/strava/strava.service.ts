@@ -452,6 +452,8 @@ export class StravaService implements OnModuleInit {
     });
 
     if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      this.logger.warn(`Strava recusou a troca de token (status ${response.status}): ${errorBody}`);
       throw new BadRequestException('Nao consegui autenticar com o Strava.');
     }
 

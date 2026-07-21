@@ -2221,6 +2221,7 @@ function StravaSync({ accessToken }: { accessToken: string }) {
   const [connection, setConnection] = useState<StravaConnectionStatus | null>(null);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
 
   async function loadStatus() {
     try {
@@ -2242,6 +2243,8 @@ function StravaSync({ accessToken }: { accessToken: string }) {
   }, [accessToken]);
 
   async function connectStrava() {
+    if (connecting) return;
+    setConnecting(true);
     setMessage('');
     const authPopup = openAuthPopup();
     authPopup?.document?.write('<p style="font-family: Arial, sans-serif; padding: 24px;">Abrindo autorizacao do Strava...</p>');
@@ -2257,10 +2260,12 @@ function StravaSync({ accessToken }: { accessToken: string }) {
       const data = (await response.json()) as { url: string };
       if (authPopup?.location) authPopup.location.href = data.url;
       else Linking.openURL(data.url);
-      setMessage('Conclua a autorizacao. Esta tela reconhecera a conexao automaticamente.');
+      setMessage('Conclua a autorizacao uma unica vez, sem recarregar a pagina. Esta tela reconhecera a conexao automaticamente.');
     } catch {
       authPopup?.close?.();
       setMessage('Nao consegui abrir a autorizacao do Strava.');
+    } finally {
+      setConnecting(false);
     }
   }
 
@@ -2307,8 +2312,8 @@ function StravaSync({ accessToken }: { accessToken: string }) {
         ) : null}
 
         {!connection?.connected ? (
-          <Pressable style={styles.primaryButton} onPress={connectStrava}>
-            <Text style={styles.primaryButtonText}>Conectar com Strava</Text>
+          <Pressable style={[styles.primaryButton, connecting && styles.disabledButton]} disabled={connecting} onPress={connectStrava}>
+            <Text style={styles.primaryButtonText}>{connecting ? 'Abrindo autorizacao...' : 'Conectar com Strava'}</Text>
             <Ionicons name="link" size={18} color="#ffffff" />
           </Pressable>
         ) : (
