@@ -15,6 +15,7 @@ import { WorkoutCompletionsModule } from './workout-completions/workout-completi
 import { BillingModule } from './billing/billing.module';
 import { MessagingModule } from './messaging/messaging.module';
 import { ReassessmentModule } from './reassessment/reassessment.module';
+import { BackupModule } from './backup/backup.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -38,6 +39,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     BillingModule,
     MessagingModule,
     ReassessmentModule,
+    BackupModule,
   ],
   controllers: [AppController],
   providers: [

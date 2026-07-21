@@ -243,6 +243,7 @@ export default function AdminHome() {
   const [query, setQuery] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [status, setStatus] = useState('');
+  const [isBackingUp, setIsBackingUp] = useState(false);
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentEmail, setNewStudentEmail] = useState('');
   const [newStudentPassword, setNewStudentPassword] = useState('');
@@ -585,6 +586,27 @@ export default function AdminHome() {
     }
   }
 
+  async function runBackupNow() {
+    setIsBackingUp(true);
+    setStatus('Gerando backup do banco...');
+    try {
+      const response = await fetch(`${API_URL}/coach/backup/run`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await response.json()) as { ok: boolean; error?: string; sizeBytes?: number };
+      if (!response.ok || !data.ok) {
+        setStatus(`Nao consegui gerar o backup: ${data.error ?? 'erro desconhecido'}.`);
+        return;
+      }
+      setStatus(`Backup gerado e enviado por e-mail (${Math.round((data.sizeBytes ?? 0) / 1024)} KB).`);
+    } catch {
+      setStatus('Nao consegui conectar com a API.');
+    } finally {
+      setIsBackingUp(false);
+    }
+  }
+
   function logout() {
     window.localStorage.removeItem('panzeri_admin_token');
     window.localStorage.removeItem('panzeri_admin_refresh_token');
@@ -716,6 +738,16 @@ export default function AdminHome() {
           <Stat label="Treinos feitos" value={String(dashboard?.totals.completedSessions ?? 0)} detail={`${dashboard?.totals.differentSessions ?? 0} diferentes`} />
           <Stat label="Aderencia media" value={`${dashboard?.totals.adherencePercent ?? 0}%`} detail="treinos propostos" />
         </section> : null}
+
+        {activeView === 'dashboard' ? (
+          <section className="miniSection">
+            <h3>Backup do banco de dados</h3>
+            <p>Um backup automatico e enviado por e-mail todos os dias as 4h. Voce tambem pode gerar um agora.</p>
+            <button className="secondaryButton" type="button" disabled={isBackingUp} onClick={runBackupNow}>
+              {isBackingUp ? 'Gerando backup...' : 'Gerar backup agora'}
+            </button>
+          </section>
+        ) : null}
 
         {activeView === 'students' ? <section className="workArea">
           <div className="panel">
@@ -1163,6 +1195,26 @@ function StudentPanel({
     }
   }
 
+  async function recoverSessions() {
+    if (!student) return;
+    onStatus('Verificando treinos presos em planos antigos...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/plan/recover-sessions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        onStatus('Nao consegui verificar os treinos deste aluno.');
+        return;
+      }
+      const data = (await response.json()) as { recovered: number };
+      await onRefresh();
+      onStatus(data.recovered > 0 ? `${data.recovered} treino(s) recuperado(s) e devolvido(s) a semana atual.` : 'Nenhum treino preso encontrado.');
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    }
+  }
+
   async function mergeFromDuplicate() {
     if (!student) return;
     if (!mergeSourceEmail.trim()) {
@@ -1420,6 +1472,7 @@ function StudentPanel({
           <div className="weekWorkspaceActions">
             <span>{student.plan?.name ?? 'Sem plano ativo'}</span>
             <button className="secondaryButton" type="button" onClick={regenerateWeek}><RefreshCw size={16} />Refazer nova semana de treinos</button>
+            <button className="secondaryButton" type="button" onClick={recoverSessions}><RefreshCw size={16} />Recuperar treinos presos em plano antigo</button>
           </div>
         </div>
         {student.plan?.sessions.length ? (

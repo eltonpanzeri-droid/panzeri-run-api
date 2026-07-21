@@ -14,6 +14,7 @@ import { MessagingService } from '../messaging/messaging.service';
 import { SendStudentMessageDto } from './dto/send-student-message.dto';
 import { runnerStrengthExercises } from '../training-plans/runner-strength-library';
 import { gymExerciseLibrary } from '../training-plans/gym-exercise-library';
+import { BackupService } from '../backup/backup.service';
 
 @Injectable()
 export class CoachService {
@@ -22,6 +23,7 @@ export class CoachService {
     private readonly trainingPlans: TrainingPlansService,
     private readonly strava: StravaService,
     private readonly messaging: MessagingService,
+    private readonly backup: BackupService,
   ) {}
 
   async createStudent(dto: CreateStudentDto) {
@@ -225,6 +227,15 @@ export class CoachService {
     await this.assertStudent(studentId);
     await this.trainingPlans.generateWeek(studentId);
     return { message: 'Nova semana de treinos gerada.' };
+  }
+
+  async recoverStudentSessions(studentId: string) {
+    await this.assertStudent(studentId);
+    return this.trainingPlans.recoverOrphanedSessions(studentId);
+  }
+
+  async runDatabaseBackup() {
+    return this.backup.runBackup();
   }
 
   async regenerateStudentSession(studentId: string, sessionId: string) {

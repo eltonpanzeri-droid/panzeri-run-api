@@ -333,7 +333,11 @@ export class TrainingPlansService {
       },
     });
 
-    if (weeklyOverride?.length && activePlanBeforeAdjustment) {
+    if (activePlanBeforeAdjustment) {
+      // Dias que ja passaram (hoje exclusive) nunca podem ser reescritos ao gerar uma nova
+      // semana — o que o aluno ja fez (ou nao fez) fica registrado no plano anterior, so
+      // migramos essas sessoes (com seus registros de execucao) para o plano novo para que
+      // continuem aparecendo normalmente na semana atual.
       await this.prisma.trainingSession.updateMany({
         where: {
           planId: activePlanBeforeAdjustment.id,
@@ -349,6 +353,51 @@ export class TrainingPlansService {
     }
 
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
+  }
+
+  // Corrige alunos afetados pelo bug antigo de regeneracao de semana: antes da correcao, gerar
+  // um novo treino sem usar o ajuste de rotina (ex: o botao do treinador) arquivava o plano
+  // anterior sem migrar os dias ja passados daquela semana, fazendo treinos ja feitos (com
+  // registro de execucao) sumirem da visao atual. Este metodo procura essas sessoes presas em
+  // planos arquivados e as devolve ao plano ativo atual, sem duplicar nada.
+  async recoverOrphanedSessions(userId: string) {
+    const activePlan = await this.prisma.trainingPlan.findFirst({
+      where: { userId, status: 'active' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!activePlan) {
+      throw new BadRequestException('Aluno nao tem plano ativo no momento.');
+    }
+
+    const today = todayInSaoPaulo();
+    const existingSessions = await this.prisma.trainingSession.findMany({
+      where: { planId: activePlan.id },
+      select: { scheduledDate: true, modality: true },
+    });
+    const existingKeys = new Set(existingSessions.map((session) => `${session.scheduledDate.toISOString()}_${session.modality}`));
+
+    const orphanedSessions = await this.prisma.trainingSession.findMany({
+      where: {
+        plan: { userId, status: 'archived' },
+        scheduledDate: { gte: activePlan.startDate, lt: today },
+      },
+      include: { completion: true },
+    });
+
+    const toRecover = orphanedSessions.filter(
+      (session) => !existingKeys.has(`${session.scheduledDate.toISOString()}_${session.modality}`),
+    );
+
+    if (!toRecover.length) {
+      return { recovered: 0 };
+    }
+
+    await this.prisma.trainingSession.updateMany({
+      where: { id: { in: toRecover.map((session) => session.id) } },
+      data: { planId: activePlan.id },
+    });
+
+    return { recovered: toRecover.length };
   }
 
   async regenerateSession(userId: string, sessionId: string) {

@@ -7,6 +7,6 @@ import { NotificationTriggersService } from './notification-triggers.service';
 @Module({
   imports: [PrismaModule],
   providers: [EmailService, MessagingService, NotificationTriggersService],
-  exports: [MessagingService],
+  exports: [MessagingService, EmailService],
 })
 export class MessagingModule {}

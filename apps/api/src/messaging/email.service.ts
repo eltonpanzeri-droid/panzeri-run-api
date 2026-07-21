@@ -14,7 +14,12 @@ export class EmailService {
     this.fromAddress = this.config.get<string>('RESEND_FROM_EMAIL') ?? 'Panzeri Run <onboarding@resend.dev>';
   }
 
-  async send(to: string, subject: string, text: string): Promise<{ ok: boolean; error?: string }> {
+  async send(
+    to: string,
+    subject: string,
+    text: string,
+    attachments?: Array<{ filename: string; content: Buffer }>,
+  ): Promise<{ ok: boolean; error?: string }> {
     if (!this.client) {
       this.logger.warn('RESEND_API_KEY nao configurado - e-mail nao enviado.');
       return { ok: false, error: 'Servico de e-mail nao configurado.' };
@@ -26,6 +31,7 @@ export class EmailService {
         to,
         subject,
         text,
+        attachments,
       });
 
       if (result.error) {

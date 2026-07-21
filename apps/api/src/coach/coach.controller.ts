@@ -25,6 +25,11 @@ export class CoachController {
     return this.coachService.exerciseLibrary();
   }
 
+  @Post('backup/run')
+  runDatabaseBackup() {
+    return this.coachService.runDatabaseBackup();
+  }
+
   @Get('coupons')
   coupons() {
     return this.coachService.coupons();
@@ -82,6 +87,11 @@ export class CoachController {
   @Post('students/:studentId/plan/regenerate-week')
   regenerateStudentWeek(@Param('studentId') studentId: string) {
     return this.coachService.regenerateStudentWeek(studentId);
+  }
+
+  @Post('students/:studentId/plan/recover-sessions')
+  recoverStudentSessions(@Param('studentId') studentId: string) {
+    return this.coachService.recoverStudentSessions(studentId);
   }
 
   @Post('students/:studentId/sessions/:sessionId/regenerate')
