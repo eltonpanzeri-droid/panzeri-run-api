@@ -767,6 +767,7 @@ export default function AdminHome() {
                   <span>{student.lastThreeKm}</span>
                   <span className={`status ${statusClass(student.status)}`}>{student.status}</span>
                   <select
+                    className={accountStatusClass(student.accountStatus)}
                     value={student.accountStatus}
                     onClick={(event) => event.stopPropagation()}
                     onChange={(event) => updateStudentField(student.id, 'accountStatus', event.target.value)}
@@ -778,6 +779,7 @@ export default function AdminHome() {
                     <option value="archived">Arquivado</option>
                   </select>
                   <select
+                    className={subscriptionStatusClass(student.subscriptionStatus ?? 'pending')}
                     value={student.subscriptionStatus ?? 'pending'}
                     onClick={(event) => event.stopPropagation()}
                     onChange={(event) => updateStudentField(student.id, 'subscriptionStatus', event.target.value)}
@@ -2023,8 +2025,22 @@ function Detail({ icon, label, value }: { icon: ReactNode; label: string; value:
 
 function statusClass(status: string) {
   if (status === 'Acesso liberado') return 'good';
-  if (status === 'Sem plano') return 'warn';
+  if (status === 'Sem treino') return 'warn';
   if (status === 'Bloqueado (pagamento)') return 'danger';
+  return '';
+}
+
+function accountStatusClass(status: string) {
+  if (status === 'active') return 'good';
+  if (status === 'paused' || status === 'overdue') return 'warn';
+  if (status === 'canceled' || status === 'archived') return 'danger';
+  return '';
+}
+
+function subscriptionStatusClass(status: string) {
+  if (status === 'active' || status === 'manual_active') return 'good';
+  if (status === 'pending' || status === 'grace') return 'warn';
+  if (status === 'overdue' || status === 'canceled') return 'danger';
   return '';
 }
 

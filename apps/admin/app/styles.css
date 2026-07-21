@@ -567,7 +567,26 @@ h3 {
   background: #ffffff;
   padding: 0 6px;
   font-size: 12px;
+  font-weight: 700;
   color: var(--ink);
+}
+
+.row select.good {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+  color: #115e59;
+}
+
+.row select.warn {
+  background: var(--warn-soft);
+  border-color: var(--warn-soft);
+  color: var(--warn);
+}
+
+.row select.danger {
+  background: var(--danger-soft);
+  border-color: var(--danger-soft);
+  color: var(--danger);
 }
 
 .rowArchiveButton {

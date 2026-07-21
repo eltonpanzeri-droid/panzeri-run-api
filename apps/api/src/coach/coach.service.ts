@@ -947,7 +947,7 @@ function statusFromSummary(summary: { prescribedSessions: number; eligibleSessio
   // Um plano pode existir no banco (gerado antes do pagamento cair) sem que o aluno realmente
   // consiga ve-lo no app — "Acesso liberado" so pode refletir a mesma regra usada para o aluno
   // (hasSubscriptionAccess), nunca so a existencia de sessoes prescritas.
-  if (!summary.prescribedSessions) return 'Sem plano';
+  if (!summary.prescribedSessions) return 'Sem treino';
   if (!hasSubscriptionAccess(subscriptionStatus)) return 'Bloqueado (pagamento)';
   if (!summary.eligibleSessions) return 'Aguardando primeiro treino';
   return 'Acesso liberado';
