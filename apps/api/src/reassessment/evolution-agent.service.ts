@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
+import { AiQueueService } from '../common/ai-queue.service';
 
 const EvolutionReportSchema = z.object({
   summary: z.string().min(1).max(1000),
@@ -31,26 +32,32 @@ export class EvolutionAgentService {
   private readonly logger = new Logger(EvolutionAgentService.name);
   private readonly client: Anthropic | null;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly aiQueue: AiQueueService,
+  ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     this.client = apiKey ? new Anthropic({ apiKey }) : null;
   }
 
   async analyze(input: EvolutionAgentInput): Promise<EvolutionReport | null> {
     if (!this.client) return null;
+    const client = this.client;
 
     try {
-      const response = await this.client.messages.parse({
-        model: 'claude-opus-4-8',
-        max_tokens: 3000,
-        thinking: { type: 'adaptive' },
-        output_config: {
-          effort: 'medium',
-          format: zodOutputFormat(EvolutionReportSchema),
-        },
-        system: this.buildSystemPrompt(),
-        messages: [{ role: 'user', content: JSON.stringify(input, null, 2) }],
-      });
+      const response = await this.aiQueue.run(() =>
+        client.messages.parse({
+          model: 'claude-opus-4-8',
+          max_tokens: 3000,
+          thinking: { type: 'adaptive' },
+          output_config: {
+            effort: 'medium',
+            format: zodOutputFormat(EvolutionReportSchema),
+          },
+          system: this.buildSystemPrompt(),
+          messages: [{ role: 'user', content: JSON.stringify(input, null, 2) }],
+        }),
+      );
 
       return response.parsed_output ?? null;
     } catch (error) {

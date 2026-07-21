@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
+import { AiQueueService } from '../common/ai-queue.service';
 
 const StravaAnalysisSchema = z.object({
   summary: z.string().min(1).max(800),
@@ -33,26 +34,32 @@ export class StravaAnalysisAgentService {
   private readonly logger = new Logger(StravaAnalysisAgentService.name);
   private readonly client: Anthropic | null;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly aiQueue: AiQueueService,
+  ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     this.client = apiKey ? new Anthropic({ apiKey }) : null;
   }
 
   async analyze(activities: StravaActivityForAnalysis[]): Promise<StravaAnalysisReport | null> {
     if (!this.client || activities.length < 3) return null;
+    const client = this.client;
 
     try {
-      const response = await this.client.messages.parse({
-        model: 'claude-opus-4-8',
-        max_tokens: 2000,
-        thinking: { type: 'adaptive' },
-        output_config: {
-          effort: 'medium',
-          format: zodOutputFormat(StravaAnalysisSchema),
-        },
-        system: this.buildSystemPrompt(),
-        messages: [{ role: 'user', content: this.buildUserPrompt(activities) }],
-      });
+      const response = await this.aiQueue.run(() =>
+        client.messages.parse({
+          model: 'claude-opus-4-8',
+          max_tokens: 2000,
+          thinking: { type: 'adaptive' },
+          output_config: {
+            effort: 'medium',
+            format: zodOutputFormat(StravaAnalysisSchema),
+          },
+          system: this.buildSystemPrompt(),
+          messages: [{ role: 'user', content: this.buildUserPrompt(activities) }],
+        }),
+      );
 
       return response.parsed_output ?? null;
     } catch (error) {

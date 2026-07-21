@@ -13,6 +13,7 @@ import {
   numericAnswer,
 } from './training-methodology';
 import { PANZERI_METHODOLOGY_KNOWLEDGE } from './panzeri-methodology-knowledge';
+import { AiQueueService } from '../common/ai-queue.service';
 
 const AiSessionSchema = z.object({
   weekday: z.number().int().min(0).max(6),
@@ -47,7 +48,10 @@ export class PrescriptionAgentService {
   private readonly logger = new Logger(PrescriptionAgentService.name);
   private readonly client: Anthropic | null;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly aiQueue: AiQueueService,
+  ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     this.client = apiKey ? new Anthropic({ apiKey }) : null;
   }
@@ -60,19 +64,22 @@ export class PrescriptionAgentService {
 
     const safetyAdjustment = hasSafetyConcern(input.answers);
     const novice = isNovice(input.experience, input.answers);
+    const client = this.client;
 
     try {
-      const response = await this.client.messages.parse({
-        model: 'claude-opus-4-8',
-        max_tokens: 8000,
-        thinking: { type: 'adaptive' },
-        output_config: {
-          effort: 'high',
-          format: zodOutputFormat(AiWeeklyDecisionSchema),
-        },
-        system: this.buildSystemPrompt(safetyAdjustment, novice),
-        messages: [{ role: 'user', content: this.buildUserPrompt(input, runSlots, safetyAdjustment, novice, evidence) }],
-      });
+      const response = await this.aiQueue.run(() =>
+        client.messages.parse({
+          model: 'claude-opus-4-8',
+          max_tokens: 8000,
+          thinking: { type: 'adaptive' },
+          output_config: {
+            effort: 'high',
+            format: zodOutputFormat(AiWeeklyDecisionSchema),
+          },
+          system: this.buildSystemPrompt(safetyAdjustment, novice),
+          messages: [{ role: 'user', content: this.buildUserPrompt(input, runSlots, safetyAdjustment, novice, evidence) }],
+        }),
+      );
 
       const parsed = response.parsed_output;
       if (!parsed) return null;
