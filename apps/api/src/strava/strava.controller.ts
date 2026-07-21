@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { SkipThrottle } from '@nestjs/throttler';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { StravaService } from './strava.service';
 
@@ -67,6 +68,7 @@ export class StravaController {
     return this.stravaService.report(user.sub);
   }
 
+  @SkipThrottle()
   @Get('webhook')
   verifyWebhook(
     @Query('hub.mode') mode: string,
@@ -76,6 +78,7 @@ export class StravaController {
     return this.stravaService.verifyWebhook(mode, challenge, verifyToken);
   }
 
+  @SkipThrottle()
   @Post('webhook')
   receiveWebhook(@Body() event: StravaWebhookEvent) {
     void this.stravaService.handleWebhook(event);

@@ -1,5 +1,6 @@
 ﻿import { Body, Controller, Get, Headers, Post, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { SkipThrottle } from '@nestjs/throttler';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { BillingService } from './billing.service';
 import { ApplyCouponDto } from './dto/apply-coupon.dto';
@@ -29,6 +30,7 @@ export class BillingController {
     return this.billingService.applyCoupon(user.sub, dto.code);
   }
 
+  @SkipThrottle()
   @Post('asaas/webhook')
   asaasWebhook(@Headers('asaas-access-token') accessToken: string | undefined, @Body() payload: Record<string, any>) {
     return this.billingService.processAsaasWebhook(accessToken, payload);
