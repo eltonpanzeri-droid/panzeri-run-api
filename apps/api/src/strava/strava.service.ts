@@ -73,6 +73,16 @@ export class StravaService implements OnModuleInit {
       throw new BadRequestException('Nao foi possivel identificar o aluno para esta conexao.');
     }
 
+    // O codigo de autorizacao do Strava e de uso unico e curta duracao. O celular pode
+    // reenviar esta mesma chamada de callback sem acao do aluno (Safari recarregando a aba
+    // ao voltar de segundo plano, retomada apos falta de memoria, etc.). Se a conexao deste
+    // aluno acabou de ser criada/atualizada, tratamos como sucesso em vez de tentar trocar o
+    // mesmo codigo de novo (o que o Strava sempre recusa na segunda vez).
+    const existingConnection = await this.prisma.stravaConnection.findUnique({ where: { userId: state } });
+    if (existingConnection && existingConnection.updatedAt.getTime() > Date.now() - 3 * 60_000) {
+      return 'Strava conectado ao Panzeri Run. Pode voltar ao app.';
+    }
+
     const token = await this.exchangeCode(code);
 
     await this.prisma.stravaConnection.upsert({
