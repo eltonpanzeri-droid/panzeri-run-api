@@ -16,6 +16,7 @@ import { runnerStrengthExercises } from '../training-plans/runner-strength-libra
 import { gymExerciseLibrary } from '../training-plans/gym-exercise-library';
 import { BackupService } from '../backup/backup.service';
 import { MeService } from '../me/me.service';
+import { BillingService } from '../billing/billing.service';
 
 @Injectable()
 export class CoachService {
@@ -26,7 +27,15 @@ export class CoachService {
     private readonly messaging: MessagingService,
     private readonly backup: BackupService,
     private readonly meService: MeService,
+    private readonly billing: BillingService,
   ) {}
+
+  // Gera o mesmo link de pagamento que o app do aluno geraria, para o treinador poder
+  // enviar manualmente por WhatsApp/e-mail quando o app do aluno nao consegue concluir o
+  // pagamento sozinho (ex: bloqueio de rede especifico do aparelho dele).
+  createStudentCheckoutLink(studentId: string, cpf?: string) {
+    return this.billing.createCheckout(studentId, cpf);
+  }
 
   async createStudent(dto: CreateStudentDto) {
     const email = dto.email.toLowerCase().trim();

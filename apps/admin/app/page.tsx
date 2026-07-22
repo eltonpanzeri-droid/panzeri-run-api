@@ -1026,6 +1026,7 @@ function StudentPanel({
   const [chatInput, setChatInput] = useState('');
   const [sendingChat, setSendingChat] = useState(false);
   const [directives, setDirectives] = useState<Array<{ id: string; content: string; createdAt: string }>>([]);
+  const [checkoutLinkUrl, setCheckoutLinkUrl] = useState('');
 
   useEffect(() => {
     setEditName(student?.name ?? '');
@@ -1039,6 +1040,7 @@ function StudentPanel({
     setChatMessages([]);
     setChatInput('');
     setDirectives([]);
+    setCheckoutLinkUrl('');
   }, [student?.id, student?.name, student?.email, student?.accountStatus, student?.subscriptionStatus]);
 
   useEffect(() => {
@@ -1348,6 +1350,28 @@ function StudentPanel({
     onStatus('Relatorio gerado e salvo no historico.');
     onRefresh();
   }
+  async function createCheckoutLink() {
+    if (!student) return;
+    onStatus('Gerando link de pagamento...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/billing/checkout-link`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await response.json().catch(() => ({} as { message?: string; checkoutUrl?: string }));
+      if (!response.ok || !data.checkoutUrl) {
+        onStatus(typeof data.message === 'string' ? data.message : 'Nao consegui gerar o link de pagamento.');
+        return;
+      }
+      setCheckoutLinkUrl(data.checkoutUrl);
+      await copyText(data.checkoutUrl);
+      onStatus('Link de pagamento copiado.');
+    } catch {
+      onStatus('Nao consegui gerar o link de pagamento.');
+    }
+  }
+
   async function copyAccessText() {
     if (!student) return;
     const text = `Acesso Panzeri Run\n\nLink: ${STUDENT_APP_URL}\nE-mail: ${student.email}\nSenha: informe a senha combinada com o treinador.`;
@@ -1408,6 +1432,16 @@ function StudentPanel({
             <textarea readOnly value={inviteText} />
             <button type="button" onClick={() => copyText(inviteText)}>
               Copiar convite
+            </button>
+          </div>
+        ) : null}
+        <button className="secondaryButton" type="button" onClick={createCheckoutLink}>Gerar link de pagamento</button>
+        {checkoutLinkUrl ? (
+          <div className="inviteBox compactInvite">
+            <strong>Link de pagamento (envie por WhatsApp/e-mail se o aluno nao conseguir pagar pelo app)</strong>
+            <textarea readOnly value={checkoutLinkUrl} />
+            <button type="button" onClick={() => copyText(checkoutLinkUrl)}>
+              Copiar link
             </button>
           </div>
         ) : null}
