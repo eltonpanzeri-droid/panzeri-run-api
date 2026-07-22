@@ -345,6 +345,20 @@ function openAuthPopup(): AuthPopup {
   ) ?? null;
 }
 
+// Conexoes moveis tem quedas curtas e passageiras (troca de torre, wifi instavel). Sem isso,
+// uma unica falha de rede de meio segundo em uma tela critica (pagamento, conclusao da
+// entrevista) obriga o aluno a repetir a acao manualmente. Uma tentativa extra silenciosa
+// resolve a maioria dos casos sem o aluno perceber que algo falhou.
+async function fetchWithRetry(url: string, options: RequestInit, retries = 1, retryDelayMs = 1200): Promise<Response> {
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    if (retries <= 0) throw error;
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    return fetchWithRetry(url, options, retries - 1, retryDelayMs);
+  }
+}
+
 async function extractErrorMessage(response: Response): Promise<string | null> {
   try {
     const data = (await response.json()) as { message?: string | string[] };
@@ -1469,7 +1483,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     setSaving(true);
     let response: Response;
     try {
-      response = await fetch(completeUrl, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      response = await fetchWithRetry(completeUrl, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
     } catch {
       setStatus('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
       setSaving(false);
@@ -2736,7 +2750,7 @@ function Billing({ accessToken }: { accessToken: string }) {
   async function loadBilling(showConfirmation = false) {
     if (showConfirmation) setMessage('Consultando sua assinatura...');
     try {
-      const response = await fetch(API_URL + '/billing/me', { headers: { Authorization: 'Bearer ' + accessToken } });
+      const response = await fetchWithRetry(API_URL + '/billing/me', { headers: { Authorization: 'Bearer ' + accessToken } });
       if (!response.ok) throw new Error();
       const data = await response.json();
       setDetails(data);
@@ -2758,7 +2772,7 @@ function Billing({ accessToken }: { accessToken: string }) {
     setMessage('Preparando pagamento seguro...');
     let response: Response;
     try {
-      response = await fetch(API_URL + '/billing/checkout', {
+      response = await fetchWithRetry(API_URL + '/billing/checkout', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
         body: JSON.stringify({ cpf: cpf.replace(/\D/g, '') }),
@@ -2785,7 +2799,7 @@ function Billing({ accessToken }: { accessToken: string }) {
     setMessage('Aplicando cupom...');
     let response: Response;
     try {
-      response = await fetch(API_URL + '/billing/coupon', {
+      response = await fetchWithRetry(API_URL + '/billing/coupon', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: couponCode }),
