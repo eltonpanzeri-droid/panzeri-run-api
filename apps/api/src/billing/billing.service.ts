@@ -450,7 +450,7 @@ export class BillingService {
   }
 }
 
-function normalizeCpf(value?: string) {
+export function normalizeCpf(value?: string) {
   if (!value) return null;
   const digits = value.replace(/\D/g, '');
   return digits.length === 11 ? digits : null;

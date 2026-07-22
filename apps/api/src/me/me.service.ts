@@ -7,6 +7,7 @@ import { UpdateAnamneseDto } from './dto/update-anamnese.dto';
 import { UpdateHealthDto } from './dto/update-health.dto';
 import { UpdatePreferencesDto } from './dto/update-preferences.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { normalizeCpf } from '../billing/billing.service';
 
 @Injectable()
 export class MeService {
@@ -63,9 +64,12 @@ export class MeService {
   async completeOnboarding(userId: string) {
     const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
     const answers = asAnswerObject(interview?.answers);
-    const required = ['objective', 'running_experience', 'ran_5k_recently', 'personal_name', 'personal_phone', 'personal_birth_date', 'personal_sex', 'personal_height', 'personal_weight'];
+    const required = ['objective', 'running_experience', 'ran_5k_recently', 'personal_name', 'personal_phone', 'personal_birth_date', 'personal_sex', 'personal_height', 'personal_weight', 'personal_cpf', 'personal_education'];
     const missing = required.filter((key) => answers[key] === undefined || answers[key] === '');
     if (missing.length) throw new BadRequestException('Conclua todas as perguntas obrigatorias.');
+
+    const normalizedCpf = normalizeCpf(String(answers.personal_cpf));
+    if (!normalizedCpf) throw new BadRequestException('CPF invalido. Revise o campo de CPF na entrevista.');
 
     if (answers.assessment_method === 'Dobras cutaneas (adipometro)') {
       const assessedWeight = decimalValue(answers.assessment_weight);
@@ -106,6 +110,9 @@ export class MeService {
           sex: String(answers.personal_sex),
           heightCm: decimalValue(answers.personal_height),
           weightKg: decimalValue(answers.personal_weight),
+          cpf: normalizedCpf,
+          education: String(answers.personal_education),
+          address: answers.personal_address ? String(answers.personal_address) : undefined,
         },
       });
       await tx.healthProfile.upsert({

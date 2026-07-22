@@ -322,7 +322,7 @@ export class CoachService {
     const weekStart = coachWeekStart(new Date());
     const weekEnd = addDays(weekStart, 6);
     weekEnd.setUTCHours(23, 59, 59, 999);
-    const [students, filteredCount, totalStudents, activePlanUsers, prescribedSessions, eligibleSessions, completedSessions, differentSessions] = await Promise.all([
+    const [students, filteredCount, totalStudents, activePlanUsers, prescribedSessions, eligibleSessions, completedSessions, differentSessions, paymentConfirmed, paymentOverdue, paymentPending, plansCreatedThisWeekUsers] = await Promise.all([
       this.prisma.user.findMany({
       where: studentWhere,
       orderBy: { createdAt: 'desc' },
@@ -350,6 +350,10 @@ export class CoachService {
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } }),
       this.prisma.workoutCompletion.count({ where: { status: { in: ['done', 'adjusted'] }, session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } } }),
       this.prisma.workoutCompletion.count({ where: { status: 'adjusted', session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } } }),
+      this.prisma.user.count({ where: { ...studentWhere, subscriptionStatus: { in: ['active', 'manual_active', 'grace'] } } }),
+      this.prisma.user.count({ where: { ...studentWhere, subscriptionStatus: 'overdue' } }),
+      this.prisma.user.count({ where: { ...studentWhere, subscriptionStatus: 'pending' } }),
+      this.prisma.trainingPlan.findMany({ where: { status: 'active', createdAt: { gte: weekStart } }, distinct: ['userId'], select: { userId: true } }),
     ]);
 
     const stravaConnections = await this.prisma.stravaConnection.findMany({
@@ -394,6 +398,10 @@ export class CoachService {
         completedSessions,
         differentSessions,
         adherencePercent: eligibleSessions ? Math.round((completedSessions / eligibleSessions) * 100) : 0,
+        paymentConfirmed,
+        paymentOverdue,
+        paymentPending,
+        plansCreatedThisWeek: plansCreatedThisWeekUsers.length,
       },
       students: rows,
       pagination: {

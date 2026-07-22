@@ -209,7 +209,7 @@ interface InterviewQuestion {
   key: string;
   module: string;
   prompt: string;
-  type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'duration_mmss' | 'date' | 'notice';
+  type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'duration_mmss' | 'date' | 'cpf' | 'notice';
   options?: InterviewOption[];
   optional?: boolean;
   help?: string;
@@ -559,6 +559,9 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'personal_sex', module: 'Dados pessoais', prompt: 'Como voce prefere informar seu sexo?', type: 'single', options: [option('Feminino'), option('Masculino'), option('Prefiro nao informar')] },
   { key: 'personal_height', module: 'Dados pessoais', prompt: 'Qual e sua altura em centimetros?', type: 'number' },
   { key: 'personal_weight', module: 'Dados pessoais', prompt: 'Qual e seu peso atual em quilogramas? Use virgula para decimais. Exemplo: 82,5.', type: 'number' },
+  { key: 'personal_cpf', module: 'Dados pessoais', prompt: 'Qual e o seu CPF?', type: 'cpf', help: 'Usamos para gerar a cobranca da assinatura com seguranca.' },
+  { key: 'personal_education', module: 'Dados pessoais', prompt: 'Qual e a sua escolaridade?', type: 'single', options: ['Fundamental incompleto', 'Fundamental completo', 'Medio incompleto', 'Medio completo', 'Superior incompleto', 'Superior completo', 'Pos-graduacao'].map((v) => option(v)) },
+  { key: 'personal_address', module: 'Dados pessoais', prompt: 'Qual e o seu endereco completo?', type: 'text', optional: true, help: 'Rua, numero, bairro, cidade e estado.' },
   { key: 'additional_info', module: 'Informacoes adicionais', prompt: 'Escreva no campo abaixo todas as informacoes sobre voce que acredite ser relevante sabermos e que ainda nao perguntamos nessa entrevista.', type: 'text', optional: true },
 ];
 
@@ -1472,12 +1475,13 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     if (Array.isArray(value)) return value.length > 0;
     if (question.type === 'duration_mmss') return /^\d{1,3}:\d{1,2}$/.test(String(value ?? ''));
     if (question.type === 'date') return dateInputValueToIso(String(value ?? '')) !== null;
+    if (question.type === 'cpf') return String(value ?? '').replace(/\D/g, '').length === 11;
     return value !== undefined && value !== null && String(value).trim() !== '';
   }
 
   async function next() {
     if (!question || !hasAnswer()) {
-      setStatus(question?.type === 'date' ? 'Digite uma data valida no formato dia/mes/ano. Exemplo: 19/06/1984.' : 'Responda para continuar.');
+      setStatus(question?.type === 'date' ? 'Digite uma data valida no formato dia/mes/ano. Exemplo: 19/06/1984.' : question?.type === 'cpf' ? 'Digite um CPF valido com 11 numeros.' : 'Responda para continuar.');
       return;
     }
     if (!(await persist(question.key, question.type === 'notice' ? true : value ?? '', step + 1))) return;
@@ -1564,6 +1568,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       {question?.type === 'multi' ? <View style={styles.answerList}>{question.options?.map((item) => { const selected = Array.isArray(value) && value.includes(item.value); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive]} onPress={() => choose(selected ? (value as string[]).filter((entry) => entry !== item.value) : [...(Array.isArray(value) ? value : []), item.value])}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
       {(question?.type === 'text' || question?.type === 'number' || question?.type === 'number_or_unknown') ? <TextInput style={styles.input} value={value === 'unknown' || value === 'automatic' ? '' : String(value ?? '')} keyboardType={question.type === 'text' ? 'default' : 'decimal-pad'} placeholder={question.optional ? 'Opcional' : 'Digite sua resposta'} onChangeText={(text) => setAnswers({ ...answers, [question.key]: text })} /> : null}
       {question?.type === 'date' ? <TextInput style={styles.input} value={String(value ?? '')} keyboardType="number-pad" maxLength={10} placeholder="dd/mm/aaaa" onChangeText={(text) => setAnswers({ ...answers, [question.key]: formatDateInputText(text) })} /> : null}
+      {question?.type === 'cpf' ? <TextInput style={styles.input} value={String(value ?? '')} keyboardType="number-pad" maxLength={14} placeholder="Somente numeros" onChangeText={(text) => setAnswers({ ...answers, [question.key]: formatCpfInputText(text) })} /> : null}
       {(question?.type === 'number' || question?.type === 'number_or_unknown') ? <Pressable style={styles.decimalButton} onPress={() => { const current = String(value === 'unknown' || value === 'automatic' ? '' : value ?? ''); if (!current.includes(',') && !current.includes('.')) setAnswers({ ...answers, [question.key]: `${current},` }); }}><Text style={styles.decimalButtonText}>Inserir virgula</Text></Pressable> : null}
       {question?.type === 'duration_mmss' ? (() => {
         const raw = typeof value === 'string' ? value : '';
@@ -3597,6 +3602,14 @@ function isDetailedPlan(plan: WeekPlan) {
   return plan.sessions.every(
     (session) => session.structure?.type === 'run' || session.structure?.type === 'strength' || session.structure?.type === 'aerobic',
   );
+}
+
+function formatCpfInputText(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
 }
 
 function formatDateInputText(value: string) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, AlertTriangle, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Gauge, LayoutDashboard, LogIn, Menu, RefreshCw, Save, Search, Ticket, Trash2, UserRound, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Gauge, LayoutDashboard, LogIn, Menu, RefreshCw, Save, Search, Ticket, Trash2, UserRound, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -15,6 +15,10 @@ interface DashboardResponse {
     completedSessions: number;
     differentSessions: number;
     adherencePercent: number;
+    paymentConfirmed: number;
+    paymentOverdue: number;
+    paymentPending: number;
+    plansCreatedThisWeek: number;
   };
   students: StudentRow[];
   pagination: {
@@ -245,6 +249,9 @@ export default function AdminHome() {
   const [studentDetail, setStudentDetail] = useState<StudentDetail | null>(null);
   const [query, setQuery] = useState('');
   const [showArchived, setShowArchived] = useState(false);
+  const [trainingFilter, setTrainingFilter] = useState('all');
+  const [paymentFilter, setPaymentFilter] = useState('all');
+  const [studentListCollapsed, setStudentListCollapsed] = useState(false);
   const [status, setStatus] = useState('');
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [newStudentName, setNewStudentName] = useState('');
@@ -488,6 +495,15 @@ export default function AdminHome() {
     }
   }
 
+  async function goToStudent(studentId: string) {
+    await loadStudent(studentId);
+    document.getElementById('student-detail-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
   async function createStudent() {
     if (!newStudentName.trim() || !newStudentEmail.trim()) {
       setStatus('Preencha nome e e-mail do aluno.');
@@ -643,6 +659,18 @@ export default function AdminHome() {
     );
   }
 
+  const paymentGroupOf = (subscriptionStatus?: string) => {
+    if (subscriptionStatus === 'active' || subscriptionStatus === 'manual_active' || subscriptionStatus === 'grace') return 'confirmed';
+    if (subscriptionStatus === 'overdue') return 'overdue';
+    if (subscriptionStatus === 'canceled') return 'canceled';
+    return 'pending';
+  };
+  const filteredStudents = (dashboard?.students ?? []).filter((student) => {
+    const trainingOk = trainingFilter === 'all' || student.status === trainingFilter;
+    const paymentOk = paymentFilter === 'all' || paymentGroupOf(student.subscriptionStatus) === paymentFilter;
+    return trainingOk && paymentOk;
+  });
+
   return (
     <main className="shell">
       <section className="content">
@@ -740,6 +768,10 @@ export default function AdminHome() {
           <Stat label="Treinos propostos" value={String(dashboard?.totals.prescribedSessions ?? 0)} detail="semana atual" />
           <Stat label="Treinos feitos" value={String(dashboard?.totals.completedSessions ?? 0)} detail={`${dashboard?.totals.differentSessions ?? 0} diferentes`} />
           <Stat label="Aderencia media" value={`${dashboard?.totals.adherencePercent ?? 0}%`} detail="treinos propostos" />
+          <Stat label="Pagamento em dia" value={String(dashboard?.totals.paymentConfirmed ?? 0)} detail="alunos" />
+          <Stat label="Pagamento atrasado" value={String(dashboard?.totals.paymentOverdue ?? 0)} detail="alunos" />
+          <Stat label="Pagamento pendente" value={String(dashboard?.totals.paymentPending ?? 0)} detail="alunos" />
+          <Stat label="Treinos criados" value={String(dashboard?.totals.plansCreatedThisWeek ?? 0)} detail="nesta semana" />
         </section> : null}
 
         {activeView === 'dashboard' ? (
@@ -759,6 +791,29 @@ export default function AdminHome() {
                 <p className="eyebrow">Alunos</p>
                 <h2>Lista operacional</h2>
               </div>
+              <button className="secondaryButton" type="button" onClick={() => setStudentListCollapsed((collapsed) => !collapsed)}>
+                {studentListCollapsed ? `Mostrar lista (${filteredStudents.length})` : 'Recolher lista'}
+              </button>
+            </div>
+            <div className="studentFilters">
+              <label>Treino
+                <select value={trainingFilter} onChange={(event) => setTrainingFilter(event.target.value)}>
+                  <option value="all">Todos</option>
+                  <option value="Sem treino">Sem treino criado</option>
+                  <option value="Bloqueado (pagamento)">Bloqueado (pagamento)</option>
+                  <option value="Aguardando primeiro treino">Aguardando primeiro treino</option>
+                  <option value="Acesso liberado">Acesso liberado</option>
+                </select>
+              </label>
+              <label>Pagamento
+                <select value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)}>
+                  <option value="all">Todos</option>
+                  <option value="confirmed">Confirmado</option>
+                  <option value="pending">Pendente</option>
+                  <option value="overdue">Atrasado</option>
+                  <option value="canceled">Cancelado</option>
+                </select>
+              </label>
             </div>
             <div className="createStudent">
               <input value={newStudentName} onChange={(event) => setNewStudentName(event.target.value)} placeholder="Nome do aluno" />
@@ -780,6 +835,7 @@ export default function AdminHome() {
                 </button>
               </div>
             ) : null}
+            {studentListCollapsed ? null : (
             <div className="table">
               <div className="row header">
                 <span>Aluno</span>
@@ -791,8 +847,8 @@ export default function AdminHome() {
                 <span>Assinatura</span>
                 <span></span>
               </div>
-              {dashboard?.students.map((student) => (
-                <div className={`row rowButton ${selectedStudentId === student.id ? 'selected' : ''}`} key={student.id} onClick={() => loadStudent(student.id)}>
+              {filteredStudents.map((student) => (
+                <div className={`row rowButton ${selectedStudentId === student.id ? 'selected' : ''}`} key={student.id} onClick={() => goToStudent(student.id)}>
                   <span>
                     <strong>{student.name}</strong>
                     <small>{student.email}</small>
@@ -838,17 +894,26 @@ export default function AdminHome() {
                 </div>
               ))}
             </div>
+            )}
             <Pagination pagination={dashboard?.pagination} onPageChange={setPage} />
           </div>
 
-          <StudentPanel
-            student={studentDetail}
-            token={token}
-            onStatus={setStatus}
-            onRefresh={() => {
-              loadDashboard();
-            }}
-          />
+          <div id="student-detail-anchor">
+            {studentDetail ? (
+              <button className="secondaryButton backToTopButton" type="button" onClick={scrollToTop}>
+                <ArrowUp size={16} />
+                Voltar ao topo
+              </button>
+            ) : null}
+            <StudentPanel
+              student={studentDetail}
+              token={token}
+              onStatus={setStatus}
+              onRefresh={() => {
+                loadDashboard();
+              }}
+            />
+          </div>
         </section> : null}
 
         {activeView === 'weeks' ? (
@@ -2474,6 +2539,7 @@ function RoutineAvailabilityTable({ answers }: { answers: Record<string, unknown
     { label: 'Fortalecimento/Musculacao', suffix: 'strength_time' },
   ];
   return (
+    <div className="routineTableWrap">
     <table className="routineTable">
       <thead>
         <tr>
@@ -2500,6 +2566,7 @@ function RoutineAvailabilityTable({ answers }: { answers: Record<string, unknown
         </tr>
       </tbody>
     </table>
+    </div>
   );
 }
 
@@ -2543,6 +2610,7 @@ function interviewLabel(key: string) {
     continuous_medications: 'Medicamentos continuos', medical_recommendation: 'Recomendacao medica', recent_physical_assessment: 'Avaliacao nos ultimos 6 meses', assessment_method: 'Metodo da avaliacao',
     sleep_hours: 'Horas de sono', smoking: 'Tabagismo', alcohol_frequency: 'Consumo de alcool', work_routine: 'Rotina de trabalho', daily_steps: 'Passos diarios',
     personal_name: 'Nome completo', personal_phone: 'WhatsApp', personal_birth_date: 'Data de nascimento', personal_sex: 'Sexo', personal_height: 'Altura', personal_weight: 'Peso',
+    personal_cpf: 'CPF', personal_education: 'Escolaridade', personal_address: 'Endereco completo',
     additional_info: 'Informacoes adicionais do aluno',
   };
   if (labels[key]) return labels[key];

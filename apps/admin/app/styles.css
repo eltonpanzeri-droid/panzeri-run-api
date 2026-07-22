@@ -415,6 +415,37 @@ h3 {
   justify-content: flex-end;
 }
 
+.studentFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.studentFilters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.studentFilters select {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 13px;
+  min-width: 200px;
+}
+
+.backToTopButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
 .createStudent {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1021,18 +1052,24 @@ h3 {
   line-height: 1.35;
 }
 
+.routineTableWrap {
+  overflow-x: auto;
+  margin-top: 8px;
+}
+
 .routineTable {
   width: 100%;
+  min-width: 720px;
   border-collapse: collapse;
-  font-size: 12px;
-  margin-top: 8px;
+  font-size: 14px;
 }
 
 .routineTable th,
 .routineTable td {
   border: 1px solid var(--line);
-  padding: 6px 8px;
+  padding: 10px 14px;
   text-align: center;
+  white-space: nowrap;
 }
 
 .routineTable th:first-child,

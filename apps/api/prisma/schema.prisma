@@ -19,6 +19,7 @@ model User {
   heightCm     Int?
   weightKg     Float?
   address      String?
+  education    String?
   role         String              @default("student")
   accountStatus String             @default("active")
   subscriptionStatus String        @default("pending")
