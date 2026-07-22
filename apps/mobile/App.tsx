@@ -6,6 +6,7 @@ import {
   Alert,
   Animated,
   PanResponder,
+  Platform,
   Pressable,
   SafeAreaView,
   Linking,
@@ -323,7 +324,13 @@ interface AppNotification {
   read: boolean;
 }
 
-const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
+// Na web, chamamos pelo mesmo dominio do app (repassado pelo nginx em /api) em vez do
+// subdominio separado "-api.". Alguns bloqueadores de anuncio/DNS tratam qualquer host
+// contendo "api" como rastreador e derrubam a chamada antes dela sair do aparelho, mesmo
+// com internet normal — isso nunca aparecia nos logs do backend porque a chamada nunca
+// chegava la. Numa build nativa futura (sem dominio proprio para repassar) mantemos a URL
+// absoluta.
+const API_URL = Platform.OS === 'web' ? '/api' : 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
 const AUTH_SESSION_KEY = 'panzeri-run-auth-session';
 const DISMISSED_NOTIFICATIONS_KEY = 'panzeri-run-dismissed-notifications';
 
