@@ -1027,6 +1027,7 @@ function StudentPanel({
   const [sendingChat, setSendingChat] = useState(false);
   const [directives, setDirectives] = useState<Array<{ id: string; content: string; createdAt: string }>>([]);
   const [checkoutLinkUrl, setCheckoutLinkUrl] = useState('');
+  const [checkoutCpf, setCheckoutCpf] = useState('');
 
   useEffect(() => {
     setEditName(student?.name ?? '');
@@ -1041,6 +1042,7 @@ function StudentPanel({
     setChatInput('');
     setDirectives([]);
     setCheckoutLinkUrl('');
+    setCheckoutCpf('');
   }, [student?.id, student?.name, student?.email, student?.accountStatus, student?.subscriptionStatus]);
 
   useEffect(() => {
@@ -1357,7 +1359,7 @@ function StudentPanel({
       const response = await fetch(`${API_URL}/coach/students/${student.id}/billing/checkout-link`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ cpf: checkoutCpf.replace(/\D/g, '') || undefined }),
       });
       const data = await response.json().catch(() => ({} as { message?: string; checkoutUrl?: string }));
       if (!response.ok || !data.checkoutUrl) {
@@ -1435,6 +1437,11 @@ function StudentPanel({
             </button>
           </div>
         ) : null}
+        <input
+          value={checkoutCpf}
+          onChange={(event) => setCheckoutCpf(event.target.value)}
+          placeholder="CPF do aluno (so numeros, se ainda nao tiver salvo)"
+        />
         <button className="secondaryButton" type="button" onClick={createCheckoutLink}>Gerar link de pagamento</button>
         {checkoutLinkUrl ? (
           <div className="inviteBox compactInvite">
