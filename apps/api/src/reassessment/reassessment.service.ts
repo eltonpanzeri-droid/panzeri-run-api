@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EvolutionAgentService } from './evolution-agent.service';
+import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
 
 export const REASSESSMENT_DUE_AFTER_DAYS = 90;
 
@@ -73,7 +74,7 @@ export class ReassessmentService {
     const report = await this.evolutionAgent.analyze({
       studentName: user.name,
       goal: user.preferences?.mainGoal ?? '',
-      firstInterviewAnswers: asAnswerObject(onboarding?.answers),
+      firstInterviewAnswers: sanitizeInterviewAnswers(asAnswerObject(onboarding?.answers)),
       latestReassessmentAnswers: asAnswerObject(completed.answers),
       previousReassessments: previousReassessments.map((item) => ({
         completedAt: item.completedAt?.toISOString() ?? null,

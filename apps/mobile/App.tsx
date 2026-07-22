@@ -104,6 +104,7 @@ interface WeekPlanSession {
   notes?: string;
   completion?: {
     status: CompletionDraft['status'];
+    completedAt?: string | null;
     durationMin?: number | null;
     distanceKm?: number | null;
     avgPaceSecondsKm?: number | null;
@@ -216,6 +217,7 @@ interface InterviewQuestion {
 
 interface CompletionDraft {
   status: 'done' | 'missed' | 'adjusted';
+  completedDate: string;
   perceivedEffort: string;
   satisfaction: string;
   durationMin: string;
@@ -424,10 +426,11 @@ const interviewQuestions: InterviewQuestion[] = [
     option('Melhorar meu tempo nos 10 km'), option('Completar 21 km'), option('Melhorar meu tempo nos 21 km'),
     option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'),
   ] },
-  { key: 'running_experience', module: 'Experiencia com corrida', prompt: 'Qual opcao melhor descreve sua experiencia com corrida?', type: 'single', options: [
+  { key: 'running_experience', module: 'Experiencia com corrida', prompt: 'Qual opcao melhor descreve sua experiencia com corrida?', type: 'single', help: 'Preste atencao no tempo verbal: "corria" = voce parou; "corro" = voce ainda esta correndo hoje.', options: [
     option('Nunca corri regularmente.'), option('Ja tentei correr algumas vezes, mas nunca mantive uma rotina.'),
-    option('Corri regularmente no passado, mas parei ha mais de 2 anos.'), option('Corri regularmente e parei entre 6 meses e 2 anos.'),
-    option('Corri regularmente ate os ultimos 6 meses.'), option('Corro regularmente ha menos de 2 anos.'), option('Corro regularmente ha mais de 2 anos.'),
+    option('Corria regularmente antes, mas parei ha mais de 2 anos.'), option('Corria regularmente antes, mas parei entre 6 meses e 2 anos atras.'),
+    option('Corria regularmente antes, mas parei ha menos de 6 meses.'), option('Corro regularmente hoje, comecei ha menos de 6 meses.'),
+    option('Corro regularmente hoje, entre 6 meses e 2 anos.'), option('Corro regularmente hoje, ha mais de 2 anos.'),
   ] },
   { key: 'longest_distance', module: 'Experiencia com corrida', prompt: 'Qual a maior distancia que voce ja correu sem precisar parar ou caminhar, somente correndo, em km?', type: 'number', optional: true, help: 'Nao vale treino com corrida alternada com caminhada. Digite o numero exato em km (pode usar virgula para casas decimais). Deixe em branco se nunca conseguiu correr continuamente.' },
   { key: 'best_comfortable_pace', module: 'Experiencia com corrida', prompt: 'Na epoca em que voce corria melhor, aproximadamente qual era seu pace confortavel?', type: 'single', options: ['Nunca corri regularmente.', 'Acima de 7:00/km', 'Entre 6:00 e 7:00/km', 'Entre 5:30 e 6:00/km', 'Entre 5:00 e 5:30/km', 'Entre 4:30 e 5:00/km', 'Entre 4:00 e 4:30/km', 'Abaixo de 4:00/km', 'Nao lembro.'].map((v) => option(v)) },
@@ -1672,6 +1675,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     const body = {
       sessionId: session.id,
       status: draft.status,
+      completedAt: dateInputValueToIso(draft.completedDate) ?? undefined,
       perceivedEffort: Number(draft.perceivedEffort) || undefined,
       satisfaction: draft.satisfaction || undefined,
       durationMin: Number(draft.durationMin) || undefined,
@@ -3097,30 +3101,51 @@ function CompletionForm({
         ))}
       </View>
 
+      <View style={styles.completionFieldGroup}>
+        <Text style={styles.inputLabel}>Data realizada</Text>
+        <TextInput
+          style={styles.compactInput}
+          value={draft.completedDate}
+          onChangeText={(value) => onChange({ completedDate: formatDateInputText(value) })}
+          keyboardType="numeric"
+          placeholder="DD/MM/AAAA"
+          maxLength={10}
+        />
+      </View>
+
       {(isRun || isAerobic) && (
         <View style={styles.completionGrid}>
-          <TextInput
-            style={styles.compactInput}
-            value={draft.durationMin}
-            onChangeText={(value) => onChange({ durationMin: value.replace(/[^0-9]/g, '') })}
-            keyboardType="numeric"
-            placeholder="Tempo min"
-          />
+          <View style={styles.completionFieldGroup}>
+            <Text style={styles.inputLabel}>Tempo (min)</Text>
+            <TextInput
+              style={styles.compactInput}
+              value={draft.durationMin}
+              onChangeText={(value) => onChange({ durationMin: value.replace(/[^0-9]/g, '') })}
+              keyboardType="numeric"
+              placeholder="Ex: 45"
+            />
+          </View>
           {isRun ? (
             <>
-              <TextInput
-                style={styles.compactInput}
-                value={draft.distanceKm}
-                onChangeText={(value) => onChange({ distanceKm: value.replace(/[^0-9,.]/g, '') })}
-                keyboardType="numeric"
-                placeholder="Km"
-              />
-              <TextInput
-                style={styles.compactInput}
-                value={draft.avgPace}
-                onChangeText={(value) => onChange({ avgPace: value })}
-                placeholder="Pace mm:ss"
-              />
+              <View style={styles.completionFieldGroup}>
+                <Text style={styles.inputLabel}>Distancia (km)</Text>
+                <TextInput
+                  style={styles.compactInput}
+                  value={draft.distanceKm}
+                  onChangeText={(value) => onChange({ distanceKm: value.replace(/[^0-9,.]/g, '') })}
+                  keyboardType="numeric"
+                  placeholder="Ex: 5,4"
+                />
+              </View>
+              <View style={styles.completionFieldGroup}>
+                <Text style={styles.inputLabel}>Pace medio</Text>
+                <TextInput
+                  style={styles.compactInput}
+                  value={draft.avgPace}
+                  onChangeText={(value) => onChange({ avgPace: value })}
+                  placeholder="mm:ss"
+                />
+              </View>
             </>
           ) : null}
         </View>
@@ -3459,9 +3484,39 @@ function isDetailedPlan(plan: WeekPlan) {
   );
 }
 
+function formatDateInputText(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+function todayDateInputValue() {
+  const now = new Date();
+  return `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+}
+
+function isoDateToInputValue(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return todayDateInputValue();
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+}
+
+function dateInputValueToIso(value: string): string | null {
+  const match = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return date.toISOString();
+}
+
 function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
   return {
     status: 'done',
+    completedDate: todayDateInputValue(),
     perceivedEffort: '',
     satisfaction: '',
     durationMin: session.durationMin ? String(session.durationMin) : '',
@@ -3477,6 +3532,7 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
   if (!completion) return defaultCompletionDraft(session);
   return {
     status: completion.status,
+    completedDate: completion.completedAt ? isoDateToInputValue(completion.completedAt) : todayDateInputValue(),
     perceivedEffort: completion.perceivedEffort ? String(completion.perceivedEffort) : '',
     satisfaction: completion.satisfaction ?? '',
     durationMin: completion.durationMin ? String(completion.durationMin) : '',
@@ -4637,6 +4693,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  completionFieldGroup: {
+    flex: 1,
+    minWidth: 90,
+    gap: 4,
+    marginBottom: 8,
   },
   compactInput: {
     minHeight: 42,

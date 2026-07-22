@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class UpsertWorkoutCompletionDto {
   @IsString()
@@ -6,6 +6,10 @@ export class UpsertWorkoutCompletionDto {
 
   @IsIn(['done', 'missed', 'adjusted'])
   status!: string;
+
+  @IsOptional()
+  @IsDateString()
+  completedAt?: string;
 
   @IsOptional()
   @IsInt()

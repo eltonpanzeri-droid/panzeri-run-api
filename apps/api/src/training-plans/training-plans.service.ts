@@ -9,6 +9,7 @@ import {
   MethodologyInput,
   PANZERI_METHODOLOGY_VERSION,
   PANZERI_PRESCRIPTION_PRINCIPLES,
+  sanitizeInterviewAnswers,
 } from './training-methodology';
 import { PrescriptionAgentService, PaceEvidence } from './prescription-agent.service';
 import { StravaAnalysisAgentService } from './strava-analysis-agent.service';
@@ -152,7 +153,7 @@ export class TrainingPlansService {
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan();
 
-    const answers = jsonObject(onboarding.answers);
+    const answers = sanitizeInterviewAnswers(jsonObject(onboarding.answers));
     const paceFallback = estimatePaceFromAnswers(answers);
     const effectivePaceSecondsPerKm = latestTest?.paceSecondsPerKm ?? paceFallback?.paceSecondsPerKm ?? DEFAULT_PACE_SECONDS_PER_KM;
     const paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default' = latestTest ? 'test' : paceFallback?.source ?? 'default';
@@ -191,7 +192,7 @@ export class TrainingPlansService {
     const methodologyInput: MethodologyInput = {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
       experience: user.preferences?.experienceLevel ?? '',
-      answers: jsonObject(onboarding.answers),
+      answers,
       availability: availableDays.map((day) => ({
         weekday: day.weekday,
         modalities: day.modalities,
@@ -428,7 +429,7 @@ export class TrainingPlansService {
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } }),
     ]);
 
-    const answers = jsonObject(onboarding?.answers);
+    const answers = sanitizeInterviewAnswers(jsonObject(onboarding?.answers));
     const safetyAdjustment = hasSafetyConcern(answers);
     const paceFallback = estimatePaceFromAnswers(answers);
     const effectivePaceSecondsPerKm = latestTest?.paceSecondsPerKm ?? paceFallback?.paceSecondsPerKm ?? DEFAULT_PACE_SECONDS_PER_KM;
@@ -791,10 +792,12 @@ export class TrainingPlansService {
       notes: string | null;
       completion?: {
         status: string;
+        completedAt: Date;
         durationMin: number | null;
         distanceKm: number | null;
         avgPaceSecondsKm: number | null;
         perceivedEffort: number | null;
+        satisfaction: string | null;
         notes: string | null;
         details: unknown;
       } | null;
@@ -841,10 +844,12 @@ export class TrainingPlansService {
         completion: session.completion
           ? {
               status: session.completion.status,
+              completedAt: session.completion.completedAt,
               durationMin: session.completion.durationMin,
               distanceKm: session.completion.distanceKm,
               avgPaceSecondsKm: session.completion.avgPaceSecondsKm,
               perceivedEffort: session.completion.perceivedEffort,
+              satisfaction: session.completion.satisfaction,
               notes: session.completion.notes,
               details: session.completion.details,
             }

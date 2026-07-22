@@ -1,5 +1,22 @@
 export const PANZERI_METHODOLOGY_VERSION = 'panzeri-methodology-v1';
 
+// Perguntas de entrevista que ja foram removidas/substituidas ao longo do tempo. Alunos que
+// responderam a versao antiga da entrevista mantem essas chaves para sempre no JSON de
+// respostas salvas (nunca sao apagadas). Sem este filtro, esse dado morto e contraditorio
+// (ex: "current_continuous_run: Ate 5 minutos" de anos atras, de uma aluna que corre bem hoje)
+// vaza sem filtro para dentro do contexto dos agentes de IA e gera conclusoes erradas.
+// Sempre que uma pergunta for removida ou renomeada de verdade (nao so reformulada), adicione a
+// chave antiga aqui.
+const OBSOLETE_INTERVIEW_KEYS = new Set(['current_continuous_run']);
+
+export function sanitizeInterviewAnswers(answers: Record<string, unknown>): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(answers)) {
+    if (!OBSOLETE_INTERVIEW_KEYS.has(key)) sanitized[key] = value;
+  }
+  return sanitized;
+}
+
 export const PANZERI_PRESCRIPTION_PRINCIPLES = [
   'Individualizar acima de qualquer modelo fixo: objetivo, experiencia, condicionamento, rotina, dores, idade, teste e evolucao.',
   'Usar distribuicao polarizada como referencia flexivel, buscando aproximadamente 80% do volume em baixa intensidade.',

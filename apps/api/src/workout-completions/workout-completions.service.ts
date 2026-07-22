@@ -29,12 +29,14 @@ export class WorkoutCompletionsService {
     }
 
     const previous = await this.prisma.workoutCompletion.findUnique({ where: { sessionId: dto.sessionId } });
+    const completedAt = dto.completedAt ? new Date(dto.completedAt) : undefined;
     const completion = await this.prisma.workoutCompletion.upsert({
       where: { sessionId: dto.sessionId },
       create: {
         userId,
         sessionId: dto.sessionId,
         status: dto.status,
+        completedAt,
         durationMin: dto.durationMin,
         distanceKm: dto.distanceKm,
         avgPaceSecondsKm: dto.avgPaceSecondsKm,
@@ -48,6 +50,7 @@ export class WorkoutCompletionsService {
       },
       update: {
         status: dto.status,
+        completedAt,
         durationMin: dto.durationMin,
         distanceKm: dto.distanceKm,
         avgPaceSecondsKm: dto.avgPaceSecondsKm,

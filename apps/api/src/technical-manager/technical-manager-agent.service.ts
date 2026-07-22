@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { StravaService } from '../strava/strava.service';
 import { AiQueueService } from '../common/ai-queue.service';
+import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
 
 const MAX_TOOL_ITERATIONS = 6;
 const HISTORY_LIMIT = 40;
@@ -200,7 +201,7 @@ export class TechnicalManagerAgentService {
         estresse: user.healthProfile.stressLevel,
         lesoesAnteriores: user.healthProfile.previousInjuries,
       } : null,
-      respostasEntrevista: onboarding?.answers ?? null,
+      respostasEntrevista: onboarding?.answers ? sanitizeInterviewAnswers(onboarding.answers as Record<string, unknown>) : null,
       historicoTestes3km: tests.map((test) => ({
         data: test.createdAt.toISOString().slice(0, 10),
         paceSegundosPorKm: test.paceSecondsPerKm,
