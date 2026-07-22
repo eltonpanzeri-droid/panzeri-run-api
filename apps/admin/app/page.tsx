@@ -2458,7 +2458,7 @@ function interviewGroup(key: string) {
   if (key.startsWith('assessment_') || key.includes('circumference') || ['muscle_mass', 'lean_mass', 'fat_mass', 'visceral_fat', 'basal_metabolism', 'body_fat_percentage', 'recent_physical_assessment'].includes(key)) return 'Avaliacao fisica recente';
   if (key.startsWith('personal_')) return 'Dados pessoais';
   if (key.startsWith('pain_detail_')) return 'Saude';
-  if (['current_pain', 'pain_regions', 'pain_other_location', 'important_injury', 'injury_description', 'health_conditions', 'continuous_medications', 'medical_recommendation', 'diagnosed_running_conditions', 'diagnosed_running_conditions_other'].includes(key)) return 'Saude';
+  if (['current_pain', 'pain_regions', 'pain_region', 'pain_other_location', 'important_injury', 'injury_description', 'health_conditions', 'continuous_medications', 'medical_recommendation', 'diagnosed_running_conditions', 'diagnosed_running_conditions_other'].includes(key)) return 'Saude';
   if (['sleep_hours', 'smoking', 'alcohol_frequency', 'work_routine', 'daily_steps'].includes(key)) return 'Habitos';
   if (['strength_experience', 'training_consistency', 'pushups', 'squat_experience', 'perceived_strength'].includes(key)) return 'Treinamento de forca';
   return 'Experiencia com corrida';
@@ -2473,7 +2473,7 @@ function interviewLabel(key: string) {
     third_longest_distance_recent: 'Terceira maior distancia', third_longest_distance_recent_count: 'Vezes na terceira maior distancia',
     longest_distance_recent_time: 'Tempo na maior distancia', recent_running_feeling: 'Sensacao nessas corridas', fitness_self_rating: 'Condicionamento auto-avaliado',
     strength_experience: 'Experiencia com musculacao', training_consistency: 'Frequencia nos treinos', pushups: 'Flexoes continuas', squat_experience: 'Experiencia com agachamento', perceived_strength: 'Forca percebida',
-    current_pain: 'Dor atual', pain_regions: 'Regioes da dor', pain_detail_knee: 'Detalhe - joelho', pain_detail_ankle: 'Detalhe - tornozelo',
+    current_pain: 'Dor atual', pain_regions: 'Regioes da dor', pain_region: 'Regiao da dor (entrevista antiga)', pain_detail_knee: 'Detalhe - joelho', pain_detail_ankle: 'Detalhe - tornozelo',
     pain_detail_foot: 'Detalhe - pe', pain_detail_shin: 'Detalhe - canela', pain_detail_calf: 'Detalhe - panturrilha', pain_detail_thigh: 'Detalhe - coxa',
     pain_detail_hip: 'Detalhe - quadril', pain_detail_glute: 'Detalhe - gluteo', pain_detail_lower_back: 'Detalhe - lombar', pain_other_location: 'Outro local de dor',
     diagnosed_running_conditions: 'Diagnosticos ja recebidos', diagnosed_running_conditions_other: 'Outro diagnostico',

@@ -7,13 +7,26 @@ export const PANZERI_METHODOLOGY_VERSION = 'panzeri-methodology-v1';
 // vaza sem filtro para dentro do contexto dos agentes de IA e gera conclusoes erradas.
 // Sempre que uma pergunta for removida ou renomeada de verdade (nao so reformulada), adicione a
 // chave antiga aqui.
-const OBSOLETE_INTERVIEW_KEYS = new Set(['current_continuous_run']);
+const OBSOLETE_INTERVIEW_KEYS = new Set(['current_continuous_run', 'pain_region']);
 
 export function sanitizeInterviewAnswers(answers: Record<string, unknown>): Record<string, unknown> {
   const sanitized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(answers)) {
     if (!OBSOLETE_INTERVIEW_KEYS.has(key)) sanitized[key] = value;
   }
+
+  // 'pain_region' (texto livre) foi substituido por 'pain_regions' (multipla escolha
+  // hierarquica) nesta versao da entrevista. Alunos que responderam antes dessa mudanca e
+  // ainda nao refizeram a entrevista tem apenas o campo antigo preenchido — sem esta migracao,
+  // a informacao de dor deles simplesmente desaparece do contexto do agente (respostasEntrevista
+  // e a UNICA fonte de dados de dor que o agente de prescricao recebe).
+  const legacyPainRegion = typeof answers.pain_region === 'string' ? answers.pain_region.trim() : '';
+  const hasStructuredPainRegions = Array.isArray(answers.pain_regions) && answers.pain_regions.length > 0;
+  if (legacyPainRegion && !hasStructuredPainRegions) {
+    const existingOther = typeof sanitized.pain_other_location === 'string' ? sanitized.pain_other_location.trim() : '';
+    sanitized.pain_other_location = existingOther ? `${existingOther}; ${legacyPainRegion}` : legacyPainRegion;
+  }
+
   return sanitized;
 }
 

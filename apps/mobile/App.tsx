@@ -208,7 +208,7 @@ interface InterviewQuestion {
   key: string;
   module: string;
   prompt: string;
-  type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'duration_mmss' | 'notice';
+  type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'duration_mmss' | 'date' | 'notice';
   options?: InterviewOption[];
   optional?: boolean;
   help?: string;
@@ -534,7 +534,7 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'daily_steps', module: 'Habitos', prompt: 'Em media, quantos passos voce da por dia?', type: 'single', options: ['Menos de 3.000', 'Entre 3.000 e 5.000', 'Entre 5.000 e 8.000', 'Entre 8.000 e 12.000', 'Mais de 12.000', 'Nao sei'].map((v) => option(v)) },
   { key: 'personal_name', module: 'Dados pessoais', prompt: 'Qual e seu nome completo?', type: 'text' },
   { key: 'personal_phone', module: 'Dados pessoais', prompt: 'Qual e o seu WhatsApp (com DDD)?', type: 'text', help: 'Usamos para avisos importantes sobre pagamento, treino e acompanhamento.' },
-  { key: 'personal_birth_date', module: 'Dados pessoais', prompt: 'Qual e sua data de nascimento?', type: 'text', help: 'Use o formato dia/mes/ano. Exemplo: 19/06/1984.' },
+  { key: 'personal_birth_date', module: 'Dados pessoais', prompt: 'Qual e sua data de nascimento?', type: 'date', help: 'Use o formato dia/mes/ano. Exemplo: 19/06/1984.' },
   { key: 'personal_sex', module: 'Dados pessoais', prompt: 'Como voce prefere informar seu sexo?', type: 'single', options: [option('Feminino'), option('Masculino'), option('Prefiro nao informar')] },
   { key: 'personal_height', module: 'Dados pessoais', prompt: 'Qual e sua altura em centimetros?', type: 'number' },
   { key: 'personal_weight', module: 'Dados pessoais', prompt: 'Qual e seu peso atual em quilogramas? Use virgula para decimais. Exemplo: 82,5.', type: 'number' },
@@ -622,6 +622,18 @@ function AppInner() {
   const [hideWeekNotifications, setHideWeekNotifications] = useState(false);
 
   const metrics = useMemo(() => calculateThreeKmMetrics(Number(threeKmSeconds)), [threeKmSeconds]);
+
+  // A tela Semana usa anamneseRoutine (carregado uma vez por sessao) como estado inicial da
+  // rotina. Se a entrevista/reavaliacao for concluida no meio da sessao e essa copia local nao
+  // for atualizada, a proxima vez que a aba Semana ou Perfil salvar a rotina, ela reenvia os
+  // dados antigos e apaga silenciosamente a disponibilidade recem-informada na entrevista.
+  async function refreshRoutineFromServer() {
+    const me = await loadSavedMe(accessToken);
+    if (!me) return;
+    setSavedMe(me);
+    const savedRoutine = routineFromSavedAvailability(me.availability ?? me.weeklyAvailability ?? []);
+    if (savedRoutine.length) setAnamneseRoutine(savedRoutine);
+  }
 
   useEffect(() => {
     registerWebApp();
@@ -765,7 +777,7 @@ function AppInner() {
                 accessToken={accessToken}
                 userName={userName}
                 onLater={() => setActiveTab('week')}
-                onComplete={() => setActiveTab('test')}
+                onComplete={() => { void refreshRoutineFromServer(); setActiveTab('test'); }}
               />
             )}
             {activeTab === 'reassessment' && (
@@ -773,7 +785,7 @@ function AppInner() {
                 accessToken={accessToken}
                 userName={userName}
                 onLater={() => setActiveTab('week')}
-                onComplete={() => setActiveTab('week')}
+                onComplete={() => { void refreshRoutineFromServer(); setActiveTab('week'); }}
                 questions={reassessmentQuestions}
                 mode="reassessment"
               />
@@ -1384,6 +1396,11 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   const visibleQuestions = useMemo(() => questions.filter((question) => !question.condition || question.condition(answers)), [answers, questions]);
   const question = visibleQuestions[Math.min(step, Math.max(visibleQuestions.length - 1, 0))];
   const value = question ? answers[question.key] : undefined;
+
+  useEffect(() => {
+    const maxStep = Math.max(visibleQuestions.length - 1, 0);
+    if (step > maxStep) setStep(maxStep);
+  }, [visibleQuestions.length, step]);
   const assessedWeight = interviewDecimal(answers.assessment_weight);
   const assessedBodyFat = interviewDecimal(answers.body_fat_percentage);
   const calculatedFatMass = assessedWeight !== null && assessedBodyFat !== null ? Math.round(assessedWeight * assessedBodyFat) / 100 : null;
@@ -1433,12 +1450,13 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     if (!question || question.optional || question.type === 'notice') return true;
     if (Array.isArray(value)) return value.length > 0;
     if (question.type === 'duration_mmss') return /^\d{1,3}:\d{1,2}$/.test(String(value ?? ''));
+    if (question.type === 'date') return dateInputValueToIso(String(value ?? '')) !== null;
     return value !== undefined && value !== null && String(value).trim() !== '';
   }
 
   async function next() {
     if (!question || !hasAnswer()) {
-      setStatus('Responda para continuar.');
+      setStatus(question?.type === 'date' ? 'Digite uma data valida no formato dia/mes/ano. Exemplo: 19/06/1984.' : 'Responda para continuar.');
       return;
     }
     if (!(await persist(question.key, question.type === 'notice' ? true : value ?? '', step + 1))) return;
@@ -1524,6 +1542,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       {(question?.type === 'single' || question?.type === 'scale') ? <View style={question.type === 'scale' ? styles.scaleGrid : styles.answerList}>{(question.type === 'scale' ? Array.from({ length: 10 }, (_, i) => option(String(i + 1))) : question.options ?? []).map((item) => { const selected = value === item.value || (question.type === 'scale' && value === Number(item.value)); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive, question.type === 'scale' && styles.scaleButton]} onPress={() => choose(question.type === 'scale' ? Number(item.value) : item.value)}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
       {question?.type === 'multi' ? <View style={styles.answerList}>{question.options?.map((item) => { const selected = Array.isArray(value) && value.includes(item.value); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive]} onPress={() => choose(selected ? (value as string[]).filter((entry) => entry !== item.value) : [...(Array.isArray(value) ? value : []), item.value])}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
       {(question?.type === 'text' || question?.type === 'number' || question?.type === 'number_or_unknown') ? <TextInput style={styles.input} value={value === 'unknown' || value === 'automatic' ? '' : String(value ?? '')} keyboardType={question.type === 'text' ? 'default' : 'decimal-pad'} placeholder={question.optional ? 'Opcional' : 'Digite sua resposta'} onChangeText={(text) => setAnswers({ ...answers, [question.key]: text })} /> : null}
+      {question?.type === 'date' ? <TextInput style={styles.input} value={String(value ?? '')} keyboardType="number-pad" maxLength={10} placeholder="dd/mm/aaaa" onChangeText={(text) => setAnswers({ ...answers, [question.key]: formatDateInputText(text) })} /> : null}
       {(question?.type === 'number' || question?.type === 'number_or_unknown') ? <Pressable style={styles.decimalButton} onPress={() => { const current = String(value === 'unknown' || value === 'automatic' ? '' : value ?? ''); if (!current.includes(',') && !current.includes('.')) setAnswers({ ...answers, [question.key]: `${current},` }); }}><Text style={styles.decimalButtonText}>Inserir virgula</Text></Pressable> : null}
       {question?.type === 'duration_mmss' ? (() => {
         const raw = typeof value === 'string' ? value : '';

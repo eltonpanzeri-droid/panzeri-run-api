@@ -341,8 +341,16 @@ function ratingValue(value: unknown) {
 }
 
 function parseInterviewDate(value: string) {
-  const br = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  const date = br ? new Date(`${br[3]}-${br[2]}-${br[1]}T12:00:00.000Z`) : new Date(`${value}T12:00:00.000Z`);
+  const br = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (br) {
+    const day = Number(br[1]);
+    const month = Number(br[2]);
+    const year = Number(br[3]);
+    const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    if (date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day) return date;
+    throw new BadRequestException('Data de nascimento invalida.');
+  }
+  const date = new Date(`${value}T12:00:00.000Z`);
   if (Number.isNaN(date.getTime())) throw new BadRequestException('Data de nascimento invalida.');
   return date;
 }
