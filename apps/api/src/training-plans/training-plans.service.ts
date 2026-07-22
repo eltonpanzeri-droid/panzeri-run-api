@@ -908,9 +908,21 @@ function numericAnswer(value: unknown): number | null {
   return null;
 }
 
+// A entrevista pergunta a maior distancia recente em faixas (opcao de marcar, nao numero
+// digitado). Para o calculo de equivalencia de pace ainda precisamos de um km representativo,
+// entao usamos o meio de cada faixa como estimativa.
+const DISTANCE_BUCKET_MIDPOINT_KM: Record<string, number> = {
+  '1_3': 2, '3_5': 4, '5_8': 6.5, '8_10': 9, '10_15': 12.5, '15_21': 18, '21_30': 25.5, '30_42': 36, '42_plus': 45,
+};
+
+function distanceBucketToKm(value: unknown): number | null {
+  if (typeof value === 'string' && value in DISTANCE_BUCKET_MIDPOINT_KM) return DISTANCE_BUCKET_MIDPOINT_KM[value];
+  return numericAnswer(value);
+}
+
 function estimatePaceFromAnswers(answers: Record<string, unknown>): { paceSecondsPerKm: number; source: 'self_report_5k' | 'qualitative' } | null {
   if (answers.ran_5k_recently === 'yes') {
-    const distanceKm = numericAnswer(answers.longest_distance_recent);
+    const distanceKm = distanceBucketToKm(answers.longest_distance_recent);
     const distanceSeconds = parseMmSsToSeconds(answers.longest_distance_recent_time);
     if (distanceKm && distanceSeconds) {
       const threeKmEquivalentSeconds = distanceSeconds * Math.pow(3 / distanceKm, 1.06);

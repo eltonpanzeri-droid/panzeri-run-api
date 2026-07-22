@@ -10,10 +10,21 @@ import {
   computeRunSlots,
   hasSafetyConcern,
   isNovice,
-  numericAnswer,
 } from './training-methodology';
 import { PANZERI_METHODOLOGY_KNOWLEDGE } from './panzeri-methodology-knowledge';
 import { AiQueueService } from '../common/ai-queue.service';
+
+// A entrevista pergunta o km semanal atual em faixas (opcao de marcar), nao em numero digitado.
+const WEEKLY_KM_RANGE_LABELS: Record<string, string> = {
+  '0_10': 'ate 10 km por semana',
+  '10_20': '10 a 20 km por semana',
+  '20_30': '20 a 30 km por semana',
+  '30_40': '30 a 40 km por semana',
+  '40_50': '40 a 50 km por semana',
+  '50_75': '50 a 75 km por semana',
+  '75_100': '75 a 100 km por semana',
+  '100_plus': 'mais de 100 km por semana',
+};
 
 const AiSessionSchema = z.object({
   weekday: z.number().int().min(0).max(6),
@@ -192,7 +203,7 @@ export class PrescriptionAgentService {
             : null,
         },
         respostasEntrevista: input.answers,
-        mediaSemanalKmAtualRelatada: numericAnswer(input.answers.weekly_running_km),
+        mediaSemanalKmAtualRelatada: WEEKLY_KM_RANGE_LABELS[String(input.answers.weekly_running_km)] ?? null,
         diretrizesEspecificasDoTreinadorParaEsteAluno: input.studentDirectives ?? [],
         diasDisponiveisParaCorrida: runSlots,
         historicoSemanal: input.history,

@@ -347,11 +347,35 @@ function parseInterviewDate(value: string) {
   return date;
 }
 
+const PAIN_DETAIL_KEYS = [
+  'pain_detail_knee', 'pain_detail_ankle', 'pain_detail_foot', 'pain_detail_shin', 'pain_detail_calf',
+  'pain_detail_thigh', 'pain_detail_hip', 'pain_detail_glute', 'pain_detail_lower_back',
+];
+
+function painSummary(answers: Record<string, Prisma.InputJsonValue>) {
+  const regions = stringArray(answers.pain_regions);
+  if (!regions.length) return 'regiao nao informada';
+  const details = PAIN_DETAIL_KEYS.flatMap((key) => stringArray(answers[key]));
+  const other = stringValue(answers.pain_other_location);
+  const parts = [regions.join(', ')];
+  if (details.length) parts.push(`detalhes: ${details.join(', ')}`);
+  if (other) parts.push(`outro local: ${other}`);
+  return parts.join(' - ');
+}
+
+function diagnosedConditionsSummary(answers: Record<string, Prisma.InputJsonValue>) {
+  const conditions = stringArray(answers.diagnosed_running_conditions).filter((item) => item !== 'Nenhuma' && item !== 'Nao sei responder');
+  const other = stringValue(answers.diagnosed_running_conditions_other);
+  if (!conditions.length && !other) return '';
+  return `Diagnosticos: ${[...conditions, other].filter(Boolean).join(', ')}`;
+}
+
 function interviewInjurySummary(answers: Record<string, Prisma.InputJsonValue>) {
   const parts = [
-    answers.current_pain === 'yes' ? `Dor atual: ${stringValue(answers.pain_region) || 'regiao nao informada'}` : 'Sem dor atual',
+    answers.current_pain === 'yes' ? `Dor atual: ${painSummary(answers)}` : 'Sem dor atual',
     `Lesao previa: ${stringValue(answers.important_injury) || 'nao informada'}`,
     stringValue(answers.injury_description),
+    diagnosedConditionsSummary(answers),
     stringValue(answers.medical_recommendation),
   ].filter(Boolean);
   return parts.join('. ');
