@@ -391,10 +391,26 @@ export class BillingService {
 
   private async asaasRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
     const apiKey = this.config.get<string>('ASAAS_API_KEY');
-    const response = await fetch(this.baseUrl() + path, {
-      ...init,
-      headers: { access_token: apiKey ?? '', 'Content-Type': 'application/json', ...(init.headers ?? {}) },
-    });
+    const controller = new AbortController();
+    // Sem timeout, uma lentidao do Asaas deixa a requisicao pendurada indefinidamente ate o
+    // proxy da hospedagem cortar a conexao por conta propria — o que aparece no celular do
+    // aluno como uma falha generica de rede, sem nenhuma mensagem util para diagnosticar.
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    let response: Response;
+    try {
+      response = await fetch(this.baseUrl() + path, {
+        ...init,
+        headers: { access_token: apiKey ?? '', 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new BadGatewayException('O Asaas demorou para responder. Tente novamente em instantes.');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const message = payload?.errors?.[0]?.description ?? 'O Asaas nao conseguiu processar a solicitacao.';
