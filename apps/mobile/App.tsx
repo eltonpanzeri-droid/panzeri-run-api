@@ -1449,9 +1449,20 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       return;
     }
     setSaving(true);
+    let response: Response;
     try {
-      const response = await fetch(completeUrl, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!response.ok) throw new Error('complete');
+      response = await fetch(completeUrl, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+    } catch {
+      setStatus('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
+      setSaving(false);
+      return;
+    }
+    try {
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({} as { message?: string }));
+        setStatus(typeof data.message === 'string' ? data.message : 'Nao consegui concluir. Revise as respostas e tente novamente.');
+        return;
+      }
       setFinished(true);
     } catch {
       setStatus('Nao consegui concluir. Revise as respostas e tente novamente.');
@@ -2726,18 +2737,24 @@ function Billing({ accessToken }: { accessToken: string }) {
       return;
     }
     setMessage('Preparando pagamento seguro...');
+    let response: Response;
     try {
-      const response = await fetch(API_URL + '/billing/checkout', {
+      response = await fetch(API_URL + '/billing/checkout', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
         body: JSON.stringify({ cpf: cpf.replace(/\D/g, '') }),
       });
+    } catch {
+      setMessage('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
+      return;
+    }
+    try {
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.checkoutUrl) throw new Error(data.message ?? 'checkout');
+      if (!response.ok || !data.checkoutUrl) throw new Error(typeof data.message === 'string' ? data.message : 'Nao consegui abrir o pagamento. Tente novamente.');
       setMessage('Conclua o pagamento e volte ao aplicativo.');
       await Linking.openURL(data.checkoutUrl);
     } catch (error) {
-      setMessage(error instanceof Error && error.message !== 'checkout' ? error.message : 'Nao consegui abrir o pagamento. Tente novamente.');
+      setMessage(error instanceof Error ? error.message : 'Nao consegui abrir o pagamento. Tente novamente.');
     }
   }
 
@@ -2747,14 +2764,20 @@ function Billing({ accessToken }: { accessToken: string }) {
       return;
     }
     setMessage('Aplicando cupom...');
+    let response: Response;
     try {
-      const response = await fetch(API_URL + '/billing/coupon', {
+      response = await fetch(API_URL + '/billing/coupon', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: couponCode }),
       });
+    } catch {
+      setMessage('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
+      return;
+    }
+    try {
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message ?? 'Cupom invalido.');
+      if (!response.ok) throw new Error(typeof data.message === 'string' ? data.message : 'Cupom invalido.');
       setCouponCode('');
       setMessage(data.message ?? 'Cupom aplicado. Acesso liberado.');
       await loadBilling(false);
