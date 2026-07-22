@@ -1806,18 +1806,24 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       return;
     }
     setBillingMessage('Preparando pagamento seguro...');
+    let response: Response;
     try {
-      const response = await fetch(API_URL + '/billing/checkout', {
+      response = await fetchWithRetry(API_URL + '/billing/checkout', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
         body: JSON.stringify({ cpf: cpf.replace(/\D/g, '') }),
       });
+    } catch {
+      setBillingMessage('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
+      return;
+    }
+    try {
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.checkoutUrl) throw new Error(data.message ?? 'checkout');
+      if (!response.ok || !data.checkoutUrl) throw new Error(typeof data.message === 'string' ? data.message : 'Nao consegui abrir o pagamento. Tente novamente.');
       setBillingMessage('Pagamento aberto. Depois de pagar, volte ao aplicativo.');
       await Linking.openURL(data.checkoutUrl);
     } catch (error) {
-      setBillingMessage(error instanceof Error && error.message !== 'checkout' ? error.message : 'Nao consegui abrir o pagamento. Tente novamente.');
+      setBillingMessage(error instanceof Error ? error.message : 'Nao consegui abrir o pagamento. Tente novamente.');
     }
   }
 
@@ -1827,14 +1833,20 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       return;
     }
     setBillingMessage('Aplicando cupom...');
+    let response: Response;
     try {
-      const response = await fetch(API_URL + '/billing/coupon', {
+      response = await fetchWithRetry(API_URL + '/billing/coupon', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: couponCode }),
       });
+    } catch {
+      setBillingMessage('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
+      return;
+    }
+    try {
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message ?? 'Cupom invalido.');
+      if (!response.ok) throw new Error(typeof data.message === 'string' ? data.message : 'Cupom invalido.');
       setCouponCode('');
       setBillingMessage(data.message ?? 'Cupom aplicado. Acesso liberado.');
       await loadPlan();
