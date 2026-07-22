@@ -265,7 +265,13 @@ export class TrainingPlansService {
         } : baseTemplate;
         const modalityDurations = normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined);
         const requestedDuration = modalityDurations?.[modality] ?? day.availableMin ?? template.durationMin;
-        const durationMin = Math.min(requestedDuration, runDecision?.durationMin ?? template.durationMin);
+        // Com uma diretriz ativa (instrucao pontual confirmada pelo treinador com o aluno fora do
+        // app, ex: liberar mais tempo para um longao antes de uma prova), confiamos na duracao que
+        // o agente decidiu para o dia mesmo que ultrapasse a disponibilidade normal registrada —
+        // senao esse limite anularia justamente o ajuste que o treinador pediu.
+        const durationMin = runDecision && activeDirectives.length
+          ? runDecision.durationMin
+          : Math.min(requestedDuration, runDecision?.durationMin ?? template.durationMin);
         const prescription =
           modality === 'forca' || modality === 'fortalecimento_corredores'
             ? this.strengthPrescription(durationMin, modality, {

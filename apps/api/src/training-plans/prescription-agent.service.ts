@@ -102,7 +102,8 @@ export class PrescriptionAgentService {
         return null;
       }
 
-      const sessions = this.validateSessions(parsed.sessions, runSlots, safetyAdjustment, parsed.paceAssessment.easyPaceSecondsPerKm);
+      const hasActiveDirectives = (input.studentDirectives?.length ?? 0) > 0;
+      const sessions = this.validateSessions(parsed.sessions, runSlots, safetyAdjustment, parsed.paceAssessment.easyPaceSecondsPerKm, hasActiveDirectives);
       if (!sessions) {
         this.logger.warn('Decisao do agente de IA rejeitada na validacao (fora dos limites de seguranca/disponibilidade/mecanica de corrida).');
         return null;
@@ -128,6 +129,7 @@ export class PrescriptionAgentService {
     runSlots: RunSlot[],
     safetyAdjustment: boolean,
     easyPaceSecondsPerKm: number,
+    hasActiveDirectives: boolean,
   ): RunSessionDecision[] | null {
     if (sessions.length !== runSlots.length) return null;
     const slotByWeekday = new Map(runSlots.map((slot) => [slot.weekday, slot]));
@@ -137,11 +139,17 @@ export class PrescriptionAgentService {
     // corre bem), walk_run nao faz sentido — mas a decisao vem do pace real, nao de um rotulo
     // de "iniciante" na entrevista.
     const clearlyCapableOfContinuousRunning = easyPaceSecondsPerKm < 420;
+    // Diretriz ativa e uma instrucao pontual e confirmada pelo treinador com o aluno fora do app
+    // (ex: liberar mais tempo para um longao antes de uma prova) — nesse caso o tempo disponivel
+    // registrado na disponibilidade semanal normal deixa de ser um teto absoluto, dentro de um
+    // limite de seguranca razoavel.
+    const directiveDurationCeiling = 180;
 
     for (const session of sessions) {
       const slot = slotByWeekday.get(session.weekday);
       if (!slot || usedWeekdays.has(session.weekday)) return null;
-      if (session.durationMin < 10 || session.durationMin > slot.durationMin) return null;
+      const maxDurationForDay = hasActiveDirectives ? Math.max(slot.durationMin, directiveDurationCeiling) : slot.durationMin;
+      if (session.durationMin < 10 || session.durationMin > maxDurationForDay) return null;
       if (safetyAdjustment && (session.sessionType === 'quality_run' || session.zone === 'Z4')) return null;
       if (clearlyCapableOfContinuousRunning && session.sessionType === 'walk_run') return null;
 
@@ -168,7 +176,7 @@ export class PrescriptionAgentService {
       '- Se diretrizesEspecificasDoTreinadorParaEsteAluno nao estiver vazio, essas sao instrucoes que o treinador Elton Panzeri deu especificamente para ESTE aluno (nao para alunos em geral) atraves de uma conversa direta com o agente gerente tecnico. Elas tem prioridade sobre as recomendacoes gerais de metodologia abaixo (mas nunca sobre as regras de seguranca obrigatorias). Aplique-as literalmente.',
       '- Se metaDeProva estiver preenchida, use-a como norte para a periodizacao (volume, foco da fase, urgencia conforme a proximidade da data), mas voce PODE e DEVE ajustar a interpretacao dessa meta se os dados reais do aluno (pace, volume sustentado, experiencia, tempo ate a prova) indicarem que ela e pouco realista — nesse caso, prescreva o que voce julgar seguro e adequado para a capacidade real do aluno, e explique claramente no rationale que a meta informada parece ambiciosa/pouco realista e por que voce ajustou a abordagem. Nunca sacrifique seguranca ou progressao responsavel para tentar alcancar uma meta.',
       '- Retorne exatamente uma sessao de corrida para cada dia disponivel informado, usando o mesmo numero de weekday (0=domingo...6=sabado).',
-      '- durationMin de cada sessao nunca pode exceder o tempo disponivel informado para aquele dia.',
+      '- durationMin de cada sessao normalmente nao pode exceder o tempo disponivel informado para aquele dia. EXCECAO: se diretrizesEspecificasDoTreinadorParaEsteAluno pedir explicitamente uma sessao mais longa num dia especifico (ex: um longao maior antes de uma prova, combinado entre o treinador e o aluno fora do app), voce PODE exceder o tempo disponivel normal daquele dia para cumprir a diretriz literalmente — o treinador ja confirmou isso com o aluno. Mesmo assim, nunca prescreva mais de 180 minutos numa unica sessao.',
       '- Se o aluno relatou uma media semanal de quilometragem atual (mediaSemanalKmAtualRelatada) e/ou volume real recente no Strava, a soma aproximada da distancia de todas as sessoes da semana que voce prescrever NUNCA deve ficar muito abaixo desse volume que ele ja sustenta na pratica, a nao ser que haja um motivo real de seguranca, deload ou retorno de pausa. O erro classico a evitar: um aluno que corre 19 km por semana recebendo uma sessao "leve" de 4 km (dos quais 1,1 km e so aquecimento/desaquecimento) — isso e um treino curto e ruim demais para a capacidade real dele, e deve ser tratado como falha grave.',
       removeRunning
         ? '- Este aluno relatou dor intensa recentemente (relato estruturado de dor, nao a entrevista de onboarding). A corrida ja foi removida desta semana pelo sistema antes de voce ser chamado — se ainda assim voce receber dias de corrida no contexto, trate-os como sessoes leves de transicao apenas, nunca quality_run/Z4.'
