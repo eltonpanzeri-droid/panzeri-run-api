@@ -37,6 +37,10 @@ export class CoachService {
     return this.billing.createCheckout(studentId, cpf);
   }
 
+  saveStudentCpf(studentId: string, cpf: string) {
+    return this.billing.saveCpf(studentId, cpf);
+  }
+
   async createStudent(dto: CreateStudentDto) {
     const email = dto.email.toLowerCase().trim();
     const existing = await this.prisma.user.findUnique({ where: { email } });

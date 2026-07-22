@@ -1352,6 +1352,26 @@ function StudentPanel({
     onStatus('Relatorio gerado e salvo no historico.');
     onRefresh();
   }
+  async function saveCheckoutCpf() {
+    if (!student) return;
+    onStatus('Salvando CPF...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/billing/cpf`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cpf: checkoutCpf.replace(/\D/g, '') }),
+      });
+      const data = await response.json().catch(() => ({} as { message?: string }));
+      if (!response.ok) {
+        onStatus(typeof data.message === 'string' ? data.message : 'Nao consegui salvar o CPF.');
+        return;
+      }
+      onStatus('CPF salvo.');
+    } catch {
+      onStatus('Nao consegui salvar o CPF.');
+    }
+  }
+
   async function createCheckoutLink() {
     if (!student) return;
     onStatus('Gerando link de pagamento...');
@@ -1442,6 +1462,7 @@ function StudentPanel({
           onChange={(event) => setCheckoutCpf(event.target.value)}
           placeholder="CPF do aluno (so numeros, se ainda nao tiver salvo)"
         />
+        <button className="secondaryButton" type="button" onClick={saveCheckoutCpf}>Salvar CPF</button>
         <button className="secondaryButton" type="button" onClick={createCheckoutLink}>Gerar link de pagamento</button>
         {checkoutLinkUrl ? (
           <div className="inviteBox compactInvite">

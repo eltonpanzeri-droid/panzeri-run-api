@@ -104,6 +104,11 @@ export class CoachController {
     return this.coachService.createStudentCheckoutLink(studentId, dto?.cpf);
   }
 
+  @Patch('students/:studentId/billing/cpf')
+  saveStudentCpf(@Param('studentId') studentId: string, @Body() dto: { cpf: string }) {
+    return this.coachService.saveStudentCpf(studentId, dto?.cpf);
+  }
+
   @Post('students/:studentId/sessions/:sessionId/regenerate')
   regenerateStudentSession(@Param('studentId') studentId: string, @Param('sessionId') sessionId: string) {
     return this.coachService.regenerateStudentSession(studentId, sessionId);

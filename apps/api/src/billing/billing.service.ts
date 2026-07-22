@@ -84,6 +84,12 @@ export class BillingService {
     };
   }
 
+  async saveCpf(userId: string, cpf: string) {
+    const normalized = normalizeCpf(cpf);
+    if (!normalized) throw new BadRequestException('Informe um CPF valido (11 numeros).');
+    return this.prisma.user.update({ where: { id: userId }, data: { cpf: normalized }, select: { id: true, cpf: true } });
+  }
+
   async createCheckout(userId: string, cpf?: string) {
     this.assertConfigured();
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { id: true, name: true, email: true, cpf: true, subscriptionStatus: true } });
