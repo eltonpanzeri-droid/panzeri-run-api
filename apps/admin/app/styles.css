@@ -739,29 +739,32 @@ h3 {
 
 .interviewAnswerGrid {
   display: grid;
-  grid-template-columns: minmax(160px, 260px) 1fr;
-  gap: 8px 16px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 4px 24px;
   margin-top: 8px;
 }
 
 .interviewAnswerRow {
-  display: contents;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
 }
 
 .interviewAnswerLabel {
   color: var(--muted);
   font-weight: 700;
   font-size: 13px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
 }
 
 .interviewAnswerValue {
   color: var(--ink);
   font-size: 13px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--line);
   word-break: break-word;
+  text-align: right;
 }
 
 @media (max-width: 720px) {
@@ -770,14 +773,13 @@ h3 {
   }
 
   .interviewAnswerRow {
-    display: grid;
+    flex-direction: column;
+    align-items: flex-start;
     gap: 2px;
-    padding-bottom: 6px;
   }
 
-  .interviewAnswerLabel {
-    border-bottom: none;
-    padding-bottom: 0;
+  .interviewAnswerValue {
+    text-align: left;
   }
 }
 
@@ -789,6 +791,11 @@ h3 {
 .detailPanel > .adminForm.messageSection {
   grid-column: span 1;
   align-self: start;
+}
+
+.messageTextarea {
+  min-height: 200px;
+  resize: vertical;
 }
 
 .studentInfoGrid {
@@ -809,6 +816,12 @@ h3 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.methodologySummary {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: -4px;
 }
 
 .detailItem {

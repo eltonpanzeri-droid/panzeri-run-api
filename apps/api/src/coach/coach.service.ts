@@ -500,6 +500,9 @@ export class CoachService {
       birthDate: student.birthDate,
       heightCm: student.heightCm,
       weightKg: student.weightKg,
+      cpf: student.cpf,
+      education: student.education,
+      address: student.address,
       goal: student.preferences?.mainGoal ?? 'Objetivo nao informado',
       targetRaces: student.targetRaces.map((race: any) => ({
         id: race.id,

@@ -64,6 +64,9 @@ interface StudentDetail {
   birthDate?: string | null;
   heightCm?: number | null;
   weightKg?: number | null;
+  cpf?: string | null;
+  education?: string | null;
+  address?: string | null;
   goal: string;
   targetRaces?: Array<{
     id: string;
@@ -133,6 +136,13 @@ interface StudentDetail {
   plan: {
     name: string;
     recommendation?: string | null;
+    methodology?: {
+      rationale: string[];
+      safetyAdjustment: boolean;
+      targetLowIntensityShare: number | null;
+      decisionSource: 'ai' | 'deterministic';
+      paceAssessment?: { easyPaceSecondsPerKm: number; intensePaceSecondsPerKm: number; rationale: string } | null;
+    } | null;
     summary: {
       prescribedSessions: number;
       completedSessions: number;
@@ -1102,7 +1112,6 @@ function StudentPanel({
   const [sendingChat, setSendingChat] = useState(false);
   const [directives, setDirectives] = useState<Array<{ id: string; content: string; createdAt: string }>>([]);
   const [checkoutLinkUrl, setCheckoutLinkUrl] = useState('');
-  const [checkoutCpf, setCheckoutCpf] = useState('');
 
   useEffect(() => {
     setEditName(student?.name ?? '');
@@ -1117,7 +1126,6 @@ function StudentPanel({
     setChatInput('');
     setDirectives([]);
     setCheckoutLinkUrl('');
-    setCheckoutCpf('');
   }, [student?.id, student?.name, student?.email, student?.accountStatus, student?.subscriptionStatus]);
 
   useEffect(() => {
@@ -1427,25 +1435,6 @@ function StudentPanel({
     onStatus('Relatorio gerado e salvo no historico.');
     onRefresh();
   }
-  async function saveCheckoutCpf() {
-    if (!student) return;
-    onStatus('Salvando CPF...');
-    try {
-      const response = await fetch(`${API_URL}/coach/students/${student.id}/billing/cpf`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cpf: checkoutCpf.replace(/\D/g, '') }),
-      });
-      const data = await response.json().catch(() => ({} as { message?: string }));
-      if (!response.ok) {
-        onStatus(typeof data.message === 'string' ? data.message : 'Nao consegui salvar o CPF.');
-        return;
-      }
-      onStatus('CPF salvo.');
-    } catch {
-      onStatus('Nao consegui salvar o CPF.');
-    }
-  }
 
   async function createCheckoutLink() {
     if (!student) return;
@@ -1454,7 +1443,7 @@ function StudentPanel({
       const response = await fetch(`${API_URL}/coach/students/${student.id}/billing/checkout-link`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cpf: checkoutCpf.replace(/\D/g, '') || undefined }),
+        body: JSON.stringify({}),
       });
       const data = await response.json().catch(() => ({} as { message?: string; checkoutUrl?: string }));
       if (!response.ok || !data.checkoutUrl) {
@@ -1485,8 +1474,6 @@ function StudentPanel({
       <div>
         <p className="eyebrow">Aluno selecionado</p>
         <h2>{student.name}</h2>
-        <small>{student.email}</small>
-        {student.phone ? <small>{student.phone}</small> : null}
         <div>
           <span className={`status ${student.strava?.connected ? 'good' : 'warn'}`}>
             {student.strava?.connected ? 'Strava conectado' : 'Strava nao conectado'}
@@ -1494,6 +1481,16 @@ function StudentPanel({
           {student.strava?.connected && student.strava.lastActivityAt ? (
             <small> ultima atividade: {dateTimeLabel(student.strava.lastActivityAt)}</small>
           ) : null}
+        </div>
+        <div className="interviewAnswerGrid">
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">E-mail</span><span className="interviewAnswerValue">{student.email}</span></div>
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">WhatsApp</span><span className="interviewAnswerValue">{student.phone ?? 'Nao informado'}</span></div>
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Nascimento</span><span className="interviewAnswerValue">{student.birthDate ? dateLabel(student.birthDate) : 'Nao informado'}</span></div>
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">CPF</span><span className="interviewAnswerValue">{student.cpf ?? 'Nao informado'}</span></div>
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Altura</span><span className="interviewAnswerValue">{student.heightCm ? `${student.heightCm} cm` : 'Nao informado'}</span></div>
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Peso</span><span className="interviewAnswerValue">{student.weightKg ? `${student.weightKg} kg` : 'Nao informado'}</span></div>
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Escolaridade</span><span className="interviewAnswerValue">{student.education ?? 'Nao informado'}</span></div>
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Endereco</span><span className="interviewAnswerValue">{student.address ?? 'Nao informado'}</span></div>
         </div>
       </div>
 
@@ -1545,12 +1542,6 @@ function StudentPanel({
             </button>
           </div>
         ) : null}
-        <input
-          value={checkoutCpf}
-          onChange={(event) => setCheckoutCpf(event.target.value)}
-          placeholder="CPF do aluno (so numeros, se ainda nao tiver salvo)"
-        />
-        <button className="secondaryButton" type="button" onClick={saveCheckoutCpf}>Salvar CPF</button>
         <button className="secondaryButton" type="button" onClick={createCheckoutLink}>Gerar link de pagamento</button>
         {checkoutLinkUrl ? (
           <div className="inviteBox compactInvite">
@@ -1569,7 +1560,8 @@ function StudentPanel({
           value={messageText}
           onChange={(event) => setMessageText(event.target.value)}
           placeholder="Escreva a mensagem para o aluno"
-          rows={4}
+          rows={10}
+          className="messageTextarea"
         />
         <label className="adminFieldLabel checkboxLabel">
           <input type="checkbox" checked={messageByEmail} onChange={(event) => setMessageByEmail(event.target.checked)} />
@@ -1622,6 +1614,7 @@ function StudentPanel({
         <Detail icon={<CheckCircle2 size={18} />} label="Feitos" value={`${student.plan?.summary.completedSessions ?? 0}/${student.plan?.summary.prescribedSessions ?? 0}`} />
         <Detail icon={<AlertTriangle size={18} />} label="Diferentes" value={String(student.plan?.summary.differentSessions ?? 0)} />
       </div>
+      {student.plan?.methodology ? <p className="methodologySummary">{methodologySummaryLine(student.plan.methodology)}</p> : null}
 
       <section className="miniSection reportPanel">
         <div className="weekWorkspaceHeader">
@@ -1663,10 +1656,7 @@ function StudentPanel({
 
       <div className="studentInfoGrid">
       <section className="miniSection">
-        <h3>Dados e saude</h3>
-        <p>Nascimento: {student.birthDate ? dateLabel(student.birthDate) : 'Nao informado'}</p>
-        <p>Altura: {student.heightCm ? `${student.heightCm} cm` : 'Nao informado'}</p>
-        <p>Peso: {student.weightKg ? `${student.weightKg} kg` : 'Nao informado'}</p>
+        <h3>Saude</h3>
         <p>Sono: {student.health.sleep}</p>
         <p>Estresse: {student.health.stress}</p>
         <p>Ansiedade: {student.health.anxiety ?? 'Nao informado'}</p>
@@ -1739,7 +1729,9 @@ function StudentPanel({
                     {group.items.map(([key, value]) => (
                       <div className="interviewAnswerRow" key={key}>
                         <span className="interviewAnswerLabel">{interviewLabel(key)}</span>
-                        <span className="interviewAnswerValue">{interviewValue(value)}</span>
+                        <span className="interviewAnswerValue">
+                          {key === 'longest_distance_recent_time' ? (longestDistancePaceSummary(student.interview!.answers) ?? interviewValue(value)) : interviewValue(value)}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -2414,6 +2406,25 @@ function satisfactionLabel(value: string) {
   return labels[value] ?? value;
 }
 
+function methodologySummaryLine(methodology: {
+  targetLowIntensityShare: number | null;
+  decisionSource: 'ai' | 'deterministic';
+  paceAssessment?: { easyPaceSecondsPerKm: number; intensePaceSecondsPerKm: number } | null;
+  safetyAdjustment: boolean;
+}) {
+  const parts: string[] = [];
+  if (methodology.targetLowIntensityShare) {
+    const lowPercent = Math.round(methodology.targetLowIntensityShare * 100);
+    parts.push(`Meta de intensidade: ${lowPercent}% baixa / ${100 - lowPercent}% alta`);
+  }
+  if (methodology.paceAssessment) {
+    parts.push(`Pace facil ${paceLabel(methodology.paceAssessment.easyPaceSecondsPerKm)} · Pace forte ${paceLabel(methodology.paceAssessment.intensePaceSecondsPerKm)}`);
+  }
+  if (methodology.safetyAdjustment) parts.push('Cautela ativa por dor/limitacao recente');
+  parts.push(methodology.decisionSource === 'ai' ? 'Decisao: agente de IA' : 'Decisao: motor padrao');
+  return parts.join(' · ');
+}
+
 function modalityOrderRank(modality: string) {
   if (modality === 'corrida' || modality === 'esteira') return 0;
   if (modality === 'fortalecimento_corredores') return 1;
@@ -2617,9 +2628,36 @@ function RoutineAvailabilityTable({ answers }: { answers: Record<string, unknown
   );
 }
 
+const DISTANCE_BUCKET_MIDPOINT_KM: Record<string, number> = {
+  '1_3': 2, '3_5': 4, '5_8': 6.5, '8_10': 9, '10_15': 12.5, '15_21': 18, '21_30': 25.5, '30_42': 36, '42_plus': 45,
+};
+
+function formatMmssAsHms(value: unknown): string | null {
+  const match = String(value ?? '').match(/^(\d{1,4}):(\d{1,2})$/);
+  if (!match) return null;
+  const totalMinutes = Number(match[1]);
+  const seconds = Number(match[2]);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function longestDistancePaceSummary(answers: Record<string, unknown>): string | null {
+  const hms = formatMmssAsHms(answers.longest_distance_recent_time);
+  if (!hms) return null;
+  const match = String(answers.longest_distance_recent_time ?? '').match(/^(\d{1,4}):(\d{1,2})$/);
+  const distanceKm = DISTANCE_BUCKET_MIDPOINT_KM[String(answers.longest_distance_recent)];
+  if (!match || !distanceKm) return hms;
+  const totalSeconds = Number(match[1]) * 60 + Number(match[2]);
+  const paceSecondsPerKm = Math.round(totalSeconds / distanceKm);
+  const paceMin = Math.floor(paceSecondsPerKm / 60);
+  const paceSec = paceSecondsPerKm % 60;
+  return `${hms} (aprox. ${distanceKm} km) - pace estimado ${paceMin}:${String(paceSec).padStart(2, '0')}/km`;
+}
+
 function groupInterviewAnswers(answers: Record<string, unknown>) {
   const groups = new Map<string, Array<[string, unknown]>>();
-  Object.entries(answers).forEach(([key, value]) => {
+  Object.entries(answers).filter(([key]) => key !== 'rating_intro').forEach(([key, value]) => {
     const title = interviewGroup(key);
     groups.set(title, [...(groups.get(title) ?? []), [key, value]]);
   });
@@ -2660,6 +2698,15 @@ function interviewLabel(key: string) {
     personal_cpf: 'CPF', personal_education: 'Escolaridade', personal_address: 'Endereco completo',
     training_modality_preference: 'Preferencia de modalidades',
     additional_info: 'Informacoes adicionais do aluno',
+    rating_energy: 'Nota - Energia no dia a dia', rating_training_readiness: 'Nota - Disposicao para treinar', rating_fitness: 'Nota - Condicionamento fisico',
+    rating_strength: 'Nota - Forca fisica', rating_sleep: 'Nota - Qualidade do sono', rating_recovery: 'Nota - Recuperacao apos os treinos',
+    rating_stress: 'Nota - Nivel de estresse', rating_anxiety: 'Nota - Nivel de ansiedade', rating_motivation: 'Nota - Motivacao para treinar',
+    rating_nutrition: 'Nota - Qualidade da alimentacao', rating_hydration: 'Nota - Hidratacao', rating_health: 'Nota - Saude geral',
+    rating_pain_free: 'Nota - Quanto o corpo esta livre de dores', rating_body_satisfaction: 'Nota - Satisfacao com o corpo',
+    rating_quality_of_life: 'Nota - Qualidade de vida', rating_goal_confidence: 'Nota - Confianca de atingir o objetivo',
+    rating_routine_support: 'Nota - Quanto a rotina favorece o objetivo',
+    waist_circumference: 'Circunferencia da cintura', abdomen_circumference: 'Circunferencia do abdomen', hip_circumference: 'Circunferencia do quadril',
+    arm_circumference: 'Circunferencia do braco', thigh_circumference: 'Circunferencia da coxa', calf_circumference: 'Circunferencia da panturrilha',
   };
   if (labels[key]) return labels[key];
   const days: Record<string, string> = { monday: 'Segunda-feira', tuesday: 'Terca-feira', wednesday: 'Quarta-feira', thursday: 'Quinta-feira', friday: 'Sexta-feira', saturday: 'Sabado', sunday: 'Domingo' };

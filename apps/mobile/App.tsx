@@ -543,7 +543,14 @@ const interviewQuestions: InterviewQuestion[] = [
   ...[
     ['waist_circumference', 'Circunferencia da cintura'], ['abdomen_circumference', 'Circunferencia do abdomen'], ['hip_circumference', 'Circunferencia do quadril'],
     ['arm_circumference', 'Circunferencia do braco'], ['thigh_circumference', 'Circunferencia da coxa'], ['calf_circumference', 'Circunferencia da panturrilha'],
-  ].map(([key, prompt]) => ({ key, module: 'Avaliacao fisica recente', prompt, type: 'number_or_unknown' as const, help: 'Use uma fita metrica, sem apertar a pele, mantendo-a paralela ao chao. Registre em centimetros.', condition: (a: InterviewAnswers) => a.recent_physical_assessment === 'yes' })),
+  ].map(([key, prompt]) => ({
+    key,
+    module: 'Avaliacao fisica recente',
+    prompt: `${prompt} (opcional)`,
+    type: 'number' as const,
+    optional: true,
+    help: 'Use uma fita metrica, sem apertar a pele, mantendo-a paralela ao chao e sem prender a respiracao. Registre em centimetros. Se preferir nao medir agora, pode deixar em branco e continuar.',
+  })),
   {
     key: 'training_modality_preference',
     module: 'Rotina semanal',
