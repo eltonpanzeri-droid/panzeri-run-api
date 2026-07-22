@@ -5,7 +5,6 @@ import { runnerStrengthCategory, selectRunnerStrengthExercises } from './runner-
 import { selectGymExercises } from './gym-exercise-library';
 import {
   buildWeeklyMethodologyDecision,
-  hasSafetyConcern,
   MethodologyInput,
   PANZERI_METHODOLOGY_VERSION,
   PANZERI_PRESCRIPTION_PRINCIPLES,
@@ -13,6 +12,8 @@ import {
 } from './training-methodology';
 import { PrescriptionAgentService, PaceEvidence } from './prescription-agent.service';
 import { StravaAnalysisAgentService } from './strava-analysis-agent.service';
+import { PainReportsService } from '../pain-reports/pain-reports.service';
+import { TargetRacesService } from '../target-races/target-races.service';
 
 interface SessionTemplate {
   title: string;
@@ -62,6 +63,8 @@ export class TrainingPlansService {
     private readonly prisma: PrismaService,
     private readonly prescriptionAgent: PrescriptionAgentService,
     private readonly stravaAnalysisAgent: StravaAnalysisAgentService,
+    private readonly painReports: PainReportsService,
+    private readonly targetRaces: TargetRacesService,
   ) {}
 
   async current(userId: string) {
@@ -107,7 +110,7 @@ export class TrainingPlansService {
 
   async generateWeek(userId: string, weeklyOverride?: WeeklyAvailabilityInput[]) {
     const historyStart = addDays(startOfWeek(new Date()), -35);
-    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives] = await Promise.all([
+    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRace] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         include: {
@@ -149,6 +152,8 @@ export class TrainingPlansService {
         orderBy: { createdAt: 'desc' },
         select: { content: true },
       }),
+      this.painReports.computeSafetyTier(userId),
+      this.targetRaces.currentGoal(userId),
     ]);
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan();
@@ -212,6 +217,14 @@ export class TrainingPlansService {
       } : null,
       stravaAnalysis,
       studentDirectives: activeDirectives.map((directive) => directive.content),
+      painTier: painSafety.tier,
+      painReason: painSafety.reason,
+      targetRace: targetRace ? {
+        name: targetRace.name,
+        raceDate: targetRace.raceDate.toISOString(),
+        distanceKm: targetRace.distanceKm,
+        paceSecondsPerKm: targetRace.paceSecondsPerKm,
+      } : null,
     };
     const stravaPacedRuns = stravaRuns.filter((activity) => (activity.avgPaceSecKm ?? 0) > 0 && (activity.distanceKm ?? 0) >= 1);
     const stravaAveragePaceSecondsPerKm = stravaPacedRuns.length
@@ -230,7 +243,14 @@ export class TrainingPlansService {
 
     const sessions = availableDays.slice(0, 7).flatMap((day) => {
       const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(day.weekday));
-      const modalities = day.modalities.length ? day.modalities : ['corrida'];
+      const baseModalities = day.modalities.length ? day.modalities : ['corrida'];
+      // Dor intensa relatada recentemente (tier remove_running): a corrida sai da semana
+      // mesmo que o aluno tenha escolhido treinar so corrida — seguranca sobrepoe preferencia
+      // de modalidade nesse caso. Trocamos por fortalecimento para corredores, sem duplicar
+      // caso o dia ja tivesse as duas modalidades.
+      const modalities = painSafety.tier === 'remove_running'
+        ? [...new Set(baseModalities.map((modality) => isRunningModality(modality) ? 'fortalecimento_corredores' : modality))]
+        : baseModalities;
 
       return modalities.map((modality) => {
         const baseTemplate = this.templateForModality(modality, Boolean(latestTest));
@@ -303,7 +323,7 @@ export class TrainingPlansService {
         startDate: weekStart,
         endDate: addDays(weekStart, 6),
         generatedBy: planEngineVersion,
-        aiRecommendation: composeRecommendation(paceSource, methodology.recommendation),
+        aiRecommendation: composeRecommendation(paceSource, methodology.recommendation, painSafety.tier === 'remove_running'),
         inputSnapshot: toInputJson({
           user: {
             heightCm: user.heightCm,
@@ -315,6 +335,9 @@ export class TrainingPlansService {
           paceSource,
           resolvedPaces,
           paceEvidence,
+          painTier: painSafety.tier,
+          painReason: painSafety.reason,
+          targetRace: methodologyInput.targetRace,
           methodology: {
             version: PANZERI_METHODOLOGY_VERSION,
             principles: PANZERI_PRESCRIPTION_PRINCIPLES,
@@ -430,7 +453,8 @@ export class TrainingPlansService {
     ]);
 
     const answers = sanitizeInterviewAnswers(jsonObject(onboarding?.answers));
-    const safetyAdjustment = hasSafetyConcern(answers);
+    const painSafety = await this.painReports.computeSafetyTier(userId);
+    const safetyAdjustment = painSafety.tier !== 'normal';
     const paceFallback = estimatePaceFromAnswers(answers);
     const effectivePaceSecondsPerKm = latestTest?.paceSecondsPerKm ?? paceFallback?.paceSecondsPerKm ?? DEFAULT_PACE_SECONDS_PER_KM;
     const resolvedPaces = this.fallbackPaces(effectivePaceSecondsPerKm);
@@ -798,6 +822,7 @@ export class TrainingPlansService {
         avgPaceSecondsKm: number | null;
         perceivedEffort: number | null;
         satisfaction: string | null;
+        painFlag: string | null;
         notes: string | null;
         details: unknown;
       } | null;
@@ -850,6 +875,7 @@ export class TrainingPlansService {
               avgPaceSecondsKm: session.completion.avgPaceSecondsKm,
               perceivedEffort: session.completion.perceivedEffort,
               satisfaction: session.completion.satisfaction,
+              painFlag: session.completion.painFlag,
               notes: session.completion.notes,
               details: session.completion.details,
             }
@@ -938,7 +964,7 @@ function estimatePaceFromAnswers(answers: Record<string, unknown>): { paceSecond
   return null;
 }
 
-function composeRecommendation(paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default', recommendation: string) {
+function composeRecommendation(paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default', recommendation: string, runningRemovedForPain = false) {
   const note =
     paceSource === 'self_report_5k'
       ? 'Como voce ainda nao fez o teste oficial de 3 km, usamos o tempo de 5 km que voce informou para calcular os ritmos do seu treino. Assim que fizer o teste de 3 km, o treino sera recalculado automaticamente com mais precisao.'
@@ -948,7 +974,11 @@ function composeRecommendation(paceSource: 'test' | 'self_report_5k' | 'qualitat
           ? 'Ainda nao temos seu teste de 3 km nem outra referencia de ritmo, entao usamos um ritmo geral inicial. Faca o teste de 3 km assim que possivel para deixar seu treino muito mais preciso e individualizado.'
           : null;
 
-  return note ? `${note}\n\n${recommendation}` : recommendation;
+  const painNote = runningRemovedForPain
+    ? 'Por causa da dor que voce relatou, tiramos a corrida da sua semana por enquanto — isso nao e medo de voce se machucar, e o cuidado que um treinador de verdade tem nesse momento. O fortalecimento para corredores que preparamos agora e parte real do seu progresso: ele trabalha exatamente o que vai te ajudar a voltar a correr melhor e com mais seguranca. Continue nos contando como a dor evolui (pelo menu de relato de dor) assim que tiver novidade, para liberarmos a corrida assim que fizer sentido.'
+    : null;
+
+  return [painNote, note, recommendation].filter(Boolean).join('\n\n');
 }
 
 function strengthFeedbackAdjustment(previousPlans: Array<{ sessions: Array<{ modality: string; scheduledDate: Date; completion: { notes: string | null } | null }> }>): number {

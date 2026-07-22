@@ -690,6 +690,7 @@ h3 {
 .detailPanel {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   padding: 20px;
+  align-items: start;
 }
 
 .detailPanel > div:first-child,
@@ -698,9 +699,96 @@ h3 {
   grid-column: 1 / -1;
 }
 
+.detailPanel > .technicalManagerPanel,
+.detailPanel > .stravaAnalysisPanel,
+.detailPanel > .reportPanel {
+  grid-column: 1 / -1;
+}
+
+.detailPanel > .targetRaceHighlight {
+  grid-column: 1 / -1;
+  background: var(--accent-soft);
+  border-radius: 8px;
+  padding: 14px 16px;
+  border-top: none;
+}
+
+.targetRaceCard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.targetRaceCard:last-child {
+  border-bottom: none;
+}
+
+.interviewAnswers details {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.interviewAnswers summary {
+  cursor: pointer;
+  font-weight: 800;
+  padding: 6px 0;
+}
+
+.interviewAnswerGrid {
+  display: grid;
+  grid-template-columns: minmax(160px, 260px) 1fr;
+  gap: 8px 16px;
+  margin-top: 8px;
+}
+
+.interviewAnswerRow {
+  display: contents;
+}
+
+.interviewAnswerLabel {
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 13px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.interviewAnswerValue {
+  color: var(--ink);
+  font-size: 13px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  word-break: break-word;
+}
+
+@media (max-width: 720px) {
+  .interviewAnswerGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .interviewAnswerRow {
+    display: grid;
+    gap: 2px;
+    padding-bottom: 6px;
+  }
+
+  .interviewAnswerLabel {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+}
+
 .detailPanel > .adminForm,
 .detailPanel > .detailGrid {
   grid-column: span 2;
+}
+
+.detailPanel > .adminForm.messageSection {
+  grid-column: span 1;
+  align-self: start;
 }
 
 .studentInfoGrid {
@@ -727,9 +815,14 @@ h3 {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
-  padding: 12px;
+  padding: 8px 10px;
   display: grid;
-  gap: 6px;
+  gap: 3px;
+  align-self: start;
+}
+
+.detailItem strong {
+  font-size: 15px;
 }
 
 .detailItem svg {
@@ -747,6 +840,7 @@ h3 {
   padding-top: 14px;
   display: grid;
   gap: 8px;
+  align-content: start;
 }
 
 .miniSection p {

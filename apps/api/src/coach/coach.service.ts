@@ -441,6 +441,7 @@ export class CoachService {
           orderBy: { completedAt: 'desc' },
           take: 5,
         },
+        targetRaces: { orderBy: { raceDate: 'asc' } },
       },
     });
 
@@ -500,6 +501,16 @@ export class CoachService {
       heightCm: student.heightCm,
       weightKg: student.weightKg,
       goal: student.preferences?.mainGoal ?? 'Objetivo nao informado',
+      targetRaces: student.targetRaces.map((race: any) => ({
+        id: race.id,
+        name: race.name,
+        raceDate: race.raceDate,
+        distanceKm: race.distanceKm,
+        targetSeconds: race.targetSeconds,
+        priority: race.priority,
+        status: race.status,
+        paceSecondsPerKm: race.targetSeconds && race.distanceKm ? Math.round(race.targetSeconds / race.distanceKm) : null,
+      })),
       interview: student.onboardingInterview ? {
         answers: student.onboardingInterview.answers,
         currentStep: student.onboardingInterview.currentStep,

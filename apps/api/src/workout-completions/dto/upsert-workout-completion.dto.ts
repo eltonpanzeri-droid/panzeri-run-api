@@ -52,6 +52,10 @@ export class UpsertWorkoutCompletionDto {
   satisfaction?: string;
 
   @IsOptional()
+  @IsIn(['none', 'leve', 'forte'])
+  painFlag?: string;
+
+  @IsOptional()
   @IsString()
   notes?: string;
 

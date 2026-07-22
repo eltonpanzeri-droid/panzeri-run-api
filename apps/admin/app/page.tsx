@@ -65,6 +65,16 @@ interface StudentDetail {
   heightCm?: number | null;
   weightKg?: number | null;
   goal: string;
+  targetRaces?: Array<{
+    id: string;
+    name: string;
+    raceDate: string;
+    distanceKm: number;
+    targetSeconds: number | null;
+    priority: string;
+    status: string;
+    paceSecondsPerKm: number | null;
+  }>;
   analysisAgent?: {
     updatedAt: string;
     summary: {
@@ -1487,6 +1497,19 @@ function StudentPanel({
         </div>
       </div>
 
+      {student.targetRaces?.length ? (
+        <section className="miniSection targetRaceHighlight">
+          <h3>Prova alvo</h3>
+          {student.targetRaces.filter((race) => race.status === 'em_andamento').map((race) => (
+            <div className="targetRaceCard" key={race.id}>
+              <strong>{race.name}</strong>
+              <span>{dateLabel(race.raceDate)} · {race.distanceKm} km{race.paceSecondsPerKm ? ` · pace alvo ${paceLabel(race.paceSecondsPerKm)}` : ''}</span>
+              <span className={`status ${race.priority === 'principal' ? 'good' : 'warn'}`}>{race.priority === 'principal' ? 'Meta principal' : 'Meta secundaria'}</span>
+            </div>
+          ))}
+        </section>
+      ) : null}
+
       <section className="miniSection adminForm">
         <h3>Dados de acesso</h3>
         <input value={editName} onChange={(event) => setEditName(event.target.value)} placeholder="Nome" />
@@ -1540,7 +1563,7 @@ function StudentPanel({
         ) : null}
       </section>
 
-      <section className="miniSection adminForm">
+      <section className="miniSection adminForm messageSection">
         <h3>Enviar mensagem para o aluno</h3>
         <textarea
           value={messageText}
@@ -1619,7 +1642,7 @@ function StudentPanel({
           </div>
         ) : <p>Nenhum relatorio gerado ainda.</p>}
       </section>
-      <section className="miniSection">
+      <section className="miniSection stravaAnalysisPanel">
         <div className="weekWorkspaceHeader">
           <div><p className="eyebrow">Agente II</p><h3>Analise automatica do Strava</h3></div>
           <span>{student.analysisAgent?.updatedAt ? dateTimeLabel(student.analysisAgent.updatedAt) : 'Aguardando atividade'}</span>
@@ -1712,7 +1735,14 @@ function StudentPanel({
                 {group.title === 'Rotina semanal' ? (
                   <RoutineAvailabilityTable answers={student.interview!.answers} />
                 ) : (
-                  group.items.map(([key, value]) => <p key={key}><strong>{interviewLabel(key)}:</strong> {interviewValue(value)}</p>)
+                  <div className="interviewAnswerGrid">
+                    {group.items.map(([key, value]) => (
+                      <div className="interviewAnswerRow" key={key}>
+                        <span className="interviewAnswerLabel">{interviewLabel(key)}</span>
+                        <span className="interviewAnswerValue">{interviewValue(value)}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </details>
             ))}
@@ -1744,7 +1774,10 @@ function StudentPanel({
         {student.plan?.sessions.length ? (
           <div className="coachWeekBoard">
             {[1, 2, 3, 4, 5, 6, 0].map((weekday) => {
-              const sessions = student.plan!.sessions.filter((session) => session.weekday === weekday);
+              const sessions = student.plan!.sessions
+                .filter((session) => session.weekday === weekday)
+                .slice()
+                .sort((left, right) => modalityOrderRank(left.modality) - modalityOrderRank(right.modality));
               return (
                 <div className="coachDay" key={weekday}>
                   <div className="coachDayHeader">
@@ -1911,7 +1944,7 @@ function EditableSession({
   }
 
   return (
-    <div className="sessionEditor">
+    <div className="sessionEditor" style={{ borderLeft: `4px solid ${modalityAccentColor(session.modality)}` }}>
       <div className="sessionEditorHeader">
         <span className={`executionStatus execution-${session.stravaActivity ? 'done' : session.completionStatus}`}>
           {session.stravaActivity ? 'Strava recebido' : completionLabel(session.completionStatus)}
@@ -2381,6 +2414,20 @@ function satisfactionLabel(value: string) {
   return labels[value] ?? value;
 }
 
+function modalityOrderRank(modality: string) {
+  if (modality === 'corrida' || modality === 'esteira') return 0;
+  if (modality === 'fortalecimento_corredores') return 1;
+  if (modality === 'forca') return 2;
+  return 3;
+}
+
+function modalityAccentColor(modality: string) {
+  if (modality === 'corrida' || modality === 'esteira') return '#0f766e';
+  if (modality === 'fortalecimento_corredores') return '#d97706';
+  if (modality === 'forca') return '#7c3aed';
+  return '#64748b';
+}
+
 function dateLabel(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -2611,6 +2658,7 @@ function interviewLabel(key: string) {
     sleep_hours: 'Horas de sono', smoking: 'Tabagismo', alcohol_frequency: 'Consumo de alcool', work_routine: 'Rotina de trabalho', daily_steps: 'Passos diarios',
     personal_name: 'Nome completo', personal_phone: 'WhatsApp', personal_birth_date: 'Data de nascimento', personal_sex: 'Sexo', personal_height: 'Altura', personal_weight: 'Peso',
     personal_cpf: 'CPF', personal_education: 'Escolaridade', personal_address: 'Endereco completo',
+    training_modality_preference: 'Preferencia de modalidades',
     additional_info: 'Informacoes adicionais do aluno',
   };
   if (labels[key]) return labels[key];

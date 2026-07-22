@@ -83,6 +83,14 @@ export interface MethodologyInput {
     crossTrainingNote: string | null;
   } | null;
   studentDirectives?: string[];
+  painTier?: 'normal' | 'reduced' | 'remove_running';
+  painReason?: string | null;
+  targetRace?: {
+    name: string;
+    raceDate: string;
+    distanceKm: number;
+    paceSecondsPerKm: number | null;
+  } | null;
 }
 
 export interface RunSessionDecision {
@@ -120,7 +128,13 @@ export function buildWeeklyMethodologyDecision(input: MethodologyInput): WeeklyM
   const runSlots = computeRunSlots(input.availability);
   const answers = input.answers;
   const novice = isNovice(input.experience, answers);
-  const safetyAdjustment = hasSafetyConcern(answers);
+  // painTier vem de relatos RECENTES de dor (ultimos ~21 dias), calculados pelo
+  // PainReportsService — nao da resposta unica e permanente da entrevista de onboarding.
+  // Se nao vier calculado (ex: chamada antiga), caimos no sinal da entrevista como
+  // aproximacao conservadora, nunca mais estrita que isso.
+  const painTier = input.painTier ?? (hasSafetyConcern(answers) ? 'reduced' : 'normal');
+  const safetyAdjustment = painTier !== 'normal';
+  const removeRunning = painTier === 'remove_running';
   const latest = input.history[0];
   const previous = input.history[1];
   const observedLongest = Math.max(latest?.longestRunMinutes ?? 0, input.stravaLongestRunMinutes);
@@ -131,13 +145,14 @@ export function buildWeeklyMethodologyDecision(input: MethodologyInput): WeeklyM
     ? input.executionInsight.adherencePercent / 100
     : latest?.prescribedSessions ? latest.completedSessions / latest.prescribedSessions : 1;
   const longSlot = runSlots.slice().sort((left, right) => right.durationMin - left.durationMin || weekendPriority(right.weekday) - weekendPriority(left.weekday))[0];
-  const qualityAllowed = runSlots.length >= 3 && !novice && !safetyAdjustment && adherence >= 0.5;
+  const qualityAllowed = runSlots.length >= 3 && !novice && !removeRunning && adherence >= 0.5;
   const qualitySlot = qualityAllowed ? chooseQualitySlot(runSlots, longSlot?.weekday, input.availability) : undefined;
   const rationale: string[] = [];
 
   if (novice) rationale.push('Progressao conservadora e uso de corrida com caminhada por experiencia ou condicionamento atual.');
   if (!latest && selfReportedLongestMin) rationale.push('Sem historico ainda: usamos a maior distancia relatada na entrevista como referencia inicial do treino longo.');
-  if (safetyAdjustment) rationale.push('Carga reduzida por dor, limitacao ou sinal de saude informado.');
+  if (removeRunning) rationale.push('Dor intensa relatada recentemente: volume de corrida intensa suspenso ate nova avaliacao.');
+  else if (safetyAdjustment) rationale.push('Carga e intensidade reduzidas por dor recente ou limitacao informada — treino intervalado nao e bloqueado automaticamente, apenas mais cauteloso.');
   if (input.history.length) rationale.push('Carga comparada com as semanas anteriores e com a aderencia registrada.');
   if (input.stravaRunMinutes > 0) rationale.push('Atividades recentes do Strava consideradas na decisao de carga.');
   if (input.executionInsight) {

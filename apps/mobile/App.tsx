@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'interview' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment';
+type Tab = 'week' | 'interview' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -111,6 +111,7 @@ interface WeekPlanSession {
     avgPaceSecondsKm?: number | null;
     perceivedEffort?: number | null;
     satisfaction?: string | null;
+    painFlag?: string | null;
     notes?: string | null;
     details?: { loadsText?: string } | null;
   } | null;
@@ -221,6 +222,7 @@ interface CompletionDraft {
   completedDate: string;
   perceivedEffort: string;
   satisfaction: string;
+  painFlag: string;
   durationMin: string;
   distanceKm: string;
   avgPace: string;
@@ -422,7 +424,7 @@ const defaultRoutineDays: RoutineDay[] = [
 ];
 
 const option = (label: string, value = label) => ({ label, value });
-const activityOptions = ['Corrida', 'Caminhada', 'Musculacao', 'Ciclismo', 'Natacao', 'Funcional', 'CrossFit', 'Pilates', 'Yoga', 'Esportes coletivos', 'Outra'];
+const activityOptions = ['Corrida', 'Caminhada', 'Musculacao', 'Ciclismo', 'Natacao', 'Funcional', 'CrossFit', 'Lutas', 'Pilates', 'Yoga', 'Spinning', 'Beach Tenis', 'Esportes coletivos', 'Outra'];
 const interviewTimeOptions = [
   option('Nao posso treinar', 'none'), option('Ate 30 minutos', 'up_to_30'), option('30 a 45 minutos', 'from_30_to_45'),
   option('45 a 60 minutos', 'from_45_to_60'), option('60 a 90 minutos', 'from_60_to_90'), option('Mais de 90 minutos', 'over_90'),
@@ -542,11 +544,24 @@ const interviewQuestions: InterviewQuestion[] = [
     ['waist_circumference', 'Circunferencia da cintura'], ['abdomen_circumference', 'Circunferencia do abdomen'], ['hip_circumference', 'Circunferencia do quadril'],
     ['arm_circumference', 'Circunferencia do braco'], ['thigh_circumference', 'Circunferencia da coxa'], ['calf_circumference', 'Circunferencia da panturrilha'],
   ].map(([key, prompt]) => ({ key, module: 'Avaliacao fisica recente', prompt, type: 'number_or_unknown' as const, help: 'Use uma fita metrica, sem apertar a pele, mantendo-a paralela ao chao. Registre em centimetros.', condition: (a: InterviewAnswers) => a.recent_physical_assessment === 'yes' })),
+  {
+    key: 'training_modality_preference',
+    module: 'Rotina semanal',
+    prompt: 'Alem da corrida, voce quer que a gente monte tambem treinos de fortalecimento para corredores e/ou musculacao?',
+    type: 'single',
+    help: 'Voce pode treinar so corrida com a gente, ou incluir tambem fortalecimento para corredores e/ou musculacao na sua semana. Muitos alunos ja fazem musculacao ou treino de forca em outro lugar (academia, personal trainer) e preferem que a Panzeri Run cuide so da parte de corrida — sem problema nenhum escolher assim. Queremos montar exatamente o que faz sentido pra sua rotina.',
+    options: [
+      option('Somente corrida', 'somente_corrida'),
+      option('Corrida + fortalecimento para corredores', 'corrida_fortalecimento'),
+      option('Corrida + musculacao', 'corrida_musculacao'),
+      option('Corrida + fortalecimento para corredores + musculacao', 'corrida_fortalecimento_musculacao'),
+    ],
+  },
   ...weekInterviewDays.flatMap(([key, label]) => [
     { key: `${key}_run_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem disponivel para corrida?`, type: 'single' as const, options: interviewTimeOptions },
     { key: `${key}_run_location`, module: 'Rotina semanal', prompt: `${label}: onde voce consegue correr?`, type: 'single' as const, options: [option('Rua', 'street'), option('Esteira', 'treadmill'), option('Tanto faz', 'either')], condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== 'none' },
-    { key: `${key}_strength_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para fortalecimento?`, type: 'single' as const, options: interviewTimeOptions },
-    { key: `${key}_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel?`, type: 'single' as const, options: ['Antes das 6h', 'Entre 6h e 9h', 'Entre 9h e 12h', 'Entre 12h e 15h', 'Entre 15h e 18h', 'Apos 18h'].map((v) => option(v)), condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== 'none' || a[`${key}_strength_time`] !== 'none' },
+    { key: `${key}_strength_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para fortalecimento?`, type: 'single' as const, options: interviewTimeOptions, condition: (a: InterviewAnswers) => a.training_modality_preference !== 'somente_corrida' },
+    { key: `${key}_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel?`, type: 'single' as const, options: ['Antes das 6h', 'Entre 6h e 9h', 'Entre 9h e 12h', 'Entre 12h e 15h', 'Entre 15h e 18h', 'Apos 18h'].map((v) => option(v)), condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== 'none' || (a.training_modality_preference !== 'somente_corrida' && a[`${key}_strength_time`] !== 'none') },
   ]),
   { key: 'sleep_hours', module: 'Habitos', prompt: 'Em media, quantas horas voce dorme?', type: 'single', options: ['Menos de 5 horas', 'Entre 5 e 6 horas', 'Entre 6 e 7 horas', 'Entre 7 e 8 horas', 'Mais de 8 horas'].map((v) => option(v)) },
   { key: 'smoking', module: 'Habitos', prompt: 'Voce fuma?', type: 'single', options: [option('Nao'), option('Sim')] },
@@ -854,6 +869,8 @@ function AppInner() {
               </>
             )}
             {activeTab === 'progress' && <Progress completedToday={completedToday} metrics={metrics} accessToken={accessToken} />}
+            {activeTab === 'targetRace' && <TargetRaceScreen accessToken={accessToken} />}
+            {activeTab === 'painReport' && <PainReportScreen accessToken={accessToken} />}
             {activeTab === 'strava' && <StravaSync accessToken={accessToken} />}
             {activeTab === 'billing' && <Billing accessToken={accessToken} />}
             {activeTab === 'profile' && (
@@ -1774,6 +1791,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       completedAt: dateInputValueToIso(draft.completedDate) ?? undefined,
       perceivedEffort: Number(draft.perceivedEffort) || undefined,
       satisfaction: draft.satisfaction || undefined,
+      painFlag: draft.painFlag || undefined,
       durationMin: Number(draft.durationMin) || undefined,
       distanceKm: Number(draft.distanceKm.replace(',', '.')) || undefined,
       avgPaceSecondsKm: paceInputToSeconds(draft.avgPace) ?? undefined,
@@ -1874,7 +1892,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     if (group) group.sessions.push(session);
     else groups.push({ key, day: session.day, date: session.date, sessions: [session] });
     return groups;
-  }, []);
+  }, []).map((group) => ({ ...group, sessions: group.sessions.slice().sort((left, right) => modalityOrderRank(left.modality) - modalityOrderRank(right.modality)) }));
 
   const subscriptionOffer = (
     <View style={styles.formSection}>
@@ -2007,7 +2025,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
                 </Pressable>
 
                 {expanded ? group.sessions.map((session) => (
-                  <View key={session.id} style={styles.formSection}>
+                  <View key={session.id} style={[styles.formSection, { borderLeftWidth: 4, borderLeftColor: modalityAccentColor(session.modality) }]}>
                     <View style={styles.weekSessionHeader}>
                       <View style={styles.weekSessionTitleBlock}>
                         <Text style={styles.sessionTitle}>{session.title}</Text>
@@ -2322,6 +2340,374 @@ function Progress({ completedToday: _completedToday, metrics, accessToken }: { c
                 {item.perceivedEffort ? ` | esforco ${item.perceivedEffort}/10` : ''}
               </Text>
             </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+interface TargetRaceItem {
+  id: string;
+  name: string;
+  raceDate: string;
+  distanceKm: number;
+  targetSeconds: number | null;
+  priority: string;
+  status: string;
+  notes: string | null;
+  paceSecondsPerKm: number | null;
+  speedKmh: number | null;
+}
+
+function TargetRaceScreen({ accessToken }: { accessToken: string }) {
+  const [races, setRaces] = useState<TargetRaceItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+  const [name, setName] = useState('');
+  const [raceDateInput, setRaceDateInput] = useState('');
+  const [distanceInput, setDistanceInput] = useState('');
+  const [hours, setHours] = useState('');
+  const [minutes, setMinutes] = useState('');
+  const [seconds, setSeconds] = useState('');
+  const [priority, setPriority] = useState('principal');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/me/target-races`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (response.ok) setRaces((await response.json()) as TargetRaceItem[]);
+    } catch {
+      setMessage('Nao consegui carregar suas metas.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, [accessToken]);
+
+  const distanceKm = Number(distanceInput.replace(',', '.'));
+  const totalSeconds = Number(hours || '0') * 3600 + Number(minutes || '0') * 60 + Number(seconds || '0');
+  const previewPace = distanceKm > 0 && totalSeconds > 0 ? formatPace(Math.round(totalSeconds / distanceKm)) : null;
+  const previewSpeed = distanceKm > 0 && totalSeconds > 0 ? ((distanceKm / totalSeconds) * 3600).toFixed(2) : null;
+
+  async function createRace() {
+    if (!name.trim()) { setMessage('Digite o nome da prova.'); return; }
+    const isoDate = dateInputValueToIso(raceDateInput);
+    if (!isoDate) { setMessage('Digite uma data valida no formato dia/mes/ano.'); return; }
+    if (!distanceKm || distanceKm <= 0) { setMessage('Digite uma distancia valida em quilometros.'); return; }
+    setSaving(true);
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/me/target-races`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          raceDate: isoDate,
+          distanceKm,
+          targetSeconds: totalSeconds > 0 ? totalSeconds : undefined,
+          priority,
+          notes: notes.trim() || undefined,
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({} as { message?: string }));
+        setMessage(typeof data.message === 'string' ? data.message : 'Nao consegui salvar essa meta.');
+        return;
+      }
+      setName('');
+      setRaceDateInput('');
+      setDistanceInput('');
+      setHours('');
+      setMinutes('');
+      setSeconds('');
+      setNotes('');
+      setPriority('principal');
+      setMessage('Meta salva.');
+      await load();
+    } catch {
+      setMessage('Nao consegui salvar essa meta.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateStatus(raceId: string, status: string) {
+    try {
+      const response = await fetch(`${API_URL}/me/target-races/${raceId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (response.ok) await load();
+    } catch {
+      setMessage('Nao consegui atualizar essa meta.');
+    }
+  }
+
+  async function removeRace(raceId: string) {
+    try {
+      const response = await fetch(`${API_URL}/me/target-races/${raceId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } });
+      if (response.ok) await load();
+    } catch {
+      setMessage('Nao consegui remover essa meta.');
+    }
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Prova alvo</Text>
+      <Text style={styles.titleSmall}>Suas metas de prova</Text>
+      <Text style={styles.copyTight}>
+        Registre a prova que voce esta buscando. Vamos usar isso como norte para montar seu treino — mas fatores que nao controlamos diretamente (sua rotina, alimentacao, sono e dedicacao) tambem influenciam o resultado final. Por isso, escolha uma meta realista com aquilo que voce esta disposto a se comprometer a treinar ate la. Nao garantimos o resultado, mas vamos trabalhar para chegar o mais perto possivel dele com seguranca.
+      </Text>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Nova meta</Text>
+        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Nome da prova (ex: Meia Maratona de SP)" />
+        <TextInput style={styles.input} value={raceDateInput} onChangeText={(text) => setRaceDateInput(formatDateInputText(text))} placeholder="Data (dd/mm/aaaa)" keyboardType="number-pad" maxLength={10} />
+        <TextInput style={styles.input} value={distanceInput} onChangeText={setDistanceInput} placeholder="Distancia em km (ex: 21 ou 134,5)" keyboardType="decimal-pad" />
+        <Text style={styles.inputLabel}>Tempo que espera fazer (opcional)</Text>
+        <View style={styles.couponRow}>
+          <TextInput style={[styles.input, styles.couponInput]} value={hours} onChangeText={setHours} placeholder="Horas" keyboardType="number-pad" maxLength={3} />
+          <TextInput style={[styles.input, styles.couponInput]} value={minutes} onChangeText={setMinutes} placeholder="Min" keyboardType="number-pad" maxLength={2} />
+          <TextInput style={[styles.input, styles.couponInput]} value={seconds} onChangeText={setSeconds} placeholder="Seg" keyboardType="number-pad" maxLength={2} />
+        </View>
+        {previewPace ? <Text style={styles.formHint}>Isso equivale a um pace de {previewPace} ({previewSpeed} km/h).</Text> : null}
+        <Text style={styles.inputLabel}>Prioridade</Text>
+        <View style={styles.answerList}>
+          {[option('Principal', 'principal'), option('Secundaria', 'secundaria')].map((item) => (
+            <Pressable key={item.value} style={[styles.answerButton, priority === item.value && styles.answerButtonActive]} onPress={() => setPriority(item.value)}>
+              <Text style={[styles.answerButtonText, priority === item.value && styles.answerButtonTextActive]}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <TextInput style={styles.input} value={notes} onChangeText={setNotes} placeholder="Observacoes (opcional)" />
+        <Pressable style={styles.primaryButton} onPress={createRace} disabled={saving}>
+          <Text style={styles.primaryButtonText}>{saving ? 'Salvando...' : 'Salvar meta'}</Text>
+        </Pressable>
+      </View>
+
+      {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
+      {loading ? <Text style={styles.statusMessage}>Carregando...</Text> : null}
+
+      {races.map((race) => (
+        <View style={styles.formSection} key={race.id}>
+          <Text style={styles.formSectionTitle}>{race.name}</Text>
+          <Text style={styles.reportText}>Data: {formatDayMonth(new Date(race.raceDate))} · Distancia: {race.distanceKm} km</Text>
+          {race.paceSecondsPerKm ? <Text style={styles.reportText}>Pace alvo: {formatPace(race.paceSecondsPerKm)} ({race.speedKmh} km/h)</Text> : null}
+          <Text style={styles.reportText}>Situacao: {race.status === 'em_andamento' ? 'Em andamento' : race.status === 'concluida' ? 'Concluida' : 'Arquivada'}</Text>
+          {race.notes ? <Text style={styles.reportText}>{race.notes}</Text> : null}
+          <View style={styles.couponRow}>
+            {race.status !== 'concluida' ? (
+              <Pressable style={styles.secondaryButton} onPress={() => updateStatus(race.id, 'concluida')}>
+                <Text style={styles.secondaryButtonText}>Marcar concluida</Text>
+              </Pressable>
+            ) : null}
+            <Pressable style={styles.secondaryButton} onPress={() => removeRace(race.id)}>
+              <Text style={styles.secondaryButtonText}>Remover</Text>
+            </Pressable>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const PAIN_REPORT_REGIONS = [
+  'Joelho direito', 'Joelho esquerdo', 'Tornozelo direito', 'Tornozelo esquerdo', 'Pe direito', 'Pe esquerdo',
+  'Canela direita', 'Canela esquerda', 'Panturrilha direita', 'Panturrilha esquerda', 'Coxa direita', 'Coxa esquerda',
+  'Quadril direito', 'Quadril esquerdo', 'Gluteo direito', 'Gluteo esquerdo', 'Lombar/coluna', 'Nao sei responder',
+];
+
+const PAIN_ONSET_OPTIONS = [
+  option('Comeca e passa durante o treino', 'starts_then_stops'),
+  option('Comeca no meio do treino e continua', 'starts_mid'),
+  option('So aparece depois do treino', 'after_only'),
+  option('Sinto o tempo todo, treinando ou nao', 'all_the_time'),
+];
+
+const PAIN_PERSISTENCE_OPTIONS = [
+  option('Esta constante, sempre presente', 'permanent'),
+  option('Vai e volta (tem dias melhores e piores)', 'oscillating'),
+  option('So acontece em movimentos ou posicoes especificas', 'specific_movements'),
+];
+
+const PAIN_PREVIOUS_STATUS_OPTIONS = [
+  option('Nao relatei dor antes', 'none_before'),
+  option('Uma dor anterior sumiu totalmente', 'resolved'),
+  option('Melhorou, mas ainda sinto um pouco', 'improved'),
+  option('Continua igual', 'unchanged'),
+];
+
+function PainReportScreen({ accessToken }: { accessToken: string }) {
+  const [regions, setRegions] = useState<string[]>([]);
+  const [otherLocation, setOtherLocation] = useState('');
+  const [intensity, setIntensity] = useState<number | null>(null);
+  const [onsetPattern, setOnsetPattern] = useState('');
+  const [persistencePattern, setPersistencePattern] = useState('');
+  const [previousPainStatus, setPreviousPainStatus] = useState('');
+  const [previousRegionsAvailable, setPreviousRegionsAvailable] = useState<string[]>([]);
+  const [resolvedRegions, setResolvedRegions] = useState<string[]>([]);
+  const [comment, setComment] = useState('');
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [history, setHistory] = useState<Array<{ id: string; regions: string[]; intensity: number; createdAt: string }>>([]);
+
+  async function loadContext() {
+    try {
+      const [previousResponse, historyResponse] = await Promise.all([
+        fetch(`${API_URL}/me/pain-reports/previous-regions`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+        fetch(`${API_URL}/me/pain-reports`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+      ]);
+      if (previousResponse.ok) setPreviousRegionsAvailable((await previousResponse.json()) as string[]);
+      if (historyResponse.ok) setHistory((await historyResponse.json()) as Array<{ id: string; regions: string[]; intensity: number; createdAt: string }>);
+    } catch {
+      setMessage('Nao consegui carregar seu historico de dor.');
+    }
+  }
+
+  useEffect(() => { void loadContext(); }, [accessToken]);
+
+  async function submit() {
+    if (!regions.length) { setMessage('Marque ao menos uma regiao, ou "Nao sei responder".'); return; }
+    if (!intensity) { setMessage('Marque a intensidade da dor.'); return; }
+    if (!onsetPattern) { setMessage('Marque quando a dor costuma aparecer.'); return; }
+    if (!persistencePattern) { setMessage('Marque como a dor tem se comportado.'); return; }
+    setSaving(true);
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/me/pain-reports`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          regions,
+          otherLocation: otherLocation.trim() || undefined,
+          intensity,
+          onsetPattern,
+          persistencePattern,
+          previousPainStatus: previousPainStatus || undefined,
+          resolvedRegions,
+          comment: comment.trim() || undefined,
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({} as { message?: string }));
+        setMessage(typeof data.message === 'string' ? data.message : 'Nao consegui enviar o relato.');
+        return;
+      }
+      setRegions([]);
+      setOtherLocation('');
+      setIntensity(null);
+      setOnsetPattern('');
+      setPersistencePattern('');
+      setPreviousPainStatus('');
+      setResolvedRegions([]);
+      setComment('');
+      setMessage('Relato enviado. Obrigado por avisar — vamos considerar isso no seu proximo treino.');
+      await loadContext();
+    } catch {
+      setMessage('Nao consegui enviar o relato.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Relatar dor</Text>
+      <Text style={styles.titleSmall}>Conte para a gente o que voce esta sentindo</Text>
+      <Text style={styles.copyTight}>Use isto quando tiver uma dor que te preocupe ou incomode mais do que o normal. Para dor leve do dia a dia, o feedback logo apos cada treino ja e suficiente.</Text>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Onde voce sente a dor?</Text>
+        <View style={styles.answerList}>
+          {PAIN_REPORT_REGIONS.map((region) => {
+            const selected = regions.includes(region);
+            return (
+              <Pressable key={region} style={[styles.answerButton, selected && styles.answerButtonActive]} onPress={() => setRegions(selected ? regions.filter((item) => item !== region) : [...regions, region])}>
+                <Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{region}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <TextInput style={styles.input} value={otherLocation} onChangeText={setOtherLocation} placeholder="Outro local (opcional)" />
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Intensidade da dor (1 a 10)</Text>
+        <View style={styles.scaleGrid}>
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((value) => (
+            <Pressable key={value} style={[styles.answerButton, styles.scaleButton, intensity === value && styles.answerButtonActive]} onPress={() => setIntensity(value)}>
+              <Text style={[styles.answerButtonText, intensity === value && styles.answerButtonTextActive]}>{value}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Quando a dor costuma aparecer?</Text>
+        <View style={styles.answerList}>
+          {PAIN_ONSET_OPTIONS.map((item) => (
+            <Pressable key={item.value} style={[styles.answerButton, onsetPattern === item.value && styles.answerButtonActive]} onPress={() => setOnsetPattern(item.value)}>
+              <Text style={[styles.answerButtonText, onsetPattern === item.value && styles.answerButtonTextActive]}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Como ela tem se comportado?</Text>
+        <View style={styles.answerList}>
+          {PAIN_PERSISTENCE_OPTIONS.map((item) => (
+            <Pressable key={item.value} style={[styles.answerButton, persistencePattern === item.value && styles.answerButtonActive]} onPress={() => setPersistencePattern(item.value)}>
+              <Text style={[styles.answerButtonText, persistencePattern === item.value && styles.answerButtonTextActive]}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Alguma dor que voce relatou antes ja sumiu ou melhorou?</Text>
+        <View style={styles.answerList}>
+          {PAIN_PREVIOUS_STATUS_OPTIONS.map((item) => (
+            <Pressable key={item.value} style={[styles.answerButton, previousPainStatus === item.value && styles.answerButtonActive]} onPress={() => setPreviousPainStatus(item.value)}>
+              <Text style={[styles.answerButtonText, previousPainStatus === item.value && styles.answerButtonTextActive]}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+        {(previousPainStatus === 'resolved' || previousPainStatus === 'improved') && previousRegionsAvailable.length ? (
+          <View style={styles.answerList}>
+            {previousRegionsAvailable.map((region) => {
+              const selected = resolvedRegions.includes(region);
+              return (
+                <Pressable key={region} style={[styles.answerButton, selected && styles.answerButtonActive]} onPress={() => setResolvedRegions(selected ? resolvedRegions.filter((item) => item !== region) : [...resolvedRegions, region])}>
+                  <Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{region}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Comentario (opcional)</Text>
+        <TextInput style={styles.input} value={comment} onChangeText={setComment} placeholder="Escreva algo mais, se quiser" multiline />
+      </View>
+
+      <Pressable style={styles.primaryButton} onPress={submit} disabled={saving}>
+        <Text style={styles.primaryButtonText}>{saving ? 'Enviando...' : 'Enviar relato'}</Text>
+      </Pressable>
+      {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
+
+      {history.length ? (
+        <View style={styles.formSection}>
+          <Text style={styles.formSectionTitle}>Seus relatos anteriores</Text>
+          {history.slice(0, 10).map((item) => (
+            <Text key={item.id} style={styles.reportText}>{formatDayMonth(new Date(item.createdAt))} · {item.regions.join(', ') || 'Regiao nao informada'} · intensidade {item.intensity}/10</Text>
           ))}
         </View>
       ) : null}
@@ -2935,6 +3321,8 @@ function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: 
     { id: 'interview', label: 'Entrevista inicial', icon: 'chatbubbles' },
     { id: 'reassessment', label: 'Reavaliacao periodica', icon: 'refresh-circle' },
     { id: 'test', label: 'Teste de VO2 max', icon: 'stopwatch' },
+    { id: 'targetRace', label: 'Prova alvo', icon: 'trophy' },
+    { id: 'painReport', label: 'Relatar dor', icon: 'medkit' },
     { id: 'progress', label: 'Evolucao', icon: 'stats-chart' },
     { id: 'strava', label: 'Sincronizar com Strava', icon: 'sync' },
     { id: 'billing', label: 'Plano e faturamento', icon: 'card' },
@@ -3313,6 +3701,23 @@ function CompletionForm({
         ))}
       </View>
 
+      <Text style={styles.formHint}>Sentiu dor nesse treino?</Text>
+      <View style={styles.completionStatusRow}>
+        {[
+          { label: 'Nao', value: 'none' },
+          { label: 'Sim, leve', value: 'leve' },
+          { label: 'Sim, incomodou bastante', value: 'forte' },
+        ].map((option) => (
+          <Pressable
+            key={option.value}
+            style={[styles.completionChip, draft.painFlag === option.value && styles.completionChipActive]}
+            onPress={() => onChange({ painFlag: option.value })}
+          >
+            <Text style={[styles.completionChipText, draft.painFlag === option.value && styles.completionChipTextActive]}>{option.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
       <Text style={styles.formHint}>
         Quanto mais sincero e detalhado for seu comentario, melhor conseguimos ajustar a qualidade dos seus proximos treinos.
       </Text>
@@ -3486,6 +3891,22 @@ function iconForModality(modality: string): keyof typeof Ionicons.glyphMap {
   return 'walk';
 }
 
+// Ordem padronizada: corrida sempre primeiro, depois fortalecimento para corredores, por
+// ultimo musculacao — cada modalidade com uma cor de destaque diferente para ficar visual.
+function modalityOrderRank(modality: string) {
+  if (modality === 'corrida' || modality === 'esteira') return 0;
+  if (modality === 'fortalecimento_corredores') return 1;
+  if (modality === 'forca') return 2;
+  return 3;
+}
+
+function modalityAccentColor(modality: string) {
+  if (modality === 'corrida' || modality === 'esteira') return '#0f766e';
+  if (modality === 'fortalecimento_corredores') return '#d97706';
+  if (modality === 'forca') return '#7c3aed';
+  return '#64748b';
+}
+
 function shiftSessionDay(session: WeekPlanSession, direction: -1 | 1): WeekPlanSession {
   const currentWeekday = dayToWeekday(session.day);
   const nextWeekday = (currentWeekday + direction + 7) % 7;
@@ -3647,6 +4068,7 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     completedDate: todayDateInputValue(),
     perceivedEffort: '',
     satisfaction: '',
+    painFlag: '',
     durationMin: session.durationMin ? String(session.durationMin) : '',
     distanceKm: session.distanceKm ? String(session.distanceKm).replace('.', ',') : '',
     avgPace: '',
@@ -3663,6 +4085,7 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     completedDate: completion.completedAt ? isoDateToInputValue(completion.completedAt) : todayDateInputValue(),
     perceivedEffort: completion.perceivedEffort ? String(completion.perceivedEffort) : '',
     satisfaction: completion.satisfaction ?? '',
+    painFlag: completion.painFlag ?? '',
     durationMin: completion.durationMin ? String(completion.durationMin) : '',
     distanceKm: completion.distanceKm ? String(completion.distanceKm).replace('.', ',') : '',
     avgPace: completion.avgPaceSecondsKm ? paceSecondsToInput(completion.avgPaceSecondsKm) : '',

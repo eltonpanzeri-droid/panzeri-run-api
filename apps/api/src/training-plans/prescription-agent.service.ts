@@ -73,7 +73,9 @@ export class PrescriptionAgentService {
     const runSlots = computeRunSlots(input.availability);
     if (!runSlots.length) return null;
 
-    const safetyAdjustment = hasSafetyConcern(input.answers);
+    const painTier = input.painTier ?? (hasSafetyConcern(input.answers) ? 'reduced' : 'normal');
+    const safetyAdjustment = painTier !== 'normal';
+    const removeRunning = painTier === 'remove_running';
     const novice = isNovice(input.experience, input.answers);
     const client = this.client;
 
@@ -87,8 +89,8 @@ export class PrescriptionAgentService {
             effort: 'high',
             format: zodOutputFormat(AiWeeklyDecisionSchema),
           },
-          system: this.buildSystemPrompt(safetyAdjustment, novice),
-          messages: [{ role: 'user', content: this.buildUserPrompt(input, runSlots, safetyAdjustment, novice, evidence) }],
+          system: this.buildSystemPrompt(safetyAdjustment, removeRunning, novice),
+          messages: [{ role: 'user', content: this.buildUserPrompt(input, runSlots, safetyAdjustment, novice, evidence, input.painReason ?? null) }],
         }),
       );
 
@@ -157,19 +159,22 @@ export class PrescriptionAgentService {
     return result;
   }
 
-  private buildSystemPrompt(safetyAdjustment: boolean, novice: boolean) {
+  private buildSystemPrompt(safetyAdjustment: boolean, removeRunning: boolean, novice: boolean) {
     return [
       'Voce e o agente de prescricao de treinos de corrida da Panzeri Run.',
       'Sua unica funcao e decidir a estrutura da semana de treinos de corrida de UM aluno, aplicando o julgamento real do treinador Elton Panzeri descrito abaixo — nunca conhecimento generico de blogs ou regras fixas de treinamento de corrida.',
       PANZERI_METHODOLOGY_KNOWLEDGE,
       'Regras obrigatorias, nao negociaveis (sobrepoe qualquer outra decisao):',
       '- Se diretrizesEspecificasDoTreinadorParaEsteAluno nao estiver vazio, essas sao instrucoes que o treinador Elton Panzeri deu especificamente para ESTE aluno (nao para alunos em geral) atraves de uma conversa direta com o agente gerente tecnico. Elas tem prioridade sobre as recomendacoes gerais de metodologia abaixo (mas nunca sobre as regras de seguranca obrigatorias). Aplique-as literalmente.',
+      '- Se metaDeProva estiver preenchida, use-a como norte para a periodizacao (volume, foco da fase, urgencia conforme a proximidade da data), mas voce PODE e DEVE ajustar a interpretacao dessa meta se os dados reais do aluno (pace, volume sustentado, experiencia, tempo ate a prova) indicarem que ela e pouco realista — nesse caso, prescreva o que voce julgar seguro e adequado para a capacidade real do aluno, e explique claramente no rationale que a meta informada parece ambiciosa/pouco realista e por que voce ajustou a abordagem. Nunca sacrifique seguranca ou progressao responsavel para tentar alcancar uma meta.',
       '- Retorne exatamente uma sessao de corrida para cada dia disponivel informado, usando o mesmo numero de weekday (0=domingo...6=sabado).',
       '- durationMin de cada sessao nunca pode exceder o tempo disponivel informado para aquele dia.',
       '- Se o aluno relatou uma media semanal de quilometragem atual (mediaSemanalKmAtualRelatada) e/ou volume real recente no Strava, a soma aproximada da distancia de todas as sessoes da semana que voce prescrever NUNCA deve ficar muito abaixo desse volume que ele ja sustenta na pratica, a nao ser que haja um motivo real de seguranca, deload ou retorno de pausa. O erro classico a evitar: um aluno que corre 19 km por semana recebendo uma sessao "leve" de 4 km (dos quais 1,1 km e so aquecimento/desaquecimento) — isso e um treino curto e ruim demais para a capacidade real dele, e deve ser tratado como falha grave.',
-      safetyAdjustment
-        ? '- Este aluno tem um sinal de seguranca ativo (dor ou limitacao relatada): NUNCA use sessionType "quality_run" nem zone "Z4" nesta semana. Toda sessao deve ser leve (Z2, easy_run, walk_run ou long_run leve).'
-        : '- Sem sinal de seguranca ativo relatado no momento, mas priorize seguranca e progressao conservadora sempre que os dados sugerirem cautela.',
+      removeRunning
+        ? '- Este aluno relatou dor intensa recentemente (relato estruturado de dor, nao a entrevista de onboarding). A corrida ja foi removida desta semana pelo sistema antes de voce ser chamado — se ainda assim voce receber dias de corrida no contexto, trate-os como sessoes leves de transicao apenas, nunca quality_run/Z4.'
+        : safetyAdjustment
+          ? '- Este aluno tem um relato de dor RECENTE (moderada ou recorrente, calculado a partir dos ultimos relatos de dor, nao de uma resposta antiga e permanente da entrevista): NUNCA use sessionType "quality_run" nem zone "Z4" nesta semana, mas a corrida continua acontecendo normalmente com volume/intensidade reduzidos. Um relato de dor leve e isolado (uma unica vez, intensidade baixa) NAO deveria ter chegado aqui como sinal ativo — dor pontual e leve nao e motivo para tirar treino intervalado.'
+          : '- Sem sinal de dor recente relatado no momento, mas priorize seguranca e progressao conservadora sempre que os dados sugerirem cautela.',
       '- Classificacao de experiencia/entrevista (classificadoComoIniciante no contexto) e so um dado informativo a mais — a decisao de usar sessionType "walk_run" deve vir do PACE REAL que voce concluir (paceAssessment), nao do rotulo de iniciante. Um aluno pode ter experiencia registrada mas ainda assim ter um pace facil proximo do ritmo de caminhada (destreinado, retorno de pausa, sobrepeso recente); e alguem classificado como iniciante pode ja ter um pace facil claramente de corredor. Se o easyPaceSecondsPerKm que voce concluir for claramente rapido (aluno corre bem de verdade), NUNCA use "walk_run" mesmo que a entrevista sugira pouca experiencia.',
       '- Zonas (Z1-Z5) sao uma ferramenta OBRIGATORIA de classificacao/raciocinio do esforco, mas NAO existe obrigacao de que o pace numerico siga uma formula fixa de zona — o pace vem do seu raciocinio sobre a evidencia real (ver paceAssessment abaixo). A proporcao 80/20 de baixa/alta intensidade e RECOMENDADA como referencia geral (um NORTE), nao e obrigatoria — varie livremente quando a disponibilidade, o limiar do aluno ou o objetivo pedirem algo diferente.',
       '- Entenda isto como obrigatorio: um aluno cujo pace facil real esta proximo do ritmo de caminhada vai precisar passar MAIS tempo em intensidade alta, nao menos — porque abaixo de aproximadamente 8:30/km a mecanica da corrida piora (fica parecido com andar rapido). Para esse aluno, prefira treinos intervalados com a parte de corrida mais forte (mesmo parecendo intenso pro nivel dele) alternada com CAMINHADA de verdade como recuperacao (pace de caminhada bem mais lento), em vez de forcar uma corrida continua lenta com mecanica ruim.',
@@ -185,7 +190,7 @@ export class PrescriptionAgentService {
     ].join('\n\n');
   }
 
-  private buildUserPrompt(input: MethodologyInput, runSlots: RunSlot[], safetyAdjustment: boolean, novice: boolean, evidence: PaceEvidence) {
+  private buildUserPrompt(input: MethodologyInput, runSlots: RunSlot[], safetyAdjustment: boolean, novice: boolean, evidence: PaceEvidence, painReason: string | null) {
     return JSON.stringify(
       {
         objetivo: input.goal,
@@ -212,6 +217,15 @@ export class PrescriptionAgentService {
         analiseExecucao: input.executionInsight,
         analiseAprofundadaStrava: input.stravaAnalysis ?? null,
         sinalDeSeguranca: safetyAdjustment,
+        motivoDoSinalDeSeguranca: painReason,
+        metaDeProva: input.targetRace
+          ? {
+              nome: input.targetRace.name,
+              data: input.targetRace.raceDate,
+              distanciaKm: input.targetRace.distanceKm,
+              paceAlvoSegundosPorKm: input.targetRace.paceSecondsPerKm,
+            }
+          : null,
       },
       null,
       2,

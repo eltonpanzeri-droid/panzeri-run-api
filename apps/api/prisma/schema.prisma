@@ -48,6 +48,8 @@ model User {
   coachReports CoachReport[]
   studentDirectives StudentDirective[]
   coachChatMessages CoachChatMessage[]
+  targetRaces TargetRace[]
+  painReports PainReport[]
 }
 
 model BillingProviderConfig {
@@ -294,9 +296,45 @@ model WorkoutCompletion {
   maxHeartRate       Int?
   perceivedEffort    Int?
   satisfaction       String?
+  painFlag           String?
   notes              String?
   details            Json?
   source             String           @default("manual")
+}
+
+model TargetRace {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  name          String
+  raceDate      DateTime
+  distanceKm    Float
+  targetSeconds Int?
+  priority      String   @default("principal")
+  status        String   @default("em_andamento")
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
+model PainReport {
+  id                 String   @id @default(uuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id])
+  regions            String[]
+  regionDetails      Json?
+  otherLocation      String?
+  intensity          Int
+  onsetPattern       String
+  persistencePattern String
+  previousPainStatus String?
+  resolvedRegions    String[]
+  comment            String?
+  createdAt          DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 model StravaConnection {

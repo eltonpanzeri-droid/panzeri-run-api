@@ -17,6 +17,8 @@ import { MessagingModule } from './messaging/messaging.module';
 import { ReassessmentModule } from './reassessment/reassessment.module';
 import { BackupModule } from './backup/backup.module';
 import { TechnicalManagerModule } from './technical-manager/technical-manager.module';
+import { TargetRacesModule } from './target-races/target-races.module';
+import { PainReportsModule } from './pain-reports/pain-reports.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -42,6 +44,8 @@ import { ScheduleModule } from '@nestjs/schedule';
     ReassessmentModule,
     BackupModule,
     TechnicalManagerModule,
+    TargetRacesModule,
+    PainReportsModule,
   ],
   controllers: [AppController],
   providers: [
