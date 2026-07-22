@@ -148,7 +148,7 @@ export class TrainingPlansService {
         select: { id: true, startDate: true },
       }),
       this.prisma.studentDirective.findMany({
-        where: { userId, active: true },
+        where: { userId, active: true, OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] },
         orderBy: { createdAt: 'desc' },
         select: { content: true },
       }),

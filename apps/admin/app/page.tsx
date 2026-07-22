@@ -1110,7 +1110,7 @@ function StudentPanel({
   const [chatMessages, setChatMessages] = useState<Array<{ id: string; role: string; content: string; createdAt: string }>>([]);
   const [chatInput, setChatInput] = useState('');
   const [sendingChat, setSendingChat] = useState(false);
-  const [directives, setDirectives] = useState<Array<{ id: string; content: string; createdAt: string }>>([]);
+  const [directives, setDirectives] = useState<Array<{ id: string; content: string; createdAt: string; expiresAt?: string | null }>>([]);
   const [checkoutLinkUrl, setCheckoutLinkUrl] = useState('');
 
   useEffect(() => {
@@ -1581,7 +1581,16 @@ function StudentPanel({
             <strong>Diretrizes ativas para {student.name}</strong>
             {directives.map((directive) => (
               <div className="directiveItem" key={directive.id}>
-                <span>{directive.content}</span>
+                <span>
+                  {directive.content}
+                  {directive.expiresAt ? (
+                    <strong style={{ display: 'block', fontSize: '0.8em', fontWeight: 600, marginTop: 4 }}>
+                      Temporaria — valida ate {new Date(directive.expiresAt).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
+                    </strong>
+                  ) : (
+                    <em style={{ display: 'block', fontSize: '0.8em', opacity: 0.7, marginTop: 4 }}>Permanente</em>
+                  )}
+                </span>
                 <button type="button" className="removeStructureButton" onClick={() => removeDirective(directive.id)}>Remover</button>
               </div>
             ))}

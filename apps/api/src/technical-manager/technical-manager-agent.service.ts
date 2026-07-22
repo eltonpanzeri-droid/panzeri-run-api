@@ -39,7 +39,7 @@ export class TechnicalManagerAgentService {
 
   async directives(studentId: string) {
     return this.prisma.studentDirective.findMany({
-      where: { userId: studentId, active: true },
+      where: { userId: studentId, active: true, OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -140,11 +140,12 @@ export class TechnicalManagerAgentService {
       {
         spec: {
           name: 'save_directive',
-          description: 'Salva uma diretriz permanente e especifica para este aluno, que o agente de prescricao de treinos vai respeitar em toda geracao futura de treino. So use depois que o treinador confirmar explicitamente, em uma mensagem anterior, que quer tornar aquilo uma regra permanente.',
+          description: 'Salva uma diretriz para este aluno, que o agente de prescricao de treinos vai OBRIGATORIAMENTE consultar e respeitar em toda geracao futura de treino — tanto na geracao automatica semanal quanto quando o treinador pedir para regenerar a semana manualmente. Pode ser permanente (sem data de validade) ou temporaria (com data de validade, ex: ate uma prova ou por algumas semanas). So use depois que o treinador confirmar explicitamente, em uma mensagem anterior, que quer salvar aquilo.',
           input_schema: {
             type: 'object',
             properties: {
-              content: { type: 'string', description: 'A diretriz em texto curto, objetivo e acionavel (ex: "Priorizar volume baixo nas proximas 3 semanas por retorno de lesao").' },
+              content: { type: 'string', description: 'A diretriz em texto objetivo e acionavel, com todos os detalhes combinados (datas, distancias, paces, etc). Ex: "Longao de 16 km em 25/07, depois 10 km em 01/08, volume maior ate 03/08, taper de 03/08 a 09/08 (reduzir volume/intensidade, sem treinos abaixo de 5 km), pace 5:40-6:20/km nos treinos curtos e 6:20-7:00/km nos longos, prova alvo em 09/08."' },
+              expiresAt: { type: 'string', description: 'Data (AAAA-MM-DD) ate quando essa diretriz vale, para instrucoes temporarias/com prazo (ex: ate uma prova, ou por algumas semanas). Deixe de fora (nao inclua o campo) para diretrizes permanentes, sem prazo.' },
             },
             required: ['content'],
           },
@@ -152,8 +153,13 @@ export class TechnicalManagerAgentService {
         run: async (input) => {
           const content = String(input.content ?? '').trim();
           if (!content) return 'Erro: conteudo da diretriz vazio.';
-          const created = await this.prisma.studentDirective.create({ data: { userId: studentId, content } });
-          return `Diretriz salva com sucesso (id: ${created.id}).`;
+          const expiresAtRaw = input.expiresAt ? String(input.expiresAt).trim() : '';
+          const expiresAt = expiresAtRaw ? new Date(`${expiresAtRaw}T23:59:59.000Z`) : undefined;
+          if (expiresAtRaw && Number.isNaN(expiresAt?.getTime())) return 'Erro: data de validade invalida, use o formato AAAA-MM-DD.';
+          const created = await this.prisma.studentDirective.create({ data: { userId: studentId, content, expiresAt } });
+          return expiresAt
+            ? `Diretriz temporaria salva com sucesso (id: ${created.id}), valida ate ${expiresAtRaw}.`
+            : `Diretriz permanente salva com sucesso (id: ${created.id}).`;
         },
       },
       {
@@ -184,7 +190,7 @@ export class TechnicalManagerAgentService {
       this.prisma.user.findUniqueOrThrow({ where: { id: studentId }, include: { preferences: true, healthProfile: true } }),
       this.prisma.onboardingInterview.findUnique({ where: { userId: studentId }, select: { answers: true } }),
       this.prisma.fitnessTest.findMany({ where: { userId: studentId, testType: '3km' }, orderBy: { createdAt: 'desc' }, take: 5 }),
-      this.prisma.studentDirective.findMany({ where: { userId: studentId, active: true }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.studentDirective.findMany({ where: { userId: studentId, active: true, OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] }, orderBy: { createdAt: 'desc' } }),
       this.prisma.trainingPlan.findFirst({
         where: { userId: studentId, status: 'active' },
         orderBy: { createdAt: 'desc' },
@@ -223,8 +229,9 @@ export class TechnicalManagerAgentService {
       'Voce pode consultar o contexto completo do aluno (get_student_context) e o relatorio de execucao do Strava (get_strava_report) para responder com informacao real, nunca invente dados.',
       'Quando o treinador pedir sua opiniao, de uma opiniao tecnica real baseada nos dados, como um profissional experiente faria — nao seja generico ou evasivo.',
       'REGRA MAIS IMPORTANTE sobre diretrizes permanentes: quando o treinador pedir para voce criar uma regra fixa/permanente para este aluno especifico, primeiro responda em texto confirmando exatamente o que sera salvo (ex: "Entendido, vou aplicar isso para a Juliana a partir de agora: ..."). So chame a ferramenta save_directive depois que o treinador confirmar explicitamente numa mensagem seguinte (ex: "sim", "pode salvar", "confirmado"). Nunca chame save_directive na mesma resposta em que voce esta pedindo a confirmacao.',
-      'Se o treinador pedir algo pontual, so para esta semana (nao uma regra permanente), NAO salve como diretriz — apenas responda e, se fizer sentido, sugira que ele use o botao de regenerar treino ou edite a sessao manualmente no painel.',
-      'Diretrizes salvas devem ser curtas, objetivas e acionaveis — nao salve conversas inteiras, resuma a regra em uma frase.',
+      'O agente que gera os treinos (tanto na geracao automatica semanal quanto quando o treinador pede para regenerar a semana) NAO participa desta conversa e NAO tem acesso a ela — a UNICA forma de qualquer combinado aqui realmente virar treino de verdade e voce salvar isso com save_directive. Se o treinador combinar algo especifico com voce (datas, distancias, paces, taper, etc) e voce nao salvar, isso sera perdido e o proximo treino gerado vai ignorar tudo o que foi conversado — isso e um erro grave, entao nunca diga para o treinador "editar a sessao manualmente" ou "regenerar o treino" como se isso fosse aplicar o combinado sozinho; regenerar so aplica o que estiver salvo como diretriz.',
+      'Sempre que o treinador confirmar um ajuste, identifique se ele tem prazo (ate uma data, ate uma prova, por N semanas) ou se e uma regra permanente. Se tiver prazo, salve com save_directive incluindo expiresAt (AAAA-MM-DD) correspondente ao ultimo dia em que o ajuste deve valer. Se for permanente, salve sem expiresAt. Em ambos os casos, so salve depois que o treinador confirmar explicitamente que quer aquilo aplicado — nunca salve so por voce ter sugerido algo.',
+      'Diretrizes salvas devem ser curtas, objetivas e acionaveis, mas sem perder os detalhes concretos combinados (datas, distancias em km, paces em min/km, etc) — nao salve conversas inteiras, resuma em um paragrafo curto e especifico.',
       'Responda sempre em portugues, em tom direto e profissional, como uma conversa entre dois profissionais tecnicos.',
     ].join('\n\n');
   }
