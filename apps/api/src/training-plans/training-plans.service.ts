@@ -14,6 +14,7 @@ import { PrescriptionAgentService, PaceEvidence } from './prescription-agent.ser
 import { StravaAnalysisAgentService } from './strava-analysis-agent.service';
 import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
+import { StravaService } from '../strava/strava.service';
 
 interface SessionTemplate {
   title: string;
@@ -65,6 +66,7 @@ export class TrainingPlansService {
     private readonly stravaAnalysisAgent: StravaAnalysisAgentService,
     private readonly painReports: PainReportsService,
     private readonly targetRaces: TargetRacesService,
+    private readonly stravaService: StravaService,
   ) {}
 
   async current(userId: string) {
@@ -109,8 +111,16 @@ export class TrainingPlansService {
   }
 
   async generateWeek(userId: string, weeklyOverride?: WeeklyAvailabilityInput[]) {
+    // O webhook do Strava ja mantem os treinos do aluno atualizados em tempo real, mas isso e
+    // uma rede de seguranca (webhook perdido, assinatura caida, etc): antes de decidir o treino,
+    // tenta puxar dados novos do Strava. syncIfStale so faz a chamada de verdade se o ultimo sync
+    // tiver mais de alguns minutos, entao isso nao pesa quando ja esta em dia. Qualquer erro aqui
+    // e ignorado de proposito — melhor gerar o treino com o que ja temos do que travar por causa
+    // de uma falha de sincronizacao.
+    await this.stravaService.syncIfStale(userId).catch(() => null);
+
     const historyStart = addDays(startOfWeek(new Date()), -35);
-    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRace] = await Promise.all([
+    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRace, latestReassessment] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         include: {
@@ -154,6 +164,7 @@ export class TrainingPlansService {
       }),
       this.painReports.computeSafetyTier(userId),
       this.targetRaces.currentGoal(userId),
+      this.prisma.reassessment.findFirst({ where: { userId, completedAt: { not: null } }, orderBy: { completedAt: 'desc' } }),
     ]);
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan();
@@ -222,6 +233,13 @@ export class TrainingPlansService {
         weekday,
         date: addDays(weekStart, weekdayOffsetFromMonday(weekday)).toISOString().slice(0, 10),
       })),
+      recentReassessment: latestReassessment ? {
+        completedAt: latestReassessment.completedAt!.toISOString(),
+        answers: sanitizeInterviewAnswers(jsonObject(latestReassessment.answers)),
+        evolutionSummary: latestReassessment.evolutionSummary,
+        evolutionWins: Array.isArray(latestReassessment.evolutionWins) ? latestReassessment.evolutionWins as string[] : [],
+        evolutionConcerns: Array.isArray(latestReassessment.evolutionConcerns) ? latestReassessment.evolutionConcerns as string[] : [],
+      } : null,
       painTier: painSafety.tier,
       painReason: painSafety.reason,
       targetRace: targetRace ? {

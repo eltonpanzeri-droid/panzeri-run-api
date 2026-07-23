@@ -85,6 +85,13 @@ export interface MethodologyInput {
   studentDirectives?: string[];
   todayDate?: string;
   weekDates?: Array<{ weekday: number; date: string }>;
+  recentReassessment?: {
+    completedAt: string;
+    answers: Record<string, unknown>;
+    evolutionSummary?: string | null;
+    evolutionWins?: string[];
+    evolutionConcerns?: string[];
+  } | null;
   painTier?: 'normal' | 'reduced' | 'remove_running';
   painReason?: string | null;
   targetRace?: {

@@ -16,6 +16,7 @@ interface DashboardResponse {
     differentSessions: number;
     adherencePercent: number;
     paymentConfirmed: number;
+    courtesyAccess: number;
     paymentOverdue: number;
     paymentPending: number;
     plansCreatedThisWeek: number;
@@ -788,7 +789,8 @@ export default function AdminHome() {
           <Stat label="Treinos propostos" value={String(dashboard?.totals.prescribedSessions ?? 0)} detail="semana atual" />
           <Stat label="Treinos feitos" value={String(dashboard?.totals.completedSessions ?? 0)} detail={`${dashboard?.totals.differentSessions ?? 0} diferentes`} />
           <Stat label="Aderencia media" value={`${dashboard?.totals.adherencePercent ?? 0}%`} detail="treinos propostos" />
-          <Stat label="Pagamento em dia" value={String(dashboard?.totals.paymentConfirmed ?? 0)} detail="alunos" />
+          <Stat label="Pagamento em dia" value={String(dashboard?.totals.paymentConfirmed ?? 0)} detail="pagantes reais" />
+          <Stat label="Cortesia / liberacao manual" value={String(dashboard?.totals.courtesyAccess ?? 0)} detail="nao e pagamento" />
           <Stat label="Pagamento atrasado" value={String(dashboard?.totals.paymentOverdue ?? 0)} detail="alunos" />
           <Stat label="Pagamento pendente" value={String(dashboard?.totals.paymentPending ?? 0)} detail="alunos" />
           <Stat label="Treinos criados" value={String(dashboard?.totals.plansCreatedThisWeek ?? 0)} detail="nesta semana" />
@@ -1739,7 +1741,7 @@ function StudentPanel({
                       <div className="interviewAnswerRow" key={key}>
                         <span className="interviewAnswerLabel">{interviewLabel(key)}</span>
                         <span className="interviewAnswerValue">
-                          {key === 'longest_distance_recent_time' ? (longestDistancePaceSummary(student.interview!.answers) ?? interviewValue(value)) : interviewValue(value)}
+                          {key === 'longest_distance_recent_time' ? (longestDistancePaceSummary(student.interview!.answers) ?? interviewValue(key, value)) : interviewValue(key, value)}
                         </span>
                       </div>
                     ))}
@@ -2628,7 +2630,7 @@ function RoutineAvailabilityTable({ answers }: { answers: Record<string, unknown
         <tr>
           <td>Horario disponivel</td>
           {ROUTINE_DAYS.map(([dayKey]) => (
-            <td key={dayKey}>{interviewValue(answers[`${dayKey}_available_time`])}</td>
+            <td key={dayKey}>{interviewValue(`${dayKey}_available_time`, answers[`${dayKey}_available_time`])}</td>
           ))}
         </tr>
       </tbody>
@@ -2728,12 +2730,68 @@ function interviewLabel(key: string) {
   return key.replace(/^rating_/, 'Nota - ').replace(/_/g, ' ');
 }
 
-function interviewValue(value: unknown) {
+// Muitas perguntas de escolha unica salvam um valor interno curto (ingles ou snake_case, ex:
+// "yes"/"no", "muito_leve", "8_10") separado do texto em portugues que o aluno viu na tela.
+// Sem esta traducao, o painel mostraria esses valores crus para o treinador.
+const INTERVIEW_CHOICE_LABELS: Record<string, Record<string, string>> = {
+  ran_5k_recently: { no: 'Nao', yes: 'Sim' },
+  current_pain: { no: 'Nao', yes: 'Sim' },
+  recent_physical_assessment: { no: 'Nao', yes: 'Sim' },
+  reassessment_new_pain: { no: 'Nao', yes: 'Sim' },
+  recent_running_feeling: {
+    tranquila: 'Tranquila, consegui manter o ritmo com folga', moderada: 'Moderada, exigiu esforco mas terminei bem',
+    dificil: 'Dificil, precisei desacelerar ou parar algumas vezes', muito_dificil: 'Muito dificil, quase nao consegui terminar',
+  },
+  fitness_self_rating: { muito_leve: 'Muito leve', leve: 'Leve', moderado: 'Moderado', forte: 'Forte', muito_forte: 'Muito forte' },
+  weekly_running_km: {
+    '0_10': 'Ate 10 km por semana', '10_20': '10 a 20 km por semana', '20_30': '20 a 30 km por semana', '30_40': '30 a 40 km por semana',
+    '40_50': '40 a 50 km por semana', '50_75': '50 a 75 km por semana', '75_100': '75 a 100 km por semana', '100_plus': 'Mais de 100 km por semana',
+  },
+  training_modality_preference: {
+    somente_corrida: 'Somente corrida', corrida_fortalecimento: 'Corrida + fortalecimento para corredores',
+    corrida_musculacao: 'Corrida + musculacao', corrida_fortalecimento_musculacao: 'Corrida + fortalecimento para corredores + musculacao',
+  },
+  reassessment_goal_change: { same: 'Sim, continua o mesmo', changed: 'Mudou' },
+  reassessment_routine_change: { no: 'Nao mudou', a_little: 'Mudou um pouco', a_lot: 'Mudou bastante' },
+  reassessment_perceived_evolution: { piorou: 'Piorou', igual: 'Continua igual', melhorou_pouco: 'Melhorou um pouco', melhorou_muito: 'Melhorou bastante' },
+  reassessment_satisfaction: {
+    muito_insatisfeito: 'Muito insatisfeito', insatisfeito: 'Insatisfeito', neutro: 'Neutro', satisfeito: 'Satisfeito', muito_satisfeito: 'Muito satisfeito',
+  },
+};
+
+const DISTANCE_BUCKET_LABELS: Record<string, string> = {
+  none: 'Nunca corri continuamente', '1_3': '1 a 3 km', '3_5': '3 a 5 km', '5_8': '5 a 8 km', '8_10': '8 a 10 km',
+  '10_15': '10 a 15 km', '15_21': '15 a 21 km', '21_30': '21 a 30 km', '30_42': '30 a 42 km', '42_plus': 'Mais de 42 km',
+};
+const DISTANCE_COUNT_BUCKET_LABELS: Record<string, string> = {
+  '1': '1 vez', '2_3': '2 a 3 vezes', '4_6': '4 a 6 vezes', '7_12': '7 a 12 vezes', '12_plus': 'Mais de 12 vezes',
+};
+const TIME_BUCKET_LABELS: Record<string, string> = {
+  none: 'Nao posso treinar', up_to_30: 'Ate 30 minutos', from_30_to_45: '30 a 45 minutos',
+  from_45_to_60: '45 a 60 minutos', from_60_to_90: '60 a 90 minutos', over_90: 'Mais de 90 minutos',
+};
+const LOCATION_LABELS: Record<string, string> = { street: 'Rua', treadmill: 'Esteira', either: 'Tanto faz' };
+const DISTANCE_BUCKET_KEYS = new Set(['longest_distance', 'longest_distance_recent', 'second_longest_distance_recent', 'third_longest_distance_recent']);
+const DISTANCE_COUNT_KEYS = new Set(['longest_distance_recent_count', 'second_longest_distance_recent_count', 'third_longest_distance_recent_count']);
+const WEEKDAY_KEY_PREFIXES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+function interviewValue(key: string, value: unknown) {
   if (Array.isArray(value)) return value.length ? value.join(', ') : 'Nenhum';
   if (value === true) return 'Sim';
   if (value === false) return 'Nao';
   if (value === 'unknown') return 'Nao sei';
-  return String(value ?? 'Nao informado');
+  const stringValue = String(value ?? '');
+  const directLabel = INTERVIEW_CHOICE_LABELS[key]?.[stringValue]
+    ?? (DISTANCE_BUCKET_KEYS.has(key) ? DISTANCE_BUCKET_LABELS[stringValue] : undefined)
+    ?? (DISTANCE_COUNT_KEYS.has(key) ? DISTANCE_COUNT_BUCKET_LABELS[stringValue] : undefined);
+  if (directLabel) return directLabel;
+  const day = WEEKDAY_KEY_PREFIXES.find((item) => key.startsWith(`${item}_`));
+  if (day) {
+    const suffix = key.slice(day.length + 1);
+    if (suffix === 'run_time' || suffix === 'strength_time') return TIME_BUCKET_LABELS[stringValue] ?? stringValue;
+    if (suffix === 'run_location') return LOCATION_LABELS[stringValue] ?? stringValue;
+  }
+  return value === undefined || value === null || stringValue.trim() === '' ? 'Nao informado' : stringValue;
 }
 function listLabel(items: string[]) {
   return items.length ? items.join(', ') : 'Nao informado';
