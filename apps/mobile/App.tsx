@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'interview' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport';
+type Tab = 'week' | 'interview' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'fixAnswers';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -656,6 +656,7 @@ function AppInner() {
   const [exerciseResponsibilityRequired, setExerciseResponsibilityRequired] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('week');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [restartInterviewFromStart, setRestartInterviewFromStart] = useState(false);
   const [completedToday, setCompletedToday] = useState(false);
   const [threeKmSeconds, setThreeKmSeconds] = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -823,7 +824,8 @@ function AppInner() {
                 accessToken={accessToken}
                 userName={userName}
                 onLater={() => setActiveTab('week')}
-                onComplete={() => { void refreshRoutineFromServer(); setActiveTab('test'); }}
+                onComplete={() => { setRestartInterviewFromStart(false); void refreshRoutineFromServer(); setActiveTab('test'); }}
+                restartFromStart={restartInterviewFromStart}
               />
             )}
             {activeTab === 'reassessment' && (
@@ -831,9 +833,17 @@ function AppInner() {
                 accessToken={accessToken}
                 userName={userName}
                 onLater={() => setActiveTab('week')}
-                onComplete={() => { void refreshRoutineFromServer(); setActiveTab('week'); }}
+                onComplete={() => { setRestartInterviewFromStart(false); void refreshRoutineFromServer(); setActiveTab('week'); }}
                 questions={reassessmentQuestions}
                 mode="reassessment"
+                restartFromStart={restartInterviewFromStart}
+              />
+            )}
+            {activeTab === 'fixAnswers' && (
+              <FixAnswersMenu
+                accessToken={accessToken}
+                onOpenOnboarding={() => { setRestartInterviewFromStart(true); setActiveTab('interview'); }}
+                onOpenReassessment={() => { setRestartInterviewFromStart(true); setActiveTab('reassessment'); }}
               />
             )}
             {activeTab === 'anamnese' && (
@@ -1427,7 +1437,7 @@ function Today({
   );
 }
 
-function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding' }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment' }) {
+function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding', restartFromStart = false }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment'; restartFromStart?: boolean }) {
   const [answers, setAnswers] = useState<InterviewAnswers>({});
   const [step, setStep] = useState(0);
   const [started, setStarted] = useState(false);
@@ -1460,13 +1470,16 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       if (mode === 'onboarding' && !loadedAnswers.personal_name && userName) loadedAnswers.personal_name = userName;
       setAnswers(loadedAnswers);
       setFinished(Boolean(state?.completedAt));
-      if ((state?.currentStep ?? 0) > 0 && !state?.completedAt) {
+      if (restartFromStart) {
+        setStep(0);
+        setStarted(true);
+      } else if ((state?.currentStep ?? 0) > 0 && !state?.completedAt) {
         setStep(state?.currentStep ?? 0);
         setStarted(true);
       }
       setLoading(false);
     });
-  }, [accessToken, userName, loadUrl, mode]);
+  }, [accessToken, userName, loadUrl, mode, restartFromStart]);
 
   async function persist(key: string, nextValue: InterviewAnswer, nextStep = step) {
     setSaving(true);
@@ -2524,6 +2537,100 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
   );
 }
 
+function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment }: { accessToken: string; onOpenOnboarding: () => void; onOpenReassessment: () => void }) {
+  const [onboardingCompletedAt, setOnboardingCompletedAt] = useState<string | null>(null);
+  const [reassessments, setReassessments] = useState<Array<{ id: string; completedAt: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
+
+  async function load() {
+    setLoading(true);
+    try {
+      const [onboarding, history] = await Promise.all([
+        loadInterviewState(`${API_URL}/me/onboarding`, accessToken),
+        fetch(`${API_URL}/me/reassessment/history`, { headers: { Authorization: `Bearer ${accessToken}` } })
+          .then((response) => (response.ok ? response.json() : []))
+          .catch(() => []),
+      ]);
+      setOnboardingCompletedAt(onboarding?.completedAt ?? null);
+      setReassessments(Array.isArray(history) ? history.filter((item: any) => item.completedAt) : []);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, [accessToken]);
+
+  async function correctOnboarding() {
+    setBusyId('onboarding');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/me/onboarding/reopen`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) throw new Error('reopen');
+      onOpenOnboarding();
+    } catch {
+      setMessage('Nao consegui abrir a entrevista inicial para correcao.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function correctReassessment(id: string) {
+    setBusyId(id);
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/me/reassessment/${id}/reopen`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({} as { message?: string }));
+        setMessage(typeof data.message === 'string' ? data.message : 'Nao consegui abrir essa reavaliacao para correcao.');
+        return;
+      }
+      onOpenReassessment();
+    } catch {
+      setMessage('Nao consegui abrir essa reavaliacao para correcao.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Corrigir respostas anteriores</Text>
+      <Text style={styles.titleSmall}>Errou alguma resposta? Corrija aqui</Text>
+      <Text style={styles.copyTight}>
+        Escolha qual entrevista voce quer corrigir. Ao corrigir, suas respostas dessa entrevista especifica sao substituidas — isso e diferente de fazer uma nova reavaliacao periodica, que fica guardada como um novo registro para acompanhar sua evolucao.
+      </Text>
+
+      {loading ? <Text style={styles.statusMessage}>Carregando...</Text> : null}
+      {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
+
+      {!loading ? (
+        <View style={styles.formSection}>
+          <Text style={styles.formSectionTitle}>Entrevista inicial</Text>
+          <Text style={styles.reportText}>{onboardingCompletedAt ? `Concluida em ${formatFullDate(new Date(onboardingCompletedAt))}` : 'Ainda nao concluida'}</Text>
+          {onboardingCompletedAt ? (
+            <Pressable style={styles.secondaryButton} onPress={correctOnboarding} disabled={busyId === 'onboarding'}>
+              <Text style={styles.secondaryButtonText}>{busyId === 'onboarding' ? 'Abrindo...' : 'Corrigir entrevista inicial'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {reassessments.map((item) => (
+        <View style={styles.formSection} key={item.id}>
+          <Text style={styles.formSectionTitle}>Reavaliacao de {formatFullDate(new Date(item.completedAt))}</Text>
+          <Pressable style={styles.secondaryButton} onPress={() => correctReassessment(item.id)} disabled={busyId === item.id}>
+            <Text style={styles.secondaryButtonText}>{busyId === item.id ? 'Abrindo...' : 'Corrigir esta reavaliacao'}</Text>
+          </Pressable>
+        </View>
+      ))}
+
+      {!loading && !reassessments.length ? <Text style={styles.copyTight}>Voce ainda nao concluiu nenhuma reavaliacao periodica.</Text> : null}
+    </View>
+  );
+}
+
 const PAIN_REPORT_REGIONS = [
   'Joelho direito', 'Joelho esquerdo', 'Tornozelo direito', 'Tornozelo esquerdo', 'Pe direito', 'Pe esquerdo',
   'Canela direita', 'Canela esquerda', 'Panturrilha direita', 'Panturrilha esquerda', 'Coxa direita', 'Coxa esquerda',
@@ -3327,6 +3434,7 @@ function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: 
     { id: 'week', label: 'Treino da semana', icon: 'calendar' },
     { id: 'interview', label: 'Entrevista inicial', icon: 'chatbubbles' },
     { id: 'reassessment', label: 'Reavaliacao periodica', icon: 'refresh-circle' },
+    { id: 'fixAnswers', label: 'Corrigir respostas anteriores', icon: 'create-outline' },
     { id: 'test', label: 'Teste de VO2 max', icon: 'stopwatch' },
     { id: 'targetRace', label: 'Prova alvo', icon: 'trophy' },
     { id: 'painReport', label: 'Relatar dor', icon: 'medkit' },
@@ -3994,6 +4102,10 @@ function currentWeekRange() {
 
 function formatDayMonth(date: Date) {
   return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatFullDate(date: Date) {
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
 }
 
 function weekdayFullLabel(date: Date) {

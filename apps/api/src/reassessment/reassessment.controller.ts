@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { ReassessmentService } from './reassessment.service';
@@ -11,6 +11,16 @@ export class ReassessmentController {
   @Get()
   state(@CurrentUser() user: CurrentUserPayload) {
     return this.reassessmentService.state(user.sub);
+  }
+
+  @Get('history')
+  history(@CurrentUser() user: CurrentUserPayload) {
+    return this.reassessmentService.history(user.sub);
+  }
+
+  @Post(':id/reopen')
+  reopen(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.reassessmentService.reopen(user.sub, id);
   }
 
   @Put('answer')

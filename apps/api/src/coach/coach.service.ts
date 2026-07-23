@@ -17,6 +17,7 @@ import { gymExerciseLibrary } from '../training-plans/gym-exercise-library';
 import { BackupService } from '../backup/backup.service';
 import { MeService } from '../me/me.service';
 import { BillingService } from '../billing/billing.service';
+import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
 
 @Injectable()
 export class CoachService {
@@ -515,7 +516,7 @@ export class CoachService {
         paceSecondsPerKm: race.targetSeconds && race.distanceKm ? Math.round(race.targetSeconds / race.distanceKm) : null,
       })),
       interview: student.onboardingInterview ? {
-        answers: student.onboardingInterview.answers,
+        answers: sanitizeInterviewAnswers(jsonObject(student.onboardingInterview.answers)),
         currentStep: student.onboardingInterview.currentStep,
         completedAt: student.onboardingInterview.completedAt,
         updatedAt: student.onboardingInterview.updatedAt,
@@ -548,7 +549,7 @@ export class CoachService {
       })),
       reassessments: student.reassessments.map((reassessment: any) => ({
         completedAt: reassessment.completedAt,
-        answers: reassessment.answers,
+        answers: sanitizeInterviewAnswers(jsonObject(reassessment.answers)),
         evolutionSummary: reassessment.evolutionSummary,
         evolutionWins: reassessment.evolutionWins ?? [],
         evolutionConcerns: reassessment.evolutionConcerns ?? [],
@@ -734,6 +735,10 @@ export class CoachService {
       where: { id: studentId, role: 'student' },
     });
   }
+}
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function normalizeCouponCode(value: string) {

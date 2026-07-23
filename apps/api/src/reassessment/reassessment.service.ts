@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EvolutionAgentService } from './evolution-agent.service';
@@ -110,6 +110,22 @@ export class ReassessmentService {
       where: { userId, completedAt: { not: null } },
       orderBy: { completedAt: 'desc' },
     });
+  }
+
+  // Reabre uma reavaliacao ja concluida para correcao, transformando-a de volta na "rascunho
+  // atual" — os mesmos endpoints saveAnswer/state/complete ja operam sobre a linha com
+  // completedAt nulo mais recente, entao isso reaproveita toda a mecanica existente em vez de
+  // duplicar logica de edicao.
+  async reopen(userId: string, id: string) {
+    const target = await this.prisma.reassessment.findFirst({ where: { id, userId } });
+    if (!target) throw new NotFoundException('Reavaliacao nao encontrada.');
+
+    const otherDraft = await this.prisma.reassessment.findFirst({ where: { userId, completedAt: null, NOT: { id } } });
+    if (otherDraft) {
+      throw new BadRequestException('Ja existe uma reavaliacao em andamento. Conclua ou finalize-a antes de corrigir uma reavaliacao anterior.');
+    }
+
+    return this.prisma.reassessment.update({ where: { id }, data: { completedAt: null } });
   }
 }
 
