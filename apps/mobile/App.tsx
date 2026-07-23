@@ -434,6 +434,11 @@ const distanceBucketOptions = [
   option('5 a 8 km', '5_8'), option('8 a 10 km', '8_10'), option('10 a 15 km', '10_15'),
   option('15 a 21 km', '15_21'), option('21 a 30 km', '21_30'), option('30 a 42 km', '30_42'), option('Mais de 42 km', '42_plus'),
 ];
+const distanceBucketOrder = distanceBucketOptions.map((item) => item.value);
+function distanceBucketRank(value: unknown) {
+  const index = distanceBucketOrder.indexOf(String(value ?? ''));
+  return index === -1 ? null : index;
+}
 const distanceCountBucketOptions = [
   option('1 vez', '1'), option('2 a 3 vezes', '2_3'), option('4 a 6 vezes', '4_6'), option('7 a 12 vezes', '7_12'), option('Mais de 12 vezes', '12_plus'),
 ];
@@ -1520,6 +1525,18 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     if (!question || !hasAnswer()) {
       setStatus(question?.type === 'date' ? 'Digite uma data valida no formato dia/mes/ano. Exemplo: 19/06/1984.' : question?.type === 'cpf' ? 'Digite um CPF valido com 11 numeros.' : 'Responda para continuar.');
       return;
+    }
+    // A segunda e a terceira maior distancia tem que ser menores ou iguais a distancia anterior
+    // (maior <= maior, segunda <= primeira, terceira <= segunda) — sem isso, respostas fora de
+    // ordem confundem o treinador ao ler a entrevista.
+    if (question.key === 'second_longest_distance_recent' || question.key === 'third_longest_distance_recent') {
+      const baselineKey = question.key === 'second_longest_distance_recent' ? 'longest_distance_recent' : 'second_longest_distance_recent';
+      const baselineRank = distanceBucketRank(answers[baselineKey]);
+      const currentRank = distanceBucketRank(value);
+      if (baselineRank !== null && currentRank !== null && currentRank > baselineRank) {
+        setStatus('Essa distancia nao pode ser maior que a anterior. Revise sua resposta.');
+        return;
+      }
     }
     if (!(await persist(question.key, question.type === 'notice' ? true : value ?? '', step + 1))) return;
     if (step < visibleQuestions.length - 1) {
