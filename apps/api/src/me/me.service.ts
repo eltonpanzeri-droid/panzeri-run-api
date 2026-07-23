@@ -141,14 +141,14 @@ export class MeService {
           userId,
           preferredModalities,
           otherModalities: stringArray(answers.favorite_activities),
-          trainingLocations: interviewLocations(answers),
+          trainingLocations: ['Corrida na rua'],
           mainGoal: String(answers.objective),
           experienceLevel: String(answers.running_experience),
         },
         update: {
           preferredModalities,
           otherModalities: stringArray(answers.favorite_activities),
-          trainingLocations: interviewLocations(answers),
+          trainingLocations: ['Corrida na rua'],
           mainGoal: String(answers.objective),
           experienceLevel: String(answers.running_experience),
         },
@@ -396,16 +396,6 @@ function interviewInjurySummary(answers: Record<string, Prisma.InputJsonValue>) 
   return parts.join('. ');
 }
 
-function interviewLocations(answers: Record<string, Prisma.InputJsonValue>) {
-  const locations = new Set<string>();
-  for (const key of Object.keys(answers).filter((item) => item.includes('_run_location'))) {
-    const value = String(answers[key]);
-    if (value === 'street' || value === 'either') locations.add('Corrida na rua');
-    if (value === 'treadmill' || value === 'either') locations.add('Corrida na esteira');
-  }
-  return [...locations];
-}
-
 function buildInterviewAvailability(answers: Record<string, Prisma.InputJsonValue>) {
   const days = [
     { key: 'monday', weekday: 1 },
@@ -418,24 +408,27 @@ function buildInterviewAvailability(answers: Record<string, Prisma.InputJsonValu
   ];
   return days.map(({ key, weekday }) => {
     const runMinutes = interviewMinutes(answers[`${key}_run_time`]);
-    const strengthMinutes = interviewMinutes(answers[`${key}_strength_time`]);
-    const location = String(answers[`${key}_run_location`] ?? 'either');
+    const fortalecimentoMinutes = interviewMinutes(answers[`${key}_fortalecimento_time`]);
+    const musculacaoMinutes = interviewMinutes(answers[`${key}_musculacao_time`]);
     const modalities: string[] = [];
     const modalityDurations: Record<string, number> = {};
     if (runMinutes > 0) {
-      const modality = location === 'treadmill' ? 'esteira' : 'corrida';
-      modalities.push(modality);
-      modalityDurations[modality] = runMinutes;
+      modalities.push('corrida');
+      modalityDurations.corrida = runMinutes;
     }
-    if (strengthMinutes > 0) {
+    if (fortalecimentoMinutes > 0) {
       modalities.push('fortalecimento_corredores');
-      modalityDurations.fortalecimento_corredores = strengthMinutes;
+      modalityDurations.fortalecimento_corredores = fortalecimentoMinutes;
+    }
+    if (musculacaoMinutes > 0) {
+      modalities.push('forca');
+      modalityDurations.forca = musculacaoMinutes;
     }
     return {
       weekday,
       noTraining: modalities.length === 0,
       modalities,
-      availableMin: Math.max(runMinutes, strengthMinutes, 0),
+      availableMin: Math.max(runMinutes, fortalecimentoMinutes, musculacaoMinutes, 0),
       modalityDurations,
     };
   });

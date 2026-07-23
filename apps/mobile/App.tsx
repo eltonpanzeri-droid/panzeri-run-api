@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  Modal,
   PanResponder,
   Platform,
   Pressable,
@@ -210,7 +211,7 @@ interface InterviewQuestion {
   key: string;
   module: string;
   prompt: string;
-  type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'date' | 'cpf' | 'phone' | 'notice' | 'wheel_number' | 'wheel_pace' | 'wheel_duration_hms';
+  type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'date' | 'cpf' | 'phone' | 'notice' | 'wheel_number' | 'wheel_pace' | 'wheel_duration_hms' | 'dropdown_single';
   options?: InterviewOption[];
   optional?: boolean;
   help?: string;
@@ -578,7 +579,7 @@ const interviewQuestions: InterviewQuestion[] = [
     key: 'training_modality_preference',
     module: 'Rotina semanal',
     prompt: 'Alem da corrida, voce quer que a gente monte tambem treinos de fortalecimento para corredores e/ou musculacao?',
-    type: 'single',
+    type: 'dropdown_single',
     help: 'Voce pode treinar so corrida com a gente, ou incluir tambem fortalecimento para corredores e/ou musculacao na sua semana. Muitos alunos ja fazem musculacao ou treino de forca em outro lugar (academia, personal trainer) e preferem que a Panzeri Run cuide so da parte de corrida — sem problema nenhum escolher assim. Queremos montar exatamente o que faz sentido pra sua rotina.',
     options: [
       option('Somente corrida', 'somente_corrida'),
@@ -589,9 +590,9 @@ const interviewQuestions: InterviewQuestion[] = [
   },
   ...weekInterviewDays.flatMap(([key, label]) => [
     { key: `${key}_run_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem disponivel para corrida?`, type: 'single' as const, options: interviewTimeOptions },
-    { key: `${key}_run_location`, module: 'Rotina semanal', prompt: `${label}: onde voce consegue correr?`, type: 'single' as const, options: [option('Rua', 'street'), option('Esteira', 'treadmill'), option('Tanto faz', 'either')], condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== 'none' },
-    { key: `${key}_strength_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para fortalecimento?`, type: 'single' as const, options: interviewTimeOptions, condition: (a: InterviewAnswers) => a.training_modality_preference !== 'somente_corrida' },
-    { key: `${key}_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel?`, type: 'single' as const, options: ['Antes das 6h', 'Entre 6h e 9h', 'Entre 9h e 12h', 'Entre 12h e 15h', 'Entre 15h e 18h', 'Apos 18h'].map((v) => option(v)), condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== 'none' || (a.training_modality_preference !== 'somente_corrida' && a[`${key}_strength_time`] !== 'none') },
+    { key: `${key}_fortalecimento_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para fortalecimento para corredores?`, type: 'single' as const, options: interviewTimeOptions, condition: (a: InterviewAnswers) => a.training_modality_preference === 'corrida_fortalecimento' || a.training_modality_preference === 'corrida_fortalecimento_musculacao' },
+    { key: `${key}_musculacao_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para musculacao?`, type: 'single' as const, options: interviewTimeOptions, condition: (a: InterviewAnswers) => a.training_modality_preference === 'corrida_musculacao' || a.training_modality_preference === 'corrida_fortalecimento_musculacao' },
+    { key: `${key}_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel?`, type: 'dropdown_single' as const, options: ['Antes das 6h', 'Entre 6h e 9h', 'Entre 9h e 12h', 'Entre 12h e 15h', 'Entre 15h e 18h', 'Apos 18h'].map((v) => option(v)), condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== 'none' || a[`${key}_fortalecimento_time`] !== undefined && a[`${key}_fortalecimento_time`] !== 'none' || a[`${key}_musculacao_time`] !== undefined && a[`${key}_musculacao_time`] !== 'none' },
   ]),
   { key: 'sleep_hours', module: 'Habitos', prompt: 'Em media, quantas horas voce dorme?', type: 'single', options: ['Menos de 5 horas', 'Entre 5 e 6 horas', 'Entre 6 e 7 horas', 'Entre 7 e 8 horas', 'Mais de 8 horas'].map((v) => option(v)) },
   { key: 'smoking', module: 'Habitos', prompt: 'Voce fuma?', type: 'single', options: [option('Nao'), option('Sim')] },
@@ -1508,6 +1509,33 @@ function WheelPicker({ columns }: { columns: Array<{ label?: string; values: str
   );
 }
 
+function Dropdown({ options, value, onChange, placeholder = 'Selecione uma opcao' }: { options: InterviewOption[]; value: unknown; onChange: (value: string) => void; placeholder?: string }) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((item) => item.value === value);
+  return (
+    <View>
+      <Pressable style={styles.dropdownField} onPress={() => setOpen(true)}>
+        <Text style={selected ? styles.dropdownFieldText : styles.dropdownFieldPlaceholder}>{selected ? selected.label : placeholder}</Text>
+        <Ionicons name="chevron-down" size={18} color="#6b7280" />
+      </Pressable>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.dropdownOverlay} onPress={() => setOpen(false)}>
+          <View style={styles.dropdownSheet}>
+            <ScrollView>
+              {options.map((item) => (
+                <Pressable key={item.value} style={styles.interviewDropdownOption} onPress={() => { onChange(item.value); setOpen(false); }}>
+                  <Text style={item.value === value ? styles.interviewDropdownOptionTextActive : styles.interviewDropdownOptionText}>{item.label}</Text>
+                  {item.value === value ? <Ionicons name="checkmark" size={18} color="#0f766e" /> : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
 function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding', restartFromStart = false }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment'; restartFromStart?: boolean }) {
   const [answers, setAnswers] = useState<InterviewAnswers>({});
   const [step, setStep] = useState(0);
@@ -1696,6 +1724,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       {helpOpen ? <Text style={styles.formHint}>{question?.help}</Text> : null}
 
       {(question?.type === 'single' || question?.type === 'scale') ? <View style={question.type === 'scale' ? styles.scaleGrid : styles.answerList}>{(question.type === 'scale' ? Array.from({ length: 10 }, (_, i) => option(String(i + 1))) : question.options ?? []).map((item) => { const selected = value === item.value || (question.type === 'scale' && value === Number(item.value)); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive, question.type === 'scale' && styles.scaleButton]} onPress={() => choose(question.type === 'scale' ? Number(item.value) : item.value)}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
+      {question?.type === 'dropdown_single' ? <Dropdown options={question.options ?? []} value={value} onChange={(nextValue) => choose(nextValue)} /> : null}
       {question?.type === 'multi' ? <View style={styles.answerList}>{question.options?.map((item) => { const selected = Array.isArray(value) && value.includes(item.value); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive]} onPress={() => choose(selected ? (value as string[]).filter((entry) => entry !== item.value) : [...(Array.isArray(value) ? value : []), item.value])}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
       {(question?.type === 'text' || question?.type === 'number' || question?.type === 'number_or_unknown') ? <TextInput style={styles.input} value={value === 'unknown' || value === 'automatic' ? '' : String(value ?? '')} keyboardType={question.type === 'text' ? 'default' : 'decimal-pad'} placeholder={question.optional ? 'Opcional' : 'Digite sua resposta'} onChangeText={(text) => setAnswers({ ...answers, [question.key]: text })} /> : null}
       {question?.type === 'date' ? <TextInput style={styles.input} value={String(value ?? '')} keyboardType="number-pad" maxLength={10} placeholder="dd/mm/aaaa" onChangeText={(text) => setAnswers({ ...answers, [question.key]: formatDateInputText(text) })} /> : null}
@@ -5839,6 +5868,53 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 12,
     color: '#6b7280',
+  },
+  dropdownField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  dropdownFieldText: {
+    fontSize: 16,
+    color: '#111827',
+    fontWeight: '600',
+  },
+  dropdownFieldPlaceholder: {
+    fontSize: 16,
+    color: '#9ca3af',
+  },
+  dropdownOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  dropdownSheet: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    maxHeight: 420,
+    paddingVertical: 8,
+  },
+  interviewDropdownOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+  },
+  interviewDropdownOptionText: {
+    fontSize: 16,
+    color: '#111827',
+  },
+  interviewDropdownOptionTextActive: {
+    fontSize: 16,
+    color: '#0f766e',
+    fontWeight: '700',
   },
   answerList: {
     gap: 9,

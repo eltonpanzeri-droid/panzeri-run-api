@@ -2605,7 +2605,8 @@ function routineTimeLabel(value: unknown) {
 function RoutineAvailabilityTable({ answers }: { answers: Record<string, unknown> }) {
   const rows: Array<{ label: string; suffix: string }> = [
     { label: 'Corrida', suffix: 'run_time' },
-    { label: 'Fortalecimento/Musculacao', suffix: 'strength_time' },
+    { label: 'Fortalecimento', suffix: 'fortalecimento_time' },
+    { label: 'Musculacao', suffix: 'musculacao_time' },
   ];
   return (
     <div className="routineTableWrap">
@@ -2723,7 +2724,7 @@ function interviewLabel(key: string) {
   const days: Record<string, string> = { monday: 'Segunda-feira', tuesday: 'Terca-feira', wednesday: 'Quarta-feira', thursday: 'Quinta-feira', friday: 'Sexta-feira', saturday: 'Sabado', sunday: 'Domingo' };
   const day = Object.keys(days).find((item) => key.startsWith(`${item}_`));
   if (day) {
-    const fields: Record<string, string> = { run_time: 'tempo para corrida', run_location: 'local da corrida', strength_time: 'tempo para fortalecimento', available_time: 'horario disponivel' };
+    const fields: Record<string, string> = { run_time: 'tempo para corrida', run_location: 'local da corrida (antigo)', fortalecimento_time: 'tempo para fortalecimento', musculacao_time: 'tempo para musculacao', available_time: 'horario disponivel' };
     const suffix = key.slice(day.length + 1);
     return `${days[day]} - ${fields[suffix] ?? suffix}`;
   }
@@ -2788,7 +2789,7 @@ function interviewValue(key: string, value: unknown) {
   const day = WEEKDAY_KEY_PREFIXES.find((item) => key.startsWith(`${item}_`));
   if (day) {
     const suffix = key.slice(day.length + 1);
-    if (suffix === 'run_time' || suffix === 'strength_time') return TIME_BUCKET_LABELS[stringValue] ?? stringValue;
+    if (suffix === 'run_time' || suffix === 'fortalecimento_time' || suffix === 'musculacao_time') return TIME_BUCKET_LABELS[stringValue] ?? stringValue;
     if (suffix === 'run_location') return LOCATION_LABELS[stringValue] ?? stringValue;
   }
   return value === undefined || value === null || stringValue.trim() === '' ? 'Nao informado' : stringValue;
