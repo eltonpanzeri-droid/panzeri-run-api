@@ -466,6 +466,10 @@ function formatPaceMinSec(secondsPerKm: number) {
   const seconds = Math.round(secondsPerKm % 60);
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
+const HEALTH_CONDITIONS_TRACKED = [
+  ['hipertensao', 'Hipertensao'], ['diabetes', 'Diabetes'], ['colesterol', 'Colesterol elevado'], ['obesidade', 'Obesidade'],
+  ['asma', 'Asma'], ['cardiaco', 'Problemas cardiacos'], ['artrose', 'Artrose'], ['artrite', 'Artrite'], ['hernia_disco', 'Hernia de disco'],
+];
 const ratingPrompts = [
   ['rating_energy', 'Energia no dia a dia'], ['rating_training_readiness', 'Disposicao para treinar'], ['rating_fitness', 'Condicionamento fisico'],
   ['rating_strength', 'Forca fisica'], ['rating_sleep', 'Qualidade do sono'], ['rating_recovery', 'Recuperacao apos os treinos'],
@@ -543,35 +547,35 @@ const interviewQuestions: InterviewQuestion[] = [
     'Nenhuma', 'Nao sei responder',
   ].map((v) => option(v)) },
   { key: 'diagnosed_running_conditions_other', module: 'Saude', prompt: 'Algum outro diagnostico que nao esta na lista acima?', type: 'text', optional: true },
-  { key: 'important_injury', module: 'Saude', prompt: 'Voce ja teve alguma lesao importante?', type: 'single', options: ['Nunca.', 'Sim, totalmente recuperado.', 'Sim, ainda tenho limitacoes.'].map((v) => option(v)) },
-  { key: 'injury_description', module: 'Saude', prompt: 'Descreva brevemente a lesao e suas limitacoes.', type: 'text', optional: true, condition: (a) => a.important_injury !== 'Nunca.' },
-  { key: 'health_conditions', module: 'Saude', prompt: 'Voce possui alguma destas condicoes?', type: 'multi', options: ['Hipertensao', 'Diabetes', 'Colesterol elevado', 'Obesidade', 'Asma', 'Problemas cardiacos', 'Artrose', 'Artrite', 'Hernia de disco', 'Outra', 'Nenhuma'].map((v) => option(v)) },
+  { key: 'important_injury', module: 'Saude', prompt: 'Voce ja teve alguma lesao importante?', type: 'dropdown_single', options: ['Nunca.', 'Sim, totalmente recuperado.', 'Sim, ainda tenho limitacoes.'].map((v) => option(v)) },
+  { key: 'injury_description', module: 'Saude', prompt: 'Descreva brevemente a lesao e suas limitacoes (comentario opcional).', type: 'text', optional: true, condition: (a) => a.important_injury !== 'Nunca.' },
+  { key: 'health_conditions', module: 'Saude', prompt: 'Voce possui alguma destas condicoes?', type: 'multi', help: 'Voce pode marcar mais de uma opcao.', options: ['Hipertensao', 'Diabetes', 'Colesterol elevado', 'Obesidade', 'Asma', 'Problemas cardiacos', 'Artrose', 'Artrite', 'Hernia de disco', 'Nenhuma', 'Outra'].map((v) => option(v)) },
+  { key: 'health_conditions_other', module: 'Saude', prompt: 'Qual outra condicao?', type: 'text', optional: true, condition: (a) => Array.isArray(a.health_conditions) && a.health_conditions.includes('Outra') },
+  ...HEALTH_CONDITIONS_TRACKED.map(([slug, label]) => ({
+    key: `health_condition_status_${slug}`,
+    module: 'Saude',
+    prompt: `Sobre ${label.toLowerCase()}: voce esta com isso atualmente ou foi diagnosticado no passado e nao tem mais?`,
+    type: 'dropdown_single' as const,
+    options: [option('Tenho atualmente', 'current'), option('Tive no passado, nao tenho mais', 'past')],
+    condition: (a: InterviewAnswers) => Array.isArray(a.health_conditions) && a.health_conditions.includes(label),
+  })),
   { key: 'continuous_medications', module: 'Saude', prompt: 'Faz uso continuo de medicamentos?', type: 'text', optional: true },
   { key: 'medical_recommendation', module: 'Saude', prompt: 'Existe alguma recomendacao medica para seus treinos?', type: 'text', optional: true },
-  { key: 'recent_physical_assessment', module: 'Avaliacao fisica recente', prompt: 'Voce realizou alguma avaliacao fisica nos ultimos 6 meses?', type: 'single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
-  { key: 'assessment_method', module: 'Avaliacao fisica recente', prompt: 'Qual metodo foi utilizado?', type: 'single', options: ['Dobras cutaneas (adipometro)', 'Bioimpedancia', 'DEXA', 'Outro', 'Nao sei'].map((v) => option(v)), condition: (a) => a.recent_physical_assessment === 'yes' },
-  ...[
-    ['assessment_weight', 'Peso corporal'], ['body_fat_percentage', 'Percentual de gordura'],
-  ].map(([key, prompt]) => ({ key, module: 'Avaliacao fisica recente', prompt, type: 'number_or_unknown' as const, condition: (a: InterviewAnswers) => a.recent_physical_assessment === 'yes' })),
-  ...[
-    ['muscle_mass', 'Massa muscular'], ['lean_mass', 'Massa magra'], ['fat_mass', 'Massa de gordura'],
-    ['visceral_fat', 'Gordura visceral'],
-  ].map(([key, prompt]) => ({
-    key,
-    module: 'Avaliacao fisica recente',
-    prompt,
-    type: 'number_or_unknown' as const,
-    condition: (a: InterviewAnswers) => a.recent_physical_assessment === 'yes' && a.assessment_method !== 'Dobras cutaneas (adipometro)',
-  })),
-  { key: 'basal_metabolism', module: 'Avaliacao fisica recente', prompt: 'Qual foi o metabolismo basal informado na avaliacao?', type: 'number_or_unknown', help: 'Voce pode preencher o valor da avaliacao ou escolher Calcular automaticamente pela formula revisada de Harris-Benedict.', condition: (a) => a.recent_physical_assessment === 'yes' },
+  { key: 'personal_height', module: 'Avaliacao fisica recente', prompt: 'Qual e sua altura em centimetros?', type: 'wheel_number', wheelDigits: 3, wheelMin: 100, wheelMax: 220, wheelUnit: 'cm' },
+  { key: 'personal_weight', module: 'Avaliacao fisica recente', prompt: 'Qual e seu peso atual em quilogramas? Use virgula para decimais. Exemplo: 82,5.', type: 'number' },
+  { key: 'body_fat_percentage', module: 'Avaliacao fisica recente', prompt: 'Percentual de gordura corporal (se souber)', type: 'number_or_unknown', optional: true },
   ...[
     ['waist_circumference', 'Circunferencia da cintura'], ['abdomen_circumference', 'Circunferencia do abdomen'], ['hip_circumference', 'Circunferencia do quadril'],
     ['arm_circumference', 'Circunferencia do braco'], ['thigh_circumference', 'Circunferencia da coxa'], ['calf_circumference', 'Circunferencia da panturrilha'],
   ].map(([key, prompt]) => ({
     key,
     module: 'Avaliacao fisica recente',
-    prompt: `${prompt} (opcional)`,
-    type: 'number' as const,
+    prompt,
+    type: 'wheel_number' as const,
+    wheelDigits: 3,
+    wheelMin: 30,
+    wheelMax: 200,
+    wheelUnit: 'cm',
     optional: true,
     help: 'Use uma fita metrica, sem apertar a pele, mantendo-a paralela ao chao e sem prender a respiracao. Registre em centimetros. Se preferir nao medir agora, pode deixar em branco e continuar.',
   })),
@@ -603,8 +607,6 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'personal_phone', module: 'Dados pessoais', prompt: 'Qual e o seu WhatsApp (com DDD)?', type: 'phone', help: 'Usamos para avisos importantes sobre pagamento, treino e acompanhamento.' },
   { key: 'personal_birth_date', module: 'Dados pessoais', prompt: 'Qual e sua data de nascimento?', type: 'date', help: 'Use o formato dia/mes/ano. Exemplo: 19/06/1984.' },
   { key: 'personal_sex', module: 'Dados pessoais', prompt: 'Como voce prefere informar seu sexo?', type: 'single', options: [option('Feminino'), option('Masculino'), option('Prefiro nao informar')] },
-  { key: 'personal_height', module: 'Dados pessoais', prompt: 'Qual e sua altura em centimetros?', type: 'number' },
-  { key: 'personal_weight', module: 'Dados pessoais', prompt: 'Qual e seu peso atual em quilogramas? Use virgula para decimais. Exemplo: 82,5.', type: 'number' },
   { key: 'personal_cpf', module: 'Dados pessoais', prompt: 'Qual e o seu CPF?', type: 'cpf', help: 'Usamos para gerar a cobranca da assinatura com seguranca.' },
   { key: 'personal_education', module: 'Dados pessoais', prompt: 'Qual e a sua escolaridade?', type: 'single', options: ['Fundamental incompleto', 'Fundamental completo', 'Medio incompleto', 'Medio completo', 'Superior incompleto', 'Superior completo', 'Pos-graduacao'].map((v) => option(v)) },
   { key: 'personal_address', module: 'Dados pessoais', prompt: 'Qual e o seu endereco completo?', type: 'text', optional: true, help: 'Rua, numero, bairro, cidade e estado.' },
@@ -1561,14 +1563,16 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
 
   // Um seletor de roda sempre mostra algum valor destacado (nao existe estado "vazio" visual),
   // entao assim que a pergunta aparece ja fixamos um valor de partida sensato na resposta —
-  // sem isso, hasAnswer() nunca veria uma resposta valida ate a pessoa rolar a roda.
+  // sem isso, hasAnswer() nunca veria uma resposta valida ate a pessoa rolar a roda. Perguntas
+  // opcionais ficam de fora: fixar um valor ali salvaria uma medida fake so por ela ter passado
+  // pela pergunta sem tocar na roda.
   useEffect(() => {
-    if (!question || value !== undefined) return;
+    if (!question || value !== undefined || question.optional) return;
     if (question.type === 'wheel_number') setAnswers((current) => ({ ...current, [question.key]: String(question.wheelMin ?? 0) }));
     else if (question.type === 'wheel_pace') setAnswers((current) => ({ ...current, [question.key]: '6:00' }));
     else if (question.type === 'wheel_duration_hms') setAnswers((current) => ({ ...current, [question.key]: '0:30:00' }));
   }, [question, value]);
-  const assessedWeight = interviewDecimal(answers.assessment_weight);
+  const assessedWeight = interviewDecimal(answers.personal_weight);
   const assessedBodyFat = interviewDecimal(answers.body_fat_percentage);
   const calculatedFatMass = assessedWeight !== null && assessedBodyFat !== null ? Math.round(assessedWeight * assessedBodyFat) / 100 : null;
   const calculatedLeanMass = assessedWeight !== null && calculatedFatMass !== null ? Math.round((assessedWeight - calculatedFatMass) * 10) / 10 : null;

@@ -71,15 +71,11 @@ export class MeService {
     const normalizedCpf = normalizeCpf(String(answers.personal_cpf));
     if (!normalizedCpf) throw new BadRequestException('CPF invalido. Revise o campo de CPF na entrevista.');
 
-    if (answers.assessment_method === 'Dobras cutaneas (adipometro)') {
-      const assessedWeight = decimalValue(answers.assessment_weight);
-      const bodyFat = decimalValue(answers.body_fat_percentage);
-      if (assessedWeight !== null && bodyFat !== null) {
-        answers.fat_mass = roundedMeasurement(assessedWeight * bodyFat / 100);
-        answers.lean_mass = roundedMeasurement(assessedWeight - assessedWeight * bodyFat / 100);
-      }
-      delete answers.muscle_mass;
-      delete answers.visceral_fat;
+    const assessedWeight = decimalValue(answers.personal_weight);
+    const bodyFat = decimalValue(answers.body_fat_percentage);
+    if (assessedWeight !== null && bodyFat !== null) {
+      answers.fat_mass = roundedMeasurement(assessedWeight * bodyFat / 100);
+      answers.lean_mass = roundedMeasurement(assessedWeight - assessedWeight * bodyFat / 100);
     }
 
     if (answers.basal_metabolism === 'automatic' || answers.basal_metabolism === undefined) {
@@ -97,7 +93,6 @@ export class MeService {
 
     const availability = buildInterviewAvailability(answers);
     const preferredModalities = stringArray(answers.current_activities);
-    const healthConditions = stringArray(answers.health_conditions);
     const completedAt = new Date();
 
     await this.prisma.$transaction(async (tx) => {
@@ -123,7 +118,7 @@ export class MeService {
           stressLevel: ratingValue(answers.rating_stress),
           anxietyLevel: ratingValue(answers.rating_anxiety),
           previousInjuries: interviewInjurySummary(answers),
-          healthProblems: healthConditions.join(', ') || 'Nenhuma informada',
+          healthProblems: healthConditionsSummary(answers),
           medications: stringValue(answers.continuous_medications),
         },
         update: {
@@ -131,7 +126,7 @@ export class MeService {
           stressLevel: ratingValue(answers.rating_stress),
           anxietyLevel: ratingValue(answers.rating_anxiety),
           previousInjuries: interviewInjurySummary(answers),
-          healthProblems: healthConditions.join(', ') || 'Nenhuma informada',
+          healthProblems: healthConditionsSummary(answers),
           medications: stringValue(answers.continuous_medications),
         },
       });
@@ -376,6 +371,26 @@ function painSummary(answers: Record<string, Prisma.InputJsonValue>) {
   if (details.length) parts.push(`detalhes: ${details.join(', ')}`);
   if (other) parts.push(`outro local: ${other}`);
   return parts.join(' - ');
+}
+
+const HEALTH_CONDITION_SLUGS: Record<string, string> = {
+  Hipertensao: 'hipertensao', Diabetes: 'diabetes', 'Colesterol elevado': 'colesterol', Obesidade: 'obesidade',
+  Asma: 'asma', 'Problemas cardiacos': 'cardiaco', Artrose: 'artrose', Artrite: 'artrite', 'Hernia de disco': 'hernia_disco',
+};
+
+function healthConditionsSummary(answers: Record<string, Prisma.InputJsonValue>) {
+  const conditions = stringArray(answers.health_conditions).filter((item) => item !== 'Nenhuma');
+  if (!conditions.length) return 'Nenhuma informada';
+  return conditions.map((condition) => {
+    if (condition === 'Outra') {
+      const other = stringValue(answers.health_conditions_other);
+      return other ? `Outra: ${other}` : 'Outra';
+    }
+    const slug = HEALTH_CONDITION_SLUGS[condition];
+    const status = slug ? String(answers[`health_condition_status_${slug}`] ?? '') : '';
+    const statusLabel = status === 'current' ? 'atual' : status === 'past' ? 'diagnostico anterior, sem a condicao atualmente' : '';
+    return statusLabel ? `${condition} (${statusLabel})` : condition;
+  }).join(', ');
 }
 
 function diagnosedConditionsSummary(answers: Record<string, Prisma.InputJsonValue>) {

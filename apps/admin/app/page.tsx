@@ -2681,10 +2681,10 @@ function interviewGroup(key: string) {
   if (key === 'additional_info') return 'Informacoes adicionais';
   if (key.startsWith('rating_')) return 'Autoavaliacao';
   if (/^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)_/.test(key)) return 'Rotina semanal';
-  if (key.startsWith('assessment_') || key.includes('circumference') || ['muscle_mass', 'lean_mass', 'fat_mass', 'visceral_fat', 'basal_metabolism', 'body_fat_percentage', 'recent_physical_assessment'].includes(key)) return 'Avaliacao fisica recente';
+  if (key.startsWith('assessment_') || key.includes('circumference') || ['personal_height', 'personal_weight', 'muscle_mass', 'lean_mass', 'fat_mass', 'visceral_fat', 'basal_metabolism', 'body_fat_percentage', 'recent_physical_assessment'].includes(key)) return 'Avaliacao fisica recente';
   if (key.startsWith('personal_')) return 'Dados pessoais';
-  if (key.startsWith('pain_detail_')) return 'Saude';
-  if (['current_pain', 'pain_regions', 'pain_region', 'pain_other_location', 'important_injury', 'injury_description', 'health_conditions', 'continuous_medications', 'medical_recommendation', 'diagnosed_running_conditions', 'diagnosed_running_conditions_other'].includes(key)) return 'Saude';
+  if (key.startsWith('pain_detail_') || key.startsWith('health_condition_status_')) return 'Saude';
+  if (['current_pain', 'pain_regions', 'pain_region', 'pain_other_location', 'important_injury', 'injury_description', 'health_conditions', 'health_conditions_other', 'continuous_medications', 'medical_recommendation', 'diagnosed_running_conditions', 'diagnosed_running_conditions_other'].includes(key)) return 'Saude';
   if (['sleep_hours', 'smoking', 'alcohol_frequency', 'work_routine', 'daily_steps'].includes(key)) return 'Habitos';
   if (['strength_experience', 'training_consistency', 'pushups', 'squat_experience', 'perceived_strength'].includes(key)) return 'Treinamento de forca';
   return 'Experiencia com corrida';
@@ -2703,7 +2703,10 @@ function interviewLabel(key: string) {
     pain_detail_foot: 'Detalhe - pe', pain_detail_shin: 'Detalhe - canela', pain_detail_calf: 'Detalhe - panturrilha', pain_detail_thigh: 'Detalhe - coxa',
     pain_detail_hip: 'Detalhe - quadril', pain_detail_glute: 'Detalhe - gluteo', pain_detail_lower_back: 'Detalhe - lombar', pain_other_location: 'Outro local de dor',
     diagnosed_running_conditions: 'Diagnosticos ja recebidos', diagnosed_running_conditions_other: 'Outro diagnostico',
-    important_injury: 'Lesao importante', injury_description: 'Descricao da lesao', health_conditions: 'Condicoes de saude', weekly_running_km: 'Km semanal atual',
+    important_injury: 'Lesao importante', injury_description: 'Descricao da lesao', health_conditions: 'Condicoes de saude', health_conditions_other: 'Qual outra condicao', weekly_running_km: 'Km semanal atual',
+    health_condition_status_hipertensao: 'Hipertensao - situacao', health_condition_status_diabetes: 'Diabetes - situacao', health_condition_status_colesterol: 'Colesterol elevado - situacao',
+    health_condition_status_obesidade: 'Obesidade - situacao', health_condition_status_asma: 'Asma - situacao', health_condition_status_cardiaco: 'Problemas cardiacos - situacao',
+    health_condition_status_artrose: 'Artrose - situacao', health_condition_status_artrite: 'Artrite - situacao', health_condition_status_hernia_disco: 'Hernia de disco - situacao',
     continuous_medications: 'Medicamentos continuos', medical_recommendation: 'Recomendacao medica', recent_physical_assessment: 'Avaliacao nos ultimos 6 meses', assessment_method: 'Metodo da avaliacao',
     sleep_hours: 'Horas de sono', smoking: 'Tabagismo', alcohol_frequency: 'Consumo de alcool', work_routine: 'Rotina de trabalho', daily_steps: 'Passos diarios',
     personal_name: 'Nome completo', personal_phone: 'WhatsApp', personal_birth_date: 'Data de nascimento', personal_sex: 'Sexo', personal_height: 'Altura', personal_weight: 'Peso',
@@ -2739,6 +2742,15 @@ const INTERVIEW_CHOICE_LABELS: Record<string, Record<string, string>> = {
   current_pain: { no: 'Nao', yes: 'Sim' },
   recent_physical_assessment: { no: 'Nao', yes: 'Sim' },
   reassessment_new_pain: { no: 'Nao', yes: 'Sim' },
+  health_condition_status_hipertensao: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
+  health_condition_status_diabetes: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
+  health_condition_status_colesterol: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
+  health_condition_status_obesidade: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
+  health_condition_status_asma: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
+  health_condition_status_cardiaco: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
+  health_condition_status_artrose: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
+  health_condition_status_artrite: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
+  health_condition_status_hernia_disco: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
   recent_running_feeling: {
     tranquila: 'Tranquila, consegui manter o ritmo com folga', moderada: 'Moderada, exigiu esforco mas terminei bem',
     dificil: 'Dificil, precisei desacelerar ou parar algumas vezes', muito_dificil: 'Muito dificil, quase nao consegui terminar',

@@ -7,7 +7,10 @@ export const PANZERI_METHODOLOGY_VERSION = 'panzeri-methodology-v1';
 // vaza sem filtro para dentro do contexto dos agentes de IA e gera conclusoes erradas.
 // Sempre que uma pergunta for removida ou renomeada de verdade (nao so reformulada), adicione a
 // chave antiga aqui.
-const OBSOLETE_INTERVIEW_KEYS = new Set(['current_continuous_run', 'pain_region', 'ran_5k_recently', 'longest_distance_recent']);
+const OBSOLETE_INTERVIEW_KEYS = new Set([
+  'current_continuous_run', 'pain_region', 'ran_5k_recently', 'longest_distance_recent',
+  'recent_physical_assessment', 'assessment_method', 'assessment_weight', 'muscle_mass', 'visceral_fat',
+]);
 
 export function sanitizeInterviewAnswers(answers: Record<string, unknown>): Record<string, unknown> {
   const sanitized: Record<string, unknown> = {};
