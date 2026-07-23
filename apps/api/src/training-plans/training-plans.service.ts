@@ -9,6 +9,8 @@ import {
   PANZERI_METHODOLOGY_VERSION,
   PANZERI_PRESCRIPTION_PRINCIPLES,
   sanitizeInterviewAnswers,
+  parseMmSsToSeconds,
+  isCurrentlyRunning,
 } from './training-methodology';
 import { PrescriptionAgentService, PaceEvidence } from './prescription-agent.service';
 import { StravaAnalysisAgentService } from './strava-analysis-agent.service';
@@ -943,17 +945,6 @@ const QUALITATIVE_PACE_SECONDS: Record<string, number> = {
   muito_forte: 330,
 };
 
-function parseMmSsToSeconds(value: unknown): number | null {
-  if (typeof value !== 'string') return null;
-  const match = value.match(/^(\d{1,3}):(\d{1,2})$/);
-  if (!match) return null;
-  const minutes = Number(match[1]);
-  const seconds = Number(match[2]);
-  if (!Number.isFinite(minutes) || !Number.isFinite(seconds) || seconds >= 60) return null;
-  const total = minutes * 60 + seconds;
-  return total > 0 ? total : null;
-}
-
 function numericAnswer(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value > 0 ? value : null;
   if (typeof value === 'string') {
@@ -976,8 +967,8 @@ function distanceBucketToKm(value: unknown): number | null {
 }
 
 function estimatePaceFromAnswers(answers: Record<string, unknown>): { paceSecondsPerKm: number; source: 'self_report_5k' | 'qualitative' } | null {
-  if (answers.ran_5k_recently === 'yes') {
-    const distanceKm = distanceBucketToKm(answers.longest_distance_recent);
+  if (isCurrentlyRunning(answers)) {
+    const distanceKm = distanceBucketToKm(answers.longest_distance);
     const distanceSeconds = parseMmSsToSeconds(answers.longest_distance_recent_time);
     if (distanceKm && distanceSeconds) {
       const threeKmEquivalentSeconds = distanceSeconds * Math.pow(3 / distanceKm, 1.06);

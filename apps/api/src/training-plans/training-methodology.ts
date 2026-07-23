@@ -7,7 +7,7 @@ export const PANZERI_METHODOLOGY_VERSION = 'panzeri-methodology-v1';
 // vaza sem filtro para dentro do contexto dos agentes de IA e gera conclusoes erradas.
 // Sempre que uma pergunta for removida ou renomeada de verdade (nao so reformulada), adicione a
 // chave antiga aqui.
-const OBSOLETE_INTERVIEW_KEYS = new Set(['current_continuous_run', 'pain_region']);
+const OBSOLETE_INTERVIEW_KEYS = new Set(['current_continuous_run', 'pain_region', 'ran_5k_recently', 'longest_distance_recent']);
 
 export function sanitizeInterviewAnswers(answers: Record<string, unknown>): Record<string, unknown> {
   const sanitized: Record<string, unknown> = {};
@@ -149,7 +149,7 @@ export function buildWeeklyMethodologyDecision(input: MethodologyInput): WeeklyM
   const observedLongest = Math.max(latest?.longestRunMinutes ?? 0, input.stravaLongestRunMinutes);
   const previousLongest = previous?.longestRunMinutes ?? 0;
   const selfReportedLongestMin =
-    answers.ran_5k_recently === 'yes' ? Math.round((parseMmSsToSeconds(answers.longest_distance_recent_time) ?? 0) / 60) || null : null;
+    isCurrentlyRunning(answers) ? Math.round((parseMmSsToSeconds(answers.longest_distance_recent_time) ?? 0) / 60) || null : null;
   const adherence = input.executionInsight
     ? input.executionInsight.adherencePercent / 100
     : latest?.prescribedSessions ? latest.completedSessions / latest.prescribedSessions : 1;
@@ -218,15 +218,27 @@ function isRunModality(modality: string) {
   return modality === 'corrida' || modality === 'esteira';
 }
 
-function parseMmSsToSeconds(value: unknown): number | null {
+// A entrevista guardava esse tempo como M:SS (duas partes); a versao atual usa um seletor de
+// roda H:MM:SS (tres partes). Aceitamos os dois formatos para nao quebrar respostas antigas ja
+// salvas por alunos que ainda nao refizeram a entrevista.
+export function parseMmSsToSeconds(value: unknown): number | null {
   if (typeof value !== 'string') return null;
-  const match = value.match(/^(\d{1,3}):(\d{1,2})$/);
-  if (!match) return null;
-  const minutes = Number(match[1]);
-  const seconds = Number(match[2]);
-  if (!Number.isFinite(minutes) || !Number.isFinite(seconds) || seconds >= 60) return null;
-  const total = minutes * 60 + seconds;
+  const parts = value.split(':').map((part) => Number(part));
+  if (parts.some((part) => !Number.isFinite(part))) return null;
+  let hours = 0;
+  let minutes = 0;
+  let seconds = 0;
+  if (parts.length === 2) [minutes, seconds] = parts;
+  else if (parts.length === 3) [hours, minutes, seconds] = parts;
+  else return null;
+  if (minutes >= 60 || seconds >= 60) return null;
+  const total = hours * 3600 + minutes * 60 + seconds;
   return total > 0 ? total : null;
+}
+
+const CURRENTLY_RUNNING_VALUES = new Set(['currently_lt_3m', 'currently_lt_6m', 'currently_lt_1y', 'currently_gt_1y']);
+export function isCurrentlyRunning(answers: Record<string, unknown>): boolean {
+  return CURRENTLY_RUNNING_VALUES.has(String(answers.running_experience ?? ''));
 }
 
 export function numericAnswer(value: unknown): number | null {
@@ -242,12 +254,12 @@ export function isNovice(experience: string, answers: Record<string, unknown>) {
   const experienceText = experience.toLowerCase();
   if (['nunca', 'algumas vezes', 'nao consigo'].some((term) => experienceText.includes(term))) return true;
 
-  if (answers.ran_5k_recently === 'no') {
+  if (!isCurrentlyRunning(answers)) {
     const rating = typeof answers.fitness_self_rating === 'string' ? answers.fitness_self_rating : '';
     return rating === 'muito_leve' || rating === 'leve';
   }
 
-  const distanceKm = numericAnswer(answers.longest_distance_recent);
+  const distanceKm = numericAnswer(answers.longest_distance);
   const feeling = typeof answers.recent_running_feeling === 'string' ? answers.recent_running_feeling : '';
   if (distanceKm !== null && distanceKm < 5) return true;
   return feeling === 'dificil' || feeling === 'muito_dificil';

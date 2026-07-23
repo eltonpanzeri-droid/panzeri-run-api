@@ -210,11 +210,15 @@ interface InterviewQuestion {
   key: string;
   module: string;
   prompt: string;
-  type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'duration_mmss' | 'date' | 'cpf' | 'notice';
+  type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'date' | 'cpf' | 'phone' | 'notice' | 'wheel_number' | 'wheel_pace' | 'wheel_duration_hms';
   options?: InterviewOption[];
   optional?: boolean;
   help?: string;
   condition?: (answers: InterviewAnswers) => boolean;
+  wheelDigits?: number;
+  wheelMin?: number;
+  wheelMax?: number;
+  wheelUnit?: string;
 }
 
 interface CompletionDraft {
@@ -429,24 +433,38 @@ const interviewTimeOptions = [
   option('Nao posso treinar', 'none'), option('Ate 30 minutos', 'up_to_30'), option('30 a 45 minutos', 'from_30_to_45'),
   option('45 a 60 minutos', 'from_45_to_60'), option('60 a 90 minutos', 'from_60_to_90'), option('Mais de 90 minutos', 'over_90'),
 ];
-const distanceBucketOptions = [
-  option('Nunca corri continuamente', 'none'), option('1 a 3 km', '1_3'), option('3 a 5 km', '3_5'),
-  option('5 a 8 km', '5_8'), option('8 a 10 km', '8_10'), option('10 a 15 km', '10_15'),
-  option('15 a 21 km', '15_21'), option('21 a 30 km', '21_30'), option('30 a 42 km', '30_42'), option('Mais de 42 km', '42_plus'),
-];
-const distanceBucketOrder = distanceBucketOptions.map((item) => item.value);
-function distanceBucketRank(value: unknown) {
-  const index = distanceBucketOrder.indexOf(String(value ?? ''));
-  return index === -1 ? null : index;
+const CURRENTLY_RUNNING_VALUES = new Set(['currently_lt_3m', 'currently_lt_6m', 'currently_lt_1y', 'currently_gt_1y']);
+function isCurrentlyRunning(answers: InterviewAnswers) {
+  return CURRENTLY_RUNNING_VALUES.has(String(answers.running_experience ?? ''));
 }
-const distanceCountBucketOptions = [
-  option('1 vez', '1'), option('2 a 3 vezes', '2_3'), option('4 a 6 vezes', '4_6'), option('7 a 12 vezes', '7_12'), option('Mais de 12 vezes', '12_plus'),
-];
-const weeklyKmBucketOptions = [
-  option('Ate 10 km por semana', '0_10'), option('10 a 20 km por semana', '10_20'), option('20 a 30 km por semana', '20_30'),
-  option('30 a 40 km por semana', '30_40'), option('40 a 50 km por semana', '40_50'), option('50 a 75 km por semana', '50_75'),
-  option('75 a 100 km por semana', '75_100'), option('Mais de 100 km por semana', '100_plus'),
-];
+function numberAnswerRank(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function padWheelNumber(value: number, digits: number) {
+  return String(Math.max(0, value)).padStart(digits, '0');
+}
+function wheelNumberValues(min: number, max: number, digits: number) {
+  const values: string[] = [];
+  for (let i = min; i <= max; i += 1) values.push(padWheelNumber(i, digits));
+  return values;
+}
+function parseHmsToSeconds(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const match = value.match(/^(\d{1,2}):(\d{1,2}):(\d{1,2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3]);
+  if (minutes >= 60 || seconds >= 60) return null;
+  const total = hours * 3600 + minutes * 60 + seconds;
+  return total > 0 ? total : null;
+}
+function formatPaceMinSec(secondsPerKm: number) {
+  const minutes = Math.floor(secondsPerKm / 60);
+  const seconds = Math.round(secondsPerKm % 60);
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
 const ratingPrompts = [
   ['rating_energy', 'Energia no dia a dia'], ['rating_training_readiness', 'Disposicao para treinar'], ['rating_fitness', 'Condicionamento fisico'],
   ['rating_strength', 'Forca fisica'], ['rating_sleep', 'Qualidade do sono'], ['rating_recovery', 'Recuperacao apos os treinos'],
@@ -471,23 +489,23 @@ const interviewQuestions: InterviewQuestion[] = [
     option('Nunca tentei correr.'), option('Ja tentei correr, mas nunca consegui manter uma rotina.'),
     option('Corria regularmente, mas parei ha mais de 2 anos.'), option('Corria regularmente, mas parei entre 1 e 2 anos atras.'),
     option('Corria regularmente, mas parei entre 6 meses e 1 ano atras.'), option('Corria regularmente, mas parei ha menos de 6 meses.'),
-    option('Corro regularmente hoje, comecei ha menos de 3 meses.'), option('Corro regularmente hoje, entre 3 e 6 meses.'),
-    option('Corro regularmente hoje, entre 6 meses e 1 ano.'), option('Corro regularmente hoje, ha mais de 1 ano.'),
+    option('Corro atualmente, comecei ha menos de 3 meses.', 'currently_lt_3m'),
+    option('Corro atualmente, comecei ha menos de 6 meses.', 'currently_lt_6m'),
+    option('Corro atualmente, comecei ha menos de 1 ano.', 'currently_lt_1y'),
+    option('Corro atualmente, comecei ha mais de 1 ano.', 'currently_gt_1y'),
   ] },
-  { key: 'longest_distance', module: 'Experiencia com corrida', prompt: 'Qual a maior distancia que voce ja correu sem precisar parar ou caminhar, somente correndo?', type: 'single', optional: true, help: 'Nao vale treino com corrida alternada com caminhada.', options: distanceBucketOptions },
-  { key: 'best_comfortable_pace', module: 'Experiencia com corrida', prompt: 'Na epoca em que voce corria melhor, aproximadamente qual era seu pace confortavel?', type: 'single', options: ['Nunca corri regularmente.', 'Acima de 7:00/km', 'Entre 6:00 e 7:00/km', 'Entre 5:30 e 6:00/km', 'Entre 5:00 e 5:30/km', 'Entre 4:30 e 5:00/km', 'Entre 4:00 e 4:30/km', 'Abaixo de 4:00/km', 'Nao lembro.'].map((v) => option(v)) },
-  { key: 'ran_5k_recently', module: 'Experiencia com corrida', prompt: 'Voce correu 5 km ou mais nos ultimos 6 meses?', type: 'single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
-  { key: 'weekly_running_km', module: 'Experiencia com corrida', prompt: 'Em media, somando todos os treinos de corrida da semana, quantos quilometros voce corre por semana atualmente?', type: 'single', help: 'Soma aproximada de uma semana normal recente. Isso ajuda o treinador a calibrar o volume dos seus treinos.', options: weeklyKmBucketOptions, condition: (a) => a.ran_5k_recently === 'yes' },
-  { key: 'longest_distance_recent', module: 'Experiencia com corrida', prompt: 'Qual a maior distancia que voce correu no ultimo ano sem precisar parar ou caminhar, somente correndo?', type: 'single', help: 'Nao vale treino com corrida alternada com caminhada.', options: distanceBucketOptions, condition: (a) => a.ran_5k_recently === 'yes' },
-  { key: 'longest_distance_recent_count', module: 'Experiencia com corrida', prompt: 'Quantas vezes voce correu essa distancia ou mais no ultimo ano?', type: 'single', options: distanceCountBucketOptions, condition: (a) => a.ran_5k_recently === 'yes' },
-  { key: 'second_longest_distance_recent', module: 'Experiencia com corrida', prompt: 'Qual a segunda maior distancia que voce correu no ultimo ano sem precisar parar ou caminhar, somente correndo?', type: 'single', optional: true, help: 'Nao vale treino com corrida alternada com caminhada.', options: distanceBucketOptions, condition: (a) => a.ran_5k_recently === 'yes' },
-  { key: 'second_longest_distance_recent_count', module: 'Experiencia com corrida', prompt: 'Quantas vezes voce correu essa segunda distancia ou mais no ultimo ano?', type: 'single', optional: true, options: distanceCountBucketOptions, condition: (a) => a.ran_5k_recently === 'yes' },
-  { key: 'third_longest_distance_recent', module: 'Experiencia com corrida', prompt: 'Qual a terceira maior distancia que voce correu no ultimo ano sem precisar parar ou caminhar, somente correndo?', type: 'single', optional: true, help: 'Nao vale treino com corrida alternada com caminhada.', options: distanceBucketOptions, condition: (a) => a.ran_5k_recently === 'yes' },
-  { key: 'third_longest_distance_recent_count', module: 'Experiencia com corrida', prompt: 'Quantas vezes voce correu essa terceira distancia ou mais no ultimo ano?', type: 'single', optional: true, options: distanceCountBucketOptions, condition: (a) => a.ran_5k_recently === 'yes' },
-  { key: 'longest_distance_recent_time', module: 'Experiencia com corrida', prompt: 'Qual foi o seu tempo aproximado na sua maior distancia?', type: 'duration_mmss', help: 'Vamos usar esse tempo como referencia para calcular seus ritmos de treino ate que voce faca o teste oficial de 3 km.', condition: (a) => a.ran_5k_recently === 'yes' },
-  { key: 'recent_running_feeling', module: 'Experiencia com corrida', prompt: 'Como voce se sentiu nessas corridas?', type: 'single', options: [option('Tranquila, consegui manter o ritmo com folga', 'tranquila'), option('Moderada, exigiu esforco mas terminei bem', 'moderada'), option('Dificil, precisei desacelerar ou parar algumas vezes', 'dificil'), option('Muito dificil, quase nao consegui terminar', 'muito_dificil')], condition: (a) => a.ran_5k_recently === 'yes' },
-  { key: 'fitness_self_rating', module: 'Experiencia com corrida', prompt: 'Como voce classificaria seu condicionamento para corrida hoje?', type: 'single', options: [option('Muito leve', 'muito_leve'), option('Leve', 'leve'), option('Moderado', 'moderado'), option('Forte', 'forte'), option('Muito forte', 'muito_forte')], condition: (a) => a.ran_5k_recently === 'no' },
-  { key: 'races_last_12_months', module: 'Experiencia com corrida', prompt: 'Nos ultimos 12 meses, quantas provas voce participou?', type: 'single', options: ['Nenhuma', '1', '2 a 3', '4 a 6', 'Mais de 6'].map((v) => option(v)) },
+  { key: 'longest_distance', module: 'Experiencia com corrida', prompt: 'Qual a maior distancia que voce corre atualmente sem precisar parar ou caminhar, somente correndo, nos ultimos 6 meses?', type: 'wheel_number', wheelDigits: 3, wheelMin: 1, wheelMax: 300, wheelUnit: 'km', help: 'Nao vale treino com corrida alternada com caminhada.', condition: (a) => isCurrentlyRunning(a) },
+  { key: 'longest_distance_recent_count', module: 'Experiencia com corrida', prompt: 'Quantas vezes voce correu essa distancia nos ultimos 6 meses?', type: 'wheel_number', wheelDigits: 2, wheelMin: 1, wheelMax: 99, wheelUnit: 'vezes', condition: (a) => isCurrentlyRunning(a) },
+  { key: 'longest_distance_recent_time', module: 'Experiencia com corrida', prompt: 'Qual foi o seu tempo nessa distancia?', type: 'wheel_duration_hms', help: 'Vamos calcular seu pace medio automaticamente com esse tempo, para ajudar (nao definir sozinho) a escolher seus ritmos de treino ate voce fazer o teste oficial de 3 km.', condition: (a) => isCurrentlyRunning(a) },
+  { key: 'second_longest_distance_recent', module: 'Experiencia com corrida', prompt: 'Qual a segunda maior distancia que voce corre atualmente sem precisar parar ou caminhar, somente correndo, nos ultimos 6 meses?', type: 'wheel_number', optional: true, wheelDigits: 3, wheelMin: 1, wheelMax: 300, wheelUnit: 'km', help: 'Nao vale treino com corrida alternada com caminhada.', condition: (a) => isCurrentlyRunning(a) },
+  { key: 'second_longest_distance_recent_count', module: 'Experiencia com corrida', prompt: 'Quantas vezes voce correu essa distancia nos ultimos 6 meses?', type: 'wheel_number', optional: true, wheelDigits: 2, wheelMin: 1, wheelMax: 99, wheelUnit: 'vezes', condition: (a) => isCurrentlyRunning(a) },
+  { key: 'third_longest_distance_recent', module: 'Experiencia com corrida', prompt: 'Qual a terceira maior distancia que voce corre atualmente sem precisar parar ou caminhar, somente correndo, nos ultimos 6 meses?', type: 'wheel_number', optional: true, wheelDigits: 3, wheelMin: 1, wheelMax: 300, wheelUnit: 'km', help: 'Nao vale treino com corrida alternada com caminhada.', condition: (a) => isCurrentlyRunning(a) },
+  { key: 'third_longest_distance_recent_count', module: 'Experiencia com corrida', prompt: 'Quantas vezes voce correu essa distancia nos ultimos 6 meses?', type: 'wheel_number', optional: true, wheelDigits: 2, wheelMin: 1, wheelMax: 99, wheelUnit: 'vezes', condition: (a) => isCurrentlyRunning(a) },
+  { key: 'weekly_running_km', module: 'Experiencia com corrida', prompt: 'Em media, somando todos os treinos de corrida da semana, quantos quilometros voce corre por semana atualmente?', type: 'wheel_number', wheelDigits: 3, wheelMin: 1, wheelMax: 300, wheelUnit: 'km', help: 'Soma aproximada de uma semana normal recente. Isso ajuda o treinador a calibrar o volume dos seus treinos.', condition: (a) => isCurrentlyRunning(a) },
+  { key: 'best_comfortable_pace', module: 'Experiencia com corrida', prompt: 'Qual seu pace confortavel atualmente?', type: 'wheel_pace', help: 'O ritmo que voce consegue manter com folga, numa corrida leve.', condition: (a) => isCurrentlyRunning(a) },
+  { key: 'recent_running_feeling', module: 'Experiencia com corrida', prompt: 'Como voce se sentiu nessas corridas?', type: 'single', options: [option('Tranquila, consegui manter o ritmo com folga', 'tranquila'), option('Moderada, exigiu esforco mas terminei bem', 'moderada'), option('Dificil, precisei desacelerar ou parar algumas vezes', 'dificil'), option('Muito dificil, quase nao consegui terminar', 'muito_dificil')], condition: (a) => isCurrentlyRunning(a) },
+  { key: 'fitness_self_rating', module: 'Experiencia com corrida', prompt: 'Como voce classificaria seu condicionamento para corrida hoje?', type: 'single', options: [option('Muito leve', 'muito_leve'), option('Leve', 'leve'), option('Moderado', 'moderado'), option('Forte', 'forte'), option('Muito forte', 'muito_forte')], condition: (a) => !isCurrentlyRunning(a) },
+  { key: 'races_last_12_months', module: 'Experiencia com corrida', prompt: 'Nos ultimos 6 meses, quantas provas voce participou?', type: 'wheel_number', wheelDigits: 2, wheelMin: 0, wheelMax: 50, wheelUnit: 'provas', condition: (a) => isCurrentlyRunning(a) },
   { key: 'current_activities', module: 'Experiencia com corrida', prompt: 'Quais atividades fisicas voce pratica atualmente?', type: 'multi', options: [...activityOptions, 'Nenhuma'].map((v) => option(v)) },
   { key: 'favorite_activities', module: 'Experiencia com corrida', prompt: 'Quais atividades fisicas voce mais gosta de praticar?', type: 'multi', options: activityOptions.map((v) => option(v)) },
   { key: 'strength_experience', module: 'Treinamento de forca', prompt: 'Qual sua experiencia com musculacao?', type: 'single', options: ['Nunca fiz.', 'Ja fiz poucas vezes.', 'Ja treinei no passado, mas parei.', 'Estou voltando agora.', 'Treino ha menos de 1 ano.', 'Treino entre 1 e 3 anos.', 'Treino ha mais de 3 anos.'].map((v) => option(v)) },
@@ -581,7 +599,7 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'work_routine', module: 'Habitos', prompt: 'Como e sua rotina de trabalho?', type: 'single', options: ['Predominantemente sentado', 'Predominantemente em pe', 'Trabalho fisico moderado', 'Trabalho fisico intenso', 'Aposentado', 'Outro'].map((v) => option(v)) },
   { key: 'daily_steps', module: 'Habitos', prompt: 'Em media, quantos passos voce da por dia?', type: 'single', options: ['Menos de 3.000', 'Entre 3.000 e 5.000', 'Entre 5.000 e 8.000', 'Entre 8.000 e 12.000', 'Mais de 12.000', 'Nao sei'].map((v) => option(v)) },
   { key: 'personal_name', module: 'Dados pessoais', prompt: 'Qual e seu nome completo?', type: 'text' },
-  { key: 'personal_phone', module: 'Dados pessoais', prompt: 'Qual e o seu WhatsApp (com DDD)?', type: 'text', help: 'Usamos para avisos importantes sobre pagamento, treino e acompanhamento.' },
+  { key: 'personal_phone', module: 'Dados pessoais', prompt: 'Qual e o seu WhatsApp (com DDD)?', type: 'phone', help: 'Usamos para avisos importantes sobre pagamento, treino e acompanhamento.' },
   { key: 'personal_birth_date', module: 'Dados pessoais', prompt: 'Qual e sua data de nascimento?', type: 'date', help: 'Use o formato dia/mes/ano. Exemplo: 19/06/1984.' },
   { key: 'personal_sex', module: 'Dados pessoais', prompt: 'Como voce prefere informar seu sexo?', type: 'single', options: [option('Feminino'), option('Masculino'), option('Prefiro nao informar')] },
   { key: 'personal_height', module: 'Dados pessoais', prompt: 'Qual e sua altura em centimetros?', type: 'number' },
@@ -1442,6 +1460,54 @@ function Today({
   );
 }
 
+const WHEEL_ITEM_HEIGHT = 44;
+const WHEEL_VISIBLE_ITEMS = 5;
+
+function WheelColumn({ values, selectedIndex, onChangeIndex }: { values: string[]; selectedIndex: number; onChangeIndex: (index: number) => void }) {
+  const scrollRef = useRef<ScrollView>(null);
+  const paddingVertical = WHEEL_ITEM_HEIGHT * Math.floor(WHEEL_VISIBLE_ITEMS / 2);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: selectedIndex * WHEEL_ITEM_HEIGHT, animated: false });
+  }, [selectedIndex, values.length]);
+
+  return (
+    <View style={styles.wheelColumn}>
+      <ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={WHEEL_ITEM_HEIGHT}
+        decelerationRate="fast"
+        contentContainerStyle={{ paddingVertical }}
+        onMomentumScrollEnd={(event) => {
+          const index = Math.round(event.nativeEvent.contentOffset.y / WHEEL_ITEM_HEIGHT);
+          onChangeIndex(Math.max(0, Math.min(values.length - 1, index)));
+        }}
+      >
+        {values.map((label, index) => (
+          <View key={`${label}-${index}`} style={styles.wheelItem}>
+            <Text style={index === selectedIndex ? styles.wheelValueActive : styles.wheelValue}>{label}</Text>
+          </View>
+        ))}
+      </ScrollView>
+      <View pointerEvents="none" style={[styles.wheelHighlight, { top: paddingVertical }]} />
+    </View>
+  );
+}
+
+function WheelPicker({ columns }: { columns: Array<{ label?: string; values: string[]; selectedIndex: number; onChangeIndex: (index: number) => void }> }) {
+  return (
+    <View style={styles.wheelPickerRow}>
+      {columns.map((column, index) => (
+        <View key={index} style={styles.wheelColumnWrap}>
+          <WheelColumn values={column.values} selectedIndex={column.selectedIndex} onChangeIndex={column.onChangeIndex} />
+          {column.label ? <Text style={styles.wheelColumnLabel}>{column.label}</Text> : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding', restartFromStart = false }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment'; restartFromStart?: boolean }) {
   const [answers, setAnswers] = useState<InterviewAnswers>({});
   const [step, setStep] = useState(0);
@@ -1464,6 +1530,16 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     const maxStep = Math.max(visibleQuestions.length - 1, 0);
     if (step > maxStep) setStep(maxStep);
   }, [visibleQuestions.length, step]);
+
+  // Um seletor de roda sempre mostra algum valor destacado (nao existe estado "vazio" visual),
+  // entao assim que a pergunta aparece ja fixamos um valor de partida sensato na resposta —
+  // sem isso, hasAnswer() nunca veria uma resposta valida ate a pessoa rolar a roda.
+  useEffect(() => {
+    if (!question || value !== undefined) return;
+    if (question.type === 'wheel_number') setAnswers((current) => ({ ...current, [question.key]: String(question.wheelMin ?? 0) }));
+    else if (question.type === 'wheel_pace') setAnswers((current) => ({ ...current, [question.key]: '6:00' }));
+    else if (question.type === 'wheel_duration_hms') setAnswers((current) => ({ ...current, [question.key]: '0:30:00' }));
+  }, [question, value]);
   const assessedWeight = interviewDecimal(answers.assessment_weight);
   const assessedBodyFat = interviewDecimal(answers.body_fat_percentage);
   const calculatedFatMass = assessedWeight !== null && assessedBodyFat !== null ? Math.round(assessedWeight * assessedBodyFat) / 100 : null;
@@ -1514,25 +1590,26 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
 
   function hasAnswer() {
     if (!question || question.optional || question.type === 'notice') return true;
+    if (question.type === 'wheel_number' || question.type === 'wheel_pace' || question.type === 'wheel_duration_hms') return value !== undefined;
     if (Array.isArray(value)) return value.length > 0;
-    if (question.type === 'duration_mmss') return /^\d{1,3}:\d{1,2}$/.test(String(value ?? ''));
     if (question.type === 'date') return dateInputValueToIso(String(value ?? '')) !== null;
-    if (question.type === 'cpf') return String(value ?? '').replace(/\D/g, '').length === 11;
+    if (question.type === 'cpf') return isValidCpf(String(value ?? ''));
+    if (question.type === 'phone') return String(value ?? '').replace(/\D/g, '').length === 11;
     return value !== undefined && value !== null && String(value).trim() !== '';
   }
 
   async function next() {
     if (!question || !hasAnswer()) {
-      setStatus(question?.type === 'date' ? 'Digite uma data valida no formato dia/mes/ano. Exemplo: 19/06/1984.' : question?.type === 'cpf' ? 'Digite um CPF valido com 11 numeros.' : 'Responda para continuar.');
+      setStatus(question?.type === 'date' ? 'Digite uma data valida no formato dia/mes/ano. Exemplo: 19/06/1984.' : question?.type === 'cpf' ? 'Digite um CPF valido. Confira se os numeros estao corretos.' : question?.type === 'phone' ? 'Digite um numero de WhatsApp valido, com DDD (11 numeros).' : 'Responda para continuar.');
       return;
     }
     // A segunda e a terceira maior distancia tem que ser menores ou iguais a distancia anterior
     // (maior <= maior, segunda <= primeira, terceira <= segunda) — sem isso, respostas fora de
     // ordem confundem o treinador ao ler a entrevista.
     if (question.key === 'second_longest_distance_recent' || question.key === 'third_longest_distance_recent') {
-      const baselineKey = question.key === 'second_longest_distance_recent' ? 'longest_distance_recent' : 'second_longest_distance_recent';
-      const baselineRank = distanceBucketRank(answers[baselineKey]);
-      const currentRank = distanceBucketRank(value);
+      const baselineKey = question.key === 'second_longest_distance_recent' ? 'longest_distance' : 'second_longest_distance_recent';
+      const baselineRank = numberAnswerRank(answers[baselineKey]);
+      const currentRank = numberAnswerRank(value);
       if (baselineRank !== null && currentRank !== null && currentRank > baselineRank) {
         setStatus('Essa distancia nao pode ser maior que a anterior. Revise sua resposta.');
         return;
@@ -1614,8 +1691,8 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     <View style={styles.section}>
       <View style={styles.interviewTop}><Text style={styles.sectionLabel}>{question?.module}</Text><Text style={styles.interviewCounter}>{step + 1} de {visibleQuestions.length}</Text></View>
       <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress}%` }]} /></View>
-      <Text style={styles.interviewQuestion}>{question?.prompt}</Text>
-      {question?.help ? <Pressable style={styles.helpButton} onPress={() => setHelpOpen(!helpOpen)}><Ionicons name="information-circle-outline" size={18} color="#0f766e" /><Text style={styles.helpButtonText}>Como medir</Text></Pressable> : null}
+      <Text style={styles.interviewQuestion}>{question?.prompt}{question && !question.optional && question.type !== 'notice' ? <Text style={styles.requiredMark}> *</Text> : null}</Text>
+      {question?.help ? <Pressable style={styles.helpButton} onPress={() => setHelpOpen(!helpOpen)}><Ionicons name="information-circle-outline" size={18} color="#0f766e" /><Text style={styles.helpButtonText}>Entenda</Text></Pressable> : null}
       {helpOpen ? <Text style={styles.formHint}>{question?.help}</Text> : null}
 
       {(question?.type === 'single' || question?.type === 'scale') ? <View style={question.type === 'scale' ? styles.scaleGrid : styles.answerList}>{(question.type === 'scale' ? Array.from({ length: 10 }, (_, i) => option(String(i + 1))) : question.options ?? []).map((item) => { const selected = value === item.value || (question.type === 'scale' && value === Number(item.value)); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive, question.type === 'scale' && styles.scaleButton]} onPress={() => choose(question.type === 'scale' ? Number(item.value) : item.value)}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
@@ -1623,22 +1700,52 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       {(question?.type === 'text' || question?.type === 'number' || question?.type === 'number_or_unknown') ? <TextInput style={styles.input} value={value === 'unknown' || value === 'automatic' ? '' : String(value ?? '')} keyboardType={question.type === 'text' ? 'default' : 'decimal-pad'} placeholder={question.optional ? 'Opcional' : 'Digite sua resposta'} onChangeText={(text) => setAnswers({ ...answers, [question.key]: text })} /> : null}
       {question?.type === 'date' ? <TextInput style={styles.input} value={String(value ?? '')} keyboardType="number-pad" maxLength={10} placeholder="dd/mm/aaaa" onChangeText={(text) => setAnswers({ ...answers, [question.key]: formatDateInputText(text) })} /> : null}
       {question?.type === 'cpf' ? <TextInput style={styles.input} value={String(value ?? '')} keyboardType="number-pad" maxLength={14} placeholder="Somente numeros" onChangeText={(text) => setAnswers({ ...answers, [question.key]: formatCpfInputText(text) })} /> : null}
+      {question?.type === 'phone' ? <TextInput style={styles.input} value={String(value ?? '')} keyboardType="number-pad" maxLength={15} placeholder="(11) 98765-4321" onChangeText={(text) => setAnswers({ ...answers, [question.key]: formatPhoneInputText(text) })} /> : null}
       {(question?.type === 'number' || question?.type === 'number_or_unknown') ? <Pressable style={styles.decimalButton} onPress={() => { const current = String(value === 'unknown' || value === 'automatic' ? '' : value ?? ''); if (!current.includes(',') && !current.includes('.')) setAnswers({ ...answers, [question.key]: `${current},` }); }}><Text style={styles.decimalButtonText}>Inserir virgula</Text></Pressable> : null}
-      {question?.type === 'duration_mmss' ? (() => {
-        const raw = typeof value === 'string' ? value : '';
-        const [rawMin, rawSec] = raw.split(':');
+      {question?.type === 'wheel_number' ? (() => {
+        const digits = question.wheelDigits ?? 2;
+        const min = question.wheelMin ?? 0;
+        const max = question.wheelMax ?? 10 ** digits - 1;
+        const values = wheelNumberValues(min, max, digits);
+        const current = Math.max(min, Math.min(max, Number(value ?? min) || min));
+        return <WheelPicker columns={[{ label: question.wheelUnit, values, selectedIndex: current - min, onChangeIndex: (index) => choose(String(min + index)) }]} />;
+      })() : null}
+      {question?.type === 'wheel_pace' ? (() => {
+        const raw = typeof value === 'string' ? value : '6:00';
+        const [rawMinStr, rawSecStr] = raw.split(':');
+        const minValues = wheelNumberValues(3, 14, 1);
+        const secValues = wheelNumberValues(0, 59, 2);
+        const minCurrent = Math.max(3, Math.min(14, Number(rawMinStr) || 6));
+        const secCurrent = Math.max(0, Math.min(59, Number(rawSecStr) || 0));
         return (
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.inputLabel}>Minutos</Text>
-              <TextInput style={styles.input} value={rawMin ?? ''} onChangeText={(text) => setAnswers({ ...answers, [question.key]: `${text.replace(/\D/g, '')}:${rawSec ?? ''}` })} keyboardType="number-pad" placeholder="Ex: 25" maxLength={3} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.inputLabel}>Segundos</Text>
-              <TextInput style={styles.input} value={rawSec ?? ''} onChangeText={(text) => setAnswers({ ...answers, [question.key]: `${rawMin ?? ''}:${text.replace(/\D/g, '')}` })} keyboardType="number-pad" placeholder="Ex: 30" maxLength={2} />
-            </View>
-          </View>
+          <WheelPicker columns={[
+            { label: 'min', values: minValues, selectedIndex: minCurrent - 3, onChangeIndex: (index) => choose(`${3 + index}:${String(secCurrent).padStart(2, '0')}`) },
+            { label: 'seg/km', values: secValues, selectedIndex: secCurrent, onChangeIndex: (index) => choose(`${minCurrent}:${String(index).padStart(2, '0')}`) },
+          ]} />
         );
+      })() : null}
+      {question?.type === 'wheel_duration_hms' ? (() => {
+        const raw = typeof value === 'string' ? value : '0:30:00';
+        const [rawHStr, rawMStr, rawSStr] = raw.split(':');
+        const hValues = wheelNumberValues(0, 9, 1);
+        const mValues = wheelNumberValues(0, 59, 2);
+        const sValues = wheelNumberValues(0, 59, 2);
+        const hCurrent = Math.max(0, Math.min(9, Number(rawHStr) || 0));
+        const mCurrent = Math.max(0, Math.min(59, Number(rawMStr) || 0));
+        const sCurrent = Math.max(0, Math.min(59, Number(rawSStr) || 0));
+        return (
+          <WheelPicker columns={[
+            { label: 'h', values: hValues, selectedIndex: hCurrent, onChangeIndex: (index) => choose(`${index}:${String(mCurrent).padStart(2, '0')}:${String(sCurrent).padStart(2, '0')}`) },
+            { label: 'min', values: mValues, selectedIndex: mCurrent, onChangeIndex: (index) => choose(`${hCurrent}:${String(index).padStart(2, '0')}:${String(sCurrent).padStart(2, '0')}`) },
+            { label: 'seg', values: sValues, selectedIndex: sCurrent, onChangeIndex: (index) => choose(`${hCurrent}:${String(mCurrent).padStart(2, '0')}:${String(index).padStart(2, '0')}`) },
+          ]} />
+        );
+      })() : null}
+      {question?.key === 'longest_distance_recent_time' ? (() => {
+        const km = numberAnswerRank(answers.longest_distance);
+        const totalSeconds = parseHmsToSeconds(value);
+        if (!km || !totalSeconds) return null;
+        return <View style={styles.calculationBox}><Text style={styles.calculationTitle}>Pace medio calculado</Text><Text style={styles.calculationText}>{formatPaceMinSec(totalSeconds / km)} min/km</Text></View>;
       })() : null}
       {question?.key === 'body_fat_percentage' && calculatedLeanMass !== null && calculatedFatMass !== null ? <View style={styles.calculationBox}><Text style={styles.calculationTitle}>Composicao calculada</Text><Text style={styles.calculationText}>Massa magra: {calculatedLeanMass.toFixed(1).replace('.', ',')} kg</Text><Text style={styles.calculationText}>Massa de gordura: {calculatedFatMass.toFixed(1).replace('.', ',')} kg</Text></View> : null}
       {question?.type === 'number_or_unknown' ? <Pressable style={[styles.answerButton, value === 'unknown' && styles.answerButtonActive]} onPress={() => choose('unknown')}><Text style={[styles.answerButtonText, value === 'unknown' && styles.answerButtonTextActive]}>Nao sei</Text></Pressable> : null}
@@ -4161,6 +4268,25 @@ function isDetailedPlan(plan: WeekPlan) {
   );
 }
 
+function isValidCpf(value: string) {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length !== 11 || /^(\d)\1{10}$/.test(digits)) return false;
+  const calcCheckDigit = (length: number) => {
+    let total = 0;
+    for (let i = 0; i < length; i += 1) total += Number(digits[i]) * (length + 1 - i);
+    const remainder = (total * 10) % 11;
+    return remainder === 10 ? 0 : remainder;
+  };
+  return calcCheckDigit(9) === Number(digits[9]) && calcCheckDigit(10) === Number(digits[10]);
+}
+
+function formatPhoneInputText(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+}
+
 function formatCpfInputText(value: string) {
   const digits = value.replace(/\D/g, '').slice(0, 11);
   if (digits.length <= 3) return digits;
@@ -5668,6 +5794,51 @@ const styles = StyleSheet.create({
     fontSize: 22,
     lineHeight: 30,
     fontWeight: '900',
+  },
+  requiredMark: {
+    color: '#dc2626',
+  },
+  wheelPickerRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+    marginTop: 8,
+  },
+  wheelColumnWrap: {
+    alignItems: 'center',
+  },
+  wheelColumn: {
+    height: WHEEL_ITEM_HEIGHT * WHEEL_VISIBLE_ITEMS,
+    width: 84,
+    overflow: 'hidden',
+  },
+  wheelItem: {
+    height: WHEEL_ITEM_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wheelValue: {
+    fontSize: 18,
+    color: '#9ca3af',
+  },
+  wheelValueActive: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  wheelHighlight: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: WHEEL_ITEM_HEIGHT,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#d1d5db',
+  },
+  wheelColumnLabel: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#6b7280',
   },
   answerList: {
     gap: 9,
