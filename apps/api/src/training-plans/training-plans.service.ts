@@ -217,6 +217,11 @@ export class TrainingPlansService {
       } : null,
       stravaAnalysis,
       studentDirectives: activeDirectives.map((directive) => directive.content),
+      todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
+      weekDates: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
+        weekday,
+        date: addDays(weekStart, weekdayOffsetFromMonday(weekday)).toISOString().slice(0, 10),
+      })),
       painTier: painSafety.tier,
       painReason: painSafety.reason,
       targetRace: targetRace ? {

@@ -83,6 +83,8 @@ export interface MethodologyInput {
     crossTrainingNote: string | null;
   } | null;
   studentDirectives?: string[];
+  todayDate?: string;
+  weekDates?: Array<{ weekday: number; date: string }>;
   painTier?: 'normal' | 'reduced' | 'remove_running';
   painReason?: string | null;
   targetRace?: {
