@@ -275,6 +275,9 @@ export default function AdminHome() {
   const [paymentFilter, setPaymentFilter] = useState('all');
   const [studentListCollapsed, setStudentListCollapsed] = useState(false);
   const [status, setStatus] = useState('');
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotStatus, setForgotStatus] = useState('');
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentEmail, setNewStudentEmail] = useState('');
@@ -648,6 +651,29 @@ export default function AdminHome() {
     }
   }
 
+  async function forgotPassword() {
+    if (!forgotEmail.trim()) {
+      setForgotStatus('Informe o e-mail.');
+      return;
+    }
+    setForgotStatus('Gerando link...');
+    try {
+      const response = await fetch(`${API_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      });
+      const data = (await response.json()) as { resetLink?: string; message?: string };
+      if (!response.ok || !data.resetLink) {
+        setForgotStatus('Nao consegui gerar o link. Confira o e-mail.');
+        return;
+      }
+      setForgotStatus(data.resetLink);
+    } catch {
+      setForgotStatus('Nao consegui conectar com a API.');
+    }
+  }
+
   function logout() {
     window.localStorage.removeItem('panzeri_admin_token');
     window.localStorage.removeItem('panzeri_admin_refresh_token');
@@ -676,6 +702,40 @@ export default function AdminHome() {
             Entrar
           </button>
           {status ? <p className="statusText">{status}</p> : null}
+          <button
+            type="button"
+            className="linkButton"
+            onClick={() => {
+              setShowForgotPassword((current) => !current);
+              setForgotStatus('');
+            }}
+          >
+            Esqueci minha senha
+          </button>
+          {showForgotPassword ? (
+            <div className="forgotPasswordBox">
+              <input
+                value={forgotEmail}
+                onChange={(event) => setForgotEmail(event.target.value)}
+                placeholder="E-mail da conta"
+              />
+              <button type="button" onClick={forgotPassword}>
+                Gerar link de redefinicao
+              </button>
+              {forgotStatus ? (
+                forgotStatus.startsWith('http') ? (
+                  <p className="statusText">
+                    Abra este link para trocar a senha:{' '}
+                    <a href={forgotStatus} target="_blank" rel="noreferrer">
+                      {forgotStatus}
+                    </a>
+                  </p>
+                ) : (
+                  <p className="statusText">{forgotStatus}</p>
+                )
+              ) : null}
+            </div>
+          ) : null}
         </section>
       </main>
     );

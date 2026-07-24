@@ -78,6 +78,27 @@ button {
   color: #ffffff;
 }
 
+.loginCard button.linkButton {
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  min-height: auto;
+  padding: 4px 0;
+  justify-self: start;
+}
+
+.forgotPasswordBox {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.forgotPasswordBox a {
+  color: var(--accent);
+  word-break: break-all;
+}
+
 .shell {
   min-height: 100vh;
   display: block;
