@@ -26,8 +26,9 @@ export class AuthService {
     }
 
     const email = dto.email.trim().toLowerCase();
-    const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) {
+    const canonicalEmail = canonicalizeEmail(email);
+    const existingUsers = await this.prisma.user.findMany({ select: { email: true } });
+    if (existingUsers.some((existingUser) => canonicalizeEmail(existingUser.email) === canonicalEmail)) {
       throw new BadRequestException('E-mail ja cadastrado.');
     }
 
@@ -251,5 +252,21 @@ export class AuthService {
 
 function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex');
+}
+
+function canonicalizeEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!domain) {
+    return email;
+  }
+  // Gmail ignora pontos no usuario e tudo depois de "+", entao
+  // "fulano.x+aluno@gmail.com" cai na mesma caixa de "fulanox@gmail.com".
+  // Sem essa normalizacao, a mesma pessoa cria "varias contas" so brincando
+  // com esses aliases.
+  if (domain === 'gmail.com' || domain === 'googlemail.com') {
+    const canonicalLocal = local.replace(/\./g, '').split('+')[0];
+    return `${canonicalLocal}@gmail.com`;
+  }
+  return email;
 }
 
