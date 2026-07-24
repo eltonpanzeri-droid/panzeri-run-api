@@ -293,7 +293,7 @@ export class CoachService {
 
   async sendStudentMessage(studentId: string, dto: SendStudentMessageDto) {
     await this.assertStudent(studentId);
-    const results: Record<string, boolean> = {};
+    const results: Record<string, boolean | string | undefined> = {};
 
     if (dto.channels.includes('email')) {
       const result = await this.messaging.sendEmail(studentId, {
@@ -302,6 +302,7 @@ export class CoachService {
         trigger: 'manual',
       });
       results.email = result.ok;
+      results.emailError = result.error;
     }
 
     return results;

@@ -1386,6 +1386,11 @@ function StudentPanel({
         onStatus('Nao consegui enviar a mensagem.');
         return;
       }
+      const data = (await response.json()) as { email?: boolean; emailError?: string };
+      if (data.email === false) {
+        onStatus(`Falha ao enviar e-mail: ${data.emailError ?? 'erro desconhecido'}.`);
+        return;
+      }
       setMessageText('');
       onStatus('Mensagem enviada.');
     } catch {
