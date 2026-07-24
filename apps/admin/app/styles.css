@@ -1391,6 +1391,13 @@ h3 {
   padding: 0 14px;
 }
 
+.editDialogHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 .sessionEditForm label,
 .structureEditRow label {
   display: grid;
@@ -1640,6 +1647,12 @@ h3 {
   color: var(--ink);
   padding: 0 8px;
   font-size: 11px;
+}
+
+.sessionEditorHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .studentFeedback {

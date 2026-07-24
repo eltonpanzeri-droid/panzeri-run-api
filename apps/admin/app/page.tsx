@@ -2075,9 +2075,14 @@ function EditableSession({
         <span className={`executionStatus execution-${session.stravaActivity ? 'done' : session.completionStatus}`}>
           {session.stravaActivity ? 'Strava recebido' : completionLabel(session.completionStatus)}
         </span>
-        <button className="editSessionButton" type="button" onClick={() => setIsEditing((current) => !current)}>
-          {isEditing ? 'Cancelar' : 'Editar'}
-        </button>
+        <div className="sessionEditorHeaderActions">
+          <button className="editSessionButton" type="button" disabled={isRegenerating} onClick={regenerateSession}>
+            <RefreshCw size={12} /> {isRegenerating ? 'Gerando...' : 'Gerar novo treino'}
+          </button>
+          <button className="editSessionButton" type="button" onClick={() => setIsEditing((current) => !current)}>
+            {isEditing ? 'Cancelar' : 'Editar'}
+          </button>
+        </div>
       </div>
       <div className="sessionOverview">
         <strong>{session.title}</strong>
@@ -2105,7 +2110,12 @@ function EditableSession({
           <div className="editDialog">
             <div className="editDialogHeader">
               <div><p className="eyebrow">Edicao manual</p><h2>{session.title}</h2></div>
-              <button className="closeEditButton" type="button" onClick={() => setIsEditing(false)}>Fechar</button>
+              <div className="editDialogHeaderActions">
+                <button className="secondaryButton" type="button" disabled={isRegenerating} onClick={regenerateSession}>
+                  <RefreshCw size={16} /> {isRegenerating ? 'Gerando...' : 'Gerar novo treino'}
+                </button>
+                <button className="closeEditButton" type="button" onClick={() => setIsEditing(false)}>Fechar</button>
+              </div>
             </div>
             <div className="sessionEditForm">
               <label>Nome do treino<input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
@@ -2127,7 +2137,6 @@ function EditableSession({
               <label>Orientacoes gerais<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
               {saveMessage ? <p className={`modalSaveMessage ${saveMessage.includes('sucesso') ? 'saveSuccess' : ''}`}>{saveMessage}</p> : null}
               <button className="saveEditButton" type="button" disabled={isSaving} onClick={saveSession}><Save size={16} /> {isSaving ? 'Salvando...' : 'Salvar treino completo'}</button>
-              <button className="secondaryButton" type="button" disabled={isRegenerating} onClick={regenerateSession}><RefreshCw size={16} /> {isRegenerating ? 'Gerando...' : 'Gerar novo treino'}</button>
             </div>
           </div>
         </div>
