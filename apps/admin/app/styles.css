@@ -1603,8 +1603,10 @@ h3 {
 
 .sessionEditorHeader {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px 8px;
   color: var(--muted);
   font-size: 13px;
 }
@@ -1653,6 +1655,14 @@ h3 {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
+}
+
+.sessionEditor .iconOnlyButton {
+  min-height: 28px;
+  width: 28px;
+  padding: 0;
+  justify-content: center;
 }
 
 .studentFeedback {

@@ -2034,13 +2034,17 @@ function EditableSession({
   }
 
   async function regenerateSession() {
-    if (!window.confirm('Gerar um novo treino para este dia? Isso substitui o treino atual (edicoes manuais serao perdidas).')) {
+    if (
+      !window.confirm(
+        'Gerar novo treino? Isso recalcula os treinos ainda pendentes desta semana (incluindo este dia), aplicando diretivas ativas do aluno. Treinos ja concluidos nao sao alterados. Edicoes manuais em dias pendentes serao substituidas.',
+      )
+    ) {
       return;
     }
     onStatus('Gerando novo treino...');
     setIsRegenerating(true);
     try {
-      const response = await fetch(`${API_URL}/coach/students/${studentId}/sessions/${session.id}/regenerate`, {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/plan/regenerate-week`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -2076,8 +2080,15 @@ function EditableSession({
           {session.stravaActivity ? 'Strava recebido' : completionLabel(session.completionStatus)}
         </span>
         <div className="sessionEditorHeaderActions">
-          <button className="editSessionButton" type="button" disabled={isRegenerating} onClick={regenerateSession}>
-            <RefreshCw size={12} /> {isRegenerating ? 'Gerando...' : 'Gerar novo treino'}
+          <button
+            className="editSessionButton iconOnlyButton"
+            type="button"
+            disabled={isRegenerating}
+            onClick={regenerateSession}
+            title={isRegenerating ? 'Gerando novo treino...' : 'Recalcular treinos pendentes desta semana (aplica diretivas ativas)'}
+            aria-label="Gerar novo treino"
+          >
+            <RefreshCw size={13} />
           </button>
           <button className="editSessionButton" type="button" onClick={() => setIsEditing((current) => !current)}>
             {isEditing ? 'Cancelar' : 'Editar'}
