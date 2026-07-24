@@ -573,6 +573,10 @@ export class TrainingPlansService {
 
   private runPrescription(durationMin: number, zone: string, resolvedPaces: { easy: number; intense: number }, modality: string, sessionType: string) {
     const targetPaceSeconds = zone === 'Z4' ? resolvedPaces.intense : resolvedPaces.easy;
+    // Z1 (aquecimento/desaquecimento) precisa ser visivelmente mais lento que o Z2 - antes os dois
+    // usavam o mesmo resolvedPaces.easy e so a etiqueta da zona mudava, o que o treinador apontou
+    // como um erro real de prescricao (zona diferente com o mesmo pace nao faz sentido).
+    const warmupPaceSeconds = resolvedPaces.easy + 40;
     const speedKmh = Number((3600 / targetPaceSeconds).toFixed(1));
     const targetDistanceKm = Math.max(2, Math.round(((durationMin * 60) / targetPaceSeconds) * 2) / 2);
     const { paceRange, speedRange } = this.paceRangeText(targetPaceSeconds);
@@ -595,10 +599,10 @@ export class TrainingPlansService {
         ],
       };
       const blocks = [
-        this.runDistanceBlock('Aquecimento', warmupDistance, 'Z1', resolvedPaces.easy),
+        this.runDistanceBlock('Aquecimento', warmupDistance, 'Z1', warmupPaceSeconds),
         intervalBlock,
         this.runDistanceBlock('Recuperacoes e volume leve', recoveryDistance, 'Z2', resolvedPaces.easy),
-        this.runDistanceBlock('Desaquecimento', cooldownDistance, 'Z1', resolvedPaces.easy),
+        this.runDistanceBlock('Desaquecimento', cooldownDistance, 'Z1', warmupPaceSeconds),
       ];
       return {
         type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks), speedKmh, zone,
@@ -644,9 +648,9 @@ export class TrainingPlansService {
     const cooldownDistance = 0.5;
     const mainDistance = Math.max(1, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance));
     const blocks = [
-      this.runDistanceBlock('Aquecimento', warmupDistance, 'Z1', resolvedPaces.easy),
+      this.runDistanceBlock('Aquecimento', warmupDistance, 'Z1', warmupPaceSeconds),
       this.runDistanceBlock('Principal', mainDistance, zone, targetPaceSeconds),
-      this.runDistanceBlock('Desaquecimento', cooldownDistance, 'Z1', resolvedPaces.easy),
+      this.runDistanceBlock('Desaquecimento', cooldownDistance, 'Z1', warmupPaceSeconds),
     ];
 
     return {

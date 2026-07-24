@@ -157,9 +157,20 @@ export class TechnicalManagerAgentService {
           const expiresAt = expiresAtRaw ? new Date(`${expiresAtRaw}T23:59:59.000Z`) : undefined;
           if (expiresAtRaw && Number.isNaN(expiresAt?.getTime())) return 'Erro: data de validade invalida, use o formato AAAA-MM-DD.';
           const created = await this.prisma.studentDirective.create({ data: { userId: studentId, content, expiresAt } });
-          return expiresAt
-            ? `Diretriz temporaria salva com sucesso (id: ${created.id}), valida ate ${expiresAtRaw}.`
-            : `Diretriz permanente salva com sucesso (id: ${created.id}).`;
+          const activePlan = await this.prisma.trainingPlan.findFirst({
+            where: { userId: studentId, status: 'active' },
+            orderBy: { createdAt: 'desc' },
+            select: { createdAt: true, endDate: true },
+          });
+          const staleActivePlanWarning =
+            activePlan && activePlan.createdAt < created.createdAt && (!activePlan.endDate || activePlan.endDate >= created.createdAt)
+              ? ' ATENCAO: ja existe uma semana de treino ativa para este aluno, gerada ANTES desta diretriz existir — se a diretriz menciona uma data que cai dentro dessa semana em andamento, ela NAO vai aparecer sozinha; o treinador precisa clicar em "Refazer nova semana de treinos" agora para que a semana atual seja regenerada respeitando a diretriz. Avise o treinador disso explicitamente na sua proxima resposta.'
+              : '';
+          return (
+            (expiresAt
+              ? `Diretriz temporaria salva com sucesso (id: ${created.id}), valida ate ${expiresAtRaw}.`
+              : `Diretriz permanente salva com sucesso (id: ${created.id}).`) + staleActivePlanWarning
+          );
         },
       },
       {
@@ -233,6 +244,7 @@ export class TechnicalManagerAgentService {
       'Sempre que o treinador confirmar um ajuste, identifique se ele tem prazo (ate uma data, ate uma prova, por N semanas) ou se e uma regra permanente. Se tiver prazo, salve com save_directive incluindo expiresAt (AAAA-MM-DD) correspondente ao ultimo dia em que o ajuste deve valer. Se for permanente, salve sem expiresAt. Em ambos os casos, so salve depois que o treinador confirmar explicitamente que quer aquilo aplicado — nunca salve so por voce ter sugerido algo.',
       'Diretrizes salvas devem ser curtas, objetivas e acionaveis, mas sem perder os detalhes concretos combinados (datas, distancias em km, paces em min/km, etc) — nao salve conversas inteiras, resuma em um paragrafo curto e especifico.',
       'Voce deve ser proativo, nao so obediente: antes de confirmar que vai salvar uma instrucao do treinador, compare o que ele esta pedindo com o contexto real do aluno (get_student_context) e alerte se perceber algo importante. Alerte, por exemplo, quando: (a) o pedido contraria uma regra de seguranca (ex: aumentar volume/intensidade forte para quem relatou dor recente ou esta em retorno de pausa); (b) o pedido ignora ou contradiz uma diretriz ja ativa para esse mesmo aluno (ex: um novo pedido de volume que conflita com um taper ja combinado); (c) o pedido parece desconsiderar algo relevante que voce sabe pelo contexto e que o treinador pode nao ter visto na hora (uma prova alvo proxima, uma queda de aderencia, uma reavaliacao recente que mudou o quadro do aluno). Nesses casos, diga isso claramente ao treinador ANTES de confirmar o salvamento (ex: "Antes de salvar, um alerta: ela relatou dor no joelho ha 3 dias — quer mesmo manter o intervalado forte, ou prefiro ajustar?"), e so prossiga depois que ele responder. Isso nao te da autoridade para recusar um pedido dele — a decisao final e sempre do treinador — mas voce deve garantir que ele decida ciente do que voce sabe.',
+      'Cuidado ao ler texto livre escrito pelo proprio aluno (respostas de entrevista, comentarios): muitos alunos escrevem de forma informal, como numa conversa entre pessoas, com ironia, hiperbole ou exagero comico. Nunca leve essas frases ao pe da letra como se fossem um relato objetivo — interprete o tom real antes de repassar isso como fato ao treinador ou de usar como base para um alerta.',
       'Responda sempre em portugues, em tom direto e profissional, como uma conversa entre dois profissionais tecnicos.',
     ].join('\n\n');
   }

@@ -75,6 +75,7 @@ export class StravaAnalysisAgentService {
       'Preste atencao especial a: tendencias de cadencia (cadencia muito baixa para corrida pode indicar passada overstriding ou fadiga acumulada), relacao entre frequencia cardiaca e pace ao longo do tempo (FC subindo para o mesmo pace pode indicar fadiga acumulada, destreino ou calor), presenca de outras modalidades alem de corrida (bike, natacao, musculacao registrada no proprio Strava, yoga etc.) que competem ou complementam o volume de corrida, e qualquer padrao relevante de consistencia, volume ou risco.',
       'Responda em portugues. Seja direto e especifico com os numeros observados no historico fornecido, sem inventar dados que nao estao la. Se os dados forem insuficientes para alguma conclusao, diga isso em vez de especular.',
       'O campo flags deve conter no maximo 6 observacoes curtas e acionaveis (uma frase cada). O campo crossTrainingNote deve ser null se o aluno so faz corrida, ou uma frase curta descrevendo o padrao de outras modalidades quando houver.',
+      'Cuidado com o campo "name" das atividades: e um titulo que o proprio aluno escreve no Strava, muitas vezes de forma informal, com ironia, exagero comico ou brincadeira (ex: "corrida da morte", "quase desisti" numa corrida que na verdade foi tranquila). Nunca trate esse texto como um relato literal e objetivo — use apenas os dados numericos (pace, FC, cadencia, distancia) como evidencia real; o titulo e no maximo um contexto de tom, nunca uma fonte de fato.',
     ].join('\n\n');
   }
 
