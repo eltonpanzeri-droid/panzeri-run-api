@@ -61,6 +61,7 @@ interface StudentDetail {
   accountStatus: string;
   subscriptionStatus: string;
   subscriptionUpdatedAt?: string | null;
+  subscriptionManualOverride?: boolean;
   strava?: { connected: boolean; automaticSync: boolean; lastActivityAt?: string | null };
   birthDate?: string | null;
   heightCm?: number | null;
@@ -1579,6 +1580,9 @@ function StudentPanel({
             <option value="canceled">Assinatura cancelada</option>
           </select>
         </label>
+        {student.subscriptionManualOverride ? (
+          <p className="formHintText">Protegido: esse status foi definido manualmente e nao sera sobrescrito pela sincronizacao automatica com o Asaas. Use "Verificar pagamento no Asaas" abaixo para voltar a sincronizar de verdade.</p>
+        ) : null}
         <button type="button" onClick={saveStudent}>Salvar dados</button>
         <PasswordInput value={newPassword} onChange={setNewPassword} placeholder="Nova senha" />
         <button type="button" onClick={resetPassword}>Trocar senha</button>

@@ -48,7 +48,7 @@ export class BillingService {
     const [user, billing] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
-        select: { subscriptionStatus: true, subscriptionUpdatedAt: true, cpf: true },
+        select: { subscriptionStatus: true, subscriptionUpdatedAt: true, cpf: true, subscriptionManualOverride: true },
       }),
       this.prisma.billingSubscription.findUnique({ where: { userId } }),
     ]);
@@ -58,7 +58,11 @@ export class BillingService {
     let nextChargeAt = billing?.nextChargeAt ?? null;
     let syncError = false;
 
-    if (billing?.externalSubscriptionId && asaasConfigured) {
+    // Se o treinador liberou o acesso manualmente (ex: aluno pagou por um link avulso e o
+    // treinador confirmou no painel), essa decisao nao pode ser desfeita sozinha so porque o
+    // aluno abriu a aba de assinatura e o Asaas ainda nao registrou o pagamento daquele link
+    // especifico — isso ja aconteceu e derrubou o acesso de uma aluna sem ninguem perceber.
+    if (billing?.externalSubscriptionId && asaasConfigured && !user.subscriptionManualOverride) {
       try {
         const refreshed = await this.refreshFromAsaas(billing.id, userId, billing.externalSubscriptionId);
         appStatus = refreshed.appStatus;
@@ -352,7 +356,9 @@ export class BillingService {
       }),
       this.prisma.user.update({
         where: { id: userId },
-        data: { subscriptionStatus: appStatus, subscriptionUpdatedAt: new Date() },
+        // Sempre que este sync realmente roda (seja automatico sem override, seja pedido
+        // explicito do treinador), o Asaas volta a ser a fonte da verdade — limpa a trava manual.
+        data: { subscriptionStatus: appStatus, subscriptionUpdatedAt: new Date(), subscriptionManualOverride: false },
       }),
     ]);
 

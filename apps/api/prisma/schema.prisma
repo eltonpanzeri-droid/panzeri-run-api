@@ -24,6 +24,7 @@ model User {
   accountStatus String             @default("active")
   subscriptionStatus String        @default("pending")
   subscriptionUpdatedAt DateTime   @default(now())
+  subscriptionManualOverride Boolean @default(false)
   acceptedTermsAt DateTime?
   acceptedPrivacyAt DateTime?
   acceptedExerciseResponsibilityAt DateTime?

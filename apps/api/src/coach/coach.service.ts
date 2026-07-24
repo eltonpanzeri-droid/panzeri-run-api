@@ -99,7 +99,7 @@ export class CoachService {
 
   async updateStudent(studentId: string, dto: UpdateStudentDto) {
     await this.assertStudent(studentId);
-    const data: { name?: string; email?: string; accountStatus?: string; subscriptionStatus?: string; subscriptionUpdatedAt?: Date; refreshTokenHash?: null } = {};
+    const data: { name?: string; email?: string; accountStatus?: string; subscriptionStatus?: string; subscriptionUpdatedAt?: Date; subscriptionManualOverride?: boolean; refreshTokenHash?: null } = {};
 
     if (dto.name) {
       data.name = dto.name.trim();
@@ -124,6 +124,10 @@ export class CoachService {
     if (dto.subscriptionStatus) {
       data.subscriptionStatus = dto.subscriptionStatus;
       data.subscriptionUpdatedAt = new Date();
+      // Trava contra o auto-sync do Asaas (getMine/refreshFromAsaas) sobrescrever essa decisao
+      // manual do treinador assim que o aluno abrir a aba de assinatura no app — foi exatamente
+      // isso que reverteu a liberacao manual da Roberta de volta para pendente sem avisar ninguem.
+      data.subscriptionManualOverride = true;
     }
 
     if (!Object.keys(data).length) {
@@ -495,6 +499,7 @@ export class CoachService {
       accountStatus: student.accountStatus,
       subscriptionStatus: student.subscriptionStatus,
       subscriptionUpdatedAt: student.subscriptionUpdatedAt,
+      subscriptionManualOverride: student.subscriptionManualOverride,
       strava: stravaStatus ? {
         connected: stravaStatus.connected,
         automaticSync: stravaStatus.automaticSync,
