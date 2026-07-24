@@ -64,7 +64,7 @@ export class MeService {
   async completeOnboarding(userId: string) {
     const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
     const answers = asAnswerObject(interview?.answers);
-    const required = ['objective', 'running_experience', 'personal_name', 'personal_phone', 'personal_birth_date', 'personal_sex', 'personal_height', 'personal_weight', 'personal_cpf', 'personal_education'];
+    const required = ['objective', 'running_experience', 'personal_name', 'personal_phone', 'personal_birth_date', 'personal_sex', 'personal_height', 'personal_weight', 'personal_cpf', 'personal_education', 'personal_cep', 'personal_address_number'];
     const missing = required.filter((key) => answers[key] === undefined || answers[key] === '');
     if (missing.length) throw new BadRequestException('Conclua todas as perguntas obrigatorias.');
 
@@ -107,7 +107,7 @@ export class MeService {
           weightKg: decimalValue(answers.personal_weight),
           cpf: normalizedCpf,
           education: String(answers.personal_education),
-          address: answers.personal_address ? String(answers.personal_address) : undefined,
+          address: interviewAddressSummary(answers),
         },
       });
       await tx.healthProfile.upsert({
@@ -371,6 +371,19 @@ function painSummary(answers: Record<string, Prisma.InputJsonValue>) {
   if (details.length) parts.push(`detalhes: ${details.join(', ')}`);
   if (other) parts.push(`outro local: ${other}`);
   return parts.join(' - ');
+}
+
+function interviewAddressSummary(answers: Record<string, Prisma.InputJsonValue>): string | undefined {
+  const street = stringValue(answers.personal_address_street);
+  const number = stringValue(answers.personal_address_number);
+  const complement = stringValue(answers.personal_address_complement);
+  const neighborhood = stringValue(answers.personal_address_neighborhood);
+  const city = stringValue(answers.personal_address_city);
+  const state = stringValue(answers.personal_address_state);
+  const cep = stringValue(answers.personal_cep);
+  const streetLine = [street, number].filter(Boolean).join(', ');
+  const parts = [streetLine, complement, neighborhood, city && state ? `${city}/${state}` : city || state, cep].filter(Boolean);
+  return parts.length ? parts.join(' - ') : undefined;
 }
 
 const HEALTH_CONDITION_SLUGS: Record<string, string> = {

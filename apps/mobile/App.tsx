@@ -211,7 +211,7 @@ interface InterviewQuestion {
   key: string;
   module: string;
   prompt: string;
-  type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'date' | 'cpf' | 'phone' | 'notice' | 'wheel_number' | 'wheel_pace' | 'wheel_duration_hms' | 'dropdown_single';
+  type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'date' | 'cpf' | 'phone' | 'cep' | 'notice' | 'wheel_number' | 'wheel_pace' | 'wheel_duration_hms' | 'wheel_date' | 'dropdown_single' | 'dropdown_multi';
   options?: InterviewOption[];
   optional?: boolean;
   help?: string;
@@ -485,7 +485,7 @@ const weekInterviewDays = [
 ];
 
 const interviewQuestions: InterviewQuestion[] = [
-  { key: 'objective', module: 'Objetivo', prompt: 'Qual e seu principal objetivo?', type: 'single', options: [
+  { key: 'objective', module: 'Objetivo', prompt: 'Qual e seu principal objetivo?', type: 'dropdown_single', options: [
     option('Comecar a correr'), option('Completar 5 km'), option('Melhorar meu tempo nos 5 km'), option('Completar 10 km'),
     option('Melhorar meu tempo nos 10 km'), option('Completar 21 km'), option('Melhorar meu tempo nos 21 km'),
     option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'),
@@ -511,13 +511,13 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'recent_running_feeling', module: 'Experiencia com corrida', prompt: 'Como voce se sentiu nessas corridas?', type: 'single', options: [option('Tranquila, consegui manter o ritmo com folga', 'tranquila'), option('Moderada, exigiu esforco mas terminei bem', 'moderada'), option('Dificil, precisei desacelerar ou parar algumas vezes', 'dificil'), option('Muito dificil, quase nao consegui terminar', 'muito_dificil')], condition: (a) => isCurrentlyRunning(a) },
   { key: 'fitness_self_rating', module: 'Experiencia com corrida', prompt: 'Como voce classificaria seu condicionamento para corrida hoje?', type: 'single', options: [option('Muito leve', 'muito_leve'), option('Leve', 'leve'), option('Moderado', 'moderado'), option('Forte', 'forte'), option('Muito forte', 'muito_forte')], condition: (a) => !isCurrentlyRunning(a) },
   { key: 'races_last_12_months', module: 'Experiencia com corrida', prompt: 'Nos ultimos 6 meses, quantas provas voce participou?', type: 'wheel_number', wheelDigits: 2, wheelMin: 0, wheelMax: 50, wheelUnit: 'provas', condition: (a) => isCurrentlyRunning(a) },
-  { key: 'current_activities', module: 'Experiencia com corrida', prompt: 'Quais atividades fisicas voce pratica atualmente?', type: 'multi', options: [...activityOptions, 'Nenhuma'].map((v) => option(v)) },
-  { key: 'favorite_activities', module: 'Experiencia com corrida', prompt: 'Quais atividades fisicas voce mais gosta de praticar?', type: 'multi', options: activityOptions.map((v) => option(v)) },
-  { key: 'strength_experience', module: 'Treinamento de forca', prompt: 'Qual sua experiencia com musculacao?', type: 'single', options: ['Nunca fiz.', 'Ja fiz poucas vezes.', 'Ja treinei no passado, mas parei.', 'Estou voltando agora.', 'Treino ha menos de 1 ano.', 'Treino entre 1 e 3 anos.', 'Treino ha mais de 3 anos.'].map((v) => option(v)) },
-  { key: 'training_consistency', module: 'Treinamento de forca', prompt: 'Como costuma ser sua frequencia nos treinos?', type: 'single', options: ['Sempre comeco e abandono.', 'Costumo faltar bastante.', 'Oscilo durante o ano.', 'Sou relativamente consistente.', 'Raramente deixo de treinar.'].map((v) => option(v)) },
-  { key: 'pushups', module: 'Treinamento de forca', prompt: 'Quantas flexoes de braco voce consegue fazer continuamente?', type: 'single', options: ['Nenhuma', '1 a 5', '6 a 10', '11 a 20', 'Mais de 20', 'Nao sei'].map((v) => option(v)) },
-  { key: 'squat_experience', module: 'Treinamento de forca', prompt: 'Em relacao ao agachamento, qual opcao melhor descreve voce?', type: 'single', options: ['Nunca fiz agachamento.', 'Faco apenas com o peso do corpo.', 'Faco com halteres leves.', 'Faco com barra e carga moderada.', 'Faco com cargas elevadas.', 'Nao sei responder.'].map((v) => option(v)) },
-  { key: 'perceived_strength', module: 'Treinamento de forca', prompt: 'Como voce considera sua forca atualmente?', type: 'single', options: ['Muito abaixo da media.', 'Abaixo da media.', 'Na media.', 'Acima da media.', 'Muito acima da media.', 'Nao sei responder.'].map((v) => option(v)) },
+  { key: 'current_activities', module: 'Experiencia com corrida', prompt: 'Quais atividades fisicas voce pratica atualmente?', type: 'dropdown_multi', options: [...activityOptions, 'Nenhuma'].map((v) => option(v)) },
+  { key: 'favorite_activities', module: 'Experiencia com corrida', prompt: 'Quais atividades fisicas voce mais gosta de praticar?', type: 'dropdown_multi', options: activityOptions.map((v) => option(v)) },
+  { key: 'strength_experience', module: 'Treinamento de forca', prompt: 'Qual sua experiencia com musculacao?', type: 'dropdown_single', options: ['Nunca fiz.', 'Ja fiz poucas vezes.', 'Ja treinei no passado, mas parei.', 'Estou voltando agora.', 'Treino ha menos de 1 ano.', 'Treino entre 1 e 3 anos.', 'Treino ha mais de 3 anos.'].map((v) => option(v)) },
+  { key: 'training_consistency', module: 'Treinamento de forca', prompt: 'Como costuma ser sua frequencia nos treinos?', type: 'dropdown_single', options: ['Sempre comeco e abandono.', 'Costumo faltar bastante.', 'Oscilo durante o ano.', 'Sou relativamente consistente.', 'Raramente deixo de treinar.'].map((v) => option(v)) },
+  { key: 'pushups', module: 'Treinamento de forca', prompt: 'Quantas flexoes de braco voce consegue fazer continuamente?', type: 'wheel_number', wheelDigits: 3, wheelMin: 0, wheelMax: 200, wheelUnit: 'flexoes' },
+  { key: 'squat_experience', module: 'Treinamento de forca', prompt: 'Em relacao ao agachamento, qual opcao melhor descreve voce?', type: 'dropdown_single', options: ['Nunca fiz agachamento.', 'Faco apenas com o peso do corpo.', 'Faco com halteres leves.', 'Faco com barra e carga moderada.', 'Faco com cargas elevadas.', 'Nao sei responder.'].map((v) => option(v)) },
+  { key: 'perceived_strength', module: 'Treinamento de forca', prompt: 'Como voce considera sua forca atualmente?', type: 'dropdown_single', options: ['Muito abaixo da media.', 'Abaixo da media.', 'Na media.', 'Acima da media.', 'Muito acima da media.', 'Nao sei responder.'].map((v) => option(v)) },
   { key: 'rating_intro', module: 'Autoavaliacao', prompt: 'Nas proximas perguntas, de uma nota de 1 a 10.\n\n1 representa uma condicao muito ruim.\n10 representa uma condicao excelente.', type: 'notice' },
   ...ratingPrompts.map(([key, prompt]) => ({ key, module: 'Autoavaliacao', prompt, type: 'scale' as const })),
   { key: 'current_pain', module: 'Saude', prompt: 'Voce sente alguma dor atualmente?', type: 'single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
@@ -599,17 +599,20 @@ const interviewQuestions: InterviewQuestion[] = [
     { key: `${key}_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel?`, type: 'dropdown_single' as const, options: ['Antes das 6h', 'Entre 6h e 9h', 'Entre 9h e 12h', 'Entre 12h e 15h', 'Entre 15h e 18h', 'Apos 18h'].map((v) => option(v)), condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== 'none' || a[`${key}_fortalecimento_time`] !== undefined && a[`${key}_fortalecimento_time`] !== 'none' || a[`${key}_musculacao_time`] !== undefined && a[`${key}_musculacao_time`] !== 'none' },
   ]),
   { key: 'sleep_hours', module: 'Habitos', prompt: 'Em media, quantas horas voce dorme?', type: 'single', options: ['Menos de 5 horas', 'Entre 5 e 6 horas', 'Entre 6 e 7 horas', 'Entre 7 e 8 horas', 'Mais de 8 horas'].map((v) => option(v)) },
-  { key: 'smoking', module: 'Habitos', prompt: 'Voce fuma?', type: 'single', options: [option('Nao'), option('Sim')] },
-  { key: 'alcohol_frequency', module: 'Habitos', prompt: 'Com que frequencia voce consome bebida alcoolica?', type: 'single', options: ['Nunca', 'Raramente', 'Semanalmente', 'Algumas vezes por semana', 'Quase todos os dias'].map((v) => option(v)) },
-  { key: 'work_routine', module: 'Habitos', prompt: 'Como e sua rotina de trabalho?', type: 'single', options: ['Predominantemente sentado', 'Predominantemente em pe', 'Trabalho fisico moderado', 'Trabalho fisico intenso', 'Aposentado', 'Outro'].map((v) => option(v)) },
-  { key: 'daily_steps', module: 'Habitos', prompt: 'Em media, quantos passos voce da por dia?', type: 'single', options: ['Menos de 3.000', 'Entre 3.000 e 5.000', 'Entre 5.000 e 8.000', 'Entre 8.000 e 12.000', 'Mais de 12.000', 'Nao sei'].map((v) => option(v)) },
+  { key: 'smoking', module: 'Habitos', prompt: 'Voce fuma?', type: 'dropdown_single', options: [option('Nao'), option('Sim')] },
+  { key: 'alcohol_frequency', module: 'Habitos', prompt: 'Com que frequencia voce consome bebida alcoolica?', type: 'dropdown_single', options: ['Nunca', 'Raramente', 'Semanalmente', 'Algumas vezes por semana', 'Quase todos os dias'].map((v) => option(v)) },
+  { key: 'work_routine', module: 'Habitos', prompt: 'Como e sua rotina de trabalho?', type: 'dropdown_single', options: ['Predominantemente sentado', 'Predominantemente em pe', 'Trabalho fisico moderado', 'Trabalho fisico intenso', 'Aposentado', 'Outro'].map((v) => option(v)) },
+  { key: 'daily_steps', module: 'Habitos', prompt: 'Em media, quantos passos voce da por dia?', type: 'wheel_number', wheelDigits: 5, wheelMin: 0, wheelMax: 99999, wheelUnit: 'passos' },
   { key: 'personal_name', module: 'Dados pessoais', prompt: 'Qual e seu nome completo?', type: 'text' },
+  { key: 'personal_nickname', module: 'Dados pessoais', prompt: 'Como voce gostaria de ser chamado?', type: 'text', optional: true },
   { key: 'personal_phone', module: 'Dados pessoais', prompt: 'Qual e o seu WhatsApp (com DDD)?', type: 'phone', help: 'Usamos para avisos importantes sobre pagamento, treino e acompanhamento.' },
-  { key: 'personal_birth_date', module: 'Dados pessoais', prompt: 'Qual e sua data de nascimento?', type: 'date', help: 'Use o formato dia/mes/ano. Exemplo: 19/06/1984.' },
+  { key: 'personal_birth_date', module: 'Dados pessoais', prompt: 'Qual e sua data de nascimento?', type: 'wheel_date' },
   { key: 'personal_sex', module: 'Dados pessoais', prompt: 'Como voce prefere informar seu sexo?', type: 'single', options: [option('Feminino'), option('Masculino'), option('Prefiro nao informar')] },
   { key: 'personal_cpf', module: 'Dados pessoais', prompt: 'Qual e o seu CPF?', type: 'cpf', help: 'Usamos para gerar a cobranca da assinatura com seguranca.' },
-  { key: 'personal_education', module: 'Dados pessoais', prompt: 'Qual e a sua escolaridade?', type: 'single', options: ['Fundamental incompleto', 'Fundamental completo', 'Medio incompleto', 'Medio completo', 'Superior incompleto', 'Superior completo', 'Pos-graduacao'].map((v) => option(v)) },
-  { key: 'personal_address', module: 'Dados pessoais', prompt: 'Qual e o seu endereco completo?', type: 'text', optional: true, help: 'Rua, numero, bairro, cidade e estado.' },
+  { key: 'personal_education', module: 'Dados pessoais', prompt: 'Qual e a sua escolaridade?', type: 'dropdown_single', options: ['Fundamental incompleto', 'Fundamental completo', 'Medio incompleto', 'Medio completo', 'Superior incompleto', 'Superior completo', 'Pos-graduacao', 'Mestrado', 'Doutorado', 'PhD'].map((v) => option(v)) },
+  { key: 'personal_cep', module: 'Dados pessoais', prompt: 'Qual e o seu CEP?', type: 'cep', help: 'Vamos buscar automaticamente rua, bairro, cidade e estado a partir do seu CEP.' },
+  { key: 'personal_address_number', module: 'Dados pessoais', prompt: 'Qual e o numero da sua residencia?', type: 'text', condition: (a) => Boolean(a.personal_address_city) },
+  { key: 'personal_address_complement', module: 'Dados pessoais', prompt: 'Complemento (apartamento, bloco, casa, etc)', type: 'text', optional: true, condition: (a) => Boolean(a.personal_address_city) },
   { key: 'additional_info', module: 'Informacoes adicionais', prompt: 'Escreva no campo abaixo todas as informacoes sobre voce que acredite ser relevante sabermos e que ainda nao perguntamos nessa entrevista.', type: 'text', optional: true },
 ];
 
@@ -1538,6 +1541,41 @@ function Dropdown({ options, value, onChange, placeholder = 'Selecione uma opcao
   );
 }
 
+function MultiDropdown({ options, value, onChange, placeholder = 'Selecione uma ou mais opcoes' }: { options: InterviewOption[]; value: unknown; onChange: (value: string[]) => void; placeholder?: string }) {
+  const [open, setOpen] = useState(false);
+  const selectedValues = Array.isArray(value) ? value : [];
+  const selectedLabels = options.filter((item) => selectedValues.includes(item.value)).map((item) => item.label);
+  function toggle(optionValue: string) {
+    onChange(selectedValues.includes(optionValue) ? selectedValues.filter((entry) => entry !== optionValue) : [...selectedValues, optionValue]);
+  }
+  return (
+    <View>
+      <Pressable style={styles.dropdownField} onPress={() => setOpen(true)}>
+        <Text style={selectedLabels.length ? styles.dropdownFieldText : styles.dropdownFieldPlaceholder} numberOfLines={2}>{selectedLabels.length ? selectedLabels.join(', ') : placeholder}</Text>
+        <Ionicons name="chevron-down" size={18} color="#6b7280" />
+      </Pressable>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.dropdownOverlay} onPress={() => setOpen(false)}>
+          <View style={styles.dropdownSheet}>
+            <ScrollView>
+              {options.map((item) => {
+                const checked = selectedValues.includes(item.value);
+                return (
+                  <Pressable key={item.value} style={styles.interviewDropdownOption} onPress={() => toggle(item.value)}>
+                    <Text style={checked ? styles.interviewDropdownOptionTextActive : styles.interviewDropdownOptionText}>{item.label}</Text>
+                    <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={18} color={checked ? '#0f766e' : '#9ca3af'} />
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <Pressable style={styles.dropdownDoneButton} onPress={() => setOpen(false)}><Text style={styles.dropdownDoneButtonText}>Pronto</Text></Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
 function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding', restartFromStart = false }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment'; restartFromStart?: boolean }) {
   const [answers, setAnswers] = useState<InterviewAnswers>({});
   const [step, setStep] = useState(0);
@@ -1547,6 +1585,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
   const [helpOpen, setHelpOpen] = useState(false);
+  const [cepStatus, setCepStatus] = useState('');
 
   const loadUrl = mode === 'reassessment' ? `${API_URL}/me/reassessment` : `${API_URL}/me/onboarding`;
   const answerUrl = mode === 'reassessment' ? `${API_URL}/me/reassessment/answer` : `${API_URL}/me/onboarding/answer`;
@@ -1571,6 +1610,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     if (question.type === 'wheel_number') setAnswers((current) => ({ ...current, [question.key]: String(question.wheelMin ?? 0) }));
     else if (question.type === 'wheel_pace') setAnswers((current) => ({ ...current, [question.key]: '6:00' }));
     else if (question.type === 'wheel_duration_hms') setAnswers((current) => ({ ...current, [question.key]: '0:30:00' }));
+    else if (question.type === 'wheel_date') setAnswers((current) => ({ ...current, [question.key]: `01/01/${new Date().getFullYear() - 30}` }));
   }, [question, value]);
   const assessedWeight = interviewDecimal(answers.personal_weight);
   const assessedBodyFat = interviewDecimal(answers.body_fat_percentage);
@@ -1620,19 +1660,54 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     await persist(question.key, nextValue, step);
   }
 
+  async function lookupCep(rawDigits: string) {
+    setCepStatus('Buscando endereco...');
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${rawDigits}/json/`);
+      const data = await response.json();
+      if (!response.ok || data.erro) {
+        setCepStatus('CEP nao encontrado. Confira os numeros e tente novamente.');
+        setAnswers((current) => {
+          const next = { ...current };
+          delete next.personal_address_street;
+          delete next.personal_address_neighborhood;
+          delete next.personal_address_city;
+          delete next.personal_address_state;
+          return next;
+        });
+        return;
+      }
+      const street = String(data.logradouro ?? '');
+      const neighborhood = String(data.bairro ?? '');
+      const city = String(data.localidade ?? '');
+      const state = String(data.uf ?? '');
+      setAnswers((current) => ({
+        ...current,
+        personal_address_street: street,
+        personal_address_neighborhood: neighborhood,
+        personal_address_city: city,
+        personal_address_state: state,
+      }));
+      setCepStatus(`Endereco encontrado: ${[street, neighborhood].filter(Boolean).join(', ')}${street || neighborhood ? ' - ' : ''}${city}/${state}`);
+    } catch {
+      setCepStatus('Nao consegui buscar o CEP agora. Verifique sua internet e tente novamente.');
+    }
+  }
+
   function hasAnswer() {
     if (!question || question.optional || question.type === 'notice') return true;
     if (question.type === 'wheel_number' || question.type === 'wheel_pace' || question.type === 'wheel_duration_hms') return value !== undefined;
     if (Array.isArray(value)) return value.length > 0;
-    if (question.type === 'date') return dateInputValueToIso(String(value ?? '')) !== null;
+    if (question.type === 'date' || question.type === 'wheel_date') return dateInputValueToIso(String(value ?? '')) !== null;
     if (question.type === 'cpf') return isValidCpf(String(value ?? ''));
     if (question.type === 'phone') return String(value ?? '').replace(/\D/g, '').length === 11;
+    if (question.type === 'cep') return String(value ?? '').replace(/\D/g, '').length === 8 && Boolean(answers.personal_address_city);
     return value !== undefined && value !== null && String(value).trim() !== '';
   }
 
   async function next() {
     if (!question || !hasAnswer()) {
-      setStatus(question?.type === 'date' ? 'Digite uma data valida no formato dia/mes/ano. Exemplo: 19/06/1984.' : question?.type === 'cpf' ? 'Digite um CPF valido. Confira se os numeros estao corretos.' : question?.type === 'phone' ? 'Digite um numero de WhatsApp valido, com DDD (11 numeros).' : 'Responda para continuar.');
+      setStatus(question?.type === 'date' || question?.type === 'wheel_date' ? 'Selecione uma data valida.' : question?.type === 'cpf' ? 'Digite um CPF valido. Confira se os numeros estao corretos.' : question?.type === 'phone' ? 'Digite um numero de WhatsApp valido, com DDD (11 numeros).' : question?.type === 'cep' ? 'Digite um CEP valido e aguarde o endereco ser encontrado.' : 'Responda para continuar.');
       return;
     }
     // A segunda e a terceira maior distancia tem que ser menores ou iguais a distancia anterior
@@ -1729,11 +1804,35 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
 
       {(question?.type === 'single' || question?.type === 'scale') ? <View style={question.type === 'scale' ? styles.scaleGrid : styles.answerList}>{(question.type === 'scale' ? Array.from({ length: 10 }, (_, i) => option(String(i + 1))) : question.options ?? []).map((item) => { const selected = value === item.value || (question.type === 'scale' && value === Number(item.value)); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive, question.type === 'scale' && styles.scaleButton]} onPress={() => choose(question.type === 'scale' ? Number(item.value) : item.value)}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
       {question?.type === 'dropdown_single' ? <Dropdown options={question.options ?? []} value={value} onChange={(nextValue) => choose(nextValue)} /> : null}
+      {question?.type === 'dropdown_multi' ? <MultiDropdown options={question.options ?? []} value={value} onChange={(nextValue) => choose(nextValue)} /> : null}
       {question?.type === 'multi' ? <View style={styles.answerList}>{question.options?.map((item) => { const selected = Array.isArray(value) && value.includes(item.value); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive]} onPress={() => choose(selected ? (value as string[]).filter((entry) => entry !== item.value) : [...(Array.isArray(value) ? value : []), item.value])}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
       {(question?.type === 'text' || question?.type === 'number' || question?.type === 'number_or_unknown') ? <TextInput style={styles.input} value={value === 'unknown' || value === 'automatic' ? '' : String(value ?? '')} keyboardType={question.type === 'text' ? 'default' : 'decimal-pad'} placeholder={question.optional ? 'Opcional' : 'Digite sua resposta'} onChangeText={(text) => setAnswers({ ...answers, [question.key]: text })} /> : null}
       {question?.type === 'date' ? <TextInput style={styles.input} value={String(value ?? '')} keyboardType="number-pad" maxLength={10} placeholder="dd/mm/aaaa" onChangeText={(text) => setAnswers({ ...answers, [question.key]: formatDateInputText(text) })} /> : null}
       {question?.type === 'cpf' ? <TextInput style={styles.input} value={String(value ?? '')} keyboardType="number-pad" maxLength={14} placeholder="Somente numeros" onChangeText={(text) => setAnswers({ ...answers, [question.key]: formatCpfInputText(text) })} /> : null}
       {question?.type === 'phone' ? <TextInput style={styles.input} value={String(value ?? '')} keyboardType="number-pad" maxLength={15} placeholder="(11) 98765-4321" onChangeText={(text) => setAnswers({ ...answers, [question.key]: formatPhoneInputText(text) })} /> : null}
+      {question?.type === 'cep' ? (() => {
+        const questionKey = question.key;
+        return (
+          <View>
+            <TextInput
+              style={styles.input}
+              value={String(value ?? '')}
+              keyboardType="number-pad"
+              maxLength={9}
+              placeholder="00000-000"
+              onChangeText={(text) => {
+                const formatted = formatCepInputText(text);
+                setAnswers((current) => ({ ...current, [questionKey]: formatted }));
+                const digits = formatted.replace(/\D/g, '');
+                if (digits.length === 8) void lookupCep(digits);
+                else setCepStatus('');
+              }}
+            />
+            {cepStatus ? <Text style={styles.formHint}>{cepStatus}</Text> : null}
+          </View>
+        );
+      })() : null}
+      {question?.key === 'personal_address_number' && answers.personal_address_city ? <Text style={styles.formHint}>{[answers.personal_address_street, answers.personal_address_neighborhood].filter(Boolean).join(', ')} - {answers.personal_address_city}/{answers.personal_address_state}</Text> : null}
       {(question?.type === 'number' || question?.type === 'number_or_unknown') ? <Pressable style={styles.decimalButton} onPress={() => { const current = String(value === 'unknown' || value === 'automatic' ? '' : value ?? ''); if (!current.includes(',') && !current.includes('.')) setAnswers({ ...answers, [question.key]: `${current},` }); }}><Text style={styles.decimalButtonText}>Inserir virgula</Text></Pressable> : null}
       {question?.type === 'wheel_number' ? (() => {
         const digits = question.wheelDigits ?? 2;
@@ -1771,6 +1870,25 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
             { label: 'h', values: hValues, selectedIndex: hCurrent, onChangeIndex: (index) => choose(`${index}:${String(mCurrent).padStart(2, '0')}:${String(sCurrent).padStart(2, '0')}`) },
             { label: 'min', values: mValues, selectedIndex: mCurrent, onChangeIndex: (index) => choose(`${hCurrent}:${String(index).padStart(2, '0')}:${String(sCurrent).padStart(2, '0')}`) },
             { label: 'seg', values: sValues, selectedIndex: sCurrent, onChangeIndex: (index) => choose(`${hCurrent}:${String(mCurrent).padStart(2, '0')}:${String(index).padStart(2, '0')}`) },
+          ]} />
+        );
+      })() : null}
+      {question?.type === 'wheel_date' ? (() => {
+        const currentYear = new Date().getFullYear();
+        const raw = typeof value === 'string' ? value : `01/01/${currentYear - 30}`;
+        const match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        const dayValues = wheelNumberValues(1, 31, 2);
+        const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        const yearValues = Array.from({ length: 90 }, (_, i) => String(currentYear - 10 - i));
+        const dayCurrent = match ? Math.max(1, Math.min(31, Number(match[1]))) : 1;
+        const monthCurrent = match ? Math.max(1, Math.min(12, Number(match[2]))) : 1;
+        const yearCurrent = match ? match[3] : String(currentYear - 30);
+        const yearIndex = Math.max(0, yearValues.indexOf(yearCurrent));
+        return (
+          <WheelPicker columns={[
+            { label: 'dia', values: dayValues, selectedIndex: dayCurrent - 1, onChangeIndex: (index) => choose(`${String(index + 1).padStart(2, '0')}/${String(monthCurrent).padStart(2, '0')}/${yearCurrent}`) },
+            { label: 'mes', values: monthNames, selectedIndex: monthCurrent - 1, onChangeIndex: (index) => choose(`${String(dayCurrent).padStart(2, '0')}/${String(index + 1).padStart(2, '0')}/${yearCurrent}`) },
+            { label: 'ano', values: yearValues, selectedIndex: yearIndex, onChangeIndex: (index) => choose(`${String(dayCurrent).padStart(2, '0')}/${String(monthCurrent).padStart(2, '0')}/${yearValues[index]}`) },
           ]} />
         );
       })() : null}
@@ -4313,6 +4431,12 @@ function isValidCpf(value: string) {
   return calcCheckDigit(9) === Number(digits[9]) && calcCheckDigit(10) === Number(digits[10]);
 }
 
+function formatCepInputText(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 5) return digits;
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+}
+
 function formatPhoneInputText(value: string) {
   const digits = value.replace(/\D/g, '').slice(0, 11);
   if (digits.length <= 2) return digits;
@@ -5918,6 +6042,20 @@ const styles = StyleSheet.create({
   interviewDropdownOptionTextActive: {
     fontSize: 16,
     color: '#0f766e',
+    fontWeight: '700',
+  },
+  dropdownDoneButton: {
+    marginTop: 4,
+    marginHorizontal: 12,
+    marginBottom: 8,
+    backgroundColor: '#0f766e',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  dropdownDoneButtonText: {
+    color: '#fff',
+    fontSize: 15,
     fontWeight: '700',
   },
   answerList: {
