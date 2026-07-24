@@ -406,11 +406,34 @@ function healthConditionsSummary(answers: Record<string, Prisma.InputJsonValue>)
   }).join(', ');
 }
 
+const RUNNING_CONDITION_SLUGS: Record<string, string> = {
+  'Sindrome da banda iliotibial (joelho do corredor)': 'itb', 'Sindrome da dor patelofemoral': 'patelofemoral',
+  'Condromalacia patelar': 'condromalacia', 'Tendinopatia patelar (joelho do saltador)': 'tendinopatia_patelar',
+  'Tendinopatia do quadriceps': 'tendinopatia_quadriceps', 'Sindrome da pata de ganso (bursite pes anserino)': 'pata_ganso',
+  'Bursite pre-patelar': 'bursite_prepatelar', 'Fascite plantar': 'fascite_plantar', 'Esporao de calcaneo': 'esporao_calcaneo',
+  'Tendinopatia de Aquiles': 'tendinopatia_aquiles', 'Tendinopatia do tibial posterior': 'tendinopatia_tibial_posterior',
+  'Canelite (sindrome do estresse tibial medial)': 'canelite', 'Sindrome do compartimento tibial anterior': 'compartimento_tibial',
+  'Fratura por estresse': 'fratura_estresse', 'Neuroma de Morton': 'neuroma_morton', Metatarsalgia: 'metatarsalgia',
+  'Entorse de tornozelo (ligamentos)': 'entorse_tornozelo', 'Instabilidade cronica de tornozelo': 'instabilidade_tornozelo',
+  'Sindrome do tunel do tarso': 'tunel_tarso', 'Bursite trocanterica': 'bursite_trocanterica', 'Sindrome do piriforme': 'piriforme',
+  'Tendinopatia dos isquiotibiais': 'tendinopatia_isquiotibiais', 'Distensao muscular (estiramento)': 'distensao_muscular',
+  'Ruptura ou lesao de menisco': 'lesao_menisco', 'Ruptura de ligamento do joelho (LCA/LCM/LCL)': 'ligamento_joelho',
+  'Artrose de joelho': 'artrose_joelho', 'Artrose de quadril': 'artrose_quadril', 'Bursite isquiatica': 'bursite_isquiatica',
+  'Distensao do adutor (virilha)': 'distensao_adutor', 'Lombalgia mecanica': 'lombalgia', 'Hernia de disco': 'hernia_disco_corredor',
+  'Protrusao discal': 'protrusao_discal', 'Dor ciatica (ciatalgia)': 'dor_ciatica',
+};
+
 function diagnosedConditionsSummary(answers: Record<string, Prisma.InputJsonValue>) {
   const conditions = stringArray(answers.diagnosed_running_conditions).filter((item) => item !== 'Nenhuma' && item !== 'Nao sei responder');
   const other = stringValue(answers.diagnosed_running_conditions_other);
   if (!conditions.length && !other) return '';
-  return `Diagnosticos: ${[...conditions, other].filter(Boolean).join(', ')}`;
+  const described = conditions.map((condition) => {
+    const slug = RUNNING_CONDITION_SLUGS[condition];
+    const status = slug ? String(answers[`running_condition_status_${slug}`] ?? '') : '';
+    const statusLabel = status === 'current' ? 'atual' : status === 'past' ? 'diagnostico anterior, sem a condicao atualmente' : '';
+    return statusLabel ? `${condition} (${statusLabel})` : condition;
+  });
+  return `Diagnosticos: ${[...described, other].filter(Boolean).join(', ')}`;
 }
 
 function interviewInjurySummary(answers: Record<string, Prisma.InputJsonValue>) {

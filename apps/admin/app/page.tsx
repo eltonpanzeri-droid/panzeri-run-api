@@ -2683,7 +2683,7 @@ function interviewGroup(key: string) {
   if (/^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)_/.test(key)) return 'Rotina semanal';
   if (key.startsWith('assessment_') || key.includes('circumference') || ['personal_height', 'personal_weight', 'muscle_mass', 'lean_mass', 'fat_mass', 'visceral_fat', 'basal_metabolism', 'body_fat_percentage', 'recent_physical_assessment'].includes(key)) return 'Avaliacao fisica recente';
   if (key.startsWith('personal_')) return 'Dados pessoais';
-  if (key.startsWith('pain_detail_') || key.startsWith('health_condition_status_')) return 'Saude';
+  if (key.startsWith('pain_detail_') || key.startsWith('health_condition_status_') || key.startsWith('running_condition_status_')) return 'Saude';
   if (['current_pain', 'pain_regions', 'pain_region', 'pain_other_location', 'important_injury', 'injury_description', 'health_conditions', 'health_conditions_other', 'continuous_medications', 'medical_recommendation', 'diagnosed_running_conditions', 'diagnosed_running_conditions_other'].includes(key)) return 'Saude';
   if (['sleep_hours', 'smoking', 'alcohol_frequency', 'work_routine', 'daily_steps'].includes(key)) return 'Habitos';
   if (['strength_experience', 'training_consistency', 'pushups', 'squat_experience', 'perceived_strength'].includes(key)) return 'Treinamento de forca';
@@ -2733,6 +2733,7 @@ function interviewLabel(key: string) {
     const suffix = key.slice(day.length + 1);
     return `${days[day]} - ${fields[suffix] ?? suffix}`;
   }
+  if (key.startsWith('running_condition_status_')) return 'Diagnostico de corredor - situacao';
   return key.replace(/^rating_/, 'Nota - ').replace(/_/g, ' ');
 }
 
@@ -2744,15 +2745,6 @@ const INTERVIEW_CHOICE_LABELS: Record<string, Record<string, string>> = {
   current_pain: { no: 'Nao', yes: 'Sim' },
   recent_physical_assessment: { no: 'Nao', yes: 'Sim' },
   reassessment_new_pain: { no: 'Nao', yes: 'Sim' },
-  health_condition_status_hipertensao: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
-  health_condition_status_diabetes: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
-  health_condition_status_colesterol: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
-  health_condition_status_obesidade: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
-  health_condition_status_asma: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
-  health_condition_status_cardiaco: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
-  health_condition_status_artrose: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
-  health_condition_status_artrite: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
-  health_condition_status_hernia_disco: { current: 'Tenho atualmente', past: 'Tive no passado, nao tenho mais' },
   recent_running_feeling: {
     tranquila: 'Tranquila, consegui manter o ritmo com folga', moderada: 'Moderada, exigiu esforco mas terminei bem',
     dificil: 'Dificil, precisei desacelerar ou parar algumas vezes', muito_dificil: 'Muito dificil, quase nao consegui terminar',
@@ -2796,6 +2788,9 @@ function interviewValue(key: string, value: unknown) {
   if (value === false) return 'Nao';
   if (value === 'unknown') return 'Nao sei';
   const stringValue = String(value ?? '');
+  if ((key.startsWith('health_condition_status_') || key.startsWith('running_condition_status_')) && (stringValue === 'current' || stringValue === 'past')) {
+    return stringValue === 'current' ? 'Tenho atualmente' : 'Tive no passado, nao tenho mais';
+  }
   const directLabel = INTERVIEW_CHOICE_LABELS[key]?.[stringValue]
     ?? (DISTANCE_BUCKET_KEYS.has(key) ? DISTANCE_BUCKET_LABELS[stringValue] : undefined)
     ?? (DISTANCE_COUNT_KEYS.has(key) ? DISTANCE_COUNT_BUCKET_LABELS[stringValue] : undefined);

@@ -466,6 +466,22 @@ function formatPaceMinSec(secondsPerKm: number) {
   const seconds = Math.round(secondsPerKm % 60);
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
+const RUNNING_CONDITIONS_TRACKED = [
+  ['itb', 'Sindrome da banda iliotibial (joelho do corredor)'], ['patelofemoral', 'Sindrome da dor patelofemoral'],
+  ['condromalacia', 'Condromalacia patelar'], ['tendinopatia_patelar', 'Tendinopatia patelar (joelho do saltador)'],
+  ['tendinopatia_quadriceps', 'Tendinopatia do quadriceps'], ['pata_ganso', 'Sindrome da pata de ganso (bursite pes anserino)'],
+  ['bursite_prepatelar', 'Bursite pre-patelar'], ['fascite_plantar', 'Fascite plantar'], ['esporao_calcaneo', 'Esporao de calcaneo'],
+  ['tendinopatia_aquiles', 'Tendinopatia de Aquiles'], ['tendinopatia_tibial_posterior', 'Tendinopatia do tibial posterior'],
+  ['canelite', 'Canelite (sindrome do estresse tibial medial)'], ['compartimento_tibial', 'Sindrome do compartimento tibial anterior'],
+  ['fratura_estresse', 'Fratura por estresse'], ['neuroma_morton', 'Neuroma de Morton'], ['metatarsalgia', 'Metatarsalgia'],
+  ['entorse_tornozelo', 'Entorse de tornozelo (ligamentos)'], ['instabilidade_tornozelo', 'Instabilidade cronica de tornozelo'],
+  ['tunel_tarso', 'Sindrome do tunel do tarso'], ['bursite_trocanterica', 'Bursite trocanterica'], ['piriforme', 'Sindrome do piriforme'],
+  ['tendinopatia_isquiotibiais', 'Tendinopatia dos isquiotibiais'], ['distensao_muscular', 'Distensao muscular (estiramento)'],
+  ['lesao_menisco', 'Ruptura ou lesao de menisco'], ['ligamento_joelho', 'Ruptura de ligamento do joelho (LCA/LCM/LCL)'],
+  ['artrose_joelho', 'Artrose de joelho'], ['artrose_quadril', 'Artrose de quadril'], ['bursite_isquiatica', 'Bursite isquiatica'],
+  ['distensao_adutor', 'Distensao do adutor (virilha)'], ['lombalgia', 'Lombalgia mecanica'], ['hernia_disco_corredor', 'Hernia de disco'],
+  ['protrusao_discal', 'Protrusao discal'], ['dor_ciatica', 'Dor ciatica (ciatalgia)'],
+];
 const HEALTH_CONDITIONS_TRACKED = [
   ['hipertensao', 'Hipertensao'], ['diabetes', 'Diabetes'], ['colesterol', 'Colesterol elevado'], ['obesidade', 'Obesidade'],
   ['asma', 'Asma'], ['cardiaco', 'Problemas cardiacos'], ['artrose', 'Artrose'], ['artrite', 'Artrite'], ['hernia_disco', 'Hernia de disco'],
@@ -520,7 +536,7 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'perceived_strength', module: 'Treinamento de forca', prompt: 'Como voce considera sua forca atualmente?', type: 'dropdown_single', options: ['Muito abaixo da media.', 'Abaixo da media.', 'Na media.', 'Acima da media.', 'Muito acima da media.', 'Nao sei responder.'].map((v) => option(v)) },
   { key: 'rating_intro', module: 'Autoavaliacao', prompt: 'Nas proximas perguntas, de uma nota de 1 a 10.\n\n1 representa uma condicao muito ruim.\n10 representa uma condicao excelente.', type: 'notice' },
   ...ratingPrompts.map(([key, prompt]) => ({ key, module: 'Autoavaliacao', prompt, type: 'scale' as const })),
-  { key: 'current_pain', module: 'Saude', prompt: 'Voce sente alguma dor atualmente?', type: 'single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
+  { key: 'current_pain', module: 'Saude', prompt: 'Voce sente alguma dor atualmente?', type: 'dropdown_single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
   { key: 'pain_regions', module: 'Saude', prompt: 'Em quais regioes voce sente dor? Pode marcar mais de uma.', type: 'multi', condition: (a) => a.current_pain === 'yes', options: [
     'Joelho direito', 'Joelho esquerdo', 'Tornozelo direito', 'Tornozelo esquerdo', 'Pe direito', 'Pe esquerdo',
     'Canela direita', 'Canela esquerda', 'Panturrilha direita', 'Panturrilha esquerda', 'Coxa direita', 'Coxa esquerda',
@@ -536,16 +552,18 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'pain_detail_glute', module: 'Saude', prompt: 'Sobre a dor no gluteo: em qual parte especificamente?', type: 'multi', optional: true, condition: (a) => Array.isArray(a.pain_regions) && (a.pain_regions.includes('Gluteo direito') || a.pain_regions.includes('Gluteo esquerdo')), options: ['Fundo do gluteo', 'Lateral do gluteo', 'Perto do osso do quadril', 'Nao sei especificar'].map((v) => option(v)) },
   { key: 'pain_detail_lower_back', module: 'Saude', prompt: 'Sobre a dor lombar: em qual parte especificamente?', type: 'multi', optional: true, condition: (a) => Array.isArray(a.pain_regions) && a.pain_regions.includes('Lombar/coluna'), options: ['Lado direito', 'Lado esquerdo', 'Centro', 'Irradia para a perna', 'Nao sei especificar'].map((v) => option(v)) },
   { key: 'pain_other_location', module: 'Saude', prompt: 'Sente dor em algum outro local que nao esta na lista acima?', type: 'text', optional: true, condition: (a) => a.current_pain === 'yes' },
-  { key: 'diagnosed_running_conditions', module: 'Saude', prompt: 'Voce ja recebeu diagnostico de alguma dessas condicoes comuns em corredores? Pode marcar mais de uma.', type: 'multi', optional: true, options: [
-    'Sindrome da banda iliotibial (joelho do corredor)', 'Sindrome da dor patelofemoral', 'Condromalacia patelar', 'Tendinopatia patelar (joelho do saltador)',
-    'Tendinopatia do quadriceps', 'Sindrome da pata de ganso (bursite pes anserino)', 'Bursite pre-patelar', 'Fascite plantar', 'Esporao de calcaneo',
-    'Tendinopatia de Aquiles', 'Tendinopatia do tibial posterior', 'Canelite (sindrome do estresse tibial medial)', 'Sindrome do compartimento tibial anterior',
-    'Fratura por estresse', 'Neuroma de Morton', 'Metatarsalgia', 'Entorse de tornozelo (ligamentos)', 'Instabilidade cronica de tornozelo',
-    'Sindrome do tunel do tarso', 'Bursite trocanterica', 'Sindrome do piriforme', 'Tendinopatia dos isquiotibiais', 'Distensao muscular (estiramento)',
-    'Ruptura ou lesao de menisco', 'Ruptura de ligamento do joelho (LCA/LCM/LCL)', 'Artrose de joelho', 'Artrose de quadril', 'Bursite isquiatica',
-    'Distensao do adutor (virilha)', 'Lombalgia mecanica', 'Hernia de disco', 'Protrusao discal', 'Dor ciatica (ciatalgia)',
+  { key: 'diagnosed_running_conditions', module: 'Saude', prompt: 'Voce ja recebeu diagnostico de alguma dessas condicoes comuns em corredores? Pode marcar mais de uma.', type: 'dropdown_multi', optional: true, options: [
+    ...RUNNING_CONDITIONS_TRACKED.map(([, label]) => label),
     'Nenhuma', 'Nao sei responder',
   ].map((v) => option(v)) },
+  ...RUNNING_CONDITIONS_TRACKED.map(([slug, label]) => ({
+    key: `running_condition_status_${slug}`,
+    module: 'Saude',
+    prompt: `Sobre ${label.toLowerCase()}: voce esta com isso atualmente ou foi diagnosticado no passado e nao tem mais?`,
+    type: 'dropdown_single' as const,
+    options: [option('Tenho atualmente', 'current'), option('Tive no passado, nao tenho mais', 'past')],
+    condition: (a: InterviewAnswers) => Array.isArray(a.diagnosed_running_conditions) && a.diagnosed_running_conditions.includes(label),
+  })),
   { key: 'diagnosed_running_conditions_other', module: 'Saude', prompt: 'Algum outro diagnostico que nao esta na lista acima?', type: 'text', optional: true },
   { key: 'important_injury', module: 'Saude', prompt: 'Voce ja teve alguma lesao importante?', type: 'dropdown_single', options: ['Nunca.', 'Sim, totalmente recuperado.', 'Sim, ainda tenho limitacoes.'].map((v) => option(v)) },
   { key: 'injury_description', module: 'Saude', prompt: 'Descreva brevemente a lesao e suas limitacoes (comentario opcional).', type: 'text', optional: true, condition: (a) => a.important_injury !== 'Nunca.' },
