@@ -109,6 +109,11 @@ export class CoachController {
     return this.coachService.saveStudentCpf(studentId, dto?.cpf);
   }
 
+  @Post('students/:studentId/billing/refresh')
+  refreshStudentBillingStatus(@Param('studentId') studentId: string) {
+    return this.coachService.refreshStudentBillingStatus(studentId);
+  }
+
   @Post('students/:studentId/sessions/:sessionId/regenerate')
   regenerateStudentSession(@Param('studentId') studentId: string, @Param('sessionId') sessionId: string) {
     return this.coachService.regenerateStudentSession(studentId, sessionId);

@@ -305,6 +305,19 @@ export class BillingService {
     return { received: true };
   }
 
+  // Usado pelo treinador quando um aluno diz que ja pagou mas o app continua mostrando acesso
+  // bloqueado — em vez de gerar um novo link (que nao ajuda quem ja pagou), isso consulta o
+  // status real da assinatura/pagamentos direto no Asaas e sincroniza a conta agora, sem
+  // esperar o proximo webhook ou o proximo acesso do aluno ao app.
+  async refreshStatusForStudent(userId: string) {
+    this.assertConfigured();
+    const billing = await this.prisma.billingSubscription.findUnique({ where: { userId } });
+    if (!billing?.externalSubscriptionId) {
+      throw new BadRequestException('Este aluno nao tem uma assinatura Asaas vinculada para verificar. Gere um link de pagamento primeiro.');
+    }
+    return this.refreshFromAsaas(billing.id, userId, billing.externalSubscriptionId);
+  }
+
   private async refreshFromAsaas(billingId: string, userId: string, subscriptionId: string) {
     const [subscription, payments] = await Promise.all([
       this.asaasRequest<AsaasSubscription>(`/subscriptions/${subscriptionId}`),

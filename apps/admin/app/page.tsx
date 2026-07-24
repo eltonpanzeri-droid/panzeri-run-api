@@ -1114,6 +1114,7 @@ function StudentPanel({
   const [sendingChat, setSendingChat] = useState(false);
   const [directives, setDirectives] = useState<Array<{ id: string; content: string; createdAt: string; expiresAt?: string | null }>>([]);
   const [checkoutLinkUrl, setCheckoutLinkUrl] = useState('');
+  const [manualCpf, setManualCpf] = useState('');
 
   useEffect(() => {
     setEditName(student?.name ?? '');
@@ -1128,7 +1129,8 @@ function StudentPanel({
     setChatInput('');
     setDirectives([]);
     setCheckoutLinkUrl('');
-  }, [student?.id, student?.name, student?.email, student?.accountStatus, student?.subscriptionStatus]);
+    setManualCpf(student?.cpf ?? '');
+  }, [student?.id, student?.name, student?.email, student?.accountStatus, student?.subscriptionStatus, student?.cpf]);
 
   useEffect(() => {
     if (!student?.id) return;
@@ -1438,14 +1440,61 @@ function StudentPanel({
     onRefresh();
   }
 
+  async function saveCpf() {
+    if (!student) return;
+    const digits = manualCpf.replace(/\D/g, '');
+    if (digits.length !== 11) {
+      onStatus('Digite um CPF valido com 11 numeros.');
+      return;
+    }
+    onStatus('Salvando CPF...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/billing/cpf`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cpf: digits }),
+      });
+      const data = await response.json().catch(() => ({} as { message?: string }));
+      if (!response.ok) {
+        onStatus(typeof data.message === 'string' ? data.message : 'Nao consegui salvar o CPF.');
+        return;
+      }
+      onStatus('CPF salvo.');
+      await onRefresh();
+    } catch {
+      onStatus('Nao consegui salvar o CPF.');
+    }
+  }
+
+  async function refreshBillingStatus() {
+    if (!student) return;
+    onStatus('Verificando pagamento no Asaas...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/billing/refresh`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json().catch(() => ({} as { message?: string; appStatus?: string; providerStatus?: string }));
+      if (!response.ok) {
+        onStatus(typeof data.message === 'string' ? data.message : 'Nao consegui verificar o pagamento.');
+        return;
+      }
+      onStatus(`Verificado no Asaas: status ${data.appStatus ?? '?'} (${data.providerStatus ?? 'sem detalhe'}).`);
+      await onRefresh();
+    } catch {
+      onStatus('Nao consegui verificar o pagamento agora.');
+    }
+  }
+
   async function createCheckoutLink() {
     if (!student) return;
     onStatus('Gerando link de pagamento...');
     try {
+      const digits = manualCpf.replace(/\D/g, '');
       const response = await fetch(`${API_URL}/coach/students/${student.id}/billing/checkout-link`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify(digits.length === 11 ? { cpf: digits } : {}),
       });
       const data = await response.json().catch(() => ({} as { message?: string; checkoutUrl?: string }));
       if (!response.ok || !data.checkoutUrl) {
@@ -1544,6 +1593,11 @@ function StudentPanel({
             </button>
           </div>
         ) : null}
+        <label className="adminFieldLabel">CPF (para pagamento)
+          <input value={manualCpf} onChange={(event) => setManualCpf(event.target.value)} placeholder="Somente numeros" maxLength={14} />
+        </label>
+        <button className="secondaryButton" type="button" onClick={saveCpf}>Salvar CPF</button>
+        <button className="secondaryButton" type="button" onClick={refreshBillingStatus}>Verificar pagamento no Asaas</button>
         <button className="secondaryButton" type="button" onClick={createCheckoutLink}>Gerar link de pagamento</button>
         {checkoutLinkUrl ? (
           <div className="inviteBox compactInvite">
