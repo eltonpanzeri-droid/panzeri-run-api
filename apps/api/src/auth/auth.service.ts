@@ -64,7 +64,14 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais invalidas.');
     }
 
-    if (user.accountStatus !== 'active') {
+    const role = this.effectiveRole(user.email, user.role);
+
+    // accountStatus (pausado/vencido/arquivado) e um conceito de matricula/cobranca de ALUNO —
+    // nunca deveria poder trancar o proprio treinador para fora do painel dele. Isso ja
+    // aconteceu uma vez e o treinador ficou sem nenhum jeito de se autocorrigir (nao da pra
+    // editar o proprio status sem antes conseguir entrar no painel). Para o coach, esse campo
+    // simplesmente nao se aplica.
+    if (role !== 'coach' && user.accountStatus !== 'active') {
       throw new UnauthorizedException('Conta sem acesso ativo.');
     }
 
@@ -72,8 +79,6 @@ export class AuthService {
     if (!validPassword) {
       throw new UnauthorizedException('Credenciais invalidas.');
     }
-
-    const role = this.effectiveRole(user.email, user.role);
 
     return {
       user: {
