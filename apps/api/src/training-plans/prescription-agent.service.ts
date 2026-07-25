@@ -68,16 +68,31 @@ export class PrescriptionAgentService {
   }
 
   async proposeWeeklyDecision(input: MethodologyInput, evidence: PaceEvidence): Promise<(WeeklyMethodologyDecision & { source: 'ai' }) | null> {
-    if (!this.client) return null;
+    if (!this.client) {
+      this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado. Nenhum treino sera gerado por regra fixa no lugar disso.');
+      return null;
+    }
 
     const runSlots = computeRunSlots(input.availability);
     if (!runSlots.length) return null;
+
+    // Nao ha mais um motor de regras fixas para cair como fallback: o treinador foi explicito
+    // que a prescricao TEM que vir de raciocinio real da IA, nunca de regra estatica. Por isso
+    // tentamos duas vezes antes de desistir — falhas de IA costumam ser transitorias (formato de
+    // saida um pouco fora do schema, rede) e nao devem custar a semana inteira do aluno.
+    const attempt = () => this.attemptDecision(input, evidence);
+    return (await attempt()) ?? (await attempt());
+  }
+
+  private async attemptDecision(input: MethodologyInput, evidence: PaceEvidence): Promise<(WeeklyMethodologyDecision & { source: 'ai' }) | null> {
+    const client = this.client;
+    if (!client) return null;
+    const runSlots = computeRunSlots(input.availability);
 
     const painTier = input.painTier ?? (hasSafetyConcern(input.answers) ? 'reduced' : 'normal');
     const safetyAdjustment = painTier !== 'normal';
     const removeRunning = painTier === 'remove_running';
     const novice = isNovice(input.experience, input.answers);
-    const client = this.client;
 
     try {
       const response = await this.aiQueue.run(() =>

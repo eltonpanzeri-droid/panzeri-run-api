@@ -1,10 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { runnerStrengthCategory, selectRunnerStrengthExercises } from './runner-strength-library';
 import { selectGymExercises } from './gym-exercise-library';
 import {
-  buildWeeklyMethodologyDecision,
   MethodologyInput,
   PANZERI_METHODOLOGY_VERSION,
   PANZERI_PRESCRIPTION_PRINCIPLES,
@@ -17,6 +16,7 @@ import { StravaAnalysisAgentService } from './strava-analysis-agent.service';
 import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { StravaService } from '../strava/strava.service';
+import { TelegramService } from '../billing/telegram.service';
 
 interface SessionTemplate {
   title: string;
@@ -62,6 +62,8 @@ const MAX_RUN_PACE_SECONDS = 510; // 8:30/km - nenhuma corrida (qualquer zona) p
 
 @Injectable()
 export class TrainingPlansService {
+  private readonly logger = new Logger(TrainingPlansService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly prescriptionAgent: PrescriptionAgentService,
@@ -69,6 +71,7 @@ export class TrainingPlansService {
     private readonly painReports: PainReportsService,
     private readonly targetRaces: TargetRacesService,
     private readonly stravaService: StravaService,
+    private readonly telegram: TelegramService,
   ) {}
 
   async current(userId: string) {
@@ -261,7 +264,20 @@ export class TrainingPlansService {
       stravaAveragePace: stravaAveragePaceSecondsPerKm ? { secondsPerKm: stravaAveragePaceSecondsPerKm, sampleRuns: stravaPacedRuns.length } : null,
     };
     const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput, paceEvidence);
-    const methodology = aiDecision ?? { ...buildWeeklyMethodologyDecision(methodologyInput), source: 'deterministic' as const };
+    if (!aiDecision) {
+      // O treinador foi explicito: a prescricao TEM que vir de raciocinio real da IA, nunca de
+      // um motor de regras fixas — o motor antigo nao lia diretiva nenhuma nem pace especifico e
+      // sempre prescrevia quase a mesma coisa, o que ele classificou como inaceitavel para alunas
+      // ativas. Por isso, se a IA falhar mesmo apos as tentativas internas, NAO geramos um plano
+      // com regra fixa: preferimos deixar o plano atual intacto e alertar o treinador na hora,
+      // para ele intervir manualmente, em vez de dar ao aluno um treino ruim silenciosamente.
+      this.logger.error(`Falha ao gerar semana de treino com IA para o aluno ${userId} apos tentativas — nenhum plano de regra fixa sera usado no lugar.`);
+      await this.telegram.notifyCoach(
+        `⚠️ Falha ao gerar treino com IA para um aluno (id ${userId}). O plano NAO foi atualizado — verifique a chave da IA (ANTHROPIC_API_KEY) e os logs do EasyPanel, e gere novamente manualmente pelo painel.`,
+      );
+      throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
+    }
+    const methodology = aiDecision;
     const resolvedPaces = methodology.paceAssessment
       ? { easy: methodology.paceAssessment.easyPaceSecondsPerKm, intense: methodology.paceAssessment.intensePaceSecondsPerKm }
       : this.fallbackPaces(effectivePaceSecondsPerKm);

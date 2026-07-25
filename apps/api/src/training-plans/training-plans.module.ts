@@ -9,9 +9,10 @@ import { WeeklyPlanSchedulerService } from './weekly-plan-scheduler.service';
 import { PainReportsModule } from '../pain-reports/pain-reports.module';
 import { TargetRacesModule } from '../target-races/target-races.module';
 import { StravaModule } from '../strava/strava.module';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
-  imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, StravaModule],
+  imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, StravaModule, BillingModule],
   controllers: [TrainingPlansController],
   providers: [TrainingPlansService, PrescriptionAgentService, StravaAnalysisAgentService, WeeklyPlanSchedulerService],
   exports: [TrainingPlansService],

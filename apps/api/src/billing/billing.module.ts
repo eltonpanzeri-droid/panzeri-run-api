@@ -8,6 +8,6 @@ import { MessagingModule } from '../messaging/messaging.module';
   imports: [MessagingModule],
   controllers: [BillingController],
   providers: [BillingService, TelegramService],
-  exports: [BillingService],
+  exports: [BillingService, TelegramService],
 })
 export class BillingModule {}
