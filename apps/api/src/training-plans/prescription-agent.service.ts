@@ -131,7 +131,15 @@ export class PrescriptionAgentService {
     easyPaceSecondsPerKm: number,
     hasActiveDirectives: boolean,
   ): RunSessionDecision[] | null {
-    if (sessions.length !== runSlots.length) return null;
+    // Log detalhado do motivo da rejeicao: sem isso, toda rejeicao vira um fallback silencioso
+    // para o motor deterministico (que ignora diretivas e pace especifico), e ninguem consegue
+    // saber pelo EasyPanel por que a IA "nao esta sendo ouvida" numa semana especifica.
+    if (sessions.length !== runSlots.length) {
+      this.logger.warn(
+        `Rejeitado: numero de sessoes da IA (${sessions.length}) diferente do numero de dias disponiveis (${runSlots.length}). Weekdays da IA: [${sessions.map((s) => s.weekday).join(',')}], weekdays esperados: [${runSlots.map((s) => s.weekday).join(',')}].`,
+      );
+      return null;
+    }
     const slotByWeekday = new Map(runSlots.map((slot) => [slot.weekday, slot]));
     const usedWeekdays = new Set<number>();
     const result: RunSessionDecision[] = [];
@@ -147,11 +155,29 @@ export class PrescriptionAgentService {
 
     for (const session of sessions) {
       const slot = slotByWeekday.get(session.weekday);
-      if (!slot || usedWeekdays.has(session.weekday)) return null;
+      if (!slot) {
+        this.logger.warn(`Rejeitado: IA retornou weekday ${session.weekday}, que nao esta entre os dias disponiveis [${runSlots.map((s) => s.weekday).join(',')}].`);
+        return null;
+      }
+      if (usedWeekdays.has(session.weekday)) {
+        this.logger.warn(`Rejeitado: IA retornou o weekday ${session.weekday} mais de uma vez.`);
+        return null;
+      }
       const maxDurationForDay = hasActiveDirectives ? Math.max(slot.durationMin, directiveDurationCeiling) : slot.durationMin;
-      if (session.durationMin < 10 || session.durationMin > maxDurationForDay) return null;
-      if (safetyAdjustment && (session.sessionType === 'quality_run' || session.zone === 'Z4')) return null;
-      if (clearlyCapableOfContinuousRunning && session.sessionType === 'walk_run') return null;
+      if (session.durationMin < 10 || session.durationMin > maxDurationForDay) {
+        this.logger.warn(
+          `Rejeitado: durationMin ${session.durationMin} fora do limite para weekday ${session.weekday} (min 10, max ${maxDurationForDay}, hasActiveDirectives=${hasActiveDirectives}).`,
+        );
+        return null;
+      }
+      if (safetyAdjustment && (session.sessionType === 'quality_run' || session.zone === 'Z4')) {
+        this.logger.warn(`Rejeitado: sessionType/zone intenso (${session.sessionType}/${session.zone}) proibido no weekday ${session.weekday} por sinal de seguranca ativo.`);
+        return null;
+      }
+      if (clearlyCapableOfContinuousRunning && session.sessionType === 'walk_run') {
+        this.logger.warn(`Rejeitado: IA escolheu walk_run no weekday ${session.weekday} para aluno com pace facil claramente de corredor (${easyPaceSecondsPerKm}s/km).`);
+        return null;
+      }
 
       usedWeekdays.add(session.weekday);
       result.push({
@@ -198,6 +224,7 @@ export class PrescriptionAgentService {
       'Voce DEVE retornar paceAssessment com os dois numeros e uma justificativa (rationale) explicando como voce chegou neles a partir das evidencias.',
       'Se analiseAprofundadaStrava estiver preenchida (vem de outro agente que ja mastigou cadencia, frequencia cardiaca, padroes e outras modalidades do Strava para voce), use o campo "summary" e as "flags" como evidencia adicional real de como o aluno esta respondendo ao treino agora — nao ignore isso, mas tambem nao superestime; combine com o resto das evidencias.',
       'Cuidado ao interpretar texto livre escrito pelo proprio aluno (respostas de entrevista/reavaliacao, comentarios): muitos alunos escrevem de forma informal, como numa conversa entre pessoas, com ironia, hiperbole ou exagero comico (ex: "corri e quase morri" ou "foi moleza" nao sao relatos medicos literais). Nunca leve essas frases ao pe da letra como se fossem um dado objetivo — interprete o tom real antes de decidir algo com base nelas, e prefira sempre dados estruturados/numericos (pace, testes, aderencia) quando o texto livre parecer contraditorio ou exagerado.',
+      'VARIEDADE: evite repetir literalmente o mesmo titulo e a mesma frase de notes toda semana para o mesmo tipo de sessao (ex: sempre "Corrida leve" com a mesma nota) — isso ja foi apontado pelo treinador como preguica de quem monta o treino. Varie a redacao do titulo e das notes de forma natural semana a semana, mantendo o mesmo padrao metodologico (nao mude o proposito da sessao so por variar, mude a forma como ela e descrita e pequenos detalhes de enfase).',
       'Responda em portugues nos campos de texto (title, notes, recommendation, rationale, paceAssessment.rationale).',
     ].join('\n\n');
   }

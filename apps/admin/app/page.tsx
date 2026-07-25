@@ -1889,6 +1889,11 @@ function StudentPanel({
           <div>
             <p className="eyebrow">Planejamento e execucao</p>
             <h3>Semana atual</h3>
+            {student.plan?.methodology ? (
+              <span className={`decisionSourceBadge ${student.plan.methodology.decisionSource === 'ai' ? 'decisionSourceAi' : 'decisionSourceDeterministic'}`}>
+                {student.plan.methodology.decisionSource === 'ai' ? 'Gerado pelo agente de IA' : 'Atencao: gerado pelo motor padrao (IA nao foi usada)'}
+              </span>
+            ) : null}
           </div>
           <div className="weekWorkspaceActions">
             <span>{student.plan?.name ?? 'Sem plano ativo'}</span>

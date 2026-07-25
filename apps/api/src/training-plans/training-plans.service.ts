@@ -576,7 +576,14 @@ export class TrainingPlansService {
     // Z1 (aquecimento/desaquecimento) precisa ser visivelmente mais lento que o Z2 - antes os dois
     // usavam o mesmo resolvedPaces.easy e so a etiqueta da zona mudava, o que o treinador apontou
     // como um erro real de prescricao (zona diferente com o mesmo pace nao faz sentido).
-    const warmupPaceSeconds = resolvedPaces.easy + 40;
+    // Quando o pace facil real do aluno ja e igual ou mais lento que o teto de 8:30/km (MAX_RUN_PACE_SECONDS
+    // - o mesmo limite que o resto do sistema usa para dizer "isso aqui nao e mais corrida, e caminhada"),
+    // o aquecimento/desaquecimento devem ser caminhada de verdade, igual ao walk_run, e nao um trote lento.
+    const isVeryLowCapacity = resolvedPaces.easy >= MAX_RUN_PACE_SECONDS;
+    const warmupPaceSeconds = isVeryLowCapacity ? 600 : resolvedPaces.easy + 40;
+    const warmupLabel = isVeryLowCapacity ? 'Aquecimento caminhando' : 'Aquecimento';
+    const cooldownLabel = isVeryLowCapacity ? 'Desaquecimento caminhando' : 'Desaquecimento';
+    const warmupGuidance = isVeryLowCapacity ? 'Caminhar de forma progressiva.' : undefined;
     const speedKmh = Number((3600 / targetPaceSeconds).toFixed(1));
     const targetDistanceKm = Math.max(2, Math.round(((durationMin * 60) / targetPaceSeconds) * 2) / 2);
     const { paceRange, speedRange } = this.paceRangeText(targetPaceSeconds);
@@ -599,10 +606,10 @@ export class TrainingPlansService {
         ],
       };
       const blocks = [
-        this.runDistanceBlock('Aquecimento', warmupDistance, 'Z1', warmupPaceSeconds),
+        this.runDistanceBlock(warmupLabel, warmupDistance, 'Z1', warmupPaceSeconds, warmupGuidance),
         intervalBlock,
         this.runDistanceBlock('Recuperacoes e volume leve', recoveryDistance, 'Z2', resolvedPaces.easy),
-        this.runDistanceBlock('Desaquecimento', cooldownDistance, 'Z1', warmupPaceSeconds),
+        this.runDistanceBlock(cooldownLabel, cooldownDistance, 'Z1', warmupPaceSeconds, warmupGuidance),
       ];
       return {
         type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks), speedKmh, zone,
@@ -648,9 +655,9 @@ export class TrainingPlansService {
     const cooldownDistance = 0.5;
     const mainDistance = Math.max(1, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance));
     const blocks = [
-      this.runDistanceBlock('Aquecimento', warmupDistance, 'Z1', warmupPaceSeconds),
+      this.runDistanceBlock(warmupLabel, warmupDistance, 'Z1', warmupPaceSeconds, warmupGuidance),
       this.runDistanceBlock('Principal', mainDistance, zone, targetPaceSeconds),
-      this.runDistanceBlock('Desaquecimento', cooldownDistance, 'Z1', warmupPaceSeconds),
+      this.runDistanceBlock(cooldownLabel, cooldownDistance, 'Z1', warmupPaceSeconds, warmupGuidance),
     ];
 
     return {

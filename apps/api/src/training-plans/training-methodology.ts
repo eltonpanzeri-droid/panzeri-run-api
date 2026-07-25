@@ -136,6 +136,17 @@ export function computeRunSlots(availability: MethodologyAvailability[]) {
     .sort((left, right) => left.weekday - right.weekday);
 }
 
+// Sem isso, o motor deterministico (usado sempre que a IA falha/e rejeitada) prescrevia o
+// EXATO mesmo titulo e notas toda vez que rodava com os mesmos dados de entrada — o treinador
+// apontou isso como "preguica de quem monta". Uma semana muda de indice a cada 7 dias a partir
+// de todayDate, entao o mesmo aluno ve frases diferentes de uma semana para a outra mesmo
+// quando o motor padrao decide o volume/pace de forma parecida.
+function weeklyVariant<T>(pool: T[], todayDate: string | undefined, salt: number): T {
+  const weekIndex = todayDate ? Math.floor(new Date(`${todayDate}T00:00:00Z`).getTime() / (7 * 24 * 60 * 60 * 1000)) : 0;
+  const index = Math.abs(weekIndex + salt) % pool.length;
+  return pool[index];
+}
+
 export function buildWeeklyMethodologyDecision(input: MethodologyInput): WeeklyMethodologyDecision {
   const runSlots = computeRunSlots(input.availability);
   const answers = input.answers;
@@ -177,34 +188,73 @@ export function buildWeeklyMethodologyDecision(input: MethodologyInput): WeeklyM
   const sessions = runSlots.map((slot) => {
     if (slot.weekday === longSlot?.weekday) {
       const durationMin = longDuration(slot.durationMin, observedLongest, previousLongest, novice, safetyAdjustment, adherence, selfReportedLongestMin);
+      const title = novice
+        ? weeklyVariant(['Longao com corrida e caminhada', 'Longao progressivo com caminhada', 'Longao alternado corrida/caminhada'], input.todayDate, slot.weekday)
+        : weeklyVariant(['Longao leve', 'Longao de base', 'Longao em ritmo controlado'], input.todayDate, slot.weekday);
+      const notes = novice
+        ? weeklyVariant(
+            [
+              'Alternar corrida leve e caminhada para ampliar o tempo aerobio sem perder o controle da intensidade.',
+              'Priorizar o tempo total em movimento; se a corrida ficar pesada, estenda a caminhada sem culpa.',
+              'Comecar mais devagar do que parece necessario — o objetivo e terminar em controle, nao no limite.',
+            ],
+            input.todayDate,
+            slot.weekday,
+          )
+        : weeklyVariant(
+            [
+              'Manter baixa intensidade e concluir com sensacao de controle.',
+              'Segurar a ansiedade do inicio: comece confortavel e mantenha esse ritmo ate o fim.',
+              'Foco em constancia de pace, sem acelerar nos ultimos km.',
+            ],
+            input.todayDate,
+            slot.weekday,
+          );
       return {
         weekday: slot.weekday,
-        title: novice ? 'Longao com corrida e caminhada' : 'Longao leve',
+        title,
         sessionType: novice ? 'walk_run' as const : 'long_run' as const,
         zone: 'Z2' as const,
         durationMin,
-        notes: novice
-          ? 'Alternar corrida leve e caminhada para ampliar o tempo aerobio sem perder o controle da intensidade.'
-          : 'Manter baixa intensidade e concluir com sensacao de controle.',
+        notes,
       };
     }
     if (slot.weekday === qualitySlot?.weekday) {
+      const notes = weeklyVariant(
+        [
+          'O volume intenso fica limitado; aquecimento, recuperacoes e desaquecimento permanecem leves.',
+          'A parte forte e curta de proposito — nao adiante ela nem tente compensar volume nas recuperacoes.',
+          'Respeite as recuperacoes por completo; a qualidade do estimulo forte depende delas.',
+        ],
+        input.todayDate,
+        slot.weekday,
+      );
       return {
         weekday: slot.weekday,
         title: qualityTitle(input.goal),
         sessionType: 'quality_run' as const,
         zone: 'Z4' as const,
         durationMin: Math.min(slot.durationMin, safetyAdjustment ? 35 : 55),
-        notes: 'O volume intenso fica limitado; aquecimento, recuperacoes e desaquecimento permanecem leves.',
+        notes,
       };
     }
+    const title = weeklyVariant(['Corrida leve', 'Corrida regenerativa', 'Rodagem leve'], input.todayDate, slot.weekday);
+    const notes = weeklyVariant(
+      [
+        'Manter conforto respiratorio e acumular volume de baixa intensidade.',
+        'Corrida de conversa: se nao consegue falar frases inteiras, esta rapido demais.',
+        'Sem preocupacao com pace hoje — o objetivo e volume leve e recuperacao ativa.',
+      ],
+      input.todayDate,
+      slot.weekday,
+    );
     return {
       weekday: slot.weekday,
-      title: 'Corrida leve',
+      title,
       sessionType: 'easy_run' as const,
       zone: 'Z2' as const,
       durationMin: Math.min(slot.durationMin, safetyAdjustment ? 35 : novice ? 40 : 55),
-      notes: 'Manter conforto respiratorio e acumular volume de baixa intensidade.',
+      notes,
     };
   });
 
