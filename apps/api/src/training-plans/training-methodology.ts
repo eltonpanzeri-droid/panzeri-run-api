@@ -112,6 +112,10 @@ export interface RunSessionDecision {
   zone: 'Z2' | 'Z4';
   durationMin: number;
   notes: string;
+  // Orientacoes gerais (aquecimento, desaquecimento, hidratacao, cuidados rua/esteira etc.),
+  // pensadas pela IA para este aluno especifico — NAO fazem parte do treino prescrito nem da
+  // distancia/duracao total, sao so recomendacoes em texto exibidas separadamente.
+  recommendations?: string;
 }
 
 export interface WeeklyMethodologyDecision {

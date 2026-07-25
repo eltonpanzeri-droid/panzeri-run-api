@@ -25,6 +25,7 @@ interface SessionTemplate {
   zone: string;
   durationMin: number;
   notes: string;
+  recommendations?: string;
 }
 
 interface RunStep {
@@ -303,6 +304,7 @@ export class TrainingPlansService {
           zone: runDecision.zone,
           durationMin: runDecision.durationMin,
           notes: runDecision.notes,
+          recommendations: runDecision.recommendations,
         } : baseTemplate;
         const modalityDurations = normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined);
         const requestedDuration = modalityDurations?.[modality] ?? day.availableMin ?? template.durationMin;
@@ -341,6 +343,7 @@ export class TrainingPlansService {
           paceMinSec: !isStrength && !isAerobic ? formatPace(template.zone === 'Z4' ? resolvedPaces.intense : resolvedPaces.easy) : null,
           structure: prescription as unknown as Prisma.InputJsonObject,
           notes: template.notes,
+          recommendations: isRunningModality(modality) ? template.recommendations ?? null : null,
           videoRefs: [],
         };
       });
@@ -352,15 +355,19 @@ export class TrainingPlansService {
     });
 
     const today = todayInSaoPaulo();
-    // So faz sentido excluir dias ja passados desta semana quando ja existe um plano ativo
-    // PARA ESTA MESMA SEMANA (o caso de regenerar no meio da semana) — os dias passados dele
-    // serao migrados logo abaixo (activePlanBeforeAdjustment). Se nao existe plano ativo para
-    // esta semana (primeira geracao, ou o ciclo anterior nunca foi renovado a tempo), filtrar
-    // por "hoje em diante" pode zerar a semana inteira quando os dias disponiveis do aluno
-    // caem antes de hoje — nesse caso mantemos a semana completa.
+    // So faz sentido excluir dias de hoje/ja passados desta semana quando ja existe um plano
+    // ativo PARA ESTA MESMA SEMANA (o caso de regenerar no meio da semana) — esses dias serao
+    // migrados logo abaixo (activePlanBeforeAdjustment). Se nao existe plano ativo para esta
+    // semana (primeira geracao, ou o ciclo anterior nunca foi renovado a tempo), filtrar por
+    // "so o futuro" pode zerar a semana inteira quando os dias disponiveis do aluno caem antes
+    // de hoje — nesse caso mantemos a semana completa.
+    // REGRA EXPLICITA DO TREINADOR: hoje e os dias anteriores NUNCA podem ser reescritos ao
+    // clicar em "gerar novo treino" (nem regenerando a semana toda, nem um dia especifico) — o
+    // dia de hoje ja pode ter sido iniciado/concluido pelo aluno, entao recria-lo do zero
+    // perderia esse registro de execucao. So dias estritamente FUTUROS sao regenerados.
     const isRegeneratingSameWeek = activePlanBeforeAdjustment?.startDate.getTime() === weekStart.getTime();
     const sessionsToCreate = isRegeneratingSameWeek
-      ? sessions.filter((session) => session.scheduledDate.getTime() >= today.getTime())
+      ? sessions.filter((session) => session.scheduledDate.getTime() > today.getTime())
       : sessions;
     const plan = await this.prisma.trainingPlan.create({
       data: {
@@ -421,14 +428,14 @@ export class TrainingPlansService {
     });
 
     if (activePlanBeforeAdjustment) {
-      // Dias que ja passaram (hoje exclusive) nunca podem ser reescritos ao gerar uma nova
-      // semana — o que o aluno ja fez (ou nao fez) fica registrado no plano anterior, so
-      // migramos essas sessoes (com seus registros de execucao) para o plano novo para que
-      // continuem aparecendo normalmente na semana atual.
+      // Hoje e os dias que ja passaram nunca podem ser reescritos ao gerar uma nova semana —
+      // o que o aluno ja fez (ou nao fez) fica registrado no plano anterior, so migramos essas
+      // sessoes (com seus registros de execucao) para o plano novo para que continuem
+      // aparecendo normalmente na semana atual.
       await this.prisma.trainingSession.updateMany({
         where: {
           planId: activePlanBeforeAdjustment.id,
-          scheduledDate: { gte: weekStart, lt: today },
+          scheduledDate: { gte: weekStart, lte: today },
         },
         data: { planId: plan.id },
       });
@@ -491,6 +498,10 @@ export class TrainingPlansService {
     const session = await this.prisma.trainingSession.findFirst({ where: { id: sessionId, userId } });
     if (!session) {
       throw new BadRequestException('Treino nao encontrado para este aluno.');
+    }
+    // Mesma regra do treinador aplicada aqui: hoje e dias passados nunca podem ser reescritos.
+    if (session.scheduledDate.getTime() <= todayInSaoPaulo().getTime()) {
+      throw new BadRequestException('Nao e possivel gerar um novo treino para hoje ou um dia que ja passou.');
     }
 
     const [user, latestTest, onboarding] = await Promise.all([
@@ -588,27 +599,19 @@ export class TrainingPlansService {
   }
 
   private runPrescription(durationMin: number, zone: string, resolvedPaces: { easy: number; intense: number }, modality: string, sessionType: string) {
+    // Aquecimento e desaquecimento NAO fazem mais parte do treino prescrito nem da distancia/
+    // duracao total — viraram uma recomendacao em texto (campo "recommendations", escrita pela
+    // IA por sessao), exibida separadamente. Isso evita o erro que ja aconteceu na pratica: um
+    // treino "leve" de poucos km onde boa parte era so aquecimento/desaquecimento contando pro
+    // volume, distorcendo o quanto o aluno realmente treinou naquele dia.
     const targetPaceSeconds = zone === 'Z4' ? resolvedPaces.intense : resolvedPaces.easy;
-    // Z1 (aquecimento/desaquecimento) precisa ser visivelmente mais lento que o Z2 - antes os dois
-    // usavam o mesmo resolvedPaces.easy e so a etiqueta da zona mudava, o que o treinador apontou
-    // como um erro real de prescricao (zona diferente com o mesmo pace nao faz sentido).
-    // Quando o pace facil real do aluno ja e igual ou mais lento que o teto de 8:30/km (MAX_RUN_PACE_SECONDS
-    // - o mesmo limite que o resto do sistema usa para dizer "isso aqui nao e mais corrida, e caminhada"),
-    // o aquecimento/desaquecimento devem ser caminhada de verdade, igual ao walk_run, e nao um trote lento.
-    const isVeryLowCapacity = resolvedPaces.easy >= MAX_RUN_PACE_SECONDS;
-    const warmupPaceSeconds = isVeryLowCapacity ? 600 : resolvedPaces.easy + 40;
-    const warmupLabel = isVeryLowCapacity ? 'Aquecimento caminhando' : 'Aquecimento';
-    const cooldownLabel = isVeryLowCapacity ? 'Desaquecimento caminhando' : 'Desaquecimento';
-    const warmupGuidance = isVeryLowCapacity ? 'Caminhar de forma progressiva.' : undefined;
     const speedKmh = Number((3600 / targetPaceSeconds).toFixed(1));
     const targetDistanceKm = Math.max(2, Math.round(((durationMin * 60) / targetPaceSeconds) * 2) / 2);
     const { paceRange, speedRange } = this.paceRangeText(targetPaceSeconds);
 
     if (sessionType === 'quality_run') {
-      const warmupDistance = Math.min(1.5, Math.max(0.5, roundDistance(targetDistanceKm * 0.18)));
-      const cooldownDistance = 0.5;
-      const intenseDistance = Math.max(0.5, roundDistance(targetDistanceKm * 0.22));
-      const recoveryDistance = Math.max(0.5, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance - intenseDistance));
+      const intenseDistance = Math.max(0.5, roundDistance(targetDistanceKm * 0.3));
+      const recoveryDistance = Math.max(0.5, roundDistance(targetDistanceKm - intenseDistance));
       const intenseStepKm = Math.max(0.4, Math.min(1.5, roundDistance(intenseDistance / 4)));
       const recoveryStepKm = 0.4;
       const repeatCount = Math.max(3, Math.min(8, Math.round(intenseDistance / intenseStepKm)));
@@ -622,10 +625,8 @@ export class TrainingPlansService {
         ],
       };
       const blocks = [
-        this.runDistanceBlock(warmupLabel, warmupDistance, 'Z1', warmupPaceSeconds, warmupGuidance),
         intervalBlock,
         this.runDistanceBlock('Recuperacoes e volume leve', recoveryDistance, 'Z2', resolvedPaces.easy),
-        this.runDistanceBlock(cooldownLabel, cooldownDistance, 'Z1', warmupPaceSeconds, warmupGuidance),
       ];
       return {
         type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks), speedKmh, zone,
@@ -638,9 +639,7 @@ export class TrainingPlansService {
       const walkPaceSeconds = 660;
       const minimumGapSeconds = 90; // garante que a corrida sempre seja perceptivelmente mais rapida que a caminhada
       const runPaceSeconds = Math.min(resolvedPaces.easy, MAX_RUN_PACE_SECONDS, walkPaceSeconds - minimumGapSeconds);
-      const warmupDistance = 0.5;
-      const cooldownDistance = 0.5;
-      const mainDistance = Math.max(1, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance));
+      const mainDistance = Math.max(1, targetDistanceKm);
       const walkStepKm = 0.3;
       const runStepKm = 0.2;
       const repeatCount = Math.max(3, Math.min(14, Math.round(mainDistance / (walkStepKm + runStepKm))));
@@ -653,11 +652,7 @@ export class TrainingPlansService {
           this.intervalStep('Correr', runStepKm, runPaceSeconds),
         ],
       };
-      const blocks = [
-        this.runDistanceBlock('Aquecimento caminhando', warmupDistance, 'Z1', 600, 'Caminhar de forma progressiva.'),
-        intervalBlock,
-        this.runDistanceBlock('Desaquecimento caminhando', cooldownDistance, 'Z1', 600),
-      ];
+      const blocks = [intervalBlock];
       const walkRunRange = this.paceRangeText(runPaceSeconds);
       return {
         type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks),
@@ -667,14 +662,7 @@ export class TrainingPlansService {
       };
     }
 
-    const warmupDistance = Math.min(1, Math.max(0.5, roundDistance(targetDistanceKm * 0.15)));
-    const cooldownDistance = 0.5;
-    const mainDistance = Math.max(1, roundDistance(targetDistanceKm - warmupDistance - cooldownDistance));
-    const blocks = [
-      this.runDistanceBlock(warmupLabel, warmupDistance, 'Z1', warmupPaceSeconds, warmupGuidance),
-      this.runDistanceBlock('Principal', mainDistance, zone, targetPaceSeconds),
-      this.runDistanceBlock(cooldownLabel, cooldownDistance, 'Z1', warmupPaceSeconds, warmupGuidance),
-    ];
+    const blocks = [this.runDistanceBlock('Principal', targetDistanceKm, zone, targetPaceSeconds)];
 
     return {
       type: 'run',
@@ -872,6 +860,7 @@ export class TrainingPlansService {
       distanceKm: number | null;
       structure: unknown;
       notes: string | null;
+      recommendations: string | null;
       completion?: {
         status: string;
         completedAt: Date;
@@ -924,6 +913,7 @@ export class TrainingPlansService {
         distanceKm: session.distanceKm,
         structure: session.structure,
         notes: session.notes,
+        recommendations: session.recommendations,
         completion: session.completion
           ? {
               status: session.completion.status,

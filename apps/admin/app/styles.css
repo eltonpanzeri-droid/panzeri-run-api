@@ -1212,6 +1212,28 @@ h3 {
   line-height: 1.35;
 }
 
+.recommendationsBox {
+  border: 1px solid #ccfbf1;
+  background: #f0fdf9;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: grid;
+  gap: 3px;
+}
+
+.recommendationsBox strong {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #0f766e;
+}
+
+.recommendationsBox p {
+  color: #134e4a;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .routineTableWrap {
   overflow-x: auto;
   margin-top: 8px;

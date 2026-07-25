@@ -171,6 +171,7 @@ interface StudentDetail {
       satisfaction?: string | null;
       feedback?: string | null;
       notes?: string | null;
+      recommendations?: string | null;
       completedDurationMin?: number | null;
       completedDistanceKm?: number | null;
       completedPaceSecondsKm?: number | null;
@@ -1994,6 +1995,7 @@ function EditableSession({
   const [distanceKm, setDistanceKm] = useState(String(session.distanceKm ?? ''));
   const [zone, setZone] = useState(session.zone ?? '');
   const [notes, setNotes] = useState(session.notes ?? '');
+  const [recommendations, setRecommendations] = useState(session.recommendations ?? '');
   const [isEditing, setIsEditing] = useState(false);
   const [structure, setStructure] = useState<Record<string, unknown>>(() => normalizeSessionStructure(session));
   const [saveMessage, setSaveMessage] = useState('');
@@ -2019,6 +2021,7 @@ function EditableSession({
           distanceKm: Number(distanceKm.replace(',', '.')) || 0,
           intensityZone: zone,
           notes,
+          recommendations,
           structure,
         }),
       });
@@ -2109,6 +2112,12 @@ function EditableSession({
         <span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''} {session.zone ? `| ${session.zone}` : ''}</span>
       </div>
       <AdminPrescription structure={session.structure} notes={session.notes} />
+      {session.recommendations ? (
+        <div className="recommendationsBox">
+          <strong>Recomendacoes</strong>
+          <p>{session.recommendations}</p>
+        </div>
+      ) : null}
       <div className={`executionPanel ${session.completionStatus === 'sem_registro' && !session.stravaActivity ? 'emptyExecution' : ''}`}>
         <strong>Realizado pelo aluno</strong>
         {session.completionStatus === 'sem_registro' ? <span>{session.stravaActivity ? 'Sem registro manual no aplicativo' : 'Sem registro'}</span> : (
@@ -2155,6 +2164,7 @@ function EditableSession({
               </div>
               <StructureEditor structure={structure} testPaceSeconds={testPaceSeconds} onChange={setStructure} />
               <label>Orientacoes gerais<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+              <label>Recomendacoes (aquecimento, desaquecimento, hidratacao, etc.)<textarea value={recommendations} onChange={(event) => setRecommendations(event.target.value)} /></label>
               {saveMessage ? <p className={`modalSaveMessage ${saveMessage.includes('sucesso') ? 'saveSuccess' : ''}`}>{saveMessage}</p> : null}
               <button className="saveEditButton" type="button" disabled={isSaving} onClick={saveSession}><Save size={16} /> {isSaving ? 'Salvando...' : 'Salvar treino completo'}</button>
             </div>

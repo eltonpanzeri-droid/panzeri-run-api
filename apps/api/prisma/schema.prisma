@@ -278,6 +278,7 @@ model TrainingSession {
   paceMinSec         String?
   structure          Json
   notes              String?
+  recommendations    String?
   videoRefs          String[]
   createdAt          DateTime           @default(now())
   completion         WorkoutCompletion?

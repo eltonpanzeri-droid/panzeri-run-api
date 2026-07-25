@@ -30,6 +30,10 @@ export class UpdateTrainingSessionDto {
   notes?: string;
 
   @IsOptional()
+  @IsString()
+  recommendations?: string;
+
+  @IsOptional()
   @IsObject()
   structure?: Record<string, unknown>;
 }

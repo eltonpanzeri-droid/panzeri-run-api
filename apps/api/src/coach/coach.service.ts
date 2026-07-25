@@ -180,6 +180,7 @@ export class CoachService {
       ...(dto.distanceKm !== undefined ? { distanceKm: dto.distanceKm || null } : {}),
       ...(dto.intensityZone !== undefined ? { intensityZone: dto.intensityZone.trim() || null } : {}),
       ...(dto.notes !== undefined ? { notes: dto.notes.trim() || null } : {}),
+      ...(dto.recommendations !== undefined ? { recommendations: dto.recommendations.trim() || null } : {}),
       ...(dto.structure !== undefined ? { structure: dto.structure as Prisma.InputJsonObject } : {}),
     };
     if (!Object.keys(data).length) {
@@ -597,6 +598,7 @@ export class CoachService {
               completedAt: session.completion?.completedAt ?? null,
               stravaActivity: serializeStravaActivity(stravaBySession.get(session.id) ?? null),
               notes: session.notes,
+              recommendations: session.recommendations,
             })),
           }
         : null,
