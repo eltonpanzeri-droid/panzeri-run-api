@@ -26,23 +26,29 @@ const WEEKLY_KM_RANGE_LABELS: Record<string, string> = {
   '100_plus': 'mais de 100 km por semana',
 };
 
+// Esses limites de caracteres ja causaram uma falha grave e silenciosa na pratica: com um prompt
+// mais rico (diretivas, raciocinio de zona/pace, calculo de duracao), a IA passou a escrever
+// notes/recommendation/rationale mais longos e TODA geracao comecou a ser rejeitada pelo schema
+// (nunca por falta de API key ou rede) — nenhum fallback existe mais, entao isso derrubava o
+// treino do aluno inteiro. Os limites abaixo sao generosos de proposito: o objetivo e dar espaco
+// para a IA raciocinar por escrito, nao forcar ela a ser artificialmente curta.
 const AiSessionSchema = z.object({
   weekday: z.number().int().min(0).max(6),
   title: z.string().min(1).max(120),
   sessionType: z.enum(['easy_run', 'quality_run', 'long_run', 'walk_run']),
   zone: z.enum(['Z2', 'Z4']),
   durationMin: z.number().int().min(10).max(240),
-  notes: z.string().min(1).max(400),
+  notes: z.string().min(1).max(800),
 });
 
 const AiWeeklyDecisionSchema = z.object({
   sessions: z.array(AiSessionSchema).min(1).max(7),
-  recommendation: z.string().min(1).max(600),
-  rationale: z.array(z.string().min(1).max(300)).min(1).max(8),
+  recommendation: z.string().min(1).max(1200),
+  rationale: z.array(z.string().min(1).max(500)).min(1).max(8),
   paceAssessment: z.object({
     easyPaceSecondsPerKm: z.number().int().min(150).max(900),
     intensePaceSecondsPerKm: z.number().int().min(120).max(700),
-    rationale: z.string().min(1).max(500),
+    rationale: z.string().min(1).max(900),
   }),
 });
 
