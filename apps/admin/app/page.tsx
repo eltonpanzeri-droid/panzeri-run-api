@@ -1910,7 +1910,7 @@ function StudentPanel({
                     <strong>{weekdayLabel(weekday)}</strong>
                     <span>{sessions[0] ? dateLabel(sessions[0].date) : ''}</span>
                   </div>
-                  {sessions.length ? sessions.map((session) => (
+                  {sessions.length ? sessions.map((session, index) => (
                     <EditableSession
                       key={session.id}
                       session={session}
@@ -1919,6 +1919,7 @@ function StudentPanel({
                       testPaceSeconds={parsePaceSeconds(student.tests[0]?.pace)}
                       onStatus={onStatus}
                       onSaved={onRefresh}
+                      sessionLabel={sessions.length > 1 ? `Treino ${index + 1} de ${sessions.length}` : null}
                     />
                   )) : <p className="restDay">Sem treino</p>}
                 </div>
@@ -1972,6 +1973,7 @@ function EditableSession({
   testPaceSeconds,
   onStatus,
   onSaved,
+  sessionLabel,
 }: {
   session: NonNullable<StudentDetail['plan']>['sessions'][number];
   studentId: string;
@@ -1979,6 +1981,7 @@ function EditableSession({
   testPaceSeconds: number | null;
   onStatus: (message: string) => void;
   onSaved: () => void;
+  sessionLabel?: string | null;
 }) {
   const [title, setTitle] = useState(session.title);
   const [modality, setModality] = useState(session.modality);
@@ -2075,6 +2078,7 @@ function EditableSession({
 
   return (
     <div className="sessionEditor" style={{ borderLeft: `4px solid ${modalityAccentColor(session.modality)}` }}>
+      {sessionLabel ? <p className="multiSessionLabel">{sessionLabel}</p> : null}
       <div className="sessionEditorHeader">
         <span className={`executionStatus execution-${session.stravaActivity ? 'done' : session.completionStatus}`}>
           {session.stravaActivity ? 'Strava recebido' : completionLabel(session.completionStatus)}

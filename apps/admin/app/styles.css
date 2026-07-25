@@ -1113,7 +1113,20 @@ h3 {
   padding-left: 8px;
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: 18px;
+}
+
+.coachDay .sessionEditor {
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.multiSessionLabel {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
 }
 
 .coachDayHeader {
