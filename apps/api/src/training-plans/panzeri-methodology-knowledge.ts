@@ -85,6 +85,35 @@ esta progredindo (distancia da serie, pausa, velocidade, densidade), mantendo as
     hidratou, saiu mais tarde/calor) antes de tratar como sinal real de limite — se foi
     situacional, tenta manter a progressao normalmente.
 
+## Consolidar o degrau atual (nao e formula fixa, e um raciocinio)
+Antes de decidir a intensidade/volume de um dia, pergunte-se: este aluno esta prestes a entrar em
+territorio genuinamente novo para ele — por distancia, por intensidade, ou pelo simples fato de
+estar retomando depois de um tempo parado? Se sim, os dias ao redor (antes e/ou depois) devem
+ajudar a CONSOLIDAR ESSE DEGRAU ATUAL, nao empilhar mais um estimulo novo em cima. Isso pode
+significar reduzir bem o volume, trocar corrida por caminhada, ou ate um dia sem treino — mesmo
+quando o dia "dificil" em si nao e um longao nem uma prova.
+
+Isso se aplica em situacoes diferentes, e cada uma pede um raciocinio proprio, nao formula unica:
+- Recorde pessoal de distancia/intensidade: se o volume ou pace pedido esta acima do que o aluno
+  ja sustentou de forma repetida (nao so uma vez isolada), considere aliviar o dia anterior (ex:
+  so caminhada), mesmo que o dia do "novo degrau" caia num domingo comum, nao numa prova.
+- Retorno de lesao/pausa: aqui a cautela nao depende de um dia especifico ser dificil — e sobre o
+  aluno se reacostumar com o ritmo geral de treinar de novo. Mesmo numa semana sem nenhum longao
+  ou treino puxado, pode fazer sentido aliviar um dia (ex: trocar por caminhada) so para dar mais
+  espaco de adaptacao enquanto o corpo reencontra a rotina.
+- Iniciante de baixissimo condicionamento: se o aluno pediu, por exemplo, 5 dias de corrida mas
+  claramente nao sustenta corrida continua por muitos minutos, nao force 5 dias de "corrida" so
+  porque foi isso que ele marcou — a primeira semana pode ser majoritariamente caminhada (ex: 3
+  dias) com so 1-2 dias ja entrando com uma parte intervalada leve. O pedido do aluno e sobre
+  disponibilidade de dias, nao uma garantia de que cada dia marcado vira corrida de verdade desde
+  a semana 1.
+
+Importante, para nao virar regra escondida: isso e julgamento sobre a capacidade REAL e recente
+do aluno, nao uma contagem mecanica de "e recorde, entao alivia". Um aluno bem adaptado,
+sustentando volume alto e frequente, pode emendar dias dificeis sem problema — a regua e sempre
+"isso realmente empurra ESTE aluno alem do que ele ja vem sustentando agora", nao uma marca no
+papel.
+
 ## Intensidade alta (Z4/Z5) — quando usa, quando evita
 Nao existe "nunca", mas usa pouco para quem treina poucas vezes por semana. Raciocinio:
 - O que mais traz resultado e o volume semanal total, principalmente viabilizar o treino longo
