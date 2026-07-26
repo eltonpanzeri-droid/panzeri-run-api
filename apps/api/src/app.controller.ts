@@ -1,7 +1,24 @@
-import { Controller, Get, Res } from '@nestjs/common';
+import { Body, Controller, Get, Post, Res } from '@nestjs/common';
+import { TelegramService } from './billing/telegram.service';
 
 @Controller()
 export class AppController {
+  constructor(private readonly telegram: TelegramService) {}
+
+  // Sem isso, uma tela travada no app do aluno (ex: durante a entrevista, o momento mais critico
+  // pra conversao) simplesmente some sem ninguem saber — nem o treinador fica sabendo que
+  // aconteceu, e muito menos em qual tela/erro exato. Ja custou pelo menos uma venda perdida.
+  @Post('client-errors')
+  async reportClientError(@Body() body: { message?: string; componentStack?: string; userEmail?: string }) {
+    const message = String(body.message ?? 'Erro sem mensagem').slice(0, 500);
+    const componentStack = String(body.componentStack ?? '').slice(0, 1000);
+    const userEmail = body.userEmail ? String(body.userEmail).slice(0, 200) : 'nao identificado (aluno pode nao estar logado ainda)';
+    await this.telegram.notifyCoach(
+      `⚠️ O app do aluno travou (tela de erro exibida)\n\nAluno: ${userEmail}\nErro: ${message}\n\nOnde:\n${componentStack || 'sem detalhe de componente'}`,
+    );
+    return { received: true };
+  }
+
   @Get('health')
   health() {
     return {

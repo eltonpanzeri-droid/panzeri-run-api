@@ -35,6 +35,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
 
   componentDidCatch(error: Error, info: { componentStack: string }) {
     console.error('Panzeri Run crashed:', error, info.componentStack);
+    void reportCrashToCoach(error, info.componentStack);
   }
 
   render() {
@@ -43,9 +44,21 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.loadingState}>
             <Text style={styles.sectionLabel}>Panzeri Run</Text>
-            <Text style={styles.statusMessage}>Algo deu errado ao abrir esta tela.</Text>
+            <Text style={styles.statusMessage}>Algo deu errado ao abrir esta tela. Ja avisamos seu treinador.</Text>
             <Text style={styles.statusMessage}>{this.state.error.message}</Text>
-            <Pressable style={styles.primaryButton} onPress={() => this.setState({ error: null })}>
+            <Pressable
+              style={styles.primaryButton}
+              onPress={() => {
+                // Um reload completo (nao so limpar o estado local do boundary) tem muito mais
+                // chance de destravar de verdade um erro causado por dado/estado ruim em memoria
+                // — foi exatamente uma tela travada assim que fez a gente perder uma venda.
+                if (typeof window !== 'undefined' && window.location?.reload) {
+                  window.location.reload();
+                } else {
+                  this.setState({ error: null });
+                }
+              }}
+            >
               <Text style={styles.primaryButtonText}>Tentar novamente</Text>
             </Pressable>
           </View>
@@ -53,6 +66,29 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
       );
     }
     return this.props.children;
+  }
+}
+
+// Sem isso, uma tela travada na entrevista (ex: aluna empolgada, prestes a assinar) simplesmente
+// some sem ninguem saber — nem o treinador, nem o desenvolvedor, ficam sabendo que aconteceu, e
+// muito menos em qual pergunta. O relato "ficou uma tela em branco" sem mais detalhes ja custou
+// uma venda; isso aqui garante que da proxima vez chegue um aviso com dado real pra investigar.
+async function reportCrashToCoach(error: Error, componentStack: string) {
+  try {
+    const raw = await AsyncStorage.getItem(AUTH_SESSION_KEY);
+    const session = raw ? (JSON.parse(raw) as { email?: string }) : null;
+    await fetch(`${API_URL}/client-errors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: error.message,
+        componentStack: componentStack.slice(0, 1500),
+        userEmail: session?.email,
+      }),
+    });
+  } catch {
+    // Se nem isso funcionar, nao ha mais nada a fazer por aqui — a tela de erro do usuario ja
+    // foi mostrada de qualquer forma.
   }
 }
 
@@ -1815,10 +1851,16 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     </View>
   );
 
-  const progress = visibleQuestions.length ? ((step + 1) / visibleQuestions.length) * 100 : 0;
+  // Numeramos a pergunta atual de proposito, mas NUNCA mostramos quanto falta (nada de "8 de 22")
+  // — o numero de perguntas visiveis muda dinamicamente conforme as respostas (condicionais de
+  // saude/corrida), entao um total "fixo" seria ate enganoso. Mostrar so o quanto ja foi
+  // respondido (sem revelar o que falta) usa o vies de perda a favor da conclusao: quem ja
+  // investiu varias respostas tende a nao querer abandonar. A barra cresce a cada pergunta mas
+  // nunca chega visualmente ao fim, pelo mesmo motivo.
+  const progress = Math.min(92, (step + 1) * 5);
   return (
     <View style={styles.section}>
-      <View style={styles.interviewTop}><Text style={styles.sectionLabel}>{question?.module}</Text><Text style={styles.interviewCounter}>{step + 1} de {visibleQuestions.length}</Text></View>
+      <View style={styles.interviewTop}><Text style={styles.sectionLabel}>{question?.module}</Text><Text style={styles.interviewCounter}>Pergunta {step + 1}</Text></View>
       <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress}%` }]} /></View>
       <Text style={styles.interviewQuestion}>{question?.prompt}{question && !question.optional && question.type !== 'notice' ? <Text style={styles.requiredMark}> *</Text> : null}</Text>
       {question?.help ? <Pressable style={styles.helpButton} onPress={() => setHelpOpen(!helpOpen)}><Ionicons name="information-circle-outline" size={18} color="#0f766e" /><Text style={styles.helpButtonText}>Entenda</Text></Pressable> : null}
