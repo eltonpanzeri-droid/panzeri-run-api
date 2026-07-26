@@ -168,9 +168,14 @@ export class TrainingPlansService {
     }
 
     const targetWeekStart = startOfWeek(addDays(new Date(), offset * 7));
+    // Para semanas futuras (offset > 0), so um plano "scheduled" (exatamente o que a
+    // pre-geracao de domingo 19h cria) conta como a semana seguinte de verdade. Sem esse
+    // filtro, um plano "archived" de testes antigos cuja data por coincidencia bate com a
+    // semana seguinte de hoje seria mostrado como se fosse a pre-geracao real.
+    const planStatusFilter = offset > 0 ? { status: 'scheduled' } : {};
     const [plan, latestTest, user, onboarding] = await Promise.all([
       this.prisma.trainingPlan.findFirst({
-        where: { userId, startDate: targetWeekStart },
+        where: { userId, startDate: targetWeekStart, ...planStatusFilter },
         orderBy: { createdAt: 'desc' },
         include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
       }),
