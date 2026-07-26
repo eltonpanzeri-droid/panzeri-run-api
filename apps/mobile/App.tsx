@@ -1545,38 +1545,50 @@ function WheelColumn({ values, selectedIndex, onChangeIndex }: { values: string[
     onChangeIndex(Math.max(0, Math.min(values.length - 1, index)));
   }
 
-  // "onMomentumScrollEnd" sozinho nao e confiavel o suficiente: num toque curto (sem impulso) ou
-  // no navegador/PWA, esse evento as vezes nao dispara, e a roda fica visualmente parada num
-  // numero que nunca chega a ser avisado pro resto do app — foi exatamente isso que fez duas
-  // alunas terem valores de fabrica (nunca escolhidos de verdade) salvos na entrevista. Por isso
-  // aqui tem TRES caminhos redundantes reportando o mesmo indice: o momentum (quando dispara), o
-  // fim do arrasto (quando nao ha impulso), e um "detector de acomodacao" por tempo parado sem
-  // rolar — o que disparar primeiro ja resolve, e nenhum deles sozinho e o unico responsavel.
+  // Mesmo com tres eventos de rolagem redundantes, isso ainda falhou pra outra aluna (Duane) —
+  // ou seja, depender so de deteccao de gesto de rolagem nao e confiavel o suficiente num
+  // navegador/PWA. Por isso o toque direto (no item da lista, ou nos botoes -/+) agora e o
+  // caminho PRINCIPAL e garantido: um "onPress" e um evento simples e sincrono, sem ambiguidade
+  // de timing nenhuma — nao tem como ele "nao disparar" do jeito que um gesto de rolagem pode.
+  // A rolagem continua funcionando (ainda e mais rapido pra pular varios valores), mas ninguem
+  // depende mais soh dela pra confirmar a escolha.
   function handleScroll(offsetY: number) {
     if (settleTimer.current) clearTimeout(settleTimer.current);
     settleTimer.current = setTimeout(() => reportIndexFromOffset(offsetY), 130);
   }
+  function step(delta: number) {
+    onChangeIndex(Math.max(0, Math.min(values.length - 1, selectedIndex + delta)));
+  }
 
   return (
     <View style={styles.wheelColumn}>
-      <ScrollView
-        ref={scrollRef}
-        showsVerticalScrollIndicator={false}
-        snapToInterval={WHEEL_ITEM_HEIGHT}
-        decelerationRate="fast"
-        contentContainerStyle={{ paddingVertical }}
-        scrollEventThrottle={16}
-        onScroll={(event) => handleScroll(event.nativeEvent.contentOffset.y)}
-        onScrollEndDrag={(event) => reportIndexFromOffset(event.nativeEvent.contentOffset.y)}
-        onMomentumScrollEnd={(event) => reportIndexFromOffset(event.nativeEvent.contentOffset.y)}
-      >
-        {values.map((label, index) => (
-          <View key={`${label}-${index}`} style={styles.wheelItem}>
-            <Text style={index === selectedIndex ? styles.wheelValueActive : styles.wheelValue}>{label}</Text>
-          </View>
-        ))}
-      </ScrollView>
-      <View pointerEvents="none" style={[styles.wheelHighlight, { top: paddingVertical }]} />
+      <Pressable style={styles.wheelStepButton} onPress={() => step(1)} disabled={selectedIndex >= values.length - 1}>
+        <Ionicons name="chevron-up" size={20} color={selectedIndex >= values.length - 1 ? '#cbd5e1' : '#0f766e'} />
+      </Pressable>
+      <View style={styles.wheelScrollBox}>
+        <ScrollView
+          ref={scrollRef}
+          showsVerticalScrollIndicator={false}
+          snapToInterval={WHEEL_ITEM_HEIGHT}
+          decelerationRate="fast"
+          contentContainerStyle={{ paddingVertical }}
+          scrollEventThrottle={16}
+          onScroll={(event) => handleScroll(event.nativeEvent.contentOffset.y)}
+          onScrollEndDrag={(event) => reportIndexFromOffset(event.nativeEvent.contentOffset.y)}
+          onMomentumScrollEnd={(event) => reportIndexFromOffset(event.nativeEvent.contentOffset.y)}
+        >
+          {values.map((label, index) => (
+            <Pressable key={`${label}-${index}`} style={styles.wheelItem} onPress={() => onChangeIndex(index)}>
+              <Text style={index === selectedIndex ? styles.wheelValueActive : styles.wheelValue}>{label}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+        <View pointerEvents="none" style={[styles.wheelHighlight, { top: paddingVertical }]} />
+      </View>
+      <Pressable style={styles.wheelStepButton} onPress={() => step(-1)} disabled={selectedIndex <= 0}>
+        <Ionicons name="chevron-down" size={20} color={selectedIndex <= 0 ? '#cbd5e1' : '#0f766e'} />
+      </Pressable>
+      <Text style={styles.wheelSelectedLabel}>Selecionado: {values[selectedIndex] ?? '-'}</Text>
     </View>
   );
 }
@@ -6205,9 +6217,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   wheelColumn: {
+    alignItems: 'center',
+  },
+  wheelScrollBox: {
     height: WHEEL_ITEM_HEIGHT * WHEEL_VISIBLE_ITEMS,
     width: 84,
     overflow: 'hidden',
+  },
+  wheelStepButton: {
+    width: 84,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wheelSelectedLabel: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f766e',
   },
   wheelItem: {
     height: WHEEL_ITEM_HEIGHT,
