@@ -2143,7 +2143,19 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     }
   }
 
-  async function applyRoutineAdjustment() {
+  function applyRoutineAdjustment() {
+    const summary = summarizeRoutineForConfirmation(weeklyRoutine);
+    Alert.alert(
+      applyRoutinePermanently ? 'Confirma mudanca permanente de rotina?' : 'Confirma mudanca de rotina apenas para essa semana?',
+      summary,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Confirmar', onPress: () => submitRoutineAdjustment() },
+      ],
+    );
+  }
+
+  async function submitRoutineAdjustment() {
     if (!applyRoutinePermanently) {
       await generatePlan();
       return;
@@ -4797,6 +4809,16 @@ function paceInputToSeconds(value: string) {
   }
 
   return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function summarizeRoutineForConfirmation(routineDays: RoutineDay[]) {
+  return routineDays.map((day) => {
+    if (day.modalities.length === 0 || day.modalities.includes('Sem treinos')) {
+      return `${day.label}: Sem treinos`;
+    }
+    const modalitiesSummary = day.modalities.map((modality) => `${modality} (${day.minutesByModality[modality] ?? '30'}min)`).join(', ');
+    return `${day.label}: ${modalitiesSummary}`;
+  }).join('\n');
 }
 
 function routineToAvailability(routineDays: RoutineDay[]) {
