@@ -1891,15 +1891,6 @@ function StudentPanel({
       </section>
 
       <section className="miniSection">
-        <h3>Disponibilidade semanal</h3>
-        {student.availability?.length ? student.availability.map((day) => (
-          <p key={day.weekday}>
-            {weekdayLabel(day.weekday)}: {day.noTraining ? 'Sem treino' : availabilityLabel(day)}
-          </p>
-        )) : <p>Nao informada.</p>}
-      </section>
-
-      <section className="miniSection">
         <h3>Ultimos testes</h3>
         {student.tests.length ? (
           student.tests.map((test) => (
@@ -1941,7 +1932,7 @@ function StudentPanel({
               <details key={group.title} open={group.title === 'Objetivo' || group.title === 'Rotina semanal'}>
                 <summary>{group.title}</summary>
                 {group.title === 'Rotina semanal' ? (
-                  <RoutineAvailabilityTable answers={student.interview!.answers} />
+                  <RoutineAvailabilityTable answers={student.interview!.answers} availability={student.availability ?? []} />
                 ) : (
                   <div className="interviewAnswerGrid">
                     {group.items.map(([key, value]) => (
@@ -2835,23 +2826,15 @@ const ROUTINE_DAYS: Array<[string, string]> = [
   ['monday', 'Seg'], ['tuesday', 'Ter'], ['wednesday', 'Qua'], ['thursday', 'Qui'], ['friday', 'Sex'], ['saturday', 'Sab'], ['sunday', 'Dom'],
 ];
 
-function routineTimeLabel(value: unknown) {
-  const labels: Record<string, string> = {
-    none: 'NAO',
-    up_to_30: 'Ate 30 min',
-    from_30_to_45: '30-45 min',
-    from_45_to_60: '45-60 min',
-    from_60_to_90: '60-90 min',
-    over_90: '90+ min',
-  };
-  return labels[String(value ?? '')] ?? 'NAO';
-}
+const ROUTINE_DAY_WEEKDAYS: Record<string, number> = {
+  monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6, sunday: 0,
+};
 
-function RoutineAvailabilityTable({ answers }: { answers: Record<string, unknown> }) {
-  const rows: Array<{ label: string; suffix: string; availableSuffix: string }> = [
-    { label: 'Corrida', suffix: 'run_time', availableSuffix: 'run_available_time' },
-    { label: 'Fortalecimento', suffix: 'fortalecimento_time', availableSuffix: 'fortalecimento_available_time' },
-    { label: 'Musculacao', suffix: 'musculacao_time', availableSuffix: 'musculacao_available_time' },
+function RoutineAvailabilityTable({ answers, availability }: { answers: Record<string, unknown>; availability: NonNullable<StudentDetail['availability']> }) {
+  const rows: Array<{ label: string; modalityKey: string; availableSuffix: string }> = [
+    { label: 'Corrida', modalityKey: 'corrida', availableSuffix: 'run_available_time' },
+    { label: 'Fortalecimento', modalityKey: 'fortalecimento_corredores', availableSuffix: 'fortalecimento_available_time' },
+    { label: 'Musculacao', modalityKey: 'forca', availableSuffix: 'musculacao_available_time' },
   ];
   return (
     <div className="routineTableWrap">
@@ -2864,12 +2847,13 @@ function RoutineAvailabilityTable({ answers }: { answers: Record<string, unknown
       </thead>
       <tbody>
         {rows.map((row) => (
-          <tr key={row.suffix}>
+          <tr key={row.modalityKey}>
             <td>{row.label}</td>
             {ROUTINE_DAYS.map(([dayKey]) => {
-              const value = answers[`${dayKey}_${row.suffix}`];
-              const isNone = !value || value === 'none';
-              return <td key={dayKey} className={isNone ? 'routineCellOff' : 'routineCellOn'}>{routineTimeLabel(value)}</td>;
+              const day = availability.find((item) => item.weekday === ROUTINE_DAY_WEEKDAYS[dayKey]);
+              const minutes = day && !day.noTraining ? day.modalityDurations?.[row.modalityKey] : undefined;
+              const isNone = !minutes;
+              return <td key={dayKey} className={isNone ? 'routineCellOff' : 'routineCellOn'}>{isNone ? 'NAO' : `${minutes} min`}</td>;
             })}
           </tr>
         ))}
@@ -3061,13 +3045,6 @@ function listLabel(items: string[]) {
 
 function weekdayLabel(weekday: number) {
   return ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'][weekday] ?? String(weekday);
-}
-
-function availabilityLabel(day: NonNullable<StudentDetail['availability']>[number]) {
-  return day.modalities.map((modality) => {
-    const duration = day.modalityDurations?.[modality] ?? day.availableMin;
-    return `${modality}${duration ? ` (${duration} min)` : ''}`;
-  }).join(', ');
 }
 
 async function copyText(text: string) {
