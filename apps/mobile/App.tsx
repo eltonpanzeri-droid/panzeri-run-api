@@ -1529,11 +1529,33 @@ const WHEEL_VISIBLE_ITEMS = 5;
 
 function WheelColumn({ values, selectedIndex, onChangeIndex }: { values: string[]; selectedIndex: number; onChangeIndex: (index: number) => void }) {
   const scrollRef = useRef<ScrollView>(null);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const paddingVertical = WHEEL_ITEM_HEIGHT * Math.floor(WHEEL_VISIBLE_ITEMS / 2);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: selectedIndex * WHEEL_ITEM_HEIGHT, animated: false });
   }, [selectedIndex, values.length]);
+
+  useEffect(() => () => {
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+  }, []);
+
+  function reportIndexFromOffset(offsetY: number) {
+    const index = Math.round(offsetY / WHEEL_ITEM_HEIGHT);
+    onChangeIndex(Math.max(0, Math.min(values.length - 1, index)));
+  }
+
+  // "onMomentumScrollEnd" sozinho nao e confiavel o suficiente: num toque curto (sem impulso) ou
+  // no navegador/PWA, esse evento as vezes nao dispara, e a roda fica visualmente parada num
+  // numero que nunca chega a ser avisado pro resto do app — foi exatamente isso que fez duas
+  // alunas terem valores de fabrica (nunca escolhidos de verdade) salvos na entrevista. Por isso
+  // aqui tem TRES caminhos redundantes reportando o mesmo indice: o momentum (quando dispara), o
+  // fim do arrasto (quando nao ha impulso), e um "detector de acomodacao" por tempo parado sem
+  // rolar — o que disparar primeiro ja resolve, e nenhum deles sozinho e o unico responsavel.
+  function handleScroll(offsetY: number) {
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    settleTimer.current = setTimeout(() => reportIndexFromOffset(offsetY), 130);
+  }
 
   return (
     <View style={styles.wheelColumn}>
@@ -1543,10 +1565,10 @@ function WheelColumn({ values, selectedIndex, onChangeIndex }: { values: string[
         snapToInterval={WHEEL_ITEM_HEIGHT}
         decelerationRate="fast"
         contentContainerStyle={{ paddingVertical }}
-        onMomentumScrollEnd={(event) => {
-          const index = Math.round(event.nativeEvent.contentOffset.y / WHEEL_ITEM_HEIGHT);
-          onChangeIndex(Math.max(0, Math.min(values.length - 1, index)));
-        }}
+        scrollEventThrottle={16}
+        onScroll={(event) => handleScroll(event.nativeEvent.contentOffset.y)}
+        onScrollEndDrag={(event) => reportIndexFromOffset(event.nativeEvent.contentOffset.y)}
+        onMomentumScrollEnd={(event) => reportIndexFromOffset(event.nativeEvent.contentOffset.y)}
       >
         {values.map((label, index) => (
           <View key={`${label}-${index}`} style={styles.wheelItem}>
@@ -1658,18 +1680,15 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     if (step > maxStep) setStep(maxStep);
   }, [visibleQuestions.length, step]);
 
-  // Um seletor de roda sempre mostra algum valor destacado (nao existe estado "vazio" visual),
-  // entao assim que a pergunta aparece ja fixamos um valor de partida sensato na resposta —
-  // sem isso, hasAnswer() nunca veria uma resposta valida ate a pessoa rolar a roda. Perguntas
-  // opcionais ficam de fora: fixar um valor ali salvaria uma medida fake so por ela ter passado
-  // pela pergunta sem tocar na roda.
-  useEffect(() => {
-    if (!question || value !== undefined || question.optional) return;
-    if (question.type === 'wheel_number') setAnswers((current) => ({ ...current, [question.key]: String(question.wheelMin ?? 0) }));
-    else if (question.type === 'wheel_pace') setAnswers((current) => ({ ...current, [question.key]: '6:00' }));
-    else if (question.type === 'wheel_duration_hms') setAnswers((current) => ({ ...current, [question.key]: '0:30:00' }));
-    else if (question.type === 'wheel_date') setAnswers((current) => ({ ...current, [question.key]: `01/01/${new Date().getFullYear() - 30}` }));
-  }, [question, value]);
+  // IMPORTANTE: nao fixamos mais um valor de resposta so porque a roda de selecao precisa
+  // mostrar ALGUMA posicao destacada visualmente. Isso ja causou um bug real: duas alunas
+  // tiveram valores de fabrica (1 km, 6:00/km, 30 min) salvos como se fossem respostas reais,
+  // porque o "Continuar" considerava a pergunta respondida so por existir um valor de exibicao,
+  // mesmo sem a pessoa ter tocado na roda. Cada renderizacao de roda (mais abaixo) ja calcula seu
+  // proprio valor padrao de EXIBICAO quando a resposta ainda esta vazia — isso nao grava nada em
+  // `answers`. So gravamos de verdade quando `onChangeIndex` dispara (ou seja, a pessoa realmente
+  // interagiu), e `hasAnswer()` exige `value !== undefined`, entao "Continuar" fica bloqueado ate
+  // a interacao real acontecer.
   const assessedWeight = interviewDecimal(answers.personal_weight);
   const assessedBodyFat = interviewDecimal(answers.body_fat_percentage);
   const calculatedFatMass = assessedWeight !== null && assessedBodyFat !== null ? Math.round(assessedWeight * assessedBodyFat) / 100 : null;
@@ -1765,7 +1784,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
 
   async function next() {
     if (!question || !hasAnswer()) {
-      setStatus(question?.type === 'date' || question?.type === 'wheel_date' ? 'Selecione uma data valida.' : question?.type === 'cpf' ? 'Digite um CPF valido. Confira se os numeros estao corretos.' : question?.type === 'phone' ? 'Digite um numero de WhatsApp valido, com DDD (11 numeros).' : question?.type === 'cep' ? 'Digite um CEP valido e aguarde o endereco ser encontrado.' : 'Responda para continuar.');
+      setStatus(question?.type === 'wheel_date' ? 'Role a roda para escolher a data e confirmar sua resposta.' : question?.type === 'date' ? 'Selecione uma data valida.' : question?.type === 'wheel_number' || question?.type === 'wheel_pace' || question?.type === 'wheel_duration_hms' ? 'Role a roda para escolher e confirmar sua resposta.' : question?.type === 'cpf' ? 'Digite um CPF valido. Confira se os numeros estao corretos.' : question?.type === 'phone' ? 'Digite um numero de WhatsApp valido, com DDD (11 numeros).' : question?.type === 'cep' ? 'Digite um CEP valido e aguarde o endereco ser encontrado.' : 'Responda para continuar.');
       return;
     }
     // A segunda e a terceira maior distancia tem que ser menores ou iguais a distancia anterior
