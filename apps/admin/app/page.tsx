@@ -1640,8 +1640,8 @@ function StudentPanel({
           <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Altura</span><span className="interviewAnswerValue">{student.heightCm ? `${student.heightCm} cm` : 'Nao informado'}</span></div>
           <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Peso</span><span className="interviewAnswerValue">{student.weightKg ? `${student.weightKg} kg` : 'Nao informado'}</span></div>
           <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Escolaridade</span><span className="interviewAnswerValue">{student.education ?? 'Nao informado'}</span></div>
-          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Endereco</span><span className="interviewAnswerValue">{student.address ?? 'Nao informado'}</span></div>
         </div>
+        <div className="interviewAnswerRow addressRow"><span className="interviewAnswerLabel">Endereco</span><span className="interviewAnswerValue">{student.address ?? 'Nao informado'}</span></div>
       </div>
 
       {student.targetRaces?.length ? (

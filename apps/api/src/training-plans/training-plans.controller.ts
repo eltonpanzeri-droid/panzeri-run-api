@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { TrainingPlansService } from './training-plans.service';
@@ -16,6 +16,11 @@ export class TrainingPlansController {
   @Get('current')
   current(@CurrentUser() user: CurrentUserPayload) {
     return this.trainingPlansService.current(user.sub);
+  }
+
+  @Get('week-by-offset')
+  weekByOffset(@CurrentUser() user: CurrentUserPayload, @Query('offset') offset: string) {
+    return this.trainingPlansService.getWeekByOffset(user.sub, Number(offset) || 0);
   }
 }
 

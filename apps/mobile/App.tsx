@@ -231,6 +231,12 @@ interface WeekPlan {
   sessions: WeekPlanSession[];
 }
 
+interface WeekByOffsetResponse extends Partial<WeekPlan> {
+  notGenerated?: boolean;
+  startDate?: string;
+  endDate?: string;
+}
+
 type InterviewAnswer = string | number | string[] | boolean;
 type InterviewAnswers = Record<string, InterviewAnswer>;
 
@@ -1790,6 +1796,12 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         personal_address_state: state,
       }));
       setCepStatus(`Endereco encontrado: ${[street, neighborhood].filter(Boolean).join(', ')}${street || neighborhood ? ' - ' : ''}${city}/${state}`);
+      await Promise.all([
+        persist('personal_address_street', street, step),
+        persist('personal_address_neighborhood', neighborhood, step),
+        persist('personal_address_city', city, step),
+        persist('personal_address_state', state, step),
+      ]);
     } catch {
       setCepStatus('Nao consegui buscar o CEP agora. Verifique sua internet e tente novamente.');
     }
@@ -2058,20 +2070,57 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   const [routineAdjustmentOpen, setRoutineAdjustmentOpen] = useState(false);
   const [applyRoutinePermanently, setApplyRoutinePermanently] = useState(false);
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [notGeneratedRange, setNotGeneratedRange] = useState<{ startDate: string; endDate: string } | null>(null);
 
   useEffect(() => {
     if (accessToken) {
-      loadPlan();
+      if (weekOffset === 0) loadPlan();
+      else loadWeekForOffset(weekOffset);
     }
-  }, [accessToken]);
+  }, [accessToken, weekOffset]);
 
   useEffect(() => {
     setWeeklyRoutine(cloneRoutine(baseRoutineDays));
   }, [baseRoutineDays]);
 
+  async function loadWeekForOffset(offset: number) {
+    setIsLoading(true);
+    setStatus('');
+    setNotGeneratedRange(null);
+    try {
+      const response = await fetch(`${API_URL}/training-plans/week-by-offset?offset=${offset}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!response.ok) {
+        setStatus('Nao consegui carregar essa semana.');
+        return;
+      }
+
+      const data = (await response.json()) as WeekByOffsetResponse;
+      if (data.notGenerated) {
+        setPlan(null);
+        setNotGeneratedRange({ startDate: data.startDate ?? '', endDate: data.endDate ?? '' });
+        return;
+      }
+
+      const fullPlan = data as WeekPlan;
+      setPlan(fullPlan);
+      setCompletionDrafts(
+        Object.fromEntries(fullPlan.sessions.filter((session) => session.completion).map((session) => [session.id, completionDraftFromSession(session)])),
+      );
+    } catch {
+      setStatus('Nao consegui conectar com a API agora.');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function loadPlan() {
     setIsLoading(true);
     setStatus('');
+    setNotGeneratedRange(null);
     try {
       const response = await fetch(`${API_URL}/training-plans/current`, {
         headers: {
@@ -2404,9 +2453,46 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     );
   }
 
+  if (!plan && notGeneratedRange) {
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Treino da semana</Text>
+        <View style={styles.moveActions}>
+          <Pressable style={styles.moveButton} onPress={() => setWeekOffset((current) => current - 1)}>
+            <Ionicons name="chevron-back" size={15} color="#0f766e" />
+            <Text style={styles.moveButtonText}>Anterior</Text>
+          </Pressable>
+          <Pressable style={[styles.moveButton, weekOffset >= 1 && styles.disabledButton]} disabled={weekOffset >= 1} onPress={() => setWeekOffset((current) => current + 1)}>
+            <Text style={styles.moveButtonText}>Proxima</Text>
+            <Ionicons name="chevron-forward" size={15} color="#0f766e" />
+          </Pressable>
+        </View>
+        <Text style={styles.titleSmall}>{formatDayMonth(new Date(notGeneratedRange.startDate))} a {formatDayMonth(new Date(notGeneratedRange.endDate))}</Text>
+        <View style={styles.coachBox}>
+          <Text style={styles.coachTitle}>{weekOffset > 0 ? 'Ainda nao liberado' : 'Sem registro nesta semana'}</Text>
+          <Text style={styles.coachText}>
+            {weekOffset > 0
+              ? 'Os treinos da semana seguinte ficam disponiveis todo domingo as 19h.'
+              : 'Nao encontramos treino registrado para esta semana.'}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Treino da semana</Text>
+      <View style={styles.moveActions}>
+        <Pressable style={styles.moveButton} onPress={() => setWeekOffset((current) => current - 1)}>
+          <Ionicons name="chevron-back" size={15} color="#0f766e" />
+          <Text style={styles.moveButtonText}>Anterior</Text>
+        </Pressable>
+        <Pressable style={[styles.moveButton, weekOffset >= 1 && styles.disabledButton]} disabled={weekOffset >= 1} onPress={() => setWeekOffset((current) => current + 1)}>
+          <Text style={styles.moveButtonText}>Proxima</Text>
+          <Ionicons name="chevron-forward" size={15} color="#0f766e" />
+        </Pressable>
+      </View>
       <Text style={styles.titleSmall}>{weekRange}</Text>
       <Text style={styles.copyTight}>Seu treino aparece primeiro. Use o ajuste no final da tela quando a rotina desta semana mudar.</Text>
       <Text style={styles.metaText}>Os treinos da semana seguinte ficam disponiveis todo domingo as 19h.</Text>

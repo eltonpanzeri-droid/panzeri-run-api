@@ -722,7 +722,9 @@ h3 {
 
 .detailPanel > .technicalManagerPanel,
 .detailPanel > .stravaAnalysisPanel,
-.detailPanel > .reportPanel {
+.detailPanel > .reportPanel,
+.detailPanel > .explanationPanel,
+.detailPanel > .observationsPanel {
   grid-column: 1 / -1;
 }
 
@@ -788,6 +790,17 @@ h3 {
   text-align: right;
 }
 
+.addressRow {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.addressRow .interviewAnswerValue {
+  text-align: left;
+}
+
 @media (max-width: 720px) {
   .interviewAnswerGrid {
     grid-template-columns: 1fr;
@@ -815,7 +828,7 @@ h3 {
 }
 
 .messageTextarea {
-  min-height: 200px;
+  min-height: 340px;
   resize: vertical;
 }
 

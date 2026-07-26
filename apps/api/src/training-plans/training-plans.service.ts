@@ -154,6 +154,43 @@ export class TrainingPlansService {
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
   }
 
+  // Navegacao Anterior/Proxima da aluna na tela de semana (pedido do treinador, espelhando o
+  // Sisrun). offset 0 e sempre a semana atual (usa a mesma logica de current(), com geracao
+  // sob demanda). offsets negativos sao semanas passadas — sempre existem no banco (nunca sao
+  // apagadas, so viram "archived"), entao aqui e so leitura, sem gerar nada. offset +1 (unico
+  // permitido pra frente) e a semana seguinte: so existe depois da pre-geracao de domingo 19h
+  // (ver WeeklyPlanSchedulerService); antes disso retornamos notGenerated para o app mostrar a
+  // mensagem de espera, sem inventar prazo fixo de "so aparece entre 19h e 00h" no cliente.
+  async getWeekByOffset(userId: string, offset: number) {
+    if (offset === 0) return this.current(userId);
+    if (!Number.isInteger(offset) || offset > 1 || offset < -52) {
+      throw new BadRequestException('Semana invalida.');
+    }
+
+    const targetWeekStart = startOfWeek(addDays(new Date(), offset * 7));
+    const [plan, latestTest, user, onboarding] = await Promise.all([
+      this.prisma.trainingPlan.findFirst({
+        where: { userId, startDate: targetWeekStart },
+        orderBy: { createdAt: 'desc' },
+        include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
+      }),
+      this.prisma.fitnessTest.findFirst({ where: { userId, testType: '3km' }, orderBy: { createdAt: 'desc' }, select: { id: true } }),
+      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { subscriptionStatus: true } }),
+      this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } }),
+    ]);
+
+    if (!onboarding?.completedAt) return onboardingRequiredPlan();
+    if (!plan) {
+      return {
+        notGenerated: true,
+        startDate: targetWeekStart,
+        endDate: addDays(targetWeekStart, 6),
+      };
+    }
+
+    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
+  }
+
   // options.referenceDate/planStatus/archiveCurrentActive existem so para a pre-geracao da
   // semana SEGUINTE (domingo 19h, ver generateNextWeekIfMissing) — a chamada normal (aluno
   // abrindo o app, treinador regenerando a semana atual) nunca passa isso, e o comportamento
@@ -408,20 +445,17 @@ export class TrainingPlansService {
     }
 
     const today = todayInSaoPaulo();
-    // So faz sentido excluir dias de hoje/ja passados desta semana quando ja existe um plano
-    // ativo PARA ESTA MESMA SEMANA (o caso de regenerar no meio da semana) — esses dias serao
-    // migrados logo abaixo (activePlanBeforeAdjustment). Se nao existe plano ativo para esta
-    // semana (primeira geracao, ou o ciclo anterior nunca foi renovado a tempo), filtrar por
-    // "so o futuro" pode zerar a semana inteira quando os dias disponiveis do aluno caem antes
-    // de hoje — nesse caso mantemos a semana completa.
-    // REGRA EXPLICITA DO TREINADOR: hoje e os dias anteriores NUNCA podem ser reescritos ao
-    // clicar em "gerar novo treino" (nem regenerando a semana toda, nem um dia especifico) — o
-    // dia de hoje ja pode ter sido iniciado/concluido pelo aluno, entao recria-lo do zero
-    // perderia esse registro de execucao. So dias estritamente FUTUROS sao regenerados.
-    const isRegeneratingSameWeek = activePlanBeforeAdjustment?.startDate.getTime() === weekStart.getTime();
-    const sessionsToCreate = isRegeneratingSameWeek
-      ? sessions.filter((session) => session.scheduledDate.getTime() > today.getTime())
-      : sessions;
+    // REGRA EXPLICITA DO TREINADOR: nunca criar sessao com data de hoje ou de um dia que ja
+    // passou — nem ao regenerar a semana de um aluno em andamento, nem na primeira geracao de
+    // um aluno novo que se cadastrou no meio da semana (ex: entrevista concluida numa
+    // quinta-feira, com dias disponiveis na segunda/terca). Antes, so filtravamos "so o futuro"
+    // quando ja existia um plano ativo pra esta semana (regeneracao) — na primeira geracao esses
+    // dias passados eram mantidos, o que criava sessoes "perdidas" antes mesmo do aluno existir
+    // no sistema, aparecendo como baixa aderencia no painel do treinador sem o aluno ter culpa
+    // nenhuma. Se nao sobrar nenhum dia disponivel ainda neste ciclo, a semana fica sem treino
+    // (correto: o aluno so vai comecar a treinar no proximo dia disponivel, seja ele ainda nesta
+    // semana ou na seguinte).
+    const sessionsToCreate = sessions.filter((session) => session.scheduledDate.getTime() > today.getTime());
     const plan = await this.prisma.trainingPlan.create({
       data: {
         userId,
