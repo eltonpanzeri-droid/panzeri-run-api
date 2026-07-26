@@ -95,64 +95,71 @@ export class MeService {
     const preferredModalities = stringArray(answers.current_activities);
     const completedAt = new Date();
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          name: String(answers.personal_name),
-          phone: String(answers.personal_phone),
-          birthDate: parseInterviewDate(String(answers.personal_birth_date)),
-          sex: String(answers.personal_sex),
-          heightCm: decimalValue(answers.personal_height),
-          weightKg: decimalValue(answers.personal_weight),
-          cpf: normalizedCpf,
-          education: String(answers.personal_education),
-          address: interviewAddressSummary(answers),
-        },
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            name: String(answers.personal_name),
+            phone: String(answers.personal_phone),
+            birthDate: parseInterviewDate(String(answers.personal_birth_date)),
+            sex: String(answers.personal_sex),
+            heightCm: decimalValue(answers.personal_height),
+            weightKg: decimalValue(answers.personal_weight),
+            cpf: normalizedCpf,
+            education: String(answers.personal_education),
+            address: interviewAddressSummary(answers),
+          },
+        });
+        await tx.healthProfile.upsert({
+          where: { userId },
+          create: {
+            userId,
+            averageSleep: stringValue(answers.sleep_hours),
+            stressLevel: ratingValue(answers.rating_stress),
+            anxietyLevel: ratingValue(answers.rating_anxiety),
+            previousInjuries: interviewInjurySummary(answers),
+            healthProblems: healthConditionsSummary(answers),
+            medications: stringValue(answers.continuous_medications),
+          },
+          update: {
+            averageSleep: stringValue(answers.sleep_hours),
+            stressLevel: ratingValue(answers.rating_stress),
+            anxietyLevel: ratingValue(answers.rating_anxiety),
+            previousInjuries: interviewInjurySummary(answers),
+            healthProblems: healthConditionsSummary(answers),
+            medications: stringValue(answers.continuous_medications),
+          },
+        });
+        await tx.userPreferences.upsert({
+          where: { userId },
+          create: {
+            userId,
+            preferredModalities,
+            otherModalities: stringArray(answers.favorite_activities),
+            trainingLocations: ['Corrida na rua'],
+            mainGoal: String(answers.objective),
+            experienceLevel: String(answers.running_experience),
+          },
+          update: {
+            preferredModalities,
+            otherModalities: stringArray(answers.favorite_activities),
+            trainingLocations: ['Corrida na rua'],
+            mainGoal: String(answers.objective),
+            experienceLevel: String(answers.running_experience),
+          },
+        });
+        await tx.weeklyAvailability.deleteMany({ where: { userId } });
+        for (const day of availability) await tx.weeklyAvailability.create({ data: { userId, ...day } });
+        await tx.trainingPlan.updateMany({ where: { userId, status: 'active' }, data: { status: 'archived' } });
+        await tx.onboardingInterview.update({ where: { userId }, data: { answers, completedAt } });
       });
-      await tx.healthProfile.upsert({
-        where: { userId },
-        create: {
-          userId,
-          averageSleep: stringValue(answers.sleep_hours),
-          stressLevel: ratingValue(answers.rating_stress),
-          anxietyLevel: ratingValue(answers.rating_anxiety),
-          previousInjuries: interviewInjurySummary(answers),
-          healthProblems: healthConditionsSummary(answers),
-          medications: stringValue(answers.continuous_medications),
-        },
-        update: {
-          averageSleep: stringValue(answers.sleep_hours),
-          stressLevel: ratingValue(answers.rating_stress),
-          anxietyLevel: ratingValue(answers.rating_anxiety),
-          previousInjuries: interviewInjurySummary(answers),
-          healthProblems: healthConditionsSummary(answers),
-          medications: stringValue(answers.continuous_medications),
-        },
-      });
-      await tx.userPreferences.upsert({
-        where: { userId },
-        create: {
-          userId,
-          preferredModalities,
-          otherModalities: stringArray(answers.favorite_activities),
-          trainingLocations: ['Corrida na rua'],
-          mainGoal: String(answers.objective),
-          experienceLevel: String(answers.running_experience),
-        },
-        update: {
-          preferredModalities,
-          otherModalities: stringArray(answers.favorite_activities),
-          trainingLocations: ['Corrida na rua'],
-          mainGoal: String(answers.objective),
-          experienceLevel: String(answers.running_experience),
-        },
-      });
-      await tx.weeklyAvailability.deleteMany({ where: { userId } });
-      for (const day of availability) await tx.weeklyAvailability.create({ data: { userId, ...day } });
-      await tx.trainingPlan.updateMany({ where: { userId, status: 'active' }, data: { status: 'archived' } });
-      await tx.onboardingInterview.update({ where: { userId }, data: { answers, completedAt } });
-    });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new BadRequestException('Este CPF ja esta cadastrado em outra conta. Revise o campo de CPF na entrevista.');
+      }
+      throw error;
+    }
 
     return { completed: true, completedAt, next: 'three_km_test' };
   }
