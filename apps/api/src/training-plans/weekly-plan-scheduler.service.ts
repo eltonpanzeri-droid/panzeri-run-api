@@ -1,16 +1,32 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrainingPlansService } from './training-plans.service';
 
 @Injectable()
-export class WeeklyPlanSchedulerService {
+export class WeeklyPlanSchedulerService implements OnApplicationBootstrap {
   private readonly logger = new Logger(WeeklyPlanSchedulerService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly trainingPlans: TrainingPlansService,
   ) {}
+
+  // Um deploy no EasyPanel reinicia o processo — se isso acontecer depois das 19h de domingo
+  // (horario em que o cron abaixo deveria ter rodado), o job daquela semana e simplesmente
+  // perdido para sempre: o @Cron do @nestjs/schedule nao "recupera" execucoes perdidas, so
+  // agenda a partir de agora em diante. Ja aconteceu na pratica (deploy as 23h de domingo,
+  // ninguem via a semana seguinte nem no app nem no painel, e so na semana seguinte o job
+  // rodaria de novo). Esta checagem na inicializacao cobre exatamente essa lacuna: se o
+  // processo subir depois das 19h de um domingo, roda a pre-geracao na hora, sem esperar
+  // o proximo domingo.
+  async onApplicationBootstrap() {
+    const { weekday, hour } = saoPauloWeekdayAndHour(new Date());
+    if (weekday === 0 && hour >= 19) {
+      this.logger.log('Inicializacao depois das 19h de domingo — rodando pre-geracao da semana seguinte como recuperacao, caso o cron agendado tenha sido perdido num deploy.');
+      await this.generateNextWeekPlans();
+    }
+  }
 
   // 06:00 UTC = 03:00 no horario de Sao Paulo, antes de qualquer aluno acordar.
   // Roda todo dia (nao so segunda) para se autocorrigir caso a geracao de algum
@@ -62,4 +78,14 @@ export class WeeklyPlanSchedulerService {
 
     this.logger.log(`Pre-geracao da semana seguinte concluida para ${students.length} aluno(s).`);
   }
+}
+
+function saoPauloWeekdayAndHour(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', hour12: false,
+  }).formatToParts(date);
+  const weekdayShort = parts.find((part) => part.type === 'weekday')?.value ?? '';
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0') % 24;
+  const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return { weekday: weekdayMap[weekdayShort] ?? -1, hour };
 }
