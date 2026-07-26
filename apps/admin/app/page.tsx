@@ -2848,10 +2848,10 @@ function routineTimeLabel(value: unknown) {
 }
 
 function RoutineAvailabilityTable({ answers }: { answers: Record<string, unknown> }) {
-  const rows: Array<{ label: string; suffix: string }> = [
-    { label: 'Corrida', suffix: 'run_time' },
-    { label: 'Fortalecimento', suffix: 'fortalecimento_time' },
-    { label: 'Musculacao', suffix: 'musculacao_time' },
+  const rows: Array<{ label: string; suffix: string; availableSuffix: string }> = [
+    { label: 'Corrida', suffix: 'run_time', availableSuffix: 'run_available_time' },
+    { label: 'Fortalecimento', suffix: 'fortalecimento_time', availableSuffix: 'fortalecimento_available_time' },
+    { label: 'Musculacao', suffix: 'musculacao_time', availableSuffix: 'musculacao_available_time' },
   ];
   return (
     <div className="routineTableWrap">
@@ -2873,12 +2873,14 @@ function RoutineAvailabilityTable({ answers }: { answers: Record<string, unknown
             })}
           </tr>
         ))}
-        <tr>
-          <td>Horario disponivel</td>
-          {ROUTINE_DAYS.map(([dayKey]) => (
-            <td key={dayKey}>{interviewValue(`${dayKey}_available_time`, answers[`${dayKey}_available_time`])}</td>
-          ))}
-        </tr>
+        {rows.map((row) => (
+          <tr key={row.availableSuffix}>
+            <td>Horario - {row.label}</td>
+            {ROUTINE_DAYS.map(([dayKey]) => (
+              <td key={dayKey}>{interviewValue(`${dayKey}_${row.availableSuffix}`, answers[`${dayKey}_${row.availableSuffix}`])}</td>
+            ))}
+          </tr>
+        ))}
       </tbody>
     </table>
     </div>
@@ -2974,7 +2976,7 @@ function interviewLabel(key: string) {
   const days: Record<string, string> = { monday: 'Segunda-feira', tuesday: 'Terca-feira', wednesday: 'Quarta-feira', thursday: 'Quinta-feira', friday: 'Sexta-feira', saturday: 'Sabado', sunday: 'Domingo' };
   const day = Object.keys(days).find((item) => key.startsWith(`${item}_`));
   if (day) {
-    const fields: Record<string, string> = { run_time: 'tempo para corrida', run_location: 'local da corrida (antigo)', fortalecimento_time: 'tempo para fortalecimento', musculacao_time: 'tempo para musculacao', available_time: 'horario disponivel' };
+    const fields: Record<string, string> = { run_time: 'tempo para corrida', run_location: 'local da corrida (antigo)', fortalecimento_time: 'tempo para fortalecimento', musculacao_time: 'tempo para musculacao', available_time: 'horario disponivel (antigo)', run_available_time: 'horario disponivel - corrida', fortalecimento_available_time: 'horario disponivel - fortalecimento', musculacao_available_time: 'horario disponivel - musculacao' };
     const suffix = key.slice(day.length + 1);
     return `${days[day]} - ${fields[suffix] ?? suffix}`;
   }
@@ -3008,6 +3010,11 @@ const INTERVIEW_CHOICE_LABELS: Record<string, Record<string, string>> = {
   reassessment_perceived_evolution: { piorou: 'Piorou', igual: 'Continua igual', melhorou_pouco: 'Melhorou um pouco', melhorou_muito: 'Melhorou bastante' },
   reassessment_satisfaction: {
     muito_insatisfeito: 'Muito insatisfeito', insatisfeito: 'Insatisfeito', neutro: 'Neutro', satisfeito: 'Satisfeito', muito_satisfeito: 'Muito satisfeito',
+  },
+  daily_steps: {
+    ate_3000: '0 a 3 mil passos', '3000_a_5000': '3 mil a 5 mil passos', '5000_a_8000': '5 mil a 8 mil passos',
+    '8000_a_10000': '8 mil a 10 mil passos', '10000_a_15000': '10 mil a 15 mil passos', '15000_a_20000': '15 mil a 20 mil passos',
+    acima_20000: 'Acima de 20 mil passos',
   },
 };
 

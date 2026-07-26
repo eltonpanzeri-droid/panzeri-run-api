@@ -472,6 +472,16 @@ const interviewTimeOptions = [
   option('Nao posso treinar', 'none'), option('Ate 30 minutos', 'up_to_30'), option('30 a 45 minutos', 'from_30_to_45'),
   option('45 a 60 minutos', 'from_45_to_60'), option('60 a 90 minutos', 'from_60_to_90'), option('Mais de 90 minutos', 'over_90'),
 ];
+const interviewAvailableTimeOptions = ['Antes das 6h', 'Entre 6h e 9h', 'Entre 9h e 12h', 'Entre 12h e 15h', 'Entre 15h e 18h', 'Apos 18h'].map((v) => option(v));
+const dailyStepsOptions = [
+  option('0 a 3 mil passos', 'ate_3000'),
+  option('3 mil a 5 mil passos', '3000_a_5000'),
+  option('5 mil a 8 mil passos', '5000_a_8000'),
+  option('8 mil a 10 mil passos', '8000_a_10000'),
+  option('10 mil a 15 mil passos', '10000_a_15000'),
+  option('15 mil a 20 mil passos', '15000_a_20000'),
+  option('Acima de 20 mil passos', 'acima_20000'),
+];
 const CURRENTLY_RUNNING_VALUES = new Set(['currently_lt_3m', 'currently_lt_6m', 'currently_lt_1y', 'currently_gt_1y']);
 function isCurrentlyRunning(answers: InterviewAnswers) {
   return CURRENTLY_RUNNING_VALUES.has(String(answers.running_experience ?? ''));
@@ -652,13 +662,15 @@ const interviewQuestions: InterviewQuestion[] = [
     { key: `${key}_run_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem disponivel para corrida?`, type: 'single' as const, options: interviewTimeOptions },
     { key: `${key}_fortalecimento_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para fortalecimento para corredores?`, type: 'single' as const, options: interviewTimeOptions, condition: (a: InterviewAnswers) => a.training_modality_preference === 'corrida_fortalecimento' || a.training_modality_preference === 'corrida_fortalecimento_musculacao' },
     { key: `${key}_musculacao_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para musculacao?`, type: 'single' as const, options: interviewTimeOptions, condition: (a: InterviewAnswers) => a.training_modality_preference === 'corrida_musculacao' || a.training_modality_preference === 'corrida_fortalecimento_musculacao' },
-    { key: `${key}_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel?`, type: 'dropdown_single' as const, options: ['Antes das 6h', 'Entre 6h e 9h', 'Entre 9h e 12h', 'Entre 12h e 15h', 'Entre 15h e 18h', 'Apos 18h'].map((v) => option(v)), condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== 'none' || a[`${key}_fortalecimento_time`] !== undefined && a[`${key}_fortalecimento_time`] !== 'none' || a[`${key}_musculacao_time`] !== undefined && a[`${key}_musculacao_time`] !== 'none' },
+    { key: `${key}_run_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel para corrida?`, type: 'dropdown_single' as const, options: interviewAvailableTimeOptions, condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== undefined && a[`${key}_run_time`] !== 'none' },
+    { key: `${key}_fortalecimento_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel para fortalecimento para corredores?`, type: 'dropdown_single' as const, options: interviewAvailableTimeOptions, condition: (a: InterviewAnswers) => a[`${key}_fortalecimento_time`] !== undefined && a[`${key}_fortalecimento_time`] !== 'none' },
+    { key: `${key}_musculacao_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel para musculacao?`, type: 'dropdown_single' as const, options: interviewAvailableTimeOptions, condition: (a: InterviewAnswers) => a[`${key}_musculacao_time`] !== undefined && a[`${key}_musculacao_time`] !== 'none' },
   ]),
   { key: 'sleep_hours', module: 'Habitos', prompt: 'Em media, quantas horas voce dorme?', type: 'single', options: ['Menos de 5 horas', 'Entre 5 e 6 horas', 'Entre 6 e 7 horas', 'Entre 7 e 8 horas', 'Mais de 8 horas'].map((v) => option(v)) },
   { key: 'smoking', module: 'Habitos', prompt: 'Voce fuma?', type: 'dropdown_single', options: [option('Nao'), option('Sim')] },
   { key: 'alcohol_frequency', module: 'Habitos', prompt: 'Com que frequencia voce consome bebida alcoolica?', type: 'dropdown_single', options: ['Nunca', 'Raramente', 'Semanalmente', 'Algumas vezes por semana', 'Quase todos os dias'].map((v) => option(v)) },
   { key: 'work_routine', module: 'Habitos', prompt: 'Como e sua rotina de trabalho?', type: 'dropdown_single', options: ['Predominantemente sentado', 'Predominantemente em pe', 'Trabalho fisico moderado', 'Trabalho fisico intenso', 'Aposentado', 'Outro'].map((v) => option(v)) },
-  { key: 'daily_steps', module: 'Habitos', prompt: 'Em media, quantos passos voce da por dia?', type: 'wheel_number', wheelDigits: 5, wheelMin: 0, wheelMax: 99999, wheelUnit: 'passos' },
+  { key: 'daily_steps', module: 'Habitos', prompt: 'Em media, quantos passos voce da por dia?', type: 'dropdown_single', options: dailyStepsOptions },
   { key: 'personal_name', module: 'Dados pessoais', prompt: 'Qual e seu nome completo?', type: 'text' },
   { key: 'personal_nickname', module: 'Dados pessoais', prompt: 'Como voce gostaria de ser chamado?', type: 'text', optional: true },
   { key: 'personal_phone', module: 'Dados pessoais', prompt: 'Qual e o seu WhatsApp (com DDD)?', type: 'phone', help: 'Usamos para avisos importantes sobre pagamento, treino e acompanhamento.' },
@@ -1996,11 +2008,27 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       {question?.key === 'body_fat_percentage' && calculatedLeanMass !== null && calculatedFatMass !== null ? <View style={styles.calculationBox}><Text style={styles.calculationTitle}>Composicao calculada</Text><Text style={styles.calculationText}>Massa magra: {calculatedLeanMass.toFixed(1).replace('.', ',')} kg</Text><Text style={styles.calculationText}>Massa de gordura: {calculatedFatMass.toFixed(1).replace('.', ',')} kg</Text></View> : null}
       {question?.type === 'number_or_unknown' ? <Pressable style={[styles.answerButton, value === 'unknown' && styles.answerButtonActive]} onPress={() => choose('unknown')}><Text style={[styles.answerButtonText, value === 'unknown' && styles.answerButtonTextActive]}>Nao sei</Text></Pressable> : null}
       {question?.key === 'basal_metabolism' ? <Pressable style={[styles.answerButton, value === 'automatic' && styles.answerButtonActive]} onPress={() => choose('automatic')}><Text style={[styles.answerButtonText, value === 'automatic' && styles.answerButtonTextActive]}>Calcular automaticamente</Text></Pressable> : null}
+      {question && ['wheel_number', 'wheel_pace', 'wheel_duration_hms', 'wheel_date'].includes(question.type) && value !== undefined ? (
+        <Text style={styles.confirmationText}>Sua resposta: {formatWheelAnswerDisplay(question, value)}</Text>
+      ) : null}
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
       <View style={styles.interviewActions}><Pressable style={[styles.secondaryButton, step === 0 && styles.disabledButton]} disabled={step === 0} onPress={() => { setStep(Math.max(0, step - 1)); setStatus(''); }}><Text style={styles.secondaryButtonText}>Voltar</Text></Pressable><Pressable style={[styles.primaryButton, saving && styles.disabledButton]} disabled={saving} onPress={next}><Text style={styles.primaryButtonText}>{step === visibleQuestions.length - 1 ? 'Concluir' : 'Continuar'}</Text></Pressable></View>
     </View>
   );
+}
+
+function formatWheelAnswerDisplay(question: InterviewQuestion, value: InterviewAnswer | undefined): string {
+  if (value === undefined || Array.isArray(value) || typeof value === 'boolean') return '';
+  if (question.type === 'wheel_number') return `${value} ${question.wheelUnit ?? ''}`.trim();
+  if (question.type === 'wheel_pace') return `${value} min/km`;
+  if (question.type === 'wheel_duration_hms') {
+    const [h, m, s] = String(value).split(':').map((part) => Number(part) || 0);
+    const parts = [h ? `${h}h` : '', m ? `${m}min` : '', (s || (!h && !m)) ? `${s}s` : ''].filter(Boolean);
+    return parts.join(' ');
+  }
+  if (question.type === 'wheel_date') return String(value);
+  return '';
 }
 
 function interviewDecimal(value: InterviewAnswer | undefined) {
@@ -6151,6 +6179,12 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontSize: 13,
     lineHeight: 18,
+  },
+  confirmationText: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 4,
   },
   couponBox: {
     gap: 8,
