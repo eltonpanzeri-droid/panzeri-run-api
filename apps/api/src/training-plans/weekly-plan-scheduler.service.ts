@@ -41,4 +41,25 @@ export class WeeklyPlanSchedulerService {
       this.logger.log(`Planos semanais gerados antecipadamente para ${regenerated} aluno(s).`);
     }
   }
+
+  // 22:00 UTC de domingo = 19:00 em Sao Paulo (Brasil nao tem horario de verao desde 2019).
+  // Deixa a semana seguinte pronta com antecedencia — muitas alunas se organizam no domingo a
+  // noite para treinar ja segunda de manha, entao ver o treino antes ajuda no planejamento.
+  @Cron('0 22 * * 0')
+  async generateNextWeekPlans() {
+    const students = await this.prisma.user.findMany({
+      where: { role: 'student', accountStatus: { not: 'archived' } },
+      select: { id: true },
+    });
+
+    for (const student of students) {
+      try {
+        await this.trainingPlans.generateNextWeekIfMissing(student.id);
+      } catch (error) {
+        this.logger.warn(`Falha ao pre-gerar a semana seguinte para ${student.id}: ${(error as Error).message}`);
+      }
+    }
+
+    this.logger.log(`Pre-geracao da semana seguinte concluida para ${students.length} aluno(s).`);
+  }
 }

@@ -51,6 +51,8 @@ model User {
   coachChatMessages CoachChatMessage[]
   targetRaces TargetRace[]
   painReports PainReport[]
+  planExplanations PlanExplanation[]
+  observations StudentObservation[]
 }
 
 model BillingProviderConfig {
@@ -112,6 +114,30 @@ model StudentDirective {
   expiresAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  @@index([userId, active])
+}
+
+model PlanExplanation {
+  id                     String   @id @default(uuid())
+  userId                 String
+  user                   User     @relation(fields: [userId], references: [id])
+  weekStart              DateTime
+  currentWeekExplanation String
+  fourWeekOutlook        String
+  createdAt              DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model StudentObservation {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  content   String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId, active])
 }

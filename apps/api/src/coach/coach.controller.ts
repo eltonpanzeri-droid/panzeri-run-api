@@ -119,6 +119,11 @@ export class CoachController {
     return this.coachService.regenerateStudentSession(studentId, sessionId);
   }
 
+  @Post('students/:studentId/observations/:observationId/archive')
+  archiveObservation(@Param('studentId') studentId: string, @Param('observationId') observationId: string) {
+    return this.coachService.archiveObservation(studentId, observationId);
+  }
+
   @Patch('students/:studentId/password')
   resetStudentPassword(@Param('studentId') studentId: string, @Body() dto: ResetStudentPasswordDto) {
     return this.coachService.resetStudentPassword(studentId, dto);

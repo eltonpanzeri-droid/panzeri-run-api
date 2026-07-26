@@ -128,6 +128,19 @@ interface StudentDetail {
     modalityDurations?: Record<string, number> | null;
   }>;
   tests: Array<{ date: string; totalSeconds: number; pace: string; vo2max: number }>;
+  weeklyExplanations?: Array<{
+    id: string;
+    weekStart: string;
+    currentWeekExplanation: string;
+    fourWeekOutlook: string;
+    createdAt: string;
+  }>;
+  observations?: Array<{
+    id: string;
+    content: string;
+    active: boolean;
+    createdAt: string;
+  }>;
   reassessments?: Array<{
     completedAt: string | null;
     answers: Record<string, unknown>;
@@ -1423,6 +1436,25 @@ function StudentPanel({
     }
   }
 
+  async function archiveObservation(observationId: string) {
+    if (!student) return;
+    onStatus('Arquivando observacao...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/observations/${observationId}/archive`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        onStatus('Nao consegui arquivar a observacao.');
+        return;
+      }
+      await onRefresh();
+      onStatus('Observacao arquivada.');
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    }
+  }
+
   async function syncAvailability() {
     if (!student) return;
     onStatus('Sincronizando disponibilidade a partir da entrevista...');
@@ -1787,6 +1819,57 @@ function StudentPanel({
             <p>Ultimos 28 dias: {student.analysisAgent.summary.progression?.last28Days?.sessions ?? 0} atividades, {student.analysisAgent.summary.progression?.last28Days?.durationMin ?? 0} min, maior corrida de {student.analysisAgent.summary.progression?.last28Days?.longestDistanceKm ?? 0} km.</p>
           </>
         ) : <p>O relatorio aparecera automaticamente quando uma nova atividade chegar pelo Strava.</p>}
+      </section>
+
+      <section className="miniSection explanationPanel">
+        <div className="weekWorkspaceHeader">
+          <div><p className="eyebrow">Raciocinio da IA</p><h3>O que o agente pretende</h3></div>
+        </div>
+        {student.weeklyExplanations?.length ? (
+          <>
+            <div className="explanationCurrent">
+              <strong>Semana atual</strong>
+              <p>{student.weeklyExplanations[0].currentWeekExplanation}</p>
+            </div>
+            <div className="explanationCurrent">
+              <strong>Proximas semanas</strong>
+              <p>{student.weeklyExplanations[0].fourWeekOutlook}</p>
+            </div>
+            {student.weeklyExplanations.length > 1 ? (
+              <details className="explanationHistory">
+                <summary>Historico de explicacoes anteriores ({student.weeklyExplanations.length - 1})</summary>
+                {student.weeklyExplanations.slice(1).map((explanation) => (
+                  <div className="explanationHistoryItem" key={explanation.id}>
+                    <small>{dateTimeLabel(explanation.createdAt)}</small>
+                    <p><strong>Semana:</strong> {explanation.currentWeekExplanation}</p>
+                    <p><strong>Planejamento futuro:</strong> {explanation.fourWeekOutlook}</p>
+                  </div>
+                ))}
+              </details>
+            ) : null}
+          </>
+        ) : <p>Ainda nao ha explicacao gerada para este aluno.</p>}
+      </section>
+
+      <section className="miniSection observationsPanel">
+        <div className="weekWorkspaceHeader">
+          <div><p className="eyebrow">Registrado pelo aluno</p><h3>Observacoes</h3></div>
+        </div>
+        {student.observations?.length ? (
+          <div className="observationsList">
+            {student.observations.map((observation) => (
+              <div className={`observationItem ${observation.active ? '' : 'observationArchived'}`} key={observation.id}>
+                <div>
+                  <p>{observation.content}</p>
+                  <small>{dateTimeLabel(observation.createdAt)}{observation.active ? '' : ' - arquivada'}</small>
+                </div>
+                {observation.active ? (
+                  <button type="button" className="secondaryButton" onClick={() => archiveObservation(observation.id)}>Arquivar</button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : <p>Nenhuma observacao registrada pelo aluno ainda.</p>}
       </section>
 
       <div className="studentInfoGrid">

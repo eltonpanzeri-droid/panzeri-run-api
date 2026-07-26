@@ -86,6 +86,7 @@ export interface MethodologyInput {
     crossTrainingNote: string | null;
   } | null;
   studentDirectives?: string[];
+  activeObservations?: string[];
   todayDate?: string;
   weekDates?: Array<{ weekday: number; date: string }>;
   recentReassessment?: {

@@ -273,6 +273,15 @@ export class CoachService {
     return this.trainingPlans.regenerateSession(studentId, sessionId);
   }
 
+  async archiveObservation(studentId: string, observationId: string) {
+    await this.assertStudent(studentId);
+    const observation = await this.prisma.studentObservation.findFirst({ where: { id: observationId, userId: studentId } });
+    if (!observation) {
+      throw new BadRequestException('Observacao nao encontrada.');
+    }
+    return this.prisma.studentObservation.update({ where: { id: observationId }, data: { active: false } });
+  }
+
   exerciseLibrary() {
     return {
       fortalecimentoCorredores: runnerStrengthExercises.map((exercise) => ({
@@ -462,6 +471,10 @@ export class CoachService {
     const analysisInsight = plan
       ? await this.prisma.trainingExecutionInsight.findUnique({ where: { planId: plan.id } })
       : null;
+    const [planExplanations, observations] = await Promise.all([
+      this.prisma.planExplanation.findMany({ where: { userId: studentId }, orderBy: { createdAt: 'desc' }, take: 12 }),
+      this.prisma.studentObservation.findMany({ where: { userId: studentId }, orderBy: { createdAt: 'desc' }, take: 30 }),
+    ]);
     const stravaActivities = plan
       ? await this.prisma.stravaActivity.findMany({
           where: {
@@ -511,6 +524,19 @@ export class CoachService {
         updatedAt: analysisInsight.updatedAt,
         summary: analysisInsight.summary,
       } : null,
+      weeklyExplanations: planExplanations.map((explanation: any) => ({
+        id: explanation.id,
+        weekStart: explanation.weekStart,
+        currentWeekExplanation: explanation.currentWeekExplanation,
+        fourWeekOutlook: explanation.fourWeekOutlook,
+        createdAt: explanation.createdAt,
+      })),
+      observations: observations.map((observation: any) => ({
+        id: observation.id,
+        content: observation.content,
+        active: observation.active,
+        createdAt: observation.createdAt,
+      })),
       birthDate: student.birthDate,
       heightCm: student.heightCm,
       weightKg: student.weightKg,

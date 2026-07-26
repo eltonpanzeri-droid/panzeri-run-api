@@ -5,6 +5,7 @@ import { runnerStrengthCategory, selectRunnerStrengthExercises } from './runner-
 import { selectGymExercises } from './gym-exercise-library';
 import {
   MethodologyInput,
+  WeeklyMethodologyDecision,
   PANZERI_METHODOLOGY_VERSION,
   PANZERI_PRESCRIPTION_PRINCIPLES,
   sanitizeInterviewAnswers,
@@ -17,6 +18,7 @@ import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { StravaService } from '../strava/strava.service';
 import { TelegramService } from '../billing/telegram.service';
+import { WeeklyExplanationAgentService } from './weekly-explanation-agent.service';
 
 interface SessionTemplate {
   title: string;
@@ -73,6 +75,7 @@ export class TrainingPlansService {
     private readonly targetRaces: TargetRacesService,
     private readonly stravaService: StravaService,
     private readonly telegram: TelegramService,
+    private readonly weeklyExplanationAgent: WeeklyExplanationAgentService,
   ) {}
 
   async current(userId: string) {
@@ -103,20 +106,66 @@ export class TrainingPlansService {
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan();
 
+    // Um relato de dor novo pode elevar o nivel de cautela NO MEIO da semana, depois que o treino
+    // ja foi entregue — sem isso, os dias que ainda vao acontecer ficariam sem considerar o novo
+    // sinal ate a proxima geracao normal (proxima semana). O treinador foi explicito que isso deve
+    // ser automatico quando o sinal for relevante (aqui, sempre que o tier realmente piorar).
+    const currentPainSafety = plan ? await this.painReports.computeSafetyTier(userId) : null;
+    const painTierElevated = plan ? planPainTierIsStale(plan.inputSnapshot, currentPainSafety!.tier) : false;
+
     if (
       !plan ||
       plan.generatedBy !== planEngineVersion ||
       plan.startDate.getTime() !== weekStart.getTime() ||
       !planMatchesLatestTest(plan.inputSnapshot, latestTest?.id ?? null) ||
-      !planMatchesAvailability(plan.inputSnapshot, availability)
+      !planMatchesAvailability(plan.inputSnapshot, availability) ||
+      painTierElevated
     ) {
+      if (painTierElevated) {
+        this.logger.warn(`Nivel de cautela por dor elevado para o aluno ${userId} — regenerando automaticamente os dias restantes da semana.`);
+        await this.telegram.notifyCoach(
+          `⚠️ Novo relato de dor no Panzeri Run elevou o nivel de cautela de um aluno (id ${userId}).\nMotivo: ${currentPainSafety?.reason ?? 'sem detalhe'}\nOs treinos ainda nao realizados desta semana estao sendo ajustados automaticamente — confira no painel se ficou adequado.`,
+        );
+      }
+      // Antes de gerar do zero, ver se ja existe uma versao pre-gerada no domingo as 19h esperando
+      // para esta semana (ver generateNextWeekIfMissing) — evita descartar esse trabalho e dar um
+      // treino diferente do que a aluna ja pode ter visto no domingo a noite.
+      const scheduled = await this.prisma.trainingPlan.findFirst({
+        where: { userId, status: 'scheduled', startDate: weekStart },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (
+        scheduled &&
+        scheduled.generatedBy === planEngineVersion &&
+        planMatchesLatestTest(scheduled.inputSnapshot, latestTest?.id ?? null) &&
+        planMatchesAvailability(scheduled.inputSnapshot, availability)
+      ) {
+        await this.prisma.trainingPlan.updateMany({ where: { userId, status: 'active' }, data: { status: 'archived' } });
+        const promoted = await this.prisma.trainingPlan.update({
+          where: { id: scheduled.id },
+          data: { status: 'active' },
+          include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
+        });
+        return this.presentPlan(promoted, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
+      }
       return this.generateWeek(userId);
     }
 
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
   }
 
-  async generateWeek(userId: string, weeklyOverride?: WeeklyAvailabilityInput[]) {
+  // options.referenceDate/planStatus/archiveCurrentActive existem so para a pre-geracao da
+  // semana SEGUINTE (domingo 19h, ver generateNextWeekIfMissing) — a chamada normal (aluno
+  // abrindo o app, treinador regenerando a semana atual) nunca passa isso, e o comportamento
+  // fica exatamente igual ao de sempre.
+  async generateWeek(
+    userId: string,
+    weeklyOverride?: WeeklyAvailabilityInput[],
+    options?: { referenceDate?: Date; planStatus?: string; archiveCurrentActive?: boolean },
+  ) {
+    const referenceDate = options?.referenceDate ?? new Date();
+    const planStatus = options?.planStatus ?? 'active';
+    const archiveCurrentActive = options?.archiveCurrentActive ?? true;
     // O webhook do Strava ja mantem os treinos do aluno atualizados em tempo real, mas isso e
     // uma rede de seguranca (webhook perdido, assinatura caida, etc): antes de decidir o treino,
     // tenta puxar dados novos do Strava. syncIfStale so faz a chamada de verdade se o ultimo sync
@@ -126,7 +175,7 @@ export class TrainingPlansService {
     await this.stravaService.syncIfStale(userId).catch(() => null);
 
     const historyStart = addDays(startOfWeek(new Date()), -35);
-    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRace, latestReassessment] = await Promise.all([
+    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRace, latestReassessment, activeObservations] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         include: {
@@ -171,6 +220,7 @@ export class TrainingPlansService {
       this.painReports.computeSafetyTier(userId),
       this.targetRaces.currentGoal(userId),
       this.prisma.reassessment.findFirst({ where: { userId, completedAt: { not: null } }, orderBy: { completedAt: 'desc' } }),
+      this.prisma.studentObservation.findMany({ where: { userId, active: true }, orderBy: { createdAt: 'desc' } }),
     ]);
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan();
@@ -180,7 +230,7 @@ export class TrainingPlansService {
     const effectivePaceSecondsPerKm = latestTest?.paceSecondsPerKm ?? paceFallback?.paceSecondsPerKm ?? DEFAULT_PACE_SECONDS_PER_KM;
     const paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default' = latestTest ? 'test' : paceFallback?.source ?? 'default';
 
-    const weekStart = startOfWeek(new Date());
+    const weekStart = startOfWeek(referenceDate);
     const adjustedAvailability = weeklyOverride?.filter((day) => !day.noTraining) ?? [];
     const availableDays =
       adjustedAvailability.length > 0
@@ -234,6 +284,7 @@ export class TrainingPlansService {
       } : null,
       stravaAnalysis,
       studentDirectives: activeDirectives.map((directive) => directive.content),
+      activeObservations: activeObservations.map((observation) => observation.content),
       todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
       weekDates: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
         weekday,
@@ -349,10 +400,12 @@ export class TrainingPlansService {
       });
     });
 
-    await this.prisma.trainingPlan.updateMany({
-      where: { userId, status: 'active' },
-      data: { status: 'archived' },
-    });
+    if (archiveCurrentActive) {
+      await this.prisma.trainingPlan.updateMany({
+        where: { userId, status: 'active' },
+        data: { status: 'archived' },
+      });
+    }
 
     const today = todayInSaoPaulo();
     // So faz sentido excluir dias de hoje/ja passados desta semana quando ja existe um plano
@@ -374,6 +427,7 @@ export class TrainingPlansService {
         userId,
         name: 'Plano semanal',
         goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
+        status: planStatus,
         startDate: weekStart,
         endDate: addDays(weekStart, 6),
         generatedBy: planEngineVersion,
@@ -443,10 +497,114 @@ export class TrainingPlansService {
         where: { id: plan.id },
         include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
       });
+      this.recordWeeklyExplanation(userId, user.name, methodologyInput, methodology, adjustedPlan).catch((error) => {
+        this.logger.warn(`Falha ao gravar explicacao semanal: ${(error as Error).message}`);
+      });
       return this.presentPlan(adjustedPlan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
     }
 
+    this.recordWeeklyExplanation(userId, user.name, methodologyInput, methodology, plan).catch((error) => {
+      this.logger.warn(`Falha ao gravar explicacao semanal: ${(error as Error).message}`);
+    });
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
+  }
+
+  // Chamado todo domingo 19h (ver WeeklyPlanSchedulerService) para deixar a semana seguinte
+  // pronta com antecedencia — muitas alunas se organizam no domingo para treinar ja segunda de
+  // manha. Gera com status "scheduled" (nunca "active") e NUNCA arquiva o plano da semana atual,
+  // que ainda esta em andamento. Quando a semana seguinte realmente comecar, `current()` promove
+  // esse plano "scheduled" para "active" em vez de gerar tudo de novo do zero (ver metodo current).
+  async generateNextWeekIfMissing(userId: string) {
+    const nextWeekStart = startOfWeek(addDays(new Date(), 7));
+    const existing = await this.prisma.trainingPlan.findFirst({
+      where: { userId, startDate: nextWeekStart },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    await this.generateWeek(userId, undefined, {
+      referenceDate: addDays(new Date(), 7),
+      planStatus: 'scheduled',
+      archiveCurrentActive: false,
+    });
+  }
+
+  // Explicacao para o TREINADOR acompanhar o raciocinio da IA (nunca mostrada ao aluno). Roda
+  // depois do treino ja estar decidido e salvo, e uma falha aqui nunca deve derrubar a geracao
+  // do treino em si — por isso o chamador so loga o erro, nunca propaga.
+  private async recordWeeklyExplanation(
+    userId: string,
+    studentName: string,
+    methodologyInput: MethodologyInput,
+    methodology: WeeklyMethodologyDecision & { source: 'ai' },
+    plan: {
+      startDate: Date;
+      sessions: Array<{ modality: string; title: string; sessionType: string | null; intensityZone: string | null; durationMin: number | null; weekday: number }>;
+    },
+  ) {
+    const feedbackSince = addDays(startOfWeek(new Date()), -21);
+    const recentCompletions = await this.prisma.workoutCompletion.findMany({
+      where: { userId, completedAt: { gte: feedbackSince } },
+      orderBy: { completedAt: 'desc' },
+      take: 15,
+      include: { session: { select: { title: true, distanceKm: true, durationMin: true } } },
+    });
+
+    const explanation = await this.weeklyExplanationAgent.explain({
+      studentName,
+      goal: methodologyInput.goal,
+      firstInterviewAnswers: methodologyInput.answers,
+      latestReassessment: methodologyInput.recentReassessment
+        ? {
+            completedAt: methodologyInput.recentReassessment.completedAt,
+            answers: methodologyInput.recentReassessment.answers,
+            evolutionSummary: methodologyInput.recentReassessment.evolutionSummary ?? null,
+          }
+        : null,
+      recentFeedback: recentCompletions.map((completion) => ({
+        date: completion.completedAt.toISOString().slice(0, 10),
+        title: completion.session?.title ?? 'Treino',
+        prescribedDistanceKm: completion.session?.distanceKm ?? null,
+        prescribedDurationMin: completion.session?.durationMin ?? null,
+        completed: completion.status === 'done' || completion.status === 'adjusted',
+        completedDistanceKm: completion.distanceKm,
+        completedDurationMin: completion.durationMin,
+        satisfaction: completion.satisfaction,
+        perceivedEffort: completion.perceivedEffort,
+        studentNotes: completion.notes,
+      })),
+      mostConcerningPain: methodologyInput.painReason
+        ? { reason: methodologyInput.painReason, tier: methodologyInput.painTier ?? 'normal', lastReportAt: null }
+        : null,
+      stravaAnalysis: methodologyInput.stravaAnalysis
+        ? { summary: methodologyInput.stravaAnalysis.summary, flags: methodologyInput.stravaAnalysis.flags }
+        : null,
+      activeDirectives: methodologyInput.studentDirectives ?? [],
+      activeObservations: methodologyInput.activeObservations ?? [],
+      targetRace: methodologyInput.targetRace
+        ? { name: methodologyInput.targetRace.name, raceDate: methodologyInput.targetRace.raceDate, distanceKm: methodologyInput.targetRace.distanceKm }
+        : null,
+      thisWeekSessions: plan.sessions
+        .filter((session) => isRunningModality(session.modality))
+        .map((session) => ({
+          day: dayNames[session.weekday] ?? 'Dia',
+          title: session.title,
+          sessionType: session.sessionType ?? '',
+          zone: session.intensityZone ?? '',
+          durationMin: session.durationMin ?? 0,
+        })),
+    });
+
+    if (!explanation) return;
+
+    await this.prisma.planExplanation.create({
+      data: {
+        userId,
+        weekStart: plan.startDate,
+        currentWeekExplanation: explanation.currentWeekExplanation,
+        fourWeekOutlook: explanation.fourWeekOutlook,
+      },
+    });
   }
 
   // Corrige alunos afetados pelo bug antigo de regeneracao de semana: antes da correcao, gerar
@@ -847,6 +1005,7 @@ export class TrainingPlansService {
     goal: string;
     startDate: Date;
     endDate: Date | null;
+    createdAt: Date;
     aiRecommendation: string | null;
     sessions: Array<{
       id: string;
@@ -897,6 +1056,7 @@ export class TrainingPlansService {
       requiresTest: !hasTest,
       startDate: plan.startDate,
       endDate: plan.endDate,
+      generatedAt: plan.createdAt,
       recommendation: plan.aiRecommendation,
       locked: false,
       sessions: plan.sessions.map((session) => ({
@@ -1143,6 +1303,18 @@ function planMatchesAvailability(inputSnapshot: unknown, availability: Array<{ w
   }
 
   return JSON.stringify(snapshotAvailability) === JSON.stringify(availabilitySignature(availability));
+}
+
+const PAIN_TIER_SEVERITY: Record<string, number> = { normal: 0, reduced: 1, remove_running: 2 };
+
+// So considera "piorou" (nunca "melhorou") de proposito: uma dor que sumiu nao justifica
+// interromper o aluno no meio da semana com um treino recalculado, mas uma dor nova/pior sim.
+function planPainTierIsStale(inputSnapshot: unknown, currentTier: string): boolean {
+  const snapshotTier =
+    inputSnapshot && typeof inputSnapshot === 'object' && typeof (inputSnapshot as { painTier?: unknown }).painTier === 'string'
+      ? ((inputSnapshot as { painTier: string }).painTier)
+      : 'normal';
+  return (PAIN_TIER_SEVERITY[currentTier] ?? 0) > (PAIN_TIER_SEVERITY[snapshotTier] ?? 0);
 }
 
 function planMatchesLatestTest(inputSnapshot: unknown, latestTestId: string | null) {

@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'interview' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'fixAnswers';
+type Tab = 'week' | 'interview' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -191,6 +191,7 @@ interface WeekPlan {
   priceLabel?: string;
   requiresOnboarding?: boolean;
   requiresTest?: boolean;
+  generatedAt?: string;
   sessions: WeekPlanSession[];
 }
 
@@ -929,6 +930,7 @@ function AppInner() {
                   metrics={metrics}
                   onOpenInterview={() => setActiveTab('interview')}
                   onOpenTest={() => setActiveTab('test')}
+                  onOpenPainReport={() => setActiveTab('painReport')}
                   onPlanStateChange={(state) => setHideWeekNotifications(state.locked || state.requiresTest || state.requiresOnboarding)}
                 />
               </>
@@ -936,6 +938,7 @@ function AppInner() {
             {activeTab === 'progress' && <Progress completedToday={completedToday} metrics={metrics} accessToken={accessToken} />}
             {activeTab === 'targetRace' && <TargetRaceScreen accessToken={accessToken} />}
             {activeTab === 'painReport' && <PainReportScreen accessToken={accessToken} />}
+            {activeTab === 'observations' && <ObservationsScreen accessToken={accessToken} />}
             {activeTab === 'strava' && <StravaSync accessToken={accessToken} />}
             {activeTab === 'billing' && <Billing accessToken={accessToken} />}
             {activeTab === 'profile' && (
@@ -1940,7 +1943,7 @@ async function loadInterviewState(url: string, accessToken: string): Promise<Int
   } catch { return null; }
 }
 
-function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTest, onPlanStateChange }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; onOpenInterview: () => void; onOpenTest: () => void; onPlanStateChange?: (state: { locked: boolean; requiresTest: boolean; requiresOnboarding: boolean }) => void }) {
+function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTest, onOpenPainReport, onPlanStateChange }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void; onPlanStateChange?: (state: { locked: boolean; requiresTest: boolean; requiresOnboarding: boolean }) => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   const [billingMessage, setBillingMessage] = useState('');
   const [couponCode, setCouponCode] = useState('');
@@ -2293,6 +2296,8 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       <Text style={styles.sectionLabel}>Treino da semana</Text>
       <Text style={styles.titleSmall}>{weekRange}</Text>
       <Text style={styles.copyTight}>Seu treino aparece primeiro. Use o ajuste no final da tela quando a rotina desta semana mudar.</Text>
+      <Text style={styles.metaText}>Os treinos da semana seguinte ficam disponiveis todo domingo as 19h.</Text>
+      {plan?.generatedAt ? <Text style={styles.metaText}>Gerado em {formatDayMonth(new Date(plan.generatedAt))} as {new Date(plan.generatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.</Text> : null}
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
 
@@ -2364,6 +2369,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
                       onChange={(patch) => updateCompletionDraft(session, patch)}
                       onSave={() => saveCompletion(session)}
                       message={completionMessages[session.id]}
+                      onOpenPainReport={onOpenPainReport}
                     />
                     <View style={styles.moveActions}>
                       <Pressable style={styles.moveButton} onPress={() => moveSession(session.id, -1)}>
@@ -3129,6 +3135,102 @@ function PainReportScreen({ accessToken }: { accessToken: string }) {
   );
 }
 
+interface ObservationItem {
+  id: string;
+  content: string;
+  active: boolean;
+  createdAt: string;
+}
+
+function ObservationsScreen({ accessToken }: { accessToken: string }) {
+  const [content, setContent] = useState('');
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [items, setItems] = useState<ObservationItem[]>([]);
+
+  async function loadItems() {
+    try {
+      const response = await fetch(`${API_URL}/me/observations`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (response.ok) setItems((await response.json()) as ObservationItem[]);
+    } catch {
+      setMessage('Nao consegui carregar suas observacoes anteriores.');
+    }
+  }
+
+  useEffect(() => { void loadItems(); }, [accessToken]);
+
+  async function submit() {
+    if (content.trim().length < 3) {
+      setMessage('Escreva um pouco mais para deixar claro o que voce quer avisar.');
+      return;
+    }
+    setSaving(true);
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/me/observations`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: content.trim() }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({} as { message?: string }));
+        setMessage(typeof data.message === 'string' ? data.message : 'Nao consegui enviar sua observacao.');
+        return;
+      }
+      setContent('');
+      setMessage('Observacao registrada. Seu treinador foi avisado.');
+      await loadItems();
+    } catch {
+      setMessage('Nao consegui enviar sua observacao.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Relatar observação</Text>
+      <Text style={styles.titleSmall}>Avise sobre algo que pode afetar seus próximos treinos</Text>
+      <Text style={styles.copyTight}>
+        Use isto para contar alguma circunstância pessoal que talvez seu treinador e o sistema que monta seus treinos precisem saber — por exemplo, uma viagem chegando, uma mudança de rotina, uma prova na faculdade, ou qualquer coisa parecida que não seja dor (para dor, use a tela "Relatar dor").
+      </Text>
+      <Text style={styles.copyTight}>
+        Isso não é um pedido garantido — é um contexto que será levado em conta quando fizer sentido, na medida do possível, mas não obriga a mudar nada. Escreva com clareza: diga o que vai acontecer, quando, e o que isso pode significar para o seu treino. Não precisa se justificar, só avisar.
+      </Text>
+      <Text style={styles.copyTight}>
+        Exemplo bom: "Vou viajar do dia 10 ao dia 17, provavelmente sem lugar para correr." Exemplo vago (evite): "Semana que vem vai ser corrida."
+      </Text>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Sua observação</Text>
+        <TextInput
+          style={[styles.input, styles.multilineInput]}
+          value={content}
+          onChangeText={setContent}
+          placeholder="Escreva aqui o que quer avisar..."
+          multiline
+        />
+      </View>
+
+      <Pressable style={styles.primaryButton} onPress={submit} disabled={saving}>
+        <Text style={styles.primaryButtonText}>{saving ? 'Enviando...' : 'Enviar observação'}</Text>
+      </Pressable>
+      {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
+
+      {items.length ? (
+        <View style={styles.formSection}>
+          <Text style={styles.formSectionTitle}>Suas observações registradas</Text>
+          {items.map((item) => (
+            <Text key={item.id} style={styles.reportText}>
+              {formatDayMonth(new Date(item.createdAt))} · {item.content}{!item.active ? ' (arquivada)' : ''}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function StravaSync({ accessToken }: { accessToken: string }) {
   const [connection, setConnection] = useState<StravaConnectionStatus | null>(null);
   const [message, setMessage] = useState('');
@@ -3738,6 +3840,7 @@ function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: 
     { id: 'test', label: 'Teste de VO2 max', icon: 'stopwatch' },
     { id: 'targetRace', label: 'Prova alvo', icon: 'trophy' },
     { id: 'painReport', label: 'Relatar dor', icon: 'medkit' },
+    { id: 'observations', label: 'Relatar observação', icon: 'chatbox-ellipses' },
     { id: 'progress', label: 'Evolucao', icon: 'stats-chart' },
     { id: 'strava', label: 'Sincronizar com Strava', icon: 'sync' },
     { id: 'billing', label: 'Plano e faturamento', icon: 'card' },
@@ -3994,12 +4097,14 @@ function CompletionForm({
   onChange,
   onSave,
   message,
+  onOpenPainReport,
 }: {
   session: WeekPlanSession;
   draft: CompletionDraft;
   onChange: (patch: Partial<CompletionDraft>) => void;
   onSave: () => void;
   message?: string;
+  onOpenPainReport?: () => void;
 }) {
   const isRun = session.structure?.type === 'run';
   const isAerobic = session.structure?.type === 'aerobic';
@@ -4132,6 +4237,15 @@ function CompletionForm({
           </Pressable>
         ))}
       </View>
+      {(draft.painFlag === 'leve' || draft.painFlag === 'forte') && onOpenPainReport ? (
+        <View style={styles.painNudgeBox}>
+          <Text style={styles.painNudgeText}>Notei que você sentiu dor nesse treino — quer detalhar isso agora para seu treinador acompanhar melhor?</Text>
+          <Pressable style={styles.secondaryButton} onPress={onOpenPainReport}>
+            <Ionicons name="medkit" size={16} color="#0f766e" />
+            <Text style={styles.secondaryButtonText}>Relatar dor em detalhes</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <Text style={styles.formHint}>
         Quanto mais sincero e detalhado for seu comentario, melhor conseguimos ajustar a qualidade dos seus proximos treinos.
@@ -5196,6 +5310,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
+  metaText: {
+    color: '#94a3b8',
+    fontSize: 11,
+    lineHeight: 15,
+  },
   sectionLabel: {
     color: '#0f766e',
     fontSize: 13,
@@ -5462,6 +5581,20 @@ const styles = StyleSheet.create({
     color: '#134e4a',
     fontSize: 13,
     lineHeight: 19,
+  },
+  painNudgeBox: {
+    marginTop: 4,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+    gap: 8,
+  },
+  painNudgeText: {
+    color: '#9a3412',
+    fontSize: 13,
+    lineHeight: 18,
   },
   prescriptionBox: {
     marginTop: 6,
