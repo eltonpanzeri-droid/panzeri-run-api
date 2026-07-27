@@ -317,34 +317,40 @@ export class PrescriptionAgentService {
   // curados) e so decida dias/modalidades que o aluno realmente tem disponiveis — nunca inventa
   // um exercicio nem escolhe um catalogo que nao bate com a modalidade do dia. Fora isso (quais
   // exercicios, quantos, foco muscular do dia, sets/reps/descanso), a decisao e inteiramente da IA.
+  //
+  // Chave composta (weekday+modality), nao so weekday: a rotina de um aluno pode legitimamente ter
+  // MAIS DE UMA modalidade de forca no mesmo dia (ex: forca e fortalecimento_corredores na mesma
+  // quarta-feira — o app permite marcar as duas). Um Map indexado so por weekday guardava apenas a
+  // ULTIMA modalidade daquele dia (a outra era sobrescrita silenciosamente), entao quando a IA
+  // corretamente devolvia uma sessao para a modalidade "esquecida", o codigo rejeitava como se a IA
+  // tivesse errado — o erro sempre foi nosso, nunca da IA. Isso nao e especifico de um aluno: afeta
+  // qualquer aluno com mais de uma modalidade de forca marcada no mesmo dia.
   private validateStrengthSessions(
     sessions: z.infer<typeof AiStrengthSessionSchema>[],
     strengthSlots: StrengthSlot[],
   ): StrengthSessionDecision[] | null {
     if (sessions.length !== strengthSlots.length) {
       this.logger.warn(
-        `Rejeitado (forca): numero de sessoes da IA (${sessions.length}) diferente do numero de dias de forca/fortalecimento disponiveis (${strengthSlots.length}).`,
+        `Rejeitado (forca): numero de sessoes da IA (${sessions.length}) diferente do numero de dias/modalidades de forca disponiveis (${strengthSlots.length}) [${strengthSlots.map((s) => `${s.weekday}:${s.modality}`).join(',')}].`,
       );
       return null;
     }
-    const slotByWeekday = new Map(strengthSlots.map((slot) => [slot.weekday, slot]));
-    const usedWeekdays = new Set<number>();
+    const slotByKey = new Map(strengthSlots.map((slot) => [`${slot.weekday}:${slot.modality}`, slot]));
+    const usedKeys = new Set<string>();
     const result: StrengthSessionDecision[] = [];
 
     for (const session of sessions) {
-      const slot = slotByWeekday.get(session.weekday);
+      const key = `${session.weekday}:${session.modality}`;
+      const slot = slotByKey.get(key);
       if (!slot) {
-        this.logger.warn(`Rejeitado (forca): IA retornou weekday ${session.weekday}, que nao esta entre os dias de forca disponiveis [${strengthSlots.map((s) => s.weekday).join(',')}].`);
+        this.logger.warn(`Rejeitado (forca): IA retornou weekday ${session.weekday} com modalidade ${session.modality}, combinacao que nao esta entre as disponiveis [${strengthSlots.map((s) => `${s.weekday}:${s.modality}`).join(',')}].`);
         return null;
       }
-      if (usedWeekdays.has(session.weekday)) {
-        this.logger.warn(`Rejeitado (forca): IA retornou o weekday ${session.weekday} mais de uma vez.`);
+      if (usedKeys.has(key)) {
+        this.logger.warn(`Rejeitado (forca): IA retornou o weekday ${session.weekday} com modalidade ${session.modality} mais de uma vez.`);
         return null;
       }
-      if (session.modality !== slot.modality) {
-        this.logger.warn(`Rejeitado (forca): IA retornou modalidade ${session.modality} para weekday ${session.weekday}, mas o aluno tem ${slot.modality} nesse dia.`);
-        return null;
-      }
+      usedKeys.add(key);
       const catalog = session.modality === 'forca' ? gymExerciseLibrary : runnerStrengthExercises;
       const catalogIds = new Set(catalog.map((exercise) => exercise.id));
       const invalidIds = session.exerciseIds.filter((id) => !catalogIds.has(id));
@@ -353,7 +359,6 @@ export class PrescriptionAgentService {
         return null;
       }
 
-      usedWeekdays.add(session.weekday);
       result.push({
         weekday: session.weekday,
         modality: session.modality,
@@ -409,8 +414,8 @@ export class PrescriptionAgentService {
       'PRIMEIRA SEMANA SEM NENHUM HISTORICO (historicoSemanal vazio, sem reavaliacao, sem analiseExecucao, sem analiseAprofundadaStrava): nesse cenario voce ainda nao tem nenhuma resposta real de treino deste aluno especifico — trate a semana como uma calibragem inicial. Para um aluno com pouco tempo de corrida ou volume semanal baixo/recente-comeco (mesmo que os dados nao configurem safetyAdjustment), prefira NAO incluir quality_run/Z4 logo na primeira semana gerada — comece com rodagens leves e um longao moderado, e deixe o estimulo de qualidade para depois de ver a resposta real dele aos primeiros treinos. So inclua qualidade ja na primeira semana se a evidencia de pace for claramente forte e consistente o suficiente para justificar (ex: teste oficial recente e robusto), nunca so por completude do calendario.',
       'Responda em portugues nos campos de texto (title, notes, recommendations, recommendation, rationale, paceAssessment.rationale).',
       'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida — nao existe mais nenhuma rotina fixa de exercicios escondida de voce para esses dias.',
-      '- Retorne exatamente uma sessao em strengthSessions para cada dia listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade informados (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores).',
-      '- A modalidade (forca vs fortalecimento_corredores) de cada weekday em diasDisponiveisParaForca e FIXA — vem da rotina semanal real do aluno, cadastrada fora do seu alcance, e NUNCA pode ser trocada por voce, nem mesmo se uma diretriz do treinador falar sobre "musculacao" ou "fortalecimento" para aquele dia. Copie o campo modality de diasDisponiveisParaForca literalmente, sempre. Uma diretriz sobre forca/fortalecimento so pode mudar o FOCO/exercicios/intensidade daquele dia (ver regra abaixo), nunca a modalidade em si — isso ja causou rejeicao e falha total da geracao na pratica (IA tentou responder "forca" para um weekday cuja modalidade real era "fortalecimento_corredores").',
+      '- Retorne exatamente uma sessao em strengthSessions para CADA ITEM listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item especifico (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). ATENCAO: o mesmo weekday pode aparecer MAIS DE UMA VEZ na lista, uma para cada modalidade — isso significa que aquele aluno legitimamente faz as duas coisas naquele dia (ex: forca e fortalecimento_corredores na mesma quarta-feira). Nesse caso, retorne uma sessao PARA CADA item (duas sessoes diferentes, mesma weekday, modalidades diferentes) — isso nao e um erro nem duplicidade, e o dado real da rotina do aluno.',
+      '- A modalidade de cada ITEM (nao de cada weekday) em diasDisponiveisParaForca e FIXA — vem da rotina semanal real do aluno, cadastrada fora do seu alcance, e NUNCA pode ser trocada por voce, nem mesmo se uma diretriz do treinador falar sobre "musculacao" ou "fortalecimento" para aquele dia. Copie o campo modality de cada item de diasDisponiveisParaForca literalmente, sempre. Uma diretriz sobre forca/fortalecimento so pode mudar o FOCO/exercicios/intensidade daquele dia (ver regra abaixo), nunca a modalidade em si — isso ja causou rejeicao e falha total da geracao na pratica (IA tentou responder "forca" para um weekday cuja modalidade real era "fortalecimento_corredores").',
       '- exerciseIds SO PODE conter ids que existem literalmente em catalogoExerciciosMusculacao (para modality "forca") ou catalogoExerciciosFortalecimentoCorredores (para modality "fortalecimento_corredores") — nunca invente um exercicio ou nome que nao esteja no catalogo informado. Escolha entre 3 e 10 exercicios conforme o tempo disponivel do dia (mais tempo, mais exercicios).',
       '- Se diretrizesEspecificasDoTreinadorParaEsteAluno pedir um FOCO especifico para um dia de forca (ex: "segunda e dia de perna, sem corrida" ou uma lista explicita de exercicios), aplique isso literalmente: escolha exerciseIds cujo campo "group" (catalogoExerciciosMusculacao) ou "focus" (catalogoExerciciosFortalecimentoCorredores) correspondam ao foco pedido (ex: foco em perna = grupos quadriceps/posterior/gluteos/panturrilha/quadril; foco em superior = peito/costas/ombros/biceps/triceps), ou os exercicios especificos citados pelo nome, se existirem no catalogo. Isso e igual em prioridade as diretrizes de corrida — sao ordens pessoais do treinador para este aluno, nao uma sugestao.',
       '- Sem diretriz especifica sobre o foco do dia, monte uma sessao equilibrada e variada (pernas + core + upper body de forma proporcional), a nao ser que o proprio catalogo/nivel do aluno sugira outra coisa.',
