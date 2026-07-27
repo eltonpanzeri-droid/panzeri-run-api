@@ -272,7 +272,7 @@ export class TrainingPlansService {
     const effectivePaceSecondsPerKm = latestTest?.paceSecondsPerKm ?? paceFallback?.paceSecondsPerKm ?? DEFAULT_PACE_SECONDS_PER_KM;
     const paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default' = latestTest ? 'test' : paceFallback?.source ?? 'default';
 
-    const weekStart = startOfWeek(referenceDate);
+    const initialWeekStart = startOfWeek(referenceDate);
     const adjustedAvailability = weeklyOverride?.filter((day) => !day.noTraining) ?? [];
     const availableDays =
       adjustedAvailability.length > 0
@@ -285,6 +285,20 @@ export class TrainingPlansService {
             { weekday: 4, modalities: ['corrida'], availableMin: 40 },
             { weekday: 6, modalities: ['corrida'], availableMin: 55 },
           ];
+
+    const today = todayInSaoPaulo();
+    // Primeira geracao (sem plano ativo anterior) de uma aluna que concluiu a entrevista tarde
+    // demais na propria semana pra sobrar algum dia disponivel (ex: entrevista concluida num
+    // domingo a noite, com rotina que treina so ate sabado) resultaria num plano vazio: todo dia
+    // desta semana ja seria passado, e o filtro "so o futuro" logo abaixo removeria a semana
+    // inteira. Nesse caso especifico, comeca direto na semana seguinte em vez de entregar um
+    // plano sem nenhum treino ate a virada natural de segunda.
+    const hasFutureDayThisWeek = availableDays.some(
+      (day) => addDays(initialWeekStart, weekdayOffsetFromMonday(day.weekday)).getTime() > today.getTime(),
+    );
+    const weekStart = !hasFutureDayThisWeek && !activePlanBeforeAdjustment && !options?.referenceDate
+      ? addDays(initialWeekStart, 7)
+      : initialWeekStart;
 
     const strengthCountAdjustment = strengthFeedbackAdjustment(previousPlans);
 
@@ -449,7 +463,6 @@ export class TrainingPlansService {
       });
     }
 
-    const today = todayInSaoPaulo();
     // REGRA EXPLICITA DO TREINADOR: nunca criar sessao com data de hoje ou de um dia que ja
     // passou — nem ao regenerar a semana de um aluno em andamento, nem na primeira geracao de
     // um aluno novo que se cadastrou no meio da semana (ex: entrevista concluida numa
@@ -457,9 +470,9 @@ export class TrainingPlansService {
     // quando ja existia um plano ativo pra esta semana (regeneracao) — na primeira geracao esses
     // dias passados eram mantidos, o que criava sessoes "perdidas" antes mesmo do aluno existir
     // no sistema, aparecendo como baixa aderencia no painel do treinador sem o aluno ter culpa
-    // nenhuma. Se nao sobrar nenhum dia disponivel ainda neste ciclo, a semana fica sem treino
-    // (correto: o aluno so vai comecar a treinar no proximo dia disponivel, seja ele ainda nesta
-    // semana ou na seguinte).
+    // nenhuma. O rollover para a semana seguinte (acima) ja cobre o caso de nao sobrar dia
+    // nenhum nesta semana; aqui so filtramos os dias que ficaram no passado dentro da semana
+    // escolhida.
     const sessionsToCreate = sessions.filter((session) => session.scheduledDate.getTime() > today.getTime());
     const plan = await this.prisma.trainingPlan.create({
       data: {
