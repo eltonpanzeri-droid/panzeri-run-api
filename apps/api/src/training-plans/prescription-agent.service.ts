@@ -179,8 +179,14 @@ export class PrescriptionAgentService {
     const novice = isNovice(input.experience, input.answers);
 
     try {
-      const response = await this.aiQueue.run(() =>
-        client.messages.parse({
+      // Streaming (nao client.messages.parse, que e sempre nao-streaming): com max_tokens alto
+      // (24000) + pensamento adaptativo, o proprio SDK recusa a chamada de antemao com "Streaming
+      // is required for operations that may take longer than 10 minutes" — nao e um erro da IA,
+      // e uma trava do cliente contra chamadas que podem estourar o timeout HTTP. stream() aceita
+      // o mesmo output_config.format (zodOutputFormat) e finalMessage() devolve o mesmo
+      // parsed_output que .parse() devolvia, entao o resto do codigo abaixo nao muda.
+      const response = await this.aiQueue.run(async () => {
+        const stream = client.messages.stream({
           model: 'claude-sonnet-5',
           // Aumentado de 8000 depois que strengthSessions foi adicionado a mesma resposta: um
           // aluno com varios dias de forca/fortalecimento (cada um com titulo/notes/exercicios)
@@ -192,9 +198,7 @@ export class PrescriptionAgentService {
           // string in JSON" — a resposta foi cortada no meio porque o "pensamento" (thinking) do
           // modelo consumiu quase todo o orcamento antes de sobrar espaco para escrever a resposta
           // inteira. Acontece mais para alunos com contexto mais denso (muitas diretivas/observacoes
-          // acumuladas, como uma conta de teste usada bastante). Se voltar a truncar, o proximo passo
-          // e migrar essa chamada para streaming (client.messages.stream) para poder usar um limite
-          // ainda maior sem risco de timeout do SDK.
+          // acumuladas, como uma conta de teste usada bastante).
           max_tokens: 24000,
           thinking: { type: 'adaptive' },
           output_config: {
@@ -203,8 +207,9 @@ export class PrescriptionAgentService {
           },
           system: this.buildSystemPrompt(safetyAdjustment, removeRunning, novice),
           messages: [{ role: 'user', content: this.buildUserPrompt(input, runSlots, strengthSlots, safetyAdjustment, novice, evidence, input.painReason ?? null) }],
-        }),
-      );
+        });
+        return stream.finalMessage();
+      });
 
       const parsed = response.parsed_output;
       if (!parsed) return null;
