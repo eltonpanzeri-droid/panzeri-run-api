@@ -679,6 +679,9 @@ export class TrainingPlansService {
           zone: session.intensityZone ?? '',
           durationMin: session.durationMin ?? 0,
         })),
+      aiRecommendation: methodology.recommendation,
+      aiRationale: methodology.rationale,
+      aiPaceRationale: methodology.paceAssessment?.rationale ?? '',
     });
 
     if (!explanation) return;

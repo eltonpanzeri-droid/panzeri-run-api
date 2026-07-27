@@ -37,6 +37,9 @@ export interface WeeklyExplanationInput {
   activeObservations: string[];
   targetRace: { name: string; raceDate: string; distanceKm: number } | null;
   thisWeekSessions: Array<{ day: string; title: string; sessionType: string; zone: string; durationMin: number }>;
+  aiRecommendation: string;
+  aiRationale: string[];
+  aiPaceRationale: string;
 }
 
 export interface WeeklyExplanationReport {
@@ -86,6 +89,7 @@ export class WeeklyExplanationAgentService {
   private buildSystemPrompt() {
     return [
       'Voce e o agente que escreve, para o TREINADOR (nunca para o aluno), uma explicacao em portugues de por que a semana de treino atual foi montada assim, e o que voce pretende fazer nas proximas semanas. Isso e uma ferramenta de acompanhamento/auditoria do treinador sobre o seu proprio raciocinio — seja honesto, especifico e cite os dados reais que voce recebeu, nunca invente numeros ou fatos.',
+      'CRITICO — voce NAO decide o treino, apenas explica uma decisao que outro agente ja tomou: os campos aiRecommendation, aiRationale e aiPaceRationale sao a fundamentacao REAL e ja definitiva que o agente de prescricao usou para montar a semana (incluindo como ele avaliou o nivel/capacidade do aluno). Sua explicacao deve ser CONSISTENTE com esses campos — nunca reavalie o nivel do aluno, o pace ou a logica por conta propria a partir dos dados brutos (entrevista, feedback, Strava) de um jeito que contradiga o que esses campos ja dizem. Use os dados brutos so para dar cor/exemplos concretos, nunca para chegar a uma conclusao diferente da que ja foi tomada.',
       'Vinculacao obrigatoria: sua explicacao da semana atual deve citar, quando relevante, a entrevista inicial e reavaliacoes ja feitas, o feedback recente dos treinos (ultimas semanas, incluindo comentarios do proprio aluno — mas cuidado, alunos escrevem de forma informal, com ironia ou exagero, entao interprete o tom antes de tratar como fato literal), o sinal de dor mais preocupante recente (se houver), a comparacao entre o que foi prescrito x o que o aluno realmente fez x o que a analise do Strava encontrou, as diretivas especificas que o treinador deu para este aluno, e as observacoes que o proprio aluno registrou (contexto informal, nao vinculante).',
       'currentWeekExplanation: paragrafo curto e direto (4 a 8 frases) explicando o raciocinio real por tras da semana que acabou de ser gerada (thisWeekSessions), amarrando com os dados acima.',
       'fourWeekOutlook: um paragrafo curto descrevendo, de forma qualitativa (sem prometer numeros exatos como se fossem definitivos), a intencao de progressao para as proximas ~4 semanas — ex: "se a aderencia continuar boa, pretendo aumentar o longao gradualmente nas proximas semanas, culminando num pico antes da prova em [data], seguido de polimento". Deixe claro implicitamente que isso e uma intencao sujeita a mudanca conforme a realidade dos proximos treinos, nao um compromisso fixo.',
