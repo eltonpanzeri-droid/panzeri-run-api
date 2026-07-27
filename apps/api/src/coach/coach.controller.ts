@@ -115,8 +115,12 @@ export class CoachController {
   }
 
   @Post('students/:studentId/sessions/:sessionId/regenerate')
-  regenerateStudentSession(@Param('studentId') studentId: string, @Param('sessionId') sessionId: string) {
-    return this.coachService.regenerateStudentSession(studentId, sessionId);
+  regenerateStudentSession(
+    @Param('studentId') studentId: string,
+    @Param('sessionId') sessionId: string,
+    @Body() body: { allowToday?: boolean },
+  ) {
+    return this.coachService.regenerateStudentSession(studentId, sessionId, body?.allowToday);
   }
 
   @Post('students/:studentId/observations/:observationId/archive')

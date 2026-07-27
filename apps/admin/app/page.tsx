@@ -2118,10 +2118,11 @@ function EditableSession({
     }
   }
 
-  async function regenerateSession() {
+  async function regenerateSession(allowToday?: boolean) {
     if (
+      !allowToday &&
       !window.confirm(
-        'Gerar novo treino so para este dia? Isso recalcula apenas esta sessao, aplicando diretivas ativas do aluno. Os outros dias da semana nao sao alterados. Se este dia ja foi concluido, nao e possivel gerar de novo.',
+        'Gerar novo treino so para este dia? Isso recalcula apenas esta sessao, aplicando diretivas ativas do aluno. Os outros dias da semana nao sao alterados. Nao e possivel gerar de novo para um dia que ja passou.',
       )
     ) {
       return;
@@ -2131,10 +2132,21 @@ function EditableSession({
     try {
       const response = await fetch(`${API_URL}/coach/students/${studentId}/sessions/${session.id}/regenerate`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allowToday: Boolean(allowToday) }),
       });
       if (!response.ok) {
-        onStatus('Nao consegui gerar um novo treino.');
+        const data = await response.json().catch(() => ({}));
+        if (data?.code === 'today_session_locked') {
+          setIsRegenerating(false);
+          if (window.confirm('Este e o treino de hoje — o aluno pode ja estar vendo ou ate ja ter comecado. Tem certeza que quer gerar um novo treino para hoje mesmo assim?')) {
+            await regenerateSession(true);
+          } else {
+            onStatus('');
+          }
+          return;
+        }
+        onStatus(typeof data?.message === 'string' ? data.message : 'Nao consegui gerar um novo treino.');
         return;
       }
       onStatus('Novo treino gerado.');
@@ -2170,7 +2182,7 @@ function EditableSession({
             className="editSessionButton iconOnlyButton"
             type="button"
             disabled={isRegenerating}
-            onClick={regenerateSession}
+            onClick={() => regenerateSession()}
             title={isRegenerating ? 'Gerando novo treino...' : 'Recalcular somente este dia (aplica diretivas ativas)'}
             aria-label="Gerar novo treino so para este dia"
           >
@@ -2214,7 +2226,7 @@ function EditableSession({
             <div className="editDialogHeader">
               <div><p className="eyebrow">Edicao manual</p><h2>{session.title}</h2></div>
               <div className="editDialogHeaderActions">
-                <button className="secondaryButton" type="button" disabled={isRegenerating} onClick={regenerateSession}>
+                <button className="secondaryButton" type="button" disabled={isRegenerating} onClick={() => regenerateSession()}>
                   <RefreshCw size={16} /> {isRegenerating ? 'Gerando...' : 'Gerar novo treino'}
                 </button>
                 <button className="closeEditButton" type="button" onClick={() => setIsEditing(false)}>Fechar</button>
@@ -2286,17 +2298,24 @@ function StructureEditor({ structure, testPaceSeconds, onChange }: { structure: 
   const exercises = Array.isArray(structure.exercises) ? structure.exercises as Array<Record<string, unknown>> : [];
   const category = String(structure.category ?? '');
   const [exerciseOptions, setExerciseOptions] = useState<ExerciseLibraryItem[]>([]);
+  // Antes essa falha era engolida em silencio (catch so zerava a lista) — o dropdown ficava
+  // vazio sem nenhuma pista de por que, e a unica forma de descobrir era abrir o DevTools.
+  const [exerciseLoadError, setExerciseLoadError] = useState(false);
 
   useEffect(() => {
     if (type !== 'strength') return;
+    setExerciseLoadError(false);
     const token = window.localStorage.getItem('panzeri_admin_token') ?? '';
     fetch(`${API_URL}/coach/exercise-library`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data: { fortalecimentoCorredores: ExerciseLibraryItem[]; musculacao: ExerciseLibraryItem[] } | null) => {
-        if (!data) return;
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error(`status ${response.status}`))))
+      .then((data: { fortalecimentoCorredores: ExerciseLibraryItem[]; musculacao: ExerciseLibraryItem[] }) => {
         setExerciseOptions(category === 'Musculacao' ? data.musculacao : data.fortalecimentoCorredores);
       })
-      .catch(() => setExerciseOptions([]));
+      .catch((error) => {
+        console.error('Falha ao carregar biblioteca de exercicios:', error);
+        setExerciseOptions([]);
+        setExerciseLoadError(true);
+      });
   }, [type, category]);
 
   function updateExercise(index: number, key: string, value: string | number) {
@@ -2321,6 +2340,9 @@ function StructureEditor({ structure, testPaceSeconds, onChange }: { structure: 
     return (
       <section className="structureEditor">
         <div className="structureEditorTitle"><div><h3>Exercicios prescritos</h3><span>Edite cada exercicio individualmente</span></div>{typeControl}</div>
+        {exerciseLoadError ? (
+          <p className="fieldError">Nao consegui carregar a biblioteca de exercicios (verifique a conexao com a API). Voce ainda pode digitar o nome do exercicio manualmente no campo ao lado do menu.</p>
+        ) : null}
         <div className="strengthTableScroll">
         <div className="strengthTableHeader">
           <span>Exercicio</span><span>Series</span><span>Repeticoes</span><span>Intensidade</span><span>Pausa</span><span>Cadencia</span><span>Video</span><span>Acao</span>

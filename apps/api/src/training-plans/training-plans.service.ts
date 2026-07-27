@@ -741,14 +741,24 @@ export class TrainingPlansService {
     return { recovered: toRecover.length };
   }
 
-  async regenerateSession(userId: string, sessionId: string) {
+  async regenerateSession(userId: string, sessionId: string, options?: { allowToday?: boolean }) {
     const session = await this.prisma.trainingSession.findFirst({ where: { id: sessionId, userId } });
     if (!session) {
       throw new BadRequestException('Treino nao encontrado para este aluno.');
     }
-    // Mesma regra do treinador aplicada aqui: hoje e dias passados nunca podem ser reescritos.
-    if (session.scheduledDate.getTime() <= todayInSaoPaulo().getTime()) {
-      throw new BadRequestException('Nao e possivel gerar um novo treino para hoje ou um dia que ja passou.');
+    const today = todayInSaoPaulo();
+    // Dia que ja passou nunca pode ser reescrito, sem excecao. O dia de hoje e diferente: o
+    // treinador pode precisar mudar o treino de hoje mesmo (ex: aluno avisou que nao pode fazer o
+    // que estava prescrito) — nesse caso o admin pede uma segunda confirmacao explicita e manda
+    // allowToday=true, ja que o aluno pode ja estar vendo ou ter comecado o treino atual.
+    if (session.scheduledDate.getTime() < today.getTime()) {
+      throw new BadRequestException('Nao e possivel gerar um novo treino para um dia que ja passou.');
+    }
+    if (session.scheduledDate.getTime() === today.getTime() && !options?.allowToday) {
+      throw new BadRequestException({
+        message: 'Este e o treino de hoje — o aluno pode ja estar vendo ou ate ja ter comecado esse treino. Confirme novamente se quiser mesmo alterar o treino de hoje.',
+        code: 'today_session_locked',
+      });
     }
 
     const [user, latestTest, onboarding, activeDirectives, activeObservations, latestReassessment] = await Promise.all([

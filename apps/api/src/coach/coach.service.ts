@@ -268,9 +268,9 @@ export class CoachService {
     return this.backup.runBackup();
   }
 
-  async regenerateStudentSession(studentId: string, sessionId: string) {
+  async regenerateStudentSession(studentId: string, sessionId: string, allowToday?: boolean) {
     await this.assertStudent(studentId);
-    return this.trainingPlans.regenerateSession(studentId, sessionId);
+    return this.trainingPlans.regenerateSession(studentId, sessionId, { allowToday });
   }
 
   async archiveObservation(studentId: string, observationId: string) {
