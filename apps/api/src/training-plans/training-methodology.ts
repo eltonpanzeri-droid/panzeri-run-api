@@ -119,8 +119,33 @@ export interface RunSessionDecision {
   recommendations?: string;
 }
 
+export type StrengthModality = 'forca' | 'fortalecimento_corredores';
+
+export interface StrengthSlot {
+  weekday: number;
+  modality: StrengthModality;
+  durationMin: number;
+}
+
+// Escolha de exercicios de UM dia de forca/fortalecimento, decidida pela IA — nao existe mais
+// nenhuma rotina fixa de exercicios escondida do agente (ver [[ai_only_prescription_engine]]).
+// exerciseIds sao validados contra o catalogo aprovado (gymExerciseLibrary ou
+// runnerStrengthExercises, conforme a modalidade) antes de serem aceitos.
+export interface StrengthSessionDecision {
+  weekday: number;
+  modality: StrengthModality;
+  title: string;
+  exerciseIds: string[];
+  sets: number;
+  reps: string;
+  restSeconds: number;
+  intensity: 'Leve' | 'Moderada' | 'Forte';
+  notes: string;
+}
+
 export interface WeeklyMethodologyDecision {
   sessions: RunSessionDecision[];
+  strengthSessions?: StrengthSessionDecision[];
   recommendation: string;
   rationale: string[];
   safetyAdjustment: boolean;
@@ -139,6 +164,20 @@ export function computeRunSlots(availability: MethodologyAvailability[]) {
       durationMin: day.modalityDurations?.[modality] ?? day.availableMin ?? 45,
     })))
     .sort((left, right) => left.weekday - right.weekday);
+}
+
+export function computeStrengthSlots(availability: MethodologyAvailability[]): StrengthSlot[] {
+  return availability
+    .flatMap((day) => day.modalities.filter(isStrengthModality).map((modality) => ({
+      weekday: day.weekday,
+      modality: modality as StrengthModality,
+      durationMin: day.modalityDurations?.[modality] ?? day.availableMin ?? 45,
+    })))
+    .sort((left, right) => left.weekday - right.weekday);
+}
+
+function isStrengthModality(modality: string) {
+  return modality === 'forca' || modality === 'fortalecimento_corredores';
 }
 
 // Sem isso, o motor deterministico (usado sempre que a IA falha/e rejeitada) prescrevia o

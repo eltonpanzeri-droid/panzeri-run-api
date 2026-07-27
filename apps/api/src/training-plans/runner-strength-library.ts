@@ -424,20 +424,3 @@ export const runnerStrengthExercises: StrengthExercise[] = [
   },
 ];
 
-export function selectRunnerStrengthExercises(durationMin: number, rotation = 0, countAdjustment = 0) {
-  const baseCount = durationMin >= 60 ? 6 : durationMin >= 45 ? 5 : 4;
-  const exerciseCount = Math.max(3, Math.min(7, baseCount + countAdjustment));
-
-  return seededShuffle(runnerStrengthExercises, rotation).slice(0, exerciseCount);
-}
-
-function seededShuffle<T>(items: T[], seed: number): T[] {
-  const result = [...items];
-  let state = (seed % 2147483647) + 1;
-  for (let i = result.length - 1; i > 0; i -= 1) {
-    state = (state * 48271) % 2147483647;
-    const j = state % (i + 1);
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
-}

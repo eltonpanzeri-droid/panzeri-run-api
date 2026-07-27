@@ -1,10 +1,11 @@
 import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { runnerStrengthCategory, selectRunnerStrengthExercises } from './runner-strength-library';
-import { selectGymExercises } from './gym-exercise-library';
+import { runnerStrengthExercises } from './runner-strength-library';
+import { gymExerciseLibrary } from './gym-exercise-library';
 import {
   MethodologyInput,
+  StrengthSessionDecision,
   WeeklyMethodologyDecision,
   PANZERI_METHODOLOGY_VERSION,
   PANZERI_PRESCRIPTION_PRINCIPLES,
@@ -274,7 +275,7 @@ export class TrainingPlansService {
 
     const initialWeekStart = startOfWeek(referenceDate);
     const adjustedAvailability = weeklyOverride?.filter((day) => !day.noTraining) ?? [];
-    const availableDays =
+    const rawAvailableDays =
       adjustedAvailability.length > 0
         ? adjustedAvailability
         : availability.length > 0
@@ -285,6 +286,14 @@ export class TrainingPlansService {
             { weekday: 4, modalities: ['corrida'], availableMin: 40 },
             { weekday: 6, modalities: ['corrida'], availableMin: 55 },
           ];
+    // Dor intensa relatada recentemente (tier remove_running): a corrida sai da semana mesmo
+    // que o aluno tenha escolhido treinar so corrida — seguranca sobrepoe preferencia de
+    // modalidade nesse caso. Aplicado AQUI, antes de montar o contexto da IA, para que tanto a
+    // decisao de corrida quanto a de forca/fortalecimento que a IA recebe reflitam exatamente os
+    // dias/modalidades que de fato serao gerados logo abaixo — nao faz sentido a IA decidir uma
+    // corrida para um dia que sera descartado, nem deixar de decidir os exercicios de um dia que
+    // so virou forca por causa dessa troca.
+    const availableDays = remapAvailabilityForPainSafety(rawAvailableDays, painSafety.tier === 'remove_running');
 
     const today = todayInSaoPaulo();
     // Primeira geracao (sem plano ativo anterior) de uma aluna que concluiu a entrevista tarde
@@ -299,8 +308,6 @@ export class TrainingPlansService {
     const weekStart = !hasFutureDayThisWeek && !activePlanBeforeAdjustment && !options?.referenceDate
       ? addDays(initialWeekStart, 7)
       : initialWeekStart;
-
-    const strengthCountAdjustment = strengthFeedbackAdjustment(previousPlans);
 
     const methodologyHistory = previousPlans.map((historyPlan) => {
       const runSessions = historyPlan.sessions.filter((session) => isRunningModality(session.modality));
@@ -392,18 +399,14 @@ export class TrainingPlansService {
 
     const sessions = availableDays.slice(0, 7).flatMap((day) => {
       const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(day.weekday));
-      const baseModalities = day.modalities.length ? day.modalities : ['corrida'];
-      // Dor intensa relatada recentemente (tier remove_running): a corrida sai da semana
-      // mesmo que o aluno tenha escolhido treinar so corrida — seguranca sobrepoe preferencia
-      // de modalidade nesse caso. Trocamos por fortalecimento para corredores, sem duplicar
-      // caso o dia ja tivesse as duas modalidades.
-      const modalities = painSafety.tier === 'remove_running'
-        ? [...new Set(baseModalities.map((modality) => isRunningModality(modality) ? 'fortalecimento_corredores' : modality))]
-        : baseModalities;
+      const modalities = day.modalities.length ? day.modalities : ['corrida'];
 
       return modalities.map((modality) => {
         const baseTemplate = this.templateForModality(modality, Boolean(latestTest));
         const runDecision = isRunningModality(modality) ? methodology.sessions.find((decision) => decision.weekday === day.weekday) : undefined;
+        const strengthDecision = (modality === 'forca' || modality === 'fortalecimento_corredores')
+          ? methodology.strengthSessions?.find((decision) => decision.weekday === day.weekday && decision.modality === modality)
+          : undefined;
         const template = runDecision ? {
           ...baseTemplate,
           title: runDecision.title,
@@ -422,19 +425,20 @@ export class TrainingPlansService {
         const durationMin = runDecision && activeDirectives.length
           ? runDecision.durationMin
           : Math.min(requestedDuration, runDecision?.durationMin ?? template.durationMin);
+        const isStrength = modality === 'forca' || modality === 'fortalecimento_corredores';
+        const isAerobic = modality === 'bike';
+        if (isStrength && !strengthDecision) {
+          // A validacao do agente de IA (validateStrengthSessions) exige cobertura exata dos
+          // dias de forca/fortalecimento — chegar aqui sem decisao e um bug de sincronizacao
+          // entre a disponibilidade usada no prompt e a usada aqui, nao um caso esperado.
+          throw new InternalServerErrorException(`Decisao de forca ausente do agente de IA para o dia ${day.weekday} (${modality}).`);
+        }
         const prescription =
-          modality === 'forca' || modality === 'fortalecimento_corredores'
-            ? this.strengthPrescription(durationMin, modality, {
-                experience: user.preferences?.experienceLevel ?? '',
-                safetyAdjustment: methodology.safetyAdjustment,
-                rotation: weekRotation(weekStart) * 7 + day.weekday,
-                countAdjustment: strengthCountAdjustment,
-              })
+          strengthDecision
+            ? this.strengthPrescription(durationMin, strengthDecision)
             : modality === 'bike'
             ? this.aerobicPrescription(durationMin, template.zone, modality)
             : this.runPrescription(durationMin, template.zone, resolvedPaces, modality, template.sessionType);
-        const isStrength = modality === 'forca' || modality === 'fortalecimento_corredores';
-        const isAerobic = modality === 'bike';
 
         return {
           userId,
@@ -714,10 +718,17 @@ export class TrainingPlansService {
       throw new BadRequestException('Nao e possivel gerar um novo treino para hoje ou um dia que ja passou.');
     }
 
-    const [user, latestTest, onboarding] = await Promise.all([
+    const [user, latestTest, onboarding, activeDirectives, activeObservations, latestReassessment] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { preferences: true } }),
       this.prisma.fitnessTest.findFirst({ where: { userId, testType: '3km' }, orderBy: { createdAt: 'desc' } }),
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } }),
+      this.prisma.studentDirective.findMany({
+        where: { userId, active: true, OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] },
+        orderBy: { createdAt: 'desc' },
+        select: { content: true },
+      }),
+      this.prisma.studentObservation.findMany({ where: { userId, active: true }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.reassessment.findFirst({ where: { userId, completedAt: { not: null } }, orderBy: { completedAt: 'desc' } }),
     ]);
 
     const answers = sanitizeInterviewAnswers(jsonObject(onboarding?.answers));
@@ -731,18 +742,48 @@ export class TrainingPlansService {
     const isAerobic = session.modality === 'bike';
     const durationMin = session.durationMin ?? 45;
     const zone = session.intensityZone ?? 'Z2';
-    const rotation = weekRotation(session.scheduledDate) * 7 + session.weekday + 1;
 
-    const prescription = isStrength
-      ? this.strengthPrescription(durationMin, session.modality, {
-          experience: user.preferences?.experienceLevel ?? '',
-          safetyAdjustment,
-          rotation,
-          countAdjustment: 0,
-        })
-      : isAerobic
-        ? this.aerobicPrescription(durationMin, zone, session.modality)
-        : this.runPrescription(durationMin, zone, resolvedPaces, session.modality, session.sessionType ?? 'easy_run');
+    let prescription;
+    if (isStrength) {
+      const methodologyInput: MethodologyInput = {
+        goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
+        experience: user.preferences?.experienceLevel ?? '',
+        answers,
+        availability: [],
+        history: [],
+        stravaRunMinutes: 0,
+        stravaLongestRunMinutes: 0,
+        studentDirectives: activeDirectives.map((directive) => directive.content),
+        activeObservations: activeObservations.map((observation) => observation.content),
+        todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
+        recentReassessment: latestReassessment ? {
+          completedAt: latestReassessment.completedAt!.toISOString(),
+          answers: sanitizeInterviewAnswers(jsonObject(latestReassessment.answers)),
+          evolutionSummary: latestReassessment.evolutionSummary,
+          evolutionWins: Array.isArray(latestReassessment.evolutionWins) ? latestReassessment.evolutionWins as string[] : [],
+          evolutionConcerns: Array.isArray(latestReassessment.evolutionConcerns) ? latestReassessment.evolutionConcerns as string[] : [],
+        } : null,
+        painTier: painSafety.tier,
+        painReason: painSafety.reason,
+      };
+      const strengthDecision = await this.prescriptionAgent.proposeStrengthSession(methodologyInput, {
+        weekday: session.weekday,
+        modality: session.modality as 'forca' | 'fortalecimento_corredores',
+        durationMin,
+      });
+      if (!strengthDecision) {
+        this.logger.error(`Falha ao gerar decisao de forca avulsa com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);
+        await this.telegram.notifyCoach(
+          `⚠️ Falha ao gerar treino de forca avulso com IA para um aluno (id ${userId}). O treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo painel.`,
+        );
+        throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
+      }
+      prescription = this.strengthPrescription(durationMin, strengthDecision);
+    } else if (isAerobic) {
+      prescription = this.aerobicPrescription(durationMin, zone, session.modality);
+    } else {
+      prescription = this.runPrescription(durationMin, zone, resolvedPaces, session.modality, session.sessionType ?? 'easy_run');
+    }
 
     return this.prisma.trainingSession.update({
       where: { id: sessionId },
@@ -764,7 +805,7 @@ export class TrainingPlansService {
   private templateForModality(modality: string, hasTest: boolean): SessionTemplate {
     if (modality === 'fortalecimento_corredores') {
       return {
-        title: runnerStrengthCategory,
+        title: 'Fortalecimento para corredores',
         modality,
         sessionType: 'strength',
         zone: 'Base',
@@ -998,57 +1039,38 @@ export class TrainingPlansService {
     };
   }
 
-  private strengthPrescription(durationMin: number, modality: string, context: { experience: string; safetyAdjustment: boolean; rotation: number; countAdjustment: number }) {
-    if (modality !== 'fortalecimento_corredores') {
-      return this.genericStrengthPrescription(durationMin, context);
-    }
-
-    const selectedExercises = selectRunnerStrengthExercises(durationMin, context.rotation, context.countAdjustment);
+  // Os exercicios, o foco muscular do dia, sets/reps/descanso/intensidade sao TODOS decisao real
+  // da IA (ver StrengthSessionDecision e validateStrengthSessions em prescription-agent.service.ts)
+  // — esta funcao so resolve os ids escolhidos contra o catalogo aprovado e monta a estrutura de
+  // exibicao, sem nenhuma escolha propria de treino.
+  private strengthPrescription(durationMin: number, decision: StrengthSessionDecision) {
+    const isRunnerStrength = decision.modality === 'fortalecimento_corredores';
+    const category = isRunnerStrength ? 'Fortalecimento para corredores' : 'Musculacao';
+    const exercises = decision.exerciseIds
+      .map((id) => (isRunnerStrength ? runnerStrengthExercises : gymExerciseLibrary).find((item) => item.id === id))
+      .filter((item): item is (typeof gymExerciseLibrary)[number] | (typeof runnerStrengthExercises)[number] => Boolean(item));
 
     return {
       type: 'strength',
-      category: runnerStrengthCategory,
+      category,
       durationMin,
       distanceKm: null,
-      exercises: selectedExercises.map((exercise) => ({
+      exercises: exercises.map((exercise) => ({
         id: exercise.id,
-        category: exercise.category,
+        category,
         name: exercise.name,
         description: exercise.description,
-        videoUrl: exercise.videoUrl,
-        sets: exercise.focus.includes('core') ? 3 : 3,
-        reps: exercise.focus.includes('core') ? '30 a 45s' : '10 a 12',
-        intensity: exercise.level === 'advanced' ? 'Forte' : 'Moderada',
-        restSeconds: exercise.level === 'advanced' ? 90 : 60,
-        cadence: null,
-        loadField: false,
+        videoUrl: 'videoUrl' in exercise ? exercise.videoUrl : null,
+        sets: decision.sets,
+        reps: decision.reps,
+        intensity: decision.intensity,
+        restSeconds: decision.restSeconds,
+        cadence: 'group' in exercise && exercise.group === 'core' ? 'Execucao lenta e controlada' : '2s na fase excentrica / subida controlada',
+        loadField: !isRunnerStrength && 'group' in exercise && exercise.group !== 'core',
       })),
-      reportFields: ['exercise', 'sets', 'reps', 'load', 'rpe', 'completed', 'notes', 'videoUrl'],
-    };
-  }
-
-  private genericStrengthPrescription(durationMin: number, context: { experience: string; safetyAdjustment: boolean; rotation: number; countAdjustment: number }) {
-    const selected = selectGymExercises({ durationMin, ...context });
-    const novice = context.safetyAdjustment || ['nunca', 'poucas', 'voltando', 'menos de 1 ano'].some((term) => context.experience.toLowerCase().includes(term));
-    return {
-      type: 'strength',
-      category: 'Musculacao',
-      durationMin,
-      distanceKm: null,
-      exercises: selected.map((exercise) => ({
-        id: exercise.id,
-        category: 'Musculacao',
-        name: exercise.name,
-        description: exercise.description,
-        videoUrl: null,
-        sets: novice ? 2 : exercise.level === 'advanced' ? 4 : 3,
-        reps: novice ? '12 a 15' : exercise.level === 'advanced' ? '6 a 10' : '8 a 12',
-        intensity: novice ? 'RPE 5 a 6' : exercise.level === 'advanced' ? 'RPE 7 a 8' : 'RPE 7',
-        restSeconds: novice ? 60 : exercise.level === 'advanced' ? 90 : 75,
-        cadence: exercise.group === 'core' ? 'Execucao lenta e controlada' : '2s na fase excentrica / subida controlada',
-        loadField: exercise.group !== 'core' && !exercise.id.startsWith('flexao-'),
-      })),
-      reportFields: ['exercise', 'sets', 'reps', 'load', 'rpe', 'completed', 'notes'],
+      reportFields: isRunnerStrength
+        ? ['exercise', 'sets', 'reps', 'load', 'rpe', 'completed', 'notes', 'videoUrl']
+        : ['exercise', 'sets', 'reps', 'load', 'rpe', 'completed', 'notes'],
     };
   }
   private presentPlan(plan: {
@@ -1230,24 +1252,6 @@ function composeRecommendation(paceSource: 'test' | 'self_report_5k' | 'qualitat
   return [painNote, note, recommendation].filter(Boolean).join('\n\n');
 }
 
-function strengthFeedbackAdjustment(previousPlans: Array<{ sessions: Array<{ modality: string; scheduledDate: Date; completion: { notes: string | null } | null }> }>): number {
-  const strengthSessions = previousPlans
-    .flatMap((plan) => plan.sessions)
-    .filter((session) => (session.modality === 'forca' || session.modality === 'fortalecimento_corredores') && session.completion?.notes)
-    .sort((a, b) => b.scheduledDate.getTime() - a.scheduledDate.getTime());
-
-  const latestNote = strengthSessions[0]?.completion?.notes?.toLowerCase() ?? '';
-  if (!latestNote) return 0;
-
-  const tooShort = ['muito curto', 'curto demais', 'acabou rapido', 'pouco tempo', 'rapido demais', 'faltou treino'].some((term) => latestNote.includes(term));
-  if (tooShort) return 1;
-
-  const tooLong = ['muito longo', 'longo demais', 'muito tempo', 'demorado', 'cansativo demais'].some((term) => latestNote.includes(term));
-  if (tooLong) return -1;
-
-  return 0;
-}
-
 function pickModality(modalities: string[], fallback: string) {
   if (modalities.includes(fallback)) {
     return fallback;
@@ -1298,6 +1302,21 @@ function isRunningModality(modality: string) {
   return modality === 'corrida' || modality === 'esteira';
 }
 
+interface AvailableDay {
+  weekday: number;
+  modalities: string[];
+  availableMin?: number | null;
+  modalityDurations?: unknown;
+}
+
+function remapAvailabilityForPainSafety(days: AvailableDay[], removeRunning: boolean): AvailableDay[] {
+  if (!removeRunning) return days;
+  return days.map((day) => ({
+    ...day,
+    modalities: [...new Set(day.modalities.map((modality) => (isRunningModality(modality) ? 'fortalecimento_corredores' : modality)))],
+  }));
+}
+
 function isStravaRunningActivity(type: string | null, name: string | null) {
   const value = `${type ?? ''} ${name ?? ''}`.toLowerCase();
   return value.includes('run') || value.includes('corrida');
@@ -1326,9 +1345,6 @@ function nullableNumericValue(value: unknown) {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-function weekRotation(date: Date) {
-  return Math.floor(date.getTime() / (7 * 24 * 60 * 60 * 1000));
 }
 function normalizeModalityDurations(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {

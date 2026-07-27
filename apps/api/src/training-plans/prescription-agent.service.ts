@@ -6,13 +6,17 @@ import { z } from 'zod';
 import {
   MethodologyInput,
   RunSessionDecision,
+  StrengthSessionDecision,
   WeeklyMethodologyDecision,
   computeRunSlots,
+  computeStrengthSlots,
   hasSafetyConcern,
   isNovice,
 } from './training-methodology';
 import { PANZERI_METHODOLOGY_KNOWLEDGE } from './panzeri-methodology-knowledge';
 import { AiQueueService } from '../common/ai-queue.service';
+import { gymExerciseLibrary } from './gym-exercise-library';
+import { runnerStrengthExercises } from './runner-strength-library';
 
 // A entrevista pergunta o km semanal atual em faixas (opcao de marcar), nao em numero digitado.
 const WEEKLY_KM_RANGE_LABELS: Record<string, string> = {
@@ -42,8 +46,24 @@ const AiSessionSchema = z.object({
   recommendations: z.string().min(1).max(600),
 });
 
+// Exercicios de forca/fortalecimento tambem sao decisao real da IA, nunca de uma rotina fixa
+// escondida — exerciseIds sao validados contra o catalogo aprovado (ver validateStrengthSessions)
+// antes de qualquer sessao ser aceita.
+const AiStrengthSessionSchema = z.object({
+  weekday: z.number().int().min(0).max(6),
+  modality: z.enum(['forca', 'fortalecimento_corredores']),
+  title: z.string().min(1).max(120),
+  exerciseIds: z.array(z.string().min(1).max(60)).min(3).max(10),
+  sets: z.number().int().min(2).max(5),
+  reps: z.string().min(1).max(20),
+  restSeconds: z.number().int().min(20).max(150),
+  intensity: z.enum(['Leve', 'Moderada', 'Forte']),
+  notes: z.string().min(1).max(500),
+});
+
 const AiWeeklyDecisionSchema = z.object({
   sessions: z.array(AiSessionSchema).min(1).max(7),
+  strengthSessions: z.array(AiStrengthSessionSchema).max(7),
   recommendation: z.string().min(1).max(1200),
   rationale: z.array(z.string().min(1).max(500)).min(1).max(8),
   paceAssessment: z.object({
@@ -54,6 +74,7 @@ const AiWeeklyDecisionSchema = z.object({
 });
 
 type RunSlot = ReturnType<typeof computeRunSlots>[number];
+type StrengthSlot = ReturnType<typeof computeStrengthSlots>[number];
 
 export interface PaceEvidence {
   testPace?: { secondsPerKm: number; daysAgo: number } | null;
@@ -91,10 +112,50 @@ export class PrescriptionAgentService {
     return (await attempt()) ?? (await attempt());
   }
 
+  // Usado quando o treinador regenera UM dia de forca/fortalecimento isolado (sem regenerar a
+  // semana inteira) — mesma exigencia de nunca usar rotina fixa, so que numa chamada menor,
+  // focada em um unico dia, em vez de reprocessar a semana toda de corrida junto.
+  async proposeStrengthSession(input: MethodologyInput, slot: StrengthSlot): Promise<StrengthSessionDecision | null> {
+    if (!this.client) {
+      this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado para o dia de forca avulso.');
+      return null;
+    }
+    const attempt = () => this.attemptStrengthSessionDecision(input, slot);
+    return (await attempt()) ?? (await attempt());
+  }
+
+  private async attemptStrengthSessionDecision(input: MethodologyInput, slot: StrengthSlot): Promise<StrengthSessionDecision | null> {
+    const client = this.client;
+    if (!client) return null;
+    try {
+      const response = await this.aiQueue.run(() =>
+        client.messages.parse({
+          model: 'claude-opus-4-8',
+          max_tokens: 3000,
+          thinking: { type: 'adaptive' },
+          output_config: {
+            effort: 'high',
+            format: zodOutputFormat(AiStrengthSessionSchema),
+          },
+          system: this.buildSingleStrengthSystemPrompt(),
+          messages: [{ role: 'user', content: this.buildSingleStrengthUserPrompt(input, slot) }],
+        }),
+      );
+      const parsed = response.parsed_output;
+      if (!parsed) return null;
+      const validated = this.validateStrengthSessions([parsed], [slot]);
+      return validated?.[0] ?? null;
+    } catch (error) {
+      this.logger.warn(`Falha ao gerar decisao de forca avulsa com o agente de IA: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
   private async attemptDecision(input: MethodologyInput, evidence: PaceEvidence): Promise<(WeeklyMethodologyDecision & { source: 'ai' }) | null> {
     const client = this.client;
     if (!client) return null;
     const runSlots = computeRunSlots(input.availability);
+    const strengthSlots = computeStrengthSlots(input.availability);
 
     const painTier = input.painTier ?? (hasSafetyConcern(input.answers) ? 'reduced' : 'normal');
     const safetyAdjustment = painTier !== 'normal';
@@ -112,7 +173,7 @@ export class PrescriptionAgentService {
             format: zodOutputFormat(AiWeeklyDecisionSchema),
           },
           system: this.buildSystemPrompt(safetyAdjustment, removeRunning, novice),
-          messages: [{ role: 'user', content: this.buildUserPrompt(input, runSlots, safetyAdjustment, novice, evidence, input.painReason ?? null) }],
+          messages: [{ role: 'user', content: this.buildUserPrompt(input, runSlots, strengthSlots, safetyAdjustment, novice, evidence, input.painReason ?? null) }],
         }),
       );
 
@@ -131,8 +192,15 @@ export class PrescriptionAgentService {
         return null;
       }
 
+      const strengthSessions = this.validateStrengthSessions(parsed.strengthSessions, strengthSlots);
+      if (!strengthSessions) {
+        this.logger.warn('Decisao do agente de IA rejeitada na validacao dos dias de forca/fortalecimento (dia/modalidade nao bate com a disponibilidade, ou exercicio fora do catalogo aprovado).');
+        return null;
+      }
+
       return {
         sessions,
+        strengthSessions,
         recommendation: parsed.recommendation,
         rationale: parsed.rationale,
         safetyAdjustment,
@@ -216,6 +284,63 @@ export class PrescriptionAgentService {
     return result;
   }
 
+  // Garante que a IA so use exercicios reais do catalogo aprovado (nomes/descricoes/videos ja
+  // curados) e so decida dias/modalidades que o aluno realmente tem disponiveis — nunca inventa
+  // um exercicio nem escolhe um catalogo que nao bate com a modalidade do dia. Fora isso (quais
+  // exercicios, quantos, foco muscular do dia, sets/reps/descanso), a decisao e inteiramente da IA.
+  private validateStrengthSessions(
+    sessions: z.infer<typeof AiStrengthSessionSchema>[],
+    strengthSlots: StrengthSlot[],
+  ): StrengthSessionDecision[] | null {
+    if (sessions.length !== strengthSlots.length) {
+      this.logger.warn(
+        `Rejeitado (forca): numero de sessoes da IA (${sessions.length}) diferente do numero de dias de forca/fortalecimento disponiveis (${strengthSlots.length}).`,
+      );
+      return null;
+    }
+    const slotByWeekday = new Map(strengthSlots.map((slot) => [slot.weekday, slot]));
+    const usedWeekdays = new Set<number>();
+    const result: StrengthSessionDecision[] = [];
+
+    for (const session of sessions) {
+      const slot = slotByWeekday.get(session.weekday);
+      if (!slot) {
+        this.logger.warn(`Rejeitado (forca): IA retornou weekday ${session.weekday}, que nao esta entre os dias de forca disponiveis [${strengthSlots.map((s) => s.weekday).join(',')}].`);
+        return null;
+      }
+      if (usedWeekdays.has(session.weekday)) {
+        this.logger.warn(`Rejeitado (forca): IA retornou o weekday ${session.weekday} mais de uma vez.`);
+        return null;
+      }
+      if (session.modality !== slot.modality) {
+        this.logger.warn(`Rejeitado (forca): IA retornou modalidade ${session.modality} para weekday ${session.weekday}, mas o aluno tem ${slot.modality} nesse dia.`);
+        return null;
+      }
+      const catalog = session.modality === 'forca' ? gymExerciseLibrary : runnerStrengthExercises;
+      const catalogIds = new Set(catalog.map((exercise) => exercise.id));
+      const invalidIds = session.exerciseIds.filter((id) => !catalogIds.has(id));
+      if (invalidIds.length) {
+        this.logger.warn(`Rejeitado (forca): IA escolheu exercicio(s) fora do catalogo aprovado para ${session.modality} no weekday ${session.weekday}: [${invalidIds.join(',')}].`);
+        return null;
+      }
+
+      usedWeekdays.add(session.weekday);
+      result.push({
+        weekday: session.weekday,
+        modality: session.modality,
+        title: session.title,
+        exerciseIds: session.exerciseIds,
+        sets: session.sets,
+        reps: session.reps,
+        restSeconds: session.restSeconds,
+        intensity: session.intensity,
+        notes: session.notes,
+      });
+    }
+
+    return result;
+  }
+
   private buildSystemPrompt(safetyAdjustment: boolean, removeRunning: boolean, novice: boolean) {
     return [
       'Voce e o agente de prescricao de treinos de corrida da Panzeri Run.',
@@ -251,10 +376,18 @@ export class PrescriptionAgentService {
       'VARIEDADE: evite repetir literalmente o mesmo titulo e a mesma frase de notes toda semana para o mesmo tipo de sessao (ex: sempre "Corrida leve" com a mesma nota) — isso ja foi apontado pelo treinador como preguica de quem monta o treino. Varie a redacao do titulo e das notes de forma natural semana a semana, mantendo o mesmo padrao metodologico (nao mude o proposito da sessao so por variar, mude a forma como ela e descrita e pequenos detalhes de enfase).',
       'SOBRE O CAMPO recommendations (novo, um por sessao): aquecimento e desaquecimento NAO fazem mais parte do treino prescrito nem da distancia/duracao total — eles viram uma RECOMENDACAO em texto, separada, mostrada ao aluno depois do treino principal. Voce e responsavel por escrever essa recomendacao PENSANDO no aluno especifico, nao aplicando uma regra fixa. Diretriz do treinador, dada literalmente: para a maioria dos alunos, recomende aquecer de 5 a 10 minutos (caminhando ou trote bem leve, a escolha do aluno) e desaquecer com uns 5 minutos de caminhada leve. Para um aluno que voce concluiu (pelo paceAssessment e pelas evidencias de pace) ser um corredor amador com bom condicionamento e que sustenta ritmo por mais tempo, pode fazer mais sentido recomendar um trote leve de 1 a 3 km como aquecimento/desaquecimento em vez de so caminhar — mas essa decisao e SUA, baseada no pace/nivel real do aluno, nao existe um numero de corte fixo pra isso. Alem do aquecimento/desaquecimento, inclua neste campo outras recomendacoes praticas quando fizerem sentido para aquele treino especifico (ex: cuidado ao correr na rua — atencao ao transito e piso irregular —, ajustar inclinacao/passada se for na esteira, se hidratar bem principalmente em treinos mais longos ou dias quentes, levar gel/agua em longoes). Nao repita o mesmo texto generico sempre — adapte ao contexto da sessao (dia, duracao, se e longao ou intervalado, se e rua ou esteira segundo a modalidade informada).',
       'Responda em portugues nos campos de texto (title, notes, recommendations, recommendation, rationale, paceAssessment.rationale).',
+      'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida — nao existe mais nenhuma rotina fixa de exercicios escondida de voce para esses dias.',
+      '- Retorne exatamente uma sessao em strengthSessions para cada dia listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade informados (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores).',
+      '- exerciseIds SO PODE conter ids que existem literalmente em catalogoExerciciosMusculacao (para modality "forca") ou catalogoExerciciosFortalecimentoCorredores (para modality "fortalecimento_corredores") — nunca invente um exercicio ou nome que nao esteja no catalogo informado. Escolha entre 3 e 10 exercicios conforme o tempo disponivel do dia (mais tempo, mais exercicios).',
+      '- Se diretrizesEspecificasDoTreinadorParaEsteAluno pedir um FOCO especifico para um dia de forca (ex: "segunda e dia de perna, sem corrida" ou uma lista explicita de exercicios), aplique isso literalmente: escolha exerciseIds cujo campo "group" (catalogoExerciciosMusculacao) ou "focus" (catalogoExerciciosFortalecimentoCorredores) correspondam ao foco pedido (ex: foco em perna = grupos quadriceps/posterior/gluteos/panturrilha/quadril; foco em superior = peito/costas/ombros/biceps/triceps), ou os exercicios especificos citados pelo nome, se existirem no catalogo. Isso e igual em prioridade as diretrizes de corrida — sao ordens pessoais do treinador para este aluno, nao uma sugestao.',
+      '- Sem diretriz especifica sobre o foco do dia, monte uma sessao equilibrada e variada (pernas + core + upper body de forma proporcional), a nao ser que o proprio catalogo/nivel do aluno sugira outra coisa.',
+      '- Nivel dos exercicios (campo "level" no catalogo): prefira "base" para alunos iniciantes ou com sinalDeSeguranca ativo; "intermediate"/"advanced" para alunos com mais experiencia e sem sinal de seguranca ativo. Isso e julgamento seu, nao uma tabela fixa.',
+      '- sets, reps, restSeconds e intensity sao decisao sua por sessao (nao precisa variar por exercicio individual): valores tipicos giram em torno de 3 series de 8 a 12 repeticoes com 60 a 90s de descanso para musculacao, e series mais curtas/tempo (ex: "30 a 45s") com descanso um pouco menor para exercicios de core ou fortalecimento para corredores — mas ajuste livremente conforme a duracao do dia, o nivel do aluno e sinal de seguranca.',
+      '- VARIEDADE tambem vale aqui: evite repetir a mesma lista exata de exercicios toda semana para o mesmo aluno/dia — alterne exercicios equivalentes do catalogo quando fizer sentido, mantendo a logica de foco/objetivo do dia.',
     ].join('\n\n');
   }
 
-  private buildUserPrompt(input: MethodologyInput, runSlots: RunSlot[], safetyAdjustment: boolean, novice: boolean, evidence: PaceEvidence, painReason: string | null) {
+  private buildUserPrompt(input: MethodologyInput, runSlots: RunSlot[], strengthSlots: StrengthSlot[], safetyAdjustment: boolean, novice: boolean, evidence: PaceEvidence, painReason: string | null) {
     return JSON.stringify(
       {
         objetivo: input.goal,
@@ -286,6 +419,13 @@ export class PrescriptionAgentService {
         hoje: input.todayDate ?? null,
         dataDeCadaDiaDaSemanaSendoGerada: input.weekDates ?? null,
         diasDisponiveisParaCorrida: runSlots,
+        diasDisponiveisParaForca: strengthSlots,
+        catalogoExerciciosMusculacao: strengthSlots.some((slot) => slot.modality === 'forca')
+          ? gymExerciseLibrary.map((exercise) => ({ id: exercise.id, name: exercise.name, group: exercise.group, level: exercise.level }))
+          : [],
+        catalogoExerciciosFortalecimentoCorredores: strengthSlots.some((slot) => slot.modality === 'fortalecimento_corredores')
+          ? runnerStrengthExercises.map((exercise) => ({ id: exercise.id, name: exercise.name, focus: exercise.focus, level: exercise.level }))
+          : [],
         historicoSemanal: input.history,
         minutosCorridosStravaRecente: input.stravaRunMinutes,
         maiorCorridaStravaRecenteMin: input.stravaLongestRunMinutes,
@@ -301,6 +441,44 @@ export class PrescriptionAgentService {
               paceAlvoSegundosPorKm: input.targetRace.paceSecondsPerKm,
             }
           : null,
+      },
+      null,
+      2,
+    );
+  }
+
+  private buildSingleStrengthSystemPrompt() {
+    return [
+      'Voce e o agente de prescricao de treinos da Panzeri Run, decidindo agora APENAS um unico dia de forca/fortalecimento para corredores que o treinador pediu para regenerar isoladamente (sem mexer no resto da semana do aluno).',
+      PANZERI_METHODOLOGY_KNOWLEDGE,
+      '- Se diretrizesEspecificasDoTreinadorParaEsteAluno nao estiver vazio, aplique-as literalmente para este dia — sao ordens pessoais do treinador para este aluno, prioridade quase absoluta.',
+      '- observacoesRegistradasPeloProprioAluno sao anotacoes informais do proprio aluno, nao uma ordem — considere quando fizer sentido, sem sacrificar seguranca.',
+      '- exerciseIds SO PODE conter ids que existem literalmente no catalogo informado (catalogoExerciciosMusculacao para modality "forca", catalogoExerciciosFortalecimentoCorredores para "fortalecimento_corredores") — nunca invente um exercicio. Escolha entre 3 e 10 exercicios conforme a duracao do dia.',
+      '- Se houver diretriz de foco muscular para este dia especifico (ex: "so perna hoje") ou lista explicita de exercicios, aplique literalmente usando o campo "group"/"focus" do catalogo para filtrar. Sem diretriz, monte uma sessao equilibrada e variada.',
+      '- Prefira exercicios de nivel "base" para alunos iniciantes ou com sinalDeSeguranca ativo.',
+      '- weekday e modality da resposta devem ser exatamente os informados em diaDeForcaParaRegenerar.',
+      'Responda em portugues nos campos de texto (title, notes).',
+    ].join('\n\n');
+  }
+
+  private buildSingleStrengthUserPrompt(input: MethodologyInput, slot: StrengthSlot) {
+    return JSON.stringify(
+      {
+        objetivo: input.goal,
+        experiencia: input.experience,
+        respostasEntrevista: input.answers,
+        diretrizesEspecificasDoTreinadorParaEsteAluno: input.studentDirectives ?? [],
+        observacoesRegistradasPeloProprioAluno: input.activeObservations ?? [],
+        hoje: input.todayDate ?? null,
+        sinalDeSeguranca: (input.painTier ?? 'normal') !== 'normal',
+        motivoDoSinalDeSeguranca: input.painReason ?? null,
+        diaDeForcaParaRegenerar: slot,
+        catalogoExerciciosMusculacao: slot.modality === 'forca'
+          ? gymExerciseLibrary.map((exercise) => ({ id: exercise.id, name: exercise.name, group: exercise.group, level: exercise.level }))
+          : [],
+        catalogoExerciciosFortalecimentoCorredores: slot.modality === 'fortalecimento_corredores'
+          ? runnerStrengthExercises.map((exercise) => ({ id: exercise.id, name: exercise.name, focus: exercise.focus, level: exercise.level }))
+          : [],
       },
       null,
       2,

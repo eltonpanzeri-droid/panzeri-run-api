@@ -96,29 +96,3 @@ export const gymExerciseLibrary: GymExercise[] = [
   item('abdominal-obliquo', 'Abdominal Obliquo', 'core', core),
 ];
 
-export function selectGymExercises(input: { durationMin: number; experience?: string; safetyAdjustment?: boolean; rotation?: number; countAdjustment?: number }) {
-  const experience = (input.experience ?? '').toLowerCase();
-  const novice = ['nunca', 'poucas', 'voltando', 'menos de 1 ano'].some((term) => experience.includes(term));
-  const safeOnly = novice || input.safetyAdjustment;
-  const rotations = safeOnly
-    ? [
-        ['agachamento-calice', 'stiff-halteres', 'elevacao-pelvica-chao', 'supino-reto-halteres', 'pulley-pronado', 'panturrilha-aparelho-sentado', 'abdominal-reto'],
-        ['leg-press', 'banco-flexor', 'extensao-quadril-polia', 'flexao-joelhos', 'remada-baixa-pronada', 'panturrilha-aparelho-sentado', 'abdominal-obliquo'],
-      ]
-    : [
-        ['agachamento-barra-guiada', 'stiff-barra', 'banco-extensor', 'supino-reto-barra', 'remada-baixa-pronada', 'desenvolvimento-halteres', 'panturrilha-barra-guiada', 'abdominal-reto'],
-        ['leg-press', 'terra-hexagonal', 'bulgaro-halteres', 'supino-inclinado-halteres', 'pulley-supinado', 'abducao-lateral-halteres', 'panturrilha-guiada-unilateral', 'abdominal-obliquo'],
-        ['hack', 'stiff-unilateral', 'elevacao-pelvica-chao-unilateral', 'crucifixo-crossover', 'remada-curvada-polia', 'desenvolvimento-frente-barra', 'panturrilha-aparelho-sentado', 'abdominal-reto'],
-      ];
-  const ids = rotations[(input.rotation ?? 0) % rotations.length];
-  const baseCount = input.durationMin >= 75 ? 8 : input.durationMin >= 60 ? 7 : input.durationMin >= 45 ? 6 : 5;
-  const count = Math.max(3, Math.min(9, baseCount + (input.countAdjustment ?? 0)));
-  return ids
-    .map((id) => gymExerciseLibrary.find((exercise) => exercise.id === id))
-    .filter((exercise): exercise is GymExercise => Boolean(exercise))
-    .slice(0, count);
-}
-
-export function isApprovedGymExercise(name: string) {
-  return gymExerciseLibrary.some((exercise) => exercise.name === name);
-}
