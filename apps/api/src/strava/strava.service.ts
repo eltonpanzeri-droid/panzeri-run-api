@@ -569,6 +569,14 @@ export class StravaService implements OnModuleInit {
     return new URL(redirect).origin;
   }
 
+  // Endereco do app da aluna (PWA), diferente do dominio da API — usado so para trazer a
+  // aluna de volta ao app depois que ela autoriza o Strava, ja que o callback do OAuth
+  // acontece no dominio da API (STRAVA_REDIRECT_URI), nao no dominio que ela realmente usa.
+  studentAppUrl() {
+    const configured = this.config.get<string>('STUDENT_APP_URL');
+    return configured ? configured.replace(/\/$/, '') : null;
+  }
+
   private requiredConfig(key: string) {
     const value = this.config.get<string>(key);
     if (!value) {

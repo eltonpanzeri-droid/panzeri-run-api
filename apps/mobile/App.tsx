@@ -385,22 +385,16 @@ const API_URL = Platform.OS === 'web' ? '/api' : 'https://agenteselton-panzeri-r
 const AUTH_SESSION_KEY = 'panzeri-run-auth-session';
 const DISMISSED_NOTIFICATIONS_KEY = 'panzeri-run-dismissed-notifications';
 
-type AuthPopup = {
-  document?: { write: (html: string) => void };
-  location?: { href: string };
-  close?: () => void;
-} | null;
-
-function openAuthPopup(): AuthPopup {
-  const browserWindow = (globalThis as unknown as {
-    window?: { open?: (url?: string, target?: string, features?: string) => AuthPopup };
-  }).window;
-
-  return browserWindow?.open?.(
-    '',
-    'panzeri_strava',
-    'width=520,height=760,menubar=no,toolbar=no,location=yes,status=no',
-  ) ?? null;
+// Popup de OAuth (window.open) e um padrao de desktop que nao funciona de forma confiavel em
+// PWA instalada no celular — a maioria dos navegadores mobile bloqueia a popup silenciosamente,
+// e quem usa o app instalado na tela inicial (a maioria das alunas) fica sem perceber que o
+// botao "Conectar com Strava" nao fez nada. Por isso a autorizacao acontece na propria aba
+// (navegacao normal), e a pagina de callback do Strava (strava.controller.ts) redireciona de
+// volta pro endereco do app sozinha ao terminar.
+function navigateTopLevel(url: string) {
+  const browserWindow = (globalThis as unknown as { window?: { location?: { href: string } } }).window;
+  if (browserWindow?.location) browserWindow.location.href = url;
+  else Linking.openURL(url);
 }
 
 // Conexoes moveis tem quedas curtas e passageiras (troca de torre, wifi instavel). Sem isso,
@@ -3459,23 +3453,17 @@ function StravaSync({ accessToken }: { accessToken: string }) {
     if (connecting) return;
     setConnecting(true);
     setMessage('');
-    const authPopup = openAuthPopup();
-    authPopup?.document?.write('<p style="font-family: Arial, sans-serif; padding: 24px;">Abrindo autorizacao do Strava...</p>');
     try {
       const response = await fetch(`${API_URL}/strava/connect-url`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (!response.ok) {
-        authPopup?.close?.();
         setMessage('Nao consegui iniciar a autorizacao do Strava.');
         return;
       }
       const data = (await response.json()) as { url: string };
-      if (authPopup?.location) authPopup.location.href = data.url;
-      else Linking.openURL(data.url);
-      setMessage('Conclua a autorizacao uma unica vez, sem recarregar a pagina. Esta tela reconhecera a conexao automaticamente.');
+      navigateTopLevel(data.url);
     } catch {
-      authPopup?.close?.();
       setMessage('Nao consegui abrir a autorizacao do Strava.');
     } finally {
       setConnecting(false);

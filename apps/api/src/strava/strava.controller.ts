@@ -24,6 +24,8 @@ export class StravaController {
       isError = true;
       message = error instanceof Error ? error.message : 'Nao consegui concluir a conexao com o Strava.';
     }
+    const appUrl = this.stravaService.studentAppUrl();
+    const delayMs = isError ? 3500 : 1200;
     response.type('html').send(`
       <html>
         <head>
@@ -33,16 +35,25 @@ export class StravaController {
             main { max-width: 520px; margin: 64px auto; line-height: 1.5; }
             h2 { margin-bottom: 8px; }
             p { color: #475569; }
+            a { color: #0f766e; font-weight: 700; }
           </style>
         </head>
         <body>
           <main>
             <h2>${message}</h2>
-            <p>${isError ? 'Volte ao aplicativo e tente conectar novamente.' : 'A sincronizacao agora e automatica. Pode voltar ao aplicativo.'}</p>
+            <p>${isError ? 'Volte ao aplicativo e tente conectar novamente.' : 'A sincronizacao agora e automatica.'}</p>
+            ${appUrl ? `<p><a href="${appUrl}">Voltar ao aplicativo</a></p>` : ''}
           </main>
           <script>
+            // Se essa pagina foi aberta como popup (window.opener existe), so fecha e volta pra
+            // aba original do app sozinha. Se foi aberta na mesma aba (navegacao normal, o caso
+            // mais comum em PWA no celular, onde popup e bloqueada), nao ha pra onde "fechar" —
+            // entao redireciona de volta pro endereco do app.
             if (window.opener) {
-              setTimeout(function () { window.close(); }, ${isError ? 3500 : 1200});
+              setTimeout(function () { window.close(); }, ${delayMs});
+            } else {
+              var appUrl = ${JSON.stringify(appUrl)};
+              if (appUrl) setTimeout(function () { window.location.href = appUrl; }, ${delayMs});
             }
           </script>
         </body>
