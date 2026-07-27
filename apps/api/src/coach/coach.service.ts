@@ -248,9 +248,9 @@ export class CoachService {
     };
   }
 
-  async regenerateStudentWeek(studentId: string) {
+  async regenerateStudentWeek(studentId: string, allowToday?: boolean) {
     await this.assertStudent(studentId);
-    await this.trainingPlans.generateWeek(studentId);
+    await this.trainingPlans.generateWeek(studentId, undefined, { allowToday });
     return { message: 'Nova semana de treinos gerada.' };
   }
 

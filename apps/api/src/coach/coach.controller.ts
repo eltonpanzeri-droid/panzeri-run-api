@@ -85,8 +85,8 @@ export class CoachController {
   }
 
   @Post('students/:studentId/plan/regenerate-week')
-  regenerateStudentWeek(@Param('studentId') studentId: string) {
-    return this.coachService.regenerateStudentWeek(studentId);
+  regenerateStudentWeek(@Param('studentId') studentId: string, @Body() body: { allowToday?: boolean }) {
+    return this.coachService.regenerateStudentWeek(studentId, body?.allowToday);
   }
 
   @Post('students/:studentId/plan/recover-sessions')

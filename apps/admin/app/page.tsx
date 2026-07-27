@@ -1416,14 +1416,18 @@ function StudentPanel({
 
   async function regenerateWeek() {
     if (!student) return;
-    if (!window.confirm('Gerar uma nova semana de treinos para este aluno? Isso substitui os treinos ainda nao realizados desta semana.')) {
+    if (!window.confirm('Gerar uma nova semana de treinos para este aluno? Isso substitui os treinos ainda nao realizados desta semana (o treino de hoje normalmente NAO e alterado).')) {
       return;
     }
+    const allowToday = window.confirm(
+      'Quer TAMBEM alterar o treino de HOJE especificamente? O aluno pode ja estar vendo ou ter comecado esse treino. Clique OK para incluir hoje, ou Cancelar para manter hoje como esta (recomendado).',
+    );
     onStatus('Gerando nova semana de treinos...');
     try {
       const response = await fetch(`${API_URL}/coach/students/${student.id}/plan/regenerate-week`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allowToday }),
       });
       if (!response.ok) {
         onStatus('Nao consegui gerar uma nova semana.');

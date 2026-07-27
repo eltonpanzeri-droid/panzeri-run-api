@@ -211,11 +211,13 @@ export class TrainingPlansService {
   // options.referenceDate/planStatus/archiveCurrentActive existem so para a pre-geracao da
   // semana SEGUINTE (domingo 19h, ver generateNextWeekIfMissing) — a chamada normal (aluno
   // abrindo o app, treinador regenerando a semana atual) nunca passa isso, e o comportamento
-  // fica exatamente igual ao de sempre.
+  // fica exatamente igual ao de sempre. options.allowToday e diferente: e o treinador confirmando
+  // explicitamente (pelo admin) que quer mesmo alterar o treino de HOJE ao regenerar a semana —
+  // sem isso, hoje continua sempre preservado (comportamento padrao, nunca muda sozinho).
   async generateWeek(
     userId: string,
     weeklyOverride?: WeeklyAvailabilityInput[],
-    options?: { referenceDate?: Date; planStatus?: string; archiveCurrentActive?: boolean },
+    options?: { referenceDate?: Date; planStatus?: string; archiveCurrentActive?: boolean; allowToday?: boolean },
   ) {
     const referenceDate = options?.referenceDate ?? new Date();
     const planStatus = options?.planStatus ?? 'active';
@@ -478,7 +480,10 @@ export class TrainingPlansService {
           title: isRunningModality(modality) ? 'Treino de corrida' : template.title,
           sessionType: template.sessionType,
           locationSuggestion: 'Livre',
-          durationMin,
+          // Usa a duracao calculada pela propria prescricao (que agora reflete o tempo REAL da
+          // estrutura montada), nao o numero decidido antes de montar os blocos — pra corrida com
+          // intervalos/caminhada, os dois podiam divergir (ver correcao em runPrescription acima).
+          durationMin: prescription.durationMin ?? durationMin,
           distanceKm: prescription.distanceKm,
           intensityZone: template.zone,
           paceMinSec: !isStrength && !isAerobic ? formatPace(template.zone === 'Z4' ? resolvedPaces.intense : resolvedPaces.easy) : null,
@@ -507,7 +512,10 @@ export class TrainingPlansService {
     // nenhuma. O rollover para a semana seguinte (acima) ja cobre o caso de nao sobrar dia
     // nenhum nesta semana; aqui so filtramos os dias que ficaram no passado dentro da semana
     // escolhida.
-    const sessionsToCreate = sessions.filter((session) => session.scheduledDate.getTime() > today.getTime());
+    const sessionsToCreate = sessions.filter((session) =>
+      session.scheduledDate.getTime() > today.getTime() ||
+      (Boolean(options?.allowToday) && session.scheduledDate.getTime() === today.getTime()),
+    );
     const plan = await this.prisma.trainingPlan.create({
       data: {
         userId,
@@ -904,20 +912,33 @@ export class TrainingPlansService {
     const { paceRange, speedRange } = this.paceRangeText(targetPaceSeconds);
 
     if (sessionType === 'quality_run') {
-      const intenseDistance = Math.max(0.5, roundDistance(targetDistanceKm * 0.3));
-      const recoveryDistance = Math.max(0.5, roundDistance(targetDistanceKm - intenseDistance));
-      const intenseStepKm = Math.max(0.4, Math.min(1.5, roundDistance(intenseDistance / 4)));
+      // Correcao de um bug real, encontrado na pratica (60 min virando quase 95 min reais): antes,
+      // a distancia total do dia era calculada usando SO o pace intenso pra duracao inteira, e so
+      // depois 30% dessa distancia virava a parte forte e 70% virava "volume leve" no pace facil —
+      // como o pace facil e mais lento que o intenso, cobrir 70% da DISTANCIA nesse pace consome
+      // bem mais que 70% do TEMPO, e o treino real acaba levando muito mais tempo que durationMin.
+      // Agora o tempo e dividido primeiro (nao a distancia): o bloco intervalado recebe um
+      // orcamento de tempo, e o bloco de volume leve recebe o tempo que sobrar — cada um deriva a
+      // PROPRIA distancia do PROPRIO tempo e pace, entao a soma real bate com durationMin de verdade.
+      const intenseShareOfTime = 0.3;
+      const intervalBudgetSeconds = durationMin * 60 * intenseShareOfTime;
+      const intenseStepKm = Math.max(0.4, Math.min(1.5, roundDistance((targetDistanceKm * intenseShareOfTime) / 4)));
       const recoveryStepKm = 0.4;
-      const repeatCount = Math.max(3, Math.min(8, Math.round(intenseDistance / intenseStepKm)));
+      const recoveryPaceSeconds = 900;
+      const secondsPerRep = intenseStepKm * resolvedPaces.intense + recoveryStepKm * recoveryPaceSeconds;
+      const repeatCount = Math.max(3, Math.min(8, Math.round(intervalBudgetSeconds / secondsPerRep)));
       const intervalBlock: RunBlock = {
         label: 'Serie intervalada',
         zone,
         repeatCount,
         steps: [
           this.intervalStep('Correr forte', intenseStepKm, resolvedPaces.intense),
-          this.intervalStep('Recuperar', recoveryStepKm, 900),
+          this.intervalStep('Recuperar', recoveryStepKm, recoveryPaceSeconds),
         ],
       };
+      const intervalBlockSeconds = repeatCount * secondsPerRep;
+      const remainingSeconds = Math.max(0, durationMin * 60 - intervalBlockSeconds);
+      const recoveryDistance = Math.max(0.5, roundDistance(remainingSeconds / resolvedPaces.easy));
       const blocks = [
         intervalBlock,
         this.runDistanceBlock('Recuperacoes e volume leve', recoveryDistance, 'Z2', resolvedPaces.easy),
@@ -930,13 +951,17 @@ export class TrainingPlansService {
     }
 
     if (sessionType === 'walk_run') {
+      // Mesma correcao do quality_run acima: repeatCount agora vem do orcamento de TEMPO
+      // (durationMin), nao de uma distancia total estimada a partir de um unico pace — a
+      // caminhada e a corrida tem paces bem diferentes, entao estimar por distancia sozinha
+      // tambem estourava o tempo real do treino.
       const walkPaceSeconds = 660;
       const minimumGapSeconds = 90; // garante que a corrida sempre seja perceptivelmente mais rapida que a caminhada
       const runPaceSeconds = Math.min(resolvedPaces.easy, MAX_RUN_PACE_SECONDS, walkPaceSeconds - minimumGapSeconds);
-      const mainDistance = Math.max(1, targetDistanceKm);
       const walkStepKm = 0.3;
       const runStepKm = 0.2;
-      const repeatCount = Math.max(3, Math.min(14, Math.round(mainDistance / (walkStepKm + runStepKm))));
+      const secondsPerRep = walkStepKm * walkPaceSeconds + runStepKm * runPaceSeconds;
+      const repeatCount = Math.max(3, Math.min(14, Math.round((durationMin * 60) / secondsPerRep)));
       const intervalBlock: RunBlock = {
         label: 'Bloco intervalado',
         zone: 'Z2',
