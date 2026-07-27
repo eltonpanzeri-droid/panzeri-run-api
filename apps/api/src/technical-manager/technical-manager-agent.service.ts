@@ -85,7 +85,7 @@ export class TechnicalManagerAgentService {
 
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
       const response = await client.messages.create({
-        model: 'claude-opus-4-8',
+        model: 'claude-sonnet-5',
         max_tokens: 2000,
         system: this.buildSystemPrompt(studentName),
         tools: tools.map((tool) => tool.spec),

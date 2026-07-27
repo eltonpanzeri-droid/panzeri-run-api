@@ -136,7 +136,7 @@ export class PrescriptionAgentService {
     try {
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
-          model: 'claude-opus-4-8',
+          model: 'claude-sonnet-5',
           max_tokens: 3000,
           thinking: { type: 'adaptive' },
           output_config: {
@@ -171,7 +171,7 @@ export class PrescriptionAgentService {
     try {
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
-          model: 'claude-opus-4-8',
+          model: 'claude-sonnet-5',
           // Aumentado de 8000 depois que strengthSessions foi adicionado a mesma resposta: um
           // aluno com varios dias de forca/fortalecimento (cada um com titulo/notes/exercicios)
           // soma bastante texto em cima do que a corrida ja usava, e o mesmo tipo de falha

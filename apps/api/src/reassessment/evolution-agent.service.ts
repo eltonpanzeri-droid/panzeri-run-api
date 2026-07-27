@@ -47,7 +47,7 @@ export class EvolutionAgentService {
     try {
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
-          model: 'claude-opus-4-8',
+          model: 'claude-sonnet-5',
           max_tokens: 3000,
           thinking: { type: 'adaptive' },
           output_config: {
