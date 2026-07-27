@@ -47,6 +47,13 @@ const AiSessionSchema = z.object({
   durationMin: z.number().int().min(10).max(240),
   notes: z.string().min(1),
   recommendations: z.string().min(1),
+  // Preenchido SOMENTE quando durationMin ultrapassa o tempo normal disponivel para este weekday
+  // especifico — deve citar a diretriz exata que autoriza isso para ESTE dia. Sem essa citacao,
+  // validateSessions rejeita qualquer duracao acima do normal. Isso substitui uma regra antiga que
+  // liberava um teto amplo (ate 180min) pra QUALQUER dia so por existir alguma diretriz ativa,
+  // mesmo sem relacao com aquele dia — exatamente o tipo de "licenca em branco" que o treinador
+  // pediu para eliminar. Null/vazio quando a duracao esta dentro do normal do dia.
+  durationJustification: z.string().max(300).nullable(),
 });
 
 // Exercicios de forca/fortalecimento tambem sao decisao real da IA, nunca de uma rotina fixa
@@ -219,8 +226,7 @@ export class PrescriptionAgentService {
         return null;
       }
 
-      const hasActiveDirectives = (input.studentDirectives?.length ?? 0) > 0;
-      const sessions = this.validateSessions(parsed.sessions, runSlots, safetyAdjustment, parsed.paceAssessment.easyPaceSecondsPerKm, hasActiveDirectives);
+      const sessions = this.validateSessions(parsed.sessions, runSlots, safetyAdjustment, parsed.paceAssessment.easyPaceSecondsPerKm);
       if (!sessions) {
         this.logger.warn('Decisao do agente de IA rejeitada na validacao (fora dos limites de seguranca/disponibilidade/mecanica de corrida).');
         return null;
@@ -260,7 +266,6 @@ export class PrescriptionAgentService {
     runSlots: RunSlot[],
     safetyAdjustment: boolean,
     easyPaceSecondsPerKm: number,
-    hasActiveDirectives: boolean,
   ): RunSessionDecision[] | null {
     // Log detalhado do motivo da rejeicao: sem isso, toda rejeicao vira um fallback silencioso
     // para o motor deterministico (que ignora diretivas e pace especifico), e ninguem consegue
@@ -278,10 +283,12 @@ export class PrescriptionAgentService {
     // corre bem), walk_run nao faz sentido — mas a decisao vem do pace real, nao de um rotulo
     // de "iniciante" na entrevista.
     const clearlyCapableOfContinuousRunning = easyPaceSecondsPerKm < 420;
-    // Diretriz ativa e uma instrucao pontual e confirmada pelo treinador com o aluno fora do app
-    // (ex: liberar mais tempo para um longao antes de uma prova) — nesse caso o tempo disponivel
-    // registrado na disponibilidade semanal normal deixa de ser um teto absoluto, dentro de um
-    // limite de seguranca razoavel.
+    // Teto de seguranca absoluto (nunca ultrapassavel, mesmo com diretriz citada) — nao e "licenca
+    // em branco": so entra em jogo quando a IA JA citou, para ESTE dia especifico, qual diretriz
+    // justifica ultrapassar o tempo normal (ver durationJustification no schema). Antes, qualquer
+    // diretriz ativa (de qualquer assunto, para qualquer aluno) liberava esse teto para TODOS os
+    // dias da semana, mesmo sem nenhuma relacao entre a diretriz e aquele dia — exatamente o tipo
+    // de regra generica que o treinador pediu para eliminar.
     const directiveDurationCeiling = 180;
 
     for (const session of sessions) {
@@ -294,10 +301,18 @@ export class PrescriptionAgentService {
         this.logger.warn(`Rejeitado: IA retornou o weekday ${session.weekday} mais de uma vez.`);
         return null;
       }
-      const maxDurationForDay = hasActiveDirectives ? Math.max(slot.durationMin, directiveDurationCeiling) : slot.durationMin;
+      const exceedsNormalDuration = session.durationMin > slot.durationMin;
+      const hasJustification = Boolean(session.durationJustification && session.durationJustification.trim().length > 0);
+      if (exceedsNormalDuration && !hasJustification) {
+        this.logger.warn(
+          `Rejeitado: durationMin ${session.durationMin} excede o tempo disponivel normal (${slot.durationMin}) para weekday ${session.weekday} sem nenhuma diretriz citada em durationJustification.`,
+        );
+        return null;
+      }
+      const maxDurationForDay = exceedsNormalDuration ? directiveDurationCeiling : slot.durationMin;
       if (session.durationMin < 10 || session.durationMin > maxDurationForDay) {
         this.logger.warn(
-          `Rejeitado: durationMin ${session.durationMin} fora do limite para weekday ${session.weekday} (min 10, max ${maxDurationForDay}, hasActiveDirectives=${hasActiveDirectives}).`,
+          `Rejeitado: durationMin ${session.durationMin} fora do limite para weekday ${session.weekday} (min 10, max ${maxDurationForDay}).`,
         );
         return null;
       }
@@ -397,9 +412,9 @@ export class PrescriptionAgentService {
       '- Se observacoesRegistradasPeloProprioAluno nao estiver vazio: isso e MUITO DIFERENTE de diretrizesEspecificasDoTreinadorParaEsteAluno. Sao anotacoes que o proprio ALUNO escreveu livremente sobre circunstancias pessoais (ex: "vou viajar semana que vem e nao sei se terei onde treinar", "essa semana vou ter uma prova na faculdade e menos tempo"). Isso NAO e uma ordem, NAO foi confirmado/revisado pelo treinador, e voce NAO e obrigado a agir sobre isso. Leve em consideracao quando fizer sentido e for possivel ajustar (ex: reduzir expectativa de volume numa semana que o aluno avisou que vai viajar), mas nunca sacrifique seguranca ou principios da metodologia so por causa de uma observacao informal. Se a observacao mencionar uma data especifica, use hoje/dataDeCadaDiaDaSemanaSendoGerada para julgar se ela e relevante para a semana que voce esta gerando agora.',
       '- ATENCAO ESPECIAL A DATAS: diretrizes frequentemente citam datas de calendario especificas (ex: "longao de 16 km em 25/07", "taper de 03/08 a 09/08"), mas voce so pode retornar numeros de weekday (0=domingo...6=sabado), nao datas. Use o campo dataDeCadaDiaDaSemanaSendoGerada (mapa weekday -> data desta semana especifica) e o campo hoje (data de hoje) para descobrir exatamente qual weekday corresponde a cada data mencionada na diretriz, e aplique a instrucao (distancia/duracao/pace) NAQUELE weekday especifico. Se uma data da diretriz nao aparecer em dataDeCadaDiaDaSemanaSendoGerada, ela e de uma semana diferente da que voce esta gerando agora — nesse caso ignore essa parte da diretriz (nao aplique fora da semana certa), mas ainda assim aplique instrucoes de pace/regra geral que nao sejam amarradas a uma data especifica. Nunca ignore uma diretriz so porque voce nao tem certeza da data — raciocine com cuidado antes de descartar.',
       '- ERRO GRAVE JA OBSERVADO NA PRATICA, NAO REPITA: quando uma diretriz da uma distancia-alvo explicita para um dia especifico (ex: "16 km no sabado"), voce NAO PODE simplesmente manter o durationMin normal daquele dia (o tempo disponivel de sempre) e deixar a distancia emergir sozinha do calculo duration/pace — isso produz uma distancia bem menor que o pedido e e exatamente o erro que ja aconteceu. O procedimento correto e o INVERSO: primeiro decida o pace real que vale para aquele treino (use o pace que a propria diretriz especificou, se ela der um pace; senao use seu paceAssessment), DEPOIS calcule durationMin = distanciaAlvoKm * paceSegundosPorKm / 60 (arredondado), e retorne ESSE durationMin calculado para aquele dia — mesmo que fique bem maior que o tempo disponivel normal (a excecao de tempo abaixo permite isso). Exemplo numerico: diretriz pede 16 km no sabado com pace de longao de 6:20-7:00/km (~400s/km); durationMin correto e aproximadamente 16 * 400 / 60 = 107 minutos — nunca 70 minutos (que so daria uns 10-11 km nesse pace, nao os 16 km pedidos).',
-      '- Se metaDeProva estiver preenchida, use-a como norte para a periodizacao (volume, foco da fase, urgencia conforme a proximidade da data), mas voce PODE e DEVE ajustar a interpretacao dessa meta se os dados reais do aluno (pace, volume sustentado, experiencia, tempo ate a prova) indicarem que ela e pouco realista — nesse caso, prescreva o que voce julgar seguro e adequado para a capacidade real do aluno, e explique claramente no rationale que a meta informada parece ambiciosa/pouco realista e por que voce ajustou a abordagem. Nunca sacrifique seguranca ou progressao responsavel para tentar alcancar uma meta.',
+      '- Se metaDeProva estiver preenchida, use-a como norte GERAL para a periodizacao (volume, foco da fase, urgencia conforme a proximidade da data) SOMENTE nos dias/semanas em que diretrizesEspecificasDoTreinadorParaEsteAluno nao disser nada especifico. IMPORTANTE, ja aconteceu de dar errado na pratica: se existir uma diretriz especifica com numero exato (distancia e/ou pace) para um dia determinado, essa diretriz especifica SEMPRE vence sua propria narrativa de progressao gradual rumo a meta de prova — nunca troque o numero exato da diretriz por um valor diferente so porque "faz mais sentido" dentro da sua propria logica de periodizacao. A meta de prova serve para preencher as LACUNAS que a diretriz nao cobre, nunca para sobrescrever o que a diretriz ja decidiu explicitamente. Fora dos dias com diretriz explicita, voce PODE e DEVE ajustar a interpretacao da meta se os dados reais do aluno (pace, volume sustentado, experiencia, tempo ate a prova) indicarem que ela e pouco realista — nesse caso, prescreva o que voce julgar seguro e adequado, e explique claramente no rationale que a meta parece ambiciosa/pouco realista e por que voce ajustou. Nunca sacrifique seguranca ou progressao responsavel para tentar alcancar uma meta.',
       '- Retorne exatamente uma sessao de corrida para cada dia disponivel informado, usando o mesmo numero de weekday (0=domingo...6=sabado).',
-      '- durationMin de cada sessao normalmente nao pode exceder o tempo disponivel informado para aquele dia. EXCECAO: se diretrizesEspecificasDoTreinadorParaEsteAluno pedir explicitamente uma sessao mais longa num dia especifico (ex: um longao maior antes de uma prova, combinado entre o treinador e o aluno fora do app), voce PODE exceder o tempo disponivel normal daquele dia para cumprir a diretriz literalmente — o treinador ja confirmou isso com o aluno. Mesmo assim, nunca prescreva mais de 180 minutos numa unica sessao.',
+      '- durationMin de cada sessao normalmente NAO PODE exceder o tempo disponivel informado para aquele dia especifico — isso vale mesmo que o aluno tenha alguma diretriz ativa sobre OUTRO assunto ou OUTRO dia. EXCECAO, e somente quando ela realmente se aplica: se diretrizesEspecificasDoTreinadorParaEsteAluno pedir explicitamente uma sessao mais longa NAQUELE dia especifico (ex: um longao maior antes de uma prova, combinado entre o treinador e o aluno fora do app), voce PODE exceder o tempo disponivel normal SOMENTE daquele dia — e nesse caso e OBRIGATORIO preencher o campo durationJustification daquela sessao citando resumidamente qual diretriz especifica autoriza isso para aquele dia (ex: "diretriz de 25/07 pede longao de 16km"). Se durationMin ultrapassar o normal do dia e durationJustification ficar vazio, a resposta inteira sera rejeitada — entao so exceda o tempo quando houver mesmo uma diretriz especifica para aquele dia, e sempre cite ela. Em todos os outros dias (sem diretriz especifica sobre eles), deixe durationJustification vazio/null. Mesmo com diretriz, nunca prescreva mais de 180 minutos numa unica sessao.',
       '- Se o aluno relatou uma media semanal de quilometragem atual (mediaSemanalKmAtualRelatada) e/ou volume real recente no Strava, a soma aproximada da distancia de todas as sessoes da semana que voce prescrever NUNCA deve ficar muito abaixo desse volume que ele ja sustenta na pratica, a nao ser que haja um motivo real de seguranca, deload ou retorno de pausa. O erro classico a evitar: um aluno que corre 19 km por semana recebendo uma sessao "leve" de 4 km (dos quais 1,1 km e so aquecimento/desaquecimento) — isso e um treino curto e ruim demais para a capacidade real dele, e deve ser tratado como falha grave.',
       '- A entrevista inicial (respostasEntrevista) pode estar desatualizada — a realidade do aluno muda com o tempo (rotina, condicionamento, dor, objetivo, peso). Se reavaliacaoMaisRecente estiver preenchida, ela e a fonte mais atual que voce tem sobre o aluno: leia as respostas dela, o resumo de evolucao e os pontos positivos/de atencao, e use isso para entender o que mudou desde a entrevista inicial. Quando as duas fontes contradizerem, confie na reavaliacaoMaisRecente. Se reavaliacaoMaisRecente for null, o aluno ainda nao fez nenhuma reavaliacao — use so a entrevista inicial mesmo.',
       removeRunning
@@ -424,7 +439,7 @@ export class PrescriptionAgentService {
       'SOBRE O CAMPO recommendations (novo, um por sessao): aquecimento e desaquecimento NAO fazem mais parte do treino prescrito nem da distancia/duracao total — eles viram uma RECOMENDACAO em texto, separada, mostrada ao aluno depois do treino principal. Voce e responsavel por escrever essa recomendacao PENSANDO no aluno especifico, nao aplicando uma regra fixa. Diretriz do treinador, dada literalmente: para a maioria dos alunos, recomende aquecer de 5 a 10 minutos (caminhando ou trote bem leve, a escolha do aluno) e desaquecer com uns 5 minutos de caminhada leve. Para um aluno que voce concluiu (pelo paceAssessment e pelas evidencias de pace) ser um corredor amador com bom condicionamento e que sustenta ritmo por mais tempo, pode fazer mais sentido recomendar um trote leve de 1 a 3 km como aquecimento/desaquecimento em vez de so caminhar — mas essa decisao e SUA, baseada no pace/nivel real do aluno, nao existe um numero de corte fixo pra isso. NUNCA use essa recomendacao de trote de aquecimento/desaquecimento (nem frases como "voce ja corre bem") para um aluno que voce mesmo classificou como iniciante/pouco condicionado em qualquer outro campo desta mesma resposta (rationale, notes, paceAssessment.rationale) — isso ja aconteceu na pratica (recomendacao de trote de aquecimento escrita para uma aluna que a propria IA descreveu, no rationale, como iniciante com menos de 1 ano de corrida e maior distancia de 6 km) e e uma contradicao grave dentro da mesma resposta. Alem do aquecimento/desaquecimento, inclua neste campo outras recomendacoes praticas quando fizerem sentido para aquele treino especifico (ex: cuidado ao correr na rua — atencao ao transito e piso irregular —, ajustar inclinacao/passada se for na esteira, se hidratar bem principalmente em treinos mais longos ou dias quentes, levar gel/agua em longoes). Nao repita o mesmo texto generico sempre — adapte ao contexto da sessao (dia, duracao, se e longao ou intervalado, se e rua ou esteira segundo a modalidade informada).',
       'CONSISTENCIA INTERNA E OBRIGATORIA: o nivel/condicionamento do aluno que voce concluir (a partir do pace real, historicoSemanal, respostasEntrevista e reavaliacaoMaisRecente) tem que ser o MESMO em toda a resposta — no rationale geral, no notes e recommendations de cada sessao, e no paceAssessment.rationale. Nunca descreva o aluno como iniciante/pouco condicionado num campo e depois escreva, em outro campo da mesma resposta, um elogio ou recomendacao que so faria sentido para um corredor experiente (ou vice-versa). Antes de finalizar a resposta, revise mentalmente se todos os campos de texto contam a MESMA historia sobre este aluno.',
       'PRIMEIRA SEMANA SEM NENHUM HISTORICO (historicoSemanal vazio, sem reavaliacao, sem analiseExecucao, sem analiseAprofundadaStrava): nesse cenario voce ainda nao tem nenhuma resposta real de treino deste aluno especifico — trate a semana como uma calibragem inicial. Para um aluno com pouco tempo de corrida ou volume semanal baixo/recente-comeco (mesmo que os dados nao configurem safetyAdjustment), prefira NAO incluir quality_run/Z4 logo na primeira semana gerada — comece com rodagens leves e um longao moderado, e deixe o estimulo de qualidade para depois de ver a resposta real dele aos primeiros treinos. So inclua qualidade ja na primeira semana se a evidencia de pace for claramente forte e consistente o suficiente para justificar (ex: teste oficial recente e robusto), nunca so por completude do calendario.',
-      'Responda em portugues nos campos de texto (title, notes, recommendations, recommendation, rationale, paceAssessment.rationale).',
+      'Responda em portugues nos campos de texto (title, notes, recommendations, recommendation, rationale, paceAssessment.rationale, durationJustification).',
       'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida — nao existe mais nenhuma rotina fixa de exercicios escondida de voce para esses dias.',
       '- Retorne exatamente uma sessao em strengthSessions para CADA ITEM listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item especifico (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). ATENCAO: o mesmo weekday pode aparecer MAIS DE UMA VEZ na lista, uma para cada modalidade — isso significa que aquele aluno legitimamente faz as duas coisas naquele dia (ex: forca e fortalecimento_corredores na mesma quarta-feira). Nesse caso, retorne uma sessao PARA CADA item (duas sessoes diferentes, mesma weekday, modalidades diferentes) — isso nao e um erro nem duplicidade, e o dado real da rotina do aluno.',
       '- A modalidade de cada ITEM (nao de cada weekday) em diasDisponiveisParaForca e FIXA — vem da rotina semanal real do aluno, cadastrada fora do seu alcance, e NUNCA pode ser trocada por voce, nem mesmo se uma diretriz do treinador falar sobre "musculacao" ou "fortalecimento" para aquele dia. Copie o campo modality de cada item de diasDisponiveisParaForca literalmente, sempre. Uma diretriz sobre forca/fortalecimento so pode mudar o FOCO/exercicios/intensidade daquele dia (ver regra abaixo), nunca a modalidade em si — isso ja causou rejeicao e falha total da geracao na pratica (IA tentou responder "forca" para um weekday cuja modalidade real era "fortalecimento_corredores").',

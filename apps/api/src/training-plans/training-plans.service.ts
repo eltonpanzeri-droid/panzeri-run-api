@@ -448,13 +448,13 @@ export class TrainingPlansService {
         } : baseTemplate;
         const modalityDurations = normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined);
         const requestedDuration = modalityDurations?.[modality] ?? day.availableMin ?? template.durationMin;
-        // Com uma diretriz ativa (instrucao pontual confirmada pelo treinador com o aluno fora do
-        // app, ex: liberar mais tempo para um longao antes de uma prova), confiamos na duracao que
-        // o agente decidiu para o dia mesmo que ultrapasse a disponibilidade normal registrada —
-        // senao esse limite anularia justamente o ajuste que o treinador pediu.
-        const durationMin = runDecision && activeDirectives.length
-          ? runDecision.durationMin
-          : Math.min(requestedDuration, runDecision?.durationMin ?? template.durationMin);
+        // O agente de IA (validateSessions em prescription-agent.service.ts) ja garante que
+        // runDecision.durationMin so ultrapassa a disponibilidade normal do dia quando a propria
+        // IA citou, para ESSE dia especifico, qual diretriz autoriza isso (durationJustification) —
+        // entao aqui basta confiar no valor ja validado, sem checar de novo se existe "alguma"
+        // diretriz ativa (checagem antiga que liberava o teto pra TODOS os dias so por existir
+        // qualquer diretriz, mesmo sem relacao com aquele dia especifico — removida).
+        const durationMin = runDecision ? runDecision.durationMin : Math.min(requestedDuration, template.durationMin);
         const isStrength = modality === 'forca' || modality === 'fortalecimento_corredores';
         const isAerobic = modality === 'bike';
         if (isStrength && !strengthDecision) {
