@@ -71,7 +71,11 @@ const AiWeeklyDecisionSchema = z.object({
   sessions: z.array(AiSessionSchema).min(1).max(7),
   strengthSessions: z.array(AiStrengthSessionSchema).max(7),
   recommendation: z.string().min(1).max(1200),
-  rationale: z.array(z.string().min(1).max(500)).min(1).max(8),
+  // Sem .min(1) por item: ja aconteceu na pratica a IA devolver um item vazio dentro da lista
+  // (ex: rationale[0] = "") e a resposta inteira ser rejeitada por causa de um unico bullet em
+  // branco, desperdicando a chamada cara de IA por um detalhe cosmetico. Itens vazios sao
+  // filtrados depois de parsear (ver attemptDecision), entao aqui so validamos o tamanho maximo.
+  rationale: z.array(z.string().max(500)).min(1).max(8),
   paceAssessment: z.object({
     easyPaceSecondsPerKm: z.number().int().min(150).max(900),
     intensePaceSecondsPerKm: z.number().int().min(120).max(700),
@@ -210,11 +214,13 @@ export class PrescriptionAgentService {
         return null;
       }
 
+      const rationale = parsed.rationale.map((item) => item.trim()).filter((item) => item.length > 0);
+
       return {
         sessions,
         strengthSessions,
         recommendation: parsed.recommendation,
-        rationale: parsed.rationale,
+        rationale: rationale.length > 0 ? rationale : ['Decisao gerada pelo agente de IA.'],
         safetyAdjustment,
         targetLowIntensityShare: 0.8,
         paceAssessment: parsed.paceAssessment,
