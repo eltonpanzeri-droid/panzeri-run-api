@@ -106,6 +106,27 @@ export interface MethodologyInput {
   } | null;
 }
 
+// Estrutura do bloco intervalado (quality_run) — decidida pela IA, nao por uma proporcao fixa no
+// codigo. O codigo so monta a exibicao a partir desses numeros e confere se a soma do tempo real
+// bate com durationMin (ver validateSessions em prescription-agent.service.ts).
+export interface IntervalStructureDecision {
+  repeatCount: number;
+  fastStepKm: number;
+  recoveryStepKm: number;
+  recoveryPaceSecondsPerKm: number;
+  easyVolumeKm: number;
+}
+
+// Estrutura do bloco caminhada-corrida (walk_run) — mesma logica: a IA decide, o codigo so monta
+// e confere consistencia.
+export interface WalkRunStructureDecision {
+  repeatCount: number;
+  walkStepKm: number;
+  runStepKm: number;
+  walkPaceSecondsPerKm: number;
+  runPaceSecondsPerKm: number;
+}
+
 export interface RunSessionDecision {
   weekday: number;
   title: string;
@@ -117,6 +138,11 @@ export interface RunSessionDecision {
   // pensadas pela IA para este aluno especifico — NAO fazem parte do treino prescrito nem da
   // distancia/duracao total, sao so recomendacoes em texto exibidas separadamente.
   recommendations?: string;
+  // Preenchido pela IA somente quando sessionType === 'quality_run'/'walk_run' (null nos demais
+  // casos). Substituem uma formula fixa (proporcao 30/70, passo de recuperacao sempre 0,4km, pace
+  // de recuperacao sempre 900s/km) que decidia isso no lugar da IA.
+  intervalStructure?: IntervalStructureDecision | null;
+  walkRunStructure?: WalkRunStructureDecision | null;
 }
 
 export type StrengthModality = 'forca' | 'fortalecimento_corredores';

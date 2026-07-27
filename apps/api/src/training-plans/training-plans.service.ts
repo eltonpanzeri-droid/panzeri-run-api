@@ -7,6 +7,8 @@ import {
   MethodologyInput,
   StrengthSessionDecision,
   WeeklyMethodologyDecision,
+  IntervalStructureDecision,
+  WalkRunStructureDecision,
   PANZERI_METHODOLOGY_VERSION,
   PANZERI_PRESCRIPTION_PRINCIPLES,
   sanitizeInterviewAnswers,
@@ -470,7 +472,10 @@ export class TrainingPlansService {
             ? this.strengthPrescription(durationMin, strengthDecision)
             : modality === 'bike'
             ? this.aerobicPrescription(durationMin, template.zone, modality)
-            : this.runPrescription(durationMin, template.zone, resolvedPaces, modality, template.sessionType);
+            : this.runPrescription(durationMin, template.zone, resolvedPaces, modality, template.sessionType, {
+                intervalStructure: runDecision?.intervalStructure,
+                walkRunStructure: runDecision?.walkRunStructure,
+              });
 
         return {
           userId,
@@ -833,7 +838,24 @@ export class TrainingPlansService {
     } else if (isAerobic) {
       prescription = this.aerobicPrescription(durationMin, zone, session.modality);
     } else {
-      prescription = this.runPrescription(durationMin, zone, resolvedPaces, session.modality, session.sessionType ?? 'easy_run');
+      const sessionType = session.sessionType ?? 'easy_run';
+      let runStructure: { intervalStructure?: IntervalStructureDecision | null; walkRunStructure?: WalkRunStructureDecision | null } | null = null;
+      if (sessionType === 'quality_run' || sessionType === 'walk_run') {
+        runStructure = await this.prescriptionAgent.proposeRunStructure({
+          sessionType,
+          durationMin,
+          easyPaceSecondsPerKm: resolvedPaces.easy,
+          intensePaceSecondsPerKm: resolvedPaces.intense,
+        });
+        if (!runStructure) {
+          this.logger.error(`Falha ao gerar estrutura de treino intervalado/caminhada avulsa com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);
+          await this.telegram.notifyCoach(
+            `⚠️ Falha ao gerar estrutura de treino avulso com IA para um aluno (id ${userId}). O treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo painel.`,
+          );
+          throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
+        }
+      }
+      prescription = this.runPrescription(durationMin, zone, resolvedPaces, session.modality, sessionType, runStructure);
     }
 
     return this.prisma.trainingSession.update({
@@ -900,7 +922,14 @@ export class TrainingPlansService {
     };
   }
 
-  private runPrescription(durationMin: number, zone: string, resolvedPaces: { easy: number; intense: number }, modality: string, sessionType: string) {
+  private runPrescription(
+    durationMin: number,
+    zone: string,
+    resolvedPaces: { easy: number; intense: number },
+    modality: string,
+    sessionType: string,
+    structure?: { intervalStructure?: IntervalStructureDecision | null; walkRunStructure?: WalkRunStructureDecision | null } | null,
+  ) {
     // Aquecimento e desaquecimento NAO fazem mais parte do treino prescrito nem da distancia/
     // duracao total — viraram uma recomendacao em texto (campo "recommendations", escrita pela
     // IA por sessao), exibida separadamente. Isso evita o erro que ja aconteceu na pratica: um
@@ -912,36 +941,27 @@ export class TrainingPlansService {
     const { paceRange, speedRange } = this.paceRangeText(targetPaceSeconds);
 
     if (sessionType === 'quality_run') {
-      // Correcao de um bug real, encontrado na pratica (60 min virando quase 95 min reais): antes,
-      // a distancia total do dia era calculada usando SO o pace intenso pra duracao inteira, e so
-      // depois 30% dessa distancia virava a parte forte e 70% virava "volume leve" no pace facil —
-      // como o pace facil e mais lento que o intenso, cobrir 70% da DISTANCIA nesse pace consome
-      // bem mais que 70% do TEMPO, e o treino real acaba levando muito mais tempo que durationMin.
-      // Agora o tempo e dividido primeiro (nao a distancia): o bloco intervalado recebe um
-      // orcamento de tempo, e o bloco de volume leve recebe o tempo que sobrar — cada um deriva a
-      // PROPRIA distancia do PROPRIO tempo e pace, entao a soma real bate com durationMin de verdade.
-      const intenseShareOfTime = 0.3;
-      const intervalBudgetSeconds = durationMin * 60 * intenseShareOfTime;
-      const intenseStepKm = Math.max(0.4, Math.min(1.5, roundDistance((targetDistanceKm * intenseShareOfTime) / 4)));
-      const recoveryStepKm = 0.4;
-      const recoveryPaceSeconds = 900;
-      const secondsPerRep = intenseStepKm * resolvedPaces.intense + recoveryStepKm * recoveryPaceSeconds;
-      const repeatCount = Math.max(3, Math.min(8, Math.round(intervalBudgetSeconds / secondsPerRep)));
+      // A estrutura (quantas repeticoes, distancia de cada trecho forte/recuperacao, quanto de
+      // volume leve) e decisao do agente de IA (validada em prescription-agent.service.ts contra
+      // o tempo real que ela implica) — nao existe mais nenhuma proporcao/passo fixo aqui. Chegar
+      // aqui sem essa estrutura e um bug de sincronizacao entre quem gerou a decisao e quem monta
+      // a sessao, nao um caso esperado.
+      if (!structure?.intervalStructure) {
+        throw new InternalServerErrorException(`Estrutura do treino intervalado ausente ao montar a sessao (durationMin=${durationMin}).`);
+      }
+      const { repeatCount, fastStepKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm } = structure.intervalStructure;
       const intervalBlock: RunBlock = {
         label: 'Serie intervalada',
         zone,
         repeatCount,
         steps: [
-          this.intervalStep('Correr forte', intenseStepKm, resolvedPaces.intense),
-          this.intervalStep('Recuperar', recoveryStepKm, recoveryPaceSeconds),
+          this.intervalStep('Correr forte', fastStepKm, resolvedPaces.intense),
+          this.intervalStep('Recuperar', recoveryStepKm, recoveryPaceSecondsPerKm),
         ],
       };
-      const intervalBlockSeconds = repeatCount * secondsPerRep;
-      const remainingSeconds = Math.max(0, durationMin * 60 - intervalBlockSeconds);
-      const recoveryDistance = Math.max(0.5, roundDistance(remainingSeconds / resolvedPaces.easy));
       const blocks = [
         intervalBlock,
-        this.runDistanceBlock('Recuperacoes e volume leve', recoveryDistance, 'Z2', resolvedPaces.easy),
+        this.runDistanceBlock('Recuperacoes e volume leve', easyVolumeKm, 'Z2', resolvedPaces.easy),
       ];
       return {
         type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks), speedKmh, zone,
@@ -951,31 +971,26 @@ export class TrainingPlansService {
     }
 
     if (sessionType === 'walk_run') {
-      // Mesma correcao do quality_run acima: repeatCount agora vem do orcamento de TEMPO
-      // (durationMin), nao de uma distancia total estimada a partir de um unico pace — a
-      // caminhada e a corrida tem paces bem diferentes, entao estimar por distancia sozinha
-      // tambem estourava o tempo real do treino.
-      const walkPaceSeconds = 660;
-      const minimumGapSeconds = 90; // garante que a corrida sempre seja perceptivelmente mais rapida que a caminhada
-      const runPaceSeconds = Math.min(resolvedPaces.easy, MAX_RUN_PACE_SECONDS, walkPaceSeconds - minimumGapSeconds);
-      const walkStepKm = 0.3;
-      const runStepKm = 0.2;
-      const secondsPerRep = walkStepKm * walkPaceSeconds + runStepKm * runPaceSeconds;
-      const repeatCount = Math.max(3, Math.min(14, Math.round((durationMin * 60) / secondsPerRep)));
+      // Mesma logica do quality_run acima: a estrutura vem da decisao do agente de IA, ja validada
+      // contra o tempo real que ela implica — nao existe mais pace/passo fixo aqui.
+      if (!structure?.walkRunStructure) {
+        throw new InternalServerErrorException(`Estrutura de caminhada-corrida ausente ao montar a sessao (durationMin=${durationMin}).`);
+      }
+      const { repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm } = structure.walkRunStructure;
       const intervalBlock: RunBlock = {
         label: 'Bloco intervalado',
         zone: 'Z2',
         repeatCount,
         steps: [
-          this.intervalStep('Caminhar', walkStepKm, walkPaceSeconds),
-          this.intervalStep('Correr', runStepKm, runPaceSeconds),
+          this.intervalStep('Caminhar', walkStepKm, walkPaceSecondsPerKm),
+          this.intervalStep('Correr', runStepKm, runPaceSecondsPerKm),
         ],
       };
       const blocks = [intervalBlock];
-      const walkRunRange = this.paceRangeText(runPaceSeconds);
+      const walkRunRange = this.paceRangeText(runPaceSecondsPerKm);
       return {
         type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks),
-        speedKmh: Number((3600 / runPaceSeconds).toFixed(1)), zone: 'Z2',
+        speedKmh: Number((3600 / runPaceSecondsPerKm).toFixed(1)), zone: 'Z2',
         paceRange: walkRunRange.paceRange, speedRange: walkRunRange.speedRange, blocks,
         reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
       };
