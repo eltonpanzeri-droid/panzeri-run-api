@@ -146,7 +146,7 @@ export class PrescriptionAgentService {
       const validated = this.validateStrengthSessions([parsed], [slot]);
       return validated?.[0] ?? null;
     } catch (error) {
-      this.logger.warn(`Falha ao gerar decisao de forca avulsa com o agente de IA: ${(error as Error).message}`);
+      this.logger.warn(`Falha ao gerar decisao de forca avulsa com o agente de IA: ${describeAiError(error)}`);
       return null;
     }
   }
@@ -166,7 +166,13 @@ export class PrescriptionAgentService {
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
           model: 'claude-opus-4-8',
-          max_tokens: 8000,
+          // Aumentado de 8000 depois que strengthSessions foi adicionado a mesma resposta: um
+          // aluno com varios dias de forca/fortalecimento (cada um com titulo/notes/exercicios)
+          // soma bastante texto em cima do que a corrida ja usava, e o mesmo tipo de falha
+          // silenciosa ja documentada (resposta cortada por estourar o limite, rejeitada pelo
+          // Zod, indistinguivel de uma falha de rede) reapareceu na pratica com alunos com rotina
+          // de forca mais cheia (varios dias de musculacao/fortalecimento).
+          max_tokens: 16000,
           thinking: { type: 'adaptive' },
           output_config: {
             effort: 'high',
@@ -209,7 +215,7 @@ export class PrescriptionAgentService {
         source: 'ai',
       };
     } catch (error) {
-      this.logger.warn(`Falha ao gerar decisao com o agente de IA: ${(error as Error).message}`);
+      this.logger.warn(`Falha ao gerar decisao com o agente de IA: ${describeAiError(error)}`);
       return null;
     }
   }
@@ -493,4 +499,29 @@ function formatSecondsPerKm(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   const remaining = Math.round(seconds % 60);
   return `${minutes}:${remaining.toString().padStart(2, '0')}/km`;
+}
+
+// Sem isso, uma resposta da IA rejeitada pelo Zod (schema invalido, resposta cortada por
+// estourar max_tokens, etc.) aparece no log identica a uma falha de rede — ja causou um
+// incidente real onde ninguem conseguia saber, so pelo log, por que a IA "nao estava sendo
+// ouvida" (ver [[ai_only_prescription_engine]]). Esta funcao extrai o maximo de detalhe
+// disponivel do erro (issues do Zod, resposta parcial, etc.) para o log ja vir com a causa.
+function describeAiError(error: unknown): string {
+  if (error instanceof Error) {
+    const withIssues = error as Error & { issues?: unknown; errors?: unknown };
+    const detail = withIssues.issues ?? withIssues.errors;
+    if (detail) {
+      try {
+        return `${error.message} | detalhes: ${JSON.stringify(detail)}`;
+      } catch {
+        return error.message;
+      }
+    }
+    return error.message;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
 }
