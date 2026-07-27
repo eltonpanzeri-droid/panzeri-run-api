@@ -2178,16 +2178,6 @@ function EditableSession({
           {session.stravaActivity ? 'Strava recebido' : completionLabel(session.completionStatus)}
         </span>
         <div className="sessionEditorHeaderActions">
-          <button
-            className="editSessionButton iconOnlyButton"
-            type="button"
-            disabled={isRegenerating}
-            onClick={() => regenerateSession()}
-            title={isRegenerating ? 'Gerando novo treino...' : 'Recalcular somente este dia (aplica diretivas ativas)'}
-            aria-label="Gerar novo treino so para este dia"
-          >
-            <RefreshCw size={13} />
-          </button>
           <button className="editSessionButton" type="button" onClick={() => setIsEditing((current) => !current)}>
             {isEditing ? 'Cancelar' : 'Editar'}
           </button>
