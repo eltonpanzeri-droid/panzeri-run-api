@@ -30,31 +30,29 @@ const WEEKLY_KM_RANGE_LABELS: Record<string, string> = {
   '100_plus': 'mais de 100 km por semana',
 };
 
-// Esses limites de caracteres ja causaram uma falha grave e silenciosa na pratica: com um prompt
-// mais rico (diretivas, raciocinio de zona/pace, calculo de duracao), a IA passou a escrever
-// notes/recommendation/rationale mais longos e TODA geracao comecou a ser rejeitada pelo schema
-// (nunca por falta de API key ou rede) — nenhum fallback existe mais, entao isso derrubava o
-// treino do aluno inteiro. Os limites abaixo sao generosos de proposito: o objetivo e dar espaco
-// para a IA raciocinar por escrito, nao forcar ela a ser artificialmente curta.
+// Historico: limites de caracteres nesses campos de texto livre ja causaram varias falhas
+// silenciosas na pratica (para alunos com contexto mais complexo — muitas diretivas/observacoes/
+// feedback — a IA escreve justificativas mais longas e o campo estoura o limite) — cada vez que um
+// campo diferente estourava, a resposta INTEIRA era rejeitada pelo schema e a geracao falhava,
+// indistinguivel de uma falha de rede/API. Bumping um limite de cada vez e cacada de gato e rato:
+// por isso os campos puramente explicativos (nunca usados por regra de negocio, so exibidos/logados)
+// NAO tem mais limite maximo aqui — sao truncados defensivamente em codigo (ver truncateText) depois
+// do parse, entao um texto longo nunca mais derruba a geracao inteira. Campos estruturais curtos
+// (title, reps) mantem um limite generoso porque sao rotulos, nao paragrafos de raciocinio.
 const AiSessionSchema = z.object({
   weekday: z.number().int().min(0).max(6),
   title: z.string().min(1).max(120),
   sessionType: z.enum(['easy_run', 'quality_run', 'long_run', 'walk_run']),
   zone: z.enum(['Z2', 'Z4']),
   durationMin: z.number().int().min(10).max(240),
-  notes: z.string().min(1).max(800),
-  recommendations: z.string().min(1).max(600),
+  notes: z.string().min(1),
+  recommendations: z.string().min(1),
 });
 
 // Exercicios de forca/fortalecimento tambem sao decisao real da IA, nunca de uma rotina fixa
 // escondida — exerciseIds sao validados contra o catalogo aprovado (ver validateStrengthSessions)
-// antes de qualquer sessao ser aceita.
-// Limites generosos de proposito (mesma licao do incidente com AiSessionSchema abaixo): ja
-// aconteceu na pratica de "notes" com max(500) rejeitar 100% das tentativas porque a IA
-// naturalmente escreve mais que isso ao justificar foco muscular/escolha de exercicios — a
-// resposta inteira falhava, indistinguivel de uma falha de rede/cota. Nunca aperte esses
-// limites sem antes testar com o prompt real; prefira sempre limite generoso a forcar a IA a
-// ser artificialmente curta.
+// antes de qualquer sessao ser aceita. "notes" e texto explicativo livre, sem limite maximo aqui
+// pelo mesmo motivo do AiSessionSchema acima (truncado em codigo, nunca rejeita a resposta toda).
 const AiStrengthSessionSchema = z.object({
   weekday: z.number().int().min(0).max(6),
   modality: z.enum(['forca', 'fortalecimento_corredores']),
@@ -64,24 +62,32 @@ const AiStrengthSessionSchema = z.object({
   reps: z.string().min(1).max(40),
   restSeconds: z.number().int().min(20).max(150),
   intensity: z.enum(['Leve', 'Moderada', 'Forte']),
-  notes: z.string().min(1).max(900),
+  notes: z.string().min(1),
 });
 
 const AiWeeklyDecisionSchema = z.object({
   sessions: z.array(AiSessionSchema).min(1).max(7),
   strengthSessions: z.array(AiStrengthSessionSchema).max(7),
-  recommendation: z.string().min(1).max(1200),
-  // Sem .min(1) por item: ja aconteceu na pratica a IA devolver um item vazio dentro da lista
-  // (ex: rationale[0] = "") e a resposta inteira ser rejeitada por causa de um unico bullet em
-  // branco, desperdicando a chamada cara de IA por um detalhe cosmetico. Itens vazios sao
-  // filtrados depois de parsear (ver attemptDecision), entao aqui so validamos o tamanho maximo.
-  rationale: z.array(z.string().max(500)).min(1).max(8),
+  recommendation: z.string().min(1),
+  // Sem .min(1)/.max() por item: ja aconteceu na pratica a IA devolver um item vazio dentro da
+  // lista (ex: rationale[0] = "") e tambem um item longo demais — e a resposta inteira ser
+  // rejeitada por causa de UM bullet, desperdicando a chamada cara de IA por um detalhe cosmetico.
+  // Itens vazios sao filtrados e itens longos sao truncados depois de parsear (ver attemptDecision).
+  rationale: z.array(z.string()).min(1).max(8),
   paceAssessment: z.object({
     easyPaceSecondsPerKm: z.number().int().min(150).max(900),
     intensePaceSecondsPerKm: z.number().int().min(120).max(700),
-    rationale: z.string().min(1).max(900),
+    rationale: z.string().min(1),
   }),
 });
+
+// Trunca campos de texto livre gerados pela IA em vez de rejeitar a resposta inteira quando um
+// unico campo estoura um tamanho razoavel — ver o historico acima sobre por que os limites de
+// caracteres nao ficam mais no schema Zod para esses campos.
+const FREE_TEXT_DISPLAY_LIMIT = 2000;
+function truncateText(text: string, max: number = FREE_TEXT_DISPLAY_LIMIT): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
 
 type RunSlot = ReturnType<typeof computeRunSlots>[number];
 type StrengthSlot = ReturnType<typeof computeStrengthSlots>[number];
@@ -214,16 +220,21 @@ export class PrescriptionAgentService {
         return null;
       }
 
-      const rationale = parsed.rationale.map((item) => item.trim()).filter((item) => item.length > 0);
+      const rationale = parsed.rationale
+        .map((item) => truncateText(item.trim(), 500))
+        .filter((item) => item.length > 0);
 
       return {
         sessions,
         strengthSessions,
-        recommendation: parsed.recommendation,
+        recommendation: truncateText(parsed.recommendation, 1200),
         rationale: rationale.length > 0 ? rationale : ['Decisao gerada pelo agente de IA.'],
         safetyAdjustment,
         targetLowIntensityShare: 0.8,
-        paceAssessment: parsed.paceAssessment,
+        paceAssessment: {
+          ...parsed.paceAssessment,
+          rationale: truncateText(parsed.paceAssessment.rationale, 900),
+        },
         source: 'ai',
       };
     } catch (error) {
@@ -294,8 +305,8 @@ export class PrescriptionAgentService {
         sessionType: session.sessionType,
         zone: session.zone,
         durationMin: session.durationMin,
-        notes: session.notes,
-        recommendations: session.recommendations,
+        notes: truncateText(session.notes, 800),
+        recommendations: truncateText(session.recommendations, 600),
       });
     }
 
@@ -352,7 +363,7 @@ export class PrescriptionAgentService {
         reps: session.reps,
         restSeconds: session.restSeconds,
         intensity: session.intensity,
-        notes: session.notes,
+        notes: truncateText(session.notes, 900),
       });
     }
 
