@@ -188,7 +188,14 @@ export class PrescriptionAgentService {
           // silenciosa ja documentada (resposta cortada por estourar o limite, rejeitada pelo
           // Zod, indistinguivel de uma falha de rede) reapareceu na pratica com alunos com rotina
           // de forca mais cheia (varios dias de musculacao/fortalecimento).
-          max_tokens: 16000,
+          // Aumentado de novo (16000 -> 24000) apos outra falha real em producao: "Unterminated
+          // string in JSON" — a resposta foi cortada no meio porque o "pensamento" (thinking) do
+          // modelo consumiu quase todo o orcamento antes de sobrar espaco para escrever a resposta
+          // inteira. Acontece mais para alunos com contexto mais denso (muitas diretivas/observacoes
+          // acumuladas, como uma conta de teste usada bastante). Se voltar a truncar, o proximo passo
+          // e migrar essa chamada para streaming (client.messages.stream) para poder usar um limite
+          // ainda maior sem risco de timeout do SDK.
+          max_tokens: 24000,
           thinking: { type: 'adaptive' },
           output_config: {
             effort: 'high',
