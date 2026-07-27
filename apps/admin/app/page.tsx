@@ -2121,7 +2121,7 @@ function EditableSession({
   async function regenerateSession() {
     if (
       !window.confirm(
-        'Gerar novo treino? Isso recalcula os treinos ainda pendentes desta semana (incluindo este dia), aplicando diretivas ativas do aluno. Treinos ja concluidos nao sao alterados. Edicoes manuais em dias pendentes serao substituidas.',
+        'Gerar novo treino so para este dia? Isso recalcula apenas esta sessao, aplicando diretivas ativas do aluno. Os outros dias da semana nao sao alterados. Se este dia ja foi concluido, nao e possivel gerar de novo.',
       )
     ) {
       return;
@@ -2129,7 +2129,7 @@ function EditableSession({
     onStatus('Gerando novo treino...');
     setIsRegenerating(true);
     try {
-      const response = await fetch(`${API_URL}/coach/students/${studentId}/plan/regenerate-week`, {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/sessions/${session.id}/regenerate`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -2171,8 +2171,8 @@ function EditableSession({
             type="button"
             disabled={isRegenerating}
             onClick={regenerateSession}
-            title={isRegenerating ? 'Gerando novo treino...' : 'Recalcular treinos pendentes desta semana (aplica diretivas ativas)'}
-            aria-label="Gerar novo treino"
+            title={isRegenerating ? 'Gerando novo treino...' : 'Recalcular somente este dia (aplica diretivas ativas)'}
+            aria-label="Gerar novo treino so para este dia"
           >
             <RefreshCw size={13} />
           </button>
