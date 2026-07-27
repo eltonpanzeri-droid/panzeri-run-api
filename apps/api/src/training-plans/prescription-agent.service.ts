@@ -49,16 +49,22 @@ const AiSessionSchema = z.object({
 // Exercicios de forca/fortalecimento tambem sao decisao real da IA, nunca de uma rotina fixa
 // escondida — exerciseIds sao validados contra o catalogo aprovado (ver validateStrengthSessions)
 // antes de qualquer sessao ser aceita.
+// Limites generosos de proposito (mesma licao do incidente com AiSessionSchema abaixo): ja
+// aconteceu na pratica de "notes" com max(500) rejeitar 100% das tentativas porque a IA
+// naturalmente escreve mais que isso ao justificar foco muscular/escolha de exercicios — a
+// resposta inteira falhava, indistinguivel de uma falha de rede/cota. Nunca aperte esses
+// limites sem antes testar com o prompt real; prefira sempre limite generoso a forcar a IA a
+// ser artificialmente curta.
 const AiStrengthSessionSchema = z.object({
   weekday: z.number().int().min(0).max(6),
   modality: z.enum(['forca', 'fortalecimento_corredores']),
   title: z.string().min(1).max(120),
   exerciseIds: z.array(z.string().min(1).max(60)).min(3).max(10),
   sets: z.number().int().min(2).max(5),
-  reps: z.string().min(1).max(20),
+  reps: z.string().min(1).max(40),
   restSeconds: z.number().int().min(20).max(150),
   intensity: z.enum(['Leve', 'Moderada', 'Forte']),
-  notes: z.string().min(1).max(500),
+  notes: z.string().min(1).max(900),
 });
 
 const AiWeeklyDecisionSchema = z.object({
