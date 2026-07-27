@@ -64,9 +64,20 @@ const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
 const planEngineVersion = 'rules-v11-' + PANZERI_METHODOLOGY_VERSION;
 const MAX_RUN_PACE_SECONDS = 510; // 8:30/km - nenhuma corrida (qualquer zona) pode ser prescrita mais lenta que isso
 
+// Disjuntor contra gasto em loop: current() e chamado toda vez que ALGUEM SO ABRE a pagina do
+// aluno (painel do treinador ou app da aluna) — nao e uma acao explicita de "gerar treino". Se a
+// geracao com IA falhar (bug, cota, instabilidade), o plano fica desatualizado pra sempre e
+// current() tenta gerar de novo TODA vez que a pagina e reaberta, sem limite nenhum. Na pratica
+// isso ja causou um gasto real e repetido so de reabrir a pagina de um aluno com problema
+// enquanto o proprio bug estava sendo investigado — cada reabertura custava uma chamada cara ao
+// Opus, com 2 tentativas internas, e falhava de novo. Este cooldown garante que, apos uma falha,
+// o sistema espera antes de tentar de novo automaticamente, em vez de gastar a cada visualizacao.
+const AI_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
+
 @Injectable()
 export class TrainingPlansService {
   private readonly logger = new Logger(TrainingPlansService.name);
+  private readonly recentAiFailures = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -209,6 +220,23 @@ export class TrainingPlansService {
     const referenceDate = options?.referenceDate ?? new Date();
     const planStatus = options?.planStatus ?? 'active';
     const archiveCurrentActive = options?.archiveCurrentActive ?? true;
+
+    // Disjuntor: current() (chamado so por ABRIR a pagina do aluno, painel ou app) cai aqui
+    // sempre que o plano nao bate com a disponibilidade/teste atual — se a ultima tentativa
+    // falhou ha pouco tempo, nao tenta de novo automaticamente (custaria uma chamada cara ao
+    // Opus a cada reabertura de pagina, sem nenhum progresso real ate o motivo da falha ser
+    // corrigido). Vale tanto para a abertura passiva quanto para o botao explicito de regenerar
+    // semana do treinador (os dois chamam generateWeek sem options) — evita tambem cliques
+    // repetidos por frustracao durante uma instabilidade. So a pre-geracao automatica de domingo
+    // 19h (que passa options.referenceDate) ignora este disjuntor, por rodar so uma vez por semana.
+    const lastFailureAt = this.recentAiFailures.get(userId);
+    if (lastFailureAt && Date.now() - lastFailureAt < AI_FAILURE_COOLDOWN_MS && !options?.referenceDate) {
+      const minutesLeft = Math.ceil((AI_FAILURE_COOLDOWN_MS - (Date.now() - lastFailureAt)) / 60000);
+      throw new InternalServerErrorException(
+        `A ultima tentativa de gerar o treino deste aluno falhou ha pouco tempo. Para nao gastar chamadas de IA repetidas sem necessidade, aguarde cerca de ${minutesLeft} min antes de tentar de novo, ou peca para o treinador tentar manualmente pelo painel.`,
+      );
+    }
+
     // O webhook do Strava ja mantem os treinos do aluno atualizados em tempo real, mas isso e
     // uma rede de seguranca (webhook perdido, assinatura caida, etc): antes de decidir o treino,
     // tenta puxar dados novos do Strava. syncIfStale so faz a chamada de verdade se o ultimo sync
@@ -387,11 +415,13 @@ export class TrainingPlansService {
       // com regra fixa: preferimos deixar o plano atual intacto e alertar o treinador na hora,
       // para ele intervir manualmente, em vez de dar ao aluno um treino ruim silenciosamente.
       this.logger.error(`Falha ao gerar semana de treino com IA para o aluno ${userId} apos tentativas — nenhum plano de regra fixa sera usado no lugar.`);
+      this.recentAiFailures.set(userId, Date.now());
       await this.telegram.notifyCoach(
-        `⚠️ Falha ao gerar treino com IA para um aluno (id ${userId}). O plano NAO foi atualizado — verifique a chave da IA (ANTHROPIC_API_KEY) e os logs do EasyPanel, e gere novamente manualmente pelo painel.`,
+        `⚠️ Falha ao gerar treino com IA para um aluno (id ${userId}). O plano NAO foi atualizado — verifique a chave da IA (ANTHROPIC_API_KEY) e os logs do EasyPanel, e gere novamente manualmente pelo painel. Novas tentativas automaticas para este aluno ficam pausadas por alguns minutos para nao gastar chamadas de IA repetidas.`,
       );
       throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
     }
+    this.recentAiFailures.delete(userId);
     const methodology = aiDecision;
     const resolvedPaces = methodology.paceAssessment
       ? { easy: methodology.paceAssessment.easyPaceSecondsPerKm, intense: methodology.paceAssessment.intensePaceSecondsPerKm }
