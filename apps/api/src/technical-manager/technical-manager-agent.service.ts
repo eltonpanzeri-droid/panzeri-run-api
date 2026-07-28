@@ -87,7 +87,14 @@ export class TechnicalManagerAgentService {
       const response = await client.messages.create({
         model: 'claude-sonnet-5',
         max_tokens: 2000,
-        system: this.buildSystemPrompt(studentName),
+        // Bloco estavel (identico pra qualquer aluno) com cache_control primeiro, linha com o
+        // nome do aluno depois, sem cache_control — preserva o prefixo cacheado entre alunos
+        // diferentes e entre turnos da mesma conversa (ver shared/prompt-caching.md do skill
+        // claude-api).
+        system: [
+          { type: 'text', text: this.buildSystemPromptStable(), cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: this.buildStudentContextLine(studentName) },
+        ],
         tools: tools.map((tool) => tool.spec),
         messages,
       });
@@ -233,9 +240,19 @@ export class TechnicalManagerAgentService {
     };
   }
 
-  private buildSystemPrompt(studentName: string) {
+  // So a primeira frase muda por aluno (cita o nome) — o resto e identico pra qualquer
+  // conversa. Extraida em metodo proprio pra ficar SEPARADA do bloco estavel no array de
+  // system enviado a API (sem cache_control), preservando o prefixo cacheado entre alunos
+  // diferentes (ver shared/prompt-caching.md do skill claude-api).
+  private buildStudentContextLine(studentName: string) {
+    return `Voce esta conversando com Elton Panzeri (o treinador responsavel tecnico) sobre a aluna/aluno ${studentName}.`;
+  }
+
+  // Estavel para qualquer aluno/conversa (nenhum parametro) — permite cache_control no
+  // chamador sem invalidar o prefixo cacheado a cada aluno diferente.
+  private buildSystemPromptStable() {
     return [
-      `Voce e o agente gerente tecnico da Panzeri Run, conversando com Elton Panzeri (o treinador responsavel tecnico) sobre a aluna/aluno ${studentName}.`,
+      'Voce e o agente gerente tecnico da Panzeri Run.',
       'Pense na estrutura como uma academia: existe um agente que monta o treino da semana (o "professor") e um agente que analisa dados do Strava. Voce e a ponte entre o treinador e esses agentes — o gerente tecnico que recebe orientacoes especificas sobre um aluno e garante que elas sejam seguidas.',
       'Voce pode consultar o contexto completo do aluno (get_student_context) e o relatorio de execucao do Strava (get_strava_report) para responder com informacao real, nunca invente dados.',
       'Quando o treinador pedir sua opiniao, de uma opiniao tecnica real baseada nos dados, como um profissional experiente faria — nao seja generico ou evasivo.',

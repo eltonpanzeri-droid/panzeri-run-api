@@ -229,7 +229,9 @@ export class PrescriptionAgentService {
           max_tokens: 2000,
           thinking: { type: 'adaptive' },
           output_config: { effort: 'medium', format: zodOutputFormat(schema) },
-          system: this.buildRunStructureSystemPrompt(),
+          // Prompt identico pra qualquer aluno/chamada — cache_control deixa isso barato depois
+          // da primeira vez (ver shared/prompt-caching.md do skill claude-api).
+          system: [{ type: 'text', text: this.buildRunStructureSystemPrompt(), cache_control: { type: 'ephemeral' } }],
           messages: [{ role: 'user', content: this.buildRunStructureUserPrompt(params) }],
         }),
       );
@@ -322,7 +324,7 @@ export class PrescriptionAgentService {
           max_tokens: 1500,
           thinking: { type: 'adaptive' },
           output_config: { effort: 'medium', format: zodOutputFormat(schema) },
-          system: this.buildPaceAssessmentSystemPrompt(),
+          system: [{ type: 'text', text: this.buildPaceAssessmentSystemPrompt(), cache_control: { type: 'ephemeral' } }],
           messages: [{ role: 'user', content: JSON.stringify(evidence, null, 2) }],
         }),
       );
@@ -366,7 +368,7 @@ export class PrescriptionAgentService {
             effort: 'high',
             format: zodOutputFormat(AiStrengthSessionSchema),
           },
-          system: this.buildSingleStrengthSystemPrompt(),
+          system: [{ type: 'text', text: this.buildSingleStrengthSystemPrompt(), cache_control: { type: 'ephemeral' } }],
           messages: [{ role: 'user', content: this.buildSingleStrengthUserPrompt(input, slot) }],
         }),
       );
@@ -418,7 +420,15 @@ export class PrescriptionAgentService {
             effort: 'high',
             format: zodOutputFormat(AiWeeklyDecisionSchema),
           },
-          system: this.buildSystemPrompt(safetyAdjustment, removeRunning, novice),
+          // Prompt cache: o grosso do system prompt (metodologia, regras, formato de resposta) e
+          // identico pra qualquer aluno/semana — so a orientacao de seguranca (ultimo paragrafo)
+          // muda com safetyAdjustment/removeRunning. Separado num bloco proprio SEM cache_control,
+          // depois do bloco grande COM cache_control, pra nao invalidar o prefixo cacheado toda vez
+          // que esses dois booleanos mudam (ver shared/prompt-caching.md do skill claude-api).
+          system: [
+            { type: 'text', text: this.buildSystemPromptStable(), cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: this.buildSafetyGuidance(safetyAdjustment, removeRunning) },
+          ],
           messages: [{ role: 'user', content: this.buildUserPrompt(input, runSlots, strengthSlots, safetyAdjustment, novice, evidence, input.painReason ?? null) }],
         });
         return stream.finalMessage();
@@ -658,7 +668,19 @@ export class PrescriptionAgentService {
     return result;
   }
 
-  private buildSystemPrompt(safetyAdjustment: boolean, removeRunning: boolean, novice: boolean) {
+  private buildSafetyGuidance(safetyAdjustment: boolean, removeRunning: boolean) {
+    return removeRunning
+      ? '- Este aluno relatou dor intensa recentemente (relato estruturado de dor, nao a entrevista de onboarding). A corrida ja foi removida desta semana pelo sistema antes de voce ser chamado — se ainda assim voce receber dias de corrida no contexto, trate-os como sessoes leves de transicao apenas, nunca quality_run/Z4.'
+      : safetyAdjustment
+        ? '- Este aluno tem um relato de dor RECENTE (moderada ou recorrente, calculado a partir dos ultimos relatos de dor, nao de uma resposta antiga e permanente da entrevista): NUNCA use sessionType "quality_run" nem zone "Z4" nesta semana, mas a corrida continua acontecendo normalmente com volume/intensidade reduzidos. Um relato de dor leve e isolado (uma unica vez, intensidade baixa) NAO deveria ter chegado aqui como sinal ativo — dor pontual e leve nao e motivo para tirar treino intervalado.'
+        : '- Sem sinal de dor recente relatado no momento, mas priorize seguranca e progressao conservadora sempre que os dados sugerirem cautela.';
+  }
+
+  // Estavel para qualquer aluno/semana (nenhum parametro) — permite cache_control no chamador
+  // sem invalidar o prefixo cacheado a cada chamada. A unica parte que varia por aluno
+  // (safetyAdjustment/removeRunning) foi extraida para buildSafetyGuidance() e vai depois deste
+  // bloco, sem cache_control, no array de system enviado pela API.
+  private buildSystemPromptStable() {
     return [
       'Voce e o agente de prescricao de treinos de corrida da Panzeri Run.',
       'Sua unica funcao e decidir a estrutura da semana de treinos de corrida de UM aluno, aplicando o julgamento real do treinador Elton Panzeri descrito abaixo — nunca conhecimento generico de blogs ou regras fixas de treinamento de corrida.',
@@ -673,11 +695,6 @@ export class PrescriptionAgentService {
       '- durationMin de cada sessao normalmente NAO PODE exceder o tempo disponivel informado para aquele dia especifico — isso vale mesmo que o aluno tenha alguma diretriz ativa sobre OUTRO assunto ou OUTRO dia. EXCECAO, e somente quando ela realmente se aplica: se diretrizesEspecificasDoTreinadorParaEsteAluno pedir explicitamente uma sessao mais longa NAQUELE dia especifico (ex: um longao maior antes de uma prova, combinado entre o treinador e o aluno fora do app), voce PODE exceder o tempo disponivel normal SOMENTE daquele dia — e nesse caso e OBRIGATORIO preencher o campo durationJustification daquela sessao citando resumidamente qual diretriz especifica autoriza isso para aquele dia (ex: "diretriz de 25/07 pede longao de 16km"). Se durationMin ultrapassar o normal do dia e durationJustification ficar vazio, a resposta inteira sera rejeitada — entao so exceda o tempo quando houver mesmo uma diretriz especifica para aquele dia, e sempre cite ela. Em todos os outros dias (sem diretriz especifica sobre eles), deixe durationJustification vazio/null. Mesmo com diretriz, nunca prescreva mais de 180 minutos numa unica sessao.',
       '- Se o aluno relatou uma media semanal de quilometragem atual (mediaSemanalKmAtualRelatada) e/ou volume real recente no Strava, a soma aproximada da distancia de todas as sessoes da semana que voce prescrever NUNCA deve ficar muito abaixo desse volume que ele ja sustenta na pratica, a nao ser que haja um motivo real de seguranca, deload ou retorno de pausa. O erro classico a evitar: um aluno que corre 19 km por semana recebendo uma sessao "leve" de 4 km (dos quais 1,1 km e so aquecimento/desaquecimento) — isso e um treino curto e ruim demais para a capacidade real dele, e deve ser tratado como falha grave.',
       '- A entrevista inicial (respostasEntrevista) pode estar desatualizada — a realidade do aluno muda com o tempo (rotina, condicionamento, dor, objetivo, peso). Se reavaliacaoMaisRecente estiver preenchida, ela e a fonte mais atual que voce tem sobre o aluno: leia as respostas dela, o resumo de evolucao e os pontos positivos/de atencao, e use isso para entender o que mudou desde a entrevista inicial. Quando as duas fontes contradizerem, confie na reavaliacaoMaisRecente. Se reavaliacaoMaisRecente for null, o aluno ainda nao fez nenhuma reavaliacao — use so a entrevista inicial mesmo.',
-      removeRunning
-        ? '- Este aluno relatou dor intensa recentemente (relato estruturado de dor, nao a entrevista de onboarding). A corrida ja foi removida desta semana pelo sistema antes de voce ser chamado — se ainda assim voce receber dias de corrida no contexto, trate-os como sessoes leves de transicao apenas, nunca quality_run/Z4.'
-        : safetyAdjustment
-          ? '- Este aluno tem um relato de dor RECENTE (moderada ou recorrente, calculado a partir dos ultimos relatos de dor, nao de uma resposta antiga e permanente da entrevista): NUNCA use sessionType "quality_run" nem zone "Z4" nesta semana, mas a corrida continua acontecendo normalmente com volume/intensidade reduzidos. Um relato de dor leve e isolado (uma unica vez, intensidade baixa) NAO deveria ter chegado aqui como sinal ativo — dor pontual e leve nao e motivo para tirar treino intervalado.'
-          : '- Sem sinal de dor recente relatado no momento, mas priorize seguranca e progressao conservadora sempre que os dados sugerirem cautela.',
       '- Classificacao de experiencia/entrevista (classificadoComoIniciante no contexto) e so um dado informativo a mais — a decisao de usar sessionType "walk_run" deve vir do PACE REAL que voce concluir (paceAssessment), nao do rotulo de iniciante. Um aluno pode ter experiencia registrada mas ainda assim ter um pace facil proximo do ritmo de caminhada (destreinado, retorno de pausa, sobrepeso recente); e alguem classificado como iniciante pode ja ter um pace facil claramente de corredor. Se o easyPaceSecondsPerKm que voce concluir for claramente rapido (aluno corre bem de verdade), NUNCA use "walk_run" mesmo que a entrevista sugira pouca experiencia.',
       '- Zonas (Z1-Z5) sao uma ferramenta OBRIGATORIA de classificacao/raciocinio do esforco, mas NAO existe obrigacao de que o pace numerico siga uma formula fixa de zona — o pace vem do seu raciocinio sobre a evidencia real (ver paceAssessment abaixo). A proporcao 80/20 de baixa/alta intensidade e RECOMENDADA como referencia geral (um NORTE), nao e obrigatoria — varie livremente quando a disponibilidade, o limiar do aluno ou o objetivo pedirem algo diferente.',
       '- Entenda isto como obrigatorio: um aluno cujo pace facil real esta proximo do ritmo de caminhada vai precisar passar MAIS tempo em intensidade alta, nao menos — porque abaixo de aproximadamente 8:30/km a mecanica da corrida piora (fica parecido com andar rapido). Para esse aluno, prefira treinos intervalados com a parte de corrida mais forte (mesmo parecendo intenso pro nivel dele) alternada com CAMINHADA de verdade como recuperacao (pace de caminhada bem mais lento), em vez de forcar uma corrida continua lenta com mecanica ruim.',

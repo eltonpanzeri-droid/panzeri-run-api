@@ -56,7 +56,7 @@ export class StravaAnalysisAgentService {
             effort: 'medium',
             format: zodOutputFormat(StravaAnalysisSchema),
           },
-          system: this.buildSystemPrompt(),
+          system: [{ type: 'text', text: this.buildSystemPrompt(), cache_control: { type: 'ephemeral' } }],
           messages: [{ role: 'user', content: this.buildUserPrompt(activities) }],
         }),
       );

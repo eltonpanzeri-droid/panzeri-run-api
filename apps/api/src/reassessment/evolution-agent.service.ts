@@ -54,7 +54,7 @@ export class EvolutionAgentService {
             effort: 'medium',
             format: zodOutputFormat(EvolutionReportSchema),
           },
-          system: this.buildSystemPrompt(),
+          system: [{ type: 'text', text: this.buildSystemPrompt(), cache_control: { type: 'ephemeral' } }],
           messages: [{ role: 'user', content: JSON.stringify(input, null, 2) }],
         }),
       );
