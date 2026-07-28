@@ -498,6 +498,25 @@ function wheelNumberValues(min: number, max: number, digits: number) {
   for (let i = min; i <= max; i += 1) values.push(padWheelNumber(i, digits));
   return values;
 }
+// durationMin no registro de treino guarda minutos decimais (ex: 35.5 = 35min30s) para o segundo
+// contar de verdade, mas a roda mostra h/min/seg — essas funcoes convertem entre os dois formatos.
+function durationMinToHms(durationMinValue: string): { h: number; m: number; s: number } {
+  const totalSeconds = Math.max(0, Math.round((Number(durationMinValue) || 0) * 60));
+  return { h: Math.floor(totalSeconds / 3600), m: Math.floor((totalSeconds % 3600) / 60), s: totalSeconds % 60 };
+}
+function hmsToDurationMin(h: number, m: number, s: number): string {
+  const totalSeconds = h * 3600 + m * 60 + s;
+  return totalSeconds > 0 ? String(totalSeconds / 60) : '';
+}
+// distanceKm no registro guarda km decimais (ex: 5.437) — a roda mostra km inteiros + metros.
+function distanceKmToKmM(distanceKmValue: string): { km: number; m: number } {
+  const totalMeters = Math.max(0, Math.round((Number(distanceKmValue) || 0) * 1000));
+  return { km: Math.floor(totalMeters / 1000), m: totalMeters % 1000 };
+}
+function kmMToDistanceKm(km: number, m: number): string {
+  const totalMeters = km * 1000 + m;
+  return totalMeters > 0 ? String(totalMeters / 1000) : '';
+}
 function parseHmsToSeconds(value: unknown): number | null {
   if (typeof value !== 'string') return null;
   const match = value.match(/^(\d{1,2}):(\d{1,2}):(\d{1,2})$/);
@@ -4265,6 +4284,36 @@ function ExerciseMetric({ label, value }: { label: string; value: string }) {
   return <View style={styles.exerciseMetric}><Text style={styles.exerciseMetricLabel}>{label}</Text><Text style={styles.exerciseMetricValue}>{value}</Text></View>;
 }
 
+// Antes era um campo de texto livre (so minutos inteiros) — trocado por roda h/min/seg pra
+// registrar o tempo real com precisao de segundo, como pedido por uma aluna ("cada segundo conta").
+function DurationWheelField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
+  const { h, m, s } = durationMinToHms(value);
+  const hValues = wheelNumberValues(0, 9, 1);
+  const mValues = wheelNumberValues(0, 59, 2);
+  const sValues = wheelNumberValues(0, 59, 2);
+  return (
+    <WheelPicker columns={[
+      { label: 'h', values: hValues, selectedIndex: h, onChangeIndex: (index) => onChangeValue(hmsToDurationMin(index, m, s)) },
+      { label: 'min', values: mValues, selectedIndex: m, onChangeIndex: (index) => onChangeValue(hmsToDurationMin(h, index, s)) },
+      { label: 'seg', values: sValues, selectedIndex: s, onChangeIndex: (index) => onChangeValue(hmsToDurationMin(h, m, index)) },
+    ]} />
+  );
+}
+
+// Mesma logica para distancia: roda km + metros em vez de texto livre com virgula, que a aluna
+// digitava errado com frequencia ("cada metro conta").
+function DistanceWheelField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
+  const { km, m } = distanceKmToKmM(value);
+  const kmValues = wheelNumberValues(0, 199, 1);
+  const mValues = wheelNumberValues(0, 999, 3);
+  return (
+    <WheelPicker columns={[
+      { label: 'km', values: kmValues, selectedIndex: km, onChangeIndex: (index) => onChangeValue(kmMToDistanceKm(index, m)) },
+      { label: 'm', values: mValues, selectedIndex: m, onChangeIndex: (index) => onChangeValue(kmMToDistanceKm(km, index)) },
+    ]} />
+  );
+}
+
 function CompletionForm({
   session,
   draft,
@@ -4318,26 +4367,14 @@ function CompletionForm({
       {(isRun || isAerobic) && (
         <View style={styles.completionGrid}>
           <View style={styles.completionFieldGroup}>
-            <Text style={styles.inputLabel}>Tempo (min)</Text>
-            <TextInput
-              style={styles.compactInput}
-              value={draft.durationMin}
-              onChangeText={(value) => onChange({ durationMin: value.replace(/[^0-9]/g, '') })}
-              keyboardType="numeric"
-              placeholder="Ex: 45"
-            />
+            <Text style={styles.inputLabel}>Tempo</Text>
+            <DurationWheelField value={draft.durationMin} onChangeValue={(value) => onChange({ durationMin: value })} />
           </View>
           {isRun ? (
             <>
               <View style={styles.completionFieldGroup}>
-                <Text style={styles.inputLabel}>Distancia (km)</Text>
-                <TextInput
-                  style={styles.compactInput}
-                  value={draft.distanceKm}
-                  onChangeText={(value) => onChange({ distanceKm: value.replace(/[^0-9,.]/g, '') })}
-                  keyboardType="numeric"
-                  placeholder="Ex: 5,4"
-                />
+                <Text style={styles.inputLabel}>Distancia</Text>
+                <DistanceWheelField value={draft.distanceKm} onChangeValue={(value) => onChange({ distanceKm: value })} />
               </View>
               <View style={styles.completionFieldGroup}>
                 <Text style={styles.inputLabel}>Pace medio</Text>
@@ -4802,7 +4839,7 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     satisfaction: '',
     painFlag: '',
     durationMin: session.durationMin ? String(session.durationMin) : '',
-    distanceKm: session.distanceKm ? String(session.distanceKm).replace('.', ',') : '',
+    distanceKm: session.distanceKm ? String(session.distanceKm) : '',
     avgPace: '',
     notes: '',
     loadsText: '',
@@ -4819,7 +4856,7 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     satisfaction: completion.satisfaction ?? '',
     painFlag: completion.painFlag ?? '',
     durationMin: completion.durationMin ? String(completion.durationMin) : '',
-    distanceKm: completion.distanceKm ? String(completion.distanceKm).replace('.', ',') : '',
+    distanceKm: completion.distanceKm ? String(completion.distanceKm) : '',
     avgPace: completion.avgPaceSecondsKm ? paceSecondsToInput(completion.avgPaceSecondsKm) : '',
     notes: completion.notes ?? '',
     loadsText: completion.details?.loadsText ?? '',

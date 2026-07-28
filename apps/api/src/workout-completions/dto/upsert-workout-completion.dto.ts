@@ -12,7 +12,7 @@ export class UpsertWorkoutCompletionDto {
   completedAt?: string;
 
   @IsOptional()
-  @IsInt()
+  @IsNumber()
   @Min(1)
   @Max(600)
   durationMin?: number;

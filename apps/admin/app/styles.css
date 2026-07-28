@@ -1646,7 +1646,8 @@ h3 {
   font-size: 0;
 }
 
-.strengthEditRow input {
+.strengthEditRow input,
+.strengthEditRow select {
   font-size: 12px;
 }
 
