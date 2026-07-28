@@ -1430,7 +1430,8 @@ function StudentPanel({
         body: JSON.stringify({ allowToday }),
       });
       if (!response.ok) {
-        onStatus('Nao consegui gerar uma nova semana.');
+        const data = await response.json().catch(() => ({}));
+        onStatus(typeof data?.message === 'string' ? data.message : 'Nao consegui gerar uma nova semana.');
         return;
       }
       await onRefresh();

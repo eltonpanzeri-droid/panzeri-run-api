@@ -112,7 +112,11 @@ const AiStrengthSessionSchema = z.object({
 
 const AiWeeklyDecisionSchema = z.object({
   sessions: z.array(AiSessionSchema).min(1).max(7),
-  strengthSessions: z.array(AiStrengthSessionSchema).max(7),
+  // Max 7 dias * ate 2 modalidades de forca no mesmo dia (forca + fortalecimento_corredores sao
+  // multi-select legitimo no app, ver computeStrengthSlots em training-methodology.ts) = 14, nao
+  // 7 — um aluno real com varios dias de dupla modalidade estourava o limite antigo e derrubava a
+  // semana inteira com "too_big" (incidente 2026-07-28).
+  strengthSessions: z.array(AiStrengthSessionSchema).max(14),
   recommendation: z.string().min(1),
   // Sem .min(1)/.max() por item: ja aconteceu na pratica a IA devolver um item vazio dentro da
   // lista (ex: rationale[0] = "") e tambem um item longo demais — e a resposta inteira ser
