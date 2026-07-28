@@ -1,4 +1,4 @@
-﻿import { BadRequestException, Injectable } from '@nestjs/common';
+﻿import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
@@ -21,6 +21,8 @@ import { sanitizeInterviewAnswers } from '../training-plans/training-methodology
 
 @Injectable()
 export class CoachService {
+  private readonly logger = new Logger(CoachService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly trainingPlans: TrainingPlansService,
@@ -437,7 +439,15 @@ export class CoachService {
 
   async student(studentId: string) {
     await this.assertStudent(studentId);
-    await this.trainingPlans.current(studentId);
+    // current() pode tentar regenerar o plano da semana (auto-heal) se detectar que ele esta
+    // desatualizado — isso e desejavel quando o proprio aluno abre o app, mas o treinador so
+    // esta VENDO os dados deste aluno no painel; se a geracao de IA falhar aqui (fora do ar,
+    // rate limit, etc), isso NUNCA pode impedir o treinador de ver os dados que ja existem.
+    // Sem este catch, uma falha aqui derrubava a pagina inteira do aluno no admin ("Nao
+    // consegui carregar o aluno"), mesmo com um plano existente e valido para mostrar.
+    await this.trainingPlans.current(studentId).catch((error) => {
+      this.logger.warn(`current() falhou ao abrir o aluno ${studentId} no painel (nao bloqueante): ${(error as Error).message}`);
+    });
     await this.strava.syncIfStale(studentId).catch(() => undefined);
     const stravaStatus = await this.strava.status(studentId).catch(() => null);
     const student = await (this.prisma.user as any).findFirstOrThrow({
@@ -646,6 +656,7 @@ export class CoachService {
           zone: session.intensityZone,
           structure: session.structure,
           notes: session.notes,
+          recommendations: session.recommendations,
           completionStatus: session.completion?.status ?? 'sem_registro',
           perceivedEffort: session.completion?.perceivedEffort ?? null,
           satisfaction: session.completion?.satisfaction ?? null,

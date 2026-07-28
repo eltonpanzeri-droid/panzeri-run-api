@@ -2561,12 +2561,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
                     </View>
                     {'notes' in session && session.notes ? <Text style={styles.sessionNote}>{session.notes}</Text> : null}
                     <SessionPrescription session={session} metrics={metrics} />
-                    {session.recommendations ? (
-                      <View style={styles.recommendationsBox}>
-                        <Text style={styles.recommendationsTitle}>Recomendações</Text>
-                        <Text style={styles.recommendationsText}>{session.recommendations}</Text>
-                      </View>
-                    ) : null}
+                    {session.recommendations ? <Text style={styles.sessionNote}>{session.recommendations}</Text> : null}
                     <CompletionForm
                       session={session}
                       draft={completionDrafts[session.id] ?? defaultCompletionDraft(session)}

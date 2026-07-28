@@ -211,6 +211,7 @@ interface StudentDetail {
       zone?: string | null;
       structure?: Record<string, unknown> | null;
       notes?: string | null;
+      recommendations?: string | null;
       completionStatus: string;
       perceivedEffort?: number | null;
       satisfaction?: string | null;
@@ -1998,7 +1999,7 @@ function StudentPanel({
                   {plan.sessions?.map((session) => (
                     <article className="historySession" key={session.id}>
                       <div><strong>{weekdayLabel(session.weekday)} {dateLabel(session.date)} - {session.title}</strong><span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''}</span></div>
-                      <AdminPrescription structure={session.structure} notes={session.notes} />
+                      <AdminPrescription structure={session.structure} notes={session.notes} recommendations={session.recommendations} />
                       <p className="historyExecution">{completionLabel(session.completionStatus)}{session.perceivedEffort ? ` | PSE ${session.perceivedEffort}/10` : ''}{session.satisfaction ? ` | Satisfacao: ${satisfactionLabel(session.satisfaction)}` : ''}{session.feedback ? ` | ${session.feedback}` : ''}</p>
                     </article>
                   ))}
@@ -2155,13 +2156,7 @@ function EditableSession({
         <strong>{session.title}</strong>
         <span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''} {session.zone ? `| ${session.zone}` : ''}</span>
       </div>
-      <AdminPrescription structure={session.structure} notes={session.notes} />
-      {session.recommendations ? (
-        <div className="recommendationsBox">
-          <strong>Recomendacoes</strong>
-          <p>{session.recommendations}</p>
-        </div>
-      ) : null}
+      <AdminPrescription structure={session.structure} notes={session.notes} recommendations={session.recommendations} />
       <div className={`executionPanel ${session.completionStatus === 'sem_registro' && !session.stravaActivity ? 'emptyExecution' : ''}`}>
         <strong>Realizado pelo aluno</strong>
         {session.completionStatus === 'sem_registro' ? <span>{session.stravaActivity ? 'Sem registro manual no aplicativo' : 'Sem registro'}</span> : (
@@ -2490,8 +2485,16 @@ function RunStepEditor({
   );
 }
 
-function AdminPrescription({ structure, notes }: { structure?: Record<string, unknown> | null; notes?: string | null }) {
-  if (!structure) return notes ? <p className="coachNotes">{notes}</p> : null;
+function AdminPrescription({ structure, notes, recommendations }: { structure?: Record<string, unknown> | null; notes?: string | null; recommendations?: string | null }) {
+  if (!structure) {
+    if (!notes && !recommendations) return null;
+    return (
+      <>
+        {notes ? <p className="coachNotes">{notes}</p> : null}
+        {recommendations ? <p className="coachNotes">{recommendations}</p> : null}
+      </>
+    );
+  }
   const type = String(structure.type ?? '');
   if (type === 'run' || type === 'aerobic') {
     const blocks = Array.isArray(structure.blocks) ? structure.blocks as Array<Record<string, unknown>> : [];
@@ -2527,6 +2530,7 @@ function AdminPrescription({ structure, notes }: { structure?: Record<string, un
           );
         })}
         {notes ? <p className="coachNotes">{notes}</p> : null}
+        {recommendations ? <p className="coachNotes">{recommendations}</p> : null}
       </div>
     );
   }
