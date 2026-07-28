@@ -98,13 +98,16 @@ const AiSessionSchema = z.object({
 // escondida — exerciseIds sao validados contra o catalogo aprovado (ver validateStrengthSessions)
 // antes de qualquer sessao ser aceita. "notes" e texto explicativo livre, sem limite maximo aqui
 // pelo mesmo motivo do AiSessionSchema acima (truncado em codigo, nunca rejeita a resposta toda).
+// "reps" tambem ficou sem .max() pelo mesmo motivo: incidente real em producao (2026-07-28) — a
+// IA escreve instrucoes tipo "12 cada lado, 3x, controle na descida" que passam facil de 40
+// caracteres, e nao e um numero curto tipo "4x12" sempre. Truncado em codigo (ver attemptDecision).
 const AiStrengthSessionSchema = z.object({
   weekday: z.number().int().min(0).max(6),
   modality: z.enum(['forca', 'fortalecimento_corredores']),
   title: z.string().min(1).max(120),
   exerciseIds: z.array(z.string().min(1).max(60)).min(3).max(10),
   sets: z.number().int().min(2).max(5),
-  reps: z.string().min(1).max(40),
+  reps: z.string().min(1),
   restSeconds: z.number().int().min(20).max(150),
   intensity: z.enum(['Leve', 'Moderada', 'Forte']),
   notes: z.string().min(1),
@@ -645,7 +648,7 @@ export class PrescriptionAgentService {
         title: session.title,
         exerciseIds: session.exerciseIds,
         sets: session.sets,
-        reps: session.reps,
+        reps: truncateText(session.reps, 120),
         restSeconds: session.restSeconds,
         intensity: session.intensity,
         notes: truncateText(session.notes, 900),
