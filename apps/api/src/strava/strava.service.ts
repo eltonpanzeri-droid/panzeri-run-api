@@ -455,10 +455,15 @@ export class StravaService implements OnModuleInit {
   }
 
   private async tokenRequest(body: Record<string, string>) {
+    // A Strava sempre recusou essa troca com "Authorization Error" / recurso "Application"
+    // invalido — nunca variando entre diferentes codigos/alunas, mesmo com client_id/secret
+    // confirmados corretos e o servico recem-reiniciado (descartando env desatualizada). O corpo
+    // ia como JSON; a documentacao da Strava usa form-urlencoded para /oauth/token, e e o mesmo
+    // formato que ja funciona na criacao do webhook (ensureWebhookSubscription, via
+    // URLSearchParams) — trocado para o mesmo formato aqui.
     const response = await fetch('https://www.strava.com/oauth/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: new URLSearchParams(body),
     });
 
     if (!response.ok) {
