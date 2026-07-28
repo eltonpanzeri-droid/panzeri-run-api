@@ -28,36 +28,13 @@ export class WeeklyPlanSchedulerService implements OnApplicationBootstrap {
     }
   }
 
-  // Roda a cada 2h (nao so 1x/dia) para se autocorrigir caso a geracao de algum aluno tenha
-  // falhado, ou o teste/disponibilidade/nivel de dor dele tenha mudado. Esta e a UNICA fonte
-  // de auto-correcao automatica do sistema (ver TrainingPlansService.ensureCurrentPlan) — abrir
-  // o app ou o painel NUNCA mais dispara geracao de IA sozinho (regra adotada em 2026-07-28,
-  // depois de um incidente de gasto de token repetido so por reabertura de tela). Rodar a cada
-  // 2h em vez de 1x/dia mantem a reacao a um relato de dor razoavelmente rapida (poucas horas,
-  // no lugar de instantanea) sem reintroduzir geracao "ao vivo" durante a abertura de uma tela.
-  @Cron('0 */2 * * *')
-  async ensureWeeklyPlans() {
-    const students = await this.prisma.user.findMany({
-      where: { role: 'student', accountStatus: { not: 'archived' } },
-      select: { id: true },
-    });
-
-    let regenerated = 0;
-    for (const student of students) {
-      try {
-        const before = await this.prisma.trainingPlan.count({ where: { userId: student.id } });
-        await this.trainingPlans.ensureCurrentPlan(student.id);
-        const after = await this.prisma.trainingPlan.count({ where: { userId: student.id } });
-        if (after > before) regenerated += 1;
-      } catch (error) {
-        this.logger.warn(`Falha ao garantir plano semanal para ${student.id}: ${(error as Error).message}`);
-      }
-    }
-
-    if (regenerated) {
-      this.logger.log(`Planos semanais gerados antecipadamente para ${regenerated} aluno(s).`);
-    }
-  }
+  // REMOVIDO DE PROPOSITO (2026-07-28): existia aqui uma rotina automatica rodando de tempos em
+  // tempos so pra "conferir e talvez regenerar" o plano de cada aluno. O treinador pediu
+  // explicitamente para nao ter nenhuma rotina automatica assim, mesmo rodando pouco — prefere
+  // que o sistema APENAS AVISE quando algo estiver desatualizado (ver
+  // TrainingPlansService.checkPlanFreshness, mostrado no painel do treinador) e que a geracao so
+  // aconteca por uma acao explicita: o botao "Refazer nova semana" do treinador, ou os gatilhos
+  // explicitos ja existentes (concluir entrevista, mudar rotina, sincronizar disponibilidade).
 
   // 22:00 UTC de domingo = 19:00 em Sao Paulo (Brasil nao tem horario de verao desde 2019).
   // Deixa a semana seguinte pronta com antecedencia — muitas alunas se organizam no domingo a

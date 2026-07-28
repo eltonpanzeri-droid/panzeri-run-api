@@ -73,13 +73,18 @@ desatualizado e chamar a IA para gerar a semana de novo. Isso gastava tokens sem
 reabertura de tela podia custar uma chamada real de IA) e, se a geração falhasse, derrubava a tela
 inteira.
 
-Desde 2026-07-28: `current()` é **só leitura** — nunca gera nada. A lógica de auto-correção foi
-extraída para `ensureCurrentPlan()`, chamada **somente** por um cron que roda a cada 2h
-(`WeeklyPlanSchedulerService`). Qualquer ação que precise gerar um treino na hora (concluir
-entrevista, mudar rotina, sincronizar disponibilidade pelo painel) chama `generateWeek()`
-explicitamente no próprio ponto da ação — nunca depende de alguém "abrir uma tela" para acontecer.
-Gerar uma notificação para o aluno avisando que o treino foi atualizado não tem custo de IA (é só um
-registro no banco).
+Desde 2026-07-28: `current()` é **só leitura** — nunca gera nada. A detecção de plano desatualizado
+foi extraída para `checkPlanFreshness()` — também só leitura, zero chamada de IA — chamada quando o
+treinador abre a página do aluno no painel, mostrando um aviso ("este aluno precisa de atualização")
+com o motivo. Não existe nenhum cron/rotina automática rodando isso sozinho: o treinador decidiu
+explicitamente que prefere ser avisado e clicar em "Refazer nova semana" quando quiser, a ter
+qualquer processo automático gerando (ou só verificando) coisas sozinho em segundo plano. Qualquer
+ação que precise gerar um treino na hora (concluir entrevista, mudar rotina, sincronizar
+disponibilidade pelo painel) chama `generateWeek()` explicitamente no próprio ponto da ação. Um
+relato de dor grave ainda dispara um alerta por Telegram na hora (limitado a 1 vez a cada 12h por
+aluno, pra não spammar), mas só quando alguém efetivamente abre a tela daquele aluno — não existe
+verificação em segundo plano para alunos que ninguém está olhando. Gerar uma notificação para o
+aluno avisando que o treino foi atualizado não tem custo de IA (é só um registro no banco).
 
 ---
 
@@ -107,12 +112,35 @@ registro no banco).
 - Mudança arquitetural do dia: `current()` virou somente-leitura (ver seção acima) — geração de
   treino nunca mais acontece só por alguém abrir uma tela.
 
+**Continuação no mesmo dia (2026-07-28, segunda parte)** — o treinador pediu para substituir até o
+cron de 2h por algo que só avisa (sem nenhuma rotina automática rodando sozinha) e trouxe duas
+observações estruturais importantes:
+- Achado um bug grave de exibição: o painel mostrava "Atenção: gerado pelo motor padrão (IA não foi
+  usada)" em **100% dos planos**, mesmo os gerados pela IA de verdade — um campo (`decisionSource`)
+  que nunca é preenchido desde que o motor determinístico antigo foi removido, sempre `undefined`,
+  sempre avaliando como "falso". Confirmado que o motor antigo está mesmo fora (nenhum fallback
+  determinístico existe em `generateWeek()` — se a IA falha, o sistema lança erro e avisa o
+  treinador, nunca usa uma regra fixa). Corrigido para sempre mostrar "Gerado pelo agente de IA".
+  Isso explica por que o treinador achava que "aquela porcaria do motor de treino" continuava ativa.
+- Confirmado e corrigido: a rotina real (`WeeklyAvailability`) mudava pela tela de treino/anamnese,
+  mas as respostas antigas da entrevista sobre dias/duração nunca eram atualizadas — e essas
+  respostas antigas ainda alimentavam a linha "Horário" do painel admin E o contexto que os agentes
+  de IA recebem. Agora `updateAvailability`/`updateAnamnese` sincronizam automaticamente as duas
+  fontes sempre que a rotina muda permanentemente.
+- `checkPlanFreshness()` substituiu o cron: só detecta e mostra um aviso no painel do aluno, sem
+  nenhuma geração automática. Alerta de dor grave por Telegram continua na hora, mas só quando
+  alguém efetivamente abre a tela daquele aluno (sem verificação em segundo plano), limitado a 1x/12h.
+
 **Pontos em aberto / para acompanhar depois desta sessão:**
-- Reação a um relato de dor grave agora leva até ~2h (cadência do cron) em vez de instantânea —
-  troca deliberada para eliminar geração-ao-abrir-tela; vale reavaliar se 2h é rápido o suficiente.
+- Sem nenhuma verificação em segundo plano, um aluno com dor elevada que ninguém olha no painel só
+  é notado quando alguém abrir a tela dele — aceito deliberadamente pelo treinador, mas vale
+  reavaliar se isso é rápido o suficiente na prática.
 - A reabertura de entrevista pelo lado do TREINADOR (painel admin) ainda não tem confirmação —
   só o lado do aluno recebeu o aviso nesta sessão.
 - Existe um template de disponibilidade fixo (`rawAvailableDays`, em
   `training-plans.service.ts`) usado SOMENTE se `WeeklyAvailability` estiver genuinamente vazia
   para um aluno — não devia acontecer no fluxo normal, mas se acontecer, o aluno recebe uma rotina
   genérica sem nenhum aviso a ninguém. Vale considerar alertar o treinador se esse caso disparar.
+- O campo `decisionSource` (sempre `undefined` hoje) ficou como código morto/vestigial no schema e
+  no `inputSnapshot` — inofensivo agora que nada mais condiciona exibição nele, mas vale limpar num
+  passe de faxina futuro.

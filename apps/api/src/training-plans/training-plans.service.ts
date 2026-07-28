@@ -73,11 +73,13 @@ const planEngineVersion = 'rules-v11-' + PANZERI_METHODOLOGY_VERSION;
 // Opus, com 2 tentativas internas, e falhava de novo. Este cooldown garante que, apos uma falha,
 // o sistema espera antes de tentar de novo automaticamente, em vez de gastar a cada visualizacao.
 const AI_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
+const PAIN_ALERT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 
 @Injectable()
 export class TrainingPlansService {
   private readonly logger = new Logger(TrainingPlansService.name);
   private readonly recentAiFailures = new Map<string, number>();
+  private readonly recentPainAlerts = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -94,11 +96,13 @@ export class TrainingPlansService {
   // do aluno no painel; antes disso tinha um "auto-heal" aqui que podia disparar uma geracao de
   // IA inteira so por alguem ter ABERTO uma tela pra olhar — isso gastava tokens sem necessidade
   // (as vezes repetidas vezes seguidas, cada reabertura de pagina) e, se a geracao falhasse,
-  // podia derrubar a tela inteira. A logica de auto-correcao que existia aqui foi extraida para
-  // ensureCurrentPlan(), chamada SOMENTE pelo cron (WeeklyPlanSchedulerService) — nunca por uma
-  // abertura de tela. Qualquer acao que realmente PRECISE gerar um treino novo na hora (concluir
-  // entrevista, mudar rotina, sincronizar disponibilidade, relato de dor) deve chamar
-  // generateWeek() explicitamente no proprio ponto da acao — nunca depender deste metodo.
+  // podia derrubar a tela inteira. A logica de deteccao que existia aqui foi extraida para
+  // checkPlanFreshness() — so LEITURA, nenhuma geracao — chamada pelo painel do treinador
+  // (CoachService.student()) pra mostrar quando um aluno precisa de atualizacao. NENHUM cron
+  // roda isso sozinho (pedido explicito do treinador: nada de rotina automatica gastando
+  // recursos so pra "talvez" regenerar algo). Qualquer acao que realmente PRECISE gerar um
+  // treino novo na hora (concluir entrevista, mudar rotina, sincronizar disponibilidade) chama
+  // generateWeek() explicitamente no proprio ponto da acao — nunca depende deste metodo.
   async current(userId: string) {
     const weekStart = startOfWeek(new Date());
     const [plan, latestTest, user, onboarding] = await Promise.all([
@@ -130,11 +134,15 @@ export class TrainingPlansService {
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
   }
 
-  // Auto-correcao real (plano ausente/desatualizado por teste, disponibilidade, versao do motor,
-  // ou nivel de dor elevado no meio da semana) — extraida de dentro do antigo current(). Chamada
-  // SOMENTE pelo cron diario (ver WeeklyPlanSchedulerService.ensureWeeklyPlans), nunca por uma
-  // tela sendo aberta. Nao retorna o plano "apresentado" (o cron so precisa do efeito colateral).
-  async ensureCurrentPlan(userId: string) {
+  // Deteccao pura (nenhuma escrita, nenhuma chamada de IA) — substitui o antigo auto-heal
+  // automatico. O treinador pediu explicitamente para NAO ter uma rotina automatica regenerando
+  // planos sozinha (mesmo so a cada X horas, ja seria um gasto de recursos sem necessidade real);
+  // em vez disso, esta funcao so INFORMA se um aluno precisa de atualizacao, e quem decide gerar
+  // e sempre uma acao explicita (o botao "Refazer nova semana" do treinador, ou um dos gatilhos
+  // explicitos ja existentes: concluir entrevista, mudar rotina, sincronizar disponibilidade).
+  // Chamada a partir de current() (leitura normal do aluno/painel) — como isso ja acontece toda
+  // vez que alguem abre uma tela, nao precisa de nenhum cron rodando sozinho por tras.
+  async checkPlanFreshness(userId: string): Promise<{ needsUpdate: boolean; reason: string | null }> {
     const weekStart = startOfWeek(new Date());
     const [plan, availability, latestTest, onboarding] = await Promise.all([
       this.prisma.trainingPlan.findFirst({
@@ -153,51 +161,31 @@ export class TrainingPlansService {
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } }),
     ]);
 
-    if (!onboarding?.completedAt) return;
+    if (!onboarding?.completedAt) return { needsUpdate: false, reason: null };
+    if (!plan) return { needsUpdate: true, reason: 'Nenhum plano ativo para a semana atual.' };
 
-    // Um relato de dor novo pode elevar o nivel de cautela NO MEIO da semana, depois que o treino
-    // ja foi entregue — sem isso, os dias que ainda vao acontecer ficariam sem considerar o novo
-    // sinal ate a proxima geracao normal (proxima semana). O treinador foi explicito que isso deve
-    // ser automatico quando o sinal for relevante (aqui, sempre que o tier realmente piorar). Como
-    // este metodo so roda pelo cron (nao mais a cada abertura de tela), a frequencia do cron
-    // (ver weekly-plan-scheduler.service.ts) e o que determina o atraso maximo dessa reacao.
-    const currentPainSafety = plan ? await this.painReports.computeSafetyTier(userId) : null;
-    const painTierElevated = plan ? planPainTierIsStale(plan.inputSnapshot, currentPainSafety!.tier) : false;
-
-    const needsRegeneration =
-      !plan ||
-      plan.generatedBy !== planEngineVersion ||
-      plan.startDate.getTime() !== weekStart.getTime() ||
-      !planMatchesLatestTest(plan.inputSnapshot, latestTest?.id ?? null) ||
-      !planMatchesAvailability(plan.inputSnapshot, availability) ||
-      painTierElevated;
-
-    if (!needsRegeneration) return;
+    const currentPainSafety = await this.painReports.computeSafetyTier(userId);
+    const painTierElevated = planPainTierIsStale(plan.inputSnapshot, currentPainSafety.tier);
 
     if (painTierElevated) {
-      this.logger.warn(`Nivel de cautela por dor elevado para o aluno ${userId} — regenerando automaticamente os dias restantes da semana.`);
-      await this.telegram.notifyCoach(
-        `⚠️ Novo relato de dor no Panzeri Run elevou o nivel de cautela de um aluno (id ${userId}).\nMotivo: ${currentPainSafety?.reason ?? 'sem detalhe'}\nOs treinos ainda nao realizados desta semana estao sendo ajustados automaticamente — confira no painel se ficou adequado.`,
-      );
+      // Continua avisando o treinador na hora (por Telegram), mas so uma vez a cada 12h por
+      // aluno — sem isso, toda vez que o aluno (ou o proprio treinador) abrisse a tela o alerta
+      // repetiria, ja que a condicao persiste ate alguem clicar em regenerar.
+      const lastAlertAt = this.recentPainAlerts.get(userId);
+      if (!lastAlertAt || Date.now() - lastAlertAt > PAIN_ALERT_COOLDOWN_MS) {
+        this.recentPainAlerts.set(userId, Date.now());
+        this.logger.warn(`Nivel de cautela por dor elevado para o aluno ${userId}.`);
+        await this.telegram.notifyCoach(
+          `⚠️ Novo relato de dor no Panzeri Run elevou o nivel de cautela de um aluno (id ${userId}).\nMotivo: ${currentPainSafety.reason ?? 'sem detalhe'}\nO plano desta semana precisa ser regenerado pelo painel para refletir isso.`,
+        );
+      }
+      return { needsUpdate: true, reason: `Nivel de cautela por dor elevado: ${currentPainSafety.reason ?? 'sem detalhe'}` };
     }
-    // Antes de gerar do zero, ver se ja existe uma versao pre-gerada no domingo as 19h esperando
-    // para esta semana (ver generateNextWeekIfMissing) — evita descartar esse trabalho e dar um
-    // treino diferente do que a aluna ja pode ter visto no domingo a noite.
-    const scheduled = await this.prisma.trainingPlan.findFirst({
-      where: { userId, status: 'scheduled', startDate: weekStart },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (
-      scheduled &&
-      scheduled.generatedBy === planEngineVersion &&
-      planMatchesLatestTest(scheduled.inputSnapshot, latestTest?.id ?? null) &&
-      planMatchesAvailability(scheduled.inputSnapshot, availability)
-    ) {
-      await this.prisma.trainingPlan.updateMany({ where: { userId, status: 'active' }, data: { status: 'archived' } });
-      await this.prisma.trainingPlan.update({ where: { id: scheduled.id }, data: { status: 'active' } });
-      return;
-    }
-    await this.generateWeek(userId);
+    if (plan.generatedBy !== planEngineVersion) return { needsUpdate: true, reason: 'Plano gerado por uma versao antiga do motor de decisao.' };
+    if (plan.startDate.getTime() !== weekStart.getTime()) return { needsUpdate: true, reason: 'Plano ativo nao e da semana atual.' };
+    if (!planMatchesLatestTest(plan.inputSnapshot, latestTest?.id ?? null)) return { needsUpdate: true, reason: 'Ha um teste de 3km mais recente do que o usado no plano.' };
+    if (!planMatchesAvailability(plan.inputSnapshot, availability)) return { needsUpdate: true, reason: 'A disponibilidade real do aluno mudou desde a ultima geracao.' };
+    return { needsUpdate: false, reason: null };
   }
 
   // Navegacao Anterior/Proxima da aluna na tela de semana (pedido do treinador, espelhando o

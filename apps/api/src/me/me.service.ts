@@ -269,11 +269,22 @@ export class MeService {
   async updateAvailability(userId: string, dto: UpdateAvailabilityDto) {
     validateAvailability(dto.availability);
 
-    const currentAvailability = await this.prisma.weeklyAvailability.findMany({ where: { userId } });
+    const [currentAvailability, onboarding] = await Promise.all([
+      this.prisma.weeklyAvailability.findMany({ where: { userId } }),
+      this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } }),
+    ]);
     const routineChanged = availabilityChanged(currentAvailability, dto.availability);
     if (routineChanged) {
       await this.assertRoutineChangeAllowed(userId);
     }
+
+    // A entrevista inicial guarda sua propria copia dos dias/duracao (${dia}_run_time etc.),
+    // usada na tabela "Horario" do painel admin e no contexto que os agentes de IA recebem
+    // (respostasEntrevista) — sem sincronizar essa copia aqui, ela ficava presa na resposta
+    // original da entrevista pra sempre, mesmo depois do aluno mudar a rotina de verdade por
+    // aqui. Isso fazia o painel mostrar horario desatualizado e os agentes receberem uma
+    // descricao de rotina que contradizia a disponibilidade real usada pra montar o treino.
+    const syncedAnswers = syncInterviewAnswersFromAvailability(asAnswerObject(onboarding?.answers), dto.availability);
 
     await this.prisma.$transaction([
       this.prisma.weeklyAvailability.deleteMany({ where: { userId } }),
@@ -289,6 +300,7 @@ export class MeService {
           },
         }),
       ),
+      ...(onboarding ? [this.prisma.onboardingInterview.update({ where: { userId }, data: { answers: syncedAnswers } })] : []),
       ...(routineChanged ? [this.prisma.user.update({ where: { id: userId }, data: { lastRoutineChangeAt: new Date() } })] : []),
     ]);
 
@@ -322,13 +334,24 @@ export class MeService {
       throw new BadRequestException('Este e-mail ja pertence a outra conta.');
     }
 
-    const currentAvailability = await this.prisma.weeklyAvailability.findMany({ where: { userId } });
+    const [currentAvailability, onboarding] = await Promise.all([
+      this.prisma.weeklyAvailability.findMany({ where: { userId } }),
+      this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } }),
+    ]);
     const routineChanged = availabilityChanged(currentAvailability, dto.availability.availability);
     if (routineChanged) {
       await this.assertRoutineChangeAllowed(userId);
     }
+    // Ver comentario equivalente em updateAvailability sobre por que a entrevista precisa
+    // refletir a rotina real sempre que ela muda por aqui (painel admin e agentes de IA leem
+    // as respostas antigas da entrevista, nao so a WeeklyAvailability).
+    const syncedAnswers = syncInterviewAnswersFromAvailability(asAnswerObject(onboarding?.answers), dto.availability.availability);
 
     const result = await this.prisma.$transaction(async (tx) => {
+      if (onboarding) {
+        await tx.onboardingInterview.update({ where: { userId }, data: { answers: syncedAnswers } });
+      }
+
       await tx.user.update({
         where: { id: userId },
         data: {
@@ -608,6 +631,44 @@ function buildInterviewAvailability(answers: Record<string, Prisma.InputJsonValu
 function interviewMinutes(value: unknown) {
   const options: Record<string, number> = { none: 0, up_to_30: 30, from_30_to_45: 45, from_45_to_60: 60, from_60_to_90: 90, over_90: 105 };
   return options[String(value)] ?? 0;
+}
+
+const WEEKDAY_TO_INTERVIEW_KEY: Record<number, string> = {
+  0: 'sunday', 1: 'monday', 2: 'tuesday', 3: 'wednesday', 4: 'thursday', 5: 'friday', 6: 'saturday',
+};
+
+function minutesToInterviewBucket(minutes: number) {
+  if (minutes <= 0) return 'none';
+  if (minutes <= 30) return 'up_to_30';
+  if (minutes <= 45) return 'from_30_to_45';
+  if (minutes <= 60) return 'from_45_to_60';
+  if (minutes <= 90) return 'from_60_to_90';
+  return 'over_90';
+}
+
+// Direcao inversa de buildInterviewAvailability. Sempre que a rotina real (WeeklyAvailability)
+// muda por updateAvailability/updateAnamnese (nao pela entrevista em si), as respostas antigas
+// da entrevista sobre dias/duracao (${dia}_run_time, ${dia}_musculacao_time,
+// ${dia}_fortalecimento_time) ficavam presas na resposta original pra sempre. Essas respostas
+// SAO lidas em dois lugares que nao usam WeeklyAvailability: a linha "Horario" da tabela de
+// rotina no painel admin (apps/admin/app/page.tsx) e o contexto respostasEntrevista que os
+// agentes de IA (prescricao, gerente tecnico) recebem — sem sincronizar de volta aqui, o painel
+// mostrava um horario desatualizado e a IA podia receber uma descricao de rotina que contradizia
+// a disponibilidade real usada pra montar o treino daquela mesma semana.
+function syncInterviewAnswersFromAvailability(
+  currentAnswers: Record<string, Prisma.InputJsonValue>,
+  availability: Array<{ weekday: number; noTraining: boolean; modalities: string[]; modalityDurations?: Record<string, number> | null }>,
+): Record<string, Prisma.InputJsonValue> {
+  const updated = { ...currentAnswers };
+  for (const day of availability) {
+    const dayKey = WEEKDAY_TO_INTERVIEW_KEY[day.weekday];
+    if (!dayKey) continue;
+    const durations = day.noTraining ? {} : day.modalityDurations ?? {};
+    updated[`${dayKey}_run_time`] = minutesToInterviewBucket(durations.corrida ?? 0);
+    updated[`${dayKey}_fortalecimento_time`] = minutesToInterviewBucket(durations.fortalecimento_corredores ?? 0);
+    updated[`${dayKey}_musculacao_time`] = minutesToInterviewBucket(durations.forca ?? 0);
+  }
+  return updated;
 }
 
 function decimalValue(value: unknown) {

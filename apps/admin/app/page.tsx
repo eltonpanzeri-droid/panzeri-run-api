@@ -62,6 +62,8 @@ interface StudentDetail {
   subscriptionStatus: string;
   subscriptionUpdatedAt?: string | null;
   subscriptionManualOverride?: boolean;
+  needsUpdate?: boolean;
+  needsUpdateReason?: string | null;
   strava?: { connected: boolean; automaticSync: boolean; lastActivityAt?: string | null };
   birthDate?: string | null;
   heightCm?: number | null;
@@ -1929,14 +1931,18 @@ function StudentPanel({
       </section>
 
       <section className="miniSection weekWorkspace">
+        {student.needsUpdate ? (
+          <div className="needsUpdateBanner">
+            <strong>Este aluno precisa de atualizacao de treino.</strong>
+            <span>{student.needsUpdateReason ?? 'Os dados usados na ultima geracao nao batem mais com o que esta salvo agora.'} Use "Refazer nova semana de treinos" abaixo quando quiser aplicar.</span>
+          </div>
+        ) : null}
         <div className="weekWorkspaceHeader">
           <div>
             <p className="eyebrow">Planejamento e execucao</p>
             <h3>Semana atual</h3>
             {student.plan?.methodology ? (
-              <span className={`decisionSourceBadge ${student.plan.methodology.decisionSource === 'ai' ? 'decisionSourceAi' : 'decisionSourceDeterministic'}`}>
-                {student.plan.methodology.decisionSource === 'ai' ? 'Gerado pelo agente de IA' : 'Atencao: gerado pelo motor padrao (IA nao foi usada)'}
-              </span>
+              <span className="decisionSourceBadge decisionSourceAi">Gerado pelo agente de IA</span>
             ) : null}
           </div>
           <div className="weekWorkspaceActions">
@@ -2652,7 +2658,7 @@ function methodologySummaryLine(methodology: {
     parts.push(`Pace facil ${paceLabel(methodology.paceAssessment.easyPaceSecondsPerKm)} · Pace forte ${paceLabel(methodology.paceAssessment.intensePaceSecondsPerKm)}`);
   }
   if (methodology.safetyAdjustment) parts.push('Cautela ativa por dor/limitacao recente');
-  parts.push(methodology.decisionSource === 'ai' ? 'Decisao: agente de IA' : 'Decisao: motor padrao');
+  parts.push('Decisao: agente de IA');
   return parts.join(' · ');
 }
 

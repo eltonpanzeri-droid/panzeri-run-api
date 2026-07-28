@@ -439,14 +439,13 @@ export class CoachService {
 
   async student(studentId: string) {
     await this.assertStudent(studentId);
-    // current() pode tentar regenerar o plano da semana (auto-heal) se detectar que ele esta
-    // desatualizado — isso e desejavel quando o proprio aluno abre o app, mas o treinador so
-    // esta VENDO os dados deste aluno no painel; se a geracao de IA falhar aqui (fora do ar,
-    // rate limit, etc), isso NUNCA pode impedir o treinador de ver os dados que ja existem.
-    // Sem este catch, uma falha aqui derrubava a pagina inteira do aluno no admin ("Nao
-    // consegui carregar o aluno"), mesmo com um plano existente e valido para mostrar.
-    await this.trainingPlans.current(studentId).catch((error) => {
-      this.logger.warn(`current() falhou ao abrir o aluno ${studentId} no painel (nao bloqueante): ${(error as Error).message}`);
+    // Deteccao pura (nenhuma escrita, nenhuma chamada de IA) — so pra AVISAR o treinador se o
+    // plano deste aluno esta desatualizado (teste novo, rotina mudou, nivel de dor elevado). A
+    // decisao de gerar e sempre dele, pelo botao "Refazer nova semana" — nunca automatica so por
+    // ter aberto esta pagina. Erro aqui nunca pode impedir o resto da pagina de carregar.
+    const planFreshness = await this.trainingPlans.checkPlanFreshness(studentId).catch((error) => {
+      this.logger.warn(`checkPlanFreshness falhou para o aluno ${studentId} (nao bloqueante): ${(error as Error).message}`);
+      return { needsUpdate: false, reason: null };
     });
     await this.strava.syncIfStale(studentId).catch(() => undefined);
     const stravaStatus = await this.strava.status(studentId).catch(() => null);
@@ -522,6 +521,8 @@ export class CoachService {
       subscriptionStatus: student.subscriptionStatus,
       subscriptionUpdatedAt: student.subscriptionUpdatedAt,
       subscriptionManualOverride: student.subscriptionManualOverride,
+      needsUpdate: planFreshness.needsUpdate,
+      needsUpdateReason: planFreshness.reason,
       strava: stravaStatus ? {
         connected: stravaStatus.connected,
         automaticSync: stravaStatus.automaticSync,
