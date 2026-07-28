@@ -45,6 +45,18 @@ const WEEKLY_KM_RANGE_LABELS: Record<string, string> = {
 // o treinador pediu para eliminar, mesmo depois de eu so ter corrigido a MATEMATICA dela, nao
 // removido a regra em si). O codigo so monta a exibicao a partir desses numeros e confere (em
 // validateSessions) se o tempo real resultante bate com durationMin — nunca decide os numeros.
+// Tolerancia de validacao (nao uma decisao de conteudo — so precisao de arredondamento, ja que
+// repeatCount e inteiro). Era 8 min, largo demais (quase 13% de folga num treino de 60 min) e
+// permitia exatamente o tipo de desvio que o treinador reportou. A IA tem numeros continuos o
+// suficiente (stepKm, easyVolumeKm) pra bater bem perto do exato, entao a margem fica pequena.
+const STRUCTURE_DURATION_TOLERANCE_MIN = 3;
+
+// Piso biomecanico (nao uma preferencia de treinador): abaixo desse ritmo a mecanica da corrida
+// piora e vira caminhada na pratica (ver panzeri-methodology-knowledge.ts). Diferente das
+// proporcoes removidas de fallbackPaces, isso e um fato fisico igual pra qualquer aluno — por
+// isso continua validado em codigo, nunca decidido pela IA.
+const MAX_EASY_PACE_SECONDS_PER_KM = 510; // 8:30/km
+
 const AiIntervalStructureSchema = z.object({
   repeatCount: z.number().int().min(2).max(20),
   fastStepKm: z.number().min(0.1).max(5),
@@ -227,7 +239,7 @@ export class PrescriptionAgentService {
           (repeatCount * (fastStepKm * params.intensePaceSecondsPerKm + recoveryStepKm * recoveryPaceSecondsPerKm) +
             easyVolumeKm * params.easyPaceSecondsPerKm) /
           60;
-        if (Math.abs(estimatedMin - params.durationMin) > 8) {
+        if (Math.abs(estimatedMin - params.durationMin) > STRUCTURE_DURATION_TOLERANCE_MIN) {
           this.logger.warn(`Rejeitado (estrutura avulsa): tempo estimado ${estimatedMin.toFixed(1)} min diferente do durationMin ${params.durationMin}.`);
           return null;
         }
@@ -240,7 +252,7 @@ export class PrescriptionAgentService {
       }
       const { repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm } = parsed.walkRunStructure;
       const estimatedMin = (repeatCount * (walkStepKm * walkPaceSecondsPerKm + runStepKm * runPaceSecondsPerKm)) / 60;
-      if (Math.abs(estimatedMin - params.durationMin) > 8) {
+      if (Math.abs(estimatedMin - params.durationMin) > STRUCTURE_DURATION_TOLERANCE_MIN) {
         this.logger.warn(`Rejeitado (estrutura avulsa): tempo estimado ${estimatedMin.toFixed(1)} min diferente do durationMin ${params.durationMin}.`);
         return null;
       }
@@ -257,7 +269,7 @@ export class PrescriptionAgentService {
       'Voce recebe durationMinDisponivel (tempo total ja decidido para este dia, nao pode ser mudado) e os dois paces ja avaliados (easyPaceSecondsPerKm, intensePaceSecondsPerKm). Sua unica tarefa e decidir a ESTRUTURA que preenche esse tempo de forma realista.',
       'Para sessionType "quality_run", preencha intervalStructure: repeatCount (numero de repeticoes fortes), fastStepKm (distancia de cada repeticao no pace intenso), recoveryStepKm (distancia de cada recuperacao entre repeticoes) e recoveryPaceSecondsPerKm (pace da recuperacao — normalmente bem mais lento que o pace facil, tipo um trote leve ou caminhada), e easyVolumeKm (volume continuo adicional no pace facil, alem do bloco intervalado).',
       'Para sessionType "walk_run", preencha walkRunStructure: repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm e runPaceSecondsPerKm (o pace de corrida deve ser claramente mais rapido que o de caminhada).',
-      'REGRA MATEMATICA OBRIGATORIA: a soma do tempo real que a estrutura implica tem que ficar proxima de durationMinDisponivel (tolerancia de uns 8 minutos). Para quality_run: some repeatCount * (fastStepKm * intensePaceSecondsPerKm + recoveryStepKm * recoveryPaceSecondsPerKm), some easyVolumeKm * easyPaceSecondsPerKm, o total em segundos dividido por 60 tem que bater com durationMinDisponivel. Para walk_run: repeatCount * (walkStepKm * walkPaceSecondsPerKm + runStepKm * runPaceSecondsPerKm) dividido por 60 tem que bater com durationMinDisponivel. Se a conta nao bater, sua resposta sera rejeitada — FACA A CONTA antes de responder e ajuste os numeros ate bater.',
+      'REGRA MATEMATICA OBRIGATORIA: a soma do tempo real que a estrutura implica tem que ficar proxima de durationMinDisponivel (tolerancia de so uns 3 minutos — voce tem numeros continuos o suficiente pra bater quase exato, entao capriche na conta). Para quality_run: some repeatCount * (fastStepKm * intensePaceSecondsPerKm + recoveryStepKm * recoveryPaceSecondsPerKm), some easyVolumeKm * easyPaceSecondsPerKm, o total em segundos dividido por 60 tem que bater com durationMinDisponivel. Para walk_run: repeatCount * (walkStepKm * walkPaceSecondsPerKm + runStepKm * runPaceSecondsPerKm) dividido por 60 tem que bater com durationMinDisponivel. Se a conta nao bater, sua resposta sera rejeitada — FACA A CONTA antes de responder e ajuste os numeros ate bater.',
       'Preencha SOMENTE o campo correspondente ao sessionType informado (intervalStructure para quality_run, walkRunStructure para walk_run); deixe o outro campo null.',
     ].join('\n\n');
   }
@@ -273,6 +285,65 @@ export class PrescriptionAgentService {
       null,
       2,
     );
+  }
+
+  // Usado quando o treinador regenera UM dia isolado (nao a semana inteira) e o plano ativo do
+  // aluno nao tem uma avaliacao de pace ja decidida pela IA para reaproveitar (ex: aluno sem
+  // plano anterior gerado). Mesma exigencia de nunca usar proporcao fixa (tipo pace_teste * 1.15
+  // ou * 0.95): a IA raciocina como um treinador humano a partir das evidencias disponiveis.
+  async proposePaceAssessment(evidence: PaceEvidence): Promise<{ easyPaceSecondsPerKm: number; intensePaceSecondsPerKm: number; rationale: string } | null> {
+    if (!this.client) {
+      this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado para avaliar o pace avulso.');
+      return null;
+    }
+    const attempt = () => this.attemptPaceAssessmentDecision(evidence);
+    return (await attempt()) ?? (await attempt());
+  }
+
+  private async attemptPaceAssessmentDecision(evidence: PaceEvidence): Promise<{ easyPaceSecondsPerKm: number; intensePaceSecondsPerKm: number; rationale: string } | null> {
+    const client = this.client;
+    if (!client) return null;
+    const schema = z.object({
+      easyPaceSecondsPerKm: z.number().int().min(150).max(900),
+      intensePaceSecondsPerKm: z.number().int().min(120).max(700),
+      rationale: z.string().min(1),
+    });
+    try {
+      const response = await this.aiQueue.run(() =>
+        client.messages.parse({
+          model: 'claude-sonnet-5',
+          max_tokens: 1500,
+          thinking: { type: 'adaptive' },
+          output_config: { effort: 'medium', format: zodOutputFormat(schema) },
+          system: this.buildPaceAssessmentSystemPrompt(),
+          messages: [{ role: 'user', content: JSON.stringify(evidence, null, 2) }],
+        }),
+      );
+      const parsed = response.parsed_output;
+      if (!parsed) return null;
+      if (parsed.intensePaceSecondsPerKm >= parsed.easyPaceSecondsPerKm) {
+        this.logger.warn('Rejeitado (pace avulso): pace intenso nao e mais rapido que o pace facil.');
+        return null;
+      }
+      if (parsed.easyPaceSecondsPerKm > MAX_EASY_PACE_SECONDS_PER_KM) {
+        this.logger.warn(`Rejeitado (pace avulso): pace facil ${parsed.easyPaceSecondsPerKm}s/km mais lento que o piso biomecanico de ${MAX_EASY_PACE_SECONDS_PER_KM}s/km.`);
+        return null;
+      }
+      return { ...parsed, rationale: truncateText(parsed.rationale, 900) };
+    } catch (error) {
+      this.logger.warn(`Falha ao avaliar pace avulso com o agente de IA: ${describeAiError(error)}`);
+      return null;
+    }
+  }
+
+  private buildPaceAssessmentSystemPrompt() {
+    return [
+      'Voce e o agente que avalia o pace facil (easyPaceSecondsPerKm) e o pace forte/intenso (intensePaceSecondsPerKm) de um aluno, isoladamente, para regenerar UM dia de treino avulso — nao ha um plano semanal sendo gerado agora, entao nao existe uma avaliacao de pace ja feita nesta rodada para reaproveitar.',
+      'Voce recebe evidencias disponiveis: testPace (resultado de um teste de corrida recente, com secondsPerKm e ha quantos dias foi feito), selfReportedPace (pace que o proprio aluno relatou, via numero de um teste de 5k ou uma descricao qualitativa) e stravaAveragePace (media de paces de atividades recentes do Strava, com o numero de corridas usadas na media). Qualquer uma pode estar ausente (null) — use o que estiver disponivel, dando mais peso a evidencia mais recente e mais direta (teste > Strava > autorrelato).',
+      'NUNCA calcule o pace forte como uma proporcao fixa do pace facil (tipo "pace_teste vezes 0.95") nem o pace facil como uma proporcao fixa do pace de teste (tipo "vezes 1.15") — isso e proibido. Raciocine como um treinador humano real avaliaria a evidencia: leve em conta ha quanto tempo foi o teste (pace pode ter mudado), quao confiavel e a fonte, e a faixa de pace tipica de corredores amadores.',
+      'O pace forte tem que ser numericamente MENOR (mais rapido) que o pace facil, ambos em segundos por quilometro.',
+      'Escreva um rationale curto (1-3 frases) explicando o raciocinio a partir das evidencias recebidas.',
+    ].join('\n\n');
   }
 
   private async attemptStrengthSessionDecision(input: MethodologyInput, slot: StrengthSlot): Promise<StrengthSessionDecision | null> {
@@ -462,11 +533,13 @@ export class PrescriptionAgentService {
 
       // Estrutura do intervalado/caminhada-corrida e decisao da IA (nao mais uma formula fixa no
       // codigo) — aqui so conferimos que ela preencheu a estrutura certa pro tipo de sessao, e que
-      // o tempo real que essa estrutura implica bate (com folga razoavel) com durationMin. Sem essa
-      // conferencia, um erro de conta da propria IA (ex: repeticoes demais pro tempo disponivel)
-      // passaria batido e o aluno acabaria com um treino bem mais longo/curto que o combinado —
-      // exatamente o bug que ja aconteceu na pratica quando essa conta era fixa no codigo.
-      const durationToleranceSeconds = 8 * 60;
+      // o tempo real que essa estrutura implica bate com durationMin. Sem essa conferencia, um
+      // erro de conta da propria IA (ex: repeticoes demais pro tempo disponivel) passaria batido e
+      // o aluno acabaria com um treino bem mais longo/curto que o combinado — exatamente o bug que
+      // ja aconteceu na pratica quando essa conta era fixa no codigo. Tolerancia pequena de
+      // proposito (STRUCTURE_DURATION_TOLERANCE_MIN, so pra arredondamento de repeticoes inteiras
+      // — a IA tem numeros continuos o suficiente pra bater quase exato): ja teve uma folga de 8
+      // minutos aqui, larga demais pra um treino de 60 min, e o proprio treinador apontou isso.
       if (session.sessionType === 'quality_run') {
         if (!session.intervalStructure) {
           this.logger.warn(`Rejeitado: sessionType quality_run no weekday ${session.weekday} sem intervalStructure preenchido.`);
@@ -477,7 +550,7 @@ export class PrescriptionAgentService {
           repeatCount * (fastStepKm * intensePaceSecondsPerKm + recoveryStepKm * recoveryPaceSecondsPerKm) +
           easyVolumeKm * easyPaceSecondsPerKm;
         const estimatedMin = estimatedSeconds / 60;
-        if (Math.abs(estimatedMin - session.durationMin) > durationToleranceSeconds / 60) {
+        if (Math.abs(estimatedMin - session.durationMin) > STRUCTURE_DURATION_TOLERANCE_MIN) {
           this.logger.warn(
             `Rejeitado: intervalStructure do weekday ${session.weekday} implica ${estimatedMin.toFixed(1)} min reais, muito diferente do durationMin declarado (${session.durationMin} min).`,
           );
@@ -491,7 +564,7 @@ export class PrescriptionAgentService {
         const { repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm } = session.walkRunStructure;
         const estimatedSeconds = repeatCount * (walkStepKm * walkPaceSecondsPerKm + runStepKm * runPaceSecondsPerKm);
         const estimatedMin = estimatedSeconds / 60;
-        if (Math.abs(estimatedMin - session.durationMin) > durationToleranceSeconds / 60) {
+        if (Math.abs(estimatedMin - session.durationMin) > STRUCTURE_DURATION_TOLERANCE_MIN) {
           this.logger.warn(
             `Rejeitado: walkRunStructure do weekday ${session.weekday} implica ${estimatedMin.toFixed(1)} min reais, muito diferente do durationMin declarado (${session.durationMin} min).`,
           );
@@ -611,7 +684,7 @@ export class PrescriptionAgentService {
       'Se analiseAprofundadaStrava estiver preenchida (vem de outro agente que ja mastigou cadencia, frequencia cardiaca, padroes e outras modalidades do Strava para voce), use o campo "summary" e as "flags" como evidencia adicional real de como o aluno esta respondendo ao treino agora — nao ignore isso, mas tambem nao superestime; combine com o resto das evidencias.',
       'Cuidado ao interpretar texto livre escrito pelo proprio aluno (respostas de entrevista/reavaliacao, comentarios): muitos alunos escrevem de forma informal, como numa conversa entre pessoas, com ironia, hiperbole ou exagero comico (ex: "corri e quase morri" ou "foi moleza" nao sao relatos medicos literais). Nunca leve essas frases ao pe da letra como se fossem um dado objetivo — interprete o tom real antes de decidir algo com base nelas, e prefira sempre dados estruturados/numericos (pace, testes, aderencia) quando o texto livre parecer contraditorio ou exagerado.',
       'VARIEDADE: evite repetir literalmente o mesmo titulo e a mesma frase de notes toda semana para o mesmo tipo de sessao (ex: sempre "Corrida leve" com a mesma nota) — isso ja foi apontado pelo treinador como preguica de quem monta o treino. Varie a redacao do titulo e das notes de forma natural semana a semana, mantendo o mesmo padrao metodologico (nao mude o proposito da sessao so por variar, mude a forma como ela e descrita e pequenos detalhes de enfase).',
-      'SOBRE A ESTRUTURA DO TREINO INTERVALADO/CAMINHADA-CORRIDA — VOCE decide os numeros, nao existe mais formula fixa nenhuma calculando isso por voce. Quando sessionType for "quality_run", preencha intervalStructure (repeatCount, fastStepKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm); quando for "walk_run", preencha walkRunStructure (repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm); nos outros sessionTypes, deixe os dois campos null. REGRA MATEMATICA OBRIGATORIA: o tempo real que a estrutura implica tem que bater com durationMin — para quality_run, some (repeatCount * (fastStepKm * paceAssessment.intensePaceSecondsPerKm + recoveryStepKm * recoveryPaceSecondsPerKm)) + (easyVolumeKm * paceAssessment.easyPaceSecondsPerKm), o resultado em segundos dividido por 60 tem que ficar proximo de durationMin (tolerancia de uns 8 minutos); para walk_run, some repeatCount * (walkStepKm * walkPaceSecondsPerKm + runStepKm * runPaceSecondsPerKm) da mesma forma. Se a conta nao bater, a resposta inteira sera rejeitada e voce tera que tentar de novo — ENTAO FACA A CONTA você mesmo antes de responder, ajustando repeatCount/stepKm ate a soma bater com durationMin. ERRO GRAVE JA OBSERVADO NA PRATICA (com a formula fixa antiga, nao mais em uso): calcular a distancia total do dia usando so o pace intenso pra duracao inteira, depois destinar boa parte dessa DISTANCIA pro volume facil (mais lento) — isso faz o tempo real explodir bem alem de durationMin, porque distancia igual em pace mais lento significa mais tempo. Nao repita esse erro: pense em TEMPO primeiro (quanto tempo pro bloco intenso, quanto tempo pro volume facil), e so DEPOIS derive a distancia de cada parte do proprio tempo e pace dela.',
+      'SOBRE A ESTRUTURA DO TREINO INTERVALADO/CAMINHADA-CORRIDA — VOCE decide os numeros, nao existe mais formula fixa nenhuma calculando isso por voce. Quando sessionType for "quality_run", preencha intervalStructure (repeatCount, fastStepKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm); quando for "walk_run", preencha walkRunStructure (repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm); nos outros sessionTypes, deixe os dois campos null. REGRA MATEMATICA OBRIGATORIA: o tempo real que a estrutura implica tem que bater com durationMin — para quality_run, some (repeatCount * (fastStepKm * paceAssessment.intensePaceSecondsPerKm + recoveryStepKm * recoveryPaceSecondsPerKm)) + (easyVolumeKm * paceAssessment.easyPaceSecondsPerKm), o resultado em segundos dividido por 60 tem que ficar proximo de durationMin (tolerancia de so uns 3 minutos — capriche na conta, voce tem numeros continuos o suficiente pra bater quase exato); para walk_run, some repeatCount * (walkStepKm * walkPaceSecondsPerKm + runStepKm * runPaceSecondsPerKm) da mesma forma. Se a conta nao bater, a resposta inteira sera rejeitada e voce tera que tentar de novo — ENTAO FACA A CONTA você mesmo antes de responder, ajustando repeatCount/stepKm ate a soma bater com durationMin. ERRO GRAVE JA OBSERVADO NA PRATICA (com a formula fixa antiga, nao mais em uso): calcular a distancia total do dia usando so o pace intenso pra duracao inteira, depois destinar boa parte dessa DISTANCIA pro volume facil (mais lento) — isso faz o tempo real explodir bem alem de durationMin, porque distancia igual em pace mais lento significa mais tempo. Nao repita esse erro: pense em TEMPO primeiro (quanto tempo pro bloco intenso, quanto tempo pro volume facil), e so DEPOIS derive a distancia de cada parte do proprio tempo e pace dela.',
       'O campo notes continua sendo so ESTRATEGIA e SENSACAO em palavras (ex: "comece controlado e mantenha o mesmo ritmo forte do primeiro ao ultimo tiro, sem estourar no inicio"), nao repita ali os numeros exatos que ja estao em intervalStructure/walkRunStructure — isso evita as duas fontes (texto livre e estrutura) contarem numeros diferentes um do outro.',
       'SOBRE O CAMPO recommendations (novo, um por sessao): aquecimento e desaquecimento NAO fazem mais parte do treino prescrito nem da distancia/duracao total — eles viram uma RECOMENDACAO em texto, separada, mostrada ao aluno depois do treino principal. Voce e responsavel por escrever essa recomendacao PENSANDO no aluno especifico, nao aplicando uma regra fixa. Diretriz do treinador, dada literalmente: para a maioria dos alunos, recomende aquecer de 5 a 10 minutos (caminhando ou trote bem leve, a escolha do aluno) e desaquecer com uns 5 minutos de caminhada leve. Para um aluno que voce concluiu (pelo paceAssessment e pelas evidencias de pace) ser um corredor amador com bom condicionamento e que sustenta ritmo por mais tempo, pode fazer mais sentido recomendar um trote leve de 1 a 3 km como aquecimento/desaquecimento em vez de so caminhar — mas essa decisao e SUA, baseada no pace/nivel real do aluno, nao existe um numero de corte fixo pra isso. NUNCA use essa recomendacao de trote de aquecimento/desaquecimento (nem frases como "voce ja corre bem") para um aluno que voce mesmo classificou como iniciante/pouco condicionado em qualquer outro campo desta mesma resposta (rationale, notes, paceAssessment.rationale) — isso ja aconteceu na pratica (recomendacao de trote de aquecimento escrita para uma aluna que a propria IA descreveu, no rationale, como iniciante com menos de 1 ano de corrida e maior distancia de 6 km) e e uma contradicao grave dentro da mesma resposta. Alem do aquecimento/desaquecimento, inclua neste campo outras recomendacoes praticas quando fizerem sentido para aquele treino especifico (ex: cuidado ao correr na rua — atencao ao transito e piso irregular —, ajustar inclinacao/passada se for na esteira, se hidratar bem principalmente em treinos mais longos ou dias quentes, levar gel/agua em longoes). Nao repita o mesmo texto generico sempre — adapte ao contexto da sessao (dia, duracao, se e longao ou intervalado, se e rua ou esteira segundo a modalidade informada).',
       'CONSISTENCIA INTERNA E OBRIGATORIA: o nivel/condicionamento do aluno que voce concluir (a partir do pace real, historicoSemanal, respostasEntrevista e reavaliacaoMaisRecente) tem que ser o MESMO em toda a resposta — no rationale geral, no notes e recommendations de cada sessao, e no paceAssessment.rationale. Nunca descreva o aluno como iniciante/pouco condicionado num campo e depois escreva, em outro campo da mesma resposta, um elogio ou recomendacao que so faria sentido para um corredor experiente (ou vice-versa). Antes de finalizar a resposta, revise mentalmente se todos os campos de texto contam a MESMA historia sobre este aluno.',

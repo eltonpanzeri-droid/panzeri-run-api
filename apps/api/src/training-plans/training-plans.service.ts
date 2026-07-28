@@ -64,7 +64,6 @@ interface WeeklyAvailabilityInput {
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
 const planEngineVersion = 'rules-v11-' + PANZERI_METHODOLOGY_VERSION;
-const MAX_RUN_PACE_SECONDS = 510; // 8:30/km - nenhuma corrida (qualquer zona) pode ser prescrita mais lenta que isso
 
 // Disjuntor contra gasto em loop: current() e chamado toda vez que ALGUEM SO ABRE a pagina do
 // aluno (painel do treinador ou app da aluna) — nao e uma acao explicita de "gerar treino". Se a
@@ -302,7 +301,6 @@ export class TrainingPlansService {
 
     const answers = sanitizeInterviewAnswers(jsonObject(onboarding.answers));
     const paceFallback = estimatePaceFromAnswers(answers);
-    const effectivePaceSecondsPerKm = latestTest?.paceSecondsPerKm ?? paceFallback?.paceSecondsPerKm ?? DEFAULT_PACE_SECONDS_PER_KM;
     const paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default' = latestTest ? 'test' : paceFallback?.source ?? 'default';
 
     const initialWeekStart = startOfWeek(referenceDate);
@@ -427,9 +425,17 @@ export class TrainingPlansService {
     }
     this.recentAiFailures.delete(userId);
     const methodology = aiDecision;
-    const resolvedPaces = methodology.paceAssessment
-      ? { easy: methodology.paceAssessment.easyPaceSecondsPerKm, intense: methodology.paceAssessment.intensePaceSecondsPerKm }
-      : this.fallbackPaces(effectivePaceSecondsPerKm);
+    if (!methodology.paceAssessment) {
+      // Nunca deveria acontecer: o schema Zod da IA exige paceAssessment em toda resposta valida
+      // (ver AiWeeklyDecisionSchema). Se chegar aqui mesmo assim, falha alto em vez de estimar o
+      // pace por uma formula fixa — nao existe mais motor de regra pronta pra isso.
+      this.logger.error(`Decisao da IA sem paceAssessment para o aluno ${userId} — nao ha como prosseguir sem regra fixa.`);
+      await this.telegram.notifyCoach(
+        `⚠️ A IA gerou uma decisao sem avaliacao de pace para um aluno (id ${userId}). O plano NAO foi atualizado — verifique os logs do EasyPanel.`,
+      );
+      throw new InternalServerErrorException('A IA nao retornou uma avaliacao de pace valida. O treinador ja foi avisado.');
+    }
+    const resolvedPaces = { easy: methodology.paceAssessment.easyPaceSecondsPerKm, intense: methodology.paceAssessment.intensePaceSecondsPerKm };
 
     const sessions = availableDays.slice(0, 7).flatMap((day) => {
       const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(day.weekday));
@@ -774,7 +780,7 @@ export class TrainingPlansService {
       });
     }
 
-    const [user, latestTest, onboarding, activeDirectives, activeObservations, latestReassessment] = await Promise.all([
+    const [user, latestTest, onboarding, activeDirectives, activeObservations, latestReassessment, sessionPlan] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { preferences: true } }),
       this.prisma.fitnessTest.findFirst({ where: { userId, testType: '3km' }, orderBy: { createdAt: 'desc' } }),
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } }),
@@ -785,14 +791,38 @@ export class TrainingPlansService {
       }),
       this.prisma.studentObservation.findMany({ where: { userId, active: true }, orderBy: { createdAt: 'desc' } }),
       this.prisma.reassessment.findFirst({ where: { userId, completedAt: { not: null } }, orderBy: { completedAt: 'desc' } }),
+      session.planId ? this.prisma.trainingPlan.findUnique({ where: { id: session.planId }, select: { inputSnapshot: true } }) : Promise.resolve(null),
     ]);
 
     const answers = sanitizeInterviewAnswers(jsonObject(onboarding?.answers));
     const painSafety = await this.painReports.computeSafetyTier(userId);
     const safetyAdjustment = painSafety.tier !== 'normal';
     const paceFallback = estimatePaceFromAnswers(answers);
-    const effectivePaceSecondsPerKm = latestTest?.paceSecondsPerKm ?? paceFallback?.paceSecondsPerKm ?? DEFAULT_PACE_SECONDS_PER_KM;
-    const resolvedPaces = this.fallbackPaces(effectivePaceSecondsPerKm);
+
+    // Reaproveita o pace que a IA ja decidiu pra semana ativa deste treino (mesmo pace que os
+    // outros dias da semana estao usando) em vez de recalcular. So chama a IA de novo, isolada,
+    // se por algum motivo nao houver plano/pace guardado (ex: sessao orfa sem planId) — nunca via
+    // formula fixa (ver historico de fallbackPaces removido).
+    const storedPaces = readSnapshotResolvedPaces(sessionPlan?.inputSnapshot);
+    let resolvedPaces: { easy: number; intense: number };
+    if (storedPaces) {
+      resolvedPaces = storedPaces;
+    } else {
+      const paceEvidence: PaceEvidence = {
+        testPace: latestTest ? { secondsPerKm: latestTest.paceSecondsPerKm, daysAgo: Math.max(0, Math.floor((Date.now() - latestTest.createdAt.getTime()) / 86400000)) } : null,
+        selfReportedPace: paceFallback ? { secondsPerKm: paceFallback.paceSecondsPerKm, source: paceFallback.source } : null,
+        stravaAveragePace: null,
+      };
+      const aiPaceAssessment = await this.prescriptionAgent.proposePaceAssessment(paceEvidence);
+      if (!aiPaceAssessment) {
+        this.logger.error(`Falha ao avaliar pace avulso com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);
+        await this.telegram.notifyCoach(
+          `⚠️ Falha ao avaliar pace com IA para um aluno (id ${userId}). O treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo painel.`,
+        );
+        throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
+      }
+      resolvedPaces = { easy: aiPaceAssessment.easyPaceSecondsPerKm, intense: aiPaceAssessment.intensePaceSecondsPerKm };
+    }
 
     const isStrength = session.modality === 'forca' || session.modality === 'fortalecimento_corredores';
     const isAerobic = session.modality === 'bike';
@@ -866,13 +896,6 @@ export class TrainingPlansService {
         structure: prescription as unknown as Prisma.InputJsonObject,
       },
     });
-  }
-
-  private fallbackPaces(effectivePaceSecondsPerKm: number): { easy: number; intense: number } {
-    return {
-      easy: Math.min(Math.round(effectivePaceSecondsPerKm * 1.15), MAX_RUN_PACE_SECONDS),
-      intense: Math.round(effectivePaceSecondsPerKm * 0.95),
-    };
   }
 
   private templateForModality(modality: string, hasTest: boolean): SessionTemplate {
@@ -1479,6 +1502,24 @@ function planMatchesLatestTest(inputSnapshot: unknown, latestTestId: string | nu
 
 function snapshotUsedWeeklyOverride(inputSnapshot: unknown) {
   return Boolean(inputSnapshot && typeof inputSnapshot === 'object' && (inputSnapshot as { weeklyOverrideUsed?: unknown }).weeklyOverrideUsed);
+}
+
+// Reaproveita o pace ja decidido pela IA para a semana ativa (guardado em inputSnapshot.resolvedPaces
+// quando o plano foi gerado) em vez de recalcular via formula fixa ao regenerar um dia isolado —
+// mesmo pace que os outros dias da mesma semana ja estao usando, sem custo extra de IA.
+function readSnapshotResolvedPaces(inputSnapshot: unknown): { easy: number; intense: number } | null {
+  if (!inputSnapshot || typeof inputSnapshot !== 'object' || !('resolvedPaces' in inputSnapshot)) {
+    return null;
+  }
+  const resolvedPaces = (inputSnapshot as { resolvedPaces?: unknown }).resolvedPaces;
+  if (!resolvedPaces || typeof resolvedPaces !== 'object') {
+    return null;
+  }
+  const { easy, intense } = resolvedPaces as { easy?: unknown; intense?: unknown };
+  if (typeof easy !== 'number' || typeof intense !== 'number' || !Number.isFinite(easy) || !Number.isFinite(intense)) {
+    return null;
+  }
+  return { easy, intense };
 }
 
 function readSnapshotAvailability(inputSnapshot: unknown) {
