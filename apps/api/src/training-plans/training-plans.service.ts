@@ -89,9 +89,19 @@ export class TrainingPlansService {
     private readonly telegram: TelegramService,
   ) {}
 
+  // REGRA DURA (2026-07-28): current() e SO LEITURA — nunca chama generateWeek() nem mexe no
+  // banco. E chamado toda vez que o aluno abre o app E toda vez que o treinador abre a pagina
+  // do aluno no painel; antes disso tinha um "auto-heal" aqui que podia disparar uma geracao de
+  // IA inteira so por alguem ter ABERTO uma tela pra olhar — isso gastava tokens sem necessidade
+  // (as vezes repetidas vezes seguidas, cada reabertura de pagina) e, se a geracao falhasse,
+  // podia derrubar a tela inteira. A logica de auto-correcao que existia aqui foi extraida para
+  // ensureCurrentPlan(), chamada SOMENTE pelo cron (WeeklyPlanSchedulerService) — nunca por uma
+  // abertura de tela. Qualquer acao que realmente PRECISE gerar um treino novo na hora (concluir
+  // entrevista, mudar rotina, sincronizar disponibilidade, relato de dor) deve chamar
+  // generateWeek() explicitamente no proprio ponto da acao — nunca depender deste metodo.
   async current(userId: string) {
     const weekStart = startOfWeek(new Date());
-    const [plan, availability, latestTest, user, onboarding] = await Promise.all([
+    const [plan, latestTest, user, onboarding] = await Promise.all([
       this.prisma.trainingPlan.findFirst({
         where: { userId, status: 'active' },
         orderBy: { createdAt: 'desc' },
@@ -101,10 +111,6 @@ export class TrainingPlansService {
             include: { completion: true },
           },
         },
-      }),
-      this.prisma.weeklyAvailability.findMany({
-        where: { userId, noTraining: false },
-        orderBy: { weekday: 'asc' },
       }),
       this.prisma.fitnessTest.findFirst({
         where: { userId, testType: '3km' },
@@ -117,52 +123,81 @@ export class TrainingPlansService {
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan(hasSubscriptionAccess(user.subscriptionStatus));
 
+    if (!plan) {
+      return { notGenerated: true, startDate: weekStart, endDate: addDays(weekStart, 6) };
+    }
+
+    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
+  }
+
+  // Auto-correcao real (plano ausente/desatualizado por teste, disponibilidade, versao do motor,
+  // ou nivel de dor elevado no meio da semana) — extraida de dentro do antigo current(). Chamada
+  // SOMENTE pelo cron diario (ver WeeklyPlanSchedulerService.ensureWeeklyPlans), nunca por uma
+  // tela sendo aberta. Nao retorna o plano "apresentado" (o cron so precisa do efeito colateral).
+  async ensureCurrentPlan(userId: string) {
+    const weekStart = startOfWeek(new Date());
+    const [plan, availability, latestTest, onboarding] = await Promise.all([
+      this.prisma.trainingPlan.findFirst({
+        where: { userId, status: 'active' },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.weeklyAvailability.findMany({
+        where: { userId, noTraining: false },
+        orderBy: { weekday: 'asc' },
+      }),
+      this.prisma.fitnessTest.findFirst({
+        where: { userId, testType: '3km' },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      }),
+      this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } }),
+    ]);
+
+    if (!onboarding?.completedAt) return;
+
     // Um relato de dor novo pode elevar o nivel de cautela NO MEIO da semana, depois que o treino
     // ja foi entregue — sem isso, os dias que ainda vao acontecer ficariam sem considerar o novo
     // sinal ate a proxima geracao normal (proxima semana). O treinador foi explicito que isso deve
-    // ser automatico quando o sinal for relevante (aqui, sempre que o tier realmente piorar).
+    // ser automatico quando o sinal for relevante (aqui, sempre que o tier realmente piorar). Como
+    // este metodo so roda pelo cron (nao mais a cada abertura de tela), a frequencia do cron
+    // (ver weekly-plan-scheduler.service.ts) e o que determina o atraso maximo dessa reacao.
     const currentPainSafety = plan ? await this.painReports.computeSafetyTier(userId) : null;
     const painTierElevated = plan ? planPainTierIsStale(plan.inputSnapshot, currentPainSafety!.tier) : false;
 
-    if (
+    const needsRegeneration =
       !plan ||
       plan.generatedBy !== planEngineVersion ||
       plan.startDate.getTime() !== weekStart.getTime() ||
       !planMatchesLatestTest(plan.inputSnapshot, latestTest?.id ?? null) ||
       !planMatchesAvailability(plan.inputSnapshot, availability) ||
-      painTierElevated
-    ) {
-      if (painTierElevated) {
-        this.logger.warn(`Nivel de cautela por dor elevado para o aluno ${userId} — regenerando automaticamente os dias restantes da semana.`);
-        await this.telegram.notifyCoach(
-          `⚠️ Novo relato de dor no Panzeri Run elevou o nivel de cautela de um aluno (id ${userId}).\nMotivo: ${currentPainSafety?.reason ?? 'sem detalhe'}\nOs treinos ainda nao realizados desta semana estao sendo ajustados automaticamente — confira no painel se ficou adequado.`,
-        );
-      }
-      // Antes de gerar do zero, ver se ja existe uma versao pre-gerada no domingo as 19h esperando
-      // para esta semana (ver generateNextWeekIfMissing) — evita descartar esse trabalho e dar um
-      // treino diferente do que a aluna ja pode ter visto no domingo a noite.
-      const scheduled = await this.prisma.trainingPlan.findFirst({
-        where: { userId, status: 'scheduled', startDate: weekStart },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (
-        scheduled &&
-        scheduled.generatedBy === planEngineVersion &&
-        planMatchesLatestTest(scheduled.inputSnapshot, latestTest?.id ?? null) &&
-        planMatchesAvailability(scheduled.inputSnapshot, availability)
-      ) {
-        await this.prisma.trainingPlan.updateMany({ where: { userId, status: 'active' }, data: { status: 'archived' } });
-        const promoted = await this.prisma.trainingPlan.update({
-          where: { id: scheduled.id },
-          data: { status: 'active' },
-          include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
-        });
-        return this.presentPlan(promoted, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
-      }
-      return this.generateWeek(userId);
-    }
+      painTierElevated;
 
-    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
+    if (!needsRegeneration) return;
+
+    if (painTierElevated) {
+      this.logger.warn(`Nivel de cautela por dor elevado para o aluno ${userId} — regenerando automaticamente os dias restantes da semana.`);
+      await this.telegram.notifyCoach(
+        `⚠️ Novo relato de dor no Panzeri Run elevou o nivel de cautela de um aluno (id ${userId}).\nMotivo: ${currentPainSafety?.reason ?? 'sem detalhe'}\nOs treinos ainda nao realizados desta semana estao sendo ajustados automaticamente — confira no painel se ficou adequado.`,
+      );
+    }
+    // Antes de gerar do zero, ver se ja existe uma versao pre-gerada no domingo as 19h esperando
+    // para esta semana (ver generateNextWeekIfMissing) — evita descartar esse trabalho e dar um
+    // treino diferente do que a aluna ja pode ter visto no domingo a noite.
+    const scheduled = await this.prisma.trainingPlan.findFirst({
+      where: { userId, status: 'scheduled', startDate: weekStart },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (
+      scheduled &&
+      scheduled.generatedBy === planEngineVersion &&
+      planMatchesLatestTest(scheduled.inputSnapshot, latestTest?.id ?? null) &&
+      planMatchesAvailability(scheduled.inputSnapshot, availability)
+    ) {
+      await this.prisma.trainingPlan.updateMany({ where: { userId, status: 'active' }, data: { status: 'archived' } });
+      await this.prisma.trainingPlan.update({ where: { id: scheduled.id }, data: { status: 'active' } });
+      return;
+    }
+    await this.generateWeek(userId);
   }
 
   // Navegacao Anterior/Proxima da aluna na tela de semana (pedido do treinador, espelhando o
@@ -583,6 +618,21 @@ export class TrainingPlansService {
         },
       },
     });
+
+    // Avisa o aluno so quando um plano de verdade vira a semana ATIVA dele (nunca na
+    // pre-geracao "scheduled" de domingo, que ja tem seu proprio aviso — ver Sunday-19h
+    // notice no app). E so um INSERT no banco, sem nenhuma chamada de IA — nao tem custo de
+    // token nenhum gerar este aviso.
+    if (planStatus === 'active') {
+      await this.prisma.userNotification.create({
+        data: {
+          userId,
+          title: 'Novo treino gerado',
+          message: 'Seu programa de treino desta semana foi atualizado automaticamente.',
+          type: 'info',
+        },
+      });
+    }
 
     if (activePlanBeforeAdjustment) {
       // Hoje e os dias que ja passaram nunca podem ser reescritos ao gerar uma nova semana —

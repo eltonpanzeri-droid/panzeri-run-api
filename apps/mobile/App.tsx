@@ -2134,21 +2134,31 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         return;
       }
 
-      const data = (await response.json()) as WeekPlan | null;
-      if (data && !data.locked && !data.requiresOnboarding && !isDetailedPlan(data)) {
+      const data = (await response.json()) as WeekByOffsetResponse | null;
+      if (data?.notGenerated) {
+        // current() e so leitura agora — nunca gera nada sozinho so por abrir a tela. Se a
+        // semana ainda nao existe (ex: um gatilho explicito falhou ha pouco), o cron do
+        // servidor cobre isso em ate 2h; aqui so mostramos que esta pendente, sem chamar
+        // generatePlan() (isso reintroduziria geracao de IA so por abrir o app).
+        setPlan(null);
+        setNotGeneratedRange({ startDate: data.startDate ?? '', endDate: data.endDate ?? '' });
+        setStatus('');
+        return;
+      }
+      if (data && !data.locked && !data.requiresOnboarding && !isDetailedPlan(data as WeekPlan)) {
         setPlan(null);
         setStatus('Plano antigo detectado. Gere uma nova semana para ver os treinos detalhados.');
         return;
       }
 
-      setPlan(data);
+      setPlan(data as WeekPlan | null);
       if (!data) {
         setStatus('Gerando sua semana de treino...');
         await generatePlan();
         return;
       }
       setCompletionDrafts(
-        Object.fromEntries(data.sessions.filter((session) => session.completion).map((session) => [session.id, completionDraftFromSession(session)])),
+        Object.fromEntries((data.sessions ?? []).filter((session) => session.completion).map((session) => [session.id, completionDraftFromSession(session)])),
       );
     } catch {
       setStatus('Nao consegui conectar com a API agora.');

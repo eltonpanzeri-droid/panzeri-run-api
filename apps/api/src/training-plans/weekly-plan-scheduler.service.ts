@@ -28,13 +28,14 @@ export class WeeklyPlanSchedulerService implements OnApplicationBootstrap {
     }
   }
 
-  // 06:00 UTC = 03:00 no horario de Sao Paulo, antes de qualquer aluno acordar.
-  // Roda todo dia (nao so segunda) para se autocorrigir caso a geracao de algum
-  // aluno tenha falhado, ou o teste/disponibilidade dele tenha mudado.
-  // Reaproveita exatamente a mesma logica de decisao usada quando o aluno ou o
-  // treinador abrem o app (TrainingPlansService.current), entao nao ha regra
-  // duplicada para manter sincronizada.
-  @Cron('0 6 * * *')
+  // Roda a cada 2h (nao so 1x/dia) para se autocorrigir caso a geracao de algum aluno tenha
+  // falhado, ou o teste/disponibilidade/nivel de dor dele tenha mudado. Esta e a UNICA fonte
+  // de auto-correcao automatica do sistema (ver TrainingPlansService.ensureCurrentPlan) — abrir
+  // o app ou o painel NUNCA mais dispara geracao de IA sozinho (regra adotada em 2026-07-28,
+  // depois de um incidente de gasto de token repetido so por reabertura de tela). Rodar a cada
+  // 2h em vez de 1x/dia mantem a reacao a um relato de dor razoavelmente rapida (poucas horas,
+  // no lugar de instantanea) sem reintroduzir geracao "ao vivo" durante a abertura de uma tela.
+  @Cron('0 */2 * * *')
   async ensureWeeklyPlans() {
     const students = await this.prisma.user.findMany({
       where: { role: 'student', accountStatus: { not: 'archived' } },
@@ -45,7 +46,7 @@ export class WeeklyPlanSchedulerService implements OnApplicationBootstrap {
     for (const student of students) {
       try {
         const before = await this.prisma.trainingPlan.count({ where: { userId: student.id } });
-        await this.trainingPlans.current(student.id);
+        await this.trainingPlans.ensureCurrentPlan(student.id);
         const after = await this.prisma.trainingPlan.count({ where: { userId: student.id } });
         if (after > before) regenerated += 1;
       } catch (error) {

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { validateAvailability } from './availability.rules';
@@ -20,6 +20,8 @@ const ROUTINE_CHANGE_COOLDOWN_DAYS = 30;
 
 @Injectable()
 export class MeService {
+  private readonly logger = new Logger(MeService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly trainingPlans: TrainingPlansService,
@@ -163,7 +165,6 @@ export class MeService {
         });
         await tx.weeklyAvailability.deleteMany({ where: { userId } });
         for (const day of availability) await tx.weeklyAvailability.create({ data: { userId, ...day } });
-        await tx.trainingPlan.updateMany({ where: { userId, status: 'active' }, data: { status: 'archived' } });
         await tx.onboardingInterview.update({ where: { userId }, data: { answers, completedAt } });
       });
     } catch (error) {
@@ -172,6 +173,20 @@ export class MeService {
       }
       throw error;
     }
+
+    // generateWeek() cuida sozinho de arquivar o plano ativo anterior (se houver — ex: aluno
+    // que reabriu a entrevista pra corrigir algo) e de migrar os dias ja passados/de hoje pra
+    // o plano novo. NUNCA arquivamos manualmente antes de chamar generateWeek — isso ja foi um
+    // bug real aqui (sessoes com registro de execucao perdidas ao regenerar), ver
+    // [[routine_change_auto_regen]]. current()/o app do aluno NAO geram mais nada sozinhos so
+    // por abrir a tela — esta chamada explicita e o que garante que o primeiro treino (ou o
+    // treino corrigido, se o aluno refez a entrevista) exista assim que a entrevista termina.
+    // Erro aqui (ex: IA fora do ar) NUNCA pode transformar uma entrevista ja salva com sucesso
+    // em erro pro aluno — generateWeek ja avisa o treinador sozinho quando falha; o cron (a
+    // cada 2h) cobre o resto.
+    await this.trainingPlans.generateWeek(userId).catch((error) => {
+      this.logger.warn(`generateWeek apos completeOnboarding falhou para ${userId} (nao bloqueante, cron cobre): ${(error as Error).message}`);
+    });
 
     return { completed: true, completedAt, next: 'three_km_test' };
   }
@@ -194,6 +209,13 @@ export class MeService {
     await this.prisma.$transaction(async (tx) => {
       await tx.weeklyAvailability.deleteMany({ where: { userId } });
       for (const day of availability) await tx.weeklyAvailability.create({ data: { userId, ...day } });
+    });
+
+    // Sem isso, o resultado do sync so aparecia pro aluno/treinador quando alguma outra coisa
+    // disparasse uma geracao (o cron, em ate 2h) — current() nao gera mais nada sozinho so por
+    // a tela ser aberta (ver regra em training-plans.service.ts).
+    await this.trainingPlans.generateWeek(userId).catch((error) => {
+      this.logger.warn(`generateWeek apos syncAvailabilityFromInterview falhou para ${userId} (nao bloqueante, cron cobre): ${(error as Error).message}`);
     });
 
     return { synced: true, days: availability.filter((day) => !day.noTraining).length };

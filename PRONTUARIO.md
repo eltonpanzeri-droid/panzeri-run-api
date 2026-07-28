@@ -1,0 +1,118 @@
+# Prontuário do Panzeri Run
+
+Este documento existe para qualquer pessoa (inclusive uma IA numa sessão nova, sem memória das
+conversas anteriores) entender rapidamente **o que é o app, como ele é construído e o que vem
+acontecendo com ele** — sem precisar ler centenas de commits ou reconstruir o histórico do zero.
+
+Não é extenso de propósito. A ideia é atualizar este arquivo a cada 1–2 semanas (ou depois de um
+incidente importante), acrescentando um novo bloco em "Diário" e ajustando as seções acima se algo
+estrutural mudou. Não é um changelog técnico completo — para isso existe o histórico do git.
+
+---
+
+## O que é o Panzeri Run
+
+App de assessoria de corrida do treinador Elton Panzeri. Um aluno faz uma entrevista inicial, o
+sistema monta um plano de treino semanal (corrida + força/fortalecimento), o aluno registra o que
+fez, e o plano é reavaliado e ajustado ao longo do tempo — tudo isso pensado para funcionar mesmo
+com Elton sendo o único responsável não-técnico do produto (ele não programa; toda mudança de
+código passa por uma sessão de IA como esta).
+
+## Como é construído
+
+Monorepo com três apps:
+
+- `apps/api` — NestJS + Prisma + PostgreSQL. O cérebro: entrevista, planos de treino, Strava,
+  pagamentos (Asaas), mensageria (Telegram para o treinador, e-mail via Resend — hoje sem domínio
+  configurado em produção, então e-mail fica sem efeito prático por enquanto).
+- `apps/admin` — Next.js. Painel do treinador: ver/editar alunos, treinos, conversar com o
+  "Gerente Técnico" (agente de IA), relatórios.
+- `apps/mobile` — Expo/React Native, rodando como PWA. App do aluno.
+
+Deploy em produção via EasyPanel. Sincronização do código local para o repositório do GitHub
+Desktop é feita por `atualizar-github-panzeri-run.bat` — o treinador confere no GitHub Desktop e
+decide commit/push/deploy, isso nunca é feito automaticamente pela sessão de IA.
+
+## Regra central do motor de treino: só IA decide, nunca uma fórmula fixa
+
+Desde meados de 2026-07, todo o raciocínio de prescrição (pace, estrutura de intervalado, exercícios
+de força, volume, o que fazer diante de dor ou de uma diretriz do treinador) é decidido por chamadas
+reais à IA (Claude), não por fórmulas determinísticas no código. Isso é uma decisão explícita do
+treinador, não um detalhe técnico — várias vezes ao longo do projeto uma "regra fixa escondida" foi
+identificada e removida porque produzia resultados ruins que a IA, com contexto real do aluno,
+evitaria. O código só monta a exibição, valida consistência matemática (a estrutura bate com a
+duração?) e confere se os campos aprovados foram usados (ex: exercícios só do catálogo aprovado) —
+nunca decide o treino em si.
+
+Isso tem uma implicação prática importante: **texto livre gerado pela IA em campos diferentes da
+mesma resposta pode contradizer os campos estruturados**, porque nada além do prompt garante
+consistência semântica entre eles (Zod só valida tipo, não significado). Isso já causou bugs reais
+(ver Diário) e a lição registrada é: sempre que um campo de texto livre for adicionado, o prompt
+precisa dizer explicitamente o que ele NÃO pode fazer (inventar números diferentes dos campos
+estruturados, por exemplo), com um exemplo concreto do erro a evitar.
+
+## Onde vive cada dado importante
+
+- **Rotina/disponibilidade real (dias, modalidade, duração)** — tabela `WeeklyAvailability`. É a
+  ÚNICA fonte usada para decidir quais dias/modalidades o motor de treino gera. Confirmado nesta
+  auditoria: a entrevista NÃO alimenta isso diretamente na geração do treino.
+- **Respostas da entrevista inicial** (`OnboardingInterview.answers`, JSON livre) — usadas para: (a)
+  popular perfil/saúde/preferências do aluno no momento em que a entrevista é concluída; (b) estimar
+  um pace de fallback quando não há teste de 3km; (c) contexto de leitura para o agente de
+  prescrição (objetivo, histórico, dor relatada) e para o Gerente Técnico; (d) exibição no painel
+  admin; (e) mapeamento de perguntas equivalentes na reavaliação periódica. Não decide rotina.
+- **Plano de treino ativo** (`TrainingPlan` + `TrainingSession`) — gerado por
+  `TrainingPlansService.generateWeek()`. Guarda um `inputSnapshot` (teste usado, disponibilidade
+  usada, versão do motor) para detectar quando está desatualizado.
+
+## Regra adotada em 2026-07-28: abrir uma tela nunca gera treino novo sozinho
+
+Até essa data, `TrainingPlansService.current()` — chamado toda vez que o aluno abre o app OU o
+treinador abre a página de um aluno no painel — podia, silenciosamente, decidir que o plano estava
+desatualizado e chamar a IA para gerar a semana de novo. Isso gastava tokens sem necessidade (cada
+reabertura de tela podia custar uma chamada real de IA) e, se a geração falhasse, derrubava a tela
+inteira.
+
+Desde 2026-07-28: `current()` é **só leitura** — nunca gera nada. A lógica de auto-correção foi
+extraída para `ensureCurrentPlan()`, chamada **somente** por um cron que roda a cada 2h
+(`WeeklyPlanSchedulerService`). Qualquer ação que precise gerar um treino na hora (concluir
+entrevista, mudar rotina, sincronizar disponibilidade pelo painel) chama `generateWeek()`
+explicitamente no próprio ponto da ação — nunca depende de alguém "abrir uma tela" para acontecer.
+Gerar uma notificação para o aluno avisando que o treino foi atualizado não tem custo de IA (é só um
+registro no banco).
+
+---
+
+## Diário
+
+**2026-07-28** — Sessão longa e cheia de incidentes reais reportados por alunas de verdade
+(Roberta, Duda/Eduarda). Nesta única sessão:
+- Implementado prompt caching (Anthropic) nos 7 pontos de chamada de IA.
+- Corrigido bug real do Strava (token exchange precisa ser form-urlencoded, não JSON).
+- Corrigido dropdown invisível no admin (CSS de `font-size:0` vazando para um `<select>`).
+- Implementada regeneração automática + limite de 1 mudança de rotina por mês pelo próprio aluno.
+- Achado e corrigido bug sério: o campo de texto `recommendations` inventava uma estrutura de
+  treino diferente da estrutura real (`intervalStructure`) — corrigido no prompt, sem nenhuma regra
+  fixa no código; unificada a exibição de `notes`+`recommendations` como um texto só.
+- Achado e corrigido: reabrir a entrevista inicial (ação legítima, "Corrigir entrevista inicial")
+  fazia o app mostrar o cartão de "Ativar assinatura" mesmo para aluna já paga — a tela de
+  entrevista pendente nunca checava se o aluno já tinha acesso pago. Corrigido; também foi
+  adicionada uma confirmação antes de reabrir (não existia nenhuma antes).
+- Achado e corrigido, mesma raiz: `completeOnboarding()` arquivava manualmente o plano ativo antes
+  de gerar um novo — o mesmo padrão de bug já documentado ("nunca arquivar antes de chamar
+  generateWeek") reaparecendo num lugar novo. Isso significa que toda vez que uma aluna já ativa
+  refizesse a entrevista, sessões já feitas daquela semana podiam ser perdidas.
+- Teste de 3km escondido do app do aluno a pedido do treinador (reversível — nada apagado no
+  backend); confirmado por auditoria que não existe regra fixa dependendo dele.
+- Mudança arquitetural do dia: `current()` virou somente-leitura (ver seção acima) — geração de
+  treino nunca mais acontece só por alguém abrir uma tela.
+
+**Pontos em aberto / para acompanhar depois desta sessão:**
+- Reação a um relato de dor grave agora leva até ~2h (cadência do cron) em vez de instantânea —
+  troca deliberada para eliminar geração-ao-abrir-tela; vale reavaliar se 2h é rápido o suficiente.
+- A reabertura de entrevista pelo lado do TREINADOR (painel admin) ainda não tem confirmação —
+  só o lado do aluno recebeu o aviso nesta sessão.
+- Existe um template de disponibilidade fixo (`rawAvailableDays`, em
+  `training-plans.service.ts`) usado SOMENTE se `WeeklyAvailability` estiver genuinamente vazia
+  para um aluno — não devia acontecer no fluxo normal, mas se acontecer, o aluno recebe uma rotina
+  genérica sem nenhum aviso a ninguém. Vale considerar alertar o treinador se esse caso disparar.
