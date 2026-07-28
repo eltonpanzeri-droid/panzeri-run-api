@@ -115,7 +115,7 @@ export class TrainingPlansService {
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } }),
     ]);
 
-    if (!onboarding?.completedAt) return onboardingRequiredPlan();
+    if (!onboarding?.completedAt) return onboardingRequiredPlan(hasSubscriptionAccess(user.subscriptionStatus));
 
     // Um relato de dor novo pode elevar o nivel de cautela NO MEIO da semana, depois que o treino
     // ja foi entregue — sem isso, os dias que ainda vao acontecer ficariam sem considerar o novo
@@ -195,7 +195,7 @@ export class TrainingPlansService {
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } }),
     ]);
 
-    if (!onboarding?.completedAt) return onboardingRequiredPlan();
+    if (!onboarding?.completedAt) return onboardingRequiredPlan(hasSubscriptionAccess(user.subscriptionStatus));
     if (!plan) {
       return {
         notGenerated: true,
@@ -295,7 +295,7 @@ export class TrainingPlansService {
       this.prisma.studentObservation.findMany({ where: { userId, active: true }, orderBy: { createdAt: 'desc' } }),
     ]);
 
-    if (!onboarding?.completedAt) return onboardingRequiredPlan();
+    if (!onboarding?.completedAt) return onboardingRequiredPlan(hasSubscriptionAccess(user.subscriptionStatus));
 
     const answers = sanitizeInterviewAnswers(jsonObject(onboarding.answers));
     const paceFallback = estimatePaceFromAnswers(answers);
@@ -1188,7 +1188,12 @@ export function hasSubscriptionAccess(status: string) {
   return status === 'active' || status === 'manual_active' || status === 'grace';
 }
 
-function onboardingRequiredPlan() {
+// hasSubscriptionAccess precisa ser passado explicitamente por quem chama (nao calculado aqui)
+// porque um aluno que JA pagou pode ter a entrevista reaberta (auto-correcao do proprio aluno,
+// ou reabertura pelo treinador) sem deixar de ser assinante — sem esse dado, o app mostrava o
+// cartao de "Ativar assinatura" pra ela de novo, incondicionalmente, mesmo ja sendo assinante
+// ativa. Isso ja causou um relato real de aluna dizendo que o app "mostra que ela nao pagou".
+function onboardingRequiredPlan(hasSubscriptionAccess: boolean) {
   return {
     id: 'onboarding-required',
     name: 'Entrevista inicial',
@@ -1199,6 +1204,7 @@ function onboardingRequiredPlan() {
     requiresOnboarding: true,
     requiresTest: false,
     locked: false,
+    hasSubscriptionAccess,
     sessions: [],
   };
 }

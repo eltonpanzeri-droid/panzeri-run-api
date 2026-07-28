@@ -227,6 +227,7 @@ interface WeekPlan {
   priceLabel?: string;
   requiresOnboarding?: boolean;
   requiresTest?: boolean;
+  hasSubscriptionAccess?: boolean;
   generatedAt?: string;
   sessions: WeekPlanSession[];
 }
@@ -927,7 +928,7 @@ function AppInner() {
                 accessToken={accessToken}
                 userName={userName}
                 onLater={() => setActiveTab('week')}
-                onComplete={() => { setRestartInterviewFromStart(false); void refreshRoutineFromServer(); setActiveTab('test'); }}
+                onComplete={() => { setRestartInterviewFromStart(false); void refreshRoutineFromServer(); setActiveTab('week'); }}
                 restartFromStart={restartInterviewFromStart}
               />
             )}
@@ -1885,9 +1886,9 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   if (finished) return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao concluida' : 'Entrevista concluida'}</Text>
-      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : 'Agora vamos medir seu condicionamento'}</Text>
-      <Text style={styles.copyTight}>{mode === 'reassessment' ? 'Suas respostas foram salvas. Seu treinador vai revisar sua evolucao e ajustar seu treino conforme necessario.' : 'Suas respostas foram salvas. Faca o teste de corrida de 3 km para gerar seu plano inicial.'}</Text>
-      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : 'Ir para o teste de 3 km'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
+      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : 'Vamos montar seu plano'}</Text>
+      <Text style={styles.copyTight}>{mode === 'reassessment' ? 'Suas respostas foram salvas. Seu treinador vai revisar sua evolucao e ajustar seu treino conforme necessario.' : 'Suas respostas foram salvas. Ja vamos montar seu treino inicial.'}</Text>
+      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : 'Ver meu treino'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
       {mode === 'onboarding' ? <Pressable style={styles.secondaryButton} onPress={reviewInterview} disabled={saving}><Text style={styles.secondaryButtonText}>Revisar minhas respostas</Text></Pressable> : null}
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
     </View>
@@ -1899,7 +1900,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       <Text style={styles.copyTight}>
         {mode === 'reassessment'
           ? 'De tempos em tempos pedimos para voce responder algumas perguntas rapidas, para atualizarmos seu treino e acompanharmos sua evolucao ao longo do tempo.'
-          : 'Para criar seu treino de forma personalizada e individualizada para voce, precisamos conhecer mais sobre sua rotina, seu historico e seu condicionamento atual.\n\nDepois da entrevista, tambem vamos te convidar a fazer o teste de 3 km. Ele e opcional, mas e o que deixa o treino ainda mais preciso e individualizado para voce.\n\nEsta pronto para realizar nossa entrevista?'}
+          : 'Para criar seu treino de forma personalizada e individualizada para voce, precisamos conhecer mais sobre sua rotina, seu historico e seu condicionamento atual.\n\nEsta pronto para realizar nossa entrevista?'}
       </Text>
       <Pressable style={styles.primaryButton} onPress={() => setStarted(true)}><Text style={styles.primaryButtonText}>Sim, comecar agora</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>
       <Pressable style={styles.secondaryButton} onPress={onLater}><Text style={styles.secondaryButtonText}>Fazer depois</Text></Pressable>
@@ -2422,7 +2423,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   }
 
   if (plan?.requiresOnboarding) {
-    return <View style={styles.section}><Text style={styles.sectionLabel}>Treino da semana</Text><Text style={styles.titleSmall}>Vamos preparar seu plano</Text><View style={styles.coachBox}><Text style={styles.coachTitle}>Entrevista inicial pendente</Text><Text style={styles.coachText}>Conclua a entrevista para que seu treino respeite seu objetivo, sua rotina e seu historico.</Text></View><Pressable style={styles.primaryButton} onPress={onOpenInterview}><Text style={styles.primaryButtonText}>Continuar entrevista</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>{subscriptionOffer}</View>;
+    return <View style={styles.section}><Text style={styles.sectionLabel}>Treino da semana</Text><Text style={styles.titleSmall}>Vamos preparar seu plano</Text><View style={styles.coachBox}><Text style={styles.coachTitle}>Entrevista inicial pendente</Text><Text style={styles.coachText}>Conclua a entrevista para que seu treino respeite seu objetivo, sua rotina e seu historico.</Text></View><Pressable style={styles.primaryButton} onPress={onOpenInterview}><Text style={styles.primaryButtonText}>Continuar entrevista</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>{plan.hasSubscriptionAccess ? null : subscriptionOffer}</View>;
   }
   if (plan?.locked) {
     return (
@@ -2505,16 +2506,8 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
 
-      {plan?.requiresTest ? (
-        <View style={styles.formSection}>
-          <Text style={styles.formSectionTitle}>Teste de 3 km pendente</Text>
-          <Text style={styles.formHint}>Seu treino ja esta rodando com uma estimativa de ritmo. Fazer o teste de 3 km deixa seus treinos ainda mais precisos e individualizados, e o plano e recalculado automaticamente assim que voce registrar o resultado.</Text>
-          <Pressable style={styles.secondaryButton} onPress={onOpenTest}>
-            <Ionicons name="stopwatch" size={18} color="#0f766e" />
-            <Text style={styles.secondaryButtonText}>Fazer teste de 3 km agora</Text>
-          </Pressable>
-        </View>
-      ) : null}
+      {/* Teste de 3km desativado temporariamente (pedido do treinador, 2026-07-28) — a tela e o
+          endpoint continuam existindo, so o convite pra fazer o teste ficou escondido daqui. */}
 
       <View style={styles.weekList}>
         {plan?.recommendation ? (
@@ -3071,7 +3064,18 @@ function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment }: {
 
   useEffect(() => { void load(); }, [accessToken]);
 
-  async function correctOnboarding() {
+  function correctOnboarding() {
+    Alert.alert(
+      'Corrigir entrevista inicial',
+      'Ao continuar, sua entrevista inicial ficara marcada como pendente ate voce concluir a correcao de novo. Seu treino da semana fica em espera nesse meio-tempo. Deseja continuar?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Continuar', style: 'destructive', onPress: () => void doCorrectOnboarding() },
+      ],
+    );
+  }
+
+  async function doCorrectOnboarding() {
     setBusyId('onboarding');
     setMessage('');
     try {
@@ -4041,7 +4045,6 @@ function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: 
     { id: 'interview', label: 'Entrevista inicial', icon: 'chatbubbles' },
     { id: 'reassessment', label: 'Reavaliacao periodica', icon: 'refresh-circle' },
     { id: 'fixAnswers', label: 'Corrigir respostas anteriores', icon: 'create-outline' },
-    { id: 'test', label: 'Teste de VO2 max', icon: 'stopwatch' },
     { id: 'targetRace', label: 'Prova alvo', icon: 'trophy' },
     { id: 'painReport', label: 'Relatar dor', icon: 'medkit' },
     { id: 'observations', label: 'Relatar observação', icon: 'chatbox-ellipses' },
