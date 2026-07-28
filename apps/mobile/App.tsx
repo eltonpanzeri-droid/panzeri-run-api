@@ -2223,7 +2223,8 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       });
 
       if (!response.ok) {
-        setStatus('Nao consegui salvar a rotina permanente.');
+        const data = await response.json().catch(() => ({}));
+        setStatus(typeof data.message === 'string' ? data.message : 'Nao consegui salvar a rotina permanente.');
         setIsLoading(false);
         return;
       }
@@ -2233,7 +2234,11 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       return;
     }
 
-    await generatePlan();
+    // O PUT acima ja regenerou o treino no servidor quando a rotina realmente muda (ver
+    // me.service.ts) — so buscamos o resultado, sem chamar generatePlan() de novo (isso geraria
+    // a semana uma segunda vez, gastando IA em dobro por uma unica troca de rotina).
+    await loadPlan();
+    setStatus('Sua nova rotina foi registrada e seu novo programa de treino da semana foi criado automaticamente.');
   }
 
   function moveSession(sessionId: string, direction: -1 | 1) {
@@ -2595,6 +2600,10 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         </Pressable>
         {routineAdjustmentOpen ? (
           <>
+            <Text style={styles.formHint}>
+              A rotina e a informacao que voce nos da sobre os dias que pretende treinar e o tempo disponivel em cada um, e com base nisso que seu treino e montado. Por isso, preencha pensando no que voce realmente vai conseguir cumprir na pratica, nao no que seria ideal. Uma rotina realista gera um treino que voce consegue seguir de verdade, e isso e o que traz resultado.{'\n\n'}
+              Como todo o programa e construido em cima dessa informacao, a alteracao permanente da rotina e liberada apenas uma vez por mes. Siga o que foi combinado ao maximo para termos os melhores resultados. Entendemos que podem ocorrer imprevistos, e para esses casos pontuais (viagem, fase mais corrida, algum outro motivo de ausencia ou alteracao), sem precisar mudar a rotina toda, use o menu "Observacoes" para avisar seu treinador.
+            </Text>
             <Text style={styles.formHint}>Mude dias, modalidades e tempos somente de hoje em diante. Treinos anteriores serao preservados.</Text>
             <RoutineEditor routineDays={weeklyRoutine} onChange={setWeeklyRoutine} />
             <View style={styles.termsRow}>
@@ -3712,8 +3721,11 @@ function Anamnese({
       }
 
       onNameChange(cleanName);
-      onSavedMeChange((await response.json()) as MeResponse);
-      setStatus('Anamnese salva. O treino da semana sera atualizado.');
+      const savedResponse = (await response.json()) as MeResponse & { routineChanged?: boolean };
+      onSavedMeChange(savedResponse);
+      setStatus(savedResponse.routineChanged
+        ? 'Sua nova rotina foi registrada e seu novo programa de treino da semana foi criado automaticamente.'
+        : 'Anamnese salva.');
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
     } finally {
@@ -3835,7 +3847,11 @@ function Anamnese({
 
       <View style={styles.formSection}>
         <Text style={styles.formSectionTitle}>Dias e disponibilidade</Text>
-        <Text style={styles.formHint}>Em cada dia, escolha o que pode fazer. Se marcar Sem treinos, as outras opcoes saem.</Text>
+        <Text style={styles.formHint}>
+          A rotina e a informacao que voce nos da sobre os dias que pretende treinar e o tempo disponivel em cada um, e com base nisso que seu treino e montado. Por isso, preencha pensando no que voce realmente vai conseguir cumprir na pratica, nao no que seria ideal. Uma rotina realista gera um treino que voce consegue seguir de verdade, e isso e o que traz resultado.{'\n\n'}
+          Como todo o programa e construido em cima dessa informacao, a alteracao da rotina e liberada apenas uma vez por mes. Siga o que foi combinado ao maximo para termos os melhores resultados. Entendemos que podem ocorrer imprevistos, e para esses casos pontuais (viagem, fase mais corrida, algum outro motivo de ausencia ou alteracao), sem precisar mudar a rotina toda, use o menu "Observacoes" para avisar seu treinador.{'\n\n'}
+          Em cada dia, escolha o que pode fazer. Se marcar Sem treinos, as outras opcoes saem.
+        </Text>
         <RoutineEditor routineDays={routineDays} onChange={onRoutineChange} />
       </View>
 

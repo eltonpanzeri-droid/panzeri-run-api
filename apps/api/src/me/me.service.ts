@@ -2,16 +2,28 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { validateAvailability } from './availability.rules';
-import { UpdateAvailabilityDto } from './dto/update-availability.dto';
+import { UpdateAvailabilityDto, AvailabilityDayDto } from './dto/update-availability.dto';
 import { UpdateAnamneseDto } from './dto/update-anamnese.dto';
 import { UpdateHealthDto } from './dto/update-health.dto';
 import { UpdatePreferencesDto } from './dto/update-preferences.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { normalizeCpf } from '../billing/billing.service';
+import { TrainingPlansService } from '../training-plans/training-plans.service';
+
+// O aluno decide sozinho os dias/modalidades/tempo da propria rotina, mas como TODO o programa
+// de treino e montado em cima dessa informacao, alteracoes livres e frequentes tanto custariam
+// uma geracao de IA nova a cada mudanca quanto tirariam a estabilidade que a metodologia depende
+// (ver PANZERI_METHODOLOGY_KNOWLEDGE) — por isso so uma alteracao real a cada 30 dias corridos
+// (janela movel a partir da ultima mudanca, nao mes-calendario, pra nao dar pra "burlar" trocando
+// no fim de um mes e de novo no comeco do seguinte).
+const ROUTINE_CHANGE_COOLDOWN_DAYS = 30;
 
 @Injectable()
 export class MeService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly trainingPlans: TrainingPlansService,
+  ) {}
 
   acceptExerciseResponsibility(userId: string) {
     return this.prisma.user.update({
@@ -218,8 +230,28 @@ export class MeService {
     });
   }
 
+  private async assertRoutineChangeAllowed(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { lastRoutineChangeAt: true } });
+    if (!user.lastRoutineChangeAt) return;
+    const cooldownMs = ROUTINE_CHANGE_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+    const nextAllowedAt = new Date(user.lastRoutineChangeAt.getTime() + cooldownMs);
+    if (nextAllowedAt.getTime() > Date.now()) {
+      throw new BadRequestException({
+        message: `Sua rotina so pode ser alterada uma vez por mes. A proxima alteracao sera liberada em ${formatDateBr(nextAllowedAt)}.`,
+        code: 'routine_change_cooldown',
+        nextAllowedAt: nextAllowedAt.toISOString(),
+      });
+    }
+  }
+
   async updateAvailability(userId: string, dto: UpdateAvailabilityDto) {
     validateAvailability(dto.availability);
+
+    const currentAvailability = await this.prisma.weeklyAvailability.findMany({ where: { userId } });
+    const routineChanged = availabilityChanged(currentAvailability, dto.availability);
+    if (routineChanged) {
+      await this.assertRoutineChangeAllowed(userId);
+    }
 
     await this.prisma.$transaction([
       this.prisma.weeklyAvailability.deleteMany({ where: { userId } }),
@@ -235,16 +267,25 @@ export class MeService {
           },
         }),
       ),
-      this.prisma.trainingPlan.updateMany({
-        where: { userId, status: 'active' },
-        data: { status: 'archived' },
-      }),
+      ...(routineChanged ? [this.prisma.user.update({ where: { id: userId }, data: { lastRoutineChangeAt: new Date() } })] : []),
     ]);
 
-    return this.prisma.weeklyAvailability.findMany({
+    const updated = await this.prisma.weeklyAvailability.findMany({
       where: { userId },
       orderBy: { weekday: 'asc' },
     });
+
+    // Regenera pelo mesmo caminho que o treinador ja usa pra "refazer nova semana"
+    // (generateWeek): ele proprio arquiva o plano ativo antigo e migra os dias ja
+    // passados/de hoje pro plano novo. NUNCA arquivamos o plano manualmente aqui antes de
+    // chamar generateWeek — se fizessemos isso, ele nao acharia mais o plano ativo antigo pra
+    // migrar essas sessoes, e reintroduziria o bug ja corrigido antes ("past sessions lost on
+    // week regen").
+    if (routineChanged) {
+      await this.trainingPlans.generateWeek(userId);
+    }
+
+    return updated;
   }
 
   async updateAnamnese(userId: string, dto: UpdateAnamneseDto) {
@@ -259,7 +300,13 @@ export class MeService {
       throw new BadRequestException('Este e-mail ja pertence a outra conta.');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const currentAvailability = await this.prisma.weeklyAvailability.findMany({ where: { userId } });
+    const routineChanged = availabilityChanged(currentAvailability, dto.availability.availability);
+    if (routineChanged) {
+      await this.assertRoutineChangeAllowed(userId);
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: userId },
         data: {
@@ -270,6 +317,7 @@ export class MeService {
           heightCm: dto.profile.heightCm,
           weightKg: dto.profile.weightKg,
           address: dto.profile.address,
+          ...(routineChanged ? { lastRoutineChangeAt: new Date() } : {}),
         },
       });
 
@@ -299,11 +347,6 @@ export class MeService {
         });
       }
 
-      await tx.trainingPlan.updateMany({
-        where: { userId, status: 'active' },
-        data: { status: 'archived' },
-      });
-
       return tx.user.findUniqueOrThrow({
         where: { id: userId },
         select: {
@@ -328,7 +371,55 @@ export class MeService {
         },
       });
     });
+
+    // generateWeek nao pode rodar dentro da transacao acima (faz suas proprias chamadas/
+    // transacoes separadas) — ver o comentario equivalente em updateAvailability sobre por que
+    // ele mesmo cuida do arquivamento do plano antigo, nunca fazemos isso manualmente antes.
+    if (routineChanged) {
+      await this.trainingPlans.generateWeek(userId);
+    }
+
+    // routineChanged vai junto pra tela de anamnese (perfil/saude/preferencias/rotina, tudo num
+    // unico salvamento) saber se deve mostrar a mensagem especifica de "rotina registrada e
+    // treino recriado" ou so a confirmacao generica de perfil salvo — nem toda edicao de
+    // anamnese mexe na rotina (ex: so atualizar peso ou e-mail).
+    return { ...result, routineChanged };
   }
+}
+
+function formatDateBr(date: Date) {
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+}
+
+function normalizeModalityDurationsForCompare(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter((entry): entry is [string, number] => typeof entry[1] === 'number')
+    .sort(([left], [right]) => left.localeCompare(right));
+  return Object.fromEntries(entries);
+}
+
+function availabilityDaySignature(day: { weekday: number; noTraining: boolean; modalities: string[]; availableMin?: number | null; modalityDurations?: unknown }) {
+  return {
+    weekday: day.weekday,
+    noTraining: day.noTraining,
+    modalities: day.noTraining ? [] : [...day.modalities].sort(),
+    availableMin: day.noTraining ? 0 : day.availableMin ?? 0,
+    modalityDurations: day.noTraining ? {} : normalizeModalityDurationsForCompare(day.modalityDurations),
+  };
+}
+
+// Compara a rotina salva com a que o aluno acabou de enviar — so conta como mudanca de verdade
+// (e consome a janela de 30 dias / dispara regeneracao) se algo realmente diferente. Sem isso,
+// updateAnamnese (que reune perfil/saude/preferencias/rotina num unico salvamento) bloquearia ou
+// regeneraria o treino toda vez que o aluno so quisesse atualizar o peso ou o e-mail, por exemplo.
+function availabilityChanged(
+  current: Array<{ weekday: number; noTraining: boolean; modalities: string[]; availableMin: number | null; modalityDurations: unknown }>,
+  incoming: AvailabilityDayDto[],
+) {
+  const currentSignature = JSON.stringify(current.map(availabilityDaySignature).sort((left, right) => left.weekday - right.weekday));
+  const incomingSignature = JSON.stringify(incoming.map(availabilityDaySignature).sort((left, right) => left.weekday - right.weekday));
+  return currentSignature !== incomingSignature;
 }
 
 function asAnswerObject(value: unknown): Record<string, Prisma.InputJsonValue> {
