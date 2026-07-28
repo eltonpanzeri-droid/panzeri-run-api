@@ -471,10 +471,7 @@ export class CoachService {
     const analysisInsight = plan
       ? await this.prisma.trainingExecutionInsight.findUnique({ where: { planId: plan.id } })
       : null;
-    const [planExplanations, observations] = await Promise.all([
-      this.prisma.planExplanation.findMany({ where: { userId: studentId }, orderBy: { createdAt: 'desc' }, take: 12 }),
-      this.prisma.studentObservation.findMany({ where: { userId: studentId }, orderBy: { createdAt: 'desc' }, take: 30 }),
-    ]);
+    const observations = await this.prisma.studentObservation.findMany({ where: { userId: studentId }, orderBy: { createdAt: 'desc' }, take: 30 });
     const stravaActivities = plan
       ? await this.prisma.stravaActivity.findMany({
           where: {
@@ -524,13 +521,6 @@ export class CoachService {
         updatedAt: analysisInsight.updatedAt,
         summary: analysisInsight.summary,
       } : null,
-      weeklyExplanations: planExplanations.map((explanation: any) => ({
-        id: explanation.id,
-        weekStart: explanation.weekStart,
-        currentWeekExplanation: explanation.currentWeekExplanation,
-        fourWeekOutlook: explanation.fourWeekOutlook,
-        createdAt: explanation.createdAt,
-      })),
       observations: observations.map((observation: any) => ({
         id: observation.id,
         content: observation.content,

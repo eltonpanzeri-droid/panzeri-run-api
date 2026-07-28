@@ -21,7 +21,6 @@ import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { StravaService } from '../strava/strava.service';
 import { TelegramService } from '../billing/telegram.service';
-import { WeeklyExplanationAgentService } from './weekly-explanation-agent.service';
 
 interface SessionTemplate {
   title: string;
@@ -88,7 +87,6 @@ export class TrainingPlansService {
     private readonly targetRaces: TargetRacesService,
     private readonly stravaService: StravaService,
     private readonly telegram: TelegramService,
-    private readonly weeklyExplanationAgent: WeeklyExplanationAgentService,
   ) {}
 
   async current(userId: string) {
@@ -602,15 +600,9 @@ export class TrainingPlansService {
         where: { id: plan.id },
         include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
       });
-      this.recordWeeklyExplanation(userId, user.name, methodologyInput, methodology, adjustedPlan).catch((error) => {
-        this.logger.warn(`Falha ao gravar explicacao semanal: ${(error as Error).message}`);
-      });
       return this.presentPlan(adjustedPlan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
     }
 
-    this.recordWeeklyExplanation(userId, user.name, methodologyInput, methodology, plan).catch((error) => {
-      this.logger.warn(`Falha ao gravar explicacao semanal: ${(error as Error).message}`);
-    });
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
   }
 
@@ -631,87 +623,6 @@ export class TrainingPlansService {
       referenceDate: addDays(new Date(), 7),
       planStatus: 'scheduled',
       archiveCurrentActive: false,
-    });
-  }
-
-  // Explicacao para o TREINADOR acompanhar o raciocinio da IA (nunca mostrada ao aluno). Roda
-  // depois do treino ja estar decidido e salvo, e uma falha aqui nunca deve derrubar a geracao
-  // do treino em si — por isso o chamador so loga o erro, nunca propaga.
-  private async recordWeeklyExplanation(
-    userId: string,
-    studentName: string,
-    methodologyInput: MethodologyInput,
-    methodology: WeeklyMethodologyDecision & { source: 'ai' },
-    plan: {
-      startDate: Date;
-      sessions: Array<{ modality: string; title: string; sessionType: string | null; intensityZone: string | null; durationMin: number | null; weekday: number }>;
-    },
-  ) {
-    const feedbackSince = addDays(startOfWeek(new Date()), -21);
-    const recentCompletions = await this.prisma.workoutCompletion.findMany({
-      where: { userId, completedAt: { gte: feedbackSince } },
-      orderBy: { completedAt: 'desc' },
-      take: 15,
-      include: { session: { select: { title: true, distanceKm: true, durationMin: true } } },
-    });
-
-    const explanation = await this.weeklyExplanationAgent.explain({
-      studentName,
-      goal: methodologyInput.goal,
-      firstInterviewAnswers: methodologyInput.answers,
-      latestReassessment: methodologyInput.recentReassessment
-        ? {
-            completedAt: methodologyInput.recentReassessment.completedAt,
-            answers: methodologyInput.recentReassessment.answers,
-            evolutionSummary: methodologyInput.recentReassessment.evolutionSummary ?? null,
-          }
-        : null,
-      recentFeedback: recentCompletions.map((completion) => ({
-        date: completion.completedAt.toISOString().slice(0, 10),
-        title: completion.session?.title ?? 'Treino',
-        prescribedDistanceKm: completion.session?.distanceKm ?? null,
-        prescribedDurationMin: completion.session?.durationMin ?? null,
-        completed: completion.status === 'done' || completion.status === 'adjusted',
-        completedDistanceKm: completion.distanceKm,
-        completedDurationMin: completion.durationMin,
-        satisfaction: completion.satisfaction,
-        perceivedEffort: completion.perceivedEffort,
-        studentNotes: completion.notes,
-      })),
-      mostConcerningPain: methodologyInput.painReason
-        ? { reason: methodologyInput.painReason, tier: methodologyInput.painTier ?? 'normal', lastReportAt: null }
-        : null,
-      stravaAnalysis: methodologyInput.stravaAnalysis
-        ? { summary: methodologyInput.stravaAnalysis.summary, flags: methodologyInput.stravaAnalysis.flags }
-        : null,
-      activeDirectives: methodologyInput.studentDirectives ?? [],
-      activeObservations: methodologyInput.activeObservations ?? [],
-      targetRace: methodologyInput.targetRace
-        ? { name: methodologyInput.targetRace.name, raceDate: methodologyInput.targetRace.raceDate, distanceKm: methodologyInput.targetRace.distanceKm }
-        : null,
-      thisWeekSessions: plan.sessions
-        .filter((session) => isRunningModality(session.modality))
-        .map((session) => ({
-          day: dayNames[session.weekday] ?? 'Dia',
-          title: session.title,
-          sessionType: session.sessionType ?? '',
-          zone: session.intensityZone ?? '',
-          durationMin: session.durationMin ?? 0,
-        })),
-      aiRecommendation: methodology.recommendation,
-      aiRationale: methodology.rationale,
-      aiPaceRationale: methodology.paceAssessment?.rationale ?? '',
-    });
-
-    if (!explanation) return;
-
-    await this.prisma.planExplanation.create({
-      data: {
-        userId,
-        weekStart: plan.startDate,
-        currentWeekExplanation: explanation.currentWeekExplanation,
-        fourWeekOutlook: explanation.fourWeekOutlook,
-      },
     });
   }
 

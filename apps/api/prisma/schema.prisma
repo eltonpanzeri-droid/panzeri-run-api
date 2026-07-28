@@ -51,7 +51,6 @@ model User {
   coachChatMessages CoachChatMessage[]
   targetRaces TargetRace[]
   painReports PainReport[]
-  planExplanations PlanExplanation[]
   observations StudentObservation[]
 }
 
@@ -116,18 +115,6 @@ model StudentDirective {
   updatedAt DateTime  @updatedAt
 
   @@index([userId, active])
-}
-
-model PlanExplanation {
-  id                     String   @id @default(uuid())
-  userId                 String
-  user                   User     @relation(fields: [userId], references: [id])
-  weekStart              DateTime
-  currentWeekExplanation String
-  fourWeekOutlook        String
-  createdAt              DateTime @default(now())
-
-  @@index([userId, createdAt])
 }
 
 model StudentObservation {

@@ -723,7 +723,6 @@ h3 {
 .detailPanel > .technicalManagerPanel,
 .detailPanel > .stravaAnalysisPanel,
 .detailPanel > .reportPanel,
-.detailPanel > .explanationPanel,
 .detailPanel > .observationsPanel {
   grid-column: 1 / -1;
 }
@@ -1223,40 +1222,6 @@ h3 {
 .coachNotes {
   color: var(--muted);
   line-height: 1.35;
-}
-
-.explanationCurrent {
-  border-left: 3px solid var(--accent);
-  padding-left: 10px;
-  margin-bottom: 10px;
-}
-
-.explanationCurrent strong {
-  display: block;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--muted);
-  margin-bottom: 3px;
-}
-
-.explanationHistory {
-  margin-top: 10px;
-  border-top: 1px solid var(--line);
-  padding-top: 8px;
-}
-
-.explanationHistory summary {
-  cursor: pointer;
-  font-weight: 700;
-  color: var(--muted);
-}
-
-.explanationHistoryItem {
-  padding: 8px 0;
-  border-bottom: 1px solid var(--line);
-  display: grid;
-  gap: 3px;
 }
 
 .observationsList {
