@@ -169,8 +169,16 @@ export class PrescriptionAgentService {
     // que a prescricao TEM que vir de raciocinio real da IA, nunca de regra estatica. Por isso
     // tentamos duas vezes antes de desistir — falhas de IA costumam ser transitorias (formato de
     // saida um pouco fora do schema, rede) e nao devem custar a semana inteira do aluno.
-    const attempt = () => this.attemptDecision(input, evidence);
-    return (await attempt()) ?? (await attempt());
+    // A segunda tentativa usa effort 'medium' em vez de 'high' (nao um esforco menor por
+    // preguica — e uma resposta a falhas reais e repetidas de "Unterminated string in JSON" pra
+    // alunos com contexto denso: o pensamento adaptativo em 'high' consome tanto do orcamento de
+    // tokens que a resposta as vezes nunca termina, MESMO em 32000 tokens, e as duas tentativas
+    // com 'high' falhavam do mesmo jeito. 'medium' ainda e 100% raciocinio real da IA, so com
+    // menos texto de pensamento interno — dar ao aluno um treino real e mais importante do que
+    // garantir o nivel mais alto de raciocinio em toda tentativa.
+    const first = await this.attemptDecision(input, evidence, 'high');
+    if (first) return first;
+    return this.attemptDecision(input, evidence, 'medium');
   }
 
   // Usado quando o treinador regenera UM dia de forca/fortalecimento isolado (sem regenerar a
@@ -359,7 +367,11 @@ export class PrescriptionAgentService {
     }
   }
 
-  private async attemptDecision(input: MethodologyInput, evidence: PaceEvidence): Promise<(WeeklyMethodologyDecision & { source: 'ai' }) | null> {
+  private async attemptDecision(
+    input: MethodologyInput,
+    evidence: PaceEvidence,
+    effort: 'high' | 'medium' = 'high',
+  ): Promise<(WeeklyMethodologyDecision & { source: 'ai' }) | null> {
     const client = this.client;
     if (!client) return null;
     const runSlots = computeRunSlots(input.availability);
@@ -395,7 +407,7 @@ export class PrescriptionAgentService {
           max_tokens: 32000,
           thinking: { type: 'adaptive' },
           output_config: {
-            effort: 'high',
+            effort,
             format: zodOutputFormat(AiWeeklyDecisionSchema),
           },
           // Prompt cache: o grosso do system prompt (metodologia, regras, formato de resposta) e

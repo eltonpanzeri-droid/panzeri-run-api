@@ -86,13 +86,13 @@ export class TechnicalManagerAgentService {
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
       const response = await client.messages.create({
         model: 'claude-sonnet-5',
-        // Era 2000 — baixo demais quando o treinador manda uma mensagem longa descrevendo
-        // varios dias diferentes de uma vez (ex: pace e distancia especificos pra 3 dias
-        // distintos numa unica mensagem). Ja aconteceu na pratica: o modelo cortava no meio
-        // (stop_reason 'max_tokens') antes de terminar a confirmacao em texto ou a chamada de
-        // save_directive, e o treinador so via "Nao consegui gerar uma resposta" sem saber que
-        // a diretriz nunca chegou a ser salva.
-        max_tokens: 4096,
+        // Era 2000, depois 4096 — ainda insuficiente na pratica quando o treinador manda uma
+        // mensagem longa descrevendo varios dias diferentes de uma vez, ou quando a conversa e o
+        // contexto do aluno (get_student_context) ja acumularam bastante historico. O modelo
+        // cortava no meio (stop_reason 'max_tokens') antes de terminar a confirmacao em texto ou
+        // a chamada de save_directive, e o treinador so via "Nao consegui gerar uma resposta" sem
+        // saber que a diretriz nunca chegou a ser salva.
+        max_tokens: 8192,
         // Bloco estavel (identico pra qualquer aluno) com cache_control primeiro, linha com o
         // nome do aluno depois, sem cache_control — preserva o prefixo cacheado entre alunos
         // diferentes e entre turnos da mesma conversa (ver shared/prompt-caching.md do skill
