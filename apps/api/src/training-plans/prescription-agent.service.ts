@@ -386,12 +386,13 @@ export class PrescriptionAgentService {
           // silenciosa ja documentada (resposta cortada por estourar o limite, rejeitada pelo
           // Zod, indistinguivel de uma falha de rede) reapareceu na pratica com alunos com rotina
           // de forca mais cheia (varios dias de musculacao/fortalecimento).
-          // Aumentado de novo (16000 -> 24000) apos outra falha real em producao: "Unterminated
-          // string in JSON" — a resposta foi cortada no meio porque o "pensamento" (thinking) do
-          // modelo consumiu quase todo o orcamento antes de sobrar espaco para escrever a resposta
-          // inteira. Acontece mais para alunos com contexto mais denso (muitas diretivas/observacoes
-          // acumuladas, como uma conta de teste usada bastante).
-          max_tokens: 24000,
+          // Aumentado de novo (16000 -> 24000 -> 32000) apos falhas reais repetidas em producao:
+          // "Unterminated string in JSON" — a resposta e cortada no meio porque o "pensamento"
+          // (thinking) do modelo consome boa parte do orcamento antes de sobrar espaco pra
+          // escrever a resposta inteira. Acontece mais para alunos com contexto mais denso (muitas
+          // diretivas/observacoes acumuladas — ja aconteceu duas vezes com a mesma aluna de teste,
+          // que acumulou varias diretivas ao longo de multiplas sessoes de debug).
+          max_tokens: 32000,
           thinking: { type: 'adaptive' },
           output_config: {
             effort: 'high',

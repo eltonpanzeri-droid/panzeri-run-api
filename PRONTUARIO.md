@@ -131,6 +131,37 @@ observações estruturais importantes:
   nenhuma geração automática. Alerta de dor grave por Telegram continua na hora, mas só quando
   alguém efetivamente abre a tela daquele aluno (sem verificação em segundo plano), limitado a 1x/12h.
 
+**2026-07-29** — Continuação direta do incidente da Roberta:
+- Achada a causa exata de "respeitou distância mas não pace" numa diretriz: a regra matemática que
+  amarra a estrutura do treino ao pace da semana toda empurrava o cálculo pro pace geral, ignorando
+  o pace especifico que uma diretriz pedia pra um dia. Corrigido no prompt (diretriz de pace/
+  modalidade de recuperação agora vale exatamente pra aquele dia). Achado tambem, possivel causa
+  raiz: o Gerente Tecnico tinha limite de tokens baixo demais pra mensagens longas descrevendo
+  varios dias — podia cortar no meio e NUNCA salvar a diretriz, sem avisar o treinador disso.
+  Aumentado o limite e a mensagem de erro agora avisa quando isso acontece.
+- O treinador pediu, de forma bem enfatica: **zero regra matematica calculando ou validando o
+  treino**, nem mesmo "so uma conferencia de consistencia". Removida a checagem que conferia se a
+  estrutura do intervalado bate com a duracao (prompt E codigo, nos dois pontos onde existia:
+  geracao semanal e regeneracao de um dia avulso). Removida tambem a instrucao de calcular duracao
+  a partir de distancia-alvo de uma diretriz. Mantido, como unica excecao aprovada: o piso de
+  8:30/km no pace facil (fato biomecanico, nao formula de conteudo).
+- Achado um SEGUNDO bug do mesmo tipo do "motor padrao" (ver acima): o painel mostrava "Meta de
+  intensidade: 80% baixa / 20% alta" pra TODO plano, sempre igual — um numero (0.8) escrito direto
+  no codigo, nunca vindo de uma decisao real da IA (o schema nem pede isso a IA). Removido
+  completamente, sem numero nenhum no lugar.
+- Confirmado funcionando: a sincronizacao reversa rotina→entrevista (do item anterior) — o painel
+  agora mostra os horarios reais e atualizados da aluna Roberta.
+- Nova falha real encontrada no log: geracao de semana falhando com "Unterminated string in JSON" —
+  o "pensamento" (thinking) do modelo consumindo quase todo o orcamento de tokens antes de sobrar
+  espaco pra escrever a resposta inteira, pra alunos com contexto mais denso (muitas diretivas
+  acumuladas). Ja tinha acontecido antes (16000→24000); aumentado de novo pra 32000.
+- Levantada uma duvida arquitetural pelo treinador: o Gerente Tecnico (agente de chat) e o agente de
+  prescricao semanal sao dois agentes separados que so se comunicam via texto salvo no banco
+  (StudentDirective) — isso pode ser fragil. Analise: os bugs encontrados foram defeitos concretos
+  e corrigiveis (limite de token, instrucao faltando), nao uma confusao fundamental de ter dois
+  agentes — mas o canal de comunicacao (um agente escreve texto, outro le e interpreta) e mesmo o
+  ponto mais fragil do design, vale ficar de olho.
+
 **Pontos em aberto / para acompanhar depois desta sessão:**
 - Sem nenhuma verificação em segundo plano, um aluno com dor elevada que ninguém olha no painel só
   é notado quando alguém abrir a tela dele — aceito deliberadamente pelo treinador, mas vale
