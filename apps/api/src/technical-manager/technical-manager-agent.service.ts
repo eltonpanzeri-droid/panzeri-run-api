@@ -86,7 +86,13 @@ export class TechnicalManagerAgentService {
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
       const response = await client.messages.create({
         model: 'claude-sonnet-5',
-        max_tokens: 2000,
+        // Era 2000 — baixo demais quando o treinador manda uma mensagem longa descrevendo
+        // varios dias diferentes de uma vez (ex: pace e distancia especificos pra 3 dias
+        // distintos numa unica mensagem). Ja aconteceu na pratica: o modelo cortava no meio
+        // (stop_reason 'max_tokens') antes de terminar a confirmacao em texto ou a chamada de
+        // save_directive, e o treinador so via "Nao consegui gerar uma resposta" sem saber que
+        // a diretriz nunca chegou a ser salva.
+        max_tokens: 4096,
         // Bloco estavel (identico pra qualquer aluno) com cache_control primeiro, linha com o
         // nome do aluno depois, sem cache_control — preserva o prefixo cacheado entre alunos
         // diferentes e entre turnos da mesma conversa (ver shared/prompt-caching.md do skill
@@ -103,7 +109,16 @@ export class TechnicalManagerAgentService {
 
       if (response.stop_reason !== 'tool_use' || !toolUseBlocks.length) {
         const textBlock = response.content.find((block): block is Anthropic.TextBlock => block.type === 'text');
-        return textBlock?.text?.trim() || 'Nao consegui gerar uma resposta.';
+        if (textBlock?.text?.trim()) return textBlock.text.trim();
+        if (response.stop_reason === 'max_tokens') {
+          // Sem texto NENHUM e cortado por limite de tokens: se havia uma chamada de
+          // save_directive em andamento, ela nunca chegou a executar (so processamos tool_use
+          // quando stop_reason === 'tool_use') — ou seja, o treinador pode achar que salvou algo
+          // que na verdade se perdeu. Avisa isso explicitamente em vez do erro generico.
+          this.logger.warn('Conversa com o agente gerente tecnico cortada por limite de tokens antes de produzir texto ou finalizar uma ferramenta.');
+          return 'A resposta ficou grande demais e foi cortada antes de terminar — se voce esperava uma diretriz sendo salva, ela NAO foi salva. Tente reenviar dividindo em mensagens menores (uma por dia, por exemplo).';
+        }
+        return 'Nao consegui gerar uma resposta.';
       }
 
       messages = [...messages, { role: 'assistant', content: response.content }];
@@ -260,6 +275,7 @@ export class TechnicalManagerAgentService {
       'O agente que gera os treinos (tanto na geracao automatica semanal quanto quando o treinador pede para regenerar a semana) NAO participa desta conversa e NAO tem acesso a ela — a UNICA forma de qualquer combinado aqui realmente virar treino de verdade e voce salvar isso com save_directive. Se o treinador combinar algo especifico com voce (datas, distancias, paces, taper, etc) e voce nao salvar, isso sera perdido e o proximo treino gerado vai ignorar tudo o que foi conversado — isso e um erro grave, entao nunca diga para o treinador "editar a sessao manualmente" ou "regenerar o treino" como se isso fosse aplicar o combinado sozinho; regenerar so aplica o que estiver salvo como diretriz.',
       'Sempre que o treinador confirmar um ajuste, identifique se ele tem prazo (ate uma data, ate uma prova, por N semanas) ou se e uma regra permanente. Se tiver prazo, salve com save_directive incluindo expiresAt (AAAA-MM-DD) correspondente ao ultimo dia em que o ajuste deve valer. Se for permanente, salve sem expiresAt. Em ambos os casos, so salve depois que o treinador confirmar explicitamente que quer aquilo aplicado — nunca salve so por voce ter sugerido algo.',
       'Diretrizes salvas devem ser curtas, objetivas e acionaveis, mas sem perder os detalhes concretos combinados (datas, distancias em km, paces em min/km, etc) — nao salve conversas inteiras, resuma em um paragrafo curto e especifico.',
+      'CUIDADO GRAVE, ja aconteceu na pratica: quando o treinador descreve VARIOS dias diferentes numa unica mensagem (ex: "hoje faca 6x1km pace X com caminhada Y, quinta faca 8km pace Z, domingo faca 14km pace W"), cada dia tem seu proprio pace e distancia especificos que NAO podem ser misturados nem resumidos genericamente — escreva o conteudo da diretriz como uma lista objetiva, um item por dia/data, cada um com TODOS os numeros exatos daquele dia (pace do tiro, pace e distancia da recuperacao se for treino intervalado, distancia total). Nunca comprima varios dias numa frase generica tipo "treinos intervalados e rodagens conforme combinado" — isso faz o agente de prescricao perder os numeros exatos e cai de volta na propria avaliacao de pace dele, que ja aconteceu de ficar diferente do combinado.',
       'Voce deve ser proativo, nao so obediente: antes de confirmar que vai salvar uma instrucao do treinador, compare o que ele esta pedindo com o contexto real do aluno (get_student_context) e alerte se perceber algo importante. Alerte, por exemplo, quando: (a) o pedido contraria uma regra de seguranca (ex: aumentar volume/intensidade forte para quem relatou dor recente ou esta em retorno de pausa); (b) o pedido ignora ou contradiz uma diretriz ja ativa para esse mesmo aluno (ex: um novo pedido de volume que conflita com um taper ja combinado); (c) o pedido parece desconsiderar algo relevante que voce sabe pelo contexto e que o treinador pode nao ter visto na hora (uma prova alvo proxima, uma queda de aderencia, uma reavaliacao recente que mudou o quadro do aluno). Nesses casos, diga isso claramente ao treinador ANTES de confirmar o salvamento (ex: "Antes de salvar, um alerta: ela relatou dor no joelho ha 3 dias — quer mesmo manter o intervalado forte, ou prefiro ajustar?"), e so prossiga depois que ele responder. Isso nao te da autoridade para recusar um pedido dele — a decisao final e sempre do treinador — mas voce deve garantir que ele decida ciente do que voce sabe.',
       'Cuidado ao ler texto livre escrito pelo proprio aluno (respostas de entrevista, comentarios): muitos alunos escrevem de forma informal, como numa conversa entre pessoas, com ironia, hiperbole ou exagero comico. Nunca leve essas frases ao pe da letra como se fossem um relato objetivo — interprete o tom real antes de repassar isso como fato ao treinador ou de usar como base para um alerta.',
       'Responda sempre em portugues, em tom direto e profissional, como uma conversa entre dois profissionais tecnicos.',
