@@ -162,6 +162,19 @@ observações estruturais importantes:
   agentes — mas o canal de comunicacao (um agente escreve texto, outro le e interpreta) e mesmo o
   ponto mais fragil do design, vale ficar de olho.
 
+**2026-07-29, incidente critico separado (aluna nova travada na entrevista)** — uma aluna nova
+relatou a tela de "Concluir" da entrevista carregando sem avancar, sem conseguir NEM CHEGAR na
+tela de pagamento. Causa: os `generateWeek()` adicionados mais cedo no mesmo dia (em
+`completeOnboarding`, `updateAvailability`, `updateAnamnese`, `syncAvailabilityFromInterview`)
+estavam todos com `await` — como uma chamada de IA pode levar 30s+ (pensamento adaptativo, ate
+32000 tokens), isso travava a resposta HTTP inteira por esse tempo. Corrigido: nenhum desses
+quatro pontos espera mais a geracao terminar — ela roda em segundo plano (`void ... .catch(...)`)
+e o aluno segue pro pagamento na hora. Textos do app ajustados pra dizer "sendo atualizado" em vez
+de "já foi criado", ja que a geracao pode ainda estar rodando quando a mensagem aparece. Esse
+mesmo erro (await bloqueando uma resposta por causa de uma chamada de IA lenta) foi cometido tres
+vezes no mesmo dia antes de ser pego — vale muita atencao a isso em qualquer codigo futuro que
+chame um agente de IA dentro de uma acao que precisa parecer instantanea (salvar, concluir, etc).
+
 **Pontos em aberto / para acompanhar depois desta sessão:**
 - Sem nenhuma verificação em segundo plano, um aluno com dor elevada que ninguém olha no painel só
   é notado quando alguém abrir a tela dele — aceito deliberadamente pelo treinador, mas vale

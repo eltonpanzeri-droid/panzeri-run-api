@@ -2245,11 +2245,13 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       return;
     }
 
-    // O PUT acima ja regenerou o treino no servidor quando a rotina realmente muda (ver
-    // me.service.ts) — so buscamos o resultado, sem chamar generatePlan() de novo (isso geraria
-    // a semana uma segunda vez, gastando IA em dobro por uma unica troca de rotina).
+    // O PUT acima ja disparou a regeneracao do treino no servidor quando a rotina realmente muda
+    // (ver me.service.ts) — em segundo plano, sem travar a resposta (pode levar uns 30s). So
+    // buscamos o resultado aqui, sem chamar generatePlan() de novo (isso geraria a semana uma
+    // segunda vez, gastando IA em dobro por uma unica troca de rotina). Pode ainda nao estar
+    // pronto neste exato momento — por isso a mensagem fala em "sendo atualizado", nao "pronto".
     await loadPlan();
-    setStatus('Sua nova rotina foi registrada e seu novo programa de treino da semana foi criado automaticamente.');
+    setStatus('Sua nova rotina foi registrada. Seu programa de treino da semana esta sendo atualizado automaticamente e vai aparecer em instantes.');
   }
 
   function moveSession(sessionId: string, direction: -1 | 1) {
@@ -3733,7 +3735,7 @@ function Anamnese({
       const savedResponse = (await response.json()) as MeResponse & { routineChanged?: boolean };
       onSavedMeChange(savedResponse);
       setStatus(savedResponse.routineChanged
-        ? 'Sua nova rotina foi registrada e seu novo programa de treino da semana foi criado automaticamente.'
+        ? 'Sua nova rotina foi registrada. Seu programa de treino da semana esta sendo atualizado automaticamente e vai aparecer em instantes.'
         : 'Anamnese salva.');
     } catch {
       setStatus('Nao consegui conectar com a API agora.');

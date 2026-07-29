@@ -180,12 +180,17 @@ export class MeService {
     // bug real aqui (sessoes com registro de execucao perdidas ao regenerar), ver
     // [[routine_change_auto_regen]]. current()/o app do aluno NAO geram mais nada sozinhos so
     // por abrir a tela — esta chamada explicita e o que garante que o primeiro treino (ou o
-    // treino corrigido, se o aluno refez a entrevista) exista assim que a entrevista termina.
-    // Erro aqui (ex: IA fora do ar) NUNCA pode transformar uma entrevista ja salva com sucesso
-    // em erro pro aluno — generateWeek ja avisa o treinador sozinho quando falha; o cron (a
-    // cada 2h) cobre o resto.
-    await this.trainingPlans.generateWeek(userId).catch((error) => {
-      this.logger.warn(`generateWeek apos completeOnboarding falhou para ${userId} (nao bloqueante, cron cobre): ${(error as Error).message}`);
+    // treino corrigido, se o aluno refez a entrevista) exista.
+    // NAO AWAIT (bug real em producao 2026-07-29): generateWeek() pode levar 30s+ (thinking
+    // adaptativo, ate 32000 tokens de saida) — se esperassemos aqui, o proprio POST
+    // /me/onboarding/complete travava por esse tempo todo, e uma aluna nova ficava com a tela
+    // de "Concluir" carregando sem avancar, sem NEM CHEGAR na tela de pagamento. A entrevista ja
+    // foi salva com sucesso acima; a geracao do treino roda em segundo piano e o aluno ve o
+    // plano assim que abrir a tela de treino (current() mostra "notGenerated" ate la, sem travar
+    // nada). Erro aqui (ex: IA fora do ar) e so logado — generateWeek ja avisa o treinador
+    // sozinho quando falha (Telegram).
+    void this.trainingPlans.generateWeek(userId).catch((error) => {
+      this.logger.warn(`generateWeek apos completeOnboarding falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
     });
 
     return { completed: true, completedAt, next: 'three_km_test' };
@@ -211,11 +216,13 @@ export class MeService {
       for (const day of availability) await tx.weeklyAvailability.create({ data: { userId, ...day } });
     });
 
-    // Sem isso, o resultado do sync so aparecia pro aluno/treinador quando alguma outra coisa
-    // disparasse uma geracao (o cron, em ate 2h) — current() nao gera mais nada sozinho so por
-    // a tela ser aberta (ver regra em training-plans.service.ts).
-    await this.trainingPlans.generateWeek(userId).catch((error) => {
-      this.logger.warn(`generateWeek apos syncAvailabilityFromInterview falhou para ${userId} (nao bloqueante, cron cobre): ${(error as Error).message}`);
+    // Sem isso, o resultado do sync so aparecia pro aluno/treinador quando alguma outra acao
+    // explicita disparasse uma geracao — current() nao gera mais nada sozinho so por a tela ser
+    // aberta (ver regra em training-plans.service.ts), e nao existe mais nenhum cron de fundo.
+    // NAO AWAIT: generateWeek() pode levar 30s+ (thinking adaptativo) — nao pode travar a
+    // resposta deste endpoint do painel do treinador esperando isso.
+    void this.trainingPlans.generateWeek(userId).catch((error) => {
+      this.logger.warn(`generateWeek apos syncAvailabilityFromInterview falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
     });
 
     return { synced: true, days: availability.filter((day) => !day.noTraining).length };
@@ -315,8 +322,15 @@ export class MeService {
     // chamar generateWeek — se fizessemos isso, ele nao acharia mais o plano ativo antigo pra
     // migrar essas sessoes, e reintroduziria o bug ja corrigido antes ("past sessions lost on
     // week regen").
+    // NAO AWAIT (bug real em producao, 2026-07-29): generateWeek() pode levar 30s+ (thinking
+    // adaptativo, ate 32000 tokens de saida) — esperar aqui travava o PUT /me/availability
+    // inteiro por esse tempo, e e exatamente isso que varias alunas relataram como "a tela nao
+    // sai do lugar"/"nao aceita a atualizacao" ao tentar mudar a rotina. O aluno ve a confirmacao
+    // na hora; o treino aparece assim que a geracao em segundo plano terminar.
     if (routineChanged) {
-      await this.trainingPlans.generateWeek(userId);
+      void this.trainingPlans.generateWeek(userId).catch((error) => {
+        this.logger.warn(`generateWeek apos updateAvailability falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+      });
     }
 
     return updated;
@@ -420,8 +434,12 @@ export class MeService {
     // generateWeek nao pode rodar dentro da transacao acima (faz suas proprias chamadas/
     // transacoes separadas) — ver o comentario equivalente em updateAvailability sobre por que
     // ele mesmo cuida do arquivamento do plano antigo, nunca fazemos isso manualmente antes.
+    // NAO AWAIT (mesmo motivo de updateAvailability): generateWeek() pode levar 30s+ e nao pode
+    // travar a resposta deste PUT /me/anamnese esperando a IA terminar.
     if (routineChanged) {
-      await this.trainingPlans.generateWeek(userId);
+      void this.trainingPlans.generateWeek(userId).catch((error) => {
+        this.logger.warn(`generateWeek apos updateAnamnese falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+      });
     }
 
     // routineChanged vai junto pra tela de anamnese (perfil/saude/preferencias/rotina, tudo num
