@@ -1410,7 +1410,8 @@ function ExerciseResponsibility({ accessToken, onAccepted }: { accessToken: stri
         setStatus(`Nao consegui registrar o aceite: ${await readApiError(response)}`);
         return;
       }
-      onAccepted();
+      setStatus('Aceite registrado. Voce ja pode ver seu treino da semana.');
+      setTimeout(onAccepted, 900);
     } catch {
       setStatus('Sem conexao. Tente novamente.');
     } finally {
@@ -1887,7 +1888,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao concluida' : 'Entrevista concluida'}</Text>
       <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : 'Vamos montar seu plano'}</Text>
-      <Text style={styles.copyTight}>{mode === 'reassessment' ? 'Suas respostas foram salvas. Seu treinador vai revisar sua evolucao e ajustar seu treino conforme necessario.' : 'Suas respostas foram salvas. Ja vamos montar seu treino inicial.'}</Text>
+      <Text style={styles.copyTight}>{mode === 'reassessment' ? 'Suas respostas foram salvas. Seu treinador vai revisar sua evolucao e ajustar seu treino conforme necessario.' : 'Parabens por completar sua entrevista! Seus dados foram salvos e serao usados para montar seu programa de treinos personalizado.'}</Text>
       <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : 'Ver meu treino'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
       {mode === 'onboarding' ? <Pressable style={styles.secondaryButton} onPress={reviewInterview} disabled={saving}><Text style={styles.secondaryButtonText}>Revisar minhas respostas</Text></Pressable> : null}
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
@@ -2317,7 +2318,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         return;
       }
 
-      setCompletionMessages((current) => ({ ...current, [session.id]: 'Treino salvo e feedback enviado ao treinador.' }));
+      setCompletionMessages((current) => ({ ...current, [session.id]: 'Treino registrado com sucesso! Seu treinador ja pode acompanhar seu progresso.' }));
       setPlan((current) => current ? {
         ...current,
         sessions: current.sessions.map((item) => item.id === session.id ? { ...item, completion: body } : item),
@@ -2960,7 +2961,7 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
       setSeconds('');
       setNotes('');
       setPriority('principal');
-      setMessage('Meta salva.');
+      setMessage('Meta registrada! Vamos considerar essa prova no planejamento do seu treino.');
       await load();
     } catch {
       setMessage('Nao consegui salvar essa meta.');
@@ -2976,7 +2977,12 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
-      if (response.ok) await load();
+      if (!response.ok) {
+        setMessage('Nao consegui atualizar essa meta.');
+        return;
+      }
+      setMessage('Status da prova atualizado.');
+      await load();
     } catch {
       setMessage('Nao consegui atualizar essa meta.');
     }
@@ -2985,7 +2991,12 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
   async function removeRace(raceId: string) {
     try {
       const response = await fetch(`${API_URL}/me/target-races/${raceId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } });
-      if (response.ok) await load();
+      if (!response.ok) {
+        setMessage('Nao consegui remover essa meta.');
+        return;
+      }
+      setMessage('Meta removida.');
+      await load();
     } catch {
       setMessage('Nao consegui remover essa meta.');
     }
@@ -3721,7 +3732,7 @@ function Anamnese({
 
         onNameChange(cleanName);
         onSavedMeChange(await loadSavedMe(accessToken));
-        setStatus('Anamnese salva. O treino da semana sera atualizado.');
+        setStatus('Seus dados foram atualizados com sucesso.');
         return;
       }
 
@@ -3736,7 +3747,7 @@ function Anamnese({
       onSavedMeChange(savedResponse);
       setStatus(savedResponse.routineChanged
         ? 'Sua nova rotina foi registrada. Seu programa de treino da semana esta sendo atualizado automaticamente e vai aparecer em instantes.'
-        : 'Anamnese salva.');
+        : 'Seus dados foram atualizados com sucesso.');
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
     } finally {
