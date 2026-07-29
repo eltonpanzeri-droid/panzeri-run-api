@@ -382,6 +382,9 @@ export class PrescriptionAgentService {
     const removeRunning = painTier === 'remove_running';
     const novice = isNovice(input.experience, input.answers);
 
+    // Capturado durante o streaming pra ter dado real (stop_reason/usage/texto bruto) se o parse
+    // do JSON estruturado falhar la embaixo — em vez de adivinhar a causa depois, ver catch.
+    let lastSnapshot: Anthropic.Messages.Message | undefined;
     try {
       // Streaming (nao client.messages.parse, que e sempre nao-streaming): com max_tokens alto
       // (24000) + pensamento adaptativo, o proprio SDK recusa a chamada de antemao com "Streaming
@@ -400,10 +403,10 @@ export class PrescriptionAgentService {
           // de forca mais cheia (varios dias de musculacao/fortalecimento).
           // Aumentado de novo (16000 -> 24000 -> 32000) apos falhas reais repetidas em producao:
           // "Unterminated string in JSON" — a resposta e cortada no meio porque o "pensamento"
-          // (thinking) do modelo consome boa parte do orcamento antes de sobrar espaco pra
-          // escrever a resposta inteira. Acontece mais para alunos com contexto mais denso (muitas
-          // diretivas/observacoes acumuladas — ja aconteceu duas vezes com a mesma aluna de teste,
-          // que acumulou varias diretivas ao longo de multiplas sessoes de debug).
+          // (thinking) do modelo consome parte do orcamento antes de sobrar espaco pra escrever a
+          // resposta inteira. A causa exata de por que isso acontece mais em algumas contas nao
+          // estava confirmada (ver captura de stop_reason/usage no catch abaixo, adicionada pra
+          // ter dado real na proxima falha em vez de suposicao).
           max_tokens: 32000,
           thinking: { type: 'adaptive' },
           output_config: {
@@ -420,6 +423,13 @@ export class PrescriptionAgentService {
             { type: 'text', text: this.buildSafetyGuidance(safetyAdjustment, removeRunning) },
           ],
           messages: [{ role: 'user', content: this.buildUserPrompt(input, runSlots, strengthSlots, safetyAdjustment, novice, evidence, input.painReason ?? null) }],
+        });
+        // snapshot e atualizado a cada evento (inclusive stop_reason/usage, preenchidos pelo
+        // evento message_delta antes do message_stop) — se o parse do JSON falhar depois, esse
+        // snapshot ainda tem o texto bruto e os numeros reais da chamada, capturados aqui porque
+        // finalMessage() joga tudo isso fora e so propaga o erro de parse.
+        stream.on('streamEvent', (_event, snapshot) => {
+          lastSnapshot = snapshot;
         });
         return stream.finalMessage();
       });
@@ -467,7 +477,17 @@ export class PrescriptionAgentService {
         source: 'ai',
       };
     } catch (error) {
-      this.logger.warn(`Falha ao gerar decisao com o agente de IA: ${describeAiError(error)}`);
+      if (lastSnapshot) {
+        const rawText = lastSnapshot.content
+          .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
+          .map((block) => block.text)
+          .join('');
+        this.logger.warn(
+          `Falha ao gerar decisao com o agente de IA: ${describeAiError(error)} | stop_reason=${lastSnapshot.stop_reason} output_tokens=${lastSnapshot.usage?.output_tokens} texto_bruto_chars=${rawText.length} texto_bruto_fim="${rawText.slice(-300)}"`,
+        );
+      } else {
+        this.logger.warn(`Falha ao gerar decisao com o agente de IA: ${describeAiError(error)}`);
+      }
       return null;
     }
   }
