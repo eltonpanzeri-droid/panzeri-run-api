@@ -1753,7 +1753,7 @@ function StudentPanel({
               </div>
             ))}
           </div>
-        ) : null}
+        ) : <p className="formHintText">Nenhuma diretriz ativa no momento para {student.name}.</p>}
 
         <div className="chatTranscript">
           {chatMessages.length ? chatMessages.map((chatMessage) => (
