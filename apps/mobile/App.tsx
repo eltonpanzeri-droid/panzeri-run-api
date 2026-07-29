@@ -1608,7 +1608,6 @@ function WheelColumn({ values, selectedIndex, onChangeIndex }: { values: string[
       <Pressable style={styles.wheelStepButton} onPress={() => step(-1)} disabled={selectedIndex <= 0}>
         <Ionicons name="chevron-down" size={20} color={selectedIndex <= 0 ? '#cbd5e1' : '#0f766e'} />
       </Pressable>
-      <Text style={styles.wheelSelectedLabel}>Selecionado: {values[selectedIndex] ?? '-'}</Text>
     </View>
   );
 }
@@ -4403,13 +4402,13 @@ function CompletionForm({
 
       {(isRun || isAerobic) && (
         <View style={styles.completionGrid}>
-          <View style={styles.completionFieldGroup}>
+          <View style={styles.completionWheelGroup}>
             <Text style={styles.inputLabel}>Tempo</Text>
             <DurationWheelField value={draft.durationMin} onChangeValue={(value) => onChange({ durationMin: value })} />
           </View>
           {isRun ? (
             <>
-              <View style={styles.completionFieldGroup}>
+              <View style={styles.completionWheelGroup}>
                 <Text style={styles.inputLabel}>Distancia</Text>
                 <DistanceWheelField value={draft.distanceKm} onChangeValue={(value) => onChange({ distanceKm: value })} />
               </View>
@@ -6107,6 +6106,15 @@ const styles = StyleSheet.create({
     gap: 4,
     marginBottom: 8,
   },
+  // Campos com roda de selecao (Tempo, Distancia) precisam da linha inteira pra si — com
+  // varias colunas de roda cada (h/min/seg ou km/m), o minWidth pequeno do grupo generico
+  // acima nao reflete a largura real do conteudo, e o grid deixava de quebrar linha,
+  // espremendo as rodas ate ficarem ilegiveis/sobrepostas (relatado por uma aluna).
+  completionWheelGroup: {
+    width: '100%',
+    gap: 4,
+    marginBottom: 8,
+  },
   compactInput: {
     minHeight: 42,
     minWidth: 112,
@@ -6420,12 +6428,6 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  wheelSelectedLabel: {
-    marginTop: 4,
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#0f766e',
   },
   wheelItem: {
     height: WHEEL_ITEM_HEIGHT,
