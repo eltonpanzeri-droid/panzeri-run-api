@@ -447,7 +447,6 @@ export class PrescriptionAgentService {
         recommendation: truncateText(parsed.recommendation, 1200),
         rationale: rationale.length > 0 ? rationale : ['Decisao gerada pelo agente de IA.'],
         safetyAdjustment,
-        targetLowIntensityShare: 0.8,
         paceAssessment: {
           ...parsed.paceAssessment,
           rationale: truncateText(parsed.paceAssessment.rationale, 900),

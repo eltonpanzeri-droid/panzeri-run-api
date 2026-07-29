@@ -813,10 +813,9 @@ function readMethodologySnapshot(inputSnapshot: unknown) {
   if (!inputSnapshot || typeof inputSnapshot !== 'object' || !('methodology' in inputSnapshot)) return null;
   const methodology = (inputSnapshot as { methodology?: unknown }).methodology;
   if (!methodology || typeof methodology !== 'object') return null;
-  const { rationale, safetyAdjustment, targetLowIntensityShare, decisionSource, paceAssessment } = methodology as {
+  const { rationale, safetyAdjustment, decisionSource, paceAssessment } = methodology as {
     rationale?: unknown;
     safetyAdjustment?: unknown;
-    targetLowIntensityShare?: unknown;
     decisionSource?: unknown;
     paceAssessment?: unknown;
   };
@@ -826,7 +825,6 @@ function readMethodologySnapshot(inputSnapshot: unknown) {
   return {
     rationale: Array.isArray(rationale) ? rationale.filter((item): item is string => typeof item === 'string') : [],
     safetyAdjustment: Boolean(safetyAdjustment),
-    targetLowIntensityShare: typeof targetLowIntensityShare === 'number' ? targetLowIntensityShare : null,
     decisionSource: decisionSource === 'ai' ? 'ai' : 'deterministic',
     paceAssessment: paceAssessmentObject
       && typeof paceAssessmentObject.easyPaceSecondsPerKm === 'number'

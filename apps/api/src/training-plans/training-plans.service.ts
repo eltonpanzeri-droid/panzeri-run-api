@@ -577,7 +577,6 @@ export class TrainingPlansService {
             principles: PANZERI_PRESCRIPTION_PRINCIPLES,
             rationale: methodology.rationale,
             safetyAdjustment: methodology.safetyAdjustment,
-            targetLowIntensityShare: methodology.targetLowIntensityShare,
             decisionSource: methodology.source,
             paceAssessment: methodology.paceAssessment ?? null,
             history: methodologyHistory,

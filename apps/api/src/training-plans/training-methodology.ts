@@ -175,7 +175,6 @@ export interface WeeklyMethodologyDecision {
   recommendation: string;
   rationale: string[];
   safetyAdjustment: boolean;
-  targetLowIntensityShare: number;
   paceAssessment?: {
     easyPaceSecondsPerKm: number;
     intensePaceSecondsPerKm: number;

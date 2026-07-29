@@ -149,7 +149,6 @@ interface StudentDetail {
     methodology?: {
       rationale: string[];
       safetyAdjustment: boolean;
-      targetLowIntensityShare: number | null;
       decisionSource: 'ai' | 'deterministic';
       paceAssessment?: { easyPaceSecondsPerKm: number; intensePaceSecondsPerKm: number; rationale: string } | null;
     } | null;
@@ -2644,16 +2643,11 @@ function satisfactionLabel(value: string) {
 }
 
 function methodologySummaryLine(methodology: {
-  targetLowIntensityShare: number | null;
   decisionSource: 'ai' | 'deterministic';
   paceAssessment?: { easyPaceSecondsPerKm: number; intensePaceSecondsPerKm: number } | null;
   safetyAdjustment: boolean;
 }) {
   const parts: string[] = [];
-  if (methodology.targetLowIntensityShare) {
-    const lowPercent = Math.round(methodology.targetLowIntensityShare * 100);
-    parts.push(`Meta de intensidade: ${lowPercent}% baixa / ${100 - lowPercent}% alta`);
-  }
   if (methodology.paceAssessment) {
     parts.push(`Pace facil ${paceLabel(methodology.paceAssessment.easyPaceSecondsPerKm)} · Pace forte ${paceLabel(methodology.paceAssessment.intensePaceSecondsPerKm)}`);
   }
