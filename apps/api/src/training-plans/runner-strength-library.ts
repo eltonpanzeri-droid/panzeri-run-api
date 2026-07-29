@@ -27,7 +27,7 @@ export const runnerStrengthExercises: StrengthExercise[] = [
     category: runnerStrengthCategory,
     name: 'Skip 1,2,3',
     videoUrl: 'https://youtu.be/Em63-6BzgKI',
-    description: 'Coordenacao de corrida com elevacao alternada dos joelhos.',
+    description: 'Exercicio excelente para corredores. Ele e importante para manter o stiffness, que seria a rigidez tendinea. Importante para melhorar a forca especialmente do tendao de Aquiles. Para corredores que fazem uma corrida pesada, carregada, sem aproveitar a energia do impacto de cada passada. Esse exercicio e excelente para coordenacao motora de corredores e para melhorar a performance, especialmente ao final das provas, quando a fadiga se acumula e a eficiencia mecanica fica comprometida.',
     focus: ['tecnica', 'coordenacao'],
     level: 'base',
     equipment: 'bodyweight',
