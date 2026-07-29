@@ -266,6 +266,11 @@ export class CoachService {
     return this.meService.syncAvailabilityFromInterview(studentId);
   }
 
+  async analyzeStudentStrava(studentId: string) {
+    await this.assertStudent(studentId);
+    return this.trainingPlans.refreshStravaAnalysis(studentId, { force: true });
+  }
+
   async runDatabaseBackup() {
     return this.backup.runBackup();
   }
@@ -813,29 +818,15 @@ function readMethodologySnapshot(inputSnapshot: unknown) {
   if (!inputSnapshot || typeof inputSnapshot !== 'object' || !('methodology' in inputSnapshot)) return null;
   const methodology = (inputSnapshot as { methodology?: unknown }).methodology;
   if (!methodology || typeof methodology !== 'object') return null;
-  const { rationale, safetyAdjustment, decisionSource, paceAssessment } = methodology as {
+  const { rationale, safetyAdjustment, decisionSource } = methodology as {
     rationale?: unknown;
     safetyAdjustment?: unknown;
     decisionSource?: unknown;
-    paceAssessment?: unknown;
   };
-  const paceAssessmentObject = paceAssessment && typeof paceAssessment === 'object'
-    ? (paceAssessment as { easyPaceSecondsPerKm?: unknown; intensePaceSecondsPerKm?: unknown; rationale?: unknown })
-    : null;
   return {
     rationale: Array.isArray(rationale) ? rationale.filter((item): item is string => typeof item === 'string') : [],
     safetyAdjustment: Boolean(safetyAdjustment),
     decisionSource: decisionSource === 'ai' ? 'ai' : 'deterministic',
-    paceAssessment: paceAssessmentObject
-      && typeof paceAssessmentObject.easyPaceSecondsPerKm === 'number'
-      && typeof paceAssessmentObject.intensePaceSecondsPerKm === 'number'
-      && typeof paceAssessmentObject.rationale === 'string'
-      ? {
-          easyPaceSecondsPerKm: paceAssessmentObject.easyPaceSecondsPerKm,
-          intensePaceSecondsPerKm: paceAssessmentObject.intensePaceSecondsPerKm,
-          rationale: paceAssessmentObject.rationale,
-        }
-      : null,
   };
 }
 
@@ -846,7 +837,6 @@ function buildTechnicalReportContent(detail: any) {
   const rationale: string[] = detail.plan?.methodology?.rationale ?? [];
   const decisionSource = detail.plan?.methodology?.decisionSource;
   const sourceLabel = decisionSource === 'ai' ? 'Agente de IA (Metodologia Elton Panzeri)' : 'Motor deterministico (regras fixas)';
-  const paceAssessment = detail.plan?.methodology?.paceAssessment as { easyPaceSecondsPerKm: number; intensePaceSecondsPerKm: number; rationale: string } | null;
   return {
     generatedAt: new Date().toISOString(),
     type: 'technical',
@@ -871,12 +861,6 @@ function buildTechnicalReportContent(detail: any) {
         text: rationale.length
           ? `Decisao gerada por: ${sourceLabel}. Decisoes desta semana: ${rationale.join(' ')}`
           : 'O plano foi montado cruzando objetivo, teste de 3 km, rotina semanal informada, modalidades disponiveis e sinais de saude/recuperacao. A progressao deve respeitar aderencia, feedback, dor, fadiga e dados externos do Strava quando disponiveis.',
-      },
-      {
-        title: 'Avaliacao do pace real do aluno',
-        text: paceAssessment
-          ? `Pace facil considerado: ${formatPace(paceAssessment.easyPaceSecondsPerKm)}. Pace intenso considerado: ${formatPace(paceAssessment.intensePaceSecondsPerKm)}. Raciocinio do agente: ${paceAssessment.rationale}`
-          : 'Sem avaliacao contextual do agente de IA nesta semana — pace calculado por uma regra generica de reserva (teste oficial, senao auto-relato, senao valor padrao).',
       },
       {
         title: 'Expectativa de resposta',

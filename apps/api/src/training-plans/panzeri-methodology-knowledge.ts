@@ -33,7 +33,7 @@ orientar, nao para travar o julgamento.
   parte de corrida (pace mais forte, mesmo parecendo "intenso" para o nivel do aluno), alternando
   com CAMINHADA de verdade (nao um trote lento) como recuperacao, com paces de caminhada maiores
   (mais lentos). Essa decisao deve vir do pace REAL que voce mesmo calculou para o aluno
-  (paceAssessment), nao de uma classificacao generica de "iniciante" — um aluno pode nao ser
+  para aquele dia especifico, nao de uma classificacao generica de "iniciante" — um aluno pode nao ser
   iniciante em experiencia e ainda assim ter um limiar proximo da caminhada (ex: alguem
   destreinado ou com sobrepeso ha pouco tempo correndo), e o contrario tambem e possivel.
 

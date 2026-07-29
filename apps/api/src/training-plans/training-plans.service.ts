@@ -48,7 +48,6 @@ interface RunStep {
 
 interface RunBlock extends Partial<RunStep> {
   label: string;
-  zone?: string;
   repeatCount?: number;
   steps?: RunStep[];
 }
@@ -72,6 +71,9 @@ const planEngineVersion = 'rules-v11-' + PANZERI_METHODOLOGY_VERSION;
 // enquanto o proprio bug estava sendo investigado — cada reabertura custava uma chamada cara ao
 // Opus, com 2 tentativas internas, e falhava de novo. Este cooldown garante que, apos uma falha,
 // o sistema espera antes de tentar de novo automaticamente, em vez de gastar a cada visualizacao.
+// Cadencia padrao da analise do Strava (ver refreshStravaAnalysis) — o treinador pode pedir uma
+// frequencia diferente pra um aluno especifico (StravaAnalysisCache.customFrequencyDays).
+const DEFAULT_STRAVA_ANALYSIS_FREQUENCY_DAYS = 30;
 const AI_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
 const PAIN_ALERT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 
@@ -374,28 +376,12 @@ export class TrainingPlansService {
     const stravaRuns = recentStrava.filter((activity) => isStravaRunningActivity(activity.type, activity.name));
     const executionSummary = jsonObject(latestExecutionInsight?.summary);
     const progression = jsonObject(executionSummary.progression);
-    // Reaproveita a ultima analise do Strava enquanto nao houver atividade nova (recentStrava vem
-    // ordenado do mais recente pro mais antigo) — sem isso, toda chamada a generateWeek() disparava
-    // uma chamada inteira de IA extra (com thinking adaptativo) SO PARA reanalisar exatamente os
-    // mesmos dados de sempre, em serie, ANTES da decisao semanal principal, deixando a geracao mais
-    // lenta sem nenhum ganho real. So chama a IA de novo quando a atividade mais recente mudou.
-    const latestStravaActivityId = recentStrava[0]?.stravaId ?? null;
-    let stravaAnalysis: StravaAnalysisReport | null = null;
-    if (latestStravaActivityId) {
-      const cached = await this.prisma.stravaAnalysisCache.findUnique({ where: { userId } });
-      if (cached && cached.lastActivityId === latestStravaActivityId) {
-        stravaAnalysis = cached.analysis as unknown as StravaAnalysisReport;
-      } else {
-        stravaAnalysis = await this.stravaAnalysisAgent.analyze(recentStrava);
-        if (stravaAnalysis) {
-          await this.prisma.stravaAnalysisCache.upsert({
-            where: { userId },
-            create: { userId, lastActivityId: latestStravaActivityId, analysis: stravaAnalysis as unknown as Prisma.InputJsonObject },
-            update: { lastActivityId: latestStravaActivityId, analysis: stravaAnalysis as unknown as Prisma.InputJsonObject },
-          });
-        }
-      }
-    }
+    // A analise do Strava NAO roda mais aqui — ela tem sua propria cadencia, desacoplada da
+    // geracao da semana (mensal por padrao, ou a frequencia customizada do aluno, ou quando o
+    // treinador pede manualmente — ver StravaAnalysisSchedulerService e refreshStravaAnalysis).
+    // generateWeek() so LE o que ja estiver pronto no cache, nunca dispara uma chamada de IA nova.
+    const stravaAnalysisCache = await this.prisma.stravaAnalysisCache.findUnique({ where: { userId } });
+    const stravaAnalysis = (stravaAnalysisCache?.analysis as unknown as StravaAnalysisReport | null) ?? null;
     const methodologyInput: MethodologyInput = {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
       experience: user.preferences?.experienceLevel ?? '',
@@ -467,17 +453,6 @@ export class TrainingPlansService {
     }
     this.recentAiFailures.delete(userId);
     const methodology = aiDecision;
-    if (!methodology.paceAssessment) {
-      // Nunca deveria acontecer: o schema Zod da IA exige paceAssessment em toda resposta valida
-      // (ver AiWeeklyDecisionSchema). Se chegar aqui mesmo assim, falha alto em vez de estimar o
-      // pace por uma formula fixa — nao existe mais motor de regra pronta pra isso.
-      this.logger.error(`Decisao da IA sem paceAssessment para o aluno ${userId} — nao ha como prosseguir sem regra fixa.`);
-      await this.telegram.notifyCoach(
-        `⚠️ A IA gerou uma decisao sem avaliacao de pace para um aluno (id ${userId}). O plano NAO foi atualizado — verifique os logs do EasyPanel.`,
-      );
-      throw new InternalServerErrorException('A IA nao retornou uma avaliacao de pace valida. O treinador ja foi avisado.');
-    }
-    const resolvedPaces = { easy: methodology.paceAssessment.easyPaceSecondsPerKm, intense: methodology.paceAssessment.intensePaceSecondsPerKm };
 
     const sessions = availableDays.slice(0, 7).flatMap((day) => {
       const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(day.weekday));
@@ -493,7 +468,6 @@ export class TrainingPlansService {
           ...baseTemplate,
           title: runDecision.title,
           sessionType: runDecision.sessionType,
-          zone: runDecision.zone,
           durationMin: runDecision.durationMin,
           notes: runDecision.notes,
           recommendations: runDecision.recommendations,
@@ -519,8 +493,12 @@ export class TrainingPlansService {
           strengthDecision
             ? this.strengthPrescription(durationMin, strengthDecision)
             : modality === 'bike'
-            ? this.aerobicPrescription(durationMin, template.zone, modality)
-            : this.runPrescription(durationMin, template.zone, resolvedPaces, modality, template.sessionType, {
+            ? this.aerobicPrescription(durationMin, modality)
+            // Distancia e pace vem inteiramente da decisao da IA para ESTE dia (runDecision) —
+            // nao existe mais nenhuma conta de codigo (duracao/pace fixo) decidindo isso.
+            : this.runPrescription(durationMin, modality, template.sessionType, {
+                distanceKm: runDecision?.distanceKm ?? null,
+                paceSecondsPerKm: runDecision?.paceSecondsPerKm ?? null,
                 intervalStructure: runDecision?.intervalStructure,
                 walkRunStructure: runDecision?.walkRunStructure,
               });
@@ -538,8 +516,13 @@ export class TrainingPlansService {
           // intervalos/caminhada, os dois podiam divergir (ver correcao em runPrescription acima).
           durationMin: prescription.durationMin ?? durationMin,
           distanceKm: prescription.distanceKm,
-          intensityZone: template.zone,
-          paceMinSec: !isStrength && !isAerobic ? formatPace(template.zone === 'Z4' ? resolvedPaces.intense : resolvedPaces.easy) : null,
+          // Zona (Base/Z2/Z4) nao e mais uma informacao que o aluno/treinador precisam ver — o
+          // pace/distancia real de cada sessao ja veio da decisao contextual da IA, nao de um
+          // rotulo de zona (ver [[no_math_rules_for_workout_calc]] atualizado).
+          intensityZone: null,
+          paceMinSec: !isStrength && !isAerobic && prescription.representativePaceSecondsPerKm != null
+            ? formatPace(prescription.representativePaceSecondsPerKm)
+            : null,
           structure: prescription as unknown as Prisma.InputJsonObject,
           notes: template.notes,
           recommendations: isRunningModality(modality) ? template.recommendations ?? null : null,
@@ -588,7 +571,6 @@ export class TrainingPlansService {
           },
           latestTestId: latestTest?.id,
           paceSource,
-          resolvedPaces,
           paceEvidence,
           painTier: painSafety.tier,
           painReason: painSafety.reason,
@@ -599,7 +581,6 @@ export class TrainingPlansService {
             rationale: methodology.rationale,
             safetyAdjustment: methodology.safetyAdjustment,
             decisionSource: methodology.source,
-            paceAssessment: methodology.paceAssessment ?? null,
             history: methodologyHistory,
             stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
             analysisAgent: latestExecutionInsight ? executionSummary : null,
@@ -684,6 +665,60 @@ export class TrainingPlansService {
     });
   }
 
+  // Analise do historico do Strava (cadencia, FC, padroes) — desacoplada de generateWeek() de
+  // proposito (ver comentario la): ela tem sua propria cadencia, nao a da geracao de treino.
+  // Chamada por: StravaAnalysisSchedulerService (mensal, por padrao, ou a frequencia customizada
+  // do aluno), o botao "Gerar relatorio do Strava agora" do treinador (force: true), e o Gerente
+  // Tecnico so quando muda a frequencia de um aluno (nao chama isso diretamente, so guarda a
+  // preferencia — ver setStravaAnalysisFrequency).
+  //
+  // force=true ignora a data de vencimento (dueForAnalysis) mas AINDA exige atividade nova desde a
+  // ultima analise real — nao existe custo de IA sem dado novo pra analisar, mesmo forcado a mao.
+  async refreshStravaAnalysis(userId: string, options?: { force?: boolean }): Promise<{ analyzed: boolean; reason: string }> {
+    const cache = await this.prisma.stravaAnalysisCache.findUnique({ where: { userId } });
+    const frequencyDays = cache?.customFrequencyDays ?? DEFAULT_STRAVA_ANALYSIS_FREQUENCY_DAYS;
+    const dueForAnalysis = !cache?.analysis || Date.now() - cache.updatedAt.getTime() >= frequencyDays * 24 * 60 * 60 * 1000;
+    if (!options?.force && !dueForAnalysis) {
+      return { analyzed: false, reason: `Ainda nao venceu o prazo de analise (a cada ${frequencyDays} dia(s)).` };
+    }
+
+    const historyStart = addDays(startOfWeek(new Date()), -35);
+    const recentStrava = await this.prisma.stravaActivity.findMany({
+      where: { userId, startDate: { gte: historyStart } },
+      orderBy: { startDate: 'desc' },
+    });
+    const latestActivityId = recentStrava[0]?.stravaId ?? null;
+    if (!latestActivityId) {
+      return { analyzed: false, reason: 'Aluno sem atividades recentes no Strava para analisar.' };
+    }
+    if (!options?.force && cache?.lastActivityId === latestActivityId) {
+      return { analyzed: false, reason: 'Nenhuma atividade nova desde a ultima analise.' };
+    }
+
+    const analysis = await this.stravaAnalysisAgent.analyze(recentStrava);
+    if (!analysis) {
+      return { analyzed: false, reason: 'Falha ao gerar a analise com o agente de IA — tente novamente.' };
+    }
+
+    await this.prisma.stravaAnalysisCache.upsert({
+      where: { userId },
+      create: { userId, lastActivityId: latestActivityId, analysis: analysis as unknown as Prisma.InputJsonObject, customFrequencyDays: cache?.customFrequencyDays ?? null },
+      update: { lastActivityId: latestActivityId, analysis: analysis as unknown as Prisma.InputJsonObject },
+    });
+    return { analyzed: true, reason: 'Analise atualizada com sucesso.' };
+  }
+
+  // Chamado pelo Gerente Tecnico quando o treinador pede uma periodicidade especifica para um
+  // aluno (ex: "analise o Strava da Fulana a cada 7 dias") — so guarda a preferencia, nao dispara
+  // analise nenhuma agora (isso e responsabilidade do cron mensal/botao manual).
+  async setStravaAnalysisFrequency(userId: string, frequencyDays: number | null) {
+    await this.prisma.stravaAnalysisCache.upsert({
+      where: { userId },
+      create: { userId, customFrequencyDays: frequencyDays },
+      update: { customFrequencyDays: frequencyDays },
+    });
+  }
+
   // Corrige alunos afetados pelo bug antigo de regeneracao de semana: antes da correcao, gerar
   // um novo treino sem usar o ajuste de rotina (ex: o botao do treinador) arquivava o plano
   // anterior sem migrar os dias ja passados daquela semana, fazendo treinos ja feitos (com
@@ -749,7 +784,7 @@ export class TrainingPlansService {
       });
     }
 
-    const [user, latestTest, onboarding, activeDirectives, activeObservations, latestReassessment, sessionPlan] = await Promise.all([
+    const [user, latestTest, onboarding, activeDirectives, activeObservations, latestReassessment] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { preferences: true } }),
       this.prisma.fitnessTest.findFirst({ where: { userId, testType: '3km' }, orderBy: { createdAt: 'desc' } }),
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } }),
@@ -760,7 +795,6 @@ export class TrainingPlansService {
       }),
       this.prisma.studentObservation.findMany({ where: { userId, active: true }, orderBy: { createdAt: 'desc' } }),
       this.prisma.reassessment.findFirst({ where: { userId, completedAt: { not: null } }, orderBy: { completedAt: 'desc' } }),
-      session.planId ? this.prisma.trainingPlan.findUnique({ where: { id: session.planId }, select: { inputSnapshot: true } }) : Promise.resolve(null),
     ]);
 
     const answers = sanitizeInterviewAnswers(jsonObject(onboarding?.answers));
@@ -768,35 +802,9 @@ export class TrainingPlansService {
     const safetyAdjustment = painSafety.tier !== 'normal';
     const paceFallback = estimatePaceFromAnswers(answers);
 
-    // Reaproveita o pace que a IA ja decidiu pra semana ativa deste treino (mesmo pace que os
-    // outros dias da semana estao usando) em vez de recalcular. So chama a IA de novo, isolada,
-    // se por algum motivo nao houver plano/pace guardado (ex: sessao orfa sem planId) — nunca via
-    // formula fixa (ver historico de fallbackPaces removido).
-    const storedPaces = readSnapshotResolvedPaces(sessionPlan?.inputSnapshot);
-    let resolvedPaces: { easy: number; intense: number };
-    if (storedPaces) {
-      resolvedPaces = storedPaces;
-    } else {
-      const paceEvidence: PaceEvidence = {
-        testPace: latestTest ? { secondsPerKm: latestTest.paceSecondsPerKm, daysAgo: Math.max(0, Math.floor((Date.now() - latestTest.createdAt.getTime()) / 86400000)) } : null,
-        selfReportedPace: paceFallback ? { secondsPerKm: paceFallback.paceSecondsPerKm, source: paceFallback.source } : null,
-        stravaAveragePace: null,
-      };
-      const aiPaceAssessment = await this.prescriptionAgent.proposePaceAssessment(paceEvidence);
-      if (!aiPaceAssessment) {
-        this.logger.error(`Falha ao avaliar pace avulso com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);
-        await this.telegram.notifyCoach(
-          `⚠️ Falha ao avaliar pace com IA para um aluno (id ${userId}). O treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo painel.`,
-        );
-        throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
-      }
-      resolvedPaces = { easy: aiPaceAssessment.easyPaceSecondsPerKm, intense: aiPaceAssessment.intensePaceSecondsPerKm };
-    }
-
     const isStrength = session.modality === 'forca' || session.modality === 'fortalecimento_corredores';
     const isAerobic = session.modality === 'bike';
     const durationMin = session.durationMin ?? 45;
-    const zone = session.intensityZone ?? 'Z2';
 
     let prescription;
     if (isStrength) {
@@ -835,33 +843,42 @@ export class TrainingPlansService {
       }
       prescription = this.strengthPrescription(durationMin, strengthDecision);
     } else if (isAerobic) {
-      prescription = this.aerobicPrescription(durationMin, zone, session.modality);
+      prescription = this.aerobicPrescription(durationMin, session.modality);
     } else {
-      const sessionType = session.sessionType ?? 'easy_run';
-      let runStructure: { intervalStructure?: IntervalStructureDecision | null; walkRunStructure?: WalkRunStructureDecision | null } | null = null;
-      if (sessionType === 'quality_run' || sessionType === 'walk_run') {
-        runStructure = await this.prescriptionAgent.proposeRunStructure({
-          sessionType,
-          durationMin,
-          easyPaceSecondsPerKm: resolvedPaces.easy,
-          intensePaceSecondsPerKm: resolvedPaces.intense,
-        });
-        if (!runStructure) {
-          this.logger.error(`Falha ao gerar estrutura de treino intervalado/caminhada avulsa com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);
-          await this.telegram.notifyCoach(
-            `⚠️ Falha ao gerar estrutura de treino avulso com IA para um aluno (id ${userId}). O treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo painel.`,
-          );
-          throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
-        }
+      const sessionType = (session.sessionType ?? 'easy_run') as 'easy_run' | 'quality_run' | 'long_run' | 'walk_run';
+      const paceEvidence: PaceEvidence = {
+        testPace: latestTest ? { secondsPerKm: latestTest.paceSecondsPerKm, daysAgo: Math.max(0, Math.floor((Date.now() - latestTest.createdAt.getTime()) / 86400000)) } : null,
+        selfReportedPace: paceFallback ? { secondsPerKm: paceFallback.paceSecondsPerKm, source: paceFallback.source } : null,
+        stravaAveragePace: null,
+      };
+      // Decide TUDO deste dia numa unica chamada (distancia, pace, estrutura) — nunca reaproveita
+      // um pace guardado de outro dia nem calcula distancia por formula (ver proposeRunSession).
+      const runDecision = await this.prescriptionAgent.proposeRunSession({
+        sessionType,
+        durationMin,
+        evidence: paceEvidence,
+        studentDirectives: activeDirectives.map((directive) => directive.content),
+        activeObservations: activeObservations.map((observation) => observation.content),
+        painTier: painSafety.tier,
+        painReason: painSafety.reason,
+      });
+      if (!runDecision) {
+        this.logger.error(`Falha ao gerar treino de corrida avulso com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);
+        await this.telegram.notifyCoach(
+          `⚠️ Falha ao gerar treino avulso com IA para um aluno (id ${userId}). O treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo painel.`,
+        );
+        throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
       }
-      prescription = this.runPrescription(durationMin, zone, resolvedPaces, session.modality, sessionType, runStructure);
+      prescription = this.runPrescription(durationMin, session.modality, sessionType, runDecision);
     }
 
     return this.prisma.trainingSession.update({
       where: { id: sessionId },
       data: {
         distanceKm: prescription.distanceKm,
-        paceMinSec: !isStrength && !isAerobic ? formatPace(zone === 'Z4' ? resolvedPaces.intense : resolvedPaces.easy) : null,
+        paceMinSec: !isStrength && !isAerobic && prescription.representativePaceSecondsPerKm != null
+          ? formatPace(prescription.representativePaceSecondsPerKm)
+          : null,
         structure: prescription as unknown as Prisma.InputJsonObject,
       },
     });
@@ -916,62 +933,63 @@ export class TrainingPlansService {
 
   private runPrescription(
     durationMin: number,
-    zone: string,
-    resolvedPaces: { easy: number; intense: number },
     modality: string,
     sessionType: string,
-    structure?: { intervalStructure?: IntervalStructureDecision | null; walkRunStructure?: WalkRunStructureDecision | null } | null,
+    decision: {
+      distanceKm: number | null;
+      paceSecondsPerKm: number | null;
+      intervalStructure?: IntervalStructureDecision | null;
+      walkRunStructure?: WalkRunStructureDecision | null;
+    },
   ) {
     // Aquecimento e desaquecimento NAO fazem mais parte do treino prescrito nem da distancia/
     // duracao total — viraram uma recomendacao em texto (campo "recommendations", escrita pela
     // IA por sessao), exibida separadamente. Isso evita o erro que ja aconteceu na pratica: um
     // treino "leve" de poucos km onde boa parte era so aquecimento/desaquecimento contando pro
     // volume, distorcendo o quanto o aluno realmente treinou naquele dia.
-    const targetPaceSeconds = zone === 'Z4' ? resolvedPaces.intense : resolvedPaces.easy;
-    const speedKmh = Number((3600 / targetPaceSeconds).toFixed(1));
-    const targetDistanceKm = Math.max(2, Math.round(((durationMin * 60) / targetPaceSeconds) * 2) / 2);
-    const { paceRange, speedRange } = this.paceRangeText(targetPaceSeconds);
+    //
+    // Distancia e pace vem inteiramente da decisao da IA para ESTE dia especifico — nao existe
+    // mais nenhuma conta de codigo (duracao dividida por um pace fixo da semana) decidindo isso.
 
     if (sessionType === 'quality_run') {
-      // A estrutura (quantas repeticoes, distancia de cada trecho forte/recuperacao, quanto de
-      // volume leve) e decisao do agente de IA (validada em prescription-agent.service.ts contra
-      // o tempo real que ela implica) — nao existe mais nenhuma proporcao/passo fixo aqui. Chegar
-      // aqui sem essa estrutura e um bug de sincronizacao entre quem gerou a decisao e quem monta
-      // a sessao, nao um caso esperado.
-      if (!structure?.intervalStructure) {
+      // A estrutura (quantas repeticoes, distancia/pace de cada trecho forte/recuperacao, quanto
+      // de volume leve) e decisao do agente de IA (validada em prescription-agent.service.ts) —
+      // nao existe mais nenhuma proporcao/passo/pace fixo aqui. Chegar aqui sem essa estrutura e
+      // um bug de sincronizacao entre quem gerou a decisao e quem monta a sessao.
+      if (!decision.intervalStructure || decision.paceSecondsPerKm == null) {
         throw new InternalServerErrorException(`Estrutura do treino intervalado ausente ao montar a sessao (durationMin=${durationMin}).`);
       }
-      const { repeatCount, fastStepKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm } = structure.intervalStructure;
+      const { repeatCount, fastStepKm, fastPaceSecondsPerKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm } = decision.intervalStructure;
       const intervalBlock: RunBlock = {
         label: 'Serie intervalada',
-        zone,
         repeatCount,
         steps: [
-          this.intervalStep('Correr forte', fastStepKm, resolvedPaces.intense),
+          this.intervalStep('Correr forte', fastStepKm, fastPaceSecondsPerKm),
           this.intervalStep('Recuperar', recoveryStepKm, recoveryPaceSecondsPerKm),
         ],
       };
       const blocks = [
         intervalBlock,
-        this.runDistanceBlock('Recuperacoes e volume leve', easyVolumeKm, 'Z2', resolvedPaces.easy),
+        this.runDistanceBlock('Recuperacoes e volume leve', easyVolumeKm, decision.paceSecondsPerKm),
       ];
       return {
-        type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks), speedKmh, zone,
-        paceRange, speedRange, blocks,
-        reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
+        type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks),
+        speedKmh: Number((3600 / fastPaceSecondsPerKm).toFixed(1)),
+        representativePaceSecondsPerKm: fastPaceSecondsPerKm,
+        blocks,
+        reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'heartRate', 'rpe', 'notes'],
       };
     }
 
     if (sessionType === 'walk_run') {
       // Mesma logica do quality_run acima: a estrutura vem da decisao do agente de IA, ja validada
-      // contra o tempo real que ela implica — nao existe mais pace/passo fixo aqui.
-      if (!structure?.walkRunStructure) {
+      // — nao existe mais pace/passo fixo aqui.
+      if (!decision.walkRunStructure) {
         throw new InternalServerErrorException(`Estrutura de caminhada-corrida ausente ao montar a sessao (durationMin=${durationMin}).`);
       }
-      const { repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm } = structure.walkRunStructure;
+      const { repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm } = decision.walkRunStructure;
       const intervalBlock: RunBlock = {
         label: 'Bloco intervalado',
-        zone: 'Z2',
         repeatCount,
         steps: [
           this.intervalStep('Caminhar', walkStepKm, walkPaceSecondsPerKm),
@@ -979,16 +997,20 @@ export class TrainingPlansService {
         ],
       };
       const blocks = [intervalBlock];
-      const walkRunRange = this.paceRangeText(runPaceSecondsPerKm);
       return {
         type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks),
-        speedKmh: Number((3600 / runPaceSecondsPerKm).toFixed(1)), zone: 'Z2',
-        paceRange: walkRunRange.paceRange, speedRange: walkRunRange.speedRange, blocks,
-        reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
+        speedKmh: Number((3600 / runPaceSecondsPerKm).toFixed(1)),
+        representativePaceSecondsPerKm: runPaceSecondsPerKm,
+        blocks,
+        reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'heartRate', 'rpe', 'notes'],
       };
     }
 
-    const blocks = [this.runDistanceBlock('Principal', targetDistanceKm, zone, targetPaceSeconds)];
+    // easy_run / long_run: distancia e pace decididos diretamente pela IA para este dia.
+    if (decision.distanceKm == null || decision.paceSecondsPerKm == null) {
+      throw new InternalServerErrorException(`Distancia/pace ausentes ao montar a sessao (durationMin=${durationMin}, sessionType=${sessionType}).`);
+    }
+    const blocks = [this.runDistanceBlock('Principal', decision.distanceKm, decision.paceSecondsPerKm)];
 
     return {
       type: 'run',
@@ -996,25 +1018,14 @@ export class TrainingPlansService {
       distanceKm: this.totalBlockDistance(blocks),
       durationMin: this.midpointDuration(blocks),
       durationRange: this.totalDurationRange(blocks),
-      speedKmh,
-      speedRange,
-      zone,
-      paceRange,
+      speedKmh: Number((3600 / decision.paceSecondsPerKm).toFixed(1)),
+      representativePaceSecondsPerKm: decision.paceSecondsPerKm,
       blocks,
-      reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'zone', 'heartRate', 'rpe', 'notes'],
+      reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'heartRate', 'rpe', 'notes'],
     };
   }
 
-  private paceRangeText(paceSecondsPerKm: number) {
-    const fast = Math.max(paceSecondsPerKm - 12, 1);
-    const slow = paceSecondsPerKm + 12;
-    return {
-      paceRange: `${formatPace(fast)} a ${formatPace(slow)}`,
-      speedRange: `${(3600 / slow).toFixed(1)} a ${(3600 / fast).toFixed(1)} km/h`,
-    };
-  }
-
-  private runDistanceBlock(label: string, distanceKm: number, zone: string, paceSecondsPerKm: number, guidance?: string) {
+  private runDistanceBlock(label: string, distanceKm: number, paceSecondsPerKm: number, guidance?: string) {
     const fast = Math.max(paceSecondsPerKm - 12, 1);
     const slow = paceSecondsPerKm + 12;
     const minimumSeconds = Math.round(distanceKm * fast);
@@ -1029,7 +1040,6 @@ export class TrainingPlansService {
       durationType: 'distance',
       distanceValue: distanceKm,
       distanceUnit: 'km',
-      zone,
       paceRange: `${formatPace(fast)} a ${formatPace(slow)}`,
       speedRange: `${(3600 / slow).toFixed(1)} a ${(3600 / fast).toFixed(1)} km/h`,
       guidance,
@@ -1088,7 +1098,7 @@ export class TrainingPlansService {
     };
   }
 
-  private aerobicPrescription(durationMin: number, zone: string, modality: string) {
+  private aerobicPrescription(durationMin: number, modality: string) {
     const mainDuration = Math.max(durationMin - 10, 15);
 
     return {
@@ -1097,20 +1107,19 @@ export class TrainingPlansService {
       distanceKm: null,
       durationMin,
       speedKmh: null,
-      zone,
+      representativePaceSecondsPerKm: null as number | null,
       paceRange: null,
-      guidance: `Fazer ${durationMin} min de exercicio aerobico, de preferencia bike ou outro aparelho aerobico, em intensidade ${zone}. Manter esforco controlado para nao atrapalhar os treinos de corrida dos outros dias.`,
+      guidance: `Fazer ${durationMin} min de exercicio aerobico, de preferencia bike ou outro aparelho aerobico, em esforco leve/controlado. Manter esforco controlado para nao atrapalhar os treinos de corrida dos outros dias.`,
       blocks: [
-        { label: 'Aquecimento', durationMin: 5, zone: 'Z1', guidance: 'Comecar leve e soltar a musculatura.' },
+        { label: 'Aquecimento', durationMin: 5, guidance: 'Comecar leve e soltar a musculatura.' },
         {
           label: 'Principal',
           durationMin: mainDuration,
-          zone,
           guidance: 'Manter respiracao confortavel, sem transformar em treino forte.',
         },
-        { label: 'Desaquecimento', durationMin: 5, zone: 'Z1', guidance: 'Reduzir gradualmente a intensidade.' },
+        { label: 'Desaquecimento', durationMin: 5, guidance: 'Reduzir gradualmente a intensidade.' },
       ],
-      reportFields: ['durationMin', 'modality', 'zone', 'heartRate', 'rpe', 'notes'],
+      reportFields: ['durationMin', 'modality', 'heartRate', 'rpe', 'notes'],
     };
   }
 
@@ -1130,6 +1139,7 @@ export class TrainingPlansService {
       category,
       durationMin,
       distanceKm: null,
+      representativePaceSecondsPerKm: null as number | null,
       exercises: exercises.map((exercise) => ({
         id: exercise.id,
         category,
@@ -1477,24 +1487,6 @@ function planMatchesLatestTest(inputSnapshot: unknown, latestTestId: string | nu
 
 function snapshotUsedWeeklyOverride(inputSnapshot: unknown) {
   return Boolean(inputSnapshot && typeof inputSnapshot === 'object' && (inputSnapshot as { weeklyOverrideUsed?: unknown }).weeklyOverrideUsed);
-}
-
-// Reaproveita o pace ja decidido pela IA para a semana ativa (guardado em inputSnapshot.resolvedPaces
-// quando o plano foi gerado) em vez de recalcular via formula fixa ao regenerar um dia isolado —
-// mesmo pace que os outros dias da mesma semana ja estao usando, sem custo extra de IA.
-function readSnapshotResolvedPaces(inputSnapshot: unknown): { easy: number; intense: number } | null {
-  if (!inputSnapshot || typeof inputSnapshot !== 'object' || !('resolvedPaces' in inputSnapshot)) {
-    return null;
-  }
-  const resolvedPaces = (inputSnapshot as { resolvedPaces?: unknown }).resolvedPaces;
-  if (!resolvedPaces || typeof resolvedPaces !== 'object') {
-    return null;
-  }
-  const { easy, intense } = resolvedPaces as { easy?: unknown; intense?: unknown };
-  if (typeof easy !== 'number' || typeof intense !== 'number' || !Number.isFinite(easy) || !Number.isFinite(intense)) {
-    return null;
-  }
-  return { easy, intense };
 }
 
 function readSnapshotAvailability(inputSnapshot: unknown) {

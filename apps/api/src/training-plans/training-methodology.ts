@@ -107,11 +107,12 @@ export interface MethodologyInput {
 }
 
 // Estrutura do bloco intervalado (quality_run) — decidida pela IA, nao por uma proporcao fixa no
-// codigo. O codigo so monta a exibicao a partir desses numeros e confere se a soma do tempo real
-// bate com durationMin (ver validateSessions em prescription-agent.service.ts).
+// codigo. O codigo so monta a exibicao a partir desses numeros, sem nenhuma conta propria (nem o
+// pace do trecho forte — fastPaceSecondsPerKm — mais nenhum pace vem de um valor fixo da semana).
 export interface IntervalStructureDecision {
   repeatCount: number;
   fastStepKm: number;
+  fastPaceSecondsPerKm: number;
   recoveryStepKm: number;
   recoveryPaceSecondsPerKm: number;
   easyVolumeKm: number;
@@ -131,9 +132,15 @@ export interface RunSessionDecision {
   weekday: number;
   title: string;
   sessionType: 'easy_run' | 'quality_run' | 'long_run' | 'walk_run';
-  zone: 'Z2' | 'Z4';
   durationMin: number;
   notes: string;
+  // Preenchidos pela IA diretamente para ESTE dia especifico (nunca mais um par unico de pace pra
+  // semana toda, carimbado depois por codigo). Obrigatorios (nao-null) para easy_run/long_run;
+  // para quality_run, paceSecondsPerKm cobre o volume leve adicional (easyVolumeKm) e distanceKm
+  // fica null (a distancia desse tipo vem da soma dos componentes de intervalStructure); para
+  // walk_run ambos ficam null (walkRunStructure e autossuficiente, com seus proprios paces).
+  distanceKm: number | null;
+  paceSecondsPerKm: number | null;
   // Orientacoes gerais (aquecimento, desaquecimento, hidratacao, cuidados rua/esteira etc.),
   // pensadas pela IA para este aluno especifico — NAO fazem parte do treino prescrito nem da
   // distancia/duracao total, sao so recomendacoes em texto exibidas separadamente.
@@ -175,11 +182,6 @@ export interface WeeklyMethodologyDecision {
   recommendation: string;
   rationale: string[];
   safetyAdjustment: boolean;
-  paceAssessment?: {
-    easyPaceSecondsPerKm: number;
-    intensePaceSecondsPerKm: number;
-    rationale: string;
-  };
 }
 
 export function computeRunSlots(availability: MethodologyAvailability[]) {

@@ -704,54 +704,6 @@ const reassessmentQuestions: InterviewQuestion[] = [
   { key: 'reassessment_notes', module: 'Reavaliacao', prompt: 'Quer contar mais alguma coisa para o seu treinador?', type: 'text', optional: true },
 ];
 
-const weekSessions = [
-  {
-    day: 'Seg',
-    date: '22/06',
-    title: 'Forca geral',
-    detail: '45 min - RPE 7',
-    icon: 'barbell' as const,
-    modality: 'forca',
-    zone: 'Base',
-  },
-  {
-    day: 'Ter',
-    date: '23/06',
-    title: 'Corrida leve',
-    detail: '35 min - Z2',
-    icon: 'walk' as const,
-    modality: 'corrida',
-    zone: 'Z2',
-  },
-  {
-    day: 'Qua',
-    date: '24/06',
-    title: 'Sem treino',
-    detail: 'Recuperacao',
-    icon: 'moon' as const,
-    modality: 'descanso',
-    zone: 'Off',
-  },
-  {
-    day: 'Qui',
-    date: '25/06',
-    title: 'Intervalado curto',
-    detail: '42 min - Z4/Z5',
-    icon: 'flash' as const,
-    modality: 'corrida',
-    zone: 'Z4',
-  },
-  {
-    day: 'Sab',
-    date: '27/06',
-    title: 'Longao leve',
-    detail: '55 min - Z2',
-    icon: 'trail-sign' as const,
-    modality: 'corrida',
-    zone: 'Z2',
-  },
-];
-
 function AppInner() {
   const [screen, setScreen] = useState<Screen>('login');
   const [isRestoringSession, setIsRestoringSession] = useState(true);
@@ -2558,14 +2510,13 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
                       <View style={styles.weekSessionTitleBlock}>
                         <Text style={styles.sessionTitle}>{session.title}</Text>
                         <Text style={styles.sessionDetail}>{session.detail}</Text>
-                        <View style={styles.zonePill}><Text style={styles.zoneText}>{session.zone}</Text></View>
                       </View>
                       <View style={styles.weekIcon}>
                         <Ionicons name={iconForModality(session.modality)} size={23} color="#111827" />
                       </View>
                     </View>
                     {'notes' in session && session.notes ? <Text style={styles.sessionNote}>{session.notes}</Text> : null}
-                    <SessionPrescription session={session} metrics={metrics} />
+                    <SessionPrescription session={session} />
                     {session.recommendations ? <Text style={styles.sessionNote}>{session.recommendations}</Text> : null}
                     <CompletionForm
                       session={session}
@@ -4184,7 +4135,7 @@ function SessionCard({
   );
 }
 
-function SessionPrescription({ session, metrics }: { session: WeekPlanSession; metrics: ThreeKmMetrics }) {
+function SessionPrescription({ session }: { session: WeekPlanSession }) {
   const structure = session.structure;
   if (!structure) {
     return null;
@@ -4200,7 +4151,7 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
         {structure.guidance ? <Text style={styles.prescriptionText}>{structure.guidance}</Text> : null}
         {structure.blocks?.map((block) => (
           <Text style={styles.prescriptionText} key={block.label}>
-            {block.label}: {block.durationMin} min {block.zone ? `| ${block.zone}` : ''}
+            {block.label}: {block.durationMin} min
             {block.guidance ? ` | ${block.guidance}` : ''}
           </Text>
         ))}
@@ -4208,8 +4159,7 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
     );
   }
 
-  const mainZone = structure.zone ?? session.zone;
-  const mainPace = structure.paceRange ?? metricPaceForZone(mainZone, metrics);
+  const mainPace = structure.paceRange;
   const mainSpeed = structure.speedRange ?? speedRangeFromPace(mainPace) ?? (structure.speedKmh ? `${formatDecimal(structure.speedKmh)} km/h` : null);
   const runBlocks: NonNullable<Extract<SessionStructure, { type: 'run' }>['blocks']> = structure.blocks?.length
     ? structure.blocks
@@ -4219,7 +4169,6 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
         durationType: 'time',
         distanceValue: structure.distanceKm ?? session.distanceKm ?? undefined,
         distanceUnit: 'km',
-        zone: mainZone,
         paceRange: mainPace,
         speedKmh: structure.speedKmh,
         speedRange: mainSpeed,
@@ -4253,7 +4202,7 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
             </View>
           );
         }
-        const pace = block.paceRange ?? metricPaceForZone(block.zone, metrics);
+        const pace = block.paceRange;
         const speed = block.speedRange ?? speedRangeFromPace(pace) ?? (block.speedKmh ? `${formatDecimal(block.speedKmh)} km/h` : null);
         return (
           <View style={styles.runBlock} key={block.label}>
@@ -4263,9 +4212,8 @@ function SessionPrescription({ session, metrics }: { session: WeekPlanSession; m
             </View>
             <View style={styles.runBlockMetrics}>
               <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Distancia</Text>{'\n'}{runBlockDistanceLabel(block)}</Text>
-              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Zona</Text>{'\n'}{block.zone ?? mainZone}</Text>
-              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Pace</Text>{'\n'}{pace ?? 'Cadastre o teste de 3 km'}</Text>
-              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Velocidade</Text>{'\n'}{speed ?? 'Cadastre o teste de 3 km'}</Text>
+              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Pace</Text>{'\n'}{pace ?? '-'}</Text>
+              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Velocidade</Text>{'\n'}{speed ?? '-'}</Text>
             </View>
             {block.rpe ? <Text style={styles.prescriptionText}>Percepcao de esforco: {rpeLabel(block.rpe)}</Text> : null}
             {block.guidance ? <Text style={styles.prescriptionText}>{block.guidance}</Text> : null}
@@ -5245,13 +5193,6 @@ function rpeLabel(value: string) {
     muito_forte: 'Muito forte',
   };
   return labels[value] ?? value;
-}
-
-function metricPaceForZone(zone: string | undefined, metrics: ThreeKmMetrics) {
-  if (!zone) return null;
-  const key = zone.toLowerCase() as keyof ThreeKmMetrics['zones'];
-  const value = metrics.zones[key];
-  return value && value !== '--' ? value : null;
 }
 
 function speedRangeFromPace(pace: string | null | undefined) {

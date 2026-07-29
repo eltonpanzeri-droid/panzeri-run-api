@@ -53,6 +53,9 @@ const MAX_EASY_PACE_SECONDS_PER_KM = 510; // 8:30/km
 const AiIntervalStructureSchema = z.object({
   repeatCount: z.number().int().min(2).max(20),
   fastStepKm: z.number().min(0.1).max(5),
+  // Pace do trecho forte decidido aqui, pra ESTE dia especifico — nunca mais um valor unico da
+  // semana toda aplicado por codigo (ver historico de paceAssessment removido).
+  fastPaceSecondsPerKm: z.number().int().min(120).max(700),
   recoveryStepKm: z.number().min(0.05).max(3),
   recoveryPaceSecondsPerKm: z.number().int().min(200).max(1200),
   easyVolumeKm: z.number().min(0).max(60),
@@ -70,8 +73,14 @@ const AiSessionSchema = z.object({
   weekday: z.number().int().min(0).max(6),
   title: z.string().min(1).max(120),
   sessionType: z.enum(['easy_run', 'quality_run', 'long_run', 'walk_run']),
-  zone: z.enum(['Z2', 'Z4']),
   durationMin: z.number().int().min(10).max(240),
+  // Distancia e pace decididos AQUI, para ESTE dia especifico — nunca mais um numero calculado por
+  // codigo a partir de duracao/pace fixo. Obrigatorio (nao-null) para easy_run/long_run. Para
+  // quality_run, so paceSecondsPerKm e obrigatorio (cobre o volume leve/easyVolumeKm da estrutura;
+  // a distancia desse tipo vem da soma dos componentes de intervalStructure, entao fica null aqui).
+  // Para walk_run os dois ficam null (walkRunStructure e autossuficiente).
+  distanceKm: z.number().min(1).max(60).nullable(),
+  paceSecondsPerKm: z.number().int().min(150).max(900).nullable(),
   notes: z.string().min(1),
   recommendations: z.string().min(1),
   // Preenchido SOMENTE quando durationMin ultrapassa o tempo normal disponivel para este weekday
@@ -119,11 +128,6 @@ const AiWeeklyDecisionSchema = z.object({
   // rejeitada por causa de UM bullet, desperdicando a chamada cara de IA por um detalhe cosmetico.
   // Itens vazios sao filtrados e itens longos sao truncados depois de parsear (ver attemptDecision).
   rationale: z.array(z.string()).min(1).max(8),
-  paceAssessment: z.object({
-    easyPaceSecondsPerKm: z.number().int().min(150).max(900),
-    intensePaceSecondsPerKm: z.number().int().min(120).max(700),
-    rationale: z.string().min(1),
-  }),
 });
 
 // Trunca campos de texto livre gerados pela IA em vez de rejeitar a resposta inteira quando um
@@ -193,33 +197,56 @@ export class PrescriptionAgentService {
     return (await attempt()) ?? (await attempt());
   }
 
-  // Usado quando o treinador regenera UM dia de corrida intervalada/caminhada-corrida isolado
-  // (durationMin/zone/sessionType ja existentes, sem mexer no resto da semana) — a IA decide so a
-  // estrutura (repeticoes/distancias/paces do bloco), nunca uma formula fixa. Mesma exigencia de
-  // consistencia de tempo real aplicada em validateSessions para a geracao semanal.
-  async proposeRunStructure(params: {
-    sessionType: 'quality_run' | 'walk_run';
+  // Usado quando o treinador regenera UM dia de corrida isolado, de QUALQUER sessionType (sem
+  // mexer no resto da semana). Substitui os dois metodos antigos (proposePaceAssessment +
+  // proposeRunStructure): antes, o pace vinha reaproveitado de uma avaliacao unica da semana (ou,
+  // na ausencia dela, de uma chamada avulsa que so decidia dois numeros gerais) e so a ESTRUTURA
+  // do intervalado/caminhada-corrida era decidida aqui — dias simples (easy_run/long_run) nem
+  // chamavam a IA, a distancia saia de uma formula (duracao/pace) em training-plans.service.ts.
+  // Agora a IA decide TUDO deste dia especifico numa unica chamada — distancia, pace e estrutura —
+  // com o mesmo contexto (diretivas, observacoes, sinal de dor) que a geracao semanal usa, nunca
+  // uma formula ou um numero reaproveitado de outro dia.
+  async proposeRunSession(params: {
+    sessionType: 'easy_run' | 'quality_run' | 'long_run' | 'walk_run';
     durationMin: number;
-    easyPaceSecondsPerKm: number;
-    intensePaceSecondsPerKm: number;
-  }): Promise<{ intervalStructure: z.infer<typeof AiIntervalStructureSchema> | null; walkRunStructure: z.infer<typeof AiWalkRunStructureSchema> | null } | null> {
+    evidence: PaceEvidence;
+    studentDirectives: string[];
+    activeObservations: string[];
+    painTier: 'normal' | 'reduced' | 'remove_running';
+    painReason: string | null;
+  }): Promise<{
+    distanceKm: number | null;
+    paceSecondsPerKm: number | null;
+    intervalStructure: z.infer<typeof AiIntervalStructureSchema> | null;
+    walkRunStructure: z.infer<typeof AiWalkRunStructureSchema> | null;
+  } | null> {
     if (!this.client) {
-      this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado para a estrutura do treino avulso.');
+      this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado para o treino avulso.');
       return null;
     }
-    const attempt = () => this.attemptRunStructureDecision(params);
+    const attempt = () => this.attemptRunSessionDecision(params);
     return (await attempt()) ?? (await attempt());
   }
 
-  private async attemptRunStructureDecision(params: {
-    sessionType: 'quality_run' | 'walk_run';
+  private async attemptRunSessionDecision(params: {
+    sessionType: 'easy_run' | 'quality_run' | 'long_run' | 'walk_run';
     durationMin: number;
-    easyPaceSecondsPerKm: number;
-    intensePaceSecondsPerKm: number;
-  }): Promise<{ intervalStructure: z.infer<typeof AiIntervalStructureSchema> | null; walkRunStructure: z.infer<typeof AiWalkRunStructureSchema> | null } | null> {
+    evidence: PaceEvidence;
+    studentDirectives: string[];
+    activeObservations: string[];
+    painTier: 'normal' | 'reduced' | 'remove_running';
+    painReason: string | null;
+  }): Promise<{
+    distanceKm: number | null;
+    paceSecondsPerKm: number | null;
+    intervalStructure: z.infer<typeof AiIntervalStructureSchema> | null;
+    walkRunStructure: z.infer<typeof AiWalkRunStructureSchema> | null;
+  } | null> {
     const client = this.client;
     if (!client) return null;
     const schema = z.object({
+      distanceKm: z.number().min(1).max(60).nullable(),
+      paceSecondsPerKm: z.number().int().min(150).max(900).nullable(),
       intervalStructure: AiIntervalStructureSchema.nullable(),
       walkRunStructure: AiWalkRunStructureSchema.nullable(),
     });
@@ -232,8 +259,8 @@ export class PrescriptionAgentService {
           output_config: { effort: 'medium', format: zodOutputFormat(schema) },
           // Prompt identico pra qualquer aluno/chamada — cache_control deixa isso barato depois
           // da primeira vez (ver shared/prompt-caching.md do skill claude-api).
-          system: [{ type: 'text', text: this.buildRunStructureSystemPrompt(), cache_control: { type: 'ephemeral' } }],
-          messages: [{ role: 'user', content: this.buildRunStructureUserPrompt(params) }],
+          system: [{ type: 'text', text: this.buildRunSessionSystemPrompt(), cache_control: { type: 'ephemeral' } }],
+          messages: [{ role: 'user', content: this.buildRunSessionUserPrompt(params) }],
         }),
       );
       const parsed = response.parsed_output;
@@ -241,103 +268,81 @@ export class PrescriptionAgentService {
 
       if (params.sessionType === 'quality_run') {
         if (!parsed.intervalStructure) {
-          this.logger.warn('Rejeitado (estrutura avulsa): sessionType quality_run sem intervalStructure preenchido.');
+          this.logger.warn('Rejeitado (treino avulso): sessionType quality_run sem intervalStructure preenchido.');
           return null;
         }
-        return { intervalStructure: parsed.intervalStructure, walkRunStructure: null };
+        if (parsed.paceSecondsPerKm == null) {
+          this.logger.warn('Rejeitado (treino avulso): sessionType quality_run sem paceSecondsPerKm preenchido.');
+          return null;
+        }
+        if (parsed.intervalStructure.fastPaceSecondsPerKm >= parsed.paceSecondsPerKm) {
+          this.logger.warn('Rejeitado (treino avulso): pace forte nao e mais rapido que o pace leve.');
+          return null;
+        }
+        if (parsed.paceSecondsPerKm > MAX_EASY_PACE_SECONDS_PER_KM) {
+          this.logger.warn(`Rejeitado (treino avulso): pace leve ${parsed.paceSecondsPerKm}s/km mais lento que o piso biomecanico de ${MAX_EASY_PACE_SECONDS_PER_KM}s/km.`);
+          return null;
+        }
+        return { distanceKm: null, paceSecondsPerKm: parsed.paceSecondsPerKm, intervalStructure: parsed.intervalStructure, walkRunStructure: null };
       }
 
-      if (!parsed.walkRunStructure) {
-        this.logger.warn('Rejeitado (estrutura avulsa): sessionType walk_run sem walkRunStructure preenchido.');
+      if (params.sessionType === 'walk_run') {
+        if (!parsed.walkRunStructure) {
+          this.logger.warn('Rejeitado (treino avulso): sessionType walk_run sem walkRunStructure preenchido.');
+          return null;
+        }
+        return { distanceKm: null, paceSecondsPerKm: null, intervalStructure: null, walkRunStructure: parsed.walkRunStructure };
+      }
+
+      if (parsed.distanceKm == null || parsed.paceSecondsPerKm == null) {
+        this.logger.warn(`Rejeitado (treino avulso): sessionType ${params.sessionType} sem distanceKm/paceSecondsPerKm preenchidos.`);
         return null;
       }
-      return { intervalStructure: null, walkRunStructure: parsed.walkRunStructure };
+      if (parsed.paceSecondsPerKm > MAX_EASY_PACE_SECONDS_PER_KM) {
+        this.logger.warn(`Rejeitado (treino avulso): pace ${parsed.paceSecondsPerKm}s/km mais lento que o piso biomecanico de ${MAX_EASY_PACE_SECONDS_PER_KM}s/km.`);
+        return null;
+      }
+      return { distanceKm: parsed.distanceKm, paceSecondsPerKm: parsed.paceSecondsPerKm, intervalStructure: null, walkRunStructure: null };
     } catch (error) {
-      this.logger.warn(`Falha ao gerar estrutura de treino avulsa com o agente de IA: ${describeAiError(error)}`);
+      this.logger.warn(`Falha ao gerar treino avulso com o agente de IA: ${describeAiError(error)}`);
       return null;
     }
   }
 
-  private buildRunStructureSystemPrompt() {
+  private buildRunSessionSystemPrompt() {
     return [
-      'Voce e o agente que decide a estrutura de UM treino de corrida intervalado (quality_run) ou caminhada-corrida (walk_run) para um unico dia, isoladamente — o treinador esta regenerando so este dia, sem mexer no resto da semana do aluno.',
-      'Voce recebe durationMinDisponivel (tempo total ja decidido para este dia, nao pode ser mudado) e os dois paces ja avaliados (easyPaceSecondsPerKm, intensePaceSecondsPerKm). Sua unica tarefa e decidir a ESTRUTURA que preenche esse tempo de forma realista — nao existe checagem de conta em codigo depois, a responsabilidade de a estrutura fazer sentido pro tempo disponivel e inteiramente sua, pelo mesmo julgamento que um treinador real faria de olho no relogio.',
-      'Para sessionType "quality_run", preencha intervalStructure: repeatCount (numero de repeticoes fortes), fastStepKm (distancia de cada repeticao no pace intenso), recoveryStepKm (distancia de cada recuperacao entre repeticoes) e recoveryPaceSecondsPerKm (pace da recuperacao — normalmente bem mais lento que o pace facil, tipo um trote leve ou caminhada), e easyVolumeKm (volume continuo adicional no pace facil, alem do bloco intervalado).',
-      'Para sessionType "walk_run", preencha walkRunStructure: repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm e runPaceSecondsPerKm (o pace de corrida deve ser claramente mais rapido que o de caminhada).',
-      'Preencha SOMENTE o campo correspondente ao sessionType informado (intervalStructure para quality_run, walkRunStructure para walk_run); deixe o outro campo null.',
+      'Voce e o agente que decide UM treino de corrida isolado, para um unico dia — o treinador esta regenerando so este dia, sem mexer no resto da semana do aluno. A duracao (durationMinDisponivel) e o tipo de sessao (sessionType) ja estao decididos e nao podem mudar; sua tarefa e decidir tudo o resto: distancia, pace e (quando for o caso) a estrutura do intervalado/caminhada-corrida — pensando no contexto real deste aluno (evidencias de pace, diretivas do treinador, observacoes do aluno, sinal de dor), nunca uma formula ou proporcao fixa.',
+      'NAO EXISTE NENHUMA TABELA OU FORMULA CALCULANDO DISTANCIA A PARTIR DE DURACAO/PACE — voce decide a distancia e o pace diretamente, pensando no que faz sentido pra este aluno neste dia. Voce sabe matematica: se decidir uma estrutura com series/recuperacao, calcule voce mesmo se ela cabe dentro de durationMinDisponivel — nao existe checagem de conta em codigo depois, a responsabilidade e inteiramente sua.',
+      'Para sessionType "easy_run" ou "long_run": preencha distanceKm (distancia total) e paceSecondsPerKm (pace continuo deste dia) diretamente; deixe intervalStructure e walkRunStructure null.',
+      'Para sessionType "quality_run": preencha intervalStructure (repeatCount, fastStepKm, fastPaceSecondsPerKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm) e paceSecondsPerKm (pace do volume leve/easyVolumeKm, se houver); deixe distanceKm null.',
+      'Para sessionType "walk_run": preencha walkRunStructure (repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm — o pace de corrida deve ser claramente mais rapido que o de caminhada); deixe distanceKm e paceSecondsPerKm null.',
+      'Voce recebe ate tres evidencias de pace (testeOficial, autoRelatoRecente, mediaStravaRecente) — use a mais recente e mais confiavel, nunca uma proporcao fixa entre elas (tipo "pace_teste vezes 0.95").',
+      'Se diretrizesEspecificasDoTreinadorParaEsteAluno mencionar algo que se aplique a este dia especifico, aplique literalmente (prioridade quase absoluta). observacoesRegistradasPeloProprioAluno sao informais, considere quando fizer sentido sem sacrificar seguranca. Se sinalDeSeguranca for verdadeiro, nunca use sessionType "quality_run" com pace/volume agressivo.',
     ].join('\n\n');
   }
 
-  private buildRunStructureUserPrompt(params: { sessionType: string; durationMin: number; easyPaceSecondsPerKm: number; intensePaceSecondsPerKm: number }) {
+  private buildRunSessionUserPrompt(params: {
+    sessionType: string;
+    durationMin: number;
+    evidence: PaceEvidence;
+    studentDirectives: string[];
+    activeObservations: string[];
+    painTier: string;
+    painReason: string | null;
+  }) {
     return JSON.stringify(
       {
         sessionType: params.sessionType,
         durationMinDisponivel: params.durationMin,
-        easyPaceSecondsPerKm: params.easyPaceSecondsPerKm,
-        intensePaceSecondsPerKm: params.intensePaceSecondsPerKm,
+        evidenciasDePace: params.evidence,
+        diretrizesEspecificasDoTreinadorParaEsteAluno: params.studentDirectives,
+        observacoesRegistradasPeloProprioAluno: params.activeObservations,
+        sinalDeSeguranca: params.painTier !== 'normal',
+        motivoDoSinalDeSeguranca: params.painReason,
       },
       null,
       2,
     );
-  }
-
-  // Usado quando o treinador regenera UM dia isolado (nao a semana inteira) e o plano ativo do
-  // aluno nao tem uma avaliacao de pace ja decidida pela IA para reaproveitar (ex: aluno sem
-  // plano anterior gerado). Mesma exigencia de nunca usar proporcao fixa (tipo pace_teste * 1.15
-  // ou * 0.95): a IA raciocina como um treinador humano a partir das evidencias disponiveis.
-  async proposePaceAssessment(evidence: PaceEvidence): Promise<{ easyPaceSecondsPerKm: number; intensePaceSecondsPerKm: number; rationale: string } | null> {
-    if (!this.client) {
-      this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado para avaliar o pace avulso.');
-      return null;
-    }
-    const attempt = () => this.attemptPaceAssessmentDecision(evidence);
-    return (await attempt()) ?? (await attempt());
-  }
-
-  private async attemptPaceAssessmentDecision(evidence: PaceEvidence): Promise<{ easyPaceSecondsPerKm: number; intensePaceSecondsPerKm: number; rationale: string } | null> {
-    const client = this.client;
-    if (!client) return null;
-    const schema = z.object({
-      easyPaceSecondsPerKm: z.number().int().min(150).max(900),
-      intensePaceSecondsPerKm: z.number().int().min(120).max(700),
-      rationale: z.string().min(1),
-    });
-    try {
-      const response = await this.aiQueue.run(() =>
-        client.messages.parse({
-          model: 'claude-sonnet-5',
-          max_tokens: 1500,
-          thinking: { type: 'adaptive' },
-          output_config: { effort: 'medium', format: zodOutputFormat(schema) },
-          system: [{ type: 'text', text: this.buildPaceAssessmentSystemPrompt(), cache_control: { type: 'ephemeral' } }],
-          messages: [{ role: 'user', content: JSON.stringify(evidence, null, 2) }],
-        }),
-      );
-      const parsed = response.parsed_output;
-      if (!parsed) return null;
-      if (parsed.intensePaceSecondsPerKm >= parsed.easyPaceSecondsPerKm) {
-        this.logger.warn('Rejeitado (pace avulso): pace intenso nao e mais rapido que o pace facil.');
-        return null;
-      }
-      if (parsed.easyPaceSecondsPerKm > MAX_EASY_PACE_SECONDS_PER_KM) {
-        this.logger.warn(`Rejeitado (pace avulso): pace facil ${parsed.easyPaceSecondsPerKm}s/km mais lento que o piso biomecanico de ${MAX_EASY_PACE_SECONDS_PER_KM}s/km.`);
-        return null;
-      }
-      return { ...parsed, rationale: truncateText(parsed.rationale, 900) };
-    } catch (error) {
-      this.logger.warn(`Falha ao avaliar pace avulso com o agente de IA: ${describeAiError(error)}`);
-      return null;
-    }
-  }
-
-  private buildPaceAssessmentSystemPrompt() {
-    return [
-      'Voce e o agente que avalia o pace facil (easyPaceSecondsPerKm) e o pace forte/intenso (intensePaceSecondsPerKm) de um aluno, isoladamente, para regenerar UM dia de treino avulso — nao ha um plano semanal sendo gerado agora, entao nao existe uma avaliacao de pace ja feita nesta rodada para reaproveitar.',
-      'Voce recebe evidencias disponiveis: testPace (resultado de um teste de corrida recente, com secondsPerKm e ha quantos dias foi feito), selfReportedPace (pace que o proprio aluno relatou, via numero de um teste de 5k ou uma descricao qualitativa) e stravaAveragePace (media de paces de atividades recentes do Strava, com o numero de corridas usadas na media). Qualquer uma pode estar ausente (null) — use o que estiver disponivel, dando mais peso a evidencia mais recente e mais direta (teste > Strava > autorrelato).',
-      'NUNCA calcule o pace forte como uma proporcao fixa do pace facil (tipo "pace_teste vezes 0.95") nem o pace facil como uma proporcao fixa do pace de teste (tipo "vezes 1.15") — isso e proibido. Raciocine como um treinador humano real avaliaria a evidencia: leve em conta ha quanto tempo foi o teste (pace pode ter mudado), quao confiavel e a fonte, e a faixa de pace tipica de corredores amadores.',
-      'O pace forte tem que ser numericamente MENOR (mais rapido) que o pace facil, ambos em segundos por quilometro.',
-      'Escreva um rationale curto (1-3 frases) explicando o raciocinio a partir das evidencias recebidas.',
-    ].join('\n\n');
   }
 
   private async attemptStrengthSessionDecision(input: MethodologyInput, slot: StrengthSlot): Promise<StrengthSessionDecision | null> {
@@ -437,18 +442,7 @@ export class PrescriptionAgentService {
       const parsed = response.parsed_output;
       if (!parsed) return null;
 
-      if (parsed.paceAssessment.intensePaceSecondsPerKm >= parsed.paceAssessment.easyPaceSecondsPerKm) {
-        this.logger.warn('Decisao do agente de IA rejeitada: pace intenso nao e mais rapido que o pace facil.');
-        return null;
-      }
-
-      const sessions = this.validateSessions(
-        parsed.sessions,
-        runSlots,
-        safetyAdjustment,
-        parsed.paceAssessment.easyPaceSecondsPerKm,
-        parsed.paceAssessment.intensePaceSecondsPerKm,
-      );
+      const sessions = this.validateSessions(parsed.sessions, runSlots, safetyAdjustment);
       if (!sessions) {
         this.logger.warn('Decisao do agente de IA rejeitada na validacao (fora dos limites de seguranca/disponibilidade/mecanica de corrida).');
         return null;
@@ -470,10 +464,6 @@ export class PrescriptionAgentService {
         recommendation: truncateText(parsed.recommendation, 1200),
         rationale: rationale.length > 0 ? rationale : ['Decisao gerada pelo agente de IA.'],
         safetyAdjustment,
-        paceAssessment: {
-          ...parsed.paceAssessment,
-          rationale: truncateText(parsed.paceAssessment.rationale, 900),
-        },
         source: 'ai',
       };
     } catch (error) {
@@ -496,8 +486,6 @@ export class PrescriptionAgentService {
     sessions: z.infer<typeof AiSessionSchema>[],
     runSlots: RunSlot[],
     safetyAdjustment: boolean,
-    easyPaceSecondsPerKm: number,
-    intensePaceSecondsPerKm: number,
   ): RunSessionDecision[] | null {
     // Log detalhado do motivo da rejeicao: sem isso, toda rejeicao vira um fallback silencioso
     // para o motor deterministico (que ignora diretivas e pace especifico), e ninguem consegue
@@ -511,10 +499,6 @@ export class PrescriptionAgentService {
     const slotByWeekday = new Map(runSlots.map((slot) => [slot.weekday, slot]));
     const usedWeekdays = new Set<number>();
     const result: RunSessionDecision[] = [];
-    // Se o proprio pace facil que o agente concluiu ja e nitidamente rapido (aluno claramente
-    // corre bem), walk_run nao faz sentido — mas a decisao vem do pace real, nao de um rotulo
-    // de "iniciante" na entrevista.
-    const clearlyCapableOfContinuousRunning = easyPaceSecondsPerKm < 420;
     // Teto de seguranca absoluto (nunca ultrapassavel, mesmo com diretriz citada) — nao e "licenca
     // em branco": so entra em jogo quando a IA JA citou, para ESTE dia especifico, qual diretriz
     // justifica ultrapassar o tempo normal (ver durationJustification no schema). Antes, qualquer
@@ -548,26 +532,46 @@ export class PrescriptionAgentService {
         );
         return null;
       }
-      if (safetyAdjustment && (session.sessionType === 'quality_run' || session.zone === 'Z4')) {
-        this.logger.warn(`Rejeitado: sessionType/zone intenso (${session.sessionType}/${session.zone}) proibido no weekday ${session.weekday} por sinal de seguranca ativo.`);
-        return null;
-      }
-      if (clearlyCapableOfContinuousRunning && session.sessionType === 'walk_run') {
-        this.logger.warn(`Rejeitado: IA escolheu walk_run no weekday ${session.weekday} para aluno com pace facil claramente de corredor (${easyPaceSecondsPerKm}s/km).`);
+      if (safetyAdjustment && session.sessionType === 'quality_run') {
+        this.logger.warn(`Rejeitado: sessionType intenso (${session.sessionType}) proibido no weekday ${session.weekday} por sinal de seguranca ativo.`);
         return null;
       }
 
       // Estrutura do intervalado/caminhada-corrida e 100% decisao da IA — aqui so conferimos que
       // ela preencheu o campo de estrutura certo pro tipo de sessao (nao existe mais nenhuma
       // conferencia de tempo/conta em codigo; a IA e responsavel pela estrutura fazer sentido).
+      // Distancia e pace tambem sao decisao da IA, por sessao — aqui so conferimos presenca dos
+      // campos certos e o piso biomecanico (unico numero fixo que sobrevive, ver
+      // MAX_EASY_PACE_SECONDS_PER_KM: e um fato fisico, nao uma preferencia de treino).
       if (session.sessionType === 'quality_run') {
         if (!session.intervalStructure) {
           this.logger.warn(`Rejeitado: sessionType quality_run no weekday ${session.weekday} sem intervalStructure preenchido.`);
           return null;
         }
+        if (session.paceSecondsPerKm == null) {
+          this.logger.warn(`Rejeitado: sessionType quality_run no weekday ${session.weekday} sem paceSecondsPerKm preenchido (pace do volume leve/easyVolumeKm).`);
+          return null;
+        }
+        if (session.intervalStructure.fastPaceSecondsPerKm >= session.paceSecondsPerKm) {
+          this.logger.warn(`Rejeitado: pace forte (${session.intervalStructure.fastPaceSecondsPerKm}s/km) nao e mais rapido que o pace leve (${session.paceSecondsPerKm}s/km) no weekday ${session.weekday}.`);
+          return null;
+        }
+        if (session.paceSecondsPerKm > MAX_EASY_PACE_SECONDS_PER_KM) {
+          this.logger.warn(`Rejeitado: pace leve ${session.paceSecondsPerKm}s/km no weekday ${session.weekday} mais lento que o piso biomecanico de ${MAX_EASY_PACE_SECONDS_PER_KM}s/km.`);
+          return null;
+        }
       } else if (session.sessionType === 'walk_run') {
         if (!session.walkRunStructure) {
           this.logger.warn(`Rejeitado: sessionType walk_run no weekday ${session.weekday} sem walkRunStructure preenchido.`);
+          return null;
+        }
+      } else {
+        if (session.distanceKm == null || session.paceSecondsPerKm == null) {
+          this.logger.warn(`Rejeitado: sessionType ${session.sessionType} no weekday ${session.weekday} sem distanceKm/paceSecondsPerKm preenchidos.`);
+          return null;
+        }
+        if (session.paceSecondsPerKm > MAX_EASY_PACE_SECONDS_PER_KM) {
+          this.logger.warn(`Rejeitado: pace ${session.paceSecondsPerKm}s/km no weekday ${session.weekday} mais lento que o piso biomecanico de ${MAX_EASY_PACE_SECONDS_PER_KM}s/km.`);
           return null;
         }
       }
@@ -577,8 +581,9 @@ export class PrescriptionAgentService {
         weekday: session.weekday,
         title: session.title,
         sessionType: session.sessionType,
-        zone: session.zone,
         durationMin: session.durationMin,
+        distanceKm: session.sessionType === 'easy_run' || session.sessionType === 'long_run' ? session.distanceKm : null,
+        paceSecondsPerKm: session.sessionType === 'walk_run' ? null : session.paceSecondsPerKm,
         notes: truncateText(session.notes, 800),
         recommendations: truncateText(session.recommendations, 600),
         intervalStructure: session.sessionType === 'quality_run' ? session.intervalStructure : null,
@@ -653,9 +658,9 @@ export class PrescriptionAgentService {
 
   private buildSafetyGuidance(safetyAdjustment: boolean, removeRunning: boolean) {
     return removeRunning
-      ? '- Este aluno relatou dor intensa recentemente (relato estruturado de dor, nao a entrevista de onboarding). A corrida ja foi removida desta semana pelo sistema antes de voce ser chamado — se ainda assim voce receber dias de corrida no contexto, trate-os como sessoes leves de transicao apenas, nunca quality_run/Z4.'
+      ? '- Este aluno relatou dor intensa recentemente (relato estruturado de dor, nao a entrevista de onboarding). A corrida ja foi removida desta semana pelo sistema antes de voce ser chamado — se ainda assim voce receber dias de corrida no contexto, trate-os como sessoes leves de transicao apenas, nunca quality_run.'
       : safetyAdjustment
-        ? '- Este aluno tem um relato de dor RECENTE (moderada ou recorrente, calculado a partir dos ultimos relatos de dor, nao de uma resposta antiga e permanente da entrevista): NUNCA use sessionType "quality_run" nem zone "Z4" nesta semana, mas a corrida continua acontecendo normalmente com volume/intensidade reduzidos. Um relato de dor leve e isolado (uma unica vez, intensidade baixa) NAO deveria ter chegado aqui como sinal ativo — dor pontual e leve nao e motivo para tirar treino intervalado.'
+        ? '- Este aluno tem um relato de dor RECENTE (moderada ou recorrente, calculado a partir dos ultimos relatos de dor, nao de uma resposta antiga e permanente da entrevista): NUNCA use sessionType "quality_run" nesta semana, mas a corrida continua acontecendo normalmente com volume/intensidade reduzidos. Um relato de dor leve e isolado (uma unica vez, intensidade baixa) NAO deveria ter chegado aqui como sinal ativo — dor pontual e leve nao e motivo para tirar treino intervalado.'
         : '- Sem sinal de dor recente relatado no momento, mas priorize seguranca e progressao conservadora sempre que os dados sugerirem cautela.';
   }
 
@@ -673,32 +678,29 @@ export class PrescriptionAgentService {
       '- Se observacoesRegistradasPeloProprioAluno nao estiver vazio: isso e MUITO DIFERENTE de diretrizesEspecificasDoTreinadorParaEsteAluno. Sao anotacoes que o proprio ALUNO escreveu livremente sobre circunstancias pessoais (ex: "vou viajar semana que vem e nao sei se terei onde treinar", "essa semana vou ter uma prova na faculdade e menos tempo"). Isso NAO e uma ordem, NAO foi confirmado/revisado pelo treinador, e voce NAO e obrigado a agir sobre isso. Leve em consideracao quando fizer sentido e for possivel ajustar (ex: reduzir expectativa de volume numa semana que o aluno avisou que vai viajar), mas nunca sacrifique seguranca ou principios da metodologia so por causa de uma observacao informal. Se a observacao mencionar uma data especifica, use hoje/dataDeCadaDiaDaSemanaSendoGerada para julgar se ela e relevante para a semana que voce esta gerando agora.',
       '- ATENCAO ESPECIAL A DATAS: diretrizes frequentemente citam datas de calendario especificas (ex: "longao de 16 km em 25/07", "taper de 03/08 a 09/08"), mas voce so pode retornar numeros de weekday (0=domingo...6=sabado), nao datas. Use o campo dataDeCadaDiaDaSemanaSendoGerada (mapa weekday -> data desta semana especifica) e o campo hoje (data de hoje) para descobrir exatamente qual weekday corresponde a cada data mencionada na diretriz, e aplique a instrucao (distancia/duracao/pace) NAQUELE weekday especifico. Se uma data da diretriz nao aparecer em dataDeCadaDiaDaSemanaSendoGerada, ela e de uma semana diferente da que voce esta gerando agora — nesse caso ignore essa parte da diretriz (nao aplique fora da semana certa), mas ainda assim aplique instrucoes de pace/regra geral que nao sejam amarradas a uma data especifica. Nunca ignore uma diretriz so porque voce nao tem certeza da data — raciocine com cuidado antes de descartar.',
       '- Quando uma diretriz da uma distancia-alvo explicita para um dia especifico (ex: "16 km no sabado"), a sessao daquele dia TEM que entregar essa distancia de verdade — nao mantenha o durationMin normal do dia so por habito se isso implicar uma distancia bem menor que o pedido; ajuste durationMin (usando a excecao de tempo abaixo) o quanto for necessario pra a distancia bater com o que foi pedido.',
-      '- Quando uma diretriz da um pace explicito para um dia especifico (ex: "6 series de 1km pace de 05:00 a 05:20 intervalado com caminhada de 0,5km pace de 12:00 a 15:00"), esse pace NAO e uma sugestao — use-o EXATAMENTE, para aquele dia especifico, mesmo que seja diferente do paceAssessment geral que voce concluiria pra semana (isso nao muda paceAssessment.intensePaceSecondsPerKm/easyPaceSecondsPerKm retornado pra semana toda, so como voce preenche a estrutura DAQUELE dia). O mesmo vale pra modalidade de recuperacao: se a diretriz diz "caminhada" (pace bem lento, tipo 12:00-15:00/km), use CAMINHADA de verdade nesse pace — nao troque por um trote mais rapido so porque acha que o aluno "aguenta melhor" um trote; a diretriz existe justamente pra sobrepor seu proprio julgamento padrao nesse dia. Isso vale pra CADA numero que a diretriz especificar (pace do tiro, pace/distancia da recuperacao, distancia total) — todos devem aparecer EXATAMENTE como pedido, nao aproximados.',
+      '- Quando uma diretriz da um pace explicito para um dia especifico (ex: "6 series de 1km pace de 05:00 a 05:20 intervalado com caminhada de 0,5km pace de 12:00 a 15:00"), esse pace NAO e uma sugestao — use-o EXATAMENTE, para aquele dia especifico, mesmo que seja diferente do que voce concluiria sozinho pelo seu proprio raciocinio de pace para aquele dia. O mesmo vale pra modalidade de recuperacao: se a diretriz diz "caminhada" (pace bem lento, tipo 12:00-15:00/km), use CAMINHADA de verdade nesse pace — nao troque por um trote mais rapido so porque acha que o aluno "aguenta melhor" um trote; a diretriz existe justamente pra sobrepor seu proprio julgamento padrao nesse dia. Isso vale pra CADA numero que a diretriz especificar (pace do tiro, pace/distancia da recuperacao, distancia total) — todos devem aparecer EXATAMENTE como pedido, nao aproximados. Dias sem diretriz especifica continuam sendo decisao inteiramente sua, dia a dia.',
       '- Se metaDeProva estiver preenchida, use-a como norte GERAL para a periodizacao (volume, foco da fase, urgencia conforme a proximidade da data) SOMENTE nos dias/semanas em que diretrizesEspecificasDoTreinadorParaEsteAluno nao disser nada especifico. IMPORTANTE, ja aconteceu de dar errado na pratica: se existir uma diretriz especifica com numero exato (distancia e/ou pace) para um dia determinado, essa diretriz especifica SEMPRE vence sua propria narrativa de progressao gradual rumo a meta de prova — nunca troque o numero exato da diretriz por um valor diferente so porque "faz mais sentido" dentro da sua propria logica de periodizacao. A meta de prova serve para preencher as LACUNAS que a diretriz nao cobre, nunca para sobrescrever o que a diretriz ja decidiu explicitamente. Fora dos dias com diretriz explicita, voce PODE e DEVE ajustar a interpretacao da meta se os dados reais do aluno (pace, volume sustentado, experiencia, tempo ate a prova) indicarem que ela e pouco realista — nesse caso, prescreva o que voce julgar seguro e adequado, e explique claramente no rationale que a meta parece ambiciosa/pouco realista e por que voce ajustou. Nunca sacrifique seguranca ou progressao responsavel para tentar alcancar uma meta.',
       '- Retorne exatamente uma sessao de corrida para cada dia disponivel informado, usando o mesmo numero de weekday (0=domingo...6=sabado).',
       '- durationMin de cada sessao normalmente NAO PODE exceder o tempo disponivel informado para aquele dia especifico — isso vale mesmo que o aluno tenha alguma diretriz ativa sobre OUTRO assunto ou OUTRO dia. EXCECAO, e somente quando ela realmente se aplica: se diretrizesEspecificasDoTreinadorParaEsteAluno pedir explicitamente uma sessao mais longa NAQUELE dia especifico (ex: um longao maior antes de uma prova, combinado entre o treinador e o aluno fora do app), voce PODE exceder o tempo disponivel normal SOMENTE daquele dia — e nesse caso e OBRIGATORIO preencher o campo durationJustification daquela sessao citando resumidamente qual diretriz especifica autoriza isso para aquele dia (ex: "diretriz de 25/07 pede longao de 16km"). Se durationMin ultrapassar o normal do dia e durationJustification ficar vazio, a resposta inteira sera rejeitada — entao so exceda o tempo quando houver mesmo uma diretriz especifica para aquele dia, e sempre cite ela. Em todos os outros dias (sem diretriz especifica sobre eles), deixe durationJustification vazio/null. Mesmo com diretriz, nunca prescreva mais de 180 minutos numa unica sessao.',
       '- Se o aluno relatou uma media semanal de quilometragem atual (mediaSemanalKmAtualRelatada) e/ou volume real recente no Strava, a soma aproximada da distancia de todas as sessoes da semana que voce prescrever NUNCA deve ficar muito abaixo desse volume que ele ja sustenta na pratica, a nao ser que haja um motivo real de seguranca, deload ou retorno de pausa. O erro classico a evitar: um aluno que corre 19 km por semana recebendo uma sessao "leve" de 4 km (dos quais 1,1 km e so aquecimento/desaquecimento) — isso e um treino curto e ruim demais para a capacidade real dele, e deve ser tratado como falha grave.',
       '- A entrevista inicial (respostasEntrevista) pode estar desatualizada — a realidade do aluno muda com o tempo (rotina, condicionamento, dor, objetivo, peso). Se reavaliacaoMaisRecente estiver preenchida, ela e a fonte mais atual que voce tem sobre o aluno: leia as respostas dela, o resumo de evolucao e os pontos positivos/de atencao, e use isso para entender o que mudou desde a entrevista inicial. Quando as duas fontes contradizerem, confie na reavaliacaoMaisRecente. Se reavaliacaoMaisRecente for null, o aluno ainda nao fez nenhuma reavaliacao — use so a entrevista inicial mesmo.',
-      '- Classificacao de experiencia/entrevista (classificadoComoIniciante no contexto) e so um dado informativo a mais — a decisao de usar sessionType "walk_run" deve vir do PACE REAL que voce concluir (paceAssessment), nao do rotulo de iniciante. Um aluno pode ter experiencia registrada mas ainda assim ter um pace facil proximo do ritmo de caminhada (destreinado, retorno de pausa, sobrepeso recente); e alguem classificado como iniciante pode ja ter um pace facil claramente de corredor. Se o easyPaceSecondsPerKm que voce concluir for claramente rapido (aluno corre bem de verdade), NUNCA use "walk_run" mesmo que a entrevista sugira pouca experiencia.',
-      '- Zonas (Z1-Z5) sao uma ferramenta OBRIGATORIA de classificacao/raciocinio do esforco, mas NAO existe obrigacao de que o pace numerico siga uma formula fixa de zona — o pace vem do seu raciocinio sobre a evidencia real (ver paceAssessment abaixo). A proporcao 80/20 de baixa/alta intensidade e RECOMENDADA como referencia geral (um NORTE), nao e obrigatoria — varie livremente quando a disponibilidade, o limiar do aluno ou o objetivo pedirem algo diferente.',
-      '- Entenda isto como obrigatorio: um aluno cujo pace facil real esta proximo do ritmo de caminhada vai precisar passar MAIS tempo em intensidade alta, nao menos — porque abaixo de aproximadamente 8:30/km a mecanica da corrida piora (fica parecido com andar rapido). Para esse aluno, prefira treinos intervalados com a parte de corrida mais forte (mesmo parecendo intenso pro nivel dele) alternada com CAMINHADA de verdade como recuperacao (pace de caminhada bem mais lento), em vez de forcar uma corrida continua lenta com mecanica ruim.',
-      'SOBRE O PACE — ISTO E O PONTO MAIS IMPORTANTE DE TODA A TAREFA. NAO EXISTE NENHUMA TABELA OU FORMULA FIXA DE ZONA PARA CALCULAR PACE. Voce mesmo precisa PENSAR e decidir dois numeros, com base em evidencia real, nao em regra:',
-      '- easyPaceSecondsPerKm: o pace confortavel/leve REAL desse aluno agora (usado nas sessoes leves, longao, aquecimento e desaquecimento).',
-      '- intensePaceSecondsPerKm: o pace de esforco forte REAL desse aluno agora (usado nas sessoes de qualidade/intervalado).',
-      'Voce recebe ate tres evidencias de pace no contexto (testeOficial, autoRelatoRecente, mediaStravaRecente), cada uma com sua origem e idade. Nao existe uma regra fixa de qual vale mais — RACIOCINE, do jeito que um treinador humano faria. Exemplo real de raciocinio esperado, dado pelo proprio treinador Elton: "o teste de 3 km deu 6:30/km, mas a aluna correu 18 km reais a um pace de 6:45/km — ou seja, ela SUSTENTA um pace proximo do teste numa distancia longa de verdade. Isso significa que ela tem mais capacidade do que o teste isolado sugeriria, entao para treinos intervalados o pace intenso deve ser mais forte do que o teste indicaria sozinho, e o pace facil dela e claramente mais rapido do que uma formula de zona genérica calcularia."',
+      '- Classificacao de experiencia/entrevista (classificadoComoIniciante no contexto) e so um dado informativo a mais — a decisao de usar sessionType "walk_run" deve vir do PACE REAL que voce concluir para aquele dia, nao do rotulo de iniciante. Um aluno pode ter experiencia registrada mas ainda assim ter um pace confortavel proximo do ritmo de caminhada (destreinado, retorno de pausa, sobrepeso recente); e alguem classificado como iniciante pode ja ter um pace claramente de corredor. Se o pace que voce concluir para o aluno for claramente rapido (aluno corre bem de verdade), NUNCA use "walk_run" mesmo que a entrevista sugira pouca experiencia.',
+      '- Pense em termos de esforco leve/moderado/forte (o equivalente as zonas Z1-Z5 da metodologia) como ferramenta de RACIOCINIO interno — isso te ajuda a decidir o que faz sentido para cada dia — mas voce NAO precisa nem deve devolver um rotulo de zona na resposta; ninguem mais recebe essa informacao, o aluno so precisa saber o que fazer naquele dia. A proporcao 80/20 de baixa/alta intensidade e RECOMENDADA como referencia geral (um NORTE), nao e obrigatoria — varie livremente quando a disponibilidade, o limiar do aluno ou o objetivo pedirem algo diferente.',
+      '- Entenda isto como obrigatorio: um aluno cujo pace confortavel real esta proximo do ritmo de caminhada vai precisar passar MAIS tempo em intensidade alta, nao menos — porque abaixo de aproximadamente 8:30/km a mecanica da corrida piora (fica parecido com andar rapido). Para esse aluno, prefira treinos intervalados com a parte de corrida mais forte (mesmo parecendo intenso pro nivel dele) alternada com CAMINHADA de verdade como recuperacao (pace de caminhada bem mais lento), em vez de forcar uma corrida continua lenta com mecanica ruim.',
+      'SOBRE DISTANCIA E PACE — ISTO E O PONTO MAIS IMPORTANTE DE TODA A TAREFA, E MUDOU: NAO EXISTE MAIS UMA UNICA AVALIACAO DE PACE PARA A SEMANA INTEIRA. Cada sessao (cada dia) tem seu proprio distanceKm e paceSecondsPerKm (ou, para quality_run/walk_run, seus proprios paces dentro da estrutura), decididos INDIVIDUALMENTE por voce olhando o contexto DAQUELE dia especifico — nunca um par de numeros fixo repetido em todos os dias da semana. NAO EXISTE NENHUMA TABELA OU FORMULA CALCULANDO ISSO PARA VOCE, nem em codigo nem em raciocinio: nao pegue uma duracao e divida por um pace generico pra achar a distancia — decida a distancia e o pace de cada dia diretamente, pensando em conjunto, como um treinador real pensaria: "esse aluno esta nessa condicao, fez tais treinos essa semana, essa sessao vem dois dias depois de um esforco forte, a prova esta chegando, entao para ESTE estimulo especifico, esta intensidade/distancia e a certa" — a decisao de cada dia nasce desse raciocinio, nao de um numero fixo aplicado depois. Voce sabe matematica: se decidir, por exemplo, 5 series de 1,2 km a um pace de 5:00-5:20/km com recuperacao caminhando de 0,3 km a 12:00-15:00/km, calcule voce mesmo se isso cabe dentro do durationMin disponivel daquele dia — nao existe checagem de conta em codigo depois, a responsabilidade e inteiramente sua.',
+      'Voce recebe ate tres evidencias de pace no contexto (testeOficial, autoRelatoRecente, mediaStravaRecente), cada uma com sua origem e idade — use-as como ponto de partida do que este aluno e capaz de sustentar, mas a decisao final de cada dia e sua, olhando o dia especifico (sequencia da semana, fadiga acumulada, fase da periodizacao, proximidade de prova). Nao existe uma regra fixa de qual evidencia vale mais — RACIOCINE, do jeito que um treinador humano faria. Exemplo real de raciocinio esperado, dado pelo proprio treinador Elton: "o teste de 3 km deu 6:30/km, mas a aluna correu 18 km reais a um pace de 6:45/km — ou seja, ela SUSTENTA um pace proximo do teste numa distancia longa de verdade. Isso significa que ela tem mais capacidade do que o teste isolado sugeriria."',
       'Outros pontos de raciocinio: um teste antigo que contradiz um desempenho recente mais forte deve pesar MENOS. Uma unica corrida curta recente pesa menos que uma distancia longa e consistente com boa sensacao relatada. Quando os dados conflitam, prefira a evidencia mais recente E mais consistente com o volume/objetivo do aluno.',
-      'O erro mais grave possivel nesta tarefa e prescrever um treino "leve" com pace tao lento que fica parecido com uma caminhada para um aluno que claramente corre mais rapido que isso. Isso e burrice, nao inteligencia — pense de verdade sobre o que os dados dizem sobre ESTE aluno especifico, nao aplique uma conta generica.',
-      'Voce DEVE retornar paceAssessment com os dois numeros e uma justificativa (rationale) explicando como voce chegou neles a partir das evidencias.',
+      'O erro mais grave possivel nesta tarefa e prescrever um treino "leve" com pace tao lento que fica parecido com uma caminhada para um aluno que claramente corre mais rapido que isso, ou uma distancia que nao tem relacao nenhuma com o que esse aluno vem sustentando e com o momento da semana dele. Isso e burrice, nao inteligencia — pense de verdade sobre o que os dados e o contexto dizem sobre ESTE dia especifico deste aluno, nao aplique uma conta generica.',
       'Se analiseAprofundadaStrava estiver preenchida (vem de outro agente que ja mastigou cadencia, frequencia cardiaca, padroes e outras modalidades do Strava para voce), use o campo "summary" e as "flags" como evidencia adicional real de como o aluno esta respondendo ao treino agora — nao ignore isso, mas tambem nao superestime; combine com o resto das evidencias.',
       'Cuidado ao interpretar texto livre escrito pelo proprio aluno (respostas de entrevista/reavaliacao, comentarios): muitos alunos escrevem de forma informal, como numa conversa entre pessoas, com ironia, hiperbole ou exagero comico (ex: "corri e quase morri" ou "foi moleza" nao sao relatos medicos literais). Nunca leve essas frases ao pe da letra como se fossem um dado objetivo — interprete o tom real antes de decidir algo com base nelas, e prefira sempre dados estruturados/numericos (pace, testes, aderencia) quando o texto livre parecer contraditorio ou exagerado.',
       'VARIEDADE: evite repetir literalmente o mesmo titulo e a mesma frase de notes toda semana para o mesmo tipo de sessao (ex: sempre "Corrida leve" com a mesma nota) — isso ja foi apontado pelo treinador como preguica de quem monta o treino. Varie a redacao do titulo e das notes de forma natural semana a semana, mantendo o mesmo padrao metodologico (nao mude o proposito da sessao so por variar, mude a forma como ela e descrita e pequenos detalhes de enfase).',
-      'SOBRE A ESTRUTURA DO TREINO INTERVALADO/CAMINHADA-CORRIDA — VOCE decide os numeros, nao existe formula fixa nenhuma calculando isso por voce, e tambem nao existe nenhuma checagem de conta feita por codigo depois — a responsabilidade de a estrutura fazer sentido pro tempo disponivel (durationMin) e inteiramente sua, pelo mesmo julgamento que um treinador real faria ao montar um treino de olho no relogio. Quando sessionType for "quality_run", preencha intervalStructure (repeatCount, fastStepKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm); quando for "walk_run", preencha walkRunStructure (repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm); nos outros sessionTypes, deixe os dois campos null.',
+      'SOBRE A ESTRUTURA DO TREINO INTERVALADO/CAMINHADA-CORRIDA — VOCE decide os numeros, nao existe formula fixa nenhuma calculando isso por voce, e tambem nao existe nenhuma checagem de conta feita por codigo depois — a responsabilidade de a estrutura fazer sentido pro tempo disponivel (durationMin) e inteiramente sua, pelo mesmo julgamento que um treinador real faria ao montar um treino de olho no relogio. Quando sessionType for "quality_run", preencha intervalStructure (repeatCount, fastStepKm, fastPaceSecondsPerKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm) e tambem paceSecondsPerKm (o pace do volume leve/easyVolumeKm, se houver) — deixe distanceKm null (a distancia total vem da soma dos componentes da estrutura). Quando for "walk_run", preencha walkRunStructure (repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm) — deixe distanceKm e paceSecondsPerKm null (a estrutura ja tem seus proprios paces). Nos demais sessionTypes (easy_run, long_run), preencha distanceKm e paceSecondsPerKm diretamente e deixe intervalStructure/walkRunStructure null.',
       'O campo notes continua sendo so ESTRATEGIA e SENSACAO em palavras (ex: "comece controlado e mantenha o mesmo ritmo forte do primeiro ao ultimo tiro, sem estourar no inicio"), nao repita ali os numeros exatos que ja estao em intervalStructure/walkRunStructure — isso evita as duas fontes (texto livre e estrutura) contarem numeros diferentes um do outro.',
-      'SOBRE O CAMPO recommendations (novo, um por sessao): aquecimento e desaquecimento NAO fazem mais parte do treino prescrito nem da distancia/duracao total — eles viram uma RECOMENDACAO em texto, separada, mostrada ao aluno depois do treino principal. Voce e responsavel por escrever essa recomendacao PENSANDO no aluno especifico, nao aplicando uma regra fixa. Diretriz do treinador, dada literalmente: para a maioria dos alunos, recomende aquecer de 5 a 10 minutos (caminhando ou trote bem leve, a escolha do aluno) e desaquecer com uns 5 minutos de caminhada leve. Para um aluno que voce concluiu (pelo paceAssessment e pelas evidencias de pace) ser um corredor amador com bom condicionamento e que sustenta ritmo por mais tempo, pode fazer mais sentido recomendar um trote leve de 1 a 3 km como aquecimento/desaquecimento em vez de so caminhar — mas essa decisao e SUA, baseada no pace/nivel real do aluno, nao existe um numero de corte fixo pra isso. NUNCA use essa recomendacao de trote de aquecimento/desaquecimento (nem frases como "voce ja corre bem") para um aluno que voce mesmo classificou como iniciante/pouco condicionado em qualquer outro campo desta mesma resposta (rationale, notes, paceAssessment.rationale) — isso ja aconteceu na pratica (recomendacao de trote de aquecimento escrita para uma aluna que a propria IA descreveu, no rationale, como iniciante com menos de 1 ano de corrida e maior distancia de 6 km) e e uma contradicao grave dentro da mesma resposta. Alem do aquecimento/desaquecimento, inclua neste campo outras recomendacoes praticas quando fizerem sentido para aquele treino especifico (ex: cuidado ao correr na rua — atencao ao transito e piso irregular —, ajustar inclinacao/passada se for na esteira, se hidratar bem principalmente em treinos mais longos ou dias quentes, levar gel/agua em longoes). Nao repita o mesmo texto generico sempre — adapte ao contexto da sessao (dia, duracao, se e longao ou intervalado, se e rua ou esteira segundo a modalidade informada).',
+      'SOBRE O CAMPO recommendations (um por sessao): aquecimento e desaquecimento NAO fazem mais parte do treino prescrito nem da distancia/duracao total — eles viram uma RECOMENDACAO em texto, separada, mostrada ao aluno depois do treino principal. Voce e responsavel por escrever essa recomendacao PENSANDO no aluno especifico, nao aplicando uma regra fixa. Diretriz do treinador, dada literalmente: para a maioria dos alunos, recomende aquecer de 5 a 10 minutos (caminhando ou trote bem leve, a escolha do aluno) e desaquecer com uns 5 minutos de caminhada leve. Para um aluno que voce concluiu (pelo pace e pelas evidencias) ser um corredor amador com bom condicionamento e que sustenta ritmo por mais tempo, pode fazer mais sentido recomendar um trote leve de 1 a 3 km como aquecimento/desaquecimento em vez de so caminhar — mas essa decisao e SUA, baseada no pace/nivel real do aluno, nao existe um numero de corte fixo pra isso. NUNCA use essa recomendacao de trote de aquecimento/desaquecimento (nem frases como "voce ja corre bem") para um aluno que voce mesmo classificou como iniciante/pouco condicionado em qualquer outro campo desta mesma resposta (rationale, notes) — isso ja aconteceu na pratica e e uma contradicao grave dentro da mesma resposta. Alem do aquecimento/desaquecimento, inclua neste campo outras recomendacoes praticas quando fizerem sentido para aquele treino especifico (ex: cuidado ao correr na rua — atencao ao transito e piso irregular —, ajustar inclinacao/passada se for na esteira, se hidratar bem principalmente em treinos mais longos ou dias quentes, levar gel/agua em longoes). Nao repita o mesmo texto generico sempre — adapte ao contexto da sessao (dia, duracao, se e longao ou intervalado, se e rua ou esteira segundo a modalidade informada).',
       'PROIBIDO GRAVE, ja aconteceu na pratica e e um erro serio: o campo recommendations NUNCA pode INVENTAR uma estrutura de treino DIFERENTE da que voce mesmo decidiu em intervalStructure/walkRunStructure — nada de propor um repeatCount, fastStepKm/recoveryStepKm ou paces diferentes dos que ja estao nesses campos estruturados. So existe UMA estrutura de treino por sessao. Isso NAO significa proibir numeros em recommendations — pelo contrario: e ONE (e ate recomendado) usar recommendations para EXPLICAR EM PORTUGUES CORRIDO, com os MESMOS numeros exatos de intervalStructure/walkRunStructure, como o aluno deve executar o treino, encaixando aquecimento/desaquecimento na mesma explicacao. Exemplo de como fazer certo: se intervalStructure tem repeatCount=6, fastStepKm=1, recoveryStepKm=0.5 (paces ja calculados), recommendations pode dizer algo como "Apos um aquecimento de trote leve de 1 a 2 km, faca o treino intervalado: corra 1 km no pace de 05:00 a 05:20/km e alterne com caminhada de 0,5 km no pace de 12:00 a 15:00/km, repetindo esse ciclo 6 vezes. Ao final, faca mais um trote leve de desaquecimento." Repare que todo numero citado (6, 1 km, 0,5 km, os paces) e EXATAMENTE igual ao que esta em intervalStructure daquela mesma sessao — nunca um numero diferente. O erro proibido e especificamente quando recommendations MUDA os numeros (ex: estrutura diz repeatCount 4 mas recommendations sugere "6x" ou distancias/paces diferentes) — isso sim e uma contradicao grave e inaceitavel.',
-      'CONSISTENCIA INTERNA E OBRIGATORIA: o nivel/condicionamento do aluno que voce concluir (a partir do pace real, historicoSemanal, respostasEntrevista e reavaliacaoMaisRecente) tem que ser o MESMO em toda a resposta — no rationale geral, no notes e recommendations de cada sessao, e no paceAssessment.rationale. Nunca descreva o aluno como iniciante/pouco condicionado num campo e depois escreva, em outro campo da mesma resposta, um elogio ou recomendacao que so faria sentido para um corredor experiente (ou vice-versa). Antes de finalizar a resposta, revise mentalmente se todos os campos de texto contam a MESMA historia sobre este aluno.',
-      'PRIMEIRA SEMANA SEM NENHUM HISTORICO (historicoSemanal vazio, sem reavaliacao, sem analiseExecucao, sem analiseAprofundadaStrava): nesse cenario voce ainda nao tem nenhuma resposta real de treino deste aluno especifico — trate a semana como uma calibragem inicial. Para um aluno com pouco tempo de corrida ou volume semanal baixo/recente-comeco (mesmo que os dados nao configurem safetyAdjustment), prefira NAO incluir quality_run/Z4 logo na primeira semana gerada — comece com rodagens leves e um longao moderado, e deixe o estimulo de qualidade para depois de ver a resposta real dele aos primeiros treinos. So inclua qualidade ja na primeira semana se a evidencia de pace for claramente forte e consistente o suficiente para justificar (ex: teste oficial recente e robusto), nunca so por completude do calendario.',
-      'Responda em portugues nos campos de texto (title, notes, recommendations, recommendation, rationale, paceAssessment.rationale, durationJustification).',
+      'CONSISTENCIA INTERNA E OBRIGATORIA: o nivel/condicionamento do aluno que voce concluir (a partir do pace real, historicoSemanal, respostasEntrevista e reavaliacaoMaisRecente) tem que ser o MESMO em toda a resposta — no rationale geral e no notes/recommendations de cada sessao. Nunca descreva o aluno como iniciante/pouco condicionado num campo e depois escreva, em outro campo da mesma resposta, um elogio ou recomendacao que so faria sentido para um corredor experiente (ou vice-versa). Antes de finalizar a resposta, revise mentalmente se todos os campos de texto contam a MESMA historia sobre este aluno.',
+      'PRIMEIRA SEMANA SEM NENHUM HISTORICO (historicoSemanal vazio, sem reavaliacao, sem analiseExecucao, sem analiseAprofundadaStrava): nesse cenario voce ainda nao tem nenhuma resposta real de treino deste aluno especifico — trate a semana como uma calibragem inicial. Para um aluno com pouco tempo de corrida ou volume semanal baixo/recente-comeco (mesmo que os dados nao configurem safetyAdjustment), prefira NAO incluir quality_run logo na primeira semana gerada — comece com rodagens leves e um longao moderado, e deixe o estimulo de qualidade para depois de ver a resposta real dele aos primeiros treinos. So inclua qualidade ja na primeira semana se a evidencia de pace for claramente forte e consistente o suficiente para justificar (ex: teste oficial recente e robusto), nunca so por completude do calendario.',
+      'Responda em portugues nos campos de texto (title, notes, recommendations, recommendation, rationale, durationJustification).',
       'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida — nao existe mais nenhuma rotina fixa de exercicios escondida de voce para esses dias.',
       '- Retorne exatamente uma sessao em strengthSessions para CADA ITEM listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item especifico (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). ATENCAO: o mesmo weekday pode aparecer MAIS DE UMA VEZ na lista, uma para cada modalidade — isso significa que aquele aluno legitimamente faz as duas coisas naquele dia (ex: forca e fortalecimento_corredores na mesma quarta-feira). Nesse caso, retorne uma sessao PARA CADA item (duas sessoes diferentes, mesma weekday, modalidades diferentes) — isso nao e um erro nem duplicidade, e o dado real da rotina do aluno.',
       '- A modalidade de cada ITEM (nao de cada weekday) em diasDisponiveisParaForca e FIXA — vem da rotina semanal real do aluno, cadastrada fora do seu alcance, e NUNCA pode ser trocada por voce, nem mesmo se uma diretriz do treinador falar sobre "musculacao" ou "fortalecimento" para aquele dia. Copie o campo modality de cada item de diasDisponiveisParaForca literalmente, sempre. Uma diretriz sobre forca/fortalecimento so pode mudar o FOCO/exercicios/intensidade daquele dia (ver regra abaixo), nunca a modalidade em si — isso ja causou rejeicao e falha total da geracao na pratica (IA tentou responder "forca" para um weekday cuja modalidade real era "fortalecimento_corredores").',

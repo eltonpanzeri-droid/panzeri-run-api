@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { StravaService } from '../strava/strava.service';
 import { AiQueueService } from '../common/ai-queue.service';
+import { TrainingPlansService } from '../training-plans/training-plans.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
 
 const MAX_TOOL_ITERATIONS = 6;
@@ -24,6 +25,7 @@ export class TechnicalManagerAgentService {
     private readonly prisma: PrismaService,
     private readonly strava: StravaService,
     private readonly aiQueue: AiQueueService,
+    private readonly trainingPlans: TrainingPlansService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     this.client = apiKey ? new Anthropic({ apiKey }) : null;
@@ -216,6 +218,27 @@ export class TechnicalManagerAgentService {
           if (!directive) return 'Erro: diretriz nao encontrada.';
           await this.prisma.studentDirective.update({ where: { id: directiveId }, data: { active: false } });
           return 'Diretriz desativada com sucesso.';
+        },
+      },
+      {
+        spec: {
+          name: 'set_strava_analysis_frequency',
+          description: 'Define de quantos em quantos dias a analise do historico do Strava (cadencia, frequencia cardiaca, padroes) deste aluno especifico deve rodar. Por padrao todos os alunos sao analisados a cada 30 dias automaticamente; use esta ferramenta so quando o treinador pedir explicitamente uma frequencia diferente para ESTE aluno (ex: "analise o Strava dela toda semana", "volta pro padrao mensal"). Isso so guarda a preferencia — nao dispara uma analise agora.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              frequencyDays: { type: 'number', description: 'De quantos em quantos dias analisar. Omita (nao inclua o campo) para voltar ao padrao de 30 dias.' },
+            },
+          },
+        },
+        run: async (input) => {
+          const frequencyDays = typeof input.frequencyDays === 'number' && Number.isFinite(input.frequencyDays) && input.frequencyDays > 0
+            ? Math.round(input.frequencyDays)
+            : null;
+          await this.trainingPlans.setStravaAnalysisFrequency(studentId, frequencyDays);
+          return frequencyDays
+            ? `Frequencia de analise do Strava deste aluno definida para a cada ${frequencyDays} dia(s).`
+            : 'Frequencia de analise do Strava deste aluno voltou ao padrao (a cada 30 dias).';
         },
       },
     ];

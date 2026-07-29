@@ -366,14 +366,18 @@ model StravaConnection {
 }
 
 // Cache da analise do agente de IA sobre o historico do Strava (StravaAnalysisAgentService).
-// Sem isso, generateWeek() chamava essa IA de novo do zero toda vez, mesmo quando nao havia
-// nenhuma atividade nova desde a ultima analise — uma chamada inteira ao modelo (thinking
-// adaptativo) rodando em serie ANTES da decisao semanal principal, sem necessidade.
+// Desacoplada de generateWeek() — a analise roda pela sua propria cadencia (mensal por padrao,
+// ou a frequencia customizada por aluno definida pelo treinador via chat), nunca mais junto da
+// geracao da semana. lastActivityId/analysis ficam nullable porque uma preferencia de frequencia
+// pode ser definida antes de qualquer analise real ter rodado para aquele aluno.
 model StravaAnalysisCache {
-  userId         String   @id
-  lastActivityId String
-  analysis       Json
-  updatedAt      DateTime @updatedAt
+  userId              String   @id
+  lastActivityId      String?
+  analysis            Json?
+  // Frequencia customizada (em dias) definida pelo treinador para este aluno especifico via chat
+  // do Gerente Tecnico — null usa o padrao mensal (30 dias, ver StravaAnalysisSchedulerService).
+  customFrequencyDays Int?
+  updatedAt           DateTime @updatedAt
 }
 
 model StravaActivity {

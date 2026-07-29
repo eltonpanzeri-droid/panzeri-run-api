@@ -150,7 +150,6 @@ interface StudentDetail {
       rationale: string[];
       safetyAdjustment: boolean;
       decisionSource: 'ai' | 'deterministic';
-      paceAssessment?: { easyPaceSecondsPerKm: number; intensePaceSecondsPerKm: number; rationale: string } | null;
     } | null;
     summary: {
       prescribedSessions: number;
@@ -1475,6 +1474,25 @@ function StudentPanel({
     }
   }
 
+  async function analyzeStrava() {
+    if (!student) return;
+    onStatus('Gerando relatorio do Strava...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/strava/analyze`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        onStatus('Nao consegui gerar o relatorio do Strava.');
+        return;
+      }
+      const data = (await response.json()) as { analyzed: boolean; reason: string };
+      onStatus(data.reason);
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    }
+  }
+
   async function recoverSessions() {
     if (!student) return;
     onStatus('Verificando treinos presos em planos antigos...');
@@ -1949,6 +1967,7 @@ function StudentPanel({
             <button className="secondaryButton" type="button" onClick={regenerateWeek}><RefreshCw size={16} />Refazer nova semana de treinos</button>
             <button className="secondaryButton" type="button" onClick={recoverSessions}><RefreshCw size={16} />Recuperar treinos presos em plano antigo</button>
             <button className="secondaryButton" type="button" onClick={syncAvailability}><RefreshCw size={16} />Sincronizar disponibilidade da entrevista</button>
+            <button className="secondaryButton" type="button" onClick={analyzeStrava}><RefreshCw size={16} />Gerar relatorio do Strava agora</button>
           </div>
         </div>
         {student.plan?.sessions.length ? (
@@ -2159,7 +2178,7 @@ function EditableSession({
       </div>
       <div className="sessionOverview">
         <strong>{session.title}</strong>
-        <span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''} {session.zone ? `| ${session.zone}` : ''}</span>
+        <span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''}</span>
       </div>
       <AdminPrescription structure={session.structure} notes={session.notes} recommendations={session.recommendations} />
       <div className={`executionPanel ${session.completionStatus === 'sem_registro' && !session.stravaActivity ? 'emptyExecution' : ''}`}>
@@ -2644,13 +2663,9 @@ function satisfactionLabel(value: string) {
 
 function methodologySummaryLine(methodology: {
   decisionSource: 'ai' | 'deterministic';
-  paceAssessment?: { easyPaceSecondsPerKm: number; intensePaceSecondsPerKm: number } | null;
   safetyAdjustment: boolean;
 }) {
   const parts: string[] = [];
-  if (methodology.paceAssessment) {
-    parts.push(`Pace facil ${paceLabel(methodology.paceAssessment.easyPaceSecondsPerKm)} · Pace forte ${paceLabel(methodology.paceAssessment.intensePaceSecondsPerKm)}`);
-  }
   if (methodology.safetyAdjustment) parts.push('Cautela ativa por dor/limitacao recente');
   parts.push('Decisao: agente de IA');
   return parts.join(' · ');
