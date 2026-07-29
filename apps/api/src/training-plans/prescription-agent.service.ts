@@ -271,17 +271,21 @@ export class PrescriptionAgentService {
           this.logger.warn('Rejeitado (treino avulso): sessionType quality_run sem intervalStructure preenchido.');
           return null;
         }
-        if (parsed.paceSecondsPerKm == null) {
-          this.logger.warn('Rejeitado (treino avulso): sessionType quality_run sem paceSecondsPerKm preenchido.');
-          return null;
-        }
-        if (parsed.intervalStructure.fastPaceSecondsPerKm >= parsed.paceSecondsPerKm) {
-          this.logger.warn('Rejeitado (treino avulso): pace forte nao e mais rapido que o pace leve.');
-          return null;
-        }
-        if (parsed.paceSecondsPerKm > MAX_EASY_PACE_SECONDS_PER_KM) {
-          this.logger.warn(`Rejeitado (treino avulso): pace leve ${parsed.paceSecondsPerKm}s/km mais lento que o piso biomecanico de ${MAX_EASY_PACE_SECONDS_PER_KM}s/km.`);
-          return null;
+        // paceSecondsPerKm so e obrigatorio quando ha volume leve adicional (easyVolumeKm > 0) —
+        // um dia so com o bloco intervalado, sem volume extra, legitimamente nao tem esse campo.
+        if (parsed.intervalStructure.easyVolumeKm > 0) {
+          if (parsed.paceSecondsPerKm == null) {
+            this.logger.warn('Rejeitado (treino avulso): sessionType quality_run com easyVolumeKm > 0 mas sem paceSecondsPerKm preenchido.');
+            return null;
+          }
+          if (parsed.intervalStructure.fastPaceSecondsPerKm >= parsed.paceSecondsPerKm) {
+            this.logger.warn('Rejeitado (treino avulso): pace forte nao e mais rapido que o pace leve.');
+            return null;
+          }
+          if (parsed.paceSecondsPerKm > MAX_EASY_PACE_SECONDS_PER_KM) {
+            this.logger.warn(`Rejeitado (treino avulso): pace leve ${parsed.paceSecondsPerKm}s/km mais lento que o piso biomecanico de ${MAX_EASY_PACE_SECONDS_PER_KM}s/km.`);
+            return null;
+          }
         }
         return { distanceKm: null, paceSecondsPerKm: parsed.paceSecondsPerKm, intervalStructure: parsed.intervalStructure, walkRunStructure: null };
       }
@@ -314,7 +318,7 @@ export class PrescriptionAgentService {
       'Voce e o agente que decide UM treino de corrida isolado, para um unico dia — o treinador esta regenerando so este dia, sem mexer no resto da semana do aluno. A duracao (durationMinDisponivel) e o tipo de sessao (sessionType) ja estao decididos e nao podem mudar; sua tarefa e decidir tudo o resto: distancia, pace e (quando for o caso) a estrutura do intervalado/caminhada-corrida — pensando no contexto real deste aluno (evidencias de pace, diretivas do treinador, observacoes do aluno, sinal de dor), nunca uma formula ou proporcao fixa.',
       'NAO EXISTE NENHUMA TABELA OU FORMULA CALCULANDO DISTANCIA A PARTIR DE DURACAO/PACE — voce decide a distancia e o pace diretamente, pensando no que faz sentido pra este aluno neste dia. Voce sabe matematica: se decidir uma estrutura com series/recuperacao, calcule voce mesmo se ela cabe dentro de durationMinDisponivel — nao existe checagem de conta em codigo depois, a responsabilidade e inteiramente sua.',
       'Para sessionType "easy_run" ou "long_run": preencha distanceKm (distancia total) e paceSecondsPerKm (pace continuo deste dia) diretamente; deixe intervalStructure e walkRunStructure null.',
-      'Para sessionType "quality_run": preencha intervalStructure (repeatCount, fastStepKm, fastPaceSecondsPerKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm) e paceSecondsPerKm (pace do volume leve/easyVolumeKm, se houver); deixe distanceKm null.',
+      'Para sessionType "quality_run": preencha intervalStructure (repeatCount, fastStepKm, fastPaceSecondsPerKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm). Se easyVolumeKm for MAIOR que zero, preencha tambem paceSecondsPerKm com o pace desse volume leve; se easyVolumeKm for ZERO (dia so com o bloco intervalado, sem volume extra), deixe paceSecondsPerKm null — nao e opcional, e obrigatorio deixar null nesse caso. Em ambos os casos deixe distanceKm null.',
       'Para sessionType "walk_run": preencha walkRunStructure (repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm — o pace de corrida deve ser claramente mais rapido que o de caminhada); deixe distanceKm e paceSecondsPerKm null.',
       'Voce recebe ate tres evidencias de pace (testeOficial, autoRelatoRecente, mediaStravaRecente) — use a mais recente e mais confiavel, nunca uma proporcao fixa entre elas (tipo "pace_teste vezes 0.95").',
       'Se diretrizesEspecificasDoTreinadorParaEsteAluno mencionar algo que se aplique a este dia especifico, aplique literalmente (prioridade quase absoluta). observacoesRegistradasPeloProprioAluno sao informais, considere quando fizer sentido sem sacrificar seguranca. Se sinalDeSeguranca for verdadeiro, nunca use sessionType "quality_run" com pace/volume agressivo.',
@@ -406,13 +410,15 @@ export class PrescriptionAgentService {
           // silenciosa ja documentada (resposta cortada por estourar o limite, rejeitada pelo
           // Zod, indistinguivel de uma falha de rede) reapareceu na pratica com alunos com rotina
           // de forca mais cheia (varios dias de musculacao/fortalecimento).
-          // Aumentado de novo (16000 -> 24000 -> 32000) apos falhas reais repetidas em producao:
-          // "Unterminated string in JSON" — a resposta e cortada no meio porque o "pensamento"
-          // (thinking) do modelo consome parte do orcamento antes de sobrar espaco pra escrever a
-          // resposta inteira. A causa exata de por que isso acontece mais em algumas contas nao
-          // estava confirmada (ver captura de stop_reason/usage no catch abaixo, adicionada pra
-          // ter dado real na proxima falha em vez de suposicao).
-          max_tokens: 32000,
+          // Aumentado de novo (16000 -> 24000 -> 32000 -> 48000) em 29/07: o schema por sessao
+          // cresceu nesta mesma data (distanceKm + paceSecondsPerKm em toda sessao, mais
+          // fastPaceSecondsPerKm dentro de intervalStructure) — cada dia da semana agora exige
+          // mais campos numericos na resposta do que antes, o que empurra o texto gerado pra mais
+          // perto do teto antigo de 32000, aumentando o risco real ja documentado de "Unterminated
+          // string in JSON" (thinking adaptativo consumindo parte do orcamento antes de sobrar
+          // espaco pra terminar o JSON). Ver captura de stop_reason/usage no catch abaixo pra dado
+          // real caso isso ainda aconteca mesmo com o teto maior.
+          max_tokens: 48000,
           thinking: { type: 'adaptive' },
           output_config: {
             effort,
@@ -548,17 +554,25 @@ export class PrescriptionAgentService {
           this.logger.warn(`Rejeitado: sessionType quality_run no weekday ${session.weekday} sem intervalStructure preenchido.`);
           return null;
         }
-        if (session.paceSecondsPerKm == null) {
-          this.logger.warn(`Rejeitado: sessionType quality_run no weekday ${session.weekday} sem paceSecondsPerKm preenchido (pace do volume leve/easyVolumeKm).`);
-          return null;
-        }
-        if (session.intervalStructure.fastPaceSecondsPerKm >= session.paceSecondsPerKm) {
-          this.logger.warn(`Rejeitado: pace forte (${session.intervalStructure.fastPaceSecondsPerKm}s/km) nao e mais rapido que o pace leve (${session.paceSecondsPerKm}s/km) no weekday ${session.weekday}.`);
-          return null;
-        }
-        if (session.paceSecondsPerKm > MAX_EASY_PACE_SECONDS_PER_KM) {
-          this.logger.warn(`Rejeitado: pace leve ${session.paceSecondsPerKm}s/km no weekday ${session.weekday} mais lento que o piso biomecanico de ${MAX_EASY_PACE_SECONDS_PER_KM}s/km.`);
-          return null;
+        // paceSecondsPerKm aqui e so o pace do volume leve adicional (easyVolumeKm) — se a IA
+        // decidiu que este dia nao tem volume leve nenhum (easyVolumeKm 0, so o bloco
+        // intervalado), nao ha "pace leve" pra descrever nesse dia, entao null e uma resposta
+        // valida, nao um erro. Rejeitar isso incondicionalmente (como acontecia antes) derrubava
+        // a semana inteira por causa de uma sessao que estava correta.
+        const hasEasyVolume = session.intervalStructure.easyVolumeKm > 0;
+        if (hasEasyVolume) {
+          if (session.paceSecondsPerKm == null) {
+            this.logger.warn(`Rejeitado: sessionType quality_run no weekday ${session.weekday} com easyVolumeKm > 0 mas sem paceSecondsPerKm preenchido.`);
+            return null;
+          }
+          if (session.paceSecondsPerKm > MAX_EASY_PACE_SECONDS_PER_KM) {
+            this.logger.warn(`Rejeitado: pace leve ${session.paceSecondsPerKm}s/km no weekday ${session.weekday} mais lento que o piso biomecanico de ${MAX_EASY_PACE_SECONDS_PER_KM}s/km.`);
+            return null;
+          }
+          if (session.intervalStructure.fastPaceSecondsPerKm >= session.paceSecondsPerKm) {
+            this.logger.warn(`Rejeitado: pace forte (${session.intervalStructure.fastPaceSecondsPerKm}s/km) nao e mais rapido que o pace leve (${session.paceSecondsPerKm}s/km) no weekday ${session.weekday}.`);
+            return null;
+          }
         }
       } else if (session.sessionType === 'walk_run') {
         if (!session.walkRunStructure) {
@@ -694,7 +708,7 @@ export class PrescriptionAgentService {
       'Se analiseAprofundadaStrava estiver preenchida (vem de outro agente que ja mastigou cadencia, frequencia cardiaca, padroes e outras modalidades do Strava para voce), use o campo "summary" e as "flags" como evidencia adicional real de como o aluno esta respondendo ao treino agora — nao ignore isso, mas tambem nao superestime; combine com o resto das evidencias.',
       'Cuidado ao interpretar texto livre escrito pelo proprio aluno (respostas de entrevista/reavaliacao, comentarios): muitos alunos escrevem de forma informal, como numa conversa entre pessoas, com ironia, hiperbole ou exagero comico (ex: "corri e quase morri" ou "foi moleza" nao sao relatos medicos literais). Nunca leve essas frases ao pe da letra como se fossem um dado objetivo — interprete o tom real antes de decidir algo com base nelas, e prefira sempre dados estruturados/numericos (pace, testes, aderencia) quando o texto livre parecer contraditorio ou exagerado.',
       'VARIEDADE: evite repetir literalmente o mesmo titulo e a mesma frase de notes toda semana para o mesmo tipo de sessao (ex: sempre "Corrida leve" com a mesma nota) — isso ja foi apontado pelo treinador como preguica de quem monta o treino. Varie a redacao do titulo e das notes de forma natural semana a semana, mantendo o mesmo padrao metodologico (nao mude o proposito da sessao so por variar, mude a forma como ela e descrita e pequenos detalhes de enfase).',
-      'SOBRE A ESTRUTURA DO TREINO INTERVALADO/CAMINHADA-CORRIDA — VOCE decide os numeros, nao existe formula fixa nenhuma calculando isso por voce, e tambem nao existe nenhuma checagem de conta feita por codigo depois — a responsabilidade de a estrutura fazer sentido pro tempo disponivel (durationMin) e inteiramente sua, pelo mesmo julgamento que um treinador real faria ao montar um treino de olho no relogio. Quando sessionType for "quality_run", preencha intervalStructure (repeatCount, fastStepKm, fastPaceSecondsPerKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm) e tambem paceSecondsPerKm (o pace do volume leve/easyVolumeKm, se houver) — deixe distanceKm null (a distancia total vem da soma dos componentes da estrutura). Quando for "walk_run", preencha walkRunStructure (repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm) — deixe distanceKm e paceSecondsPerKm null (a estrutura ja tem seus proprios paces). Nos demais sessionTypes (easy_run, long_run), preencha distanceKm e paceSecondsPerKm diretamente e deixe intervalStructure/walkRunStructure null.',
+      'SOBRE A ESTRUTURA DO TREINO INTERVALADO/CAMINHADA-CORRIDA — VOCE decide os numeros, nao existe formula fixa nenhuma calculando isso por voce, e tambem nao existe nenhuma checagem de conta feita por codigo depois — a responsabilidade de a estrutura fazer sentido pro tempo disponivel (durationMin) e inteiramente sua, pelo mesmo julgamento que um treinador real faria ao montar um treino de olho no relogio. Quando sessionType for "quality_run", preencha intervalStructure (repeatCount, fastStepKm, fastPaceSecondsPerKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm). Se easyVolumeKm for maior que zero, preencha tambem paceSecondsPerKm com o pace desse volume leve; se easyVolumeKm for zero, deixe paceSecondsPerKm null (obrigatorio, nao opcional). Em ambos os casos deixe distanceKm null (a distancia total vem da soma dos componentes da estrutura). Quando for "walk_run", preencha walkRunStructure (repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm) — deixe distanceKm e paceSecondsPerKm null (a estrutura ja tem seus proprios paces). Nos demais sessionTypes (easy_run, long_run), preencha distanceKm e paceSecondsPerKm diretamente e deixe intervalStructure/walkRunStructure null.',
       'O campo notes continua sendo so ESTRATEGIA e SENSACAO em palavras (ex: "comece controlado e mantenha o mesmo ritmo forte do primeiro ao ultimo tiro, sem estourar no inicio"), nao repita ali os numeros exatos que ja estao em intervalStructure/walkRunStructure — isso evita as duas fontes (texto livre e estrutura) contarem numeros diferentes um do outro.',
       'SOBRE O CAMPO recommendations (um por sessao): aquecimento e desaquecimento NAO fazem mais parte do treino prescrito nem da distancia/duracao total — eles viram uma RECOMENDACAO em texto, separada, mostrada ao aluno depois do treino principal. Voce e responsavel por escrever essa recomendacao PENSANDO no aluno especifico, nao aplicando uma regra fixa. Diretriz do treinador, dada literalmente: para a maioria dos alunos, recomende aquecer de 5 a 10 minutos (caminhando ou trote bem leve, a escolha do aluno) e desaquecer com uns 5 minutos de caminhada leve. Para um aluno que voce concluiu (pelo pace e pelas evidencias) ser um corredor amador com bom condicionamento e que sustenta ritmo por mais tempo, pode fazer mais sentido recomendar um trote leve de 1 a 3 km como aquecimento/desaquecimento em vez de so caminhar — mas essa decisao e SUA, baseada no pace/nivel real do aluno, nao existe um numero de corte fixo pra isso. NUNCA use essa recomendacao de trote de aquecimento/desaquecimento (nem frases como "voce ja corre bem") para um aluno que voce mesmo classificou como iniciante/pouco condicionado em qualquer outro campo desta mesma resposta (rationale, notes) — isso ja aconteceu na pratica e e uma contradicao grave dentro da mesma resposta. Alem do aquecimento/desaquecimento, inclua neste campo outras recomendacoes praticas quando fizerem sentido para aquele treino especifico (ex: cuidado ao correr na rua — atencao ao transito e piso irregular —, ajustar inclinacao/passada se for na esteira, se hidratar bem principalmente em treinos mais longos ou dias quentes, levar gel/agua em longoes). Nao repita o mesmo texto generico sempre — adapte ao contexto da sessao (dia, duracao, se e longao ou intervalado, se e rua ou esteira segundo a modalidade informada).',
       'PROIBIDO GRAVE, ja aconteceu na pratica e e um erro serio: o campo recommendations NUNCA pode INVENTAR uma estrutura de treino DIFERENTE da que voce mesmo decidiu em intervalStructure/walkRunStructure — nada de propor um repeatCount, fastStepKm/recoveryStepKm ou paces diferentes dos que ja estao nesses campos estruturados. So existe UMA estrutura de treino por sessao. Isso NAO significa proibir numeros em recommendations — pelo contrario: e ONE (e ate recomendado) usar recommendations para EXPLICAR EM PORTUGUES CORRIDO, com os MESMOS numeros exatos de intervalStructure/walkRunStructure, como o aluno deve executar o treino, encaixando aquecimento/desaquecimento na mesma explicacao. Exemplo de como fazer certo: se intervalStructure tem repeatCount=6, fastStepKm=1, recoveryStepKm=0.5 (paces ja calculados), recommendations pode dizer algo como "Apos um aquecimento de trote leve de 1 a 2 km, faca o treino intervalado: corra 1 km no pace de 05:00 a 05:20/km e alterne com caminhada de 0,5 km no pace de 12:00 a 15:00/km, repetindo esse ciclo 6 vezes. Ao final, faca mais um trote leve de desaquecimento." Repare que todo numero citado (6, 1 km, 0,5 km, os paces) e EXATAMENTE igual ao que esta em intervalStructure daquela mesma sessao — nunca um numero diferente. O erro proibido e especificamente quando recommendations MUDA os numeros (ex: estrutura diz repeatCount 4 mas recommendations sugere "6x" ou distancias/paces diferentes) — isso sim e uma contradicao grave e inaceitavel.',

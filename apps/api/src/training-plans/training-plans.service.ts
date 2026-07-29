@@ -956,7 +956,7 @@ export class TrainingPlansService {
       // de volume leve) e decisao do agente de IA (validada em prescription-agent.service.ts) —
       // nao existe mais nenhuma proporcao/passo/pace fixo aqui. Chegar aqui sem essa estrutura e
       // um bug de sincronizacao entre quem gerou a decisao e quem monta a sessao.
-      if (!decision.intervalStructure || decision.paceSecondsPerKm == null) {
+      if (!decision.intervalStructure) {
         throw new InternalServerErrorException(`Estrutura do treino intervalado ausente ao montar a sessao (durationMin=${durationMin}).`);
       }
       const { repeatCount, fastStepKm, fastPaceSecondsPerKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm } = decision.intervalStructure;
@@ -968,10 +968,13 @@ export class TrainingPlansService {
           this.intervalStep('Recuperar', recoveryStepKm, recoveryPaceSecondsPerKm),
         ],
       };
-      const blocks = [
-        intervalBlock,
-        this.runDistanceBlock('Recuperacoes e volume leve', easyVolumeKm, decision.paceSecondsPerKm),
-      ];
+      // Volume leve adicional (fora do bloco intervalado) so existe quando a IA decidiu
+      // easyVolumeKm > 0 para este dia — nesse caso ela tambem preenche paceSecondsPerKm
+      // (validado em prescription-agent.service.ts). Sem volume leve, o dia e so o bloco
+      // intervalado mesmo, sem bloco extra nem pace pra descrever.
+      const blocks = easyVolumeKm > 0 && decision.paceSecondsPerKm != null
+        ? [intervalBlock, this.runDistanceBlock('Recuperacoes e volume leve', easyVolumeKm, decision.paceSecondsPerKm)]
+        : [intervalBlock];
       return {
         type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks),
         speedKmh: Number((3600 / fastPaceSecondsPerKm).toFixed(1)),
