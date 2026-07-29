@@ -184,6 +184,9 @@ export class TechnicalManagerAgentService {
             orderBy: { createdAt: 'desc' },
             select: { createdAt: true, endDate: true },
           });
+          // O treinador foi explicito e enfatico: salvar uma diretriz NUNCA pode disparar
+          // regeneracao sozinho, nem quando o gatilho e uma confirmacao dele mesmo no chat — so
+          // apertar "Refazer nova semana de treinos" regenera. Este metodo so avisa em texto.
           const staleActivePlanWarning =
             activePlan && activePlan.createdAt < created.createdAt && (!activePlan.endDate || activePlan.endDate >= created.createdAt)
               ? ' ATENCAO: ja existe uma semana de treino ativa para este aluno, gerada ANTES desta diretriz existir — se a diretriz menciona uma data que cai dentro dessa semana em andamento, ela NAO vai aparecer sozinha; o treinador precisa clicar em "Refazer nova semana de treinos" agora para que a semana atual seja regenerada respeitando a diretriz. Avise o treinador disso explicitamente na sua proxima resposta.'

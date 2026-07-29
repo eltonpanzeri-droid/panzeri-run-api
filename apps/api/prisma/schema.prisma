@@ -8,51 +8,51 @@ datasource db {
 }
 
 model User {
-  id           String              @id @default(uuid())
-  email        String              @unique
-  passwordHash String
-  name         String
-  cpf          String?             @unique
-  phone        String?
-  birthDate    DateTime?
-  sex          String?
-  heightCm     Int?
-  weightKg     Float?
-  address      String?
-  education    String?
-  role         String              @default("student")
-  accountStatus String             @default("active")
-  subscriptionStatus String        @default("pending")
-  subscriptionUpdatedAt DateTime   @default(now())
-  subscriptionManualOverride Boolean @default(false)
-  acceptedTermsAt DateTime?
-  acceptedPrivacyAt DateTime?
+  id                               String    @id @default(uuid())
+  email                            String    @unique
+  passwordHash                     String
+  name                             String
+  cpf                              String?   @unique
+  phone                            String?
+  birthDate                        DateTime?
+  sex                              String?
+  heightCm                         Int?
+  weightKg                         Float?
+  address                          String?
+  education                        String?
+  role                             String    @default("student")
+  accountStatus                    String    @default("active")
+  subscriptionStatus               String    @default("pending")
+  subscriptionUpdatedAt            DateTime  @default(now())
+  subscriptionManualOverride       Boolean   @default(false)
+  acceptedTermsAt                  DateTime?
+  acceptedPrivacyAt                DateTime?
   acceptedExerciseResponsibilityAt DateTime?
-  lastRoutineChangeAt DateTime?
-  refreshTokenHash String?
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
+  lastRoutineChangeAt              DateTime?
+  refreshTokenHash                 String?
+  createdAt                        DateTime  @default(now())
+  updatedAt                        DateTime  @updatedAt
 
-  healthProfile HealthProfile?
-  preferences   UserPreferences?
-  availability  WeeklyAvailability[]
-  tests         FitnessTest[]
-  plans         TrainingPlan[]
-  workouts      WorkoutCompletion[]
-  achievements  UserAchievement[]
+  healthProfile       HealthProfile?
+  preferences         UserPreferences?
+  availability        WeeklyAvailability[]
+  tests               FitnessTest[]
+  plans               TrainingPlan[]
+  workouts            WorkoutCompletion[]
+  achievements        UserAchievement[]
   passwordResetTokens PasswordResetToken[]
-  notifications UserNotification[]
-  messageLogs   MessageLog[]
-  reassessments Reassessment[]
+  notifications       UserNotification[]
+  messageLogs         MessageLog[]
+  reassessments       Reassessment[]
   onboardingInterview OnboardingInterview?
   billingSubscription BillingSubscription?
-  couponRedemptions CouponRedemption[]
-  coachReports CoachReport[]
-  studentDirectives StudentDirective[]
-  coachChatMessages CoachChatMessage[]
-  targetRaces TargetRace[]
-  painReports PainReport[]
-  observations StudentObservation[]
+  couponRedemptions   CouponRedemption[]
+  coachReports        CoachReport[]
+  studentDirectives   StudentDirective[]
+  coachChatMessages   CoachChatMessage[]
+  targetRaces         TargetRace[]
+  painReports         PainReport[]
+  observations        StudentObservation[]
 }
 
 model BillingProviderConfig {
@@ -63,19 +63,19 @@ model BillingProviderConfig {
 }
 
 model BillingSubscription {
-  id                     String   @id @default(uuid())
-  userId                 String   @unique
-  user                   User     @relation(fields: [userId], references: [id])
-  provider               String   @default("asaas")
+  id                     String    @id @default(uuid())
+  userId                 String    @unique
+  user                   User      @relation(fields: [userId], references: [id])
+  provider               String    @default("asaas")
   externalCustomerId     String?
-  externalSubscriptionId String?  @unique
-  externalChargeId       String?  @unique
+  externalSubscriptionId String?   @unique
+  externalChargeId       String?   @unique
   checkoutUrl            String?
-  providerStatus         String   @default("new")
+  providerStatus         String    @default("new")
   lastNotificationToken  String?
   nextChargeAt           DateTime?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 }
 
 model OnboardingInterview {
@@ -142,13 +142,13 @@ model CoachChatMessage {
 }
 
 model PasswordResetToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  tokenHash String   @unique
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
 }
@@ -167,16 +167,16 @@ model UserNotification {
 }
 
 model MessageLog {
-  id          String    @id @default(uuid())
+  id          String   @id @default(uuid())
   userId      String
-  user        User      @relation(fields: [userId], references: [id])
+  user        User     @relation(fields: [userId], references: [id])
   channel     String
   trigger     String
   subject     String?
   content     String
-  status      String    @default("sent")
+  status      String   @default("sent")
   errorDetail String?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([trigger, createdAt])
@@ -201,9 +201,9 @@ model HealthProfile {
 }
 
 model UserPreferences {
-  id                  String   @id @default(uuid())
-  userId              String   @unique
-  user                User     @relation(fields: [userId], references: [id])
+  id                  String    @id @default(uuid())
+  userId              String    @unique
+  user                User      @relation(fields: [userId], references: [id])
   preferredModalities String[]
   otherModalities     String[]
   trainingLocations   String[]
@@ -211,39 +211,39 @@ model UserPreferences {
   targetRaceDate      DateTime?
   strengthAddOn       String?
   experienceLevel     String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 }
 
 model WeeklyAvailability {
-  id           String   @id @default(uuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id])
-  weekday      Int
-  noTraining   Boolean  @default(false)
-  modalities   String[]
-  availableMin Int?
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id])
+  weekday           Int
+  noTraining        Boolean  @default(false)
+  modalities        String[]
+  availableMin      Int?
   modalityDurations Json?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@unique([userId, weekday])
 }
 
 model FitnessTest {
-  id                String   @id @default(uuid())
-  userId            String
-  user              User     @relation(fields: [userId], references: [id])
-  testType          String   @default("3km")
-  totalSeconds      Int
-  avgHeartRate      Int?
-  maxHeartRate      Int?
-  environment       String
-  vo2maxEstimated   Float
-  vvo2Kmh           Float
-  paceSecondsPerKm  Int
-  notes             String?
-  createdAt         DateTime @default(now())
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  testType         String   @default("3km")
+  totalSeconds     Int
+  avgHeartRate     Int?
+  maxHeartRate     Int?
+  environment      String
+  vo2maxEstimated  Float
+  vvo2Kmh          Float
+  paceSecondsPerKm Int
+  notes            String?
+  createdAt        DateTime @default(now())
 }
 
 model TrainingPlan {
@@ -299,24 +299,24 @@ model TrainingSession {
 }
 
 model WorkoutCompletion {
-  id                 String           @id @default(uuid())
-  userId             String
-  user               User             @relation(fields: [userId], references: [id])
-  sessionId          String?          @unique
-  session            TrainingSession? @relation(fields: [sessionId], references: [id])
-  completedAt        DateTime         @default(now())
-  status             String
-  durationMin        Float?
-  distanceKm         Float?
-  avgPaceSecondsKm   Int?
-  avgHeartRate       Int?
-  maxHeartRate       Int?
-  perceivedEffort    Int?
-  satisfaction       String?
-  painFlag           String?
-  notes              String?
-  details            Json?
-  source             String           @default("manual")
+  id               String           @id @default(uuid())
+  userId           String
+  user             User             @relation(fields: [userId], references: [id])
+  sessionId        String?          @unique
+  session          TrainingSession? @relation(fields: [sessionId], references: [id])
+  completedAt      DateTime         @default(now())
+  status           String
+  durationMin      Float?
+  distanceKm       Float?
+  avgPaceSecondsKm Int?
+  avgHeartRate     Int?
+  maxHeartRate     Int?
+  perceivedEffort  Int?
+  satisfaction     String?
+  painFlag         String?
+  notes            String?
+  details          Json?
+  source           String           @default("manual")
 }
 
 model TargetRace {
@@ -365,26 +365,37 @@ model StravaConnection {
   updatedAt    DateTime @updatedAt
 }
 
+// Cache da analise do agente de IA sobre o historico do Strava (StravaAnalysisAgentService).
+// Sem isso, generateWeek() chamava essa IA de novo do zero toda vez, mesmo quando nao havia
+// nenhuma atividade nova desde a ultima analise — uma chamada inteira ao modelo (thinking
+// adaptativo) rodando em serie ANTES da decisao semanal principal, sem necessidade.
+model StravaAnalysisCache {
+  userId         String   @id
+  lastActivityId String
+  analysis       Json
+  updatedAt      DateTime @updatedAt
+}
+
 model StravaActivity {
-  id             String   @id @default(uuid())
-  userId         String
-  stravaId       String   @unique
-  name           String?
-  type           String?
-  startDate      DateTime
-  distanceKm     Float?
-  movingTimeSec  Int?
-  avgPaceSecKm   Int?
-  avgHeartRate   Int?
-  maxHeartRate   Int?
-  cadence        Int?
-  raw            Json
-  createdAt      DateTime @default(now())
+  id            String   @id @default(uuid())
+  userId        String
+  stravaId      String   @unique
+  name          String?
+  type          String?
+  startDate     DateTime
+  distanceKm    Float?
+  movingTimeSec Int?
+  avgPaceSecKm  Int?
+  avgHeartRate  Int?
+  maxHeartRate  Int?
+  cadence       Int?
+  raw           Json
+  createdAt     DateTime @default(now())
 }
 
 model Achievement {
-  id          String @id @default(uuid())
-  code        String @unique
+  id          String            @id @default(uuid())
+  code        String            @unique
   name        String
   description String
   criteria    Json
@@ -401,24 +412,24 @@ model UserAchievement {
 }
 
 model Challenge {
-  id          String @id @default(uuid())
-  code        String @unique
+  id          String              @id @default(uuid())
+  code        String              @unique
   name        String
   description String
   type        String
   criteria    Json
-  active      Boolean @default(true)
+  active      Boolean             @default(true)
   progress    ChallengeProgress[]
 }
 
 model ChallengeProgress {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   userId      String
   challengeId String
   challenge   Challenge @relation(fields: [challengeId], references: [id])
   weekStart   DateTime
   progress    Json
-  completed   Boolean  @default(false)
+  completed   Boolean   @default(false)
 }
 
 model Coupon {
@@ -456,4 +467,3 @@ model CoachReport {
 
   @@index([userId, reportType, createdAt])
 }
-

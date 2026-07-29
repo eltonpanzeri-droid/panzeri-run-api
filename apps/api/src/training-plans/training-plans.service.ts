@@ -16,7 +16,7 @@ import {
   isCurrentlyRunning,
 } from './training-methodology';
 import { PrescriptionAgentService, PaceEvidence } from './prescription-agent.service';
-import { StravaAnalysisAgentService } from './strava-analysis-agent.service';
+import { StravaAnalysisAgentService, StravaAnalysisReport } from './strava-analysis-agent.service';
 import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { StravaService } from '../strava/strava.service';
@@ -374,7 +374,28 @@ export class TrainingPlansService {
     const stravaRuns = recentStrava.filter((activity) => isStravaRunningActivity(activity.type, activity.name));
     const executionSummary = jsonObject(latestExecutionInsight?.summary);
     const progression = jsonObject(executionSummary.progression);
-    const stravaAnalysis = await this.stravaAnalysisAgent.analyze(recentStrava);
+    // Reaproveita a ultima analise do Strava enquanto nao houver atividade nova (recentStrava vem
+    // ordenado do mais recente pro mais antigo) — sem isso, toda chamada a generateWeek() disparava
+    // uma chamada inteira de IA extra (com thinking adaptativo) SO PARA reanalisar exatamente os
+    // mesmos dados de sempre, em serie, ANTES da decisao semanal principal, deixando a geracao mais
+    // lenta sem nenhum ganho real. So chama a IA de novo quando a atividade mais recente mudou.
+    const latestStravaActivityId = recentStrava[0]?.stravaId ?? null;
+    let stravaAnalysis: StravaAnalysisReport | null = null;
+    if (latestStravaActivityId) {
+      const cached = await this.prisma.stravaAnalysisCache.findUnique({ where: { userId } });
+      if (cached && cached.lastActivityId === latestStravaActivityId) {
+        stravaAnalysis = cached.analysis as unknown as StravaAnalysisReport;
+      } else {
+        stravaAnalysis = await this.stravaAnalysisAgent.analyze(recentStrava);
+        if (stravaAnalysis) {
+          await this.prisma.stravaAnalysisCache.upsert({
+            where: { userId },
+            create: { userId, lastActivityId: latestStravaActivityId, analysis: stravaAnalysis as unknown as Prisma.InputJsonObject },
+            update: { lastActivityId: latestStravaActivityId, analysis: stravaAnalysis as unknown as Prisma.InputJsonObject },
+          });
+        }
+      }
+    }
     const methodologyInput: MethodologyInput = {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
       experience: user.preferences?.experienceLevel ?? '',
