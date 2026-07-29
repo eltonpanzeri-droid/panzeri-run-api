@@ -3993,8 +3993,15 @@ function Billing({ accessToken }: { accessToken: string }) {
   }
 
   const active = details && ['active', 'manual_active', 'grace'].includes(details.status);
-  const paymentConfirmed = details?.providerStatus === 'active' || details?.providerStatus === 'confirmed' || details?.providerStatus === 'received';
-  const needsPaymentSetup = !paymentConfirmed;
+  // 'active' NUNCA e um status de pagamento de verdade (ver ACTIVE_STATUSES em
+  // billing.service.ts: so 'confirmed'/'received'/'received_in_cash' sao). 'active' aqui so
+  // aparece quando a ASSINATURA foi criada na Asaas mas nenhum pagamento existe ainda (o backend
+  // usa isso como fallback de exibicao) — tratar como "pagamento confirmado" e exatamente o
+  // bug real que fez uma aluna ver "Pagamento confirmado" sem ter pago nada (Asaas mostrando
+  // R$ 0,00 recebido). O acesso real do aluno nunca dependeu disso (usa "active" acima, que so
+  // fica verdadeiro com um pagamento de verdade ou liberacao manual do treinador).
+  const paymentConfirmed = details?.providerStatus === 'confirmed' || details?.providerStatus === 'received' || details?.providerStatus === 'received_in_cash';
+  const needsPaymentSetup = !active;
 
   return (
     <View style={styles.section}>
