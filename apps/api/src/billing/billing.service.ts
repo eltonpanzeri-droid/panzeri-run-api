@@ -110,9 +110,12 @@ export class BillingService {
     if (existing?.providerStatus && ACTIVE_STATUSES.has(existing.providerStatus)) {
       throw new BadRequestException('A assinatura ja esta ativa.');
     }
-    if (existing?.checkoutUrl && existing.providerStatus === 'pending') {
-      return { checkoutUrl: existing.checkoutUrl };
-    }
+    // NUNCA reaproveita um checkoutUrl guardado de uma tentativa anterior — se aquele link
+    // expirou, foi cancelado no Asaas ou parou de funcionar por qualquer motivo, o aluno ficava
+    // preso clicando em "Ativar assinatura" pra sempre e recebendo o mesmo link quebrado, sem
+    // nenhum jeito de sair disso (bug real reportado por uma aluna: "clica e nao avanca"). Agora
+    // toda tentativa busca um link de pagamento fresco no Asaas — a checagem de assinatura ACTIVE
+    // logo abaixo ja evita criar assinatura duplicada, entao isso nao gera custo extra real.
 
     const customerId = existing?.externalCustomerId ?? (await this.ensureCustomer(userId, user.name, user.email, savedCpf));
 
