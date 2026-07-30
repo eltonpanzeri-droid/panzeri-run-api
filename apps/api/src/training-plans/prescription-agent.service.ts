@@ -173,16 +173,16 @@ export class PrescriptionAgentService {
     // que a prescricao TEM que vir de raciocinio real da IA, nunca de regra estatica. Por isso
     // tentamos duas vezes antes de desistir — falhas de IA costumam ser transitorias (formato de
     // saida um pouco fora do schema, rede) e nao devem custar a semana inteira do aluno.
-    // A segunda tentativa usa effort 'medium' em vez de 'high' (nao um esforco menor por
-    // preguica — e uma resposta a falhas reais e repetidas de "Unterminated string in JSON" pra
-    // alunos com contexto denso: o pensamento adaptativo em 'high' consome tanto do orcamento de
-    // tokens que a resposta as vezes nunca termina, MESMO em 32000 tokens, e as duas tentativas
-    // com 'high' falhavam do mesmo jeito. 'medium' ainda e 100% raciocinio real da IA, so com
-    // menos texto de pensamento interno — dar ao aluno um treino real e mais importante do que
-    // garantir o nivel mais alto de raciocinio em toda tentativa.
-    const first = await this.attemptDecision(input, evidence, 'high');
+    // Primeira tentativa em 'medium' (29/07: custo/latencia de 'high' em toda chamada estava alto
+    // demais pro treinador, e 'medium' ja e 100% raciocinio real da IA, so com menos texto de
+    // pensamento interno). Segunda tentativa em 'high' se a primeira falhar — nao repete o mesmo
+    // nivel de esforco duas vezes (visto na pratica: os dois niveis podem falhar de formas
+    // diferentes — 'high' as vezes nao termina o JSON a tempo por gastar demais em pensamento,
+    // 'medium' as vezes entra num loop repetitivo — entao alternar o nivel na segunda tentativa da
+    // uma chance real de um resultado diferente, em vez de tentar exatamente a mesma coisa de novo.
+    const first = await this.attemptDecision(input, evidence, 'medium');
     if (first) return first;
-    return this.attemptDecision(input, evidence, 'medium');
+    return this.attemptDecision(input, evidence, 'high');
   }
 
   // Usado quando o treinador regenera UM dia de forca/fortalecimento isolado (sem regenerar a
