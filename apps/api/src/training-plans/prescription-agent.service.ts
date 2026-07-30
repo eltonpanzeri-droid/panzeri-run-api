@@ -118,7 +118,11 @@ const AiWeeklyDecisionSchema = z.object({
   // 7 — um aluno real com varios dias de dupla modalidade estourava o limite antigo e derrubava a
   // semana inteira com "too_big" (incidente 2026-07-28).
   strengthSessions: z.array(AiStrengthSessionSchema).max(14),
-  recommendation: z.string().min(1),
+  // Sem .min(1): ja aconteceu na pratica a IA devolver esse campo vazio (resposta boa, so essa
+  // string vazia) e a resposta inteira ser rejeitada por causa disso — um campo puramente de
+  // texto derrubando uma semana inteira valida. Vazio vira um texto padrao depois do parse (ver
+  // attemptDecision), nunca rejeita a resposta.
+  recommendation: z.string(),
   // Sem .min(1)/.max() por item: ja aconteceu na pratica a IA devolver um item vazio dentro da
   // lista (ex: rationale[0] = "") e tambem um item longo demais — e a resposta inteira ser
   // rejeitada por causa de UM bullet, desperdicando a chamada cara de IA por um detalhe cosmetico.
@@ -496,7 +500,7 @@ export class PrescriptionAgentService {
       return {
         sessions,
         strengthSessions,
-        recommendation: truncateText(parsed.recommendation, 1200),
+        recommendation: truncateText(parsed.recommendation.trim() || 'Sem observacoes adicionais para esta semana.', 1200),
         rationale: rationale.length > 0 ? rationale : ['Decisao gerada pelo agente de IA.'],
         safetyAdjustment,
         source: 'ai',
