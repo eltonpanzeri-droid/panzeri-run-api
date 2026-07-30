@@ -585,7 +585,7 @@ const interviewQuestions: InterviewQuestion[] = [
   ] },
   { key: 'longest_distance', module: 'Experiencia com corrida', prompt: 'Qual a maior distancia que voce corre atualmente sem precisar parar ou caminhar, somente correndo, nos ultimos 6 meses?', type: 'wheel_number', wheelDigits: 3, wheelMin: 1, wheelMax: 300, wheelUnit: 'km', help: 'Nao vale treino com corrida alternada com caminhada.', condition: (a) => isCurrentlyRunning(a) },
   { key: 'longest_distance_recent_count', module: 'Experiencia com corrida', prompt: 'Quantas vezes voce correu essa distancia nos ultimos 6 meses?', type: 'wheel_number', wheelDigits: 2, wheelMin: 1, wheelMax: 99, wheelUnit: 'vezes', condition: (a) => isCurrentlyRunning(a) },
-  { key: 'longest_distance_recent_time', module: 'Experiencia com corrida', prompt: 'Qual foi o seu tempo nessa distancia?', type: 'wheel_duration_hms', help: 'Vamos calcular seu pace medio automaticamente com esse tempo, para ajudar (nao definir sozinho) a escolher seus ritmos de treino ate voce fazer o teste oficial de 3 km.', condition: (a) => isCurrentlyRunning(a) },
+  { key: 'longest_distance_recent_time', module: 'Experiencia com corrida', prompt: 'Qual foi o seu tempo nessa distancia?', type: 'wheel_duration_hms', help: 'Vamos calcular seu pace medio automaticamente com esse tempo, para ajudar (nao definir sozinho) a escolher seus ritmos de treino.', condition: (a) => isCurrentlyRunning(a) },
   { key: 'second_longest_distance_recent', module: 'Experiencia com corrida', prompt: 'Qual a segunda maior distancia que voce corre atualmente sem precisar parar ou caminhar, somente correndo, nos ultimos 6 meses?', type: 'wheel_number', optional: true, wheelDigits: 3, wheelMin: 1, wheelMax: 300, wheelUnit: 'km', help: 'Nao vale treino com corrida alternada com caminhada.', condition: (a) => isCurrentlyRunning(a) },
   { key: 'second_longest_distance_recent_count', module: 'Experiencia com corrida', prompt: 'Quantas vezes voce correu essa distancia nos ultimos 6 meses?', type: 'wheel_number', optional: true, wheelDigits: 2, wheelMin: 1, wheelMax: 99, wheelUnit: 'vezes', condition: (a) => isCurrentlyRunning(a) },
   { key: 'third_longest_distance_recent', module: 'Experiencia com corrida', prompt: 'Qual a terceira maior distancia que voce corre atualmente sem precisar parar ou caminhar, somente correndo, nos ultimos 6 meses?', type: 'wheel_number', optional: true, wheelDigits: 3, wheelMin: 1, wheelMax: 300, wheelUnit: 'km', help: 'Nao vale treino com corrida alternada com caminhada.', condition: (a) => isCurrentlyRunning(a) },
@@ -1060,8 +1060,8 @@ function Onboarding({ onStart }: { onStart: () => void }) {
         </View>
         <View style={styles.startItem}>
           <Ionicons name="stopwatch" size={22} color="#0f766e" />
-          <Text style={styles.startTitle}>Ritmos por teste</Text>
-          <Text style={styles.startText}>Zonas calculadas pelo teste de 3 km.</Text>
+          <Text style={styles.startTitle}>Ritmos personalizados</Text>
+          <Text style={styles.startText}>Calculados a partir da sua entrevista e do seu historico de corrida.</Text>
         </View>
         <View style={styles.startItem}>
           <Ionicons name="stats-chart" size={22} color="#0f766e" />
@@ -2414,7 +2414,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         <Text style={styles.titleSmall}>{weekRange}</Text>
         <View style={styles.coachBox}>
           <Text style={styles.coachTitle}>Seu plano personalizado esta pronto</Text>
-          <Text style={styles.coachText}>Com base na sua entrevista e no teste de 3 km, ja montamos sua semana inicial. Ative sua assinatura para liberar o treino completo e comecar hoje.</Text>
+          <Text style={styles.coachText}>Com base na sua entrevista, ja montamos sua semana inicial. Ative sua assinatura para liberar o treino completo e comecar hoje.</Text>
         </View>
         <View style={styles.formSection}>
           <Text style={styles.formSectionTitle}>Assinatura Panzeri Run</Text>

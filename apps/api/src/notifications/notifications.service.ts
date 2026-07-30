@@ -48,7 +48,7 @@ export class NotificationsService {
         {
           id: 'auto-no-plan',
           title: 'Plano pendente',
-          message: 'Complete anamnese e teste para gerar sua semana de treino.',
+          message: 'Complete a anamnese para gerar sua semana de treino.',
           type: 'warning',
           read: false,
           createdAt: new Date(),
