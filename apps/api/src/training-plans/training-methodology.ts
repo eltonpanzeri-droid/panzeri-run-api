@@ -106,9 +106,9 @@ export interface MethodologyInput {
   } | null;
 }
 
-// Estrutura do bloco intervalado (quality_run) — decidida pela IA, nao por uma proporcao fixa no
-// codigo. O codigo so monta a exibicao a partir desses numeros, sem nenhuma conta propria (nem o
-// pace do trecho forte — fastPaceSecondsPerKm — mais nenhum pace vem de um valor fixo da semana).
+// Estrutura de um estimulo em series (trecho forte + recuperacao) — decidida pela IA quando ela
+// escolher essa forma pra um dia, nao por uma proporcao fixa no codigo. O codigo so monta a
+// exibicao a partir desses numeros, sem nenhuma conta propria.
 export interface IntervalStructureDecision {
   repeatCount: number;
   fastStepKm: number;
@@ -118,8 +118,8 @@ export interface IntervalStructureDecision {
   easyVolumeKm: number;
 }
 
-// Estrutura do bloco caminhada-corrida (walk_run) — mesma logica: a IA decide, o codigo so monta
-// e confere consistencia.
+// Estrutura de alternancia caminhada/corrida — mesma logica: a IA decide quando essa forma faz
+// sentido pra um dia, o codigo so monta e confere consistencia.
 export interface WalkRunStructureDecision {
   repeatCount: number;
   walkStepKm: number;
@@ -131,23 +131,22 @@ export interface WalkRunStructureDecision {
 export interface RunSessionDecision {
   weekday: number;
   title: string;
-  sessionType: 'easy_run' | 'quality_run' | 'long_run' | 'walk_run';
   durationMin: number;
   notes: string;
-  // Preenchidos pela IA diretamente para ESTE dia especifico (nunca mais um par unico de pace pra
-  // semana toda, carimbado depois por codigo). Obrigatorios (nao-null) para easy_run/long_run;
-  // para quality_run, paceSecondsPerKm cobre o volume leve adicional (easyVolumeKm) e distanceKm
-  // fica null (a distancia desse tipo vem da soma dos componentes de intervalStructure); para
-  // walk_run ambos ficam null (walkRunStructure e autossuficiente, com seus proprios paces).
+  // Nao existe mais uma categoria (sessionType) que a IA declara antes de decidir o treino — ela
+  // so preenche os campos abaixo que fizerem sentido pra ESTE dia especifico, livremente (ver
+  // [[no_math_rules_for_workout_calc]]). Exatamente uma das tres formas abaixo e usada por sessao:
+  // (1) distanceKm+paceSecondsPerKm preenchidos direto (corrida continua); (2) intervalStructure
+  // preenchido (serie com trecho forte + recuperacao, distanceKm/paceSecondsPerKm ficam null ou
+  // so descrevem um volume leve adicional); (3) walkRunStructure preenchido (alternancia
+  // caminhada/corrida, distanceKm/paceSecondsPerKm ficam null). O codigo nao gate-keeps qual
+  // forma usar — so confere consistencia interna de qual foi escolhida.
   distanceKm: number | null;
   paceSecondsPerKm: number | null;
   // Orientacoes gerais (aquecimento, desaquecimento, hidratacao, cuidados rua/esteira etc.),
   // pensadas pela IA para este aluno especifico — NAO fazem parte do treino prescrito nem da
   // distancia/duracao total, sao so recomendacoes em texto exibidas separadamente.
   recommendations?: string;
-  // Preenchido pela IA somente quando sessionType === 'quality_run'/'walk_run' (null nos demais
-  // casos). Substituem uma formula fixa (proporcao 30/70, passo de recuperacao sempre 0,4km, pace
-  // de recuperacao sempre 900s/km) que decidia isso no lugar da IA.
   intervalStructure?: IntervalStructureDecision | null;
   walkRunStructure?: WalkRunStructureDecision | null;
 }

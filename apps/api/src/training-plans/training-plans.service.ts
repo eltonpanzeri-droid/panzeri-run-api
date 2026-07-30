@@ -5,6 +5,7 @@ import { runnerStrengthExercises } from './runner-strength-library';
 import { gymExerciseLibrary } from './gym-exercise-library';
 import {
   MethodologyInput,
+  RunSessionDecision,
   StrengthSessionDecision,
   WeeklyMethodologyDecision,
   IntervalStructureDecision,
@@ -454,20 +455,32 @@ export class TrainingPlansService {
     this.recentAiFailures.delete(userId);
     const methodology = aiDecision;
 
+    // Agrupado por weekday (nao um Map de 1 pra 1) porque uma diretriz individual pode pedir mais
+    // de uma sessao de corrida no mesmo dia (ver buildSystemPromptStable) — o codigo nao valida
+    // isso, so aceita o que a IA decidiu. .shift() consome a PRIMEIRA decisao daquele dia pro slot
+    // normal de disponibilidade; qualquer sobra (segunda sessao no mesmo dia, ou um dia que nem
+    // estava na disponibilidade normal) vira sessao extra depois do loop principal.
+    const runDecisionsByWeekday = new Map<number, RunSessionDecision[]>();
+    for (const decision of methodology.sessions) {
+      const list = runDecisionsByWeekday.get(decision.weekday) ?? [];
+      list.push(decision);
+      runDecisionsByWeekday.set(decision.weekday, list);
+    }
+
     const sessions = availableDays.slice(0, 7).flatMap((day) => {
       const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(day.weekday));
       const modalities = day.modalities.length ? day.modalities : ['corrida'];
 
       return modalities.map((modality) => {
         const baseTemplate = this.templateForModality(modality, Boolean(latestTest));
-        const runDecision = isRunningModality(modality) ? methodology.sessions.find((decision) => decision.weekday === day.weekday) : undefined;
+        const runDecision = isRunningModality(modality) ? runDecisionsByWeekday.get(day.weekday)?.shift() : undefined;
         const strengthDecision = (modality === 'forca' || modality === 'fortalecimento_corredores')
           ? methodology.strengthSessions?.find((decision) => decision.weekday === day.weekday && decision.modality === modality)
           : undefined;
         const template = runDecision ? {
           ...baseTemplate,
           title: runDecision.title,
-          sessionType: runDecision.sessionType,
+          sessionType: this.deriveSessionTypeLabel(runDecision),
           durationMin: runDecision.durationMin,
           notes: runDecision.notes,
           recommendations: runDecision.recommendations,
@@ -496,7 +509,7 @@ export class TrainingPlansService {
             ? this.aerobicPrescription(durationMin, modality)
             // Distancia e pace vem inteiramente da decisao da IA para ESTE dia (runDecision) —
             // nao existe mais nenhuma conta de codigo (duracao/pace fixo) decidindo isso.
-            : this.runPrescription(durationMin, modality, template.sessionType, {
+            : this.runPrescription(durationMin, modality, {
                 distanceKm: runDecision?.distanceKm ?? null,
                 paceSecondsPerKm: runDecision?.paceSecondsPerKm ?? null,
                 intervalStructure: runDecision?.intervalStructure,
@@ -530,6 +543,42 @@ export class TrainingPlansService {
         };
       });
     });
+
+    // Sobras de runDecisionsByWeekday: segunda sessao de corrida no mesmo dia, ou um dia que a IA
+    // adicionou fora da disponibilidade normal — so acontece quando uma diretriz individual pediu
+    // isso explicitamente (ver buildSystemPromptStable). O loop principal acima so cobre 1 sessao
+    // de corrida por (dia, modalidade) porque vem da disponibilidade cadastrada do aluno.
+    const extraRunSessions = [...runDecisionsByWeekday.entries()].flatMap(([weekday, leftover]) => {
+      if (!leftover.length) return [];
+      const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(weekday));
+      return leftover.map((runDecision) => {
+        const durationMin = runDecision.durationMin;
+        const prescription = this.runPrescription(durationMin, 'corrida', {
+          distanceKm: runDecision.distanceKm ?? null,
+          paceSecondsPerKm: runDecision.paceSecondsPerKm ?? null,
+          intervalStructure: runDecision.intervalStructure,
+          walkRunStructure: runDecision.walkRunStructure,
+        });
+        return {
+          userId,
+          scheduledDate,
+          weekday,
+          modality: 'corrida',
+          title: 'Treino de corrida',
+          sessionType: this.deriveSessionTypeLabel(runDecision),
+          locationSuggestion: 'Livre',
+          durationMin: prescription.durationMin ?? durationMin,
+          distanceKm: prescription.distanceKm,
+          intensityZone: null,
+          paceMinSec: prescription.representativePaceSecondsPerKm != null ? formatPace(prescription.representativePaceSecondsPerKm) : null,
+          structure: prescription as unknown as Prisma.InputJsonObject,
+          notes: runDecision.notes,
+          recommendations: runDecision.recommendations ?? null,
+          videoRefs: [],
+        };
+      });
+    });
+    sessions.push(...extraRunSessions);
 
     if (archiveCurrentActive) {
       await this.prisma.trainingPlan.updateMany({
@@ -845,7 +894,6 @@ export class TrainingPlansService {
     } else if (isAerobic) {
       prescription = this.aerobicPrescription(durationMin, session.modality);
     } else {
-      const sessionType = (session.sessionType ?? 'easy_run') as 'easy_run' | 'quality_run' | 'long_run' | 'walk_run';
       const paceEvidence: PaceEvidence = {
         testPace: latestTest ? { secondsPerKm: latestTest.paceSecondsPerKm, daysAgo: Math.max(0, Math.floor((Date.now() - latestTest.createdAt.getTime()) / 86400000)) } : null,
         selfReportedPace: paceFallback ? { secondsPerKm: paceFallback.paceSecondsPerKm, source: paceFallback.source } : null,
@@ -853,8 +901,9 @@ export class TrainingPlansService {
       };
       // Decide TUDO deste dia numa unica chamada (distancia, pace, estrutura) — nunca reaproveita
       // um pace guardado de outro dia nem calcula distancia por formula (ver proposeRunSession).
+      // Nao ha mais categoria pre-definida (sessionType) pra informar — a IA decide a forma do
+      // treino do zero, olhando o contexto real deste dia.
       const runDecision = await this.prescriptionAgent.proposeRunSession({
-        sessionType,
         durationMin,
         evidence: paceEvidence,
         studentDirectives: activeDirectives.map((directive) => directive.content),
@@ -869,7 +918,7 @@ export class TrainingPlansService {
         );
         throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
       }
-      prescription = this.runPrescription(durationMin, session.modality, sessionType, runDecision);
+      prescription = this.runPrescription(durationMin, session.modality, runDecision);
     }
 
     return this.prisma.trainingSession.update({
@@ -882,6 +931,16 @@ export class TrainingPlansService {
         structure: prescription as unknown as Prisma.InputJsonObject,
       },
     });
+  }
+
+  // Rotulo puramente cosmetico, guardado so pra referencia futura do treinador no admin — nunca
+  // lido de volta por nenhuma logica (a IA nao declara mais uma categoria, ver AiSessionSchema em
+  // prescription-agent.service.ts). Derivado do que a propria IA preencheu pra aquele dia.
+  private deriveSessionTypeLabel(decision: { intervalStructure?: unknown; walkRunStructure?: unknown } | undefined): string {
+    if (!decision) return 'corrida';
+    if (decision.intervalStructure) return 'intervalado';
+    if (decision.walkRunStructure) return 'caminhada_corrida';
+    return 'continuo';
   }
 
   private templateForModality(modality: string, hasTest: boolean): SessionTemplate {
@@ -924,17 +983,21 @@ export class TrainingPlansService {
     return {
       title: 'Corrida leve',
       modality: 'corrida',
-      sessionType: 'easy_run',
+      sessionType: 'continuo',
       zone: 'Z2',
       durationMin: 50,
       notes: hasTest ? 'Manter ritmo confortavel dentro da zona indicada.' : 'Manter conforto respiratorio.',
     };
   }
 
+  // Nao existe mais categoria (sessionType) escolhida de antemao pela IA — ela descreve o treino
+  // livremente, preenchendo so os campos que fizerem sentido pra aquele dia (ver AiSessionSchema
+  // em prescription-agent.service.ts). Aqui so olhamos QUAL combinacao de campos veio preenchida
+  // pra montar a exibicao certa — nao ha julgamento de conteudo aqui, so formatacao do que a IA
+  // ja decidiu.
   private runPrescription(
     durationMin: number,
     modality: string,
-    sessionType: string,
     decision: {
       distanceKm: number | null;
       paceSecondsPerKm: number | null;
@@ -951,14 +1014,7 @@ export class TrainingPlansService {
     // Distancia e pace vem inteiramente da decisao da IA para ESTE dia especifico — nao existe
     // mais nenhuma conta de codigo (duracao dividida por um pace fixo da semana) decidindo isso.
 
-    if (sessionType === 'quality_run') {
-      // A estrutura (quantas repeticoes, distancia/pace de cada trecho forte/recuperacao, quanto
-      // de volume leve) e decisao do agente de IA (validada em prescription-agent.service.ts) —
-      // nao existe mais nenhuma proporcao/passo/pace fixo aqui. Chegar aqui sem essa estrutura e
-      // um bug de sincronizacao entre quem gerou a decisao e quem monta a sessao.
-      if (!decision.intervalStructure) {
-        throw new InternalServerErrorException(`Estrutura do treino intervalado ausente ao montar a sessao (durationMin=${durationMin}).`);
-      }
+    if (decision.intervalStructure) {
       const { repeatCount, fastStepKm, fastPaceSecondsPerKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm } = decision.intervalStructure;
       const intervalBlock: RunBlock = {
         label: 'Serie intervalada',
@@ -984,12 +1040,7 @@ export class TrainingPlansService {
       };
     }
 
-    if (sessionType === 'walk_run') {
-      // Mesma logica do quality_run acima: a estrutura vem da decisao do agente de IA, ja validada
-      // — nao existe mais pace/passo fixo aqui.
-      if (!decision.walkRunStructure) {
-        throw new InternalServerErrorException(`Estrutura de caminhada-corrida ausente ao montar a sessao (durationMin=${durationMin}).`);
-      }
+    if (decision.walkRunStructure) {
       const { repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm } = decision.walkRunStructure;
       const intervalBlock: RunBlock = {
         label: 'Bloco intervalado',
@@ -1009,9 +1060,9 @@ export class TrainingPlansService {
       };
     }
 
-    // easy_run / long_run: distancia e pace decididos diretamente pela IA para este dia.
+    // Corrida continua: distancia e pace decididos diretamente pela IA para este dia.
     if (decision.distanceKm == null || decision.paceSecondsPerKm == null) {
-      throw new InternalServerErrorException(`Distancia/pace ausentes ao montar a sessao (durationMin=${durationMin}, sessionType=${sessionType}).`);
+      throw new InternalServerErrorException(`Distancia/pace ausentes ao montar a sessao (durationMin=${durationMin}) e nenhuma estrutura preenchida — bug de sincronizacao entre a decisao da IA e a montagem da sessao.`);
     }
     const blocks = [this.runDistanceBlock('Principal', decision.distanceKm, decision.paceSecondsPerKm)];
 
@@ -1133,9 +1184,15 @@ export class TrainingPlansService {
   private strengthPrescription(durationMin: number, decision: StrengthSessionDecision) {
     const isRunnerStrength = decision.modality === 'fortalecimento_corredores';
     const category = isRunnerStrength ? 'Fortalecimento para corredores' : 'Musculacao';
-    const exercises = decision.exerciseIds
-      .map((id) => (isRunnerStrength ? runnerStrengthExercises : gymExerciseLibrary).find((item) => item.id === id))
-      .filter((item): item is (typeof gymExerciseLibrary)[number] | (typeof runnerStrengthExercises)[number] => Boolean(item));
+    const catalog = isRunnerStrength ? runnerStrengthExercises : gymExerciseLibrary;
+    // Normalmente todo exerciseId vem do catalogo curado (com video/descricao). Um id fora do
+    // catalogo so acontece quando uma diretriz individual do treinador pediu um exercicio
+    // especifico por nome (ver validateStrengthSessions em prescription-agent.service.ts) — nesse
+    // caso mostra o texto literal que a IA escreveu, sem video/descricao, em vez de descartar o
+    // exercicio da sessao silenciosamente.
+    const exercises = decision.exerciseIds.map(
+      (id) => catalog.find((item) => item.id === id) ?? { id, name: id, description: null as string | null },
+    );
 
     return {
       type: 'strength',
