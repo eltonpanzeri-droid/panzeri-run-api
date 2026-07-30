@@ -188,3 +188,44 @@ chame um agente de IA dentro de uma acao que precisa parecer instantanea (salvar
 - O campo `decisionSource` (sempre `undefined` hoje) ficou como código morto/vestigial no schema e
   no `inputSnapshot` — inofensivo agora que nada mais condiciona exibição nele, mas vale limpar num
   passe de faxina futuro.
+
+**2026-07-30** — Reescrita completa do motor de prescrição, a pedido explícito do treinador, após
+falha real de geração (aluna Roberta) e revisão de todas as regras que existiam em cima do
+raciocínio da IA:
+- Abolida a categoria de sessão (`sessionType`: easy_run/quality_run/long_run/walk_run) que a IA
+  tinha que escolher antes de decidir o treino — confirmado no código que nunca aparecia pro
+  aluno/treinador, era só um detalhe interno meu que forçava um formato de resposta rígido. A IA
+  agora descreve o treino livre, preenchendo só os campos que fizerem sentido pro dia (distância+
+  pace direto, série com recuperação, ou alternância caminhada-corrida).
+- Removidas regras de código que eu tinha inventado sem pedido do treinador: teto de 180min por
+  sessão, bloqueio automático de sessão intensa por sinal de dor, e a instrução "soma da semana
+  nunca cai muito abaixo do km relatado". Única regra física que sobrevive em todo o sistema: pace
+  de corrida nunca mais lento que 8:30/km.
+- Diretriz individual do treinador agora pode sobrepor também disponibilidade de dia (dia extra ou
+  2 sessões de corrida no mesmo dia) e o catálogo de exercícios de força (exercício fora do
+  catálogo aparece pro aluno só como texto, sem vídeo).
+- Novo mecanismo de reparo por dia isolado: se só 1-2 dias específicos violarem o piso de 8:30/km,
+  o sistema pede pra IA refazer só aqueles dias, em vez de descartar a semana inteira — corrige a
+  causa raiz exata da falha da Roberta (um único dia ruim jogava fora os outros 6 que estavam
+  certos).
+- Achado e corrigido um bug real de desconexão texto/estrutura (sessão da aluna Karla): a
+  estrutura numérica do treino e o texto explicativo (`notes`/`recommendations`) citavam números
+  diferentes um do outro. Causa: a regra de consistência interna tinha sido encurtada demais na
+  reescrita acima. Corrigida com uma explicação mais rica (não uma proibição): os campos de texto
+  são a "voz do treinador" narrando a mesma prescrição que já está nos números, nunca uma segunda
+  versão inventada.
+- Achados e corrigidos 4 textos remanescentes mencionando o teste de 3km (removido do fluxo do
+  aluno em 28/07, mas o texto não tinha sido totalmente varrido): tela de login/marketing, uma
+  pergunta da entrevista, a notificação automática de "sem plano ainda", e — o mais provável
+  causador da confusão real da aluna Mariana — a própria tela de checkout, que dizia "com base na
+  sua entrevista e no teste de 3km" mesmo pra quem nunca fez teste nenhum.
+- Atualizada a biblioteca de exercícios de fortalecimento para corredores (`runner-strength-
+  library.ts`) com descrições completas fornecidas pelo treinador para as 43 entradas (41
+  existentes + 2 novas: "Saltito abre e fecha no step" e "Subir no step 1,2,3,4").
+- Confirmado: o deploy no EasyPanel está automático a cada push (verificado no histórico de
+  implantações) — nenhuma suspeita de versão desatualizada em produção nesta sessão.
+- Investigado e não resolvido: 401 do Strava ao criar webhook automático. Client ID/secret no
+  EasyPanel conferem exatamente com o que a página do Strava mostra hoje — descartada a hipótese
+  de segredo desatualizado. Suspeita restante (não verificável por mim): espaço/caractere invisível
+  copiado numa das duas pontas. Sugerido ao treinador gerar um novo client secret e recolar direto
+  do Strava pra eliminar essa possibilidade.
