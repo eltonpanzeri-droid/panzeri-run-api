@@ -22,6 +22,7 @@ import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { StravaService } from '../strava/strava.service';
 import { TelegramService } from '../billing/telegram.service';
+import { StudentProfileService, ProfileEventCode } from './student-profile.service';
 
 interface SessionTemplate {
   title: string;
@@ -64,6 +65,13 @@ interface WeeklyAvailabilityInput {
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
 const planEngineVersion = 'rules-v11-' + PANZERI_METHODOLOGY_VERSION;
 
+// Instrucao de aquecimento/resfriamento generica e padrao para todo treino de corrida — decisao
+// deliberada do treinador: isso e boilerplate pratico igual pra qualquer aluno, nao uma decisao
+// de treino que precisa de raciocinio da IA a cada sessao. Fixo em codigo, sem custo de IA,
+// apendado ao final das recomendacoes de toda sessao de corrida.
+const STANDARD_WARMUP_COOLDOWN_TEXT =
+  'Aquecimento: 5-10 min de corrida bem leve ou caminhada rapida antes de comecar o treino prescrito. Resfriamento: 5 min de corrida bem leve ou caminhada logo apos terminar, seguido de alongamento leve.';
+
 // Disjuntor contra gasto em loop: current() e chamado toda vez que ALGUEM SO ABRE a pagina do
 // aluno (painel do treinador ou app da aluna) — nao e uma acao explicita de "gerar treino". Se a
 // geracao com IA falhar (bug, cota, instabilidade), o plano fica desatualizado pra sempre e
@@ -92,6 +100,7 @@ export class TrainingPlansService {
     private readonly targetRaces: TargetRacesService,
     private readonly stravaService: StravaService,
     private readonly telegram: TelegramService,
+    private readonly studentProfile: StudentProfileService,
   ) {}
 
   // REGRA DURA (2026-07-28): current() e SO LEITURA — nunca chama generateWeek() nem mexe no
@@ -383,6 +392,9 @@ export class TrainingPlansService {
     // generateWeek() so LE o que ja estiver pronto no cache, nunca dispara uma chamada de IA nova.
     const stravaAnalysisCache = await this.prisma.stravaAnalysisCache.findUnique({ where: { userId } });
     const stravaAnalysis = (stravaAnalysisCache?.analysis as unknown as StravaAnalysisReport | null) ?? null;
+    // So chama a IA do prontuario se houver evento novo acumulado desde a ultima atualizacao —
+    // ver StudentProfileService.refreshProfile. Falha aqui nunca bloqueia a geracao da semana.
+    const studentProfileSummary = await this.studentProfile.refreshProfile(userId).catch(() => '');
     const methodologyInput: MethodologyInput = {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
       experience: user.preferences?.experienceLevel ?? '',
@@ -407,6 +419,7 @@ export class TrainingPlansService {
       stravaAnalysis,
       studentDirectives: activeDirectives.map((directive) => directive.content),
       activeObservations: activeObservations.map((observation) => observation.content),
+      studentProfileSummary,
       todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
       weekDates: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
         weekday,
@@ -483,7 +496,7 @@ export class TrainingPlansService {
           sessionType: this.deriveSessionTypeLabel(runDecision),
           durationMin: runDecision.durationMin,
           notes: runDecision.notes,
-          recommendations: runDecision.recommendations,
+          recommendations: `${runDecision.recommendations} ${STANDARD_WARMUP_COOLDOWN_TEXT}`,
         } : baseTemplate;
         const modalityDurations = normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined);
         const requestedDuration = modalityDurations?.[modality] ?? day.availableMin ?? template.durationMin;
@@ -573,7 +586,7 @@ export class TrainingPlansService {
           paceMinSec: prescription.representativePaceSecondsPerKm != null ? formatPace(prescription.representativePaceSecondsPerKm) : null,
           structure: prescription as unknown as Prisma.InputJsonObject,
           notes: runDecision.notes,
-          recommendations: runDecision.recommendations ?? null,
+          recommendations: `${runDecision.recommendations} ${STANDARD_WARMUP_COOLDOWN_TEXT}`,
           videoRefs: [],
         };
       });
@@ -656,6 +669,21 @@ export class TrainingPlansService {
         },
       },
     });
+
+    // Copia em texto da prescricao numerica que acabou de ser decidida — puro codigo, sem custo
+    // de IA (a criacao do texto em si nao chama nenhum modelo). Vira insumo pro agente do
+    // prontuario condensar antes da PROXIMA geracao de semana.
+    const weekSummaryForProfile = plan.sessions
+      .map((session) => {
+        const parts = [`${weekdayLabel(session.weekday)} ${session.modality}: ${session.title}`];
+        if (session.distanceKm) parts.push(`${session.distanceKm}km`);
+        if (session.durationMin) parts.push(`${session.durationMin}min`);
+        return parts.join(', ');
+      })
+      .join(' | ');
+    void this.studentProfile
+      .recordEvent(userId, ProfileEventCode.WEEK_GENERATED, `Semana de ${plan.startDate.toISOString().slice(0, 10)} gerada: ${weekSummaryForProfile}`)
+      .catch(() => undefined);
 
     // Avisa o aluno so quando um plano de verdade vira a semana ATIVA dele (nunca na
     // pre-geracao "scheduled" de domingo, que ja tem seu proprio aviso — ver Sunday-19h
@@ -1447,6 +1475,11 @@ function addDays(date: Date, days: number) {
 
 function weekdayOffsetFromMonday(weekday: number) {
   return weekday === 0 ? 6 : weekday - 1;
+}
+
+const WEEKDAY_LABELS = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+function weekdayLabel(weekday: number) {
+  return WEEKDAY_LABELS[weekday] ?? String(weekday);
 }
 
 function isRunningModality(modality: string) {

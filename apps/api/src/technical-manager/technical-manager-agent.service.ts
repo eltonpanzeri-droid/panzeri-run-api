@@ -6,6 +6,7 @@ import { StravaService } from '../strava/strava.service';
 import { AiQueueService } from '../common/ai-queue.service';
 import { TrainingPlansService } from '../training-plans/training-plans.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
+import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 
 const MAX_TOOL_ITERATIONS = 6;
 const HISTORY_LIMIT = 40;
@@ -26,6 +27,7 @@ export class TechnicalManagerAgentService {
     private readonly strava: StravaService,
     private readonly aiQueue: AiQueueService,
     private readonly trainingPlans: TrainingPlansService,
+    private readonly studentProfile: StudentProfileService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     this.client = apiKey ? new Anthropic({ apiKey }) : null;
@@ -181,6 +183,11 @@ export class TechnicalManagerAgentService {
           const expiresAt = expiresAtRaw ? new Date(`${expiresAtRaw}T23:59:59.000Z`) : undefined;
           if (expiresAtRaw && Number.isNaN(expiresAt?.getTime())) return 'Erro: data de validade invalida, use o formato AAAA-MM-DD.';
           const created = await this.prisma.studentDirective.create({ data: { userId: studentId, content, expiresAt } });
+          void this.studentProfile.recordEvent(
+            studentId,
+            ProfileEventCode.DIRECTIVE_ADDED,
+            `Diretriz do gerente tecnico${expiresAt ? ` (valida ate ${expiresAtRaw})` : ' (permanente)'}: ${content}`,
+          ).catch(() => undefined);
           const activePlan = await this.prisma.trainingPlan.findFirst({
             where: { userId: studentId, status: 'active' },
             orderBy: { createdAt: 'desc' },

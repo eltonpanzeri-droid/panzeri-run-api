@@ -52,6 +52,7 @@ model User {
   coachChatMessages   CoachChatMessage[]
   targetRaces         TargetRace[]
   painReports         PainReport[]
+  profileEvents       StudentProfileEvent[]
   observations        StudentObservation[]
 }
 
@@ -470,4 +471,32 @@ model CoachReport {
   createdAt  DateTime @default(now())
 
   @@index([userId, reportType, createdAt])
+}
+
+// Registro bruto do prontuario, gerado inteiramente por codigo (nunca por IA) toda vez que algo
+// relevante acontece com o aluno (entrevista concluida, treino gerado, treino registrado,
+// diretriz, observacao, dor, reavaliacao). Zero custo de IA para criar essas linhas — e so
+// formatacao de texto. O agente do prontuario (StudentProfileAgentService) le as linhas com
+// summarizedAt nulo pra saber exatamente o que e novo desde a ultima atualizacao do resumo, sem
+// nunca precisar reler o historico inteiro de novo.
+model StudentProfileEvent {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+  code         String
+  content      String
+  createdAt    DateTime  @default(now())
+  summarizedAt DateTime?
+
+  @@index([userId, summarizedAt])
+}
+
+// O prontuario em si: um resumo curto e continuamente atualizado, pensado pra substituir o
+// motor de prescricao tendo que re-deduzir padroes do aluno a partir de numeros crus toda semana
+// — a mesma logica que um treinador real usa (memoria acumulada do aluno, atualizada aos poucos,
+// nunca reconstruida do zero).
+model StudentProfile {
+  userId    String   @id
+  summary   String   @default("")
+  updatedAt DateTime @updatedAt
 }

@@ -229,3 +229,30 @@ raciocínio da IA:
   de segredo desatualizado. Suspeita restante (não verificável por mim): espaço/caractere invisível
   copiado numa das duas pontas. Sugerido ao treinador gerar um novo client secret e recolar direto
   do Strava pra eliminar essa possibilidade.
+
+**2026-07-30 (2)** — Construído o "prontuário do aluno", a pedido do treinador, para reduzir o
+custo/latência da geração semanal sem perder contexto real sobre o aluno:
+- Dois modelos novos no Prisma: `StudentProfileEvent` (log de eventos, append-only — timestamp,
+  código, texto) e `StudentProfile` (resumo condensado atual, um por aluno). Toda gravação de
+  evento é puro código (zero custo de IA): conclusão de entrevista, geração de semana (cópia em
+  texto da prescrição numérica), registro de treino feito/ajustado/não feito, diretriz salva pelo
+  Gerente Técnico, observação do aluno, relato de dor, reavaliação concluída.
+- Um agente pequeno e barato (`StudentProfileService.refreshProfile`, Sonnet 5, thinking
+  desligado, ~1800 tokens de saída) condensa (resumo atual + eventos novos) num resumo atualizado.
+  Só roda se houver evento novo acumulado — sem evento novo, zero chamada de IA. Disparado logo
+  antes da geração da próxima semana, nunca por evento isolado.
+- Conteúdo vindo de observação do aluno ou diretriz do treinador é preservado quase literal no
+  resumo (mesma prioridade quase absoluta que já tinham no agente principal); feedback de treino só
+  é resumido pelo agente quando for longo, senão passa direto.
+- O agente principal de prescrição semanal agora recebe esse resumo (`prontuarioDoAluno`) como mais
+  uma fonte de contexto, complementar ao histórico bruto/diretrizes/observações que já existiam (não
+  os substitui).
+- `recommendations` de cada sessão de corrida ficou bem mais curto ("poucas linhas", limite de
+  exibição caiu de 600 para 350 caracteres) — deixou de tentar repetir tudo que já está em `notes`.
+  Aquecimento/resfriamento saiu do que a IA escreve: virou um texto fixo padrão
+  (`STANDARD_WARMUP_COOLDOWN_TEXT`), apendado por código a toda sessão de corrida.
+- Módulo isolado (`StudentProfileModule`, sem depender de `TrainingPlansModule`) para não criar
+  dependência circular — vários módulos que disparam eventos (pain-reports, observations,
+  reassessment, workout-completions) já são importados por `TrainingPlansModule`.
+- Build e typecheck completos rodados sem erro após a mudança; não testado em produção ainda (sem
+  histórico real acumulado nenhum aluno pra exercitar o agente de resumo de fato).

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EvolutionAgentService } from './evolution-agent.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
+import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 
 export const REASSESSMENT_DUE_AFTER_DAYS = 90;
 
@@ -11,6 +12,7 @@ export class ReassessmentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly evolutionAgent: EvolutionAgentService,
+    private readonly studentProfile: StudentProfileService,
   ) {}
 
   async state(userId: string) {
@@ -94,6 +96,12 @@ export class ReassessmentService {
     });
 
     if (!report) return completed;
+
+    void this.studentProfile.recordEvent(
+      userId,
+      ProfileEventCode.REASSESSMENT_COMPLETED,
+      `Reavaliacao periodica concluida. Resumo de evolucao: ${report.summary}`,
+    ).catch(() => undefined);
 
     return this.prisma.reassessment.update({
       where: { id: draft.id },

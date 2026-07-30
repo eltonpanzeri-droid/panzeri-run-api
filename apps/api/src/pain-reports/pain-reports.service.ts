@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePainReportDto } from './dto/create-pain-report.dto';
+import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 
 const SEVERE_WINDOW_DAYS = 14;
 const REPORT_LOOKBACK_DAYS = 21;
@@ -14,7 +15,10 @@ export interface PainSafetyTier {
 
 @Injectable()
 export class PainReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly studentProfile: StudentProfileService,
+  ) {}
 
   list(userId: string) {
     return this.prisma.painReport.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
@@ -30,8 +34,8 @@ export class PainReportsService {
     return [...new Set(reports.flatMap((report) => report.regions))];
   }
 
-  create(userId: string, dto: CreatePainReportDto) {
-    return this.prisma.painReport.create({
+  async create(userId: string, dto: CreatePainReportDto) {
+    const report = await this.prisma.painReport.create({
       data: {
         userId,
         regions: dto.regions,
@@ -45,6 +49,16 @@ export class PainReportsService {
         comment: dto.comment,
       },
     });
+
+    const profileText = [
+      `Relato de dor: regioes ${dto.regions.join(', ')}${dto.otherLocation ? ` (${dto.otherLocation})` : ''}, intensidade ${dto.intensity}/10.`,
+      dto.onsetPattern ? `Inicio: ${dto.onsetPattern}.` : '',
+      dto.persistencePattern ? `Padrao: ${dto.persistencePattern}.` : '',
+      dto.comment?.trim() ? `Comentario do aluno: ${dto.comment.trim()}` : '',
+    ].filter(Boolean).join(' ');
+    void this.studentProfile.recordEvent(userId, ProfileEventCode.PAIN_REPORT, profileText).catch(() => undefined);
+
+    return report;
   }
 
   // Calcula o "tier" de seguranca com base em relatos RECENTES, nao na entrevista de

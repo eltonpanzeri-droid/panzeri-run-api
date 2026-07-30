@@ -9,6 +9,7 @@ import { UpdatePreferencesDto } from './dto/update-preferences.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { normalizeCpf } from '../billing/billing.service';
 import { TrainingPlansService } from '../training-plans/training-plans.service';
+import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 
 // O aluno decide sozinho os dias/modalidades/tempo da propria rotina, mas como TODO o programa
 // de treino e montado em cima dessa informacao, alteracoes livres e frequentes tanto custariam
@@ -25,6 +26,7 @@ export class MeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly trainingPlans: TrainingPlansService,
+    private readonly studentProfile: StudentProfileService,
   ) {}
 
   acceptExerciseResponsibility(userId: string) {
@@ -173,6 +175,14 @@ export class MeService {
       }
       throw error;
     }
+
+    void this.studentProfile.recordEvent(
+      userId,
+      ProfileEventCode.ONBOARDING_COMPLETED,
+      `Entrevista inicial concluida. Objetivo: ${stringValue(answers.objective)}. Experiencia com corrida: ${stringValue(answers.running_experience)}. Modalidades praticadas: ${preferredModalities.join(', ') || 'nenhuma informada'}.`,
+    ).catch((error) => {
+      this.logger.warn(`recordEvent(ONBOARDING_COMPLETED) falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+    });
 
     // generateWeek() cuida sozinho de arquivar o plano ativo anterior (se houver — ex: aluno
     // que reabriu a entrevista pra corrigir algo) e de migrar os dias ja passados/de hoje pra

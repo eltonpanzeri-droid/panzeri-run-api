@@ -2,12 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService } from '../billing/telegram.service';
 import { CreateObservationDto } from './dto/create-observation.dto';
+import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 
 @Injectable()
 export class ObservationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly telegram: TelegramService,
+    private readonly studentProfile: StudentProfileService,
   ) {}
 
   async listMine(userId: string) {
@@ -23,6 +25,10 @@ export class ObservationsService {
     await this.telegram.notifyCoach(
       `Nova observacao registrada no Panzeri Run\n\nAluno: ${user.name}\nE-mail: ${user.email}\nObservacao: ${observation.content}`,
     );
+
+    void this.studentProfile
+      .recordEvent(userId, ProfileEventCode.STUDENT_OBSERVATION, `Observacao do aluno: ${observation.content}`)
+      .catch(() => undefined);
 
     return observation;
   }

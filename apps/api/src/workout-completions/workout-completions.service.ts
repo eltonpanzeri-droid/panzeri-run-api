@@ -3,12 +3,14 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { UpsertWorkoutCompletionDto } from './dto/upsert-workout-completion.dto';
+import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 
 @Injectable()
 export class WorkoutCompletionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly studentProfile: StudentProfileService,
   ) {}
 
   async upsert(userId: string, dto: UpsertWorkoutCompletionDto) {
@@ -65,6 +67,18 @@ export class WorkoutCompletionsService {
         source: 'manual',
       },
     });
+
+    const statusLabelForProfile = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'fez com ajustes' : 'nao fez';
+    const profileParts = [
+      `Aluno ${statusLabelForProfile} o treino "${session.title}".`,
+      dto.distanceKm ? `Distancia: ${dto.distanceKm}km.` : '',
+      dto.avgPaceSecondsKm ? `Pace medio: ${Math.floor(dto.avgPaceSecondsKm / 60)}:${String(dto.avgPaceSecondsKm % 60).padStart(2, '0')}/km.` : '',
+      dto.perceivedEffort ? `Esforco percebido: ${dto.perceivedEffort}/10.` : '',
+      dto.satisfaction ? `Satisfacao: ${satisfactionLabel(dto.satisfaction)}.` : '',
+      dto.painFlag && dto.painFlag !== 'none' ? `Dor sinalizada: ${dto.painFlag}.` : '',
+      dto.notes?.trim() ? `Feedback do aluno: ${dto.notes.trim()}` : '',
+    ].filter(Boolean).join(' ');
+    void this.studentProfile.recordEvent(userId, ProfileEventCode.WORKOUT_COMPLETED, profileParts).catch(() => undefined);
 
     const student = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
     const coachEmails = (this.config.get<string>('COACH_EMAILS') ?? '')

@@ -87,6 +87,11 @@ export interface MethodologyInput {
   } | null;
   studentDirectives?: string[];
   activeObservations?: string[];
+  // Resumo condensado do prontuario do aluno (StudentProfileService.refreshProfile), gerado por
+  // um agente pequeno e barato que le o log de eventos do aluno. Complementa (nao substitui) os
+  // campos acima — pense nele como "o que um treinador ja sabe de cor sobre esse aluno", enquanto
+  // history/studentDirectives/activeObservations continuam sendo a fonte primaria e mais recente.
+  studentProfileSummary?: string;
   todayDate?: string;
   weekDates?: Array<{ weekday: number; date: string }>;
   recentReassessment?: {

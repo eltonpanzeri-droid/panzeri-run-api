@@ -5,6 +5,7 @@ import { TrainingPlansController } from './training-plans.controller';
 import { TrainingPlansService } from './training-plans.service';
 import { PrescriptionAgentService } from './prescription-agent.service';
 import { StravaAnalysisAgentService } from './strava-analysis-agent.service';
+import { StudentProfileModule } from './student-profile.module';
 import { WeeklyPlanSchedulerService } from './weekly-plan-scheduler.service';
 import { StravaAnalysisSchedulerService } from './strava-analysis-scheduler.service';
 import { PainReportsModule } from '../pain-reports/pain-reports.module';
@@ -13,9 +14,9 @@ import { StravaModule } from '../strava/strava.module';
 import { BillingModule } from '../billing/billing.module';
 
 @Module({
-  imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, StravaModule, BillingModule],
+  imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, StravaModule, BillingModule, StudentProfileModule],
   controllers: [TrainingPlansController],
   providers: [TrainingPlansService, PrescriptionAgentService, StravaAnalysisAgentService, WeeklyPlanSchedulerService, StravaAnalysisSchedulerService],
-  exports: [TrainingPlansService],
+  exports: [TrainingPlansService, StudentProfileModule],
 })
 export class TrainingPlansModule {}
