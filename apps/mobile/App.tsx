@@ -2014,6 +2014,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   const [billingMessage, setBillingMessage] = useState('');
   const [couponCode, setCouponCode] = useState('');
   const [cpf, setCpf] = useState('');
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [weeklyRoutine, setWeeklyRoutine] = useState<RoutineDay[]>(cloneRoutine(baseRoutineDays));
   const [completionDrafts, setCompletionDrafts] = useState<Record<string, CompletionDraft>>({});
   const [completionMessages, setCompletionMessages] = useState<Record<string, string>>({});
@@ -2280,10 +2281,15 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   }
 
   async function openSubscriptionCheckout() {
+    // Mesma trava contra cliques repetidos do Billing (ver comentario la): sem isso, cada toque
+    // gerava uma cobranca nova no Asaas e um aviso novo no Telegram, mesmo com a tentativa
+    // anterior ainda em andamento.
+    if (isCheckingOut) return;
     if (cpf.replace(/\D/g, '').length !== 11) {
       setBillingMessage('Informe um CPF valido (11 numeros) para continuar.');
       return;
     }
+    setIsCheckingOut(true);
     setBillingMessage('Preparando pagamento seguro...');
     let response: Response;
     try {
@@ -2294,15 +2300,27 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       });
     } catch {
       setBillingMessage('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
+      setIsCheckingOut(false);
       return;
     }
     try {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.checkoutUrl) throw new Error(typeof data.message === 'string' ? data.message : 'Nao consegui abrir o pagamento. Tente novamente.');
-      setBillingMessage('Pagamento aberto. Depois de pagar, volte ao aplicativo.');
-      await Linking.openURL(data.checkoutUrl);
+      setBillingMessage('Abrindo pagamento...');
+      // No navegador (PWA), Linking.openURL usa window.open — apos o await da chamada de rede
+      // acima, o navegador ja nao trata isso como gesto direto do usuario e o bloqueador de
+      // pop-up costuma barrar a abertura SEM erro nenhum (o servidor ja criou a cobranca, so
+      // nada abre pro aluno). Navegar a propria aba nao esbarra nesse bloqueio.
+      if (Platform.OS === 'web') {
+        window.location.href = data.checkoutUrl;
+      } else {
+        await Linking.openURL(data.checkoutUrl);
+        setBillingMessage('Pagamento aberto. Depois de pagar, volte ao aplicativo.');
+        setIsCheckingOut(false);
+      }
     } catch (error) {
       setBillingMessage(error instanceof Error ? error.message : 'Nao consegui abrir o pagamento. Tente novamente.');
+      setIsCheckingOut(false);
     }
   }
 
@@ -2349,8 +2367,8 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       <Text style={styles.formHint}>{plan?.priceLabel ?? 'R$ 19,90 por mes'}. Plano mensal, sem fidelidade.</Text>
       <Text style={styles.inputLabel}>CPF</Text>
       <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
-      <Pressable style={styles.primaryButton} onPress={openSubscriptionCheckout}>
-        <Text style={styles.primaryButtonText}>Ativar minha assinatura</Text>
+      <Pressable style={[styles.primaryButton, isCheckingOut && styles.disabledButton]} disabled={isCheckingOut} onPress={openSubscriptionCheckout}>
+        <Text style={styles.primaryButtonText}>{isCheckingOut ? 'Preparando pagamento...' : 'Ativar minha assinatura'}</Text>
         <Ionicons name="card" size={18} color="#ffffff" />
       </Pressable>
       <Text style={styles.formHint}>O acesso aos treinos sera liberado assim que o pagamento for confirmado.</Text>
@@ -2403,8 +2421,8 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
           <Text style={styles.formHint}>{plan.priceLabel ?? 'R$ 19,90 por mes'}. Plano mensal, sem fidelidade.</Text>
           <Text style={styles.inputLabel}>CPF</Text>
           <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
-          <Pressable style={styles.primaryButton} onPress={openSubscriptionCheckout}>
-            <Text style={styles.primaryButtonText}>Ativar minha assinatura</Text>
+          <Pressable style={[styles.primaryButton, isCheckingOut && styles.disabledButton]} disabled={isCheckingOut} onPress={openSubscriptionCheckout}>
+            <Text style={styles.primaryButtonText}>{isCheckingOut ? 'Preparando pagamento...' : 'Ativar minha assinatura'}</Text>
             <Ionicons name="card" size={18} color="#ffffff" />
           </Pressable>
           <Text style={styles.formHint}>Seu treino ja esta preparado. Apos a confirmacao, o acesso e liberado para iniciar os treinos.</Text>
@@ -3853,6 +3871,7 @@ function Billing({ accessToken }: { accessToken: string }) {
   const [couponCode, setCouponCode] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cpf, setCpf] = useState('');
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
 
   async function loadBilling(showConfirmation = false) {
     if (showConfirmation) setMessage('Consultando sua assinatura...');
@@ -3872,10 +3891,16 @@ function Billing({ accessToken }: { accessToken: string }) {
   useEffect(() => { void loadBilling(false); }, [accessToken]);
 
   async function subscribe() {
+    // Trava contra cliques repetidos: sem isso, cada toque no botao (mesmo que o anterior ainda
+    // esteja em andamento) disparava uma nova cobranca no Asaas e um novo aviso no Telegram do
+    // treinador — se o link nao abre visivelmente (ver comentario abaixo sobre popup bloqueado),
+    // o aluno tende a clicar varias vezes seguidas, gerando dezenas de tentativas.
+    if (isCheckingOut) return;
     if (!details?.hasCpf && cpf.replace(/\D/g, '').length !== 11) {
       setMessage('Informe um CPF valido (11 numeros) para continuar.');
       return;
     }
+    setIsCheckingOut(true);
     setMessage('Preparando pagamento seguro...');
     let response: Response;
     try {
@@ -3886,15 +3911,31 @@ function Billing({ accessToken }: { accessToken: string }) {
       });
     } catch {
       setMessage('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
+      setIsCheckingOut(false);
       return;
     }
     try {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.checkoutUrl) throw new Error(typeof data.message === 'string' ? data.message : 'Nao consegui abrir o pagamento. Tente novamente.');
-      setMessage('Conclua o pagamento e volte ao aplicativo.');
-      await Linking.openURL(data.checkoutUrl);
+      setMessage('Abrindo pagamento...');
+      // No navegador (PWA), Linking.openURL usa window.open — depois de um await (a chamada
+      // de rede acima), o navegador ja nao considera isso um gesto direto do usuario e o
+      // bloqueador de pop-up costuma barrar a abertura SEM erro nenhum: a chamada "funciona"
+      // (o servidor ja criou a cobranca, por isso o treinador recebia aviso no Telegram), mas
+      // nada abre pro aluno, que fica preso na mesma tela sem entender o que aconteceu e clica
+      // de novo, gerando uma cobranca nova a cada tentativa. Navegar a propria aba pro link
+      // (em vez de abrir uma nova) nao esbarra nesse bloqueio. No app nativo (nao navegador),
+      // Linking.openURL continua normalmente.
+      if (Platform.OS === 'web') {
+        window.location.href = data.checkoutUrl;
+      } else {
+        await Linking.openURL(data.checkoutUrl);
+        setMessage('Conclua o pagamento e volte ao aplicativo.');
+        setIsCheckingOut(false);
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Nao consegui abrir o pagamento. Tente novamente.');
+      setIsCheckingOut(false);
     }
   }
 
@@ -3975,8 +4016,8 @@ function Billing({ accessToken }: { accessToken: string }) {
               <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
             </>
           ) : null}
-          <Pressable style={styles.primaryButton} onPress={subscribe}>
-            <Text style={styles.primaryButtonText}>{active ? 'Atualizar forma de pagamento' : 'Ativar assinatura'}</Text>
+          <Pressable style={[styles.primaryButton, isCheckingOut && styles.disabledButton]} disabled={isCheckingOut} onPress={subscribe}>
+            <Text style={styles.primaryButtonText}>{isCheckingOut ? 'Preparando pagamento...' : active ? 'Atualizar forma de pagamento' : 'Ativar assinatura'}</Text>
             <Ionicons name="card" size={18} color="#ffffff" />
           </Pressable>
         </View>

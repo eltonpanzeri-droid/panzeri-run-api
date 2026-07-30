@@ -33,9 +33,17 @@ const PLAN_DESCRIPTION = 'Panzeri Run - Plano mensal';
 const WELCOME_NOTIFICATION_TYPE = 'subscription_welcome';
 const WELCOME_NOTIFICATION_TITLE = 'Bem-vindo ao Panzeri Run';
 const WELCOME_NOTIFICATION_MESSAGE = 'Estou muito feliz em poder conduzir você em sua jornada de treinos. Vamos com tudo';
+// Se o link de pagamento nao abre visivelmente pro aluno (ver correcao do bloqueador de pop-up
+// no app), ele tende a clicar em "Ativar assinatura" varias vezes seguidas — sem essa trava,
+// cada clique gerava uma chamada nova pro Asaas e um aviso novo no Telegram do treinador (ja
+// aconteceu na pratica: dezenas de avisos numa unica tentativa de pagamento). Dentro dessa
+// janela, reaproveita o link ja gerado em vez de criar uma cobranca nova.
+const CHECKOUT_RETRY_COOLDOWN_MS = 30 * 1000;
 
 @Injectable()
 export class BillingService {
+  private readonly recentCheckouts = new Map<string, { checkoutUrl: string; at: number }>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
@@ -116,6 +124,16 @@ export class BillingService {
     // nenhum jeito de sair disso (bug real reportado por uma aluna: "clica e nao avanca"). Agora
     // toda tentativa busca um link de pagamento fresco no Asaas — a checagem de assinatura ACTIVE
     // logo abaixo ja evita criar assinatura duplicada, entao isso nao gera custo extra real.
+    //
+    // Mas se o link nao chega a abrir de verdade pro aluno (ver bug do bloqueador de pop-up
+    // corrigido no app), ele clica de novo repetidamente — sem essa trava de curto prazo, cada
+    // clique disparava uma chamada nova pro Asaas e um aviso novo no Telegram do treinador
+    // (aconteceu na pratica: dezenas de avisos numa unica tentativa). Dentro da janela, devolve
+    // o mesmo link ja gerado agora ha pouco, sem chamar o Asaas nem avisar o treinador de novo.
+    const recent = this.recentCheckouts.get(userId);
+    if (recent && Date.now() - recent.at < CHECKOUT_RETRY_COOLDOWN_MS) {
+      return { checkoutUrl: recent.checkoutUrl };
+    }
 
     const customerId = existing?.externalCustomerId ?? (await this.ensureCustomer(userId, user.name, user.email, savedCpf));
 
@@ -175,6 +193,7 @@ export class BillingService {
     ]);
 
     await this.telegram.notifyCoach(`Nova assinatura gerada no Panzeri Run\n\nAluno: ${user.name}\nE-mail: ${user.email}\nStatus: aguardando pagamento (R$ 19,90/mes)`);
+    this.recentCheckouts.set(userId, { checkoutUrl, at: Date.now() });
 
     return { checkoutUrl };
   }
