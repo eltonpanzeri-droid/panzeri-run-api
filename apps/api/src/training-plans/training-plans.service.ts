@@ -883,6 +883,16 @@ export class TrainingPlansService {
     const isAerobic = session.modality === 'bike';
     const durationMin = session.durationMin ?? 45;
 
+    // title/notes escritos pela IA para este dia de forca/fortalecimento especifico — antes deste
+    // fix (2026-07-31) o update() abaixo nunca gravava esses dois campos, entao "Refazer" um dia
+    // avulso de forca atualizava so exercicios/series/reps e deixava o titulo/texto antigo (ou o
+    // generico) parado na tela, mesmo a IA tendo escrito um texto novo pra esse dia. Mesma familia
+    // do bug ja corrigido na geracao semanal (assembly de sessions em generateWeek). O treino de
+    // corrida avulso nao tem esse problema: o schema dele (attemptRunSessionDecision) nunca pediu
+    // notes/title pra IA, so numeros — nao ha texto novo sendo descartado nesse caso.
+    let strengthTitleUpdate: string | undefined;
+    let strengthNotesUpdate: string | undefined;
+
     let prescription;
     if (isStrength) {
       const methodologyInput: MethodologyInput = {
@@ -919,6 +929,8 @@ export class TrainingPlansService {
         throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
       }
       prescription = this.strengthPrescription(durationMin, strengthDecision);
+      strengthTitleUpdate = strengthDecision.title;
+      strengthNotesUpdate = strengthDecision.notes;
     } else if (isAerobic) {
       prescription = this.aerobicPrescription(durationMin, session.modality);
     } else {
@@ -957,6 +969,8 @@ export class TrainingPlansService {
           ? formatPace(prescription.representativePaceSecondsPerKm)
           : null,
         structure: prescription as unknown as Prisma.InputJsonObject,
+        ...(strengthTitleUpdate ? { title: strengthTitleUpdate } : {}),
+        ...(strengthNotesUpdate ? { notes: strengthNotesUpdate } : {}),
       },
     });
   }
