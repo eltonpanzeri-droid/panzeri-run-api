@@ -1238,7 +1238,12 @@ export class TrainingPlansService {
         reps: decision.reps,
         intensity: decision.intensity,
         restSeconds: decision.restSeconds,
-        cadence: 'group' in exercise && exercise.group === 'core' ? 'Execucao lenta e controlada' : '2s na fase excentrica / subida controlada',
+        // So faz sentido recomendar cadencia especifica em musculacao, onde e so uma forma de
+        // variar o estimulo (nao muda ganho de forca nem hipertrofia — controlado ou explosivo dao
+        // no mesmo pra isso). Em fortalecimento para corredores o objetivo e outro (pliometria,
+        // stiffness, coordenacao, potencia) e uma instrucao de cadencia lenta ali contradiz o
+        // proprio exercicio — por isso nunca aparece pra essa categoria.
+        cadence: isRunnerStrength ? null : ('group' in exercise && exercise.group === 'core' ? 'Execucao lenta e controlada' : '2s na fase excentrica / subida controlada'),
         loadField: !isRunnerStrength && 'group' in exercise && exercise.group !== 'core',
       })),
       reportFields: isRunnerStrength
