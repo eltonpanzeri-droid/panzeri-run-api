@@ -2460,9 +2460,9 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         </View>
         <Text style={styles.titleSmall}>{formatDayMonth(new Date(notGeneratedRange.startDate))} a {formatDayMonth(new Date(notGeneratedRange.endDate))}</Text>
         <View style={styles.coachBox}>
-          <Text style={styles.coachTitle}>{weekOffset > 0 ? 'Ainda nao liberado' : 'Sem registro nesta semana'}</Text>
+          <Text style={styles.coachTitle}>{weekOffset > 0 || isBeforeSundayRelease() ? 'Ainda nao liberado' : 'Sem registro nesta semana'}</Text>
           <Text style={styles.coachText}>
-            {weekOffset > 0
+            {weekOffset > 0 || isBeforeSundayRelease()
               ? 'Os treinos da semana seguinte ficam disponiveis todo domingo as 19h.'
               : 'Nao encontramos treino registrado para esta semana.'}
           </Text>
@@ -4757,6 +4757,19 @@ function currentWeekRange() {
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
   return `${formatDayMonth(monday)} segunda ate ${formatDayMonth(sunday)} domingo`;
+}
+
+// Sabado ou domingo antes das 19h: o backend deliberadamente nao gera nada nesse momento pra um
+// aluno sem plano ainda (ver shouldDelayFirstGenerationToSunday em training-plans.service.ts) —
+// o job automatico de domingo 19h libera a semana sozinho. Calculado aqui no cliente com o mesmo
+// horario de Sao Paulo, sem precisar de nenhum campo novo vindo da API.
+function isBeforeSundayRelease() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', hour12: false,
+  }).formatToParts(new Date());
+  const weekday = parts.find((part) => part.type === 'weekday')?.value ?? '';
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0') % 24;
+  return weekday === 'Sat' || (weekday === 'Sun' && hour < 19);
 }
 
 function formatDayMonth(date: Date) {

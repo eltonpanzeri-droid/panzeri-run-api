@@ -217,9 +217,19 @@ export class MeService {
     // plano assim que abrir a tela de treino (current() mostra "notGenerated" ate la, sem travar
     // nada). Erro aqui (ex: IA fora do ar) e so logado — generateWeek ja avisa o treinador
     // sozinho quando falha (Telegram).
-    void this.trainingPlans.generateWeek(userId).catch((error) => {
-      this.logger.warn(`generateWeek apos completeOnboarding falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
-    });
+    // Sabado ou domingo antes das 19h, sem nenhum dia de treino restante nesta semana: gerar agora
+    // so produziria a semana SEGUINTE, e o job automatico de domingo 19h ja vai fazer exatamente
+    // isso de graca poucas horas depois (ver WeeklyPlanSchedulerService). Nesse caso especifico,
+    // nao chama a IA agora — o app mostra a mensagem de "libera domingo apos as 19h" sozinho,
+    // calculando o mesmo horario no cliente (ver shouldShowSundayReleaseNotice no App.tsx).
+    const delayToSunday = await this.trainingPlans.shouldDelayFirstGenerationToSunday(userId).catch(() => false);
+    if (!delayToSunday) {
+      void this.trainingPlans.generateWeek(userId).catch((error) => {
+        this.logger.warn(`generateWeek apos completeOnboarding falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+      });
+    } else {
+      this.logger.log(`Geracao da primeira semana adiada para domingo 19h (fim de semana, sem dia de treino restante) para ${userId}.`);
+    }
 
     return { completed: true, completedAt, next: 'three_km_test' };
   }

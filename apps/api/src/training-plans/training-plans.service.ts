@@ -249,6 +249,37 @@ export class TrainingPlansService {
   // fica exatamente igual ao de sempre. options.allowToday e diferente: e o treinador confirmando
   // explicitamente (pelo admin) que quer mesmo alterar o treino de HOJE ao regenerar a semana —
   // sem isso, hoje continua sempre preservado (comportamento padrao, nunca muda sozinho).
+  // So usado pelos gatilhos de PRIMEIRA geracao acionados pelo proprio aluno (concluir entrevista).
+  // Sabado ou domingo antes das 19h, sem plano ativo ainda, e sem nenhum dia de treino restante
+  // nesta semana e exatamente o caso em que generateWeek() so serviria pra gerar a semana SEGUINTE
+  // na hora — e o job automatico de domingo 19h (WeeklyPlanSchedulerService) vai fazer o mesmo
+  // trabalho de graca poucas horas depois. Nesse caso especifico, nao vale gastar a chamada de IA
+  // agora: o chamador deve pular generateWeek() e so avisar o aluno que o treino libera domingo
+  // apos as 19h. Fora desse caso exato (por exemplo, sabado com dia de treino hoje, ou aluno que
+  // ja tem plano ativo, ou qualquer regeneracao pedida pelo treinador), sempre retorna false.
+  async shouldDelayFirstGenerationToSunday(userId: string): Promise<boolean> {
+    const { weekday, hour } = saoPauloWeekdayAndHour(new Date());
+    const isWeekendBeforeSundayRelease = weekday === 6 || (weekday === 0 && hour < 19);
+    if (!isWeekendBeforeSundayRelease) return false;
+
+    const [activePlan, availability] = await Promise.all([
+      this.prisma.trainingPlan.findFirst({ where: { userId, status: 'active' }, select: { id: true } }),
+      this.prisma.weeklyAvailability.findMany({ where: { userId, noTraining: false } }),
+    ]);
+    if (activePlan) return false;
+
+    const rawAvailableDays = availability.length > 0
+      ? availability
+      : [{ weekday: 1 }, { weekday: 2 }, { weekday: 4 }, { weekday: 6 }];
+
+    const today = todayInSaoPaulo();
+    const initialWeekStart = startOfWeek(new Date());
+    const hasFutureDayThisWeek = rawAvailableDays.some(
+      (day) => addDays(initialWeekStart, weekdayOffsetFromMonday(day.weekday)).getTime() > today.getTime(),
+    );
+    return !hasFutureDayThisWeek;
+  }
+
   async generateWeek(
     userId: string,
     weeklyOverride?: WeeklyAvailabilityInput[],
@@ -1445,6 +1476,16 @@ function saoPauloDateParts(date: Date) {
   }).formatToParts(date);
   const value = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
   return { year: value('year'), month: value('month'), day: value('day') };
+}
+
+function saoPauloWeekdayAndHour(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', hour12: false,
+  }).formatToParts(date);
+  const weekdayShort = parts.find((part) => part.type === 'weekday')?.value ?? '';
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0') % 24;
+  const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return { weekday: weekdayMap[weekdayShort] ?? -1, hour };
 }
 
 function saoPauloDateTime(date: Date) {
