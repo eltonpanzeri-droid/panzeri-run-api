@@ -468,6 +468,13 @@ export class PrescriptionAgentService {
       const parsed = response.parsed_output;
       if (!parsed) return null;
 
+      // Log de custo real (nao logado antes — so em falha). thinking tokens entram dentro de
+      // output_tokens (mesma linha de billing da resposta escrita) — sem isso nao da pra saber
+      // quanto do gasto e raciocinio vs. texto final, so estimar.
+      this.logger.log(
+        `Semana gerada com IA (effort=${effort}): input_tokens=${response.usage.input_tokens}, output_tokens=${response.usage.output_tokens}, cache_read_tokens=${response.usage.cache_read_input_tokens ?? 0}, cache_creation_tokens=${response.usage.cache_creation_input_tokens ?? 0}`,
+      );
+
       const validated = this.validateSessions(parsed.sessions, runSlots);
       if (!validated) {
         this.logger.warn('Decisao do agente de IA rejeitada na validacao (cobertura de dias/duracao fora do combinado).');
@@ -487,10 +494,20 @@ export class PrescriptionAgentService {
         sessions = [...sessions, ...repaired];
       }
 
-      const strengthSessions = this.validateStrengthSessions(parsed.strengthSessions, strengthSlots);
+      let strengthSessions = this.validateStrengthSessions(parsed.strengthSessions, strengthSlots);
       if (!strengthSessions) {
-        this.logger.warn('Decisao do agente de IA rejeitada na validacao dos dias de forca/fortalecimento (dia/modalidade nao bate com a disponibilidade, ou exercicio fora do catalogo aprovado).');
-        return null;
+        // Mesma filosofia do reparo por dia isolado de corrida acima: a IA as vezes devolve os
+        // dias de forca vazios ou fora do combinado (incidente real 2026-07-31: 0 sessoes de
+        // forca devolvidas para um aluno com 3 dias esperados, nas duas tentativas, descartando
+        // uma resposta boa de corrida junto). Em vez de jogar fora a semana inteira (que ja gerou
+        // texto rico e caro pros dias de corrida), pede cada dia de forca que falhou de novo numa
+        // chamada avulsa pequena (mesma usada no regenerar-1-dia do treinador).
+        this.logger.warn(`Sessoes de forca da IA nao bateram com a disponibilidade esperada (${strengthSlots.length} esperada(s)) — tentando repor via chamada avulsa por dia, em vez de descartar a semana inteira.`);
+        strengthSessions = await this.repairStrengthSessions(input, strengthSlots);
+        if (!strengthSessions) {
+          this.logger.warn('Reparo avulso dos dias de forca tambem falhou — descartando esta tentativa.');
+          return null;
+        }
       }
 
       const rationale = parsed.rationale
@@ -640,6 +657,23 @@ export class PrescriptionAgentService {
     });
   }
 
+  // So chamado quando validateStrengthSessions rejeita a resposta da IA para toda a semana
+  // (incidente real 2026-07-31: a IA devolveu 0 sessoes de forca para um aluno com 3 dias
+  // esperados). Em vez de descartar a semana inteira — jogando fora o texto de corrida que
+  // provavelmente estava bom — pede cada dia de forca esperado de novo, isoladamente, pela mesma
+  // chamada avulsa usada no "regenerar 1 dia" do treinador. Se qualquer dia falhar de novo, desiste
+  // (retorna null) e deixa o attemptDecision descartar esta tentativa como antes.
+  private async repairStrengthSessions(input: MethodologyInput, strengthSlots: StrengthSlot[]): Promise<StrengthSessionDecision[] | null> {
+    const repaired = await Promise.all(
+      strengthSlots.map((slot) => this.attemptStrengthSessionDecision(input, slot)),
+    );
+    if (repaired.some((decision) => decision === null)) {
+      this.logger.warn(`Reparo avulso de forca falhou para ${repaired.filter((decision) => decision === null).length} dia(s).`);
+      return null;
+    }
+    return repaired as StrengthSessionDecision[];
+  }
+
   // Garante que a IA so use exercicios reais do catalogo aprovado (nomes/descricoes/videos ja
   // curados) e so decida dias/modalidades que o aluno realmente tem disponiveis — nunca inventa
   // um exercicio nem escolhe um catalogo que nao bate com a modalidade do dia. Fora isso (quais
@@ -738,7 +772,7 @@ export class PrescriptionAgentService {
       'PRIMEIRA SEMANA SEM NENHUM HISTORICO (historicoSemanal vazio, sem reavaliacao, sem analiseExecucao, sem analiseAprofundadaStrava): trate como calibragem inicial. Para um aluno com pouco tempo de corrida ou volume baixo/recente-comeco, prefira comecar com rodagens leves e um longao moderado, guardando um estimulo mais forte pra depois de ver a resposta real dele aos primeiros treinos — a nao ser que a evidencia de pace ja seja claramente forte e consistente.',
       'Responda em portugues nos campos de texto (title, notes, recommendations, recommendation, rationale, durationJustification).',
       'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida.',
-      '- Retorne pelo menos uma sessao em strengthSessions para cada item listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). O mesmo weekday pode aparecer mais de uma vez na lista, uma para cada modalidade — retorne uma sessao pra cada item nesse caso, isso e o dado real da rotina do aluno, nao um erro.',
+      '- OBRIGATORIO: retorne EXATAMENTE uma sessao em strengthSessions para CADA item listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). O mesmo weekday pode aparecer mais de uma vez na lista, uma para cada modalidade — retorne uma sessao pra cada item nesse caso, isso e o dado real da rotina do aluno, nao um erro. Se diasDisponiveisParaForca tiver 3 itens, strengthSessions tem que ter 3 sessoes — nunca deixe esse campo vazio ou incompleto quando diasDisponiveisParaForca nao estiver vazio: a resposta inteira e descartada quando isso acontece, desperdicando todo o raciocinio que voce fez pros dias de corrida.',
       '- A modalidade de cada item em diasDisponiveisParaForca vem da rotina real do aluno e normalmente nao muda — copie o campo modality literalmente. Uma diretriz sobre forca/fortalecimento normalmente muda foco/exercicios/intensidade daquele dia, nao a modalidade em si; so mude a modalidade se a diretriz pedir isso explicitamente.',
       '- exerciseIds normalmente vem de catalogoExerciciosMusculacao (modality "forca") ou catalogoExerciciosFortalecimentoCorredores (modality "fortalecimento_corredores") — prefira sempre o catalogo, que ja tem video/descricao prontos pro aluno. Só cite um exercicio fora do catalogo se uma diretriz especifica do treinador pedir aquele exercicio por nome; nesse caso ele aparece pro aluno so como texto, sem video. Escolha entre 3 e 10 exercicios conforme o tempo disponivel do dia.',
       '- Se diretrizesEspecificasDoTreinadorParaEsteAluno pedir um FOCO especifico para um dia de forca (ex: "segunda e dia de perna" ou uma lista de exercicios), aplique literalmente usando o campo "group"/"focus" do catalogo pra filtrar, ou os exercicios citados pelo nome. Sem diretriz, monte uma sessao equilibrada e variada.',
