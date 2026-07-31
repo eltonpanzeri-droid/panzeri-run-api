@@ -1,6 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+// Codigo sequencial de 7 digitos (User.studentCode) formatado com zeros a esquerda pra exibicao —
+// usado em toda mensagem de Telegram e no painel do treinador, pra identificar o aluno sem
+// ambiguidade de nome (dois alunos podem se chamar igual; o codigo nunca se repete).
+export function formatStudentCode(code: number): string {
+  return String(code).padStart(7, '0');
+}
+
 @Injectable()
 export class TelegramService {
   private readonly logger = new Logger(TelegramService.name);

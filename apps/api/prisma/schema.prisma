@@ -21,6 +21,12 @@ model User {
   address                          String?
   education                        String?
   role                             String    @default("student")
+  // Codigo sequencial de 7 digitos exibido pro treinador (painel + mensagens do Telegram) pra
+  // identificar o aluno sem ambiguidade de nome — puro codigo, sem custo de IA. Gerado pelo banco
+  // (sequence), nunca por logica da aplicacao, pra nunca colidir mesmo com dois cadastros
+  // simultaneos. Formatado com zeros a esquerda (0000001) na hora de exibir, nunca gravado ja
+  // formatado.
+  studentCode                      Int       @unique @default(autoincrement())
   accountStatus                    String    @default("active")
   subscriptionStatus               String    @default("pending")
   subscriptionUpdatedAt            DateTime  @default(now())

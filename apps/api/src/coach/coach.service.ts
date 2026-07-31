@@ -17,6 +17,7 @@ import { gymExerciseLibrary } from '../training-plans/gym-exercise-library';
 import { BackupService } from '../backup/backup.service';
 import { MeService } from '../me/me.service';
 import { BillingService } from '../billing/billing.service';
+import { formatStudentCode } from '../billing/telegram.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
 
 @Injectable()
@@ -396,6 +397,7 @@ export class CoachService {
       const stravaConnection = stravaConnectionByUserId.get(student.id);
       return {
         id: student.id,
+        studentCode: formatStudentCode(student.studentCode),
         name: student.name,
         email: student.email,
         goal: student.preferences?.mainGoal ?? 'Objetivo nao informado',
@@ -519,6 +521,7 @@ export class CoachService {
 
     return {
       id: student.id,
+      studentCode: formatStudentCode(student.studentCode),
       name: student.name,
       email: student.email,
       phone: student.phone,

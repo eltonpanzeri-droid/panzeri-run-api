@@ -442,7 +442,6 @@ const dayTrainingOptions = [
   'Treino de forca em casa',
   'Corrida na rua',
   'Corrida na esteira',
-  'Bike ou outro aparelho aerobico',
 ];
 const timeOptions = ['30', '45', '60', '75', '90', '120'];
 const goalOptions = [
@@ -4973,9 +4972,6 @@ function normalizeModality(modality: string) {
   if (lower.includes('musculacao') || lower.includes('forca')) {
     return 'forca';
   }
-  if (lower.includes('bike')) {
-    return 'bike';
-  }
   if (lower.includes('esteira')) {
     return 'esteira';
   }
@@ -5109,9 +5105,9 @@ function labelFromSavedModality(modality: string) {
   if (modality === 'esteira') {
     return 'Corrida na esteira';
   }
-  if (modality === 'bike') {
-    return 'Bike ou outro aparelho aerobico';
-  }
+  // 'bike' nao existe mais como opcao de rotina (o treinador decidiu nao montar treinos de bike,
+  // 2026-07-31) — um aluno com esse dia salvo de antes cai aqui e o editor mostra como corrida na
+  // rua, opcao mais proxima, em vez de uma label que nao existe mais na lista de opcoes.
   return 'Corrida na rua';
 }
 

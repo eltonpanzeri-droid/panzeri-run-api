@@ -34,6 +34,7 @@ type AdminView = 'dashboard' | 'students' | 'weeks' | 'coupons' | 'finance' | 'n
 
 interface StudentRow {
   id: string;
+  studentCode: string;
   name: string;
   email: string;
   goal: string;
@@ -55,6 +56,7 @@ interface StudentRow {
 
 interface StudentDetail {
   id: string;
+  studentCode: string;
   name: string;
   email: string;
   phone?: string | null;
@@ -941,7 +943,7 @@ export default function AdminHome() {
               {filteredStudents.map((student) => (
                 <div className={`row rowButton ${selectedStudentId === student.id ? 'selected' : ''}`} key={student.id} onClick={() => goToStudent(student.id)}>
                   <span>
-                    <strong>{student.name}</strong>
+                    <strong>{student.name} <small className="studentCodeTag">Cod. {student.studentCode}</small></strong>
                     <small>{student.email}</small>
                     <small className={`status ${student.stravaConnected ? 'good' : 'warn'}`}>{student.stravaConnected ? 'Strava conectado' : 'Strava nao conectado'}</small>
                   </span>
@@ -1641,7 +1643,7 @@ function StudentPanel({
       <section className="sidePanel detailPanel">
       <div>
         <p className="eyebrow">Aluno selecionado</p>
-        <h2>{student.name}</h2>
+        <h2>{student.name} <small className="studentCodeTag">Cod. {student.studentCode}</small></h2>
         <div>
           <span className={`status ${student.strava?.connected ? 'good' : 'warn'}`}>
             {student.strava?.connected ? 'Strava conectado' : 'Strava nao conectado'}
@@ -2159,7 +2161,7 @@ function EditableSession({
     if (nextIsStrength !== currentIsStrength) {
       setStructure(nextIsStrength
         ? { type: 'strength', category: nextModality === 'fortalecimento_corredores' ? 'Fortalecimento para corredores' : 'Musculacao', exercises: [] }
-        : { type: nextModality === 'bike' ? 'aerobic' : 'run', blocks: [] });
+        : { type: 'run', blocks: [] });
     }
   }
 
@@ -2218,7 +2220,6 @@ function EditableSession({
                     <option value="esteira">Corrida na esteira</option>
                     <option value="forca">Musculacao</option>
                     <option value="fortalecimento_corredores">Fortalecimento para corredores</option>
-                    <option value="bike">Bike ou aerobico</option>
                   </select>
                 </label>
                 <label>Duracao total<input value={durationMin} onChange={(event) => setDurationMin(event.target.value.replace(/\D/g, ''))} inputMode="numeric" /></label>

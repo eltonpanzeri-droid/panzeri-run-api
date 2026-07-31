@@ -256,3 +256,33 @@ custo/latência da geração semanal sem perder contexto real sobre o aluno:
   reassessment, workout-completions) já são importados por `TrainingPlansModule`.
 - Build e typecheck completos rodados sem erro após a mudança; não testado em produção ainda (sem
   histórico real acumulado nenhum aluno pra exercitar o agente de resumo de fato).
+
+**2026-07-31** — Correções reais de bugs encontrados em produção (Sônia), remoção da modalidade
+bike, código de identificação do aluno, e um ajuste importante de confiança/comunicação:
+- **Bug real de custo**: geração da semana da Sônia gastou 26 cents em duas tentativas que foram
+  descartadas inteiras — a IA devolveu 0 sessões de força quando 3 eram esperadas. Corrigido com um
+  reparo isolado só para os dias de força (reaproveita a corrida que já tinha saído boa em vez de
+  descartar a resposta toda), e reforçada a instrução no prompt.
+- **Bug real, mais grave**: o `title`/`notes` que a IA escreve para cada dia de força/musculação
+  nunca era usado — a sessão final sempre mostrava um texto genérico fixo do código. Ou seja, a IA
+  gerava e o sistema pagava por um texto que nunca chegava a aparecer pro aluno ou pro treinador,
+  toda semana, em toda sessão de força. Corrigido tanto na geração semanal quanto no "Refazer"
+  avulso de um dia de força.
+- A pedido do treinador, removida a chamada extra de reparo do piso de 8:30/km (ficou só a
+  instrução no prompt, sem custo adicional) — situação diferente do reparo de força acima, que foi
+  mantido.
+- **Modalidade "bike" removida por completo**: existia uma função (`aerobicPrescription`) que
+  montava o treino de bike inteiramente por fórmula de código, sem IA nenhuma — único resquício
+  real de "motor de regra fixa" que ainda restava no sistema, encontrado só agora ao reconferir com
+  mais rigor a pedido do treinador. Removida do backend e de toda a interface (app do aluno e
+  painel); não montamos mais treino de bike.
+- **Código sequencial de 7 dígitos por aluno** (`User.studentCode`, gerado por sequence do próprio
+  banco, nunca por lógica da aplicação — sem risco de colisão mesmo com dois cadastros
+  simultâneos), aparecendo no painel (lista e ficha do aluno) e em toda mensagem de Telegram junto
+  com o nome.
+- Nova notificação no Telegram quando o aluno muda a própria rotina (a regeneração automática já
+  existia; só faltava avisar).
+- Nota de comunicação: usei a palavra "motor" pra descrever a IA decidindo o treino, o que o
+  treinador interpretou (com razão) como indício de que ainda existisse um sistema de regras fixas
+  por trás — não existia (fora o caso do bike acima, já corrigido). Lição registrada: evitar esse
+  termo, chamar sempre de "a IA" ou "o agente de IA" explicitamente.

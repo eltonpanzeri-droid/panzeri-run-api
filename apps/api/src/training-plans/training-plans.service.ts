@@ -21,7 +21,7 @@ import { StravaAnalysisAgentService, StravaAnalysisReport } from './strava-analy
 import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { StravaService } from '../strava/strava.service';
-import { TelegramService } from '../billing/telegram.service';
+import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { StudentProfileService, ProfileEventCode } from './student-profile.service';
 
 interface SessionTemplate {
@@ -187,8 +187,9 @@ export class TrainingPlansService {
       if (!lastAlertAt || Date.now() - lastAlertAt > PAIN_ALERT_COOLDOWN_MS) {
         this.recentPainAlerts.set(userId, Date.now());
         this.logger.warn(`Nivel de cautela por dor elevado para o aluno ${userId}.`);
+        const alertStudent = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
         await this.telegram.notifyCoach(
-          `⚠️ Novo relato de dor no Panzeri Run elevou o nivel de cautela de um aluno (id ${userId}).\nMotivo: ${currentPainSafety.reason ?? 'sem detalhe'}\nO plano desta semana precisa ser regenerado pelo painel para refletir isso.`,
+          `⚠️ Novo relato de dor no Panzeri Run elevou o nivel de cautela de um aluno.\nAluno: ${alertStudent?.name ?? 'desconhecido'} (Cod. ${alertStudent ? formatStudentCode(alertStudent.studentCode) : '?'})\nMotivo: ${currentPainSafety.reason ?? 'sem detalhe'}\nO plano desta semana precisa ser regenerado pelo painel para refletir isso.`,
         );
       }
       return { needsUpdate: true, reason: `Nivel de cautela por dor elevado: ${currentPainSafety.reason ?? 'sem detalhe'}` };
@@ -461,7 +462,7 @@ export class TrainingPlansService {
       this.logger.error(`Falha ao gerar semana de treino com IA para o aluno ${userId} apos tentativas — nenhum plano de regra fixa sera usado no lugar.`);
       this.recentAiFailures.set(userId, Date.now());
       await this.telegram.notifyCoach(
-        `⚠️ Falha ao gerar treino com IA para um aluno (id ${userId}). O plano NAO foi atualizado — verifique a chave da IA (ANTHROPIC_API_KEY) e os logs do EasyPanel, e gere novamente manualmente pelo painel. Novas tentativas automaticas para este aluno ficam pausadas por alguns minutos para nao gastar chamadas de IA repetidas.`,
+        `⚠️ Falha ao gerar treino com IA para um aluno.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nO plano NAO foi atualizado — verifique a chave da IA (ANTHROPIC_API_KEY) e os logs do EasyPanel, e gere novamente manualmente pelo painel. Novas tentativas automaticas para este aluno ficam pausadas por alguns minutos para nao gastar chamadas de IA repetidas.`,
       );
       throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
     }
@@ -508,7 +509,6 @@ export class TrainingPlansService {
         // qualquer diretriz, mesmo sem relacao com aquele dia especifico — removida).
         const durationMin = runDecision ? runDecision.durationMin : Math.min(requestedDuration, template.durationMin);
         const isStrength = modality === 'forca' || modality === 'fortalecimento_corredores';
-        const isAerobic = modality === 'bike';
         if (isStrength && !strengthDecision) {
           // A validacao do agente de IA (validateStrengthSessions) exige cobertura exata dos
           // dias de forca/fortalecimento — chegar aqui sem decisao e um bug de sincronizacao
@@ -518,8 +518,6 @@ export class TrainingPlansService {
         const prescription =
           strengthDecision
             ? this.strengthPrescription(durationMin, strengthDecision)
-            : modality === 'bike'
-            ? this.aerobicPrescription(durationMin, modality)
             // Distancia e pace vem inteiramente da decisao da IA para ESTE dia (runDecision) —
             // nao existe mais nenhuma conta de codigo (duracao/pace fixo) decidindo isso.
             : this.runPrescription(durationMin, modality, {
@@ -546,7 +544,7 @@ export class TrainingPlansService {
           // pace/distancia real de cada sessao ja veio da decisao contextual da IA, nao de um
           // rotulo de zona (ver [[no_math_rules_for_workout_calc]] atualizado).
           intensityZone: null,
-          paceMinSec: !isStrength && !isAerobic && prescription.representativePaceSecondsPerKm != null
+          paceMinSec: !isStrength && prescription.representativePaceSecondsPerKm != null
             ? formatPace(prescription.representativePaceSecondsPerKm)
             : null,
           structure: prescription as unknown as Prisma.InputJsonObject,
@@ -880,7 +878,6 @@ export class TrainingPlansService {
     const paceFallback = estimatePaceFromAnswers(answers);
 
     const isStrength = session.modality === 'forca' || session.modality === 'fortalecimento_corredores';
-    const isAerobic = session.modality === 'bike';
     const durationMin = session.durationMin ?? 45;
 
     // title/notes escritos pela IA para este dia de forca/fortalecimento especifico — antes deste
@@ -924,15 +921,13 @@ export class TrainingPlansService {
       if (!strengthDecision) {
         this.logger.error(`Falha ao gerar decisao de forca avulsa com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);
         await this.telegram.notifyCoach(
-          `⚠️ Falha ao gerar treino de forca avulso com IA para um aluno (id ${userId}). O treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo painel.`,
+          `⚠️ Falha ao gerar treino de forca avulso com IA.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nO treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo painel.`,
         );
         throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
       }
       prescription = this.strengthPrescription(durationMin, strengthDecision);
       strengthTitleUpdate = strengthDecision.title;
       strengthNotesUpdate = strengthDecision.notes;
-    } else if (isAerobic) {
-      prescription = this.aerobicPrescription(durationMin, session.modality);
     } else {
       const paceEvidence: PaceEvidence = {
         testPace: latestTest ? { secondsPerKm: latestTest.paceSecondsPerKm, daysAgo: Math.max(0, Math.floor((Date.now() - latestTest.createdAt.getTime()) / 86400000)) } : null,
@@ -954,7 +949,7 @@ export class TrainingPlansService {
       if (!runDecision) {
         this.logger.error(`Falha ao gerar treino de corrida avulso com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);
         await this.telegram.notifyCoach(
-          `⚠️ Falha ao gerar treino avulso com IA para um aluno (id ${userId}). O treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo painel.`,
+          `⚠️ Falha ao gerar treino avulso com IA.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nO treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo painel.`,
         );
         throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
       }
@@ -965,7 +960,7 @@ export class TrainingPlansService {
       where: { id: sessionId },
       data: {
         distanceKm: prescription.distanceKm,
-        paceMinSec: !isStrength && !isAerobic && prescription.representativePaceSecondsPerKm != null
+        paceMinSec: !isStrength && prescription.representativePaceSecondsPerKm != null
           ? formatPace(prescription.representativePaceSecondsPerKm)
           : null,
         structure: prescription as unknown as Prisma.InputJsonObject,
@@ -1008,17 +1003,14 @@ export class TrainingPlansService {
       };
     }
 
-    if (modality === 'bike' || modality === 'esteira') {
+    if (modality === 'esteira') {
       return {
-        title: modality === 'bike' ? 'Bike ou aerobico leve' : 'Corrida na esteira',
+        title: 'Corrida na esteira',
         modality,
         sessionType: 'aerobic',
         zone: 'Z2',
         durationMin: 45,
-        notes:
-          modality === 'bike'
-            ? 'Aerobico complementar em intensidade controlada, sem competir com os treinos de corrida.'
-            : 'Manter intensidade controlada e respiracao confortavel.',
+        notes: 'Manter intensidade controlada e respiracao confortavel.',
       };
     }
 
@@ -1191,31 +1183,6 @@ export class TrainingPlansService {
       distanceUnit: 'km',
       paceRange: `${formatPace(fast)} a ${formatPace(slow)}`,
       speedRange: `${(3600 / slow).toFixed(2)} a ${(3600 / fast).toFixed(2)} km/h`,
-    };
-  }
-
-  private aerobicPrescription(durationMin: number, modality: string) {
-    const mainDuration = Math.max(durationMin - 10, 15);
-
-    return {
-      type: 'aerobic',
-      modality,
-      distanceKm: null,
-      durationMin,
-      speedKmh: null,
-      representativePaceSecondsPerKm: null as number | null,
-      paceRange: null,
-      guidance: `Fazer ${durationMin} min de exercicio aerobico, de preferencia bike ou outro aparelho aerobico, em esforco leve/controlado. Manter esforco controlado para nao atrapalhar os treinos de corrida dos outros dias.`,
-      blocks: [
-        { label: 'Aquecimento', durationMin: 5, guidance: 'Comecar leve e soltar a musculatura.' },
-        {
-          label: 'Principal',
-          durationMin: mainDuration,
-          guidance: 'Manter respiracao confortavel, sem transformar em treino forte.',
-        },
-        { label: 'Desaquecimento', durationMin: 5, guidance: 'Reduzir gradualmente a intensidade.' },
-      ],
-      reportFields: ['durationMin', 'modality', 'heartRate', 'rpe', 'notes'],
     };
   }
 

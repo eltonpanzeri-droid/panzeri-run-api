@@ -8,6 +8,7 @@ import { UpdateHealthDto } from './dto/update-health.dto';
 import { UpdatePreferencesDto } from './dto/update-preferences.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { normalizeCpf } from '../billing/billing.service';
+import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { TrainingPlansService } from '../training-plans/training-plans.service';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 
@@ -27,6 +28,7 @@ export class MeService {
     private readonly prisma: PrismaService,
     private readonly trainingPlans: TrainingPlansService,
     private readonly studentProfile: StudentProfileService,
+    private readonly telegram: TelegramService,
   ) {}
 
   acceptExerciseResponsibility(userId: string) {
@@ -341,6 +343,10 @@ export class MeService {
       void this.trainingPlans.generateWeek(userId).catch((error) => {
         this.logger.warn(`generateWeek apos updateAvailability falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
       });
+      const student = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
+      void this.telegram.notifyCoach(
+        `🔁 Aluno mudou a propria rotina semanal no Panzeri Run\n\nAluno: ${student?.name ?? 'desconhecido'} (Cod. ${student ? formatStudentCode(student.studentCode) : '?'})\nO restante da semana esta sendo gerado automaticamente.`,
+      ).catch(() => undefined);
     }
 
     return updated;

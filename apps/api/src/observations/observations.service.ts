@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { TelegramService } from '../billing/telegram.service';
+import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { CreateObservationDto } from './dto/create-observation.dto';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 
@@ -17,13 +17,13 @@ export class ObservationsService {
   }
 
   async create(userId: string, dto: CreateObservationDto) {
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true } });
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true, studentCode: true } });
     const observation = await this.prisma.studentObservation.create({
       data: { userId, content: dto.content.trim() },
     });
 
     await this.telegram.notifyCoach(
-      `Nova observacao registrada no Panzeri Run\n\nAluno: ${user.name}\nE-mail: ${user.email}\nObservacao: ${observation.content}`,
+      `Nova observacao registrada no Panzeri Run\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nObservacao: ${observation.content}`,
     );
 
     void this.studentProfile

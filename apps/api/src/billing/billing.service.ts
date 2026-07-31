@@ -1,7 +1,7 @@
 import { BadGatewayException, BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { TelegramService } from './telegram.service';
+import { TelegramService, formatStudentCode } from './telegram.service';
 import { MessagingService } from '../messaging/messaging.service';
 
 type AsaasCustomer = { id: string };
@@ -104,7 +104,7 @@ export class BillingService {
 
   async createCheckout(userId: string, cpf?: string) {
     this.assertConfigured();
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { id: true, name: true, email: true, cpf: true, subscriptionStatus: true } });
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { id: true, name: true, email: true, cpf: true, subscriptionStatus: true, studentCode: true } });
 
     let savedCpf = user.cpf;
     if (!savedCpf) {
@@ -192,7 +192,7 @@ export class BillingService {
       }),
     ]);
 
-    await this.telegram.notifyCoach(`Nova assinatura gerada no Panzeri Run\n\nAluno: ${user.name}\nE-mail: ${user.email}\nStatus: aguardando pagamento (R$ 19,90/mes)`);
+    await this.telegram.notifyCoach(`Nova assinatura gerada no Panzeri Run\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nStatus: aguardando pagamento (R$ 19,90/mes)`);
     this.recentCheckouts.set(userId, { checkoutUrl, at: Date.now() });
 
     return { checkoutUrl };
@@ -302,7 +302,7 @@ export class BillingService {
       return { received: true };
     }
 
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: billing.userId }, select: { name: true, email: true, subscriptionStatus: true } });
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: billing.userId }, select: { name: true, email: true, subscriptionStatus: true, studentCode: true } });
     const wasAlreadyActive = user.subscriptionStatus === 'active';
 
     await this.prisma.$transaction([
@@ -319,7 +319,7 @@ export class BillingService {
     if (appStatus === 'active') {
       await this.createWelcomeNotificationOnce(billing.userId);
       if (!wasAlreadyActive) {
-        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name}\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
+        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
         await this.messaging.sendEmail(billing.userId, {
           trigger: 'payment_confirmed',
           subject: 'Pagamento confirmado - seu treino ja esta disponivel!',
@@ -368,7 +368,7 @@ export class BillingService {
           : 'pending';
     const nextChargeAt = subscription.nextDueDate ? new Date(subscription.nextDueDate + 'T12:00:00.000Z') : null;
 
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true, subscriptionStatus: true } });
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true, subscriptionStatus: true, studentCode: true } });
     const wasAlreadyActive = user.subscriptionStatus === 'active';
 
     await this.prisma.$transaction([
@@ -387,7 +387,7 @@ export class BillingService {
     if (appStatus === 'active') {
       await this.createWelcomeNotificationOnce(userId);
       if (!wasAlreadyActive) {
-        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name}\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
+        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
         await this.messaging.sendEmail(userId, {
           trigger: 'payment_confirmed',
           subject: 'Pagamento confirmado - seu treino ja esta disponivel!',
