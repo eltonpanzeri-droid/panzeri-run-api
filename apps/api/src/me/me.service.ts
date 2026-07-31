@@ -186,6 +186,22 @@ export class MeService {
       this.logger.warn(`recordEvent(ONBOARDING_COMPLETED) falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
     });
 
+    // Campo novo (2026-07-31): observacao livre especificamente sobre a rotina, preenchida
+    // durante a propria entrevista (ex: "ja treino musculacao em outro lugar"). Grava no
+    // prontuario UMA vez aqui (zero custo de IA, e so texto) — o agente de resumo do prontuario
+    // e quem eventualmente "paga" pra condensar isso, nao esta chamada. Depois disso o agente de
+    // prescricao semanal ja recebe essa informacao pronta no resumo, sem reprocessar de novo.
+    const routineObservation = stringValue(answers.routine_observation).trim();
+    if (routineObservation) {
+      void this.studentProfile.recordEvent(
+        userId,
+        ProfileEventCode.STUDENT_OBSERVATION,
+        `Observacao do aluno sobre a rotina (entrevista inicial): ${routineObservation}`,
+      ).catch((error) => {
+        this.logger.warn(`recordEvent(STUDENT_OBSERVATION, rotina) falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+      });
+    }
+
     // generateWeek() cuida sozinho de arquivar o plano ativo anterior (se houver — ex: aluno
     // que reabriu a entrevista pra corrigir algo) e de migrar os dias ja passados/de hoje pra
     // o plano novo. NUNCA arquivamos manualmente antes de chamar generateWeek — isso ja foi um
