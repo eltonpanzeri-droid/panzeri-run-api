@@ -534,7 +534,7 @@ export class TrainingPlansService {
           scheduledDate,
           weekday: day.weekday,
           modality,
-          title: isRunningModality(modality) ? 'Treino de corrida' : template.title,
+          title: isRunningModality(modality) ? 'Treino de corrida' : (strengthDecision?.title ?? template.title),
           sessionType: template.sessionType,
           locationSuggestion: 'Livre',
           // Usa a duracao calculada pela propria prescricao (que agora reflete o tempo REAL da
@@ -550,7 +550,7 @@ export class TrainingPlansService {
             ? formatPace(prescription.representativePaceSecondsPerKm)
             : null,
           structure: prescription as unknown as Prisma.InputJsonObject,
-          notes: template.notes,
+          notes: isStrength ? (strengthDecision?.notes ?? template.notes) : template.notes,
           recommendations: isRunningModality(modality) ? template.recommendations ?? null : null,
           videoRefs: [],
         };
