@@ -211,7 +211,6 @@ export class PrescriptionAgentService {
     activeObservations: string[];
     painTier: 'normal' | 'reduced' | 'remove_running';
     painReason: string | null;
-    repairNote?: string | null;
   }): Promise<{
     distanceKm: number | null;
     paceSecondsPerKm: number | null;
@@ -233,7 +232,6 @@ export class PrescriptionAgentService {
     activeObservations: string[];
     painTier: 'normal' | 'reduced' | 'remove_running';
     painReason: string | null;
-    repairNote?: string | null;
   }): Promise<{
     distanceKm: number | null;
     paceSecondsPerKm: number | null;
@@ -341,7 +339,7 @@ export class PrescriptionAgentService {
       'NAO EXISTE NENHUMA TABELA OU FORMULA CALCULANDO DISTANCIA A PARTIR DE DURACAO/PACE — voce decide a distancia e o pace diretamente, pensando no que faz sentido pra este aluno neste dia. Voce sabe matematica: se decidir uma estrutura com series/recuperacao, calcule voce mesmo se ela cabe dentro de durationMinDisponivel — nao existe checagem de conta em codigo depois, a responsabilidade e inteiramente sua.',
       'Voce recebe ate tres evidencias de pace (testeOficial, autoRelatoRecente, mediaStravaRecente) — use a mais recente e mais confiavel, nunca uma proporcao fixa entre elas (tipo "pace_teste vezes 0.95").',
       'Se diretrizesEspecificasDoTreinadorParaEsteAluno mencionar algo que se aplique a este dia especifico, aplique literalmente (prioridade quase absoluta). observacoesRegistradasPeloProprioAluno sao informais, considere quando fizer sentido sem sacrificar seguranca. sinalDeSeguranca e motivoDoSinalDeSeguranca sao so informacao de contexto (o aluno relatou dor) — use seu julgamento sobre o que isso muda no treino de hoje, nao existe uma trava automatica aqui.',
-      'Se avisoDeCorrecao vier preenchido, a sua tentativa anterior para este mesmo dia foi rejeitada pelo motivo descrito ali (o unico motivo possivel e o pace ficar mais lento que o piso biomecanico de 8:30/km — abaixo disso a mecanica da corrida piora e vira caminhada na pratica). Ajuste sua decisao pra nao repetir esse problema: ou use um pace de corrida real (8:30/km ou mais rapido), ou, se o ritmo confortavel real deste aluno estiver mesmo proximo do de caminhada, use walkRunStructure alternando corrida de verdade com caminhada de verdade como recuperacao, em vez de forcar uma corrida continua lenta demais.',
+      `Existe um piso biomecanico nao-negociavel: pace de corrida nunca mais lento que 8:30/km (${MAX_EASY_PACE_SECONDS_PER_KM} segundos por km). Abaixo disso a mecanica da corrida piora e vira caminhada na pratica, nao e preferencia de treino. Se o ritmo confortavel real deste aluno estiver proximo disso, use walkRunStructure alternando corrida de verdade com caminhada de verdade em vez de forcar uma corrida continua mais lenta que o piso.`,
     ].join('\n\n');
   }
 
@@ -352,7 +350,6 @@ export class PrescriptionAgentService {
     activeObservations: string[];
     painTier: string;
     painReason: string | null;
-    repairNote?: string | null;
   }) {
     return JSON.stringify(
       {
@@ -362,7 +359,6 @@ export class PrescriptionAgentService {
         observacoesRegistradasPeloProprioAluno: params.activeObservations,
         sinalDeSeguranca: params.painTier !== 'normal',
         motivoDoSinalDeSeguranca: params.painReason,
-        avisoDeCorrecao: params.repairNote ?? null,
       },
       null,
       2,
@@ -480,19 +476,16 @@ export class PrescriptionAgentService {
         this.logger.warn('Decisao do agente de IA rejeitada na validacao (cobertura de dias/duracao fora do combinado).');
         return null;
       }
-      let sessions = validated.sessions;
+      // Sem chamada extra pra corrigir violacao isolada do piso de 8:30/km (removida em 31/07 a
+      // pedido do treinador, por custo): o unico ensinamento contra isso agora vive no prompt
+      // (buildSystemPromptStable, instrucao do piso biomecanico). Se algum dia ainda vier abaixo
+      // do piso, a resposta inteira e rejeitada aqui e a tentativa seguinte (medium->high, ja
+      // existente) e que resolve — sem gerar uma chamada adicional so pra esse conserto.
       if (validated.failures.length) {
-        this.logger.warn(`${validated.failures.length} dia(s) da semana precisaram de reparo isolado: ${validated.failures.map((f) => `weekday ${f.weekday} (${f.reason})`).join('; ')}`);
-        const repaired = await this.repairFailedRunSessions(validated.failures, {
-          evidence,
-          studentDirectives: input.studentDirectives ?? [],
-          activeObservations: input.activeObservations ?? [],
-          painTier,
-          painReason: input.painReason ?? null,
-        });
-        if (!repaired) return null;
-        sessions = [...sessions, ...repaired];
+        this.logger.warn(`Rejeitado (semana): ${validated.failures.length} dia(s) abaixo do piso de 8:30/km: ${validated.failures.map((f) => `weekday ${f.weekday} (${f.reason})`).join('; ')}`);
+        return null;
       }
+      const sessions = validated.sessions;
 
       let strengthSessions = this.validateStrengthSessions(parsed.strengthSessions, strengthSlots);
       if (!strengthSessions) {
@@ -614,47 +607,6 @@ export class PrescriptionAgentService {
     }
 
     return { sessions: result, failures };
-  }
-
-  // So chamado pros dias que falharam validateSessions (normalmente so o piso de 8:30/km) — pede
-  // pra IA refazer APENAS esses dias, mantendo titulo/duracao/notas que ela mesma ja tinha decidido
-  // no contexto da semana inteira, em vez de descartar dias que ja estavam certos.
-  private async repairFailedRunSessions(
-    failures: Array<{ weekday: number; title: string; durationMin: number; notes: string; recommendations: string; reason: string }>,
-    context: { evidence: PaceEvidence; studentDirectives: string[]; activeObservations: string[]; painTier: 'normal' | 'reduced' | 'remove_running'; painReason: string | null },
-  ): Promise<RunSessionDecision[] | null> {
-    const repaired = await Promise.all(
-      failures.map(async (failure) => {
-        const decision = await this.attemptRunSessionDecision({
-          durationMin: failure.durationMin,
-          evidence: context.evidence,
-          studentDirectives: context.studentDirectives,
-          activeObservations: context.activeObservations,
-          painTier: context.painTier,
-          painReason: context.painReason,
-          repairNote: `No weekday ${failure.weekday}, a tentativa anterior foi rejeitada: ${failure.reason}`,
-        });
-        return decision ? { failure, decision } : null;
-      }),
-    );
-    if (repaired.some((item) => item === null)) {
-      this.logger.warn(`Reparo de dia isolado falhou para ${repaired.filter((item) => item === null).length} dia(s) — geracao da semana sera descartada nesta tentativa.`);
-      return null;
-    }
-    return repaired.map((item) => {
-      const { failure, decision } = item!;
-      return {
-        weekday: failure.weekday,
-        title: failure.title,
-        durationMin: failure.durationMin,
-        distanceKm: decision.distanceKm,
-        paceSecondsPerKm: decision.paceSecondsPerKm,
-        notes: truncateText(failure.notes, 800),
-        recommendations: truncateText(failure.recommendations, 350),
-        intervalStructure: decision.intervalStructure,
-        walkRunStructure: decision.walkRunStructure,
-      };
-    });
   }
 
   // So chamado quando validateStrengthSessions rejeita a resposta da IA para toda a semana
