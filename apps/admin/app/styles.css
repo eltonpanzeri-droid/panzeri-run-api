@@ -1207,6 +1207,47 @@ h3 {
   font-size: 12px;
 }
 
+.addSessionButton {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: center;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px dashed var(--border, #cbd5e1);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.addSessionButton:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.addSessionPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.addSessionPicker .secondaryButton {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.addSessionCancel {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .sessionOverview {
   display: grid;
   gap: 3px;

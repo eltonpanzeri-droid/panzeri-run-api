@@ -9,6 +9,7 @@ import { SendStudentMessageDto } from './dto/send-student-message.dto';
 import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
+import { CreateManualSessionDto } from './dto/create-manual-session.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('coach', 'admin')
@@ -73,6 +74,11 @@ export class CoachController {
   @Patch('students/:studentId')
   updateStudent(@Param('studentId') studentId: string, @Body() dto: UpdateStudentDto) {
     return this.coachService.updateStudent(studentId, dto);
+  }
+
+  @Post('students/:studentId/sessions')
+  createManualSession(@Param('studentId') studentId: string, @Body() dto: CreateManualSessionDto) {
+    return this.coachService.createManualSession(studentId, dto);
   }
 
   @Patch('students/:studentId/sessions/:sessionId')

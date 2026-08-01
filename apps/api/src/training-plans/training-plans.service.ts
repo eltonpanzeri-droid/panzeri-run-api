@@ -1001,6 +1001,77 @@ export class TrainingPlansService {
     });
   }
 
+  // Treino adicionado manualmente pelo treinador num dia especifico (ex: depois de uma conversa
+  // pessoal com o aluno) — pedido explicito do treinador, 2026-08-01. Cria so o "casco" vazio da
+  // sessao (sem IA, zero custo); o preenchimento de verdade acontece depois, na mesma tela de
+  // edicao ja usada pra qualquer treino: o treinador digita na mao, ou clica em "Gerar novo
+  // treino" (regenerateSession) pra pedir pra IA.
+  async createManualSession(userId: string, input: { scheduledDate: string; modality: string }) {
+    const [year, month, day] = input.scheduledDate.split('-').map(Number);
+    const scheduledDate = new Date(Date.UTC(year, month - 1, day));
+    if (Number.isNaN(scheduledDate.getTime())) {
+      throw new BadRequestException('Data invalida.');
+    }
+    const today = todayInSaoPaulo();
+    if (scheduledDate.getTime() < today.getTime()) {
+      throw new BadRequestException('Nao e possivel adicionar um treino num dia que ja passou.');
+    }
+
+    const activePlan = await this.prisma.trainingPlan.findFirst({
+      where: { userId, status: 'active' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!activePlan) {
+      throw new BadRequestException('Este aluno ainda nao tem um plano ativo — gere a semana antes de adicionar um treino avulso.');
+    }
+
+    const existing = await this.prisma.trainingSession.findFirst({
+      where: { userId, scheduledDate, modality: input.modality },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new BadRequestException('Ja existe um treino dessa modalidade cadastrado para esse dia.');
+    }
+
+    const isStrength = input.modality === 'forca' || input.modality === 'fortalecimento_corredores';
+    const title = isStrength
+      ? (input.modality === 'fortalecimento_corredores' ? 'Fortalecimento para corredores' : 'Musculacao')
+      : (input.modality === 'esteira' ? 'Corrida na esteira' : 'Treino de corrida');
+    const structure: Prisma.InputJsonObject = isStrength
+      ? { type: 'strength', category: input.modality === 'fortalecimento_corredores' ? 'Fortalecimento para corredores' : 'Musculacao', exercises: [] }
+      : { type: 'run', blocks: [] };
+
+    const session = await this.prisma.trainingSession.create({
+      data: {
+        planId: activePlan.id,
+        userId,
+        scheduledDate,
+        weekday: scheduledDate.getUTCDay(),
+        modality: input.modality,
+        title,
+        locationSuggestion: 'Livre',
+        structure,
+      },
+    });
+
+    await this.prisma.userNotification.create({
+      data: {
+        userId,
+        title: 'Novo treino adicionado',
+        message: 'O seu treinador adicionou um treino extra na sua semana.',
+        type: 'info',
+      },
+    });
+
+    void this.studentProfile.recordEvent(
+      userId,
+      ProfileEventCode.DIRECTIVE_ADDED,
+      `Treinador adicionou manualmente um treino de ${title} para o dia ${input.scheduledDate}.`,
+    ).catch(() => undefined);
+
+    return session;
+  }
+
   // Rotulo puramente cosmetico, guardado so pra referencia futura do treinador no admin — nunca
   // lido de volta por nenhuma logica (a IA nao declara mais uma categoria, ver AiSessionSchema em
   // prescription-agent.service.ts). Derivado do que a propria IA preencheu pra aquele dia.

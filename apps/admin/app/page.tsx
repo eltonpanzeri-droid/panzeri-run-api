@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Gauge, LayoutDashboard, LogIn, Menu, RefreshCw, Save, Search, Ticket, Trash2, UserRound, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, UserRound, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -147,6 +147,7 @@ interface StudentDetail {
   }>;
   plan: {
     name: string;
+    startDate: string;
     recommendation?: string | null;
     methodology?: {
       rationale: string[];
@@ -1176,6 +1177,7 @@ function StudentPanel({
   const [subscriptionStatus, setSubscriptionStatus] = useState('pending');
   const [inviteText, setInviteText] = useState('');
   const [expandedHistoryId, setExpandedHistoryId] = useState('');
+  const [justAddedSessionId, setJustAddedSessionId] = useState('');
   const [mergeSourceEmail, setMergeSourceEmail] = useState('');
   const [messageText, setMessageText] = useState('');
   const [messageByEmail, setMessageByEmail] = useState(true);
@@ -1979,11 +1981,13 @@ function StudentPanel({
                 .filter((session) => session.weekday === weekday)
                 .slice()
                 .sort((left, right) => modalityOrderRank(left.modality) - modalityOrderRank(right.modality));
+              const dayDate = sessions[0]?.date ?? (student.plan?.startDate ? dateForWeekday(student.plan.startDate, weekday) : null);
+              const existingModalities = new Set(sessions.map((session) => session.modality));
               return (
                 <div className="coachDay" key={weekday}>
                   <div className="coachDayHeader">
                     <strong>{weekdayLabel(weekday)}</strong>
-                    <span>{sessions[0] ? dateLabel(sessions[0].date) : ''}</span>
+                    <span>{dayDate ? dateLabel(dayDate) : ''}</span>
                   </div>
                   {sessions.length ? sessions.map((session, index) => (
                     <EditableSession
@@ -1995,8 +1999,22 @@ function StudentPanel({
                       onStatus={onStatus}
                       onSaved={onRefresh}
                       sessionLabel={sessions.length > 1 ? `Treino ${index + 1} de ${sessions.length}` : null}
+                      autoOpen={session.id === justAddedSessionId}
                     />
                   )) : <p className="restDay">Sem treino</p>}
+                  {dayDate ? (
+                    <AddSessionButton
+                      studentId={student.id}
+                      token={token}
+                      scheduledDate={dayDate}
+                      existingModalities={existingModalities}
+                      onStatus={onStatus}
+                      onCreated={(newSessionId) => {
+                        setJustAddedSessionId(newSessionId);
+                        onRefresh();
+                      }}
+                    />
+                  ) : null}
                 </div>
               );
             })}
@@ -2049,6 +2067,7 @@ function EditableSession({
   onStatus,
   onSaved,
   sessionLabel,
+  autoOpen,
 }: {
   session: NonNullable<StudentDetail['plan']>['sessions'][number];
   studentId: string;
@@ -2057,6 +2076,7 @@ function EditableSession({
   onStatus: (message: string) => void;
   onSaved: () => void;
   sessionLabel?: string | null;
+  autoOpen?: boolean;
 }) {
   const [title, setTitle] = useState(session.title);
   const [modality, setModality] = useState(session.modality);
@@ -2065,7 +2085,7 @@ function EditableSession({
   const [zone, setZone] = useState(session.zone ?? '');
   const [notes, setNotes] = useState(session.notes ?? '');
   const [recommendations, setRecommendations] = useState(session.recommendations ?? '');
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(Boolean(autoOpen));
   const [structure, setStructure] = useState<Record<string, unknown>>(() => normalizeSessionStructure(session));
   const [saveMessage, setSaveMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -2235,6 +2255,85 @@ function EditableSession({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+const MANUAL_SESSION_MODALITIES: Array<{ value: string; label: string }> = [
+  { value: 'corrida', label: 'Corrida' },
+  { value: 'esteira', label: 'Corrida na esteira' },
+  { value: 'forca', label: 'Musculacao' },
+  { value: 'fortalecimento_corredores', label: 'Fortalecimento para corredores' },
+];
+
+function AddSessionButton({
+  studentId,
+  token,
+  scheduledDate,
+  existingModalities,
+  onStatus,
+  onCreated,
+}: {
+  studentId: string;
+  token: string;
+  scheduledDate: string;
+  existingModalities: Set<string>;
+  onStatus: (message: string) => void;
+  onCreated: (sessionId: string) => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const options = MANUAL_SESSION_MODALITIES.filter((option) => !existingModalities.has(option.value));
+
+  async function createSession(modality: string) {
+    setIsCreating(true);
+    onStatus('Adicionando treino...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/sessions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduledDate, modality }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = Array.isArray(data?.message) ? data.message.join(', ') : data?.message;
+        onStatus(detail ? `Nao foi possivel adicionar: ${detail}` : 'Nao foi possivel adicionar o treino.');
+        return;
+      }
+      onStatus('Treino adicionado. Preencha ou peca pra IA gerar.');
+      setPickerOpen(false);
+      onCreated(data.id as string);
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
+  if (!options.length) return null;
+
+  if (!pickerOpen) {
+    return (
+      <button className="addSessionButton" type="button" onClick={() => setPickerOpen(true)}>
+        <Plus size={14} /> Adicionar treino
+      </button>
+    );
+  }
+
+  return (
+    <div className="addSessionPicker">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className="secondaryButton"
+          disabled={isCreating}
+          onClick={() => createSession(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+      <button type="button" className="addSessionCancel" disabled={isCreating} onClick={() => setPickerOpen(false)}>Cancelar</button>
     </div>
   );
 }
@@ -2684,6 +2783,14 @@ function modalityAccentColor(modality: string) {
   if (modality === 'fortalecimento_corredores') return '#d97706';
   if (modality === 'forca') return '#7c3aed';
   return '#64748b';
+}
+
+function dateForWeekday(planStartDate: string, weekday: number) {
+  const start = new Date(planStartDate);
+  if (Number.isNaN(start.getTime())) return null;
+  const offset = weekday === 0 ? 6 : weekday - 1;
+  const target = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + offset));
+  return `${target.getUTCFullYear()}-${String(target.getUTCMonth() + 1).padStart(2, '0')}-${String(target.getUTCDate()).padStart(2, '0')}`;
 }
 
 function dateLabel(value: string) {

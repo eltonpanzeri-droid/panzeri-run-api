@@ -8,6 +8,7 @@ import { MergeStudentDto } from './dto/merge-student.dto';
 import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
+import { CreateManualSessionDto } from './dto/create-manual-session.dto';
 import { TrainingPlansService, hasSubscriptionAccess } from '../training-plans/training-plans.service';
 import { StravaService } from '../strava/strava.service';
 import { MessagingService } from '../messaging/messaging.service';
@@ -279,6 +280,11 @@ export class CoachService {
   async regenerateStudentSession(studentId: string, sessionId: string, allowToday?: boolean) {
     await this.assertStudent(studentId);
     return this.trainingPlans.regenerateSession(studentId, sessionId, { allowToday });
+  }
+
+  async createManualSession(studentId: string, dto: CreateManualSessionDto) {
+    await this.assertStudent(studentId);
+    return this.trainingPlans.createManualSession(studentId, dto);
   }
 
   async archiveObservation(studentId: string, observationId: string) {
