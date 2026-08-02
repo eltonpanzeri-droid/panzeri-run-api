@@ -169,20 +169,13 @@ export class PrescriptionAgentService {
     const runSlots = computeRunSlots(input.availability);
     if (!runSlots.length) return null;
 
-    // Nao ha mais um motor de regras fixas para cair como fallback: o treinador foi explicito
-    // que a prescricao TEM que vir de raciocinio real da IA, nunca de regra estatica. Por isso
-    // tentamos duas vezes antes de desistir — falhas de IA costumam ser transitorias (formato de
-    // saida um pouco fora do schema, rede) e nao devem custar a semana inteira do aluno.
-    // Primeira tentativa em 'medium' (29/07: custo/latencia de 'high' em toda chamada estava alto
-    // demais pro treinador, e 'medium' ja e 100% raciocinio real da IA, so com menos texto de
-    // pensamento interno). Segunda tentativa em 'high' se a primeira falhar — nao repete o mesmo
-    // nivel de esforco duas vezes (visto na pratica: os dois niveis podem falhar de formas
-    // diferentes — 'high' as vezes nao termina o JSON a tempo por gastar demais em pensamento,
-    // 'medium' as vezes entra num loop repetitivo — entao alternar o nivel na segunda tentativa da
-    // uma chance real de um resultado diferente, em vez de tentar exatamente a mesma coisa de novo.
-    const first = await this.attemptDecision(input, evidence, 'medium');
-    if (first) return first;
-    return this.attemptDecision(input, evidence, 'high');
+    // UMA tentativa so (02/08, ordem explicita do treinador — incidente real de custo: com 2
+    // tentativas por aluno multiplicadas por todos os alunos do cron de domingo, uma rejeicao
+    // legitima e comum (ex: "easyVolumeKm sem paceSecondsPerKm") virava gasto de IA em dobro sem
+    // gerar nada. Se falhar, quem chama (generateWeek) ja avisa o treinador pelo Telegram e para
+    // por ali — sem regra fixa no lugar (nao ha motor deterministico de fallback), o proprio
+    // treinador decide gerar de novo pelo painel quando quiser.
+    return this.attemptDecision(input, evidence, 'medium');
   }
 
   // Usado quando o treinador regenera UM dia de forca/fortalecimento isolado (sem regenerar a
@@ -301,16 +294,17 @@ export class PrescriptionAgentService {
     }
 
     if (session.intervalStructure) {
-      // paceSecondsPerKm so e obrigatorio quando ha volume leve adicional (easyVolumeKm > 0) — um
-      // dia so com o bloco intervalado, sem volume extra, legitimamente nao tem esse campo.
-      const hasEasyVolume = session.intervalStructure.easyVolumeKm > 0;
-      if (hasEasyVolume) {
-        if (session.paceSecondsPerKm == null) {
-          return reject('easyVolumeKm > 0 mas sem paceSecondsPerKm preenchido.');
-        }
-        if (session.intervalStructure.fastPaceSecondsPerKm >= session.paceSecondsPerKm) {
-          return reject('pace forte nao e mais rapido que o pace leve.');
-        }
+      // easyVolumeKm (dentro de intervalStructure) e paceSecondsPerKm (fora, no nivel da sessao)
+      // sao dois campos separados em partes diferentes da resposta — na pratica a IA preenche um
+      // e esquece o outro com frequencia (incidente real 02/08: essa foi a causa da maioria das
+      // rejeicoes de um dia inteiro). Em vez de descartar o dia todo por causa desse adendo, so
+      // ignoramos o volume leve incompleto e mantemos o bloco intervalado principal (que
+      // normalmente esta correto) — mesma filosofia de "corrigir, nao rejeitar" ja usada pros
+      // campos de texto livre acima.
+      const hasEasyVolume = session.intervalStructure.easyVolumeKm > 0 && session.paceSecondsPerKm != null
+        && session.intervalStructure.fastPaceSecondsPerKm < session.paceSecondsPerKm;
+      if (session.intervalStructure.easyVolumeKm > 0 && !hasEasyVolume) {
+        this.logger.warn(`Ignorado volume leve incompleto/inconsistente em intervalStructure (${context}) — mantendo so o bloco intervalado principal.`);
       }
       return { ok: true, distanceKm: null, paceSecondsPerKm: hasEasyVolume ? session.paceSecondsPerKm : null, intervalStructure: session.intervalStructure, walkRunStructure: null };
     }
@@ -561,13 +555,14 @@ export class PrescriptionAgentService {
       // tenta provar que existe mesmo uma diretriz dizendo isso (isso seria so mais uma regra
       // fixa por cima do raciocinio da IA); se nao houver slot correspondente, so seguimos sem a
       // referencia de duracao normal do dia.
-      if (slot) {
-        const exceedsNormalDuration = session.durationMin > slot.durationMin;
-        const hasJustification = Boolean(session.durationJustification && session.durationJustification.trim().length > 0);
-        if (exceedsNormalDuration && !hasJustification) {
-          this.logger.warn(`Rejeitado: durationMin ${session.durationMin} excede o disponivel (${slot.durationMin}) no weekday ${session.weekday} sem nenhuma diretriz citada em durationJustification.`);
-          return null;
-        }
+      // ATE 02/08 isso rejeitava a semana INTEIRA quando um dia excedia a duracao normal sem
+      // "durationJustification" preenchido — na pratica virou uma trava de codigo em cima da
+      // decisao da IA (ela decide a duracao, o codigo nao deveria poder vetar isso so por causa de
+      // um campo de texto opcional que ela pode legitimamente ter deixado vazio mesmo tendo um
+      // motivo real). Ordem explicita do treinador: quem decide e sempre a IA — o codigo so avisa
+      // no log pra o treinador acompanhar, nunca descarta a resposta por causa disso.
+      if (slot && session.durationMin > slot.durationMin && !session.durationJustification?.trim()) {
+        this.logger.log(`Aviso (nao bloqueia): durationMin ${session.durationMin} excede o disponivel (${slot.durationMin}) no weekday ${session.weekday} sem durationJustification preenchido — decisao da IA aceita mesmo assim.`);
       }
 
       const shape = this.validateSessionShape(session, `semana, weekday ${session.weekday}`);
