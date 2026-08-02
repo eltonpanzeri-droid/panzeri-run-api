@@ -197,10 +197,8 @@ export class PrescriptionAgentService {
     return (await attempt()) ?? (await attempt());
   }
 
-  // Usado quando o treinador regenera UM dia de corrida isolado (sem mexer no resto da semana), e
-  // tambem internamente como reparo de um unico dia dentro da geracao da semana inteira (ver
-  // attemptDecision/repairFailedSessions) quando so aquele dia especifico falhou o piso de pace —
-  // evita descartar a semana inteira por causa de um dia so. A IA decide TUDO deste dia numa unica
+  // Usado quando o treinador regenera UM dia de corrida isolado (sem mexer no resto da semana). A
+  // IA decide TUDO deste dia numa unica
   // chamada — distancia, pace e estrutura, na forma que fizer sentido pra ela (ver AiSessionSchema)
   // — com o mesmo contexto (diretivas, observacoes, sinal de dor) que a geracao semanal usa, nunca
   // uma formula ou um numero reaproveitado de outro dia.
@@ -270,10 +268,11 @@ export class PrescriptionAgentService {
     }
   }
 
-  // Confere so a FORMA numerica que a IA escolheu pra um dia (continua / intervalado /
-  // caminhada-corrida) contra o unico piso fisico que existe (8:30/km) e a consistencia interna
-  // dos campos escolhidos — nao existe mais nenhuma categoria (sessionType) ditando qual forma e
-  // obrigatoria: a IA escolhe livremente, o codigo so confere o que ela de fato preencheu.
+  // Confere so a consistencia interna dos campos que a IA escolheu pra um dia (continua /
+  // intervalado / caminhada-corrida) — nao existe mais nenhuma categoria (sessionType) ditando
+  // qual forma e obrigatoria, e NAO existe piso de pace em codigo (removido a pedido explicito do
+  // treinador em 02/08: o pace lento e so uma recomendacao no prompt pra IA evitar, nunca uma
+  // regra que rejeita a resposta — a IA decide livremente, o codigo so confere forma/consistencia).
   // Reaproveitado tanto na geracao da semana inteira quanto no treino avulso/reparo de um dia.
   private validateSessionShape(
     session: {
@@ -312,9 +311,6 @@ export class PrescriptionAgentService {
         if (session.intervalStructure.fastPaceSecondsPerKm >= session.paceSecondsPerKm) {
           return reject('pace forte nao e mais rapido que o pace leve.');
         }
-        if (session.paceSecondsPerKm > MAX_EASY_PACE_SECONDS_PER_KM) {
-          return reject(`pace leve ${session.paceSecondsPerKm}s/km mais lento que o piso biomecanico de ${MAX_EASY_PACE_SECONDS_PER_KM}s/km (8:30/km) — abaixo disso vira caminhada.`);
-        }
       }
       return { ok: true, distanceKm: null, paceSecondsPerKm: hasEasyVolume ? session.paceSecondsPerKm : null, intervalStructure: session.intervalStructure, walkRunStructure: null };
     }
@@ -326,9 +322,6 @@ export class PrescriptionAgentService {
     if (session.distanceKm == null || session.paceSecondsPerKm == null) {
       return reject('sem distanceKm/paceSecondsPerKm nem nenhuma estrutura preenchidos.');
     }
-    if (session.paceSecondsPerKm > MAX_EASY_PACE_SECONDS_PER_KM) {
-      return reject(`pace ${session.paceSecondsPerKm}s/km mais lento que o piso biomecanico de ${MAX_EASY_PACE_SECONDS_PER_KM}s/km (8:30/km) — abaixo disso vira caminhada.`);
-    }
     return { ok: true, distanceKm: session.distanceKm, paceSecondsPerKm: session.paceSecondsPerKm, intervalStructure: null, walkRunStructure: null };
   }
 
@@ -339,7 +332,7 @@ export class PrescriptionAgentService {
       'NAO EXISTE NENHUMA TABELA OU FORMULA CALCULANDO DISTANCIA A PARTIR DE DURACAO/PACE — voce decide a distancia e o pace diretamente, pensando no que faz sentido pra este aluno neste dia. Voce sabe matematica: se decidir uma estrutura com series/recuperacao, calcule voce mesmo se ela cabe dentro de durationMinDisponivel — nao existe checagem de conta em codigo depois, a responsabilidade e inteiramente sua.',
       'Voce recebe ate tres evidencias de pace (testeOficial, autoRelatoRecente, mediaStravaRecente) — use a mais recente e mais confiavel, nunca uma proporcao fixa entre elas (tipo "pace_teste vezes 0.95").',
       'Se diretrizesEspecificasDoTreinadorParaEsteAluno mencionar algo que se aplique a este dia especifico, aplique literalmente (prioridade quase absoluta). observacoesRegistradasPeloProprioAluno sao informais, considere quando fizer sentido sem sacrificar seguranca. sinalDeSeguranca e motivoDoSinalDeSeguranca sao so informacao de contexto (o aluno relatou dor) — use seu julgamento sobre o que isso muda no treino de hoje, nao existe uma trava automatica aqui.',
-      `Existe um piso biomecanico nao-negociavel: pace de corrida nunca mais lento que 8:30/km (${MAX_EASY_PACE_SECONDS_PER_KM} segundos por km). Abaixo disso a mecanica da corrida piora e vira caminhada na pratica, nao e preferencia de treino. Se o ritmo confortavel real deste aluno estiver proximo disso, use walkRunStructure alternando corrida de verdade com caminhada de verdade em vez de forcar uma corrida continua mais lenta que o piso.`,
+      `Recomendacao (nao e uma regra rigida): evite prescrever pace de corrida mais lento que 8:30/km (${MAX_EASY_PACE_SECONDS_PER_KM} segundos por km) quando puder, porque abaixo disso a mecanica da corrida tende a piorar e se aproximar de uma caminhada. Se o ritmo confortavel real deste aluno estiver nessa faixa, considere usar walkRunStructure alternando corrida de verdade com caminhada de verdade — mas a decisao final e sempre sua, pensando no aluno real.`,
     ].join('\n\n');
   }
 
@@ -476,13 +469,14 @@ export class PrescriptionAgentService {
         this.logger.warn('Decisao do agente de IA rejeitada na validacao (cobertura de dias/duracao fora do combinado).');
         return null;
       }
-      // Sem chamada extra pra corrigir violacao isolada do piso de 8:30/km (removida em 31/07 a
-      // pedido do treinador, por custo): o unico ensinamento contra isso agora vive no prompt
-      // (buildSystemPromptStable, instrucao do piso biomecanico). Se algum dia ainda vier abaixo
-      // do piso, a resposta inteira e rejeitada aqui e a tentativa seguinte (medium->high, ja
-      // existente) e que resolve — sem gerar uma chamada adicional so pra esse conserto.
+      // NAO existe mais rejeicao por pace lento (piso de 8:30/km): removido em 02/08 a pedido
+      // explicito do treinador — pace lento e so uma recomendacao no prompt pra IA evitar, nunca
+      // um motivo pra descartar a resposta (ver validateSessionShape). "failures" aqui so pode
+      // vir de inconsistencia estrutural de verdade (ex: campos obrigatorios faltando, duas
+      // estruturas preenchidas ao mesmo tempo) — isso continua sendo rejeitado, porque e resposta
+      // malformada, nao uma escolha de pace da IA.
       if (validated.failures.length) {
-        this.logger.warn(`Rejeitado (semana): ${validated.failures.length} dia(s) abaixo do piso de 8:30/km: ${validated.failures.map((f) => `weekday ${f.weekday} (${f.reason})`).join('; ')}`);
+        this.logger.warn(`Rejeitado (semana): ${validated.failures.length} dia(s) com resposta malformada: ${validated.failures.map((f) => `weekday ${f.weekday} (${f.reason})`).join('; ')}`);
         return null;
       }
       const sessions = validated.sessions;
@@ -531,13 +525,9 @@ export class PrescriptionAgentService {
     }
   }
 
-  // Um dia especifico pode falhar so pelo piso de pace (8:30/km) sem que o resto da semana esteja
-  // errado — "failures" carrega esses dias pra fora em vez de derrubar a resposta inteira (ver
-  // repairFailedRunSessions/attemptDecision): a chamada semanal fica gigante (todos os dias +
-  // forca de uma vez) e, antes, um unico dia problematico fazia a IA reprocessar TUDO de novo do
-  // zero — inclusive dias que ja estavam certos — o que ja causou geracao inteira falhar na
-  // pratica (ex real: so o domingo da aluna violava o piso, duas vezes seguidas, e a semana
-  // inteira era descartada nas duas tentativas).
+  // "failures" carrega os dias com resposta estruturalmente malformada (campo obrigatorio
+  // faltando, duas estruturas preenchidas ao mesmo tempo) — pace lento NAO entra mais aqui desde
+  // 02/08 (ver validateSessionShape), pace e sempre aceito como a IA decidiu.
   private validateSessions(
     sessions: z.infer<typeof AiSessionSchema>[],
     runSlots: RunSlot[],

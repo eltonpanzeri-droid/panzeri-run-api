@@ -250,17 +250,19 @@ export class TrainingPlansService {
   // explicitamente (pelo admin) que quer mesmo alterar o treino de HOJE ao regenerar a semana —
   // sem isso, hoje continua sempre preservado (comportamento padrao, nunca muda sozinho).
   // So usado pelos gatilhos de PRIMEIRA geracao acionados pelo proprio aluno (concluir entrevista).
-  // Sabado ou domingo antes das 19h, sem plano ativo ainda, e sem nenhum dia de treino restante
-  // nesta semana e exatamente o caso em que generateWeek() so serviria pra gerar a semana SEGUINTE
-  // na hora — e o job automatico de domingo 19h (WeeklyPlanSchedulerService) vai fazer o mesmo
-  // trabalho de graca poucas horas depois. Nesse caso especifico, nao vale gastar a chamada de IA
-  // agora: o chamador deve pular generateWeek() e so avisar o aluno que o treino libera domingo
-  // apos as 19h. Fora desse caso exato (por exemplo, sabado com dia de treino hoje, ou aluno que
-  // ja tem plano ativo, ou qualquer regeneracao pedida pelo treinador), sempre retorna false.
+  // So existem duas formas de gerar a semana automaticamente: a de primeira vez (aqui, disparada
+  // pelo proprio aluno ao concluir a entrevista) e a automatica de domingo a noite. Regra do
+  // treinador (02/08): SO domingo antes das 19h suspende a geracao de primeira vez, porque nesse
+  // caso especifico e a geracao automatica de domingo (WeeklyPlanSchedulerService) que ja vai
+  // fazer o mesmo trabalho poucas horas depois, de graca. Qualquer outro dia da semana (segunda a
+  // sabado) NAO suspende — a geracao de primeira vez sempre vale normalmente nesses dias, mesmo
+  // que va rolar pra semana seguinte por falta de dia disponivel nesta (ver hasFutureDayThisWeek
+  // abaixo). Fora do caso domingo+sem-dia-disponivel (ou aluno que ja tem plano ativo, ou
+  // qualquer regeneracao pedida pelo treinador), sempre retorna false.
   async shouldDelayFirstGenerationToSunday(userId: string): Promise<boolean> {
     const { weekday, hour } = saoPauloWeekdayAndHour(new Date());
-    const isWeekendBeforeSundayRelease = weekday === 6 || (weekday === 0 && hour < 19);
-    if (!isWeekendBeforeSundayRelease) return false;
+    const isSundayBeforeRelease = weekday === 0 && hour < 19;
+    if (!isSundayBeforeRelease) return false;
 
     const [activePlan, availability] = await Promise.all([
       this.prisma.trainingPlan.findFirst({ where: { userId, status: 'active' }, select: { id: true } }),
@@ -758,11 +760,25 @@ export class TrainingPlansService {
   // esse plano "scheduled" para "active" em vez de gerar tudo de novo do zero (ver metodo current).
   async generateNextWeekIfMissing(userId: string) {
     const nextWeekStart = startOfWeek(addDays(new Date(), 7));
-    const existing = await this.prisma.trainingPlan.findFirst({
-      where: { userId, startDate: nextWeekStart },
-      select: { id: true },
-    });
+    const [existing, anyPlanEver] = await Promise.all([
+      this.prisma.trainingPlan.findFirst({
+        where: { userId, startDate: nextWeekStart },
+        select: { id: true },
+      }),
+      this.prisma.trainingPlan.findFirst({
+        where: { userId },
+        select: { id: true },
+      }),
+    ]);
     if (existing) return;
+    // Aluna sem NENHUM plano ainda: a primeira geracao dela e sempre disparada pelo proprio
+    // gatilho de onboarding (ver completeOnboarding em me.service.ts), nunca por este cron. Sem
+    // esta checagem, uma aluna que completa a entrevista num domingo antes das 19h — e cuja
+    // rotina ja rola direto pra semana seguinte por nao sobrar dia disponivel nesta semana (ver
+    // hasFutureDayThisWeek acima) — pode ter a propria chamada de generateWeek() e esta do cron
+    // mirando exatamente a mesma semana ao mesmo tempo, uma brigando com a outra pelos mesmos
+    // dados. Pulando aqui, a primeira geracao fica sempre por conta exclusiva do gatilho dela.
+    if (!anyPlanEver) return;
 
     await this.generateWeek(userId, undefined, {
       referenceDate: addDays(new Date(), 7),
