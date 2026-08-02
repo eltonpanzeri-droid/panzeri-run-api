@@ -33,10 +33,15 @@ export class WeeklyPlanSchedulerService implements OnApplicationBootstrap {
   // aconteca por uma acao explicita: o botao "Refazer nova semana" do treinador, ou os gatilhos
   // explicitos ja existentes (concluir entrevista, mudar rotina, sincronizar disponibilidade).
 
-  // 22:00 UTC de domingo = 19:00 em Sao Paulo (Brasil nao tem horario de verao desde 2019).
-  // Deixa a semana seguinte pronta com antecedencia — muitas alunas se organizam no domingo a
-  // noite para treinar ja segunda de manha, entao ver o treino antes ajuda no planejamento.
-  @Cron('0 22 * * 0')
+  // PAUSADO TEMPORARIAMENTE (02/08, incidente em andamento): com o disjuntor de falha recente
+  // (AI_FAILURE_COOLDOWN_MS, ver training-plans.service.ts) e varios alunos rejeitando a resposta
+  // da IA por motivos legitimos (estrutura incompleta, cobertura de dias errada — nao o piso de
+  // pace, que ja foi removido), essa varredura de TODOS os alunos de uma vez estava tentando e
+  // falhando repetidamente, gastando tokens sem gerar nada de util. Pausado pra estancar o gasto
+  // enquanto o motivo das falhas em serie e investigado com calma. @Cron comentado (nao so um
+  // early-return) pra garantir que nao dispare nem por engano. Reativar so depois de entender por
+  // que tantos alunos estavam falhando na validacao.
+  // @Cron('0 22 * * 0')
   async generateNextWeekPlans() {
     const students = await this.prisma.user.findMany({
       where: { role: 'student', accountStatus: { not: 'archived' } },
