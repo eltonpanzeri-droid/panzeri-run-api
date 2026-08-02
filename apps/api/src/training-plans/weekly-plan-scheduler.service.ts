@@ -12,21 +12,18 @@ export class WeeklyPlanSchedulerService implements OnApplicationBootstrap {
     private readonly trainingPlans: TrainingPlansService,
   ) {}
 
-  // Um deploy no EasyPanel reinicia o processo — se isso acontecer depois das 19h de domingo
-  // (horario em que o cron abaixo deveria ter rodado), o job daquela semana e simplesmente
-  // perdido para sempre: o @Cron do @nestjs/schedule nao "recupera" execucoes perdidas, so
-  // agenda a partir de agora em diante. Ja aconteceu na pratica (deploy as 23h de domingo,
-  // ninguem via a semana seguinte nem no app nem no painel, e so na semana seguinte o job
-  // rodaria de novo). Esta checagem na inicializacao cobre exatamente essa lacuna: se o
-  // processo subir depois das 19h de um domingo, roda a pre-geracao na hora, sem esperar
-  // o proximo domingo.
-  async onApplicationBootstrap() {
-    const { weekday, hour } = saoPauloWeekdayAndHour(new Date());
-    if (weekday === 0 && hour >= 19) {
-      this.logger.log('Inicializacao depois das 19h de domingo — rodando pre-geracao da semana seguinte como recuperacao, caso o cron agendado tenha sido perdido num deploy.');
-      await this.generateNextWeekPlans();
-    }
-  }
+  // DESATIVADO (02/08, incidente real): esta recuperacao rodava generateNextWeekPlans() (todos
+  // os alunos, um por um, cada um podendo levar minutos com retentativas da IA) toda vez que o
+  // processo subisse depois das 19h de domingo. Isso vira um circulo vicioso em qualquer domingo
+  // a noite em que for preciso fazer mais de um deploy: cada deploy reinicia o processo, cada
+  // reinicio dispara essa varredura completa de novo do zero, interrompendo a anterior no meio —
+  // e nunca da tempo de terminar antes do proximo deploy. Foi exatamente o que aconteceu e
+  // manteve a API fora do ar por horas em 02/08. Motivo original (deploy destrua o cron das 19h
+  // perdendo a pre-geracao daquela semana) continua real, mas o remedio piorou o problema. Se
+  // sobrar algum aluno sem a semana seguinte pre-gerada por causa de um deploy nesse horario, o
+  // treinador pode rodar manualmente pelo painel, ou simplesmente esperar o cron do proximo
+  // domingo (ver generateNextWeekPlans abaixo).
+  async onApplicationBootstrap() {}
 
   // REMOVIDO DE PROPOSITO (2026-07-28): existia aqui uma rotina automatica rodando de tempos em
   // tempos so pra "conferir e talvez regenerar" o plano de cada aluno. O treinador pediu
