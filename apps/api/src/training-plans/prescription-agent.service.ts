@@ -44,11 +44,12 @@ const WEEKLY_KM_RANGE_LABELS: Record<string, string> = {
 // nenhuma regra matematica calculando ou validando o treino, nem para "so conferir consistencia" —
 // a responsabilidade de a estrutura fazer sentido pro tempo disponivel e inteiramente da IA).
 
-// Piso biomecanico (nao uma preferencia de treinador): abaixo desse ritmo a mecanica da corrida
-// piora e vira caminhada na pratica (ver panzeri-methodology-knowledge.ts). Diferente das
-// proporcoes removidas de fallbackPaces, isso e um fato fisico igual pra qualquer aluno — por
-// isso continua validado em codigo, nunca decidido pela IA.
-const MAX_EASY_PACE_SECONDS_PER_KM = 510; // 8:30/km
+// NAO e mais um piso validado em codigo (removido 02/08 a pedido explicito do treinador — "esse
+// piso nao deve existir, apenas recomendacao ao agente"). So um numero usado pra redigir a
+// recomendacao no prompt (buildSystemPromptStable/buildRunSessionSystemPrompt): abaixo desse
+// ritmo a mecanica da corrida tende a piorar e se aproximar de uma caminhada, mas a decisao final
+// de cada pace e sempre da IA — nenhuma resposta e rejeitada por causa deste numero.
+const MAX_EASY_PACE_SECONDS_PER_KM = 510; // 8:30/km, so recomendacao
 
 const AiIntervalStructureSchema = z.object({
   repeatCount: z.number().int().min(2).max(20),
@@ -371,8 +372,12 @@ export class PrescriptionAgentService {
       );
       const parsed = response.parsed_output;
       if (!parsed) return null;
+      // Chamada avulsa pra um slot ESPECIFICO (repo de dia faltante ou regenerar-1-dia do
+      // treinador) — diferente da validacao da semana inteira, aqui queremos exatamente o dia
+      // pedido, entao se a IA devolver weekday/modalidade diferente do slot, e falha mesmo.
       const validated = this.validateStrengthSessions([parsed], [slot]);
-      return validated?.[0] ?? null;
+      if (validated.missingSlots.length) return null;
+      return validated.sessions[0] ?? null;
     } catch (error) {
       this.logger.warn(`Falha ao gerar decisao de forca avulsa com o agente de IA: ${describeAiError(error)}`);
       return null;
@@ -475,20 +480,23 @@ export class PrescriptionAgentService {
       }
       const sessions = validated.sessions;
 
-      let strengthSessions = this.validateStrengthSessions(parsed.strengthSessions, strengthSlots);
-      if (!strengthSessions) {
+      const strengthValidation = this.validateStrengthSessions(parsed.strengthSessions, strengthSlots);
+      let strengthSessions = strengthValidation.sessions;
+      if (strengthValidation.missingSlots.length) {
         // Mesma filosofia do reparo por dia isolado de corrida acima: a IA as vezes devolve os
-        // dias de forca vazios ou fora do combinado (incidente real 2026-07-31: 0 sessoes de
-        // forca devolvidas para um aluno com 3 dias esperados, nas duas tentativas, descartando
-        // uma resposta boa de corrida junto). Em vez de jogar fora a semana inteira (que ja gerou
-        // texto rico e caro pros dias de corrida), pede cada dia de forca que falhou de novo numa
-        // chamada avulsa pequena (mesma usada no regenerar-1-dia do treinador).
-        this.logger.warn(`Sessoes de forca da IA nao bateram com a disponibilidade esperada (${strengthSlots.length} esperada(s)) — tentando repor via chamada avulsa por dia, em vez de descartar a semana inteira.`);
-        strengthSessions = await this.repairStrengthSessions(input, strengthSlots);
-        if (!strengthSessions) {
+        // dias de forca vazios ou incompletos (incidente real 2026-07-31: 0 sessoes de forca
+        // devolvidas para um aluno com 3 dias esperados, nas duas tentativas, descartando uma
+        // resposta boa de corrida junto). Em vez de jogar fora a semana inteira, pede so os dias
+        // que realmente faltaram de novo numa chamada avulsa pequena (mesma usada no
+        // regenerar-1-dia do treinador) — o que a IA ja acertou (inclusive dias extras por
+        // diretriz) fica como esta, nao e descartado.
+        this.logger.warn(`${strengthValidation.missingSlots.length} dia(s) de forca da rotina sem sessao correspondente — repondo via chamada avulsa por dia: [${strengthValidation.missingSlots.map((s) => `${s.weekday}:${s.modality}`).join(',')}].`);
+        const repaired = await this.repairStrengthSessions(input, strengthValidation.missingSlots);
+        if (!repaired) {
           this.logger.warn('Reparo avulso dos dias de forca tambem falhou — descartando esta tentativa.');
           return null;
         }
+        strengthSessions = [...strengthSessions, ...repaired];
       }
 
       const rationale = parsed.rationale
@@ -594,15 +602,14 @@ export class PrescriptionAgentService {
     return { sessions: result, failures };
   }
 
-  // So chamado quando validateStrengthSessions rejeita a resposta da IA para toda a semana
-  // (incidente real 2026-07-31: a IA devolveu 0 sessoes de forca para um aluno com 3 dias
-  // esperados). Em vez de descartar a semana inteira — jogando fora o texto de corrida que
-  // provavelmente estava bom — pede cada dia de forca esperado de novo, isoladamente, pela mesma
-  // chamada avulsa usada no "regenerar 1 dia" do treinador. Se qualquer dia falhar de novo, desiste
-  // (retorna null) e deixa o attemptDecision descartar esta tentativa como antes.
-  private async repairStrengthSessions(input: MethodologyInput, strengthSlots: StrengthSlot[]): Promise<StrengthSessionDecision[] | null> {
+  // Chamado so com os slots da rotina que ficaram sem nenhuma sessao correspondente (ver
+  // validateStrengthSessions) — pede cada um de novo, isoladamente, pela mesma chamada avulsa
+  // usada no "regenerar 1 dia" do treinador, sem mexer no que a IA ja acertou (inclusive dias
+  // extras por diretriz individual). Se qualquer dia faltante falhar de novo, desiste (retorna
+  // null) e deixa o attemptDecision descartar esta tentativa como antes.
+  private async repairStrengthSessions(input: MethodologyInput, missingSlots: StrengthSlot[]): Promise<StrengthSessionDecision[] | null> {
     const repaired = await Promise.all(
-      strengthSlots.map((slot) => this.attemptStrengthSessionDecision(input, slot)),
+      missingSlots.map((slot) => this.attemptStrengthSessionDecision(input, slot)),
     );
     if (repaired.some((decision) => decision === null)) {
       this.logger.warn(`Reparo avulso de forca falhou para ${repaired.filter((decision) => decision === null).length} dia(s).`);
@@ -612,41 +619,34 @@ export class PrescriptionAgentService {
   }
 
   // Garante que a IA so use exercicios reais do catalogo aprovado (nomes/descricoes/videos ja
-  // curados) e so decida dias/modalidades que o aluno realmente tem disponiveis — nunca inventa
-  // um exercicio nem escolhe um catalogo que nao bate com a modalidade do dia. Fora isso (quais
-  // exercicios, quantos, foco muscular do dia, sets/reps/descanso), a decisao e inteiramente da IA.
+  // curados) — nunca inventa um exercicio. Fora isso (quais dias/modalidades, quais exercicios,
+  // quantos, foco muscular do dia, sets/reps/descanso), a decisao e inteiramente da IA.
   //
-  // Chave composta (weekday+modality), nao so weekday: a rotina de um aluno pode legitimamente ter
-  // MAIS DE UMA modalidade de forca no mesmo dia (ex: forca e fortalecimento_corredores na mesma
-  // quarta-feira — o app permite marcar as duas). Um Map indexado so por weekday guardava apenas a
-  // ULTIMA modalidade daquele dia (a outra era sobrescrita silenciosamente), entao quando a IA
-  // corretamente devolvia uma sessao para a modalidade "esquecida", o codigo rejeitava como se a IA
-  // tivesse errado — o erro sempre foi nosso, nunca da IA. Isso nao e especifico de um aluno: afeta
-  // qualquer aluno com mais de uma modalidade de forca marcada no mesmo dia.
+  // ATE 02/08 esta funcao rejeitava a resposta INTEIRA quando o numero de sessoes nao batia
+  // exatamente com strengthSlots (a rotina cadastrada), ou quando vinha um weekday/modalidade fora
+  // dela — isso derrubava um dia de forca legitimamente adicionado por diretriz individual do
+  // treinador. Ordem explicita do treinador: a diretriz individual e SOBERANA, o codigo nao pode
+  // vetar um dia extra so por nao estar na rotina original. Agora: sessoes que batem com a rotina
+  // sao validadas normalmente (dedupe por weekday+modalidade); sessoes extras/fora da rotina sao
+  // aceitas do mesmo jeito (presume-se diretriz — se algo estiver estranho, o gerente tecnico
+  // conversa com o treinador depois, isso nao e papel do codigo policiar). So os slots da rotina
+  // que ficarem SEM nenhuma sessao correspondente sao sinalizados pra reparo avulso.
   private validateStrengthSessions(
     sessions: z.infer<typeof AiStrengthSessionSchema>[],
     strengthSlots: StrengthSlot[],
-  ): StrengthSessionDecision[] | null {
-    if (sessions.length !== strengthSlots.length) {
-      this.logger.warn(
-        `Rejeitado (forca): numero de sessoes da IA (${sessions.length}) diferente do numero de dias/modalidades de forca disponiveis (${strengthSlots.length}) [${strengthSlots.map((s) => `${s.weekday}:${s.modality}`).join(',')}].`,
-      );
-      return null;
-    }
+  ): { sessions: StrengthSessionDecision[]; missingSlots: StrengthSlot[] } {
     const slotByKey = new Map(strengthSlots.map((slot) => [`${slot.weekday}:${slot.modality}`, slot]));
     const usedKeys = new Set<string>();
     const result: StrengthSessionDecision[] = [];
 
     for (const session of sessions) {
       const key = `${session.weekday}:${session.modality}`;
-      const slot = slotByKey.get(key);
-      if (!slot) {
-        this.logger.warn(`Rejeitado (forca): IA retornou weekday ${session.weekday} com modalidade ${session.modality}, combinacao que nao esta entre as disponiveis [${strengthSlots.map((s) => `${s.weekday}:${s.modality}`).join(',')}].`);
-        return null;
-      }
       if (usedKeys.has(key)) {
-        this.logger.warn(`Rejeitado (forca): IA retornou o weekday ${session.weekday} com modalidade ${session.modality} mais de uma vez.`);
-        return null;
+        this.logger.warn(`Ignorada sessao de forca duplicada (weekday ${session.weekday}, modalidade ${session.modality}) — mantida so a primeira.`);
+        continue;
+      }
+      if (!slotByKey.has(key)) {
+        this.logger.log(`Sessao de forca fora da rotina cadastrada (weekday ${session.weekday}, modalidade ${session.modality}) — aceita como decisao da IA/diretriz individual.`);
       }
       usedKeys.add(key);
       // Fora do catalogo aprovado (sem video/descricao curados) so acontece quando uma diretriz
@@ -668,7 +668,8 @@ export class PrescriptionAgentService {
       });
     }
 
-    return result;
+    const missingSlots = strengthSlots.filter((slot) => !usedKeys.has(`${slot.weekday}:${slot.modality}`));
+    return { sessions: result, missingSlots };
   }
 
   private buildSafetyGuidance(safetyAdjustment: boolean, removeRunning: boolean) {
@@ -687,8 +688,8 @@ export class PrescriptionAgentService {
     return [
       'Voce e o agente de prescricao de treinos da Panzeri Run — decide numa unica resposta a semana inteira de um aluno, tanto os dias de corrida quanto os dias de forca/fortalecimento, aplicando o julgamento real do treinador Elton Panzeri descrito abaixo. Isto nao e um sistema de regras nem de formulas — e um raciocinio de treinador, dia a dia, olhando o contexto completo deste aluno especifico.',
       PANZERI_METHODOLOGY_KNOWLEDGE,
-      'Existe exatamente UM limite fisico nao-negociavel em toda esta tarefa: pace de corrida nunca mais lento que 8:30/km (510 segundos por km). Abaixo disso a mecanica da corrida piora e vira caminhada na pratica — nao e preferencia de treino, e um fato do corpo humano, igual pra qualquer aluno. Se o ritmo confortavel real de um aluno estiver proximo disso, prefira alternar corrida de verdade com caminhada de verdade (walkRunStructure) em vez de forcar uma corrida continua mais lenta que o piso. Fora esse numero, nao existe mais nenhum outro limite fixo nesta tarefa — tudo o resto (duracao, distancia, volume da semana, quando usar cada forma de treino, o que fazer com um sinal de dor) e julgamento seu, olhando o aluno real.',
-      'Se diretrizesEspecificasDoTreinadorParaEsteAluno nao estiver vazio, essas sao intervencoes que o treinador Elton Panzeri pediu PESSOALMENTE para ESTE aluno especifico — ele decidiu isso deliberadamente, com base em algo que so ele sabe sobre esse aluno naquele momento. Essas diretrizes tem prioridade quase absoluta: sobrepoem qualquer recomendacao geral de metodologia, e so perdem para o piso de 8:30/km acima. Aplique-as literalmente, sem suavizar ou reinterpretar — inclusive quando pedirem algo fora do padrao normal do aluno (um dia extra de treino, duas sessoes no mesmo dia, uma duracao maior que o normal, ou um exercicio de forca especifico que nao esta no catalogo aprovado). O codigo nao trava nada disso; a responsabilidade de aplicar a diretriz certo e sua.',
+      'Nao existe nenhum limite fixo nesta tarefa, nem fisico nem de qualquer outro tipo — tudo (duracao, distancia, pace, volume da semana, quando usar cada forma de treino, o que fazer com um sinal de dor) e julgamento seu, olhando o aluno real. Uma recomendacao, nao uma regra: evite prescrever pace de corrida mais lento que 8:30/km (510 segundos por km) quando puder, porque abaixo disso a mecanica da corrida tende a piorar e se aproximar de uma caminhada. Se o ritmo confortavel real de um aluno estiver nessa faixa, considere alternar corrida de verdade com caminhada de verdade (walkRunStructure) — mas a decisao final e sempre sua, pensando no aluno real; nao existe nenhuma checagem de codigo rejeitando isso.',
+      'Se diretrizesEspecificasDoTreinadorParaEsteAluno nao estiver vazio, essas sao intervencoes que o treinador Elton Panzeri pediu PESSOALMENTE para ESTE aluno especifico, normalmente acordadas com o gerente tecnico — ele decidiu isso deliberadamente, com base em algo que so ele sabe sobre esse aluno naquele momento. A diretriz individual e SOBERANA: prioridade absoluta sobre qualquer recomendacao geral de metodologia, incluindo a recomendacao de pace acima. Aplique-as literalmente, sem suavizar ou reinterpretar — inclusive quando pedirem algo fora do padrao normal do aluno (um dia extra de treino, duas sessoes no mesmo dia, uma duracao maior que o normal, um pace fora da faixa recomendada, ou um exercicio de forca especifico que nao esta no catalogo aprovado). O codigo nao trava nada disso; a responsabilidade de aplicar a diretriz certo e sua. Qualquer coisa que parecer estranha, o gerente tecnico conversa com o treinador depois — nao e papel do codigo policiar isso.',
       '- Se observacoesRegistradasPeloProprioAluno nao estiver vazio: isso e MUITO DIFERENTE de diretrizesEspecificasDoTreinadorParaEsteAluno. Sao anotacoes que o proprio ALUNO escreveu livremente sobre circunstancias pessoais (ex: "vou viajar semana que vem e nao sei se terei onde treinar"). Isso NAO e uma ordem, NAO foi confirmado/revisado pelo treinador. Leve em consideracao quando fizer sentido, sem sacrificar principios da metodologia so por causa de uma observacao informal.',
       '- prontuarioDoAluno e um resumo curto e cumulativo, escrito por outro agente, do historico deste aluno (perfil, diretrizes ja aplicadas, observacoes antigas, dores anteriores, padroes de consistencia). Use-o como memoria de fundo — o mesmo tipo de coisa que um treinador humano ja saberia de cor sobre esse aluno sem precisar reler tudo. historicoSemanal, diretrizesEspecificasDoTreinadorParaEsteAluno e observacoesRegistradasPeloProprioAluno continuam sendo as fontes mais recentes e especificas: se algo no prontuario parecer desatualizado ou contradizer esses campos mais atuais, confie nos campos mais atuais.',
       '- Diretrizes frequentemente citam datas de calendario (ex: "longao de 16 km em 25/07"), mas voce so retorna numeros de weekday (0=domingo...6=sabado). Use dataDeCadaDiaDaSemanaSendoGerada + hoje pra achar o weekday certo daquela data. Se a data nao for desta semana, essa parte da diretriz nao se aplica agora — mas aplique o resto da diretriz que nao depender de data.',
