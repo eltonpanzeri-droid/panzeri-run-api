@@ -130,6 +130,11 @@ export class CoachController {
     return this.coachService.refreshAllPendingBillingStatus();
   }
 
+  @Post('plans/generate-next-week-all')
+  generateNextWeekForAllStudents() {
+    return this.coachService.generateNextWeekForAllStudents();
+  }
+
   @Post('students/:studentId/sessions/:sessionId/regenerate')
   regenerateStudentSession(
     @Param('studentId') studentId: string,

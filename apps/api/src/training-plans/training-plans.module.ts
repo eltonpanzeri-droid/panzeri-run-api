@@ -17,6 +17,6 @@ import { BillingModule } from '../billing/billing.module';
   imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, StravaModule, BillingModule, StudentProfileModule],
   controllers: [TrainingPlansController],
   providers: [TrainingPlansService, PrescriptionAgentService, StravaAnalysisAgentService, WeeklyPlanSchedulerService, StravaAnalysisSchedulerService],
-  exports: [TrainingPlansService, StudentProfileModule],
+  exports: [TrainingPlansService, StudentProfileModule, WeeklyPlanSchedulerService],
 })
 export class TrainingPlansModule {}

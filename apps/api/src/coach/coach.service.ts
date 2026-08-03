@@ -20,6 +20,7 @@ import { MeService } from '../me/me.service';
 import { BillingService } from '../billing/billing.service';
 import { formatStudentCode } from '../billing/telegram.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
+import { WeeklyPlanSchedulerService } from '../training-plans/weekly-plan-scheduler.service';
 
 @Injectable()
 export class CoachService {
@@ -33,7 +34,24 @@ export class CoachService {
     private readonly backup: BackupService,
     private readonly meService: MeService,
     private readonly billing: BillingService,
+    private readonly weeklyPlanScheduler: WeeklyPlanSchedulerService,
   ) {}
+
+  // Gatilho manual do mesmo job que rodaria sozinho todo domingo 19h (ver
+  // WeeklyPlanSchedulerService — pausado em 02/08 apos o incidente do loop de deploy). Usado pelo
+  // treinador pra gerar a semana seguinte de TODOS os alunos de uma vez quando o robo automatico
+  // estiver desligado (ou pra recuperar alunos que ficaram sem a pre-geracao por qualquer motivo).
+  // NAO AWAIT: com varios alunos, cada um podendo levar minutos (retentativas de IA), isso pode
+  // demorar dezenas de minutos no total — segurar a resposta HTTP travaria o botao do painel ate
+  // estourar o timeout do proprio navegador/EasyPanel bem antes de terminar. Responde na hora
+  // avisando que comecou; o log do EasyPanel e os avisos de falha no Telegram (ja existentes por
+  // aluno) mostram o progresso real.
+  generateNextWeekForAllStudents() {
+    void this.weeklyPlanScheduler.generateNextWeekPlans().catch((error) => {
+      this.logger.warn(`generateNextWeekForAllStudents falhou (nao bloqueante): ${(error as Error).message}`);
+    });
+    return { started: true, message: 'Geracao da semana seguinte iniciada em segundo plano para todos os alunos.' };
+  }
 
   // Gera o mesmo link de pagamento que o app do aluno geraria, para o treinador poder
   // enviar manualmente por WhatsApp/e-mail quando o app do aluno nao consegue concluir o

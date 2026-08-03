@@ -302,6 +302,7 @@ export default function AdminHome() {
   const [forgotStatus, setForgotStatus] = useState('');
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isSyncingBilling, setIsSyncingBilling] = useState(false);
+  const [isGeneratingAllPlans, setIsGeneratingAllPlans] = useState(false);
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentEmail, setNewStudentEmail] = useState('');
   const [newStudentPassword, setNewStudentPassword] = useState('');
@@ -675,6 +676,27 @@ export default function AdminHome() {
     }
   }
 
+  async function generateNextWeekAllStudents() {
+    setIsGeneratingAllPlans(true);
+    setStatus('Iniciando geracao da semana seguinte para todos os alunos...');
+    try {
+      const response = await fetch(`${API_URL}/coach/plans/generate-next-week-all`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        setStatus(`Nao consegui iniciar a geracao: ${data.message ?? 'erro desconhecido'}.`);
+        return;
+      }
+      setStatus(data.message ?? 'Geracao iniciada em segundo plano. Acompanhe pelos avisos no Telegram (falhas por aluno) e vá conferindo o painel aos poucos.');
+    } catch {
+      setStatus('Nao consegui conectar com a API.');
+    } finally {
+      setIsGeneratingAllPlans(false);
+    }
+  }
+
   async function runBackupNow() {
     setIsBackingUp(true);
     setStatus('Gerando backup do banco...');
@@ -901,6 +923,16 @@ export default function AdminHome() {
           <Stat label="Pagamento pendente" value={String(dashboard?.totals.paymentPending ?? 0)} detail="alunos" />
           <Stat label="Treinos criados" value={String(dashboard?.totals.plansCreatedThisWeek ?? 0)} detail="nesta semana" />
         </section> : null}
+
+        {activeView === 'dashboard' ? (
+          <section className="miniSection">
+            <h3>Gerar semana seguinte para todos os alunos</h3>
+            <p>Dispara manualmente o mesmo processo que roda sozinho todo domingo 19h (hoje pausado). Roda em segundo plano — pode levar bastante tempo com muitos alunos; falhas por aluno avisam no Telegram como sempre.</p>
+            <button className="secondaryButton" type="button" disabled={isGeneratingAllPlans} onClick={generateNextWeekAllStudents}>
+              {isGeneratingAllPlans ? 'Iniciando...' : 'Gerar semana seguinte para todos'}
+            </button>
+          </section>
+        ) : null}
 
         {activeView === 'dashboard' ? (
           <section className="miniSection">
