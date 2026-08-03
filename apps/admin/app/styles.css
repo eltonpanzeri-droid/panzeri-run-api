@@ -1398,6 +1398,43 @@ h3 {
   color: var(--muted);
 }
 
+.manualRoutineEditor {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.manualRoutineDay {
+  display: grid;
+  gap: 6px;
+}
+
+.manualRoutineModalities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.manualRoutineModalityRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.manualRoutineModalityRow input[type='number'] {
+  width: 64px;
+}
+
+.manualRoutineActions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
 .directiveList {
   display: grid;
   gap: 6px;

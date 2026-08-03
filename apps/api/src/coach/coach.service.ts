@@ -21,6 +21,8 @@ import { BillingService } from '../billing/billing.service';
 import { formatStudentCode } from '../billing/telegram.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
 import { WeeklyPlanSchedulerService } from '../training-plans/weekly-plan-scheduler.service';
+import { UpdateAvailabilityDto } from '../me/dto/update-availability.dto';
+import { validateAvailability } from '../me/availability.rules';
 
 @Injectable()
 export class CoachService {
@@ -298,6 +300,43 @@ export class CoachService {
   async syncStudentAvailability(studentId: string) {
     await this.assertStudent(studentId);
     return this.meService.syncAvailabilityFromInterview(studentId);
+  }
+
+  // Botao "Editar rotina" no painel — pedido explicito do treinador (03/08, caso da Roberta): ele
+  // precisa poder corrigir a rotina de um aluno na hora, sem depender do proprio aluno acertar
+  // isso sozinho pelo app nem esbarrar na trava de 1x por mes (essa trava e so pro aluno; o
+  // treinador sempre pode corrigir). NAO mexe em lastRoutineChangeAt — uma correcao do treinador
+  // nao deveria consumir a janela mensal do aluno.
+  async updateStudentAvailability(studentId: string, dto: UpdateAvailabilityDto) {
+    await this.assertStudent(studentId);
+    validateAvailability(dto.availability);
+
+    await this.prisma.$transaction([
+      this.prisma.weeklyAvailability.deleteMany({ where: { userId: studentId } }),
+      ...dto.availability.map((day) =>
+        this.prisma.weeklyAvailability.create({
+          data: {
+            userId: studentId,
+            weekday: day.weekday,
+            noTraining: day.noTraining,
+            modalities: day.noTraining ? [] : day.modalities,
+            availableMin: day.noTraining ? 0 : day.availableMin,
+            modalityDurations: day.noTraining ? undefined : day.modalityDurations ?? {},
+          },
+        }),
+      ),
+    ]);
+
+    // Mesmo gate de pagamento das outras rotas de rotina — nunca gera pra quem ainda nao pagou,
+    // mesmo que o ajuste tenha sido feito pelo treinador.
+    const student = await this.prisma.user.findUnique({ where: { id: studentId }, select: { name: true, studentCode: true, subscriptionStatus: true } });
+    if (student && hasSubscriptionAccess(student.subscriptionStatus)) {
+      void this.trainingPlans.generateWeek(studentId).catch((error) => {
+        this.logger.warn(`generateWeek apos updateStudentAvailability (treinador) falhou para ${studentId} (nao bloqueante): ${(error as Error).message}`);
+      });
+    }
+
+    return this.prisma.weeklyAvailability.findMany({ where: { userId: studentId }, orderBy: { weekday: 'asc' } });
   }
 
   async analyzeStudentStrava(studentId: string) {

@@ -2014,7 +2014,10 @@ function StudentPanel({
               <details key={group.title} open={group.title === 'Objetivo' || group.title === 'Rotina semanal'}>
                 <summary>{group.title}</summary>
                 {group.title === 'Rotina semanal' ? (
-                  <RoutineAvailabilityTable answers={student.interview!.answers} availability={student.availability ?? []} />
+                  <>
+                    <RoutineAvailabilityTable answers={student.interview!.answers} availability={student.availability ?? []} />
+                    <ManualRoutineEditor studentId={student.id} token={token} availability={student.availability ?? []} onStatus={onStatus} onSaved={onRefresh} />
+                  </>
                 ) : (
                   <div className="interviewAnswerGrid">
                     {group.items.map(([key, value]) => (
@@ -3087,6 +3090,139 @@ function RoutineAvailabilityTable({ answers, availability }: { answers: Record<s
         ))}
       </tbody>
     </table>
+    </div>
+  );
+}
+
+const MANUAL_ROUTINE_MODALITIES: Array<{ key: string; label: string }> = [
+  { key: 'corrida', label: 'Corrida' },
+  { key: 'fortalecimento_corredores', label: 'Fortalecimento' },
+  { key: 'forca', label: 'Musculacao' },
+];
+
+interface ManualRoutineDay {
+  weekday: number;
+  noTraining: boolean;
+  modalities: string[];
+  modalityDurations: Record<string, number>;
+}
+
+function manualRoutineDaysFromAvailability(availability: NonNullable<StudentDetail['availability']>): ManualRoutineDay[] {
+  return ROUTINE_DAYS.map(([dayKey]) => {
+    const weekday = ROUTINE_DAY_WEEKDAYS[dayKey];
+    const saved = availability.find((item) => item.weekday === weekday);
+    if (!saved || saved.noTraining || !saved.modalities.length) {
+      return { weekday, noTraining: true, modalities: [], modalityDurations: {} };
+    }
+    return {
+      weekday,
+      noTraining: false,
+      modalities: saved.modalities,
+      modalityDurations: { ...(saved.modalityDurations ?? {}) },
+    };
+  });
+}
+
+// Botao "Editar rotina" no painel do treinador — pedido explicito 03/08 (caso da Roberta): o
+// treinador precisa poder corrigir a rotina de um aluno na hora, sem depender do proprio aluno
+// acertar isso sozinho pelo app nem esbarrar na trava de 1x por mes (essa trava e so do aluno).
+function ManualRoutineEditor({ studentId, token, availability, onStatus, onSaved }: { studentId: string; token: string; availability: NonNullable<StudentDetail['availability']>; onStatus: (message: string) => void; onSaved: () => Promise<void> | void }) {
+  const [editing, setEditing] = useState(false);
+  const [days, setDays] = useState<ManualRoutineDay[]>(() => manualRoutineDaysFromAvailability(availability));
+  const [saving, setSaving] = useState(false);
+
+  function startEditing() {
+    setDays(manualRoutineDaysFromAvailability(availability));
+    setEditing(true);
+  }
+
+  function toggleModality(weekday: number, modalityKey: string) {
+    setDays((current) => current.map((day) => {
+      if (day.weekday !== weekday) return day;
+      const has = day.modalities.includes(modalityKey);
+      const modalities = has ? day.modalities.filter((item) => item !== modalityKey) : [...day.modalities, modalityKey];
+      const modalityDurations = { ...day.modalityDurations };
+      if (has) {
+        delete modalityDurations[modalityKey];
+      } else {
+        modalityDurations[modalityKey] = 45;
+      }
+      return { ...day, modalities, noTraining: modalities.length === 0, modalityDurations };
+    }));
+  }
+
+  function updateMinutes(weekday: number, modalityKey: string, minutes: number) {
+    setDays((current) => current.map((day) => (
+      day.weekday === weekday ? { ...day, modalityDurations: { ...day.modalityDurations, [modalityKey]: minutes } } : day
+    )));
+  }
+
+  async function save() {
+    setSaving(true);
+    onStatus('Salvando rotina...');
+    try {
+      const payload = days.map((day) => ({
+        weekday: day.weekday,
+        noTraining: day.noTraining,
+        modalities: day.modalities,
+        availableMin: day.noTraining ? 0 : Math.max(...day.modalities.map((key) => day.modalityDurations[key] ?? 45)),
+        modalityDurations: day.modalityDurations,
+      }));
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/availability`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ availability: payload }),
+      });
+      if (!response.ok) {
+        onStatus('Nao consegui salvar a rotina.');
+        return;
+      }
+      await onSaved();
+      onStatus('Rotina atualizada. O treino esta sendo gerado com base nela.');
+      setEditing(false);
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return <button className="secondaryButton" type="button" onClick={startEditing}>Editar rotina manualmente</button>;
+  }
+
+  return (
+    <div className="manualRoutineEditor">
+      {days.map((day) => (
+        <div className="manualRoutineDay" key={day.weekday}>
+          <strong>{weekdayLabel(day.weekday)}</strong>
+          <div className="manualRoutineModalities">
+            {MANUAL_ROUTINE_MODALITIES.map((modality) => {
+              const checked = day.modalities.includes(modality.key);
+              return (
+                <label className="manualRoutineModalityRow" key={modality.key}>
+                  <input type="checkbox" checked={checked} onChange={() => toggleModality(day.weekday, modality.key)} />
+                  <span>{modality.label}</span>
+                  {checked ? (
+                    <input
+                      type="number"
+                      min={10}
+                      max={240}
+                      value={day.modalityDurations[modality.key] ?? 45}
+                      onChange={(event) => updateMinutes(day.weekday, modality.key, Math.max(10, Number(event.target.value) || 45))}
+                    />
+                  ) : null}
+                  {checked ? <span>min</span> : null}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <div className="manualRoutineActions">
+        <button className="primaryButton" type="button" onClick={save} disabled={saving}>Salvar rotina</button>
+        <button className="secondaryButton" type="button" onClick={() => setEditing(false)} disabled={saving}>Cancelar</button>
+      </div>
     </div>
   );
 }

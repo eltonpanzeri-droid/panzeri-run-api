@@ -10,6 +10,7 @@ import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
 import { CreateManualSessionDto } from './dto/create-manual-session.dto';
+import { UpdateAvailabilityDto } from '../me/dto/update-availability.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('coach', 'admin')
@@ -108,6 +109,11 @@ export class CoachController {
   @Post('students/:studentId/sync-availability')
   syncStudentAvailability(@Param('studentId') studentId: string) {
     return this.coachService.syncStudentAvailability(studentId);
+  }
+
+  @Patch('students/:studentId/availability')
+  updateStudentAvailability(@Param('studentId') studentId: string, @Body() dto: UpdateAvailabilityDto) {
+    return this.coachService.updateStudentAvailability(studentId, dto);
   }
 
   @Post('students/:studentId/billing/checkout-link')
