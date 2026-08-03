@@ -464,10 +464,6 @@ export class PrescriptionAgentService {
       );
 
       const validated = this.validateSessions(parsed.sessions, runSlots);
-      if (!validated) {
-        this.logger.warn('Decisao do agente de IA rejeitada na validacao (cobertura de dias/duracao fora do combinado).');
-        return null;
-      }
       // NAO existe mais rejeicao por pace lento (piso de 8:30/km): removido em 02/08 a pedido
       // explicito do treinador — pace lento e so uma recomendacao no prompt pra IA evitar, nunca
       // um motivo pra descartar a resposta (ver validateSessionShape). "failures" aqui so pode
@@ -510,6 +506,7 @@ export class PrescriptionAgentService {
         rationale: rationale.length > 0 ? rationale : ['Decisao gerada pelo agente de IA.'],
         safetyAdjustment,
         source: 'ai',
+        routineMismatch: validated.routineMismatch,
       };
     } catch (error) {
       if (lastSnapshot) {
@@ -536,24 +533,27 @@ export class PrescriptionAgentService {
   ): {
     sessions: RunSessionDecision[];
     failures: Array<{ weekday: number; title: string; durationMin: number; notes: string; recommendations: string; reason: string }>;
-  } | null {
-    // Log detalhado do motivo da rejeicao: sem isso, toda rejeicao vira um fallback silencioso
-    // para o motor deterministico (que ignora diretivas e pace especifico), e ninguem consegue
-    // saber pelo EasyPanel por que a IA "nao esta sendo ouvida" numa semana especifica.
-    if (sessions.length < runSlots.length) {
-      this.logger.warn(`Rejeitado: IA retornou menos sessoes (${sessions.length}) do que dias disponiveis (${runSlots.length}).`);
-      return null;
-    }
+    routineMismatch: string | null;
+  } {
+    // ATE 02/08 isso rejeitava a semana INTEIRA quando a IA cobria menos dias do que a rotina
+    // cadastrada — ordem explicita do treinador: cobertura de dias (e duracao, ver
+    // validateSessionShape) nao e mais motivo pra descartar a resposta quando nao ha diretriz
+    // individual autorizando o desvio. Em vez disso, gera a semana do jeito que a IA decidiu e
+    // devolve routineMismatch pra quem chamar avisar o treinador — nunca joga fora um plano bom
+    // por causa disso. generateWeek() decide se avisa (so quando nao ha diretriz ativa; com
+    // diretriz, o desvio e esperado e nao precisa de aviso).
     const slotByWeekday = new Map(runSlots.map((slot) => [slot.weekday, slot]));
     const coveredWeekdays = new Set(sessions.map((session) => session.weekday));
     const missingWeekdays = runSlots.filter((slot) => !coveredWeekdays.has(slot.weekday));
-    if (missingWeekdays.length) {
-      this.logger.warn(`Rejeitado: IA nao cobriu os dias disponiveis [${missingWeekdays.map((slot) => slot.weekday).join(',')}].`);
-      return null;
+    let routineMismatch: string | null = null;
+    if (sessions.length < runSlots.length || missingWeekdays.length) {
+      routineMismatch = `IA gerou ${sessions.length} dia(s) de corrida em vez dos ${runSlots.length} combinados na rotina${missingWeekdays.length ? ` (faltou weekday ${missingWeekdays.map((slot) => slot.weekday).join(',')})` : ''}.`;
+      this.logger.log(`Aviso (nao bloqueia): ${routineMismatch}`);
     }
 
     const result: RunSessionDecision[] = [];
     const failures: Array<{ weekday: number; title: string; durationMin: number; notes: string; recommendations: string; reason: string }> = [];
+    const durationMismatches: string[] = [];
 
     for (const session of sessions) {
       const slot = slotByWeekday.get(session.weekday);
@@ -568,9 +568,9 @@ export class PrescriptionAgentService {
       // decisao da IA (ela decide a duracao, o codigo nao deveria poder vetar isso so por causa de
       // um campo de texto opcional que ela pode legitimamente ter deixado vazio mesmo tendo um
       // motivo real). Ordem explicita do treinador: quem decide e sempre a IA — o codigo so avisa
-      // no log pra o treinador acompanhar, nunca descarta a resposta por causa disso.
-      if (slot && session.durationMin > slot.durationMin && !session.durationJustification?.trim()) {
-        this.logger.log(`Aviso (nao bloqueia): durationMin ${session.durationMin} excede o disponivel (${slot.durationMin}) no weekday ${session.weekday} sem durationJustification preenchido — decisao da IA aceita mesmo assim.`);
+      // (log + routineMismatch, ver acima) pra o treinador acompanhar, nunca descarta a resposta.
+      if (slot && session.durationMin !== slot.durationMin && !session.durationJustification?.trim()) {
+        durationMismatches.push(`weekday ${session.weekday}: ${session.durationMin}min (combinado ${slot.durationMin}min)`);
       }
 
       const shape = this.validateSessionShape(session, `semana, weekday ${session.weekday}`);
@@ -599,7 +599,13 @@ export class PrescriptionAgentService {
       });
     }
 
-    return { sessions: result, failures };
+    if (durationMismatches.length) {
+      const durationNote = `Duracao diferente do combinado sem justificativa: ${durationMismatches.join('; ')}.`;
+      this.logger.log(`Aviso (nao bloqueia): ${durationNote}`);
+      routineMismatch = routineMismatch ? `${routineMismatch} ${durationNote}` : durationNote;
+    }
+
+    return { sessions: result, failures, routineMismatch };
   }
 
   // Chamado so com os slots da rotina que ficaram sem nenhuma sessao correspondente (ver
@@ -708,6 +714,7 @@ export class PrescriptionAgentService {
       'O campo recommendations e diferente de notes: e um recado curto, de poucas linhas, um unico ponto pratico que vale a pena o aluno guardar sobre ESTE treino especifico (ex: um cuidado principal, uma dica de execucao, um sinal de alerta) — nao repita o que ja foi dito em notes nem tente cobrir tudo de novo. Pense nisso como o que um treinador real diria em uma frase rapida ao lado da ficha, nao como uma segunda explicacao completa.',
       'CONSISTENCIA INTERNA E OBRIGATORIA: o nivel/condicionamento do aluno que voce concluir tem que ser o MESMO em toda a resposta — rationale geral e notes/recommendations de cada sessao contando a mesma historia sobre este aluno.',
       'PRIMEIRA SEMANA SEM NENHUM HISTORICO (historicoSemanal vazio, sem reavaliacao, sem analiseExecucao, sem analiseAprofundadaStrava): trate como calibragem inicial. Para um aluno com pouco tempo de corrida ou volume baixo/recente-comeco, prefira comecar com rodagens leves e um longao moderado, guardando um estimulo mais forte pra depois de ver a resposta real dele aos primeiros treinos — a nao ser que a evidencia de pace ja seja claramente forte e consistente.',
+      'ORCAMENTO DE TEXTO DA RESPOSTA (importante, incidente real 02/08): sua resposta inteira — todos os dias de corrida e de forca de uma vez — tem um limite de tamanho. Se voce escrever textos longos demais nos primeiros dias, pode faltar espaco pra terminar os ultimos, e a resposta e cortada no meio (fica invalida, o aluno nao recebe treino nenhum naquela semana). Terminar a resposta INTEIRA e sempre mais importante do que cada campo de texto ser longo. Regra pratica: notes de cada dia de corrida/forca em torno de 3 a 5 frases (nao um paragrafo extenso), recommendations em 1 a 2 frases curtas, rationale como bullets curtos. Se em algum momento perceber que esta gastando texto demais, prefira DIMINUIR o que ainda vai escrever (textos mais diretos e objetivos) — nunca "force" continuar no mesmo nivel de detalhe e arriscar nao terminar. Uma resposta completa com texto mais enxuto e sempre melhor que uma resposta rica mas cortada.',
       'Responda em portugues nos campos de texto (title, notes, recommendations, recommendation, rationale, durationJustification).',
       'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida.',
       '- OBRIGATORIO: retorne EXATAMENTE uma sessao em strengthSessions para CADA item listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). O mesmo weekday pode aparecer mais de uma vez na lista, uma para cada modalidade — retorne uma sessao pra cada item nesse caso, isso e o dado real da rotina do aluno, nao um erro. Se diasDisponiveisParaForca tiver 3 itens, strengthSessions tem que ter 3 sessoes — nunca deixe esse campo vazio ou incompleto quando diasDisponiveisParaForca nao estiver vazio: a resposta inteira e descartada quando isso acontece, desperdicando todo o raciocinio que voce fez pros dias de corrida.',

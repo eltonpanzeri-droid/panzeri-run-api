@@ -502,6 +502,17 @@ export class TrainingPlansService {
     this.recentAiFailures.delete(userId);
     const methodology = aiDecision;
 
+    // Ordem explicita do treinador (02/08): quando a IA cobre menos/mais dias ou duracao
+    // diferente da rotina cadastrada SEM nenhuma diretriz individual explicando o motivo, gera a
+    // semana normalmente mesmo assim (nunca descarta por causa disso, ver validateSessions em
+    // prescription-agent.service.ts) — so avisa o treinador que a rotina saiu diferente do
+    // combinado. Com diretriz ativa, o desvio e esperado e nao precisa de aviso.
+    if (methodology.routineMismatch && activeDirectives.length === 0) {
+      await this.telegram.notifyCoach(
+        `ℹ️ Treino gerado, mas com rotina diferente do estipulado (sem diretriz do gerente tecnico).\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\n${methodology.routineMismatch}`,
+      ).catch(() => null);
+    }
+
     // Agrupado por weekday (nao um Map de 1 pra 1) porque uma diretriz individual pode pedir mais
     // de uma sessao de corrida no mesmo dia (ver buildSystemPromptStable) — o codigo nao valida
     // isso, so aceita o que a IA decidiu. .shift() consome a PRIMEIRA decisao daquele dia pro slot

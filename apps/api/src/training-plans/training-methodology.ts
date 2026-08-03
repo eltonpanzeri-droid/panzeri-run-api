@@ -186,6 +186,11 @@ export interface WeeklyMethodologyDecision {
   recommendation: string;
   rationale: string[];
   safetyAdjustment: boolean;
+  // Preenchido quando a IA cobriu menos/mais dias ou duracao diferente da rotina cadastrada sem
+  // nenhuma diretriz individual justificando — ver validateSessions em prescription-agent.service.ts.
+  // generateWeek() usa isso pra avisar o treinador so quando nao ha diretriz ativa (com diretriz,
+  // o desvio e esperado).
+  routineMismatch?: string | null;
 }
 
 export function computeRunSlots(availability: MethodologyAvailability[]) {
