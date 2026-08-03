@@ -47,6 +47,7 @@ export class CoachService {
   // avisando que comecou; o log do EasyPanel e os avisos de falha no Telegram (ja existentes por
   // aluno) mostram o progresso real.
   generateNextWeekForAllStudents() {
+    this.weeklyPlanScheduler.assertManualTriggerAllowed();
     void this.weeklyPlanScheduler.generateNextWeekPlans().catch((error) => {
       this.logger.warn(`generateNextWeekForAllStudents falhou (nao bloqueante): ${(error as Error).message}`);
     });

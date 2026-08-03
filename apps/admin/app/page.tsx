@@ -927,8 +927,11 @@ export default function AdminHome() {
         {activeView === 'dashboard' ? (
           <section className="miniSection">
             <h3>Gerar semana seguinte para todos os alunos</h3>
-            <p>Dispara manualmente o mesmo processo que roda sozinho todo domingo 19h (hoje pausado). Roda em segundo plano — pode levar bastante tempo com muitos alunos; falhas por aluno avisam no Telegram como sempre.</p>
-            <button className="secondaryButton" type="button" disabled={isGeneratingAllPlans} onClick={generateNextWeekAllStudents}>
+            <p>Dispara manualmente o mesmo processo que roda sozinho todo domingo 19h. Roda em segundo plano — pode levar bastante tempo com muitos alunos; falhas por aluno avisam no Telegram como sempre.</p>
+            {isSundayInSaoPaulo() ? null : (
+              <p className="formHintText">So funciona aos domingos, de proposito — pra nao arriscar gerar a semana de todos os alunos por engano em outro dia.</p>
+            )}
+            <button className="secondaryButton" type="button" disabled={isGeneratingAllPlans || !isSundayInSaoPaulo()} onClick={generateNextWeekAllStudents}>
               {isGeneratingAllPlans ? 'Iniciando...' : 'Gerar semana seguinte para todos'}
             </button>
           </section>
@@ -2442,6 +2445,11 @@ function StravaActivityPanel({ activity }: { activity: StravaActivity }) {
       </div>
     </div>
   );
+}
+
+function isSundayInSaoPaulo() {
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', weekday: 'short' }).format(new Date());
+  return weekday === 'Sun';
 }
 
 function dateTimeLabel(value: string) {

@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrainingPlansService } from './training-plans.service';
@@ -33,15 +33,15 @@ export class WeeklyPlanSchedulerService implements OnApplicationBootstrap {
   // aconteca por uma acao explicita: o botao "Refazer nova semana" do treinador, ou os gatilhos
   // explicitos ja existentes (concluir entrevista, mudar rotina, sincronizar disponibilidade).
 
-  // PAUSADO TEMPORARIAMENTE (02/08, incidente em andamento): com o disjuntor de falha recente
-  // (AI_FAILURE_COOLDOWN_MS, ver training-plans.service.ts) e varios alunos rejeitando a resposta
-  // da IA por motivos legitimos (estrutura incompleta, cobertura de dias errada — nao o piso de
-  // pace, que ja foi removido), essa varredura de TODOS os alunos de uma vez estava tentando e
-  // falhando repetidamente, gastando tokens sem gerar nada de util. Pausado pra estancar o gasto
-  // enquanto o motivo das falhas em serie e investigado com calma. @Cron comentado (nao so um
-  // early-return) pra garantir que nao dispare nem por engano. Reativar so depois de entender por
-  // que tantos alunos estavam falhando na validacao.
-  // @Cron('0 22 * * 0')
+  // REATIVADO (02/08, apos corrigir as causas reais das rejeicoes em serie): piso de pace deixou
+  // de existir (so recomendacao), trava de duracao sem justificativa removida, campo de volume
+  // leve incompleto passou a ser auto-corrigido em vez de derrubar o dia, forca tolera dia extra
+  // por diretriz, e cada aluno agora tenta so 1 vez (nao 2) — o custo por rejeicao caiu bastante.
+  // A recuperacao automatica no boot continua desligada (ver onApplicationBootstrap acima); em vez
+  // dela, o treinador tem o botao manual "Gerar semana seguinte para todos" no painel (ver
+  // generateNextWeekForAllStudents em coach.service.ts) pra cobrir o caso de um deploy interromper
+  // o cron de domingo.
+  @Cron('0 22 * * 0')
   async generateNextWeekPlans() {
     const students = await this.prisma.user.findMany({
       where: { role: 'student', accountStatus: { not: 'archived' } },
@@ -57,6 +57,19 @@ export class WeeklyPlanSchedulerService implements OnApplicationBootstrap {
     }
 
     this.logger.log(`Pre-geracao da semana seguinte concluida para ${students.length} aluno(s).`);
+  }
+
+  // Gatilho manual do botao "Gerar semana seguinte para todos" no painel. Restrito a domingo
+  // (ordem explicita do treinador, 02/08): fora desse dia, a resposta "existing" ja bloqueia a
+  // maioria dos alunos (a semana seguinte deles ainda nem faz sentido existir), mas o treinador
+  // quis a trava explicita mesmo assim — pra nao arriscar apertar o botao errado num dia qualquer
+  // e gerar chamadas de IA pra um monte de aluno sem necessidade real. So domingo (qualquer
+  // horario) libera; o cron automatico das 19h continua sendo o caminho normal.
+  assertManualTriggerAllowed() {
+    const { weekday } = saoPauloWeekdayAndHour(new Date());
+    if (weekday !== 0) {
+      throw new BadRequestException('Esse botao so funciona aos domingos, pra evitar gerar a semana seguinte de todos os alunos por engano em outro dia.');
+    }
   }
 }
 
