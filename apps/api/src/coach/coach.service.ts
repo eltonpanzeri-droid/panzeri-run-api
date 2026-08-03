@@ -366,6 +366,12 @@ export class CoachService {
   }
 
   async dashboard(input: { search: string; page: number; pageSize: number; includeArchived?: boolean }) {
+    // Sem isso, um plano "agendado" (pre-gerado pelo robo de domingo ou pelo botao manual) nunca
+    // vira "ativo" sozinho quando a semana vira — o painel ficava preso mostrando a semana
+    // anterior pra sempre (bug real encontrado 02/08). So troca status no banco, nao chama IA.
+    await this.trainingPlans.promoteAllScheduledPlansForCurrentWeek().catch((error) => {
+      this.logger.warn(`promoteAllScheduledPlansForCurrentWeek falhou (nao bloqueante): ${(error as Error).message}`);
+    });
     const studentWhere: Prisma.UserWhereInput = {
       role: 'student',
       ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }),
@@ -480,6 +486,12 @@ export class CoachService {
 
   async student(studentId: string) {
     await this.assertStudent(studentId);
+    // Mesma promocao do dashboard (ver comentario la) — garante que o perfil individual tambem
+    // reflita a semana certa assim que o treinador abrir, sem depender do aluno ter aberto o
+    // app antes. So troca status no banco, nao chama IA.
+    await this.trainingPlans.promoteScheduledPlanIfWeekTurned(studentId).catch((error) => {
+      this.logger.warn(`promoteScheduledPlanIfWeekTurned falhou para ${studentId} (nao bloqueante): ${(error as Error).message}`);
+    });
     // Deteccao pura (nenhuma escrita, nenhuma chamada de IA) — so pra AVISAR o treinador se o
     // plano deste aluno esta desatualizado (teste novo, rotina mudou, nivel de dor elevado). A
     // decisao de gerar e sempre dele, pelo botao "Refazer nova semana" — nunca automatica so por

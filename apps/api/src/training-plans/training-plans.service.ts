@@ -117,6 +117,7 @@ export class TrainingPlansService {
   // generateWeek() explicitamente no proprio ponto da acao — nunca depende deste metodo.
   async current(userId: string) {
     const weekStart = startOfWeek(new Date());
+    await this.promoteScheduledPlanIfWeekTurned(userId, weekStart);
     const [plan, latestTest, user, onboarding] = await Promise.all([
       this.prisma.trainingPlan.findFirst({
         where: { userId, status: 'active' },
@@ -144,6 +145,57 @@ export class TrainingPlansService {
     }
 
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
+  }
+
+  // Nenhuma chamada de IA, nenhum gasto — so troca o status de um plano que a pre-geracao de
+  // domingo (ou qualquer chamada com planStatus:'scheduled') ja deixou pronto pra esta semana
+  // exata. BUG REAL encontrado 02/08: nao existia NENHUM codigo fazendo essa promocao, apesar
+  // de um comentario antigo (perto de generateNextWeekIfMissing) dizer que existia — o plano
+  // "agendado" nunca virava "ativo" sozinho, entao a aluna ficava vendo pra sempre o plano da
+  // semana anterior mesmo com a semana seguinte ja pronta e paga no banco. Chamado tanto pelo
+  // proprio app do aluno (current()) quanto pelo painel do treinador (coach.service.ts) — e
+  // dado, nao IA, entao seguro de rodar em qualquer leitura, sem violar a regra de "current()
+  // nunca gera nada sozinho" (essa regra e sobre custo de IA, nao sobre trocar um status).
+  async promoteScheduledPlanIfWeekTurned(userId: string, weekStart?: Date) {
+    const targetWeekStart = weekStart ?? startOfWeek(new Date());
+    const scheduled = await this.prisma.trainingPlan.findFirst({
+      where: { userId, status: 'scheduled', startDate: targetWeekStart },
+      select: { id: true },
+    });
+    if (!scheduled) return;
+
+    await this.prisma.$transaction([
+      this.prisma.trainingPlan.updateMany({
+        where: { userId, status: 'active' },
+        data: { status: 'archived' },
+      }),
+      this.prisma.trainingPlan.update({
+        where: { id: scheduled.id },
+        data: { status: 'active' },
+      }),
+    ]);
+  }
+
+  // Versao em lote da mesma promocao acima, pra rodar uma vez so no painel do treinador
+  // (dashboard/lista de alunos) em vez de um round-trip por aluno.
+  async promoteAllScheduledPlansForCurrentWeek() {
+    const weekStart = startOfWeek(new Date());
+    const scheduledPlans = await this.prisma.trainingPlan.findMany({
+      where: { status: 'scheduled', startDate: weekStart },
+      select: { id: true, userId: true },
+    });
+    for (const plan of scheduledPlans) {
+      await this.prisma.$transaction([
+        this.prisma.trainingPlan.updateMany({
+          where: { userId: plan.userId, status: 'active' },
+          data: { status: 'archived' },
+        }),
+        this.prisma.trainingPlan.update({
+          where: { id: plan.id },
+          data: { status: 'active' },
+        }),
+      ]);
+    }
   }
 
   // Deteccao pura (nenhuma escrita, nenhuma chamada de IA) — substitui o antigo auto-heal
@@ -529,9 +581,15 @@ export class TrainingPlansService {
       const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(day.weekday));
       const modalities = day.modalities.length ? day.modalities : ['corrida'];
 
-      return modalities.map((modality) => {
+      return modalities.flatMap((modality) => {
         const baseTemplate = this.templateForModality(modality, Boolean(latestTest));
         const runDecision = isRunningModality(modality) ? runDecisionsByWeekday.get(day.weekday)?.shift() : undefined;
+        // A IA pode legitimamente nao cobrir todo dia da rotina agora (ver routineMismatch —
+        // isso so avisa o treinador, nao descarta mais a semana inteira). Sem decisao nenhuma
+        // pra este dia de corrida, nao ha o que montar — pula o dia (sem sessao), em vez de
+        // tentar montar um treino vazio e travar (bug real 02/08, encontrado pelo treinador
+        // logo apos essa mudanca: "Distancia/pace ausentes ao montar a sessao").
+        if (isRunningModality(modality) && !runDecision) return [];
         const strengthDecision = (modality === 'forca' || modality === 'fortalecimento_corredores')
           ? methodology.strengthSessions?.find((decision) => decision.weekday === day.weekday && decision.modality === modality)
           : undefined;
@@ -571,7 +629,7 @@ export class TrainingPlansService {
                 walkRunStructure: runDecision?.walkRunStructure,
               });
 
-        return {
+        return [{
           userId,
           scheduledDate,
           weekday: day.weekday,
@@ -595,7 +653,7 @@ export class TrainingPlansService {
           notes: isStrength ? (strengthDecision?.notes ?? template.notes) : template.notes,
           recommendations: isRunningModality(modality) ? template.recommendations ?? null : null,
           videoRefs: [],
-        };
+        }];
       });
     });
 
