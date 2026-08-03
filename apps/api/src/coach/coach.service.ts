@@ -161,6 +161,15 @@ export class CoachService {
       throw new BadRequestException('Nenhum dado para atualizar.');
     }
 
+    // Treinador liberando o acesso manualmente pelo dropdown (ex: aluno pagou por fora, cortesia)
+    // dispara a mesma geracao de primeira semana que a confirmacao automatica do Asaas dispara —
+    // generateFirstWeekIfNeeded ja garante que so gera se for realmente a primeira vez.
+    if (dto.subscriptionStatus && hasSubscriptionAccess(dto.subscriptionStatus)) {
+      void this.trainingPlans.generateFirstWeekIfNeeded(studentId).catch((error) => {
+        this.logger.warn(`generateFirstWeekIfNeeded falhou para ${studentId} (nao bloqueante): ${(error as Error).message}`);
+      });
+    }
+
     return this.prisma.user.update({
       where: { id: studentId },
       data,
@@ -683,6 +692,7 @@ export class CoachService {
               stravaActivity: serializeStravaActivity(stravaBySession.get(session.id) ?? null),
               notes: session.notes,
               recommendations: session.recommendations,
+              routineMismatchNote: session.routineMismatchNote,
             })),
           }
         : null,
@@ -715,6 +725,7 @@ export class CoachService {
           structure: session.structure,
           notes: session.notes,
           recommendations: session.recommendations,
+          routineMismatchNote: session.routineMismatchNote,
           completionStatus: session.completion?.status ?? 'sem_registro',
           perceivedEffort: session.completion?.perceivedEffort ?? null,
           satisfaction: session.completion?.satisfaction ?? null,

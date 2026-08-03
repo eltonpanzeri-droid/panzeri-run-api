@@ -141,6 +141,7 @@ interface WeekPlanSession {
   structure?: SessionStructure;
   notes?: string;
   recommendations?: string | null;
+  routineMismatchNote?: string | null;
   completion?: {
     status: CompletionDraft['status'];
     completedAt?: string | null;
@@ -2546,6 +2547,13 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
                         <Ionicons name={iconForModality(session.modality)} size={23} color="#111827" />
                       </View>
                     </View>
+                    {session.routineMismatchNote ? (
+                      <View style={styles.routineMismatchBanner}>
+                        <Text style={styles.routineMismatchText}>
+                          ⚠️ {session.routineMismatchNote} Conte pra gente no feedback deste treino se deu pra realizar e como você se sentiu em relação a isso.
+                        </Text>
+                      </View>
+                    ) : null}
                     {'notes' in session && session.notes ? <Text style={styles.sessionNote}>{session.notes}</Text> : null}
                     <SessionPrescription session={session} />
                     {session.recommendations ? <Text style={styles.sessionNote}>{session.recommendations}</Text> : null}
@@ -5828,6 +5836,19 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontSize: 14,
     lineHeight: 20,
+  },
+  routineMismatchBanner: {
+    marginTop: 4,
+    marginBottom: 4,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#fef3c7',
+  },
+  routineMismatchText: {
+    color: '#92400e',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
   },
   recommendationsBox: {
     marginTop: 4,

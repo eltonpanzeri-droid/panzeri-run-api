@@ -191,6 +191,12 @@ export interface WeeklyMethodologyDecision {
   // generateWeek() usa isso pra avisar o treinador so quando nao ha diretriz ativa (com diretriz,
   // o desvio e esperado).
   routineMismatch?: string | null;
+  // Mesma informacao, quebrada por sessao (chave "weekday:modality", modality="corrida" pra
+  // qualquer sessao de corrida) — generateWeek() usa isso pra marcar SO a sessao especifica que
+  // saiu do combinado (TrainingSession.routineMismatchNote), em vez de tratar a semana inteira
+  // como fora da rotina. Pedido explicito do treinador 03/08: aviso ao aluno + pedido de feedback
+  // por sessao, nunca bloqueio.
+  sessionMismatches?: Record<string, string>;
 }
 
 export function computeRunSlots(availability: MethodologyAvailability[]) {

@@ -301,6 +301,12 @@ model TrainingSession {
   notes              String?
   recommendations    String?
   videoRefs          String[]
+  // Preenchido quando esta sessao especifica saiu da rotina/tempo que o aluno combinou (dia a
+  // mais, ou duracao diferente) sem nenhuma diretriz do gerente tecnico explicando o motivo —
+  // mostrado pro aluno como aviso na tela do treino, pedindo pra ele contar no feedback se deu
+  // pra realizar e como se sentiu. Null quando a sessao segue a rotina normalmente (a grande
+  // maioria). Nao bloqueia nada, so marca — ver [[training_plans.service.ts generateWeek]].
+  routineMismatchNote String?
   createdAt          DateTime           @default(now())
   completion         WorkoutCompletion?
 }

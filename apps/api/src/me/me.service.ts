@@ -9,7 +9,7 @@ import { UpdatePreferencesDto } from './dto/update-preferences.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { normalizeCpf } from '../billing/billing.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
-import { TrainingPlansService } from '../training-plans/training-plans.service';
+import { TrainingPlansService, hasSubscriptionAccess } from '../training-plans/training-plans.service';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 
 // O aluno decide sozinho os dias/modalidades/tempo da propria rotina, mas como TODO o programa
@@ -202,33 +202,35 @@ export class MeService {
       });
     }
 
-    // generateWeek() cuida sozinho de arquivar o plano ativo anterior (se houver — ex: aluno
-    // que reabriu a entrevista pra corrigir algo) e de migrar os dias ja passados/de hoje pra
-    // o plano novo. NUNCA arquivamos manualmente antes de chamar generateWeek — isso ja foi um
-    // bug real aqui (sessoes com registro de execucao perdidas ao regenerar), ver
-    // [[routine_change_auto_regen]]. current()/o app do aluno NAO geram mais nada sozinhos so
-    // por abrir a tela — esta chamada explicita e o que garante que o primeiro treino (ou o
-    // treino corrigido, se o aluno refez a entrevista) exista.
-    // NAO AWAIT (bug real em producao 2026-07-29): generateWeek() pode levar 30s+ (thinking
-    // adaptativo, ate 32000 tokens de saida) — se esperassemos aqui, o proprio POST
-    // /me/onboarding/complete travava por esse tempo todo, e uma aluna nova ficava com a tela
-    // de "Concluir" carregando sem avancar, sem NEM CHEGAR na tela de pagamento. A entrevista ja
-    // foi salva com sucesso acima; a geracao do treino roda em segundo piano e o aluno ve o
-    // plano assim que abrir a tela de treino (current() mostra "notGenerated" ate la, sem travar
-    // nada). Erro aqui (ex: IA fora do ar) e so logado — generateWeek ja avisa o treinador
-    // sozinho quando falha (Telegram).
-    // Sabado ou domingo antes das 19h, sem nenhum dia de treino restante nesta semana: gerar agora
-    // so produziria a semana SEGUINTE, e o job automatico de domingo 19h ja vai fazer exatamente
-    // isso de graca poucas horas depois (ver WeeklyPlanSchedulerService). Nesse caso especifico,
-    // nao chama a IA agora — o app mostra a mensagem de "libera domingo apos as 19h" sozinho,
-    // calculando o mesmo horario no cliente (ver shouldShowSundayReleaseNotice no App.tsx).
-    const delayToSunday = await this.trainingPlans.shouldDelayFirstGenerationToSunday(userId).catch(() => false);
-    if (!delayToSunday) {
-      void this.trainingPlans.generateWeek(userId).catch((error) => {
-        this.logger.warn(`generateWeek apos completeOnboarding falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
-      });
+    // Incidente real: prospectos respondiam a entrevista inteira, a IA gerava a semana de treino
+    // (chamada cara), e boa parte desistia antes de assinar de verdade — gastando tokens a toa.
+    // A partir de agora, concluir a entrevista NAO gera mais o treino sozinho: isso so acontece
+    // quando o pagamento e confirmado (ver BillingService.triggerFirstWeekGeneration/
+    // generateFirstWeekIfNeeded em training-plans.service.ts). A UNICA excecao e um aluno que JA
+    // e assinante confirmado e esta reabrindo/refazendo a entrevista (ex: corrigindo algo) — nesse
+    // caso gera na hora como sempre, porque ele ja pagou e o gatilho de pagamento nao vai disparar
+    // de novo (subscriptionStatus ja estava active antes desta chamada).
+    const payingUser = await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } });
+    if (payingUser && hasSubscriptionAccess(payingUser.subscriptionStatus)) {
+      // generateWeek() cuida sozinho de arquivar o plano ativo anterior e de migrar os dias ja
+      // passados/de hoje pro plano novo. NUNCA arquivamos manualmente antes de chamar generateWeek
+      // — isso ja foi um bug real aqui (sessoes com registro de execucao perdidas ao regenerar),
+      // ver [[routine_change_auto_regen]].
+      // NAO AWAIT (bug real em producao 2026-07-29): generateWeek() pode levar 30s+ — se
+      // esperassemos aqui, o proprio POST /me/onboarding/complete travava esse tempo todo.
+      // Sabado ou domingo antes das 19h, sem nenhum dia de treino restante nesta semana: gerar
+      // agora so produziria a semana SEGUINTE, e o job automatico de domingo 19h ja vai fazer
+      // exatamente isso de graca poucas horas depois (ver WeeklyPlanSchedulerService).
+      const delayToSunday = await this.trainingPlans.shouldDelayFirstGenerationToSunday(userId).catch(() => false);
+      if (!delayToSunday) {
+        void this.trainingPlans.generateWeek(userId).catch((error) => {
+          this.logger.warn(`generateWeek apos completeOnboarding falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+        });
+      } else {
+        this.logger.log(`Geracao da primeira semana adiada para domingo 19h (fim de semana, sem dia de treino restante) para ${userId}.`);
+      }
     } else {
-      this.logger.log(`Geracao da primeira semana adiada para domingo 19h (fim de semana, sem dia de treino restante) para ${userId}.`);
+      this.logger.log(`Entrevista concluida para ${userId} — geracao da primeira semana adiada ate a confirmacao do pagamento.`);
     }
 
     return { completed: true, completedAt, next: 'three_km_test' };

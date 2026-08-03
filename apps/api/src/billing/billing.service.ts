@@ -1,8 +1,9 @@
-import { BadGatewayException, BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, forwardRef, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService, formatStudentCode } from './telegram.service';
 import { MessagingService } from '../messaging/messaging.service';
+import { TrainingPlansService } from '../training-plans/training-plans.service';
 
 type AsaasCustomer = { id: string };
 type AsaasCustomerList = { data: AsaasCustomer[] };
@@ -50,7 +51,20 @@ export class BillingService {
     private readonly config: ConfigService,
     private readonly telegram: TelegramService,
     private readonly messaging: MessagingService,
+    // forwardRef: TrainingPlansModule tambem importa BillingModule (por causa do TelegramService)
+    // — injecao circular, precisa do forwardRef dos dois lados (ver billing.module.ts).
+    @Inject(forwardRef(() => TrainingPlansService))
+    private readonly trainingPlans: TrainingPlansService,
   ) {}
+
+  // Dispara a primeira geracao de treino assim que o pagamento e confirmado (generateFirstWeekIfNeeded
+  // ja garante que so gera se for realmente a primeira vez) — nao bloqueia quem chamou, so loga se
+  // falhar. Ver comentario completo em training-plans.service.ts.
+  private triggerFirstWeekGeneration(userId: string) {
+    void this.trainingPlans.generateFirstWeekIfNeeded(userId).catch((error) => {
+      this.logger.warn(`generateFirstWeekIfNeeded falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+    });
+  }
 
   async getMine(userId: string) {
     const asaasConfigured = this.isConfigured();
@@ -277,6 +291,7 @@ export class BillingService {
         data: { subscriptionStatus: 'manual_active', subscriptionUpdatedAt: new Date() },
       }),
     ]);
+    this.triggerFirstWeekGeneration(userId);
   }
 
   async cancel(userId: string) {
@@ -332,6 +347,7 @@ export class BillingService {
     if (appStatus === 'active') {
       await this.createWelcomeNotificationOnce(billing.userId);
       if (!wasAlreadyActive) {
+        this.triggerFirstWeekGeneration(billing.userId);
         await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
         await this.messaging.sendEmail(billing.userId, {
           trigger: 'payment_confirmed',
@@ -437,6 +453,7 @@ export class BillingService {
     if (appStatus === 'active') {
       await this.createWelcomeNotificationOnce(userId);
       if (!wasAlreadyActive) {
+        this.triggerFirstWeekGeneration(userId);
         await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
         await this.messaging.sendEmail(userId, {
           trigger: 'payment_confirmed',

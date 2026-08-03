@@ -321,6 +321,28 @@ export class TrainingPlansService {
     return !hasFutureDayThisWeek;
   }
 
+  // Chamado pelo BillingService assim que um pagamento e confirmado (webhook, sincronizacao
+  // manual/automatica com o Asaas, ou cupom de acesso). Antes disso, completeOnboarding() NAO
+  // gera mais o treino sozinho (incidente real: prospecto respondia a entrevista, gastava uma
+  // chamada cara de IA, e desistia sem nunca assinar) — a entrevista so fica salva, esperando
+  // este gatilho. So gera se for realmente a primeira vez (nenhum TrainingPlan ainda) e a
+  // entrevista ja estiver concluida; qualquer geracao seguinte continua pelos gatilhos de sempre
+  // (domingo 19h, regenerar pelo painel, etc), nunca por aqui de novo.
+  async generateFirstWeekIfNeeded(userId: string): Promise<void> {
+    const [existingPlan, interview] = await Promise.all([
+      this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } }),
+      this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } }),
+    ]);
+    if (existingPlan || !interview?.completedAt) return;
+
+    const delayToSunday = await this.shouldDelayFirstGenerationToSunday(userId).catch(() => false);
+    if (delayToSunday) {
+      this.logger.log(`Geracao da primeira semana adiada para domingo 19h (fim de semana, sem dia de treino restante) para ${userId}.`);
+      return;
+    }
+    await this.generateWeek(userId);
+  }
+
   async generateWeek(
     userId: string,
     weeklyOverride?: WeeklyAvailabilityInput[],
@@ -621,7 +643,7 @@ export class TrainingPlansService {
           scheduledDate,
           weekday: day.weekday,
           modality,
-          title: isRunningModality(modality) ? 'Treino de corrida' : (strengthDecision?.title ?? template.title),
+          title: fixedModalityTitle(modality),
           sessionType: template.sessionType,
           locationSuggestion: 'Livre',
           // Usa a duracao calculada pela propria prescricao (que agora reflete o tempo REAL da
@@ -640,6 +662,13 @@ export class TrainingPlansService {
           notes: isStrength ? (strengthDecision?.notes ?? template.notes) : template.notes,
           recommendations: isRunningModality(modality) ? template.recommendations ?? null : null,
           videoRefs: [],
+          // So marca quando NAO ha diretriz ativa (com diretriz, o desvio e esperado — mesma
+          // regra usada pro aviso de rotina agregado da semana, ver logo acima). Aviso fica na
+          // sessao especifica, o aluno ve na tela do treino e conta no feedback pos-treino como
+          // foi (WorkoutCompletionsService encaminha isso pro treinador via Telegram).
+          routineMismatchNote: activeDirectives.length === 0
+            ? methodology.sessionMismatches?.[mismatchKeyFor(day.weekday, modality)] ?? null
+            : null,
         }];
       });
     });
@@ -674,7 +703,7 @@ export class TrainingPlansService {
           scheduledDate,
           weekday,
           modality: 'corrida',
-          title: 'Treino de corrida',
+          title: fixedModalityTitle('corrida'),
           sessionType: this.deriveSessionTypeLabel(runDecision),
           locationSuggestion: 'Livre',
           durationMin: prescription.durationMin ?? durationMin,
@@ -685,6 +714,9 @@ export class TrainingPlansService {
           notes: runDecision.notes,
           recommendations: `${runDecision.recommendations} ${STANDARD_WARMUP_COOLDOWN_TEXT}`,
           videoRefs: [],
+          routineMismatchNote: activeDirectives.length === 0
+            ? (methodology.sessionMismatches?.[mismatchKeyFor(weekday, 'corrida')] ?? 'Este treino foi gerado a mais, alem do combinado na sua rotina para este dia.')
+            : null,
         };
       });
     });
@@ -992,14 +1024,12 @@ export class TrainingPlansService {
     const isStrength = session.modality === 'forca' || session.modality === 'fortalecimento_corredores';
     const durationMin = session.durationMin ?? 45;
 
-    // title/notes escritos pela IA para este dia de forca/fortalecimento especifico — antes deste
-    // fix (2026-07-31) o update() abaixo nunca gravava esses dois campos, entao "Refazer" um dia
-    // avulso de forca atualizava so exercicios/series/reps e deixava o titulo/texto antigo (ou o
-    // generico) parado na tela, mesmo a IA tendo escrito um texto novo pra esse dia. Mesma familia
-    // do bug ja corrigido na geracao semanal (assembly de sessions em generateWeek). O treino de
-    // corrida avulso nao tem esse problema: o schema dele (attemptRunSessionDecision) nunca pediu
-    // notes/title pra IA, so numeros — nao ha texto novo sendo descartado nesse caso.
-    let strengthTitleUpdate: string | undefined;
+    // notes escrito pela IA para este dia de forca/fortalecimento especifico — antes deste fix
+    // (2026-07-31) o update() abaixo nunca gravava esse campo, entao "Refazer" um dia avulso de
+    // forca atualizava so exercicios/series/reps e deixava o texto antigo (ou o generico) parado
+    // na tela. O titulo NAO e mais atualizado aqui: e sempre o nome fixo da modalidade
+    // (fixedModalityTitle), decidido na criacao da sessao e nunca reescrito pela IA (pedido
+    // explicito do treinador 03/08 — sem titulos "criativos").
     let strengthNotesUpdate: string | undefined;
 
     let prescription;
@@ -1038,7 +1068,6 @@ export class TrainingPlansService {
         throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
       }
       prescription = this.strengthPrescription(durationMin, strengthDecision);
-      strengthTitleUpdate = strengthDecision.title;
       strengthNotesUpdate = strengthDecision.notes;
     } else {
       const paceEvidence: PaceEvidence = {
@@ -1076,7 +1105,6 @@ export class TrainingPlansService {
           ? formatPace(prescription.representativePaceSecondsPerKm)
           : null,
         structure: prescription as unknown as Prisma.InputJsonObject,
-        ...(strengthTitleUpdate ? { title: strengthTitleUpdate } : {}),
         ...(strengthNotesUpdate ? { notes: strengthNotesUpdate } : {}),
       },
     });
@@ -1115,11 +1143,9 @@ export class TrainingPlansService {
     }
 
     const isStrength = input.modality === 'forca' || input.modality === 'fortalecimento_corredores';
-    const title = isStrength
-      ? (input.modality === 'fortalecimento_corredores' ? 'Fortalecimento para corredores' : 'Musculacao')
-      : (input.modality === 'esteira' ? 'Corrida na esteira' : 'Treino de corrida');
+    const title = fixedModalityTitle(input.modality);
     const structure: Prisma.InputJsonObject = isStrength
-      ? { type: 'strength', category: input.modality === 'fortalecimento_corredores' ? 'Fortalecimento para corredores' : 'Musculacao', exercises: [] }
+      ? { type: 'strength', category: title, exercises: [] }
       : { type: 'run', blocks: [] };
 
     const session = await this.prisma.trainingSession.create({
@@ -1436,6 +1462,7 @@ export class TrainingPlansService {
       structure: unknown;
       notes: string | null;
       recommendations: string | null;
+      routineMismatchNote: string | null;
       completion?: {
         status: string;
         completedAt: Date;
@@ -1490,6 +1517,7 @@ export class TrainingPlansService {
         structure: session.structure,
         notes: session.notes,
         recommendations: session.recommendations,
+        routineMismatchNote: session.routineMismatchNote,
         completion: session.completion
           ? {
               status: session.completion.status,
@@ -1663,6 +1691,23 @@ function weekdayLabel(weekday: number) {
 
 function isRunningModality(modality: string) {
   return modality === 'corrida' || modality === 'esteira';
+}
+
+// Titulo da sessao passa a ser SEMPRE o nome fixo da modalidade — nao e mais texto livre da IA
+// (pedido explicito do treinador 03/08: nada de titulos "criativos" tipo "treino de forca de
+// tornozelo", so os 3 nomes abaixo, sempre). A IA pode ate continuar escrevendo um titulo no
+// campo bruto da decisao, mas ele e sempre substituido por este valor fixo ao montar a sessao.
+function fixedModalityTitle(modality: string): string {
+  if (modality === 'fortalecimento_corredores') return 'Fortalecimento para corredores';
+  if (modality === 'forca') return 'Musculação';
+  return 'Corrida';
+}
+
+// Mesma chave usada em WeeklyMethodologyDecision.sessionMismatches (ver prescription-agent.service.ts
+// validateSessions/validateStrengthSessions) — qualquer sessao de corrida (corrida ou esteira) usa
+// a chave fixa "weekday:corrida", forca/fortalecimento usam "weekday:modalidade real".
+function mismatchKeyFor(weekday: number, modality: string): string {
+  return isRunningModality(modality) ? `${weekday}:corrida` : `${weekday}:${modality}`;
 }
 
 interface AvailableDay {

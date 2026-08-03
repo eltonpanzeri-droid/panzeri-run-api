@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { UpsertWorkoutCompletionDto } from './dto/upsert-workout-completion.dto';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
+import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 
 @Injectable()
 export class WorkoutCompletionsService {
@@ -11,6 +12,7 @@ export class WorkoutCompletionsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly studentProfile: StudentProfileService,
+    private readonly telegram: TelegramService,
   ) {}
 
   async upsert(userId: string, dto: UpsertWorkoutCompletionDto) {
@@ -67,6 +69,18 @@ export class WorkoutCompletionsService {
         source: 'manual',
       },
     });
+
+    // Sessao foi marcada em generateWeek() como fora da rotina/tempo combinado (sem diretriz que
+    // explique) — pedido explicito do treinador 03/08: quando o aluno registra o feedback desse
+    // treino especifico, encaminha pro Telegram do treinador junto com o motivo do desvio, alem
+    // do aviso ja recebido na hora da geracao (routineMismatch agregado da semana).
+    if (session.routineMismatchNote) {
+      const student = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
+      const statusLabel = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'fez com ajustes' : 'marcou como nao feito';
+      await this.telegram.notifyCoach(
+        `📋 Feedback de treino fora da rotina combinada.\nAluno: ${student?.name ?? 'desconhecido'} (Cod. ${student ? formatStudentCode(student.studentCode) : '?'})\nMotivo do desvio: ${session.routineMismatchNote}\nAluno ${statusLabel} este treino.${dto.notes?.trim() ? `\nFeedback do aluno: ${dto.notes.trim()}` : '\nSem comentario escrito pelo aluno.'}`,
+      ).catch(() => undefined);
+    }
 
     const statusLabelForProfile = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'fez com ajustes' : 'nao fez';
     const profileParts = [

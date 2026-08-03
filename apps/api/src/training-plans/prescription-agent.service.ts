@@ -507,6 +507,7 @@ export class PrescriptionAgentService {
         safetyAdjustment,
         source: 'ai',
         routineMismatch: validated.routineMismatch,
+        sessionMismatches: { ...validated.sessionMismatches, ...strengthValidation.sessionMismatches },
       };
     } catch (error) {
       if (lastSnapshot) {
@@ -534,6 +535,13 @@ export class PrescriptionAgentService {
     sessions: RunSessionDecision[];
     failures: Array<{ weekday: number; title: string; durationMin: number; notes: string; recommendations: string; reason: string }>;
     routineMismatch: string | null;
+    // Mesma informacao de routineMismatch, mas quebrada por sessao especifica (chave
+    // "weekday:modality") — usada por generateWeek() pra marcar SO a sessao que realmente saiu do
+    // combinado (ver TrainingSession.routineMismatchNote), em vez de tratar a semana inteira como
+    // "fora da rotina" so porque um dia especifico teve um desvio (pedido explicito do treinador
+    // 03/08). Mesmo formato de chave usado em validateStrengthSessions, pra poder combinar os dois
+    // num so objeto em generateWeek.
+    sessionMismatches: Record<string, string>;
   } {
     // ATE 02/08 isso rejeitava a semana INTEIRA quando a IA cobria menos dias do que a rotina
     // cadastrada — ordem explicita do treinador: cobertura de dias (e duracao, ver
@@ -554,6 +562,7 @@ export class PrescriptionAgentService {
     const result: RunSessionDecision[] = [];
     const failures: Array<{ weekday: number; title: string; durationMin: number; notes: string; recommendations: string; reason: string }> = [];
     const durationMismatches: string[] = [];
+    const sessionMismatches: Record<string, string> = {};
 
     for (const session of sessions) {
       const slot = slotByWeekday.get(session.weekday);
@@ -562,7 +571,11 @@ export class PrescriptionAgentService {
       // essas diretrizes tem prioridade quase absoluta (ver buildSystemPromptStable). O codigo nao
       // tenta provar que existe mesmo uma diretriz dizendo isso (isso seria so mais uma regra
       // fixa por cima do raciocinio da IA); se nao houver slot correspondente, so seguimos sem a
-      // referencia de duracao normal do dia.
+      // referencia de duracao normal do dia — mas marcamos essa sessao especifica como fora da
+      // rotina (ver sessionMismatches acima).
+      if (!slot) {
+        sessionMismatches[`${session.weekday}:corrida`] = `Este treino de corrida foi gerado num dia que nao estava na sua rotina combinada.`;
+      }
       // ATE 02/08 isso rejeitava a semana INTEIRA quando um dia excedia a duracao normal sem
       // "durationJustification" preenchido — na pratica virou uma trava de codigo em cima da
       // decisao da IA (ela decide a duracao, o codigo nao deveria poder vetar isso so por causa de
@@ -571,6 +584,7 @@ export class PrescriptionAgentService {
       // (log + routineMismatch, ver acima) pra o treinador acompanhar, nunca descarta a resposta.
       if (slot && session.durationMin !== slot.durationMin && !session.durationJustification?.trim()) {
         durationMismatches.push(`weekday ${session.weekday}: ${session.durationMin}min (combinado ${slot.durationMin}min)`);
+        sessionMismatches[`${session.weekday}:corrida`] = `Este treino foi gerado com ${session.durationMin}min, diferente dos ${slot.durationMin}min combinados na sua rotina.`;
       }
 
       const shape = this.validateSessionShape(session, `semana, weekday ${session.weekday}`);
@@ -605,7 +619,7 @@ export class PrescriptionAgentService {
       routineMismatch = routineMismatch ? `${routineMismatch} ${durationNote}` : durationNote;
     }
 
-    return { sessions: result, failures, routineMismatch };
+    return { sessions: result, failures, routineMismatch, sessionMismatches };
   }
 
   // Chamado so com os slots da rotina que ficaram sem nenhuma sessao correspondente (ver
@@ -640,10 +654,11 @@ export class PrescriptionAgentService {
   private validateStrengthSessions(
     sessions: z.infer<typeof AiStrengthSessionSchema>[],
     strengthSlots: StrengthSlot[],
-  ): { sessions: StrengthSessionDecision[]; missingSlots: StrengthSlot[] } {
+  ): { sessions: StrengthSessionDecision[]; missingSlots: StrengthSlot[]; sessionMismatches: Record<string, string> } {
     const slotByKey = new Map(strengthSlots.map((slot) => [`${slot.weekday}:${slot.modality}`, slot]));
     const usedKeys = new Set<string>();
     const result: StrengthSessionDecision[] = [];
+    const sessionMismatches: Record<string, string> = {};
 
     for (const session of sessions) {
       const key = `${session.weekday}:${session.modality}`;
@@ -653,6 +668,7 @@ export class PrescriptionAgentService {
       }
       if (!slotByKey.has(key)) {
         this.logger.log(`Sessao de forca fora da rotina cadastrada (weekday ${session.weekday}, modalidade ${session.modality}) — aceita como decisao da IA/diretriz individual.`);
+        sessionMismatches[key] = `Este treino foi gerado num dia/modalidade que nao estava na sua rotina combinada.`;
       }
       usedKeys.add(key);
       // Fora do catalogo aprovado (sem video/descricao curados) so acontece quando uma diretriz
@@ -675,7 +691,7 @@ export class PrescriptionAgentService {
     }
 
     const missingSlots = strengthSlots.filter((slot) => !usedKeys.has(`${slot.weekday}:${slot.modality}`));
-    return { sessions: result, missingSlots };
+    return { sessions: result, missingSlots, sessionMismatches };
   }
 
   private buildSafetyGuidance(safetyAdjustment: boolean, removeRunning: boolean) {
@@ -715,7 +731,8 @@ export class PrescriptionAgentService {
       'CONSISTENCIA INTERNA E OBRIGATORIA: o nivel/condicionamento do aluno que voce concluir tem que ser o MESMO em toda a resposta — rationale geral e notes/recommendations de cada sessao contando a mesma historia sobre este aluno.',
       'PRIMEIRA SEMANA SEM NENHUM HISTORICO (historicoSemanal vazio, sem reavaliacao, sem analiseExecucao, sem analiseAprofundadaStrava): trate como calibragem inicial. Para um aluno com pouco tempo de corrida ou volume baixo/recente-comeco, prefira comecar com rodagens leves e um longao moderado, guardando um estimulo mais forte pra depois de ver a resposta real dele aos primeiros treinos — a nao ser que a evidencia de pace ja seja claramente forte e consistente.',
       'ORCAMENTO DE TEXTO DA RESPOSTA (importante, incidente real 02/08): sua resposta inteira — todos os dias de corrida e de forca de uma vez — tem um limite de tamanho. Se voce escrever textos longos demais nos primeiros dias, pode faltar espaco pra terminar os ultimos, e a resposta e cortada no meio (fica invalida, o aluno nao recebe treino nenhum naquela semana). Terminar a resposta INTEIRA e sempre mais importante do que cada campo de texto ser longo. Regra pratica: notes de cada dia de corrida/forca em torno de 3 a 5 frases (nao um paragrafo extenso), recommendations em 1 a 2 frases curtas, rationale como bullets curtos. Se em algum momento perceber que esta gastando texto demais, prefira DIMINUIR o que ainda vai escrever (textos mais diretos e objetivos) — nunca "force" continuar no mesmo nivel de detalhe e arriscar nao terminar. Uma resposta completa com texto mais enxuto e sempre melhor que uma resposta rica mas cortada.',
-      'Responda em portugues nos campos de texto (title, notes, recommendations, recommendation, rationale, durationJustification).',
+      'O campo title de cada sessao NAO e mais exibido ao aluno nem ao treinador — o titulo mostrado e sempre o nome fixo da modalidade (Corrida/Fortalecimento para corredores/Musculacao), decidido em codigo. Preencha title com qualquer texto curto valido, sem gastar esforco pensando nele.',
+      'Responda em portugues nos campos de texto (notes, recommendations, recommendation, rationale, durationJustification).',
       'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida.',
       '- OBRIGATORIO: retorne EXATAMENTE uma sessao em strengthSessions para CADA item listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). O mesmo weekday pode aparecer mais de uma vez na lista, uma para cada modalidade — retorne uma sessao pra cada item nesse caso, isso e o dado real da rotina do aluno, nao um erro. Se diasDisponiveisParaForca tiver 3 itens, strengthSessions tem que ter 3 sessoes — nunca deixe esse campo vazio ou incompleto quando diasDisponiveisParaForca nao estiver vazio: a resposta inteira e descartada quando isso acontece, desperdicando todo o raciocinio que voce fez pros dias de corrida.',
       '- A modalidade de cada item em diasDisponiveisParaForca vem da rotina real do aluno e normalmente nao muda — copie o campo modality literalmente. Uma diretriz sobre forca/fortalecimento normalmente muda foco/exercicios/intensidade daquele dia, nao a modalidade em si; so mude a modalidade se a diretriz pedir isso explicitamente.',
@@ -798,7 +815,8 @@ export class PrescriptionAgentService {
       '- Se houver diretriz de foco muscular para este dia especifico (ex: "so perna hoje") ou lista explicita de exercicios, aplique literalmente usando o campo "group"/"focus" do catalogo para filtrar. Sem diretriz, monte uma sessao equilibrada e variada.',
       '- Prefira exercicios de nivel "base" para alunos iniciantes ou com sinalDeSeguranca ativo.',
       '- weekday e modality da resposta devem ser exatamente os informados em diaDeForcaParaRegenerar — a modalidade e FIXA (vem da rotina real do aluno) e nunca pode ser trocada, nem mesmo por uma diretriz que mencione "musculacao" ou "fortalecimento": diretriz so muda foco/exercicios, nunca a modalidade em si.',
-      'Responda em portugues nos campos de texto (title, notes).',
+      'O campo title NAO e mais exibido — o titulo mostrado e sempre o nome fixo da modalidade, decidido em codigo. Preencha com qualquer texto curto valido.',
+      'Responda em portugues nos campos de texto (notes).',
     ].join('\n\n');
   }
 

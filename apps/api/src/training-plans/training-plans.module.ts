@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AiQueueModule } from '../common/ai-queue.module';
 import { TrainingPlansController } from './training-plans.controller';
@@ -14,7 +14,7 @@ import { StravaModule } from '../strava/strava.module';
 import { BillingModule } from '../billing/billing.module';
 
 @Module({
-  imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, StravaModule, BillingModule, StudentProfileModule],
+  imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, StravaModule, forwardRef(() => BillingModule), StudentProfileModule],
   controllers: [TrainingPlansController],
   providers: [TrainingPlansService, PrescriptionAgentService, StravaAnalysisAgentService, WeeklyPlanSchedulerService, StravaAnalysisSchedulerService],
   exports: [TrainingPlansService, StudentProfileModule, WeeklyPlanSchedulerService],
