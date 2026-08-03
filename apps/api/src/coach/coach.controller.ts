@@ -125,6 +125,11 @@ export class CoachController {
     return this.coachService.refreshStudentBillingStatus(studentId);
   }
 
+  @Post('billing/refresh-all')
+  refreshAllPendingBillingStatus() {
+    return this.coachService.refreshAllPendingBillingStatus();
+  }
+
   @Post('students/:studentId/sessions/:sessionId/regenerate')
   regenerateStudentSession(
     @Param('studentId') studentId: string,

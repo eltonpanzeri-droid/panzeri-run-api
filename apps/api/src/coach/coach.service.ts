@@ -50,6 +50,10 @@ export class CoachService {
     return this.billing.refreshStatusForStudent(studentId);
   }
 
+  refreshAllPendingBillingStatus() {
+    return this.billing.refreshAllPendingStudents();
+  }
+
   async createStudent(dto: CreateStudentDto) {
     const email = dto.email.toLowerCase().trim();
     const existing = await this.prisma.user.findUnique({ where: { email } });
@@ -375,6 +379,7 @@ export class CoachService {
           take: 1,
           include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
         },
+        billingSubscription: true,
       },
       }),
       this.prisma.user.count({ where: studentWhere }),
@@ -420,6 +425,10 @@ export class CoachService {
         status: statusFromSummary(summary, student.subscriptionStatus),
         accountStatus: student.accountStatus,
         subscriptionStatus: student.subscriptionStatus,
+        subscriptionManualOverride: student.subscriptionManualOverride,
+        billingNextChargeAt: student.billingSubscription?.nextChargeAt ?? null,
+        billingProviderStatus: student.billingSubscription?.providerStatus ?? null,
+        billingLastSyncAt: student.billingSubscription?.updatedAt ?? null,
         stravaConnected: Boolean(stravaConnection),
         stravaLastSyncAt: stravaConnection?.updatedAt ?? null,
       };
@@ -486,6 +495,7 @@ export class CoachService {
           take: 5,
         },
         targetRaces: { orderBy: { raceDate: 'asc' } },
+        billingSubscription: true,
       },
     });
 
@@ -535,6 +545,15 @@ export class CoachService {
       subscriptionStatus: student.subscriptionStatus,
       subscriptionUpdatedAt: student.subscriptionUpdatedAt,
       subscriptionManualOverride: student.subscriptionManualOverride,
+      billing: student.billingSubscription
+        ? {
+            provider: student.billingSubscription.provider,
+            providerStatus: student.billingSubscription.providerStatus,
+            nextChargeAt: student.billingSubscription.nextChargeAt,
+            lastSyncAt: student.billingSubscription.updatedAt,
+            checkoutUrl: student.billingSubscription.checkoutUrl,
+          }
+        : null,
       needsUpdate: planFreshness.needsUpdate,
       needsUpdateReason: planFreshness.reason,
       strava: stravaStatus ? {

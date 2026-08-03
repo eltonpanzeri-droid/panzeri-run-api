@@ -575,6 +575,18 @@ h3 {
   cursor: pointer;
 }
 
+.billingCell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.billingHint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
 .mergeBox {
   margin-top: 14px;
   padding-top: 14px;

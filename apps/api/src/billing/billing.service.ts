@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService, formatStudentCode } from './telegram.service';
@@ -42,6 +42,7 @@ const CHECKOUT_RETRY_COOLDOWN_MS = 30 * 1000;
 
 @Injectable()
 export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
   private readonly recentCheckouts = new Map<string, { checkoutUrl: string; at: number }>();
 
   constructor(
@@ -164,6 +165,15 @@ export class BillingService {
     const checkoutUrl = firstPayment?.invoiceUrl ?? null;
     if (!checkoutUrl) throw new BadGatewayException('O Asaas nao retornou o link de pagamento.');
 
+    // So e uma assinatura de verdade NOVA (e so ai que avisa o treinador) quando o subscriptionId
+    // muda em relacao ao que ja estava salvo. Clicar de novo no mesmo link pendente (usuario
+    // clicando varias vezes, ou reabrindo a tela) reaproveita o MESMO subscriptionId no Asaas —
+    // isso nao e uma assinatura nova, e o mesmo aviso repetido nao deveria disparar de novo.
+    // Ordem explicita do treinador (02/08): nada de "nova assinatura" pra quem so clicou de novo
+    // no botao; e "aluno que ja foi aluno e quer voltar" tambem nao e "nova", e reativacao.
+    const isGenuinelyNewSubscription = existing?.externalSubscriptionId !== subscriptionId;
+    const isReactivation = isGenuinelyNewSubscription && Boolean(existing);
+
     await this.prisma.$transaction([
       this.prisma.billingSubscription.upsert({
         where: { userId },
@@ -192,7 +202,10 @@ export class BillingService {
       }),
     ]);
 
-    await this.telegram.notifyCoach(`Nova assinatura gerada no Panzeri Run\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nStatus: aguardando pagamento (R$ 19,90/mes)`);
+    if (isGenuinelyNewSubscription) {
+      const title = isReactivation ? 'Assinatura reativada no Panzeri Run' : 'Nova assinatura gerada no Panzeri Run';
+      await this.telegram.notifyCoach(`${title}\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nStatus: aguardando pagamento (R$ 19,90/mes)`);
+    }
     this.recentCheckouts.set(userId, { checkoutUrl, at: Date.now() });
 
     return { checkoutUrl };
@@ -342,6 +355,43 @@ export class BillingService {
       throw new BadRequestException('Este aluno nao tem uma assinatura Asaas vinculada para verificar. Gere um link de pagamento primeiro.');
     }
     return this.refreshFromAsaas(billing.id, userId, billing.externalSubscriptionId);
+  }
+
+  // Incidente real 02/08: a API ficou fora do ar por horas — qualquer confirmacao de pagamento
+  // que o Asaas tentou avisar por webhook nesse periodo foi perdida (o Asaas nao fica reenviando
+  // pra sempre), entao varios alunos que pagaram durante a queda continuaram presos na tela de
+  // assinatura mesmo tendo pago de verdade. Em vez do treinador precisar abrir aluna por aluna e
+  // clicar em "Verificar pagamento", isso varre TODAS as assinaturas Asaas vinculadas de uma vez.
+  // Pula deliberadamente quem tem subscriptionManualOverride=true (cortesia/liberacao manual) —
+  // essas contas nunca tem pagamento real no Asaas, e essa mesma varredura foi o que derrubou por
+  // engano o acesso de cortesia do proprio treinador mais cedo hoje quando rodada individualmente.
+  async refreshAllPendingStudents() {
+    this.assertConfigured();
+    const students = await this.prisma.user.findMany({
+      where: {
+        role: 'student',
+        subscriptionManualOverride: false,
+        billingSubscription: { externalSubscriptionId: { not: null } },
+      },
+      select: { id: true, billingSubscription: { select: { id: true, externalSubscriptionId: true } } },
+    });
+
+    let changed = 0;
+    let failed = 0;
+    for (const student of students) {
+      if (!student.billingSubscription?.externalSubscriptionId) continue;
+      try {
+        const before = await this.prisma.user.findUniqueOrThrow({ where: { id: student.id }, select: { subscriptionStatus: true } });
+        const result = await this.refreshFromAsaas(student.billingSubscription.id, student.id, student.billingSubscription.externalSubscriptionId);
+        if (result.appStatus !== before.subscriptionStatus) changed += 1;
+      } catch (error) {
+        failed += 1;
+        this.logger.warn(`Falha ao sincronizar pagamento do aluno ${student.id}: ${(error as Error).message}`);
+      }
+    }
+
+    this.logger.log(`Sincronizacao em massa de pagamentos concluida: ${students.length} verificado(s), ${changed} status alterado(s), ${failed} falha(s).`);
+    return { checked: students.length, changed, failed };
   }
 
   private async refreshFromAsaas(billingId: string, userId: string, subscriptionId: string) {

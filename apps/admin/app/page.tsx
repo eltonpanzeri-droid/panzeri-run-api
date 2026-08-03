@@ -50,6 +50,10 @@ interface StudentRow {
   status: string;
   accountStatus: string;
   subscriptionStatus?: string;
+  subscriptionManualOverride?: boolean;
+  billingNextChargeAt?: string | null;
+  billingProviderStatus?: string | null;
+  billingLastSyncAt?: string | null;
   stravaConnected?: boolean;
   stravaLastSyncAt?: string | null;
 }
@@ -64,6 +68,13 @@ interface StudentDetail {
   subscriptionStatus: string;
   subscriptionUpdatedAt?: string | null;
   subscriptionManualOverride?: boolean;
+  billing?: {
+    provider: string;
+    providerStatus: string;
+    nextChargeAt: string | null;
+    lastSyncAt: string | null;
+    checkoutUrl: string | null;
+  } | null;
   needsUpdate?: boolean;
   needsUpdateReason?: string | null;
   strava?: { connected: boolean; automaticSync: boolean; lastActivityAt?: string | null };
@@ -290,6 +301,7 @@ export default function AdminHome() {
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotStatus, setForgotStatus] = useState('');
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isSyncingBilling, setIsSyncingBilling] = useState(false);
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentEmail, setNewStudentEmail] = useState('');
   const [newStudentPassword, setNewStudentPassword] = useState('');
@@ -641,6 +653,28 @@ export default function AdminHome() {
     }
   }
 
+  async function syncAllBillingNow() {
+    setIsSyncingBilling(true);
+    setStatus('Sincronizando pagamentos com o Asaas...');
+    try {
+      const response = await fetch(`${API_URL}/coach/billing/refresh-all`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await response.json()) as { checked?: number; changed?: number; failed?: number; message?: string };
+      if (!response.ok) {
+        setStatus(`Nao consegui sincronizar os pagamentos: ${data.message ?? 'erro desconhecido'}.`);
+        return;
+      }
+      setStatus(`Sincronizacao concluida: ${data.checked ?? 0} verificado(s), ${data.changed ?? 0} status atualizado(s), ${data.failed ?? 0} falha(s).`);
+      loadDashboard();
+    } catch {
+      setStatus('Nao consegui conectar com a API.');
+    } finally {
+      setIsSyncingBilling(false);
+    }
+  }
+
   async function runBackupNow() {
     setIsBackingUp(true);
     setStatus('Gerando backup do banco...');
@@ -870,6 +904,16 @@ export default function AdminHome() {
 
         {activeView === 'dashboard' ? (
           <section className="miniSection">
+            <h3>Sincronizar pagamentos com o Asaas</h3>
+            <p>Verifica o status real de todos os alunos com assinatura Asaas de uma vez (pula contas de cortesia/liberacao manual). Use quando a API tiver ficado fora do ar e alunas pagantes ficarem presas na tela de assinatura.</p>
+            <button className="secondaryButton" type="button" disabled={isSyncingBilling} onClick={syncAllBillingNow}>
+              {isSyncingBilling ? 'Sincronizando...' : 'Sincronizar todos os pagamentos'}
+            </button>
+          </section>
+        ) : null}
+
+        {activeView === 'dashboard' ? (
+          <section className="miniSection">
             <h3>Backup do banco de dados</h3>
             <p>Um backup automatico e enviado por e-mail todos os dias as 4h. Voce tambem pode gerar um agora.</p>
             <button className="secondaryButton" type="button" disabled={isBackingUp} onClick={runBackupNow}>
@@ -964,19 +1008,22 @@ export default function AdminHome() {
                     <option value="canceled">Cancelado</option>
                     <option value="archived">Arquivado</option>
                   </select>
-                  <select
-                    className={subscriptionStatusClass(student.subscriptionStatus ?? 'pending')}
-                    value={student.subscriptionStatus ?? 'pending'}
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={(event) => updateStudentField(student.id, 'subscriptionStatus', event.target.value)}
-                  >
-                    <option value="pending">Pagamento pendente</option>
-                    <option value="manual_active">Cortesia / liberacao manual</option>
-                    <option value="active">Pagamento confirmado</option>
-                    <option value="grace">Prazo de tolerancia</option>
-                    <option value="overdue">Pagamento atrasado</option>
-                    <option value="canceled">Assinatura cancelada</option>
-                  </select>
+                  <span className="billingCell">
+                    <select
+                      className={subscriptionStatusClass(student.subscriptionStatus ?? 'pending')}
+                      value={student.subscriptionStatus ?? 'pending'}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => updateStudentField(student.id, 'subscriptionStatus', event.target.value)}
+                    >
+                      <option value="pending">Pagamento pendente</option>
+                      <option value="manual_active">Cortesia / liberacao manual</option>
+                      <option value="active">Pagamento confirmado</option>
+                      <option value="grace">Prazo de tolerancia</option>
+                      <option value="overdue">Pagamento atrasado</option>
+                      <option value="canceled">Assinatura cancelada</option>
+                    </select>
+                    <small className="billingHint">{billingHint(student)}</small>
+                  </span>
                   <button
                     type="button"
                     className="rowArchiveButton"
@@ -1702,7 +1749,15 @@ function StudentPanel({
         </label>
         {student.subscriptionManualOverride ? (
           <p className="formHintText">Protegido: esse status foi definido manualmente e nao sera sobrescrito pela sincronizacao automatica com o Asaas. Use "Verificar pagamento no Asaas" abaixo para voltar a sincronizar de verdade.</p>
-        ) : null}
+        ) : student.billing ? (
+          <div className="interviewAnswerGrid">
+            <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Vencimento</span><span className="interviewAnswerValue">{student.billing.nextChargeAt ? dateLabel(student.billing.nextChargeAt) : 'Nao definido'}</span></div>
+            <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Status no Asaas</span><span className="interviewAnswerValue">{student.billing.providerStatus}</span></div>
+            <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Ultima sincronizacao</span><span className="interviewAnswerValue">{student.billing.lastSyncAt ? dateTimeLabel(student.billing.lastSyncAt) : 'Nunca'}</span></div>
+          </div>
+        ) : (
+          <p className="formHintText">Este aluno ainda nao tem assinatura Asaas vinculada.</p>
+        )}
         <button type="button" onClick={saveStudent}>Salvar dados</button>
         <PasswordInput value={newPassword} onChange={setNewPassword} placeholder="Nova senha" />
         <button type="button" onClick={resetPassword}>Trocar senha</button>
@@ -2741,6 +2796,24 @@ function subscriptionStatusClass(status: string) {
   if (status === 'pending' || status === 'grace') return 'warn';
   if (status === 'overdue' || status === 'canceled') return 'danger';
   return '';
+}
+
+// Visao rapida de vencimento/ultima sincronizacao pro treinador bater o olho na lista e ja saber
+// se tem algum problema (pedido explicito apos o incidente de webhook perdido em 02/08) — sem
+// precisar abrir o perfil de cada aluna uma por uma.
+function billingHint(student: { subscriptionManualOverride?: boolean; billingNextChargeAt?: string | null; billingLastSyncAt?: string | null }) {
+  if (student.subscriptionManualOverride) return 'Cortesia (nao verifica Asaas)';
+  if (!student.billingNextChargeAt && !student.billingLastSyncAt) return 'Sem assinatura Asaas ainda';
+  const parts: string[] = [];
+  if (student.billingNextChargeAt) {
+    const due = new Date(student.billingNextChargeAt);
+    const overdue = due.getTime() < Date.now();
+    parts.push(`${overdue ? 'Venceu em' : 'Vence em'} ${due.toLocaleDateString('pt-BR', { timeZone: 'UTC' })}`);
+  }
+  if (student.billingLastSyncAt) {
+    parts.push(`sync ${new Date(student.billingLastSyncAt).toLocaleDateString('pt-BR')}`);
+  }
+  return parts.join(' - ');
 }
 
 function completionLabel(status: string) {
