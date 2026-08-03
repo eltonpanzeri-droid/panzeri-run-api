@@ -329,11 +329,18 @@ export class TrainingPlansService {
   // entrevista ja estiver concluida; qualquer geracao seguinte continua pelos gatilhos de sempre
   // (domingo 19h, regenerar pelo painel, etc), nunca por aqui de novo.
   async generateFirstWeekIfNeeded(userId: string): Promise<void> {
-    const [existingPlan, interview] = await Promise.all([
+    const [existingPlan, interview, availability] = await Promise.all([
       this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } }),
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } }),
+      this.prisma.weeklyAvailability.findMany({ where: { userId, noTraining: false }, select: { id: true } }),
     ]);
     if (existingPlan || !interview?.completedAt) return;
+    // A rotina (dias/modalidades/tempo) agora e coletada numa tela propria DEPOIS da confirmacao
+    // do pagamento (menu Rotina de treinos), nao mais dentro da entrevista — se o pagamento
+    // acabou de ser confirmado mas o aluno ainda nao passou por essa tela, nao ha rotina nenhuma
+    // pra gerar em cima ainda. Quando ele completar a tela de rotina, updateAvailability() e
+    // quem dispara a geracao de verdade (mesmo gate de pagamento, ver ali).
+    if (!availability.length) return;
 
     const delayToSunday = await this.shouldDelayFirstGenerationToSunday(userId).catch(() => false);
     if (delayToSunday) {

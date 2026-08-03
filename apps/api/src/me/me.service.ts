@@ -367,7 +367,11 @@ export class MeService {
     // inteiro por esse tempo, e e exatamente isso que varias alunas relataram como "a tela nao
     // sai do lugar"/"nao aceita a atualizacao" ao tentar mudar a rotina. O aluno ve a confirmacao
     // na hora; o treino aparece assim que a geracao em segundo plano terminar.
-    if (routineChanged) {
+    // Mesmo gate de pagamento do completeOnboarding: se por algum motivo esta chamada acontecer
+    // antes da confirmacao do pagamento (nao deveria, a tela de rotina so aparece depois), nao
+    // gera o treino agora — evita o mesmo desperdicio de token de quem nunca chega a assinar.
+    const payingUser = routineChanged ? await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } }) : null;
+    if (routineChanged && payingUser && hasSubscriptionAccess(payingUser.subscriptionStatus)) {
       void this.trainingPlans.generateWeek(userId).catch((error) => {
         this.logger.warn(`generateWeek apos updateAvailability falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
       });
@@ -479,8 +483,10 @@ export class MeService {
     // transacoes separadas) — ver o comentario equivalente em updateAvailability sobre por que
     // ele mesmo cuida do arquivamento do plano antigo, nunca fazemos isso manualmente antes.
     // NAO AWAIT (mesmo motivo de updateAvailability): generateWeek() pode levar 30s+ e nao pode
-    // travar a resposta deste PUT /me/anamnese esperando a IA terminar.
-    if (routineChanged) {
+    // travar a resposta deste PUT /me/anamnese esperando a IA terminar. Mesmo gate de pagamento
+    // do completeOnboarding/updateAvailability: nao gera antes da confirmacao do pagamento.
+    const payingUser = routineChanged ? await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } }) : null;
+    if (routineChanged && payingUser && hasSubscriptionAccess(payingUser.subscriptionStatus)) {
       void this.trainingPlans.generateWeek(userId).catch((error) => {
         this.logger.warn(`generateWeek apos updateAnamnese falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
       });
