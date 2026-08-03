@@ -648,8 +648,18 @@ export class TrainingPlansService {
     // adicionou fora da disponibilidade normal — so acontece quando uma diretriz individual pediu
     // isso explicitamente (ver buildSystemPromptStable). O loop principal acima so cobre 1 sessao
     // de corrida por (dia, modalidade) porque vem da disponibilidade cadastrada do aluno.
+    // LIMITE DE BOM SENSO (incidente real 03/08 — Roberta): sem nenhum teto, um erro da IA
+    // etiquetando varias sessoes com o weekday errado (ex: 6 sessoes todas marcadas "terca", zero
+    // na segunda) empilhava tudo no mesmo dia sem nenhum aviso. Nenhuma diretriz de verdade pede
+    // mais de uma sessao extra no mesmo dia — corta o excesso (mantem so a primeira sobra) e avisa
+    // o treinador, em vez de aceitar cegamente qualquer quantidade.
+    const MAX_EXTRA_SESSIONS_PER_WEEKDAY = 1;
     const extraRunSessions = [...runDecisionsByWeekday.entries()].flatMap(([weekday, leftover]) => {
       if (!leftover.length) return [];
+      if (leftover.length > MAX_EXTRA_SESSIONS_PER_WEEKDAY) {
+        this.logger.warn(`Cortado excesso de sessoes de corrida no weekday ${weekday}: IA devolveu ${leftover.length + 1} sessoes pra esse dia, mantendo so ${MAX_EXTRA_SESSIONS_PER_WEEKDAY + 1} (provavel erro de numeracao de dias da IA, nao diretriz de verdade).`);
+        leftover = leftover.slice(0, MAX_EXTRA_SESSIONS_PER_WEEKDAY);
+      }
       const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(weekday));
       return leftover.map((runDecision) => {
         const durationMin = runDecision.durationMin;
