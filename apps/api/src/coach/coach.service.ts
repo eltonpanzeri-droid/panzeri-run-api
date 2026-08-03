@@ -366,12 +366,6 @@ export class CoachService {
   }
 
   async dashboard(input: { search: string; page: number; pageSize: number; includeArchived?: boolean }) {
-    // Sem isso, um plano "agendado" (pre-gerado pelo robo de domingo ou pelo botao manual) nunca
-    // vira "ativo" sozinho quando a semana vira — o painel ficava preso mostrando a semana
-    // anterior pra sempre (bug real encontrado 02/08). So troca status no banco, nao chama IA.
-    await this.trainingPlans.promoteAllScheduledPlansForCurrentWeek().catch((error) => {
-      this.logger.warn(`promoteAllScheduledPlansForCurrentWeek falhou (nao bloqueante): ${(error as Error).message}`);
-    });
     const studentWhere: Prisma.UserWhereInput = {
       role: 'student',
       ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }),
@@ -486,12 +480,6 @@ export class CoachService {
 
   async student(studentId: string) {
     await this.assertStudent(studentId);
-    // Mesma promocao do dashboard (ver comentario la) — garante que o perfil individual tambem
-    // reflita a semana certa assim que o treinador abrir, sem depender do aluno ter aberto o
-    // app antes. So troca status no banco, nao chama IA.
-    await this.trainingPlans.promoteScheduledPlanIfWeekTurned(studentId).catch((error) => {
-      this.logger.warn(`promoteScheduledPlanIfWeekTurned falhou para ${studentId} (nao bloqueante): ${(error as Error).message}`);
-    });
     // Deteccao pura (nenhuma escrita, nenhuma chamada de IA) — so pra AVISAR o treinador se o
     // plano deste aluno esta desatualizado (teste novo, rotina mudou, nivel de dor elevado). A
     // decisao de gerar e sempre dele, pelo botao "Refazer nova semana" — nunca automatica so por
@@ -530,14 +518,7 @@ export class CoachService {
       },
     });
 
-    // A partir de domingo 19h, o plano da semana seguinte (se ja pre-gerado) e o que faz sentido
-    // o treinador ver por padrao ao abrir o perfil — mesmo pedido ja aplicado no app do aluno
-    // (ver isAfterSundayRelease no App.tsx). Antes das 19h de domingo, ou se ainda nao existe
-    // plano "agendado", cai no comportamento normal (o "ativo"). Depois da virada de segunda,
-    // isso deixa de ser necessario: promoteScheduledPlanIfWeekTurned (chamado logo acima em
-    // student()) ja promoveu o "agendado" pra "ativo", entao o find abaixo ja pega o certo.
-    const scheduledNextWeekPlan = isAfterSundayReleaseSP() ? student.plans.find((item: any) => item.status === 'scheduled') : undefined;
-    const plan = scheduledNextWeekPlan ?? student.plans.find((item: any) => item.status === 'active') ?? student.plans[0] ?? null;
+    const plan = student.plans.find((item: any) => item.status === 'active') ?? student.plans[0] ?? null;
     const analysisInsight = plan
       ? await this.prisma.trainingExecutionInsight.findUnique({ where: { planId: plan.id } })
       : null;
@@ -1041,17 +1022,6 @@ function addDays(date: Date, days: number) {
   const result = new Date(date);
   result.setUTCDate(result.getUTCDate() + days);
   return result;
-}
-
-// Mesmo horario de corte usado no app do aluno (ver isAfterSundayRelease em App.tsx) — domingo
-// a partir das 19h (Sao Paulo), a semana seguinte ja pre-gerada e o que faz sentido mostrar.
-function isAfterSundayReleaseSP() {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', hour12: false,
-  }).formatToParts(new Date());
-  const weekday = parts.find((part) => part.type === 'weekday')?.value ?? '';
-  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0') % 24;
-  return weekday === 'Sun' && hour >= 19;
 }
 
 function coachWeekStart(date: Date) {

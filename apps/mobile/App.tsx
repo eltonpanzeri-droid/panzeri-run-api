@@ -2027,7 +2027,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   const [routineAdjustmentOpen, setRoutineAdjustmentOpen] = useState(false);
   const [applyRoutinePermanently, setApplyRoutinePermanently] = useState(false);
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
-  const [weekOffset, setWeekOffset] = useState(() => (isAfterSundayRelease() ? 1 : 0));
+  const [weekOffset, setWeekOffset] = useState(0);
   const [notGeneratedRange, setNotGeneratedRange] = useState<{ startDate: string; endDate: string } | null>(null);
 
   useEffect(() => {
@@ -2419,12 +2419,10 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             <Ionicons name="chevron-back" size={15} color="#0f766e" />
             <Text style={styles.moveButtonText}>Anterior</Text>
           </Pressable>
-          {isAfterSundayRelease() && weekOffset >= 1 ? null : (
-            <Pressable style={[styles.moveButton, weekOffset >= 1 && styles.disabledButton]} disabled={weekOffset >= 1} onPress={() => setWeekOffset((current) => current + 1)}>
-              <Text style={styles.moveButtonText}>Proxima</Text>
-              <Ionicons name="chevron-forward" size={15} color="#0f766e" />
-            </Pressable>
-          )}
+          <Pressable style={[styles.moveButton, weekOffset >= 1 && styles.disabledButton]} disabled={weekOffset >= 1} onPress={() => setWeekOffset((current) => current + 1)}>
+            <Text style={styles.moveButtonText}>Proxima</Text>
+            <Ionicons name="chevron-forward" size={15} color="#0f766e" />
+          </Pressable>
         </View>
         <Text style={styles.titleSmall}>{weekRange}</Text>
         <View style={styles.coachBox}>
@@ -2465,12 +2463,10 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             <Ionicons name="chevron-back" size={15} color="#0f766e" />
             <Text style={styles.moveButtonText}>Anterior</Text>
           </Pressable>
-          {isAfterSundayRelease() && weekOffset >= 1 ? null : (
-            <Pressable style={[styles.moveButton, weekOffset >= 1 && styles.disabledButton]} disabled={weekOffset >= 1} onPress={() => setWeekOffset((current) => current + 1)}>
-              <Text style={styles.moveButtonText}>Proxima</Text>
-              <Ionicons name="chevron-forward" size={15} color="#0f766e" />
-            </Pressable>
-          )}
+          <Pressable style={[styles.moveButton, weekOffset >= 1 && styles.disabledButton]} disabled={weekOffset >= 1} onPress={() => setWeekOffset((current) => current + 1)}>
+            <Text style={styles.moveButtonText}>Proxima</Text>
+            <Ionicons name="chevron-forward" size={15} color="#0f766e" />
+          </Pressable>
         </View>
         <Text style={styles.titleSmall}>{formatDayMonth(new Date(notGeneratedRange.startDate))} a {formatDayMonth(new Date(notGeneratedRange.endDate))}</Text>
         <View style={styles.coachBox}>
@@ -2493,12 +2489,10 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
           <Ionicons name="chevron-back" size={15} color="#0f766e" />
           <Text style={styles.moveButtonText}>Anterior</Text>
         </Pressable>
-        {isAfterSundayRelease() && weekOffset >= 1 ? null : (
-          <Pressable style={[styles.moveButton, weekOffset >= 1 && styles.disabledButton]} disabled={weekOffset >= 1} onPress={() => setWeekOffset((current) => current + 1)}>
-            <Text style={styles.moveButtonText}>Proxima</Text>
-            <Ionicons name="chevron-forward" size={15} color="#0f766e" />
-          </Pressable>
-        )}
+        <Pressable style={[styles.moveButton, weekOffset >= 1 && styles.disabledButton]} disabled={weekOffset >= 1} onPress={() => setWeekOffset((current) => current + 1)}>
+          <Text style={styles.moveButtonText}>Proxima</Text>
+          <Ionicons name="chevron-forward" size={15} color="#0f766e" />
+        </Pressable>
       </View>
       <Text style={styles.titleSmall}>{weekRange}</Text>
       <Text style={styles.copyTight}>Seu treino aparece primeiro. Use o ajuste no final da tela quando a rotina desta semana mudar.</Text>
@@ -4786,19 +4780,6 @@ function isBeforeSundayRelease() {
   const weekday = parts.find((part) => part.type === 'weekday')?.value ?? '';
   const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0') % 24;
   return weekday === 'Sat' || (weekday === 'Sun' && hour < 19);
-}
-
-// A partir de domingo 19h a semana seguinte ja foi pre-gerada (ver WeeklyPlanSchedulerService) e
-// e o que a aluna realmente precisa pra se organizar pra segunda — nesse horario, "semana atual"
-// (weekOffset 0, a que esta terminando) deixa de fazer sentido como visao padrao. Quem quiser
-// conferir algo de domingo ainda acessa normalmente pelo botao "Anterior".
-function isAfterSundayRelease() {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', hour12: false,
-  }).formatToParts(new Date());
-  const weekday = parts.find((part) => part.type === 'weekday')?.value ?? '';
-  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0') % 24;
-  return weekday === 'Sun' && hour >= 19;
 }
 
 function formatDayMonth(date: Date) {

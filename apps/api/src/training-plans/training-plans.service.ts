@@ -117,7 +117,6 @@ export class TrainingPlansService {
   // generateWeek() explicitamente no proprio ponto da acao — nunca depende deste metodo.
   async current(userId: string) {
     const weekStart = startOfWeek(new Date());
-    await this.promoteScheduledPlanIfWeekTurned(userId, weekStart);
     const [plan, latestTest, user, onboarding] = await Promise.all([
       this.prisma.trainingPlan.findFirst({
         where: { userId, status: 'active' },
@@ -145,57 +144,6 @@ export class TrainingPlansService {
     }
 
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
-  }
-
-  // Nenhuma chamada de IA, nenhum gasto — so troca o status de um plano que a pre-geracao de
-  // domingo (ou qualquer chamada com planStatus:'scheduled') ja deixou pronto pra esta semana
-  // exata. BUG REAL encontrado 02/08: nao existia NENHUM codigo fazendo essa promocao, apesar
-  // de um comentario antigo (perto de generateNextWeekIfMissing) dizer que existia — o plano
-  // "agendado" nunca virava "ativo" sozinho, entao a aluna ficava vendo pra sempre o plano da
-  // semana anterior mesmo com a semana seguinte ja pronta e paga no banco. Chamado tanto pelo
-  // proprio app do aluno (current()) quanto pelo painel do treinador (coach.service.ts) — e
-  // dado, nao IA, entao seguro de rodar em qualquer leitura, sem violar a regra de "current()
-  // nunca gera nada sozinho" (essa regra e sobre custo de IA, nao sobre trocar um status).
-  async promoteScheduledPlanIfWeekTurned(userId: string, weekStart?: Date) {
-    const targetWeekStart = weekStart ?? startOfWeek(new Date());
-    const scheduled = await this.prisma.trainingPlan.findFirst({
-      where: { userId, status: 'scheduled', startDate: targetWeekStart },
-      select: { id: true },
-    });
-    if (!scheduled) return;
-
-    await this.prisma.$transaction([
-      this.prisma.trainingPlan.updateMany({
-        where: { userId, status: 'active' },
-        data: { status: 'archived' },
-      }),
-      this.prisma.trainingPlan.update({
-        where: { id: scheduled.id },
-        data: { status: 'active' },
-      }),
-    ]);
-  }
-
-  // Versao em lote da mesma promocao acima, pra rodar uma vez so no painel do treinador
-  // (dashboard/lista de alunos) em vez de um round-trip por aluno.
-  async promoteAllScheduledPlansForCurrentWeek() {
-    const weekStart = startOfWeek(new Date());
-    const scheduledPlans = await this.prisma.trainingPlan.findMany({
-      where: { status: 'scheduled', startDate: weekStart },
-      select: { id: true, userId: true },
-    });
-    for (const plan of scheduledPlans) {
-      await this.prisma.$transaction([
-        this.prisma.trainingPlan.updateMany({
-          where: { userId: plan.userId, status: 'active' },
-          data: { status: 'archived' },
-        }),
-        this.prisma.trainingPlan.update({
-          where: { id: plan.id },
-          data: { status: 'active' },
-        }),
-      ]);
-    }
   }
 
   // Deteccao pura (nenhuma escrita, nenhuma chamada de IA) — substitui o antigo auto-heal
@@ -822,11 +770,12 @@ export class TrainingPlansService {
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
   }
 
-  // Chamado todo domingo 19h (ver WeeklyPlanSchedulerService) para deixar a semana seguinte
-  // pronta com antecedencia — muitas alunas se organizam no domingo para treinar ja segunda de
-  // manha. Gera com status "scheduled" (nunca "active") e NUNCA arquiva o plano da semana atual,
-  // que ainda esta em andamento. Quando a semana seguinte realmente comecar, `current()` promove
-  // esse plano "scheduled" para "active" em vez de gerar tudo de novo do zero (ver metodo current).
+  // Chamado todo domingo 19h (ver WeeklyPlanSchedulerService). NAO existe pre-geracao nem status
+  // intermediario — ordem explicita do treinador (02/08, revertendo um erro meu de arquitetura
+  // na mesma noite): o robo de domingo GERA a semana seguinte e ela ja nasce como o plano ATIVO
+  // na hora, exatamente como qualquer regeneracao normal (arquivando a semana que estava em
+  // andamento). Nao ha "agendado" esperando ser promovido depois — o que a IA termina de gerar
+  // ja e, no mesmo instante, o que aparece pro treinador e pro aluno.
   async generateNextWeekIfMissing(userId: string) {
     const nextWeekStart = startOfWeek(addDays(new Date(), 7));
     const [existing, anyPlanEver] = await Promise.all([
@@ -851,8 +800,6 @@ export class TrainingPlansService {
 
     await this.generateWeek(userId, undefined, {
       referenceDate: addDays(new Date(), 7),
-      planStatus: 'scheduled',
-      archiveCurrentActive: false,
     });
   }
 
