@@ -366,6 +366,11 @@ export class CoachService {
   }
 
   async dashboard(input: { search: string; page: number; pageSize: number; includeArchived?: boolean }) {
+    // Reparo de emergencia (03/08) do incidente de planos "agendados" presos — ver comentario
+    // detalhado em fixAllStuckScheduledPlans. So troca status no banco, nao chama IA.
+    await this.trainingPlans.fixAllStuckScheduledPlans().catch((error) => {
+      this.logger.warn(`fixAllStuckScheduledPlans falhou (nao bloqueante): ${(error as Error).message}`);
+    });
     const studentWhere: Prisma.UserWhereInput = {
       role: 'student',
       ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }),

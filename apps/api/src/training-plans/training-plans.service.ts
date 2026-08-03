@@ -117,6 +117,7 @@ export class TrainingPlansService {
   // generateWeek() explicitamente no proprio ponto da acao — nunca depende deste metodo.
   async current(userId: string) {
     const weekStart = startOfWeek(new Date());
+    await this.fixStuckScheduledPlan(userId, weekStart);
     const [plan, latestTest, user, onboarding] = await Promise.all([
       this.prisma.trainingPlan.findFirst({
         where: { userId, status: 'active' },
@@ -144,6 +145,44 @@ export class TrainingPlansService {
     }
 
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
+  }
+
+  // REPARO DE EMERGENCIA (03/08, manha): na noite de 02/08 o botao "Gerar semana seguinte para
+  // todos" criou planos com um status intermediario "agendado" sem arquivar a semana anterior
+  // (arquitetura errada, ja corrigida — geracao agora sempre vira "ativo" na hora). O codigo que
+  // convertia esse "agendado" pra "ativo" foi removido ao consertar a arquitetura, e sem ele
+  // esses planos ficaram presos: os alunos afetados voltaram a ver a semana antiga (ja passada)
+  // como se fosse a atual. Este metodo so resolve esse estoque preso (nenhuma geracao nova cria
+  // mais "agendado" daqui pra frente); fica como rede de seguranca permanente, sem custo — so
+  // troca status no banco, nunca chama IA.
+  private async fixStuckScheduledPlan(userId: string, weekStart: Date) {
+    const stuckScheduled = await this.prisma.trainingPlan.findFirst({
+      where: { userId, status: 'scheduled', startDate: weekStart },
+      select: { id: true },
+    });
+    if (!stuckScheduled) return;
+
+    await this.prisma.$transaction([
+      this.prisma.trainingPlan.updateMany({ where: { userId, status: 'active' }, data: { status: 'archived' } }),
+      this.prisma.trainingPlan.update({ where: { id: stuckScheduled.id }, data: { status: 'active' } }),
+    ]);
+  }
+
+  // Versao em lote do reparo acima, pra rodar de uma vez pelo painel do treinador (dashboard) em
+  // vez de depender de cada aluno abrir o app primeiro.
+  async fixAllStuckScheduledPlans() {
+    const weekStart = startOfWeek(new Date());
+    const stuck = await this.prisma.trainingPlan.findMany({
+      where: { status: 'scheduled', startDate: weekStart },
+      select: { id: true, userId: true },
+    });
+    for (const plan of stuck) {
+      await this.prisma.$transaction([
+        this.prisma.trainingPlan.updateMany({ where: { userId: plan.userId, status: 'active' }, data: { status: 'archived' } }),
+        this.prisma.trainingPlan.update({ where: { id: plan.id }, data: { status: 'active' } }),
+      ]);
+    }
+    return { fixed: stuck.length };
   }
 
   // Deteccao pura (nenhuma escrita, nenhuma chamada de IA) — substitui o antigo auto-heal
