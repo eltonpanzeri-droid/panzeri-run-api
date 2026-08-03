@@ -66,6 +66,14 @@ export class MeController {
     return this.meService.reopenOnboarding(user.sub);
   }
 
+  // Chamado pela tela "Rotina de treinos" (pos-pagamento) ao confirmar a rotina — respostas em si
+  // ja foram salvas incrementalmente por PUT onboarding/answer (mesma entrevista, modulo "Rotina
+  // semanal"); este POST so converte essas respostas em disponibilidade real e dispara a geracao.
+  @Post('onboarding/complete-routine')
+  completeRoutine(@CurrentUser() user: CurrentUserPayload) {
+    return this.meService.completeRoutineFromInterview(user.sub);
+  }
+
   @Post('exercise-responsibility')
   acceptExerciseResponsibility(@CurrentUser() user: CurrentUserPayload) {
     return this.meService.acceptExerciseResponsibility(user.sub);

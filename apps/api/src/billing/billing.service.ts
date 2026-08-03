@@ -33,7 +33,7 @@ const PLAN_PRICE = 19.9;
 const PLAN_DESCRIPTION = 'Panzeri Run - Plano mensal';
 const WELCOME_NOTIFICATION_TYPE = 'subscription_welcome';
 const WELCOME_NOTIFICATION_TITLE = 'Bem-vindo ao Panzeri Run';
-const WELCOME_NOTIFICATION_MESSAGE = 'Estou muito feliz em poder conduzir você em sua jornada de treinos. Vamos com tudo';
+const WELCOME_NOTIFICATION_MESSAGE = 'Pagamento confirmado! Estou muito feliz em poder conduzir você em sua jornada de treinos. Agora acesse, no menu principal, a opção "Rotina de treinos" e nos conte como será sua semana — assim que você confirmar, já montamos seu primeiro treino.';
 // Se o link de pagamento nao abre visivelmente pro aluno (ver correcao do bloqueador de pop-up
 // no app), ele tende a clicar em "Ativar assinatura" varias vezes seguidas — sem essa trava,
 // cada clique gerava uma chamada nova pro Asaas e um aviso novo no Telegram do treinador (ja
@@ -351,8 +351,8 @@ export class BillingService {
         await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
         await this.messaging.sendEmail(billing.userId, {
           trigger: 'payment_confirmed',
-          subject: 'Pagamento confirmado - seu treino ja esta disponivel!',
-          content: `Ola ${user.name},\n\nSeu pagamento foi confirmado e seu treino ja esta disponivel no aplicativo. Bons treinos!\n\nPanzeri Run`,
+          subject: 'Pagamento confirmado - monte sua rotina de treinos!',
+          content: `Ola ${user.name},\n\nSeu pagamento foi confirmado! Agora acesse o aplicativo, abra o menu e toque em "Rotina de treinos" para nos contar como sera sua semana. Assim que voce confirmar, ja montamos seu primeiro treino.\n\nPanzeri Run`,
         });
       }
     }
@@ -457,8 +457,8 @@ export class BillingService {
         await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
         await this.messaging.sendEmail(userId, {
           trigger: 'payment_confirmed',
-          subject: 'Pagamento confirmado - seu treino ja esta disponivel!',
-          content: `Ola ${user.name},\n\nSeu pagamento foi confirmado e seu treino ja esta disponivel no aplicativo. Bons treinos!\n\nPanzeri Run`,
+          subject: 'Pagamento confirmado - monte sua rotina de treinos!',
+          content: `Ola ${user.name},\n\nSeu pagamento foi confirmado! Agora acesse o aplicativo, abra o menu e toque em "Rotina de treinos" para nos contar como sera sua semana. Assim que voce confirmar, ja montamos seu primeiro treino.\n\nPanzeri Run`,
         });
       }
     }

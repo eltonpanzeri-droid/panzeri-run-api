@@ -251,21 +251,39 @@ export class MeService {
     const answers = asAnswerObject(interview.answers);
     const availability = buildInterviewAvailability(answers);
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.weeklyAvailability.deleteMany({ where: { userId } });
-      for (const day of availability) await tx.weeklyAvailability.create({ data: { userId, ...day } });
-    });
+    const currentAvailability = await this.prisma.weeklyAvailability.findMany({ where: { userId } });
+    const routineChanged = availabilityChanged(currentAvailability, availability);
+
+    await this.prisma.$transaction([
+      this.prisma.weeklyAvailability.deleteMany({ where: { userId } }),
+      ...availability.map((day) => this.prisma.weeklyAvailability.create({ data: { userId, ...day } })),
+      ...(routineChanged ? [this.prisma.user.update({ where: { id: userId }, data: { lastRoutineChangeAt: new Date() } })] : []),
+    ]);
 
     // Sem isso, o resultado do sync so aparecia pro aluno/treinador quando alguma outra acao
     // explicita disparasse uma geracao — current() nao gera mais nada sozinho so por a tela ser
     // aberta (ver regra em training-plans.service.ts), e nao existe mais nenhum cron de fundo.
+    // Mesmo gate de pagamento das outras rotas de rotina: nunca gera pra quem ainda nao pagou
+    // (chamado tanto pelo botao de sincronizar do painel quanto pela tela Rotina do aluno).
     // NAO AWAIT: generateWeek() pode levar 30s+ (thinking adaptativo) — nao pode travar a
-    // resposta deste endpoint do painel do treinador esperando isso.
-    void this.trainingPlans.generateWeek(userId).catch((error) => {
-      this.logger.warn(`generateWeek apos syncAvailabilityFromInterview falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
-    });
+    // resposta deste endpoint esperando isso.
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } });
+    if (routineChanged && user && hasSubscriptionAccess(user.subscriptionStatus)) {
+      void this.trainingPlans.generateWeek(userId).catch((error) => {
+        this.logger.warn(`generateWeek apos syncAvailabilityFromInterview falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+      });
+    }
 
     return { synced: true, days: availability.filter((day) => !day.noTraining).length };
+  }
+
+  // Chamado pela tela "Rotina de treinos" do proprio aluno (pos-pagamento) ao confirmar a rotina
+  // montada na entrevista — diferente do sync acima (usado pelo botao de repaeo do treinador no
+  // painel), aqui a trava de 1x por mes se aplica: e a mesma regra que ja vale pra quem ajusta a
+  // rotina pela tela antiga (/me/availability), so que passando pelas respostas da entrevista.
+  async completeRoutineFromInterview(userId: string) {
+    await this.assertRoutineChangeAllowed(userId);
+    return this.syncAvailabilityFromInterview(userId);
   }
 
   updateProfile(userId: string, dto: UpdateProfileDto) {

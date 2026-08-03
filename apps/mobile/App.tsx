@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'interview' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers';
+type Tab = 'week' | 'interview' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -365,6 +365,7 @@ interface MeResponse {
   } | null;
   availability?: SavedAvailabilityDay[];
   weeklyAvailability?: SavedAvailabilityDay[];
+  lastRoutineChangeAt?: string | null;
   tests?: Array<{ id?: string; totalSeconds?: number | null; createdAt?: string | null }>;
   fitnessTests?: Array<{ id?: string; totalSeconds?: number | null; createdAt?: string | null }>;
 }
@@ -666,14 +667,27 @@ const interviewQuestions: InterviewQuestion[] = [
     optional: true,
     help: 'Use uma fita metrica, sem apertar a pele, mantendo-a paralela ao chao e sem prender a respiracao. Registre em centimetros. Se preferir nao medir agora, pode deixar em branco e continuar.',
   })),
-  { key: 'routine_intro', module: 'Rotina semanal', type: 'notice', prompt: 'Agora e a hora de montar sua rotina semanal de treinos.\n\nCada aluno tem uma realidade diferente, entao antes de comecar, veja como as pessoas costumam organizar isso por aqui. Tem aluno que escolhe so treinos de corrida, porque ja faz musculacao ou outro treino de forca com outro profissional. Tem aluno que quer corrida e fortalecimento para corredores junto. E tem quem prefira corrida, fortalecimento e musculacao, tudo dentro do Panzeri Run. Nao existe opcao certa, existe a que combina com a sua vida hoje.\n\nVoce vai montar isso dia por dia. Para cada dia da semana, informe quanto tempo tem disponivel para corrida, fortalecimento para corredores e musculacao. Voce pode informar tempo para mais de uma modalidade no mesmo dia.\n\nSe treinar mais de uma modalidade no mesmo dia, voce pode fazer as duas seguidas, uma na sequencia da outra, ou separadas, uma pela manha e outra a noite por exemplo. Por isso vamos te perguntar tambem o horario que costuma treinar cada modalidade. Marque do jeito que realmente funciona na sua rotina.\n\nAntes de comecar, algumas recomendacoes importantes:\n\n1. Escolha o que voce realmente consegue cumprir. Adesao vale mais do que ambicao. E melhor marcar poucos dias e treinar todos eles do que marcar a semana inteira e nao dar conta. Fique tranquilo, voce pode ajustar sua rotina depois, uma vez por mes.\n\n2. Se for treinar mais de uma modalidade no mesmo dia, cuidado para nao empilhar tempo demais de uma vez. Pense no tempo total somado daquele dia, nao so em cada modalidade separada.\n\n3. No dia do seu treino mais longo de corrida, o longao da semana, de preferencia para deixar esse dia mais livre, sem outros compromissos e sem outra modalidade junto.\n\n4. Ja treina forca ou musculacao com outro profissional? Nao precisa informar tempo para essa modalidade aqui. Depois dessas perguntas, voce vai poder nos contar isso no campo de observacao sobre a rotina. Assim seu treino de corrida sai certo e nao te entregamos um treino de forca que voce nao vai seguir.' },
+  { key: 'routine_intro', module: 'Rotina semanal', type: 'notice', prompt: 'Agora e a hora de montar sua rotina semanal de treinos.\n\nPrimeiro, escolha quais modalidades voce quer que a gente monte pra voce. Depois, dia por dia, voce diz quanto tempo tem disponivel e o horario que costuma treinar cada uma.\n\nAntes de comecar, algumas recomendacoes importantes:\n\n1. Escolha o que voce realmente consegue cumprir. Adesao vale mais do que ambicao. E melhor marcar poucos dias e treinar todos eles do que marcar a semana inteira e nao dar conta. Fique tranquilo, voce pode ajustar sua rotina depois, uma vez por mes.\n\n2. Se for treinar mais de uma modalidade no mesmo dia, cuidado para nao empilhar tempo demais de uma vez. Pense no tempo total somado daquele dia, nao so em cada modalidade separada.\n\n3. No dia do seu treino mais longo de corrida, o longao da semana, de preferencia para deixar esse dia mais livre, sem outros compromissos e sem outra modalidade junto.\n\n4. Ja treina forca ou musculacao com outro profissional? Escolha "Somente corrida" abaixo e conte pra gente no campo de observacao mais adiante. Assim seu treino de corrida sai certo e nao te entregamos um treino de forca que voce nao vai seguir.' },
+  {
+    key: 'routine_modality_choice',
+    module: 'Rotina semanal',
+    prompt: 'Quais modalidades voce quer que a gente monte pra voce?',
+    type: 'dropdown_single' as const,
+    options: [
+      option('Somente corrida', 'corrida'),
+      option('Corrida + Fortalecimento para corredores', 'corrida_fortalecimento'),
+      option('Corrida + Musculacao', 'corrida_musculacao'),
+      option('Corrida + Fortalecimento para corredores + Musculacao', 'corrida_fortalecimento_musculacao'),
+    ],
+  },
+  { key: 'routine_modality_confirmation', module: 'Rotina semanal', type: 'notice', prompt: 'Confirma que quer que a gente prescreva treinos so das modalidades que voce acabou de escolher?\n\nAs proximas perguntas vao ser so sobre elas. Se quiser mudar, toque em Voltar.' },
   ...weekInterviewDays.flatMap(([key, label]) => [
     { key: `${key}_run_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem disponivel para corrida?`, type: 'single' as const, options: interviewTimeOptions },
-    { key: `${key}_fortalecimento_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para fortalecimento para corredores?`, type: 'single' as const, options: interviewTimeOptions },
-    { key: `${key}_musculacao_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para musculacao?`, type: 'single' as const, options: interviewTimeOptions },
+    { key: `${key}_fortalecimento_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para fortalecimento para corredores?`, type: 'single' as const, options: interviewTimeOptions, condition: (a: InterviewAnswers) => a.routine_modality_choice === 'corrida_fortalecimento' || a.routine_modality_choice === 'corrida_fortalecimento_musculacao' },
+    { key: `${key}_musculacao_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para musculacao?`, type: 'single' as const, options: interviewTimeOptions, condition: (a: InterviewAnswers) => a.routine_modality_choice === 'corrida_musculacao' || a.routine_modality_choice === 'corrida_fortalecimento_musculacao' },
     { key: `${key}_run_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel para corrida?`, type: 'dropdown_single' as const, options: interviewAvailableTimeOptions, condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== undefined && a[`${key}_run_time`] !== 'none' },
-    { key: `${key}_fortalecimento_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel para fortalecimento para corredores?`, type: 'dropdown_single' as const, options: interviewAvailableTimeOptions, condition: (a: InterviewAnswers) => a[`${key}_fortalecimento_time`] !== undefined && a[`${key}_fortalecimento_time`] !== 'none' },
-    { key: `${key}_musculacao_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel para musculacao?`, type: 'dropdown_single' as const, options: interviewAvailableTimeOptions, condition: (a: InterviewAnswers) => a[`${key}_musculacao_time`] !== undefined && a[`${key}_musculacao_time`] !== 'none' },
+    { key: `${key}_fortalecimento_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel para fortalecimento para corredores?`, type: 'dropdown_single' as const, options: interviewAvailableTimeOptions, condition: (a: InterviewAnswers) => (a.routine_modality_choice === 'corrida_fortalecimento' || a.routine_modality_choice === 'corrida_fortalecimento_musculacao') && a[`${key}_fortalecimento_time`] !== undefined && a[`${key}_fortalecimento_time`] !== 'none' },
+    { key: `${key}_musculacao_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel para musculacao?`, type: 'dropdown_single' as const, options: interviewAvailableTimeOptions, condition: (a: InterviewAnswers) => (a.routine_modality_choice === 'corrida_musculacao' || a.routine_modality_choice === 'corrida_fortalecimento_musculacao') && a[`${key}_musculacao_time`] !== undefined && a[`${key}_musculacao_time`] !== 'none' },
   ]),
   { key: 'routine_observation', module: 'Rotina semanal', type: 'text', optional: true, prompt: 'Quer nos contar algo importante sobre a sua rotina de treinos?', help: 'Este campo e so sobre a sua rotina de treinos. Por exemplo: voce ja treina musculacao ou forca em outro lugar, seus dias e horarios mudam toda semana, voce viaja com frequencia, ou qualquer outra informacao que ajude a gente a entender melhor como montar sua rotina. Se nao tiver nada a acrescentar, pode deixar em branco.' },
   { key: 'routine_confirmation', module: 'Rotina semanal', type: 'notice', prompt: 'Confira a rotina que voce acabou de montar.\n\nTem certeza que e assim que voce vai treinar? Se quiser ajustar algo, toque em Voltar antes de continuar.' },
@@ -694,6 +708,13 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'personal_address_complement', module: 'Dados pessoais', prompt: 'Complemento (apartamento, bloco, casa, etc)', type: 'text', optional: true, condition: (a) => Boolean(a.personal_address_city) },
   { key: 'additional_info', module: 'Informacoes adicionais', prompt: 'Escreva no campo abaixo todas as informacoes sobre voce que acredite ser relevante sabermos e que ainda nao perguntamos nessa entrevista.', type: 'text', optional: true },
 ];
+
+// A rotina (dias/modalidades/tempo/horario) saiu da entrevista inicial e virou uma tela propria,
+// disponivel so depois do pagamento confirmado (menu "Rotina de treinos") — pedido explicito do
+// treinador 03/08: evita gastar chamada de IA com prospecto que nunca chega a assinar, e reforca
+// a rotina como uma etapa dedicada, nao mais uma entre dezenas de perguntas da entrevista.
+const mainInterviewQuestions: InterviewQuestion[] = interviewQuestions.filter((q) => q.module !== 'Rotina semanal');
+const routineQuestions: InterviewQuestion[] = interviewQuestions.filter((q) => q.module === 'Rotina semanal');
 
 const reassessmentQuestions: InterviewQuestion[] = [
   { key: 'reassessment_goal_change', module: 'Reavaliacao', prompt: 'Seu objetivo com a corrida continua o mesmo de antes?', type: 'single', options: [option('Sim, continua o mesmo', 'same'), option('Mudou', 'changed')] },
@@ -885,8 +906,29 @@ function AppInner() {
                 userName={userName}
                 onLater={() => setActiveTab('week')}
                 onComplete={() => { setRestartInterviewFromStart(false); void refreshRoutineFromServer(); setActiveTab('week'); }}
+                questions={mainInterviewQuestions}
                 restartFromStart={restartInterviewFromStart}
               />
+            )}
+            {activeTab === 'routine' && (
+              routineChangeBlockedUntil(savedMe?.lastRoutineChangeAt) ? (
+                <View style={styles.section}>
+                  <Text style={styles.sectionLabel}>Rotina de treinos</Text>
+                  <Text style={styles.copyTight}>
+                    Voce ja alterou sua rotina de treinos esse mes. Aguarde ate {routineChangeBlockedUntil(savedMe?.lastRoutineChangeAt)!.toLocaleDateString('pt-BR')} para alterar novamente.
+                  </Text>
+                  <Pressable style={styles.secondaryButton} onPress={() => setActiveTab('week')}><Text style={styles.secondaryButtonText}>Voltar ao treino</Text></Pressable>
+                </View>
+              ) : (
+                <GuidedInterview
+                  accessToken={accessToken}
+                  userName={userName}
+                  onLater={() => setActiveTab('week')}
+                  onComplete={() => { void refreshRoutineFromServer(); setActiveTab('week'); }}
+                  questions={routineQuestions}
+                  mode="routine"
+                />
+              )
             )}
             {activeTab === 'reassessment' && (
               <GuidedInterview
@@ -1643,7 +1685,7 @@ function MultiDropdown({ options, value, onChange, placeholder = 'Selecione uma 
   );
 }
 
-function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding', restartFromStart = false }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment'; restartFromStart?: boolean }) {
+function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding', restartFromStart = false }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment' | 'routine'; restartFromStart?: boolean }) {
   const [answers, setAnswers] = useState<InterviewAnswers>({});
   const [step, setStep] = useState(0);
   const [started, setStarted] = useState(false);
@@ -1654,9 +1696,16 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   const [helpOpen, setHelpOpen] = useState(false);
   const [cepStatus, setCepStatus] = useState('');
 
+  // "routine" reaproveita o mesmo registro de entrevista (mesma answers, mesmo load/save) — so o
+  // endpoint final muda: complete-routine so converte as respostas de rotina em disponibilidade e
+  // dispara a geracao, sem re-validar os campos obrigatorios da entrevista inteira.
   const loadUrl = mode === 'reassessment' ? `${API_URL}/me/reassessment` : `${API_URL}/me/onboarding`;
   const answerUrl = mode === 'reassessment' ? `${API_URL}/me/reassessment/answer` : `${API_URL}/me/onboarding/answer`;
-  const completeUrl = mode === 'reassessment' ? `${API_URL}/me/reassessment/complete` : `${API_URL}/me/onboarding/complete`;
+  const completeUrl = mode === 'reassessment'
+    ? `${API_URL}/me/reassessment/complete`
+    : mode === 'routine'
+      ? `${API_URL}/me/onboarding/complete-routine`
+      : `${API_URL}/me/onboarding/complete`;
 
   const visibleQuestions = useMemo(() => questions.filter((question) => !question.condition || question.condition(answers)), [answers, questions]);
   const question = visibleQuestions[Math.min(step, Math.max(visibleQuestions.length - 1, 0))];
@@ -1686,13 +1735,23 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       const loadedAnswers = state?.answers ?? {};
       if (mode === 'onboarding' && !loadedAnswers.personal_name && userName) loadedAnswers.personal_name = userName;
       setAnswers(loadedAnswers);
-      setFinished(Boolean(state?.completedAt));
-      if (restartFromStart) {
+      // "routine" reaproveita o MESMO registro de entrevista (mesmas answers) so pra reusar o
+      // load/save — completedAt e currentStep ali sao da entrevista inteira (ja concluida antes
+      // do pagamento), nao tem nada a ver com a rotina em si. Por isso sempre comeca do zero,
+      // nunca herda "ja concluido" nem retoma um passo no meio de outra pergunta.
+      if (mode === 'routine') {
+        setFinished(false);
         setStep(0);
         setStarted(true);
-      } else if ((state?.currentStep ?? 0) > 0 && !state?.completedAt) {
-        setStep(state?.currentStep ?? 0);
-        setStarted(true);
+      } else {
+        setFinished(Boolean(state?.completedAt));
+        if (restartFromStart) {
+          setStep(0);
+          setStarted(true);
+        } else if ((state?.currentStep ?? 0) > 0 && !state?.completedAt) {
+          setStep(state?.currentStep ?? 0);
+          setStarted(true);
+        }
       }
       setLoading(false);
     });
@@ -1838,13 +1897,13 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     }
   }
 
-  if (loading) return <View style={styles.section}><Text style={styles.statusMessage}>{mode === 'reassessment' ? 'Abrindo sua reavaliacao...' : 'Abrindo sua entrevista...'}</Text></View>;
+  if (loading) return <View style={styles.section}><Text style={styles.statusMessage}>{mode === 'reassessment' ? 'Abrindo sua reavaliacao...' : mode === 'routine' ? 'Abrindo sua rotina de treinos...' : 'Abrindo sua entrevista...'}</Text></View>;
   if (finished) return (
     <View style={styles.section}>
-      <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao concluida' : 'Entrevista concluida'}</Text>
-      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : 'Vamos montar seu plano'}</Text>
-      <Text style={styles.copyTight}>{mode === 'reassessment' ? 'Suas respostas foram salvas. Seu treinador vai revisar sua evolucao e ajustar seu treino conforme necessario.' : 'Parabens por completar sua entrevista! Seus dados foram salvos e serao usados para montar seu programa de treinos personalizado.'}</Text>
-      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : 'Ver meu treino'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
+      <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao concluida' : mode === 'routine' ? 'Rotina registrada' : 'Entrevista concluida'}</Text>
+      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : mode === 'routine' ? 'Estamos montando seu treino' : 'Vamos montar seu plano'}</Text>
+      <Text style={styles.copyTight}>{mode === 'reassessment' ? 'Suas respostas foram salvas. Seu treinador vai revisar sua evolucao e ajustar seu treino conforme necessario.' : mode === 'routine' ? 'Sua rotina foi salva. Seu treino ja esta sendo montado com base nela e vai aparecer na tela de treino da semana em instantes.' : 'Parabens por completar sua entrevista! Seus dados foram salvos e serao usados para montar seu programa de treinos personalizado.'}</Text>
+      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : mode === 'routine' ? 'Ver meu treino' : 'Ver meu treino'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
       {mode === 'onboarding' ? <Pressable style={styles.secondaryButton} onPress={reviewInterview} disabled={saving}><Text style={styles.secondaryButtonText}>Revisar minhas respostas</Text></Pressable> : null}
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
     </View>
@@ -4084,6 +4143,7 @@ function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: 
   const tabs: Array<{ id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
     { id: 'week', label: 'Treino da semana', icon: 'calendar' },
     { id: 'interview', label: 'Entrevista inicial', icon: 'chatbubbles' },
+    { id: 'routine', label: 'Rotina de treinos', icon: 'time' },
     { id: 'reassessment', label: 'Reavaliacao periodica', icon: 'refresh-circle' },
     { id: 'fixAnswers', label: 'Corrigir respostas anteriores', icon: 'create-outline' },
     { id: 'targetRace', label: 'Prova alvo', icon: 'trophy' },
@@ -5097,6 +5157,15 @@ async function loadDismissedNotifications() {
   } catch {
     return [];
   }
+}
+
+// Mesma janela de 30 dias corridos do backend (ROUTINE_CHANGE_COOLDOWN_DAYS em me.service.ts) —
+// so pra mostrar o aviso certo na tela antes de tentar; quem decide de verdade continua sendo o
+// servidor. Retorna a data em que a alteracao volta a ser permitida, ou null se estiver liberado.
+function routineChangeBlockedUntil(lastRoutineChangeAt?: string | null): Date | null {
+  if (!lastRoutineChangeAt) return null;
+  const nextAllowedAt = new Date(new Date(lastRoutineChangeAt).getTime() + 30 * 24 * 60 * 60 * 1000);
+  return nextAllowedAt.getTime() > Date.now() ? nextAllowedAt : null;
 }
 
 function localDateKey() {

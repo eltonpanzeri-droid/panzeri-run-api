@@ -227,6 +227,7 @@ export class AuthService {
       address: true,
       phone: true,
       acceptedExerciseResponsibilityAt: true,
+      lastRoutineChangeAt: true,
       createdAt: true,
       updatedAt: true,
     };
