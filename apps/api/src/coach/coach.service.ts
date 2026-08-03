@@ -530,7 +530,14 @@ export class CoachService {
       },
     });
 
-    const plan = student.plans.find((item: any) => item.status === 'active') ?? student.plans[0] ?? null;
+    // A partir de domingo 19h, o plano da semana seguinte (se ja pre-gerado) e o que faz sentido
+    // o treinador ver por padrao ao abrir o perfil — mesmo pedido ja aplicado no app do aluno
+    // (ver isAfterSundayRelease no App.tsx). Antes das 19h de domingo, ou se ainda nao existe
+    // plano "agendado", cai no comportamento normal (o "ativo"). Depois da virada de segunda,
+    // isso deixa de ser necessario: promoteScheduledPlanIfWeekTurned (chamado logo acima em
+    // student()) ja promoveu o "agendado" pra "ativo", entao o find abaixo ja pega o certo.
+    const scheduledNextWeekPlan = isAfterSundayReleaseSP() ? student.plans.find((item: any) => item.status === 'scheduled') : undefined;
+    const plan = scheduledNextWeekPlan ?? student.plans.find((item: any) => item.status === 'active') ?? student.plans[0] ?? null;
     const analysisInsight = plan
       ? await this.prisma.trainingExecutionInsight.findUnique({ where: { planId: plan.id } })
       : null;
@@ -1034,6 +1041,17 @@ function addDays(date: Date, days: number) {
   const result = new Date(date);
   result.setUTCDate(result.getUTCDate() + days);
   return result;
+}
+
+// Mesmo horario de corte usado no app do aluno (ver isAfterSundayRelease em App.tsx) — domingo
+// a partir das 19h (Sao Paulo), a semana seguinte ja pre-gerada e o que faz sentido mostrar.
+function isAfterSundayReleaseSP() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', hour12: false,
+  }).formatToParts(new Date());
+  const weekday = parts.find((part) => part.type === 'weekday')?.value ?? '';
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0') % 24;
+  return weekday === 'Sun' && hour >= 19;
 }
 
 function coachWeekStart(date: Date) {
