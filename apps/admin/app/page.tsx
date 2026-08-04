@@ -2280,6 +2280,18 @@ function EditableSession({
     }
   }
 
+  function handleStructureChange(next: Record<string, unknown>) {
+    if (next.type === 'run' || next.type === 'aerobic') {
+      const totals = computeStructureTotals(next);
+      const durationRange = totals.totalDurationMin ? `${totals.totalDurationMin} min` : undefined;
+      setStructure({ ...next, distanceKm: totals.totalDistanceKm || undefined, durationMin: totals.totalDurationMin || undefined, durationRange });
+      setDurationMin(totals.totalDurationMin ? String(totals.totalDurationMin) : '');
+      setDistanceKm(totals.totalDistanceKm ? String(totals.totalDistanceKm) : '');
+      return;
+    }
+    setStructure(next);
+  }
+
   function changeModality(nextModality: string) {
     setModality(nextModality);
     const nextIsStrength = isStrengthModality(nextModality);
@@ -2352,7 +2364,7 @@ function EditableSession({
                 {!isStrengthModality(modality) ? <label>Distancia total<input value={distanceKm} onChange={(event) => setDistanceKm(event.target.value)} inputMode="decimal" /></label> : null}
                 {!isStrengthModality(modality) ? <label>Zona principal<input value={zone} onChange={(event) => setZone(event.target.value)} /></label> : null}
               </div>
-              <StructureEditor structure={structure} testPaceSeconds={testPaceSeconds} onChange={setStructure} />
+              <StructureEditor structure={structure} testPaceSeconds={testPaceSeconds} onChange={handleStructureChange} />
               <label>Orientacoes gerais<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
               <label>Recomendacoes (aquecimento, desaquecimento, hidratacao, etc.)<textarea value={recommendations} onChange={(event) => setRecommendations(event.target.value)} /></label>
               {saveMessage ? <p className={`modalSaveMessage ${saveMessage.includes('sucesso') ? 'saveSuccess' : ''}`}>{saveMessage}</p> : null}
@@ -2562,19 +2574,47 @@ function StructureEditor({ structure, testPaceSeconds, onChange }: { structure: 
     );
   }
 
+  const totals = computeStructureTotals(structure);
+
   return (
     <section className="structureEditor">
       <div className="structureEditorTitle"><div><h3>Etapas do treino</h3><span>Aquecimento, parte principal e desaquecimento</span></div>{typeControl}</div>
       {blocks.map((block, index) => (
-        <RunStepEditor
-          key={index}
-          block={block}
-          testPaceSeconds={testPaceSeconds}
-          onChange={(nextBlock) => onChange({ ...structure, blocks: blocks.map((item, blockIndex) => blockIndex === index ? nextBlock : item) })}
-          onRemove={() => onChange({ ...structure, blocks: blocks.filter((_, blockIndex) => blockIndex !== index) })}
-        />
+        String(block.blockKind ?? 'continuous') === 'repeat' ? (
+          <RepeatBlockEditor
+            key={index}
+            block={block}
+            testPaceSeconds={testPaceSeconds}
+            onChange={(nextBlock) => onChange({ ...structure, blocks: blocks.map((item, blockIndex) => blockIndex === index ? nextBlock : item) })}
+            onRemove={() => onChange({ ...structure, blocks: blocks.filter((_, blockIndex) => blockIndex !== index) })}
+          />
+        ) : (
+          <RunStepEditor
+            key={index}
+            block={block}
+            testPaceSeconds={testPaceSeconds}
+            onChange={(nextBlock) => onChange({ ...structure, blocks: blocks.map((item, blockIndex) => blockIndex === index ? nextBlock : item) })}
+            onRemove={() => onChange({ ...structure, blocks: blocks.filter((_, blockIndex) => blockIndex !== index) })}
+          />
+        )
       ))}
-      <button className="addStructureButton" type="button" onClick={() => onChange({ ...structure, blocks: [...blocks, { label: 'Principal', durationType: 'time', durationMin: 10, intensityMode: 'pace', zone: 'Z2', paceRange: '', speedRange: '' }] })}>Adicionar etapa</button>
+      <div className="structureEditorAddRow">
+        <button className="addStructureButton" type="button" onClick={() => onChange({ ...structure, blocks: [...blocks, { blockKind: 'continuous', label: 'Principal', durationType: 'time', durationMin: 10, intensityMode: 'pace', zone: 'Z2', paceRange: '', speedRange: '', activityType: 'corrida' }] })}>Adicionar etapa continua</button>
+        <button className="addStructureButton" type="button" onClick={() => onChange({ ...structure, blocks: [...blocks, {
+          blockKind: 'repeat',
+          label: 'Tiros',
+          repeatCount: 4,
+          steps: [
+            { label: 'Tiro', durationType: 'distance', distanceValue: '400', distanceUnit: 'm', intensityMode: 'pace', activityType: 'corrida', paceStart: '', paceEnd: '' },
+            { pausaType: 'ativa', label: 'Recuperacao', durationType: 'distance', distanceValue: '200', distanceUnit: 'm', intensityMode: 'pace', activityType: 'caminhada', paceStart: '', paceEnd: '' },
+          ],
+        }] })}>Adicionar etapa repetida</button>
+      </div>
+      <div className="structureTotalsSummary">
+        <span><strong>Total</strong>{totals.totalDistanceKm ? `${totals.totalDistanceKm.toFixed(2).replace('.', ',')} km` : '-'} {totals.totalDurationMin ? `| ${totals.totalDurationMin} min` : ''}</span>
+        <span><strong>So corrida</strong>{totals.runDistanceKm ? `${totals.runDistanceKm.toFixed(2).replace('.', ',')} km` : '-'} {totals.runDurationMin ? `| ${totals.runDurationMin} min` : ''}</span>
+        {totals.incomplete ? <span className="fieldError">Algumas etapas sem pace/velocidade nao entram nesse calculo.</span> : null}
+      </div>
     </section>
   );
 }
@@ -2584,11 +2624,13 @@ function RunStepEditor({
   testPaceSeconds,
   onChange,
   onRemove,
+  hideRemove,
 }: {
   block: Record<string, unknown>;
   testPaceSeconds: number | null;
   onChange: (value: Record<string, unknown>) => void;
   onRemove: () => void;
+  hideRemove?: boolean;
 }) {
   const durationType = String(block.durationType ?? (block.distanceValue ? 'distance' : 'time'));
   const intensityMode = String(block.intensityMode ?? 'pace');
@@ -2662,6 +2704,8 @@ function RunStepEditor({
 
   const stageOptions = ['Aquecimento', 'Caminhada', 'Corrida', 'Principal', 'Recuperacao', 'Tiro', 'Repeticao', 'Desaquecimento'];
   const currentLabel = String(block.label ?? 'Principal');
+  const activityType = String(block.activityType ?? 'corrida');
+  const paceWarning = paceMismatchWarning(block, activityType);
 
   return (
     <div className="structuredStep">
@@ -2670,6 +2714,12 @@ function RunStepEditor({
           <select value={currentLabel} onChange={(event) => onChange({ ...block, label: event.target.value })}>
             {!stageOptions.includes(currentLabel) ? <option value={currentLabel}>{currentLabel}</option> : null}
             {stageOptions.map((option) => <option value={option} key={option}>{option}</option>)}
+          </select>
+        </label>
+        <label>Corrida ou caminhada
+          <select value={activityType} onChange={(event) => onChange({ ...block, activityType: event.target.value })}>
+            <option value="corrida">Corrida</option>
+            <option value="caminhada">Caminhada</option>
           </select>
         </label>
         <label>Medida
@@ -2714,10 +2764,169 @@ function RunStepEditor({
         <span><strong>Pace</strong>{String(block.paceRange ?? '-')}</span>
         <span><strong>Velocidade</strong>{String(block.speedRange ?? '-').replaceAll('.', ',')}</span>
       </div>
+      {paceWarning ? <p className="fieldError">{paceWarning}</p> : null}
       <label>Instrucao da etapa<input value={String(block.guidance ?? '')} onChange={(event) => onChange({ ...block, guidance: event.target.value })} placeholder="Orientacao que aparecera para o aluno" /></label>
-      <button className="removeStructureButton" type="button" onClick={onRemove}>Remover etapa</button>
+      {!hideRemove ? <button className="removeStructureButton" type="button" onClick={onRemove}>Remover etapa</button> : null}
     </div>
   );
+}
+
+function RepeatBlockEditor({
+  block,
+  testPaceSeconds,
+  onChange,
+  onRemove,
+}: {
+  block: Record<string, unknown>;
+  testPaceSeconds: number | null;
+  onChange: (value: Record<string, unknown>) => void;
+  onRemove: () => void;
+}) {
+  const repeatCount = Number(block.repeatCount ?? 1) || 1;
+  const label = String(block.label ?? 'Tiros');
+  const steps = Array.isArray(block.steps) ? block.steps as Array<Record<string, unknown>> : [];
+  const estimulo = steps[0] ?? { label: 'Tiro', durationType: 'distance', distanceValue: '400', distanceUnit: 'm', intensityMode: 'pace', activityType: 'corrida' };
+  const pausa = steps[1] ?? { pausaType: 'ativa', label: 'Recuperacao', durationType: 'distance', distanceValue: '200', distanceUnit: 'm', intensityMode: 'pace', activityType: 'caminhada' };
+  const pausaType = String(pausa.pausaType ?? 'ativa');
+
+  function updateSteps(nextEstimulo: Record<string, unknown>, nextPausa: Record<string, unknown>) {
+    onChange({ ...block, steps: [nextEstimulo, nextPausa] });
+  }
+
+  function setPausaType(nextType: string) {
+    if (nextType === 'passiva') {
+      updateSteps(estimulo, { pausaType: 'passiva', label: 'Pausa', durationType: 'time', durationMin: 1, observacao: String(pausa.observacao ?? '') });
+    } else {
+      updateSteps(estimulo, { pausaType: 'ativa', label: 'Recuperacao', durationType: 'distance', distanceValue: '200', distanceUnit: 'm', intensityMode: 'pace', activityType: 'caminhada' });
+    }
+  }
+
+  return (
+    <div className="structuredStep repeatBlock">
+      <div className="stepTopGrid">
+        <label>Nome do bloco<input value={label} onChange={(event) => onChange({ ...block, label: event.target.value })} /></label>
+        <label>Repetir Nx<input value={String(repeatCount)} onChange={(event) => onChange({ ...block, repeatCount: Number(event.target.value) || 0 })} inputMode="numeric" /></label>
+      </div>
+      <h4>Estimulo</h4>
+      <RunStepEditor
+        block={estimulo}
+        testPaceSeconds={testPaceSeconds}
+        onChange={(nextEstimulo) => updateSteps(nextEstimulo, pausa)}
+        onRemove={() => {}}
+        hideRemove
+      />
+      <h4>Pausa</h4>
+      <label>Tipo de pausa
+        <select value={pausaType} onChange={(event) => setPausaType(event.target.value)}>
+          <option value="ativa">Ativa (caminhada/corrida leve)</option>
+          <option value="passiva">Passiva (parado)</option>
+        </select>
+      </label>
+      {pausaType === 'ativa' ? (
+        <RunStepEditor
+          block={pausa}
+          testPaceSeconds={testPaceSeconds}
+          onChange={(nextPausa) => updateSteps(estimulo, { ...nextPausa, pausaType: 'ativa' })}
+          onRemove={() => {}}
+          hideRemove
+        />
+      ) : (
+        <div className="stepTopGrid">
+          <label>Minutos<input value={String(pausa.durationMin ?? '')} onChange={(event) => updateSteps(estimulo, { ...pausa, durationMin: Number(event.target.value) || 0 })} inputMode="numeric" /></label>
+          <label className="wideField">Observacao (opcional)<input value={String(pausa.observacao ?? '')} onChange={(event) => updateSteps(estimulo, { ...pausa, observacao: event.target.value })} placeholder="Instrucao para o aluno durante a pausa" /></label>
+        </div>
+      )}
+      <button className="removeStructureButton" type="button" onClick={onRemove}>Remover bloco repetido</button>
+    </div>
+  );
+}
+
+function paceMismatchWarning(block: Record<string, unknown>, activityType: string): string | null {
+  const start = paceInputSeconds(String(block.paceStart ?? ''));
+  const end = paceInputSeconds(String(block.paceEnd ?? ''));
+  const paceSeconds = start && end ? Math.round((start + end) / 2) : start ?? end;
+  if (!paceSeconds) return null;
+  if (activityType === 'corrida' && paceSeconds > 510) return 'Ritmo incomum para corrida (mais lento que 8:30/km) - confira.';
+  if (activityType === 'caminhada' && paceSeconds < 420) return 'Ritmo incomum para caminhada (mais rapido que 7:00/km) - confira.';
+  return null;
+}
+
+function paceSecondsFromStep(step: Record<string, unknown>): number | null {
+  const start = paceInputSeconds(String(step.paceStart ?? ''));
+  const end = paceInputSeconds(String(step.paceEnd ?? ''));
+  if (start && end) return Math.round((start + end) / 2);
+  return start ?? end ?? null;
+}
+
+function stepDistanceAndDuration(step: Record<string, unknown>): { distanceKm: number; durationMin: number; ok: boolean } {
+  const durationType = String(step.durationType ?? (step.distanceValue ? 'distance' : 'time'));
+  const paceSeconds = paceSecondsFromStep(step);
+  if (durationType === 'distance') {
+    const raw = Number(String(step.distanceValue ?? '0').replace(',', '.')) || 0;
+    const unit = String(step.distanceUnit ?? 'km');
+    const distanceKm = unit === 'm' ? raw / 1000 : raw;
+    if (!paceSeconds) return { distanceKm, durationMin: 0, ok: false };
+    return { distanceKm, durationMin: (distanceKm * paceSeconds) / 60, ok: true };
+  }
+  const durationMin = Number(step.durationMin ?? 0) || 0;
+  if (!paceSeconds) return { distanceKm: 0, durationMin, ok: false };
+  return { distanceKm: (durationMin * 60) / paceSeconds, durationMin, ok: true };
+}
+
+interface StructureTotals {
+  totalDistanceKm: number;
+  totalDurationMin: number;
+  runDistanceKm: number;
+  runDurationMin: number;
+  incomplete: boolean;
+}
+
+function computeStructureTotals(structure: Record<string, unknown>): StructureTotals {
+  const blocks = Array.isArray(structure.blocks) ? structure.blocks as Array<Record<string, unknown>> : [];
+  let totalDistanceKm = 0;
+  let totalDurationMin = 0;
+  let runDistanceKm = 0;
+  let runDurationMin = 0;
+  let incomplete = false;
+
+  function addStep(step: Record<string, unknown>, multiplier: number, isRun: boolean) {
+    const { distanceKm, durationMin, ok } = stepDistanceAndDuration(step);
+    if (!ok) incomplete = true;
+    totalDistanceKm += distanceKm * multiplier;
+    totalDurationMin += durationMin * multiplier;
+    if (isRun) {
+      runDistanceKm += distanceKm * multiplier;
+      runDurationMin += durationMin * multiplier;
+    }
+  }
+
+  for (const block of blocks) {
+    const blockKind = String(block.blockKind ?? 'continuous');
+    if (blockKind === 'repeat') {
+      const repeatCount = Number(block.repeatCount ?? 0) || 0;
+      const steps = Array.isArray(block.steps) ? block.steps as Array<Record<string, unknown>> : [];
+      const estimulo = steps[0];
+      const pausa = steps[1];
+      if (estimulo) addStep(estimulo, repeatCount, String(estimulo.activityType ?? 'corrida') === 'corrida');
+      if (pausa) {
+        if (String(pausa.pausaType ?? 'ativa') === 'passiva') {
+          totalDurationMin += (Number(pausa.durationMin ?? 0) || 0) * repeatCount;
+        } else {
+          addStep(pausa, repeatCount, String(pausa.activityType ?? 'caminhada') === 'corrida');
+        }
+      }
+    } else {
+      addStep(block, 1, String(block.activityType ?? 'corrida') === 'corrida');
+    }
+  }
+
+  return {
+    totalDistanceKm: Math.round(totalDistanceKm * 100) / 100,
+    totalDurationMin: Math.round(totalDurationMin),
+    runDistanceKm: Math.round(runDistanceKm * 100) / 100,
+    runDurationMin: Math.round(runDurationMin),
+    incomplete,
+  };
 }
 
 function AdminPrescription({ structure, notes, recommendations }: { structure?: Record<string, unknown> | null; notes?: string | null; recommendations?: string | null }) {
@@ -2742,14 +2951,25 @@ function AdminPrescription({ structure, notes, recommendations }: { structure?: 
             return (
               <div className="adminBlock" key={String(block.label)}>
                 <strong>Repetir {repeatCount}x</strong>
-                {steps.map((step, index) => (
-                  <span key={`${String(step.label)}-${index}`}>
-                    - {String(step.label)} por {String(step.distanceValue)}{String(step.distanceUnit ?? 'km')}
-                    {step.paceRange ? ` - Pace (${String(step.paceRange)})` : ''}
-                    {step.speedRange ? ` | Velocidade (${String(step.speedRange).replaceAll('.', ',')})` : ''}
-                    {step.durationRange ? ` - completar entre ${String(step.durationRange)}` : ''}
-                  </span>
-                ))}
+                {steps.map((step, index) => {
+                  const pausaType = step.pausaType ? String(step.pausaType) : null;
+                  if (pausaType === 'passiva') {
+                    return (
+                      <span key={`${String(step.label)}-${index}`}>
+                        - Pausa passiva{step.durationMin ? ` (${String(step.durationMin)} min)` : ''}
+                        {step.observacao ? ` - ${String(step.observacao)}` : ''}
+                      </span>
+                    );
+                  }
+                  return (
+                    <span key={`${String(step.label)}-${index}`}>
+                      - {String(step.label)}{pausaType === 'ativa' ? ' (pausa ativa' + (step.activityType ? `, ${String(step.activityType)}` : '') + ')' : step.activityType ? ` (${String(step.activityType)})` : ''} por {String(step.distanceValue)}{String(step.distanceUnit ?? 'km')}
+                      {step.paceRange ? ` - Pace (${String(step.paceRange)})` : ''}
+                      {step.speedRange ? ` | Velocidade (${String(step.speedRange).replaceAll('.', ',')})` : ''}
+                      {step.durationRange ? ` - completar entre ${String(step.durationRange)}` : ''}
+                    </span>
+                  );
+                })}
               </div>
             );
           }

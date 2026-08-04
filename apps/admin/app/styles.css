@@ -1689,8 +1689,51 @@ h3 {
 
 .stepTopGrid {
   display: grid;
-  grid-template-columns: 1fr 0.8fr 0.7fr 1.1fr;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
+}
+
+.structureEditorAddRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.structureTotalsSummary {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  font-size: 13px;
+}
+
+.structureTotalsSummary span {
+  display: grid;
+  gap: 3px;
+}
+
+.structureTotalsSummary strong {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.repeatBlock {
+  border-left: 3px solid var(--danger-soft);
+  gap: 10px;
+}
+
+.repeatBlock h4 {
+  margin: 4px 0 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.repeatBlock .structuredStep {
+  border-left: 3px solid var(--line);
+  background: #ffffff;
 }
 
 .structuredStep input,

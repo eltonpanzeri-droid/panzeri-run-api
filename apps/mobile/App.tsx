@@ -186,8 +186,12 @@ type SessionStructure =
           distanceValue?: string | number;
           distanceUnit?: string;
           durationRange?: string;
+          durationMin?: number;
           paceRange?: string | null;
           speedRange?: string | null;
+          activityType?: 'corrida' | 'caminhada';
+          pausaType?: 'ativa' | 'passiva';
+          observacao?: string;
         }>;
       }>;
     }
@@ -4406,14 +4410,24 @@ function SessionPrescription({ session }: { session: WeekPlanSession }) {
           return (
             <View style={styles.runBlock} key={block.label}>
               <Text style={styles.runBlockTitle}>Repetir {block.repeatCount}x</Text>
-              {block.steps.map((step, index) => (
-                <Text style={styles.prescriptionText} key={`${step.label}-${index}`}>
-                  - {step.label} por {step.distanceValue}{step.distanceUnit ?? 'km'}
-                  {step.paceRange ? ` - Pace (${step.paceRange})` : ''}
-                  {step.speedRange ? ` | Velocidade (${step.speedRange})` : ''}
-                  {step.durationRange ? ` - completar entre ${step.durationRange}` : ''}
-                </Text>
-              ))}
+              {block.steps.map((step, index) => {
+                if (step.pausaType === 'passiva') {
+                  return (
+                    <Text style={styles.prescriptionText} key={`${step.label}-${index}`}>
+                      - Pausa passiva{step.durationMin ? ` (${step.durationMin} min)` : ''}
+                      {step.observacao ? ` - ${step.observacao}` : ''}
+                    </Text>
+                  );
+                }
+                return (
+                  <Text style={styles.prescriptionText} key={`${step.label}-${index}`}>
+                    - {step.label}{step.pausaType === 'ativa' ? ' (pausa ativa' + (step.activityType ? `, ${step.activityType}` : '') + ')' : step.activityType ? ` (${step.activityType})` : ''} por {step.distanceValue}{step.distanceUnit ?? 'km'}
+                    {step.paceRange ? ` - Pace (${step.paceRange})` : ''}
+                    {step.speedRange ? ` | Velocidade (${step.speedRange})` : ''}
+                    {step.durationRange ? ` - completar entre ${step.durationRange}` : ''}
+                  </Text>
+                );
+              })}
             </View>
           );
         }
