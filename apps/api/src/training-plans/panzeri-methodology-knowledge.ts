@@ -37,6 +37,57 @@ orientar, nao para travar o julgamento.
   iniciante em experiencia e ainda assim ter um limiar proximo da caminhada (ex: alguem
   destreinado ou com sobrepeso ha pouco tempo correndo), e o contrario tambem e possivel.
 
+## Metodos de treino de corrida disponiveis
+Ao montar treinos de corrida, voce tem alguns metodos a disposicao — use o que fizer sentido para
+aquele aluno, aquela semana e aquele objetivo. Nao e obrigatorio classificar ou nomear o treino com
+esses termos; eles existem para ampliar seu repertorio de opcoes, nao para virar uma categoria que
+precisa ser preenchida ou relatada ao aluno.
+
+Treinos continuos (sem pausa programada) podem ser:
+- Progressivo — comeca confortavel e termina mais forte.
+- Constante — ritmo igual do inicio ao fim.
+- Em blocos — a distancia e dividida em partes com ritmos diferentes (ex: 10km divididos em 2km
+  leve + 2km forte).
+- De limiar — treino no ritmo de limiar do aluno.
+- De ritmo de prova — no ritmo especifico de uma prova-alvo (5km, 10km, meia, maratona).
+- Fartlek — livre, o aluno varia o ritmo/percurso durante a corrida, com o minimo de regras fixas.
+- De morro — usa subidas/descidas como parte do estimulo.
+
+Treinos intervalados (alternam estimulo e pausa) podem variar em:
+- Comprimento de cada repeticao — repeticoes curtas (200-600m, tipicamente mais rapidas) ou longas
+  (1000-2000m, tipicamente mais lentas).
+- Intensidade de cada repeticao — no maximo que o aluno sustenta naquela distancia, ou acima disso.
+- Tipo de pausa — ativa (trote/caminhada leve entre series) ou passiva (parado).
+
+Um treino tambem pode misturar metodos em etapas diferentes dentro da mesma sessao.
+
+## Progressao de um treino ao longo das semanas
+Cada treino deve ter relacao com o anterior e com os que vem depois — nao pense uma sessao isolada,
+pense uma sequencia evoluindo. Exemplo: um aluno faz 4x1km a 4:00/km com 500m de caminhada entre —
+na semana seguinte, a evolucao pode vir de aumentar o numero de repeticoes (5x1km), aumentar a
+distancia de cada repeticao (3x1,3km) ou os dois ao mesmo tempo (4x1,25km). O importante e que
+exista uma logica de evolucao, mesmo que os proximos passos exatos dependam do feedback do aluno.
+
+Se o aluno nao conseguir completar um treino como proposto, isso nao significa abandonar aquele
+estimulo — pode repetir (ele pode estar melhor na proxima vez) ou ajustar a configuracao. Se ele
+nunca conseguir completar um tipo de estimulo, vale tirar esse tipo de treino da rotina por algumas
+semanas.
+
+Evite manter o aluno sempre no mesmo tipo de treino — tanto por motivacao quanto porque estimulos
+diferentes geram adaptacoes diferentes. Nenhum metodo e mais avancado ou mais iniciante que outro;
+a escolha depende do objetivo e da progressao desejada, nao do nivel do aluno.
+
+## Distribuicao de intensidade
+Na maior parte dos casos, mantenha entre 50% e 90% do tempo total da semana em ritmo leve — evite
+acumular muito volume em intensidade alta. Isso pode ser alcancado tanto por treinos leves inteiros
+quanto por blocos leves dentro de um treino mais forte. So fuja dessa faixa se o treinador indicar
+uma excecao especifica para aquele aluno via diretriz.
+Exemplo dado pelo treinador: um aluno que treina so 2x na semana, com um treino forte e um leve,
+teria uma divisao 50%/50%. Mas se um dos dois dias usar blocos — por exemplo, dois treinos de 10km,
+pace leve 06:00/km e pace forte (Z4) 04:30/km — poderia ser um treino inteiro de 10km a 06:00/km e
+outro em 2 blocos (3km a 06:00/km + 2km a 04:30/km). Isso da 80% leve e 20% intenso na semana,
+mesmo havendo so duas sessoes.
+
 ## Iniciante com limiar baixo (quando "leve de verdade" exigiria caminhar)
 Nao forcar corrida continua lenta demais. Em vez disso:
 - Um dia da semana vira caminhada continua usada como "longao": progressao 5km -> 6km -> 8km
