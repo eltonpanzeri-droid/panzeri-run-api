@@ -3442,7 +3442,10 @@ function ManualRoutineEditor({ studentId, token, availability, onStatus, onSaved
                     <input
                       type="number"
                       min={10}
-                      max={240}
+                      // Era 240 (4h) — baixo demais pra alunos preparando prova longa: uma
+                      // maratona sozinha ja tem 6h de tempo limite oficial. 480 (8h) da folga
+                      // real pra longao de maratona/ultra sem soar como "sem limite nenhum".
+                      max={480}
                       value={day.modalityDurations[modality.key] ?? 45}
                       onChange={(event) => updateMinutes(day.weekday, modality.key, Math.max(10, Number(event.target.value) || 45))}
                     />
