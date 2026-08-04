@@ -742,7 +742,23 @@ function buildInterviewAvailability(rawAnswers: Record<string, Prisma.InputJsonV
 }
 
 function interviewMinutes(value: unknown) {
-  const options: Record<string, number> = { none: 0, up_to_30: 30, from_30_to_45: 45, from_45_to_60: 60, from_60_to_90: 90, over_90: 105 };
+  const options: Record<string, number> = {
+    none: 0,
+    up_to_30: 30,
+    from_30_to_45: 45,
+    from_45_to_60: 60,
+    from_60_to_90: 90,
+    // over_90 e legado (opcao removida do dropdown do app, mas respostas antigas ja salvas no
+    // banco ainda usam esse valor) — mantido com o mesmo numero de sempre pra nao mudar o teto de
+    // duracao de ninguem que respondeu antes desta mudanca. Alunos preenchendo a entrevista agora
+    // caem numa das tres faixas mais finas abaixo, pensadas pra cobrir longao de meia/maratona sem
+    // depender de uma diretriz manual do treinador so pra liberar mais tempo (pedido do treinador
+    // 2026-08-04, apos o caso da preparacao de maratona da Thairine).
+    over_90: 105,
+    from_90_to_150: 120,
+    from_150_to_240: 195,
+    over_240: 270,
+  };
   return options[String(value)] ?? 0;
 }
 
@@ -756,7 +772,9 @@ function minutesToInterviewBucket(minutes: number) {
   if (minutes <= 45) return 'from_30_to_45';
   if (minutes <= 60) return 'from_45_to_60';
   if (minutes <= 90) return 'from_60_to_90';
-  return 'over_90';
+  if (minutes <= 150) return 'from_90_to_150';
+  if (minutes <= 240) return 'from_150_to_240';
+  return 'over_240';
 }
 
 // Direcao inversa de buildInterviewAvailability. Sempre que a rotina real (WeeklyAvailability)

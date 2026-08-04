@@ -476,7 +476,8 @@ const option = (label: string, value = label) => ({ label, value });
 const activityOptions = ['Corrida', 'Caminhada', 'Musculacao', 'Ciclismo', 'Natacao', 'Funcional', 'CrossFit', 'Lutas', 'Pilates', 'Yoga', 'Spinning', 'Beach Tenis', 'Esportes coletivos', 'Outra'];
 const interviewTimeOptions = [
   option('Nao posso treinar', 'none'), option('Ate 30 minutos', 'up_to_30'), option('30 a 45 minutos', 'from_30_to_45'),
-  option('45 a 60 minutos', 'from_45_to_60'), option('60 a 90 minutos', 'from_60_to_90'), option('Mais de 90 minutos', 'over_90'),
+  option('45 a 60 minutos', 'from_45_to_60'), option('60 a 90 minutos', 'from_60_to_90'),
+  option('90 a 150 minutos', 'from_90_to_150'), option('150 a 240 minutos', 'from_150_to_240'), option('Mais de 240 minutos', 'over_240'),
 ];
 const interviewAvailableTimeOptions = ['Antes das 6h', 'Entre 6h e 9h', 'Entre 9h e 12h', 'Entre 12h e 15h', 'Entre 15h e 18h', 'Apos 18h'].map((v) => option(v));
 const dailyStepsOptions = [

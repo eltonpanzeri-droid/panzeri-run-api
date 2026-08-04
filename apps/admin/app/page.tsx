@@ -3606,7 +3606,10 @@ const DISTANCE_COUNT_BUCKET_LABELS: Record<string, string> = {
 };
 const TIME_BUCKET_LABELS: Record<string, string> = {
   none: 'Nao posso treinar', up_to_30: 'Ate 30 minutos', from_30_to_45: '30 a 45 minutos',
-  from_45_to_60: '45 a 60 minutos', from_60_to_90: '60 a 90 minutos', over_90: 'Mais de 90 minutos',
+  from_45_to_60: '45 a 60 minutos', from_60_to_90: '60 a 90 minutos',
+  from_90_to_150: '90 a 150 minutos', from_150_to_240: '150 a 240 minutos', over_240: 'Mais de 240 minutos',
+  // over_90 e legado — opcao removida do dropdown do app, mas ainda existe em respostas antigas.
+  over_90: 'Mais de 90 minutos',
 };
 const LOCATION_LABELS: Record<string, string> = { street: 'Rua', treadmill: 'Esteira', either: 'Tanto faz' };
 const DISTANCE_BUCKET_KEYS = new Set(['longest_distance', 'longest_distance_recent', 'second_longest_distance_recent', 'third_longest_distance_recent']);
