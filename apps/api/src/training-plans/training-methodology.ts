@@ -109,6 +109,15 @@ export interface MethodologyInput {
     distanceKm: number;
     paceSecondsPerKm: number | null;
   } | null;
+  // Maior distancia de corrida/caminhada CONCLUIDA de verdade (registrada em completion), de toda
+  // a historia do aluno — nao um resumo escrito por outro agente, e sim calculado direto do banco.
+  // Existe para progressoes de longo prazo (ex: diretriz de maratona com escada de distancias ao
+  // longo de meses) nao dependerem so da memoria/resumo do prontuario para saber o estado atual.
+  longestRunEver?: {
+    distanceKm: number;
+    date: string;
+    satisfaction: string | null;
+  } | null;
 }
 
 // Estrutura de um estimulo em series (trecho forte + recuperacao) — decidida pela IA quando ela

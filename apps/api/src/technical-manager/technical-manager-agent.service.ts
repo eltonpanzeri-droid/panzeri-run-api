@@ -293,7 +293,11 @@ export class TechnicalManagerAgentService {
   // system enviado a API (sem cache_control), preservando o prefixo cacheado entre alunos
   // diferentes (ver shared/prompt-caching.md do skill claude-api).
   private buildStudentContextLine(studentName: string) {
-    return `Voce esta conversando com Elton Panzeri (o treinador responsavel tecnico) sobre a aluna/aluno ${studentName}.`;
+    // Sem cache_control (varia todo dia) — sem isso o agente nao tinha nenhuma nocao de que ano/mes
+    // estamos, e chegou a desconfiar de uma data futura correta (30/05/2027) achando que podia ser
+    // erro de digitacao. Formato por extenso pra evitar qualquer ambiguidade de DD/MM vs MM/DD.
+    const hoje = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Sao_Paulo' });
+    return `Voce esta conversando com Elton Panzeri (o treinador responsavel tecnico) sobre a aluna/aluno ${studentName}. Hoje e ${hoje}.`;
   }
 
   // Estavel para qualquer aluno/conversa (nenhum parametro) — permite cache_control no

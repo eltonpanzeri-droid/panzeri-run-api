@@ -389,7 +389,7 @@ export class TrainingPlansService {
     await this.stravaService.syncIfStale(userId).catch(() => null);
 
     const historyStart = addDays(startOfWeek(new Date()), -35);
-    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRace, latestReassessment, activeObservations] = await Promise.all([
+    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRace, latestReassessment, activeObservations, longestRunSession] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         include: {
@@ -435,6 +435,21 @@ export class TrainingPlansService {
       this.targetRaces.currentGoal(userId),
       this.prisma.reassessment.findFirst({ where: { userId, completedAt: { not: null } }, orderBy: { completedAt: 'desc' } }),
       this.prisma.studentObservation.findMany({ where: { userId, active: true }, orderBy: { createdAt: 'desc' } }),
+      // Fato objetivo, calculado direto dos treinos realmente concluidos (nao um resumo em prosa
+      // que outro agente escreveu) — "qual foi o maior longao que este aluno ja correu de verdade,
+      // quando, e como ele avaliou aquele treino". previousPlans acima so cobre as ultimas 4
+      // semanas, insuficiente para diretrizes de progressao que se estendem por meses/anos (ex:
+      // preparacao de maratona). Sem cache_control possivel (varia por aluno), mas e so um lookup
+      // determinístico — sem raciocinio de IA envolvido, entao nao pesa no "pensar" do agente.
+      this.prisma.trainingSession.findFirst({
+        where: {
+          userId,
+          modality: { in: ['corrida', 'esteira'] },
+          completion: { status: { in: ['done', 'adjusted'] }, distanceKm: { not: null } },
+        },
+        orderBy: { completion: { distanceKm: 'desc' } },
+        select: { scheduledDate: true, completion: { select: { distanceKm: true, satisfaction: true } } },
+      }),
     ]);
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan(hasSubscriptionAccess(user.subscriptionStatus));
@@ -546,6 +561,11 @@ export class TrainingPlansService {
         raceDate: targetRace.raceDate.toISOString(),
         distanceKm: targetRace.distanceKm,
         paceSecondsPerKm: targetRace.paceSecondsPerKm,
+      } : null,
+      longestRunEver: longestRunSession?.completion?.distanceKm != null ? {
+        distanceKm: longestRunSession.completion.distanceKm,
+        date: longestRunSession.scheduledDate.toISOString().slice(0, 10),
+        satisfaction: longestRunSession.completion.satisfaction,
       } : null,
     };
     const stravaPacedRuns = stravaRuns.filter((activity) => (activity.avgPaceSecKm ?? 0) > 0 && (activity.distanceKm ?? 0) >= 1);
