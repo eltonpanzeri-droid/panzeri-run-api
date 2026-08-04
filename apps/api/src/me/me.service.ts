@@ -544,7 +544,7 @@ function availabilityChanged(
   return currentSignature !== incomingSignature;
 }
 
-function asAnswerObject(value: unknown): Record<string, Prisma.InputJsonValue> {
+export function asAnswerObject(value: unknown): Record<string, Prisma.InputJsonValue> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return JSON.parse(JSON.stringify(value)) as Record<string, Prisma.InputJsonValue>;
 }
@@ -732,7 +732,7 @@ function minutesToInterviewBucket(minutes: number) {
 // agentes de IA (prescricao, gerente tecnico) recebem — sem sincronizar de volta aqui, o painel
 // mostrava um horario desatualizado e a IA podia receber uma descricao de rotina que contradizia
 // a disponibilidade real usada pra montar o treino daquela mesma semana.
-function syncInterviewAnswersFromAvailability(
+export function syncInterviewAnswersFromAvailability(
   currentAnswers: Record<string, Prisma.InputJsonValue>,
   availability: Array<{ weekday: number; noTraining: boolean; modalities: string[]; modalityDurations?: Record<string, number> | null }>,
 ): Record<string, Prisma.InputJsonValue> {

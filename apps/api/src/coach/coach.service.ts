@@ -16,7 +16,7 @@ import { SendStudentMessageDto } from './dto/send-student-message.dto';
 import { runnerStrengthExercises } from '../training-plans/runner-strength-library';
 import { gymExerciseLibrary } from '../training-plans/gym-exercise-library';
 import { BackupService } from '../backup/backup.service';
-import { MeService } from '../me/me.service';
+import { MeService, syncInterviewAnswersFromAvailability, asAnswerObject } from '../me/me.service';
 import { BillingService } from '../billing/billing.service';
 import { formatStudentCode } from '../billing/telegram.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
@@ -316,6 +316,17 @@ export class CoachService {
     validateAvailability(dto.availability);
     const applyNow = dto.applyNow ?? true;
 
+    // BUG REAL 04/08: esse metodo so gravava WeeklyAvailability, nunca a copia que a entrevista
+    // guarda (${dia}_run_time etc.). Como a tela "Rotina de treinos" do aluno LE dessa copia da
+    // entrevista pra decidir o que salvar (buildInterviewAvailability), qualquer coisa que
+    // reabrisse aquela tela — ou o proprio aluno so confirmando sem mudar nada — sobrescrevia
+    // silenciosamente a correcao manual do treinador com os dados antigos da entrevista. Mesmo
+    // sync que updateAvailability ja fazia, agora replicado aqui.
+    const onboarding = await this.prisma.onboardingInterview.findUnique({ where: { userId: studentId }, select: { answers: true } });
+    const syncedAnswers = onboarding
+      ? syncInterviewAnswersFromAvailability(asAnswerObject(onboarding.answers), dto.availability)
+      : null;
+
     await this.prisma.$transaction([
       this.prisma.weeklyAvailability.deleteMany({ where: { userId: studentId } }),
       ...dto.availability.map((day) =>
@@ -330,6 +341,7 @@ export class CoachService {
           },
         }),
       ),
+      ...(syncedAnswers ? [this.prisma.onboardingInterview.update({ where: { userId: studentId }, data: { answers: syncedAnswers } })] : []),
     ]);
 
     // Mesmo gate de pagamento das outras rotas de rotina — nunca gera pra quem ainda nao pagou,
