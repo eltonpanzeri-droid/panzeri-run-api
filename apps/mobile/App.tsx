@@ -3128,12 +3128,30 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
   );
 }
 
+// Opcoes identicas a pergunta 'objective' da entrevista guiada (interviewQuestions) — duplicado
+// aqui de proposito, pra essa edicao rapida nao depender de importar o array inteiro da
+// entrevista. Se a pergunta original mudar as opcoes, atualize aqui tambem.
+const QUICK_EDIT_OBJECTIVE_OPTIONS = [
+  option('Comecar a correr'), option('Completar 5 km'), option('Melhorar meu tempo nos 5 km'), option('Completar 10 km'),
+  option('Melhorar meu tempo nos 10 km'), option('Completar 21 km'), option('Melhorar meu tempo nos 21 km'),
+  option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'),
+];
+
 function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment }: { accessToken: string; onOpenOnboarding: () => void; onOpenReassessment: () => void }) {
   const [onboardingCompletedAt, setOnboardingCompletedAt] = useState<string | null>(null);
   const [reassessments, setReassessments] = useState<Array<{ id: string; completedAt: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  // Edicao rapida de campos simples (hoje so objetivo): grava direto por PUT /me/onboarding/answer
+  // SEM chamar reopen — completedAt nunca fica nulo, entao o treino da aluna nunca some da tela
+  // enquanto ela corrige so esse campo. Ver [[fix_answers_objective_quick_edit]] no PRONTUARIO
+  // pra saber por que isso e provisorio e o que falta pra virar uma edicao geral de qualquer
+  // resposta simples (nao so objetivo).
+  const [objective, setObjective] = useState('');
+  const [objectiveStep, setObjectiveStep] = useState(0);
+  const [savingObjective, setSavingObjective] = useState(false);
+  const [objectiveMessage, setObjectiveMessage] = useState('');
 
   async function load() {
     setLoading(true);
@@ -3145,6 +3163,8 @@ function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment }: {
           .catch(() => []),
       ]);
       setOnboardingCompletedAt(onboarding?.completedAt ?? null);
+      setObjective(typeof onboarding?.answers?.objective === 'string' ? onboarding.answers.objective : '');
+      setObjectiveStep(onboarding?.currentStep ?? 0);
       setReassessments(Array.isArray(history) ? history.filter((item: any) => item.completedAt) : []);
     } finally {
       setLoading(false);
@@ -3152,6 +3172,25 @@ function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment }: {
   }
 
   useEffect(() => { void load(); }, [accessToken]);
+
+  async function saveObjective(value: string) {
+    setSavingObjective(true);
+    setObjectiveMessage('');
+    try {
+      const response = await fetch(`${API_URL}/me/onboarding/answer`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'objective', value, currentStep: objectiveStep }),
+      });
+      if (!response.ok) throw new Error('save');
+      setObjective(value);
+      setObjectiveMessage('Objetivo atualizado.');
+    } catch {
+      setObjectiveMessage('Nao consegui salvar. Tente novamente.');
+    } finally {
+      setSavingObjective(false);
+    }
+  }
 
   // No navegador (PWA), Alert.alert do React Native nao tem garantia de aparecer — em varias
   // configuracoes ele simplesmente nao faz nada quando chamado na web, o que fazia esse botao
@@ -3221,9 +3260,26 @@ function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment }: {
           <Text style={styles.formSectionTitle}>Entrevista inicial</Text>
           <Text style={styles.reportText}>{onboardingCompletedAt ? `Concluida em ${formatFullDate(new Date(onboardingCompletedAt))}` : 'Ainda nao concluida'}</Text>
           {onboardingCompletedAt ? (
-            <Pressable style={styles.secondaryButton} onPress={correctOnboarding} disabled={busyId === 'onboarding'}>
-              <Text style={styles.secondaryButtonText}>{busyId === 'onboarding' ? 'Abrindo...' : 'Corrigir entrevista inicial'}</Text>
-            </Pressable>
+            <>
+              <Text style={styles.inputLabel}>Mudar objetivo</Text>
+              <View style={styles.answerList}>
+                {QUICK_EDIT_OBJECTIVE_OPTIONS.map((item) => (
+                  <Pressable
+                    key={item.value}
+                    style={[styles.answerButton, objective === item.value && styles.answerButtonActive]}
+                    onPress={() => saveObjective(item.value)}
+                    disabled={savingObjective}
+                  >
+                    <Text style={[styles.answerButtonText, objective === item.value && styles.answerButtonTextActive]}>{item.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              {objectiveMessage ? <Text style={styles.statusMessage}>{objectiveMessage}</Text> : null}
+              <Text style={styles.formHint}>Precisa corrigir outra coisa alem do objetivo (rotina, saude, dados pessoais)? Use o botao abaixo — ele reabre a entrevista inteira.</Text>
+              <Pressable style={styles.secondaryButton} onPress={correctOnboarding} disabled={busyId === 'onboarding'}>
+                <Text style={styles.secondaryButtonText}>{busyId === 'onboarding' ? 'Abrindo...' : 'Corrigir entrevista inicial'}</Text>
+              </Pressable>
+            </>
           ) : null}
         </View>
       ) : null}
