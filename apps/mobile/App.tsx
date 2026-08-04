@@ -2219,10 +2219,17 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     }
   }
 
+  // Mesmo motivo do fix em correctOnboarding: Alert.alert do React Native nao tem garantia de
+  // aparecer na web, o que deixava esse botao parecendo travado no navegador.
   function applyRoutineAdjustment() {
     const summary = summarizeRoutineForConfirmation(weeklyRoutine);
+    const title = applyRoutinePermanently ? 'Confirma mudanca permanente de rotina?' : 'Confirma mudanca de rotina apenas para essa semana?';
+    if (Platform.OS === 'web') {
+      if (window.confirm(`${title}\n\n${summary}`)) submitRoutineAdjustment();
+      return;
+    }
     Alert.alert(
-      applyRoutinePermanently ? 'Confirma mudanca permanente de rotina?' : 'Confirma mudanca de rotina apenas para essa semana?',
+      title,
       summary,
       [
         { text: 'Cancelar', style: 'cancel' },
@@ -2720,6 +2727,17 @@ function ThreeKmTest({
     const daysSinceLastTest = lastTestDate ? (Date.now() - lastTestDate.getTime()) / 86400000 : null;
 
     if (latestTest?.id && daysSinceLastTest !== null && daysSinceLastTest < 30) {
+      // Mesmo motivo do fix em correctOnboarding/applyRoutineAdjustment: Alert.alert nao tem
+      // garantia de aparecer na web. window.confirm so tem OK/Cancelar (nao da pra ter 3 botoes
+      // como no app nativo), entao pergunta em duas etapas pra chegar no mesmo resultado.
+      if (Platform.OS === 'web') {
+        if (window.confirm('Teste recente encontrado.\n\nSeu ultimo teste foi ha menos de 1 mes. Quer SUBSTITUIR esse teste? (Cancelar para ver a opcao de adicionar um novo registro em vez de substituir)')) {
+          performSave('replace');
+        } else if (window.confirm('Quer ADICIONAR um novo registro no seu historico, mantendo o teste anterior?')) {
+          performSave('create');
+        }
+        return;
+      }
       Alert.alert(
         'Teste recente encontrado',
         'Seu ultimo teste foi ha menos de 1 mes. Quer substituir esse teste ou adicionar um novo registro no seu historico?',
