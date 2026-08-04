@@ -3135,10 +3135,19 @@ function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment }: {
 
   useEffect(() => { void load(); }, [accessToken]);
 
+  // No navegador (PWA), Alert.alert do React Native nao tem garantia de aparecer — em varias
+  // configuracoes ele simplesmente nao faz nada quando chamado na web, o que fazia esse botao
+  // parecer travado (bug real relatado 03/08: "clico e nao acontece nada"). window.confirm e o
+  // equivalente nativo do navegador, sempre funciona.
   function correctOnboarding() {
+    const message = 'Ao continuar, sua entrevista inicial ficara marcada como pendente ate voce concluir a correcao de novo. Seu treino da semana fica em espera nesse meio-tempo. Deseja continuar?';
+    if (Platform.OS === 'web') {
+      if (window.confirm(message)) void doCorrectOnboarding();
+      return;
+    }
     Alert.alert(
       'Corrigir entrevista inicial',
-      'Ao continuar, sua entrevista inicial ficara marcada como pendente ate voce concluir a correcao de novo. Seu treino da semana fica em espera nesse meio-tempo. Deseja continuar?',
+      message,
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Continuar', style: 'destructive', onPress: () => void doCorrectOnboarding() },
