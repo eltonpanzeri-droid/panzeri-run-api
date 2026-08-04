@@ -258,6 +258,10 @@ export class MeService {
 
     const currentAvailability = await this.prisma.weeklyAvailability.findMany({ where: { userId } });
     const routineChanged = availabilityChanged(currentAvailability, availability);
+    // Sem isso, um caso real como o da Thairine (04/08 — "salvou mas nao chegou Telegram") vira
+    // adivinhacao: nao da pra saber se routineChanged deu false porque nada mudou de verdade, ou
+    // se e um bug de comparacao. Loga sempre, nao so quando algo falha.
+    this.logger.log(`syncAvailabilityFromInterview para ${userId}: routineChanged=${routineChanged}. Rotina anterior: ${JSON.stringify(currentAvailability.map((d) => ({ weekday: d.weekday, noTraining: d.noTraining, modalities: d.modalities, modalityDurations: d.modalityDurations })))}. Rotina nova (da entrevista): ${JSON.stringify(availability)}`);
 
     await this.prisma.$transaction([
       this.prisma.weeklyAvailability.deleteMany({ where: { userId } }),
@@ -333,6 +337,7 @@ export class MeService {
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } }),
     ]);
     const routineChanged = availabilityChanged(currentAvailability, dto.availability);
+    this.logger.log(`updateAvailability para ${userId}: routineChanged=${routineChanged}. Rotina anterior: ${JSON.stringify(currentAvailability.map((d) => ({ weekday: d.weekday, noTraining: d.noTraining, modalities: d.modalities, modalityDurations: d.modalityDurations })))}. Rotina enviada: ${JSON.stringify(dto.availability)}`);
 
     // A entrevista inicial guarda sua propria copia dos dias/duracao (${dia}_run_time etc.),
     // usada na tabela "Horario" do painel admin e no contexto que os agentes de IA recebem
