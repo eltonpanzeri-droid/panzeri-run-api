@@ -21,7 +21,7 @@ import { BillingService } from '../billing/billing.service';
 import { formatStudentCode } from '../billing/telegram.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
 import { WeeklyPlanSchedulerService } from '../training-plans/weekly-plan-scheduler.service';
-import { UpdateAvailabilityDto } from '../me/dto/update-availability.dto';
+import { UpdateStudentAvailabilityDto } from './dto/update-student-availability.dto';
 import { validateAvailability } from '../me/availability.rules';
 
 @Injectable()
@@ -307,9 +307,14 @@ export class CoachService {
   // isso sozinho pelo app nem esbarrar na trava de 1x por mes (essa trava e so pro aluno; o
   // treinador sempre pode corrigir). NAO mexe em lastRoutineChangeAt — uma correcao do treinador
   // nao deveria consumir a janela mensal do aluno.
-  async updateStudentAvailability(studentId: string, dto: UpdateAvailabilityDto) {
+  // applyNow (04/08): o treinador escolhe se quer ver o efeito na hora (gera a semana ja com a
+  // rotina nova) ou so deixar salvo pra valer na proxima geracao automatica de domingo, igual a
+  // quando o proprio aluno pede a mudanca — default true, pra nao mudar o comportamento de quem
+  // ja usava esse botao esperando efeito imediato.
+  async updateStudentAvailability(studentId: string, dto: UpdateStudentAvailabilityDto) {
     await this.assertStudent(studentId);
     validateAvailability(dto.availability);
+    const applyNow = dto.applyNow ?? true;
 
     await this.prisma.$transaction([
       this.prisma.weeklyAvailability.deleteMany({ where: { userId: studentId } }),
@@ -330,7 +335,7 @@ export class CoachService {
     // Mesmo gate de pagamento das outras rotas de rotina — nunca gera pra quem ainda nao pagou,
     // mesmo que o ajuste tenha sido feito pelo treinador.
     const student = await this.prisma.user.findUnique({ where: { id: studentId }, select: { name: true, studentCode: true, subscriptionStatus: true } });
-    if (student && hasSubscriptionAccess(student.subscriptionStatus)) {
+    if (applyNow && student && hasSubscriptionAccess(student.subscriptionStatus)) {
       void this.trainingPlans.generateWeek(studentId).catch((error) => {
         this.logger.warn(`generateWeek apos updateStudentAvailability (treinador) falhou para ${studentId} (nao bloqueante): ${(error as Error).message}`);
       });

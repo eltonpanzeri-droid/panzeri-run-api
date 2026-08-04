@@ -244,7 +244,11 @@ export class MeService {
   // desatualizada em relacao ao que a entrevista diz. Este metodo recalcula
   // WeeklyAvailability a partir do que ja esta salvo em OnboardingInterview.answers, sem
   // exigir que o aluno refaca a entrevista.
-  async syncAvailabilityFromInterview(userId: string) {
+  // notifyAsStudentRequest so e true quando quem chamou foi o proprio aluno (tela "Rotina de
+  // treinos", via completeRoutineFromInterview) — o botao de reparo do treinador no painel
+  // ("Sincronizar disponibilidade da entrevista") reaproveita este mesmo metodo mas NAO deve
+  // mandar um Telegram dizendo "aluno solicitou", porque quem disparou foi o proprio treinador.
+  async syncAvailabilityFromInterview(userId: string, notifyAsStudentRequest = false) {
     const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
     if (!interview) {
       throw new BadRequestException('Aluno ainda nao respondeu a entrevista.');
@@ -270,6 +274,10 @@ export class MeService {
       void this.trainingPlans.generateFirstWeekIfNeeded(userId).catch((error) => {
         this.logger.warn(`generateFirstWeekIfNeeded apos syncAvailabilityFromInterview falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
       });
+      if (notifyAsStudentRequest) {
+        const student = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
+        void this.telegram.notifyCoach(buildRoutineChangeTelegramMessage(student?.name, student?.studentCode, !existingPlanBefore)).catch(() => undefined);
+      }
     }
 
     // firstTime informa pro chamador (tela Rotina do aluno) se isso vai gerar o treino agora
@@ -283,7 +291,7 @@ export class MeService {
   // treinador no painel): so gera na hora se for a primeira vez, senao so fica salva pra entrar
   // em vigor na proxima geracao de domingo.
   async completeRoutineFromInterview(userId: string) {
-    return this.syncAvailabilityFromInterview(userId);
+    return this.syncAvailabilityFromInterview(userId, true);
   }
 
   updateProfile(userId: string, dto: UpdateProfileDto) {
@@ -373,12 +381,7 @@ export class MeService {
         this.logger.warn(`generateFirstWeekIfNeeded apos updateAvailability falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
       });
       const student = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
-      const statusLine = existingPlanBefore
-        ? 'Essa rotina nova vale a partir da geracao automatica de domingo — a semana atual continua igual.'
-        : 'O primeiro treino esta sendo gerado automaticamente.';
-      void this.telegram.notifyCoach(
-        `🔁 Aluno mudou a propria rotina semanal no Panzeri Run\n\nAluno: ${student?.name ?? 'desconhecido'} (Cod. ${student ? formatStudentCode(student.studentCode) : '?'})\n${statusLine}`,
-      ).catch(() => undefined);
+      void this.telegram.notifyCoach(buildRoutineChangeTelegramMessage(student?.name, student?.studentCode, !existingPlanBefore)).catch(() => undefined);
     }
 
     return { availability: updated, routineChanged, firstTime };
@@ -459,6 +462,7 @@ export class MeService {
           name: true,
           role: true,
           accountStatus: true,
+          studentCode: true,
           birthDate: true,
           sex: true,
           heightCm: true,
@@ -480,9 +484,11 @@ export class MeService {
     // verdade se for a primeira vez; pra quem ja tem plano, a rotina nova so entra em vigor na
     // proxima geracao automatica de domingo. NAO AWAIT: pode levar 30s+ na primeira vez.
     if (routineChanged) {
+      const existingPlanBefore = await this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } });
       void this.trainingPlans.generateFirstWeekIfNeeded(userId).catch((error) => {
         this.logger.warn(`generateFirstWeekIfNeeded apos updateAnamnese falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
       });
+      void this.telegram.notifyCoach(buildRoutineChangeTelegramMessage(result.name, result.studentCode, !existingPlanBefore)).catch(() => undefined);
     }
 
     // routineChanged vai junto pra tela de anamnese (perfil/saude/preferencias/rotina, tudo num
@@ -491,6 +497,20 @@ export class MeService {
     // anamnese mexe na rotina (ex: so atualizar peso ou e-mail).
     return { ...result, routineChanged };
   }
+}
+
+// Texto pedido explicitamente pelo treinador (04/08) — usado em toda rota onde o proprio aluno
+// confirma uma mudanca de rotina (updateAvailability, updateAnamnese, tela "Rotina de treinos").
+// Quando ja existe plano ativo, deixa claro que nada muda ate domingo e que da pra antecipar
+// clicando "Refazer nova semana de treinos" no painel — esse botao ja le a rotina mais recente
+// salva no banco, entao antecipar de verdade funciona sem nenhuma mudanca adicional.
+function buildRoutineChangeTelegramMessage(studentName: string | undefined, studentCode: number | undefined, firstTime: boolean): string {
+  const name = studentName ?? 'desconhecido';
+  const code = studentCode !== undefined ? formatStudentCode(studentCode) : '?';
+  if (firstTime) {
+    return `🔁 Aluno "${name}" (Cod. ${code}) montou a rotina de treinos no Panzeri Run\n\nO primeiro treino esta sendo gerado automaticamente.`;
+  }
+  return `🔁 Aluno "${name}" (Cod. ${code}) solicitou alteracao de rotina no Panzeri Run\n\nEssa rotina passara a valer automaticamente apenas na proxima geracao automatica de domingo. Caso o treinador deseje antecipar, basta apenas "Refazer nova semana de treinos" no painel do aluno.`;
 }
 
 function normalizeModalityDurationsForCompare(value: unknown): Record<string, number> {

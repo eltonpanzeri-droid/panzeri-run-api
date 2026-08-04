@@ -1085,8 +1085,13 @@ export default function AdminHome() {
               student={studentDetail}
               token={token}
               onStatus={setStatus}
-              onRefresh={() => {
-                loadDashboard();
+              onRefresh={async () => {
+                // Sem recarregar studentDetail aqui, o painel do aluno aberto (rotina, semana de
+                // treinos, etc) ficava com dado velho depois de qualquer acao — so a lista do
+                // dashboard atualizava. Bug real 04/08: editar a rotina manualmente nao aparecia
+                // na tabela ate o treinador sair e reabrir o aluno.
+                await loadDashboard();
+                if (studentDetail) await loadStudent(studentDetail.id);
               }}
             />
           </div>
@@ -1102,7 +1107,15 @@ export default function AdminHome() {
               </select>
               <Pagination pagination={dashboard?.pagination} onPageChange={setPage} compact />
             </div>
-            <StudentPanel student={studentDetail} token={token} onStatus={setStatus} onRefresh={() => loadDashboard()} />
+            <StudentPanel
+              student={studentDetail}
+              token={token}
+              onStatus={setStatus}
+              onRefresh={async () => {
+                await loadDashboard();
+                if (studentDetail) await loadStudent(studentDetail.id);
+              }}
+            />
           </section>
         ) : null}
         {activeView === 'coupons' ? (
@@ -3157,9 +3170,9 @@ function ManualRoutineEditor({ studentId, token, availability, onStatus, onSaved
     )));
   }
 
-  async function save() {
+  async function save(applyNow: boolean) {
     setSaving(true);
-    onStatus('Salvando rotina...');
+    onStatus(applyNow ? 'Salvando rotina e gerando o treino...' : 'Salvando rotina...');
     try {
       const payload = days.map((day) => ({
         weekday: day.weekday,
@@ -3171,14 +3184,16 @@ function ManualRoutineEditor({ studentId, token, availability, onStatus, onSaved
       const response = await fetch(`${API_URL}/coach/students/${studentId}/availability`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ availability: payload }),
+        body: JSON.stringify({ availability: payload, applyNow }),
       });
       if (!response.ok) {
         onStatus('Nao consegui salvar a rotina.');
         return;
       }
       await onSaved();
-      onStatus('Rotina atualizada. O treino esta sendo gerado com base nela.');
+      onStatus(applyNow
+        ? 'Rotina atualizada. O treino esta sendo gerado com base nela.'
+        : 'Rotina salva. Vale a partir da geracao automatica de domingo — a semana atual continua igual.');
       setEditing(false);
     } catch {
       onStatus('Nao consegui conectar com a API.');
@@ -3220,7 +3235,8 @@ function ManualRoutineEditor({ studentId, token, availability, onStatus, onSaved
         </div>
       ))}
       <div className="manualRoutineActions">
-        <button className="primaryButton" type="button" onClick={save} disabled={saving}>Salvar rotina</button>
+        <button className="primaryButton" type="button" onClick={() => save(true)} disabled={saving}>Salvar e gerar agora</button>
+        <button className="secondaryButton" type="button" onClick={() => save(false)} disabled={saving}>Salvar (aplicar so domingo)</button>
         <button className="secondaryButton" type="button" onClick={() => setEditing(false)} disabled={saving}>Cancelar</button>
       </div>
     </div>
