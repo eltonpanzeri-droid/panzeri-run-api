@@ -672,16 +672,47 @@ function interviewInjurySummary(answers: Record<string, Prisma.InputJsonValue>) 
   return parts.join('. ');
 }
 
-function buildInterviewAvailability(answers: Record<string, Prisma.InputJsonValue>) {
-  const days = [
-    { key: 'monday', weekday: 1 },
-    { key: 'tuesday', weekday: 2 },
-    { key: 'wednesday', weekday: 3 },
-    { key: 'thursday', weekday: 4 },
-    { key: 'friday', weekday: 5 },
-    { key: 'saturday', weekday: 6 },
-    { key: 'sunday', weekday: 0 },
-  ];
+const INTERVIEW_WEEK_DAYS = [
+  { key: 'monday', weekday: 1 },
+  { key: 'tuesday', weekday: 2 },
+  { key: 'wednesday', weekday: 3 },
+  { key: 'thursday', weekday: 4 },
+  { key: 'friday', weekday: 5 },
+  { key: 'saturday', weekday: 6 },
+  { key: 'sunday', weekday: 0 },
+];
+
+// BUG REAL 04/08 (caso da Thairine): a tela "Rotina de treinos" so pergunta ${dia}_fortalecimento_time
+// e ${dia}_musculacao_time quando a modalidade correspondente esta escolhida em
+// routine_modality_choice — quando o aluno tira uma modalidade que tinha antes, a pergunta daquele
+// dia simplesmente para de ser exibida, mas a resposta ANTIGA continua salva em answers (nunca e
+// apagada, porque a pergunta nunca e revisitada). Sem isso, buildInterviewAvailability lia esse
+// valor velho como se ainda fosse valido, entao "tirar musculacao" nunca tinha efeito nenhum. Zera
+// explicitamente qualquer modalidade que nao esteja mais na escolha atual antes de calcular a
+// disponibilidade. So mexe quando routine_modality_choice existe (entrevistas antigas, de antes
+// dessa pergunta existir, ficam como estavam).
+function sanitizeAnswersForModalityChoice(answers: Record<string, Prisma.InputJsonValue>): Record<string, Prisma.InputJsonValue> {
+  const choice = answers.routine_modality_choice;
+  if (typeof choice !== 'string') return answers;
+  const includesFortalecimento = choice === 'corrida_fortalecimento' || choice === 'corrida_fortalecimento_musculacao';
+  const includesMusculacao = choice === 'corrida_musculacao' || choice === 'corrida_fortalecimento_musculacao';
+  const sanitized = { ...answers };
+  for (const { key } of INTERVIEW_WEEK_DAYS) {
+    if (!includesFortalecimento) {
+      sanitized[`${key}_fortalecimento_time`] = 'none';
+      delete sanitized[`${key}_fortalecimento_available_time`];
+    }
+    if (!includesMusculacao) {
+      sanitized[`${key}_musculacao_time`] = 'none';
+      delete sanitized[`${key}_musculacao_available_time`];
+    }
+  }
+  return sanitized;
+}
+
+function buildInterviewAvailability(rawAnswers: Record<string, Prisma.InputJsonValue>) {
+  const answers = sanitizeAnswersForModalityChoice(rawAnswers);
+  const days = INTERVIEW_WEEK_DAYS;
   return days.map(({ key, weekday }) => {
     const runMinutes = interviewMinutes(answers[`${key}_run_time`]);
     const fortalecimentoMinutes = interviewMinutes(answers[`${key}_fortalecimento_time`]);
