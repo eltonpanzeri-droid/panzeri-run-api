@@ -12,13 +12,14 @@ import { TelegramService, formatStudentCode } from '../billing/telegram.service'
 import { TrainingPlansService, hasSubscriptionAccess } from '../training-plans/training-plans.service';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 
-// O aluno decide sozinho os dias/modalidades/tempo da propria rotina, mas como TODO o programa
-// de treino e montado em cima dessa informacao, alteracoes livres e frequentes tanto custariam
-// uma geracao de IA nova a cada mudanca quanto tirariam a estabilidade que a metodologia depende
-// (ver PANZERI_METHODOLOGY_KNOWLEDGE) — por isso so uma alteracao real a cada 30 dias corridos
-// (janela movel a partir da ultima mudanca, nao mes-calendario, pra nao dar pra "burlar" trocando
-// no fim de um mes e de novo no comeco do seguinte).
-const ROUTINE_CHANGE_COOLDOWN_DAYS = 30;
+// ATE 03/08 existia um limite de 1 alteracao de rotina a cada 30 dias, porque cada mudanca
+// disparava uma geracao de IA na hora (custo real por alteracao). Ordem explicita do treinador
+// (03/08): uma mudanca de rotina de quem JA TEM plano ativo nunca mais gera na hora — ela so
+// entra em vigor na proxima geracao automatica de domingo (generateFirstWeekIfNeeded age como
+// gate: so gera de verdade se for a primeira vez). Sem chamada de IA por mudanca, nao ha mais
+// custo a proteger, entao o limite de frequencia deixou de fazer sentido e foi removido — o
+// aluno pode ajustar a rotina quantas vezes quiser durante a semana, vale sempre a ULTIMA versao
+// salva antes de domingo.
 
 @Injectable()
 export class MeService {
@@ -260,29 +261,28 @@ export class MeService {
       ...(routineChanged ? [this.prisma.user.update({ where: { id: userId }, data: { lastRoutineChangeAt: new Date() } })] : []),
     ]);
 
-    // Sem isso, o resultado do sync so aparecia pro aluno/treinador quando alguma outra acao
-    // explicita disparasse uma geracao — current() nao gera mais nada sozinho so por a tela ser
-    // aberta (ver regra em training-plans.service.ts), e nao existe mais nenhum cron de fundo.
-    // Mesmo gate de pagamento das outras rotas de rotina: nunca gera pra quem ainda nao pagou
-    // (chamado tanto pelo botao de sincronizar do painel quanto pela tela Rotina do aluno).
-    // NAO AWAIT: generateWeek() pode levar 30s+ (thinking adaptativo) — nao pode travar a
-    // resposta deste endpoint esperando isso.
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } });
-    if (routineChanged && user && hasSubscriptionAccess(user.subscriptionStatus)) {
-      void this.trainingPlans.generateWeek(userId).catch((error) => {
-        this.logger.warn(`generateWeek apos syncAvailabilityFromInterview falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+    // generateFirstWeekIfNeeded age como o proprio gate aqui: so gera de verdade se for a
+    // PRIMEIRA vez (nenhum TrainingPlan ainda) e o pagamento ja estiver confirmado — pra quem ja
+    // tem plano ativo, essa chamada nao faz nada agora, a rotina nova so entra em vigor na
+    // proxima geracao automatica de domingo. NAO AWAIT: pode levar 30s+ na primeira vez.
+    const existingPlanBefore = await this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } });
+    if (routineChanged) {
+      void this.trainingPlans.generateFirstWeekIfNeeded(userId).catch((error) => {
+        this.logger.warn(`generateFirstWeekIfNeeded apos syncAvailabilityFromInterview falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
       });
     }
 
-    return { synced: true, days: availability.filter((day) => !day.noTraining).length };
+    // firstTime informa pro chamador (tela Rotina do aluno) se isso vai gerar o treino agora
+    // (primeira vez) ou se so vale a partir de domingo (mudanca de quem ja tem plano) — pra
+    // mostrar a mensagem certa sem adivinhar.
+    return { synced: true, days: availability.filter((day) => !day.noTraining).length, firstTime: !existingPlanBefore };
   }
 
   // Chamado pela tela "Rotina de treinos" do proprio aluno (pos-pagamento) ao confirmar a rotina
-  // montada na entrevista — diferente do sync acima (usado pelo botao de repaeo do treinador no
-  // painel), aqui a trava de 1x por mes se aplica: e a mesma regra que ja vale pra quem ajusta a
-  // rotina pela tela antiga (/me/availability), so que passando pelas respostas da entrevista.
+  // montada na entrevista — mesmo mecanismo de gate do sync acima (usado pelo botao de reparo do
+  // treinador no painel): so gera na hora se for a primeira vez, senao so fica salva pra entrar
+  // em vigor na proxima geracao de domingo.
   async completeRoutineFromInterview(userId: string) {
-    await this.assertRoutineChangeAllowed(userId);
     return this.syncAvailabilityFromInterview(userId);
   }
 
@@ -317,20 +317,6 @@ export class MeService {
     });
   }
 
-  private async assertRoutineChangeAllowed(userId: string) {
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { lastRoutineChangeAt: true } });
-    if (!user.lastRoutineChangeAt) return;
-    const cooldownMs = ROUTINE_CHANGE_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
-    const nextAllowedAt = new Date(user.lastRoutineChangeAt.getTime() + cooldownMs);
-    if (nextAllowedAt.getTime() > Date.now()) {
-      throw new BadRequestException({
-        message: `Sua rotina so pode ser alterada uma vez por mes. A proxima alteracao sera liberada em ${formatDateBr(nextAllowedAt)}.`,
-        code: 'routine_change_cooldown',
-        nextAllowedAt: nextAllowedAt.toISOString(),
-      });
-    }
-  }
-
   async updateAvailability(userId: string, dto: UpdateAvailabilityDto) {
     validateAvailability(dto.availability);
 
@@ -339,9 +325,6 @@ export class MeService {
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } }),
     ]);
     const routineChanged = availabilityChanged(currentAvailability, dto.availability);
-    if (routineChanged) {
-      await this.assertRoutineChangeAllowed(userId);
-    }
 
     // A entrevista inicial guarda sua propria copia dos dias/duracao (${dia}_run_time etc.),
     // usada na tabela "Horario" do painel admin e no contexto que os agentes de IA recebem
@@ -374,32 +357,31 @@ export class MeService {
       orderBy: { weekday: 'asc' },
     });
 
-    // Regenera pelo mesmo caminho que o treinador ja usa pra "refazer nova semana"
-    // (generateWeek): ele proprio arquiva o plano ativo antigo e migra os dias ja
-    // passados/de hoje pro plano novo. NUNCA arquivamos o plano manualmente aqui antes de
-    // chamar generateWeek — se fizessemos isso, ele nao acharia mais o plano ativo antigo pra
-    // migrar essas sessoes, e reintroduziria o bug ja corrigido antes ("past sessions lost on
-    // week regen").
-    // NAO AWAIT (bug real em producao, 2026-07-29): generateWeek() pode levar 30s+ (thinking
-    // adaptativo, ate 32000 tokens de saida) — esperar aqui travava o PUT /me/availability
-    // inteiro por esse tempo, e e exatamente isso que varias alunas relataram como "a tela nao
-    // sai do lugar"/"nao aceita a atualizacao" ao tentar mudar a rotina. O aluno ve a confirmacao
-    // na hora; o treino aparece assim que a geracao em segundo plano terminar.
-    // Mesmo gate de pagamento do completeOnboarding: se por algum motivo esta chamada acontecer
-    // antes da confirmacao do pagamento (nao deveria, a tela de rotina so aparece depois), nao
-    // gera o treino agora — evita o mesmo desperdicio de token de quem nunca chega a assinar.
-    const payingUser = routineChanged ? await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } }) : null;
-    if (routineChanged && payingUser && hasSubscriptionAccess(payingUser.subscriptionStatus)) {
-      void this.trainingPlans.generateWeek(userId).catch((error) => {
-        this.logger.warn(`generateWeek apos updateAvailability falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+    // Ordem explicita do treinador (03/08): uma mudanca de rotina de quem JA TEM plano ativo
+    // nunca gera na hora — so entra em vigor na proxima geracao automatica de domingo (a semana
+    // atual continua rodando exatamente como estava). generateFirstWeekIfNeeded e o proprio gate:
+    // so gera de verdade se for realmente a primeira vez (sem TrainingPlan ainda) e o pagamento
+    // ja estiver confirmado; para quem ja tem plano, essa chamada nao faz nada. Como mudar rotina
+    // nunca mais chama IA fora do dia de geracao normal, nao existe mais limite de frequencia —
+    // o aluno pode ajustar quantas vezes quiser, vale sempre a ultima versao salva antes de
+    // domingo. NAO AWAIT: pode levar 30s+ na primeira vez.
+    let firstTime = false;
+    if (routineChanged) {
+      const existingPlanBefore = await this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } });
+      firstTime = !existingPlanBefore;
+      void this.trainingPlans.generateFirstWeekIfNeeded(userId).catch((error) => {
+        this.logger.warn(`generateFirstWeekIfNeeded apos updateAvailability falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
       });
       const student = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
+      const statusLine = existingPlanBefore
+        ? 'Essa rotina nova vale a partir da geracao automatica de domingo — a semana atual continua igual.'
+        : 'O primeiro treino esta sendo gerado automaticamente.';
       void this.telegram.notifyCoach(
-        `🔁 Aluno mudou a propria rotina semanal no Panzeri Run\n\nAluno: ${student?.name ?? 'desconhecido'} (Cod. ${student ? formatStudentCode(student.studentCode) : '?'})\nO restante da semana esta sendo gerado automaticamente.`,
+        `🔁 Aluno mudou a propria rotina semanal no Panzeri Run\n\nAluno: ${student?.name ?? 'desconhecido'} (Cod. ${student ? formatStudentCode(student.studentCode) : '?'})\n${statusLine}`,
       ).catch(() => undefined);
     }
 
-    return updated;
+    return { availability: updated, routineChanged, firstTime };
   }
 
   async updateAnamnese(userId: string, dto: UpdateAnamneseDto) {
@@ -419,9 +401,6 @@ export class MeService {
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } }),
     ]);
     const routineChanged = availabilityChanged(currentAvailability, dto.availability.availability);
-    if (routineChanged) {
-      await this.assertRoutineChangeAllowed(userId);
-    }
     // Ver comentario equivalente em updateAvailability sobre por que a entrevista precisa
     // refletir a rotina real sempre que ela muda por aqui (painel admin e agentes de IA leem
     // as respostas antigas da entrevista, nao so a WeeklyAvailability).
@@ -497,16 +476,12 @@ export class MeService {
       });
     });
 
-    // generateWeek nao pode rodar dentro da transacao acima (faz suas proprias chamadas/
-    // transacoes separadas) — ver o comentario equivalente em updateAvailability sobre por que
-    // ele mesmo cuida do arquivamento do plano antigo, nunca fazemos isso manualmente antes.
-    // NAO AWAIT (mesmo motivo de updateAvailability): generateWeek() pode levar 30s+ e nao pode
-    // travar a resposta deste PUT /me/anamnese esperando a IA terminar. Mesmo gate de pagamento
-    // do completeOnboarding/updateAvailability: nao gera antes da confirmacao do pagamento.
-    const payingUser = routineChanged ? await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } }) : null;
-    if (routineChanged && payingUser && hasSubscriptionAccess(payingUser.subscriptionStatus)) {
-      void this.trainingPlans.generateWeek(userId).catch((error) => {
-        this.logger.warn(`generateWeek apos updateAnamnese falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+    // Mesmo mecanismo de gate de updateAvailability: generateFirstWeekIfNeeded so gera de
+    // verdade se for a primeira vez; pra quem ja tem plano, a rotina nova so entra em vigor na
+    // proxima geracao automatica de domingo. NAO AWAIT: pode levar 30s+ na primeira vez.
+    if (routineChanged) {
+      void this.trainingPlans.generateFirstWeekIfNeeded(userId).catch((error) => {
+        this.logger.warn(`generateFirstWeekIfNeeded apos updateAnamnese falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
       });
     }
 
@@ -516,10 +491,6 @@ export class MeService {
     // anamnese mexe na rotina (ex: so atualizar peso ou e-mail).
     return { ...result, routineChanged };
   }
-}
-
-function formatDateBr(date: Date) {
-  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
 }
 
 function normalizeModalityDurationsForCompare(value: unknown): Record<string, number> {

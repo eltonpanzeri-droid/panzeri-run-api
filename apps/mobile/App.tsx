@@ -911,24 +911,14 @@ function AppInner() {
               />
             )}
             {activeTab === 'routine' && (
-              routineChangeBlockedUntil(savedMe?.lastRoutineChangeAt) ? (
-                <View style={styles.section}>
-                  <Text style={styles.sectionLabel}>Rotina de treinos</Text>
-                  <Text style={styles.copyTight}>
-                    Voce ja alterou sua rotina de treinos esse mes. Aguarde ate {routineChangeBlockedUntil(savedMe?.lastRoutineChangeAt)!.toLocaleDateString('pt-BR')} para alterar novamente.
-                  </Text>
-                  <Pressable style={styles.secondaryButton} onPress={() => setActiveTab('week')}><Text style={styles.secondaryButtonText}>Voltar ao treino</Text></Pressable>
-                </View>
-              ) : (
-                <GuidedInterview
-                  accessToken={accessToken}
-                  userName={userName}
-                  onLater={() => setActiveTab('week')}
-                  onComplete={() => { void refreshRoutineFromServer(); setActiveTab('week'); }}
-                  questions={routineQuestions}
-                  mode="routine"
-                />
-              )
+              <GuidedInterview
+                accessToken={accessToken}
+                userName={userName}
+                onLater={() => setActiveTab('week')}
+                onComplete={() => { void refreshRoutineFromServer(); setActiveTab('week'); }}
+                questions={routineQuestions}
+                mode="routine"
+              />
             )}
             {activeTab === 'reassessment' && (
               <GuidedInterview
@@ -1695,6 +1685,10 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   const [status, setStatus] = useState('');
   const [helpOpen, setHelpOpen] = useState(false);
   const [cepStatus, setCepStatus] = useState('');
+  // So relevante pra mode="routine": diz se essa confirmacao gerou o treino AGORA (primeira vez,
+  // sem plano nenhum ainda) ou se so vale a partir da geracao automatica de domingo (aluno que ja
+  // tem plano mudando a rotina) — pedido explicito do treinador 03/08.
+  const [routineFirstTime, setRoutineFirstTime] = useState(false);
 
   // "routine" reaproveita o mesmo registro de entrevista (mesma answers, mesmo load/save) — so o
   // endpoint final muda: complete-routine so converte as respostas de rotina em disponibilidade e
@@ -1873,6 +1867,10 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         setStatus(typeof data.message === 'string' ? data.message : 'Nao consegui concluir. Revise as respostas e tente novamente.');
         return;
       }
+      if (mode === 'routine') {
+        const data = await response.json().catch(() => ({} as { firstTime?: boolean }));
+        setRoutineFirstTime(Boolean(data?.firstTime));
+      }
       setFinished(true);
     } catch {
       setStatus('Nao consegui concluir. Revise as respostas e tente novamente.');
@@ -1901,8 +1899,16 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   if (finished) return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao concluida' : mode === 'routine' ? 'Rotina registrada' : 'Entrevista concluida'}</Text>
-      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : mode === 'routine' ? 'Estamos montando seu treino' : 'Vamos montar seu plano'}</Text>
-      <Text style={styles.copyTight}>{mode === 'reassessment' ? 'Suas respostas foram salvas. Seu treinador vai revisar sua evolucao e ajustar seu treino conforme necessario.' : mode === 'routine' ? 'Sua rotina foi salva. Seu treino ja esta sendo montado com base nela e vai aparecer na tela de treino da semana em instantes.' : 'Parabens por completar sua entrevista! Seus dados foram salvos e serao usados para montar seu programa de treinos personalizado.'}</Text>
+      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : mode === 'routine' ? (routineFirstTime ? 'Estamos montando seu treino' : 'Rotina salva') : 'Vamos montar seu plano'}</Text>
+      <Text style={styles.copyTight}>
+        {mode === 'reassessment'
+          ? 'Suas respostas foram salvas. Seu treinador vai revisar sua evolucao e ajustar seu treino conforme necessario.'
+          : mode === 'routine'
+            ? (routineFirstTime
+                ? 'Sua rotina foi salva. Seu treino ja esta sendo montado com base nela e vai aparecer na tela de treino da semana em instantes.'
+                : 'Sua rotina foi salva. Ela vale a partir da geracao automatica de domingo — a semana atual continua igual. Voce pode voltar aqui e ajustar quantas vezes quiser ate la, vale sempre a ultima versao.')
+            : 'Parabens por completar sua entrevista! Seus dados foram salvos e serao usados para montar seu programa de treinos personalizado.'}
+      </Text>
       <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : mode === 'routine' ? 'Ver meu treino' : 'Ver meu treino'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
       {mode === 'onboarding' ? <Pressable style={styles.secondaryButton} onPress={reviewInterview} disabled={saving}><Text style={styles.secondaryButtonText}>Revisar minhas respostas</Text></Pressable> : null}
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
@@ -2256,25 +2262,30 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         body: JSON.stringify({ availability: routineToAvailability(weeklyRoutine) }),
       });
 
+      let firstTime = false;
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         setStatus(typeof data.message === 'string' ? data.message : 'Nao consegui salvar a rotina permanente.');
         setIsLoading(false);
         return;
       }
+      const data = await response.json().catch(() => ({}));
+      firstTime = Boolean(data?.firstTime);
+
+      // Mudanca de rotina de quem ja tem plano NUNCA gera na hora (pedido explicito do treinador
+      // 03/08) — so vale a partir da geracao automatica de domingo, a semana atual continua igual.
+      // So na primeira vez (aluno sem nenhum plano ainda) e que isso gera de verdade agora.
+      if (firstTime) {
+        await loadPlan();
+        setStatus('Sua rotina foi registrada. Seu primeiro treino esta sendo gerado automaticamente e vai aparecer em instantes.');
+      } else {
+        setIsLoading(false);
+        setStatus('Sua nova rotina foi salva. Ela vale a partir da geracao automatica de domingo — a semana atual continua igual. Voce pode ajustar quantas vezes quiser ate la.');
+      }
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
       setIsLoading(false);
-      return;
     }
-
-    // O PUT acima ja disparou a regeneracao do treino no servidor quando a rotina realmente muda
-    // (ver me.service.ts) — em segundo plano, sem travar a resposta (pode levar uns 30s). So
-    // buscamos o resultado aqui, sem chamar generatePlan() de novo (isso geraria a semana uma
-    // segunda vez, gastando IA em dobro por uma unica troca de rotina). Pode ainda nao estar
-    // pronto neste exato momento — por isso a mensagem fala em "sendo atualizado", nao "pronto".
-    await loadPlan();
-    setStatus('Sua nova rotina foi registrada. Seu programa de treino da semana esta sendo atualizado automaticamente e vai aparecer em instantes.');
   }
 
   function moveSession(sessionId: string, direction: -1 | 1) {
@@ -5240,15 +5251,6 @@ async function loadDismissedNotifications() {
   } catch {
     return [];
   }
-}
-
-// Mesma janela de 30 dias corridos do backend (ROUTINE_CHANGE_COOLDOWN_DAYS em me.service.ts) —
-// so pra mostrar o aviso certo na tela antes de tentar; quem decide de verdade continua sendo o
-// servidor. Retorna a data em que a alteracao volta a ser permitida, ou null se estiver liberado.
-function routineChangeBlockedUntil(lastRoutineChangeAt?: string | null): Date | null {
-  if (!lastRoutineChangeAt) return null;
-  const nextAllowedAt = new Date(new Date(lastRoutineChangeAt).getTime() + 30 * 24 * 60 * 60 * 1000);
-  return nextAllowedAt.getTime() > Date.now() ? nextAllowedAt : null;
 }
 
 function localDateKey() {

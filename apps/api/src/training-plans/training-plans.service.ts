@@ -322,24 +322,29 @@ export class TrainingPlansService {
   }
 
   // Chamado pelo BillingService assim que um pagamento e confirmado (webhook, sincronizacao
-  // manual/automatica com o Asaas, ou cupom de acesso). Antes disso, completeOnboarding() NAO
-  // gera mais o treino sozinho (incidente real: prospecto respondia a entrevista, gastava uma
-  // chamada cara de IA, e desistia sem nunca assinar) — a entrevista so fica salva, esperando
-  // este gatilho. So gera se for realmente a primeira vez (nenhum TrainingPlan ainda) e a
-  // entrevista ja estiver concluida; qualquer geracao seguinte continua pelos gatilhos de sempre
-  // (domingo 19h, regenerar pelo painel, etc), nunca por aqui de novo.
+  // manual/automatica com o Asaas, ou cupom de acesso), e tambem por qualquer rota que salva uma
+  // rotina nova (updateAvailability, updateAnamnese, syncAvailabilityFromInterview) — nesses
+  // casos serve como o proprio gate: so gera de verdade se for a primeira vez (nenhum
+  // TrainingPlan ainda). Ordem explicita do treinador (03/08): uma MUDANCA de rotina de quem ja
+  // tem plano NUNCA gera na hora — ela so vale a partir da proxima geracao automatica de domingo
+  // (generateNextWeekIfMissing/WeeklyPlanSchedulerService), que ja le a rotina mais recente
+  // salva no banco. Isso elimina o motivo de existir qualquer limite de frequencia pra alterar
+  // rotina: mudar nao chama IA nenhuma, entao pode ser ilimitado — so a ULTIMA versao salva antes
+  // de domingo e usada.
   async generateFirstWeekIfNeeded(userId: string): Promise<void> {
-    const [existingPlan, interview, availability] = await Promise.all([
+    const [existingPlan, interview, availability, user] = await Promise.all([
       this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } }),
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } }),
       this.prisma.weeklyAvailability.findMany({ where: { userId, noTraining: false }, select: { id: true } }),
+      this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } }),
     ]);
     if (existingPlan || !interview?.completedAt) return;
+    if (!user || !hasSubscriptionAccess(user.subscriptionStatus)) return;
     // A rotina (dias/modalidades/tempo) agora e coletada numa tela propria DEPOIS da confirmacao
     // do pagamento (menu Rotina de treinos), nao mais dentro da entrevista — se o pagamento
     // acabou de ser confirmado mas o aluno ainda nao passou por essa tela, nao ha rotina nenhuma
-    // pra gerar em cima ainda. Quando ele completar a tela de rotina, updateAvailability() e
-    // quem dispara a geracao de verdade (mesmo gate de pagamento, ver ali).
+    // pra gerar em cima ainda. Quando ele completar a tela de rotina, este mesmo metodo (chamado
+    // de novo dali) e quem dispara a geracao de verdade.
     if (!availability.length) return;
 
     const delayToSunday = await this.shouldDelayFirstGenerationToSunday(userId).catch(() => false);
