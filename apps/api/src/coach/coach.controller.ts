@@ -47,6 +47,11 @@ export class CoachController {
     return this.coachService.updateCoupon(couponId, dto);
   }
 
+  @Get('funnel-report')
+  signupFunnel() {
+    return this.coachService.signupFunnel();
+  }
+
   @Get('dashboard')
   dashboard(
     @Query('search') search?: string,

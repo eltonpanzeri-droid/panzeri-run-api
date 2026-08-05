@@ -548,6 +548,85 @@ export class CoachService {
     };
   }
 
+  // Levantamento do funil de conversao (pedido do treinador 2026-08-05, apos perceber que muitos
+  // cadastros completam a entrevista mas nunca pagam, e outros nem completam a entrevista).
+  // So leitura, nenhuma chamada de IA — cruza User + OnboardingInterview + subscriptionStatus.
+  async signupFunnel() {
+    const studentWhere: Prisma.UserWhereInput = { role: 'student', accountStatus: { not: 'archived' } };
+    const students = await this.prisma.user.findMany({
+      where: studentWhere,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        studentCode: true,
+        createdAt: true,
+        subscriptionStatus: true,
+        subscriptionUpdatedAt: true,
+        subscriptionManualOverride: true,
+        onboardingInterview: { select: { completedAt: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const daysBetween = (from: Date, to: Date) => Math.round((to.getTime() - from.getTime()) / 86400000);
+    const average = (values: number[]) => (values.length ? Math.round((values.reduce((total, value) => total + value, 0) / values.length) * 10) / 10 : null);
+    const now = new Date();
+
+    const neverStartedInterview = students.filter((student) => !student.onboardingInterview?.completedAt);
+    // Cortesia/liberacao manual (subscriptionManualOverride) NAO conta como "pagou" pra esse
+    // levantamento — o objetivo aqui e medir conversao de pagamento real, nao acesso liberado.
+    const paid = students.filter((student) => hasSubscriptionAccess(student.subscriptionStatus) && !student.subscriptionManualOverride);
+    const completedInterviewNoPayment = students.filter(
+      (student) => student.onboardingInterview?.completedAt && !hasSubscriptionAccess(student.subscriptionStatus),
+    );
+
+    const daysSignupToInterview = students
+      .filter((student): student is typeof student & { onboardingInterview: { completedAt: Date } } => Boolean(student.onboardingInterview?.completedAt))
+      .map((student) => daysBetween(student.createdAt, student.onboardingInterview.completedAt));
+    const daysInterviewToPayment = paid
+      .filter((student): student is typeof student & { onboardingInterview: { completedAt: Date } } => Boolean(student.onboardingInterview?.completedAt))
+      .map((student) => daysBetween(student.onboardingInterview.completedAt, student.subscriptionUpdatedAt));
+
+    return {
+      totals: {
+        totalStudents: students.length,
+        neverStartedOrFinishedInterview: neverStartedInterview.length,
+        completedInterviewNoPayment: completedInterviewNoPayment.length,
+        paid: paid.length,
+      },
+      averages: {
+        // Aproximado: subscriptionUpdatedAt e a ultima mudanca de status, nao um historico
+        // completo — pra quem esta pagando hoje e nunca teve outra mudanca depois, isso reflete
+        // bem o momento da confirmacao do pagamento.
+        diasCadastroAteEntrevista: average(daysSignupToInterview),
+        diasEntrevistaAtePagamento: average(daysInterviewToPayment),
+      },
+      completedInterviewNoPaymentList: completedInterviewNoPayment
+        .slice()
+        .sort((a, b) => (a.onboardingInterview?.completedAt?.getTime() ?? 0) - (b.onboardingInterview?.completedAt?.getTime() ?? 0))
+        .map((student) => ({
+          id: student.id,
+          studentCode: formatStudentCode(student.studentCode),
+          name: student.name,
+          email: student.email,
+          interviewCompletedAt: student.onboardingInterview?.completedAt ?? null,
+          diasDesdeAEntrevista: student.onboardingInterview?.completedAt ? daysBetween(student.onboardingInterview.completedAt, now) : null,
+        })),
+      neverStartedInterviewList: neverStartedInterview
+        .slice()
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        .map((student) => ({
+          id: student.id,
+          studentCode: formatStudentCode(student.studentCode),
+          name: student.name,
+          email: student.email,
+          createdAt: student.createdAt,
+          diasDesdeOCadastro: daysBetween(student.createdAt, now),
+        })),
+    };
+  }
+
   async student(studentId: string) {
     await this.assertStudent(studentId);
     // Deteccao pura (nenhuma escrita, nenhuma chamada de IA) — so pra AVISAR o treinador se o

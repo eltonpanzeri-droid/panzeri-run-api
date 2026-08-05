@@ -30,6 +30,35 @@ interface DashboardResponse {
   };
 }
 
+interface FunnelReport {
+  totals: {
+    totalStudents: number;
+    neverStartedOrFinishedInterview: number;
+    completedInterviewNoPayment: number;
+    paid: number;
+  };
+  averages: {
+    diasCadastroAteEntrevista: number | null;
+    diasEntrevistaAtePagamento: number | null;
+  };
+  completedInterviewNoPaymentList: Array<{
+    id: string;
+    studentCode: string;
+    name: string;
+    email: string;
+    interviewCompletedAt: string | null;
+    diasDesdeAEntrevista: number | null;
+  }>;
+  neverStartedInterviewList: Array<{
+    id: string;
+    studentCode: string;
+    name: string;
+    email: string;
+    createdAt: string;
+    diasDesdeOCadastro: number;
+  }>;
+}
+
 type AdminView = 'dashboard' | 'students' | 'weeks' | 'coupons' | 'finance' | 'notifications';
 
 interface StudentRow {
@@ -289,6 +318,8 @@ export default function AdminHome() {
   const [password, setPassword] = useState('');
   const [token, setToken] = useState('');
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
+  const [funnelReport, setFunnelReport] = useState<FunnelReport | null>(null);
+  const [loadingFunnel, setLoadingFunnel] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [studentDetail, setStudentDetail] = useState<StudentDetail | null>(null);
   const [query, setQuery] = useState('');
@@ -400,6 +431,28 @@ export default function AdminHome() {
       await loadDashboard(accessToken);
     } catch {
       setStatus('Nao consegui conectar com a API.');
+    }
+  }
+
+  async function loadFunnelReport() {
+    if (!token) return;
+    setLoadingFunnel(true);
+    setStatus('Calculando levantamento do funil...');
+    try {
+      const response = await fetch(`${API_URL}/coach/funnel-report`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        setStatus('Nao consegui calcular o levantamento.');
+        return;
+      }
+      const data = (await response.json()) as FunnelReport;
+      setFunnelReport(data);
+      setStatus('Levantamento atualizado.');
+    } catch {
+      setStatus('Nao consegui conectar com a API.');
+    } finally {
+      setLoadingFunnel(false);
     }
   }
 
@@ -923,6 +976,54 @@ export default function AdminHome() {
           <Stat label="Pagamento pendente" value={String(dashboard?.totals.paymentPending ?? 0)} detail="alunos" />
           <Stat label="Treinos criados" value={String(dashboard?.totals.plansCreatedThisWeek ?? 0)} detail="nesta semana" />
         </section> : null}
+
+        {activeView === 'dashboard' ? (
+          <section className="miniSection">
+            <h3>Funil de conversao (cadastro - entrevista - pagamento)</h3>
+            <p>Levantamento sob demanda direto do banco — nao recalcula sozinho, clique pra atualizar.</p>
+            <button className="secondaryButton" type="button" disabled={loadingFunnel} onClick={loadFunnelReport}>
+              {loadingFunnel ? 'Calculando...' : funnelReport ? 'Atualizar levantamento' : 'Carregar levantamento'}
+            </button>
+            {funnelReport ? (
+              <>
+                <div className="stats funnelStats">
+                  <Stat label="Total de alunos" value={String(funnelReport.totals.totalStudents)} detail="cadastrados" />
+                  <Stat label="Nunca completou a entrevista" value={String(funnelReport.totals.neverStartedOrFinishedInterview)} detail="cadastrou e parou" />
+                  <Stat label="Completou entrevista, nao pagou" value={String(funnelReport.totals.completedInterviewNoPayment)} detail="maior intencao" />
+                  <Stat label="Pagando" value={String(funnelReport.totals.paid)} detail="conversao real" />
+                </div>
+                <p className="formHintText">
+                  Tempo medio cadastro ate entrevista: {funnelReport.averages.diasCadastroAteEntrevista ?? '-'} dias.{' '}
+                  Tempo medio entrevista ate pagamento: {funnelReport.averages.diasEntrevistaAtePagamento ?? '-'} dias (aproximado).
+                </p>
+                {funnelReport.completedInterviewNoPaymentList.length ? (
+                  <div className="funnelList">
+                    <h4>Completou entrevista, nunca pagou ({funnelReport.completedInterviewNoPaymentList.length})</h4>
+                    {funnelReport.completedInterviewNoPaymentList.map((item) => (
+                      <div className="funnelListRow" key={item.id}>
+                        <span><strong>{item.name}</strong> (Cod. {item.studentCode})</span>
+                        <span>{item.email}</span>
+                        <span>{item.diasDesdeAEntrevista != null ? `${item.diasDesdeAEntrevista} dias desde a entrevista` : '-'}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {funnelReport.neverStartedInterviewList.length ? (
+                  <div className="funnelList">
+                    <h4>Nunca completou a entrevista ({funnelReport.neverStartedInterviewList.length})</h4>
+                    {funnelReport.neverStartedInterviewList.map((item) => (
+                      <div className="funnelListRow" key={item.id}>
+                        <span><strong>{item.name}</strong> (Cod. {item.studentCode})</span>
+                        <span>{item.email}</span>
+                        <span>{item.diasDesdeOCadastro} dias desde o cadastro</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </section>
+        ) : null}
 
         {activeView === 'dashboard' ? (
           <section className="miniSection">
