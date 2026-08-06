@@ -2325,19 +2325,28 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     }
   }
 
-  function moveSession(sessionId: string, direction: -1 | 1) {
-    setPlan((currentPlan) => {
-      if (!currentPlan) {
-        return currentPlan;
+  // Move um treino ja gerado pra outro dia da MESMA semana, de verdade (persistido no servidor,
+  // zero custo de IA) — pedido antigo do treinador pra dar independencia real a aluna. Substitui
+  // o "moveSession" antigo, que so mudava visualmente no celular e nunca salvava nada.
+  async function rescheduleSession(sessionId: string, targetWeekday: number) {
+    setStatus('Reagendando...');
+    try {
+      const response = await fetch(`${API_URL}/training-plans/sessions/${sessionId}/reschedule`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetWeekday }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        setStatus(typeof data?.message === 'string' ? data.message : 'Nao consegui reagendar esse treino.');
+        return;
       }
-
-      const nextSessions = currentPlan.sessions.map((session) =>
-        session.id === sessionId ? shiftSessionDay(session, direction) : session,
-      );
-
-      return { ...currentPlan, sessions: sortSessionsByWeek(nextSessions) };
-    });
-    setStatus('Treino movido apenas nesta semana.');
+      setStatus('Treino reagendado.');
+      if (weekOffset === 0) await loadPlan();
+      else await loadWeekForOffset(weekOffset);
+    } catch {
+      setStatus('Nao consegui conectar com a API agora.');
+    }
   }
 
   function updateCompletionDraft(session: WeekPlanSession, patch: Partial<CompletionDraft>) {
@@ -2726,16 +2735,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
                       message={completionMessages[session.id]}
                       onOpenPainReport={onOpenPainReport}
                     />
-                    <View style={styles.moveActions}>
-                      <Pressable style={styles.moveButton} onPress={() => moveSession(session.id, -1)}>
-                        <Ionicons name="chevron-back" size={15} color="#0f766e" />
-                        <Text style={styles.moveButtonText}>Dia anterior</Text>
-                      </Pressable>
-                      <Pressable style={styles.moveButton} onPress={() => moveSession(session.id, 1)}>
-                        <Text style={styles.moveButtonText}>Proximo dia</Text>
-                        <Ionicons name="chevron-forward" size={15} color="#0f766e" />
-                      </Pressable>
-                    </View>
+                    <RescheduleControl session={session} planStartDate={plan?.startDate} onReschedule={rescheduleSession} />
                   </View>
                 )) : null}
               </View>
@@ -4947,16 +4947,55 @@ function modalityAccentColor(modality: string) {
   return '#64748b';
 }
 
-function shiftSessionDay(session: WeekPlanSession, direction: -1 | 1): WeekPlanSession {
-  const currentWeekday = dayToWeekday(session.day);
-  const nextWeekday = (currentWeekday + direction + 7) % 7;
-  const nextDate = shiftDayMonth(session.date, direction);
+// Seletor de dia da semana pra reagendar um treino especifico dentro da mesma semana do plano —
+// mesmo padrao visual do TimeDropdown (dropdownBox/dropdownButton/dropdownMenu) ja usado no
+// editor de rotina. Dias ja passados aparecem desabilitados (calculado no cliente comparando com
+// hoje); a validacao de verdade (colisao de modalidade, treino ja concluido) fica no servidor.
+function RescheduleControl({
+  session,
+  planStartDate,
+  onReschedule,
+}: {
+  session: WeekPlanSession;
+  planStartDate?: string;
+  onReschedule: (sessionId: string, targetWeekday: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!planStartDate) return null;
+  const monday = new Date(planStartDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const options = [1, 2, 3, 4, 5, 6, 0].map((weekday) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + (weekday === 0 ? 6 : weekday - 1));
+    return { weekday, date, disabled: date.getTime() < today.getTime() };
+  });
 
-  return {
-    ...session,
-    day: weekdayShortLabel(nextWeekday),
-    date: nextDate ?? session.date,
-  };
+  return (
+    <View style={styles.dropdownBox}>
+      <Pressable style={styles.dropdownButton} onPress={() => setOpen((current) => !current)}>
+        <Text style={styles.dropdownButtonText}>Reagendar</Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color="#0f766e" />
+      </Pressable>
+      {open ? (
+        <View style={styles.dropdownMenu}>
+          {options.map((option) => (
+            <Pressable
+              key={option.weekday}
+              style={[styles.dropdownOption, option.disabled && styles.disabledButton]}
+              disabled={option.disabled}
+              onPress={() => {
+                setOpen(false);
+                onReschedule(session.id, option.weekday);
+              }}
+            >
+              <Text style={styles.dropdownOptionText}>{weekdayShortLabel(option.weekday)} - {formatDayMonth(option.date)}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 function sortSessionsByWeek(sessions: WeekPlanSession[]) {
@@ -5101,19 +5140,6 @@ function weekdayFullFromShort(day: string) {
     Sab: 'sabado',
   };
   return labels[day] ?? '';
-}
-
-function shiftDayMonth(value: string, direction: -1 | 1) {
-  const [day, month] = value.split('/').map(Number);
-  if (!day || !month) {
-    return null;
-  }
-
-  const date = new Date(new Date().getFullYear(), month - 1, day);
-  date.setDate(date.getDate() + direction);
-  const nextDay = String(date.getDate()).padStart(2, '0');
-  const nextMonth = String(date.getMonth() + 1).padStart(2, '0');
-  return `${nextDay}/${nextMonth}`;
 }
 
 function isDetailedPlan(plan: WeekPlan) {

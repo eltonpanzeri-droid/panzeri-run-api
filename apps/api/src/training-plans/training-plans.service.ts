@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { runnerStrengthExercises } from './runner-strength-library';
@@ -1088,6 +1088,47 @@ export class TrainingPlansService {
     });
 
     return { recovered: toRecover.length };
+  }
+
+  // Chamado pelo botao "Reagendar" da propria aluna (app) — move um treino ja gerado pra outro
+  // dia da MESMA semana, sem gerar nada novo com IA (custo zero, so troca a data). Pedido antigo
+  // do treinador ("o aluno precisa ter essa flexibilidade, pois isso ja gera uma independencia
+  // dele da gente"). Substitui o "moveSession" antigo do app, que so mudava visualmente no
+  // celular e nunca persistia nada de verdade.
+  async rescheduleSession(userId: string, sessionId: string, targetWeekday: number) {
+    if (!Number.isInteger(targetWeekday) || targetWeekday < 0 || targetWeekday > 6) {
+      throw new BadRequestException('Dia da semana invalido.');
+    }
+    const session = await this.prisma.trainingSession.findFirst({
+      where: { id: sessionId, userId },
+      include: { plan: { select: { startDate: true } }, completion: { select: { id: true } } },
+    });
+    if (!session) {
+      throw new NotFoundException('Treino nao encontrado.');
+    }
+    if (session.completion) {
+      throw new BadRequestException('Esse treino ja foi concluido, nao da pra reagendar.');
+    }
+
+    const newDate = addDays(session.plan.startDate, weekdayOffsetFromMonday(targetWeekday));
+    const today = todayInSaoPaulo();
+    if (newDate.getTime() < today.getTime()) {
+      throw new BadRequestException('Nao e possivel reagendar um treino para um dia que ja passou.');
+    }
+
+    const collision = await this.prisma.trainingSession.findFirst({
+      where: { planId: session.planId, weekday: targetWeekday, modality: session.modality, id: { not: session.id } },
+      select: { id: true },
+    });
+    if (collision) {
+      throw new BadRequestException(`Ja existe um treino de ${session.modality} nesse dia.`);
+    }
+
+    await this.prisma.trainingSession.update({
+      where: { id: session.id },
+      data: { scheduledDate: newDate, weekday: targetWeekday },
+    });
+    return { rescheduled: true };
   }
 
   async regenerateSession(userId: string, sessionId: string, options?: { allowToday?: boolean }) {

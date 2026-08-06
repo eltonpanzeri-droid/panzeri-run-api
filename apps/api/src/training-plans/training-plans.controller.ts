@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { TrainingPlansService } from './training-plans.service';
@@ -28,6 +28,17 @@ export class TrainingPlansController {
   @Get('week-by-offset')
   weekByOffset(@CurrentUser() user: CurrentUserPayload, @Query('offset') offset: string) {
     return this.trainingPlansService.getWeekByOffset(user.sub, Number(offset) || 0);
+  }
+
+  // Botao "Reagendar" da propria aluna — move um treino ja gerado pra outro dia da mesma semana,
+  // sem gerar nada novo. Ver TrainingPlansService.rescheduleSession.
+  @Patch('sessions/:sessionId/reschedule')
+  rescheduleSession(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('sessionId') sessionId: string,
+    @Body() dto: { targetWeekday: number },
+  ) {
+    return this.trainingPlansService.rescheduleSession(user.sub, sessionId, Number(dto?.targetWeekday));
   }
 }
 
