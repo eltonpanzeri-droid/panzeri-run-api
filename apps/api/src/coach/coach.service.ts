@@ -469,6 +469,10 @@ export class CoachService {
           include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
         },
         billingSubscription: true,
+        // Conta TODOS os planos (ativo ou arquivado) — usado so pra saber se a aluna ja teve
+        // algum plano gerado alguma vez, pra distinguir "nunca teve nada" de "esta entre semanas,
+        // aguardando tocar o botao de gerar" no status exibido (ver statusFromSummary).
+        _count: { select: { plans: true } },
       },
       }),
       this.prisma.user.count({ where: studentWhere }),
@@ -511,7 +515,7 @@ export class CoachService {
         prescribedKm: summary.prescribedKm,
         completedKm: summary.completedKm,
         lastThreeKm: student.tests[0]?.totalSeconds ? formatDuration(student.tests[0].totalSeconds) : 'Sem teste',
-        status: statusFromSummary(summary, student.subscriptionStatus),
+        status: statusFromSummary(summary, student.subscriptionStatus, student._count.plans > 0),
         accountStatus: student.accountStatus,
         subscriptionStatus: student.subscriptionStatus,
         subscriptionManualOverride: student.subscriptionManualOverride,
@@ -1235,14 +1239,20 @@ function emptySummary() {
   };
 }
 
-function statusFromSummary(summary: { prescribedSessions: number; eligibleSessions: number }, subscriptionStatus: string) {
+function statusFromSummary(summary: { prescribedSessions: number; eligibleSessions: number }, subscriptionStatus: string, hasEverHadPlan: boolean) {
   // Este status reflete apenas o estagio de acesso ao treino (existe plano? ja teve algum treino
   // elegivel?) — a qualidade da aderencia ja aparece na coluna "Aderencia" e no detalhe do aluno,
   // nao deve ser duplicada aqui como um rotulo de alerta que confunde quem acabou de comecar.
   // Um plano pode existir no banco (gerado antes do pagamento cair) sem que o aluno realmente
   // consiga ve-lo no app — "Acesso liberado" so pode refletir a mesma regra usada para o aluno
   // (hasSubscriptionAccess), nunca so a existencia de sessoes prescritas.
-  if (!summary.prescribedSessions) return 'Sem treino';
+  if (!summary.prescribedSessions) {
+    // Desde que a geracao virou sob demanda (botao "Gerar treino da semana", 06/08), e normal uma
+    // aluna com historico real ficar alguns dias sem plano ativo pra semana atual — nao e "Sem
+    // treino" (que soa como algo quebrado), e sim aguardando ela mesma tocar o botao.
+    if (hasEverHadPlan) return 'Aguardando aluna gerar a semana';
+    return 'Sem treino';
+  }
   if (!hasSubscriptionAccess(subscriptionStatus)) return 'Bloqueado (pagamento)';
   if (!summary.eligibleSessions) return 'Aguardando primeiro treino';
   return 'Acesso liberado';

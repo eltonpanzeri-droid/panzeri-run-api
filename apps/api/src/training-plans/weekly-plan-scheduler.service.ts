@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrainingPlansService } from './training-plans.service';
 
@@ -33,15 +32,16 @@ export class WeeklyPlanSchedulerService implements OnApplicationBootstrap {
   // aconteca por uma acao explicita: o botao "Refazer nova semana" do treinador, ou os gatilhos
   // explicitos ja existentes (concluir entrevista, mudar rotina, sincronizar disponibilidade).
 
-  // REATIVADO (02/08, apos corrigir as causas reais das rejeicoes em serie): piso de pace deixou
-  // de existir (so recomendacao), trava de duracao sem justificativa removida, campo de volume
-  // leve incompleto passou a ser auto-corrigido em vez de derrubar o dia, forca tolera dia extra
-  // por diretriz, e cada aluno agora tenta so 1 vez (nao 2) — o custo por rejeicao caiu bastante.
-  // A recuperacao automatica no boot continua desligada (ver onApplicationBootstrap acima); em vez
-  // dela, o treinador tem o botao manual "Gerar semana seguinte para todos" no painel (ver
-  // generateNextWeekForAllStudents em coach.service.ts) pra cobrir o caso de um deploy interromper
-  // o cron de domingo.
-  @Cron('0 22 * * 0')
+  // DESATIVADO DE PROPOSITO (06/08): este metodo gerava a semana seguinte de TODOS os alunos de
+  // uma vez, automaticamente, todo domingo 19h — mas isso criava dois problemas reais: uma fila
+  // grande de chamadas de IA disparando ao mesmo tempo, e gasto de token a toa com alunas que
+  // nao abrem o app por semanas (o treino era gerado mesmo sem ninguem ir ver). A geracao agora e
+  // sob demanda: cada aluna gera a propria semana tocando o botao "Gerar treino da semana" no
+  // app dela (ver TrainingPlansService.generateCurrentWeekOnDemand), a partir da hora que ela
+  // tocar — nunca retroativo, nunca em massa. O metodo abaixo continua existindo (sem @Cron) so
+  // porque o botao manual do painel "Gerar semana seguinte para todos" (generateNextWeekForAllStudents
+  // em coach.service.ts) ainda o reaproveita como disparo explicito do treinador, quando ele
+  // quiser mesmo assim gerar pra todo mundo de uma vez.
   async generateNextWeekPlans() {
     const students = await this.prisma.user.findMany({
       where: { role: 'student', accountStatus: { not: 'archived' } },

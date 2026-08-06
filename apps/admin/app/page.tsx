@@ -1074,6 +1074,7 @@ export default function AdminHome() {
                 <select value={trainingFilter} onChange={(event) => setTrainingFilter(event.target.value)}>
                   <option value="all">Todos</option>
                   <option value="Sem treino">Sem treino criado</option>
+                  <option value="Aguardando aluna gerar a semana">Aguardando aluna gerar a semana</option>
                   <option value="Bloqueado (pagamento)">Bloqueado (pagamento)</option>
                   <option value="Aguardando primeiro treino">Aguardando primeiro treino</option>
                   <option value="Acesso liberado">Acesso liberado</option>
@@ -3158,6 +3159,8 @@ function statusClass(status: string) {
   if (status === 'Acesso liberado') return 'good';
   if (status === 'Sem treino') return 'warn';
   if (status === 'Bloqueado (pagamento)') return 'danger';
+  // Neutro de proposito — nao e um alerta, e a aluna aguardando tocar o botao de gerar a semana.
+  if (status === 'Aguardando aluna gerar a semana') return '';
   return '';
 }
 

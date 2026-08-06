@@ -2163,10 +2163,9 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
 
       const data = (await response.json()) as WeekByOffsetResponse | null;
       if (data?.notGenerated) {
-        // current() e so leitura agora — nunca gera nada sozinho so por abrir a tela. Se a
-        // semana ainda nao existe (ex: um gatilho explicito falhou ha pouco), o cron do
-        // servidor cobre isso em ate 2h; aqui so mostramos que esta pendente, sem chamar
-        // generatePlan() (isso reintroduziria geracao de IA so por abrir o app).
+        // current() e so leitura — nunca gera nada sozinho so por abrir a tela. A geracao da
+        // semana agora e sempre sob demanda, via o botao explicito "Gerar treino da semana"
+        // (ver generateCurrentWeekNow) — nunca automatica so por abrir o app.
         setPlan(null);
         setNotGeneratedRange({ startDate: data.startDate ?? '', endDate: data.endDate ?? '' });
         setStatus('');
@@ -2223,6 +2222,34 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
 
       setPlan(data);
       setStatus('Plano detalhado da semana gerado.');
+    } catch {
+      setStatus('Nao consegui conectar com a API agora.');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  // So chamado pelo toque explicito no botao "Gerar treino da semana" — nunca automaticamente so
+  // por abrir a tela (ver POST /training-plans/generate-current-week, generateCurrentWeekOnDemand
+  // em training-plans.service.ts). Substitui a geracao em massa que rodava sozinha todo domingo.
+  async function generateCurrentWeekNow() {
+    setIsLoading(true);
+    setStatus('Preparando seu treino da semana...');
+    try {
+      const response = await fetch(`${API_URL}/training-plans/generate-current-week`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) {
+        setStatus('Nao consegui gerar o treino da semana agora. Tente novamente.');
+        return;
+      }
+      const data = (await response.json()) as { generated: boolean; reason: string };
+      if (!data.generated) {
+        setStatus('Ainda nao deu pra gerar sua semana — tente novamente em instantes.');
+        return;
+      }
+      await loadPlan();
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
     } finally {
@@ -2552,14 +2579,24 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
           </Pressable>
         </View>
         <Text style={styles.titleSmall}>{formatDayMonth(new Date(notGeneratedRange.startDate))} a {formatDayMonth(new Date(notGeneratedRange.endDate))}</Text>
-        <View style={styles.coachBox}>
-          <Text style={styles.coachTitle}>{weekOffset > 0 || isBeforeSundayRelease() ? 'Ainda nao liberado' : 'Sem registro nesta semana'}</Text>
-          <Text style={styles.coachText}>
-            {weekOffset > 0 || isBeforeSundayRelease()
-              ? 'Os treinos da semana seguinte ficam disponiveis todo domingo as 19h.'
-              : 'Nao encontramos treino registrado para esta semana.'}
-          </Text>
-        </View>
+        {weekOffset === 0 && !isBeforeWeeklyRelease() ? (
+          <View style={styles.coachBox}>
+            <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
+            <Text style={styles.coachText}>Toque para gerar seu treino a partir de hoje.</Text>
+            <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generateCurrentWeekNow}>
+              <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar treino da semana'}</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.coachBox}>
+            <Text style={styles.coachTitle}>{weekOffset > 0 || isBeforeWeeklyRelease() ? 'Ainda nao liberado' : 'Sem registro nesta semana'}</Text>
+            <Text style={styles.coachText}>
+              {weekOffset > 0 || isBeforeWeeklyRelease()
+                ? 'A partir de domingo ao meio-dia, toque para gerar o treino da semana seguinte.'
+                : 'Nao encontramos treino registrado para esta semana.'}
+            </Text>
+          </View>
+        )}
       </View>
     );
   }
@@ -2579,7 +2616,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       </View>
       <Text style={styles.titleSmall}>{weekRange}</Text>
       <Text style={styles.copyTight}>Seu treino aparece primeiro. Use o ajuste no final da tela quando a rotina desta semana mudar.</Text>
-      <Text style={styles.metaText}>Os treinos da semana seguinte ficam disponiveis todo domingo as 19h.</Text>
+      <Text style={styles.metaText}>A partir de domingo ao meio-dia, toque em "Gerar treino da semana" para receber os treinos da semana seguinte.</Text>
       {plan?.generatedAt ? <Text style={styles.metaText}>Gerado em {formatDayMonth(new Date(plan.generatedAt))} as {new Date(plan.generatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.</Text> : null}
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
@@ -4946,17 +4983,19 @@ function currentWeekRange() {
   return `${formatDayMonth(monday)} segunda ate ${formatDayMonth(sunday)} domingo`;
 }
 
-// Sabado ou domingo antes das 19h: o backend deliberadamente nao gera nada nesse momento pra um
-// aluno sem plano ainda (ver shouldDelayFirstGenerationToSunday em training-plans.service.ts) —
-// o job automatico de domingo 19h libera a semana sozinho. Calculado aqui no cliente com o mesmo
-// horario de Sao Paulo, sem precisar de nenhum campo novo vindo da API.
-function isBeforeSundayRelease() {
+// Domingo antes do meio-dia: o backend deliberadamente nao libera geracao da semana seguinte
+// nesse momento (mesmo corte usado em WEEKLY_RELEASE_HOUR/shouldDelayFirstGenerationToSunday e
+// generateCurrentWeekOnDemand, em training-plans.service.ts) — antes disso o botao "Gerar treino
+// da semana" fica escondido. Calculado aqui no cliente com o mesmo horario de Sao Paulo, sem
+// precisar de nenhum campo novo vindo da API. Sabado NAO entra mais aqui (era um exagero do
+// modelo antigo de pre-geracao automatica) — sabado ja pode gerar normalmente.
+function isBeforeWeeklyRelease() {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', hour12: false,
   }).formatToParts(new Date());
   const weekday = parts.find((part) => part.type === 'weekday')?.value ?? '';
   const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0') % 24;
-  return weekday === 'Sat' || (weekday === 'Sun' && hour < 19);
+  return weekday === 'Sun' && hour < 12;
 }
 
 function formatDayMonth(date: Date) {

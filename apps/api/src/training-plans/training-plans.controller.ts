@@ -18,6 +18,13 @@ export class TrainingPlansController {
     return this.trainingPlansService.current(user.sub);
   }
 
+  // So chamado pelo botao explicito "Gerar treino da semana" no app da aluna — nunca por abrir
+  // nenhuma tela. Ver TrainingPlansService.generateCurrentWeekOnDemand.
+  @Post('generate-current-week')
+  generateCurrentWeek(@CurrentUser() user: CurrentUserPayload) {
+    return this.trainingPlansService.generateCurrentWeekOnDemand(user.sub);
+  }
+
   @Get('week-by-offset')
   weekByOffset(@CurrentUser() user: CurrentUserPayload, @Query('offset') offset: string) {
     return this.trainingPlansService.getWeekByOffset(user.sub, Number(offset) || 0);

@@ -85,12 +85,28 @@ const STANDARD_WARMUP_COOLDOWN_TEXT =
 const DEFAULT_STRAVA_ANALYSIS_FREQUENCY_DAYS = 30;
 const AI_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
 const PAIN_ALERT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
+// Domingo a partir dessa hora (Sao Paulo): a semana seguinte fica "liberada" — tanto pra
+// suspender a geracao de primeira vez (shouldDelayFirstGenerationToSunday, que ja deixa isso pro
+// cron automatico) quanto pro botao "Gerar treino da semana" (generateCurrentWeekOnDemand) poder
+// gerar a semana seguinte em vez da atual. Antes eram dois horarios diferentes (19h) sem motivo
+// real pra divergir — alinhados aqui na mesma constante (pedido do treinador 06/08).
+const WEEKLY_RELEASE_HOUR = 12;
+// Corte pra decidir se "hoje" ainda conta como dia valido pra gerar treino quando a aluna toca o
+// botao — depois dessa hora nao faz sentido pratico gerar o treino de um dia que ja nao tem mais
+// tempo real de ser feito; nesse caso a geracao comeca no dia seguinte. Ajustavel livremente.
+const TODAY_INCLUSION_CUTOFF_HOUR = 22;
 
 @Injectable()
 export class TrainingPlansService {
   private readonly logger = new Logger(TrainingPlansService.name);
   private readonly recentAiFailures = new Map<string, number>();
   private readonly recentPainAlerts = new Map<string, number>();
+  // Trava contra disparo duplo do botao "Gerar treino da semana" (toque duplo, ou o app tentando
+  // de novo apos uma conexao instavel) — guarda a Promise em andamento por aluna; uma segunda
+  // chamada simultanea reaproveita a mesma Promise em vez de disparar uma segunda geracao. Mesmo
+  // idioma de recentAiFailures/recentPainAlerts (em memoria, nao e lock distribuido de verdade —
+  // nao sobrevive a mais de uma instancia da API, mas suficiente pro tamanho atual da operacao).
+  private readonly currentWeekGenerationInFlight = new Map<string, Promise<{ generated: boolean; reason: string }>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -300,7 +316,7 @@ export class TrainingPlansService {
   // qualquer regeneracao pedida pelo treinador), sempre retorna false.
   async shouldDelayFirstGenerationToSunday(userId: string): Promise<boolean> {
     const { weekday, hour } = saoPauloWeekdayAndHour(new Date());
-    const isSundayBeforeRelease = weekday === 0 && hour < 19;
+    const isSundayBeforeRelease = weekday === 0 && hour < WEEKLY_RELEASE_HOUR;
     if (!isSundayBeforeRelease) return false;
 
     const [activePlan, availability] = await Promise.all([
@@ -315,10 +331,7 @@ export class TrainingPlansService {
 
     const today = todayInSaoPaulo();
     const initialWeekStart = startOfWeek(new Date());
-    const hasFutureDayThisWeek = rawAvailableDays.some(
-      (day) => addDays(initialWeekStart, weekdayOffsetFromMonday(day.weekday)).getTime() > today.getTime(),
-    );
-    return !hasFutureDayThisWeek;
+    return !anyAvailableDayIsFuture(rawAvailableDays, initialWeekStart, today);
   }
 
   // Chamado pelo BillingService assim que um pagamento e confirmado (webhook, sincronizacao
@@ -487,9 +500,7 @@ export class TrainingPlansService {
     // desta semana ja seria passado, e o filtro "so o futuro" logo abaixo removeria a semana
     // inteira. Nesse caso especifico, comeca direto na semana seguinte em vez de entregar um
     // plano sem nenhum treino ate a virada natural de segunda.
-    const hasFutureDayThisWeek = availableDays.some(
-      (day) => addDays(initialWeekStart, weekdayOffsetFromMonday(day.weekday)).getTime() > today.getTime(),
-    );
+    const hasFutureDayThisWeek = anyAvailableDayIsFuture(availableDays, initialWeekStart, today);
     const weekStart = !hasFutureDayThisWeek && !activePlanBeforeAdjustment && !options?.referenceDate
       ? addDays(initialWeekStart, 7)
       : initialWeekStart;
@@ -914,6 +925,70 @@ export class TrainingPlansService {
     await this.generateWeek(userId, undefined, {
       referenceDate: addDays(new Date(), 7),
     });
+  }
+
+  // Chamado SOMENTE pelo botao explicito "Gerar treino da semana" no app da aluna (ver
+  // POST /training-plans/generate-current-week) — nunca por abrir nenhuma tela, nem no app da
+  // aluna nem no painel do treinador. Substitui a geracao em massa que rodava sozinha todo
+  // domingo 19h (ver WeeklyPlanSchedulerService): agora a autorizacao libera as
+  // WEEKLY_RELEASE_HOUR de domingo, mas a geracao de verdade so acontece quando a propria aluna
+  // toca o botao — a partir do dia do toque em diante, nunca retroativo, mesmo que ela fique
+  // semanas sem abrir o app.
+  async generateCurrentWeekOnDemand(userId: string): Promise<{ generated: boolean; reason: string }> {
+    const inFlight = this.currentWeekGenerationInFlight.get(userId);
+    if (inFlight) return inFlight;
+
+    const promise = this.doGenerateCurrentWeekOnDemand(userId).finally(() => {
+      this.currentWeekGenerationInFlight.delete(userId);
+    });
+    this.currentWeekGenerationInFlight.set(userId, promise);
+    return promise;
+  }
+
+  private async doGenerateCurrentWeekOnDemand(userId: string): Promise<{ generated: boolean; reason: string }> {
+    const [anyPlanEver, user, availability] = await Promise.all([
+      this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } }),
+      this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } }),
+      this.prisma.weeklyAvailability.findMany({ where: { userId, noTraining: false } }),
+    ]);
+    // Aluna sem nenhum plano ainda: fluxo separado (generateFirstWeekIfNeeded, disparado ao
+    // concluir a entrevista/rotina) — este botao so existe pra quem ja tem historico.
+    if (!anyPlanEver) return { generated: false, reason: 'sem_plano_anterior' };
+    if (!user || !hasSubscriptionAccess(user.subscriptionStatus)) return { generated: false, reason: 'sem_acesso_pagamento' };
+    if (!availability.length) return { generated: false, reason: 'sem_rotina_cadastrada' };
+
+    const { weekday, hour } = saoPauloWeekdayAndHour(new Date());
+    if (weekday === 0 && hour < WEEKLY_RELEASE_HOUR) {
+      return { generated: false, reason: 'antes_do_horario_de_liberacao' };
+    }
+
+    const today = todayInSaoPaulo();
+    const initialWeekStart = startOfWeek(new Date());
+    const targetWeekStart = anyAvailableDayIsFuture(availability, initialWeekStart, today)
+      ? initialWeekStart
+      : addDays(initialWeekStart, 7);
+
+    const existingPlanForWeek = await this.prisma.trainingPlan.findFirst({
+      where: { userId, status: 'active', startDate: targetWeekStart },
+      select: { id: true },
+    });
+    if (existingPlanForWeek) return { generated: false, reason: 'ja_gerado' };
+
+    const allowToday = hour < TODAY_INCLUSION_CUTOFF_HOUR;
+    await this.generateWeek(userId, undefined, { allowToday });
+
+    const diasDeAtraso = Math.max(0, Math.round((today.getTime() - targetWeekStart.getTime()) / 86400000));
+    void this.studentProfile
+      .recordEvent(
+        userId,
+        ProfileEventCode.WEEK_GENERATED,
+        diasDeAtraso > 0
+          ? `Semana de ${targetWeekStart.toISOString().slice(0, 10)} gerada sob demanda pela aluna (botao "Gerar treino da semana"), ${diasDeAtraso} dia(s) apos a liberacao.`
+          : `Semana de ${targetWeekStart.toISOString().slice(0, 10)} gerada sob demanda pela aluna (botao "Gerar treino da semana"), no dia da liberacao.`,
+      )
+      .catch(() => undefined);
+
+    return { generated: true, reason: 'ok' };
   }
 
   // Analise do historico do Strava (cadencia, FC, padroes) — desacoplada de generateWeek() de
@@ -1714,6 +1789,14 @@ function addDays(date: Date, days: number) {
 
 function weekdayOffsetFromMonday(weekday: number) {
   return weekday === 0 ? 6 : weekday - 1;
+}
+
+// Extraido de generateWeek/shouldDelayFirstGenerationToSunday (antes duplicado) — usado tambem
+// por generateCurrentWeekOnDemand: verdadeiro se algum dia disponivel da semana (a partir de
+// weekStart) ainda esta no futuro em relacao a hoje. Quando falso, quem chama deve rolar pra
+// semana seguinte em vez de gerar a atual (ex: domingo, quando nenhum dia desta semana resta).
+function anyAvailableDayIsFuture(availableDays: Array<{ weekday: number }>, weekStart: Date, today: Date): boolean {
+  return availableDays.some((day) => addDays(weekStart, weekdayOffsetFromMonday(day.weekday)).getTime() > today.getTime());
 }
 
 const WEEKDAY_LABELS = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
