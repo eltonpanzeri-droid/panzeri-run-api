@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { hasSubscriptionAccess } from '../training-plans/training-plans.service';
 
 @Injectable()
 export class NotificationsService {
@@ -44,11 +45,27 @@ export class NotificationsService {
     });
 
     if (!plan) {
+      // Desde que a geracao virou sob demanda (botao "Gerar treino da semana", 07/08), ficar
+      // sem programa ativo por alguns dias e normal pra quem ja tem historico — nao tem nada a
+      // ver com anamnese pendente. A mensagem generica antiga ficava enganosa nesse caso; agora
+      // distingue os 3 motivos reais de nao ter programa ativo.
+      const [onboarding, user, anyPlanEver] = await Promise.all([
+        this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } }),
+        this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } }),
+        this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } }),
+      ]);
+      const message = !onboarding?.completedAt
+        ? 'Complete a entrevista inicial para montarmos seu programa de treino.'
+        : !hasSubscriptionAccess(user?.subscriptionStatus ?? 'pending')
+          ? 'Finalize seu pagamento para liberar seu programa de treino.'
+          : anyPlanEver
+            ? 'Toque em "Gerar treino da semana" para receber seu programa desta semana.'
+            : 'Estamos preparando seu programa inicial.';
       return [
         {
           id: 'auto-no-plan',
           title: 'Programa pendente',
-          message: 'Complete a anamnese para gerar sua semana de treino.',
+          message,
           type: 'warning',
           read: false,
           createdAt: new Date(),
