@@ -2117,7 +2117,12 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     setStatus('');
     setNotGeneratedRange(null);
     try {
-      const response = await fetch(`${API_URL}/training-plans/week-by-offset?offset=${offset}`, {
+      // A partir de domingo meio-dia, o offset "0" exibido pro aluno passa a representar a
+      // semana seguinte (ver isSundayAfterNoon) — desloca o offset real enviado pra API em +1
+      // pra manter a navegacao coerente: "Anterior" (offset -1 na tela) cai no offset real 0,
+      // que e a semana que contem o proprio domingo.
+      const apiOffset = offset + (isSundayAfterNoon() ? 1 : 0);
+      const response = await fetch(`${API_URL}/training-plans/week-by-offset?offset=${apiOffset}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
@@ -2564,6 +2569,38 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     );
   }
 
+  // A partir de domingo meio-dia, a tela principal (offset 0) sempre mostra o botao de gerar a
+  // semana seguinte — mesmo que o treino da semana que esta terminando (contendo o proprio
+  // domingo) ainda exista de verdade no banco. Pra ver aquele treino, o aluno usa "Anterior"
+  // (ver loadWeekForOffset, que desloca o offset real enviado pra API). Checado ANTES do bloco
+  // de "sem plano gerado" de proposito, porque aqui pode existir sim um plano valido (so nao
+  // queremos mostrar ele nesta tela).
+  if (weekOffset === 0 && isSundayAfterNoon() && !planStartsInFuture(plan)) {
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Treino da semana</Text>
+        <View style={styles.moveActions}>
+          <Pressable style={styles.moveButton} onPress={() => setWeekOffset((current) => current - 1)}>
+            <Ionicons name="chevron-back" size={15} color="#0f766e" />
+            <Text style={styles.moveButtonText}>Anterior</Text>
+          </Pressable>
+          <Pressable style={[styles.moveButton, styles.disabledButton]} disabled>
+            <Text style={styles.moveButtonText}>Proxima</Text>
+            <Ionicons name="chevron-forward" size={15} color="#0f766e" />
+          </Pressable>
+        </View>
+        <Text style={styles.titleSmall}>{upcomingWeekRangeLabel()}</Text>
+        <View style={styles.coachBox}>
+          <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
+          <Text style={styles.coachText}>Toque para gerar seu treino da semana que comeca segunda-feira. Para ver o treino de domingo (ou de dias anteriores), use "Anterior".</Text>
+          <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generateCurrentWeekNow}>
+            <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar treino da semana'}</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
   if (!plan && notGeneratedRange) {
     return (
       <View style={styles.section}>
@@ -2586,6 +2623,11 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generateCurrentWeekNow}>
               <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar treino da semana'}</Text>
             </Pressable>
+          </View>
+        ) : weekOffset < 0 ? (
+          <View style={styles.coachBox}>
+            <Text style={styles.coachTitle}>Treino nao gerado nessa semana</Text>
+            <Text style={styles.coachText}>Essa semana ficou sem treino porque o botao "Gerar treino da semana" nao foi tocado naquele momento.</Text>
           </View>
         ) : (
           <View style={styles.coachBox}>
@@ -4996,6 +5038,44 @@ function isBeforeWeeklyRelease() {
   const weekday = parts.find((part) => part.type === 'weekday')?.value ?? '';
   const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0') % 24;
   return weekday === 'Sun' && hour < 12;
+}
+
+// Domingo a partir do meio-dia: a semana que esta terminando (contem o proprio domingo) "vira"
+// semana anterior na navegacao, e o slot "atual" (offset 0) passa a representar a semana
+// seguinte, ainda por gerar — mesmo que o treino de domingo ainda exista e tecnicamente ainda
+// valha. Pedido explicito do treinador (07/08): ninguem deve ver o treino da semana antiga na
+// tela principal depois do meio-dia de domingo, so o botao de gerar a proxima. Pra ver o treino
+// de domingo (ou de qualquer dia daquela semana), o aluno usa o botao "Anterior".
+function isSundayAfterNoon() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', hour12: false,
+  }).formatToParts(new Date());
+  const weekday = parts.find((part) => part.type === 'weekday')?.value ?? '';
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0') % 24;
+  return weekday === 'Sun' && hour >= 12;
+}
+
+// Distingue o plano antigo (que ainda cobre o proprio domingo) do plano novo ja gerado pelo
+// botao nesta mesma sessao — sem isso, o override de domingo-a-tarde esconderia o plano recem
+// gerado tambem, ja que ele nao olha o conteudo de "plan", so o horario. Um plano cuja data de
+// inicio ja e no futuro (amanha em diante) e sempre o novo, gerado pelo toque no botao.
+function planStartsInFuture(plan: { startDate?: string } | null) {
+  if (!plan?.startDate) return false;
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return plan.startDate.slice(0, 10) >= tomorrow.toISOString().slice(0, 10);
+}
+
+// Texto exibido no override de domingo-a-tarde (offset 0 ainda nao tem dados de verdade pra
+// mostrar, ja que a semana seguinte so existe depois do toque no botao) — so pra dar uma nocao
+// de data, calculado no fuso local do aparelho (suficiente pra exibicao, nao usado em nenhuma
+// logica).
+function upcomingWeekRangeLabel() {
+  const monday = new Date();
+  monday.setDate(monday.getDate() + 1);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return `${formatDayMonth(monday)} a ${formatDayMonth(sunday)}`;
 }
 
 function formatDayMonth(date: Date) {
