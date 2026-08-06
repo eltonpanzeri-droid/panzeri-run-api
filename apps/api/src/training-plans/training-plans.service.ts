@@ -229,7 +229,7 @@ export class TrainingPlansService {
     ]);
 
     if (!onboarding?.completedAt) return { needsUpdate: false, reason: null };
-    if (!plan) return { needsUpdate: true, reason: 'Nenhum plano ativo para a semana atual.' };
+    if (!plan) return { needsUpdate: true, reason: 'Nenhum programa ativo para a semana atual.' };
 
     const currentPainSafety = await this.painReports.computeSafetyTier(userId);
     const painTierElevated = planPainTierIsStale(plan.inputSnapshot, currentPainSafety.tier);
@@ -244,14 +244,14 @@ export class TrainingPlansService {
         this.logger.warn(`Nivel de cautela por dor elevado para o aluno ${userId}.`);
         const alertStudent = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
         await this.telegram.notifyCoach(
-          `⚠️ Novo relato de dor no Panzeri Run elevou o nivel de cautela de um aluno.\nAluno: ${alertStudent?.name ?? 'desconhecido'} (Cod. ${alertStudent ? formatStudentCode(alertStudent.studentCode) : '?'})\nMotivo: ${currentPainSafety.reason ?? 'sem detalhe'}\nO plano desta semana precisa ser regenerado pelo painel para refletir isso.`,
+          `⚠️ Novo relato de dor no Panzeri Run elevou o nivel de cautela de um aluno.\nAluno: ${alertStudent?.name ?? 'desconhecido'} (Cod. ${alertStudent ? formatStudentCode(alertStudent.studentCode) : '?'})\nMotivo: ${currentPainSafety.reason ?? 'sem detalhe'}\nO programa desta semana precisa ser regenerado pelo painel para refletir isso.`,
         );
       }
       return { needsUpdate: true, reason: `Nivel de cautela por dor elevado: ${currentPainSafety.reason ?? 'sem detalhe'}` };
     }
-    if (plan.generatedBy !== planEngineVersion) return { needsUpdate: true, reason: 'Plano gerado por uma versao antiga do motor de decisao.' };
-    if (plan.startDate.getTime() !== weekStart.getTime()) return { needsUpdate: true, reason: 'Plano ativo nao e da semana atual.' };
-    if (!planMatchesLatestTest(plan.inputSnapshot, latestTest?.id ?? null)) return { needsUpdate: true, reason: 'Ha um teste de 3km mais recente do que o usado no plano.' };
+    if (plan.generatedBy !== planEngineVersion) return { needsUpdate: true, reason: 'Programa gerado por uma versao antiga do motor de decisao.' };
+    if (plan.startDate.getTime() !== weekStart.getTime()) return { needsUpdate: true, reason: 'Programa ativo nao e da semana atual.' };
+    if (!planMatchesLatestTest(plan.inputSnapshot, latestTest?.id ?? null)) return { needsUpdate: true, reason: 'Ha um teste de 3km mais recente do que o usado no programa.' };
     if (!planMatchesAvailability(plan.inputSnapshot, availability)) return { needsUpdate: true, reason: 'A disponibilidade real do aluno mudou desde a ultima geracao.' };
     return { needsUpdate: false, reason: null };
   }
@@ -599,7 +599,7 @@ export class TrainingPlansService {
       this.logger.error(`Falha ao gerar semana de treino com IA para o aluno ${userId} apos tentativas — nenhum plano de regra fixa sera usado no lugar.`);
       this.recentAiFailures.set(userId, Date.now());
       await this.telegram.notifyCoach(
-        `⚠️ Falha ao gerar treino com IA para um aluno.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nO plano NAO foi atualizado — verifique a chave da IA (ANTHROPIC_API_KEY) e os logs do EasyPanel, e gere novamente manualmente pelo painel. Novas tentativas automaticas para este aluno ficam pausadas por alguns minutos para nao gastar chamadas de IA repetidas.`,
+        `⚠️ Falha ao gerar treino com IA para um aluno.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nO programa NAO foi atualizado — verifique a chave da IA (ANTHROPIC_API_KEY) e os logs do EasyPanel, e gere novamente manualmente pelo painel. Novas tentativas automaticas para este aluno ficam pausadas por alguns minutos para nao gastar chamadas de IA repetidas.`,
       );
       throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
     }
@@ -789,7 +789,7 @@ export class TrainingPlansService {
     const plan = await this.prisma.trainingPlan.create({
       data: {
         userId,
-        name: 'Plano semanal',
+        name: 'Programa semanal',
         goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
         status: planStatus,
         startDate: weekStart,
@@ -1056,7 +1056,7 @@ export class TrainingPlansService {
       orderBy: { createdAt: 'desc' },
     });
     if (!activePlan) {
-      throw new BadRequestException('Aluno nao tem plano ativo no momento.');
+      throw new BadRequestException('Aluno nao tem programa ativo no momento.');
     }
 
     const today = todayInSaoPaulo();
@@ -1238,7 +1238,7 @@ export class TrainingPlansService {
       orderBy: { createdAt: 'desc' },
     });
     if (!activePlan) {
-      throw new BadRequestException('Este aluno ainda nao tem um plano ativo — gere a semana antes de adicionar um treino avulso.');
+      throw new BadRequestException('Este aluno ainda nao tem um programa ativo — gere a semana antes de adicionar um treino avulso.');
     }
 
     const existing = await this.prisma.trainingSession.findFirst({

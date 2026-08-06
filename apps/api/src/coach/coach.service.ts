@@ -505,7 +505,7 @@ export class CoachService {
         name: student.name,
         email: student.email,
         goal: student.preferences?.mainGoal ?? 'Objetivo nao informado',
-        planName: plan?.name ?? 'Sem plano ativo',
+        planName: plan?.name ?? 'Sem programa ativo',
         adherencePercent: summary.adherencePercent,
         completedSessions: summary.completedSessions,
         prescribedSessions: summary.prescribedSessions,
@@ -1055,14 +1055,14 @@ function buildTechnicalReportContent(detail: any) {
         text: `Objetivo registrado: ${detail.goal}. Teste recente: ${tests[0]?.pace ?? 'nao informado'}. Disponibilidade util na semana: ${availability.filter((day: any) => !day.noTraining).length} dia(s).`,
       },
       {
-        title: 'Plano criado',
-        text: `Plano atual: ${detail.plan?.name ?? 'sem plano ativo'}. Foram prescritos ${summary.prescribedSessions} treino(s), com ${summary.prescribedKm} km planejados quando aplicavel.`,
+        title: 'Programa criado',
+        text: `Programa atual: ${detail.plan?.name ?? 'sem programa ativo'}. Foram prescritos ${summary.prescribedSessions} treino(s), com ${summary.prescribedKm} km planejados quando aplicavel.`,
       },
       {
         title: 'Justificativa tecnica',
         text: rationale.length
           ? `Decisao gerada por: ${sourceLabel}. Decisoes desta semana: ${rationale.join(' ')}`
-          : 'O plano foi montado cruzando objetivo, teste de 3 km, rotina semanal informada, modalidades disponiveis e sinais de saude/recuperacao. A progressao deve respeitar aderencia, feedback, dor, fadiga e dados externos do Strava quando disponiveis.',
+          : 'O programa foi montado cruzando objetivo, teste de 3 km, rotina semanal informada, modalidades disponiveis e sinais de saude/recuperacao. A progressao deve respeitar aderencia, feedback, dor, fadiga e dados externos do Strava quando disponiveis.',
       },
       {
         title: 'Expectativa de resposta',
@@ -1107,7 +1107,7 @@ function buildEvolutionReportContent(detail: any) {
     },
     sections: [
       {
-        title: 'Execucao do plano',
+        title: 'Execucao do programa',
         text: `Aderencia atual: ${summary.adherencePercent}%. Foram concluidos ${summary.completedSessions} de ${summary.prescribedSessions} treino(s), com ${summary.completedKm}/${summary.prescribedKm} km registrados no app.`,
       },
       {

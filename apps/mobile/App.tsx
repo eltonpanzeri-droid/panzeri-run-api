@@ -1090,7 +1090,7 @@ function Onboarding({ onStart }: { onStart: () => void }) {
       <View style={styles.heroBlock}>
         <Text style={styles.heroEyebrow}>Corrida, forca e evolucao</Text>
         <Text style={styles.title}>Seu treino da semana, ajustado ao seu momento.</Text>
-        <Text style={styles.heroCopy}>Entre, registre seus dados e acompanhe um plano simples de executar.</Text>
+        <Text style={styles.heroCopy}>Entre, registre seus dados e acompanhe um programa simples de executar.</Text>
       </View>
 
       <View style={styles.startGrid}>
@@ -1418,7 +1418,7 @@ function ExerciseResponsibility({ accessToken, onAccepted }: { accessToken: stri
       <Text style={styles.titleSmall}>Termo de responsabilidade</Text>
       <View style={styles.coachBox}>
         <Text style={styles.coachTitle}>Antes de iniciar seus treinos</Text>
-        <Text style={styles.coachText}>Os treinos sao preparados com base nas informacoes fornecidas por voce. Respostas incompletas ou incorretas podem comprometer a seguranca e a adequacao do plano.</Text>
+        <Text style={styles.coachText}>Os treinos sao preparados com base nas informacoes fornecidas por voce. Respostas incompletas ou incorretas podem comprometer a seguranca e a adequacao do programa.</Text>
       </View>
       <View style={styles.termsRow}>
         <Switch value={confirmed} onValueChange={setConfirmed} />
@@ -1438,7 +1438,7 @@ function AppHeader({ userEmail, userName, objective, onOpenMenu }: { userEmail: 
     <View style={styles.appHeader}>
       <View>
         <Text style={styles.headerOverline}>Panzeri Run</Text>
-        <Text style={styles.headerTitle}>{userName || 'Plano inicial 10 km'}</Text>
+        <Text style={styles.headerTitle}>{userName || 'Programa inicial 10 km'}</Text>
         {userEmail ? <Text style={styles.headerEmail}>{userEmail}</Text> : null}
         <Text style={styles.headerObjective}>Objetivo: {objective ? shortGoalLabel(objective) : 'ainda nao foi assinalado'}</Text>
       </View>
@@ -1904,7 +1904,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   if (finished) return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao concluida' : mode === 'routine' ? 'Rotina registrada' : 'Entrevista concluida'}</Text>
-      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : mode === 'routine' ? (routineFirstTime ? 'Estamos montando seu treino' : 'Rotina salva') : 'Vamos montar seu plano'}</Text>
+      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : mode === 'routine' ? (routineFirstTime ? 'Estamos montando seu treino' : 'Rotina salva') : 'Vamos montar seu programa'}</Text>
       <Text style={styles.copyTight}>
         {mode === 'reassessment'
           ? 'Suas respostas foram salvas. Seu treinador vai revisar sua evolucao e ajustar seu treino conforme necessario.'
@@ -2178,7 +2178,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       }
       if (data && !data.locked && !data.requiresOnboarding && !isDetailedPlan(data as WeekPlan)) {
         setPlan(null);
-        setStatus('Plano antigo detectado. Gere uma nova semana para ver os treinos detalhados.');
+        setStatus('Programa antigo detectado. Gere uma nova semana para ver os treinos detalhados.');
         return;
       }
 
@@ -2226,7 +2226,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       }
 
       setPlan(data);
-      setStatus('Plano detalhado da semana gerado.');
+      setStatus('Programa detalhado da semana gerado.');
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
     } finally {
@@ -2541,7 +2541,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         </View>
         <Text style={styles.titleSmall}>{weekRange}</Text>
         <View style={styles.coachBox}>
-          <Text style={styles.coachTitle}>Seu plano personalizado esta pronto</Text>
+          <Text style={styles.coachTitle}>Seu programa personalizado esta pronto</Text>
           <Text style={styles.coachText}>Com base na sua entrevista, ja montamos sua semana inicial. Ative sua assinatura para liberar o treino completo e comecar hoje.</Text>
         </View>
         <View style={styles.formSection}>
@@ -2882,12 +2882,12 @@ function ThreeKmTest({
       });
 
       if (!planResponse.ok) {
-        setSaveStatus('Teste salvo. Abrindo seu plano...');
+        setSaveStatus('Teste salvo. Abrindo seu programa...');
         onSaved();
         return;
       }
 
-      setSaveStatus('Teste salvo. Abrindo seu plano personalizado...');
+      setSaveStatus('Teste salvo. Abrindo seu programa personalizado...');
       onSaved();
     } catch {
       setSaveStatus('Nao consegui conectar com a API agora.');
@@ -2970,7 +2970,7 @@ function ThreeKmTest({
       </View>
 
       <Pressable style={[styles.primaryButton, isSaving && styles.disabledButton]} disabled={isSaving} onPress={saveTest}>
-        <Text style={styles.primaryButtonText}>{isSaving ? 'Salvando...' : 'Salvar teste e ver meu plano'}</Text>
+        <Text style={styles.primaryButtonText}>{isSaving ? 'Salvando...' : 'Salvar teste e ver meu programa'}</Text>
         <Ionicons name="cloud-upload" size={18} color="#ffffff" />
       </Pressable>
 

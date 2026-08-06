@@ -966,7 +966,7 @@ export default function AdminHome() {
         ) : null}
 
         {activeView === 'dashboard' ? <section className="stats">
-          <Stat label="Alunos" value={String(dashboard?.totals.students ?? 0)} detail={`${dashboard?.totals.activePlans ?? 0} com plano ativo`} />
+          <Stat label="Alunos" value={String(dashboard?.totals.students ?? 0)} detail={`${dashboard?.totals.activePlans ?? 0} com programa ativo`} />
           <Stat label="Treinos propostos" value={String(dashboard?.totals.prescribedSessions ?? 0)} detail="semana atual" />
           <Stat label="Treinos feitos" value={String(dashboard?.totals.completedSessions ?? 0)} detail={`${dashboard?.totals.differentSessions ?? 0} diferentes`} />
           <Stat label="Aderencia media" value={`${dashboard?.totals.adherencePercent ?? 0}%`} detail="treinos propostos" />
@@ -1696,7 +1696,7 @@ function StudentPanel({
 
   async function recoverSessions() {
     if (!student) return;
-    onStatus('Verificando treinos presos em planos antigos...');
+    onStatus('Verificando treinos presos em programas antigos...');
     try {
       const response = await fetch(`${API_URL}/coach/students/${student.id}/plan/recover-sessions`, {
         method: 'POST',
@@ -2175,9 +2175,9 @@ function StudentPanel({
             ) : null}
           </div>
           <div className="weekWorkspaceActions">
-            <span>{student.plan?.name ?? 'Sem plano ativo'}</span>
+            <span>{student.plan?.name ?? 'Sem programa ativo'}</span>
             <button className="secondaryButton" type="button" onClick={regenerateWeek}><RefreshCw size={16} />Refazer nova semana de treinos</button>
-            <button className="secondaryButton" type="button" onClick={recoverSessions}><RefreshCw size={16} />Recuperar treinos presos em plano antigo</button>
+            <button className="secondaryButton" type="button" onClick={recoverSessions}><RefreshCw size={16} />Recuperar treinos presos em programa antigo</button>
             <button className="secondaryButton" type="button" onClick={syncAvailability}><RefreshCw size={16} />Sincronizar disponibilidade da entrevista</button>
             <button className="secondaryButton" type="button" onClick={analyzeStrava}><RefreshCw size={16} />Gerar relatorio do Strava agora</button>
           </div>
@@ -2227,7 +2227,7 @@ function StudentPanel({
               );
             })}
           </div>
-        ) : <p>Sem plano ativo.</p>}
+        ) : <p>Sem programa ativo.</p>}
         {student.unmatchedStravaActivities?.length ? (
           <div className="unmatchedStrava">
             <h4>Outras atividades recebidas do Strava</h4>
