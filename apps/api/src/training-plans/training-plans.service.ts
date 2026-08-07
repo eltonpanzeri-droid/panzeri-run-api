@@ -162,7 +162,20 @@ export class TrainingPlansService {
       // pagou e so precisa tocar "Gerar treino da semana", ou se ainda nem pagou. Faltando esse
       // campo, o app caia sempre na tela generica de "ative seu plano" — bug real, achado
       // 08/08 (aluna Carina, ja tinha pago e respondido tudo, via a tela de cobranca).
-      return { notGenerated: true, startDate: weekStart, endDate: addDays(weekStart, 6), hasSubscriptionAccess: hasSubscriptionAccess(user.subscriptionStatus) };
+      // hasEverHadPlan tambem precisa ir junto (mesmo incidente, achado logo em seguida): sem
+      // isso o app nao tem como saber se e uma aluna NOVA (primeira geracao, fluxo automatico
+      // separado ao completar "Rotina de treinos") ou uma aluna com historico so aguardando
+      // tocar o botao — mostrava o botao "Gerar treino da semana" pra aluna nova tambem, que
+      // sempre falhava em silencio (generateCurrentWeekOnDemand recusa de proposito quando nao
+      // existe nenhum plano anterior), deixando a aluna clicando sem nada acontecer.
+      const anyPlanEver = await this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } });
+      return {
+        notGenerated: true,
+        startDate: weekStart,
+        endDate: addDays(weekStart, 6),
+        hasSubscriptionAccess: hasSubscriptionAccess(user.subscriptionStatus),
+        hasEverHadPlan: Boolean(anyPlanEver),
+      };
     }
 
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
@@ -293,11 +306,13 @@ export class TrainingPlansService {
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan(hasSubscriptionAccess(user.subscriptionStatus));
     if (!plan) {
+      const anyPlanEver = await this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } });
       return {
         notGenerated: true,
         startDate: targetWeekStart,
         endDate: addDays(targetWeekStart, 6),
         hasSubscriptionAccess: hasSubscriptionAccess(user.subscriptionStatus),
+        hasEverHadPlan: Boolean(anyPlanEver),
       };
     }
 

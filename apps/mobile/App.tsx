@@ -242,6 +242,7 @@ interface WeekByOffsetResponse extends Partial<WeekPlan> {
   startDate?: string;
   endDate?: string;
   hasSubscriptionAccess?: boolean;
+  hasEverHadPlan?: boolean;
 }
 
 type InterviewAnswer = string | number | string[] | boolean;
@@ -2100,7 +2101,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   const [applyRoutinePermanently, setApplyRoutinePermanently] = useState(false);
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
   const [weekOffset, setWeekOffset] = useState(0);
-  const [notGeneratedRange, setNotGeneratedRange] = useState<{ startDate: string; endDate: string; hasSubscriptionAccess: boolean } | null>(null);
+  const [notGeneratedRange, setNotGeneratedRange] = useState<{ startDate: string; endDate: string; hasSubscriptionAccess: boolean; hasEverHadPlan: boolean } | null>(null);
 
   useEffect(() => {
     if (accessToken) {
@@ -2135,7 +2136,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       const data = (await response.json()) as WeekByOffsetResponse;
       if (data.notGenerated) {
         setPlan(null);
-        setNotGeneratedRange({ startDate: data.startDate ?? '', endDate: data.endDate ?? '', hasSubscriptionAccess: Boolean(data.hasSubscriptionAccess) });
+        setNotGeneratedRange({ startDate: data.startDate ?? '', endDate: data.endDate ?? '', hasSubscriptionAccess: Boolean(data.hasSubscriptionAccess), hasEverHadPlan: Boolean(data.hasEverHadPlan) });
         return;
       }
 
@@ -2173,7 +2174,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         // semana agora e sempre sob demanda, via o botao explicito "Gerar treino da semana"
         // (ver generateCurrentWeekNow) — nunca automatica so por abrir o app.
         setPlan(null);
-        setNotGeneratedRange({ startDate: data.startDate ?? '', endDate: data.endDate ?? '', hasSubscriptionAccess: Boolean(data.hasSubscriptionAccess) });
+        setNotGeneratedRange({ startDate: data.startDate ?? '', endDate: data.endDate ?? '', hasSubscriptionAccess: Boolean(data.hasSubscriptionAccess), hasEverHadPlan: Boolean(data.hasEverHadPlan) });
         setStatus('');
         return;
       }
@@ -2605,13 +2606,20 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
           </Pressable>
         </View>
         <Text style={styles.titleSmall}>{upcomingWeekRangeLabel()}</Text>
-        <View style={styles.coachBox}>
-          <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
-          <Text style={styles.coachText}>Toque para gerar seu treino da semana que comeca segunda-feira. Para ver o treino de domingo (ou de dias anteriores), use "Anterior".</Text>
-          <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generateCurrentWeekNow}>
-            <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar treino da semana'}</Text>
-          </Pressable>
-        </View>
+        {notGeneratedRange && !notGeneratedRange.hasEverHadPlan ? (
+          <View style={styles.coachBox}>
+            <Text style={styles.coachTitle}>Estamos preparando seu primeiro programa</Text>
+            <Text style={styles.coachText}>Complete "Rotina de treinos" no menu principal para montarmos sua semana inicial automaticamente.</Text>
+          </View>
+        ) : (
+          <View style={styles.coachBox}>
+            <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
+            <Text style={styles.coachText}>Toque para gerar seu treino da semana que comeca segunda-feira. Para ver o treino de domingo (ou de dias anteriores), use "Anterior".</Text>
+            <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generateCurrentWeekNow}>
+              <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar treino da semana'}</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
     );
   }
@@ -2631,7 +2639,12 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
           </Pressable>
         </View>
         <Text style={styles.titleSmall}>{formatDayMonth(new Date(notGeneratedRange.startDate))} a {formatDayMonth(new Date(notGeneratedRange.endDate))}</Text>
-        {weekOffset === 0 && !isBeforeWeeklyRelease() ? (
+        {weekOffset === 0 && !isBeforeWeeklyRelease() && !notGeneratedRange.hasEverHadPlan ? (
+          <View style={styles.coachBox}>
+            <Text style={styles.coachTitle}>Estamos preparando seu primeiro programa</Text>
+            <Text style={styles.coachText}>Complete "Rotina de treinos" no menu principal para montarmos sua semana inicial automaticamente.</Text>
+          </View>
+        ) : weekOffset === 0 && !isBeforeWeeklyRelease() ? (
           <View style={styles.coachBox}>
             <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
             <Text style={styles.coachText}>Toque para gerar seu treino a partir de hoje.</Text>
