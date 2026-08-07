@@ -218,7 +218,6 @@ export class CoachService {
       ...(dto.distanceKm !== undefined ? { distanceKm: dto.distanceKm || null } : {}),
       ...(dto.intensityZone !== undefined ? { intensityZone: dto.intensityZone.trim() || null } : {}),
       ...(dto.notes !== undefined ? { notes: dto.notes.trim() || null } : {}),
-      ...(dto.recommendations !== undefined ? { recommendations: dto.recommendations.trim() || null } : {}),
       ...(dto.structure !== undefined ? { structure: dto.structure as Prisma.InputJsonObject } : {}),
     };
     if (!Object.keys(data).length) {
@@ -829,8 +828,10 @@ export class CoachService {
               completedPaceSecondsKm: session.completion?.avgPaceSecondsKm ?? null,
               completedAt: session.completion?.completedAt ?? null,
               stravaActivity: serializeStravaActivity(stravaBySession.get(session.id) ?? null),
-              notes: session.notes,
-              recommendations: session.recommendations,
+              // Campo unico de texto explicativo — "recommendations" foi removido em 07/08 (dois
+              // campos so confundiam e gastavam token da IA a toa); sessoes antigas que ainda tem
+              // algo la aparecem juntas aqui, num so texto.
+              notes: [session.notes, session.recommendations].filter(Boolean).join(' '),
               routineMismatchNote: session.routineMismatchNote,
             })),
           }
@@ -862,8 +863,7 @@ export class CoachService {
           distanceKm: session.distanceKm,
           zone: session.intensityZone,
           structure: session.structure,
-          notes: session.notes,
-          recommendations: session.recommendations,
+          notes: [session.notes, session.recommendations].filter(Boolean).join(' '),
           routineMismatchNote: session.routineMismatchNote,
           completionStatus: session.completion?.status ?? 'sem_registro',
           perceivedEffort: session.completion?.perceivedEffort ?? null,

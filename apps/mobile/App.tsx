@@ -140,7 +140,6 @@ interface WeekPlanSession {
   distanceKm?: number | null;
   structure?: SessionStructure;
   notes?: string;
-  recommendations?: string | null;
   routineMismatchNote?: string | null;
   completion?: {
     status: CompletionDraft['status'];
@@ -2745,7 +2744,6 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
                     ) : null}
                     {'notes' in session && session.notes ? <Text style={styles.sessionNote}>{session.notes}</Text> : null}
                     <SessionPrescription session={session} />
-                    {session.recommendations ? <Text style={styles.sessionNote}>{session.recommendations}</Text> : null}
                     <CompletionForm
                       session={session}
                       draft={completionDrafts[session.id] ?? defaultCompletionDraft(session)}
@@ -6182,27 +6180,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     fontWeight: '600',
-  },
-  recommendationsBox: {
-    marginTop: 4,
-    padding: 10,
-    borderRadius: 8,
-    backgroundColor: '#f0fdf9',
-    borderWidth: 1,
-    borderColor: '#ccfbf1',
-    gap: 4,
-  },
-  recommendationsTitle: {
-    color: '#0f766e',
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
-  recommendationsText: {
-    color: '#134e4a',
-    fontSize: 13,
-    lineHeight: 19,
   },
   painNudgeBox: {
     marginTop: 4,

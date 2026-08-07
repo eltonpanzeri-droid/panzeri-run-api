@@ -83,8 +83,13 @@ const AiSessionSchema = z.object({
   // (alternancia caminhada/corrida), deixando intervalStructure e distanceKm/paceSecondsPerKm null.
   distanceKm: z.number().min(1).max(60).nullable(),
   paceSecondsPerKm: z.number().int().min(150).max(900).nullable(),
+  // Campo unico de texto explicativo para este treino: a explicacao principal do treino JUNTO
+  // com qualquer cuidado/dica pratica que valha a pena o aluno guardar (ex: um sinal de alerta,
+  // uma dica de execucao) — tudo em um so lugar, sem repetir o mesmo conteudo de forma diferente
+  // (antes existia um segundo campo "recommendations" separado so pra isso; foi removido em
+  // 07/08 a pedido do treinador — dois campos nao ajudavam o aluno e so gastavam token/raciocinio
+  // da IA sem necessidade real).
   notes: z.string().min(1),
-  recommendations: z.string().min(1),
   // Preenchido quando durationMin ultrapassa o tempo normal disponivel para este weekday
   // especifico — cite a diretriz que autoriza isso para ESTE dia. Null/vazio quando a duracao
   // esta dentro do normal do dia.
@@ -533,7 +538,7 @@ export class PrescriptionAgentService {
     runSlots: RunSlot[],
   ): {
     sessions: RunSessionDecision[];
-    failures: Array<{ weekday: number; title: string; durationMin: number; notes: string; recommendations: string; reason: string }>;
+    failures: Array<{ weekday: number; title: string; durationMin: number; notes: string; reason: string }>;
     routineMismatch: string | null;
     // Mesma informacao de routineMismatch, mas quebrada por sessao especifica (chave
     // "weekday:modality") — usada por generateWeek() pra marcar SO a sessao que realmente saiu do
@@ -560,7 +565,7 @@ export class PrescriptionAgentService {
     }
 
     const result: RunSessionDecision[] = [];
-    const failures: Array<{ weekday: number; title: string; durationMin: number; notes: string; recommendations: string; reason: string }> = [];
+    const failures: Array<{ weekday: number; title: string; durationMin: number; notes: string; reason: string }> = [];
     const durationMismatches: string[] = [];
     const sessionMismatches: Record<string, string> = {};
 
@@ -594,7 +599,6 @@ export class PrescriptionAgentService {
           title: session.title,
           durationMin: session.durationMin,
           notes: session.notes,
-          recommendations: session.recommendations,
           reason: shape.reason,
         });
         continue;
@@ -606,8 +610,7 @@ export class PrescriptionAgentService {
         durationMin: session.durationMin,
         distanceKm: shape.distanceKm,
         paceSecondsPerKm: shape.paceSecondsPerKm,
-        notes: truncateText(session.notes, 800),
-        recommendations: truncateText(session.recommendations, 350),
+        notes: truncateText(session.notes, 900),
         intervalStructure: shape.intervalStructure,
         walkRunStructure: shape.walkRunStructure,
       });
@@ -727,13 +730,12 @@ export class PrescriptionAgentService {
       'Cuidado ao interpretar texto livre escrito pelo proprio aluno (respostas de entrevista/reavaliacao, comentarios): muitos alunos escrevem de forma informal, como numa conversa entre pessoas, com ironia, hiperbole ou exagero comico (ex: "corri e quase morri" ou "foi moleza" nao sao relatos medicos literais). Nunca leve essas frases ao pe da letra como se fossem um dado objetivo.',
       'VARIEDADE: nao repita o mesmo padrao de estimulo semana apos semana pro mesmo aluno so por inercia (mesmo volume, mesma estrutura, mesmo ritmo de progressao) — pense em como um treinador real varia o treino ao longo do tempo pra continuar desafiando e evoluindo o aluno. Isso vale pro treino em si, nao so pra redacao do titulo/notes.',
       'O campo notes e a sua voz de treinador falando diretamente com o aluno sobre o treino daquele dia especifico. Pense em como um treinador humano de verdade entrega uma prescricao: ele passa os numeros — distancia, pace, series, tempo — mas tambem conversa com o aluno sobre isso. Ele descreve com as proprias palavras o que prescreveu, da dicas de como executar (por onde comecar, como distribuir o esforco ao longo do treino, o que sentir em cada trecho), avisa cuidados especificos daquele treino (nao acelerar demais no inicio, atencao redobrada num trecho mais dificil, sinal de alerta pra ajustar ou parar), e ajuda o aluno a saber lidar na pratica com o que foi prescrito (o que fazer se sentir mais cansado que o esperado, como se comportar num dia mais quente, o que priorizar se precisar encurtar algo). E esse acompanhamento humano e real que faz o aluno confiar e seguir o treino direito — nao e um campo burocratico de preenchimento. NAO fale de aquecimento/resfriamento em notes — isso ja aparece pro aluno como uma instrucao padrao fixa, fora do que voce escreve.',
-      'notes e exatamente essa conversa, escrita. distanceKm, paceSecondsPerKm, intervalStructure e walkRunStructure sao os numeros que voce, como treinador, ja decidiu para esse aluno nesse dia — a mesma decisao que voce tomaria escrevendo numa ficha de treino. Quando voce fala sobre o treino em notes, voce esta narrando essa MESMA prescricao que ja escreveu nos numeros, do mesmo jeito que um treinador real nao diria uma coisa na conversa e escreveria outra na ficha — isso deixaria o aluno sem saber o que fazer de verdade. Antes de finalizar, se pergunte: se eu fosse o aluno, lendo isso e olhando os numeros do meu treino ao mesmo tempo, faria sentido? Estou descrevendo exatamente a mesma prescricao, ou inventando uma segunda sem perceber?',
-      'O campo recommendations e diferente de notes: e um recado curto, de poucas linhas, um unico ponto pratico que vale a pena o aluno guardar sobre ESTE treino especifico (ex: um cuidado principal, uma dica de execucao, um sinal de alerta) — nao repita o que ja foi dito em notes nem tente cobrir tudo de novo. Pense nisso como o que um treinador real diria em uma frase rapida ao lado da ficha, nao como uma segunda explicacao completa.',
-      'CONSISTENCIA INTERNA E OBRIGATORIA: o nivel/condicionamento do aluno que voce concluir tem que ser o MESMO em toda a resposta — rationale geral e notes/recommendations de cada sessao contando a mesma historia sobre este aluno.',
+      'notes e exatamente essa conversa, escrita — e tambem o unico lugar pra um cuidado/dica pratica especifica daquele treino (ex: um sinal de alerta, uma dica de execucao): nao existe mais um segundo campo separado pra isso, entao inclua tudo nesse mesmo texto, sem repetir a mesma ideia duas vezes. distanceKm, paceSecondsPerKm, intervalStructure e walkRunStructure sao os numeros que voce, como treinador, ja decidiu para esse aluno nesse dia — a mesma decisao que voce tomaria escrevendo numa ficha de treino. Quando voce fala sobre o treino em notes, voce esta narrando essa MESMA prescricao que ja escreveu nos numeros, do mesmo jeito que um treinador real nao diria uma coisa na conversa e escreveria outra na ficha — isso deixaria o aluno sem saber o que fazer de verdade. Antes de finalizar, se pergunte: se eu fosse o aluno, lendo isso e olhando os numeros do meu treino ao mesmo tempo, faria sentido? Estou descrevendo exatamente a mesma prescricao, ou inventando uma segunda sem perceber?',
+      'CONSISTENCIA INTERNA E OBRIGATORIA: o nivel/condicionamento do aluno que voce concluir tem que ser o MESMO em toda a resposta — rationale geral e notes de cada sessao contando a mesma historia sobre este aluno.',
       'PRIMEIRA SEMANA SEM NENHUM HISTORICO (historicoSemanal vazio, sem reavaliacao, sem analiseExecucao, sem analiseAprofundadaStrava): trate como calibragem inicial. Para um aluno com pouco tempo de corrida ou volume baixo/recente-comeco, prefira comecar com rodagens leves e um longao moderado, guardando um estimulo mais forte pra depois de ver a resposta real dele aos primeiros treinos — a nao ser que a evidencia de pace ja seja claramente forte e consistente.',
-      'ORCAMENTO DE TEXTO DA RESPOSTA (importante, incidente real 02/08): sua resposta inteira — todos os dias de corrida e de forca de uma vez — tem um limite de tamanho. Se voce escrever textos longos demais nos primeiros dias, pode faltar espaco pra terminar os ultimos, e a resposta e cortada no meio (fica invalida, o aluno nao recebe treino nenhum naquela semana). Terminar a resposta INTEIRA e sempre mais importante do que cada campo de texto ser longo. Regra pratica: notes de cada dia de corrida/forca em torno de 3 a 5 frases (nao um paragrafo extenso), recommendations em 1 a 2 frases curtas, rationale como bullets curtos. Se em algum momento perceber que esta gastando texto demais, prefira DIMINUIR o que ainda vai escrever (textos mais diretos e objetivos) — nunca "force" continuar no mesmo nivel de detalhe e arriscar nao terminar. Uma resposta completa com texto mais enxuto e sempre melhor que uma resposta rica mas cortada.',
+      'ORCAMENTO DE TEXTO DA RESPOSTA (importante, incidente real 02/08): sua resposta inteira — todos os dias de corrida e de forca de uma vez — tem um limite de tamanho. Se voce escrever textos longos demais nos primeiros dias, pode faltar espaco pra terminar os ultimos, e a resposta e cortada no meio (fica invalida, o aluno nao recebe treino nenhum naquela semana). Terminar a resposta INTEIRA e sempre mais importante do que cada campo de texto ser longo. Regra pratica: notes de cada dia de corrida/forca em torno de 4 a 6 frases (nao um paragrafo extenso), rationale como bullets curtos. Se em algum momento perceber que esta gastando texto demais, prefira DIMINUIR o que ainda vai escrever (textos mais diretos e objetivos) — nunca "force" continuar no mesmo nivel de detalhe e arriscar nao terminar. Uma resposta completa com texto mais enxuto e sempre melhor que uma resposta rica mas cortada.',
       'O campo title de cada sessao NAO e mais exibido ao aluno nem ao treinador — o titulo mostrado e sempre o nome fixo da modalidade (Corrida/Fortalecimento para corredores/Musculacao), decidido em codigo. Preencha title com qualquer texto curto valido, sem gastar esforco pensando nele.',
-      'Responda em portugues nos campos de texto (notes, recommendations, recommendation, rationale, durationJustification).',
+      'Responda em portugues nos campos de texto (notes, rationale, durationJustification).',
       'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida.',
       '- OBRIGATORIO: retorne EXATAMENTE uma sessao em strengthSessions para CADA item listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). O mesmo weekday pode aparecer mais de uma vez na lista, uma para cada modalidade — retorne uma sessao pra cada item nesse caso, isso e o dado real da rotina do aluno, nao um erro. Se diasDisponiveisParaForca tiver 3 itens, strengthSessions tem que ter 3 sessoes — nunca deixe esse campo vazio ou incompleto quando diasDisponiveisParaForca nao estiver vazio: a resposta inteira e descartada quando isso acontece, desperdicando todo o raciocinio que voce fez pros dias de corrida.',
       '- A modalidade de cada item em diasDisponiveisParaForca vem da rotina real do aluno e normalmente nao muda — copie o campo modality literalmente. Uma diretriz sobre forca/fortalecimento normalmente muda foco/exercicios/intensidade daquele dia, nao a modalidade em si; so mude a modalidade se a diretriz pedir isso explicitamente.',

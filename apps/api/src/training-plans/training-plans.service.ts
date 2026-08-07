@@ -31,7 +31,6 @@ interface SessionTemplate {
   zone: string;
   durationMin: number;
   notes: string;
-  recommendations?: string;
 }
 
 interface RunStep {
@@ -68,7 +67,7 @@ const planEngineVersion = 'rules-v11-' + PANZERI_METHODOLOGY_VERSION;
 // Instrucao de aquecimento/resfriamento generica e padrao para todo treino de corrida — decisao
 // deliberada do treinador: isso e boilerplate pratico igual pra qualquer aluno, nao uma decisao
 // de treino que precisa de raciocinio da IA a cada sessao. Fixo em codigo, sem custo de IA,
-// apendado ao final das recomendacoes de toda sessao de corrida.
+// apendado ao final do texto explicativo (notes) de toda sessao de corrida.
 const STANDARD_WARMUP_COOLDOWN_TEXT =
   'Aquecimento: 5-10 min de corrida bem leve ou caminhada rapida antes de comecar o treino prescrito. Resfriamento: 5 min de corrida bem leve ou caminhada logo apos terminar, seguido de alongamento leve.';
 
@@ -649,8 +648,7 @@ export class TrainingPlansService {
           title: runDecision.title,
           sessionType: this.deriveSessionTypeLabel(runDecision),
           durationMin: runDecision.durationMin,
-          notes: runDecision.notes,
-          recommendations: `${runDecision.recommendations} ${STANDARD_WARMUP_COOLDOWN_TEXT}`,
+          notes: `${runDecision.notes} ${STANDARD_WARMUP_COOLDOWN_TEXT}`,
         } : baseTemplate;
         const modalityDurations = normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined);
         const requestedDuration = modalityDurations?.[modality] ?? day.availableMin ?? template.durationMin;
@@ -702,7 +700,6 @@ export class TrainingPlansService {
             : null,
           structure: prescription as unknown as Prisma.InputJsonObject,
           notes: isStrength ? (strengthDecision?.notes ?? template.notes) : template.notes,
-          recommendations: isRunningModality(modality) ? template.recommendations ?? null : null,
           videoRefs: [],
           // So marca quando NAO ha diretriz ativa (com diretriz, o desvio e esperado — mesma
           // regra usada pro aviso de rotina agregado da semana, ver logo acima). Aviso fica na
@@ -753,8 +750,7 @@ export class TrainingPlansService {
           intensityZone: null,
           paceMinSec: prescription.representativePaceSecondsPerKm != null ? formatPace(prescription.representativePaceSecondsPerKm) : null,
           structure: prescription as unknown as Prisma.InputJsonObject,
-          notes: runDecision.notes,
-          recommendations: `${runDecision.recommendations} ${STANDARD_WARMUP_COOLDOWN_TEXT}`,
+          notes: `${runDecision.notes} ${STANDARD_WARMUP_COOLDOWN_TEXT}`,
           videoRefs: [],
           routineMismatchNote: activeDirectives.length === 0
             ? (methodology.sessionMismatches?.[mismatchKeyFor(weekday, 'corrida')] ?? 'Este treino foi gerado a mais, alem do combinado na sua rotina para este dia.')
@@ -1396,8 +1392,8 @@ export class TrainingPlansService {
     },
   ) {
     // Aquecimento e desaquecimento NAO fazem mais parte do treino prescrito nem da distancia/
-    // duracao total — viraram uma recomendacao em texto (campo "recommendations", escrita pela
-    // IA por sessao), exibida separadamente. Isso evita o erro que ja aconteceu na pratica: um
+    // duracao total — viraram um texto padrao apendado ao final de "notes" (ver
+    // STANDARD_WARMUP_COOLDOWN_TEXT). Isso evita o erro que ja aconteceu na pratica: um
     // treino "leve" de poucos km onde boa parte era so aquecimento/desaquecimento contando pro
     // volume, distorcendo o quanto o aluno realmente treinou naquele dia.
     //
@@ -1662,8 +1658,10 @@ export class TrainingPlansService {
         durationMin: session.durationMin,
         distanceKm: session.distanceKm,
         structure: session.structure,
-        notes: session.notes,
-        recommendations: session.recommendations,
+        // Campo unico de texto explicativo — antes existia "recommendations" separado, removido
+        // em 07/08. Sessoes antigas que ainda tem algo la (dado historico, nao apagado do banco)
+        // continuam aparecendo, so que juntas com notes num unico texto pro aluno.
+        notes: [session.notes, session.recommendations].filter(Boolean).join(' '),
         routineMismatchNote: session.routineMismatchNote,
         completion: session.completion
           ? {

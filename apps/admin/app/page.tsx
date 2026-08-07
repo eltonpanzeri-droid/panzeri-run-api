@@ -220,7 +220,6 @@ interface StudentDetail {
       satisfaction?: string | null;
       feedback?: string | null;
       notes?: string | null;
-      recommendations?: string | null;
       completedDurationMin?: number | null;
       completedDistanceKm?: number | null;
       completedPaceSecondsKm?: number | null;
@@ -254,7 +253,6 @@ interface StudentDetail {
       zone?: string | null;
       structure?: Record<string, unknown> | null;
       notes?: string | null;
-      recommendations?: string | null;
       completionStatus: string;
       perceivedEffort?: number | null;
       satisfaction?: string | null;
@@ -1995,7 +1993,8 @@ function StudentPanel({
           value={chatInput}
           onChange={(event) => setChatInput(event.target.value)}
           placeholder="Pergunte sobre o treino, peca o relatorio do Strava, ou combine uma regra para este aluno"
-          rows={3}
+          rows={8}
+          className="chatInputTextarea"
         />
         <button type="button" disabled={sendingChat || !chatInput.trim()} onClick={sendChatMessage}>
           {sendingChat ? 'Consultando o agente...' : 'Enviar'}
@@ -2251,7 +2250,7 @@ function StudentPanel({
                   {plan.sessions?.map((session) => (
                     <article className="historySession" key={session.id}>
                       <div><strong>{weekdayLabel(session.weekday)} {dateLabel(session.date)} - {session.title}</strong><span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''}</span></div>
-                      <AdminPrescription structure={session.structure} notes={session.notes} recommendations={session.recommendations} />
+                      <AdminPrescription structure={session.structure} notes={session.notes} />
                       <p className="historyExecution">{completionLabel(session.completionStatus)}{session.perceivedEffort ? ` | PSE ${session.perceivedEffort}/10` : ''}{session.satisfaction ? ` | Satisfacao: ${satisfactionLabel(session.satisfaction)}` : ''}{session.feedback ? ` | ${session.feedback}` : ''}</p>
                     </article>
                   ))}
@@ -2292,7 +2291,6 @@ function EditableSession({
   const [distanceKm, setDistanceKm] = useState(String(session.distanceKm ?? ''));
   const [zone, setZone] = useState(session.zone ?? '');
   const [notes, setNotes] = useState(session.notes ?? '');
-  const [recommendations, setRecommendations] = useState(session.recommendations ?? '');
   const [isEditing, setIsEditing] = useState(Boolean(autoOpen));
   const [structure, setStructure] = useState<Record<string, unknown>>(() => normalizeSessionStructure(session));
   const [saveMessage, setSaveMessage] = useState('');
@@ -2318,7 +2316,6 @@ function EditableSession({
           distanceKm: Number(distanceKm.replace(',', '.')) || 0,
           intensityZone: zone,
           notes,
-          recommendations,
           structure,
         }),
       });
@@ -2422,7 +2419,7 @@ function EditableSession({
         <strong>{session.title}</strong>
         <span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''}</span>
       </div>
-      <AdminPrescription structure={session.structure} notes={session.notes} recommendations={session.recommendations} />
+      <AdminPrescription structure={session.structure} notes={session.notes} />
       <div className={`executionPanel ${session.completionStatus === 'sem_registro' && !session.stravaActivity ? 'emptyExecution' : ''}`}>
         <strong>Realizado pelo aluno</strong>
         {session.completionStatus === 'sem_registro' ? <span>{session.stravaActivity ? 'Sem registro manual no aplicativo' : 'Sem registro'}</span> : (
@@ -2467,8 +2464,9 @@ function EditableSession({
                 {!isStrengthModality(modality) ? <label>Zona principal<input value={zone} onChange={(event) => setZone(event.target.value)} /></label> : null}
               </div>
               <StructureEditor structure={structure} testPaceSeconds={testPaceSeconds} onChange={handleStructureChange} />
-              <label>Orientacoes gerais<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
-              <label>Recomendacoes (aquecimento, desaquecimento, hidratacao, etc.)<textarea value={recommendations} onChange={(event) => setRecommendations(event.target.value)} /></label>
+              <label>Orientacoes para o aluno (explicacao do treino, cuidados, dicas)
+                <textarea className="notesTextarea" value={notes} onChange={(event) => setNotes(event.target.value)} />
+              </label>
               {saveMessage ? <p className={`modalSaveMessage ${saveMessage.includes('sucesso') ? 'saveSuccess' : ''}`}>{saveMessage}</p> : null}
               <button className="saveEditButton" type="button" disabled={isSaving} onClick={saveSession}><Save size={16} /> {isSaving ? 'Salvando...' : 'Salvar treino completo'}</button>
             </div>
@@ -3031,15 +3029,10 @@ function computeStructureTotals(structure: Record<string, unknown>): StructureTo
   };
 }
 
-function AdminPrescription({ structure, notes, recommendations }: { structure?: Record<string, unknown> | null; notes?: string | null; recommendations?: string | null }) {
+function AdminPrescription({ structure, notes }: { structure?: Record<string, unknown> | null; notes?: string | null }) {
   if (!structure) {
-    if (!notes && !recommendations) return null;
-    return (
-      <>
-        {notes ? <p className="coachNotes">{notes}</p> : null}
-        {recommendations ? <p className="coachNotes">{recommendations}</p> : null}
-      </>
-    );
+    if (!notes) return null;
+    return <p className="coachNotes">{notes}</p>;
   }
   const type = String(structure.type ?? '');
   if (type === 'run' || type === 'aerobic') {
@@ -3087,7 +3080,6 @@ function AdminPrescription({ structure, notes, recommendations }: { structure?: 
           );
         })}
         {notes ? <p className="coachNotes">{notes}</p> : null}
-        {recommendations ? <p className="coachNotes">{recommendations}</p> : null}
       </div>
     );
   }

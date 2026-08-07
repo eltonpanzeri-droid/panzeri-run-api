@@ -157,10 +157,6 @@ export interface RunSessionDecision {
   // forma usar — so confere consistencia interna de qual foi escolhida.
   distanceKm: number | null;
   paceSecondsPerKm: number | null;
-  // Orientacoes gerais (aquecimento, desaquecimento, hidratacao, cuidados rua/esteira etc.),
-  // pensadas pela IA para este aluno especifico — NAO fazem parte do treino prescrito nem da
-  // distancia/duracao total, sao so recomendacoes em texto exibidas separadamente.
-  recommendations?: string;
   intervalStructure?: IntervalStructureDecision | null;
   walkRunStructure?: WalkRunStructureDecision | null;
 }
