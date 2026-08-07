@@ -18,6 +18,8 @@ interface StravaActivityResponse {
   start_date: string;
   distance?: number;
   moving_time?: number;
+  elapsed_time?: number;
+  total_elevation_gain?: number;
   average_heartrate?: number;
   max_heartrate?: number;
   average_cadence?: number;
@@ -508,10 +510,12 @@ export class StravaService implements OnModuleInit {
         startDate: new Date(activity.start_date),
         distanceKm,
         movingTimeSec: activity.moving_time,
+        elapsedTimeSec: activity.elapsed_time ?? null,
         avgPaceSecKm,
         avgHeartRate: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
         maxHeartRate: activity.max_heartrate ? Math.round(activity.max_heartrate) : null,
         cadence: activity.average_cadence ? Math.round(activity.average_cadence) : null,
+        elevationGainM: activity.total_elevation_gain ?? null,
         raw: toJsonObject(activity),
       },
       update: {
@@ -521,10 +525,12 @@ export class StravaService implements OnModuleInit {
         startDate: new Date(activity.start_date),
         distanceKm,
         movingTimeSec: activity.moving_time,
+        elapsedTimeSec: activity.elapsed_time ?? null,
         avgPaceSecKm,
         avgHeartRate: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
         maxHeartRate: activity.max_heartrate ? Math.round(activity.max_heartrate) : null,
         cadence: activity.average_cadence ? Math.round(activity.average_cadence) : null,
+        elevationGainM: activity.total_elevation_gain ?? null,
         raw: toJsonObject(activity),
       },
     });

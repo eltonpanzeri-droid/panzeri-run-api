@@ -151,7 +151,7 @@ interface WeekPlanSession {
     satisfaction?: string | null;
     painFlag?: string | null;
     notes?: string | null;
-    details?: { loadsText?: string } | null;
+    details?: { loadsText?: string; pacingMode?: string } | null;
   } | null;
 }
 
@@ -284,6 +284,9 @@ interface CompletionDraft {
   avgPace: string;
   notes: string;
   loadsText: string;
+  // So relevante pra treinos de corrida: "correu tudo" e diferente de "completou a distancia
+  // caminhando/parando em trechos" — informacao que o Strava/pace medio sozinho nao revela.
+  pacingMode: string;
 }
 
 interface StravaReport {
@@ -2376,6 +2379,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       notes: draft.notes || undefined,
       details: {
         loadsText: draft.loadsText,
+        pacingMode: draft.pacingMode || undefined,
       },
     };
 
@@ -4707,6 +4711,27 @@ function CompletionForm({
         </View>
       )}
 
+      {isRun ? (
+        <View>
+          <Text style={styles.formHint}>Voce correu o percurso todo, ou teve pausas para caminhar/parar?</Text>
+          <View style={styles.completionStatusRow}>
+            {[
+              { label: 'Corri o tempo todo', value: 'correu_tudo' },
+              { label: 'Caminhei em pequenos trechos', value: 'caminhou_pouco' },
+              { label: 'Caminhei/parei bastante', value: 'caminhou_muito' },
+            ].map((option) => (
+              <Pressable
+                key={option.value}
+                style={[styles.completionChip, draft.pacingMode === option.value && styles.completionChipActive]}
+                onPress={() => onChange({ pacingMode: option.value })}
+              >
+                <Text style={[styles.completionChipText, draft.pacingMode === option.value && styles.completionChipTextActive]}>{option.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ) : null}
+
       {isStrength ? (
         <TextInput
           style={[styles.compactInput, styles.multilineInput]}
@@ -5239,6 +5264,7 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     avgPace: '',
     notes: '',
     loadsText: '',
+    pacingMode: '',
   };
 }
 
@@ -5256,6 +5282,7 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     avgPace: completion.avgPaceSecondsKm ? paceSecondsToInput(completion.avgPaceSecondsKm) : '',
     notes: completion.notes ?? '',
     loadsText: completion.details?.loadsText ?? '',
+    pacingMode: completion.details?.pacingMode ?? '',
   };
 }
 

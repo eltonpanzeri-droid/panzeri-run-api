@@ -394,20 +394,28 @@ model StravaAnalysisCache {
 }
 
 model StravaActivity {
-  id            String   @id @default(uuid())
-  userId        String
-  stravaId      String   @unique
-  name          String?
-  type          String?
-  startDate     DateTime
-  distanceKm    Float?
-  movingTimeSec Int?
-  avgPaceSecKm  Int?
-  avgHeartRate  Int?
-  maxHeartRate  Int?
-  cadence       Int?
-  raw           Json
-  createdAt     DateTime @default(now())
+  id             String   @id @default(uuid())
+  userId         String
+  stravaId       String   @unique
+  name           String?
+  type           String?
+  startDate      DateTime
+  distanceKm     Float?
+  movingTimeSec  Int?
+  // Tempo total decorrido da atividade (inclui paradas reais — semaforo, agua parada etc.),
+  // diferente de movingTimeSec (que o proprio Strava ja tenta excluir parada total, mas NAO
+  // exclui caminhada, que ainda conta como "em movimento"). Um gap grande entre os dois e sinal
+  // de paradas reais; nao ajuda a detectar caminhada dentro do treino.
+  elapsedTimeSec Int?
+  avgPaceSecKm   Int?
+  avgHeartRate   Int?
+  maxHeartRate   Int?
+  cadence        Int?
+  // Ganho de elevacao total (metros) — usado pelo agente de analise do Strava pra contextualizar
+  // pace/cadencia mais lentos (subida) em vez de interpretar isso como fadiga ou caminhada.
+  elevationGainM Float?
+  raw            Json
+  createdAt      DateTime @default(now())
 }
 
 model Achievement {

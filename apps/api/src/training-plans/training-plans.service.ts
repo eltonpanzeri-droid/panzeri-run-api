@@ -459,7 +459,7 @@ export class TrainingPlansService {
           completion: { status: { in: ['done', 'adjusted'] }, distanceKm: { not: null } },
         },
         orderBy: { completion: { distanceKm: 'desc' } },
-        select: { scheduledDate: true, completion: { select: { distanceKm: true, satisfaction: true } } },
+        select: { scheduledDate: true, completion: { select: { distanceKm: true, satisfaction: true, details: true } } },
       }),
     ]);
 
@@ -575,6 +575,13 @@ export class TrainingPlansService {
         distanceKm: longestRunSession.completion.distanceKm,
         date: longestRunSession.scheduledDate.toISOString().slice(0, 10),
         satisfaction: longestRunSession.completion.satisfaction,
+        // "Correu" e diferente de "completou" a distancia (pode ter caminhado/parado em trechos) —
+        // autorrelato direto do aluno no formulario pos-treino, ver [[correr_vs_completar_distancia]].
+        // Null quando o aluno nao respondeu essa pergunta (registros antigos, antes dela existir).
+        pacingMode: (() => {
+          const value = jsonObject(longestRunSession.completion.details).pacingMode;
+          return typeof value === 'string' ? value : null;
+        })(),
       } : null,
     };
     const stravaPacedRuns = stravaRuns.filter((activity) => (activity.avgPaceSecKm ?? 0) > 0 && (activity.distanceKm ?? 0) >= 1);

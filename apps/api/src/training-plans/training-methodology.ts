@@ -117,6 +117,10 @@ export interface MethodologyInput {
     distanceKm: number;
     date: string;
     satisfaction: string | null;
+    // Autorrelato do aluno: 'correu_tudo' | 'caminhou_pouco' | 'caminhou_muito' | null (nao
+    // respondido). Ver [[correr_vs_completar_distancia]] — distancia completada com caminhada NAO
+    // e o mesmo que distancia corrida continuamente, especialmente pra decisoes de progressao.
+    pacingMode: string | null;
   } | null;
 }
 
