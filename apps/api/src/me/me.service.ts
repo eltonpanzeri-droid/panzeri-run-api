@@ -219,17 +219,15 @@ export class MeService {
       // ver [[routine_change_auto_regen]].
       // NAO AWAIT (bug real em producao 2026-07-29): generateWeek() pode levar 30s+ — se
       // esperassemos aqui, o proprio POST /me/onboarding/complete travava esse tempo todo.
-      // Sabado ou domingo antes das 19h, sem nenhum dia de treino restante nesta semana: gerar
-      // agora so produziria a semana SEGUINTE, e o job automatico de domingo 19h ja vai fazer
-      // exatamente isso de graca poucas horas depois (ver WeeklyPlanSchedulerService).
-      const delayToSunday = await this.trainingPlans.shouldDelayFirstGenerationToSunday(userId).catch(() => false);
-      if (!delayToSunday) {
-        void this.trainingPlans.generateWeek(userId).catch((error) => {
-          this.logger.warn(`generateWeek apos completeOnboarding falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
-        });
-      } else {
-        this.logger.log(`Geracao da primeira semana adiada para domingo 19h (fim de semana, sem dia de treino restante) para ${userId}.`);
-      }
+      // REMOVIDO (08/08, bug real corrigido): havia aqui um adiamento pra "domingo antes das
+      // 19h" que contava com o job automatico de domingo terminar o servico depois — esse job
+      // nao roda mais sozinho (geracao virou sob demanda), entao o adiamento deixava a aluna
+      // permanentemente sem programa nenhum. generateWeek() ja rola sozinho pra semana seguinte
+      // quando nao sobra dia disponivel nesta, entao chamar direto sempre produz o resultado
+      // certo, sem precisar adiar nada.
+      void this.trainingPlans.generateWeek(userId).catch((error) => {
+        this.logger.warn(`generateWeek apos completeOnboarding falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+      });
     } else {
       this.logger.log(`Entrevista concluida para ${userId} — geracao da primeira semana adiada ate a confirmacao do pagamento.`);
     }

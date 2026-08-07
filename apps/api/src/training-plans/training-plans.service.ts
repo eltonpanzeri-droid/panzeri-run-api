@@ -85,11 +85,10 @@ const STANDARD_WARMUP_COOLDOWN_TEXT =
 const DEFAULT_STRAVA_ANALYSIS_FREQUENCY_DAYS = 30;
 const AI_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
 const PAIN_ALERT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
-// Domingo a partir dessa hora (Sao Paulo): a semana seguinte fica "liberada" — tanto pra
-// suspender a geracao de primeira vez (shouldDelayFirstGenerationToSunday, que ja deixa isso pro
-// cron automatico) quanto pro botao "Gerar treino da semana" (generateCurrentWeekOnDemand) poder
-// gerar a semana seguinte em vez da atual. Antes eram dois horarios diferentes (19h) sem motivo
-// real pra divergir — alinhados aqui na mesma constante (pedido do treinador 06/08).
+// Domingo a partir dessa hora (Sao Paulo): a semana seguinte fica "liberada" pro botao
+// "Gerar treino da semana" (generateCurrentWeekOnDemand) poder gerar a semana seguinte em vez
+// da atual (a primeira geracao, generateFirstWeekIfNeeded, nao usa mais essa constante — ver
+// comentario la, o adiamento pra "domingo" foi removido por deixar alunas presas sem programa).
 const WEEKLY_RELEASE_HOUR = 12;
 // Corte pra decidir se "hoje" ainda conta como dia valido pra gerar treino quando a aluna toca o
 // botao — depois dessa hora nao faz sentido pratico gerar o treino de um dia que ja nao tem mais
@@ -320,40 +319,24 @@ export class TrainingPlansService {
   }
 
   // options.referenceDate/planStatus/archiveCurrentActive existem so para a pre-geracao da
-  // semana SEGUINTE (domingo 19h, ver generateNextWeekIfMissing) — a chamada normal (aluno
-  // abrindo o app, treinador regenerando a semana atual) nunca passa isso, e o comportamento
-  // fica exatamente igual ao de sempre. options.allowToday e diferente: e o treinador confirmando
-  // explicitamente (pelo admin) que quer mesmo alterar o treino de HOJE ao regenerar a semana —
-  // sem isso, hoje continua sempre preservado (comportamento padrao, nunca muda sozinho).
-  // So usado pelos gatilhos de PRIMEIRA geracao acionados pelo proprio aluno (concluir entrevista).
-  // So existem duas formas de gerar a semana automaticamente: a de primeira vez (aqui, disparada
-  // pelo proprio aluno ao concluir a entrevista) e a automatica de domingo a noite. Regra do
-  // treinador (02/08): SO domingo antes das 19h suspende a geracao de primeira vez, porque nesse
-  // caso especifico e a geracao automatica de domingo (WeeklyPlanSchedulerService) que ja vai
-  // fazer o mesmo trabalho poucas horas depois, de graca. Qualquer outro dia da semana (segunda a
-  // sabado) NAO suspende — a geracao de primeira vez sempre vale normalmente nesses dias, mesmo
-  // que va rolar pra semana seguinte por falta de dia disponivel nesta (ver hasFutureDayThisWeek
-  // abaixo). Fora do caso domingo+sem-dia-disponivel (ou aluno que ja tem plano ativo, ou
-  // qualquer regeneracao pedida pelo treinador), sempre retorna false.
-  async shouldDelayFirstGenerationToSunday(userId: string): Promise<boolean> {
-    const { weekday, hour } = saoPauloWeekdayAndHour(new Date());
-    const isSundayBeforeRelease = weekday === 0 && hour < WEEKLY_RELEASE_HOUR;
-    if (!isSundayBeforeRelease) return false;
-
-    const [activePlan, availability] = await Promise.all([
-      this.prisma.trainingPlan.findFirst({ where: { userId, status: 'active' }, select: { id: true } }),
-      this.prisma.weeklyAvailability.findMany({ where: { userId, noTraining: false } }),
-    ]);
-    if (activePlan) return false;
-
-    const rawAvailableDays = availability.length > 0
-      ? availability
-      : [{ weekday: 1 }, { weekday: 2 }, { weekday: 4 }, { weekday: 6 }];
-
-    const today = todayInSaoPaulo();
-    const initialWeekStart = startOfWeek(new Date());
-    return !anyAvailableDayIsFuture(rawAvailableDays, initialWeekStart, today);
-  }
+  // semana SEGUINTE (ver generateNextWeekIfMissing) — a chamada normal (aluno abrindo o app,
+  // treinador regenerando a semana atual) nunca passa isso, e o comportamento fica exatamente
+  // igual ao de sempre. options.allowToday e diferente: e o treinador confirmando explicitamente
+  // (pelo admin) que quer mesmo alterar o treino de HOJE ao regenerar a semana — sem isso, hoje
+  // continua sempre preservado (comportamento padrao, nunca muda sozinho).
+  //
+  // REMOVIDO (08/08, bug real corrigido): existia aqui um "shouldDelayFirstGenerationToSunday"
+  // que suspendia a primeira geracao quando era domingo antes do horario de liberacao e nao
+  // sobrava dia disponivel nesta semana — a logica original contava com o job automatico de
+  // domingo (WeeklyPlanSchedulerService) pra "terminar o servico de graca" poucas horas depois.
+  // Isso ficou orfao quando a geracao em massa de domingo foi desativada (geracao virou sob
+  // demanda, ver generateCurrentWeekOnDemand) — o adiamento continuava acontecendo, mas nada
+  // mais existia pra de fato gerar depois, deixando a aluna PERMANENTEMENTE sem nenhum programa
+  // ate uma intervencao manual do treinador (aconteceu de verdade com pelo menos duas alunas).
+  // Nao precisa de substituto: generateWeek() ja rola sozinho pra semana seguinte quando nao
+  // sobra dia disponivel nesta (ver hasFutureDayThisWeek/anyAvailableDayIsFuture abaixo) — ou
+  // seja, chamar generateWeek direto, mesmo num domingo de manha, ja produz o resultado certo
+  // (a semana seguinte), sem nenhum desperdicio a evitar.
 
   // Chamado pelo BillingService assim que um pagamento e confirmado (webhook, sincronizacao
   // manual/automatica com o Asaas, ou cupom de acesso), e tambem por qualquer rota que salva uma
@@ -381,11 +364,6 @@ export class TrainingPlansService {
     // de novo dali) e quem dispara a geracao de verdade.
     if (!availability.length) return;
 
-    const delayToSunday = await this.shouldDelayFirstGenerationToSunday(userId).catch(() => false);
-    if (delayToSunday) {
-      this.logger.log(`Geracao da primeira semana adiada para domingo 19h (fim de semana, sem dia de treino restante) para ${userId}.`);
-      return;
-    }
     await this.generateWeek(userId);
   }
 
