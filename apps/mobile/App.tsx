@@ -241,6 +241,7 @@ interface WeekByOffsetResponse extends Partial<WeekPlan> {
   notGenerated?: boolean;
   startDate?: string;
   endDate?: string;
+  hasSubscriptionAccess?: boolean;
 }
 
 type InterviewAnswer = string | number | string[] | boolean;
@@ -2099,7 +2100,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   const [applyRoutinePermanently, setApplyRoutinePermanently] = useState(false);
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
   const [weekOffset, setWeekOffset] = useState(0);
-  const [notGeneratedRange, setNotGeneratedRange] = useState<{ startDate: string; endDate: string } | null>(null);
+  const [notGeneratedRange, setNotGeneratedRange] = useState<{ startDate: string; endDate: string; hasSubscriptionAccess: boolean } | null>(null);
 
   useEffect(() => {
     if (accessToken) {
@@ -2134,7 +2135,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       const data = (await response.json()) as WeekByOffsetResponse;
       if (data.notGenerated) {
         setPlan(null);
-        setNotGeneratedRange({ startDate: data.startDate ?? '', endDate: data.endDate ?? '' });
+        setNotGeneratedRange({ startDate: data.startDate ?? '', endDate: data.endDate ?? '', hasSubscriptionAccess: Boolean(data.hasSubscriptionAccess) });
         return;
       }
 
@@ -2172,7 +2173,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         // semana agora e sempre sob demanda, via o botao explicito "Gerar treino da semana"
         // (ver generateCurrentWeekNow) — nunca automatica so por abrir o app.
         setPlan(null);
-        setNotGeneratedRange({ startDate: data.startDate ?? '', endDate: data.endDate ?? '' });
+        setNotGeneratedRange({ startDate: data.startDate ?? '', endDate: data.endDate ?? '', hasSubscriptionAccess: Boolean(data.hasSubscriptionAccess) });
         setStatus('');
         return;
       }
@@ -2514,7 +2515,12 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
 
   // A compra precisa estar disponível mesmo quando a semana ainda nao foi criada.
   // Isso evita deixar novos alunos presos em uma tela vazia sem caminho de assinatura.
-  if (!plan) {
+  // IMPORTANTE (bug real corrigido 08/08): "!plan" sozinho NAO significa "nao pagou" — desde a
+  // geracao sob demanda, fica sem programa ativo por dias e normal pra quem ja pagou e tem
+  // historico (so nao tocou "Gerar treino da semana" ainda). Sem o "!hasSubscriptionAccess"
+  // abaixo, esse bloco vencia sempre e mostrava "ative seu plano" ate pra quem ja tinha pago —
+  // aconteceu de verdade com a aluna Carina, que tinha pago e respondido tudo.
+  if (!plan && (!notGeneratedRange || !notGeneratedRange.hasSubscriptionAccess)) {
     return (
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Treino da semana</Text>

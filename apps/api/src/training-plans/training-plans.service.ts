@@ -157,7 +157,12 @@ export class TrainingPlansService {
     if (!onboarding?.completedAt) return onboardingRequiredPlan(hasSubscriptionAccess(user.subscriptionStatus));
 
     if (!plan) {
-      return { notGenerated: true, startDate: weekStart, endDate: addDays(weekStart, 6) };
+      // hasSubscriptionAccess precisa ir junto: sem isso o app nao tem como saber, quando ainda
+      // nao existe programa (agora um estado normal com a geracao sob demanda), se a aluna ja
+      // pagou e so precisa tocar "Gerar treino da semana", ou se ainda nem pagou. Faltando esse
+      // campo, o app caia sempre na tela generica de "ative seu plano" — bug real, achado
+      // 08/08 (aluna Carina, ja tinha pago e respondido tudo, via a tela de cobranca).
+      return { notGenerated: true, startDate: weekStart, endDate: addDays(weekStart, 6), hasSubscriptionAccess: hasSubscriptionAccess(user.subscriptionStatus) };
     }
 
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
@@ -292,6 +297,7 @@ export class TrainingPlansService {
         notGenerated: true,
         startDate: targetWeekStart,
         endDate: addDays(targetWeekStart, 6),
+        hasSubscriptionAccess: hasSubscriptionAccess(user.subscriptionStatus),
       };
     }
 
