@@ -151,7 +151,7 @@ interface WeekPlanSession {
     satisfaction?: string | null;
     painFlag?: string | null;
     notes?: string | null;
-    details?: { loadsText?: string; pacingMode?: string } | null;
+    details?: { loadsText?: string; pacingMode?: string; missedReasons?: string[]; missedComment?: string } | null;
   } | null;
 }
 
@@ -287,6 +287,10 @@ interface CompletionDraft {
   // So relevante pra treinos de corrida: "correu tudo" e diferente de "completou a distancia
   // caminhando/parando em trechos" — informacao que o Strava/pace medio sozinho nao revela.
   pacingMode: string;
+  // So relevante quando status === 'missed'. Selecao multipla de motivos pre-definidos +
+  // comentario livre opcional — ver MISSED_REASON_OPTIONS.
+  missedReasons: string[];
+  missedComment: string;
 }
 
 interface StravaReport {
@@ -2380,6 +2384,8 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       details: {
         loadsText: draft.loadsText,
         pacingMode: draft.pacingMode || undefined,
+        missedReasons: draft.status === 'missed' && draft.missedReasons.length ? draft.missedReasons : undefined,
+        missedComment: draft.status === 'missed' && draft.missedComment.trim() ? draft.missedComment.trim() : undefined,
       },
     };
 
@@ -4635,6 +4641,19 @@ function DistanceWheelField({ value, onChangeValue }: { value: string; onChangeV
   );
 }
 
+const MISSED_REASON_OPTIONS = [
+  { label: 'Falta de tempo / correria do dia', value: 'falta_tempo' },
+  { label: 'Cansaço / sem energia', value: 'cansaco' },
+  { label: 'Dor ou desconforto físico', value: 'dor' },
+  { label: 'Doente (gripe, resfriado, etc.)', value: 'doente' },
+  { label: 'Viagem', value: 'viagem' },
+  { label: 'Imprevisto pessoal ou familiar', value: 'imprevisto_pessoal' },
+  { label: 'Compromisso de trabalho', value: 'trabalho' },
+  { label: 'Clima (chuva, calor ou frio extremo)', value: 'clima' },
+  { label: 'Falta de motivação / não deu vontade', value: 'falta_motivacao' },
+  { label: 'Esqueci / perdi o horário', value: 'esqueci' },
+];
+
 function CompletionForm({
   session,
   draft,
@@ -4672,6 +4691,42 @@ function CompletionForm({
           </Pressable>
         ))}
       </View>
+
+      {draft.status === 'missed' ? (
+        <View>
+          <Text style={styles.formHint}>Por que voce nao conseguiu fazer esse treino? (pode marcar mais de um)</Text>
+          <View style={styles.completionStatusRow}>
+            {MISSED_REASON_OPTIONS.map((option) => {
+              const active = draft.missedReasons.includes(option.value);
+              return (
+                <Pressable
+                  key={option.value}
+                  style={[styles.completionChip, active && styles.completionChipActive]}
+                  onPress={() =>
+                    onChange({
+                      missedReasons: active
+                        ? draft.missedReasons.filter((value) => value !== option.value)
+                        : [...draft.missedReasons, option.value],
+                    })
+                  }
+                >
+                  <Text style={[styles.completionChipText, active && styles.completionChipTextActive]}>{option.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <View style={styles.completionFieldGroup}>
+            <Text style={styles.inputLabel}>Quer contar mais sobre isso?</Text>
+            <TextInput
+              style={[styles.compactInput, styles.multilineInput]}
+              value={draft.missedComment}
+              onChangeText={(value) => onChange({ missedComment: value })}
+              multiline
+              placeholder="Conte com suas palavras, se quiser (opcional)"
+            />
+          </View>
+        </View>
+      ) : null}
 
       <View style={styles.completionFieldGroup}>
         <Text style={styles.inputLabel}>Data realizada</Text>
@@ -5265,6 +5320,8 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     notes: '',
     loadsText: '',
     pacingMode: '',
+    missedReasons: [],
+    missedComment: '',
   };
 }
 
@@ -5283,6 +5340,8 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     notes: completion.notes ?? '',
     loadsText: completion.details?.loadsText ?? '',
     pacingMode: completion.details?.pacingMode ?? '',
+    missedReasons: completion.details?.missedReasons ?? [],
+    missedComment: completion.details?.missedComment ?? '',
   };
 }
 

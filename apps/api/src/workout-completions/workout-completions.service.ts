@@ -82,6 +82,13 @@ export class WorkoutCompletionsService {
       ).catch(() => undefined);
     }
 
+    const missedReasons = Array.isArray((details as Record<string, unknown>).missedReasons)
+      ? ((details as Record<string, unknown>).missedReasons as unknown[]).filter((value): value is string => typeof value === 'string')
+      : [];
+    const missedComment = typeof (details as Record<string, unknown>).missedComment === 'string'
+      ? ((details as Record<string, unknown>).missedComment as string)
+      : '';
+
     const statusLabelForProfile = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'fez com ajustes' : 'nao fez';
     const profileParts = [
       `Aluno ${statusLabelForProfile} o treino "${session.title}".`,
@@ -90,6 +97,8 @@ export class WorkoutCompletionsService {
       dto.perceivedEffort ? `Esforco percebido: ${dto.perceivedEffort}/10.` : '',
       dto.satisfaction ? `Satisfacao: ${satisfactionLabel(dto.satisfaction)}.` : '',
       dto.painFlag && dto.painFlag !== 'none' ? `Dor sinalizada: ${dto.painFlag}.` : '',
+      missedReasons.length ? `Motivo(s) de nao ter treinado: ${missedReasons.map(missedReasonLabel).join(', ')}.` : '',
+      missedComment.trim() ? `Comentario do aluno sobre a falta: ${missedComment.trim()}` : '',
       dto.notes?.trim() ? `Feedback do aluno: ${dto.notes.trim()}` : '',
     ].filter(Boolean).join(' ');
     void this.studentProfile.recordEvent(userId, ProfileEventCode.WORKOUT_COMPLETED, profileParts).catch(() => undefined);
@@ -105,6 +114,8 @@ export class WorkoutCompletionsService {
       const details = [
         dto.perceivedEffort ? `Esforco: ${dto.perceivedEffort}/10.` : '',
         dto.satisfaction ? `Satisfacao com o treino: ${satisfactionLabel(dto.satisfaction)}.` : '',
+        missedReasons.length ? `Motivo(s) da falta: ${missedReasons.map(missedReasonLabel).join(', ')}.` : '',
+        missedComment.trim() ? `Comentario do aluno: ${missedComment.trim()}` : '',
         dto.notes?.trim() ? `Feedback: ${dto.notes.trim()}` : 'Sem comentario.',
       ].filter(Boolean).join(' ');
       await this.prisma.userNotification.createMany({
@@ -128,6 +139,24 @@ function satisfactionLabel(value: string) {
     neutro: 'Neutro',
     nao_gostei: 'Nao gostei',
     detestei: 'Detestei',
+  };
+  return labels[value] ?? value;
+}
+
+// Mesmas opcoes/valores do seletor de motivo de falta no app (ver MISSED_REASON_OPTIONS em
+// App.tsx) — mantido em texto legivel aqui pro prontuario e pro treinador, nao pro aluno.
+function missedReasonLabel(value: string) {
+  const labels: Record<string, string> = {
+    falta_tempo: 'falta de tempo/correria do dia',
+    cansaco: 'cansaco/sem energia',
+    dor: 'dor ou desconforto fisico',
+    doente: 'doente',
+    viagem: 'viagem',
+    imprevisto_pessoal: 'imprevisto pessoal ou familiar',
+    trabalho: 'compromisso de trabalho',
+    clima: 'clima',
+    falta_motivacao: 'falta de motivacao',
+    esqueci: 'esqueceu/perdeu o horario',
   };
   return labels[value] ?? value;
 }
