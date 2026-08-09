@@ -12,6 +12,8 @@ const MAX_CONCURRENT_AI_CALLS = 3;
 // nunca era liberada — travando 1 das 3 vagas da fila pra sempre, atrasando todo mundo depois.
 // Esse teto NAO cancela a chamada de verdade na Anthropic (o SDK continua tentando em segundo
 // plano), so desiste de esperar e libera a vaga pra fila andar, devolvendo erro pra quem chamou.
+// Ordem explicita do treinador (09/08): esse limite de 120s e fixo — a chamada tem que ser rapida
+// o suficiente pra caber nele, o teto nao deve ser esticado pra acomodar chamada lenta.
 const TASK_TIMEOUT_MS = 120_000;
 
 @Injectable()

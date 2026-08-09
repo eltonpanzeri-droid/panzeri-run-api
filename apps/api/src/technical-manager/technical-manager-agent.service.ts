@@ -111,34 +111,51 @@ export class TechnicalManagerAgentService {
 
       const toolUseBlocks = response.content.filter((block): block is Anthropic.ToolUseBlock => block.type === 'tool_use');
 
-      if (response.stop_reason !== 'tool_use' || !toolUseBlocks.length) {
+      // BUG REAL CORRIGIDO (09/08 — Roberta, diretriz "confirmada salva" que nunca existiu no
+      // banco): a Anthropic so inclui em response.content os blocos que terminaram de ser
+      // gerados por completo — um tool_use cortado no meio pelo limite de tokens simplesmente
+      // nao aparece aqui, entao qualquer toolUseBlocks presente e sempre completo e seguro de
+      // executar. O codigo antigo checava `stop_reason !== 'tool_use'` ANTES de olhar se havia
+      // blocos — quando o treinador pedia pra salvar DUAS diretrizes na mesma resposta (ver
+      // instrucao "CUIDADO GRAVE sobre expiresAt" abaixo) e a segunda chamada estourava o limite
+      // de tokens no meio, o stop_reason virava 'max_tokens' e a PRIMEIRA chamada — ja completa e
+      // valida — era descartada silenciosamente junto, sem nunca ser executada. Um texto anterior
+      // (por exemplo a propria confirmacao que a IA tinha escrito ANTES de tentar salvar) acabava
+      // sendo devolvido como se fosse a resposta final de sucesso, enganando o treinador. Agora:
+      // sempre executa qualquer tool_use completo presente, independente do stop_reason exato.
+      if (toolUseBlocks.length > 0) {
+        messages = [...messages, { role: 'assistant', content: response.content }];
+        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+        for (const block of toolUseBlocks) {
+          const tool = tools.find((candidate) => candidate.spec.name === block.name);
+          let content: string;
+          try {
+            content = tool ? await tool.run((block.input ?? {}) as Record<string, unknown>) : 'Ferramenta desconhecida.';
+          } catch (error) {
+            content = `Erro ao executar a ferramenta: ${(error as Error).message}`;
+          }
+          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
+        }
+        messages = [...messages, { role: 'user', content: toolResults }];
+        continue;
+      }
+
+      if (response.stop_reason !== 'tool_use') {
+        // Chegou aqui sem NENHUM tool_use completo nesta resposta. So agora e seguro considerar
+        // texto — mas se foi cortada por max_tokens, NUNCA confie no texto (pode ser uma
+        // confirmacao escrita antes de uma chamada de ferramenta que nem chegou a comecar).
+        if (response.stop_reason === 'max_tokens') {
+          this.logger.warn('Conversa com o agente gerente tecnico cortada por limite de tokens antes de produzir texto ou finalizar uma ferramenta.');
+          return 'A resposta ficou grande demais e foi cortada antes de terminar — se voce esperava uma diretriz sendo salva, ela NAO foi salva (ou so parte, se voce pediu mais de uma). Confira em "Diretrizes ativas" e, se faltar algo, reenvie dividindo em mensagens menores (uma diretriz por vez).';
+        }
         const textBlock = response.content.find((block): block is Anthropic.TextBlock => block.type === 'text');
         if (textBlock?.text?.trim()) return textBlock.text.trim();
-        if (response.stop_reason === 'max_tokens') {
-          // Sem texto NENHUM e cortado por limite de tokens: se havia uma chamada de
-          // save_directive em andamento, ela nunca chegou a executar (so processamos tool_use
-          // quando stop_reason === 'tool_use') — ou seja, o treinador pode achar que salvou algo
-          // que na verdade se perdeu. Avisa isso explicitamente em vez do erro generico.
-          this.logger.warn('Conversa com o agente gerente tecnico cortada por limite de tokens antes de produzir texto ou finalizar uma ferramenta.');
-          return 'A resposta ficou grande demais e foi cortada antes de terminar — se voce esperava uma diretriz sendo salva, ela NAO foi salva. Tente reenviar dividindo em mensagens menores (uma por dia, por exemplo).';
-        }
         return 'Nao consegui gerar uma resposta.';
       }
 
+      // Inalcancavel na pratica (toolUseBlocks vazio ja retornou ou foi tratado acima), mantido
+      // so como salvaguarda de tipo — nunca deveria executar.
       messages = [...messages, { role: 'assistant', content: response.content }];
-
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-      for (const block of toolUseBlocks) {
-        const tool = tools.find((candidate) => candidate.spec.name === block.name);
-        let content: string;
-        try {
-          content = tool ? await tool.run((block.input ?? {}) as Record<string, unknown>) : 'Ferramenta desconhecida.';
-        } catch (error) {
-          content = `Erro ao executar a ferramenta: ${(error as Error).message}`;
-        }
-        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
-      }
-      messages = [...messages, { role: 'user', content: toolResults }];
     }
 
     this.logger.warn('Conversa com o agente gerente tecnico excedeu o limite de chamadas de ferramentas.');
