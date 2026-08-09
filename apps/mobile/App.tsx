@@ -3033,10 +3033,11 @@ function Progress({ completedToday: _completedToday, metrics, accessToken }: { c
       <Text style={styles.sectionLabel}>Evolucao</Text>
       <Text style={styles.titleSmall}>Resumo do aluno</Text>
 
+      {/* Teste de 3km desativado (pedido do treinador, 2026-07-28, reforcado 09/08: nenhuma
+          citacao visivel ao aluno) — metrica "Melhor 3km" removida daqui. */}
       <View style={styles.metricGrid}>
         <Metric icon="checkmark-done" label="Aderencia" value={stravaReport?.summary ? `${stravaReport.summary.adherencePercent}%` : 'Sem dados'} />
         <Metric icon="map" label="Km realizados" value={stravaReport?.summary ? String(stravaReport.summary.actualKm) : 'Sem dados'} />
-        <Metric icon="trophy" label="Melhor 3 km" value={metrics.pace} />
       </View>
 
       {!stravaReport?.summary ? <Text style={styles.formHint}>Conecte o Strava na aba propria para atualizar os indicadores automaticamente.</Text> : null}

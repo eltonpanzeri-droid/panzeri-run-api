@@ -45,7 +45,7 @@ export const PANZERI_PRESCRIPTION_PRINCIPLES = [
   'Respeitar a rotina real e reduzir forca quando ela conflitar com corrida intensa ou longa.',
   'Usar fortalecimento com volume compativel, boa execucao e intensidade progressiva.',
   'Reduzir carga e recomendar avaliacao profissional diante de dor importante, limitacao, lesao recente ou doenca aguda.',
-  'Usar o teste de 3 km como referencia inicial e ajustar por evolucao, aderencia, percepcao e novos testes.',
+  'Ajustar o pace prescrito pela evolucao real, aderencia e percepcao do aluno ao longo do tempo — nunca mencionar nem sugerir teste de 3km ao aluno, feature suspensa pelo treinador.',
   'Reavaliar semanalmente o que foi prescrito, realizado e registrado no Strava antes de manter, aumentar ou reduzir carga.',
 ] as const;
 
