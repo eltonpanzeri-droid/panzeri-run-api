@@ -784,7 +784,28 @@ export class TrainingPlansService {
     // nenhuma. O rollover para a semana seguinte (acima) ja cobre o caso de nao sobrar dia
     // nenhum nesta semana; aqui so filtramos os dias que ficaram no passado dentro da semana
     // escolhida.
-    const sessionsToCreate = sessions.filter((session) =>
+    // TRAVA FINAL DE BOM SENSO (incidente real 09/08 — Roberta, 6 sessoes de corrida empilhadas no
+    // mesmo dia): o teto de "sobras" acima (MAX_EXTRA_SESSIONS_PER_WEEKDAY) so cobre o caso de a
+    // IA etiquetar mal o weekday DENTRO desta mesma chamada — nao cobre outras fontes de
+    // duplicacao (ex: "Recuperar treinos presos em programa antigo" reencaixando sessoes de
+    // tentativas antigas). Como ultima linha de defesa, ANTES de gravar no banco, nunca deixa mais
+    // de 2 sessoes de corrida na mesma data exata sair daqui — nenhum caso real de treino pede
+    // isso, e 2 ja cobre o unico cenario legitimo (diretriz pedindo sessao extra no mesmo dia).
+    const MAX_RUN_SESSIONS_PER_EXACT_DATE = 2;
+    const runSessionCountByDate = new Map<string, number>();
+    const sessionsAfterDailyCap = sessions.filter((session) => {
+      if (!isRunningModality(session.modality)) return true;
+      const dateKey = session.scheduledDate.toISOString();
+      const count = runSessionCountByDate.get(dateKey) ?? 0;
+      if (count >= MAX_RUN_SESSIONS_PER_EXACT_DATE) {
+        this.logger.warn(`Cortado excesso de sessoes de corrida na data ${dateKey} para o aluno ${userId} (trava final, ja tinha ${count} sessoes nesse dia).`);
+        return false;
+      }
+      runSessionCountByDate.set(dateKey, count + 1);
+      return true;
+    });
+
+    const sessionsToCreate = sessionsAfterDailyCap.filter((session) =>
       session.scheduledDate.getTime() > today.getTime() ||
       (Boolean(options?.allowToday) && session.scheduledDate.getTime() === today.getTime()),
     );
@@ -1066,7 +1087,18 @@ export class TrainingPlansService {
       where: { planId: activePlan.id },
       select: { scheduledDate: true, modality: true },
     });
-    const existingKeys = new Set(existingSessions.map((session) => `${session.scheduledDate.toISOString()}_${session.modality}`));
+    // Chave por DIA calendario (nao timestamp exato) — tentativas de geracao diferentes no mesmo
+    // dia podem produzir scheduledDate com milissegundos/horario ligeiramente diferentes mesmo
+    // sendo "o mesmo dia", o que deixava a comparacao por timestamp exato passar batido e
+    // duplicar sessoes de corrida no mesmo dia (incidente real 09/08 — Roberta).
+    const dateKeyOf = (date: Date) => date.toISOString().slice(0, 10);
+    const existingKeys = new Set(existingSessions.map((session) => `${dateKeyOf(session.scheduledDate)}_${session.modality}`));
+    const existingRunCountByDate = new Map<string, number>();
+    for (const session of existingSessions) {
+      if (!isRunningModality(session.modality)) continue;
+      const key = dateKeyOf(session.scheduledDate);
+      existingRunCountByDate.set(key, (existingRunCountByDate.get(key) ?? 0) + 1);
+    }
 
     const orphanedSessions = await this.prisma.trainingSession.findMany({
       where: {
@@ -1076,9 +1108,22 @@ export class TrainingPlansService {
       include: { completion: true },
     });
 
-    const toRecover = orphanedSessions.filter(
-      (session) => !existingKeys.has(`${session.scheduledDate.toISOString()}_${session.modality}`),
-    );
+    const MAX_RUN_SESSIONS_PER_EXACT_DATE = 2;
+    const toRecover = orphanedSessions.filter((session) => {
+      const key = `${dateKeyOf(session.scheduledDate)}_${session.modality}`;
+      if (existingKeys.has(key)) return false;
+      if (isRunningModality(session.modality)) {
+        const dateKey = dateKeyOf(session.scheduledDate);
+        const count = existingRunCountByDate.get(dateKey) ?? 0;
+        if (count >= MAX_RUN_SESSIONS_PER_EXACT_DATE) {
+          this.logger.warn(`Recuperacao de treinos presos: ignorada sessao de corrida extra em ${dateKey} para o aluno ${userId} (ja tinha ${count} nesse dia).`);
+          return false;
+        }
+        existingRunCountByDate.set(dateKey, count + 1);
+      }
+      existingKeys.add(key);
+      return true;
+    });
 
     if (!toRecover.length) {
       return { recovered: 0 };
