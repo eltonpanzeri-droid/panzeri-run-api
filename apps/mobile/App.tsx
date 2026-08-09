@@ -2247,7 +2247,10 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   // em training-plans.service.ts). Substitui a geracao em massa que rodava sozinha todo domingo.
   async function generateCurrentWeekNow() {
     setIsLoading(true);
-    setStatus('Preparando seu treino da semana...');
+    // Incidente real 09/08: sem essa mensagem, uma geracao mais demorada (a IA as vezes precisa
+    // de chamadas extras pra completar a semana direito) parecia travada pra aluna, que fechava o
+    // app achando que tinha dado erro. Preparando o aluno pra demora evita esse abandono.
+    setStatus('Preparando seu treino da semana... Isso pode levar alguns minutos — pode continuar usando o celular normalmente e voltar aqui depois.');
     try {
       const response = await fetch(`${API_URL}/training-plans/generate-current-week`, {
         method: 'POST',
