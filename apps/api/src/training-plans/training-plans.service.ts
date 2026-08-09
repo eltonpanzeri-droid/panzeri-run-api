@@ -492,16 +492,26 @@ export class TrainingPlansService {
     const availableDays = remapAvailabilityForPainSafety(rawAvailableDays, painSafety.tier === 'remove_running');
 
     const today = todayInSaoPaulo();
-    // Primeira geracao (sem plano ativo anterior) de uma aluna que concluiu a entrevista tarde
-    // demais na propria semana pra sobrar algum dia disponivel (ex: entrevista concluida num
-    // domingo a noite, com rotina que treina so ate sabado) resultaria num plano vazio: todo dia
-    // desta semana ja seria passado, e o filtro "so o futuro" logo abaixo removeria a semana
-    // inteira. Nesse caso especifico, comeca direto na semana seguinte em vez de entregar um
-    // plano sem nenhum treino ate a virada natural de segunda.
+    // BUG REAL CORRIGIDO (09/08 — Roberta, "semana atual continua aparecendo a antiga mesmo apos
+    // domingo 12h"): esse rollover pra semana seguinte, quando nao sobra nenhum dia disponivel
+    // "futuro" na semana atual, so se aplicava na PRIMEIRA geracao de um aluno
+    // (!activePlanBeforeAdjustment). Pra qualquer aluno que JA tinha plano ativo — ou seja,
+    // praticamente todo mundo, sempre — regenerar (seja pelo botao da propria aluna ou pelo
+    // "Refazer nova semana de treinos" do treinador) ficava PRESO regenerando a mesma semana que
+    // ja tinha acabado, indefinidamente, mesmo bem depois de domingo 12h — nunca avancava pra
+    // semana seguinte sozinho.
+    // A correcao NAO pode ser so "tirar a restricao": isso rolaria pra semana seguinte tambem no
+    // meio de semana comum (ex: aluna que so treina Seg/Ter, treinador regenera na quinta pra
+    // corrigir algo — nao sobra dia "futuro" na rotina dela, mas ainda estamos dentro da MESMA
+    // semana de calendario, e a intencao e mexer nessa semana, nao pular pra frente). O limite
+    // certo e o do calendario: so rola pra semana seguinte quando ja passou do horario oficial de
+    // liberacao (domingo, WEEKLY_RELEASE_HOUR) — os mesmo criterio que a aluna ve no app — e nao
+    // sobrar dia futuro na semana atual, para qualquer aluno, novo ou nao.
     const hasFutureDayThisWeek = anyAvailableDayIsFuture(availableDays, initialWeekStart, today);
-    const weekStart = !hasFutureDayThisWeek && !activePlanBeforeAdjustment && !options?.referenceDate
-      ? addDays(initialWeekStart, 7)
-      : initialWeekStart;
+    const { weekday: todayWeekday, hour: todayHour } = saoPauloWeekdayAndHour(new Date());
+    const pastWeeklyRelease = todayWeekday === 0 && todayHour >= WEEKLY_RELEASE_HOUR;
+    const shouldRollToNextWeek = !hasFutureDayThisWeek && !options?.referenceDate && (!activePlanBeforeAdjustment || pastWeeklyRelease);
+    const weekStart = shouldRollToNextWeek ? addDays(initialWeekStart, 7) : initialWeekStart;
 
     const methodologyHistory = previousPlans.map((historyPlan) => {
       const runSessions = historyPlan.sessions.filter((session) => isRunningModality(session.modality));
