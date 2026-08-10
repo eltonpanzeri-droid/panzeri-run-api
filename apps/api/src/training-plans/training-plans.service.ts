@@ -133,8 +133,15 @@ export class TrainingPlansService {
     const weekStart = startOfWeek(new Date());
     await this.fixStuckScheduledPlan(userId, weekStart);
     const [plan, latestTest, user, onboarding] = await Promise.all([
+      // startDate: weekStart e essencial aqui (bug real 10/08 — aluna Eduarda): sem esse filtro,
+      // um plano "active" da SEMANA PASSADA (que so fica active ate a propria aluna gerar a nova
+      // semana pelo botao — nada mais o arquiva sozinho, ver comentario da geracao sob demanda)
+      // era devolvido como se fosse a semana atual, escondendo pra sempre o botao "Gerar treino
+      // da semana" (so aparece quando current() cai no ramo `!plan` abaixo). A semana antiga
+      // continua acessivel normalmente por "Anterior" (getWeekByOffset com offset negativo, que
+      // nao filtra por status).
       this.prisma.trainingPlan.findFirst({
-        where: { userId, status: 'active' },
+        where: { userId, status: 'active', startDate: weekStart },
         orderBy: { createdAt: 'desc' },
         include: {
           sessions: {
