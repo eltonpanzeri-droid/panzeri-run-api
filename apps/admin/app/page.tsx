@@ -1073,6 +1073,7 @@ export default function AdminHome() {
                   <option value="all">Todos</option>
                   <option value="Sem treino">Sem treino criado</option>
                   <option value="Aguardando aluna gerar a semana">Aguardando aluna gerar a semana</option>
+                  <option value="Falha ao gerar - verificar">Falha ao gerar - verificar</option>
                   <option value="Bloqueado (pagamento)">Bloqueado (pagamento)</option>
                   <option value="Aguardando primeiro treino">Aguardando primeiro treino</option>
                   <option value="Acesso liberado">Acesso liberado</option>
@@ -3151,6 +3152,10 @@ function statusClass(status: string) {
   if (status === 'Acesso liberado') return 'good';
   if (status === 'Sem treino') return 'warn';
   if (status === 'Bloqueado (pagamento)') return 'danger';
+  // Precisa de acao real do treinador (verificar chave da IA/logs e gerar manualmente pelo
+  // painel) — diferente de "Aguardando aluna gerar a semana", que e so a aluna nao ter tocado o
+  // botao ainda. Ver TrainingPlansService.generateWeek / lastPlanGenerationFailedAt.
+  if (status === 'Falha ao gerar - verificar') return 'danger';
   // Neutro de proposito — nao e um alerta, e a aluna aguardando tocar o botao de gerar a semana.
   if (status === 'Aguardando aluna gerar a semana') return '';
   return '';

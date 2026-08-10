@@ -620,12 +620,23 @@ export class TrainingPlansService {
       // para ele intervir manualmente, em vez de dar ao aluno um treino ruim silenciosamente.
       this.logger.error(`Falha ao gerar semana de treino com IA para o aluno ${userId} apos tentativas — nenhum plano de regra fixa sera usado no lugar.`);
       this.recentAiFailures.set(userId, Date.now());
+      // Persistido (nao so em memoria) pra dar visibilidade permanente no painel do treinador (ver
+      // statusFromSummary em coach.service.ts) — antes disso a falha so aparecia no Telegram na
+      // hora e sumia; se o treinador nao visse a mensagem naquele momento, nunca mais ficava
+      // sabendo que aquela aluna ficou sem semana gerada por causa disso.
+      await this.prisma.user.update({ where: { id: userId }, data: { lastPlanGenerationFailedAt: new Date() } }).catch(() => null);
       await this.telegram.notifyCoach(
         `⚠️ Falha ao gerar treino com IA para um aluno.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nO programa NAO foi atualizado — verifique a chave da IA (ANTHROPIC_API_KEY) e os logs do EasyPanel, e gere novamente manualmente pelo painel. Novas tentativas automaticas para este aluno ficam pausadas por alguns minutos para nao gastar chamadas de IA repetidas.`,
       );
       throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
     }
     this.recentAiFailures.delete(userId);
+    // Limpa a marca de falha permanente assim que uma geracao tiver sucesso (qualquer gatilho:
+    // botao da aluna, botao do treinador, entrevista, mudanca de rotina) — o painel volta a
+    // mostrar o status normal em vez de "falhou" assim que o problema se resolver sozinho.
+    if (user.lastPlanGenerationFailedAt) {
+      await this.prisma.user.update({ where: { id: userId }, data: { lastPlanGenerationFailedAt: null } }).catch(() => null);
+    }
     const methodology = aiDecision;
 
     // Ordem explicita do treinador (02/08): quando a IA cobre menos/mais dias ou duracao

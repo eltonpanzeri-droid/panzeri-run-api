@@ -27,6 +27,11 @@ model User {
   // simultaneos. Formatado com zeros a esquerda (0000001) na hora de exibir, nunca gravado ja
   // formatado.
   studentCode                      Int       @unique @default(autoincrement())
+  // Preenchido quando a ultima tentativa de gerar a semana (botao da aluna ou do treinador) falhou
+  // com a IA e nao gerou nenhum plano novo — limpo (null) na proxima tentativa que tiver sucesso.
+  // So existe pra dar visibilidade permanente no painel (coluna "Treino"); antes disso a falha so
+  // aparecia no Telegram na hora e sumia — se o treinador nao visse na hora, nunca mais sabia.
+  lastPlanGenerationFailedAt        DateTime?
   accountStatus                    String    @default("active")
   subscriptionStatus               String    @default("pending")
   subscriptionUpdatedAt            DateTime  @default(now())

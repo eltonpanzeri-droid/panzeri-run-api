@@ -461,8 +461,12 @@ export class CoachService {
           orderBy: { createdAt: 'desc' },
           take: 1,
         },
+        // startDate: weekStart e essencial aqui (mesmo bug corrigido em TrainingPlansService.current()
+        // em 10/08 — aluna Eduarda): sem esse filtro, um plano "active" da SEMANA PASSADA (que so
+        // fica active ate a propria aluna gerar a nova semana pelo botao) aparecia como "Acesso
+        // liberado" na coluna Treino, escondendo que a semana atual dela nem foi gerada ainda.
         plans: {
-          where: { status: 'active' },
+          where: { status: 'active', startDate: weekStart },
           orderBy: { createdAt: 'desc' },
           take: 1,
           include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
@@ -514,7 +518,7 @@ export class CoachService {
         prescribedKm: summary.prescribedKm,
         completedKm: summary.completedKm,
         lastThreeKm: student.tests[0]?.totalSeconds ? formatDuration(student.tests[0].totalSeconds) : 'Sem teste',
-        status: statusFromSummary(summary, student.subscriptionStatus, student._count.plans > 0),
+        status: statusFromSummary(summary, student.subscriptionStatus, student._count.plans > 0, student.lastPlanGenerationFailedAt),
         accountStatus: student.accountStatus,
         subscriptionStatus: student.subscriptionStatus,
         subscriptionManualOverride: student.subscriptionManualOverride,
@@ -1239,7 +1243,12 @@ function emptySummary() {
   };
 }
 
-function statusFromSummary(summary: { prescribedSessions: number; eligibleSessions: number }, subscriptionStatus: string, hasEverHadPlan: boolean) {
+function statusFromSummary(
+  summary: { prescribedSessions: number; eligibleSessions: number },
+  subscriptionStatus: string,
+  hasEverHadPlan: boolean,
+  lastPlanGenerationFailedAt: Date | null,
+) {
   // Este status reflete apenas o estagio de acesso ao treino (existe plano? ja teve algum treino
   // elegivel?) — a qualidade da aderencia ja aparece na coluna "Aderencia" e no detalhe do aluno,
   // nao deve ser duplicada aqui como um rotulo de alerta que confunde quem acabou de comecar.
@@ -1247,6 +1256,11 @@ function statusFromSummary(summary: { prescribedSessions: number; eligibleSessio
   // consiga ve-lo no app — "Acesso liberado" so pode refletir a mesma regra usada para o aluno
   // (hasSubscriptionAccess), nunca so a existencia de sessoes prescritas.
   if (!summary.prescribedSessions) {
+    // Diferente de "Aguardando aluna gerar a semana" (normal, ainda nao tocou o botao): aqui ela
+    // (ou o treinador) JA tocou e a chamada de IA falhou — precisa de acao (ver
+    // TrainingPlansService.generateWeek, lastPlanGenerationFailedAt). Fica assim ate a proxima
+    // tentativa ter sucesso (o campo e limpo la), nunca se resolve sozinho.
+    if (lastPlanGenerationFailedAt) return 'Falha ao gerar - verificar';
     // Desde que a geracao virou sob demanda (botao "Gerar treino da semana", 06/08), e normal uma
     // aluna com historico real ficar alguns dias sem plano ativo pra semana atual — nao e "Sem
     // treino" (que soa como algo quebrado), e sim aguardando ela mesma tocar o botao.
