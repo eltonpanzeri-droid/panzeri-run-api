@@ -130,6 +130,17 @@ export interface MethodologyInput {
     // e o mesmo que distancia corrida continuamente, especialmente pra decisoes de progressao.
     pacingMode: string | null;
   } | null;
+  // So preenchido quando longestRunEver.distanceKm >= 8km (pedido explicito do treinador 10/08) —
+  // treinos concluidos nas ultimas 10 semanas que chegaram perto (>=50%) da distancia do recorde
+  // historico. Existe pra IA distinguir um recorde "quente" (reforcado por treinos recentes perto
+  // desse patamar) de um recorde "frio" (feito uma vez, sem nada perto depois) — ela mesma faz essa
+  // leitura como recomendacao de raciocinio (ver buildSystemPromptStable em
+  // prescription-agent.service.ts), nao existe nenhuma formula em codigo decidindo isso.
+  recentSessionsNearRecord?: Array<{
+    distanceKm: number;
+    date: string;
+    pacingMode: string | null;
+  }>;
 }
 
 // Um treino de corrida e descrito como uma SEQUENCIA ORDENADA de partes (nunca mais uma escolha

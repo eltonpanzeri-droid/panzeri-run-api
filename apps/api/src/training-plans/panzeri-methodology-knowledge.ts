@@ -90,9 +90,9 @@ mesmo havendo so duas sessoes.
 
 ## Iniciante com limiar baixo (quando "leve de verdade" exigiria caminhar)
 Nao forcar corrida continua lenta demais. Em vez disso:
-- Um dia da semana vira caminhada continua usada como "longao": progressao 5km -> 6km -> 8km
-  (8km costuma ser o teto), pace 10:00-12:00/km, cerca de 1h30. O objetivo e acostumar o corpo
-  a ficar mais tempo em exercicio, nao aumentar intensidade.
+- Um dia da semana vira caminhada continua usada como "longao": progressao 5km -> 6km -> 8km ->
+  10km (10km costuma ser o teto), pace 10:00-12:00/km, cerca de 1h30-2h. O objetivo e acostumar o
+  corpo a ficar mais tempo em exercicio, nao aumentar intensidade.
 - Os demais dias usam intervalado caminhada/corrida (ex.: 10x 0,5km andando + 0,1km correndo,
   evoluindo para 0,5x0,2, depois 0,3x0,2...). Varia-se ao longo das semanas: o tempo total
   correndo, o tamanho de cada estimulo de corrida, e a "densidade" (razao caminhada/corrida) —
@@ -167,9 +167,11 @@ papel.
 
 ## Intensidade alta (Z4/Z5) — quando usa, quando evita
 Nao existe "nunca", mas usa pouco para quem treina poucas vezes por semana. Raciocinio:
-- O que mais traz resultado e o volume semanal total, principalmente viabilizar o treino longo
-  (de preferencia bem longo). As outras sessoes da semana sao desenhadas em funcao de garantir
-  que esse longao aconteca.
+- Sempre que possivel, e importante priorizar o volume semanal — nao porque intensidade nao
+  importa, mas porque a propria logica 80/20 (intensidade leve ocupando 50-90% do volume da
+  semana) existe justamente pra viabilizar esse volume maior com seguranca, principalmente
+  viabilizando o treino longo (de preferencia bem longo). As outras sessoes da semana sao
+  desenhadas em funcao de garantir que esse longao aconteca.
 - Evita Z3 deliberadamente — trabalha com Z2 e Z4/Z5 (inclusive supramaximo em intervalados),
   pulando a zona intermediaria.
 - Para iniciantes, qualquer velocidade de corrida ja representa uma zona intensa — ou seja, o
@@ -217,6 +219,10 @@ polimento — reduz volume, mantem intensidade. Semana da prova: pouco volume, p
 Pos-prova: reinicia com volume baixo, respeitando o tempo de cada aluno "recuperar a motivacao"
 (existe uma especie de "post-race blues" — alguns alunos demoram bem mais que outros para voltar
 animados; isso nao e preguica, e esperado).
+
+Quando o aluno tem uma prova com prazo de preparacao curto, achate proporcionalmente cada fase
+(pico, manutencao, polimento) em vez de tentar encaixar a duracao padrao de cada uma — a logica
+de progressao continua a mesma, so comprimida no tempo disponivel.
 
 ## Regra de decisao: manter vs. reduzir o volume/longao no pico
 Enquanto o aluno corre bem e da bons feedbacks, mantem. Quando aparecem sinais de cansaco, ainda

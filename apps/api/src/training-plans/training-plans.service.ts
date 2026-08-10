@@ -556,6 +556,24 @@ export class TrainingPlansService {
     // So chama a IA do prontuario se houver evento novo acumulado desde a ultima atualizacao —
     // ver StudentProfileService.refreshProfile. Falha aqui nunca bloqueia a geracao da semana.
     const studentProfileSummary = await this.studentProfile.refreshProfile(userId).catch(() => '');
+    // So busca quando o recorde historico for >=8km (pedido explicito do treinador 10/08) — abaixo
+    // disso o "recorde quente vs frio" nao importa pra decisao. Nao calcula nem julga nada aqui —
+    // so traz os treinos concluidos nas ultimas 10 semanas que chegaram perto (>=50%) do recorde,
+    // pra IA fazer essa leitura sozinha (ver regra no prompt de sistema).
+    const recordDistanceKm = longestRunSession?.completion?.distanceKm ?? null;
+    const recentSessionsNearRecord = recordDistanceKm != null && recordDistanceKm >= 8
+      ? await this.prisma.trainingSession.findMany({
+          where: {
+            userId,
+            modality: { in: ['corrida', 'esteira'] },
+            completion: { status: { in: ['done', 'adjusted'] }, distanceKm: { gte: recordDistanceKm * 0.5 } },
+            scheduledDate: { gte: addDays(startOfWeek(new Date()), -70) },
+          },
+          orderBy: { completion: { distanceKm: 'desc' } },
+          take: 5,
+          select: { scheduledDate: true, completion: { select: { distanceKm: true, details: true } } },
+        })
+      : [];
     const methodologyInput: MethodologyInput = {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
       experience: user.preferences?.experienceLevel ?? '',
@@ -613,6 +631,16 @@ export class TrainingPlansService {
           return typeof value === 'string' ? value : null;
         })(),
       } : null,
+      recentSessionsNearRecord: recentSessionsNearRecord
+        .filter((session): session is typeof session & { completion: { distanceKm: number; details: unknown } } => session.completion?.distanceKm != null)
+        .map((session) => ({
+          distanceKm: session.completion.distanceKm,
+          date: session.scheduledDate.toISOString().slice(0, 10),
+          pacingMode: (() => {
+            const value = jsonObject(session.completion.details).pacingMode;
+            return typeof value === 'string' ? value : null;
+          })(),
+        })),
     };
     const stravaPacedRuns = stravaRuns.filter((activity) => (activity.avgPaceSecKm ?? 0) > 0 && (activity.distanceKm ?? 0) >= 1);
     const stravaAveragePaceSecondsPerKm = stravaPacedRuns.length
