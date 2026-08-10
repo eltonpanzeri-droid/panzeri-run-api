@@ -820,23 +820,26 @@ export class TrainingPlansService {
     // nenhum nesta semana; aqui so filtramos os dias que ficaram no passado dentro da semana
     // escolhida.
     // TRAVA FINAL DE BOM SENSO (incidente real 09/08 — Roberta, 6 sessoes de corrida empilhadas no
-    // mesmo dia): o teto de "sobras" acima (MAX_EXTRA_SESSIONS_PER_WEEKDAY) so cobre o caso de a
-    // IA etiquetar mal o weekday DENTRO desta mesma chamada — nao cobre outras fontes de
-    // duplicacao (ex: "Recuperar treinos presos em programa antigo" reencaixando sessoes de
-    // tentativas antigas). Como ultima linha de defesa, ANTES de gravar no banco, nunca deixa mais
-    // de 2 sessoes de corrida na mesma data exata sair daqui — nenhum caso real de treino pede
-    // isso, e 2 ja cobre o unico cenario legitimo (diretriz pedindo sessao extra no mesmo dia).
-    const MAX_RUN_SESSIONS_PER_EXACT_DATE = 2;
-    const runSessionCountByDate = new Map<string, number>();
+    // mesmo dia; incidente real 10/08 — Lucelane, 2 sessoes de fortalecimento na segunda-feira,
+    // uma delas com texto desatualizado de uma geracao/tentativa anterior): o teto de "sobras"
+    // acima (MAX_EXTRA_SESSIONS_PER_WEEKDAY) so cobre o caso de a IA etiquetar mal o weekday
+    // DENTRO desta mesma chamada — nao cobre outras fontes de duplicacao (ex: "Recuperar treinos
+    // presos em programa antigo" reencaixando sessoes de tentativas antigas). Como ultima linha de
+    // defesa, ANTES de gravar no banco, nunca deixa mais de 2 sessoes da MESMA modalidade sair na
+    // mesma data exata — nenhum caso real de treino pede isso, e 2 ja cobre o unico cenario
+    // legitimo (diretriz pedindo sessao extra no mesmo dia). Cobre TODAS as modalidades agora
+    // (antes so cobria corrida — o buraco em forca/fortalecimento foi exatamente o que deixou a
+    // duplicata da Lucelane passar batido).
+    const MAX_SESSIONS_PER_EXACT_DATE_AND_MODALITY = 2;
+    const sessionCountByDateAndModality = new Map<string, number>();
     const sessionsAfterDailyCap = sessions.filter((session) => {
-      if (!isRunningModality(session.modality)) return true;
-      const dateKey = session.scheduledDate.toISOString();
-      const count = runSessionCountByDate.get(dateKey) ?? 0;
-      if (count >= MAX_RUN_SESSIONS_PER_EXACT_DATE) {
-        this.logger.warn(`Cortado excesso de sessoes de corrida na data ${dateKey} para o aluno ${userId} (trava final, ja tinha ${count} sessoes nesse dia).`);
+      const key = `${session.scheduledDate.toISOString()}_${session.modality}`;
+      const count = sessionCountByDateAndModality.get(key) ?? 0;
+      if (count >= MAX_SESSIONS_PER_EXACT_DATE_AND_MODALITY) {
+        this.logger.warn(`Cortado excesso de sessoes de ${session.modality} na data ${session.scheduledDate.toISOString()} para o aluno ${userId} (trava final, ja tinha ${count} sessoes nesse dia).`);
         return false;
       }
-      runSessionCountByDate.set(dateKey, count + 1);
+      sessionCountByDateAndModality.set(key, count + 1);
       return true;
     });
 
@@ -1125,14 +1128,14 @@ export class TrainingPlansService {
     // Chave por DIA calendario (nao timestamp exato) — tentativas de geracao diferentes no mesmo
     // dia podem produzir scheduledDate com milissegundos/horario ligeiramente diferentes mesmo
     // sendo "o mesmo dia", o que deixava a comparacao por timestamp exato passar batido e
-    // duplicar sessoes de corrida no mesmo dia (incidente real 09/08 — Roberta).
+    // duplicar sessoes no mesmo dia (incidente real 09/08 — Roberta, corrida; incidente real
+    // 10/08 — Lucelane, fortalecimento — o teto abaixo so cobria corrida ate entao).
     const dateKeyOf = (date: Date) => date.toISOString().slice(0, 10);
     const existingKeys = new Set(existingSessions.map((session) => `${dateKeyOf(session.scheduledDate)}_${session.modality}`));
-    const existingRunCountByDate = new Map<string, number>();
+    const existingCountByDateAndModality = new Map<string, number>();
     for (const session of existingSessions) {
-      if (!isRunningModality(session.modality)) continue;
-      const key = dateKeyOf(session.scheduledDate);
-      existingRunCountByDate.set(key, (existingRunCountByDate.get(key) ?? 0) + 1);
+      const key = `${dateKeyOf(session.scheduledDate)}_${session.modality}`;
+      existingCountByDateAndModality.set(key, (existingCountByDateAndModality.get(key) ?? 0) + 1);
     }
 
     const orphanedSessions = await this.prisma.trainingSession.findMany({
@@ -1143,19 +1146,17 @@ export class TrainingPlansService {
       include: { completion: true },
     });
 
-    const MAX_RUN_SESSIONS_PER_EXACT_DATE = 2;
+    // Teto por (data exata, modalidade) — cobre qualquer modalidade agora, nao so corrida.
+    const MAX_SESSIONS_PER_EXACT_DATE_AND_MODALITY = 2;
     const toRecover = orphanedSessions.filter((session) => {
       const key = `${dateKeyOf(session.scheduledDate)}_${session.modality}`;
       if (existingKeys.has(key)) return false;
-      if (isRunningModality(session.modality)) {
-        const dateKey = dateKeyOf(session.scheduledDate);
-        const count = existingRunCountByDate.get(dateKey) ?? 0;
-        if (count >= MAX_RUN_SESSIONS_PER_EXACT_DATE) {
-          this.logger.warn(`Recuperacao de treinos presos: ignorada sessao de corrida extra em ${dateKey} para o aluno ${userId} (ja tinha ${count} nesse dia).`);
-          return false;
-        }
-        existingRunCountByDate.set(dateKey, count + 1);
+      const count = existingCountByDateAndModality.get(key) ?? 0;
+      if (count >= MAX_SESSIONS_PER_EXACT_DATE_AND_MODALITY) {
+        this.logger.warn(`Recuperacao de treinos presos: ignorada sessao extra de ${session.modality} em ${dateKeyOf(session.scheduledDate)} para o aluno ${userId} (ja tinha ${count} nesse dia).`);
+        return false;
       }
+      existingCountByDateAndModality.set(key, count + 1);
       existingKeys.add(key);
       return true;
     });
