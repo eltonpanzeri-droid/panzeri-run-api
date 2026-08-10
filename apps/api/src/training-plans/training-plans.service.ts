@@ -8,8 +8,7 @@ import {
   RunSessionDecision,
   StrengthSessionDecision,
   WeeklyMethodologyDecision,
-  IntervalStructureDecision,
-  WalkRunStructureDecision,
+  SessionPartDecision,
   PANZERI_METHODOLOGY_VERSION,
   PANZERI_PRESCRIPTION_PRINCIPLES,
   sanitizeInterviewAnswers,
@@ -67,9 +66,13 @@ const planEngineVersion = 'rules-v11-' + PANZERI_METHODOLOGY_VERSION;
 // Instrucao de aquecimento/resfriamento generica e padrao para todo treino de corrida — decisao
 // deliberada do treinador: isso e boilerplate pratico igual pra qualquer aluno, nao uma decisao
 // de treino que precisa de raciocinio da IA a cada sessao. Fixo em codigo, sem custo de IA,
-// apendado ao final do texto explicativo (notes) de toda sessao de corrida.
+// apendado ao final do texto explicativo (notes) — MAS so quando o proprio treino ainda nao
+// comecar com uma caminhada de verdade (ver shouldSkipStandardWarmupCooldown abaixo). Pedido
+// explicito do treinador (10/08): nao faz sentido repetir "aqueca antes de comecar" quando o
+// treino ja se inicia com pelo menos 5 minutos de caminhada descritos como parte real do treino.
 const STANDARD_WARMUP_COOLDOWN_TEXT =
   'Aquecimento: 5-10 min de corrida bem leve ou caminhada rapida antes de comecar o treino prescrito. Resfriamento: 5 min de corrida bem leve ou caminhada logo apos terminar, seguido de alongamento leve.';
+const STANDARD_WARMUP_COOLDOWN_MIN_LEADING_WALK_MIN = 5;
 
 // Disjuntor contra gasto em loop: current() e chamado toda vez que ALGUEM SO ABRE a pagina do
 // aluno (painel do treinador ou app da aluna) — nao e uma acao explicita de "gerar treino". Se a
@@ -683,7 +686,9 @@ export class TrainingPlansService {
           title: runDecision.title,
           sessionType: this.deriveSessionTypeLabel(runDecision),
           durationMin: runDecision.durationMin,
-          notes: `${runDecision.notes} ${STANDARD_WARMUP_COOLDOWN_TEXT}`,
+          notes: this.shouldSkipStandardWarmupCooldown(runDecision.parts)
+            ? runDecision.notes
+            : `${runDecision.notes} ${STANDARD_WARMUP_COOLDOWN_TEXT}`,
         } : baseTemplate;
         const modalityDurations = normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined);
         const requestedDuration = modalityDurations?.[modality] ?? day.availableMin ?? template.durationMin;
@@ -704,14 +709,9 @@ export class TrainingPlansService {
         const prescription =
           strengthDecision
             ? this.strengthPrescription(durationMin, strengthDecision)
-            // Distancia e pace vem inteiramente da decisao da IA para ESTE dia (runDecision) —
+            // A sequencia de partes vem inteiramente da decisao da IA para ESTE dia (runDecision) —
             // nao existe mais nenhuma conta de codigo (duracao/pace fixo) decidindo isso.
-            : this.runPrescription(durationMin, modality, {
-                distanceKm: runDecision?.distanceKm ?? null,
-                paceSecondsPerKm: runDecision?.paceSecondsPerKm ?? null,
-                intervalStructure: runDecision?.intervalStructure,
-                walkRunStructure: runDecision?.walkRunStructure,
-              });
+            : this.runPrescription(durationMin, modality, { parts: runDecision?.parts ?? [] });
 
         return [{
           userId,
@@ -766,12 +766,7 @@ export class TrainingPlansService {
       const scheduledDate = addDays(weekStart, weekdayOffsetFromMonday(weekday));
       return leftover.map((runDecision) => {
         const durationMin = runDecision.durationMin;
-        const prescription = this.runPrescription(durationMin, 'corrida', {
-          distanceKm: runDecision.distanceKm ?? null,
-          paceSecondsPerKm: runDecision.paceSecondsPerKm ?? null,
-          intervalStructure: runDecision.intervalStructure,
-          walkRunStructure: runDecision.walkRunStructure,
-        });
+        const prescription = this.runPrescription(durationMin, 'corrida', { parts: runDecision.parts });
         return {
           userId,
           scheduledDate,
@@ -785,7 +780,9 @@ export class TrainingPlansService {
           intensityZone: null,
           paceMinSec: prescription.representativePaceSecondsPerKm != null ? formatPace(prescription.representativePaceSecondsPerKm) : null,
           structure: prescription as unknown as Prisma.InputJsonObject,
-          notes: `${runDecision.notes} ${STANDARD_WARMUP_COOLDOWN_TEXT}`,
+          notes: this.shouldSkipStandardWarmupCooldown(runDecision.parts)
+            ? runDecision.notes
+            : `${runDecision.notes} ${STANDARD_WARMUP_COOLDOWN_TEXT}`,
           videoRefs: [],
           routineMismatchNote: activeDirectives.length === 0
             ? (methodology.sessionMismatches?.[mismatchKeyFor(weekday, 'corrida')] ?? 'Este treino foi gerado a mais, alem do combinado na sua rotina para este dia.')
@@ -1405,11 +1402,10 @@ export class TrainingPlansService {
   // Rotulo puramente cosmetico, guardado so pra referencia futura do treinador no admin — nunca
   // lido de volta por nenhuma logica (a IA nao declara mais uma categoria, ver AiSessionSchema em
   // prescription-agent.service.ts). Derivado do que a propria IA preencheu pra aquele dia.
-  private deriveSessionTypeLabel(decision: { intervalStructure?: unknown; walkRunStructure?: unknown } | undefined): string {
-    if (!decision) return 'corrida';
-    if (decision.intervalStructure) return 'intervalado';
-    if (decision.walkRunStructure) return 'caminhada_corrida';
-    return 'continuo';
+  private deriveSessionTypeLabel(decision: { parts?: SessionPartDecision[] } | undefined): string {
+    if (!decision?.parts?.length) return 'corrida';
+    if (decision.parts.length > 1) return 'misto';
+    return decision.parts[0].kind === 'intervalada' ? 'intervalado' : 'continuo';
   }
 
   private templateForModality(modality: string, hasTest: boolean): SessionTemplate {
@@ -1457,80 +1453,36 @@ export class TrainingPlansService {
   }
 
   // Nao existe mais categoria (sessionType) escolhida de antemao pela IA — ela descreve o treino
-  // livremente, preenchendo so os campos que fizerem sentido pra aquele dia (ver AiSessionSchema
-  // em prescription-agent.service.ts). Aqui so olhamos QUAL combinacao de campos veio preenchida
-  // pra montar a exibicao certa — nao ha julgamento de conteudo aqui, so formatacao do que a IA
-  // ja decidiu.
-  private runPrescription(
-    durationMin: number,
-    modality: string,
-    decision: {
-      distanceKm: number | null;
-      paceSecondsPerKm: number | null;
-      intervalStructure?: IntervalStructureDecision | null;
-      walkRunStructure?: WalkRunStructureDecision | null;
-    },
-  ) {
-    // Aquecimento e desaquecimento NAO fazem mais parte do treino prescrito nem da distancia/
-    // duracao total — viraram um texto padrao apendado ao final de "notes" (ver
-    // STANDARD_WARMUP_COOLDOWN_TEXT). Isso evita o erro que ja aconteceu na pratica: um
-    // treino "leve" de poucos km onde boa parte era so aquecimento/desaquecimento contando pro
-    // volume, distorcendo o quanto o aluno realmente treinou naquele dia.
-    //
-    // Distancia e pace vem inteiramente da decisao da IA para ESTE dia especifico — nao existe
-    // mais nenhuma conta de codigo (duracao dividida por um pace fixo da semana) decidindo isso.
-
-    if (decision.intervalStructure) {
-      const { repeatCount, fastStepKm, fastPaceSecondsPerKm, recoveryStepKm, recoveryPaceSecondsPerKm, easyVolumeKm } = decision.intervalStructure;
-      const intervalBlock: RunBlock = {
-        label: 'Serie intervalada',
-        repeatCount,
-        steps: [
-          this.intervalStep('Correr forte', fastStepKm, fastPaceSecondsPerKm),
-          this.intervalStep('Recuperar', recoveryStepKm, recoveryPaceSecondsPerKm),
-        ],
-      };
-      // Volume leve adicional (fora do bloco intervalado) so existe quando a IA decidiu
-      // easyVolumeKm > 0 para este dia — nesse caso ela tambem preenche paceSecondsPerKm
-      // (validado em prescription-agent.service.ts). Sem volume leve, o dia e so o bloco
-      // intervalado mesmo, sem bloco extra nem pace pra descrever.
-      const blocks = easyVolumeKm > 0 && decision.paceSecondsPerKm != null
-        ? [intervalBlock, this.runDistanceBlock('Recuperacoes e volume leve', easyVolumeKm, decision.paceSecondsPerKm)]
-        : [intervalBlock];
-      return {
-        type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks),
-        speedKmh: Number((3600 / fastPaceSecondsPerKm).toFixed(1)),
-        representativePaceSecondsPerKm: fastPaceSecondsPerKm,
-        blocks,
-        reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'heartRate', 'rpe', 'notes'],
-      };
+  // como uma sequencia ordenada de "parts" (ver AiSessionSchema em prescription-agent.service.ts),
+  // normalmente 1 so, mas pode ser varias quando o treino for misto (ex: caminhada, depois um
+  // bloco intervalado, depois mais caminhada — pedido explicito do treinador 10/08). Aqui so
+  // montamos um bloco de exibicao por parte e somamos os totais — nao ha julgamento de conteudo
+  // aqui, so formatacao do que a IA ja decidiu.
+  private runPrescription(durationMin: number, modality: string, decision: { parts: SessionPartDecision[] }) {
+    if (!decision.parts.length) {
+      throw new InternalServerErrorException(`Nenhuma parte preenchida ao montar a sessao (durationMin=${durationMin}) — bug de sincronizacao entre a decisao da IA e a montagem da sessao.`);
     }
+    // Aquecimento e desaquecimento GENERICOS nao fazem parte do treino prescrito nem da distancia/
+    // duracao total quando o dia e simples (1 parte) — viram um texto padrao apendado ao final de
+    // "notes" so nesse caso (ver STANDARD_WARMUP_COOLDOWN_TEXT/shouldSkipStandardWarmupCooldown).
+    // Quando o dia tem varias partes, cada uma (inclusive uma caminhada real no inicio/fim) conta
+    // de verdade pra distancia/duracao total — isso evita o erro que ja aconteceu na pratica: um
+    // treino misto onde a caminhada real do inicio/fim nao entrava no total, subestimando o
+    // volume/tempo real do aluno naquele dia (incidente real 10/08).
+    const multiPart = decision.parts.length > 1;
+    const blocks: RunBlock[] = decision.parts.map((part, index) => this.blockForPart(part, multiPart ? `Parte ${index + 1}` : null));
 
-    if (decision.walkRunStructure) {
-      const { repeatCount, walkStepKm, runStepKm, walkPaceSecondsPerKm, runPaceSecondsPerKm } = decision.walkRunStructure;
-      const intervalBlock: RunBlock = {
-        label: 'Bloco intervalado',
-        repeatCount,
-        steps: [
-          this.intervalStep('Caminhar', walkStepKm, walkPaceSecondsPerKm),
-          this.intervalStep('Correr', runStepKm, runPaceSecondsPerKm),
-        ],
-      };
-      const blocks = [intervalBlock];
-      return {
-        type: 'run', modality, distanceKm: this.totalBlockDistance(blocks), durationMin: this.midpointDuration(blocks), durationRange: this.totalDurationRange(blocks),
-        speedKmh: Number((3600 / runPaceSecondsPerKm).toFixed(1)),
-        representativePaceSecondsPerKm: runPaceSecondsPerKm,
-        blocks,
-        reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'heartRate', 'rpe', 'notes'],
-      };
-    }
-
-    // Corrida continua: distancia e pace decididos diretamente pela IA para este dia.
-    if (decision.distanceKm == null || decision.paceSecondsPerKm == null) {
-      throw new InternalServerErrorException(`Distancia/pace ausentes ao montar a sessao (durationMin=${durationMin}) e nenhuma estrutura preenchida — bug de sincronizacao entre a decisao da IA e a montagem da sessao.`);
-    }
-    const blocks = [this.runDistanceBlock('Principal', decision.distanceKm, decision.paceSecondsPerKm)];
+    const intervalPart = decision.parts.find((part): part is Extract<SessionPartDecision, { kind: 'intervalada' }> => part.kind === 'intervalada');
+    // Parte "representativa" pra exibir um pace/velocidade unico no resumo do dia: prefere a
+    // parte intervalada (o estimulo principal), senao a maior parte continua (o trecho mais
+    // significativo do dia) — mesma logica de sempre, so adaptada pra uma lista de partes.
+    const representativePaceSecondsPerKm = intervalPart
+      ? intervalPart.stimulusPaceSecondsPerKm
+      : (() => {
+          const continuousParts = decision.parts.filter((part): part is Extract<SessionPartDecision, { kind: 'continua' }> => part.kind === 'continua');
+          const mainPart = [...continuousParts].sort((left, right) => right.distanceKm - left.distanceKm)[0];
+          return Math.round((mainPart.paceSecondsPerKmMin + mainPart.paceSecondsPerKmMax) / 2);
+        })();
 
     return {
       type: 'run',
@@ -1538,16 +1490,43 @@ export class TrainingPlansService {
       distanceKm: this.totalBlockDistance(blocks),
       durationMin: this.midpointDuration(blocks),
       durationRange: this.totalDurationRange(blocks),
-      speedKmh: Number((3600 / decision.paceSecondsPerKm).toFixed(1)),
-      representativePaceSecondsPerKm: decision.paceSecondsPerKm,
+      speedKmh: Number((3600 / representativePaceSecondsPerKm).toFixed(1)),
+      representativePaceSecondsPerKm,
       blocks,
       reportFields: ['distanceKm', 'durationMin', 'pace', 'speedKmh', 'heartRate', 'rpe', 'notes'],
     };
   }
 
-  private runDistanceBlock(label: string, distanceKm: number, paceSecondsPerKm: number, guidance?: string) {
-    const fast = Math.max(paceSecondsPerKm - 12, 1);
-    const slow = paceSecondsPerKm + 12;
+  private blockForPart(part: SessionPartDecision, forcedLabel: string | null): RunBlock {
+    if (part.kind === 'intervalada') {
+      return {
+        label: forcedLabel ?? 'Serie intervalada',
+        repeatCount: part.repeatCount,
+        steps: [
+          this.intervalStep(part.stimulusLabel, part.stimulusStepKm, part.stimulusPaceSecondsPerKm),
+          this.intervalStep(part.recoveryLabel, part.recoveryStepKm, part.recoveryPaceSecondsPerKm),
+        ],
+      };
+    }
+    return this.runDistanceBlock(forcedLabel ?? 'Principal', part.distanceKm, part.paceSecondsPerKmMin, part.paceSecondsPerKmMax);
+  }
+
+  // Skip do texto fixo de aquecimento/resfriamento (ver STANDARD_WARMUP_COOLDOWN_TEXT) quando o
+  // proprio treino ja se inicia com uma caminhada de verdade — pedido explicito do treinador
+  // (10/08): nao faz sentido repetir a instrucao quando a primeira parte do treino ja e uma
+  // caminhada de pelo menos 5 minutos, descrita pela propria IA.
+  private shouldSkipStandardWarmupCooldown(parts: SessionPartDecision[]): boolean {
+    if (parts.length < 2) return false;
+    const first = parts[0];
+    if (first.kind !== 'continua') return false;
+    const averagePaceSecondsPerKm = (first.paceSecondsPerKmMin + first.paceSecondsPerKmMax) / 2;
+    const firstPartDurationMin = (first.distanceKm * averagePaceSecondsPerKm) / 60;
+    return firstPartDurationMin >= STANDARD_WARMUP_COOLDOWN_MIN_LEADING_WALK_MIN;
+  }
+
+  private runDistanceBlock(label: string, distanceKm: number, paceSecondsPerKmMin: number, paceSecondsPerKmMax: number, guidance?: string) {
+    const fast = Math.min(paceSecondsPerKmMin, paceSecondsPerKmMax);
+    const slow = Math.max(paceSecondsPerKmMin, paceSecondsPerKmMax);
     const minimumSeconds = Math.round(distanceKm * fast);
     const maximumSeconds = Math.round(distanceKm * slow);
 

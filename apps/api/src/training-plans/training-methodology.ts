@@ -124,45 +124,46 @@ export interface MethodologyInput {
   } | null;
 }
 
-// Estrutura de um estimulo em series (trecho forte + recuperacao) — decidida pela IA quando ela
-// escolher essa forma pra um dia, nao por uma proporcao fixa no codigo. O codigo so monta a
-// exibicao a partir desses numeros, sem nenhuma conta propria.
-export interface IntervalStructureDecision {
-  repeatCount: number;
-  fastStepKm: number;
-  fastPaceSecondsPerKm: number;
-  recoveryStepKm: number;
-  recoveryPaceSecondsPerKm: number;
-  easyVolumeKm: number;
+// Um treino de corrida e descrito como uma SEQUENCIA ORDENADA de partes (nunca mais uma escolha
+// unica entre "corrida continua OU intervalado OU caminhada-corrida") — pedido explicito do
+// treinador (10/08): um treino pode ser misto, com varias partes diferentes (ex: caminhada, depois
+// um bloco intervalado, depois mais caminhada). Cada parte e uma destas duas formas:
+// (1) "continua" — uma distancia com um pace (pode ser um numero so, quando min===max, ou uma
+// faixa quando o ritmo varia ao longo da parte); cobre tanto "caminhada"/"corrida constante"
+// quanto "corrida variada", sem precisar de um terceiro tipo separado.
+// (2) "intervalada" — um bloco que repete N vezes um estimulo + uma recuperacao, cada um com sua
+// propria distancia e pace; cobre tanto "correr forte / recuperar" quanto "caminhar / correr"
+// (os rotulos stimulusLabel/recoveryLabel dizem o que cada trecho e, ex: "Correr forte"/"Trotar",
+// ou "Caminhar"/"Correr").
+// A IA decide livremente quantas partes usar (normalmente 1, mas pode ser varias) e a ordem —
+// o codigo so monta a exibicao somando todas elas, sem nenhuma conta ou regra propria decidindo
+// o treino (ver [[no_math_rules_for_workout_calc]]).
+export interface ContinuousPartDecision {
+  kind: 'continua';
+  distanceKm: number;
+  paceSecondsPerKmMin: number;
+  paceSecondsPerKmMax: number;
 }
 
-// Estrutura de alternancia caminhada/corrida — mesma logica: a IA decide quando essa forma faz
-// sentido pra um dia, o codigo so monta e confere consistencia.
-export interface WalkRunStructureDecision {
+export interface IntervalPartDecision {
+  kind: 'intervalada';
   repeatCount: number;
-  walkStepKm: number;
-  runStepKm: number;
-  walkPaceSecondsPerKm: number;
-  runPaceSecondsPerKm: number;
+  stimulusLabel: string;
+  stimulusStepKm: number;
+  stimulusPaceSecondsPerKm: number;
+  recoveryLabel: string;
+  recoveryStepKm: number;
+  recoveryPaceSecondsPerKm: number;
 }
+
+export type SessionPartDecision = ContinuousPartDecision | IntervalPartDecision;
 
 export interface RunSessionDecision {
   weekday: number;
   title: string;
   durationMin: number;
   notes: string;
-  // Nao existe mais uma categoria (sessionType) que a IA declara antes de decidir o treino — ela
-  // so preenche os campos abaixo que fizerem sentido pra ESTE dia especifico, livremente (ver
-  // [[no_math_rules_for_workout_calc]]). Exatamente uma das tres formas abaixo e usada por sessao:
-  // (1) distanceKm+paceSecondsPerKm preenchidos direto (corrida continua); (2) intervalStructure
-  // preenchido (serie com trecho forte + recuperacao, distanceKm/paceSecondsPerKm ficam null ou
-  // so descrevem um volume leve adicional); (3) walkRunStructure preenchido (alternancia
-  // caminhada/corrida, distanceKm/paceSecondsPerKm ficam null). O codigo nao gate-keeps qual
-  // forma usar — so confere consistencia interna de qual foi escolhida.
-  distanceKm: number | null;
-  paceSecondsPerKm: number | null;
-  intervalStructure?: IntervalStructureDecision | null;
-  walkRunStructure?: WalkRunStructureDecision | null;
+  parts: SessionPartDecision[];
 }
 
 export type StrengthModality = 'forca' | 'fortalecimento_corredores';
