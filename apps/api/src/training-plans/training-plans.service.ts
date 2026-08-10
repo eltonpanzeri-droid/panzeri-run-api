@@ -526,12 +526,22 @@ export class TrainingPlansService {
     const methodologyHistory = previousPlans.map((historyPlan) => {
       const runSessions = historyPlan.sessions.filter((session) => isRunningModality(session.modality));
       const completedRuns = runSessions.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted');
+      // O treino mais longo da semana (candidato mais provavel a ser uma prova/longao que a IA
+      // queira citar em notes) — guardamos a data exata dele, nao so a duracao, pra IA nunca mais
+      // ter que adivinhar "quando foi" (ver comentario em MethodologyHistoryWeek).
+      const longestRun = completedRuns.reduce<(typeof completedRuns)[number] | null>((longest, session) => {
+        const durationMin = session.completion?.durationMin ?? session.durationMin ?? 0;
+        const longestDurationMin = longest ? (longest.completion?.durationMin ?? longest.durationMin ?? 0) : -1;
+        return durationMin > longestDurationMin ? session : longest;
+      }, null);
       return {
         runMinutes: runSessions.reduce((total, session) => total + (session.durationMin ?? 0), 0),
         completedRunMinutes: completedRuns.reduce((total, session) => total + (session.completion?.durationMin ?? session.durationMin ?? 0), 0),
         longestRunMinutes: Math.max(0, ...completedRuns.map((session) => session.completion?.durationMin ?? session.durationMin ?? 0)),
         prescribedSessions: historyPlan.sessions.length,
         completedSessions: historyPlan.sessions.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted').length,
+        weekStartDate: historyPlan.startDate.toISOString().slice(0, 10),
+        longestRunDate: longestRun ? longestRun.scheduledDate.toISOString().slice(0, 10) : null,
       };
     });
     const stravaRuns = recentStrava.filter((activity) => isStravaRunningActivity(activity.type, activity.name));

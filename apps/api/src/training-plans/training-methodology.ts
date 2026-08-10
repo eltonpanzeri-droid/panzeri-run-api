@@ -62,6 +62,14 @@ export interface MethodologyHistoryWeek {
   longestRunMinutes: number;
   prescribedSessions: number;
   completedSessions: number;
+  // Datas reais (incidente real 10/08 — aluna fez uma prova no domingo, e na terca seguinte a IA
+  // escreveu "voce completou ontem", quando na verdade ja fazia 2 dias — ela nao tinha NENHUMA
+  // data real pra calcular isso, so os numeros agregados da semana acima, sem nenhum dia anexado).
+  // weekStartDate da o contexto geral de quando essa semana aconteceu; longestRunDate (quando
+  // existir) e a data exata do dia do treino mais longo daquela semana — normalmente o dado mais
+  // util pra situar uma prova/longao especifico no tempo.
+  weekStartDate: string;
+  longestRunDate: string | null;
 }
 
 export interface MethodologyInput {
