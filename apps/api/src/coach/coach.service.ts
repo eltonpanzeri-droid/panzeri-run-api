@@ -227,6 +227,26 @@ export class CoachService {
     return this.prisma.trainingSession.update({ where: { id: sessionId }, data });
   }
 
+  // Escape hatch manual do treinador pra limpar sessao duplicada/errada que a IA gerou (pedido
+  // real 10/08 — Lucelane com 3 sessoes de fortalecimento empilhadas no mesmo dia, sem nenhum
+  // jeito de tirar uma so pelo painel). Nunca deixa apagar um treino que a aluna ja registrou
+  // como feito — isso destruiria um dado real de aderencia, nao so "limpar uma sobra".
+  async deleteTrainingSession(studentId: string, sessionId: string) {
+    await this.assertStudent(studentId);
+    const session = await this.prisma.trainingSession.findFirst({
+      where: { id: sessionId, userId: studentId },
+      select: { id: true, completion: { select: { id: true } } },
+    });
+    if (!session) {
+      throw new BadRequestException('Treino nao encontrado para este aluno.');
+    }
+    if (session.completion) {
+      throw new BadRequestException('Esse treino ja foi registrado pela aluna — nao da pra excluir, so editar.');
+    }
+    await this.prisma.trainingSession.delete({ where: { id: sessionId } });
+    return { message: 'Treino excluido.' };
+  }
+
   async createStudentInvite(studentId: string) {
     const user = await this.assertStudent(studentId);
     const token = randomBytes(32).toString('hex');

@@ -1956,6 +1956,18 @@ h3 {
   font-size: 11px;
 }
 
+.sessionEditor .dangerButton {
+  min-height: 28px;
+  border: 1px solid #d33;
+  background: #ffffff;
+  color: #d33;
+  padding: 0 8px;
+  font-size: 11px;
+}
+.sessionEditor .dangerButton:disabled {
+  opacity: 0.6;
+}
+
 .sessionEditorHeaderActions {
   display: flex;
   align-items: center;

@@ -2380,6 +2380,33 @@ function EditableSession({
     }
   }
 
+  const [isDeleting, setIsDeleting] = useState(false);
+  // Escape hatch manual pra limpar treino duplicado/errado que a IA gerou (pedido real 10/08 —
+  // Lucelane com sessoes de fortalecimento empilhadas no mesmo dia, sem nenhum jeito de remover
+  // uma so). Nunca deixa apagar um treino que a aluna ja registrou (ver deleteTrainingSession).
+  async function deleteSession() {
+    if (!window.confirm('Excluir este treino definitivamente? Essa acao nao pode ser desfeita.')) return;
+    onStatus('Excluindo treino...');
+    setIsDeleting(true);
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/sessions/${session.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        onStatus(typeof data?.message === 'string' ? data.message : 'Nao consegui excluir o treino.');
+        return;
+      }
+      onStatus('Treino excluido.');
+      onSaved();
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   function handleStructureChange(next: Record<string, unknown>) {
     if (next.type === 'run' || next.type === 'aerobic') {
       const totals = computeStructureTotals(next);
@@ -2413,6 +2440,9 @@ function EditableSession({
         <div className="sessionEditorHeaderActions">
           <button className="editSessionButton" type="button" onClick={() => setIsEditing((current) => !current)}>
             {isEditing ? 'Cancelar' : 'Editar'}
+          </button>
+          <button className="dangerButton" type="button" disabled={isDeleting} onClick={() => deleteSession()}>
+            {isDeleting ? 'Excluindo...' : 'Excluir'}
           </button>
         </div>
       </div>

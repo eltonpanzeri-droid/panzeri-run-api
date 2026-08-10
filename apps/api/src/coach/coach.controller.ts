@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
@@ -94,6 +94,13 @@ export class CoachController {
     @Body() dto: UpdateTrainingSessionDto,
   ) {
     return this.coachService.updateTrainingSession(studentId, sessionId, dto);
+  }
+
+  // Excluir de vez um treino que a IA gerou errado/duplicado (nunca um ja registrado pela aluna
+  // — ver deleteTrainingSession). Pedido real 10/08, escape hatch manual pro treinador.
+  @Delete('students/:studentId/sessions/:sessionId')
+  deleteTrainingSession(@Param('studentId') studentId: string, @Param('sessionId') sessionId: string) {
+    return this.coachService.deleteTrainingSession(studentId, sessionId);
   }
 
   @Post('students/:studentId/plan/regenerate-week')
