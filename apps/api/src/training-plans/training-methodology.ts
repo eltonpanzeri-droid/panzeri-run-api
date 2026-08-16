@@ -116,6 +116,21 @@ export interface MethodologyInput {
     raceDate: string;
     distanceKm: number;
     paceSecondsPerKm: number | null;
+    // Questionario de contexto sobre a meta (10/08) — escala de 1 a 10, cada campo pode ser null
+    // (aluno nao respondeu, ou prova cadastrada antes dessa pergunta existir). Existe pra IA
+    // calibrar TOM e o quanto vale empurrar alem do confortavel — ver a regra correspondente em
+    // buildSystemPromptStable (prescription-agent.service.ts), nunca uma formula/trava.
+    performanceIntent: number | null;
+    socialIntent: number | null;
+    personalImportance: number | null;
+    perceivedDifficulty: number | null;
+    dedicationWillingness: number | null;
+    achievementSatisfaction: number | null;
+    confidenceLevel: number | null;
+    injuryConcern: number | null;
+    adjustmentOpenness: number | null;
+    anxietyLevel: number | null;
+    isFirstTimeAtDistance: boolean | null;
   } | null;
   // Maior distancia de corrida/caminhada CONCLUIDA de verdade (registrada em completion), de toda
   // a historia do aluno — nao um resumo escrito por outro agente, e sim calculado direto do banco.

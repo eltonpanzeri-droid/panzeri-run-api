@@ -351,6 +351,22 @@ model TargetRace {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // Questionario de contexto sobre a meta (pedido explicito do treinador, 10/08) — escala de 1 a
+  // 10, tudo opcional (provas cadastradas antes disso ficam sem essas respostas ate serem
+  // editadas). Existe pra IA calibrar TOM e o quanto vale empurrar alem do confortavel, nunca
+  // como formula/trava — ver a regra correspondente em prescription-agent.service.ts.
+  performanceIntent      Int?
+  socialIntent           Int?
+  personalImportance     Int?
+  perceivedDifficulty    Int?
+  dedicationWillingness  Int?
+  achievementSatisfaction Int?
+  confidenceLevel        Int?
+  injuryConcern           Int?
+  adjustmentOpenness      Int?
+  anxietyLevel             Int?
+  isFirstTimeAtDistance    Boolean?
+
   @@index([userId, status])
 }
 

@@ -3085,6 +3085,38 @@ interface TargetRaceItem {
   notes: string | null;
   paceSecondsPerKm: number | null;
   speedKmh: number | null;
+  performanceIntent: number | null;
+  socialIntent: number | null;
+  personalImportance: number | null;
+  perceivedDifficulty: number | null;
+  dedicationWillingness: number | null;
+  achievementSatisfaction: number | null;
+  confidenceLevel: number | null;
+  injuryConcern: number | null;
+  adjustmentOpenness: number | null;
+  anxietyLevel: number | null;
+  isFirstTimeAtDistance: boolean | null;
+}
+
+// Pergunta de escala 1-10 reutilizada nas 10 perguntas de contexto da meta de prova — mesmo
+// padrao visual ja usado pra PSE (percepcao de esforco) no formulario de conclusao de treino.
+function ScaleQuestion({ label, value, onChange }: { label: string; value: number | null; onChange: (next: number | null) => void }) {
+  return (
+    <View>
+      <Text style={styles.formHint}>{label}</Text>
+      <View style={styles.completionStatusRow}>
+        {Array.from({ length: 10 }, (_, index) => index + 1).map((option) => (
+          <Pressable
+            key={option}
+            style={[styles.completionChip, value === option && styles.completionChipActive]}
+            onPress={() => onChange(value === option ? null : option)}
+          >
+            <Text style={[styles.completionChipText, value === option && styles.completionChipTextActive]}>{option}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
 }
 
 function TargetRaceScreen({ accessToken }: { accessToken: string }) {
@@ -3100,6 +3132,19 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
   const [priority, setPriority] = useState('principal');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  // Questionario de contexto sobre a meta (pedido explicito do treinador, 10/08) — ajuda a IA a
+  // calibrar tom e o quanto vale empurrar alem do confortavel. Tudo opcional.
+  const [isFirstTime, setIsFirstTime] = useState<boolean | null>(null);
+  const [performanceIntent, setPerformanceIntent] = useState<number | null>(null);
+  const [socialIntent, setSocialIntent] = useState<number | null>(null);
+  const [personalImportance, setPersonalImportance] = useState<number | null>(null);
+  const [perceivedDifficulty, setPerceivedDifficulty] = useState<number | null>(null);
+  const [dedicationWillingness, setDedicationWillingness] = useState<number | null>(null);
+  const [achievementSatisfaction, setAchievementSatisfaction] = useState<number | null>(null);
+  const [confidenceLevel, setConfidenceLevel] = useState<number | null>(null);
+  const [injuryConcern, setInjuryConcern] = useState<number | null>(null);
+  const [adjustmentOpenness, setAdjustmentOpenness] = useState<number | null>(null);
+  const [anxietyLevel, setAnxietyLevel] = useState<number | null>(null);
 
   async function load() {
     setLoading(true);
@@ -3138,6 +3183,17 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
           targetSeconds: totalSeconds > 0 ? totalSeconds : undefined,
           priority,
           notes: notes.trim() || undefined,
+          isFirstTimeAtDistance: isFirstTime ?? undefined,
+          performanceIntent: performanceIntent ?? undefined,
+          socialIntent: socialIntent ?? undefined,
+          personalImportance: personalImportance ?? undefined,
+          perceivedDifficulty: perceivedDifficulty ?? undefined,
+          dedicationWillingness: dedicationWillingness ?? undefined,
+          achievementSatisfaction: achievementSatisfaction ?? undefined,
+          confidenceLevel: confidenceLevel ?? undefined,
+          injuryConcern: injuryConcern ?? undefined,
+          adjustmentOpenness: adjustmentOpenness ?? undefined,
+          anxietyLevel: anxietyLevel ?? undefined,
         }),
       });
       if (!response.ok) {
@@ -3153,6 +3209,17 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
       setSeconds('');
       setNotes('');
       setPriority('principal');
+      setIsFirstTime(null);
+      setPerformanceIntent(null);
+      setSocialIntent(null);
+      setPersonalImportance(null);
+      setPerceivedDifficulty(null);
+      setDedicationWillingness(null);
+      setAchievementSatisfaction(null);
+      setConfidenceLevel(null);
+      setInjuryConcern(null);
+      setAdjustmentOpenness(null);
+      setAnxietyLevel(null);
       setMessage('Meta registrada! Vamos considerar essa prova no planejamento do seu treino.');
       await load();
     } catch {
@@ -3222,7 +3289,32 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
             </Pressable>
           ))}
         </View>
-        <TextInput style={styles.input} value={notes} onChangeText={setNotes} placeholder="Observacoes (opcional)" />
+
+        <Text style={styles.copyTight}>
+          Essas respostas ajudam a gente a montar seu treino do jeito certo pra voce — uma prova de diversao com os amigos merece um preparo diferente de uma meta pessoal seria, e queremos acertar isso desde o inicio. Todas sao opcionais.
+        </Text>
+
+        <Text style={styles.inputLabel}>E a primeira vez que voce vai correr essa distancia?</Text>
+        <View style={styles.answerList}>
+          {[{ label: 'Sim', value: true }, { label: 'Nao', value: false }].map((item) => (
+            <Pressable key={item.label} style={[styles.answerButton, isFirstTime === item.value && styles.answerButtonActive]} onPress={() => setIsFirstTime(isFirstTime === item.value ? null : item.value)}>
+              <Text style={[styles.answerButtonText, isFirstTime === item.value && styles.answerButtonTextActive]}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <ScaleQuestion label="O quanto voce quer melhorar sua performance/tempo nessa prova?" value={performanceIntent} onChange={setPerformanceIntent} />
+        <ScaleQuestion label="O quanto e sobre curtir a experiencia, o evento, estar com outras pessoas?" value={socialIntent} onChange={setSocialIntent} />
+        <ScaleQuestion label="O quanto essa prova e importante pra voce pessoalmente?" value={personalImportance} onChange={setPersonalImportance} />
+        <ScaleQuestion label="O quanto voce acha que isso vai ser dificil pra voce?" value={perceivedDifficulty} onChange={setPerceivedDifficulty} />
+        <ScaleQuestion label="O quanto voce esta disposta a se dedicar pra isso?" value={dedicationWillingness} onChange={setDedicationWillingness} />
+        <ScaleQuestion label="O quanto conseguir esse resultado vai te trazer satisfacao pessoal?" value={achievementSatisfaction} onChange={setAchievementSatisfaction} />
+        <ScaleQuestion label="O quanto voce confia que vai conseguir alcancar essa meta?" value={confidenceLevel} onChange={setConfidenceLevel} />
+        <ScaleQuestion label="O quanto te preocupa se machucar ou ter algum problema de saude tentando alcancar essa meta?" value={injuryConcern} onChange={setInjuryConcern} />
+        <ScaleQuestion label="Se ao longo da preparacao a gente perceber que talvez nao de pra alcancar exatamente essa meta, o quanto voce estaria aberta a ajustar?" value={adjustmentOpenness} onChange={setAdjustmentOpenness} />
+        <ScaleQuestion label="O quanto voce sente ansiedade ou nervosismo em relacao a essa prova?" value={anxietyLevel} onChange={setAnxietyLevel} />
+
+        <TextInput style={styles.input} value={notes} onChangeText={setNotes} placeholder="Quer contar mais sobre essa prova? (opcional)" />
         <Pressable style={styles.primaryButton} onPress={createRace} disabled={saving}>
           <Text style={styles.primaryButtonText}>{saving ? 'Salvando...' : 'Salvar meta'}</Text>
         </Pressable>

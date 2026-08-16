@@ -102,6 +102,12 @@ Nao forcar corrida continua lenta demais. Em vez disso:
   para correr" (equivalente a cerca de 7-8km/h). Por isso o iniciante ja corre numa faixa de
   pace equivalente a 7-8km/h, em vez de mais lento.
 - Quanto mais iniciante, mais leve o pace de corrida sugerido.
+- Para alguns alunos muito destreinados, o limite real nao e uma questao de pace — e literalmente
+  quanto tempo/distancia de corrida continua o corpo aguenta em QUALQUER ritmo, porque pra eles
+  correr, em qualquer velocidade, ja e esforco proximo do maximo. Nesse caso, mesmo 300-500m de
+  trecho corrido pode ja ser o teto real da serie, independente do pace escolhido — o ajuste certo
+  nao e "correr mais devagar", e reduzir a distancia do trecho corrido e/ou aumentar a proporcao
+  de caminhada.
 
 ## Frequencia baixa (ex.: 2x/semana)
 Um treino continuo (caminhada para iniciante, focado em aumentar volume/distancia total) + um
@@ -212,17 +218,47 @@ muda mais a prescricao (ex.: aluno cumprindo tudo certinho mas marcando "Nao gos
 e sinal de ajustar, nao so de comemorar a aderencia). Funciona como gatilho de RECORRENCIA, nao de
 ocorrencia isolada — mesma logica usada para decidir reduzir o pico de volume.
 
-## Periodizacao em torno de prova (pico -> polimento -> prova -> pos-prova)
-Sobe o volume ate um pico. Mantem o pico por algumas semanas: primeiras semanas do pico com a
-mesma intensidade, depois tenta subir intensidade mantendo o volume. 2-3 semanas antes da prova:
-polimento — reduz volume, mantem intensidade. Semana da prova: pouco volume, pouca intensidade.
-Pos-prova: reinicia com volume baixo, respeitando o tempo de cada aluno "recuperar a motivacao"
-(existe uma especie de "post-race blues" — alguns alunos demoram bem mais que outros para voltar
-animados; isso nao e preguica, e esperado).
+## Fases da preparacao para uma prova (base -> pico -> polimento -> prova -> pos-prova)
+Isso e a espinha dorsal geral de uma preparacao — um norte, nunca uma formula fixa. A duracao de
+cada fase varia por aluno, dependendo do contexto real dele (como ele responde aos aumentos de
+carga, quanto tempo tem ate a prova, de que nivel esta partindo). Quando o prazo de preparacao for
+curto, achate as fases proporcionalmente em vez de forcar a duracao padrao de cada uma.
 
-Quando o aluno tem uma prova com prazo de preparacao curto, achate proporcionalmente cada fase
-(pico, manutencao, polimento) em vez de tentar encaixar a duracao padrao de cada uma — a logica
-de progressao continua a mesma, so comprimida no tempo disponivel.
+**Fase de base (inicio da preparacao):** aumenta gradualmente o volume semanal, a distancia de
+cada sessao de corrida, e o fortalecimento. A duracao dessa fase depende de como o aluno vai
+respondendo: enquanto ele sustenta os aumentos sem dor e sem relatos recorrentes de sofrimento
+excessivo, continue aumentando; se aparecerem sinais recorrentes de dificuldade, mantenha o
+patamar atual mais tempo antes de avancar (mesmo raciocinio de "consolidar o degrau atual", ver
+secao acima).
+
+**Pico:** definido por dois marcos, nao por tempo fixo — (1) a maior quantidade de km semanal que
+a rotina real do aluno permite (pra atleta recreacional, isso normalmente significa ocupar o
+maximo do tempo que ele reserva pra treinar) e (2) a maior distancia de uma unica sessao que ele
+sustenta. Ao chegar nesse pico, tambem e o momento de trabalhar aumento de intensidade/velocidade
+— nao so aumentando o tempo de exposicao numa faixa de intensidade, mas tambem elevando os
+proprios valores de intensidade, inclusive acima do pace-alvo da prova. O pico nao precisa durar
+mais que 4 semanas.
+
+**Polimento:** reduz o volume, mantem a intensidade. Dura cerca de 3 semanas.
+
+**Semana pre-prova:** baixo volume E baixa intensidade. Respeitar de 2 a 3 dias sem treino de
+corrida antes da prova, pro aluno chegar totalmente descansado.
+
+**Pos-prova:** reinicia com volume baixo, respeitando o tempo de cada aluno "recuperar a
+motivacao" (existe uma especie de "post-race blues" — alguns alunos demoram bem mais que outros
+para voltar animados; isso nao e preguica, e esperado). Esse tempo de retomada mais leve tende a
+ser proporcional ao quanto o aluno se dedicou e ao quanto aquela prova era relevante pra ele —
+quem investiu bastante tempo e esforco numa prova que representava um desafio maior geralmente
+precisa de uma fase pos-prova mais longa e mais leve; provas de menor entrega ou relevancia pedem
+uma retomada mais rapida ao ritmo normal.
+
+**Particularidades que sempre pesam mais que a formula:** nem todo aluno quer o mesmo grau de foco
+em performance — alguns querem so completar a prova, outros querem melhorar de verdade, e o MESMO
+aluno pode querer performance numa prova e nao em outra. Isso muda o quanto vale empurrar
+intensidade no pico, mas nao muda o principio de que, sempre que possivel — seja o foco em pace ou
+so saude/completar — vale criar estrategias pra aumentar paulatinamente o TEMPO TOTAL CORRIDO.
+Isso e um objetivo comum a qualquer aluno treinando pra uma prova, independente da meta de
+performance dele.
 
 ## Regra de decisao: manter vs. reduzir o volume/longao no pico
 Enquanto o aluno corre bem e da bons feedbacks, mantem. Quando aparecem sinais de cansaco, ainda
