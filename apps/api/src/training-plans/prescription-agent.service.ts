@@ -100,7 +100,13 @@ const AiSessionSchema = z.object({
   // (antes existia um segundo campo "recommendations" separado so pra isso; foi removido em
   // 07/08 a pedido do treinador — dois campos nao ajudavam o aluno e so gastavam token/raciocinio
   // da IA sem necessidade real).
-  notes: z.string().min(1),
+  // Sem .min(1) de proposito (bug real 16/08 — aluno Elton/f757cd0a): a IA as vezes devolve
+  // notes vazio pra alguma sessao especifica (mais comum quando o "orcamento de texto" no
+  // prompt de sistema faz ela economizar nos ultimos dias de uma resposta longa) — com .min(1)
+  // isso rejeitava a resposta INTEIRA e queimava uma tentativa inteira (2 tentativas seguidas
+  // falharam por isso nesse incidente, atrasando a geracao em mais de 10 minutos). notes vazio
+  // pra um dia especifico e melhor que arriscar a resposta inteira falhar/atrasar.
+  notes: z.string(),
   // Preenchido quando durationMin ultrapassa o tempo normal disponivel para este weekday
   // especifico — cite a diretriz que autoriza isso para ESTE dia. Null/vazio quando a duracao
   // esta dentro do normal do dia.
@@ -123,7 +129,13 @@ const AiStrengthSessionSchema = z.object({
   reps: z.string().min(1),
   restSeconds: z.number().int().min(20).max(150),
   intensity: z.enum(['Leve', 'Moderada', 'Forte']),
-  notes: z.string().min(1),
+  // Sem .min(1) de proposito (bug real 16/08 — aluno Elton/f757cd0a): a IA as vezes devolve
+  // notes vazio pra alguma sessao especifica (mais comum quando o "orcamento de texto" no
+  // prompt de sistema faz ela economizar nos ultimos dias de uma resposta longa) — com .min(1)
+  // isso rejeitava a resposta INTEIRA e queimava uma tentativa inteira (2 tentativas seguidas
+  // falharam por isso nesse incidente, atrasando a geracao em mais de 10 minutos). notes vazio
+  // pra um dia especifico e melhor que arriscar a resposta inteira falhar/atrasar.
+  notes: z.string(),
 });
 
 const AiWeeklyDecisionSchema = z.object({
