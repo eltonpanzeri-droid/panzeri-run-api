@@ -2223,11 +2223,14 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     setStatus('');
     setNotGeneratedRange(null);
     try {
-      // A partir de domingo meio-dia, o offset "0" exibido pro aluno passa a representar a
-      // semana seguinte (ver isSundayAfterNoon) — desloca o offset real enviado pra API em +1
-      // pra manter a navegacao coerente: "Anterior" (offset -1 na tela) cai no offset real 0,
-      // que e a semana que contem o proprio domingo.
-      const apiOffset = offset + (isSundayAfterNoon() ? 1 : 0);
+      // Bug real corrigido 16/08 (aluna Vanessa): esse +1 deslocava TODO offset (inclusive
+      // negativos) achando que offset real 0 sempre levava pra "semana que contem o domingo" via
+      // current() — so que current() ja rola sozinho pra semana seguinte nesse mesmo horario (ver
+      // training-plans.service.ts), e getWeekByOffset agora faz a mesma rolagem pra offsets
+      // negativos tambem. Com os dois deslocando ao mesmo tempo, "Anterior" (offset -1) virava
+      // offset real 0 e sempre caia em current() de novo — nunca alcancava a semana arquivada que
+      // tinha acabado de terminar. Agora o offset e enviado literal, sem ajuste nenhum aqui.
+      const apiOffset = offset;
       const response = await fetch(`${API_URL}/training-plans/week-by-offset?offset=${apiOffset}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -4554,8 +4557,13 @@ function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: 
     { id: 'profile', label: 'Perfil', icon: 'person' },
   ];
 
+  // Bug real reportado 16/08 (aluna Vanessa) — o menu tinha 13 itens dentro de um View comum,
+  // sem rolagem nenhuma. Em telas menores/com fonte maior, os ultimos itens (incluindo "Sair")
+  // ficavam cortados fora da tela, sem nenhum jeito de alcancar. Agora o menu inteiro fica dentro
+  // de um ScrollView com altura maxima — quando cabe tudo, nao aparece barra de rolagem nenhuma;
+  // quando nao cabe, da pra rolar ate o fim.
   return (
-    <View style={styles.appMenu}>
+    <ScrollView style={styles.appMenu} contentContainerStyle={styles.appMenuContent}>
       {tabs.map((tab) => {
         const active = tab.id === activeTab;
         return (
@@ -4569,7 +4577,7 @@ function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: 
         <Ionicons name="log-out-outline" size={21} color="#64748b" />
         <Text style={styles.menuItemText}>Sair</Text>
       </Pressable>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -6164,6 +6172,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#dbe4ea',
     backgroundColor: '#ffffff',
+    // maxHeight (nao flex:1) de proposito — o menu deve ocupar so o espaco que precisa quando
+    // cabe tudo na tela, e ficar rolavel so quando nao cabe (ver bug real acima).
+    maxHeight: '70%',
+  },
+  appMenuContent: {
     paddingHorizontal: 14,
     paddingVertical: 10,
     gap: 8,

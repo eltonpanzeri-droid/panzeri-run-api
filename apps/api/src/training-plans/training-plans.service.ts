@@ -314,7 +314,19 @@ export class TrainingPlansService {
       throw new BadRequestException('Semana invalida.');
     }
 
-    const targetWeekStart = startOfWeek(addDays(new Date(), offset * 7));
+    // BUG REAL CORRIGIDO (16/08 — aluna Vanessa, "o da semana passada, que acabou hoje, tambem
+    // nao aparece mais"): antes disso, negativo sempre contava a partir do calendario literal de
+    // agora (startOfWeek(new Date())) — mas current() (offset 0) ja rola pra semana seguinte aos
+    // domingos apos WEEKLY_RELEASE_HOUR (ver comentario em current()). Sem essa mesma rolagem
+    // aqui, offset -1 (Anterior) nunca alcancava a semana que acabou de terminar (ela fica
+    // arquivada assim que a semana seguinte e gerada, e so aparece pelo startDate exato aqui —
+    // current() so devolve planos ativos). Usa a mesma referencia de "hoje" que current() usa
+    // pra decidir a rolagem, garantindo que offset -1 sempre significa "a semana anterior a que
+    // esta ativa agora", nunca uma semana perdida no meio do caminho.
+    const { weekday: todayWeekday, hour: todayHour } = saoPauloWeekdayAndHour(new Date());
+    const rolledPastRelease = todayWeekday === 0 && todayHour >= WEEKLY_RELEASE_HOUR;
+    const navigationReference = rolledPastRelease ? addDays(new Date(), 7) : new Date();
+    const targetWeekStart = startOfWeek(addDays(navigationReference, offset * 7));
     // Para semanas futuras (offset > 0), so um plano "scheduled" (exatamente o que a
     // pre-geracao de domingo 19h cria) conta como a semana seguinte de verdade. Sem esse
     // filtro, um plano "archived" de testes antigos cuja data por coincidencia bate com a
