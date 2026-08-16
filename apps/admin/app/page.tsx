@@ -186,6 +186,7 @@ interface StudentDetail {
     evolutionConcerns?: string[];
   }>;
   plan: {
+    planCode: number;
     name: string;
     startDate: string;
     recommendation?: string | null;
@@ -2175,7 +2176,7 @@ function StudentPanel({
             ) : null}
           </div>
           <div className="weekWorkspaceActions">
-            <span>{student.plan?.name ?? 'Sem programa ativo'}</span>
+            <span>{student.plan?.name ?? 'Sem programa ativo'}{student.plan ? ` · Prescricao nº ${student.plan.planCode}` : ''}</span>
             <button className="secondaryButton" type="button" onClick={regenerateWeek}><RefreshCw size={16} />Refazer nova semana de treinos</button>
             <button className="secondaryButton" type="button" onClick={recoverSessions}><RefreshCw size={16} />Recuperar treinos presos em programa antigo</button>
             <button className="secondaryButton" type="button" onClick={syncAvailability}><RefreshCw size={16} />Sincronizar disponibilidade da entrevista</button>

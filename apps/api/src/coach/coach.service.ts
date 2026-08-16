@@ -825,6 +825,9 @@ export class CoachService {
       plan: plan
         ? {
             id: plan.id,
+            // Codigo de rastreio (pedido do treinador 16/08) — numero de controle sequencial
+            // dessa prescricao especifica, pra referenciar sem ambiguidade em conversa/suporte.
+            planCode: plan.planCode,
             name: plan.name,
             startDate: plan.startDate,
             endDate: plan.endDate,

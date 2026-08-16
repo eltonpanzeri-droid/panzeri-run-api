@@ -410,7 +410,7 @@ export class TrainingPlansService {
     await this.stravaService.syncIfStale(userId).catch(() => null);
 
     const historyStart = addDays(startOfWeek(new Date()), -35);
-    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRace, latestReassessment, activeObservations, longestRunSession] = await Promise.all([
+    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRaces, latestReassessment, activeObservations, longestRunSession] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         include: {
@@ -453,7 +453,7 @@ export class TrainingPlansService {
         select: { content: true },
       }),
       this.painReports.computeSafetyTier(userId),
-      this.targetRaces.currentGoal(userId),
+      this.targetRaces.activeGoals(userId),
       this.prisma.reassessment.findFirst({ where: { userId, completedAt: { not: null } }, orderBy: { completedAt: 'desc' } }),
       this.prisma.studentObservation.findMany({ where: { userId, active: true }, orderBy: { createdAt: 'desc' } }),
       // Fato objetivo, calculado direto dos treinos realmente concluidos (nao um resumo em prosa
@@ -613,23 +613,27 @@ export class TrainingPlansService {
       } : null,
       painTier: painSafety.tier,
       painReason: painSafety.reason,
-      targetRace: targetRace ? {
-        name: targetRace.name,
-        raceDate: targetRace.raceDate.toISOString(),
-        distanceKm: targetRace.distanceKm,
-        paceSecondsPerKm: targetRace.paceSecondsPerKm,
-        performanceIntent: targetRace.performanceIntent,
-        socialIntent: targetRace.socialIntent,
-        personalImportance: targetRace.personalImportance,
-        perceivedDifficulty: targetRace.perceivedDifficulty,
-        dedicationWillingness: targetRace.dedicationWillingness,
-        achievementSatisfaction: targetRace.achievementSatisfaction,
-        confidenceLevel: targetRace.confidenceLevel,
-        injuryConcern: targetRace.injuryConcern,
-        adjustmentOpenness: targetRace.adjustmentOpenness,
-        anxietyLevel: targetRace.anxietyLevel,
-        isFirstTimeAtDistance: targetRace.isFirstTimeAtDistance,
-      } : null,
+      // Array agora (correcao real 16/08 — antes so a prova mais proxima era visivel pra IA,
+      // uma segunda meta simultanea ficava invisivel; ver comentario em
+      // TargetRacesService.activeGoals). Tambem ja vem sem provas vencidas (arquivadas
+      // automaticamente ali mesmo).
+      targetRaces: targetRaces.map((race) => ({
+        name: race.name,
+        raceDate: race.raceDate.toISOString(),
+        distanceKm: race.distanceKm,
+        paceSecondsPerKm: race.paceSecondsPerKm,
+        performanceIntent: race.performanceIntent,
+        socialIntent: race.socialIntent,
+        personalImportance: race.personalImportance,
+        perceivedDifficulty: race.perceivedDifficulty,
+        dedicationWillingness: race.dedicationWillingness,
+        achievementSatisfaction: race.achievementSatisfaction,
+        confidenceLevel: race.confidenceLevel,
+        injuryConcern: race.injuryConcern,
+        adjustmentOpenness: race.adjustmentOpenness,
+        anxietyLevel: race.anxietyLevel,
+        isFirstTimeAtDistance: race.isFirstTimeAtDistance,
+      })),
       longestRunEver: longestRunSession?.completion?.distanceKm != null ? {
         distanceKm: longestRunSession.completion.distanceKm,
         date: longestRunSession.scheduledDate.toISOString().slice(0, 10),
@@ -908,7 +912,7 @@ export class TrainingPlansService {
           paceEvidence,
           painTier: painSafety.tier,
           painReason: painSafety.reason,
-          targetRace: methodologyInput.targetRace,
+          targetRaces: methodologyInput.targetRaces,
           methodology: {
             version: PANZERI_METHODOLOGY_VERSION,
             principles: PANZERI_PRESCRIPTION_PRINCIPLES,
@@ -1695,6 +1699,7 @@ export class TrainingPlansService {
   }
   private presentPlan(plan: {
     id: string;
+    planCode: number;
     name: string;
     goal: string;
     startDate: Date;
@@ -1746,6 +1751,9 @@ export class TrainingPlansService {
     }
     return {
       id: plan.id,
+      // Codigo de rastreio (pedido do treinador 16/08) — numero de controle sequencial pra
+      // referenciar esta prescricao especifica em conversa/suporte, sem ambiguidade.
+      planCode: plan.planCode,
       name: plan.name,
       goal: plan.goal,
       requiresTest: !hasTest,

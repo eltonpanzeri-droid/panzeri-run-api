@@ -111,7 +111,11 @@ export interface MethodologyInput {
   } | null;
   painTier?: 'normal' | 'reduced' | 'remove_running';
   painReason?: string | null;
-  targetRace?: {
+  // Lista (nao mais uma unica prova) — correcao real 16/08: um aluno pode ter mais de uma prova
+  // "em_andamento" simultaneamente (ex: 10km em 3 semanas + meia em 3 meses), e antes so a mais
+  // proxima chegava ate a IA. Ver TargetRacesService.activeGoals — ja vem filtrado (sem provas
+  // vencidas havia mais de 2 dias, arquivadas automaticamente ali).
+  targetRaces?: Array<{
     name: string;
     raceDate: string;
     distanceKm: number;
@@ -131,7 +135,7 @@ export interface MethodologyInput {
     adjustmentOpenness: number | null;
     anxietyLevel: number | null;
     isFirstTimeAtDistance: boolean | null;
-  } | null;
+  }>;
   // Maior distancia de corrida/caminhada CONCLUIDA de verdade (registrada em completion), de toda
   // a historia do aluno — nao um resumo escrito por outro agente, e sim calculado direto do banco.
   // Existe para progressoes de longo prazo (ex: diretriz de maratona com escada de distancias ao

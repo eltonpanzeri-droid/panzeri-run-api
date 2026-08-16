@@ -260,6 +260,12 @@ model FitnessTest {
 
 model TrainingPlan {
   id               String            @id @default(uuid())
+  // Codigo sequencial de rastreio (pedido do treinador 16/08) — um numero de controle por
+  // PRESCRICAO (cada geracao/regeneracao de semana cria um TrainingPlan novo, o anterior fica
+  // arquivado), nao por aluno. Mesmo padrao de User.studentCode: sequence do banco, nunca
+  // reaproveitado. Existe so pra permitir "aluna X relatou um problema no treino numero tal"
+  // como referencia inequivoca em conversa/suporte — nao tem nenhum uso logico no sistema.
+  planCode         Int               @unique @default(autoincrement())
   userId           String
   user             User              @relation(fields: [userId], references: [id])
   name             String
