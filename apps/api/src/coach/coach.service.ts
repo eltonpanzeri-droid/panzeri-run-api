@@ -316,6 +316,11 @@ export class CoachService {
     return this.trainingPlans.recoverOrphanedSessions(studentId);
   }
 
+  async allowExtraGenerationAttempt(studentId: string) {
+    await this.assertStudent(studentId);
+    return this.trainingPlans.grantExtraGenerationAttempt(studentId);
+  }
+
   async syncStudentAvailability(studentId: string) {
     await this.assertStudent(studentId);
     return this.meService.syncAvailabilityFromInterview(studentId);
@@ -751,6 +756,11 @@ export class CoachService {
         : null,
       needsUpdate: planFreshness.needsUpdate,
       needsUpdateReason: planFreshness.reason,
+      // true exatamente quando o aluno esgotou as tentativas de "Gerar treino da semana" sozinho
+      // e voce ja foi avisado por Telegram (ver alertCoachAttemptsExhausted em
+      // training-plans.service.ts) — usado so pra decidir se mostra o botao "Liberar mais uma
+      // tentativa" no painel; volta a false sozinho quando a semana muda ou voce libera.
+      generationBlocked: Boolean(student.generationExhaustedAlertSent),
       strava: stravaStatus ? {
         connected: stravaStatus.connected,
         automaticSync: stravaStatus.automaticSync,

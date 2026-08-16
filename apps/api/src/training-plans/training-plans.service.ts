@@ -97,6 +97,14 @@ const WEEKLY_RELEASE_HOUR = 12;
 // botao — depois dessa hora nao faz sentido pratico gerar o treino de um dia que ja nao tem mais
 // tempo real de ser feito; nesse caso a geracao comeca no dia seguinte. Ajustavel livremente.
 const TODAY_INCLUSION_CUTOFF_HOUR = 22;
+// Limite de tentativas do proprio aluno gerando a semana pelo botao (pedido explicito do
+// treinador 16/08 — nao ligar a IA de novo automaticamente a cada toque de botao, custo real e
+// decisao dele). Base de 2 tentativas por semana (reseta sozinho quando a semana-alvo muda);
+// alem disso so com liberacao manual do treinador (User.generationExtraAttempts). O intervalo
+// minimo entre a 1a e a 2a tentativa existe pra dar tempo da 1a realmente terminar (sucesso ou
+// timeout, ver AiQueueService TASK_TIMEOUT_MS=120s) antes de deixar tentar de novo.
+const BASE_GENERATION_ATTEMPTS = 2;
+const GENERATION_ATTEMPT_COOLDOWN_MS = 130_000;
 
 @Injectable()
 export class TrainingPlansService {
@@ -1080,7 +1088,19 @@ export class TrainingPlansService {
   private async doGenerateCurrentWeekOnDemand(userId: string): Promise<{ generated: boolean; reason: string }> {
     const [anyPlanEver, user, availability] = await Promise.all([
       this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } }),
-      this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          subscriptionStatus: true,
+          name: true,
+          studentCode: true,
+          generationWeekStart: true,
+          generationAttemptsUsed: true,
+          generationExtraAttempts: true,
+          lastGenerationAttemptAt: true,
+          generationExhaustedAlertSent: true,
+        },
+      }),
       this.prisma.weeklyAvailability.findMany({ where: { userId, noTraining: false } }),
     ]);
     // Aluna sem nenhum plano ainda: fluxo separado (generateFirstWeekIfNeeded, disparado ao
@@ -1106,8 +1126,49 @@ export class TrainingPlansService {
     });
     if (existingPlanForWeek) return { generated: false, reason: 'ja_gerado' };
 
+    // Controle de tentativas (pedido explicito do treinador 16/08, incidente real com um aluno
+    // batendo timeout repetidas vezes) — reseta sozinho quando a semana-alvo muda de verdade,
+    // nunca so por passar o tempo. isNewWeek cobre tanto "primeira vez vendo essa semana" quanto
+    // "aluno nunca tentou gerar nada ainda" (generationWeekStart null).
+    const isNewWeek = !user.generationWeekStart || user.generationWeekStart.getTime() !== targetWeekStart.getTime();
+    let attemptsUsed = isNewWeek ? 0 : user.generationAttemptsUsed;
+    const extraAttempts = isNewWeek ? 0 : user.generationExtraAttempts;
+    const exhaustedAlertAlreadySent = isNewWeek ? false : user.generationExhaustedAlertSent;
+    const allowedAttempts = BASE_GENERATION_ATTEMPTS + extraAttempts;
+
+    if (isNewWeek) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { generationWeekStart: targetWeekStart, generationAttemptsUsed: 0, generationExtraAttempts: 0, generationExhaustedAlertSent: false },
+      });
+    }
+
+    if (attemptsUsed >= allowedAttempts) {
+      if (!exhaustedAlertAlreadySent) await this.alertCoachAttemptsExhausted(userId, user);
+      return { generated: false, reason: 'tentativas_esgotadas' };
+    }
+
+    if (attemptsUsed >= 1 && user.lastGenerationAttemptAt && Date.now() - user.lastGenerationAttemptAt.getTime() < GENERATION_ATTEMPT_COOLDOWN_MS) {
+      return { generated: false, reason: 'aguardar_intervalo' };
+    }
+
+    attemptsUsed += 1;
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { generationAttemptsUsed: attemptsUsed, lastGenerationAttemptAt: new Date() },
+    });
+
     const allowToday = hour < TODAY_INCLUSION_CUTOFF_HOUR;
-    await this.generateWeek(userId, undefined, { allowToday });
+    try {
+      await this.generateWeek(userId, undefined, { allowToday });
+    } catch (error) {
+      // generateWeek() ja alerta o treinador por Telegram a CADA falha individual (ver o throw la
+      // dentro) — aqui so cuidamos do alerta ADICIONAL "esgotou as tentativas", um sinal diferente
+      // (o aluno agora esta travado, sem chance de tentar de novo sozinho, precisa de voce).
+      const nowExhausted = attemptsUsed >= allowedAttempts;
+      if (nowExhausted) await this.alertCoachAttemptsExhausted(userId, user);
+      return { generated: false, reason: nowExhausted ? 'tentativas_esgotadas' : 'falha_pode_tentar_de_novo' };
+    }
 
     const diasDeAtraso = Math.max(0, Math.round((today.getTime() - targetWeekStart.getTime()) / 86400000));
     void this.studentProfile
@@ -1121,6 +1182,26 @@ export class TrainingPlansService {
       .catch(() => undefined);
 
     return { generated: true, reason: 'ok' };
+  }
+
+  // Chamado pelo botao "Liberar mais uma tentativa" no painel (pedido explicito do treinador
+  // 16/08) — libera +1 tentativa de "Gerar treino da semana" pro aluno, pra ele testar de novo
+  // sem esperar o treinador gerar manualmente. Zera o intervalo de espera (o aluno pode tentar na
+  // hora, nao precisa aguardar os 130s) e reabre o alerta de esgotado (se essa tentativa extra
+  // tambem falhar, o treinador e avisado de novo, nao fica em silencio).
+  async grantExtraGenerationAttempt(userId: string) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { generationExtraAttempts: { increment: 1 }, lastGenerationAttemptAt: null, generationExhaustedAlertSent: false },
+    });
+    return { granted: true };
+  }
+
+  private async alertCoachAttemptsExhausted(userId: string, user: { name: string; studentCode: number }) {
+    await this.prisma.user.update({ where: { id: userId }, data: { generationExhaustedAlertSent: true } }).catch(() => undefined);
+    await this.telegram.notifyCoach(
+      `🚫 Aluno esgotou as tentativas de gerar o treino da semana sozinho.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nEle recebeu uma mensagem pedindo pra falar com voce. Gere manualmente pelo painel ou libere mais uma tentativa pra ele.`,
+    ).catch(() => undefined);
   }
 
   // Analise do historico do Strava (cadencia, FC, padroes) — desacoplada de generateWeek() de

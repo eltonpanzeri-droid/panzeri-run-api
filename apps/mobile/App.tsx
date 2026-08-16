@@ -2363,6 +2363,31 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       }
       const data = (await response.json()) as { generated: boolean; reason: string };
       if (!data.generated) {
+        // Mensagens especificas por motivo (pedido explicito do treinador 16/08 — ver limite de
+        // tentativas em TrainingPlansService.doGenerateCurrentWeekOnDemand). De proposito, a
+        // mensagem de tentativas esgotadas NAO menciona numero de tentativas nem "limite" —
+        // so pede pra falar com o treinador, sem parecer burocratico.
+        if (data.reason === 'ja_gerado') {
+          setStatus('Seu treino desta semana ja foi gerado.');
+          await loadPlan();
+          return;
+        }
+        if (data.reason === 'aguardar_intervalo') {
+          setStatus('Espera so um instante — sua ultima tentativa ainda pode estar em andamento. Tente novamente apos 2 minutos.');
+          return;
+        }
+        if (data.reason === 'falha_pode_tentar_de_novo') {
+          setStatus('Nao conseguimos montar seu treino dessa vez. Aguarde 2 minutos e tente novamente.');
+          return;
+        }
+        if (data.reason === 'tentativas_esgotadas') {
+          setStatus('Estamos com dificuldades para gerar seu treino. Fale com seu treinador.');
+          return;
+        }
+        if (data.reason === 'antes_do_horario_de_liberacao') {
+          setStatus('A semana seguinte libera a partir de domingo ao meio-dia.');
+          return;
+        }
         setStatus('Ainda nao deu pra gerar sua semana — tente novamente em instantes.');
         return;
       }

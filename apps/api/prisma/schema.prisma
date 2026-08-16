@@ -46,6 +46,18 @@ model User {
   // cada novo registro; um aluno so recebe push no aparelho mais recente. Null = nunca autorizou
   // notificacao, ou o app ainda nao registrou (versao antiga do app instalada).
   expoPushToken                    String?
+  // Controle de tentativas de "Gerar treino da semana" pelo proprio aluno (pedido do treinador
+  // 16/08 — nao chamar a IA toda vez que o aluno aperta o botao, e nao deixar tentativas infinitas
+  // batendo timeout sem limite). Reseta sozinho quando generationWeekStart nao bate mais com a
+  // semana-alvo calculada (ver TrainingPlansService.doGenerateCurrentWeekOnDemand). Base: 2
+  // tentativas por semana; generationExtraAttempts e liberado manualmente pelo treinador no
+  // painel quando o aluno esgota as duas (ex: pra pedir um teste). generationExhaustedAlertSent
+  // evita mandar o mesmo alerta de Telegram repetido a cada nova tentativa bloqueada.
+  generationWeekStart               DateTime?
+  generationAttemptsUsed            Int       @default(0)
+  generationExtraAttempts           Int       @default(0)
+  lastGenerationAttemptAt           DateTime?
+  generationExhaustedAlertSent      Boolean   @default(false)
   createdAt                        DateTime  @default(now())
   updatedAt                        DateTime  @updatedAt
 

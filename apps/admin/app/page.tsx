@@ -106,6 +106,7 @@ interface StudentDetail {
   } | null;
   needsUpdate?: boolean;
   needsUpdateReason?: string | null;
+  generationBlocked?: boolean;
   strava?: { connected: boolean; automaticSync: boolean; lastActivityAt?: string | null };
   birthDate?: string | null;
   heightCm?: number | null;
@@ -1636,6 +1637,28 @@ function StudentPanel({
     }
   }
 
+  // Pedido explicito do treinador 16/08 — aluno tem 2 tentativas base de "Gerar treino da
+  // semana" por semana; so aparece quando ele ja esgotou (ver generationBlocked em
+  // coach.service.ts). Cada clique libera +1.
+  async function allowExtraGenerationAttempt() {
+    if (!student) return;
+    onStatus('Liberando mais uma tentativa...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/plan/allow-extra-generation-attempt`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        onStatus('Nao consegui liberar a tentativa.');
+        return;
+      }
+      await onRefresh();
+      onStatus('Tentativa liberada — o aluno ja pode tentar gerar de novo.');
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    }
+  }
+
   async function archiveObservation(observationId: string) {
     if (!student) return;
     onStatus('Arquivando observacao...');
@@ -2181,6 +2204,9 @@ function StudentPanel({
             <button className="secondaryButton" type="button" onClick={recoverSessions}><RefreshCw size={16} />Recuperar treinos presos em programa antigo</button>
             <button className="secondaryButton" type="button" onClick={syncAvailability}><RefreshCw size={16} />Sincronizar disponibilidade da entrevista</button>
             <button className="secondaryButton" type="button" onClick={analyzeStrava}><RefreshCw size={16} />Gerar relatorio do Strava agora</button>
+            {student.generationBlocked ? (
+              <button className="secondaryButton" type="button" onClick={allowExtraGenerationAttempt}><RefreshCw size={16} />Liberar mais uma tentativa de geracao</button>
+            ) : null}
           </div>
         </div>
         {student.plan?.sessions.length ? (

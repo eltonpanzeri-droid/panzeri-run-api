@@ -113,6 +113,13 @@ export class CoachController {
     return this.coachService.recoverStudentSessions(studentId);
   }
 
+  // Pedido explicito do treinador 16/08 — aluno tem 2 tentativas base de "Gerar treino da
+  // semana" por semana; esse botao libera mais uma, so quando esgotadas (ver AppMenu/painel).
+  @Post('students/:studentId/plan/allow-extra-generation-attempt')
+  allowExtraGenerationAttempt(@Param('studentId') studentId: string) {
+    return this.coachService.allowExtraGenerationAttempt(studentId);
+  }
+
   @Post('students/:studentId/strava/analyze')
   analyzeStudentStrava(@Param('studentId') studentId: string) {
     return this.coachService.analyzeStudentStrava(studentId);
