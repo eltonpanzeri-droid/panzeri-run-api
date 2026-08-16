@@ -41,6 +41,11 @@ model User {
   acceptedExerciseResponsibilityAt DateTime?
   lastRoutineChangeAt              DateTime?
   refreshTokenHash                 String?
+  // Token de push (Expo) do ultimo celular em que o aluno fez login com notificacao habilitada —
+  // pedido do treinador 16/08 (primeiro passo do "o que mais precisamos fazer"). Sobrescrito a
+  // cada novo registro; um aluno so recebe push no aparelho mais recente. Null = nunca autorizou
+  // notificacao, ou o app ainda nao registrou (versao antiga do app instalada).
+  expoPushToken                    String?
   createdAt                        DateTime  @default(now())
   updatedAt                        DateTime  @updatedAt
 

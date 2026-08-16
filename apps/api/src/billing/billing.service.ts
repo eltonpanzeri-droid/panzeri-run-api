@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService, formatStudentCode } from './telegram.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { TrainingPlansService } from '../training-plans/training-plans.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 type AsaasCustomer = { id: string };
 type AsaasCustomerList = { data: AsaasCustomer[] };
@@ -55,6 +56,7 @@ export class BillingService {
     // — injecao circular, precisa do forwardRef dos dois lados (ver billing.module.ts).
     @Inject(forwardRef(() => TrainingPlansService))
     private readonly trainingPlans: TrainingPlansService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // Dispara a primeira geracao de treino assim que o pagamento e confirmado (generateFirstWeekIfNeeded
@@ -473,13 +475,10 @@ export class BillingService {
     });
     if (existing) return;
 
-    await this.prisma.userNotification.create({
-      data: {
-        userId,
-        title: WELCOME_NOTIFICATION_TITLE,
-        message: WELCOME_NOTIFICATION_MESSAGE,
-        type: WELCOME_NOTIFICATION_TYPE,
-      },
+    await this.notifications.notifyUser(userId, {
+      title: WELCOME_NOTIFICATION_TITLE,
+      message: WELCOME_NOTIFICATION_MESSAGE,
+      type: WELCOME_NOTIFICATION_TYPE,
     });
   }
 

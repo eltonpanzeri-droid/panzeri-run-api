@@ -1,6 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -18,6 +21,16 @@ import {
   TextInput,
   View,
 } from 'react-native';
+
+// Sem isso, notificacao chegando com o app ABERTO fica muda (comportamento padrao do SDK) — a
+// aluna so veria se o app estivesse em segundo plano/fechado. Queremos o alerta em qualquer caso.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 type Screen = 'login' | 'app';
 type Tab = 'week' | 'interview' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers';
@@ -781,6 +794,10 @@ function AppInner() {
   }, []);
 
   useEffect(() => {
+    if (accessToken) void registerPushTokenIfNeeded(accessToken);
+  }, [accessToken]);
+
+  useEffect(() => {
     restoreAuthSession().then((session) => {
       if (session) {
         applyAuthSession(session);
@@ -1024,6 +1041,45 @@ export default function App() {
       <AppInner />
     </ErrorBoundary>
   );
+}
+
+// Push notification (pedido do treinador 16/08, "primeiro passo" da lista de comunicacao com o
+// aluno) — so faz sentido em build nativo (iOS/Android), o app tambem roda como PWA na web
+// (registerWebApp acima usa service worker, mecanismo totalmente diferente de push). Falha de
+// qualquer tipo aqui (usuario negou permissao, emulador sem Google Play Services, etc.) nunca
+// deve quebrar o login — por isso tudo engolido em try/catch, sem re-lancar.
+async function registerPushTokenIfNeeded(accessToken: string) {
+  if (Platform.OS === 'web' || !accessToken) return;
+  try {
+    if (!Device.isDevice) return; // emulador/simulador nao recebe push de verdade
+
+    const existing = await Notifications.getPermissionsAsync();
+    let finalStatus = existing.status;
+    if (finalStatus !== 'granted') {
+      const requested = await Notifications.requestPermissionsAsync();
+      finalStatus = requested.status;
+    }
+    if (finalStatus !== 'granted') return;
+
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'default',
+        importance: Notifications.AndroidImportance.DEFAULT,
+      });
+    }
+
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    const { data: token } = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+    if (!token) return;
+
+    await fetch(`${API_URL}/notifications/push-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ token }),
+    });
+  } catch {
+    // silencioso de proposito — notificacao push e um extra, nunca pode travar o app pro aluno
+  }
 }
 
 function registerWebApp() {

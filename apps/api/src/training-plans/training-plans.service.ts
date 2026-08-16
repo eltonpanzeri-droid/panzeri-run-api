@@ -21,6 +21,7 @@ import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { StravaService } from '../strava/strava.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { StudentProfileService, ProfileEventCode } from './student-profile.service';
 
 interface SessionTemplate {
@@ -118,6 +119,7 @@ export class TrainingPlansService {
     private readonly stravaService: StravaService,
     private readonly telegram: TelegramService,
     private readonly studentProfile: StudentProfileService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // REGRA DURA (2026-07-28): current() e SO LEITURA — nunca chama generateWeek() nem mexe no
@@ -966,13 +968,10 @@ export class TrainingPlansService {
     // notice no app). E so um INSERT no banco, sem nenhuma chamada de IA — nao tem custo de
     // token nenhum gerar este aviso.
     if (planStatus === 'active') {
-      await this.prisma.userNotification.create({
-        data: {
-          userId,
-          title: 'Novo treino gerado',
-          message: 'Seu programa de treino desta semana foi atualizado automaticamente.',
-          type: 'info',
-        },
+      await this.notifications.notifyUser(userId, {
+        title: 'Novo treino gerado',
+        message: 'Seu programa de treino desta semana foi atualizado automaticamente.',
+        type: 'info',
       });
     }
 
@@ -1435,13 +1434,10 @@ export class TrainingPlansService {
       },
     });
 
-    await this.prisma.userNotification.create({
-      data: {
-        userId,
-        title: 'Novo treino adicionado',
-        message: 'O seu treinador adicionou um treino extra na sua semana.',
-        type: 'info',
-      },
+    await this.notifications.notifyUser(userId, {
+      title: 'Novo treino adicionado',
+      message: 'O seu treinador adicionou um treino extra na sua semana.',
+      type: 'info',
     });
 
     void this.studentProfile.recordEvent(

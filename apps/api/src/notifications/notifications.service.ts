@@ -1,10 +1,36 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { hasSubscriptionAccess } from '../training-plans/training-plans.service';
+import { PushNotificationService } from './push-notification.service';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly push: PushNotificationService,
+  ) {}
+
+  // Pedido do treinador 16/08 ("passo 1" da lista de comunicacao com o aluno) — todo aviso
+  // criado pra um aluno passa a existir tambem como push notification no celular dele, nao so
+  // como item silencioso na tela de notificacoes que ele so ve se abrir o app. Chame este metodo
+  // (nunca prisma.userNotification.create direto) em qualquer lugar que avisa um ALUNO — os
+  // avisos que existem hoje pra COACH (ex: workout-completions.service.ts) continuam usando
+  // prisma direto, o treinador nao tem token de push (usa o painel web + Telegram).
+  async notifyUser(userId: string, params: { title: string; message: string; type?: string }) {
+    const [notification, user] = await Promise.all([
+      this.prisma.userNotification.create({
+        data: { userId, title: params.title, message: params.message, type: params.type ?? 'info' },
+      }),
+      this.prisma.user.findUnique({ where: { id: userId }, select: { expoPushToken: true } }),
+    ]);
+    await this.push.send(user?.expoPushToken, params.title, params.message).catch(() => undefined);
+    return notification;
+  }
+
+  async registerPushToken(userId: string, token: string) {
+    await this.prisma.user.update({ where: { id: userId }, data: { expoPushToken: token } });
+    return { registered: true };
+  }
 
   async list(userId: string) {
     const stored = await this.prisma.userNotification.findMany({
