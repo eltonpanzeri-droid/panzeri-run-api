@@ -145,9 +145,19 @@ export class TrainingPlansService {
       // da semana" (so aparece quando current() cai no ramo `!plan` abaixo). A semana antiga
       // continua acessivel normalmente por "Anterior" (getWeekByOffset com offset negativo, que
       // nao filtra por status).
+      // BUG REAL CORRIGIDO (16/08 — varias alunas ao mesmo tempo, "gerei e nao aparece nada"):
+      // startDate: weekStart sozinho nao bastava. generateWeek()/generateCurrentWeekOnDemand tem
+      // logica de "rolar pra semana seguinte" (domingo apos WEEKLY_RELEASE_HOUR, ou sem nenhum dia
+      // futuro sobrando na semana atual) — quando isso acontece, o plano novo e criado com
+      // startDate = semana QUE VEM, mas current() continuava filtrando so pela semana de HOJE (sem
+      // essa mesma logica de rolagem). Resultado: aluna gera domingo a tarde, o plano novo existe
+      // e fica "active" de verdade, mas current() nunca o encontra ate o calendario virar
+      // segunda-feira — parece que "nao gerou nada". Corrigido buscando active tanto na semana
+      // atual quanto na semana seguinte (so pode existir UM active por vez, generateWeek() sempre
+      // arquiva o anterior antes de criar o novo — entao nao ha risco de pegar o active errado).
       this.prisma.trainingPlan.findFirst({
-        where: { userId, status: 'active', startDate: weekStart },
-        orderBy: { createdAt: 'desc' },
+        where: { userId, status: 'active', startDate: { in: [weekStart, addDays(weekStart, 7)] } },
+        orderBy: { startDate: 'desc' },
         include: {
           sessions: {
             orderBy: { scheduledDate: 'asc' },
@@ -278,7 +288,14 @@ export class TrainingPlansService {
       return { needsUpdate: true, reason: `Nivel de cautela por dor elevado: ${currentPainSafety.reason ?? 'sem detalhe'}` };
     }
     if (plan.generatedBy !== planEngineVersion) return { needsUpdate: true, reason: 'Programa gerado por uma versao antiga do motor de decisao.' };
-    if (plan.startDate.getTime() !== weekStart.getTime()) return { needsUpdate: true, reason: 'Programa ativo nao e da semana atual.' };
+    // Mesma correcao real de 16/08 aplicada em current() (ver comentario la): um plano gerado
+    // domingo apos o horario de liberacao (ou sem dia futuro sobrando na rotina) legitimamente
+    // rola pra semana seguinte — nao e "desatualizado", e o comportamento certo. Sem aceitar
+    // tambem addDays(weekStart, 7) aqui, esse aviso acendia falso positivo no painel toda vez
+    // que isso acontecia (visto ao vivo no caso da Roberta 16/08: plano certo, aviso errado).
+    if (plan.startDate.getTime() !== weekStart.getTime() && plan.startDate.getTime() !== addDays(weekStart, 7).getTime()) {
+      return { needsUpdate: true, reason: 'Programa ativo nao e da semana atual.' };
+    }
     if (!planMatchesLatestTest(plan.inputSnapshot, latestTest?.id ?? null)) return { needsUpdate: true, reason: 'Ha um teste de 3km mais recente do que o usado no programa.' };
     if (!planMatchesAvailability(plan.inputSnapshot, availability)) return { needsUpdate: true, reason: 'A disponibilidade real do aluno mudou desde a ultima geracao.' };
     return { needsUpdate: false, reason: null };
