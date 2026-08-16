@@ -595,6 +595,33 @@ const weekInterviewDays = [
   ['friday', 'Sexta-feira'], ['saturday', 'Sabado'], ['sunday', 'Domingo'],
 ];
 
+// Bug real reportado 16/08 — a pergunta "routine_confirmation" so mostrava um texto fixo
+// pedindo pra "conferir a rotina que voce acabou de montar", sem NUNCA mostrar a rotina de
+// verdade. Esta funcao monta o resumo dia a dia a partir das mesmas respostas que ja foram
+// dadas, pra renderizar de fato antes do aluno confirmar (ver uso em GuidedInterview).
+function summarizeRoutineAnswers(answers: InterviewAnswers): string[] {
+  const timeLabel = (value: unknown) => interviewTimeOptions.find((item) => item.value === value)?.label ?? null;
+  return weekInterviewDays.map(([key, label]) => {
+    const parts: string[] = [];
+    const runTimeValue = answers[`${key}_run_time`];
+    if (runTimeValue && runTimeValue !== 'none') {
+      const available = answers[`${key}_run_available_time`];
+      parts.push(`Corrida (${timeLabel(runTimeValue)}${available ? `, ${available}` : ''})`);
+    }
+    const fortalecimentoValue = answers[`${key}_fortalecimento_time`];
+    if (fortalecimentoValue && fortalecimentoValue !== 'none') {
+      const available = answers[`${key}_fortalecimento_available_time`];
+      parts.push(`Fortalecimento para corredores (${timeLabel(fortalecimentoValue)}${available ? `, ${available}` : ''})`);
+    }
+    const musculacaoValue = answers[`${key}_musculacao_time`];
+    if (musculacaoValue && musculacaoValue !== 'none') {
+      const available = answers[`${key}_musculacao_available_time`];
+      parts.push(`Musculacao (${timeLabel(musculacaoValue)}${available ? `, ${available}` : ''})`);
+    }
+    return `${label}: ${parts.length ? parts.join(' + ') : 'Sem treinos'}`;
+  });
+}
+
 const interviewQuestions: InterviewQuestion[] = [
   { key: 'welcome_intro', module: 'Boas-vindas', type: 'notice', prompt: 'Ola! Que alegria ter voce na comunidade Panzeri Run.\n\nPara comecar sua jornada, precisamos te conhecer de verdade. Esse questionario e um dos momentos mais importantes daqui pra frente, e nele que entendemos seus objetivos, sua rotina real, suas dificuldades e o que voce ja e capaz de fazer hoje.\n\nQuanto mais precisa for sua resposta, mais personalizado e seguro vai ser o seu treino. Estamos lidando com a sua saude, e queremos acertar isso com voce desde o primeiro passo.' },
   { key: 'objective', module: 'Objetivo', prompt: 'Qual e seu principal objetivo?', type: 'dropdown_single', options: [
@@ -935,7 +962,12 @@ function AppInner() {
                 accessToken={accessToken}
                 userName={userName}
                 onLater={() => setActiveTab('week')}
-                onComplete={() => { setRestartInterviewFromStart(false); void refreshRoutineFromServer(); setActiveTab('week'); }}
+                // Bug real reportado 16/08: ao terminar so a entrevista principal (que
+                // deliberadamente NAO inclui o modulo "Rotina semanal", ver mainInterviewQuestions
+                // abaixo), o app mandava direto pra tela de Semana, onde aparecia o botao "Gerar
+                // treino da semana" antes da rotina existir. Agora manda pra aba Rotina, que e o
+                // proximo passo real do fluxo.
+                onComplete={() => { setRestartInterviewFromStart(false); void refreshRoutineFromServer(); setActiveTab('routine'); }}
                 questions={mainInterviewQuestions}
                 restartFromStart={restartInterviewFromStart}
               />
@@ -1975,7 +2007,12 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
           : mode === 'routine'
             ? (routineFirstTime
                 ? 'Sua rotina foi salva. Seu treino ja esta sendo montado com base nela e vai aparecer na tela de treino da semana em instantes.'
-                : 'Sua rotina foi salva. Ela vale a partir da geracao automatica de domingo — a semana atual continua igual. Voce pode voltar aqui e ajustar quantas vezes quiser ate la, vale sempre a ultima versao.')
+                // Correcao real 16/08: essa mensagem prometia "vale a partir da geracao automatica
+                // de domingo", mas esse processo automatico de domingo foi removido do sistema ha
+                // um tempo (geracao virou sempre sob demanda) — a promessa antiga nunca mais se
+                // cumpria, deixando o aluno com uma rotina nova salva mas nenhum treino atualizado
+                // e nenhuma pista do que fazer a respeito.
+                : 'Sua rotina foi salva. Toque em "Gerar treino da semana", na tela de treino, para atualizar seu programa com a rotina nova agora.')
             : 'Parabens por completar sua entrevista! Seus dados foram salvos e serao usados para montar seu programa de treinos personalizado.'}
       </Text>
       <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : mode === 'routine' ? 'Ver meu treino' : 'Ver meu treino'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
@@ -2009,6 +2046,11 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       <View style={styles.interviewTop}><Text style={styles.sectionLabel}>{question?.module}</Text><Text style={styles.interviewCounter}>Pergunta {step + 1}</Text></View>
       <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress}%` }]} /></View>
       <Text style={styles.interviewQuestion}>{question?.prompt}{question && !question.optional && question.type !== 'notice' ? <Text style={styles.requiredMark}> *</Text> : null}</Text>
+      {question?.key === 'routine_confirmation' ? (
+        <View style={styles.section}>
+          {summarizeRoutineAnswers(answers).map((line) => <Text key={line} style={styles.copyTight}>{line}</Text>)}
+        </View>
+      ) : null}
       {question?.help ? <Pressable style={styles.helpButton} onPress={() => setHelpOpen(!helpOpen)}><Ionicons name="information-circle-outline" size={18} color="#0f766e" /><Text style={styles.helpButtonText}>Entenda</Text></Pressable> : null}
       {helpOpen ? <Text style={styles.formHint}>{question?.help}</Text> : null}
 
