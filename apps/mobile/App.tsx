@@ -2346,57 +2346,95 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   // So chamado pelo toque explicito no botao "Gerar treino da semana" — nunca automaticamente so
   // por abrir a tela (ver POST /training-plans/generate-current-week, generateCurrentWeekOnDemand
   // em training-plans.service.ts). Substitui a geracao em massa que rodava sozinha todo domingo.
+  //
+  // BUG REAL CORRIGIDO (16/08 — aluno esperou 2+ min, o treino apareceu certinho no painel do
+  // treinador, mas nunca chegou resposta nenhuma no celular ate ele sair e voltar da aba
+  // manualmente): a geracao real passa facil de 100s, e uma conexao parada esse tempo todo pode
+  // ser derrubada no meio do caminho por um proxy (o servidor termina certinho por tras, mas o
+  // celular nunca recebe a resposta daquele pedido especifico). Agora, alem de esperar a resposta
+  // direta do POST, o app tambem fica perguntando periodicamente (a cada 10s, por ate ~3min) se o
+  // treino ja apareceu — o que responder primeiro decide. Isso funciona mesmo se a resposta do
+  // POST se perder no caminho.
   async function generateCurrentWeekNow() {
     setIsLoading(true);
     // Incidente real 09/08: sem essa mensagem, uma geracao mais demorada (a IA as vezes precisa
     // de chamadas extras pra completar a semana direito) parecia travada pra aluna, que fechava o
     // app achando que tinha dado erro. Preparando o aluno pra demora evita esse abandono.
     setStatus('Preparando seu treino da semana... Isso pode levar alguns minutos — pode continuar usando o celular normalmente e voltar aqui depois.');
-    try {
-      const response = await fetch(`${API_URL}/training-plans/generate-current-week`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!response.ok) {
-        setStatus('Nao consegui gerar o treino da semana agora. Tente novamente.');
-        return;
-      }
-      const data = (await response.json()) as { generated: boolean; reason: string };
-      if (!data.generated) {
+
+    let settled = false;
+
+    const directAttempt = (async () => {
+      try {
+        const response = await fetch(`${API_URL}/training-plans/generate-current-week`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (settled) return;
+        if (!response.ok) return; // deixa o polling abaixo decidir, sem mostrar erro ainda
+        const data = (await response.json()) as { generated: boolean; reason: string };
+        if (settled) return;
         // Mensagens especificas por motivo (pedido explicito do treinador 16/08 — ver limite de
         // tentativas em TrainingPlansService.doGenerateCurrentWeekOnDemand). De proposito, a
         // mensagem de tentativas esgotadas NAO menciona numero de tentativas nem "limite" —
         // so pede pra falar com o treinador, sem parecer burocratico.
-        if (data.reason === 'ja_gerado') {
-          setStatus('Seu treino desta semana ja foi gerado.');
-          await loadPlan();
+        if (!data.generated) {
+          settled = true;
+          if (data.reason === 'ja_gerado') {
+            setStatus('Seu treino desta semana ja foi gerado.');
+            await loadPlan();
+          } else if (data.reason === 'aguardar_intervalo') {
+            setStatus('Espera so um instante — sua ultima tentativa ainda pode estar em andamento. Tente novamente apos 2 minutos.');
+          } else if (data.reason === 'falha_pode_tentar_de_novo') {
+            setStatus('Nao conseguimos montar seu treino dessa vez. Aguarde 2 minutos e tente novamente.');
+          } else if (data.reason === 'tentativas_esgotadas') {
+            setStatus('Estamos com dificuldades para gerar seu treino. Fale com seu treinador.');
+          } else if (data.reason === 'antes_do_horario_de_liberacao') {
+            setStatus('A semana seguinte libera a partir de domingo ao meio-dia.');
+          } else {
+            setStatus('Ainda nao deu pra gerar sua semana — tente novamente em instantes.');
+          }
           return;
         }
-        if (data.reason === 'aguardar_intervalo') {
-          setStatus('Espera so um instante — sua ultima tentativa ainda pode estar em andamento. Tente novamente apos 2 minutos.');
-          return;
-        }
-        if (data.reason === 'falha_pode_tentar_de_novo') {
-          setStatus('Nao conseguimos montar seu treino dessa vez. Aguarde 2 minutos e tente novamente.');
-          return;
-        }
-        if (data.reason === 'tentativas_esgotadas') {
-          setStatus('Estamos com dificuldades para gerar seu treino. Fale com seu treinador.');
-          return;
-        }
-        if (data.reason === 'antes_do_horario_de_liberacao') {
-          setStatus('A semana seguinte libera a partir de domingo ao meio-dia.');
-          return;
-        }
-        setStatus('Ainda nao deu pra gerar sua semana — tente novamente em instantes.');
-        return;
+        settled = true;
+        await loadPlan();
+      } catch {
+        // Conexao pode ter caido no meio do caminho — nao mostra erro aqui, o polling abaixo
+        // ainda pode confirmar que deu certo do outro lado.
       }
-      await loadPlan();
-    } catch {
-      setStatus('Nao consegui conectar com a API agora.');
-    } finally {
-      setIsLoading(false);
-    }
+    })();
+
+    const pollForCompletion = (async () => {
+      const POLL_INTERVAL_MS = 10000;
+      const MAX_POLLS = 18; // ~3 minutos
+      for (let attempt = 0; attempt < MAX_POLLS; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+        if (settled) return;
+        try {
+          const response = await fetch(`${API_URL}/training-plans/current`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (!response.ok) continue;
+          const data = (await response.json()) as WeekByOffsetResponse | null;
+          if (settled) return;
+          if (data && !data.notGenerated) {
+            settled = true;
+            setStatus('Seu treino da semana ja esta pronto.');
+            await loadPlan();
+            return;
+          }
+        } catch {
+          // tenta de novo no proximo ciclo
+        }
+      }
+      if (!settled) {
+        settled = true;
+        setStatus('Ainda nao conseguimos confirmar se seu treino foi gerado. Volte aqui em alguns minutos ou fale com seu treinador.');
+      }
+    })();
+
+    await Promise.race([directAttempt, pollForCompletion]).catch(() => undefined);
+    setIsLoading(false);
   }
 
   // Mesmo motivo do fix em correctOnboarding: Alert.alert do React Native nao tem garantia de
