@@ -10,7 +10,16 @@ type AsaasCustomer = { id: string };
 type AsaasCustomerList = { data: AsaasCustomer[] };
 type AsaasSubscription = { id: string; status: string; nextDueDate?: string | null };
 type AsaasSubscriptionList = { data: AsaasSubscription[] };
-type AsaasPayment = { id: string; status: string; invoiceUrl?: string | null; dateCreated?: string; dueDate?: string };
+type AsaasPayment = {
+  id: string;
+  status: string;
+  invoiceUrl?: string | null;
+  dateCreated?: string;
+  dueDate?: string;
+  value?: number;
+  paymentDate?: string | null;
+  clientPaymentDate?: string | null;
+};
 type AsaasPaymentList = { data: AsaasPayment[] };
 type AsaasWebhookPayload = {
   event?: string;
@@ -113,6 +122,45 @@ export class BillingService {
     };
   }
 
+  // Historico de faturas (pedido do treinador 16/08, apos o caso da Eduarda — algo tipo a tela
+  // de "Historico de contas" da Cemig: mes, valor, status). Usado tanto pelo proprio aluno
+  // quanto pelo treinador no painel — mesma lista, dois lugares. So leitura, nunca cria/altera
+  // nada no Asaas.
+  async paymentHistory(userId: string) {
+    this.assertConfigured();
+    const billing = await this.prisma.billingSubscription.findUnique({ where: { userId } });
+    if (!billing?.externalSubscriptionId) return { payments: [] };
+
+    const payments = await this.asaasRequest<AsaasPaymentList>(`/payments?subscription=${billing.externalSubscriptionId}`);
+    const now = new Date();
+
+    return {
+      payments: (payments.data ?? [])
+        .map((payment) => {
+          const status = (payment.status ?? '').toLowerCase();
+          const isOverdue = status === 'overdue' || (status === 'pending' && Boolean(payment.dueDate) && new Date(payment.dueDate!) < now);
+          const statusLabel = ACTIVE_STATUSES.has(status)
+            ? 'Pago'
+            : isOverdue
+              ? 'Vencido'
+              : status === 'pending'
+                ? 'Pendente'
+                : OVERDUE_STATUSES.has(status)
+                  ? 'Estornado'
+                  : 'Outro';
+          return {
+            id: payment.id,
+            dueDate: payment.dueDate ?? null,
+            value: payment.value ?? null,
+            paidAt: payment.paymentDate ?? payment.clientPaymentDate ?? null,
+            status: statusLabel,
+            invoiceUrl: payment.invoiceUrl ?? null,
+          };
+        })
+        .sort((a, b) => (b.dueDate ?? '').localeCompare(a.dueDate ?? '')),
+    };
+  }
+
   async saveCpf(userId: string, cpf: string) {
     const normalized = normalizeCpf(cpf);
     if (!normalized) throw new BadRequestException('Informe um CPF valido (11 numeros).');
@@ -176,9 +224,20 @@ export class BillingService {
       subscriptionId = subscription.id;
     }
 
+    // BUG REAL CORRIGIDO (16/08 — caso da aluna Eduarda): antes pegava so payments.data?.[0], a
+    // "primeira" fatura que o Asaas devolvesse pra essa assinatura, sem checar se era a que
+    // realmente precisa ser paga. Pra assinatura nova isso nunca dava problema (so existe uma
+    // fatura). Mas pra reativacao de quem ja e assinante ha meses (varias faturas no historico —
+    // algumas pagas, uma vencida, uma futura), o link gerado podia apontar pra fatura ERRADA (ja
+    // paga, por exemplo), deixando o aluno sem conseguir pagar o que realmente deve. Agora busca
+    // explicitamente a fatura pendente/vencida mais proxima (a que realmente precisa de acao),
+    // so cai pra "primeira da lista" se por algum motivo nao achar nenhuma pendente.
     const payments = await this.asaasRequest<AsaasPaymentList>(`/payments?subscription=${subscriptionId}`);
-    const firstPayment = payments.data?.[0] ?? null;
-    const checkoutUrl = firstPayment?.invoiceUrl ?? null;
+    const pendingPayments = (payments.data ?? [])
+      .filter((payment) => (payment.status ?? '').toLowerCase() === 'pending' || (payment.status ?? '').toLowerCase() === 'overdue')
+      .sort((a, b) => (a.dueDate ?? a.dateCreated ?? '').localeCompare(b.dueDate ?? b.dateCreated ?? ''));
+    const relevantPayment = pendingPayments[0] ?? payments.data?.[0] ?? null;
+    const checkoutUrl = relevantPayment?.invoiceUrl ?? null;
     if (!checkoutUrl) throw new BadGatewayException('O Asaas nao retornou o link de pagamento.');
 
     // So e uma assinatura de verdade NOVA (e so ai que avisa o treinador) quando o subscriptionId

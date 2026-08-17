@@ -14,6 +14,12 @@ export class BillingController {
   @Get('me')
   getMine(@CurrentUser() user: CurrentUserPayload) { return this.billingService.getMine(user.sub); }
 
+  // Historico de faturas do proprio aluno (pedido 16/08 — tela tipo "Historico de contas" da
+  // Cemig, mes/valor/status). Mesma funcao usada pelo treinador em coach.controller.ts.
+  @UseGuards(AuthGuard('jwt'))
+  @Get('history')
+  getHistory(@CurrentUser() user: CurrentUserPayload) { return this.billingService.paymentHistory(user.sub); }
+
   @UseGuards(AuthGuard('jwt'))
   @Post('checkout')
   createCheckout(@CurrentUser() user: CurrentUserPayload, @Body() dto: CreateCheckoutDto) {

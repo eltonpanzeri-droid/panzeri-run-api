@@ -155,6 +155,13 @@ export class CoachController {
     return this.coachService.refreshAllPendingBillingStatus();
   }
 
+  // Historico de faturas (pedido 16/08 — tela tipo "Historico de contas" da Cemig). Mesma funcao
+  // usada pelo proprio aluno em billing.controller.ts.
+  @Get('students/:studentId/billing/history')
+  studentBillingHistory(@Param('studentId') studentId: string) {
+    return this.coachService.studentBillingHistory(studentId);
+  }
+
   @Post('plans/generate-next-week-all')
   generateNextWeekForAllStudents() {
     return this.coachService.generateNextWeekForAllStudents();

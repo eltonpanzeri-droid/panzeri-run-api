@@ -1386,6 +1386,7 @@ function StudentPanel({
   const [directives, setDirectives] = useState<Array<{ id: string; content: string; createdAt: string; expiresAt?: string | null }>>([]);
   const [checkoutLinkUrl, setCheckoutLinkUrl] = useState('');
   const [manualCpf, setManualCpf] = useState('');
+  const [billingHistory, setBillingHistory] = useState<Array<{ id: string; dueDate: string | null; value: number | null; status: string; paidAt: string | null; invoiceUrl: string | null }> | null>(null);
 
   useEffect(() => {
     setEditName(student?.name ?? '');
@@ -1401,6 +1402,7 @@ function StudentPanel({
     setDirectives([]);
     setCheckoutLinkUrl('');
     setManualCpf(student?.cpf ?? '');
+    setBillingHistory(null);
   }, [student?.id, student?.name, student?.email, student?.accountStatus, student?.subscriptionStatus, student?.cpf]);
 
   useEffect(() => {
@@ -1827,6 +1829,28 @@ function StudentPanel({
     }
   }
 
+  // Historico de faturas (pedido 16/08, apos o caso da Eduarda — tela tipo "Historico de contas"
+  // da Cemig). Sob demanda (botao), nao carrega sozinho junto com o resto do painel — evita mais
+  // uma chamada ao Asaas toda vez que o treinador so abre a pagina do aluno.
+  async function loadBillingHistory() {
+    if (!student) return;
+    onStatus('Carregando historico de faturas...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/billing/history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        onStatus('Nao consegui carregar o historico de faturas.');
+        return;
+      }
+      const data = await response.json().catch(() => ({} as { payments?: typeof billingHistory }));
+      setBillingHistory(Array.isArray(data.payments) ? data.payments : []);
+      onStatus('Historico de faturas carregado.');
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    }
+  }
+
   async function createCheckoutLink() {
     if (!student) return;
     onStatus('Gerando link de pagamento...');
@@ -1931,6 +1955,21 @@ function StudentPanel({
         ) : (
           <p className="formHintText">Este aluno ainda nao tem assinatura Asaas vinculada.</p>
         )}
+        <button className="secondaryButton" type="button" onClick={loadBillingHistory}>Ver historico de faturas</button>
+        {billingHistory ? (
+          billingHistory.length ? (
+            <div className="interviewAnswerGrid">
+              {billingHistory.map((payment) => (
+                <div className="interviewAnswerRow" key={payment.id}>
+                  <span className="interviewAnswerLabel">{payment.dueDate ? dateLabel(payment.dueDate) : 'Sem data'}{payment.value != null ? ` · R$ ${payment.value.toFixed(2).replace('.', ',')}` : ''}</span>
+                  <span className="interviewAnswerValue">{payment.status}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="formHintText">Nenhuma fatura encontrada pra esse aluno.</p>
+          )
+        ) : null}
         <button type="button" onClick={saveStudent}>Salvar dados</button>
         <PasswordInput value={newPassword} onChange={setNewPassword} placeholder="Nova senha" />
         <button type="button" onClick={resetPassword}>Trocar senha</button>

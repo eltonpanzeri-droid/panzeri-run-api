@@ -75,6 +75,10 @@ export class CoachService {
     return this.billing.refreshAllPendingStudents();
   }
 
+  studentBillingHistory(studentId: string) {
+    return this.billing.paymentHistory(studentId);
+  }
+
   async createStudent(dto: CreateStudentDto) {
     const email = dto.email.toLowerCase().trim();
     const existing = await this.prisma.user.findUnique({ where: { email } });

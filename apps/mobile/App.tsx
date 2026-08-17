@@ -4416,6 +4416,7 @@ function Billing({ accessToken }: { accessToken: string }) {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cpf, setCpf] = useState('');
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [history, setHistory] = useState<Array<{ id: string; dueDate: string | null; value: number | null; status: string; paidAt: string | null; invoiceUrl: string | null }>>([]);
 
   async function loadBilling(showConfirmation = false) {
     if (showConfirmation) setMessage('Consultando sua assinatura...');
@@ -4432,7 +4433,21 @@ function Billing({ accessToken }: { accessToken: string }) {
     }
   }
 
-  useEffect(() => { void loadBilling(false); }, [accessToken]);
+  // Historico de faturas (pedido 16/08 — tela tipo "Historico de contas" da Cemig). Falha aqui
+  // e silenciosa de proposito: e um extra informativo, nunca pode travar o resto da tela de
+  // faturamento se o Asaas demorar ou a lista vier vazia.
+  async function loadHistory() {
+    try {
+      const response = await fetch(API_URL + '/billing/history', { headers: { Authorization: 'Bearer ' + accessToken } });
+      if (!response.ok) return;
+      const data = await response.json();
+      setHistory(Array.isArray(data?.payments) ? data.payments : []);
+    } catch {
+      // silencioso
+    }
+  }
+
+  useEffect(() => { void loadBilling(false); void loadHistory(); }, [accessToken]);
 
   async function subscribe() {
     // Trava contra cliques repetidos: sem isso, cada toque no botao (mesmo que o anterior ainda
@@ -4601,8 +4616,29 @@ function Billing({ accessToken }: { accessToken: string }) {
       </Pressable>
       {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
       <Text style={styles.formHint}>O pagamento e processado em ambiente seguro pelo Asaas via cartao de credito. A cobranca e renovada automaticamente todo mes.</Text>
+
+      {history.length ? (
+        <View style={styles.formSection}>
+          <Text style={styles.formSectionTitle}>Historico de faturas</Text>
+          {history.map((payment) => (
+            <View key={payment.id} style={styles.couponRow}>
+              <Text style={styles.reportText}>{billingMonthLabel(payment.dueDate)}{payment.value != null ? ` - R$ ${payment.value.toFixed(2).replace('.', ',')}` : ''}</Text>
+              <Text style={styles.reportText}>{payment.status}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
+}
+
+// "2026-08-15" -> "Agosto 2026" (pedido 16/08 — tela tipo "Historico de contas" da Cemig).
+function billingMonthLabel(isoDate: string | null) {
+  if (!isoDate) return 'Data nao informada';
+  const [year, month] = isoDate.split('-');
+  const months = ['Janeiro', 'Fevereiro', 'Marco', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  const monthIndex = Number(month) - 1;
+  return monthIndex >= 0 && monthIndex < 12 ? `${months[monthIndex]} ${year}` : isoDate;
 }
 function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: (tab: Tab) => void; onLogout: () => void }) {
   const tabs: Array<{ id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
