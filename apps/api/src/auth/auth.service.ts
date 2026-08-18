@@ -261,6 +261,11 @@ export class AuthService {
       name: true,
       role: true,
       accountStatus: true,
+      // 18/08 (Bloco 2 de onboarding): o app precisa saber se o aluno ja pagou pra decidir se
+      // mostra as 5 perguntas rapidas (pre-pagamento) ou a entrevista completa (pos-pagamento) —
+      // sem esse campo, alunas que ja pagaram mas ainda estavam no meio da entrevista antiga
+      // (antes dessa mudanca) seriam mandadas de volta pras perguntas rapidas por engano.
+      subscriptionStatus: true,
       birthDate: true,
       sex: true,
       heightCm: true,

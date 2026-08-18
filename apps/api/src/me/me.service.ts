@@ -80,6 +80,29 @@ export class MeService {
     });
   }
 
+  // 18/08: Bloco 2 da reformulacao de onboarding — as "5 perguntas rapidas" que agora rodam ANTES
+  // do pagamento (ver [[project_prontuario_doc]] Diario). Mesma tabela/JSON de respostas da
+  // entrevista completa (currentStep/answers ja salvos incrementalmente por saveOnboardingAnswer),
+  // so um marco a mais: quickIntakeCompletedAt. A entrevista completa/detalhada (completeOnboarding
+  // abaixo) continua exatamente como estava, so que agora roda DEPOIS do pagamento — e pula as
+  // perguntas ja respondidas aqui (ex: 'objective') porque usam a MESMA chave no mesmo JSON.
+  async completeQuickIntake(userId: string) {
+    const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
+    const answers = asAnswerObject(interview?.answers);
+    const required = ['objective', 'quick_current_stage', 'quick_has_target_race', 'quick_main_barrier', 'quick_expectations'];
+    const missing = required.filter((key) => {
+      const value = answers[key];
+      if (Array.isArray(value)) return value.length === 0;
+      return value === undefined || value === '';
+    });
+    if (missing.length) throw new BadRequestException('Responda todas as perguntas antes de continuar.');
+
+    return this.prisma.onboardingInterview.update({
+      where: { userId },
+      data: { quickIntakeCompletedAt: new Date() },
+    });
+  }
+
   async completeOnboarding(userId: string) {
     const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
     const answers = asAnswerObject(interview?.answers);

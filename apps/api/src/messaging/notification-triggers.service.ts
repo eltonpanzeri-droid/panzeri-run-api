@@ -72,7 +72,13 @@ export class NotificationTriggersService {
     });
   }
 
-  private async checkInterviewIncomplete(student: { id: string; name: string; onboardingInterview?: { completedAt: Date | null } | null }) {
+  // 18/08 (Bloco 2 de onboarding): a entrevista COMPLETA/detalhada agora so acontece depois do
+  // pagamento — entao esse aviso so faz sentido pra quem ja pagou (subscriptionStatus !== 'pending')
+  // e ainda nao terminou a entrevista detalhada. Prospecto (nunca pagou) e' avisado por outro
+  // caminho, a sequencia de aquecimento (ver ProspectNurtureService), que cobra as 5 perguntas
+  // rapidas, nao a entrevista completa que ele nem consegue acessar ainda.
+  private async checkInterviewIncomplete(student: { id: string; name: string; subscriptionStatus: string; onboardingInterview?: { completedAt: Date | null } | null }) {
+    if (student.subscriptionStatus === 'pending') return;
     if (student.onboardingInterview?.completedAt) return;
     if (await this.messaging.hasRecentTriggerMessage(student.id, 'interview_incomplete', REMINDER_COOLDOWN_DAYS)) return;
 

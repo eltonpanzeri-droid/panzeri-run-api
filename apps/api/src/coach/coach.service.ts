@@ -624,7 +624,7 @@ export class CoachService {
         name: true,
         email: true,
         createdAt: true,
-        onboardingInterview: { select: { completedAt: true, currentStep: true, answers: true } },
+        onboardingInterview: { select: { quickIntakeCompletedAt: true, currentStep: true, answers: true } },
         billingSubscription: { select: { checkoutUrl: true } },
       },
     });
@@ -632,10 +632,13 @@ export class CoachService {
     const levelRank: Record<'quente' | 'morno' | 'frio', number> = { quente: 0, morno: 1, frio: 2 };
 
     const withLevel = rows.map((row) => {
+      // 18/08 (Bloco 2): "completou a entrevista" ANTES de pagar agora significa completou as 5
+      // perguntas rapidas — a entrevista detalhada roda depois do pagamento, entao um prospecto
+      // (ainda 'pending') nunca chega a ter completedAt preenchido.
       const { level, levelLabel } = computeProspectLevel({
         interviewCurrentStep: row.onboardingInterview?.currentStep,
         interviewAnswers: row.onboardingInterview?.answers,
-        interviewCompletedAt: row.onboardingInterview?.completedAt,
+        interviewCompletedAt: row.onboardingInterview?.quickIntakeCompletedAt,
         hasCheckoutUrl: Boolean(row.billingSubscription?.checkoutUrl),
       });
       return { id: row.id, name: row.name, email: row.email, createdAt: row.createdAt, level, levelLabel };

@@ -56,6 +56,11 @@ export class MeController {
     return this.meService.saveOnboardingAnswer(user.sub, dto);
   }
 
+  @Post('onboarding/complete-quick-intake')
+  completeQuickIntake(@CurrentUser() user: CurrentUserPayload) {
+    return this.meService.completeQuickIntake(user.sub);
+  }
+
   @Post('onboarding/complete')
   completeOnboarding(@CurrentUser() user: CurrentUserPayload) {
     return this.meService.completeOnboarding(user.sub);

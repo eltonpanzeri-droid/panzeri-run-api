@@ -33,7 +33,7 @@ Notifications.setNotificationHandler({
 });
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'interview' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers';
+type Tab = 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -264,11 +264,20 @@ interface InterviewState {
   answers: InterviewAnswers;
   currentStep: number;
   completedAt?: string | null;
+  // 18/08 (Bloco 2 de onboarding): marco separado das 5 perguntas rapidas pre-pagamento — ver
+  // GuidedInterview mode="quick_intake" e MeService.completeQuickIntake no backend.
+  quickIntakeCompletedAt?: string | null;
 }
 
 interface InterviewOption {
   label: string;
   value: string;
+  // Reacao contextual mostrada depois que a pessoa responde (so usado hoje pelas 5 perguntas
+  // rapidas — GuidedInterview mode="quick_intake"). "ack" e' pra pergunta de escolha unica (frase
+  // completa); "ackFragment" e' pra pergunta de multipla escolha (fragmento curto, combinado com
+  // os das outras opcoes marcadas numa frase so — ver computeQuickIntakeAck).
+  ack?: string;
+  ackFragment?: string;
 }
 
 interface InterviewQuestion {
@@ -284,6 +293,12 @@ interface InterviewQuestion {
   wheelMin?: number;
   wheelMax?: number;
   wheelUnit?: string;
+  // "ack" aqui (nivel de pergunta, nao de opcao) e' pra tipos sem opcoes fixas (texto, data) —
+  // mostrado depois de responder, igual o ack das opcoes. "ackIntro" e' o prefixo usado ao
+  // combinar os ackFragment das opcoes marcadas numa pergunta de multipla escolha (ex: "Entendi.
+  // Isso significa que").
+  ack?: string;
+  ackIntro?: string;
 }
 
 interface CompletionDraft {
@@ -370,6 +385,7 @@ interface SavedAvailabilityDay {
 interface MeResponse {
   email?: string;
   name?: string;
+  subscriptionStatus?: string | null;
   birthDate?: string | null;
   heightCm?: number | null;
   weightKg?: number | null;
@@ -494,6 +510,31 @@ const defaultRoutineDays: RoutineDay[] = [
 ];
 
 const option = (label: string, value = label) => ({ label, value });
+// Variante de option() pra perguntas com reacao contextual (18/08, perguntas rapidas
+// pre-pagamento) — ack pra escolha unica, ackFragment pra multipla escolha combinavel.
+const ackOption = (label: string, value: string, ack?: string, ackFragment?: string) => ({ label, value, ack, ackFragment });
+
+// Junta os fragmentos das opcoes marcadas numa pergunta de multipla escolha numa frase so, ou usa
+// o "ack" fixo de uma pergunta de escolha unica/texto/data — usado nas 5 perguntas rapidas
+// (GuidedInterview mode="quick_intake") pra mostrar a reacao da pergunta ANTERIOR, no topo da
+// pergunta atual (ver render de previousAck em GuidedInterview).
+function computeQuickIntakeAck(question: InterviewQuestion | undefined, value: InterviewAnswer | undefined): string | null {
+  if (!question) return null;
+  if (question.type === 'single') {
+    const chosen = question.options?.find((item) => item.value === value);
+    return chosen?.ack ?? null;
+  }
+  if (question.type === 'multi' && Array.isArray(value) && value.length) {
+    const fragments = value
+      .map((entry) => question.options?.find((item) => item.value === entry)?.ackFragment)
+      .filter((fragment): fragment is string => Boolean(fragment));
+    if (!fragments.length) return null;
+    const intro = question.ackIntro ?? 'Entendi.';
+    if (fragments.length === 1) return `${intro} ${fragments[0]}.`;
+    return `${intro} ${fragments.slice(0, -1).join(', ')} e tambem que ${fragments[fragments.length - 1]}.`;
+  }
+  return question.ack ?? null;
+}
 const activityOptions = ['Corrida', 'Caminhada', 'Musculacao', 'Ciclismo', 'Natacao', 'Funcional', 'CrossFit', 'Lutas', 'Pilates', 'Yoga', 'Spinning', 'Beach Tenis', 'Esportes coletivos', 'Outra'];
 const interviewTimeOptions = [
   option('Nao posso treinar', 'none'), option('Ate 30 minutos', 'up_to_30'), option('30 a 45 minutos', 'from_30_to_45'),
@@ -626,7 +667,11 @@ function summarizeRoutineAnswers(answers: InterviewAnswers): string[] {
 
 const interviewQuestions: InterviewQuestion[] = [
   { key: 'welcome_intro', module: 'Boas-vindas', type: 'notice', prompt: 'Ola! Que alegria ter voce na comunidade Panzeri Run.\n\nPara comecar sua jornada, precisamos te conhecer de verdade. Esse questionario e um dos momentos mais importantes daqui pra frente, e nele que entendemos seus objetivos, sua rotina real, suas dificuldades e o que voce ja e capaz de fazer hoje.\n\nQuanto mais precisa for sua resposta, mais personalizado e seguro vai ser o seu treino. Estamos lidando com a sua saude, e queremos acertar isso com voce desde o primeiro passo.' },
-  { key: 'objective', module: 'Objetivo', prompt: 'Qual e seu principal objetivo?', type: 'dropdown_single', options: [
+  // 18/08: condition adicionada pra pular essa pergunta quando ja foi respondida nas 5 perguntas
+  // rapidas pre-pagamento (mesma chave 'objective', mesmo JSON de respostas — ver
+  // quickIntakeQuestions). Quem veio do fluxo classico (legado, sem ter passado pelas perguntas
+  // rapidas) continua vendo essa pergunta normalmente.
+  { key: 'objective', module: 'Objetivo', prompt: 'Qual e seu principal objetivo?', type: 'dropdown_single', condition: (a) => a.objective === undefined, options: [
     option('Comecar a correr'), option('Completar 5 km'), option('Melhorar meu tempo nos 5 km'), option('Completar 10 km'),
     option('Melhorar meu tempo nos 10 km'), option('Completar 21 km'), option('Melhorar meu tempo nos 21 km'),
     option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'),
@@ -771,6 +816,108 @@ const interviewQuestions: InterviewQuestion[] = [
 const mainInterviewQuestions: InterviewQuestion[] = interviewQuestions.filter((q) => q.module !== 'Rotina semanal');
 const routineQuestions: InterviewQuestion[] = interviewQuestions.filter((q) => q.module === 'Rotina semanal');
 
+// 18/08 (Bloco 2 da reformulacao de onboarding) — as "5 perguntas rapidas" que agora rodam ANTES
+// do pagamento, no lugar da entrevista completa (que passou a rodar so depois de pagar). Chave
+// 'objective' e' DE PROPOSITO a mesma da entrevista completa (mainInterviewQuestions) — quando a
+// entrevista completa rodar depois, ela pula essa pergunta porque a resposta ja esta no mesmo
+// JSON de respostas (ver condition abaixo em mainInterviewQuestions... na pratica isso e' feito
+// filtrando visibleQuestions por answers[key] === undefined, ver GuidedInterview).
+const quickIntakeQuestions: InterviewQuestion[] = [
+  { key: 'objective', module: 'Objetivo', prompt: 'Qual e seu principal objetivo?', type: 'single', options: [
+    ackOption('Comecar a correr', 'Comecar a correr', 'Otimo. Vamos fazer seu corpo se adaptar a corrida aos poucos, comecando exatamente de onde voce esta hoje.'),
+    ackOption('Completar 5 km', 'Completar 5 km', 'Bom objetivo pra comecar com uma meta clara. Vamos construir sua base ate voce completar os 5 km com seguranca.'),
+    ackOption('Melhorar meu tempo nos 5 km', 'Melhorar meu tempo nos 5 km', 'Entao ja temos uma referencia pra trabalhar em cima. Quero entender melhor seu momento atual pra sabermos quanto da pra evoluir.'),
+    ackOption('Completar 10 km', 'Completar 10 km', '10 km pede uma base de resistencia bem construida. Vamos organizar isso em etapas.'),
+    ackOption('Melhorar meu tempo nos 10 km', 'Melhorar meu tempo nos 10 km', 'Ja com experiencia na distancia, da pra trabalhar ritmo com mais precisao. Vamos ver de onde voce parte.'),
+    ackOption('Completar 21 km', 'Completar 21 km', 'A meia maratona e um projeto que exige planejamento de verdade. Vamos construir esse caminho com organizacao.'),
+    ackOption('Melhorar meu tempo nos 21 km', 'Melhorar meu tempo nos 21 km', 'Boa, ja tem historico na meia. Isso ajuda bastante a calibrar o treino certo pra melhorar seu tempo.'),
+    ackOption('Completar 42 km', 'Completar 42 km', 'A maratona e um projeto marcante. Pra chegar bem aos 42 km, vamos construir isso com bastante cuidado e organizacao.'),
+    ackOption('Melhorar meu tempo nos 42 km', 'Melhorar meu tempo nos 42 km', 'Ja correu uma maratona, isso e uma baita referencia. Vamos usar essa experiencia pra buscar seu proximo tempo.'),
+  ] },
+  { key: 'quick_current_stage', module: 'Estagio atual', prompt: 'E hoje, como esta sua relacao com a corrida?', type: 'single', options: [
+    ackOption('Ainda nao consigo correr continuamente', 'nao_continuo', 'Entendi. Vamos trabalhar a adaptacao aos poucos, misturando caminhada e corrida ate seu corpo aguentar mais tempo seguido.'),
+    ackOption('Estou comecando e alterno corrida e caminhada', 'comecando_alterno', 'Boa, esse e o processo certo pra quem esta comecando. Vamos aumentar o tempo de corrida continua de forma segura.'),
+    ackOption('Ja consigo correr alguns quilometros', 'alguns_km', 'Otimo, ja tem uma base pra trabalhar em cima. Vamos ver como evoluir isso com consistencia.'),
+    ackOption('Corro com frequencia', 'frequencia', 'Legal, entao ja tem rotina formada. Isso ajuda bastante a calibrar o volume certo de treino.'),
+    ackOption('Ja treino para provas e busco performance', 'performance', 'Perfeito, entao ja sabe o que e treinar com proposito. Vamos afinar os detalhes pra voce chegar mais forte.'),
+  ] },
+  { key: 'quick_has_target_race', module: 'Prova alvo', prompt: 'Voce ja tem alguma prova como objetivo?', type: 'single', options: [
+    ackOption('Sim', 'sim'),
+    ackOption('Ainda nao', 'nao', 'Sem problema. Nao precisamos de uma prova pra comecar. Podemos construir sua evolucao agora e escolher um desafio quando fizer sentido.'),
+  ] },
+  { key: 'quick_target_race_name', module: 'Prova alvo', prompt: 'Qual o nome da prova? (opcional)', type: 'text', optional: true, condition: (a) => a.quick_has_target_race === 'sim' },
+  { key: 'quick_target_race_date', module: 'Prova alvo', prompt: 'Qual a data da prova?', type: 'date', optional: true, ack: 'Anotado. Agora ja temos um prazo concreto pra organizar sua preparacao.', condition: (a) => a.quick_has_target_race === 'sim' },
+  { key: 'quick_main_barrier', module: 'Dificuldades', prompt: 'O que mais pode dificultar sua evolucao na corrida hoje? Pode marcar mais de uma.', type: 'multi', ackIntro: 'Entendi. Isso significa que', options: [
+    ackOption('Falta de tempo', 'falta_tempo', undefined, 'o treino precisa se encaixar na sua rotina real, nao o contrario'),
+    ackOption('Dificuldade para manter constancia', 'constancia', undefined, 'o planejamento precisa ser algo que voce consiga sustentar semana apos semana'),
+    ackOption('Medo de me machucar', 'medo_lesao', undefined, 'controlar a progressao dos treinos vai ser especialmente importante'),
+    ackOption('Nao sei como treinar', 'nao_sei_treinar', undefined, 'voce nao vai precisar decidir sozinho o que fazer a cada dia'),
+    ackOption('Ja tentei antes e nao consegui manter', 'ja_tentei', undefined, 'vamos ajustar o processo, isso nao e questao de esforco'),
+    ackOption('Tenho dificuldade para conciliar corrida e musculacao', 'conciliar_musculacao', undefined, 'vamos equilibrar as duas coisas de um jeito que caiba na sua rotina'),
+  ] },
+  { key: 'quick_expectations', module: 'Expectativa', prompt: 'Pra terminar, o que voce mais espera da gente durante sua preparacao? Pode escolher mais de uma.', type: 'multi', ackIntro: 'Combinado. Isso significa que', options: [
+    ackOption('Que me ajudem a manter o foco e nao abandonar o processo', 'foco', undefined, 'o processo vai te ajudar a manter o foco, nao so entregar treino solto'),
+    ackOption('Que saibam me desafiar quando eu puder ir alem', 'desafio', undefined, 'os treinos vao te desafiar quando fizer sentido'),
+    ackOption('Que percebam quando for melhor diminuir o ritmo', 'diminuir_ritmo', undefined, 'vamos saber reconhecer a hora certa de segurar o ritmo'),
+    ackOption('Que me deem seguranca de que estou treinando no caminho certo', 'seguranca', undefined, 'voce vai ter clareza de que esta no caminho certo'),
+    ackOption('Que me ajudem a ajustar o caminho quando algo nao sair como planejado', 'ajustar_caminho', undefined, 'o plano se ajusta quando algo sair diferente do esperado'),
+    ackOption('Que entendam minha rotina e nao esperem que minha vida gire em torno dos treinos', 'entender_rotina', undefined, 'o treino se encaixa na sua vida, nao o contrario'),
+    ackOption('Que me ajudem a entender melhor o que esta acontecendo com meu treinamento', 'entender_treinamento', undefined, 'voce vai entender o porque de cada decisao do seu treinamento'),
+    ackOption('Que estejam atentos a minha evolucao, nao so me entreguem uma sequencia de treinos', 'atentos_evolucao', undefined, 'vamos acompanhar sua evolucao de perto, nao so empilhar treinos'),
+  ] },
+];
+
+// Frase natural pra embutir o objetivo (literal em portugues, o mesmo texto usado como
+// label/value la em cima) dentro do resumo personalizado antes do pagamento.
+const QUICK_INTAKE_OBJECTIVE_PHRASES: Record<string, string> = {
+  'Comecar a correr': 'comecar a correr',
+  'Completar 5 km': 'completar seus 5 km',
+  'Melhorar meu tempo nos 5 km': 'melhorar seu tempo nos 5 km',
+  'Completar 10 km': 'completar seus 10 km',
+  'Melhorar meu tempo nos 10 km': 'melhorar seu tempo nos 10 km',
+  'Completar 21 km': 'completar sua meia maratona',
+  'Melhorar meu tempo nos 21 km': 'melhorar seu tempo na meia maratona',
+  'Completar 42 km': 'completar sua maratona',
+  'Melhorar meu tempo nos 42 km': 'melhorar seu tempo na maratona',
+};
+
+function joinNaturalList(items: string[]): string {
+  if (items.length === 0) return '';
+  if (items.length === 1) return items[0];
+  return `${items.slice(0, -1).join(', ')} e ${items[items.length - 1]}`;
+}
+
+// Tela de resumo antes do pagamento (documento externo, secao 10) — junta objetivo, prova alvo,
+// dificuldade(s) e expectativa(s) das 5 perguntas rapidas numa mensagem so, pra mostrar que a
+// gente prestou atencao no que a pessoa acabou de contar.
+function buildQuickIntakeSummary(name: string, answers: InterviewAnswers): string {
+  const objectiveRaw = String(answers.objective ?? '');
+  const objectivePhrase = QUICK_INTAKE_OBJECTIVE_PHRASES[objectiveRaw] ?? 'comecar sua jornada na corrida';
+  const hasRace = answers.quick_has_target_race === 'sim';
+
+  const barrierQuestion = quickIntakeQuestions.find((q) => q.key === 'quick_main_barrier');
+  const barrierValues = Array.isArray(answers.quick_main_barrier) ? (answers.quick_main_barrier as string[]) : [];
+  const barrierLabels = barrierValues
+    .map((v) => barrierQuestion?.options?.find((o) => o.value === v)?.label)
+    .filter((label): label is string => Boolean(label))
+    .map((label) => label.charAt(0).toLowerCase() + label.slice(1));
+
+  const expectationQuestion = quickIntakeQuestions.find((q) => q.key === 'quick_expectations');
+  const expectationValues = Array.isArray(answers.quick_expectations) ? (answers.quick_expectations as string[]) : [];
+  const expectationLabels = expectationValues
+    .map((v) => expectationQuestion?.options?.find((o) => o.value === v)?.label)
+    .filter((label): label is string => Boolean(label))
+    .map((label) => label.replace(/^Que /, ''));
+
+  let text = `Pronto, ${name}. Agora a gente ja conhece um pouco de voce.\n\nVoce quer ${objectivePhrase}`;
+  if (hasRace) text += ', ja tem uma prova marcada';
+  if (barrierLabels.length) text += ` e contou que sua maior dificuldade hoje e ${joinNaturalList(barrierLabels)}`;
+  text += '.';
+  if (expectationLabels.length) text += ` Voce espera que a gente ${joinNaturalList(expectationLabels)}.`;
+  text += '\n\nJa temos um bom ponto de partida.';
+  return text;
+}
+
 const reassessmentQuestions: InterviewQuestion[] = [
   { key: 'reassessment_goal_change', module: 'Reavaliacao', prompt: 'Seu objetivo com a corrida continua o mesmo de antes?', type: 'single', options: [option('Sim, continua o mesmo', 'same'), option('Mudou', 'changed')] },
   { key: 'reassessment_goal_new', module: 'Reavaliacao', prompt: 'Qual e o seu objetivo agora?', type: 'text', condition: (a) => a.reassessment_goal_change === 'changed' },
@@ -884,35 +1031,40 @@ function AppInner() {
       return;
     }
 
-    loadSavedMe(accessToken).then((me) => {
-      if (!me) {
-        return;
+    Promise.all([loadSavedMe(accessToken), loadInterviewState(`${API_URL}/me/onboarding`, accessToken)]).then(([me, interview]) => {
+      if (me) {
+        setSavedMe(me);
+        setExerciseResponsibilityRequired(!me.acceptedExerciseResponsibilityAt);
+        if (me.name) {
+          setUserName(me.name);
+        }
+        if (me.email) {
+          setUserEmail(me.email);
+        }
+        const latestTestSeconds = me.tests?.[0]?.totalSeconds ?? me.fitnessTests?.[0]?.totalSeconds;
+        if (latestTestSeconds) {
+          setThreeKmSeconds(String(latestTestSeconds));
+        }
+        const savedRoutine = routineFromSavedAvailability(me.availability ?? me.weeklyAvailability ?? []);
+        if (savedRoutine.length) {
+          setAnamneseRoutine(savedRoutine);
+        }
       }
 
-      setSavedMe(me);
-      setExerciseResponsibilityRequired(!me.acceptedExerciseResponsibilityAt);
-      if (me.name) {
-        setUserName(me.name);
-      }
-      if (me.email) {
-        setUserEmail(me.email);
-      }
-      const latestTestSeconds = me.tests?.[0]?.totalSeconds ?? me.fitnessTests?.[0]?.totalSeconds;
-      if (latestTestSeconds) {
-        setThreeKmSeconds(String(latestTestSeconds));
-      }
-      const savedRoutine = routineFromSavedAvailability(me.availability ?? me.weeklyAvailability ?? []);
-      if (savedRoutine.length) {
-        setAnamneseRoutine(savedRoutine);
+      // 18/08 (Bloco 2 de onboarding): quem ja pagou continua no fluxo classico (falta so a
+      // entrevista completa, se ainda nao fez). Quem ainda nao pagou passa pelas 5 perguntas
+      // rapidas primeiro, depois vai pra tela de pagamento — a entrevista completa so aparece
+      // depois de pagar. "paid" cobre tambem quem esta em atraso/grace (ja foi aluna de verdade
+      // alguma vez); so quem nunca pagou (subscriptionStatus 'pending') e' tratado como novo.
+      const paid = me?.subscriptionStatus !== undefined && me.subscriptionStatus !== 'pending';
+      if (paid) {
+        if (interview && !interview.completedAt) setActiveTab('interview');
+      } else if (interview && !interview.quickIntakeCompletedAt) {
+        setActiveTab('quickIntake');
       }
     });
     Promise.all([loadNotifications(accessToken), loadDismissedNotifications()]).then(([items, dismissed]) => {
       setNotifications(items.filter((item) => !dismissed.includes(item.id)));
-    });
-    loadInterviewState(`${API_URL}/me/onboarding`, accessToken).then((interview) => {
-      if (interview && !interview.completedAt) {
-        setActiveTab('interview');
-      }
     });
   }, [accessToken]);
 
@@ -979,6 +1131,16 @@ function AppInner() {
                 onComplete={() => { setRestartInterviewFromStart(false); void refreshRoutineFromServer(); setActiveTab('routine'); }}
                 questions={mainInterviewQuestions}
                 restartFromStart={restartInterviewFromStart}
+              />
+            )}
+            {activeTab === 'quickIntake' && (
+              <GuidedInterview
+                accessToken={accessToken}
+                userName={userName}
+                onLater={() => setActiveTab('billing')}
+                onComplete={() => setActiveTab('billing')}
+                questions={quickIntakeQuestions}
+                mode="quickIntake"
               />
             )}
             {activeTab === 'routine' && (
@@ -1785,7 +1947,7 @@ function MultiDropdown({ options, value, onChange, placeholder = 'Selecione uma 
   );
 }
 
-function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding', restartFromStart = false }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment' | 'routine'; restartFromStart?: boolean }) {
+function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding', restartFromStart = false }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment' | 'routine' | 'quickIntake'; restartFromStart?: boolean }) {
   const [answers, setAnswers] = useState<InterviewAnswers>({});
   const [step, setStep] = useState(0);
   const [started, setStarted] = useState(false);
@@ -1803,13 +1965,18 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   // "routine" reaproveita o mesmo registro de entrevista (mesma answers, mesmo load/save) — so o
   // endpoint final muda: complete-routine so converte as respostas de rotina em disponibilidade e
   // dispara a geracao, sem re-validar os campos obrigatorios da entrevista inteira.
+  // "quickIntake" (18/08, Bloco 2) reaproveita o MESMO registro/load/save da entrevista principal
+  // (mesma tabela, mesmas answers) — so o endpoint de conclusao muda, pra gravar
+  // quickIntakeCompletedAt em vez de completedAt.
   const loadUrl = mode === 'reassessment' ? `${API_URL}/me/reassessment` : `${API_URL}/me/onboarding`;
   const answerUrl = mode === 'reassessment' ? `${API_URL}/me/reassessment/answer` : `${API_URL}/me/onboarding/answer`;
   const completeUrl = mode === 'reassessment'
     ? `${API_URL}/me/reassessment/complete`
     : mode === 'routine'
       ? `${API_URL}/me/onboarding/complete-routine`
-      : `${API_URL}/me/onboarding/complete`;
+      : mode === 'quickIntake'
+        ? `${API_URL}/me/onboarding/complete-quick-intake`
+        : `${API_URL}/me/onboarding/complete`;
 
   const visibleQuestions = useMemo(() => questions.filter((question) => !question.condition || question.condition(answers)), [answers, questions]);
   const question = visibleQuestions[Math.min(step, Math.max(visibleQuestions.length - 1, 0))];
@@ -1847,6 +2014,14 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         setFinished(false);
         setStep(0);
         setStarted(true);
+      } else if (mode === 'quickIntake') {
+        // "concluido" aqui e' quickIntakeCompletedAt, nao completedAt (que so existe depois da
+        // entrevista completa, pos-pagamento — nunca preenchido nessa etapa).
+        setFinished(Boolean(state?.quickIntakeCompletedAt));
+        if ((state?.currentStep ?? 0) > 0 && !state?.quickIntakeCompletedAt) {
+          setStep(state?.currentStep ?? 0);
+          setStarted(true);
+        }
       } else {
         setFinished(Boolean(state?.completedAt));
         if (restartFromStart) {
@@ -2006,6 +2181,18 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   }
 
   if (loading) return <View style={styles.section}><Text style={styles.statusMessage}>{mode === 'reassessment' ? 'Abrindo sua reavaliacao...' : mode === 'routine' ? 'Abrindo sua rotina de treinos...' : 'Abrindo sua entrevista...'}</Text></View>;
+  if (finished && mode === 'quickIntake') return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Perguntas concluidas</Text>
+      <Text style={styles.copyTight}>{buildQuickIntakeSummary(userName || 'voce', answers)}</Text>
+      <Text style={styles.copyTight}>
+        O Panzeri Run usa um agente de inteligencia artificial pra montar e ajustar seu treino, seguindo a metodologia e os criterios tecnicos definidos pelo treinador. O processo e acompanhado de perto, e situacoes que precisam de atencao especifica passam por uma analise individual.
+      </Text>
+      <Text style={styles.copyTight}>Para continuar, confirme sua assinatura por R$19,90/mes. Voce pode cancelar quando quiser, sem multa.</Text>
+      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{answers.objective === 'Comecar a correr' ? 'Quero comecar meus treinos' : 'Quero comecar minha preparacao'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
+      {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+    </View>
+  );
   if (finished) return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao concluida' : mode === 'routine' ? 'Rotina registrada' : 'Entrevista concluida'}</Text>
@@ -2029,6 +2216,14 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
     </View>
   );
+  if (!started && mode === 'quickIntake') return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Primeiro acesso</Text>
+      <Text style={styles.titleSmall}>Quero conhecer um pouco de voce primeiro</Text>
+      <Text style={styles.copyTight}>Sao so 5 perguntas rapidas, leva menos de 2 minutos.</Text>
+      <Pressable style={styles.primaryButton} onPress={() => setStarted(true)}><Text style={styles.primaryButtonText}>Comecar</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>
+    </View>
+  );
   if (!started) return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao periodica' : 'Primeiro acesso'}</Text>
@@ -2050,10 +2245,15 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   // investiu varias respostas tende a nao querer abandonar. A barra cresce a cada pergunta mas
   // nunca chega visualmente ao fim, pelo mesmo motivo.
   const progress = Math.min(92, (step + 1) * 5);
+  // Reacao contextual da pergunta ANTERIOR (nao da atual) — mostrada acima da pergunta atual, so
+  // pras 5 perguntas rapidas (unico modo que define ack/ackFragment nas opcoes hoje).
+  const previousQuestion = mode === 'quickIntake' && step > 0 ? visibleQuestions[step - 1] : null;
+  const previousAck = previousQuestion ? computeQuickIntakeAck(previousQuestion, answers[previousQuestion.key]) : null;
   return (
     <View style={styles.section}>
       <View style={styles.interviewTop}><Text style={styles.sectionLabel}>{question?.module}</Text><Text style={styles.interviewCounter}>Pergunta {step + 1}</Text></View>
       <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress}%` }]} /></View>
+      {previousAck ? <View style={styles.quickIntakeAckBox}><Text style={styles.quickIntakeAckText}>{previousAck}</Text></View> : null}
       <Text style={styles.interviewQuestion}>{question?.prompt}{question && !question.optional && question.type !== 'notice' ? <Text style={styles.requiredMark}> *</Text> : null}</Text>
       {question?.key === 'routine_confirmation' ? (
         <View style={styles.section}>
@@ -7204,6 +7404,19 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontSize: 12,
     fontWeight: '800',
+  },
+  quickIntakeAckBox: {
+    backgroundColor: '#f0fdfa',
+    borderColor: '#99f6e4',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  quickIntakeAckText: {
+    color: '#0f766e',
+    fontSize: 14,
+    lineHeight: 20,
   },
   progressTrack: {
     height: 8,

@@ -121,6 +121,12 @@ model OnboardingInterview {
   user        User      @relation(fields: [userId], references: [id])
   answers     Json      @default("{}")
   currentStep Int       @default(0)
+  // 18/08: "completedAt" continua significando a entrevista COMPLETA (detalhada, pos-pagamento).
+  // quickIntakeCompletedAt marca a etapa nova, as 5 perguntas rapidas pre-pagamento (Bloco 2 da
+  // reformulacao de onboarding) — mesma tabela/JSON de respostas, so um marco a mais. Todo lugar
+  // que hoje decide "a pessoa ja terminou a entrevista ANTES de pagar" (nivel de prospecto, aviso
+  // de entrevista incompleta, funil) passa a olhar pra esse campo, nao mais pro completedAt.
+  quickIntakeCompletedAt DateTime?
   completedAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

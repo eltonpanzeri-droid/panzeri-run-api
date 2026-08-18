@@ -88,7 +88,7 @@ export class ProspectNurtureService {
         id: true,
         name: true,
         createdAt: true,
-        onboardingInterview: { select: { completedAt: true, currentStep: true, answers: true } },
+        onboardingInterview: { select: { quickIntakeCompletedAt: true, currentStep: true, answers: true } },
         billingSubscription: { select: { checkoutUrl: true } },
       },
     });
@@ -108,7 +108,7 @@ export class ProspectNurtureService {
         const { level } = computeProspectLevel({
           interviewCurrentStep: prospect.onboardingInterview?.currentStep,
           interviewAnswers: prospect.onboardingInterview?.answers,
-          interviewCompletedAt: prospect.onboardingInterview?.completedAt,
+          interviewCompletedAt: prospect.onboardingInterview?.quickIntakeCompletedAt,
           hasCheckoutUrl: Boolean(prospect.billingSubscription?.checkoutUrl),
         });
 
