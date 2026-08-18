@@ -1137,7 +1137,7 @@ export default function AdminHome() {
             <div className="panelHeader">
               <div>
                 <p className="eyebrow">Alunos</p>
-                <h2>Lista operacional</h2>
+                <h2>Lista operacional{dashboard ? ` · ${dashboard.totals.students} no total` : ''}</h2>
               </div>
               <button className="secondaryButton" type="button" onClick={() => setStudentListCollapsed((collapsed) => !collapsed)}>
                 {studentListCollapsed ? `Mostrar lista (${filteredStudents.length})` : 'Recolher lista'}
@@ -1165,6 +1165,11 @@ export default function AdminHome() {
                 </select>
               </label>
             </div>
+            {/* 18/08: rotulo explicito adicionado — o treinador confundiu este bloco (convidar
+                aluno novo) com a busca do topbar (filtrar lista), porque os dois campos de texto
+                ficam um embaixo do outro com aparencia parecida. O campo de busca de verdade fica
+                no topo da tela, ao lado do icone de lupa, perto de "Mostrar arquivados". */}
+            <p className="formSectionLabel">Convidar novo aluno (isto NAO filtra a lista acima)</p>
             <div className="createStudent">
               <input value={newStudentName} onChange={(event) => setNewStudentName(event.target.value)} placeholder="Nome do aluno" />
               <input value={newStudentEmail} onChange={(event) => setNewStudentEmail(event.target.value)} placeholder="E-mail" />

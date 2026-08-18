@@ -479,6 +479,15 @@ h3 {
   margin-bottom: 14px;
 }
 
+.formSectionLabel {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  margin: 0 0 6px;
+}
+
 .createStudent {
   border: 1px solid var(--line);
   border-radius: 8px;
