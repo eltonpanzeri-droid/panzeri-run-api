@@ -28,6 +28,15 @@ export class AuthController {
     return this.authService.refresh(dto.refreshToken);
   }
 
+  // Troca do "link magico" dos e-mails de aquecimento por uma sessao de verdade. So POST de
+  // proposito (nunca GET) — ver comentario em AuthService.exchangeLoginLink sobre scanners de
+  // e-mail que pre-visitam links e gastariam um token de uso unico sem o usuario ter clicado.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('auth/login-link/exchange')
+  exchangeLoginLink(@Body('token') token: string) {
+    return this.authService.exchangeLoginLink(token);
+  }
+
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('auth/forgot-password')
   forgotPassword(@Body('email') email: string) {

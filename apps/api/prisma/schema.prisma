@@ -76,6 +76,7 @@ model User {
   workouts            WorkoutCompletion[]
   achievements        UserAchievement[]
   passwordResetTokens PasswordResetToken[]
+  loginLinkTokens     LoginLinkToken[]
   notifications       UserNotification[]
   messageLogs         MessageLog[]
   reassessments       Reassessment[]
@@ -178,6 +179,21 @@ model CoachChatMessage {
 }
 
 model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// 18/08: "link magico" pros e-mails de aquecimento de prospecto ("Continuar de onde parei") —
+// mesmo padrao de seguranca do PasswordResetToken (token bruto so existe no e-mail, banco guarda
+// so o hash; expira; uso unico). Nunca reaproveitado entre e-mails: cada envio gera um token novo.
+model LoginLinkToken {
   id        String    @id @default(uuid())
   userId    String
   user      User      @relation(fields: [userId], references: [id])

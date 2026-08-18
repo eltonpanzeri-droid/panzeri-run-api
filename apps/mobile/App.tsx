@@ -827,11 +827,18 @@ function AppInner() {
   }, [accessToken]);
 
   useEffect(() => {
-    restoreAuthSession().then((session) => {
-      if (session) {
-        applyAuthSession(session);
+    exchangeLoginLinkIfPresent().then((linkSession) => {
+      if (linkSession) {
+        applyAuthSession(linkSession);
+        setIsRestoringSession(false);
+        return;
       }
-      setIsRestoringSession(false);
+      restoreAuthSession().then((session) => {
+        if (session) {
+          applyAuthSession(session);
+        }
+        setIsRestoringSession(false);
+      });
     });
   }, []);
 
@@ -4737,6 +4744,46 @@ async function restoreAuthSession(): Promise<AuthSession | null> {
     return refreshed;
   } catch {
     await AsyncStorage.removeItem(AUTH_SESSION_KEY);
+    return null;
+  }
+}
+
+// "Link magico" dos e-mails de aquecimento de prospecto (18/08) — troca o token de uso unico da
+// URL (?loginToken=...) por uma sessao de verdade. Proposital: so troca via POST, disparado por
+// JS depois da pagina carregar, nunca automaticamente so por causa de um GET na URL — scanners de
+// seguranca de e-mail corporativo/Gmail costumam pre-visitar (prefetch) links antes do usuario
+// clicar de verdade, e um GET simples gastaria o token de uso unico sem ninguem ter clicado. Se o
+// token nao existir/ja tiver sido usado/expirado, falha silenciosamente (nunca mostra erro) e o
+// app cai no fluxo normal de login — a pessoa so ve a tela de entrar com e-mail/senha.
+async function exchangeLoginLinkIfPresent(): Promise<AuthSession | null> {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('loginToken');
+  if (!token) return null;
+
+  // Limpa o token da URL imediatamente, sucesso ou nao — nunca deixa o token de uso unico exposto
+  // num refresh de pagina (que tentaria trocar de novo e falharia, sem nenhum prejuizo real, mas
+  // sem necessidade de manter na barra de enderecos depois do primeiro uso).
+  params.delete('loginToken');
+  const cleanedSearch = params.toString();
+  window.history.replaceState({}, '', window.location.pathname + (cleanedSearch ? `?${cleanedSearch}` : ''));
+
+  try {
+    const response = await fetch(`${API_URL}/auth/login-link/exchange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as AuthResponse;
+    if (!data.tokens?.accessToken || !data.tokens.refreshToken) return null;
+    return {
+      email: data.user?.email ?? '',
+      name: data.user?.name ?? '',
+      accessToken: data.tokens.accessToken,
+      refreshToken: data.tokens.refreshToken,
+    };
+  } catch {
     return null;
   }
 }

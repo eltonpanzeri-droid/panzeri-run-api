@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthService } from '../auth/auth.service';
 import { MessagingService } from './messaging.service';
 import { computeProspectLevel, ProspectLevel } from './prospect-level';
 
@@ -24,20 +25,22 @@ function studentAppUrl() {
 }
 
 // A linha de "proximo passo" muda de acordo com o que a pessoa realmente ja fez ate agora — nao
-// faz sentido pedir pra "terminar a entrevista" pra quem ja terminou e so falta pagar.
-function nextStepLine(level: ProspectLevel, checkoutUrl: string | null): string {
+// faz sentido pedir pra "terminar a entrevista" pra quem ja terminou e so falta pagar. O link e'
+// sempre o mesmo mecanismo (link magico de login), o que muda e' so o texto do call-to-action —
+// depois de logada, a propria tela do app ja mostra a entrevista pendente OU o botao de pagamento,
+// sem precisar de nenhuma logica extra aqui.
+function nextStepLine(level: ProspectLevel, loginUrl: string): string {
   if (level === 'quente') {
-    const link = checkoutUrl ?? studentAppUrl();
-    return `Sua entrevista ja esta pronta — falta so confirmar o pagamento pra eu montar seu primeiro treino.\n\n[Finalizar pagamento] ${link}`;
+    return `Sua entrevista ja esta pronta — falta so confirmar o pagamento pra eu montar seu primeiro treino.\n\n[Finalizar pagamento] ${loginUrl}`;
   }
   if (level === 'morno') {
-    return `Voce ja respondeu parte da entrevista — falta so terminar pra eu montar seu treino personalizado.\n\n[Continuar de onde parei] ${studentAppUrl()}`;
+    return `Voce ja respondeu parte da entrevista — falta so terminar pra eu montar seu treino personalizado.\n\n[Continuar de onde parei] ${loginUrl}`;
   }
-  return `Leva menos de 3 minutos pra terminar seu cadastro e eu ja consigo montar seu primeiro treino.\n\n[Continuar de onde parei] ${studentAppUrl()}`;
+  return `Leva menos de 3 minutos pra terminar seu cadastro e eu ja consigo montar seu primeiro treino.\n\n[Continuar de onde parei] ${loginUrl}`;
 }
 
-function buildEmail(trigger: string, name: string, level: ProspectLevel, checkoutUrl: string | null): { subject: string; content: string } {
-  const step = nextStepLine(level, checkoutUrl);
+function buildEmail(trigger: string, name: string, level: ProspectLevel, loginUrl: string): { subject: string; content: string } {
+  const step = nextStepLine(level, loginUrl);
 
   if (trigger === 'nurture_8h') {
     return {
@@ -74,6 +77,7 @@ export class ProspectNurtureService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly messaging: MessagingService,
+    private readonly auth: AuthService,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -108,7 +112,12 @@ export class ProspectNurtureService {
           hasCheckoutUrl: Boolean(prospect.billingSubscription?.checkoutUrl),
         });
 
-        const email = buildEmail(dueGate.trigger, prospect.name, level, prospect.billingSubscription?.checkoutUrl ?? null);
+        // Token novo a cada envio — nunca reaproveita entre e-mails/degraus (ver comentario em
+        // AuthService.createLoginLink sobre por que a validade e' generosa mas o uso e' unico).
+        const loginToken = await this.auth.createLoginLink(prospect.id);
+        const loginUrl = `${studentAppUrl()}/?loginToken=${loginToken}`;
+
+        const email = buildEmail(dueGate.trigger, prospect.name, level, loginUrl);
         await this.messaging.sendEmail(prospect.id, { trigger: dueGate.trigger, ...email });
         sent += 1;
       } catch (error) {

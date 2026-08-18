@@ -169,6 +169,47 @@ export class AuthService {
     return { message: 'Senha atualizada.' };
   }
 
+  // 18/08: "link magico" usado nos e-mails de aquecimento de prospecto ("Continuar de onde
+  // parei"). Gerado sob demanda por quem envia o e-mail (ProspectNurtureService) — nunca
+  // reaproveitado entre envios, cada e-mail leva o SEU proprio token. So o token bruto e' devolvido
+  // aqui (pra ir no link); o banco guarda so o hash, igual PasswordResetToken. Validade generosa
+  // (14 dias) porque o e-mail pode ser lido varios dias depois de chegar, mas o token continua de
+  // uso unico — clicar e' que "gasta" ele, nao o tempo de leitura.
+  async createLoginLink(userId: string): Promise<string> {
+    const token = randomBytes(32).toString('hex');
+    await this.prisma.loginLinkToken.create({
+      data: {
+        userId,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14),
+      },
+    });
+    return token;
+  }
+
+  // Troca o token do link magico por uma sessao de verdade (mesmo par de tokens que o login
+  // normal emite). Proposital: NAO fazer essa troca automaticamente so por causa de um GET na URL
+  // — scanners de link de seguranca de e-mail corporativo/Gmail costumam pre-visitar (prefetch)
+  // qualquer link antes do usuario clicar de verdade, o que "gastaria" um token de uso unico sem
+  // ninguem ter clicado. Por isso o app so chama isso via POST, depois de carregar a pagina (ver
+  // App.tsx) — bots de preview normalmente nao executam JS pra disparar esse POST.
+  async exchangeLoginLink(rawToken: string) {
+    const record = await this.prisma.loginLinkToken.findUnique({ where: { tokenHash: hashToken(rawToken) } });
+    if (!record || record.usedAt || record.expiresAt.getTime() < Date.now()) {
+      throw new UnauthorizedException('Link invalido ou expirado.');
+    }
+
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: record.userId } });
+    const role = this.effectiveRole(user.email, user.role);
+
+    await this.prisma.loginLinkToken.update({ where: { id: record.id }, data: { usedAt: new Date() } });
+
+    return {
+      user: { id: user.id, email: user.email, name: user.name, role },
+      tokens: await this.signTokens(user.id, user.email, role),
+    };
+  }
+
   async refresh(refreshToken: string) {
     try {
       const payload = await this.jwt.verifyAsync<{ sub: string; email: string; role: string }>(refreshToken, {
