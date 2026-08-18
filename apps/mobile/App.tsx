@@ -4933,28 +4933,28 @@ function DurationWheelField({ value, onChangeValue }: { value: string; onChangeV
   );
 }
 
-// Distancia: 18/08, duas tentativas de roda (metros de 1 em 1, depois 3 rodas de digito, depois
-// km+m de 10 em 10) todas rejeitadas na pratica pelo celular real ("feio", "do mesmo jeito").
-// Troca final pra campo de texto simples, no formato que apps de corrida (Strava, Polar) ja usam
-// pra mostrar distancia: "8,51" com virgula, sem rodas nenhuma. Mais simples e o formato que a
-// aluna ja reconhece de outros apps.
-function DistanceTextField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
-  const displayValue = value ? value.replace('.', ',') : '';
+// Distancia: mantida como roda (relogio), mas a parte dos metros mostra so DUAS casas (00-99,
+// cada posicao = 10m) em vez de tres — mesmo formato que Strava e Polar usam pra exibir distancia
+// (ex: "8,51 km"). A resolucao real continua sendo de 10 em 10 metros, so a exibicao mudou de
+// "000..990" pra "00..99", igual a casa decimal que esses apps mostram.
+function distanceKmToKmM(distanceKmValue: string): { km: number; m: number } {
+  const totalMeters = Math.max(0, Math.round((Number(distanceKmValue) || 0) * 1000));
+  return { km: Math.floor(totalMeters / 1000), m: totalMeters % 1000 };
+}
+function kmMToDistanceKm(km: number, m: number): string {
+  const totalMeters = km * 1000 + m;
+  return totalMeters > 0 ? String(totalMeters / 1000) : '';
+}
+function DistanceWheelField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
+  const { km, m } = distanceKmToKmM(value);
+  const meterIndex = Math.min(99, Math.round(m / 10));
+  const kmValues = wheelNumberValues(0, 199, 1);
+  const meterValues = wheelNumberValues(0, 99, 2);
   return (
-    <TextInput
-      style={styles.compactInput}
-      value={displayValue}
-      onChangeText={(text) => {
-        let cleaned = text.replace(/[^0-9,]/g, '');
-        const firstComma = cleaned.indexOf(',');
-        if (firstComma !== -1) {
-          cleaned = cleaned.slice(0, firstComma + 1) + cleaned.slice(firstComma + 1).replace(/,/g, '');
-        }
-        onChangeValue(cleaned.replace(',', '.'));
-      }}
-      keyboardType="decimal-pad"
-      placeholder="Ex: 8,51"
-    />
+    <WheelPicker columns={[
+      { label: 'km', values: kmValues, selectedIndex: km, onChangeIndex: (index) => onChangeValue(kmMToDistanceKm(index, meterIndex * 10)) },
+      { label: ',', values: meterValues, selectedIndex: meterIndex, onChangeIndex: (index) => onChangeValue(kmMToDistanceKm(km, index * 10)) },
+    ]} />
   );
 }
 
@@ -5065,9 +5065,9 @@ function CompletionForm({
           </View>
           {isRun ? (
             <>
-              <View style={styles.completionFieldGroup}>
-                <Text style={styles.inputLabel}>Distancia (km)</Text>
-                <DistanceTextField value={draft.distanceKm} onChangeValue={(value) => onChange({ distanceKm: value, avgPace: computePaceFromInputs(draft.durationMin, value) })} />
+              <View style={styles.completionWheelGroup}>
+                <Text style={styles.inputLabel}>Distancia</Text>
+                <DistanceWheelField value={draft.distanceKm} onChangeValue={(value) => onChange({ distanceKm: value, avgPace: computePaceFromInputs(draft.durationMin, value) })} />
               </View>
               <View style={styles.completionFieldGroup}>
                 <Text style={styles.inputLabel}>Pace medio</Text>
