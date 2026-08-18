@@ -332,6 +332,7 @@ export default function AdminHome() {
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotStatus, setForgotStatus] = useState('');
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isRunningNotificationTriggers, setIsRunningNotificationTriggers] = useState(false);
   const [isSyncingBilling, setIsSyncingBilling] = useState(false);
   const [isGeneratingAllPlans, setIsGeneratingAllPlans] = useState(false);
   const [newStudentName, setNewStudentName] = useState('');
@@ -771,6 +772,26 @@ export default function AdminHome() {
     }
   }
 
+  async function runNotificationTriggersNow() {
+    setIsRunningNotificationTriggers(true);
+    setStatus('Rodando verificacao de avisos automaticos (pagamento pendente, entrevista incompleta, reavaliacao vencida)...');
+    try {
+      const response = await fetch(`${API_URL}/coach/notification-triggers/run`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        setStatus('Nao consegui rodar a verificacao de avisos.');
+        return;
+      }
+      setStatus('Verificacao concluida. Quem se encaixava em algum criterio (e nao recebeu aviso recente) recebeu e-mail agora.');
+    } catch {
+      setStatus('Nao consegui conectar com a API.');
+    } finally {
+      setIsRunningNotificationTriggers(false);
+    }
+  }
+
   async function forgotPassword() {
     if (!forgotEmail.trim()) {
       setForgotStatus('Informe o e-mail.');
@@ -1054,6 +1075,16 @@ export default function AdminHome() {
             <p>Um backup automatico e enviado por e-mail todos os dias as 4h. Voce tambem pode gerar um agora.</p>
             <button className="secondaryButton" type="button" disabled={isBackingUp} onClick={runBackupNow}>
               {isBackingUp ? 'Gerando backup...' : 'Gerar backup agora'}
+            </button>
+          </section>
+        ) : null}
+
+        {activeView === 'dashboard' ? (
+          <section className="miniSection">
+            <h3>Avisos automaticos por e-mail</h3>
+            <p>Roda todo dia as 9h sozinho (pagamento pendente/atrasado, entrevista incompleta, reavaliacao vencida). Voce tambem pode rodar agora, pra testar ou adiantar.</p>
+            <button className="secondaryButton" type="button" disabled={isRunningNotificationTriggers} onClick={runNotificationTriggersNow}>
+              {isRunningNotificationTriggers ? 'Rodando...' : 'Rodar verificacao agora'}
             </button>
           </section>
         ) : null}

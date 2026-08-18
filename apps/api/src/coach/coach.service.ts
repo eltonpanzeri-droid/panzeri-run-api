@@ -23,6 +23,7 @@ import { sanitizeInterviewAnswers } from '../training-plans/training-methodology
 import { WeeklyPlanSchedulerService } from '../training-plans/weekly-plan-scheduler.service';
 import { UpdateStudentAvailabilityDto } from './dto/update-student-availability.dto';
 import { validateAvailability } from '../me/availability.rules';
+import { NotificationTriggersService } from '../messaging/notification-triggers.service';
 
 @Injectable()
 export class CoachService {
@@ -37,7 +38,17 @@ export class CoachService {
     private readonly meService: MeService,
     private readonly billing: BillingService,
     private readonly weeklyPlanScheduler: WeeklyPlanSchedulerService,
+    private readonly notificationTriggers: NotificationTriggersService,
   ) {}
+
+  // Botao "Rodar verificacao de avisos agora" no painel admin — roda o MESMO codigo do cron
+  // diario das 9h (pagamento pendente/atrasado, entrevista incompleta, reavaliacao vencida) sob
+  // demanda, sem esperar o horario. Usado pra testar/confirmar o conteudo real dos e-mails
+  // automaticos (18/08) e, dai em diante, fica disponivel pro treinador rodar quando quiser.
+  async runNotificationTriggersNow() {
+    await this.notificationTriggers.runDailyChecks();
+    return { ok: true };
+  }
 
   // Gatilho manual do mesmo job que rodaria sozinho todo domingo 19h (ver
   // WeeklyPlanSchedulerService — pausado em 02/08 apos o incidente do loop de deploy). Usado pelo

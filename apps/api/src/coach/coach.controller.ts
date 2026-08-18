@@ -32,6 +32,11 @@ export class CoachController {
     return this.coachService.runDatabaseBackup();
   }
 
+  @Post('notification-triggers/run')
+  runNotificationTriggersNow() {
+    return this.coachService.runNotificationTriggersNow();
+  }
+
   @Get('coupons')
   coupons() {
     return this.coachService.coupons();
