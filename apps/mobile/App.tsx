@@ -941,16 +941,16 @@ function AppInner() {
       {screen === 'app' && (
         <View style={styles.appShell}>
           <AppHeader userEmail={userEmail} userName={userName} objective={savedMe?.preferences?.mainGoal} onOpenMenu={() => setMenuOpen((open) => !open)} />
-          {menuOpen ? (
-            <AppMenu
-              activeTab={activeTab}
-              onLogout={logout}
-              onChange={(tab) => {
-                setActiveTab(tab);
-                setMenuOpen(false);
-              }}
-            />
-          ) : null}
+          <AppMenu
+            visible={menuOpen}
+            activeTab={activeTab}
+            onLogout={logout}
+            onClose={() => setMenuOpen(false)}
+            onChange={(tab) => {
+              setActiveTab(tab);
+              setMenuOpen(false);
+            }}
+          />
           <ScrollView contentContainerStyle={styles.appContent}>
             {exerciseResponsibilityRequired ? (
               <ExerciseResponsibility
@@ -4645,7 +4645,7 @@ function billingMonthLabel(isoDate: string | null) {
   const monthIndex = Number(month) - 1;
   return monthIndex >= 0 && monthIndex < 12 ? `${months[monthIndex]} ${year}` : isoDate;
 }
-function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: (tab: Tab) => void; onLogout: () => void }) {
+function AppMenu({ visible, activeTab, onChange, onLogout, onClose }: { visible: boolean; activeTab: Tab; onChange: (tab: Tab) => void; onLogout: () => void; onClose: () => void }) {
   const tabs: Array<{ id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
     { id: 'week', label: 'Treino da semana', icon: 'calendar' },
     { id: 'interview', label: 'Entrevista inicial', icon: 'chatbubbles' },
@@ -4662,26 +4662,35 @@ function AppMenu({ activeTab, onChange, onLogout }: { activeTab: Tab; onChange: 
   ];
 
   // Bug real reportado 16/08 (aluna Vanessa) — o menu tinha 13 itens dentro de um View comum,
-  // sem rolagem nenhuma. Em telas menores/com fonte maior, os ultimos itens (incluindo "Sair")
-  // ficavam cortados fora da tela, sem nenhum jeito de alcancar. Agora o menu inteiro fica dentro
-  // de um ScrollView com altura maxima — quando cabe tudo, nao aparece barra de rolagem nenhuma;
-  // quando nao cabe, da pra rolar ate o fim.
+  // sem rolagem nenhuma. A correcao (ScrollView com maxHeight:'70%') resolveu o corte, mas o menu
+  // continuava empurrando o conteudo da pagina pra baixo, no mesmo fluxo — ficava uma caixinha
+  // pequena logo abaixo do cabecalho, com os itens espremidos e o conteudo da tela ja visivel
+  // logo em seguida (relato real 18/08, print mostrando so 2 itens antes da tela de treino
+  // aparecer colada embaixo). Agora o menu abre como um Modal de verdade (sheet), cobrindo a tela
+  // com fundo escurecido atras — espaco proprio e generoso pra lista, sem competir com o resto da
+  // pagina. Toque fora do menu fecha.
   return (
-    <ScrollView style={styles.appMenu} contentContainerStyle={styles.appMenuContent}>
-      {tabs.map((tab) => {
-        const active = tab.id === activeTab;
-        return (
-          <Pressable style={[styles.menuItem, active && styles.menuItemActive]} key={tab.id} onPress={() => onChange(tab.id)}>
-            <Ionicons name={tab.icon} size={21} color={active ? '#0f766e' : '#64748b'} />
-            <Text style={[styles.menuItemText, active && styles.menuItemTextActive]}>{tab.label}</Text>
-          </Pressable>
-        );
-      })}
-      <Pressable style={styles.menuItem} onPress={onLogout}>
-        <Ionicons name="log-out-outline" size={21} color="#64748b" />
-        <Text style={styles.menuItemText}>Sair</Text>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.appMenuOverlay} onPress={onClose}>
+        <Pressable style={styles.appMenuSheet} onPress={(event) => event.stopPropagation()}>
+          <ScrollView contentContainerStyle={styles.appMenuContent}>
+            {tabs.map((tab) => {
+              const active = tab.id === activeTab;
+              return (
+                <Pressable style={[styles.menuItem, active && styles.menuItemActive]} key={tab.id} onPress={() => onChange(tab.id)}>
+                  <Ionicons name={tab.icon} size={21} color={active ? '#0f766e' : '#64748b'} />
+                  <Text style={[styles.menuItemText, active && styles.menuItemTextActive]}>{tab.label}</Text>
+                </Pressable>
+              );
+            })}
+            <Pressable style={styles.menuItem} onPress={onLogout}>
+              <Ionicons name="log-out-outline" size={21} color="#64748b" />
+              <Text style={styles.menuItemText}>Sair</Text>
+            </Pressable>
+          </ScrollView>
+        </Pressable>
       </Pressable>
-    </ScrollView>
+    </Modal>
   );
 }
 
@@ -6283,26 +6292,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  appMenu: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#dbe4ea',
+  appMenuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.45)',
+    alignItems: 'center',
+    paddingTop: Platform.OS === 'ios' ? 100 : 76,
+    paddingHorizontal: 16,
+  },
+  appMenuSheet: {
+    width: '100%',
+    maxWidth: 520,
+    maxHeight: '78%',
     backgroundColor: '#ffffff',
-    // maxHeight (nao flex:1) de proposito — o menu deve ocupar so o espaco que precisa quando
-    // cabe tudo na tela, e ficar rolavel so quando nao cabe (ver bug real acima).
-    maxHeight: '70%',
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
   },
   appMenuContent: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 10,
   },
   menuItem: {
-    minHeight: 44,
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    minHeight: 52,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
   menuItemActive: {
     backgroundColor: '#f0fdfa',
