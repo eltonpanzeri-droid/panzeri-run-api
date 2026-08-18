@@ -507,9 +507,9 @@ export class MeService {
 // Quando ja existe plano ativo, deixa claro que nada muda ate domingo e que da pra antecipar
 // clicando "Refazer nova semana de treinos" no painel — esse botao ja le a rotina mais recente
 // salva no banco, entao antecipar de verdade funciona sem nenhuma mudanca adicional.
-function buildRoutineChangeTelegramMessage(studentName: string | undefined, studentCode: number | undefined, firstTime: boolean): string {
+function buildRoutineChangeTelegramMessage(studentName: string | undefined, studentCode: number | null | undefined, firstTime: boolean): string {
   const name = studentName ?? 'desconhecido';
-  const code = studentCode !== undefined ? formatStudentCode(studentCode) : '?';
+  const code = formatStudentCode(studentCode);
   if (firstTime) {
     return `🔁 Aluno "${name}" (Cod. ${code}) montou a rotina de treinos no Panzeri Run\n\nO primeiro treino esta sendo gerado automaticamente.`;
   }

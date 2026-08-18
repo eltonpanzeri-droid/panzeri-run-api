@@ -1199,7 +1199,7 @@ export class TrainingPlansService {
     return { granted: true };
   }
 
-  private async alertCoachAttemptsExhausted(userId: string, user: { name: string; studentCode: number }) {
+  private async alertCoachAttemptsExhausted(userId: string, user: { name: string; studentCode: number | null }) {
     await this.prisma.user.update({ where: { id: userId }, data: { generationExhaustedAlertSent: true } }).catch(() => undefined);
     await this.telegram.notifyCoach(
       `🚫 Aluno esgotou as tentativas de gerar o treino da semana sozinho.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nEle recebeu uma mensagem pedindo pra falar com voce. Gere manualmente pelo painel ou libere mais uma tentativa pra ele.`,

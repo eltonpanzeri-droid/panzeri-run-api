@@ -26,7 +26,14 @@ model User {
   // (sequence), nunca por logica da aplicacao, pra nunca colidir mesmo com dois cadastros
   // simultaneos. Formatado com zeros a esquerda (0000001) na hora de exibir, nunca gravado ja
   // formatado.
-  studentCode                      Int       @unique @default(autoincrement())
+  // 18/08: deixou de ter @default(autoincrement()) — antes TODO cadastro (mesmo quem so criava
+  // login e sumia, sem entrevista nem pagamento) ganhava um codigo permanente na hora, "virando
+  // aluno" oficial sem nunca ter pago nada (relato real do treinador: cadastro fantasma "Daiana"
+  // consumiu o codigo 0000039). Agora fica null ate a pessoa realmente pagar (ou receber cortesia
+  // manual) — ver BillingService.assignStudentCodeIfNeeded, chamado nos pontos onde
+  // subscriptionStatus sai de 'pending' pela primeira vez. A sequence do banco continua existindo
+  // (User_studentCode_seq) so que consultada manualmente, nunca mais como DEFAULT da coluna.
+  studentCode                      Int?      @unique
   // Preenchido quando a ultima tentativa de gerar a semana (botao da aluna ou do treinador) falhou
   // com a IA e nao gerou nenhum plano novo — limpo (null) na proxima tentativa que tiver sucesso.
   // So existe pra dar visibilidade permanente no painel (coluna "Treino"); antes disso a falha so

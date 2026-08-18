@@ -182,6 +182,9 @@ export class CoachService {
     // dispara a mesma geracao de primeira semana que a confirmacao automatica do Asaas dispara —
     // generateFirstWeekIfNeeded ja garante que so gera se for realmente a primeira vez.
     if (dto.subscriptionStatus && hasSubscriptionAccess(dto.subscriptionStatus)) {
+      // Mesmo criterio de "virou aluno de verdade" usado no fluxo automatico do Asaas — o
+      // treinador liberando manualmente pelo dropdown (cortesia, pagamento por fora) tambem conta.
+      await this.billing.assignStudentCodeIfNeeded(studentId);
       void this.trainingPlans.generateFirstWeekIfNeeded(studentId).catch((error) => {
         this.logger.warn(`generateFirstWeekIfNeeded falhou para ${studentId} (nao bloqueante): ${(error as Error).message}`);
       });
@@ -477,6 +480,10 @@ export class CoachService {
     });
     const studentWhere: Prisma.UserWhereInput = {
       role: 'student',
+      // 18/08: quem nunca pagou (nem recebeu cortesia) e' prospecto, nao aluno — fica de fora da
+      // lista operacional principal. Ver CoachService.prospects() pra essas pessoas, com nivel de
+      // interesse (entrevista/cobranca) em vez de misturadas aqui como se ja fossem alunas.
+      subscriptionStatus: { not: 'pending' },
       ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }),
       ...(input.search ? {
         OR: [
@@ -519,7 +526,7 @@ export class CoachService {
       },
       }),
       this.prisma.user.count({ where: studentWhere }),
-      this.prisma.user.count({ where: { role: 'student', ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }) } }),
+      this.prisma.user.count({ where: { role: 'student', subscriptionStatus: { not: 'pending' }, ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }) } }),
       this.prisma.trainingPlan.findMany({ where: { status: 'active' }, distinct: ['userId'], select: { userId: true } }),
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: weekEnd }, plan: { status: 'active' } } }),
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } }),
@@ -592,6 +599,68 @@ export class CoachService {
         totalItems: filteredCount,
         totalPages: Math.max(Math.ceil(filteredCount / input.pageSize), 1),
       },
+    };
+  }
+
+  // 18/08: pedido explicito do treinador apos o caso real de um cadastro fantasma ("Daiana",
+  // criou login e sumiu) aparecer misturada na lista de "alunos" como se fosse uma aluna de
+  // verdade. Quem nunca pagou (nem recebeu cortesia) e' PROSPECTO, nunca aluno — vive numa lista
+  // separada, com nivel de interesse baseado no que a pessoa realmente fez ate agora (nao em
+  // suposicao): nao respondeu nada / entrevista em andamento / entrevista concluida mas ainda sem
+  // pagamento / entrevista concluida + cobranca ja gerada, so falta pagar (o nivel mais quente).
+  async prospects() {
+    const rows = await this.prisma.user.findMany({
+      where: { role: 'student', accountStatus: { not: 'archived' }, subscriptionStatus: 'pending' },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        createdAt: true,
+        onboardingInterview: { select: { completedAt: true, currentStep: true, answers: true } },
+        billingSubscription: { select: { checkoutUrl: true } },
+      },
+    });
+
+    const levelRank: Record<'quente' | 'morno' | 'frio', number> = { quente: 0, morno: 1, frio: 2 };
+
+    const withLevel = rows.map((row) => {
+      const answerCount = row.onboardingInterview?.answers && typeof row.onboardingInterview.answers === 'object'
+        ? Object.keys(row.onboardingInterview.answers as Record<string, unknown>).length
+        : 0;
+      const interviewStarted = Boolean(row.onboardingInterview && (row.onboardingInterview.currentStep > 0 || answerCount > 0));
+      const interviewCompleted = Boolean(row.onboardingInterview?.completedAt);
+      const hasCheckout = Boolean(row.billingSubscription?.checkoutUrl);
+
+      let level: 'quente' | 'morno' | 'frio';
+      let levelLabel: string;
+      if (interviewCompleted && hasCheckout) {
+        level = 'quente';
+        levelLabel = 'Respondeu entrevista, cobranca criada, aguardando 1o pagamento';
+      } else if (interviewCompleted) {
+        level = 'morno';
+        levelLabel = 'Entrevista concluida, cobranca ainda nao gerada';
+      } else if (interviewStarted) {
+        level = 'morno';
+        levelLabel = 'Entrevista em andamento';
+      } else {
+        level = 'frio';
+        levelLabel = 'Nao respondeu nenhuma pergunta ainda';
+      }
+
+      return { id: row.id, name: row.name, email: row.email, createdAt: row.createdAt, level, levelLabel };
+    });
+
+    withLevel.sort((a, b) => levelRank[a.level] - levelRank[b.level] || b.createdAt.getTime() - a.createdAt.getTime());
+
+    return {
+      totals: {
+        total: withLevel.length,
+        quente: withLevel.filter((p) => p.level === 'quente').length,
+        morno: withLevel.filter((p) => p.level === 'morno').length,
+        frio: withLevel.filter((p) => p.level === 'frio').length,
+      },
+      prospects: withLevel,
     };
   }
 

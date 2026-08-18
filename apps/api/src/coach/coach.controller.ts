@@ -37,6 +37,11 @@ export class CoachController {
     return this.coachService.runNotificationTriggersNow();
   }
 
+  @Get('prospects')
+  prospects() {
+    return this.coachService.prospects();
+  }
+
   @Get('coupons')
   coupons() {
     return this.coachService.coupons();

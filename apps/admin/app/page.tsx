@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, UserRound, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flame, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, UserRound, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -59,7 +59,16 @@ interface FunnelReport {
   }>;
 }
 
-type AdminView = 'dashboard' | 'students' | 'weeks' | 'coupons' | 'finance' | 'notifications';
+type AdminView = 'dashboard' | 'students' | 'prospects' | 'weeks' | 'coupons' | 'finance' | 'notifications';
+
+interface ProspectRow {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: string;
+  level: 'quente' | 'morno' | 'frio';
+  levelLabel: string;
+}
 
 interface StudentRow {
   id: string;
@@ -348,6 +357,7 @@ export default function AdminHome() {
   const [page, setPage] = useState(1);
   const [coupons, setCoupons] = useState<CouponRow[]>([]);
   const [finance, setFinance] = useState<FinanceResponse | null>(null);
+  const [prospects, setProspects] = useState<{ totals: { total: number; quente: number; morno: number; frio: number }; prospects: ProspectRow[] } | null>(null);
   const [couponCode, setCouponCode] = useState('');
   const [couponName, setCouponName] = useState('');
   const [couponDiscount, setCouponDiscount] = useState('100');
@@ -539,6 +549,16 @@ export default function AdminHome() {
     }
   }
 
+  async function loadProspects(accessToken = token) {
+    if (!accessToken) return;
+    try {
+      const response = await fetch(`${API_URL}/coach/prospects`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (response.ok) setProspects(await response.json());
+    } catch {
+      setStatus('Nao consegui carregar os prospectos.');
+    }
+  }
+
   async function createCoupon() {
     if (!couponCode.trim()) {
       setStatus('Informe o codigo do cupom.');
@@ -580,7 +600,8 @@ export default function AdminHome() {
     setMenuOpen(false);
     if (view === 'coupons') void loadCoupons();
     if (view === 'finance') void loadFinance();
-    if (view !== 'dashboard' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && !selectedStudentId && dashboard?.students[0]) {
+    if (view === 'prospects') void loadProspects();
+    if (view !== 'dashboard' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && view !== 'prospects' && !selectedStudentId && dashboard?.students[0]) {
       void loadStudent(dashboard.students[0].id);
     }
   }
@@ -904,7 +925,7 @@ export default function AdminHome() {
             </button>
             <div>
               <p className="eyebrow">Painel do treinador</p>
-              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : 'Financeiro'}</h1>
+              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : 'Financeiro'}</h1>
               <small className="apiVersion">API {apiVersion}</small>
             </div>
           </div>
@@ -932,6 +953,7 @@ export default function AdminHome() {
           <nav className="compactMenu">
             <button className={activeView === 'dashboard' ? 'active' : ''} type="button" onClick={() => changeView('dashboard')}><LayoutDashboard size={19} />Dashboard</button>
             <button className={activeView === 'students' ? 'active' : ''} type="button" onClick={() => changeView('students')}><Users size={19} />Alunos</button>
+            <button className={activeView === 'prospects' ? 'active' : ''} type="button" onClick={() => changeView('prospects')}><Flame size={19} />Prospectos{prospects?.totals.total ? ` (${prospects.totals.total})` : ''}</button>
             <button className={activeView === 'weeks' ? 'active' : ''} type="button" onClick={() => changeView('weeks')}><CalendarDays size={19} />Semanas</button>
             <button className={activeView === 'coupons' ? 'active' : ''} type="button" onClick={() => changeView('coupons')}><Ticket size={19} />Cupons</button>
             <button className={activeView === 'finance' ? 'active' : ''} type="button" onClick={() => changeView('finance')}><CreditCard size={19} />Financeiro</button>
@@ -1230,6 +1252,51 @@ export default function AdminHome() {
             />
           </div>
         </section> : null}
+
+        {activeView === 'prospects' ? (
+          <section className="workArea">
+            <div className="panel">
+              <div className="panelHeader">
+                <div>
+                  <p className="eyebrow">Nunca pagaram (nem cortesia)</p>
+                  <h2>Prospectos</h2>
+                </div>
+              </div>
+              <p className="formHintText">
+                Gente que criou conta no app mas ainda nao virou aluna de verdade — sem pagamento nenhum, nem cortesia liberada.
+                Nao consomem codigo de aluno nem aparecem na lista de Alunos. Ordenados do mais pra menos engajado.
+              </p>
+              <div className="stats" style={{ marginBottom: 16 }}>
+                <Stat label="Quente" value={String(prospects?.totals.quente ?? 0)} detail="entrevista + cobranca criada" />
+                <Stat label="Morno" value={String(prospects?.totals.morno ?? 0)} detail="entrevista em andamento/concluida" />
+                <Stat label="Frio" value={String(prospects?.totals.frio ?? 0)} detail="nao respondeu nada ainda" />
+              </div>
+              <div className="table">
+                <div className="row header">
+                  <span>Nome</span>
+                  <span>E-mail</span>
+                  <span>Cadastrado em</span>
+                  <span>Nivel de interesse</span>
+                </div>
+                {(prospects?.prospects ?? []).map((prospect) => (
+                  <div className="row" key={prospect.id}>
+                    <span><strong>{prospect.name}</strong></span>
+                    <span>{prospect.email}</span>
+                    <span>{dateLabel(prospect.createdAt)}</span>
+                    <span>
+                      <span className={`status ${prospect.level === 'quente' ? 'good' : prospect.level === 'morno' ? 'warn' : ''}`}>
+                        {prospect.level === 'quente' ? 'Quente' : prospect.level === 'morno' ? 'Morno' : 'Frio'}
+                      </span>
+                      <br />
+                      <small>{prospect.levelLabel}</small>
+                    </span>
+                  </div>
+                ))}
+                {!prospects?.prospects.length ? <p className="formHintText">Nenhum prospecto no momento.</p> : null}
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         {activeView === 'weeks' ? (
           <section className="weeksView">

@@ -328,6 +328,19 @@ export class BillingService {
     return { status: 'manual_active', discountPercent: 100, message: 'Cupom aplicado. Acesso liberado.' };
   }
 
+  // 18/08: studentCode agora so e atribuido aqui, na hora em que a pessoa realmente vira aluna de
+  // verdade (pagou ou recebeu cortesia manual) — nunca mais no cadastro puro (ver comentario no
+  // schema.prisma). Idempotente: se ja tem codigo, nao faz nada. Usa a MESMA sequence do banco que
+  // antes era o DEFAULT da coluna, entao continua sem colisao mesmo com dois pagamentos
+  // simultaneos (nextval() e atomico).
+  async assignStudentCodeIfNeeded(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { studentCode: true } });
+    if (user?.studentCode != null) return;
+    const rows = await this.prisma.$queryRaw<Array<{ nextval: bigint }>>`SELECT nextval('"User_studentCode_seq"') AS nextval`;
+    const code = Number(rows[0].nextval);
+    await this.prisma.user.update({ where: { id: userId }, data: { studentCode: code } });
+  }
+
   private async activateCouponAccess(userId: string, normalized: string) {
     await this.prisma.$transaction([
       this.prisma.billingSubscription.upsert({
@@ -352,6 +365,7 @@ export class BillingService {
         data: { subscriptionStatus: 'manual_active', subscriptionUpdatedAt: new Date() },
       }),
     ]);
+    await this.assignStudentCodeIfNeeded(userId);
     this.triggerFirstWeekGeneration(userId);
   }
 
@@ -408,8 +422,10 @@ export class BillingService {
     if (appStatus === 'active') {
       await this.createWelcomeNotificationOnce(billing.userId);
       if (!wasAlreadyActive) {
+        await this.assignStudentCodeIfNeeded(billing.userId);
+        const updatedUser = await this.prisma.user.findUniqueOrThrow({ where: { id: billing.userId }, select: { studentCode: true } });
         this.triggerFirstWeekGeneration(billing.userId);
-        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
+        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(updatedUser.studentCode)})\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
         await this.messaging.sendEmail(billing.userId, {
           trigger: 'payment_confirmed',
           subject: 'Pagamento confirmado - monte sua rotina de treinos!',
@@ -514,8 +530,10 @@ export class BillingService {
     if (appStatus === 'active') {
       await this.createWelcomeNotificationOnce(userId);
       if (!wasAlreadyActive) {
+        await this.assignStudentCodeIfNeeded(userId);
+        const updatedUser = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { studentCode: true } });
         this.triggerFirstWeekGeneration(userId);
-        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
+        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(updatedUser.studentCode)})\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
         await this.messaging.sendEmail(userId, {
           trigger: 'payment_confirmed',
           subject: 'Pagamento confirmado - monte sua rotina de treinos!',
