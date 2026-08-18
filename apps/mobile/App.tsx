@@ -521,9 +521,9 @@ function numberAnswerRank(value: unknown) {
 function padWheelNumber(value: number, digits: number) {
   return String(Math.max(0, value)).padStart(digits, '0');
 }
-function wheelNumberValues(min: number, max: number, digits: number) {
+function wheelNumberValues(min: number, max: number, digits: number, step = 1) {
   const values: string[] = [];
-  for (let i = min; i <= max; i += 1) values.push(padWheelNumber(i, digits));
+  for (let i = min; i <= max; i += step) values.push(padWheelNumber(i, digits));
   return values;
 }
 // durationMin no registro de treino guarda minutos decimais (ex: 35.5 = 35min30s) para o segundo
@@ -535,15 +535,6 @@ function durationMinToHms(durationMinValue: string): { h: number; m: number; s: 
 function hmsToDurationMin(h: number, m: number, s: number): string {
   const totalSeconds = h * 3600 + m * 60 + s;
   return totalSeconds > 0 ? String(totalSeconds / 60) : '';
-}
-// distanceKm no registro guarda km decimais (ex: 5.437) — a roda mostra km inteiros + metros.
-function distanceKmToKmM(distanceKmValue: string): { km: number; m: number } {
-  const totalMeters = Math.max(0, Math.round((Number(distanceKmValue) || 0) * 1000));
-  return { km: Math.floor(totalMeters / 1000), m: totalMeters % 1000 };
-}
-function kmMToDistanceKm(km: number, m: number): string {
-  const totalMeters = km * 1000 + m;
-  return totalMeters > 0 ? String(totalMeters / 1000) : '';
 }
 function parseHmsToSeconds(value: unknown): number | null {
   if (typeof value !== 'string') return null;
@@ -4942,33 +4933,28 @@ function DurationWheelField({ value, onChangeValue }: { value: string; onChangeV
   );
 }
 
-// Mesma logica para distancia: roda km + metros em vez de texto livre com virgula, que a aluna
-// digitava errado com frequencia ("cada metro conta").
-// Bug real reportado 18/08: a roda de metros era UMA SO indo de 0 a 999 de 1 em 1 — pra chegar
-// em 500m a aluna tinha que rolar centenas de posicoes. Agora, igual ao h/min/seg do tempo, sao
-// 3 rodas separadas (centena/dezena/unidade de metro), cada uma vai so de 0 a 9.
-function DistanceWheelField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
-  const { km, m } = distanceKmToKmM(value);
-  const hundreds = Math.floor(m / 100);
-  const tens = Math.floor((m % 100) / 10);
-  const units = m % 10;
-  const kmValues = wheelNumberValues(0, 199, 1);
-  const digitValues = wheelNumberValues(0, 9, 1);
-  const setMeters = (nextHundreds: number, nextTens: number, nextUnits: number) =>
-    onChangeValue(kmMToDistanceKm(km, nextHundreds * 100 + nextTens * 10 + nextUnits));
-  // Larguras reduzidas (bug real reportado 18/08): com 4 colunas agora (antes eram so 2), a
-  // largura padrao de 84px por coluna estourava a largura da tela. As 3 rodas de digito (0-9)
-  // precisam de bem menos espaco — e SEM rotulo tipo "100m"/"10m" embaixo de cada uma (o proprio
-  // texto do rotulo, mais largo que a roda, era o que estourava a largura de verdade). As 3 rodas
-  // juntas formam um numero so de 3 digitos (as "casas" dos metros), com "m" no final, do mesmo
-  // jeito que km + m juntos formam "X km Y m".
+// Distancia: 18/08, duas tentativas de roda (metros de 1 em 1, depois 3 rodas de digito, depois
+// km+m de 10 em 10) todas rejeitadas na pratica pelo celular real ("feio", "do mesmo jeito").
+// Troca final pra campo de texto simples, no formato que apps de corrida (Strava, Polar) ja usam
+// pra mostrar distancia: "8,51" com virgula, sem rodas nenhuma. Mais simples e o formato que a
+// aluna ja reconhece de outros apps.
+function DistanceTextField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
+  const displayValue = value ? value.replace('.', ',') : '';
   return (
-    <WheelPicker columns={[
-      { label: 'km', values: kmValues, selectedIndex: km, onChangeIndex: (index) => onChangeValue(kmMToDistanceKm(index, m)), width: 64 },
-      { values: digitValues, selectedIndex: hundreds, onChangeIndex: (index) => setMeters(index, tens, units), width: 40 },
-      { values: digitValues, selectedIndex: tens, onChangeIndex: (index) => setMeters(hundreds, index, units), width: 40 },
-      { label: 'm', values: digitValues, selectedIndex: units, onChangeIndex: (index) => setMeters(hundreds, tens, index), width: 40 },
-    ]} />
+    <TextInput
+      style={styles.compactInput}
+      value={displayValue}
+      onChangeText={(text) => {
+        let cleaned = text.replace(/[^0-9,]/g, '');
+        const firstComma = cleaned.indexOf(',');
+        if (firstComma !== -1) {
+          cleaned = cleaned.slice(0, firstComma + 1) + cleaned.slice(firstComma + 1).replace(/,/g, '');
+        }
+        onChangeValue(cleaned.replace(',', '.'));
+      }}
+      keyboardType="decimal-pad"
+      placeholder="Ex: 8,51"
+    />
   );
 }
 
@@ -5079,9 +5065,9 @@ function CompletionForm({
           </View>
           {isRun ? (
             <>
-              <View style={styles.completionWheelGroup}>
-                <Text style={styles.inputLabel}>Distancia</Text>
-                <DistanceWheelField value={draft.distanceKm} onChangeValue={(value) => onChange({ distanceKm: value, avgPace: computePaceFromInputs(draft.durationMin, value) })} />
+              <View style={styles.completionFieldGroup}>
+                <Text style={styles.inputLabel}>Distancia (km)</Text>
+                <DistanceTextField value={draft.distanceKm} onChangeValue={(value) => onChange({ distanceKm: value, avgPace: computePaceFromInputs(draft.durationMin, value) })} />
               </View>
               <View style={styles.completionFieldGroup}>
                 <Text style={styles.inputLabel}>Pace medio</Text>
