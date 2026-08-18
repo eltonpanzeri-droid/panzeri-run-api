@@ -1584,7 +1584,7 @@ function Login({
         <View style={styles.earlyStudentNotice}>
           <Text style={styles.earlyStudentNoticeTitle}>Bem-vindo ao Panzeri Run</Text>
           <Text style={styles.earlyStudentNoticeText}>
-            Parabéns por entrar para o Panzeri Run. Você é um de nossos primeiros alunos e isso é uma honra. Caso tenha algum problema de acesso, pode chamar diretamente pelo WhatsApp do Elton (31) 99253-8375. Ele responderá o mais breve possível.
+            Parabéns por entrar para o Panzeri Run. Caso tenha algum problema de acesso, pode chamar diretamente pelo WhatsApp do Elton (31) 99253-8375. Ele responderá o mais breve possível.
           </Text>
           <Pressable style={styles.whatsAppButton} onPress={() => Linking.openURL('https://wa.me/5531992538375')}>
             <Ionicons name="logo-whatsapp" size={18} color="#0f766e" />
