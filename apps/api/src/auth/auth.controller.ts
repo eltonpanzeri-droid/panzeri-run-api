@@ -114,10 +114,84 @@ export class AuthController {
     `);
   }
 
+  // 18/08: paginas publicas de Termos de Uso e Politica de Privacidade — precisam de URL de
+  // verdade (nao so um texto de checkbox) tanto pra LGPD quanto porque Google Play/App Store
+  // exigem link de politica de privacidade pra aceitar apps que coletam dado de saude. Mesmo
+  // padrao de HTML estatico ja usado em reset-password acima, sem guarda de autenticacao (tem que
+  // ser acessivel por qualquer um, inclusive quem nem se cadastrou ainda).
+  @Get('termos-de-uso')
+  termsOfUsePage(@Res() response: { type: (value: string) => { send: (value: string) => void } }) {
+    response.type('html').send(legalPageHtml('Termos de Uso', TERMS_OF_USE_HTML));
+  }
+
+  @Get('politica-privacidade')
+  privacyPolicyPage(@Res() response: { type: (value: string) => { send: (value: string) => void } }) {
+    response.type('html').send(legalPageHtml('Politica de Privacidade', PRIVACY_POLICY_HTML));
+  }
+
   @UseGuards(AuthGuard('jwt'))
   @Get('me')
   me(@Req() req: { user: { sub: string } }) {
     return this.authService.me(req.user.sub);
   }
 }
+
+function legalPageHtml(title: string, bodyHtml: string): string {
+  return `
+    <html>
+      <head>
+        <title>Panzeri Run - ${title}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <style>
+          body { background: #f8fafc; color: #0f172a; font-family: Arial, sans-serif; margin: 0; padding: 24px; line-height: 1.6; }
+          main { background: #ffffff; border: 1px solid #dbe4ee; border-radius: 12px; margin: 24px auto; max-width: 640px; padding: 32px; }
+          h1 { color: #0f766e; font-size: 22px; }
+          h2 { color: #0f766e; font-size: 16px; margin-top: 24px; }
+          p, li { color: #334155; font-size: 15px; }
+        </style>
+      </head>
+      <body>
+        <main>${bodyHtml}</main>
+      </body>
+    </html>
+  `;
+}
+
+const TERMS_OF_USE_HTML = `
+  <h1>Termos de Uso — Panzeri Run</h1>
+  <h2>1. O que e o Panzeri Run</h2>
+  <p>Aplicativo de prescricao e acompanhamento de treinos de corrida, personalizado por metodologia tecnica definida pelo treinador responsavel (Elton Panzeri) e operacionalizado por agentes de inteligencia artificial, sob supervisao tecnica.</p>
+  <h2>2. Natureza do servico</h2>
+  <p>O acompanhamento e feito a distancia, sem supervisao presencial ou em tempo real durante a execucao dos treinos. O aluno e responsavel por avaliar suas proprias condicoes fisicas a cada sessao e por interromper a atividade e buscar atendimento medico diante de qualquer sinal de risco.</p>
+  <h2>3. Nao substitui avaliacao medica</h2>
+  <p>O Panzeri Run nao presta servico medico, fisioterapeutico ou de emergencia. Recomenda-se avaliacao medica previa, especialmente para pessoas com condicoes de saude preexistentes.</p>
+  <h2>4. Assinatura e pagamento</h2>
+  <p>O acesso ao programa de treinos depende de assinatura mensal ativa (R$19,90/mes), processada via Asaas. O cancelamento pode ser feito a qualquer momento, sem multa, produzindo efeito conforme as regras vigentes de cobranca.</p>
+  <h2>5. Responsabilidade sobre informacoes</h2>
+  <p>O programa de treinos e construido com base nas informacoes fornecidas pelo aluno. Informacoes incompletas, desatualizadas ou incorretas podem comprometer a adequacao e a seguranca do treino prescrito.</p>
+  <h2>6. Alteracoes</h2>
+  <p>Estes termos podem ser atualizados; alteracoes relevantes serao comunicadas dentro do aplicativo.</p>
+  <h2>7. Contato</h2>
+  <p>Duvidas: eltonpanzeri@gmail.com</p>
+`;
+
+const PRIVACY_POLICY_HTML = `
+  <h1>Politica de Privacidade — Panzeri Run</h1>
+  <h2>1. Controlador dos dados</h2>
+  <p>Elton Panzeri, responsavel pelo Panzeri Run.</p>
+  <h2>2. Dados que coletamos</h2>
+  <p>Nome, e-mail, telefone, CPF, endereco, data de nascimento; dados de saude e condicionamento fisico (peso, altura, historico de lesoes, dores relatadas, condicoes de saude); historico e desempenho de treinos; dados de pagamento (processados diretamente pelo Asaas, nao armazenamos dados de cartao).</p>
+  <h2>3. Para que usamos</h2>
+  <p>Personalizar a prescricao de treinos; acompanhar evolucao e seguranca do aluno; processar pagamento da assinatura; comunicacao sobre o servico (e-mail, notificacoes).</p>
+  <h2>4. Base legal</h2>
+  <p>Execucao de contrato (prestacao do servico) e consentimento explicito, para dados sensiveis de saude.</p>
+  <h2>5. Compartilhamento</h2>
+  <p>Dados de pagamento com o Asaas (processador de pagamento); dados de treino/saude processados por servicos de inteligencia artificial (Anthropic) para geracao da prescricao, sob contrato de confidencialidade do provedor; e-mails enviados via Resend. Nao vendemos nem compartilhamos dados com terceiros para fins de publicidade.</p>
+  <h2>6. Retencao</h2>
+  <p>Os dados sao mantidos enquanto a conta estiver ativa e pelo prazo necessario para cumprimento de obrigacoes legais apos o encerramento.</p>
+  <h2>7. Seus direitos (LGPD)</h2>
+  <p>Acesso, correcao, exclusao, portabilidade e revogacao do consentimento a qualquer momento, mediante solicitacao ao contato abaixo.</p>
+  <h2>8. Contato</h2>
+  <p>eltonpanzeri@gmail.com</p>
+`;
 

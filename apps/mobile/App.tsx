@@ -426,6 +426,11 @@ interface AppNotification {
 // chegava la. Numa build nativa futura (sem dominio proprio para repassar) mantemos a URL
 // absoluta.
 const API_URL = Platform.OS === 'web' ? '/api' : 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
+// 18/08: paginas publicas (Termos de Uso / Politica de Privacidade) servidas direto pelo dominio
+// da API (mesmo padrao ja usado no link de "esqueci minha senha") — sempre URL absoluta, mesmo na
+// web, porque essas paginas nao passam pelo prefixo /api do proxy.
+const LEGAL_TERMS_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host/termos-de-uso';
+const LEGAL_PRIVACY_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host/politica-privacidade';
 const AUTH_SESSION_KEY = 'panzeri-run-auth-session';
 const DISMISSED_NOTIFICATIONS_KEY = 'panzeri-run-dismissed-notifications';
 
@@ -1608,13 +1613,17 @@ function Login({
           <View style={styles.termsRow}>
             <Switch value={acceptedTerms} onValueChange={onTermsChange} />
             <Text style={styles.termsText}>
-              Aceito os termos de uso, a politica de privacidade e autorizo o uso dos meus dados de saude e treino para prescricao e acompanhamento.
+              Aceito os{' '}
+              <Text style={styles.termsLink} onPress={() => Linking.openURL(LEGAL_TERMS_URL)}>termos de uso</Text>
+              {', a '}
+              <Text style={styles.termsLink} onPress={() => Linking.openURL(LEGAL_PRIVACY_URL)}>politica de privacidade</Text>
+              {' e autorizo o uso dos meus dados de saude e treino para prescricao e acompanhamento.'}
             </Text>
           </View>
           <View style={styles.termsRow}>
             <Switch value={acceptedExerciseResponsibility} onValueChange={onExerciseResponsibilityChange} />
             <Text style={styles.termsText}>
-              Declaro que as informacoes fornecidas sao verdadeiras, que estou apto a praticar exercicios fisicos sem comprometer minha saude e que devo interromper o treino e buscar avaliacao profissional diante de dor, mal-estar ou qualquer sinal de risco.
+              Declaro que as informacoes fornecidas sao verdadeiras, que estou apto a praticar exercicios fisicos sem comprometer minha saude, que este e um acompanhamento a distancia (sem supervisao presencial ou em tempo real) e que devo interromper o treino imediatamente e procurar atendimento medico (192/SAMU ou pronto-socorro) diante de dor, mal-estar, tontura ou qualquer sinal de risco, nao sendo possivel ao Panzeri Run intervir nesses momentos.
             </Text>
           </View>
         </>
@@ -1685,11 +1694,11 @@ function ExerciseResponsibility({ accessToken, onAccepted }: { accessToken: stri
       <Text style={styles.titleSmall}>Termo de responsabilidade</Text>
       <View style={styles.coachBox}>
         <Text style={styles.coachTitle}>Antes de iniciar seus treinos</Text>
-        <Text style={styles.coachText}>Os treinos sao preparados com base nas informacoes fornecidas por voce. Respostas incompletas ou incorretas podem comprometer a seguranca e a adequacao do programa.</Text>
+        <Text style={styles.coachText}>O Panzeri Run e um servico de acompanhamento remoto: nao ha supervisao presencial nem monitoramento em tempo real durante a pratica dos exercicios. Os treinos sao preparados com base nas informacoes fornecidas por voce, e responsabilidade sua avaliar suas condicoes a cada sessao. Diante de dor, tontura, falta de ar anormal, desconforto no peito ou qualquer sinal de risco, interrompa a atividade imediatamente e procure atendimento medico de emergencia (192/SAMU ou pronto-socorro) — nao e possivel ao Panzeri Run identificar ou intervir numa emergencia ocorrida durante o treino.</Text>
       </View>
       <View style={styles.termsRow}>
         <Switch value={confirmed} onValueChange={setConfirmed} />
-        <Text style={styles.termsText}>Declaro que minhas informacoes sao verdadeiras, que estou apto a praticar exercicios fisicos sem comprometer minha saude e que interromperei a atividade e procurarei avaliacao profissional se sentir dor, tontura, falta de ar anormal, mal-estar ou outro sinal de risco.</Text>
+        <Text style={styles.termsText}>Declaro estar ciente dessas condicoes e apto a praticar exercicios fisicos sem comprometer minha saude.</Text>
       </View>
       <Pressable style={[styles.primaryButton, (!confirmed || saving) && styles.disabledButton]} disabled={!confirmed || saving} onPress={accept}>
         <Text style={styles.primaryButtonText}>{saving ? 'Registrando...' : 'Confirmar e continuar'}</Text>
@@ -6696,6 +6705,11 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontSize: 14,
     lineHeight: 20,
+  },
+  termsLink: {
+    color: '#0f766e',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   primaryButton: {
     minHeight: 54,
