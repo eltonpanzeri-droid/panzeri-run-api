@@ -4957,14 +4957,17 @@ function DistanceWheelField({ value, onChangeValue }: { value: string; onChangeV
   const setMeters = (nextHundreds: number, nextTens: number, nextUnits: number) =>
     onChangeValue(kmMToDistanceKm(km, nextHundreds * 100 + nextTens * 10 + nextUnits));
   // Larguras reduzidas (bug real reportado 18/08): com 4 colunas agora (antes eram so 2), a
-  // largura padrao de 84px por coluna estourava a largura da tela e cortava a ultima roda. As 3
-  // rodas de digito (0-9) precisam de bem menos espaco que isso.
+  // largura padrao de 84px por coluna estourava a largura da tela. As 3 rodas de digito (0-9)
+  // precisam de bem menos espaco — e SEM rotulo tipo "100m"/"10m" embaixo de cada uma (o proprio
+  // texto do rotulo, mais largo que a roda, era o que estourava a largura de verdade). As 3 rodas
+  // juntas formam um numero so de 3 digitos (as "casas" dos metros), com "m" no final, do mesmo
+  // jeito que km + m juntos formam "X km Y m".
   return (
     <WheelPicker columns={[
       { label: 'km', values: kmValues, selectedIndex: km, onChangeIndex: (index) => onChangeValue(kmMToDistanceKm(index, m)), width: 64 },
-      { label: '100m', values: digitValues, selectedIndex: hundreds, onChangeIndex: (index) => setMeters(index, tens, units), width: 48 },
-      { label: '10m', values: digitValues, selectedIndex: tens, onChangeIndex: (index) => setMeters(hundreds, index, units), width: 48 },
-      { label: '1m', values: digitValues, selectedIndex: units, onChangeIndex: (index) => setMeters(hundreds, tens, index), width: 48 },
+      { values: digitValues, selectedIndex: hundreds, onChangeIndex: (index) => setMeters(index, tens, units), width: 40 },
+      { values: digitValues, selectedIndex: tens, onChangeIndex: (index) => setMeters(hundreds, index, units), width: 40 },
+      { label: 'm', values: digitValues, selectedIndex: units, onChangeIndex: (index) => setMeters(hundreds, tens, index), width: 40 },
     ]} />
   );
 }
