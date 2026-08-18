@@ -286,3 +286,91 @@ bike, código de identificação do aluno, e um ajuste importante de confiança/
   treinador interpretou (com razão) como indício de que ainda existisse um sistema de regras fixas
   por trás — não existia (fora o caso do bike acima, já corrigido). Lição registrada: evitar esse
   termo, chamar sempre de "a IA" ou "o agente de IA" explicitamente.
+
+**2026-08-17/18** — Sessão longa, focada em preparar o app pra virar produto real (domínio de
+e-mail, tratamento de quem nunca virou aluno de fato, reestruturação do onboarding e base legal),
+motivada pela perspectiva de publicação nas lojas:
+
+- **Domínio de e-mail (Resend) ativado em produção**: DNS configurado no Hostinger, variáveis de
+  ambiente atualizadas no EasyPanel, teste real de envio confirmado — os e-mails automáticos, que
+  existiam no código mas ficavam sem efeito prático por falta de domínio, agora saem de verdade.
+  Ver [[pending_email_domain_setup]] (memória anterior, agora resolvida).
+- **Auditoria completa dos e-mails automáticos**: removido o gatilho do teste de 3km (já tinha
+  sido escondido do app em 28/07, mas o e-mail de lembrete continuava agendado); e-mail de
+  cobrança reescrito para diferenciar pendente de atrasado, com link de pagamento real em vez de
+  texto genérico.
+- **Incidente real (aluna "Daiana")**: alguém que só abriu o app e nunca respondeu nem uma
+  pergunta da entrevista apareceu na lista de alunos como aluno de verdade, com código sequencial
+  permanente atribuído. Decisão do treinador: `studentCode` só é atribuído no primeiro pagamento
+  real (`BillingService.assignStudentCodeIfNeeded`, via sequence do banco, chamado nos 3 pontos
+  onde o acesso pago é liberado: cortesia manual, webhook Asaas, sincronização manual). Quem nunca
+  pagou não aparece mais na lista de "Alunos" — vai para uma página separada "Prospectos", com
+  nível de interesse calculado (frio/morno/quente, `computeProspectLevel()`) a partir de quanto da
+  entrevista/checkout a pessoa já percorreu.
+- **Sequência de e-mails de recuperação de prospecto** (`ProspectNurtureService`, cron de hora em
+  hora): 4 disparos automáticos (8h, 24h, 7 dias, 30 dias depois do cadastro) para quem ficou como
+  prospecto, cada um com um "link mágico" de login de uso único (mesmo padrão de segurança do
+  link de redefinição de senha: token bruto só existe no e-mail, banco guarda hash, expira, single-
+  use) para retomar de onde parou sem precisar logar de novo. Só POST troca o token por sessão
+  (nunca GET) — proposital, pra scanners de segurança de e-mail não gastarem o token sozinhos
+  visitando o link antes do usuário clicar.
+- **Reestruturação do onboarding ("Bloco 2")**: em vez de uma entrevista completa antes de
+  qualquer coisa, agora são 5 perguntas rápidas (objetivo, nível, maior dificuldade, expectativa,
+  frequência) → assinatura → entrevista completa (saúde, histórico, condicionamento) → rotina →
+  liberar geração do treino. Implementado reaproveitando o componente `GuidedInterview` já
+  existente (4º modo `quickIntake`), com `quickIntakeCompletedAt` separado de `completedAt` no
+  `OnboardingInterview`. Cada fase ganhou um texto curto explicando por que aquela etapa existe,
+  pra aluna perceber que o treino é personalizado desde o início e não um modelo genérico —
+  testado ao vivo pelo próprio treinador com uma conta de teste, confirmado funcionando.
+- **Reforço legal/LGPD**: páginas públicas `/termos-de-uso` e `/politica-privacidade` servidas
+  direto pela API (mesmo padrão HTML estático da página de redefinição de senha), necessárias
+  tanto pra LGPD quanto porque Google Play/App Store exigem link de política de privacidade pra
+  apps que coletam dado de saúde. Declaração de responsabilidade por exercício físico reforçada em
+  3 lugares (cadastro, tela de aceite, páginas legais) deixando explícito: atendimento a distância
+  sem supervisão em tempo real, orientação de acionar 192/SAMU em caso de mal-estar, e que o
+  Panzeri Run não pode intervir fisicamente. Texto legal ainda não passou por revisão de advogado —
+  o treinador está ciente e vai revisar de novo antes de considerar definitivo.
+- **`/me` passou a expor `subscriptionStatus`** especificamente pra o app decidir, no login, se
+  mostra as 5 perguntas rápidas (nunca pagou) ou a entrevista completa (já pagou) — protege contas
+  antigas que estavam no meio do fluxo anterior de serem jogadas de volta pro início.
+- Corrigido, encontrado durante essa revisão: a mensagem de "pagamento confirmado" (Telegram +
+  e-mail) ainda instruía "toque em Rotina de treinos", texto órfão de uma versão antiga do fluxo.
+
+**Continuação no mesmo dia (2026-08-18, segunda parte)** — revisão dos pendentes levantados acima,
+um a um, com o treinador:
+- **Revisão jurídica dos termos**: fica adiada por enquanto (decisão dele), mas ele pediu
+  explicitamente para eu continuar lembrando disso de forma ativa, não só deixar registrado —
+  criada uma memória dedicada só para isso.
+- **Teste ponta a ponta do Bloco 2 com pagamento real**: ele decidiu confiar, sem exigir esse teste
+  agora.
+- **Metodologia**: múltiplos objetivos (corrida+trilha vs. saúde geral) descartado da lista de
+  pendências — o app só trabalha com objetivos de corrida por distância específica, não é uma
+  decisão real do produto hoje. Tom de comunicação do agente com o aluno foi definido ("amigável,
+  firme, direto e objetivo, incentivador, sem puxa-saco, sem se perder em explicação técnica") e
+  implementado como instrução explícita no prompt do `PrescriptionAgentService`, especificamente no
+  campo `recommendation` (o único texto que o aluno lê direto na tela, como "Orientação da semana"
+  — `notes`/`rationale` continuam sendo execução pura/interno). Ainda falta elicitar como pesar
+  idade/histórico de saúde mais amplo — ele pediu que a próxima rodada venha com perguntas
+  objetivas/fechadas, não uma pergunta aberta.
+- **"Investigador de dor" guiado, aprimorado**: o relato de dor já era bem mais estruturado do que
+  eu lembrava (região, intensidade 1-10, quando aparece, como se comporta, status de dores
+  anteriores — tudo por opção, sem texto livre). Faltavam duas perguntas específicas que o próprio
+  treinador tinha listado como parte da régua de decisão dele: a dor está piorando/estável/
+  melhorando ao longo dos treinos, e ela atrapalha o dia a dia fora do treino. Adicionadas as duas
+  (`PainReport.worseningTrend`, `PainReport.dailyLifeImpact`) — sem nenhum cálculo novo em cima
+  (mesma regra de sempre: zero fórmula decidindo o treino), só mais contexto real anexado ao motivo
+  que já vai pro agente de IA julgar.
+- **Faxina do campo morto `decisionSource`**: removido de ponta a ponta (schema/inputSnapshot,
+  `coach.service.ts`, tipos do admin) — o campo sempre valia `'ai'` desde que o motor determinístico
+  foi removido em 30/07, então a ramificação "Motor determinístico" no relatório técnico era código
+  morto/inalcançável. Simplificado para o rótulo fixo único que sempre foi a realidade.
+
+**Pontos em aberto / para acompanhar antes de publicar nas lojas:**
+- Texto de Termos de Uso / Política de Privacidade ainda não teve revisão jurídica profissional —
+  o treinador pediu para deixar assim por enquanto e revisar de novo depois.
+- Fluxo completo "5 perguntas → assinatura → entrevista completa → rotina → gerar treino" foi
+  testado uma vez, manualmente, pelo próprio treinador, até a assinatura (não concluiu o pagamento
+  de verdade) — vale um teste ponta a ponta com pagamento real antes de publicar.
+- Integração com WhatsApp (Evolution API/n8n numa VPS Hostinger já configurada) e publicação nas
+  lojas (Play Store/App Store) seguem como as duas frentes maiores ainda não iniciadas — publicar
+  o app foi apontado como a mais rápida das duas quando perguntado, mas nenhuma foi retomada ainda.

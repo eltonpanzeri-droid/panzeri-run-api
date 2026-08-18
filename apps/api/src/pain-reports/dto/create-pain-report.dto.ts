@@ -24,6 +24,16 @@ export class CreatePainReportDto {
   @IsIn(['permanent', 'oscillating', 'specific_movements'])
   persistencePattern!: string;
 
+  // Adicionados 18/08 a pedido do treinador (metodologia dele usa isso como parte da regua de
+  // decisao sobre dor — "esta aumentando ou estavel" e "atrapalha o dia a dia" — ver
+  // panzeri_methodology na memoria do projeto). Sem valor default fixo nem calculo automatico em
+  // cima disso: e so mais contexto real que vai pro agente de IA julgar, igual todo o resto.
+  @IsIn(['worsening', 'stable', 'improving'])
+  worseningTrend!: string;
+
+  @IsIn(['yes', 'a_little', 'no'])
+  dailyLifeImpact!: string;
+
   @IsOptional()
   @IsIn(['none_before', 'resolved', 'improved', 'unchanged'])
   previousPainStatus?: string;

@@ -44,6 +44,8 @@ export class PainReportsService {
         intensity: dto.intensity,
         onsetPattern: dto.onsetPattern,
         persistencePattern: dto.persistencePattern,
+        worseningTrend: dto.worseningTrend,
+        dailyLifeImpact: dto.dailyLifeImpact,
         previousPainStatus: dto.previousPainStatus,
         resolvedRegions: dto.resolvedRegions ?? [],
         comment: dto.comment,
@@ -54,6 +56,8 @@ export class PainReportsService {
       `Relato de dor: regioes ${dto.regions.join(', ')}${dto.otherLocation ? ` (${dto.otherLocation})` : ''}, intensidade ${dto.intensity}/10.`,
       dto.onsetPattern ? `Inicio: ${dto.onsetPattern}.` : '',
       dto.persistencePattern ? `Padrao: ${dto.persistencePattern}.` : '',
+      dto.worseningTrend ? `Tendencia: ${dto.worseningTrend}.` : '',
+      dto.dailyLifeImpact ? `Atrapalha o dia a dia: ${dto.dailyLifeImpact}.` : '',
       dto.comment?.trim() ? `Comentario do aluno: ${dto.comment.trim()}` : '',
     ].filter(Boolean).join(' ');
     void this.studentProfile.recordEvent(userId, ProfileEventCode.PAIN_REPORT, profileText).catch(() => undefined);
@@ -93,6 +97,20 @@ export class PainReportsService {
       } else if (latest.intensity >= 5) {
         tier = 'reduced';
         reason = `Relato de dor moderada (${latest.intensity}/10).`;
+      }
+
+      // "Tendencia" e "atrapalha o dia a dia" nao mudam o tier por regra fixa (nenhum numero
+      // nem calculo aqui) — sao so mais duas frases de contexto real anexadas ao motivo, pro
+      // agente de IA pesar isso do jeito que um treinador real pesaria (ver panzeri_methodology
+      // na memoria do projeto: dor que atrapalha o dia a dia ou que vem piorando pesa mais do
+      // que uma dor estavel/isolada, mesmo com intensidade parecida).
+      if (reason && (latest.worseningTrend || latest.dailyLifeImpact)) {
+        const extra: string[] = [];
+        if (latest.worseningTrend === 'worsening') extra.push('o aluno relata que esta piorando ao longo dos treinos');
+        else if (latest.worseningTrend === 'improving') extra.push('o aluno relata que esta melhorando');
+        if (latest.dailyLifeImpact === 'yes') extra.push('atrapalha o dia a dia fora do treino');
+        else if (latest.dailyLifeImpact === 'a_little') extra.push('atrapalha um pouco o dia a dia fora do treino');
+        if (extra.length) reason = `${reason} ${extra.join('; ')}.`;
       }
     }
 

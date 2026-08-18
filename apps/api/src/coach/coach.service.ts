@@ -1134,15 +1134,13 @@ function readMethodologySnapshot(inputSnapshot: unknown) {
   if (!inputSnapshot || typeof inputSnapshot !== 'object' || !('methodology' in inputSnapshot)) return null;
   const methodology = (inputSnapshot as { methodology?: unknown }).methodology;
   if (!methodology || typeof methodology !== 'object') return null;
-  const { rationale, safetyAdjustment, decisionSource } = methodology as {
+  const { rationale, safetyAdjustment } = methodology as {
     rationale?: unknown;
     safetyAdjustment?: unknown;
-    decisionSource?: unknown;
   };
   return {
     rationale: Array.isArray(rationale) ? rationale.filter((item): item is string => typeof item === 'string') : [],
     safetyAdjustment: Boolean(safetyAdjustment),
-    decisionSource: decisionSource === 'ai' ? 'ai' : 'deterministic',
   };
 }
 
@@ -1151,8 +1149,9 @@ function buildTechnicalReportContent(detail: any) {
   const tests = detail.tests ?? [];
   const availability = detail.availability ?? [];
   const rationale: string[] = detail.plan?.methodology?.rationale ?? [];
-  const decisionSource = detail.plan?.methodology?.decisionSource;
-  const sourceLabel = decisionSource === 'ai' ? 'Agente de IA (Metodologia Elton Panzeri)' : 'Motor deterministico (regras fixas)';
+  // Todo programa e gerado pelo agente de IA — nao existe mais motor deterministico desde
+  // 2026-07-30 (ver PRONTUARIO.md), entao o rotulo aqui e sempre o mesmo, sem condicional.
+  const sourceLabel = 'Agente de IA (Metodologia Elton Panzeri)';
   return {
     generatedAt: new Date().toISOString(),
     type: 'technical',

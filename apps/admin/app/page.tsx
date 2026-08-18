@@ -203,7 +203,6 @@ interface StudentDetail {
     methodology?: {
       rationale: string[];
       safetyAdjustment: boolean;
-      decisionSource: 'ai' | 'deterministic';
     } | null;
     summary: {
       prescribedSessions: number;
@@ -3435,7 +3434,6 @@ function satisfactionLabel(value: string) {
 }
 
 function methodologySummaryLine(methodology: {
-  decisionSource: 'ai' | 'deterministic';
   safetyAdjustment: boolean;
 }) {
   const parts: string[] = [];

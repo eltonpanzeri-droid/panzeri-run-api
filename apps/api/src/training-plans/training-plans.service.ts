@@ -959,7 +959,6 @@ export class TrainingPlansService {
             principles: PANZERI_PRESCRIPTION_PRINCIPLES,
             rationale: methodology.rationale,
             safetyAdjustment: methodology.safetyAdjustment,
-            decisionSource: methodology.source,
             history: methodologyHistory,
             stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
             analysisAgent: latestExecutionInsight ? executionSummary : null,

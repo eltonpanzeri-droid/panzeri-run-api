@@ -432,6 +432,11 @@ model PainReport {
   intensity          Int
   onsetPattern       String
   persistencePattern String
+  // Adicionados 18/08 — "investigador de dor guiado" (ideia do proprio treinador, ver
+  // panzeri_methodology): a dor esta piorando/estavel/melhorando ao longo dos treinos, e
+  // atrapalha o dia a dia fora do treino. Nullable pra nao quebrar relatos antigos.
+  worseningTrend     String?
+  dailyLifeImpact    String?
   previousPainStatus String?
   resolvedRegions    String[]
   comment            String?

@@ -187,7 +187,7 @@ export class PrescriptionAgentService {
     this.client = apiKey ? new Anthropic({ apiKey }) : null;
   }
 
-  async proposeWeeklyDecision(input: MethodologyInput, evidence: PaceEvidence): Promise<(WeeklyMethodologyDecision & { source: 'ai' }) | null> {
+  async proposeWeeklyDecision(input: MethodologyInput, evidence: PaceEvidence): Promise<WeeklyMethodologyDecision | null> {
     if (!this.client) {
       this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado. Nenhum treino sera gerado por regra fixa no lugar disso.');
       return null;
@@ -340,7 +340,7 @@ export class PrescriptionAgentService {
     input: MethodologyInput,
     evidence: PaceEvidence,
     effort: 'high' | 'medium' = 'high',
-  ): Promise<(WeeklyMethodologyDecision & { source: 'ai' }) | null> {
+  ): Promise<WeeklyMethodologyDecision | null> {
     const client = this.client;
     if (!client) return null;
     const runSlots = computeRunSlots(input.availability);
@@ -453,7 +453,6 @@ export class PrescriptionAgentService {
         recommendation: truncateText(parsed.recommendation.trim() || 'Sem observacoes adicionais para esta semana.', 1200),
         rationale: rationale.length > 0 ? rationale : ['Decisao gerada pelo agente de IA.'],
         safetyAdjustment,
-        source: 'ai',
         routineMismatch: validated.routineMismatch,
         sessionMismatches: { ...validated.sessionMismatches, ...strengthValidation.sessionMismatches },
       };
@@ -657,6 +656,7 @@ export class PrescriptionAgentService {
       'Se analiseAprofundadaStrava estiver preenchida (vem de outro agente que ja mastigou cadencia, frequencia cardiaca, padroes e outras modalidades do Strava para voce), use o campo "summary" e as "flags" como evidencia adicional real de como o aluno esta respondendo ao treino agora — nao ignore isso, mas tambem nao superestime; combine com o resto das evidencias.',
       'Cuidado ao interpretar texto livre escrito pelo proprio aluno (respostas de entrevista/reavaliacao, comentarios): muitos alunos escrevem de forma informal, como numa conversa entre pessoas, com ironia, hiperbole ou exagero comico (ex: "corri e quase morri" ou "foi moleza" nao sao relatos medicos literais). Nunca leve essas frases ao pe da letra como se fossem um dado objetivo.',
       'VARIEDADE: nao repita o mesmo padrao de estimulo semana apos semana pro mesmo aluno so por inercia (mesmo volume, mesma estrutura, mesmo ritmo de progressao) — pense em como um treinador real varia o treino ao longo do tempo pra continuar desafiando e evoluindo o aluno. Isso vale pro treino em si, nao so pra redacao do titulo/notes.',
+      'TOM DE VOZ DO CAMPO recommendation (unico campo de texto que o aluno le direto na tela como "Orientacao da semana" — os outros, notes/rationale, sao internos ou de execucao pura): amigavel, firme, direto e objetivo, incentivador, mas sem ser puxa-saco (nada de elogio vazio ou empolgacao exagerada por algo comum). Nao se perca em explicacao tecnica longa — poucas frases, direto ao ponto, focado no que muda ou no que importa nesta semana especificamente, nao um resumo de tudo.',
       'O campo notes contem SOMENTE a instrucao pratica de como executar o treino daquele dia (ex: como dividir o esforco entre as partes, ritmo de cada trecho) — sempre narrando a MESMA prescricao que esta em parts, nunca uma segunda versao diferente. NAO inclua nada alem disso (incidente real 16/08 — texto longo demais, gastando token a toa): sem aviso de seguranca ("se sentir dor, reduza o ritmo"), sem lembrete sobre a prova alvo ou objetivo do aluno, sem mensagem motivacional ou comemorativa, sem qualquer comentario que nao seja execucao pura. Nao e obrigatorio escrever nada aqui — se a prescricao em parts ja for autoexplicativa (ex: treino simples de 1 parte so), pode deixar notes vazio. Quando escrever, seja direto: poucas frases, sem repetir o mesmo numero de formas diferentes. Se o treino for 1 parte so, nao fale de aquecimento/resfriamento (ja e texto padrao fixo); se tiver 2+ partes com uma caminhada de 5+ min no inicio, esse texto padrao some sozinho e voce descreve cada parte.',
       'PROIBIDO INVENTAR FATOS SOBRE O HISTORICO DO ALUNO (incidente real 10/08 — aluna Eduarda leu em notes "sei que voce ja fez 15km recentemente", um numero que nao existe em NENHUM dado real dela; o maior treino dela ate entao era bem menor, e ela mesma estranhou no zap com o treinador, "ainda nao corri nem 8"). Qualquer numero ou fato especifico que voce escrever em notes/rationale/recommendation sobre o PASSADO do aluno (uma distancia que ele ja correu, um pace que ja sustentou, ha quantos dias, um sintoma como "recorrente" ou "das ultimas semanas") TEM que vir literalmente de algum campo do JSON que voce recebeu (maiorLongaoJaRegistrado, historicoSemanal, analiseExecucao, analiseAprofundadaStrava, respostasEntrevista, reavaliacaoMaisRecente, diretrizesEspecificasDoTreinadorParaEsteAluno, observacoesRegistradasPeloProprioAluno, prontuarioDoAluno) — nunca de uma suposicao plausivel ou do padrao generico de como uma fala de treinador "costuma soar" (tipo "voce vinha evoluindo bem, entao vamos recuar um pouco"). Se nao houver dado real pra sustentar a frase, nao escreva ela — fale de forma mais generica, sem inventar o numero (ex: "com o volume que voce vem construindo" em vez de citar uma distancia especifica que nunca aconteceu). Isso vale tambem pro TOM: se uma diretriz descreve um desconforto como ESPERADO/normal durante uma fase (ex: "desconforto muscular em coxa/canela e esperado no retorno, nao confundir com dor articular"), nao reescreva isso como se fosse um problema recorrente e preocupante que exige reduzir o treino — respeite a leitura que a propria diretriz ja deu ao fato, nao invente uma gravidade maior por conta propria.',
       'ISSO VALE ESPECIALMENTE PRA LINGUAGEM DE TEMPO RELATIVO (incidente real 10/08 — outra aluna fez uma prova no domingo, e na terca seguinte o texto disse "voce completou ontem", quando na verdade ja tinham se passado 2 dias). Antes de escrever "ontem", "anteontem", "ha X dias", "essa semana" ou qualquer expressao parecida sobre algo do passado, CALCULE a diferenca exata entre hoje e a data real do evento — cada semana em historicoSemanal tem weekStartDate (inicio daquela semana) e longestRunDate (data exata do treino mais longo daquela semana, quando existir); maiorLongaoJaRegistrado e metaDeProva tambem tem suas proprias datas exatas. Se voce nao tiver uma data exata pra ancorar a expressao, NAO invente uma — fale de forma vaga mas verdadeira (ex: "no seu ultimo longao" em vez de "ontem").',

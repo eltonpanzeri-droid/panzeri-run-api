@@ -3921,6 +3921,18 @@ const PAIN_PERSISTENCE_OPTIONS = [
   option('So acontece em movimentos ou posicoes especificas', 'specific_movements'),
 ];
 
+const PAIN_TREND_OPTIONS = [
+  option('Vem piorando ao longo dos treinos', 'worsening'),
+  option('Esta estavel, nem melhor nem pior', 'stable'),
+  option('Vem melhorando', 'improving'),
+];
+
+const PAIN_DAILY_IMPACT_OPTIONS = [
+  option('Sim, atrapalha coisas do meu dia a dia', 'yes'),
+  option('Um pouco, mas da pra levar numa boa', 'a_little'),
+  option('Nao, so sinto quando treino', 'no'),
+];
+
 const PAIN_PREVIOUS_STATUS_OPTIONS = [
   option('Nao relatei dor antes', 'none_before'),
   option('Uma dor anterior sumiu totalmente', 'resolved'),
@@ -3934,6 +3946,8 @@ function PainReportScreen({ accessToken }: { accessToken: string }) {
   const [intensity, setIntensity] = useState<number | null>(null);
   const [onsetPattern, setOnsetPattern] = useState('');
   const [persistencePattern, setPersistencePattern] = useState('');
+  const [worseningTrend, setWorseningTrend] = useState('');
+  const [dailyLifeImpact, setDailyLifeImpact] = useState('');
   const [previousPainStatus, setPreviousPainStatus] = useState('');
   const [previousRegionsAvailable, setPreviousRegionsAvailable] = useState<string[]>([]);
   const [resolvedRegions, setResolvedRegions] = useState<string[]>([]);
@@ -3962,6 +3976,8 @@ function PainReportScreen({ accessToken }: { accessToken: string }) {
     if (!intensity) { setMessage('Marque a intensidade da dor.'); return; }
     if (!onsetPattern) { setMessage('Marque quando a dor costuma aparecer.'); return; }
     if (!persistencePattern) { setMessage('Marque como a dor tem se comportado.'); return; }
+    if (!worseningTrend) { setMessage('Marque se a dor esta piorando, estavel ou melhorando.'); return; }
+    if (!dailyLifeImpact) { setMessage('Marque se a dor atrapalha seu dia a dia.'); return; }
     setSaving(true);
     setMessage('');
     try {
@@ -3974,6 +3990,8 @@ function PainReportScreen({ accessToken }: { accessToken: string }) {
           intensity,
           onsetPattern,
           persistencePattern,
+          worseningTrend,
+          dailyLifeImpact,
           previousPainStatus: previousPainStatus || undefined,
           resolvedRegions,
           comment: comment.trim() || undefined,
@@ -3989,6 +4007,8 @@ function PainReportScreen({ accessToken }: { accessToken: string }) {
       setIntensity(null);
       setOnsetPattern('');
       setPersistencePattern('');
+      setWorseningTrend('');
+      setDailyLifeImpact('');
       setPreviousPainStatus('');
       setResolvedRegions([]);
       setComment('');
@@ -4050,6 +4070,28 @@ function PainReportScreen({ accessToken }: { accessToken: string }) {
           {PAIN_PERSISTENCE_OPTIONS.map((item) => (
             <Pressable key={item.value} style={[styles.answerButton, persistencePattern === item.value && styles.answerButtonActive]} onPress={() => setPersistencePattern(item.value)}>
               <Text style={[styles.answerButtonText, persistencePattern === item.value && styles.answerButtonTextActive]}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Ao longo dos ultimos treinos, essa dor esta...</Text>
+        <View style={styles.answerList}>
+          {PAIN_TREND_OPTIONS.map((item) => (
+            <Pressable key={item.value} style={[styles.answerButton, worseningTrend === item.value && styles.answerButtonActive]} onPress={() => setWorseningTrend(item.value)}>
+              <Text style={[styles.answerButtonText, worseningTrend === item.value && styles.answerButtonTextActive]}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Essa dor atrapalha seu dia a dia, fora do treino?</Text>
+        <View style={styles.answerList}>
+          {PAIN_DAILY_IMPACT_OPTIONS.map((item) => (
+            <Pressable key={item.value} style={[styles.answerButton, dailyLifeImpact === item.value && styles.answerButtonActive]} onPress={() => setDailyLifeImpact(item.value)}>
+              <Text style={[styles.answerButtonText, dailyLifeImpact === item.value && styles.answerButtonTextActive]}>{item.label}</Text>
             </Pressable>
           ))}
         </View>
