@@ -43,7 +43,12 @@ const PLAN_PRICE = 19.9;
 const PLAN_DESCRIPTION = 'Panzeri Run - Plano mensal';
 const WELCOME_NOTIFICATION_TYPE = 'subscription_welcome';
 const WELCOME_NOTIFICATION_TITLE = 'Bem-vindo ao Panzeri Run';
-const WELCOME_NOTIFICATION_MESSAGE = 'Pagamento confirmado! Estou muito feliz em poder conduzir você em sua jornada de treinos. Agora acesse, no menu principal, a opção "Rotina de treinos" e nos conte como será sua semana — assim que você confirmar, já montamos seu primeiro treino.';
+// 18/08 (Bloco 2 de onboarding): antes essa mensagem mandava direto pra "Rotina de treinos",
+// porque a entrevista completa acontecia ANTES do pagamento. Agora a entrevista completa roda
+// DEPOIS de pagar — o app ja direciona a aluna pra la sozinho ao abrir (ver rotina de
+// redirecionamento em App.tsx), entao a mensagem so precisa confirmar isso, sem pedir pra
+// procurar nada no menu.
+const WELCOME_NOTIFICATION_MESSAGE = 'Pagamento confirmado! Estou muito feliz em poder conduzir você em sua jornada de treinos. Agora abra o aplicativo — vamos te guiar por uma entrevista completa para montar seu programa personalizado.';
 // Se o link de pagamento nao abre visivelmente pro aluno (ver correcao do bloqueador de pop-up
 // no app), ele tende a clicar em "Ativar assinatura" varias vezes seguidas — sem essa trava,
 // cada clique gerava uma chamada nova pro Asaas e um aviso novo no Telegram do treinador (ja
@@ -429,7 +434,7 @@ export class BillingService {
         await this.messaging.sendEmail(billing.userId, {
           trigger: 'payment_confirmed',
           subject: 'Pagamento confirmado - monte sua rotina de treinos!',
-          content: `Ola ${user.name},\n\nSeu pagamento foi confirmado! Agora acesse o aplicativo, abra o menu e toque em "Rotina de treinos" para nos contar como sera sua semana. Assim que voce confirmar, ja montamos seu primeiro treino.\n\nPanzeri Run`,
+          content: `Ola ${user.name},\n\nSeu pagamento foi confirmado! Agora abra o aplicativo — vamos te guiar por uma entrevista completa para montar seu programa personalizado.\n\nPanzeri Run`,
         });
       }
     }
@@ -537,7 +542,7 @@ export class BillingService {
         await this.messaging.sendEmail(userId, {
           trigger: 'payment_confirmed',
           subject: 'Pagamento confirmado - monte sua rotina de treinos!',
-          content: `Ola ${user.name},\n\nSeu pagamento foi confirmado! Agora acesse o aplicativo, abra o menu e toque em "Rotina de treinos" para nos contar como sera sua semana. Assim que voce confirmar, ja montamos seu primeiro treino.\n\nPanzeri Run`,
+          content: `Ola ${user.name},\n\nSeu pagamento foi confirmado! Agora abra o aplicativo — vamos te guiar por uma entrevista completa para montar seu programa personalizado.\n\nPanzeri Run`,
         });
       }
     }
