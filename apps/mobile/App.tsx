@@ -2195,9 +2195,9 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       <Text style={styles.sectionLabel}>Perguntas concluidas</Text>
       <Text style={styles.copyTight}>{buildQuickIntakeSummary(userName || 'voce', answers)}</Text>
       <Text style={styles.copyTight}>
-        O Panzeri Run usa um agente de inteligencia artificial pra montar e ajustar seu treino, seguindo a metodologia e os criterios tecnicos definidos pelo treinador. O processo e acompanhado de perto, e situacoes que precisam de atencao especifica passam por uma analise individual.
+        Nada aqui e planilha padrao. Um agente de inteligencia artificial monta e ajusta seu treino seguindo a metodologia do treinador, sempre com base no que voce foi contando ate agora. Nao existe um modelo pronto que serve pra qualquer pessoa, seu treino nasce das suas respostas.
       </Text>
-      <Text style={styles.copyTight}>Para continuar, confirme sua assinatura por R$19,90/mes. Voce pode cancelar quando quiser, sem multa.</Text>
+      <Text style={styles.copyTight}>Depois de confirmar a assinatura, ainda vem uma entrevista completa (saude, historico de corrida, condicionamento fisico) pra deixar sua prescricao ainda mais precisa e segura pra voce especificamente. Sua assinatura fica em R$19,90 por mes, e voce pode cancelar quando quiser, sem multa.</Text>
       <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{answers.objective === 'Comecar a correr' ? 'Quero comecar meus treinos' : 'Quero comecar minha preparacao'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
     </View>
@@ -2229,7 +2229,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Primeiro acesso</Text>
       <Text style={styles.titleSmall}>Quero conhecer um pouco de voce primeiro</Text>
-      <Text style={styles.copyTight}>Sao so 5 perguntas rapidas, leva menos de 2 minutos.</Text>
+      <Text style={styles.copyTight}>Sao so 5 perguntas rapidas, leva menos de 2 minutos. Nao e um formulario qualquer: a cada resposta sua, a gente ja ajusta o que vem a seguir, porque seu treino tambem nao vai ser um modelo pronto igual pro resto da turma. E o primeiro passo pra entender de onde voce parte e pra onde quer chegar.</Text>
       <Pressable style={styles.primaryButton} onPress={() => setStarted(true)}><Text style={styles.primaryButtonText}>Comecar</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>
     </View>
   );
@@ -2240,7 +2240,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       <Text style={styles.copyTight}>
         {mode === 'reassessment'
           ? 'De tempos em tempos pedimos para voce responder algumas perguntas rapidas, para atualizarmos seu treino e acompanharmos sua evolucao ao longo do tempo.'
-          : 'Para criar seu treino de forma personalizada e individualizada para voce, precisamos conhecer mais sobre sua rotina, seu historico e seu condicionamento atual.\n\nEsta pronto para realizar nossa entrevista?'}
+          : 'Agora vamos a fundo. Essa parte e mais longa porque e ela que faz a diferenca: sua saude, seu historico de corrida, seu condicionamento atual, sua rotina real. E com essas respostas que a gente monta um treino pensado pra voce, nao uma planilha generica que serve pra qualquer pessoa. Quanto mais completa e sincera for sua resposta, mais seguro e mais certeiro fica o seu programa.\n\nEsta pronto para comecar?'}
       </Text>
       <Pressable style={styles.primaryButton} onPress={() => setStarted(true)}><Text style={styles.primaryButtonText}>Sim, comecar agora</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>
       <Pressable style={styles.secondaryButton} onPress={onLater}><Text style={styles.secondaryButtonText}>Fazer depois</Text></Pressable>
@@ -2263,6 +2263,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       <View style={styles.interviewTop}><Text style={styles.sectionLabel}>{question?.module}</Text><Text style={styles.interviewCounter}>Pergunta {step + 1}</Text></View>
       <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress}%` }]} /></View>
       {previousAck ? <View style={styles.quickIntakeAckBox}><Text style={styles.quickIntakeAckText}>{previousAck}</Text></View> : null}
+      {mode === 'routine' && step === 0 ? <Text style={styles.copyTight}>Isso encaixa o treino na sua semana de verdade, nao numa rotina padrao de segunda a domingo. Conte pra gente os dias e horarios que voce realmente tem disponivel. O treino se adapta a sua vida, nao o contrario.</Text> : null}
       <Text style={styles.interviewQuestion}>{question?.prompt}{question && !question.optional && question.type !== 'notice' ? <Text style={styles.requiredMark}> *</Text> : null}</Text>
       {question?.key === 'routine_confirmation' ? (
         <View style={styles.section}>
@@ -3011,7 +3012,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         ) : (
           <View style={styles.coachBox}>
             <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
-            <Text style={styles.coachText}>Toque para gerar seu treino da semana que comeca segunda-feira. Para ver o treino de domingo (ou de dias anteriores), use "Anterior".</Text>
+            <Text style={styles.coachText}>Toque pra montar seu treino com tudo que voce ja nos contou ate aqui: objetivo, condicionamento, saude e a rotina que voce mesmo definiu. Nao e um treino generico puxado de uma tabela pronta, e montado especificamente pra voce, nesse momento. Pra ver domingo (ou dias anteriores), use "Anterior".</Text>
             <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generateCurrentWeekNow}>
               <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar treino da semana'}</Text>
             </Pressable>
