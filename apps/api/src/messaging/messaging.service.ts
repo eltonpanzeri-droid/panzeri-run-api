@@ -37,4 +37,13 @@ export class MessagingService {
     });
     return Boolean(existing);
   }
+
+  // Usado pelos degraus da jornada de aquecimento de prospectos (8h/24h/7d/30d) — cada degrau
+  // dispara UMA vez na vida do cadastro, nao com janela/cooldown como os avisos de cobranca
+  // recorrentes. "Ja foi enviado alguma vez" (sucesso ou falha, mesma convencao de
+  // hasRecentTriggerMessage) e' o suficiente pra nunca repetir o mesmo degrau.
+  async hasEverSentTrigger(userId: string, trigger: string) {
+    const existing = await this.prisma.messageLog.findFirst({ where: { userId, trigger } });
+    return Boolean(existing);
+  }
 }

@@ -342,6 +342,7 @@ export default function AdminHome() {
   const [forgotStatus, setForgotStatus] = useState('');
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRunningNotificationTriggers, setIsRunningNotificationTriggers] = useState(false);
+  const [isRunningProspectNurture, setIsRunningProspectNurture] = useState(false);
   const [isSyncingBilling, setIsSyncingBilling] = useState(false);
   const [isGeneratingAllPlans, setIsGeneratingAllPlans] = useState(false);
   const [newStudentName, setNewStudentName] = useState('');
@@ -813,6 +814,27 @@ export default function AdminHome() {
     }
   }
 
+  async function runProspectNurtureNow() {
+    setIsRunningProspectNurture(true);
+    setStatus('Rodando sequencia de aquecimento (8h/24h/7d/30d)...');
+    try {
+      const response = await fetch(`${API_URL}/coach/prospects/nurture/run`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        setStatus('Nao consegui rodar a sequencia de aquecimento.');
+        return;
+      }
+      setStatus(`Concluido. ${data?.checked ?? 0} prospecto(s) verificado(s), ${data?.sent ?? 0} e-mail(is) enviado(s).`);
+    } catch {
+      setStatus('Nao consegui conectar com a API.');
+    } finally {
+      setIsRunningProspectNurture(false);
+    }
+  }
+
   async function forgotPassword() {
     if (!forgotEmail.trim()) {
       setForgotStatus('Informe o e-mail.');
@@ -1261,10 +1283,17 @@ export default function AdminHome() {
                   <p className="eyebrow">Nunca pagaram (nem cortesia)</p>
                   <h2>Prospectos</h2>
                 </div>
+                <button className="secondaryButton" type="button" disabled={isRunningProspectNurture} onClick={runProspectNurtureNow}>
+                  {isRunningProspectNurture ? 'Rodando...' : 'Rodar aquecimento agora'}
+                </button>
               </div>
               <p className="formHintText">
                 Gente que criou conta no app mas ainda nao virou aluna de verdade — sem pagamento nenhum, nem cortesia liberada.
                 Nao consomem codigo de aluno nem aparecem na lista de Alunos. Ordenados do mais pra menos engajado.
+              </p>
+              <p className="formHintText">
+                Sequencia automatica de e-mail roda sozinha de hora em hora: 8h, 24h, 7 dias e 30 dias apos o cadastro
+                (cada degrau uma unica vez, com o conteudo se adaptando ao que a pessoa ja fez ate ali).
               </p>
               <div className="stats" style={{ marginBottom: 16 }}>
                 <Stat label="Quente" value={String(prospects?.totals.quente ?? 0)} detail="entrevista + cobranca criada" />

@@ -24,6 +24,8 @@ import { WeeklyPlanSchedulerService } from '../training-plans/weekly-plan-schedu
 import { UpdateStudentAvailabilityDto } from './dto/update-student-availability.dto';
 import { validateAvailability } from '../me/availability.rules';
 import { NotificationTriggersService } from '../messaging/notification-triggers.service';
+import { computeProspectLevel } from '../messaging/prospect-level';
+import { ProspectNurtureService } from '../messaging/prospect-nurture.service';
 
 @Injectable()
 export class CoachService {
@@ -39,6 +41,7 @@ export class CoachService {
     private readonly billing: BillingService,
     private readonly weeklyPlanScheduler: WeeklyPlanSchedulerService,
     private readonly notificationTriggers: NotificationTriggersService,
+    private readonly prospectNurture: ProspectNurtureService,
   ) {}
 
   // Botao "Rodar verificacao de avisos agora" no painel admin — roda o MESMO codigo do cron
@@ -48,6 +51,10 @@ export class CoachService {
   async runNotificationTriggersNow() {
     await this.notificationTriggers.runDailyChecks();
     return { ok: true };
+  }
+
+  async runProspectNurtureNow() {
+    return this.prospectNurture.runNurtureSequence();
   }
 
   // Gatilho manual do mesmo job que rodaria sozinho todo domingo 19h (ver
@@ -625,29 +632,12 @@ export class CoachService {
     const levelRank: Record<'quente' | 'morno' | 'frio', number> = { quente: 0, morno: 1, frio: 2 };
 
     const withLevel = rows.map((row) => {
-      const answerCount = row.onboardingInterview?.answers && typeof row.onboardingInterview.answers === 'object'
-        ? Object.keys(row.onboardingInterview.answers as Record<string, unknown>).length
-        : 0;
-      const interviewStarted = Boolean(row.onboardingInterview && (row.onboardingInterview.currentStep > 0 || answerCount > 0));
-      const interviewCompleted = Boolean(row.onboardingInterview?.completedAt);
-      const hasCheckout = Boolean(row.billingSubscription?.checkoutUrl);
-
-      let level: 'quente' | 'morno' | 'frio';
-      let levelLabel: string;
-      if (interviewCompleted && hasCheckout) {
-        level = 'quente';
-        levelLabel = 'Respondeu entrevista, cobranca criada, aguardando 1o pagamento';
-      } else if (interviewCompleted) {
-        level = 'morno';
-        levelLabel = 'Entrevista concluida, cobranca ainda nao gerada';
-      } else if (interviewStarted) {
-        level = 'morno';
-        levelLabel = 'Entrevista em andamento';
-      } else {
-        level = 'frio';
-        levelLabel = 'Nao respondeu nenhuma pergunta ainda';
-      }
-
+      const { level, levelLabel } = computeProspectLevel({
+        interviewCurrentStep: row.onboardingInterview?.currentStep,
+        interviewAnswers: row.onboardingInterview?.answers,
+        interviewCompletedAt: row.onboardingInterview?.completedAt,
+        hasCheckoutUrl: Boolean(row.billingSubscription?.checkoutUrl),
+      });
       return { id: row.id, name: row.name, email: row.email, createdAt: row.createdAt, level, levelLabel };
     });
 
