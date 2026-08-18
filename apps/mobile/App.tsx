@@ -561,6 +561,17 @@ function formatPaceMinSec(secondsPerKm: number) {
   const seconds = Math.round(secondsPerKm % 60);
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
+// Bug real reportado 18/08: "Pace medio" era so texto livre, o aluno tinha que calcular e digitar
+// o pace na mao depois de preencher tempo e distancia. Agora calcula sozinho, na hora, toda vez
+// que uma das duas rodas muda (ver uso em CompletionForm) — ainda fica editavel manualmente
+// depois, se o aluno quiser ajustar.
+function computePaceFromInputs(durationMinValue: string, distanceKmValue: string): string {
+  const durationMinutes = Number(durationMinValue);
+  const distanceKm = Number(distanceKmValue);
+  if (!durationMinutes || !distanceKm) return '';
+  const secondsPerKm = (durationMinutes * 60) / distanceKm;
+  return Number.isFinite(secondsPerKm) && secondsPerKm > 0 ? formatPaceMinSec(secondsPerKm) : '';
+}
 const RUNNING_CONDITIONS_TRACKED = [
   ['itb', 'Sindrome da banda iliotibial (joelho do corredor)'], ['patelofemoral', 'Sindrome da dor patelofemoral'],
   ['condromalacia', 'Condromalacia patelar'], ['tendinopatia_patelar', 'Tendinopatia patelar (joelho do saltador)'],
@@ -2384,9 +2395,9 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             setStatus('Seu treino desta semana ja foi gerado.');
             await loadPlan();
           } else if (data.reason === 'aguardar_intervalo') {
-            setStatus('Espera so um instante — sua ultima tentativa ainda pode estar em andamento. Tente novamente apos 2 minutos.');
+            setStatus('Espera so um instante — sua ultima tentativa ainda pode estar em andamento. Tente novamente apos 5 minutos.');
           } else if (data.reason === 'falha_pode_tentar_de_novo') {
-            setStatus('Nao conseguimos montar seu treino dessa vez. Aguarde 2 minutos e tente novamente.');
+            setStatus('Nao conseguimos montar seu treino dessa vez. Aguarde 5 minutos e tente novamente.');
           } else if (data.reason === 'tentativas_esgotadas') {
             setStatus('Estamos com dificuldades para gerar seu treino. Fale com seu treinador.');
           } else if (data.reason === 'antes_do_horario_de_liberacao') {
@@ -2406,7 +2417,10 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
 
     const pollForCompletion = (async () => {
       const POLL_INTERVAL_MS = 10000;
-      const MAX_POLLS = 18; // ~3 minutos
+      // Aumentado de 18 (~3min) pra 40 (~6min 40s) em 18/08, junto com o teto de espera da IA
+      // subindo de 120s pra 300s (5min) — sem isso, o polling desistia ANTES da geracao
+      // legitimamente terminar, mesmo quando ela ia dar certo.
+      const MAX_POLLS = 40; // ~6min40s, folga sobre os 300s do teto da IA
       for (let attempt = 0; attempt < MAX_POLLS; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
         if (settled) return;
@@ -4930,14 +4944,24 @@ function DurationWheelField({ value, onChangeValue }: { value: string; onChangeV
 
 // Mesma logica para distancia: roda km + metros em vez de texto livre com virgula, que a aluna
 // digitava errado com frequencia ("cada metro conta").
+// Bug real reportado 18/08: a roda de metros era UMA SO indo de 0 a 999 de 1 em 1 — pra chegar
+// em 500m a aluna tinha que rolar centenas de posicoes. Agora, igual ao h/min/seg do tempo, sao
+// 3 rodas separadas (centena/dezena/unidade de metro), cada uma vai so de 0 a 9.
 function DistanceWheelField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
   const { km, m } = distanceKmToKmM(value);
+  const hundreds = Math.floor(m / 100);
+  const tens = Math.floor((m % 100) / 10);
+  const units = m % 10;
   const kmValues = wheelNumberValues(0, 199, 1);
-  const mValues = wheelNumberValues(0, 999, 3);
+  const digitValues = wheelNumberValues(0, 9, 1);
+  const setMeters = (nextHundreds: number, nextTens: number, nextUnits: number) =>
+    onChangeValue(kmMToDistanceKm(km, nextHundreds * 100 + nextTens * 10 + nextUnits));
   return (
     <WheelPicker columns={[
       { label: 'km', values: kmValues, selectedIndex: km, onChangeIndex: (index) => onChangeValue(kmMToDistanceKm(index, m)) },
-      { label: 'm', values: mValues, selectedIndex: m, onChangeIndex: (index) => onChangeValue(kmMToDistanceKm(km, index)) },
+      { label: '100m', values: digitValues, selectedIndex: hundreds, onChangeIndex: (index) => setMeters(index, tens, units) },
+      { label: '10m', values: digitValues, selectedIndex: tens, onChangeIndex: (index) => setMeters(hundreds, index, units) },
+      { label: '1m', values: digitValues, selectedIndex: units, onChangeIndex: (index) => setMeters(hundreds, tens, index) },
     ]} />
   );
 }
@@ -5045,13 +5069,13 @@ function CompletionForm({
         <View style={styles.completionGrid}>
           <View style={styles.completionWheelGroup}>
             <Text style={styles.inputLabel}>Tempo</Text>
-            <DurationWheelField value={draft.durationMin} onChangeValue={(value) => onChange({ durationMin: value })} />
+            <DurationWheelField value={draft.durationMin} onChangeValue={(value) => onChange(isRun ? { durationMin: value, avgPace: computePaceFromInputs(value, draft.distanceKm) } : { durationMin: value })} />
           </View>
           {isRun ? (
             <>
               <View style={styles.completionWheelGroup}>
                 <Text style={styles.inputLabel}>Distancia</Text>
-                <DistanceWheelField value={draft.distanceKm} onChangeValue={(value) => onChange({ distanceKm: value })} />
+                <DistanceWheelField value={draft.distanceKm} onChangeValue={(value) => onChange({ distanceKm: value, avgPace: computePaceFromInputs(draft.durationMin, value) })} />
               </View>
               <View style={styles.completionFieldGroup}>
                 <Text style={styles.inputLabel}>Pace medio</Text>

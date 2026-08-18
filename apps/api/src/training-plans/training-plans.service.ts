@@ -102,9 +102,11 @@ const TODAY_INCLUSION_CUTOFF_HOUR = 22;
 // decisao dele). Base de 2 tentativas por semana (reseta sozinho quando a semana-alvo muda);
 // alem disso so com liberacao manual do treinador (User.generationExtraAttempts). O intervalo
 // minimo entre a 1a e a 2a tentativa existe pra dar tempo da 1a realmente terminar (sucesso ou
-// timeout, ver AiQueueService TASK_TIMEOUT_MS=120s) antes de deixar tentar de novo.
+// timeout, ver AiQueueService TASK_TIMEOUT_MS) antes de deixar tentar de novo — por isso tem que
+// ser >= TASK_TIMEOUT_MS sempre. Atualizado junto em 18/08 quando o timeout subiu de 120s pra
+// 300s.
 const BASE_GENERATION_ATTEMPTS = 2;
-const GENERATION_ATTEMPT_COOLDOWN_MS = 130_000;
+const GENERATION_ATTEMPT_COOLDOWN_MS = 300_000;
 
 @Injectable()
 export class TrainingPlansService {
