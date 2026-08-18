@@ -1647,7 +1647,7 @@ function Today({
 const WHEEL_ITEM_HEIGHT = 44;
 const WHEEL_VISIBLE_ITEMS = 5;
 
-function WheelColumn({ values, selectedIndex, onChangeIndex }: { values: string[]; selectedIndex: number; onChangeIndex: (index: number) => void }) {
+function WheelColumn({ values, selectedIndex, onChangeIndex, width }: { values: string[]; selectedIndex: number; onChangeIndex: (index: number) => void; width?: number }) {
   const scrollRef = useRef<ScrollView>(null);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const paddingVertical = WHEEL_ITEM_HEIGHT * Math.floor(WHEEL_VISIBLE_ITEMS / 2);
@@ -1682,10 +1682,10 @@ function WheelColumn({ values, selectedIndex, onChangeIndex }: { values: string[
 
   return (
     <View style={styles.wheelColumn}>
-      <Pressable style={styles.wheelStepButton} onPress={() => step(1)} disabled={selectedIndex >= values.length - 1}>
+      <Pressable style={[styles.wheelStepButton, width ? { width } : null]} onPress={() => step(1)} disabled={selectedIndex >= values.length - 1}>
         <Ionicons name="chevron-up" size={20} color={selectedIndex >= values.length - 1 ? '#cbd5e1' : '#0f766e'} />
       </Pressable>
-      <View style={styles.wheelScrollBox}>
+      <View style={[styles.wheelScrollBox, width ? { width } : null]}>
         <ScrollView
           ref={scrollRef}
           showsVerticalScrollIndicator={false}
@@ -1712,12 +1712,12 @@ function WheelColumn({ values, selectedIndex, onChangeIndex }: { values: string[
   );
 }
 
-function WheelPicker({ columns }: { columns: Array<{ label?: string; values: string[]; selectedIndex: number; onChangeIndex: (index: number) => void }> }) {
+function WheelPicker({ columns }: { columns: Array<{ label?: string; values: string[]; selectedIndex: number; onChangeIndex: (index: number) => void; width?: number }> }) {
   return (
     <View style={styles.wheelPickerRow}>
       {columns.map((column, index) => (
         <View key={index} style={styles.wheelColumnWrap}>
-          <WheelColumn values={column.values} selectedIndex={column.selectedIndex} onChangeIndex={column.onChangeIndex} />
+          <WheelColumn values={column.values} selectedIndex={column.selectedIndex} onChangeIndex={column.onChangeIndex} width={column.width} />
           {column.label ? <Text style={styles.wheelColumnLabel}>{column.label}</Text> : null}
         </View>
       ))}
@@ -4956,12 +4956,15 @@ function DistanceWheelField({ value, onChangeValue }: { value: string; onChangeV
   const digitValues = wheelNumberValues(0, 9, 1);
   const setMeters = (nextHundreds: number, nextTens: number, nextUnits: number) =>
     onChangeValue(kmMToDistanceKm(km, nextHundreds * 100 + nextTens * 10 + nextUnits));
+  // Larguras reduzidas (bug real reportado 18/08): com 4 colunas agora (antes eram so 2), a
+  // largura padrao de 84px por coluna estourava a largura da tela e cortava a ultima roda. As 3
+  // rodas de digito (0-9) precisam de bem menos espaco que isso.
   return (
     <WheelPicker columns={[
-      { label: 'km', values: kmValues, selectedIndex: km, onChangeIndex: (index) => onChangeValue(kmMToDistanceKm(index, m)) },
-      { label: '100m', values: digitValues, selectedIndex: hundreds, onChangeIndex: (index) => setMeters(index, tens, units) },
-      { label: '10m', values: digitValues, selectedIndex: tens, onChangeIndex: (index) => setMeters(hundreds, index, units) },
-      { label: '1m', values: digitValues, selectedIndex: units, onChangeIndex: (index) => setMeters(hundreds, tens, index) },
+      { label: 'km', values: kmValues, selectedIndex: km, onChangeIndex: (index) => onChangeValue(kmMToDistanceKm(index, m)), width: 64 },
+      { label: '100m', values: digitValues, selectedIndex: hundreds, onChangeIndex: (index) => setMeters(index, tens, units), width: 48 },
+      { label: '10m', values: digitValues, selectedIndex: tens, onChangeIndex: (index) => setMeters(hundreds, index, units), width: 48 },
+      { label: '1m', values: digitValues, selectedIndex: units, onChangeIndex: (index) => setMeters(hundreds, tens, index), width: 48 },
     ]} />
   );
 }
