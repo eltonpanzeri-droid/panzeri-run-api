@@ -15,13 +15,26 @@ Criar um novo servico no EasyPanel para o PWA do aluno.
 
 ## Dominio
 
-Use o dominio gerado pelo EasyPanel no servico `panzeri-run-app`.
+**Dominio oficial (desde 18/08):** `https://panzerirun.eltonpanzeripersonal.com.br`
 
-Exemplo:
+Registrado como CNAME em `eltonpanzeripersonal.com.br` (Hostinger, DNS/hPanel) apontando para o
+host gerado pelo EasyPanel, e adicionado como dominio (com SSL/Let's Encrypt) no servico
+`panzeri-run-app`, marcado como primario. E' esse o link a usar daqui pra frente em convites,
+e-mails, mensagens no WhatsApp, etc.
+
+O dominio antigo gerado automaticamente pelo EasyPanel continua ativo e funcionando em paralelo
+(nunca foi removido, so deixou de ser o primario) — alunas que ja tinham instalado o PWA usando
+esse endereco nao precisam fazer nada:
 
 `https://agenteselton-panzeri-run-app.hbljgk.easypanel.host`
 
-Depois de publicado, use esse link para alunos entrarem no app e instalarem como PWA.
+Depois de publicado, use o dominio oficial acima para alunos entrarem no app e instalarem como PWA.
+
+Pra outros links gerados pelo backend (e-mail de recuperacao de prospecto, redirecionamento pos-
+Strava) usarem o dominio bonito automaticamente, defina a variavel de ambiente `STUDENT_APP_URL`
+no servico `panzeri-run-api`:
+
+`STUDENT_APP_URL=https://panzerirun.eltonpanzeripersonal.com.br`
 
 ## Como o aluno usa
 

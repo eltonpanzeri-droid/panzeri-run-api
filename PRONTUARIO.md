@@ -364,6 +364,28 @@ um a um, com o treinador:
   `coach.service.ts`, tipos do admin) — o campo sempre valia `'ai'` desde que o motor determinístico
   foi removido em 30/07, então a ramificação "Motor determinístico" no relatório técnico era código
   morto/inalcançável. Simplificado para o rótulo fixo único que sempre foi a realidade.
+- **Idade e histórico de saúde na metodologia**: última pendência da elicitação de metodologia
+  fechada, via perguntas objetivas. Duas instruções novas no prompt estável do
+  `PrescriptionAgentService`: idade só pesa combinada com outro sinal (sedentarismo, pouca força,
+  condição de saúde); condição crônica declarada (cardíaco, pressão alta) nunca proíbe zona/
+  modalidade, só deixa o ritmo mais gradual (mais tempo em intensidade baixa, progressão mais
+  lenta, mais recuperação entre estímulos).
+
+**Continuação (2026-08-19)** — link bonito pro app do aluno:
+- **Domínio customizado configurado**: `https://panzerirun.eltonpanzeripersonal.com.br` (CNAME no
+  Hostinger, domínio + SSL adicionados no serviço `panzeri-run-app` do EasyPanel, marcado como
+  primário). O link antigo do EasyPanel continua ativo em paralelo — ninguém que já usa o app
+  precisa fazer nada, confirmado funcionando via teste direto no domínio novo. Ver
+  `DEPLOY_APP_ALUNO.md` pro registro completo, incluindo a variável `STUDENT_APP_URL` que o
+  treinador ainda precisa configurar no EasyPanel pra mensagens automáticas linkarem pro domínio
+  novo.
+- De passagem, mapeados os domínios reais que o treinador tem: `eltonpanzeripersonal.com.br`
+  (Hostinger), `eltonpanzeripersonal.com` e `personaleltonpanzeri.com.br` (HostGator, mesma
+  hospedagem). Também existe `xn--imersoamaisdaautoestima-b7b.com.br` (HostGator) — landing page
+  de um curso antigo que não vingou, sem relação com o Panzeri Run, deixado como está.
+- Percebido de passagem: a VPS Hostinger já tem registros DNS reais pra `evolution`/`n8n`/`painel`/
+  `webhook`, mais avançado do que o registrado antes ("nada configurado ainda") — vale reconferir
+  o estado real dessa integração quando ela for retomada.
 
 **Pontos em aberto / para acompanhar antes de publicar nas lojas:**
 - Texto de Termos de Uso / Política de Privacidade ainda não teve revisão jurídica profissional —
