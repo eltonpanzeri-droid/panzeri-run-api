@@ -1,9 +1,19 @@
 import { Body, Controller, Get, Post, Res } from '@nestjs/common';
 import { TelegramService } from './billing/telegram.service';
+import { LANDING_PAGE_HTML } from './landing-page';
 
 @Controller()
 export class AppController {
   constructor(private readonly telegram: TelegramService) {}
+
+  // 19/08: landing page publica de divulgacao — raiz do dominio eltonpanzeripersonal.com.br
+  // (Hostinger) aponta pra este servico via EasyPanel. Conteudo revisado com o treinador (ver
+  // PRONTUARIO.md): nao justifica a IA nem lista recursos, foca na sensacao de nao precisar
+  // decidir sozinho.
+  @Get()
+  landingPage(@Res() response: { type: (value: string) => { send: (value: string) => void } }) {
+    response.type('html').send(LANDING_PAGE_HTML);
+  }
 
   // Sem isso, uma tela travada no app do aluno (ex: durante a entrevista, o momento mais critico
   // pra conversao) simplesmente some sem ninguem saber — nem o treinador fica sabendo que
