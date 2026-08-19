@@ -386,6 +386,33 @@ um a um, com o treinador:
 - Percebido de passagem: a VPS Hostinger já tem registros DNS reais pra `evolution`/`n8n`/`painel`/
   `webhook`, mais avançado do que o registrado antes ("nada configurado ainda") — vale reconferir
   o estado real dessa integração quando ela for retomada.
+- **Landing page de divulgação criada e publicada** em `https://eltonpanzeripersonal.com.br`
+  (raiz do domínio, via registro ALIAS/CNAME no Hostinger apontando pro serviço `panzeri-run-api`
+  no EasyPanel — precisou apagar um registro A pré-existente na raiz antes do ALIAS ser aceito).
+  Servida direto pela API (`apps/api/src/landing-page.ts`, rota `GET /` em `app.controller.ts`),
+  mesmo padrão das páginas legais — HTML autossuficiente com fontes embutidas (Big Shoulders
+  Display, Public Sans, JetBrains Mono), sem chamada externa nenhuma.
+  - **Processo de conteúdo real**: a primeira versão explicava o produto/a IA e comparava com apps
+    genéricos — o treinador rejeitou de forma contundente ("você está criando uma página pra
+    justificar a IA. Isso o aluno não quer saber"), trazendo um texto próprio extenso sobre medos
+    reais de quem corre (medo de se machucar, de descobrir que não consegue, de parecer ridículo,
+    de não pertencer, de fracassar depois de começar, de perder liberdade, entre outros) e pedindo
+    que a página evocasse a sensação de "alguém vai cuidar disso pra mim", sem virar checklist.
+    Reescrita como página curta (4 blocos: abertura "Você não precisa saber o que fazer", o treino
+    muda toda semana, credibilidade citando o Elton, preço + chamada final) — o treinador também
+    corrigiu um erro de posicionamento meu ("Elton acompanha você" prometeria atenção pessoal que
+    não existe): quem cuida/nota/ajusta é o **app**; o Elton dá legitimidade e rosto, não presença
+    contínua. O treinador vai buscar feedback de alunos reais antes de revisar mais a fundo.
+  - Logo usado por enquanto é o ícone simples já existente no código (`apps/mobile/public/icon.svg`)
+    — o logo mais trabalhado que o treinador tem hoje só existe como imagem colada no chat, não
+    virou arquivo utilizável; falta ele mandar o arquivo de verdade.
+- **Incidente de tarefas em segundo plano**: um `Bash` de sincronização ficou preso rodando por
+  2h37min sem eu perceber (parado, sem gastar crédito de IA, mas sem eu ter confirmado o término).
+  Encontrado e finalizado só depois do treinador notar no painel "Tarefas em segundo plano" e
+  reportar como cobrança inesperada — o gasto real veio do uso normal da sessão longa passar da
+  janela de 5h incluída no plano, não da tarefa presa em si, mas o hábito de nunca deixar algo
+  em segundo plano sem confirmar o fim ficou reforçado. Combinado com o treinador: avisar sempre
+  que alguma tarefa ficar em segundo plano, pra ele decidir se deixa ou interrompe.
 
 **Pontos em aberto / para acompanhar antes de publicar nas lojas:**
 - Texto de Termos de Uso / Política de Privacidade ainda não teve revisão jurídica profissional —
