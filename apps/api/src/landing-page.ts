@@ -10,6 +10,14 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Panzeri Run — treino de corrida sob medida</title>
 <meta name="description" content="O programa de treino de corrida do treinador Elton Panzeri. Toda semana, um treino novo, decidido pra voce." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://eltonpanzeripersonal.com.br" />
+<meta property="og:title" content="Panzeri Run — treino de corrida sob medida" />
+<meta property="og:description" content="Voce nao precisa saber o que fazer. Toda semana, seu treino de corrida ja vem decidido, pela metodologia real do treinador Elton Panzeri." />
+<meta property="og:locale" content="pt_BR" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Panzeri Run — treino de corrida sob medida" />
+<meta name="twitter:description" content="Voce nao precisa saber o que fazer. Toda semana, seu treino de corrida ja vem decidido." />
 <style>
   @font-face {
     font-family: 'Shoulders';
