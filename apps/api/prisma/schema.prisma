@@ -382,7 +382,16 @@ model WorkoutCompletion {
   avgHeartRate     Int?
   maxHeartRate     Int?
   perceivedEffort  Int?
-  satisfaction     String?
+  // "satisfaction" (original, 07/2026) passou a representar especificamente a satisfacao em FAZER
+  // o treino (dimensao 2 de 4) — mantido sem renomear pra preservar historico. As outras 3
+  // dimensoes (19/08, pedido do treinador: pergunta vaga = aluno perdido, igual comando vago pra
+  // IA) sao colunas novas. Todas usam a mesma escala de 5 categorias (amei..detestei), exceto
+  // satisfactionCarga que usa uma escala propria de adequacao (muito_leve..muito_pesada) — ver
+  // SATISFACTION_SCORE/CARGA_SCORE em workout-completions.service.ts pra conversao numerica.
+  satisfaction         String? // dimensao 2: satisfacao em FAZER o treino
+  satisfactionElaboracao String? // dimensao 1: satisfacao com a ELABORACAO do treino
+  satisfactionCapacidade String? // dimensao 3: satisfacao com COMO CONSEGUIU fazer o treino
+  satisfactionCarga      String? // dimensao 4: a carga estava adequada? (muito_leve..muito_pesada)
   painFlag         String?
   notes            String?
   details          Json?

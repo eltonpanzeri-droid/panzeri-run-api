@@ -23,6 +23,7 @@ import { sanitizeInterviewAnswers } from '../training-plans/training-methodology
 import { WeeklyPlanSchedulerService } from '../training-plans/weekly-plan-scheduler.service';
 import { UpdateStudentAvailabilityDto } from './dto/update-student-availability.dto';
 import { validateAvailability } from '../me/availability.rules';
+import { satisfactionLabel, cargaLabel, SATISFACTION_SCORE, CARGA_SCORE } from '../workout-completions/workout-completions.service';
 import { NotificationTriggersService } from '../messaging/notification-triggers.service';
 import { computeProspectLevel } from '../messaging/prospect-level';
 import { ProspectNurtureService } from '../messaging/prospect-nurture.service';
@@ -935,7 +936,10 @@ export class CoachService {
               structure: session.structure,
               completionStatus: session.completion?.status ?? 'sem_registro',
               perceivedEffort: session.completion?.perceivedEffort ?? null,
+              satisfactionElaboracao: session.completion?.satisfactionElaboracao ?? null,
               satisfaction: session.completion?.satisfaction ?? null,
+              satisfactionCapacidade: session.completion?.satisfactionCapacidade ?? null,
+              satisfactionCarga: session.completion?.satisfactionCarga ?? null,
               feedback: session.completion?.notes ?? null,
               completedDurationMin: session.completion?.durationMin ?? null,
               completedDistanceKm: session.completion?.distanceKm ?? null,
@@ -981,7 +985,10 @@ export class CoachService {
           routineMismatchNote: session.routineMismatchNote,
           completionStatus: session.completion?.status ?? 'sem_registro',
           perceivedEffort: session.completion?.perceivedEffort ?? null,
+          satisfactionElaboracao: session.completion?.satisfactionElaboracao ?? null,
           satisfaction: session.completion?.satisfaction ?? null,
+          satisfactionCapacidade: session.completion?.satisfactionCapacidade ?? null,
+          satisfactionCarga: session.completion?.satisfactionCarga ?? null,
           feedback: session.completion?.notes ?? null,
         })),
       })),
@@ -1113,21 +1120,40 @@ function clampPercent(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function satisfactionSummary(sessions: any[]) {
-  const labels: Record<string, string> = {
-    amei: 'Amei',
-    gostei: 'Gostei',
-    neutro: 'Neutro',
-    nao_gostei: 'Nao gostei',
-    detestei: 'Detestei',
-  };
-  const counts = sessions.reduce((acc: Record<string, number>, session: any) => {
-    if (session.satisfaction) acc[session.satisfaction] = (acc[session.satisfaction] ?? 0) + 1;
+// 19/08: satisfacao virou 4 perguntas separadas (elaboracao/fazer/capacidade/carga) em vez de uma
+// so vaga — aqui so resume/quantifica pra exibicao (media 1-5, ou -2..2 na carga), nunca decide
+// nem valida o treino em si (isso continua 100% da IA).
+function averageScore(sessions: any[], field: string, scoreMap: Record<string, number>): number | null {
+  const scores = sessions.map((session) => scoreMap[session[field]]).filter((value): value is number => typeof value === 'number');
+  if (!scores.length) return null;
+  return Math.round((scores.reduce((total, value) => total + value, 0) / scores.length) * 10) / 10;
+}
+
+function satisfactionDimensionSummary(sessions: any[], field: string): string {
+  const answered = sessions.filter((session) => session[field]);
+  if (!answered.length) return 'sem registro';
+  const avg = averageScore(sessions, field, SATISFACTION_SCORE);
+  const counts = answered.reduce((acc: Record<string, number>, session: any) => {
+    acc[session[field]] = (acc[session[field]] ?? 0) + 1;
     return acc;
   }, {});
-  const entries = Object.entries(counts);
-  if (!entries.length) return 'sem registro';
-  return entries.map(([value, count]) => `${labels[value] ?? value} (${count})`).join(', ');
+  const breakdown = Object.entries(counts).map(([value, count]) => `${satisfactionLabel(value)} (${count})`).join(', ');
+  return `media ${avg}/5 — ${breakdown}`;
+}
+
+function cargaSummary(sessions: any[]): string {
+  const answered = sessions.filter((session) => session.satisfactionCarga);
+  if (!answered.length) return 'sem registro';
+  const avg = averageScore(sessions, 'satisfactionCarga', CARGA_SCORE);
+  const counts = answered.reduce((acc: Record<string, number>, session: any) => {
+    acc[session.satisfactionCarga] = (acc[session.satisfactionCarga] ?? 0) + 1;
+    return acc;
+  }, {});
+  const breakdown = Object.entries(counts).map(([value, count]) => `${cargaLabel(value)} (${count})`).join(', ');
+  // avg perto de 0 = adequado; positivo = tendencia pesada; negativo = tendencia leve. Nunca
+  // "quanto maior, melhor" — por isso o rotulo explicito, nao so o numero cru.
+  const tendencia = avg === null ? '' : avg > 0.3 ? ' (tendencia: pesada)' : avg < -0.3 ? ' (tendencia: leve)' : ' (tendencia: adequada)';
+  return `media ${avg}${tendencia} — ${breakdown}`;
 }
 
 function readMethodologySnapshot(inputSnapshot: unknown) {
@@ -1226,7 +1252,7 @@ function buildEvolutionReportContent(detail: any) {
       {
         title: 'Feedback do aluno',
         text: done.length
-          ? `PSE media informada: ${avgEffort ?? 'nao informada'}/10. Satisfacao com o treino proposto: ${satisfactionSummary(done)}. Comentarios recentes: ${done.map((session: any) => session.feedback).filter(Boolean).slice(0, 3).join(' | ') || 'sem comentarios recentes'}.`
+          ? `PSE media informada: ${avgEffort ?? 'nao informada'}/10. Satisfacao com a elaboracao: ${satisfactionDimensionSummary(done, 'satisfactionElaboracao')}. Satisfacao em fazer o treino: ${satisfactionDimensionSummary(done, 'satisfaction')}. Satisfacao com como conseguiu fazer: ${satisfactionDimensionSummary(done, 'satisfactionCapacidade')}. Carga percebida: ${cargaSummary(done)}. Comentarios recentes: ${done.map((session: any) => session.feedback).filter(Boolean).slice(0, 3).join(' | ') || 'sem comentarios recentes'}.`
           : 'Ainda nao ha feedback manual suficiente para conclusao.',
       },
       {

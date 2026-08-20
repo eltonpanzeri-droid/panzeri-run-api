@@ -227,7 +227,10 @@ interface StudentDetail {
       structure?: Record<string, unknown> | null;
       completionStatus: string;
       perceivedEffort?: number | null;
+      satisfactionElaboracao?: string | null;
       satisfaction?: string | null;
+      satisfactionCapacidade?: string | null;
+      satisfactionCarga?: string | null;
       feedback?: string | null;
       notes?: string | null;
       completedDurationMin?: number | null;
@@ -265,7 +268,10 @@ interface StudentDetail {
       notes?: string | null;
       completionStatus: string;
       perceivedEffort?: number | null;
+      satisfactionElaboracao?: string | null;
       satisfaction?: string | null;
+      satisfactionCapacidade?: string | null;
+      satisfactionCarga?: string | null;
       feedback?: string | null;
     }>;
   }>;
@@ -2449,7 +2455,7 @@ function StudentPanel({
                     <article className="historySession" key={session.id}>
                       <div><strong>{weekdayLabel(session.weekday)} {dateLabel(session.date)} - {session.title}</strong><span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''}</span></div>
                       <AdminPrescription structure={session.structure} notes={session.notes} />
-                      <p className="historyExecution">{completionLabel(session.completionStatus)}{session.perceivedEffort ? ` | PSE ${session.perceivedEffort}/10` : ''}{session.satisfaction ? ` | Satisfacao: ${satisfactionLabel(session.satisfaction)}` : ''}{session.feedback ? ` | ${session.feedback}` : ''}</p>
+                      <p className="historyExecution">{completionLabel(session.completionStatus)}{session.perceivedEffort ? ` | PSE ${session.perceivedEffort}/10` : ''}{satisfactionDimensionsLine(session)}{session.feedback ? ` | ${session.feedback}` : ''}</p>
                     </article>
                   ))}
                 </div>
@@ -2658,7 +2664,10 @@ function EditableSession({
               {session.completedPaceSecondsKm ? ` | ${paceLabel(session.completedPaceSecondsKm)}` : ''}
             </span>
             <span>{session.perceivedEffort ? `PSE ${session.perceivedEffort}/10` : 'PSE nao informada'}</span>
-            <span>{session.satisfaction ? `Satisfacao com o treino: ${satisfactionLabel(session.satisfaction)}` : 'Satisfacao nao informada'}</span>
+            <span>{session.satisfactionElaboracao ? `Elaboracao do treino: ${satisfactionLabel(session.satisfactionElaboracao)}` : 'Satisfacao com a elaboracao nao informada'}</span>
+            <span>{session.satisfaction ? `Fazer o treino: ${satisfactionLabel(session.satisfaction)}` : 'Satisfacao em fazer o treino nao informada'}</span>
+            <span>{session.satisfactionCapacidade ? `Como conseguiu fazer: ${satisfactionLabel(session.satisfactionCapacidade)}` : 'Satisfacao com como conseguiu fazer nao informada'}</span>
+            <span>{session.satisfactionCarga ? `Carga: ${cargaLabel(session.satisfactionCarga)}` : 'Carga nao informada'}</span>
             <span>{session.feedback || 'Sem comentario'}</span>
           </>
         )}
@@ -3436,6 +3445,33 @@ function satisfactionLabel(value: string) {
     detestei: 'Detestei',
   };
   return labels[value] ?? value;
+}
+
+function cargaLabel(value: string) {
+  const labels: Record<string, string> = {
+    muito_leve: 'Muito leve',
+    leve: 'Leve',
+    na_medida: 'Na medida',
+    pesada: 'Pesada',
+    muito_pesada: 'Muito pesada',
+  };
+  return labels[value] ?? value;
+}
+
+// 19/08: satisfacao virou 4 perguntas separadas (elaboracao/fazer/capacidade/carga) em vez de uma
+// so vaga — resume as que tiverem resposta numa unica linha compacta pro historico de semana.
+function satisfactionDimensionsLine(session: {
+  satisfactionElaboracao?: string | null;
+  satisfaction?: string | null;
+  satisfactionCapacidade?: string | null;
+  satisfactionCarga?: string | null;
+}) {
+  const parts: string[] = [];
+  if (session.satisfactionElaboracao) parts.push(`Elaboracao: ${satisfactionLabel(session.satisfactionElaboracao)}`);
+  if (session.satisfaction) parts.push(`Fazer: ${satisfactionLabel(session.satisfaction)}`);
+  if (session.satisfactionCapacidade) parts.push(`Como conseguiu: ${satisfactionLabel(session.satisfactionCapacidade)}`);
+  if (session.satisfactionCarga) parts.push(`Carga: ${cargaLabel(session.satisfactionCarga)}`);
+  return parts.length ? ` | ${parts.join(' | ')}` : '';
 }
 
 function methodologySummaryLine(methodology: {

@@ -48,6 +48,9 @@ export class WorkoutCompletionsService {
         maxHeartRate: dto.maxHeartRate,
         perceivedEffort: dto.perceivedEffort,
         satisfaction: dto.satisfaction,
+        satisfactionElaboracao: dto.satisfactionElaboracao,
+        satisfactionCapacidade: dto.satisfactionCapacidade,
+        satisfactionCarga: dto.satisfactionCarga,
         painFlag: dto.painFlag,
         notes: dto.notes,
         details,
@@ -63,6 +66,9 @@ export class WorkoutCompletionsService {
         maxHeartRate: dto.maxHeartRate,
         perceivedEffort: dto.perceivedEffort,
         satisfaction: dto.satisfaction,
+        satisfactionElaboracao: dto.satisfactionElaboracao,
+        satisfactionCapacidade: dto.satisfactionCapacidade,
+        satisfactionCarga: dto.satisfactionCarga,
         painFlag: dto.painFlag,
         notes: dto.notes,
         details,
@@ -95,7 +101,10 @@ export class WorkoutCompletionsService {
       dto.distanceKm ? `Distancia: ${dto.distanceKm}km.` : '',
       dto.avgPaceSecondsKm ? `Pace medio: ${Math.floor(dto.avgPaceSecondsKm / 60)}:${String(dto.avgPaceSecondsKm % 60).padStart(2, '0')}/km.` : '',
       dto.perceivedEffort ? `Esforco percebido: ${dto.perceivedEffort}/10.` : '',
-      dto.satisfaction ? `Satisfacao: ${satisfactionLabel(dto.satisfaction)}.` : '',
+      dto.satisfactionElaboracao ? `Satisfacao com a elaboracao do treino: ${satisfactionLabel(dto.satisfactionElaboracao)}.` : '',
+      dto.satisfaction ? `Satisfacao em fazer o treino: ${satisfactionLabel(dto.satisfaction)}.` : '',
+      dto.satisfactionCapacidade ? `Satisfacao com como conseguiu fazer: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
+      dto.satisfactionCarga ? `Carga do treino: ${cargaLabel(dto.satisfactionCarga)}.` : '',
       dto.painFlag && dto.painFlag !== 'none' ? `Dor sinalizada: ${dto.painFlag}.` : '',
       missedReasons.length ? `Motivo(s) de nao ter treinado: ${missedReasons.map(missedReasonLabel).join(', ')}.` : '',
       missedComment.trim() ? `Comentario do aluno sobre a falta: ${missedComment.trim()}` : '',
@@ -113,7 +122,10 @@ export class WorkoutCompletionsService {
       const statusLabel = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'registrou com ajustes' : 'marcou como nao feito';
       const details = [
         dto.perceivedEffort ? `Esforco: ${dto.perceivedEffort}/10.` : '',
-        dto.satisfaction ? `Satisfacao com o treino: ${satisfactionLabel(dto.satisfaction)}.` : '',
+        dto.satisfaction ? `Satisfacao em fazer o treino: ${satisfactionLabel(dto.satisfaction)}.` : '',
+        dto.satisfactionElaboracao ? `Satisfacao com a elaboracao: ${satisfactionLabel(dto.satisfactionElaboracao)}.` : '',
+        dto.satisfactionCapacidade ? `Satisfacao com como conseguiu fazer: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
+        dto.satisfactionCarga ? `Carga: ${cargaLabel(dto.satisfactionCarga)}.` : '',
         missedReasons.length ? `Motivo(s) da falta: ${missedReasons.map(missedReasonLabel).join(', ')}.` : '',
         missedComment.trim() ? `Comentario do aluno: ${missedComment.trim()}` : '',
         dto.notes?.trim() ? `Feedback: ${dto.notes.trim()}` : 'Sem comentario.',
@@ -132,7 +144,7 @@ export class WorkoutCompletionsService {
   }
 }
 
-function satisfactionLabel(value: string) {
+export function satisfactionLabel(value: string) {
   const labels: Record<string, string> = {
     amei: 'Amei',
     gostei: 'Gostei',
@@ -142,6 +154,39 @@ function satisfactionLabel(value: string) {
   };
   return labels[value] ?? value;
 }
+
+export function cargaLabel(value: string) {
+  const labels: Record<string, string> = {
+    muito_leve: 'Muito leve',
+    leve: 'Leve',
+    na_medida: 'Na medida',
+    pesada: 'Pesada',
+    muito_pesada: 'Muito pesada',
+  };
+  return labels[value] ?? value;
+}
+
+// Conversao numerica pra quantificar as respostas (pedido do treinador 19/08) — usada so pra
+// exibicao/media no painel do treinador, nunca pra decidir ou validar o proprio treino (isso
+// continua 100% a cargo da IA, ver panzeri_methodology). amei..detestei e uma escala normal
+// "quanto maior, melhor" (1 a 5). satisfactionCarga NAO e assim: "na medida" e o alvo, entao a
+// escala fica em torno de zero — desviar pra qualquer lado (leve OU pesada) e igualmente um sinal
+// de ajuste, nunca "pesada e melhor que leve" so por ter numero maior.
+export const SATISFACTION_SCORE: Record<string, number> = {
+  detestei: 1,
+  nao_gostei: 2,
+  neutro: 3,
+  gostei: 4,
+  amei: 5,
+};
+
+export const CARGA_SCORE: Record<string, number> = {
+  muito_leve: -2,
+  leve: -1,
+  na_medida: 0,
+  pesada: 1,
+  muito_pesada: 2,
+};
 
 // Mesmas opcoes/valores do seletor de motivo de falta no app (ver MISSED_REASON_OPTIONS em
 // App.tsx) — mantido em texto legivel aqui pro prontuario e pro treinador, nao pro aluno.

@@ -47,9 +47,23 @@ export class UpsertWorkoutCompletionDto {
   @Max(10)
   perceivedEffort?: number;
 
+  // 4 dimensoes de satisfacao (19/08) — pergunta vaga = aluno perdido, cada uma pergunta uma
+  // coisa especifica e diferente das outras (ver comentario no schema.prisma).
+  @IsOptional()
+  @IsIn(['amei', 'gostei', 'neutro', 'nao_gostei', 'detestei'])
+  satisfactionElaboracao?: string;
+
   @IsOptional()
   @IsIn(['amei', 'gostei', 'neutro', 'nao_gostei', 'detestei'])
   satisfaction?: string;
+
+  @IsOptional()
+  @IsIn(['amei', 'gostei', 'neutro', 'nao_gostei', 'detestei'])
+  satisfactionCapacidade?: string;
+
+  @IsOptional()
+  @IsIn(['muito_leve', 'leve', 'na_medida', 'pesada', 'muito_pesada'])
+  satisfactionCarga?: string;
 
   @IsOptional()
   @IsIn(['none', 'leve', 'forte'])

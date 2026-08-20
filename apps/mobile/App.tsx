@@ -162,6 +162,9 @@ interface WeekPlanSession {
     avgPaceSecondsKm?: number | null;
     perceivedEffort?: number | null;
     satisfaction?: string | null;
+    satisfactionElaboracao?: string | null;
+    satisfactionCapacidade?: string | null;
+    satisfactionCarga?: string | null;
     painFlag?: string | null;
     notes?: string | null;
     details?: { loadsText?: string; pacingMode?: string; missedReasons?: string[]; missedComment?: string } | null;
@@ -305,7 +308,10 @@ interface CompletionDraft {
   status: 'done' | 'missed' | 'adjusted';
   completedDate: string;
   perceivedEffort: string;
+  satisfactionElaboracao: string;
   satisfaction: string;
+  satisfactionCapacidade: string;
+  satisfactionCarga: string;
   painFlag: string;
   durationMin: string;
   distanceKm: string;
@@ -2764,7 +2770,10 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       status: draft.status,
       completedAt: dateInputValueToIso(draft.completedDate) ?? undefined,
       perceivedEffort: Number(draft.perceivedEffort) || undefined,
+      satisfactionElaboracao: draft.satisfactionElaboracao || undefined,
       satisfaction: draft.satisfaction || undefined,
+      satisfactionCapacidade: draft.satisfactionCapacidade || undefined,
+      satisfactionCarga: draft.satisfactionCarga || undefined,
       painFlag: draft.painFlag || undefined,
       durationMin: Number(draft.durationMin) || undefined,
       distanceKm: Number(draft.distanceKm.replace(',', '.')) || undefined,
@@ -5279,6 +5288,22 @@ const MISSED_REASON_OPTIONS = [
   { label: 'Esqueci / perdi o horário', value: 'esqueci' },
 ];
 
+const SATISFACTION_OPTIONS = [
+  { label: 'Amei', value: 'amei' },
+  { label: 'Gostei', value: 'gostei' },
+  { label: 'Neutro', value: 'neutro' },
+  { label: 'Nao gostei', value: 'nao_gostei' },
+  { label: 'Detestei', value: 'detestei' },
+];
+
+const CARGA_OPTIONS = [
+  { label: 'Muito leve', value: 'muito_leve' },
+  { label: 'Leve', value: 'leve' },
+  { label: 'Na medida', value: 'na_medida' },
+  { label: 'Pesada', value: 'pesada' },
+  { label: 'Muito pesada', value: 'muito_pesada' },
+];
+
 function CompletionForm({
   session,
   draft,
@@ -5435,21 +5460,59 @@ function CompletionForm({
         ))}
       </View>
 
-      <Text style={styles.formHint}>Satisfacao com o treino proposto (opcional)</Text>
+      {/* 19/08: uma unica pergunta "satisfacao com o treino" era vaga demais (amei o que? nao
+          gostei do que?) — virou 4 perguntas especificas, cada uma sobre uma coisa diferente,
+          pedido explicito do treinador ("pergunta vaga = aluno perdido, igual comando vago pra
+          IA"). As 3 primeiras usam a mesma escala (a pergunta acima e' que da o contexto, nao o
+          rotulo da resposta); a de carga usa escala propria de adequacao. */}
+      <Text style={styles.formHint}>Como foi sua satisfacao com a elaboracao deste treino? (opcional)</Text>
       <View style={styles.completionStatusRow}>
-        {[
-          { label: 'Amei', value: 'amei' },
-          { label: 'Gostei', value: 'gostei' },
-          { label: 'Neutro', value: 'neutro' },
-          { label: 'Nao gostei', value: 'nao_gostei' },
-          { label: 'Detestei', value: 'detestei' },
-        ].map((option) => (
+        {SATISFACTION_OPTIONS.map((option) => (
+          <Pressable
+            key={option.value}
+            style={[styles.completionChip, draft.satisfactionElaboracao === option.value && styles.completionChipActive]}
+            onPress={() => onChange({ satisfactionElaboracao: option.value })}
+          >
+            <Text style={[styles.completionChipText, draft.satisfactionElaboracao === option.value && styles.completionChipTextActive]}>{option.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <Text style={styles.formHint}>Como foi sua satisfacao em fazer este treino? (opcional)</Text>
+      <View style={styles.completionStatusRow}>
+        {SATISFACTION_OPTIONS.map((option) => (
           <Pressable
             key={option.value}
             style={[styles.completionChip, draft.satisfaction === option.value && styles.completionChipActive]}
             onPress={() => onChange({ satisfaction: option.value })}
           >
             <Text style={[styles.completionChipText, draft.satisfaction === option.value && styles.completionChipTextActive]}>{option.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <Text style={styles.formHint}>Como foi sua satisfacao em como voce conseguiu fazer o treino? (opcional)</Text>
+      <View style={styles.completionStatusRow}>
+        {SATISFACTION_OPTIONS.map((option) => (
+          <Pressable
+            key={option.value}
+            style={[styles.completionChip, draft.satisfactionCapacidade === option.value && styles.completionChipActive]}
+            onPress={() => onChange({ satisfactionCapacidade: option.value })}
+          >
+            <Text style={[styles.completionChipText, draft.satisfactionCapacidade === option.value && styles.completionChipTextActive]}>{option.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <Text style={styles.formHint}>Como voce sentiu a carga deste treino? (opcional)</Text>
+      <View style={styles.completionStatusRow}>
+        {CARGA_OPTIONS.map((option) => (
+          <Pressable
+            key={option.value}
+            style={[styles.completionChip, draft.satisfactionCarga === option.value && styles.completionChipActive]}
+            onPress={() => onChange({ satisfactionCarga: option.value })}
+          >
+            <Text style={[styles.completionChipText, draft.satisfactionCarga === option.value && styles.completionChipTextActive]}>{option.label}</Text>
           </Pressable>
         ))}
       </View>
@@ -5937,7 +6000,10 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     status: 'done',
     completedDate: todayDateInputValue(),
     perceivedEffort: '',
+    satisfactionElaboracao: '',
     satisfaction: '',
+    satisfactionCapacidade: '',
+    satisfactionCarga: '',
     painFlag: '',
     durationMin: session.durationMin ? String(session.durationMin) : '',
     distanceKm: session.distanceKm ? String(session.distanceKm) : '',
@@ -5957,7 +6023,10 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     status: completion.status,
     completedDate: completion.completedAt ? isoDateToInputValue(completion.completedAt) : todayDateInputValue(),
     perceivedEffort: completion.perceivedEffort ? String(completion.perceivedEffort) : '',
+    satisfactionElaboracao: completion.satisfactionElaboracao ?? '',
     satisfaction: completion.satisfaction ?? '',
+    satisfactionCapacidade: completion.satisfactionCapacidade ?? '',
+    satisfactionCarga: completion.satisfactionCarga ?? '',
     painFlag: completion.painFlag ?? '',
     durationMin: completion.durationMin ? String(completion.durationMin) : '',
     distanceKm: completion.distanceKm ? String(completion.distanceKm) : '',
