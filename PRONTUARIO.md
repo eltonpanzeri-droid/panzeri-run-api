@@ -414,6 +414,27 @@ um a um, com o treinador:
   em segundo plano sem confirmar o fim ficou reforçado. Combinado com o treinador: avisar sempre
   que alguma tarefa ficar em segundo plano, pra ele decidir se deixa ou interrompe.
 
+**2026-08-20** — satisfação em 4 dimensões + bug real de backup nunca ter funcionado:
+- **Satisfação do treino virou 4 perguntas específicas**, a pedido do treinador ("pergunta vaga
+  = aluno perdido, igual comando vago pra IA"): elaboração do treino, fazer o treino (reaproveita
+  a coluna `satisfaction` já existente), como conseguiu fazer, e carga/adequação do esforço. As 3
+  primeiras usam escala Amei→Detestei (1 a 5); a de carga usa escala própria em torno de zero
+  (muito leve=-2 ... muito pesada=+2), porque "na medida" é o alvo, não um extremo — nunca "quanto
+  maior, melhor". Sem nenhuma fórmula decidindo ou validando o treino em cima disso (mesma regra
+  de sempre) — é só quantificação pra enxergar padrão ao longo do tempo, exibida agora no detalhe
+  da sessão e no relatório de evolução do painel do treinador.
+- **Bug real, sério, encontrado no primeiro deploy do dia**: o backup diário automático do banco
+  (`BackupService`, já existia em código há tempos, e-mail com dump via Resend) **nunca funcionou
+  de verdade em produção** — faltava a variável `BACKUP_EMAIL_TO` (fácil) E o binário `pg_dump`
+  nunca foi instalado na imagem Docker real usada pelo EasyPanel (grave). Achado um `Dockerfile`
+  duplicado e não usado em `apps/api/Dockerfile` que já tinha `postgresql-client` — alguém (ou uma
+  sessão anterior) já tinha tentado consertar isso antes, só que no arquivo errado, que o
+  `README.md` já documentava como não sendo o usado pela API (`Dockerfile` da raiz é o real).
+  Duplicata removida; `pg_dump` instalado no Dockerfile certo, versão 16 pinada via repositório
+  oficial da PostgreSQL (bate com `postgres:16` do banco — cliente mais antigo que o servidor não
+  é garantido pelo Postgres). De brinde, o `Dockerfile` da raiz nunca tinha entrado no script de
+  sincronização — corrigido, senão essa correção não teria ido pra lugar nenhum.
+
 **Pontos em aberto / para acompanhar antes de publicar nas lojas:**
 - Texto de Termos de Uso / Política de Privacidade ainda não teve revisão jurídica profissional —
   o treinador pediu para deixar assim por enquanto e revisar de novo depois.
