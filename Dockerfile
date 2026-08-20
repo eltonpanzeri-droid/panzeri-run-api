@@ -18,7 +18,7 @@ RUN apt-get update \
 
 RUN corepack enable
 
-COPY apps/api/package.json ./package.json
+COPY apps/api/package.json apps/api/pnpm-workspace.yaml ./
 RUN pnpm install --no-frozen-lockfile
 
 COPY apps/api/prisma ./prisma

@@ -1,0 +1,10 @@
+onlyBuiltDependencies:
+  - "@nestjs/core"
+  - "@prisma/client"
+  - "@prisma/engines"
+  - "prisma"
+allowBuilds:
+  '@nestjs/core': true
+  '@prisma/client': true
+  '@prisma/engines': true
+  prisma: true
