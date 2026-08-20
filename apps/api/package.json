@@ -2,6 +2,15 @@
   "name": "@panzeri/api",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.8.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma"
+    ]
+  },
   "scripts": {
     "dev": "nest start --watch",
     "start": "node dist/main.js",
