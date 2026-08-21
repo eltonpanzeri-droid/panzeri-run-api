@@ -24,7 +24,7 @@ RUN pnpm install --no-frozen-lockfile
 COPY apps/api/prisma ./prisma
 RUN pnpm db:generate
 
-COPY apps/api/tsconfig.json apps/api/nest-cli.json ./
+COPY apps/api/tsconfig.json apps/api/tsconfig.build.json apps/api/nest-cli.json ./
 COPY apps/api/src ./src
 RUN pnpm build
 
