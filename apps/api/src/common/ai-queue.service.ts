@@ -12,13 +12,14 @@ const MAX_CONCURRENT_AI_CALLS = 3;
 // nunca era liberada — travando 1 das 3 vagas da fila pra sempre, atrasando todo mundo depois.
 // Esse teto NAO cancela a chamada de verdade na Anthropic (o SDK continua tentando em segundo
 // plano), so desiste de esperar e libera a vaga pra fila andar, devolvendo erro pra quem chamou.
-// Aumentado de 120s pra 300s em 18/08 (ordem explicita do treinador, revendo a regra de 09/08) —
-// incidente real: alunos com contexto mais pesado (varias diretivas, prova alvo, historico longo)
-// estouravam 120s com frequencia, perdendo a tentativa e queimando token a toa numa chamada que
-// ia terminar de qualquer jeito (o SDK continua rodando nos bastidores mesmo apos o timeout local
-// desistir — ver comentario acima). Esperar mais nao gasta mais token nenhum, so reduz o
-// desperdicio de tentativas abandonadas cedo demais.
-const TASK_TIMEOUT_MS = 300_000;
+// Aumentado de 120s pra 300s em 18/08, depois de 300s pra 600s (10min) em 20/08 (ordem explicita
+// do treinador, revendo a regra de 09/08) — incidente real: alunos com contexto mais pesado
+// (varias diretivas, prova alvo, historico longo) estouravam o teto anterior com frequencia,
+// perdendo a tentativa e queimando token a toa numa chamada que ia terminar de qualquer jeito (o
+// SDK continua rodando nos bastidores mesmo apos o timeout local desistir — ver comentario acima).
+// Esperar mais nao gasta mais token nenhum, so reduz o desperdicio de tentativas abandonadas cedo
+// demais.
+const TASK_TIMEOUT_MS = 600_000;
 
 @Injectable()
 export class AiQueueService {

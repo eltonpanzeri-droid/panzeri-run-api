@@ -434,6 +434,29 @@ um a um, com o treinador:
   oficial da PostgreSQL (bate com `postgres:16` do banco — cliente mais antigo que o servidor não
   é garantido pelo Postgres). De brinde, o `Dockerfile` da raiz nunca tinha entrado no script de
   sincronização — corrigido, senão essa correção não teria ido pra lugar nenhum.
+- **Deploy do dia teve 2 tentativas extras falhando** por um motivo totalmente à parte do `pg_dump`:
+  minha mudança no Dockerfile invalidou o cache do Docker numa camada anterior à instalação dos
+  pacotes Node, forçando reinstalar do zero — nessa reinstalação, o `corepack` baixou uma versão
+  mais nova do `pnpm` (11.22.0) que passou a bloquear por padrão os scripts de instalação do
+  Prisma/NestJS. Primeira tentativa de correção (`pnpm.onlyBuiltDependencies` no `package.json`)
+  não funcionou porque o pnpm novo não lê mais essa chave dali — achada a configuração já certa
+  (`onlyBuiltDependencies`/`allowBuilds`) no `pnpm-workspace.yaml` da raiz do monorepo, só que esse
+  arquivo nunca é copiado pro Dockerfile isolado da API; criado o mesmo arquivo dentro de
+  `apps/api` e ajustado o Dockerfile pra copiá-lo. Build seguinte avançou bem mais longe, mas
+  parou em `nest build` por faltar copiar `tsconfig.build.json` — **deixado pra depois**, sem
+  urgência (o deploy anterior, que já tinha o `pg_dump` funcionando, tinha subido com sucesso
+  antes disso, então produção não ficou quebrada em nenhum momento).
+- **Timeout de geração de treino subiu de 300s pra 600s (10 minutos)**, a pedido do treinador —
+  confirmado que isso não aumenta custo de token nenhum (o timeout só decide quando o servidor
+  desiste de *esperar*, a chamada pra IA continua rodando de qualquer jeito). Atualizados juntos,
+  pra manter a mesma lógica: `GENERATION_ATTEMPT_COOLDOWN_MS` (precisa ser >= o timeout, senão o
+  aluno tentaria de novo antes da 1ª tentativa ter chance de terminar) e o polling do app mobile
+  (`MAX_POLLS`, de 40 pra 80 tentativas). Textos pro aluno atualizados em 6 lugares no `App.tsx`
+  pra dizer "até 10 minutos" em vez de "instantes"/"alguns minutos"/"5 minutos".
+- **Tamanho dos textos gerados pela IA aumentado**: `recommendation` (orientação geral da semana)
+  +10% (1200→1320 caracteres); `notes` de cada sessão (corrida e força) +30% (900→1170), incluindo
+  a orientação no prompt de "4 a 6 frases" pra "5 a 8 frases". Estimativa de custo: uns 15-20% a
+  mais de tokens de saída por geração semanal — poucos centavos a mais, não um salto grande.
 
 **Pontos em aberto / para acompanhar antes de publicar nas lojas:**
 - Texto de Termos de Uso / Política de Privacidade ainda não teve revisão jurídica profissional —

@@ -450,7 +450,9 @@ export class PrescriptionAgentService {
       return {
         sessions,
         strengthSessions,
-        recommendation: truncateText(parsed.recommendation.trim() || 'Sem observacoes adicionais para esta semana.', 1200),
+        // Limite subiu 10% (1200->1320) em 20/08, pedido do treinador — timeout maior (600s) da
+        // folga pra IA escrever um pouco mais sem risco de estourar o teto de texto da resposta.
+        recommendation: truncateText(parsed.recommendation.trim() || 'Sem observacoes adicionais para esta semana.', 1320),
         rationale: rationale.length > 0 ? rationale : ['Decisao gerada pelo agente de IA.'],
         safetyAdjustment,
         routineMismatch: validated.routineMismatch,
@@ -533,7 +535,8 @@ export class PrescriptionAgentService {
         weekday: session.weekday,
         title: session.title,
         durationMin: session.durationMin,
-        notes: truncateText(session.notes, 900),
+        // Limite subiu 30% (900->1170) em 20/08, pedido do treinador (junto com o timeout maior).
+        notes: truncateText(session.notes, 1170),
         parts: session.parts,
       });
     }
@@ -611,7 +614,8 @@ export class PrescriptionAgentService {
         reps: truncateText(session.reps, 120),
         restSeconds: session.restSeconds,
         intensity: session.intensity,
-        notes: truncateText(session.notes, 900),
+        // Limite subiu 30% (900->1170) em 20/08, pedido do treinador (junto com o timeout maior).
+        notes: truncateText(session.notes, 1170),
       });
     }
 
@@ -667,7 +671,7 @@ export class PrescriptionAgentService {
       'ISSO VALE ESPECIALMENTE PRA LINGUAGEM DE TEMPO RELATIVO (incidente real 10/08 — outra aluna fez uma prova no domingo, e na terca seguinte o texto disse "voce completou ontem", quando na verdade ja tinham se passado 2 dias). Antes de escrever "ontem", "anteontem", "ha X dias", "essa semana" ou qualquer expressao parecida sobre algo do passado, CALCULE a diferenca exata entre hoje e a data real do evento — cada semana em historicoSemanal tem weekStartDate (inicio daquela semana) e longestRunDate (data exata do treino mais longo daquela semana, quando existir); maiorLongaoJaRegistrado e metaDeProva tambem tem suas proprias datas exatas. Se voce nao tiver uma data exata pra ancorar a expressao, NAO invente uma — fale de forma vaga mas verdadeira (ex: "no seu ultimo longao" em vez de "ontem").',
       'CONSISTENCIA INTERNA E OBRIGATORIA: o nivel/condicionamento do aluno que voce concluir tem que ser o MESMO em toda a resposta — rationale geral e notes de cada sessao contando a mesma historia sobre este aluno.',
       'PRIMEIRA SEMANA SEM NENHUM HISTORICO (historicoSemanal vazio, sem reavaliacao, sem analiseExecucao, sem analiseAprofundadaStrava): trate como calibragem inicial. Para um aluno com pouco tempo de corrida ou volume baixo/recente-comeco, prefira comecar com rodagens leves e um longao moderado, guardando um estimulo mais forte pra depois de ver a resposta real dele aos primeiros treinos — a nao ser que a evidencia de pace ja seja claramente forte e consistente.',
-      'ORCAMENTO DE TEXTO DA RESPOSTA (importante, incidente real 02/08): sua resposta inteira — todos os dias de corrida e de forca de uma vez — tem um limite de tamanho. Se voce escrever textos longos demais nos primeiros dias, pode faltar espaco pra terminar os ultimos, e a resposta e cortada no meio (fica invalida, o aluno nao recebe treino nenhum naquela semana). Terminar a resposta INTEIRA e sempre mais importante do que cada campo de texto ser longo. Regra pratica: notes de cada dia de corrida/forca em torno de 4 a 6 frases (nao um paragrafo extenso), rationale como bullets curtos. Se em algum momento perceber que esta gastando texto demais, prefira DIMINUIR o que ainda vai escrever (textos mais diretos e objetivos) — nunca "force" continuar no mesmo nivel de detalhe e arriscar nao terminar. Uma resposta completa com texto mais enxuto e sempre melhor que uma resposta rica mas cortada.',
+      'ORCAMENTO DE TEXTO DA RESPOSTA (importante, incidente real 02/08): sua resposta inteira — todos os dias de corrida e de forca de uma vez — tem um limite de tamanho. Se voce escrever textos longos demais nos primeiros dias, pode faltar espaco pra terminar os ultimos, e a resposta e cortada no meio (fica invalida, o aluno nao recebe treino nenhum naquela semana). Terminar a resposta INTEIRA e sempre mais importante do que cada campo de texto ser longo. Regra pratica: notes de cada dia de corrida/forca em torno de 5 a 8 frases (nao um paragrafo extenso — limite subiu 20/08 junto com o timeout maior), rationale como bullets curtos. Se em algum momento perceber que esta gastando texto demais, prefira DIMINUIR o que ainda vai escrever (textos mais diretos e objetivos) — nunca "force" continuar no mesmo nivel de detalhe e arriscar nao terminar. Uma resposta completa com texto mais enxuto e sempre melhor que uma resposta rica mas cortada.',
       'O campo title de cada sessao NAO e mais exibido ao aluno nem ao treinador — o titulo mostrado e sempre o nome fixo da modalidade (Corrida/Fortalecimento para corredores/Musculacao), decidido em codigo. Preencha title com qualquer texto curto valido, sem gastar esforco pensando nele.',
       'Responda em portugues nos campos de texto (notes, rationale, durationJustification).',
       'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida.',

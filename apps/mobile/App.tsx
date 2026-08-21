@@ -2217,7 +2217,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
           ? 'Suas respostas foram salvas. Seu treinador vai revisar sua evolucao e ajustar seu treino conforme necessario.'
           : mode === 'routine'
             ? (routineFirstTime
-                ? 'Sua rotina foi salva. Seu treino ja esta sendo montado com base nela e vai aparecer na tela de treino da semana em instantes.'
+                ? 'Sua rotina foi salva. Seu treino ja esta sendo montado com base nela e pode levar ate 10 minutos pra aparecer na tela de treino da semana.'
                 // Correcao real 16/08: essa mensagem prometia "vale a partir da geracao automatica
                 // de domingo", mas esse processo automatico de domingo foi removido do sistema ha
                 // um tempo (geracao virou sempre sob demanda) — a promessa antiga nunca mais se
@@ -2585,7 +2585,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     // Incidente real 09/08: sem essa mensagem, uma geracao mais demorada (a IA as vezes precisa
     // de chamadas extras pra completar a semana direito) parecia travada pra aluna, que fechava o
     // app achando que tinha dado erro. Preparando o aluno pra demora evita esse abandono.
-    setStatus('Preparando seu treino da semana... Isso pode levar alguns minutos — pode continuar usando o celular normalmente e voltar aqui depois.');
+    setStatus('Seu treino esta sendo analisado e fica pronto em ate 10 minutos. Pode continuar usando o celular normalmente e voltar aqui depois.');
 
     let settled = false;
 
@@ -2609,9 +2609,9 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             setStatus('Seu treino desta semana ja foi gerado.');
             await loadPlan();
           } else if (data.reason === 'aguardar_intervalo') {
-            setStatus('Espera so um instante — sua ultima tentativa ainda pode estar em andamento. Tente novamente apos 5 minutos.');
+            setStatus('Espera so um instante — sua ultima tentativa ainda pode estar em andamento. Tente novamente apos 10 minutos.');
           } else if (data.reason === 'falha_pode_tentar_de_novo') {
-            setStatus('Nao conseguimos montar seu treino dessa vez. Aguarde 5 minutos e tente novamente.');
+            setStatus('Nao conseguimos montar seu treino dessa vez. Aguarde 10 minutos e tente novamente.');
           } else if (data.reason === 'tentativas_esgotadas') {
             setStatus('Estamos com dificuldades para gerar seu treino. Fale com seu treinador.');
           } else if (data.reason === 'antes_do_horario_de_liberacao') {
@@ -2631,10 +2631,10 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
 
     const pollForCompletion = (async () => {
       const POLL_INTERVAL_MS = 10000;
-      // Aumentado de 18 (~3min) pra 40 (~6min 40s) em 18/08, junto com o teto de espera da IA
-      // subindo de 120s pra 300s (5min) — sem isso, o polling desistia ANTES da geracao
-      // legitimamente terminar, mesmo quando ela ia dar certo.
-      const MAX_POLLS = 40; // ~6min40s, folga sobre os 300s do teto da IA
+      // Aumentado de 18 (~3min) pra 40 (~6min40s) em 18/08, depois pra 80 (~13min20s) em 20/08,
+      // junto com o teto de espera da IA subindo de 300s pra 600s (10min) — sem isso, o polling
+      // desistia ANTES da geracao legitimamente terminar, mesmo quando ela ia dar certo.
+      const MAX_POLLS = 80; // ~13min20s, folga sobre os 600s (10min) do teto da IA
       for (let attempt = 0; attempt < MAX_POLLS; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
         if (settled) return;
@@ -2717,7 +2717,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       // So na primeira vez (aluno sem nenhum plano ainda) e que isso gera de verdade agora.
       if (firstTime) {
         await loadPlan();
-        setStatus('Sua rotina foi registrada. Seu primeiro treino esta sendo gerado automaticamente e vai aparecer em instantes.');
+        setStatus('Sua rotina foi registrada. Seu primeiro treino esta sendo gerado automaticamente e pode levar ate 10 minutos para aparecer.');
       } else {
         setIsLoading(false);
         setStatus('Sua nova rotina foi salva. Ela vale a partir da geracao automatica de domingo — a semana atual continua igual. Voce pode ajustar quantas vezes quiser ate la.');
@@ -4532,7 +4532,7 @@ function Anamnese({
       const savedResponse = (await response.json()) as MeResponse & { routineChanged?: boolean };
       onSavedMeChange(savedResponse);
       setStatus(savedResponse.routineChanged
-        ? 'Sua nova rotina foi registrada. Seu programa de treino da semana esta sendo atualizado automaticamente e vai aparecer em instantes.'
+        ? 'Sua nova rotina foi registrada. Seu programa de treino da semana esta sendo atualizado automaticamente e pode levar ate 10 minutos para aparecer.'
         : 'Seus dados foram atualizados com sucesso.');
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
