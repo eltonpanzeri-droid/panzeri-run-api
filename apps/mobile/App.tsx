@@ -1067,9 +1067,18 @@ function AppInner() {
       // rapidas primeiro, depois vai pra tela de pagamento — a entrevista completa so aparece
       // depois de pagar. "paid" cobre tambem quem esta em atraso/grace (ja foi aluna de verdade
       // alguma vez); so quem nunca pagou (subscriptionStatus 'pending') e' tratado como novo.
+      //
+      // 21/08, incidente real (aluna Lucelane): conta antiga, com rotina e plano ativo de verdade
+      // rodando ha tempos, mas com `completedAt` vazio no banco (provavelmente criada antes desse
+      // campo existir, ou direto pelo painel). O redirecionamento forcado pra tela de entrevista
+      // bloqueou o app dela sem motivo real. Correcao: so forca a entrevista se, ALEM de
+      // completedAt vazio, a aluna tambem nunca configurou rotina nenhuma (`availability` vazio) —
+      // ja ter rotina real e' sinal forte de que essa aluna ja foi onboarded de verdade, mesmo que
+      // aquele campo administrativo nunca tenha sido marcado.
+      const hasRoutineConfigured = Boolean((me?.availability?.length ?? 0) > 0 || (me?.weeklyAvailability?.length ?? 0) > 0);
       const paid = me?.subscriptionStatus !== undefined && me.subscriptionStatus !== 'pending';
       if (paid) {
-        if (interview && !interview.completedAt) setActiveTab('interview');
+        if (interview && !interview.completedAt && !hasRoutineConfigured) setActiveTab('interview');
       } else if (interview && !interview.quickIntakeCompletedAt) {
         setActiveTab('quickIntake');
       }

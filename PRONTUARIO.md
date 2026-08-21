@@ -458,6 +458,18 @@ um a um, com o treinador:
   a orientação no prompt de "4 a 6 frases" pra "5 a 8 frases". Estimativa de custo: uns 15-20% a
   mais de tokens de saída por geração semanal — poucos centavos a mais, não um salto grande.
 
+**2026-08-21** — bug real reportado por uma aluna de verdade (Lucelane): o app passou a bloquear a
+tela dela com "Entrevista inicial pendente", e um e-mail automático mandou "sua entrevista está
+incompleta" — apesar dela ter plano ativo e histórico real de treinos rodando. Causa: a conta dela
+tem `OnboardingInterview.completedAt` vazio no banco (provavelmente criada antes desse campo
+existir, ou direto pelo painel, sem passar pela tela formal de entrevista) — e o redirecionamento
+do Bloco 2 (`apps/mobile/App.tsx`, adicionado 18/08) e o e-mail automático de entrevista incompleta
+(`checkInterviewIncomplete`) usavam só esse campo pra decidir, sem considerar que a aluna já tinha
+rotina configurada de verdade. **Nada foi perdido** — o plano dela sempre esteve intacto no banco,
+era só a tela errada aparecendo por cima. Corrigido nos dois lugares: agora só força a tela de
+entrevista (ou manda o e-mail) se, além de `completedAt` vazio, a aluna também nunca configurou
+nenhuma rotina (`WeeklyAvailability` vazia) — sinal forte de que realmente nunca foi onboarded.
+
 **Pontos em aberto / para acompanhar antes de publicar nas lojas:**
 - Texto de Termos de Uso / Política de Privacidade ainda não teve revisão jurídica profissional —
   o treinador pediu para deixar assim por enquanto e revisar de novo depois.

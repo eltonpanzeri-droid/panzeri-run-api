@@ -23,6 +23,9 @@ export class NotificationTriggersService {
         onboardingInterview: { select: { completedAt: true } },
         billingSubscription: { select: { checkoutUrl: true } },
         reassessments: { where: { completedAt: { not: null } }, orderBy: { completedAt: 'desc' }, take: 1 },
+        // 21/08: usado so pra checkInterviewIncomplete nao avisar aluna que ja tem rotina real
+        // configurada (ver comentario la embaixo — incidente real, aluna Lucelane).
+        availability: { select: { id: true }, take: 1 },
       },
     });
 
@@ -77,9 +80,14 @@ export class NotificationTriggersService {
   // e ainda nao terminou a entrevista detalhada. Prospecto (nunca pagou) e' avisado por outro
   // caminho, a sequencia de aquecimento (ver ProspectNurtureService), que cobra as 5 perguntas
   // rapidas, nao a entrevista completa que ele nem consegue acessar ainda.
-  private async checkInterviewIncomplete(student: { id: string; name: string; subscriptionStatus: string; onboardingInterview?: { completedAt: Date | null } | null }) {
+  private async checkInterviewIncomplete(student: { id: string; name: string; subscriptionStatus: string; onboardingInterview?: { completedAt: Date | null } | null; availability?: unknown[] }) {
     if (student.subscriptionStatus === 'pending') return;
     if (student.onboardingInterview?.completedAt) return;
+    // 21/08, incidente real (aluna Lucelane): conta antiga com rotina e plano ativo de verdade,
+    // mas `completedAt` vazio no banco (provavelmente criada antes desse campo existir). Mandar
+    // "sua entrevista esta incompleta" pra quem ja tem rotina configurada e' confuso e errado —
+    // ja ter rotina e' sinal forte de que ja foi onboarded de verdade.
+    if (student.availability && student.availability.length > 0) return;
     if (await this.messaging.hasRecentTriggerMessage(student.id, 'interview_incomplete', REMINDER_COOLDOWN_DAYS)) return;
 
     await this.messaging.sendEmail(student.id, {
