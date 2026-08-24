@@ -1,0 +1,43 @@
+services:
+  postgres:
+    # 21/08: atualizado de postgres:16-alpine pra bater com a versao real do banco de producao
+    # (17.10, confirmado no erro real do BackupService) — o descompasso entre essa versao local e
+    # a de producao ja causou um bug real (pg_dump 16 tentando ler servidor 17).
+    image: postgres:17-alpine
+    container_name: panzeri-run-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: panzeri
+      POSTGRES_PASSWORD: panzeri
+      POSTGRES_DB: panzeri_run
+    ports:
+      - "5432:5432"
+    volumes:
+      - panzeri_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U panzeri -d panzeri_run"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      # 21/08: apontava pro Dockerfile duplicado/nao usado em apps/api/Dockerfile, que foi removido
+      # hoje (era uma copia esquecida, o Dockerfile real usado em producao sempre foi o da raiz).
+      dockerfile: Dockerfile
+    container_name: panzeri-run-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    ports:
+      - "3333:3333"
+    command: npm --workspace apps/api run start:dev
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+volumes:
+  panzeri_postgres_data:

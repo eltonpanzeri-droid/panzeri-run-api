@@ -469,6 +469,18 @@ rotina configurada de verdade. **Nada foi perdido** — o plano dela sempre este
 era só a tela errada aparecendo por cima. Corrigido nos dois lugares: agora só força a tela de
 entrevista (ou manda o e-mail) se, além de `completedAt` vazio, a aluna também nunca configurou
 nenhuma rotina (`WeeklyAvailability` vazia) — sinal forte de que realmente nunca foi onboarded.
+- **Backup continuava quebrado mesmo depois da correção de ontem, com motivo diferente**: instalei
+  `postgresql-client-16` presumindo que a versão de produção era Postgres 16 (copiando do
+  `docker-compose.yml` LOCAL), sem verificar a versão real do banco do EasyPanel — que na verdade
+  é Postgres 17.10. `pg_dump` não lê dump de servidor mais novo que ele mesmo, então falhava com
+  "server version mismatch". Corrigido pra `postgresql-client-17` (confirmado direto no erro real
+  de produção, não presumido). De brinde, corrigido também o `docker-compose.yml` local (que
+  também estava em Postgres 16, E ainda apontava pro `Dockerfile` duplicado que foi removido) —
+  e ele nunca tinha entrado no script de sincronização, mesmo padrão de falha de hoje cedo.
+- **Registrado, mas ainda não implementado**: com 5+ incidentes desse exato tipo em 2 dias (arquivo
+  só existe de um lado, nunca no script de sincronização), fica cada vez mais claro que vale a pena
+  um diff determinístico entre a pasta de origem e o espelho do GitHub antes de cada sincronização
+  — ver `PROPOSTA_HARNESS_AGENTES.md` pra esse e outros pontos em aberto da discussão de harness.
 
 **Pontos em aberto / para acompanhar antes de publicar nas lojas:**
 - Texto de Termos de Uso / Política de Privacidade ainda não teve revisão jurídica profissional —
