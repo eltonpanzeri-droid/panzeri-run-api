@@ -478,7 +478,7 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
         <path d="M6 18.5 12 8l2 3.4-4 6.6h5l2.6 3.6H6.4l-.4-3.1Z" fill="var(--teal)"/>
       </svg>
     </span>
-    <p>Isso não é uma IA genérica repetindo o que qualquer treino de internet diria. É a forma real de treinar do <strong>treinador Elton Panzeri</strong>, anos treinando gente de verdade, formalizada pra decidir isso por cada aluno, toda semana.</p>
+    <p>Isso não é uma IA genérica repetindo o que qualquer treino de internet diria. É a metodologia real do <strong>treinador Elton Panzeri</strong>, anos treinando gente de verdade, formalizada em um sistema que ele coordena e supervisiona de perto.</p>
   </section>
 
   <div class="rule"></div>
@@ -490,11 +490,11 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
   <div class="faq">
     <details>
       <summary>Um app com IA é seguro pra quem nunca correu ou tem alguma lesão?</summary>
-      <p>Sim. As perguntas antes de começar existem justamente pra isso: idade, histórico de dor, lesão, o quanto você já corre hoje. O treino parte de onde você está, não de um padrão genérico, e cresce aos poucos.</p>
+      <p>As perguntas antes de começar existem justamente pra isso: idade, histórico de dor, lesão, o quanto você já corre hoje. O treino parte de onde você está, não de um padrão genérico, e cresce aos poucos. Se você tem uma condição de saúde importante, isso não substitui uma avaliação médica antes de começar.</p>
     </details>
     <details>
       <summary>Isso substitui ter um treinador de verdade?</summary>
-      <p>Não é uma IA solta na internet. É a forma real de treinar do treinador Elton Panzeri, formalizada pra decidir seu treino toda semana. Ele segue por trás do programa. O que muda é que você não depende de agenda, mensagem ou disponibilidade dele pra ter seu treino pronto.</p>
+      <p>Não é uma IA solta na internet. É a metodologia real do treinador Elton Panzeri, formalizada em um sistema que ele coordena e supervisiona tecnicamente. O que muda é que você não depende de agenda, mensagem ou disponibilidade dele pra ter seu treino pronto toda semana.</p>
     </details>
     <details>
       <summary>E se eu não conseguir seguir o treino numa semana?</summary>
