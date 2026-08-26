@@ -310,6 +310,93 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
   }
   .whatsapp-link:hover { color: var(--teal); text-decoration-color: var(--teal); }
 
+  .section-head { max-width: 46ch; }
+  .section-head .tag {
+    display: block;
+    font-family: 'Track', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--teal);
+    margin-bottom: 14px;
+  }
+  .section-head h2 {
+    font-family: 'Shoulders', sans-serif;
+    font-weight: 800;
+    text-transform: uppercase;
+    text-wrap: balance;
+    font-size: clamp(26px, 4.2vw, 38px);
+    line-height: 1.06;
+    margin: 0;
+    max-width: 16ch;
+  }
+
+  .benefits {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: clamp(16px, 3vw, 24px);
+    margin-top: clamp(30px, 5vw, 42px);
+  }
+  @media (max-width: 560px) { .benefits { grid-template-columns: 1fr; } }
+  .benefit-card {
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+  }
+  .benefit-card h3 {
+    font-family: 'Shoulders', sans-serif;
+    font-weight: 800;
+    text-transform: uppercase;
+    font-size: 15.5px;
+    letter-spacing: 0.01em;
+    margin: 0 0 10px;
+  }
+  .benefit-card p {
+    margin: 0;
+    color: var(--ink-dim);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  .faq {
+    margin-top: clamp(26px, 5vw, 38px);
+    display: flex;
+    flex-direction: column;
+  }
+  .faq details {
+    border-bottom: 1px solid var(--line);
+    padding: 18px 0;
+  }
+  .faq summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    font-weight: 600;
+    font-size: 15.5px;
+    color: var(--ink);
+  }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after {
+    content: '+';
+    font-family: 'Track', monospace;
+    font-size: 20px;
+    color: var(--teal);
+    flex-shrink: 0;
+    transition: transform 0.15s ease;
+  }
+  .faq details[open] summary::after { transform: rotate(45deg); }
+  .faq p {
+    margin: 14px 0 0;
+    color: var(--ink-dim);
+    font-size: 15px;
+    max-width: 58ch;
+  }
+
   footer {
     max-width: 760px;
     margin: 0 auto;
@@ -354,9 +441,34 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
 
   <section class="beat">
     <span class="tag">Toda semana</span>
-    <p>Você conta como foi — se doeu, se cansou, se foi tranquilo. O treino da semana seguinte já nasce diferente por causa disso.</p>
-    <p>Não existe um plano fechado de 12 semanas que ignora o que está acontecendo com você agora.</p>
+    <p>Você conta como foi: se doeu, se cansou, se foi tranquilo. O treino da semana seguinte já nasce diferente por causa disso.</p>
+    <p>Não existe um programa fechado de 12 semanas que ignora o que está acontecendo com você agora.</p>
   </section>
+
+  <div class="rule"></div>
+
+  <section class="section-head">
+    <span class="tag">Por que é diferente</span>
+    <h2>Não existe treino genérico aqui.</h2>
+  </section>
+  <div class="benefits">
+    <div class="benefit-card">
+      <h3>Feito pra você</h3>
+      <p>Cada treino nasce das suas respostas: sua rotina, seu histórico, o que você sente hoje. Não é uma tabela pronta que todo mundo que baixa o app recebe igual.</p>
+    </div>
+    <div class="benefit-card">
+      <h3>Evolui junto com você</h3>
+      <p>Nada de calendário fixo de 12 semanas. O treino muda toda semana com base no que você realmente fez, não no que "deveria" ter feito.</p>
+    </div>
+    <div class="benefit-card">
+      <h3>Sem inventar risco</h3>
+      <p>Dor, cansaço, lesão: quando você avisa, o próximo treino já leva isso em conta antes de aumentar qualquer coisa.</p>
+    </div>
+    <div class="benefit-card">
+      <h3>Do primeiro km à prova</h3>
+      <p>Serve pra quem nunca correu e pra quem já treina pra uma meia ou maratona. O programa se ajusta ao seu momento, não ao momento médio de qualquer corredor.</p>
+    </div>
+  </div>
 
   <div class="rule"></div>
 
@@ -366,8 +478,39 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
         <path d="M6 18.5 12 8l2 3.4-4 6.6h5l2.6 3.6H6.4l-.4-3.1Z" fill="var(--teal)"/>
       </svg>
     </span>
-    <p>Isso não é uma IA genérica repetindo o que qualquer treino de internet diria. É a forma real de treinar do <strong>treinador Elton Panzeri</strong> — anos treinando gente de verdade, formalizada pra decidir isso por cada aluno, toda semana.</p>
+    <p>Isso não é uma IA genérica repetindo o que qualquer treino de internet diria. É a forma real de treinar do <strong>treinador Elton Panzeri</strong>, anos treinando gente de verdade, formalizada pra decidir isso por cada aluno, toda semana.</p>
   </section>
+
+  <div class="rule"></div>
+
+  <section class="section-head">
+    <span class="tag">Antes de começar</span>
+    <h2>Dúvidas que todo mundo tem.</h2>
+  </section>
+  <div class="faq">
+    <details>
+      <summary>Um app com IA é seguro pra quem nunca correu ou tem alguma lesão?</summary>
+      <p>Sim. As perguntas antes de começar existem justamente pra isso: idade, histórico de dor, lesão, o quanto você já corre hoje. O treino parte de onde você está, não de um padrão genérico, e cresce aos poucos.</p>
+    </details>
+    <details>
+      <summary>Isso substitui ter um treinador de verdade?</summary>
+      <p>Não é uma IA solta na internet. É a forma real de treinar do treinador Elton Panzeri, formalizada pra decidir seu treino toda semana. Ele segue por trás do programa. O que muda é que você não depende de agenda, mensagem ou disponibilidade dele pra ter seu treino pronto.</p>
+    </details>
+    <details>
+      <summary>E se eu não conseguir seguir o treino numa semana?</summary>
+      <p>Você conta o que realmente aconteceu, mesmo que tenha sido pouco ou nada, e o treino da semana seguinte parte dali, não do que "deveria" ter acontecido.</p>
+    </details>
+    <details>
+      <summary>Serve só pra quem tá começando, ou também pra quem já corre?</summary>
+      <p>Serve pros dois. Quanto mais você conta sobre seus treinos e suas provas, mais preciso o programa fica, do primeiro quilômetro até o dia da prova.</p>
+    </details>
+    <details>
+      <summary>Por que pagar, se tem treino pronto de graça na internet?</summary>
+      <p>Porque o de graça é igual pra todo mundo. Aqui o treino muda toda semana com base no que está acontecendo com você, não com o corredor médio de um artigo qualquer.</p>
+    </details>
+  </div>
+
+  <div class="rule"></div>
 
   <section class="finish">
     <div class="amount-row">
