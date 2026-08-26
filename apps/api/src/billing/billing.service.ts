@@ -41,6 +41,25 @@ function resolveAppStatusFromEvent(event?: string): 'active' | 'overdue' | 'canc
 }
 const PLAN_PRICE = 19.9;
 const PLAN_DESCRIPTION = 'Panzeri Run - Plano mensal';
+// 26/08: assinatura comprada dentro do app nativo (Apple IAP / Google Play Billing), sempre
+// R$24,90 pra cobrir a comissao de 15-30% que a loja retem — preco diferente do Asaas (R$19,90)
+// de proposito, ver decisao do treinador em PRONTUARIO.md.
+const APP_STORE_PLAN_PRICE = 24.9;
+// Eventos do RevenueCat que dao acesso (compra inicial, renovacao, religou o auto-renew, trocou
+// de produto ainda dentro da mesma assinatura ativa). CANCELLATION nao entra aqui de proposito:
+// a aluna desligou o auto-renew mas continua com acesso ate o fim do periodo ja pago — so
+// EXPIRATION (quando esse periodo realmente acaba) e que deve cortar o acesso.
+const REVENUECAT_ACTIVE_EVENTS = new Set(['INITIAL_PURCHASE', 'RENEWAL', 'UNCANCELLATION', 'PRODUCT_CHANGE', 'NON_RENEWING_PURCHASE']);
+const REVENUECAT_OVERDUE_EVENTS = new Set(['BILLING_ISSUE']);
+const REVENUECAT_CANCELED_EVENTS = new Set(['EXPIRATION', 'REFUND']);
+
+function resolveAppStatusFromRevenueCatEvent(eventType?: string): 'active' | 'overdue' | 'canceled' | null {
+  if (!eventType) return null;
+  if (REVENUECAT_ACTIVE_EVENTS.has(eventType)) return 'active';
+  if (REVENUECAT_OVERDUE_EVENTS.has(eventType)) return 'overdue';
+  if (REVENUECAT_CANCELED_EVENTS.has(eventType)) return 'canceled';
+  return null;
+}
 const WELCOME_NOTIFICATION_TYPE = 'subscription_welcome';
 const WELCOME_NOTIFICATION_TITLE = 'Bem-vindo ao Panzeri Run';
 // 18/08 (Bloco 2 de onboarding): antes essa mensagem mandava direto pra "Rotina de treinos",
@@ -442,6 +461,53 @@ export class BillingService {
     return { received: true };
   }
 
+  // Assinatura comprada dentro do app nativo (Apple IAP / Google Play Billing), 26/08. O
+  // RevenueCat cuida da validacao de recibo e da renovacao/cancelamento de verdade nas duas
+  // lojas, e so nos avisa aqui quando algo muda — igual ao webhook do Asaas acima, so que pra
+  // quem assina pela loja em vez do site. O app_user_id enviado pelo RevenueCat E o nosso userId
+  // (o app mobile configura o SDK assim no login, ver App.tsx) — nao existe tabela de mapeamento
+  // separada.
+  async processRevenueCatWebhook(authHeader: string | undefined, payload: { event?: { type?: string; app_user_id?: string; product_id?: string } }) {
+    const expectedSecret = this.config.get<string>('REVENUECAT_WEBHOOK_SECRET');
+    const providedSecret = authHeader?.replace(/^Bearer\s+/i, '');
+    if (!expectedSecret || providedSecret !== expectedSecret) {
+      throw new UnauthorizedException('Token de webhook invalido.');
+    }
+
+    const event = payload.event;
+    const userId = event?.app_user_id;
+    if (!userId) return { received: true };
+
+    const appStatus = resolveAppStatusFromRevenueCatEvent(event?.type);
+    if (!appStatus) return { received: true };
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, subscriptionStatus: true, studentCode: true } });
+    if (!user) return { received: true };
+    const wasAlreadyActive = user.subscriptionStatus === 'active';
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { subscriptionStatus: appStatus, subscriptionProvider: 'revenuecat', subscriptionUpdatedAt: new Date() },
+    });
+
+    if (appStatus === 'active') {
+      await this.createWelcomeNotificationOnce(userId);
+      if (!wasAlreadyActive) {
+        await this.assignStudentCodeIfNeeded(userId);
+        const updatedUser = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { studentCode: true } });
+        this.triggerFirstWeekGeneration(userId);
+        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run (loja)!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(updatedUser.studentCode)})\nE-mail: ${user.email}\nValor: R$ ${APP_STORE_PLAN_PRICE.toFixed(2).replace('.', ',')} via App Store / Google Play`);
+        await this.messaging.sendEmail(userId, {
+          trigger: 'payment_confirmed',
+          subject: 'Pagamento confirmado - monte sua rotina de treinos!',
+          content: `Ola ${user.name},\n\nSeu pagamento foi confirmado! Agora abra o aplicativo — vamos te guiar por uma entrevista completa para montar seu programa personalizado.\n\nPanzeri Run`,
+        });
+      }
+    }
+
+    return { received: true };
+  }
+
   // Usado pelo treinador quando um aluno diz que ja pagou mas o app continua mostrando acesso
   // bloqueado — em vez de gerar um novo link (que nao ajuda quem ja pagou), isso consulta o
   // status real da assinatura/pagamentos direto no Asaas e sincroniza a conta agora, sem
@@ -469,6 +535,9 @@ export class BillingService {
       where: {
         role: 'student',
         subscriptionManualOverride: false,
+        // 26/08: quem assinou pela loja (Apple/Google) e controlada pelo webhook do RevenueCat,
+        // nunca por essa varredura do Asaas — os dois nunca devem decidir o status da mesma aluna.
+        subscriptionProvider: 'asaas',
         billingSubscription: { externalSubscriptionId: { not: null } },
       },
       select: { id: true, billingSubscription: { select: { id: true, externalSubscriptionId: true } } },

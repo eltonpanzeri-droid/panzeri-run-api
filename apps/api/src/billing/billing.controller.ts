@@ -41,5 +41,13 @@ export class BillingController {
   asaasWebhook(@Headers('asaas-access-token') accessToken: string | undefined, @Body() payload: Record<string, any>) {
     return this.billingService.processAsaasWebhook(accessToken, payload);
   }
+
+  // Assinatura comprada dentro do app nativo (Apple IAP / Google Play Billing) — o RevenueCat
+  // manda esse aviso quando a compra/renovacao/cancelamento acontece de verdade nas lojas.
+  @SkipThrottle()
+  @Post('revenuecat/webhook')
+  revenueCatWebhook(@Headers('authorization') authHeader: string | undefined, @Body() payload: Record<string, any>) {
+    return this.billingService.processRevenueCatWebhook(authHeader, payload);
+  }
 }
 

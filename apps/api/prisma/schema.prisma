@@ -43,6 +43,12 @@ model User {
   subscriptionStatus               String    @default("pending")
   subscriptionUpdatedAt            DateTime  @default(now())
   subscriptionManualOverride       Boolean   @default(false)
+  // 26/08: quem controla subscriptionStatus pra essa aluna — 'asaas' (site/PWA, cobranca via
+  // billing.service.ts) ou 'revenuecat' (assinatura comprada dentro do app nativo iOS/Android,
+  // Apple IAP ou Google Play Billing). Existe pra o cron diario do Asaas (billing-sync-scheduler)
+  // nunca sobrescrever o status de quem assinou pela loja, e vice-versa — os dois sistemas nunca
+  // devem decidir o status da mesma aluna ao mesmo tempo.
+  subscriptionProvider              String    @default("asaas")
   acceptedTermsAt                  DateTime?
   acceptedPrivacyAt                DateTime?
   acceptedExerciseResponsibilityAt DateTime?
