@@ -247,9 +247,18 @@ model MessageLog {
   status      String   @default("sent")
   errorDetail String?
   createdAt   DateTime @default(now())
+  // 27/08: id que a Resend devolve no envio — correlaciona esse registro com os eventos que
+  // chegam depois pelo webhook (delivered/bounced/complained/opened). "status" acima so' reflete
+  // se a Resend ACEITOU processar o envio, nao se realmente chegou na caixa de entrada — sem
+  // isso, um e-mail "sent" podia ter simplesmente batido num endereco inexistente sem ninguem
+  // nunca saber.
+  resendEmailId     String?
+  deliveryStatus    String?
+  deliveryUpdatedAt DateTime?
 
   @@index([userId, createdAt])
   @@index([trigger, createdAt])
+  @@index([resendEmailId])
 }
 
 model HealthProfile {

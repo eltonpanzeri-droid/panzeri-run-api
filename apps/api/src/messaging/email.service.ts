@@ -19,7 +19,7 @@ export class EmailService {
     subject: string,
     text: string,
     attachments?: Array<{ filename: string; content: Buffer }>,
-  ): Promise<{ ok: boolean; error?: string }> {
+  ): Promise<{ ok: boolean; error?: string; resendEmailId?: string }> {
     if (!this.client) {
       this.logger.warn('RESEND_API_KEY nao configurado - e-mail nao enviado.');
       return { ok: false, error: 'Servico de e-mail nao configurado.' };
@@ -39,7 +39,9 @@ export class EmailService {
         return { ok: false, error: result.error.message };
       }
 
-      return { ok: true };
+      // 27/08: id que a Resend devolve no envio — MessagingService guarda isso no MessageLog pra
+      // conseguir correlacionar com os eventos de entrega que chegam depois pelo webhook.
+      return { ok: true, resendEmailId: result.data?.id };
     } catch (error) {
       this.logger.warn(`Erro ao enviar e-mail: ${(error as Error).message}`);
       return { ok: false, error: (error as Error).message };

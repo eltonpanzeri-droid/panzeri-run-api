@@ -59,9 +59,11 @@ export class CoachService {
   }
 
   // 27/08: diagnostico de verdade pro treinador ver se os e-mails de aquecimento (8h/24h/7d/30d)
-  // estao sendo entregues ou falhando silenciosamente — hasEverSentTrigger() em messaging.service.ts
-  // marca um degrau como "ja enviado" mesmo quando falha, entao sem essa visibilidade um problema
-  // no Resend (chave, dominio, etc.) travaria a sequencia inteira sem ninguem perceber.
+  // estao sendo entregues ou falhando silenciosamente. "status" (sent/failed) so' reflete se a
+  // Resend aceitou processar o envio; "deliveryStatus" (delivered/bounced/complained/opened) vem
+  // do webhook e mostra se realmente chegou — sem essa segunda parte, um endereco com erro de
+  // digitacao (ja aconteceu de verdade, ver PRONTUARIO.md) "enviava com sucesso" e nunca chegava
+  // em lugar nenhum, sem ninguem perceber.
   async prospectNurtureLog() {
     const logs = await this.prisma.messageLog.findMany({
       where: { trigger: { startsWith: 'nurture_' } },
@@ -74,13 +76,27 @@ export class CoachService {
         status: true,
         errorDetail: true,
         createdAt: true,
+        // deliveryStatus: preenchido pelo webhook da Resend (delivered/bounced/complained/opened)
+        // depois do envio — "sent" so' significa que a Resend aceitou processar, nao que chegou.
+        deliveryStatus: true,
+        deliveryUpdatedAt: true,
         user: { select: { name: true, email: true } },
       },
     });
+    // 27/08: contagem generica por deliveryStatus (nao so' delivered/bounced/opened) — a Resend
+    // manda mais eventos reais (sent, complained, clicked, delivery_delayed, failed). Uma lista
+    // fixa de 3 buckets deixava qualquer um desses outros invisivel na contagem, exatamente o
+    // tipo de falha silenciosa que esse diagnostico existe pra evitar.
+    const byDeliveryStatus: Record<string, number> = {};
+    for (const log of logs) {
+      const key = log.deliveryStatus ?? 'sem_evento_ainda';
+      byDeliveryStatus[key] = (byDeliveryStatus[key] ?? 0) + 1;
+    }
     return {
       total: logs.length,
       sent: logs.filter((l) => l.status === 'sent').length,
       failed: logs.filter((l) => l.status === 'failed').length,
+      byDeliveryStatus,
       logs,
     };
   }
