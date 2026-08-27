@@ -58,15 +58,17 @@ export class CoachService {
     return this.prospectNurture.runNurtureSequence();
   }
 
-  // 27/08: diagnostico de verdade pro treinador ver se os e-mails de aquecimento (8h/24h/7d/30d)
-  // estao sendo entregues ou falhando silenciosamente. "status" (sent/failed) so' reflete se a
-  // Resend aceitou processar o envio; "deliveryStatus" (delivered/bounced/complained/opened) vem
-  // do webhook e mostra se realmente chegou — sem essa segunda parte, um endereco com erro de
-  // digitacao (ja aconteceu de verdade, ver PRONTUARIO.md) "enviava com sucesso" e nunca chegava
-  // em lugar nenhum, sem ninguem perceber.
-  async prospectNurtureLog() {
+  // 27/08: diagnostico de verdade pro treinador ver se QUALQUER e-mail do sistema (aquecimento de
+  // prospecto, cobranca, mensagem manual do treinador, o que for) esta sendo entregue ou falhando
+  // silenciosamente. "status" (sent/failed) so' reflete se a Resend aceitou processar o envio;
+  // "deliveryStatus" (delivered/bounced/complained/opened) vem do webhook e mostra se realmente
+  // chegou — sem essa segunda parte, um endereco com erro de digitacao (ja aconteceu de verdade,
+  // ver PRONTUARIO.md) "enviava com sucesso" e nunca chegava em lugar nenhum, sem ninguem
+  // perceber. triggerPrefix opcional filtra por tipo (ex: 'nurture_' so' pra aquecimento de
+  // prospecto); sem filtro, mostra todos os e-mails recentes do sistema.
+  async messageLog(triggerPrefix?: string) {
     const logs = await this.prisma.messageLog.findMany({
-      where: { trigger: { startsWith: 'nurture_' } },
+      where: triggerPrefix ? { trigger: { startsWith: triggerPrefix } } : {},
       orderBy: { createdAt: 'desc' },
       take: 100,
       select: {

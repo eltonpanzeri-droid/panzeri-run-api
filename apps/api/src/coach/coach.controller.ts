@@ -52,9 +52,11 @@ export class CoachController {
     return this.coachService.runProspectNurtureNow();
   }
 
-  @Get('prospects/nurture/log')
-  prospectNurtureLog() {
-    return this.coachService.prospectNurtureLog();
+  // triggerPrefix opcional: ex ?triggerPrefix=nurture_ pra ver so' o aquecimento de prospecto.
+  // Sem o parametro, mostra todo e-mail recente do sistema (cobranca, mensagem manual, etc.).
+  @Get('messages/log')
+  messageLog(@Query('triggerPrefix') triggerPrefix?: string) {
+    return this.coachService.messageLog(triggerPrefix);
   }
 
   @Get('coupons')
