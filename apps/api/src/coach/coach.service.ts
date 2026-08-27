@@ -500,7 +500,10 @@ export class CoachService {
       // esquema anterior a 18/08 (atribuido automaticamente pelo banco, sem nunca ter pago) —
       // revertido. O filtro certo continua sendo subscriptionStatus, agora que a causa raiz do
       // recalculo errado esta corrigida.
-      subscriptionStatus: { not: 'pending' },
+      // 27/08: 'canceled' tambem fica de fora daqui, alem de 'pending' — essas alunas agora tem
+      // lista propria (CoachService.exStudents()). Sem essa exclusao, uma ex-aluna aparecia ao
+      // mesmo tempo na lista operacional principal E em Ex-alunos, duplicado.
+      subscriptionStatus: { notIn: ['pending', 'canceled'] },
       ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }),
       ...(input.search ? {
         OR: [
@@ -543,7 +546,7 @@ export class CoachService {
       },
       }),
       this.prisma.user.count({ where: studentWhere }),
-      this.prisma.user.count({ where: { role: 'student', subscriptionStatus: { not: 'pending' }, ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }) } }),
+      this.prisma.user.count({ where: { role: 'student', subscriptionStatus: { notIn: ['pending', 'canceled'] }, ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }) } }),
       this.prisma.trainingPlan.findMany({ where: { status: 'active' }, distinct: ['userId'], select: { userId: true } }),
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: weekEnd }, plan: { status: 'active' } } }),
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } }),
@@ -673,7 +676,11 @@ export class CoachService {
   // inteiro sem deixar rastro nenhum.
   async exStudents() {
     const rows = await this.prisma.user.findMany({
-      where: { role: 'student', accountStatus: { not: 'archived' }, subscriptionStatus: 'canceled' },
+      // studentCode: not null garante que so' entra aqui quem realmente chegou a ser aluna (pago
+      // ou cortesia liberada pelo treinador) alguma vez — sem essa trava, um cadastro fantasma que
+      // nunca pagou (subscriptionStatus vira 'canceled' se alguem chamar cancel() nele, sem nunca
+      // ter tido assinatura de verdade) apareceria aqui como se fosse uma ex-aluna real.
+      where: { role: 'student', accountStatus: { not: 'archived' }, subscriptionStatus: 'canceled', studentCode: { not: null } },
       orderBy: { subscriptionUpdatedAt: 'desc' },
       select: {
         id: true,
@@ -682,8 +689,8 @@ export class CoachService {
         studentCode: true,
         createdAt: true,
         subscriptionUpdatedAt: true,
+        subscriptionCancelRequestedAt: true,
         preferences: { select: { mainGoal: true } },
-        billingSubscription: { select: { providerStatus: true } },
       },
     });
 
@@ -697,11 +704,16 @@ export class CoachService {
         goal: row.preferences?.mainGoal ?? 'Objetivo nao informado',
         studentSince: row.createdAt,
         canceledAt: row.subscriptionUpdatedAt,
-        daysAsStudent: Math.round((row.subscriptionUpdatedAt.getTime() - row.createdAt.getTime()) / 86400000),
-        // 'cancel_requested' = a propria aluna pediu (botao "Cancelar assinatura" no app);
-        // qualquer outro valor normalmente veio de um evento do Asaas (ex: assinatura caiu apos
-        // varias tentativas de cobranca falharem, nao foi um pedido explicito).
-        selfRequested: row.billingSubscription?.providerStatus === 'cancel_requested',
+        // Cadastro ate cancelar, nao "tempo pagando" — nao existe hoje um campo com a data do 1o
+        // pagamento pra medir isso com precisao (quem demorou pra assinar depois de se cadastrar
+        // teria esse numero inflado). Nomeado explicitamente pra nao afirmar o que nao mede.
+        daysSinceSignup: Math.round((row.subscriptionUpdatedAt.getTime() - row.createdAt.getTime()) / 86400000),
+        // subscriptionCancelRequestedAt: marcado direto por cancel() (aluna, no app) ou pelo
+        // webhook do RevenueCat (evento CANCELLATION, loja) — nunca sobrescrito por sync
+        // automatico, diferente do antigo criterio (billingSubscription.providerStatus) que se
+        // apagava sozinho no proximo sync. null = assinatura caiu sozinha, ninguem pediu
+        // (ex: varias tentativas de cobranca falharam ate o Asaas desistir).
+        selfRequested: row.subscriptionCancelRequestedAt !== null,
       })),
     };
   }

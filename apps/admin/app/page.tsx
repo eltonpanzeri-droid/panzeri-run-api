@@ -69,7 +69,7 @@ type ExStudentRow = {
   goal: string;
   studentSince: string;
   canceledAt: string;
-  daysAsStudent: number;
+  daysSinceSignup: number;
   selfRequested: boolean;
 };
 
@@ -1379,18 +1379,20 @@ export default function AdminHome() {
                 <div className="row header">
                   <span>Nome</span>
                   <span>E-mail</span>
-                  <span>Foi aluna por</span>
+                  <span>Objetivo</span>
+                  <span>Cadastro ate cancelar</span>
                   <span>Cancelou em</span>
                 </div>
                 {(exStudents?.exStudents ?? []).map((exStudent) => (
                   <div className="row" key={exStudent.id}>
                     <span><strong>{exStudent.name}</strong><br /><small>{exStudent.studentCode}</small></span>
                     <span>{exStudent.email}</span>
-                    <span>{exStudent.daysAsStudent} dias</span>
+                    <span>{exStudent.goal}</span>
+                    <span>{exStudent.daysSinceSignup} dias</span>
                     <span>
                       {dateLabel(exStudent.canceledAt)}
                       <br />
-                      <small>{exStudent.selfRequested ? 'Pediu cancelamento' : 'Assinatura caiu (Asaas)'}</small>
+                      <small>{exStudent.selfRequested ? 'Pediu cancelamento' : 'Assinatura caiu sozinha'}</small>
                     </span>
                   </div>
                 ))}

@@ -43,6 +43,12 @@ model User {
   subscriptionStatus               String    @default("pending")
   subscriptionUpdatedAt            DateTime  @default(now())
   subscriptionManualOverride       Boolean   @default(false)
+  // 27/08: marca quando a PROPRIA aluna pediu cancelamento (botao "Cancelar assinatura" no app,
+  // ou desligou o auto-renew na loja via RevenueCat). Diferente de billingSubscription.providerStatus
+  // (que e' sobrescrito a cada sincronizacao com o Asaas/RevenueCat) — esse campo nunca e' tocado
+  // por nenhum sync, entao sobrevive pra sempre e da pra distinguir "ela pediu" de "a assinatura
+  // caiu sozinha" na pagina de Ex-alunos, mesmo dias/semanas depois.
+  subscriptionCancelRequestedAt    DateTime?
   // 26/08: quem controla subscriptionStatus pra essa aluna — 'asaas' (site/PWA, cobranca via
   // billing.service.ts) ou 'revenuecat' (assinatura comprada dentro do app nativo iOS/Android,
   // Apple IAP ou Google Play Billing). Existe pra o cron diario do Asaas (billing-sync-scheduler)

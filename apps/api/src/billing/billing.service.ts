@@ -406,18 +406,21 @@ export class BillingService {
 
   async cancel(userId: string) {
     const billing = await this.prisma.billingSubscription.findUnique({ where: { userId } });
+    // 27/08: subscriptionCancelRequestedAt marca que foi a PROPRIA aluna que pediu, nos dois
+    // caminhos abaixo — nunca e' sobrescrito por sync nenhum depois (ver comentario no schema).
     if (!billing?.externalSubscriptionId) {
       await this.prisma.$transaction([
         billing
           ? this.prisma.billingSubscription.update({ where: { userId }, data: { providerStatus: 'cancel_requested' } })
           : this.prisma.billingSubscription.create({ data: { userId, provider: 'manual', providerStatus: 'cancel_requested' } }),
-        this.prisma.user.update({ where: { id: userId }, data: { subscriptionStatus: 'canceled', subscriptionUpdatedAt: new Date() } }),
+        this.prisma.user.update({ where: { id: userId }, data: { subscriptionStatus: 'canceled', subscriptionUpdatedAt: new Date(), subscriptionCancelRequestedAt: new Date() } }),
       ]);
       return { status: 'canceled', message: 'Solicitacao de cancelamento registrada.' };
     }
 
     await this.asaasRequest(`/subscriptions/${billing.externalSubscriptionId}`, { method: 'DELETE' });
     await this.updateStatus(userId, 'canceled', 'canceled');
+    await this.prisma.user.update({ where: { id: userId }, data: { subscriptionCancelRequestedAt: new Date() } });
     return { status: 'canceled', message: 'Assinatura cancelada.' };
   }
 
@@ -488,6 +491,16 @@ export class BillingService {
     const event = payload.event;
     const userId = event?.app_user_id;
     if (!userId) return { received: true };
+
+    // 27/08: CANCELLATION = a aluna desligou o auto-renew na loja (Apple/Google), mas continua
+    // com acesso ate o fim do periodo ja pago — nao muda subscriptionStatus (so' EXPIRATION faz
+    // isso, ver resolveAppStatusFromRevenueCatEvent). Mas e' um pedido real dela, entao marca
+    // subscriptionCancelRequestedAt pra Ex-alunos mostrar isso certo mais pra frente, quando o
+    // acesso realmente expirar.
+    if (event?.type === 'CANCELLATION') {
+      await this.prisma.user.update({ where: { id: userId }, data: { subscriptionCancelRequestedAt: new Date() } }).catch(() => {});
+      return { received: true };
+    }
 
     const appStatus = resolveAppStatusFromRevenueCatEvent(event?.type);
     if (!appStatus) return { received: true };
@@ -610,6 +623,14 @@ export class BillingService {
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true, subscriptionStatus: true, studentCode: true } });
     const wasAlreadyActive = user.subscriptionStatus === 'active';
+    // 27/08, achado por auto-revisao antes de entregar: subscriptionUpdatedAt era atualizado
+    // TODA VEZ que este sync roda, mesmo quando o status nao mudou nada. refreshAllPendingStudents
+    // (varredura diaria as 6h + botao "Sincronizar todos") continua incluindo assinaturas ja
+    // canceladas pra sempre (cancel() nunca limpa billingSubscription.externalSubscriptionId) —
+    // entao a data de cancelamento de uma ex-aluna "andava" sozinha todo dia pra frente, e a
+    // pagina de Ex-alunos nunca mostrava a data real do cancelamento. So grava subscriptionUpdatedAt
+    // quando o status realmente mudou.
+    const statusChanged = appStatus !== user.subscriptionStatus;
 
     await this.prisma.$transaction([
       this.prisma.billingSubscription.update({
@@ -620,7 +641,11 @@ export class BillingService {
         where: { id: userId },
         // Sempre que este sync realmente roda (seja automatico sem override, seja pedido
         // explicito do treinador), o Asaas volta a ser a fonte da verdade — limpa a trava manual.
-        data: { subscriptionStatus: appStatus, subscriptionUpdatedAt: new Date(), subscriptionManualOverride: false },
+        data: {
+          subscriptionStatus: appStatus,
+          ...(statusChanged ? { subscriptionUpdatedAt: new Date() } : {}),
+          subscriptionManualOverride: false,
+        },
       }),
     ]);
 
