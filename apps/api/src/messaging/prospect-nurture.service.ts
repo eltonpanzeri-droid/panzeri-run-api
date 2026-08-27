@@ -83,11 +83,7 @@ export class ProspectNurtureService {
   @Cron(CronExpression.EVERY_HOUR)
   async runNurtureSequence() {
     const prospects = await this.prisma.user.findMany({
-      // 27/08: studentCode: null aqui e' o que garante de verdade que essa pessoa nunca pagou —
-      // subscriptionStatus='pending' sozinho nao e' confiavel (e' recalculado a cada sync do
-      // Asaas e um bug real ja fez isso acontecer pra uma aluna pagante de longa data). Sem essa
-      // trava extra, essa mesma aluna teria recebido e-mail de "venha assinar" por engano.
-      where: { role: 'student', accountStatus: { not: 'archived' }, subscriptionStatus: 'pending', studentCode: null },
+      where: { role: 'student', accountStatus: { not: 'archived' }, subscriptionStatus: 'pending' },
       select: {
         id: true,
         name: true,
