@@ -610,15 +610,25 @@ export class BillingService {
     // Asaas. hasEverPaid distingue "aluno estabelecido, cobranca de hoje so' ainda nao processou"
     // de "nunca pagou nem uma vez" (esse sim deve continuar 'pending' ate a 1a cobranca confirmar).
     const hasEverPaid = (payments.data ?? []).some((payment) => ACTIVE_STATUSES.has((payment.status ?? '').toLowerCase()));
+    // 27/08, achado real com dado de producao (aluno Rodrigo, mesmo dia): o Asaas NAO promove
+    // sozinho o status de um pagamento de "pending" pra "overdue" so' porque passou o vencimento —
+    // um boleto/cartao pode ficar "pending" por SEMANAS depois do vencimento, ate ser pago ou
+    // cancelado (confirmado: pagamento de Rodrigo venceu 27/07, so' foi pago 27/08, e nunca
+    // deixou de aparecer como "pending" no meio do caminho). Nesse ponto do codigo, se
+    // latestPaymentStatus ainda e' 'pending', a data dele necessariamente JA passou (o filtro
+    // isFuturePending la em cima ja excluiu qualquer pending com vencimento hoje/futuro) — entao
+    // pra quem ja pagou antes (hasEverPaid), isso e' atraso de verdade, nao "nunca pagou".
     const appStatus = providerStatus === 'inactive' || providerStatus === 'deleted'
       ? 'canceled'
       : latestPaymentStatus && ACTIVE_STATUSES.has(latestPaymentStatus)
         ? 'active'
         : latestPaymentStatus && OVERDUE_STATUSES.has(latestPaymentStatus)
           ? 'overdue'
-          : !latestPaymentStatus && hasEverPaid
-            ? 'active'
-            : 'pending';
+          : latestPaymentStatus === 'pending' && hasEverPaid
+            ? 'overdue'
+            : !latestPaymentStatus && hasEverPaid
+              ? 'active'
+              : 'pending';
     const nextChargeAt = subscription.nextDueDate ? new Date(subscription.nextDueDate + 'T12:00:00.000Z') : null;
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true, subscriptionStatus: true, studentCode: true } });

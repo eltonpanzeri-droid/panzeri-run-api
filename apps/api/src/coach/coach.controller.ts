@@ -52,6 +52,11 @@ export class CoachController {
     return this.coachService.runProspectNurtureNow();
   }
 
+  @Get('prospects/nurture/log')
+  prospectNurtureLog() {
+    return this.coachService.prospectNurtureLog();
+  }
+
   @Get('coupons')
   coupons() {
     return this.coachService.coupons();

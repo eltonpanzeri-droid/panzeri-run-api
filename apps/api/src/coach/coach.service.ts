@@ -58,6 +58,33 @@ export class CoachService {
     return this.prospectNurture.runNurtureSequence();
   }
 
+  // 27/08: diagnostico de verdade pro treinador ver se os e-mails de aquecimento (8h/24h/7d/30d)
+  // estao sendo entregues ou falhando silenciosamente — hasEverSentTrigger() em messaging.service.ts
+  // marca um degrau como "ja enviado" mesmo quando falha, entao sem essa visibilidade um problema
+  // no Resend (chave, dominio, etc.) travaria a sequencia inteira sem ninguem perceber.
+  async prospectNurtureLog() {
+    const logs = await this.prisma.messageLog.findMany({
+      where: { trigger: { startsWith: 'nurture_' } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        userId: true,
+        trigger: true,
+        status: true,
+        errorDetail: true,
+        createdAt: true,
+        user: { select: { name: true, email: true } },
+      },
+    });
+    return {
+      total: logs.length,
+      sent: logs.filter((l) => l.status === 'sent').length,
+      failed: logs.filter((l) => l.status === 'failed').length,
+      logs,
+    };
+  }
+
   // Gatilho manual do mesmo job que rodaria sozinho todo domingo 19h (ver
   // WeeklyPlanSchedulerService — pausado em 02/08 apos o incidente do loop de deploy). Usado pelo
   // treinador pra gerar a semana seguinte de TODOS os alunos de uma vez quando o robo automatico
