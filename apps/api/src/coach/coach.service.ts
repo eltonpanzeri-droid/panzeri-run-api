@@ -491,7 +491,13 @@ export class CoachService {
       // 18/08: quem nunca pagou (nem recebeu cortesia) e' prospecto, nao aluno — fica de fora da
       // lista operacional principal. Ver CoachService.prospects() pra essas pessoas, com nivel de
       // interesse (entrevista/cobranca) em vez de misturadas aqui como se ja fossem alunas.
-      subscriptionStatus: { not: 'pending' },
+      // 27/08, incidente real: esse filtro usava subscriptionStatus (not: 'pending'), que e'
+      // recalculado a cada sincronizacao com o Asaas — um bug de fuso horario fez o status de uma
+      // aluna pagante de longa data virar 'pending' so' porque o vencimento dela era HOJE, e ela
+      // sumiu da lista de alunos e apareceu como prospecto. studentCode e' permanente (so'
+      // atribuido no 1o pagamento real, nunca apagado depois), entao nao pode mais acontecer de
+      // novo, seja qual for o proximo bug de sincronizacao.
+      studentCode: { not: null },
       ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }),
       ...(input.search ? {
         OR: [
@@ -534,7 +540,7 @@ export class CoachService {
       },
       }),
       this.prisma.user.count({ where: studentWhere }),
-      this.prisma.user.count({ where: { role: 'student', subscriptionStatus: { not: 'pending' }, ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }) } }),
+      this.prisma.user.count({ where: { role: 'student', studentCode: { not: null }, ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }) } }),
       this.prisma.trainingPlan.findMany({ where: { status: 'active' }, distinct: ['userId'], select: { userId: true } }),
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: weekEnd }, plan: { status: 'active' } } }),
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } }),
@@ -618,7 +624,9 @@ export class CoachService {
   // pagamento / entrevista concluida + cobranca ja gerada, so falta pagar (o nivel mais quente).
   async prospects() {
     const rows = await this.prisma.user.findMany({
-      where: { role: 'student', accountStatus: { not: 'archived' }, subscriptionStatus: 'pending' },
+      // 27/08: studentCode: null e' o que garante de verdade "nunca pagou" — ver comentario
+      // identico em prospect-nurture.service.ts.
+      where: { role: 'student', accountStatus: { not: 'archived' }, subscriptionStatus: 'pending', studentCode: null },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,

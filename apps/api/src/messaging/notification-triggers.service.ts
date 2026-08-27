@@ -76,12 +76,17 @@ export class NotificationTriggersService {
   }
 
   // 18/08 (Bloco 2 de onboarding): a entrevista COMPLETA/detalhada agora so acontece depois do
-  // pagamento — entao esse aviso so faz sentido pra quem ja pagou (subscriptionStatus !== 'pending')
-  // e ainda nao terminou a entrevista detalhada. Prospecto (nunca pagou) e' avisado por outro
-  // caminho, a sequencia de aquecimento (ver ProspectNurtureService), que cobra as 5 perguntas
-  // rapidas, nao a entrevista completa que ele nem consegue acessar ainda.
-  private async checkInterviewIncomplete(student: { id: string; name: string; subscriptionStatus: string; onboardingInterview?: { completedAt: Date | null } | null; availability?: unknown[] }) {
-    if (student.subscriptionStatus === 'pending') return;
+  // pagamento — entao esse aviso so faz sentido pra quem ja pagou pelo menos uma vez e ainda nao
+  // terminou a entrevista detalhada. Prospecto (nunca pagou) e' avisado por outro caminho, a
+  // sequencia de aquecimento (ver ProspectNurtureService), que cobra as 5 perguntas rapidas, nao
+  // a entrevista completa que ele nem consegue acessar ainda.
+  // 27/08: usa studentCode (permanente, so' atribuido no 1o pagamento real e nunca apagado) em vez
+  // de subscriptionStatus (volatil, recalculado a cada sync do Asaas) pra decidir "ja pagou
+  // alguma vez" — incidente real: um bug de fuso horario recalculou subscriptionStatus='pending'
+  // pra uma aluna pagante de longa data so' porque o vencimento dela era HOJE, e ela quase levou
+  // um e-mail de "sua entrevista esta incompleta" por engano.
+  private async checkInterviewIncomplete(student: { id: string; name: string; studentCode: number | null; onboardingInterview?: { completedAt: Date | null } | null; availability?: unknown[] }) {
+    if (student.studentCode === null) return;
     if (student.onboardingInterview?.completedAt) return;
     // 21/08, incidente real (aluna Lucelane): conta antiga com rotina e plano ativo de verdade,
     // mas `completedAt` vazio no banco (provavelmente criada antes desse campo existir). Mandar
@@ -103,15 +108,17 @@ export class NotificationTriggersService {
   // que o e-mail funciona de verdade, cobrar um aluno por algo que sumiu do app confundiria e
   // desrespeitaria quem recebesse.
 
+  // 27/08: mesmo motivo do comentario em checkInterviewIncomplete — studentCode, nao
+  // subscriptionStatus, pra decidir "ja pagou alguma vez".
   private async checkReassessmentDue(student: {
     id: string;
     name: string;
-    subscriptionStatus: string;
+    studentCode: number | null;
     onboardingInterview?: { completedAt: Date | null } | null;
     reassessments: Array<{ completedAt: Date | null }>;
   }) {
     if (!student.onboardingInterview?.completedAt) return;
-    if (student.subscriptionStatus === 'pending') return;
+    if (student.studentCode === null) return;
 
     const referenceDate = student.reassessments[0]?.completedAt ?? student.onboardingInterview.completedAt;
     const daysSinceReference = (Date.now() - referenceDate.getTime()) / 86400000;
