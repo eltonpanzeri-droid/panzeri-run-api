@@ -6,3 +6,6 @@ out/
 *.log
 .env
 .env.local
+# 26/08: chaves privadas (Apple .p8, credenciais de service account do Google, etc.) — nunca vao
+# pro git nem pro .bat de sincronizacao, ficam so nesta maquina.
+secrets/
