@@ -53,6 +53,17 @@ const REVENUECAT_ACTIVE_EVENTS = new Set(['INITIAL_PURCHASE', 'RENEWAL', 'UNCANC
 const REVENUECAT_OVERDUE_EVENTS = new Set(['BILLING_ISSUE']);
 const REVENUECAT_CANCELED_EVENTS = new Set(['EXPIRATION', 'REFUND']);
 
+// Bug real corrigido 27/08: as comparacoes de vencimento abaixo usavam `new Date(payment.dueDate)`
+// direto contra `new Date()` — como dueDate vem do Asaas so como "AAAA-MM-DD" (sem hora), o
+// JavaScript interpreta isso como meia-noite UTC, que em Brasilia (UTC-3) ja e' 21h do dia
+// ANTERIOR. Resultado: uma cobranca com vencimento HOJE virava "vencida"/"pendente critica" a
+// partir da noite anterior, derrubando o status da aluna (ex: Duane, vencimento 27/08) pra
+// 'pending' e sumindo ela da lista de alunos (que exclui subscriptionStatus='pending', ver
+// coach.service.ts). A comparacao certa e' por DIA de calendario em Brasilia, nao por timestamp.
+function saoPauloDateString(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(date);
+}
+
 function resolveAppStatusFromRevenueCatEvent(eventType?: string): 'active' | 'overdue' | 'canceled' | null {
   if (!eventType) return null;
   if (REVENUECAT_ACTIVE_EVENTS.has(eventType)) return 'active';
@@ -162,7 +173,7 @@ export class BillingService {
       payments: (payments.data ?? [])
         .map((payment) => {
           const status = (payment.status ?? '').toLowerCase();
-          const isOverdue = status === 'overdue' || (status === 'pending' && Boolean(payment.dueDate) && new Date(payment.dueDate!) < now);
+          const isOverdue = status === 'overdue' || (status === 'pending' && Boolean(payment.dueDate) && payment.dueDate! < saoPauloDateString(now));
           const statusLabel = ACTIVE_STATUSES.has(status)
             ? 'Pago'
             : isOverdue
@@ -568,10 +579,12 @@ export class BillingService {
     ]);
 
     const providerStatus = subscription.status?.toLowerCase() ?? 'unknown';
-    const now = new Date();
+    const todaySP = saoPauloDateString(new Date());
     const relevantPayments = (payments.data ?? []).filter((payment) => {
       const status = (payment.status ?? '').toLowerCase();
-      const isFuturePending = status === 'pending' && payment.dueDate ? new Date(payment.dueDate) > now : false;
+      // >= hoje (nao so "> hoje"): vencimento e' HOJE ainda nao conta como atrasado/critico, so
+      // a partir de amanha. Ver comentario da saoPauloDateString acima.
+      const isFuturePending = status === 'pending' && payment.dueDate ? payment.dueDate >= todaySP : false;
       return !isFuturePending;
     });
     const latestPayment = [...relevantPayments].sort((a, b) => (a.dueDate ?? a.dateCreated ?? '').localeCompare(b.dueDate ?? b.dateCreated ?? '')).at(-1);

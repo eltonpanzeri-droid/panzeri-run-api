@@ -3420,7 +3420,13 @@ function billingHint(student: { subscriptionManualOverride?: boolean; billingNex
   const parts: string[] = [];
   if (student.billingNextChargeAt) {
     const due = new Date(student.billingNextChargeAt);
-    const overdue = due.getTime() < Date.now();
+    // 27/08: comparar por timestamp cru (due.getTime() < Date.now()) fazia vencimento de HOJE
+    // aparecer como "Venceu em" a partir de qualquer horario depois da meia-noite UTC (9h em
+    // Brasilia) — mesma familia do bug corrigido em billing.service.ts. Comparando por DIA de
+    // calendario em Brasilia, vencimento hoje so vira "Venceu em" amanha.
+    const dueDaySP = due.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const todayDaySP = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const overdue = dueDaySP < todayDaySP;
     parts.push(`${overdue ? 'Venceu em' : 'Vence em'} ${due.toLocaleDateString('pt-BR', { timeZone: 'UTC' })}`);
   }
   if (student.billingLastSyncAt) {
