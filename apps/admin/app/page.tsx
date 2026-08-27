@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flame, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, UserRound, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flame, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, UserRound, UserX, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -59,7 +59,19 @@ interface FunnelReport {
   }>;
 }
 
-type AdminView = 'dashboard' | 'students' | 'prospects' | 'weeks' | 'coupons' | 'finance' | 'notifications';
+type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications';
+
+type ExStudentRow = {
+  id: string;
+  studentCode: string;
+  name: string;
+  email: string;
+  goal: string;
+  studentSince: string;
+  canceledAt: string;
+  daysAsStudent: number;
+  selfRequested: boolean;
+};
 
 interface ProspectRow {
   id: string;
@@ -364,6 +376,7 @@ export default function AdminHome() {
   const [coupons, setCoupons] = useState<CouponRow[]>([]);
   const [finance, setFinance] = useState<FinanceResponse | null>(null);
   const [prospects, setProspects] = useState<{ totals: { total: number; quente: number; morno: number; frio: number }; prospects: ProspectRow[] } | null>(null);
+  const [exStudents, setExStudents] = useState<{ total: number; exStudents: ExStudentRow[] } | null>(null);
   const [couponCode, setCouponCode] = useState('');
   const [couponName, setCouponName] = useState('');
   const [couponDiscount, setCouponDiscount] = useState('100');
@@ -565,6 +578,16 @@ export default function AdminHome() {
     }
   }
 
+  async function loadExStudents(accessToken = token) {
+    if (!accessToken) return;
+    try {
+      const response = await fetch(`${API_URL}/coach/ex-students`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (response.ok) setExStudents(await response.json());
+    } catch {
+      setStatus('Nao consegui carregar os ex-alunos.');
+    }
+  }
+
   async function createCoupon() {
     if (!couponCode.trim()) {
       setStatus('Informe o codigo do cupom.');
@@ -607,7 +630,8 @@ export default function AdminHome() {
     if (view === 'coupons') void loadCoupons();
     if (view === 'finance') void loadFinance();
     if (view === 'prospects') void loadProspects();
-    if (view !== 'dashboard' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && view !== 'prospects' && !selectedStudentId && dashboard?.students[0]) {
+    if (view === 'exStudents') void loadExStudents();
+    if (view !== 'dashboard' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && view !== 'prospects' && view !== 'exStudents' && !selectedStudentId && dashboard?.students[0]) {
       void loadStudent(dashboard.students[0].id);
     }
   }
@@ -952,7 +976,7 @@ export default function AdminHome() {
             </button>
             <div>
               <p className="eyebrow">Painel do treinador</p>
-              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : 'Financeiro'}</h1>
+              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : 'Financeiro'}</h1>
               <small className="apiVersion">API {apiVersion}</small>
             </div>
           </div>
@@ -981,6 +1005,7 @@ export default function AdminHome() {
             <button className={activeView === 'dashboard' ? 'active' : ''} type="button" onClick={() => changeView('dashboard')}><LayoutDashboard size={19} />Dashboard</button>
             <button className={activeView === 'students' ? 'active' : ''} type="button" onClick={() => changeView('students')}><Users size={19} />Alunos</button>
             <button className={activeView === 'prospects' ? 'active' : ''} type="button" onClick={() => changeView('prospects')}><Flame size={19} />Prospectos{prospects?.totals.total ? ` (${prospects.totals.total})` : ''}</button>
+            <button className={activeView === 'exStudents' ? 'active' : ''} type="button" onClick={() => changeView('exStudents')}><UserX size={19} />Ex-alunos{exStudents?.total ? ` (${exStudents.total})` : ''}</button>
             <button className={activeView === 'weeks' ? 'active' : ''} type="button" onClick={() => changeView('weeks')}><CalendarDays size={19} />Semanas</button>
             <button className={activeView === 'coupons' ? 'active' : ''} type="button" onClick={() => changeView('coupons')}><Ticket size={19} />Cupons</button>
             <button className={activeView === 'finance' ? 'active' : ''} type="button" onClick={() => changeView('finance')}><CreditCard size={19} />Financeiro</button>
@@ -1332,6 +1357,44 @@ export default function AdminHome() {
                   </div>
                 ))}
                 {!prospects?.prospects.length ? <p className="formHintText">Nenhum prospecto no momento.</p> : null}
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {activeView === 'exStudents' ? (
+          <section className="workArea">
+            <div className="panel">
+              <div className="panelHeader">
+                <div>
+                  <p className="eyebrow">Ja pagaram, depois cancelaram</p>
+                  <h2>Ex-alunos</h2>
+                </div>
+              </div>
+              <p className="formHintText">
+                Quem ja foi aluna de verdade (pagou pelo menos uma vez, tem codigo de aluno) e depois cancelou a
+                assinatura. Diferente de Prospectos, que e' so' quem nunca chegou a pagar.
+              </p>
+              <div className="table">
+                <div className="row header">
+                  <span>Nome</span>
+                  <span>E-mail</span>
+                  <span>Foi aluna por</span>
+                  <span>Cancelou em</span>
+                </div>
+                {(exStudents?.exStudents ?? []).map((exStudent) => (
+                  <div className="row" key={exStudent.id}>
+                    <span><strong>{exStudent.name}</strong><br /><small>{exStudent.studentCode}</small></span>
+                    <span>{exStudent.email}</span>
+                    <span>{exStudent.daysAsStudent} dias</span>
+                    <span>
+                      {dateLabel(exStudent.canceledAt)}
+                      <br />
+                      <small>{exStudent.selfRequested ? 'Pediu cancelamento' : 'Assinatura caiu (Asaas)'}</small>
+                    </span>
+                  </div>
+                ))}
+                {!exStudents?.exStudents.length ? <p className="formHintText">Nenhum ex-aluno no momento.</p> : null}
               </div>
             </div>
           </section>

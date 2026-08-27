@@ -42,6 +42,11 @@ export class CoachController {
     return this.coachService.prospects();
   }
 
+  @Get('ex-students')
+  exStudents() {
+    return this.coachService.exStudents();
+  }
+
   @Post('prospects/nurture/run')
   runProspectNurtureNow() {
     return this.coachService.runProspectNurtureNow();

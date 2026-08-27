@@ -589,13 +589,23 @@ export class BillingService {
     });
     const latestPayment = [...relevantPayments].sort((a, b) => (a.dueDate ?? a.dateCreated ?? '').localeCompare(b.dueDate ?? b.dateCreated ?? '')).at(-1);
     const latestPaymentStatus = latestPayment?.status?.toLowerCase();
+    // 27/08, achado real (aluno Rodrigo, mesmo dia da correcao acima): quando a UNICA cobranca
+    // que o Asaas devolve pra essa assinatura e' a de hoje (ainda pendente, agora corretamente
+    // excluida de "relevante" pelo filtro acima), relevantPayments fica vazio e nao sobra nenhum
+    // "latestPaymentStatus" pra examinar — sem essa checagem extra, o codigo caia direto no
+    // 'pending' final, mesmo pra quem e' aluno de longa data com assinatura ACTIVE de verdade no
+    // Asaas. hasEverPaid distingue "aluno estabelecido, cobranca de hoje so' ainda nao processou"
+    // de "nunca pagou nem uma vez" (esse sim deve continuar 'pending' ate a 1a cobranca confirmar).
+    const hasEverPaid = (payments.data ?? []).some((payment) => ACTIVE_STATUSES.has((payment.status ?? '').toLowerCase()));
     const appStatus = providerStatus === 'inactive' || providerStatus === 'deleted'
       ? 'canceled'
       : latestPaymentStatus && ACTIVE_STATUSES.has(latestPaymentStatus)
         ? 'active'
         : latestPaymentStatus && OVERDUE_STATUSES.has(latestPaymentStatus)
           ? 'overdue'
-          : 'pending';
+          : !latestPaymentStatus && hasEverPaid
+            ? 'active'
+            : 'pending';
     const nextChargeAt = subscription.nextDueDate ? new Date(subscription.nextDueDate + 'T12:00:00.000Z') : null;
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true, subscriptionStatus: true, studentCode: true } });

@@ -667,6 +667,45 @@ export class CoachService {
     };
   }
 
+  // 27/08: pedido do treinador — lista separada de ex-alunas (quem ja pagou pelo menos uma vez e
+  // depois cancelou), distinta tanto da lista operacional (so' quem tem acesso hoje) quanto de
+  // Prospectos (so' quem NUNCA pagou). Sem isso, uma aluna que cancelava desaparecia do painel
+  // inteiro sem deixar rastro nenhum.
+  async exStudents() {
+    const rows = await this.prisma.user.findMany({
+      where: { role: 'student', accountStatus: { not: 'archived' }, subscriptionStatus: 'canceled' },
+      orderBy: { subscriptionUpdatedAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        studentCode: true,
+        createdAt: true,
+        subscriptionUpdatedAt: true,
+        preferences: { select: { mainGoal: true } },
+        billingSubscription: { select: { providerStatus: true } },
+      },
+    });
+
+    return {
+      total: rows.length,
+      exStudents: rows.map((row) => ({
+        id: row.id,
+        studentCode: formatStudentCode(row.studentCode),
+        name: row.name,
+        email: row.email,
+        goal: row.preferences?.mainGoal ?? 'Objetivo nao informado',
+        studentSince: row.createdAt,
+        canceledAt: row.subscriptionUpdatedAt,
+        daysAsStudent: Math.round((row.subscriptionUpdatedAt.getTime() - row.createdAt.getTime()) / 86400000),
+        // 'cancel_requested' = a propria aluna pediu (botao "Cancelar assinatura" no app);
+        // qualquer outro valor normalmente veio de um evento do Asaas (ex: assinatura caiu apos
+        // varias tentativas de cobranca falharem, nao foi um pedido explicito).
+        selfRequested: row.billingSubscription?.providerStatus === 'cancel_requested',
+      })),
+    };
+  }
+
   // Levantamento do funil de conversao (pedido do treinador 2026-08-05, apos perceber que muitos
   // cadastros completam a entrevista mas nunca pagam, e outros nem completam a entrevista).
   // So leitura, nenhuma chamada de IA — cruza User + OnboardingInterview + subscriptionStatus.
