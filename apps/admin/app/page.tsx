@@ -2,7 +2,7 @@
 
 import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flame, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, UserRound, UserX, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
 const STUDENT_APP_URL = 'https://agenteselton-panzeri-run-app.hbljgk.easypanel.host';
@@ -343,6 +343,10 @@ export default function AdminHome() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [token, setToken] = useState('');
+  // 28/08: guarda a promessa de renovacao de sessao em andamento (nao um estado de UI) — chamadas
+  // concorrentes de refreshAdminSession esperam essa mesma promessa em vez de disparar pedidos
+  // de refresh separados pro backend, que so aceita um refresh token valido por vez.
+  const refreshPromiseRef = useRef<Promise<string> | null>(null);
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [funnelReport, setFunnelReport] = useState<FunnelReport | null>(null);
   const [loadingFunnel, setLoadingFunnel] = useState(false);
@@ -381,44 +385,103 @@ export default function AdminHome() {
   const [couponName, setCouponName] = useState('');
   const [couponDiscount, setCouponDiscount] = useState('100');
 
+  // 28/08, bug real corrigido (treinador deslogava toda vez que recarregava a pagina): antes,
+  // essa tela SEMPRE chamava /auth/refresh ao carregar, mesmo com um accessToken salvo ainda
+  // valido (dura 12h) — e o backend so mantem UM refresh token valido por vez (troca a cada uso).
+  // Em desenvolvimento, o StrictMode do React dispara esse efeito duas vezes de proposito; as
+  // duas chamadas de refresh corriam quase juntas com o mesmo token antigo, a primeira ganhava e
+  // trocava o token, a segunda chegava com o token ja invalidado pela primeira e deslogava a
+  // sessao inteira — mesmo ela estando perfeitamente boa. Agora so' tenta renovar quando REALMENTE
+  // precisa: sem accessToken salvo (so' com refresh token), ou quando uma chamada de verdade
+  // devolve 401 (tratado inline dentro de loadDashboard, mais abaixo).
   useEffect(() => {
     const savedToken = window.localStorage.getItem('panzeri_admin_token') ?? '';
     const savedRefreshToken = window.localStorage.getItem('panzeri_admin_refresh_token') ?? '';
-    if (savedRefreshToken) {
+    if (savedToken) {
+      setToken(savedToken);
+      loadDashboard(savedToken);
+    } else if (savedRefreshToken) {
       refreshAdminSession(savedRefreshToken).then((accessToken) => {
         if (accessToken) loadDashboard(accessToken);
       });
-    } else if (savedToken) {
-      setToken(savedToken);
-      loadDashboard(savedToken);
     }
   }, []);
 
+  // 28/08: o backend so mantem UM refresh token valido por vez (troca a cada uso, ver
+  // auth.service.ts). Se duas chamadas dessa funcao corressem ao mesmo tempo (StrictMode
+  // disparando efeito duas vezes, ou duas telas pedindo refresh quase juntas), a primeira ganha
+  // e troca o token; a segunda chega com o token ja invalidado pela primeira e desloga a sessao
+  // inteira, mesmo ela estando boa — foi exatamente esse bug que "sempre desloga ao recarregar"
+  // vinha de. refreshPromiseRef garante que chamadas concorrentes esperem a MESMA promessa em vez
+  // de disparar pedidos de refresh separados.
   async function refreshAdminSession(refreshToken: string) {
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+
+    const promise = (async () => {
+      try {
+        const response = await fetch(`${API_URL}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (!response.ok) {
+          logout();
+          return '';
+        }
+        const data = (await response.json()) as { tokens?: { accessToken?: string; refreshToken?: string } };
+        const nextAccessToken = data.tokens?.accessToken ?? '';
+        const nextRefreshToken = data.tokens?.refreshToken ?? '';
+        if (!nextAccessToken || !nextRefreshToken) {
+          logout();
+          return '';
+        }
+        window.localStorage.setItem('panzeri_admin_token', nextAccessToken);
+        window.localStorage.setItem('panzeri_admin_refresh_token', nextRefreshToken);
+        setToken(nextAccessToken);
+        return nextAccessToken;
+      } catch {
+        setStatus('Nao consegui renovar a sessao do painel.');
+        return '';
+      }
+    })();
+
+    refreshPromiseRef.current = promise;
     try {
-      const response = await fetch(`${API_URL}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
-      if (!response.ok) {
+      return await promise;
+    } finally {
+      refreshPromiseRef.current = null;
+    }
+  }
+
+  // 28/08: mesma protecao contra token expirado que loadDashboard ja tinha, agora compartilhada
+  // pelas telas mais simples (cupons, financeiro, prospectos, ex-alunos, detalhe de aluna) — sem
+  // isso, cada uma delas so' engolia o 401 silenciosamente (`if (response.ok) {...}`, nada no
+  // else) e a tela ficava congelada sem nenhuma pista de que a sessao caiu.
+  // 28/08: devolve { data } em vez de so' o valor, distinguindo "sessao caiu de vez" de "essa
+  // chamada especifica falhou" — sem isso, um loader que falhou por sessao expirada sobrescrevia
+  // a mensagem em branco do logout() com um erro generico tipo "Nao consegui carregar os cupons"
+  // bem na tela de login, confuso pra quem esta vendo.
+  async function authorizedGet<T>(path: string, accessToken: string, retryAfterRefresh = true): Promise<{ data: T | null; loggedOut: boolean }> {
+    try {
+      const response = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (response.status === 401) {
+        if (retryAfterRefresh) {
+          const savedRefreshToken = window.localStorage.getItem('panzeri_admin_refresh_token') ?? '';
+          if (savedRefreshToken) {
+            const renewedToken = await refreshAdminSession(savedRefreshToken);
+            if (renewedToken) return authorizedGet<T>(path, renewedToken, false);
+          }
+        }
+        // Sem refresh token salvo, ou a renovacao ja falhou (refreshAdminSession chama logout()
+        // sozinho nesse caso) — mesmo assim garante que o estado fica limpo, igual loadDashboard
+        // ja fazia, pra nao deixar a sessao "presa" sem token nem prompt claro de login de novo.
         logout();
-        return '';
+        return { data: null, loggedOut: true };
       }
-      const data = (await response.json()) as { tokens?: { accessToken?: string; refreshToken?: string } };
-      const nextAccessToken = data.tokens?.accessToken ?? '';
-      const nextRefreshToken = data.tokens?.refreshToken ?? '';
-      if (!nextAccessToken || !nextRefreshToken) {
-        logout();
-        return '';
-      }
-      window.localStorage.setItem('panzeri_admin_token', nextAccessToken);
-      window.localStorage.setItem('panzeri_admin_refresh_token', nextRefreshToken);
-      setToken(nextAccessToken);
-      return nextAccessToken;
+      if (!response.ok) return { data: null, loggedOut: false };
+      return { data: (await response.json()) as T, loggedOut: false };
     } catch {
-      setStatus('Nao consegui renovar a sessao do painel.');
-      return '';
+      return { data: null, loggedOut: false };
     }
   }
 
@@ -486,7 +549,10 @@ export default function AdminHome() {
     }
   }
 
-  async function loadDashboard(accessToken = token, requestedPage = page, search = query) {
+  // 28/08: retryAfterRefresh so' existe pra evitar loop — se a renovacao automatica (dentro deste
+  // mesmo bloco) ainda assim nao resolver, aceita que a sessao expirou de verdade e desloga, sem
+  // tentar renovar de novo infinitamente.
+  async function loadDashboard(accessToken = token, requestedPage = page, search = query, retryAfterRefresh = true) {
     if (!accessToken) return;
     setStatus('Atualizando painel...');
     try {
@@ -502,9 +568,24 @@ export default function AdminHome() {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
+      if (response.status === 401 && retryAfterRefresh) {
+        // Token de acesso expirou de verdade (12h) — tenta renovar UMA vez antes de desistir e
+        // deslogar. So' entra aqui quando uma chamada real falhou, nunca so' por recarregar a
+        // pagina (ver useEffect de inicializacao acima).
+        const savedRefreshToken = window.localStorage.getItem('panzeri_admin_refresh_token') ?? '';
+        if (savedRefreshToken) {
+          const renewedToken = await refreshAdminSession(savedRefreshToken);
+          if (renewedToken) {
+            await loadDashboard(renewedToken, requestedPage, search, false);
+            return;
+          }
+        }
+      }
+
       if (!response.ok) {
         setStatus('Sessao expirada. Entre novamente.');
         window.localStorage.removeItem('panzeri_admin_token');
+        window.localStorage.removeItem('panzeri_admin_refresh_token');
         setToken('');
         return;
       }
@@ -547,45 +628,30 @@ export default function AdminHome() {
 
   async function loadCoupons(accessToken = token) {
     if (!accessToken) return;
-    try {
-      const response = await fetch(`${API_URL}/coach/coupons`, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (response.ok) {
-        const data = (await response.json()) as { coupons: CouponRow[] };
-        setCoupons(data.coupons);
-      }
-    } catch {
-      setStatus('Nao consegui carregar os cupons.');
-    }
+    const { data, loggedOut } = await authorizedGet<{ coupons: CouponRow[] }>('/coach/coupons', accessToken);
+    if (data) setCoupons(data.coupons);
+    else if (!loggedOut) setStatus('Nao consegui carregar os cupons.');
   }
 
   async function loadFinance(accessToken = token) {
     if (!accessToken) return;
-    try {
-      const response = await fetch(`${API_URL}/coach/finance`, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (response.ok) setFinance((await response.json()) as FinanceResponse);
-    } catch {
-      setStatus('Nao consegui carregar o financeiro.');
-    }
+    const { data, loggedOut } = await authorizedGet<FinanceResponse>('/coach/finance', accessToken);
+    if (data) setFinance(data);
+    else if (!loggedOut) setStatus('Nao consegui carregar o financeiro.');
   }
 
   async function loadProspects(accessToken = token) {
     if (!accessToken) return;
-    try {
-      const response = await fetch(`${API_URL}/coach/prospects`, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (response.ok) setProspects(await response.json());
-    } catch {
-      setStatus('Nao consegui carregar os prospectos.');
-    }
+    const { data, loggedOut } = await authorizedGet<{ totals: { total: number; quente: number; morno: number; frio: number }; prospects: ProspectRow[] }>('/coach/prospects', accessToken);
+    if (data) setProspects(data);
+    else if (!loggedOut) setStatus('Nao consegui carregar os prospectos.');
   }
 
   async function loadExStudents(accessToken = token) {
     if (!accessToken) return;
-    try {
-      const response = await fetch(`${API_URL}/coach/ex-students`, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (response.ok) setExStudents(await response.json());
-    } catch {
-      setStatus('Nao consegui carregar os ex-alunos.');
-    }
+    const { data, loggedOut } = await authorizedGet<{ total: number; exStudents: ExStudentRow[] }>('/coach/ex-students', accessToken);
+    if (data) setExStudents(data);
+    else if (!loggedOut) setStatus('Nao consegui carregar os ex-alunos.');
   }
 
   async function createCoupon() {
@@ -638,14 +704,15 @@ export default function AdminHome() {
 
   async function loadStudent(studentId: string, accessToken = token) {
     setSelectedStudentId(studentId);
-    try {
-      const response = await fetch(`${API_URL}/coach/students/${studentId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!response.ok) return;
-      setStudentDetail((await response.json()) as StudentDetail);
-    } catch {
-      setStatus('Nao consegui carregar o aluno.');
+    const { data, loggedOut } = await authorizedGet<StudentDetail>(`/coach/students/${studentId}`, accessToken);
+    if (data) {
+      setStudentDetail(data);
+    } else {
+      // 28/08: limpa o detalhe antigo em vez de deixar a aluna errada exibida — selectedStudentId
+      // ja mudou pra essa (nova) aluna, mas studentDetail continuaria mostrando a ANTERIOR se a
+      // busca falhasse, dando a impressao de estar vendo os dados de quem nao esta selecionada.
+      setStudentDetail(null);
+      if (!loggedOut) setStatus('Nao consegui carregar o aluno.');
     }
   }
 

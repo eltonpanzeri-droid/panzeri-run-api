@@ -19,6 +19,7 @@ type AsaasPayment = {
   value?: number;
   paymentDate?: string | null;
   clientPaymentDate?: string | null;
+  confirmedDate?: string | null;
 };
 type AsaasPaymentList = { data: AsaasPayment[] };
 type AsaasWebhookPayload = {
@@ -187,7 +188,19 @@ export class BillingService {
             id: payment.id,
             dueDate: payment.dueDate ?? null,
             value: payment.value ?? null,
-            paidAt: payment.paymentDate ?? payment.clientPaymentDate ?? null,
+            // 28/08, bug real confirmado com dado de producao (aluno Rodrigo): "paymentDate" no
+            // Asaas NAO e' a data que o aluno pagou — e' a data que a Asaas repassa o dinheiro pro
+            // treinador (liquidacao financeira), que pode ficar ate 30 dias depois da cobranca de
+            // verdade. Usar esse campo primeiro fez parecer que um pagamento confirmado no mesmo
+            // dia (26/07) so' tinha "pago" um mes depois (27/08) — nao e' verdade, so demorou a
+            // liquidar. clientPaymentDate (quando o cliente de fato pagou) e confirmedDate (quando
+            // o Asaas confirmou o pagamento) refletem a data real; paymentDate fica so' como
+            // ultimo recurso, caso os outros dois nao venham preenchidos. So preenche paidAt
+            // quando o pagamento REALMENTE foi confirmado (statusLabel 'Pago') — sem essa trava,
+            // um boleto onde o cliente ja registrou intencao de pagar mas o banco ainda nao
+            // confirmou podia mostrar data de pagamento junto de status "Pendente"/"Vencido",
+            // parecendo contraditorio (ja pagou, mas ta pendente?).
+            paidAt: statusLabel === 'Pago' ? (payment.clientPaymentDate ?? payment.confirmedDate ?? payment.paymentDate ?? null) : null,
             status: statusLabel,
             invoiceUrl: payment.invoiceUrl ?? null,
           };
