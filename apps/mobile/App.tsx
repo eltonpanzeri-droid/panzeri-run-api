@@ -106,7 +106,12 @@ async function reportCrashToCoach(error: Error, componentStack: string) {
 }
 
 function initialAuthMode(): AuthMode {
-  if (typeof window === 'undefined') {
+  // 28/08: mesmo bug de exchangeLoginLinkIfPresent (ver comentario la) — `window` existe no app
+  // nativo mas `window.location` nao. Essa funcao roda logo cedo (inicializador de estado),
+  // entao o crash acontecia ANTES de qualquer .catch() poder pegar — a tela de erro generica que
+  // apareceu ("Cannot read property 'search' of undefined") era essa aqui, nao a que ja tinha
+  // sido corrigida.
+  if (Platform.OS !== 'web' || typeof window === 'undefined') {
     return 'login';
   }
 
@@ -986,19 +991,27 @@ function AppInner() {
   }, [accessToken]);
 
   useEffect(() => {
-    exchangeLoginLinkIfPresent().then((linkSession) => {
-      if (linkSession) {
-        applyAuthSession(linkSession);
-        setIsRestoringSession(false);
-        return;
-      }
-      restoreAuthSession().then((session) => {
-        if (session) {
-          applyAuthSession(session);
+    // 28/08: rede de seguranca — sem esse .catch(), um erro nao previsto em qualquer ponto dessa
+    // cadeia (aconteceu de verdade com window.location no app nativo) prendia o app pra sempre na
+    // tela de carregamento, porque setIsRestoringSession(false) nunca era chamado. Agora, mesmo
+    // que algo inesperado quebre aqui, o app sempre chega na tela de login em vez de travar.
+    exchangeLoginLinkIfPresent()
+      .then((linkSession) => {
+        if (linkSession) {
+          applyAuthSession(linkSession);
+          setIsRestoringSession(false);
+          return;
         }
-        setIsRestoringSession(false);
-      });
-    });
+        return restoreAuthSession()
+          .then((session) => {
+            if (session) {
+              applyAuthSession(session);
+            }
+            setIsRestoringSession(false);
+          })
+          .catch(() => setIsRestoringSession(false));
+      })
+      .catch(() => setIsRestoringSession(false));
   }, []);
 
   useEffect(() => {
@@ -1007,6 +1020,11 @@ function AppInner() {
     }
 
     const timer = setInterval(() => {
+      // 28/08: mesma trava de restoreAuthSession — so' gasta o unico refresh token valido se o
+      // accessToken atual realmente estiver perto de vencer. Sem isso, esse timer sozinho ja
+      // rotacionava o refresh token a cada 12 minutos com o app so' aberto, mesmo o access token
+      // (valido por 12h) nem perto de precisar.
+      if (accessToken && isAccessTokenStillValid(accessToken)) return;
       refreshAuthSession(refreshToken, { email: userEmail, name: userName, accessToken, refreshToken }).then((session) => {
         if (session) {
           applyAuthSession(session);
@@ -4997,6 +5015,57 @@ async function refreshAuthSession(refreshToken: string, saved?: AuthSession): Pr
   }
 }
 
+// 28/08: decodificador base64 proprio, sem depender de `atob` global — o runtime nativo (Hermes,
+// Android/iOS) nao garante ter `atob` disponivel (achado por auto-revisao: nenhum outro lugar do
+// projeto usa/confirma isso), e uma dependencia nova so' pra isso seria exagero pra uma unica
+// funcao pequena. Base64 -> string, funciona em qualquer engine JS.
+const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function decodeBase64ToString(base64: string): string {
+  const clean = base64.replace(/=+$/, '');
+  let bits = 0;
+  let value = 0;
+  let output = '';
+  for (const char of clean) {
+    const index = BASE64_CHARS.indexOf(char);
+    if (index === -1) continue;
+    value = (value << 6) | index;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      output += String.fromCharCode((value >> bits) & 0xff);
+    }
+  }
+  return decodeURIComponent(
+    output
+      .split('')
+      .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+      .join(''),
+  );
+}
+
+// 28/08: le a validade (claim "exp") do accessToken salvo sem chamar a API — o backend so mantem
+// UM refresh token valido por vez (troca a cada uso, ver auth.service.ts). Usado tanto no inicio
+// a frio do app (restoreAuthSession, so' roda uma vez ao montar) quanto no timer de 12 em 12
+// minutos mais abaixo — sem essa trava, os dois desperdicavam o unico refresh token valido
+// mesmo com o accessToken (valido por 12h) longe de vencer, arriscando exatamente o mesmo bug
+// corrigido no painel do treinador: uma renovacao correndo com outra e derrubando uma sessao boa.
+// Nao existe listener de AppState nesse arquivo — voltar do segundo plano NAO reroda essa
+// checagem, so' o timer periodico e o proximo start a frio do app.
+function isAccessTokenStillValid(accessToken: string): boolean {
+  try {
+    const payloadPart = accessToken.split('.')[1];
+    if (!payloadPart) return false;
+    const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(decodeBase64ToString(normalized)) as { exp?: number };
+    if (!payload.exp) return false;
+    // Margem de 5 minutos antes do vencimento de verdade, pra nao arriscar o token expirar no
+    // meio de uma chamada logo em seguida.
+    return payload.exp * 1000 > Date.now() + 5 * 60 * 1000;
+  } catch {
+    return false;
+  }
+}
+
 async function restoreAuthSession(): Promise<AuthSession | null> {
   try {
     const raw = await AsyncStorage.getItem(AUTH_SESSION_KEY);
@@ -5007,6 +5076,9 @@ async function restoreAuthSession(): Promise<AuthSession | null> {
     if (!saved.refreshToken) {
       await AsyncStorage.removeItem(AUTH_SESSION_KEY);
       return null;
+    }
+    if (saved.accessToken && isAccessTokenStillValid(saved.accessToken)) {
+      return saved;
     }
     const refreshed = await refreshAuthSession(saved.refreshToken, saved);
     if (!refreshed) {
@@ -5027,7 +5099,17 @@ async function restoreAuthSession(): Promise<AuthSession | null> {
 // token nao existir/ja tiver sido usado/expirado, falha silenciosamente (nunca mostra erro) e o
 // app cai no fluxo normal de login — a pessoa so ve a tela de entrar com e-mail/senha.
 async function exchangeLoginLinkIfPresent(): Promise<AuthSession | null> {
-  if (typeof window === 'undefined') return null;
+  // 28/08, bug real achado testando o primeiro build nativo de verdade (sempre rodou so' como
+  // PWA ate hoje): no app nativo, `window` existe (o React Native cria um alias global pra ele)
+  // mas `window.location`/`window.history` NAO existem — sao conceito exclusivo de navegador.
+  // Acessar `window.location.search` la embaixo lancava excecao nao tratada, a Promise dessa
+  // funcao REJEITAVA em vez de resolver, e como o `.then()` que chama isso no App.tsx nao tinha
+  // `.catch()`, `setIsRestoringSession(false)` nunca rodava — o app ficava preso pra sempre na
+  // tela "Abrindo aplicativo...", especifico de rodar como app nativo (nunca acontecia no PWA).
+  // Checa Platform.OS (nao so' `typeof window`) de proposito: essa funcao usa VARIAS APIs so' de
+  // navegador (location, history) — checar cada uma feature-by-feature deixaria facil esquecer
+  // de proteger a proxima que for adicionada aqui no futuro.
+  if (Platform.OS !== 'web') return null;
   const params = new URLSearchParams(window.location.search);
   const token = params.get('loginToken');
   if (!token) return null;
