@@ -3,6 +3,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { CoachService } from './coach.service';
+import { parseDashboardQuery } from './dashboard-query.util';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { MergeStudentDto } from './dto/merge-student.dto';
 import { SendStudentMessageDto } from './dto/send-student-message.dto';
@@ -86,12 +87,7 @@ export class CoachController {
     @Query('pageSize') pageSize?: string,
     @Query('includeArchived') includeArchived?: string,
   ) {
-    return this.coachService.dashboard({
-      search: search?.trim() ?? '',
-      page: Math.max(Number(page) || 1, 1),
-      pageSize: Math.min(Math.max(Number(pageSize) || 25, 5), 100),
-      includeArchived: includeArchived === '1' || includeArchived === 'true',
-    });
+    return this.coachService.dashboard(parseDashboardQuery({ search, page, pageSize, includeArchived }));
   }
 
   @Post('students')
