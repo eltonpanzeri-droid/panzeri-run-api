@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
+import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -1043,6 +1044,7 @@ function AppInner() {
     setActiveTab('week');
     setScreen('app');
     void AsyncStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+    void configureRevenueCatIfNeeded(getUserIdFromAccessToken(session.accessToken));
   }
 
   function logout() {
@@ -1054,6 +1056,7 @@ function AppInner() {
     setMenuOpen(false);
     setScreen('login');
     void AsyncStorage.removeItem(AUTH_SESSION_KEY);
+    void logOutRevenueCatIfNeeded();
   }
 
   useEffect(() => {
@@ -2849,6 +2852,25 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     // gerava uma cobranca nova no Asaas e um aviso novo no Telegram, mesmo com a tentativa
     // anterior ainda em andamento.
     if (isCheckingOut) return;
+    // 28/08: no app nativo (loja), a compra e' feita direto pela Google Play via RevenueCat — sem
+    // CPF, sem link do Asaas. So cai no fluxo antigo (Asaas) na web ou enquanto o RevenueCat nao
+    // estiver configurado (ver isNativeStorePurchaseAvailable).
+    if (isNativeStorePurchaseAvailable()) {
+      setIsCheckingOut(true);
+      setBillingMessage('Abrindo pagamento...');
+      const outcome = await purchaseNativeSubscription();
+      if (outcome.status === 'success') {
+        setBillingMessage('Pagamento confirmado! Atualizando seu acesso...');
+        await loadPlan();
+        setTimeout(() => { void loadPlan(); }, 4000);
+      } else if (outcome.status === 'cancelled') {
+        setBillingMessage('');
+      } else {
+        setBillingMessage(outcome.message);
+      }
+      setIsCheckingOut(false);
+      return;
+    }
     if (cpf.replace(/\D/g, '').length !== 11) {
       setBillingMessage('Informe um CPF valido (11 numeros) para continuar.');
       return;
@@ -4756,6 +4778,24 @@ function Billing({ accessToken }: { accessToken: string }) {
     // treinador — se o link nao abre visivelmente (ver comentario abaixo sobre popup bloqueado),
     // o aluno tende a clicar varias vezes seguidas, gerando dezenas de tentativas.
     if (isCheckingOut) return;
+    // 28/08: mesmo desvio da tela Semana (ver openSubscriptionCheckout) — no app nativo a compra
+    // e' direto pela loja via RevenueCat, sem CPF nem link do Asaas.
+    if (isNativeStorePurchaseAvailable()) {
+      setIsCheckingOut(true);
+      setMessage('Abrindo pagamento...');
+      const outcome = await purchaseNativeSubscription();
+      if (outcome.status === 'success') {
+        setMessage('Pagamento confirmado! Atualizando seu acesso...');
+        await loadBilling(false);
+        setTimeout(() => { void loadBilling(false); }, 4000);
+      } else if (outcome.status === 'cancelled') {
+        setMessage('');
+      } else {
+        setMessage(outcome.message);
+      }
+      setIsCheckingOut(false);
+      return;
+    }
     if (!details?.hasCpf && cpf.replace(/\D/g, '').length !== 11) {
       setMessage('Informe um CPF valido (11 numeros) para continuar.');
       return;
@@ -5063,6 +5103,85 @@ function isAccessTokenStillValid(accessToken: string): boolean {
     return payload.exp * 1000 > Date.now() + 5 * 60 * 1000;
   } catch {
     return false;
+  }
+}
+
+// 28/08: mesmo truque de isAccessTokenStillValid — le a claim "sub" (= User.id no banco, ver
+// auth.service.ts: `const payload = { sub: userId, ... }`) direto do token, sem chamada extra a
+// API. E' esse mesmo id que o RevenueCat precisa como app_user_id, pra bater exatamente com o que
+// o webhook do RevenueCat (processRevenueCatWebhook em billing.service.ts) usa pra achar o aluno.
+function getUserIdFromAccessToken(accessToken: string): string | null {
+  try {
+    const payloadPart = accessToken.split('.')[1];
+    if (!payloadPart) return null;
+    const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(decodeBase64ToString(normalized)) as { sub?: string };
+    return payload.sub ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// 28/08: chave publica do SDK do RevenueCat (Android) — nao e segredo, e' igual a uma chave
+// publica de pagamento (o app.json ja fica embutido no bundle do app de qualquer forma). Fica
+// vazia ate o treinador criar o projeto no RevenueCat e colar a chave em app.json ->
+// extra.revenueCatAndroidApiKey — com isso vazio, todo o fluxo abaixo fica inerte de proposito
+// (sem key, nao tenta configurar nem comprar nada, so cai no link do Asaas como ja fazia).
+const REVENUECAT_ANDROID_API_KEY = (Constants.expoConfig?.extra?.revenueCatAndroidApiKey as string | undefined) ?? '';
+
+function isNativeStorePurchaseAvailable(): boolean {
+  return Platform.OS !== 'web' && REVENUECAT_ANDROID_API_KEY.length > 0;
+}
+
+let revenueCatConfiguredUserId: string | null = null;
+// Chamado apos login/restauracao de sessao (ver applyAuthSession). Configura o SDK na primeira
+// vez e so troca de usuario (logIn) se um aluno diferente logar no mesmo aparelho.
+async function configureRevenueCatIfNeeded(userId: string | null) {
+  if (!isNativeStorePurchaseAvailable() || !userId || revenueCatConfiguredUserId === userId) return;
+  try {
+    if (!revenueCatConfiguredUserId) {
+      Purchases.configure({ apiKey: REVENUECAT_ANDROID_API_KEY, appUserID: userId });
+    } else {
+      await Purchases.logIn(userId);
+    }
+    revenueCatConfiguredUserId = userId;
+  } catch (error) {
+    console.error('Falha ao configurar RevenueCat:', error);
+  }
+}
+
+// Chamado no logout (ver logout()) pra nao deixar a sessao do RevenueCat presa no aluno anterior
+// caso outra pessoa faca login no mesmo aparelho.
+async function logOutRevenueCatIfNeeded() {
+  if (!isNativeStorePurchaseAvailable() || !revenueCatConfiguredUserId) return;
+  try {
+    await Purchases.logOut();
+  } catch {
+    // sem tratamento especial - o proximo login reconfigura certo mesmo assim.
+  }
+  revenueCatConfiguredUserId = null;
+}
+
+type NativePurchaseOutcome = { status: 'success' } | { status: 'cancelled' } | { status: 'error'; message: string };
+
+// Usado pelas duas telas de assinatura (Week e Billing) quando a compra e' nativa (loja), em vez
+// do link do Asaas. Sem CPF/checkout de servidor aqui: quem cobra e valida e' a propria loja
+// (Google Play), o RevenueCat so' repassa o resultado pro nosso backend via webhook.
+async function purchaseNativeSubscription(): Promise<NativePurchaseOutcome> {
+  try {
+    const offerings = await Purchases.getOfferings();
+    const pkg = offerings.current?.availablePackages?.[0];
+    if (!pkg) {
+      return { status: 'error', message: 'Assinatura indisponivel no momento. Tente novamente mais tarde ou fale com o treinador.' };
+    }
+    await Purchases.purchasePackage(pkg);
+    return { status: 'success' };
+  } catch (error) {
+    const purchasesError = error as { userCancelled?: boolean | null; message?: string };
+    if (purchasesError?.userCancelled) {
+      return { status: 'cancelled' };
+    }
+    return { status: 'error', message: purchasesError?.message || 'Nao foi possivel concluir a compra. Tente novamente.' };
   }
 }
 
