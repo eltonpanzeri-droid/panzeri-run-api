@@ -1,0 +1,10 @@
+<svg width="960" height="220" viewBox="0 0 960 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="960" height="220" rx="24" fill="#071827"/>
+  <text x="60" y="58" fill="#B8E6EF" font-family="JetBrains Mono, monospace" font-size="16" font-weight="700" letter-spacing="2">PLANEJADO</text>
+  <text x="355" y="58" fill="#B8E6EF" font-family="JetBrains Mono, monospace" font-size="16" font-weight="700" letter-spacing="2">REALIZADO</text>
+  <text x="650" y="58" fill="#B8E6EF" font-family="JetBrains Mono, monospace" font-size="16" font-weight="700" letter-spacing="2">PRÓXIMO</text>
+  <path d="M60 122H268" stroke="#F4F0E6" stroke-width="20"/>
+  <path d="M355 145H563" stroke="#C7F36B" stroke-width="20"/>
+  <path d="M650 132H858" stroke="#B8E6EF" stroke-width="20"/>
+  <path d="M284 122L339 145M579 145L634 132" stroke="#364B59" stroke-width="4" stroke-dasharray="8 8"/>
+</svg>

@@ -1,0 +1,15 @@
+<svg width="1080" height="1920" viewBox="0 0 1080 1920" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1080" height="1920" fill="#F4F0E6"/>
+  <rect x="72" y="168" width="936" height="1180" rx="36" fill="#071827"/>
+  <path d="M72 1080L1008 680V1348H72V1080Z" fill="#246F91"/>
+  <text x="126" y="284" fill="#C7F36B" font-family="JetBrains Mono, monospace" font-size="24" font-weight="700" letter-spacing="4">1 MINUTO / SEM ENROLAÇÃO</text>
+  <text x="126" y="570" fill="#F4F0E6" font-family="Big Shoulders Display, Impact, sans-serif" font-size="134" font-weight="800">
+    <tspan x="126" dy="0">DOR NO</tspan><tspan x="126" dy="120">TREINO:</tspan><tspan x="126" dy="120">E AGORA?</tspan>
+  </text>
+  <text x="126" y="1210" fill="#F4F0E6" font-family="Public Sans, sans-serif" font-size="34" font-weight="700">Elton Panzeri explica.</text>
+  <g transform="translate(420 1500) scale(1.15)" fill="#071827">
+    <path d="M39 28H79V83L39 101V28Z"/><path d="M39 116L79 98V212H39V116Z"/>
+    <path d="M100 28H140V118L100 136V28Z"/><path d="M100 151L140 133V212H100V151Z"/>
+    <path d="M161 28H201V96L161 114V28Z"/><path d="M161 129L201 111V212H161V129Z"/>
+  </g>
+</svg>

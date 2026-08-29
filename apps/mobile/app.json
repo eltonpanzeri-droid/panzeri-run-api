@@ -6,9 +6,11 @@
     "orientation": "portrait",
     "scheme": "panzerirun",
     "userInterfaceStyle": "light",
+    "icon": "./assets/brand/icon-ios.png",
     "splash": {
+      "image": "./assets/brand/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#f8fafc"
+      "backgroundColor": "#F4F0E6"
     },
     "ios": {
       "supportsTablet": true,
@@ -22,17 +24,19 @@
       "package": "com.panzerirun.app",
       "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#111827"
+        "foregroundImage": "./assets/brand/adaptive-icon-foreground.png",
+        "backgroundColor": "#071827"
       }
     },
     "web": {
       "name": "Panzeri Run",
       "shortName": "Panzeri",
       "lang": "pt-BR",
-      "themeColor": "#0f766e",
-      "backgroundColor": "#f8fafc",
+      "themeColor": "#246F91",
+      "backgroundColor": "#F4F0E6",
       "display": "standalone",
-      "startUrl": "/"
+      "startUrl": "/",
+      "favicon": "./assets/brand/favicon.png"
     },
     "extra": {
       "eas": {
@@ -41,7 +45,8 @@
       "revenueCatAndroidApiKey": ""
     },
     "plugins": [
-      "expo-notifications"
+      "expo-notifications",
+      "expo-font"
     ]
   }
 }

@@ -1,0 +1,18 @@
+<svg width="1080" height="1350" viewBox="0 0 1080 1350" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1080" height="1350" fill="#F4F0E6"/>
+  <rect x="72" y="72" width="936" height="12" fill="#071827"/>
+  <text x="72" y="146" fill="#246F91" font-family="JetBrains Mono, monospace" font-size="25" font-weight="700" letter-spacing="4">PANZERI RUN / ORIENTAÇÃO</text>
+  <text x="72" y="425" fill="#071827" font-family="Big Shoulders Display, Impact, sans-serif" font-size="142" font-weight="800">
+    <tspan x="72" dy="0">O PLANO</tspan><tspan x="72" dy="128">NÃO IGNORA</tspan><tspan x="72" dy="128">A SUA VIDA.</tspan>
+  </text>
+  <path d="M72 940H500L560 910H750L810 940H1008" stroke="#071827" stroke-width="14"/>
+  <path d="M560 910H750" stroke="#C7F36B" stroke-width="14"/>
+  <text x="72" y="1050" fill="#364B59" font-family="Public Sans, sans-serif" font-size="34" font-weight="500">
+    <tspan x="72" dy="0">Você registra o que aconteceu.</tspan><tspan x="72" dy="52">O próximo passo parte daí.</tspan>
+  </text>
+  <g transform="translate(792 1110) scale(.85)" fill="#C7F36B">
+    <path d="M39 28H79V83L39 101V28Z"/><path d="M39 116L79 98V212H39V116Z"/>
+    <path d="M100 28H140V118L100 136V28Z"/><path d="M100 151L140 133V212H100V151Z"/>
+    <path d="M161 28H201V96L161 114V28Z"/><path d="M161 129L201 111V212H161V129Z"/>
+  </g>
+</svg>

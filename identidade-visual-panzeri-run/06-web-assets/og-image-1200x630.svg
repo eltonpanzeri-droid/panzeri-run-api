@@ -1,0 +1,14 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#071827"/>
+  <circle cx="1110" cy="-20" r="280" fill="#246F91" opacity=".55"/>
+  <text x="72" y="100" fill="#B8E6EF" font-family="JetBrains Mono, monospace" font-size="20" font-weight="700" letter-spacing="4">PANZERI RUN</text>
+  <text x="72" y="274" fill="#F4F0E6" font-family="Big Shoulders Display, Impact, sans-serif" font-size="102" font-weight="800">
+    <tspan x="72" dy="0">SEU PRÓXIMO TREINO</tspan><tspan x="72" dy="98">PARTE DO QUE ACONTECEU.</tspan>
+  </text>
+  <text x="76" y="506" fill="#B8CBD4" font-family="Public Sans, sans-serif" font-size="28">Corrida e fortalecimento interpretados semana após semana.</text>
+  <g transform="translate(930 360) scale(.85)" fill="#C7F36B">
+    <path d="M39 28H79V83L39 101V28Z"/><path d="M39 116L79 98V212H39V116Z"/>
+    <path d="M100 28H140V118L100 136V28Z"/><path d="M100 151L140 133V212H100V151Z"/>
+    <path d="M161 28H201V96L161 114V28Z"/><path d="M161 129L201 111V212H161V129Z"/>
+  </g>
+</svg>

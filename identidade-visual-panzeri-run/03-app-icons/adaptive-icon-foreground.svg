@@ -1,7 +1,6 @@
-<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <title>Panzeri Run — PWA maskable icon</title>
-  <rect width="512" height="512" fill="#071827"/>
-  <g transform="translate(136 136)" fill="#C7F36B">
+<svg width="432" height="432" viewBox="0 0 432 432" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Panzeri Run — Android adaptive foreground</title>
+  <g transform="translate(96 96)" fill="#C7F36B">
     <path d="M39 28H79V83L39 101V28Z"/><path d="M39 116L79 98V212H39V116Z"/>
     <path d="M100 28H140V118L100 136V28Z"/><path d="M100 151L140 133V212H100V151Z"/>
     <path d="M161 28H201V96L161 114V28Z"/><path d="M161 129L201 111V212H161V129Z"/>
