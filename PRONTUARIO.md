@@ -482,12 +482,153 @@ nenhuma rotina (`WeeklyAvailability` vazia) — sinal forte de que realmente nun
   um diff determinístico entre a pasta de origem e o espelho do GitHub antes de cada sincronização
   — ver `PROPOSTA_HARNESS_AGENTES.md` pra esse e outros pontos em aberto da discussão de harness.
 
-**Pontos em aberto / para acompanhar antes de publicar nas lojas:**
+**2026-08-27/28** — Investigação real de cobrança (aluna/aluno Rodrigo), infraestrutura de acesso
+permanente pra mim, rastreio de entrega de e-mail, e correção de bug de logout no painel:
+- **Bug real de cobrança, dois defeitos distintos na mesma função**: Rodrigo apareceu como
+  "atrasado" no dia do vencimento mesmo pagando pontualmente todo mês. Causa raiz nº1:
+  `isFuturePending` em `billing.service.ts` comparava timestamp bruto (`new Date(dueDate)` vs
+  `new Date()`) em vez de comparar por dia de calendário no fuso de São Paulo — corrigido com um
+  helper `saoPauloDateString()`. Causa raiz nº2: quando o Asaas deixa uma cobrança antiga travada
+  no status literal `'pending'` por semanas sem nunca virar `'overdue'` de verdade, o sistema não
+  tinha branch pra esse caso — adicionado `hasEverPaid` (olha se o aluno já teve qualquer pagamento
+  confirmado antes) pra resolver esse status como `'overdue'` corretamente em vez de sumir a aluna
+  da lista. Durante a investigação, cometi um erro sério e corrigido a tempo: tentei trocar o
+  filtro de "quem é aluno de verdade" de `subscriptionStatus` para `studentCode` presumindo que
+  fosse mais confiável — isso reintroduziu contas fantasmas antigas (Daiana, Cláudio) na lista real
+  de alunos, porque elas tinham `studentCode` de antes da regra de 18/08 mudar. Revertido nos 5
+  lugares que eu tinha alterado assim que o treinador percebeu ("Você fez todo mundo voltar a ser
+  alunos... Preste atenção!!!!"). Também errei uma conclusão sobre "o pagamento de julho demorou um
+  mês" — era o campo errado do Asaas (`paymentDate`, data de repasse ao lojista, não data real do
+  pagamento); corrigido com o campo certo (`clientPaymentDate`/`confirmedDate`).
+- **Acesso de leitura permanente à API de produção pra mim**: até aqui, qualquer investigação real
+  exigia o treinador extrair e colar um token de sessão manualmente. Criado `CLAUDE_TOOLING_API_KEY`
+  (header `x-tooling-key`, comparação a prova de timing attack) protegendo um controller novo
+  (`coach-tools`) que expõe só rotas de LEITURA sem nenhum efeito colateral (dashboard, histórico de
+  cobrança, prospectos, ex-alunos, log de mensagens) — deliberadamente NÃO expõe a ficha completa de
+  um aluno (essa rota dispara sincronização do Strava, que tem custo/efeito colateral).
+- **Rastreio real de entrega de e-mail**: até aqui o sistema só sabia se o `POST` pro Resend tinha
+  sido aceito, não se o e-mail realmente chegou. Implementado webhook do Resend
+  (`POST /messaging/resend/webhook`, verificação manual de assinatura Svix/HMAC — sem depender de
+  nenhuma lib nova) que atualiza `MessageLog.deliveryStatus` (delivered/opened/clicked/bounced/
+  complained) conforme os eventos chegam. Usado pra confirmar de verdade que os e-mails de recuperação
+  de prospecto estavam sendo entregues, e pra mandar (com autorização explícita do treinador) um
+  e-mail avulso real pra uma prospect (Patrícia) sobre treino remoto — entrega confirmada pelo
+  próprio webhook.
+- **Bug real: painel do treinador deslogava sozinho ao recarregar a página**. Causa: o backend guarda
+  só UM refresh token válido por usuário por vez (o mais recente sempre invalida o anterior) — e o
+  React StrictMode do Next.js (dev mode) disparava o `useEffect` de restauração de sessão duas vezes
+  no mesmo carregamento, cada chamada tentando renovar o token e derrubando a outra no meio. Corrigido
+  com deduplicação da chamada de refresh (`useRef` guardando a promise em andamento) + só renovar se
+  o access token salvo já não for mais válido (decodifica o `exp` do JWT direto, sem chamar a API) +
+  estendido o tratamento de sessão expirada (401 → tenta renovar 1x → desloga só se falhar de novo)
+  pras outras 5 telas do painel que ainda não tinham isso.
+
+**2026-08-28** — configuração de build Android nativo do zero, na máquina real do treinador
+(Windows, sem privilégio de administrador):
+- Instalados JDK 17, Android SDK (cmdline-tools, platform-tools, platform 34, emulator, imagem de
+  sistema x86_64), criado um emulador de teste (Pixel 6, Android 14) — tudo via `winget --scope user`
+  (o escopo padrão de admin falhava pela sandbox), com um passo (aceitar licenças do SDK) que só
+  funcionou rodado pelo próprio treinador num terminal de verdade dele (a ferramenta de terminal
+  desta sessão não tem entrada interativa real).
+- **Bug real de build corrigido**: o plugin Gradle do React Native não conseguia resolver o pacote
+  `react-native` através dos links simbólicos que o pnpm usa por padrão em monorepos — corrigido com
+  `node-linker=hoisted` num `.npmrc` na raiz (recomendação oficial do Expo pra esse cenário),
+  documentado com comentário explicando o porquê.
+- **App nativo travava ao abrir, dois bugs reais e sérios, achados e corrigidos em sequência**: o
+  app tem uma proteção "tela de erro" (`ErrorBoundary`) que avisa o treinador via Telegram sempre que
+  algo quebra — foi exatamente essa proteção que expôs os dois problemas. Causa raiz dos dois: código
+  que rodava sem checagem em `window.location` (usado pra ler parâmetros de URL no fluxo web/PWA) —
+  no app nativo React Native, `window` existe como objeto global (então `typeof window === 'undefined'`
+  engana, parece "seguro"), mas `window.location` não existe de verdade, então `window.location.search`
+  quebrava com "Cannot read property 'search' of undefined". Um dos dois pontos
+  (`initialAuthMode()`) rodava como inicializador de estado, ANTES de qualquer `.catch()` poder
+  proteger — por isso o primeiro sintoma foi a tela travando pra sempre em "Abrindo aplicativo...",
+  sem nenhum erro visível. Corrigido nos dois pontos com guarda por `Platform.OS !== 'web'` (mais
+  robusto que checar cada propriedade de `window` uma por uma), mais uma rede de segurança
+  (`.catch()`) em toda a cadeia de restauração de sessão pra garantir que qualquer erro futuro
+  parecido sempre leve à tela de login em vez de travar pra sempre.
+- **Otimização de token de sessão**: o app não sabia que o access token salvo (válido por 12h) ainda
+  estava bom, e gastava o único refresh token válido toda vez que abria — corrigido decodificando o
+  `exp` do JWT localmente (decodificador base64 escrito à mão, sem depender de `atob`, que não é
+  garantido existir no motor JS nativo/Hermes) tanto na restauração de sessão quanto no timer
+  periódico de 12 em 12 minutos.
+- **Primeiro boot nativo do Panzeri Run bem-sucedido** (Android, emulador) — login, navegação e
+  registro de treino confirmados funcionando de ponta a ponta pela primeira vez fora do navegador.
+
+**2026-08-28/29** — RevenueCat (compra dentro do app nas duas lojas) e primeiro build iOS real:
+- **Contexto**: o backend já tinha, de uma sessão anterior, todo o tratamento do lado do servidor
+  pronto (webhook do RevenueCat em `billing.service.ts`, mapeando eventos de compra/renovação/
+  cancelamento/reembolso pra `subscriptionStatus`, com `subscriptionProvider: 'revenuecat'` isolado
+  do fluxo Asaas pra nunca os dois decidirem o status do mesmo aluno ao mesmo tempo) — só faltava o
+  SDK dentro do app e as contas/credenciais reais das lojas.
+- **SDK integrado no app** (`react-native-purchases`): configurado no login (`Purchases.configure`/
+  `logIn`, usando o mesmo `userId` do JWT — extraído localmente do token, sem chamada nova à API —
+  como identificador, batendo exatamente com o que o webhook do backend espera), desconectado no
+  logout. As duas telas de assinatura do app (a da aba Semana, quando o plano está bloqueado, e a
+  aba Pagamento) agora detectam automaticamente se estão rodando num app nativo com o RevenueCat
+  configurado: nesse caso, a compra é feita direto pela loja (Google Play/App Store), sem CPF e sem
+  passar pelo link do Asaas — que continua sendo o único caminho na versão web/PWA.
+- **Conta RevenueCat criada e configurada** pelo treinador, com credenciais dos dois lados:
+  - **Android**: conectado ao Google Play (nome do pacote, service account — pendente de o
+    treinador terminar de gerar o arquivo JSON de conta de serviço no Google Cloud, ver pendências).
+  - **Apple**: chave de assinatura ("Subscription Key", tipo `SubscriptionKey_*.p8`, diferente da
+    chave geral de API — confundimos os dois tipos na primeira tentativa, corrigido) gerada no App
+    Store Connect e validada com sucesso no RevenueCat ("Valid credentials").
+- **Primeiro build iOS real, gerado e testado num iPhone físico do treinador** (Windows não roda
+  simulador iOS, então esse teste só é possível assim): configurado perfil `preview` no `eas.json`
+  pro iOS, corrigido um aviso da Apple (`ITSAppUsesNonExemptEncryption: false`, evita um passo manual
+  extra no envio de cada build), e — depois de contornar dois problemas de ambiente do lado do
+  treinador (pnpm não instalado na conta do Windows dele; uma variável `CI=true` que ficou grudada
+  numa janela do PowerShell e fazia o EAS achar que estava rodando sem interação humana, travando
+  o login da Apple) — o build terminou, foi instalado via QR code, e **rodou perfeitamente**: login,
+  navegação e registro de treino confirmados também no iOS nativo, sem nenhum dos bugs corrigidos
+  ontem no Android.
+- No App Store Connect, o produto de assinatura mensal (`panzeri_run_mensal`, grupo "Panzeri Run
+  Mensal") já estava criado e configurado (nome, descrição em português, disponibilidade) de uma
+  sessão anterior — falta só confirmar o preço final e enviar junto com um build de produção real
+  (a Apple exige que a primeira assinatura recorrente seja enviada junto com uma versão do app,
+  não pode ser ativada sozinha).
+- **Investigado um alerta real de produção** (Telegram, "Cannot read property 'search' of
+  undefined", vindo de `Login`): confirmado, pela assinatura exata da mensagem de erro (formato
+  antigo, característico do motor Hermes do React Native nativo, diferente do formato atual de
+  navegador), que era o mesmo bug do `window.location` já corrigido nesta sessão — só não tinha
+  chegado ainda a nenhum build novo. Não afeta nenhuma aluna real (a produção real que as alunas
+  usam hoje é a PWA web, que nunca teve esse bug); era o próprio treinador testando um APK antigo.
+
+---
+
+## Onde as coisas estão agora (2026-08-29) — leitura rápida pra quem chega de fora
+
+**Produto em produção, sendo usado por alunas reais**: a versão web/PWA, em
+`https://panzerirun.eltonpanzeripersonal.com.br`. Entrevista, geração de treino por IA, registro de
+treino, pagamento via Asaas (boleto/cartão recorrente), backup diário, alertas de crash e de dor
+grave pro treinador via Telegram — tudo isso funcionando e testado com alunas reais ao longo de
+várias semanas de uso real.
+
+**Em construção, ainda não publicado**: apps nativos Android e iOS, pra publicar na Google Play e
+App Store. Ambos já rodam de ponta a ponta em testes reais (emulador Android + iPhone físico), com
+compra dentro do app (RevenueCat) integrada no código dos dois lados. Falta, pra publicar de fato:
+
+1. **Android**: aguardando o Google confirmar um depósito bancário pequeno pra liberar a conta de
+   pagamento do treinador no Play Console (1-3 dias úteis); depois disso, terminar de criar a conta
+   de serviço do Google Cloud e configurar a "Offering" no RevenueCat; gerar um build de produção
+   (não mais de teste) e enviar pra revisão do Google.
+2. **iOS**: confirmar o preço da assinatura no App Store Connect, ligar o produto a uma "Offering" no
+   RevenueCat (mesmo passo do Android), gerar um build de produção e enviar junto com a primeira
+   assinatura pra revisão da Apple.
+3. **Testar uma compra de verdade em modo sandbox** (não cobra nada real) nas duas lojas antes do
+   lançamento público, pra confirmar que o webhook do RevenueCat está liberando acesso corretamente.
+4. Conta de desenvolvedor Google Play já criada e verificada; conta de desenvolvedor Apple já
+   existia antes desta sessão.
+
+**Não iniciado ainda**: integração com WhatsApp (existe uma VPS Hostinger com Evolution API/n8n já
+configurada, mas nada conectado ao Panzeri Run ainda).
+
+**Pendências que não bloqueiam lançamento, mas seguem em aberto**:
 - Texto de Termos de Uso / Política de Privacidade ainda não teve revisão jurídica profissional —
-  o treinador pediu para deixar assim por enquanto e revisar de novo depois.
-- Fluxo completo "5 perguntas → assinatura → entrevista completa → rotina → gerar treino" foi
-  testado uma vez, manualmente, pelo próprio treinador, até a assinatura (não concluiu o pagamento
-  de verdade) — vale um teste ponta a ponta com pagamento real antes de publicar.
-- Integração com WhatsApp (Evolution API/n8n numa VPS Hostinger já configurada) e publicação nas
-  lojas (Play Store/App Store) seguem como as duas frentes maiores ainda não iniciadas — publicar
-  o app foi apontado como a mais rápida das duas quando perguntado, mas nenhuma foi retomada ainda.
+  decisão consciente do treinador, revisitada periodicamente.
+- Fluxo completo "5 perguntas → assinatura → entrevista completa → rotina → gerar treino" nunca foi
+  testado ponta a ponta com um pagamento Asaas real (só manualmente até a tela de assinatura).
+- Logo mais elaborado ainda não existe como arquivo utilizável — o app usa hoje um ícone simples;
+  o treinador tem um prompt pronto pra gerar um novo quando quiser, mas está satisfeito com o atual
+  por enquanto.
