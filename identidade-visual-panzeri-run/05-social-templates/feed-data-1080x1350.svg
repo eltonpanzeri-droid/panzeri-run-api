@@ -1,0 +1,19 @@
+<svg width="1080" height="1350" viewBox="0 0 1080 1350" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1080" height="1350" fill="#071827"/>
+  <circle cx="965" cy="50" r="280" fill="#246F91" opacity=".65"/>
+  <text x="72" y="128" fill="#B8E6EF" font-family="JetBrains Mono, monospace" font-size="25" font-weight="700" letter-spacing="4">SEMANA / 08</text>
+  <text x="72" y="330" fill="#F4F0E6" font-family="Big Shoulders Display, Impact, sans-serif" font-size="112" font-weight="800">CONSISTÊNCIA</text>
+  <text x="72" y="590" fill="#C7F36B" font-family="JetBrains Mono, monospace" font-size="220" font-weight="700">82%</text>
+  <text x="76" y="666" fill="#B8CBD4" font-family="Public Sans, sans-serif" font-size="34">do que foi possível — não do que era perfeito.</text>
+  <rect x="72" y="786" width="936" height="2" fill="#315366"/>
+  <text x="72" y="880" fill="#B8E6EF" font-family="JetBrains Mono, monospace" font-size="22" font-weight="700">PLANEJADO</text>
+  <rect x="72" y="912" width="730" height="22" fill="#F4F0E6"/>
+  <text x="72" y="1010" fill="#B8E6EF" font-family="JetBrains Mono, monospace" font-size="22" font-weight="700">REALIZADO</text>
+  <rect x="72" y="1042" width="598" height="22" fill="#C7F36B"/>
+  <text x="72" y="1152" fill="#F4F0E6" font-family="Public Sans, sans-serif" font-size="34" font-weight="700">Informação para o próximo passo.</text>
+  <g transform="translate(820 1110) scale(.8)" fill="#C7F36B">
+    <path d="M39 28H79V83L39 101V28Z"/><path d="M39 116L79 98V212H39V116Z"/>
+    <path d="M100 28H140V118L100 136V28Z"/><path d="M100 151L140 133V212H100V151Z"/>
+    <path d="M161 28H201V96L161 114V28Z"/><path d="M161 129L201 111V212H161V129Z"/>
+  </g>
+</svg>

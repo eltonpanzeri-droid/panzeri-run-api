@@ -1,11 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BrandMark } from './theme/BrandMark';
+import { PRColors, PRFonts } from './theme/tokens';
+import { useFonts, BigShouldersDisplay_800ExtraBold } from '@expo-google-fonts/big-shoulders-display';
+// Public Sans e JetBrains Mono (identidade-visual-panzeri-run) entram aqui quando alguma tela
+// realmente passar a usar PRFonts.bodyRegular/bodyMedium/bodyBold/bodyExtraBold/data — ver
+// comentario no useFonts() mais abaixo.
 import {
   Alert,
   Animated,
@@ -1280,7 +1287,43 @@ function AppInner() {
   );
 }
 
+void SplashScreen.preventAutoHideAsync().catch(() => {});
+
 export default function App() {
+  // 29/08: carrega as fontes da identidade visual (identidade-visual-panzeri-run) ANTES de
+  // renderizar qualquer tela — sem isso, o texto pisca com a fonte do sistema por um instante e
+  // depois troca pra fonte de marca assim que o carregamento termina (checklist explicito pede
+  // "sem flash ou travamento"). Enquanto carrega, mostra a mesma tela em branco que ja existia
+  // (isRestoringSession, dentro de AppInner) usaria de qualquer forma no início.
+  //
+  // `fontError` tambem e' checado (nao so' `fontsLoaded`): sem isso, achado por auto-revisao, uma
+  // falha real de carregamento (asset corrompido, pouca memoria num Android fraco) deixava
+  // `fontsLoaded` para sempre `false` e o app preso numa tela em branco pra sempre, sem nenhum
+  // jeito de sair dali — pior que simplesmente cair pra fonte do sistema.
+  // 29/08: carrega so' o peso que alguma tela ja' usa de verdade (Big Shoulders no wordmark/
+  // titulo do onboarding-login). Os outros pesos do pacote de marca (Public Sans, JetBrains Mono)
+  // entram no useFonts quando telas futuras (Fase 3+ da migracao, ver CLAUDE_CODE_HANDOFF.md)
+  // realmente passarem a usa-los — carregar peso que nada renderiza ainda so' estende esse gate
+  // de carregamento sem ganho nenhum, achado por auto-revisao.
+  const [fontsLoaded, fontError] = useFonts({
+    BigShouldersDisplay_800ExtraBold,
+  });
+  // 29/08: na web, nunca bloqueia o primeiro render por causa da fonte — achado por auto-revisao,
+  // `expo-splash-screen` nao tem tela nativa nenhuma no navegador (preventAutoHideAsync/hideAsync
+  // sao no-op), entao esperar `fontsReady` ali so' trocava a splash nativa (que so existe no app
+  // instalado) por uma pagina em branco de verdade na PWA — exatamente o oposto do que "sem flash"
+  // deveria significar pra quem usa o app hoje pelo navegador. Nativo continua esperando (a fonte
+  // ja vem empacotada no app, carrega rapido, e ali sim existe uma splash nativa pra segurar).
+  const fontsReady = Platform.OS === 'web' ? true : fontsLoaded || !!fontError;
+
+  useEffect(() => {
+    if (fontsReady) void SplashScreen.hideAsync().catch(() => {});
+  }, [fontsReady]);
+
+  if (!fontsReady) {
+    return null;
+  }
+
   return (
     <ErrorBoundary>
       <AppInner />
@@ -1355,7 +1398,7 @@ function registerWebApp() {
 
     const theme = browser.document.createElement('meta');
     theme.name = 'theme-color';
-    theme.content = '#0f766e';
+    theme.content = PRColors.ocean;
     browser.document.head?.appendChild(theme);
 
     const iosCapable = browser.document.createElement('meta');
@@ -1391,7 +1434,7 @@ function Onboarding({ onStart }: { onStart: () => void }) {
     <View style={[styles.screen, styles.onboardingScreen]}>
       <View style={styles.brandRow}>
         <View style={styles.logoMark}>
-          <Ionicons name="pulse" size={24} color="#ffffff" />
+          <BrandMark size={24} color={PRColors.pulse} />
         </View>
         <Text style={styles.brand}>Panzeri Run</Text>
       </View>
@@ -1609,7 +1652,7 @@ function Login({
     <ScrollView contentContainerStyle={styles.screen}>
       <View style={styles.brandRow}>
         <View style={styles.logoMark}>
-          <Ionicons name="pulse" size={24} color="#ffffff" />
+          <BrandMark size={24} color={PRColors.pulse} />
         </View>
         <Text style={styles.brand}>Panzeri Run</Text>
       </View>
@@ -6771,19 +6814,22 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 8,
-    backgroundColor: '#111827',
+    backgroundColor: PRColors.mineral,
     alignItems: 'center',
     justifyContent: 'center',
   },
   brand: {
-    color: '#111827',
+    color: PRColors.mineral,
     fontSize: 22,
-    fontWeight: '800',
+    // Sem fontWeight aqui de proposito: fontFamily ja' e' BigShouldersDisplay_800ExtraBold, e
+    // setar os dois juntos e' uma pegadinha conhecida do RN/iOS (o motor de fontes as vezes nao
+    // resolve a combinacao e cai silenciosamente pra fonte do sistema, ignorando a de marca).
+    fontFamily: PRFonts.display,
   },
   title: {
-    color: '#111827',
+    color: PRColors.mineral,
     fontSize: 34,
-    fontWeight: '800',
+    fontFamily: PRFonts.display,
     lineHeight: 40,
   },
   heroBlock: {

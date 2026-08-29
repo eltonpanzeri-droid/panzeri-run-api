@@ -1,0 +1,10 @@
+<svg width="720" height="180" viewBox="0 0 720 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Panzeri Run</title>
+  <g transform="translate(24 18) scale(.6)" fill="#C7F36B">
+    <path d="M39 28H79V83L39 101V28Z"/><path d="M39 116L79 98V212H39V116Z"/>
+    <path d="M100 28H140V118L100 136V28Z"/><path d="M100 151L140 133V212H100V151Z"/>
+    <path d="M161 28H201V96L161 114V28Z"/><path d="M161 129L201 111V212H161V129Z"/>
+  </g>
+  <text x="178" y="112" fill="#F4F0E6" font-family="Big Shoulders Display, Impact, sans-serif" font-size="82" font-weight="800" letter-spacing="1">PANZERI</text>
+  <text x="470" y="112" fill="#B8E6EF" font-family="JetBrains Mono, monospace" font-size="30" font-weight="700" letter-spacing="4">RUN</text>
+</svg>

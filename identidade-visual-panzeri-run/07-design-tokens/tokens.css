@@ -1,0 +1,21 @@
+:root {
+  --pr-mineral: #071827; --pr-limestone: #f4f0e6; --pr-pulse: #c7f36b;
+  --pr-ocean: #246f91; --pr-mist: #b8e6ef; --pr-white: #ffffff;
+  --pr-stone: #d9d6cc; --pr-slate: #748692; --pr-graphite: #364b59;
+  --pr-success: #187a55; --pr-warning: #a35c00; --pr-danger: #b42318;
+  --pr-font-display: 'Big Shoulders Display', Impact, sans-serif;
+  --pr-font-body: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --pr-font-data: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+  --pr-radius-xs: 6px; --pr-radius-sm: 8px; --pr-radius-md: 12px; --pr-radius-lg: 20px;
+  --pr-shadow-card: 0 12px 32px -22px rgba(7, 24, 39, .35);
+  --pr-shadow-float: 0 24px 60px -30px rgba(7, 24, 39, .45);
+  --pr-motion-fast: 160ms; --pr-motion-base: 240ms; --pr-motion-signature: 560ms;
+}
+[data-theme='dark'] {
+  --pr-surface: #102a3a; --pr-surface-raised: #16384a; --pr-text: #f4f0e6;
+  --pr-text-muted: #b8cbd4; --pr-border: #315366;
+}
+[data-theme='light'], :root:not([data-theme]) {
+  --pr-surface: #ffffff; --pr-surface-raised: #f4f0e6; --pr-text: #071827;
+  --pr-text-muted: #364b59; --pr-border: #d9d6cc;
+}

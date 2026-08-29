@@ -1,0 +1,14 @@
+<svg width="1440" height="900" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1440" height="900" fill="#F4F0E6"/>
+  <defs>
+    <pattern id="triad" width="240" height="240" patternUnits="userSpaceOnUse" patternTransform="rotate(-8)">
+      <g transform="translate(28 26) scale(.55)" fill="#246F91" opacity=".18">
+        <path d="M39 28H79V83L39 101V28Z"/><path d="M39 116L79 98V212H39V116Z"/>
+        <path d="M100 28H140V118L100 136V28Z"/><path d="M100 151L140 133V212H100V151Z"/>
+        <path d="M161 28H201V96L161 114V28Z"/><path d="M161 129L201 111V212H161V129Z"/>
+      </g>
+    </pattern>
+  </defs>
+  <rect width="1440" height="900" fill="url(#triad)"/>
+  <circle cx="1200" cy="110" r="290" fill="#C7F36B" opacity=".9"/>
+</svg>

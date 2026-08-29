@@ -1,0 +1,10 @@
+<svg width="760" height="520" viewBox="0 0 760 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="760" height="520" rx="32" fill="#071827"/>
+  <path d="M0 420L760 96V520H0V420Z" fill="#246F91"/>
+  <g transform="translate(260 140)" fill="#C7F36B">
+    <path d="M39 28H79V83L39 101V28Z"/><path d="M39 116L79 98V212H39V116Z"/>
+    <path d="M100 28H140V118L100 136V28Z"/><path d="M100 151L140 133V212H100V151Z"/>
+    <path d="M161 28H201V96L161 114V28Z"/><path d="M161 129L201 111V212H161V129Z"/>
+  </g>
+  <text x="40" y="476" fill="#F4F0E6" font-family="JetBrains Mono, monospace" font-size="16" font-weight="700" letter-spacing="3">PLANEJADO / REALIZADO / PRÓXIMO</text>
+</svg>

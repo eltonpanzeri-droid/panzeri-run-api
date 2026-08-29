@@ -1,0 +1,43 @@
+{
+  "version": "1.0.0",
+  "brand": "Panzeri Run",
+  "signature": "Triade Adaptativa",
+  "assets": {
+    "logos": [
+      "02-logos/symbol-primary.svg",
+      "02-logos/symbol-reversed.svg",
+      "02-logos/symbol-pulse.svg",
+      "02-logos/logo-horizontal-dark.svg",
+      "02-logos/logo-horizontal-light.svg",
+      "02-logos/logo-stacked-dark.svg"
+    ],
+    "appIcons": [
+      "03-app-icons/app-icon-ios-master.svg",
+      "03-app-icons/adaptive-icon-foreground.svg",
+      "03-app-icons/adaptive-icon-background.svg",
+      "03-app-icons/pwa-icon-maskable.svg",
+      "03-app-icons/splash-master.svg"
+    ],
+    "graphics": [
+      "04-graphic-system/adaptive-pattern.svg",
+      "04-graphic-system/interval-divider.svg",
+      "04-graphic-system/three-state-progress.svg"
+    ],
+    "social": [
+      "05-social-templates/feed-editorial-1080x1350.svg",
+      "05-social-templates/feed-data-1080x1350.svg",
+      "05-social-templates/story-1080x1920.svg",
+      "05-social-templates/reel-cover-1080x1920.svg"
+    ],
+    "web": [
+      "06-web-assets/favicon.svg",
+      "06-web-assets/og-image-1200x630.svg",
+      "06-web-assets/hero-graphic.svg"
+    ],
+    "tokens": [
+      "07-design-tokens/tokens.json",
+      "07-design-tokens/tokens.css",
+      "07-design-tokens/tokens.ts"
+    ]
+  }
+}

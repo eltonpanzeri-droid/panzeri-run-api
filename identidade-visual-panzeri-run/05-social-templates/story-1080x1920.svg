@@ -1,0 +1,16 @@
+<svg width="1080" height="1920" viewBox="0 0 1080 1920" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1080" height="1920" fill="#C7F36B"/>
+  <path d="M0 1480L1080 1020V1920H0V1480Z" fill="#071827"/>
+  <text x="72" y="150" fill="#071827" font-family="JetBrains Mono, monospace" font-size="24" font-weight="700" letter-spacing="4">PANZERI RUN</text>
+  <text x="72" y="510" fill="#071827" font-family="Big Shoulders Display, Impact, sans-serif" font-size="154" font-weight="800">
+    <tspan x="72" dy="0">HOJE</tspan><tspan x="72" dy="138">CONTA PARA</tspan><tspan x="72" dy="138">O PRÓXIMO.</tspan>
+  </text>
+  <text x="72" y="1110" fill="#071827" font-family="Public Sans, sans-serif" font-size="42" font-weight="600">
+    <tspan x="72" dy="0">Registre como foi o treino.</tspan><tspan x="72" dy="62">Mesmo quando não saiu perfeito.</tspan>
+  </text>
+  <g transform="translate(420 1430) scale(1.15)" fill="#F4F0E6">
+    <path d="M39 28H79V83L39 101V28Z"/><path d="M39 116L79 98V212H39V116Z"/>
+    <path d="M100 28H140V118L100 136V28Z"/><path d="M100 151L140 133V212H100V151Z"/>
+    <path d="M161 28H201V96L161 114V28Z"/><path d="M161 129L201 111V212H161V129Z"/>
+  </g>
+</svg>
