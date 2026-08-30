@@ -41,7 +41,7 @@ Notifications.setNotificationHandler({
 });
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers';
+type Tab = 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -974,7 +974,6 @@ function AppInner() {
   const [anamneseRoutine, setAnamneseRoutine] = useState<RoutineDay[]>(cloneRoutine(defaultRoutineDays));
   const [savedMe, setSavedMe] = useState<MeResponse | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [hideWeekNotifications, setHideWeekNotifications] = useState(false);
 
   const metrics = useMemo(() => calculateThreeKmMetrics(Number(threeKmSeconds)), [threeKmSeconds]);
 
@@ -1113,7 +1112,11 @@ function AppInner() {
       }
     });
     Promise.all([loadNotifications(accessToken), loadDismissedNotifications()]).then(([items, dismissed]) => {
-      setNotifications(items.filter((item) => !dismissed.includes(item.id)));
+      // 30/08: tambem filtra por `read` (nao so' pelo cache local de dispensados, que reseta todo
+      // dia) — achado por auto-revisao ao mover os avisos pra tela/badge propria: sem isso, um
+      // aviso dispensado ontem (ja marcado como lido no servidor) reaparecia hoje e inflava o
+      // numero do menu com coisa que o aluno ja tinha visto e resolvido.
+      setNotifications(items.filter((item) => !item.read && !dismissed.includes(item.id)));
     });
   }, [accessToken]);
 
@@ -1152,6 +1155,7 @@ function AppInner() {
           <AppMenu
             visible={menuOpen}
             activeTab={activeTab}
+            notificationsCount={notifications.length}
             onLogout={logout}
             onClose={() => setMenuOpen(false)}
             onChange={(tab) => {
@@ -1240,25 +1244,29 @@ function AppInner() {
                 accessToken={accessToken}
                 latestTest={savedMe?.tests?.[0] ?? savedMe?.fitnessTests?.[0] ?? null}
                 onLater={() => setActiveTab('week')}
-                onSaved={() => {
-                  setHideWeekNotifications(true);
-                  setActiveTab('week');
-                }}
+                onSaved={() => setActiveTab('week')}
               />
             )}
             {activeTab === 'week' && (
-              <>
-                {!hideWeekNotifications ? <NotificationList notifications={notifications} accessToken={accessToken} onDismiss={dismissNotification} /> : null}
-                <Week
-                  accessToken={accessToken}
-                  baseRoutineDays={anamneseRoutine}
-                  metrics={metrics}
-                  onOpenInterview={() => setActiveTab('interview')}
-                  onOpenTest={() => setActiveTab('test')}
-                  onOpenPainReport={() => setActiveTab('painReport')}
-                  onPlanStateChange={(state) => setHideWeekNotifications(state.locked || state.requiresTest || state.requiresOnboarding)}
-                />
-              </>
+              <Week
+                accessToken={accessToken}
+                baseRoutineDays={anamneseRoutine}
+                metrics={metrics}
+                onOpenInterview={() => setActiveTab('interview')}
+                onOpenTest={() => setActiveTab('test')}
+                onOpenPainReport={() => setActiveTab('painReport')}
+              />
+            )}
+            {activeTab === 'notifications' && (
+              <View style={styles.screen}>
+                <NotificationList notifications={notifications} accessToken={accessToken} onDismiss={dismissNotification} />
+                {!notifications.length ? (
+                  <>
+                    <Text style={styles.sectionLabel}>Avisos</Text>
+                    <Text style={styles.statusMessage}>Nenhum aviso no momento.</Text>
+                  </>
+                ) : null}
+              </View>
             )}
             {activeTab === 'progress' && <Progress completedToday={completedToday} metrics={metrics} accessToken={accessToken} />}
             {activeTab === 'targetRace' && <TargetRaceScreen accessToken={accessToken} />}
@@ -1809,7 +1817,11 @@ function AppHeader({ userEmail, userName, objective, onOpenMenu }: { userEmail: 
 }
 
 function NotificationList({ notifications, accessToken, onDismiss }: { notifications: AppNotification[]; accessToken: string; onDismiss: (id: string) => void }) {
-  const visible = notifications.slice(0, 3);
+  // 30/08: sem limite de 3 — antes isso era so' uma previa acima da tela de Semana (fazia sentido
+  // cortar), mas agora e' a tela inteira de "Avisos" (acessada pelo menu), entao capar em 3
+  // escondia avisos de verdade sem nenhum jeito de ve-los a nao ser dispensando os primeiros 3
+  // primeiro (o que ja marca como lido via PATCH /notifications/:id/read) — achado por auto-revisao.
+  const visible = notifications;
   if (!visible.length) {
     return null;
   }
@@ -2491,7 +2503,7 @@ async function loadInterviewState(url: string, accessToken: string): Promise<Int
   } catch { return null; }
 }
 
-function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTest, onOpenPainReport, onPlanStateChange }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void; onPlanStateChange?: (state: { locked: boolean; requiresTest: boolean; requiresOnboarding: boolean }) => void }) {
+function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTest, onOpenPainReport }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   const [billingMessage, setBillingMessage] = useState('');
   const [couponCode, setCouponCode] = useState('');
@@ -2502,7 +2514,10 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   const [completionMessages, setCompletionMessages] = useState<Record<string, string>>({});
   const [status, setStatus] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [recommendationOpen, setRecommendationOpen] = useState(true);
+  // 30/08: comeca fechado (era aberto por padrao) — pedido do treinador: antes do treino de
+  // verdade aparecer na tela, o aluno tinha que passar por texto demais (avisos, essa orientacao
+  // inteira). Fica só um resumo/titulo por padrão, com opção de expandir pra quem quiser ler.
+  const [recommendationOpen, setRecommendationOpen] = useState(false);
   const [routineAdjustmentOpen, setRoutineAdjustmentOpen] = useState(false);
   const [applyRoutinePermanently, setApplyRoutinePermanently] = useState(false);
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
@@ -3188,7 +3203,6 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         </Pressable>
       </View>
       <Text style={styles.titleSmall}>{weekRange}</Text>
-      <Text style={styles.copyTight}>Seu treino aparece primeiro. Use o ajuste no final da tela quando a rotina desta semana mudar.</Text>
       <Text style={styles.metaText}>A partir de domingo ao meio-dia, toque em "Gerar treino da semana" para receber os treinos da semana seguinte.</Text>
       {plan?.generatedAt ? <Text style={styles.metaText}>Gerado em {formatDayMonth(new Date(plan.generatedAt))} as {new Date(plan.generatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.</Text> : null}
 
@@ -5027,8 +5041,9 @@ function billingMonthLabel(isoDate: string | null) {
   const monthIndex = Number(month) - 1;
   return monthIndex >= 0 && monthIndex < 12 ? `${months[monthIndex]} ${year}` : isoDate;
 }
-function AppMenu({ visible, activeTab, onChange, onLogout, onClose }: { visible: boolean; activeTab: Tab; onChange: (tab: Tab) => void; onLogout: () => void; onClose: () => void }) {
+function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, onClose }: { visible: boolean; activeTab: Tab; notificationsCount: number; onChange: (tab: Tab) => void; onLogout: () => void; onClose: () => void }) {
   const tabs: Array<{ id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
+    { id: 'notifications', label: 'Avisos', icon: 'notifications-outline' },
     { id: 'week', label: 'Treino da semana', icon: 'calendar' },
     { id: 'interview', label: 'Entrevista inicial', icon: 'chatbubbles' },
     { id: 'routine', label: 'Rotina de treinos', icon: 'time' },
@@ -5062,6 +5077,11 @@ function AppMenu({ visible, activeTab, onChange, onLogout, onClose }: { visible:
                 <Pressable style={[styles.menuItem, active && styles.menuItemActive]} key={tab.id} onPress={() => onChange(tab.id)}>
                   <Ionicons name={tab.icon} size={21} color={active ? PRColors.ocean : '#64748b'} />
                   <Text style={[styles.menuItemText, active && styles.menuItemTextActive]}>{tab.label}</Text>
+                  {tab.id === 'notifications' && notificationsCount > 0 ? (
+                    <View style={styles.menuBadge}>
+                      <Text style={styles.menuBadgeText}>{notificationsCount}</Text>
+                    </View>
+                  ) : null}
                 </Pressable>
               );
             })}
@@ -6964,12 +6984,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0fdfa',
   },
   menuItemText: {
+    flex: 1,
     color: '#334155',
     fontSize: 15,
     fontWeight: '800',
   },
   menuItemTextActive: {
     color: PRColors.ocean,
+  },
+  menuBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    backgroundColor: PRColors.pulse,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuBadgeText: {
+    color: PRColors.mineral,
+    fontSize: 12,
+    fontWeight: '800',
   },
   copy: {
     color: '#475569',
@@ -7585,7 +7620,7 @@ const styles = StyleSheet.create({
   },
   coachBox: {
     borderRadius: 8,
-    backgroundColor: '#111827',
+    backgroundColor: PRColors.mineral,
     padding: 16,
     gap: 6,
   },
