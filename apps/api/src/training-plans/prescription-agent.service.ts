@@ -61,7 +61,19 @@ const AiContinuousPartSchema = z.object({
   // Corrida OU caminhada continua — o codigo nao distingue os dois, o pace escolhido e que diz o
   // que e. Cobre tanto ritmo constante (paceSecondsPerKmMin igual ao Max) quanto ritmo variado ao
   // longo da parte (os dois diferentes, descrevendo a faixa real).
-  distanceKm: z.number().min(0.05).max(60),
+  //
+  // BUG REAL (30/08, aluna Roberta — geracao falhando toda vez): minimo de 0.05 rejeitava a
+  // resposta INTEIRA sempre que a IA decidia uma parte "continua" bem curta (uma transicao/pausa
+  // breve entre blocos) — mesmo padrao ja visto e corrigido no campo `notes` acima: um limite
+  // apertado demais numa unica parte de UM dia derrubava a semana toda.
+  //
+  // NAO usar min(0): a duracao de cada parte e' sempre distanceKm * pace (ver runDistanceBlock em
+  // training-plans.service.ts) — nao existe campo de duracao independente. Uma parte com
+  // distanceKm=0 contaria como 0 minutos na duracao/distancia total do dia mesmo representando um
+  // tempo real (ex: uma pausa), reproduzindo o incidente ja corrigido em 10/08 (trecho real que
+  // nao entrava no total, subestimando o volume do aluno). min(0.01) aceita a decisao bem curta da
+  // IA sem abrir essa lacuna — achado por auto-revisao.
+  distanceKm: z.number().min(0.01).max(60),
   paceSecondsPerKmMin: z.number().int().min(150).max(1200),
   paceSecondsPerKmMax: z.number().int().min(150).max(1200),
 });
