@@ -1447,17 +1447,17 @@ function Onboarding({ onStart }: { onStart: () => void }) {
 
       <View style={styles.startGrid}>
         <View style={styles.startItem}>
-          <Ionicons name="calendar" size={22} color="#0f766e" />
+          <Ionicons name="calendar" size={22} color={PRColors.ocean} />
           <Text style={styles.startTitle}>Semana pronta</Text>
           <Text style={styles.startText}>Treinos claros para cada dia disponivel.</Text>
         </View>
         <View style={styles.startItem}>
-          <Ionicons name="stopwatch" size={22} color="#0f766e" />
+          <Ionicons name="stopwatch" size={22} color={PRColors.ocean} />
           <Text style={styles.startTitle}>Ritmos personalizados</Text>
           <Text style={styles.startText}>Calculados a partir da sua entrevista e do seu historico de corrida.</Text>
         </View>
         <View style={styles.startItem}>
-          <Ionicons name="stats-chart" size={22} color="#0f766e" />
+          <Ionicons name="stats-chart" size={22} color={PRColors.ocean} />
           <Text style={styles.startTitle}>Evolucao visivel</Text>
           <Text style={styles.startText}>Acompanhe consistencia, treinos e marcas.</Text>
         </View>
@@ -1465,7 +1465,7 @@ function Onboarding({ onStart }: { onStart: () => void }) {
 
       <Pressable style={styles.heroButton} onPress={onStart}>
         <Text style={styles.primaryButtonText}>Entrar no app</Text>
-        <Ionicons name="arrow-forward" size={18} color="#ffffff" />
+        <Ionicons name="arrow-forward" size={18} color={PRColors.mineral} />
       </Pressable>
 
       <Text style={styles.safetyFootnote}>Treine com seguranca. Em caso de dor ou sintomas, procure avaliacao profissional.</Text>
@@ -1479,7 +1479,7 @@ function SecureTextInput({ placeholder, value, onChangeText }: { placeholder: st
     <View style={styles.secureInputWrap}>
       <TextInput style={[styles.input, styles.secureInput]} placeholder={placeholder} value={value} onChangeText={onChangeText} secureTextEntry={!visible} />
       <Pressable style={styles.showPasswordButton} onPress={() => setVisible((current) => !current)}>
-        <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={18} color="#0f766e" />
+        <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={18} color={PRColors.ocean} />
         <Text style={styles.showPasswordText}>{visible ? 'Ocultar' : 'Ver'}</Text>
       </Pressable>
     </View>
@@ -1667,7 +1667,7 @@ function Login({
             Parabéns por entrar para o Panzeri Run. Caso tenha algum problema de acesso, pode chamar diretamente pelo WhatsApp do Elton (31) 99253-8375. Ele responderá o mais breve possível.
           </Text>
           <Pressable style={styles.whatsAppButton} onPress={() => Linking.openURL('https://wa.me/5531992538375')}>
-            <Ionicons name="logo-whatsapp" size={18} color="#0f766e" />
+            <Ionicons name="logo-whatsapp" size={18} color={PRColors.ocean} />
             <Text style={styles.whatsAppButtonText}>Falar com Elton pelo WhatsApp</Text>
           </Pressable>
         </View>
@@ -1716,7 +1716,7 @@ function Login({
           onPress={() => submit(mode)}
         >
           <Text style={styles.primaryButtonText}>{isSubmitting ? 'Conectando...' : mode === 'login' ? 'Entrar' : 'Criar conta'}</Text>
-          <Ionicons name={mode === 'login' ? 'log-in-outline' : 'person-add'} size={18} color="#ffffff" />
+          <Ionicons name={mode === 'login' ? 'log-in-outline' : 'person-add'} size={18} color={PRColors.mineral} />
         </Pressable>
 
         <Pressable
@@ -1725,7 +1725,7 @@ function Login({
           onPress={() => setMode(mode === 'login' ? 'register' : 'login')}
         >
           <Text style={styles.secondaryOutlineButtonText}>{mode === 'login' ? 'Criar conta' : 'Ja tenho conta'}</Text>
-          <Ionicons name={mode === 'login' ? 'person-add' : 'log-in-outline'} size={18} color="#0f766e" />
+          <Ionicons name={mode === 'login' ? 'person-add' : 'log-in-outline'} size={18} color={PRColors.ocean} />
         </Pressable>
       </View>
 
@@ -1782,7 +1782,7 @@ function ExerciseResponsibility({ accessToken, onAccepted }: { accessToken: stri
       </View>
       <Pressable style={[styles.primaryButton, (!confirmed || saving) && styles.disabledButton]} disabled={!confirmed || saving} onPress={accept}>
         <Text style={styles.primaryButtonText}>{saving ? 'Registrando...' : 'Confirmar e continuar'}</Text>
-        <Ionicons name="shield-checkmark" size={18} color="#fff" />
+        <Ionicons name="shield-checkmark" size={18} color={PRColors.mineral} />
       </Pressable>
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
     </View>
@@ -1793,7 +1793,10 @@ function AppHeader({ userEmail, userName, objective, onOpenMenu }: { userEmail: 
   return (
     <View style={styles.appHeader}>
       <View>
-        <Text style={styles.headerOverline}>Panzeri Run</Text>
+        <View style={styles.headerBrandRow}>
+          <BrandMark size={14} color={PRColors.ocean} />
+          <Text style={styles.headerOverline}>Panzeri Run</Text>
+        </View>
         <Text style={styles.headerTitle}>{userName || 'Programa inicial 10 km'}</Text>
         {userEmail ? <Text style={styles.headerEmail}>{userEmail}</Text> : null}
         <Text style={styles.headerObjective}>Objetivo: {objective ? shortGoalLabel(objective) : 'ainda nao foi assinalado'}</Text>
@@ -1887,7 +1890,7 @@ function Today({
 
       <Pressable style={[styles.primaryButton, completedToday && styles.disabledButton]} onPress={onComplete}>
         <Text style={styles.primaryButtonText}>{completedToday ? 'Treino registrado' : 'Marcar como feito'}</Text>
-        <Ionicons name="checkmark-circle" size={18} color="#ffffff" />
+        <Ionicons name="checkmark-circle" size={18} color={PRColors.mineral} />
       </Pressable>
     </View>
   );
@@ -1932,7 +1935,7 @@ function WheelColumn({ values, selectedIndex, onChangeIndex, width }: { values: 
   return (
     <View style={styles.wheelColumn}>
       <Pressable style={[styles.wheelStepButton, width ? { width } : null]} onPress={() => step(1)} disabled={selectedIndex >= values.length - 1}>
-        <Ionicons name="chevron-up" size={20} color={selectedIndex >= values.length - 1 ? '#cbd5e1' : '#0f766e'} />
+        <Ionicons name="chevron-up" size={20} color={selectedIndex >= values.length - 1 ? '#cbd5e1' : PRColors.ocean} />
       </Pressable>
       <View style={[styles.wheelScrollBox, width ? { width } : null]}>
         <ScrollView
@@ -1955,7 +1958,7 @@ function WheelColumn({ values, selectedIndex, onChangeIndex, width }: { values: 
         <View pointerEvents="none" style={[styles.wheelHighlight, { top: paddingVertical }]} />
       </View>
       <Pressable style={styles.wheelStepButton} onPress={() => step(-1)} disabled={selectedIndex <= 0}>
-        <Ionicons name="chevron-down" size={20} color={selectedIndex <= 0 ? '#cbd5e1' : '#0f766e'} />
+        <Ionicons name="chevron-down" size={20} color={selectedIndex <= 0 ? '#cbd5e1' : PRColors.ocean} />
       </Pressable>
     </View>
   );
@@ -1990,7 +1993,7 @@ function Dropdown({ options, value, onChange, placeholder = 'Selecione uma opcao
               {options.map((item) => (
                 <Pressable key={item.value} style={styles.interviewDropdownOption} onPress={() => { onChange(item.value); setOpen(false); }}>
                   <Text style={item.value === value ? styles.interviewDropdownOptionTextActive : styles.interviewDropdownOptionText}>{item.label}</Text>
-                  {item.value === value ? <Ionicons name="checkmark" size={18} color="#0f766e" /> : null}
+                  {item.value === value ? <Ionicons name="checkmark" size={18} color={PRColors.ocean} /> : null}
                 </Pressable>
               ))}
             </ScrollView>
@@ -2023,7 +2026,7 @@ function MultiDropdown({ options, value, onChange, placeholder = 'Selecione uma 
                 return (
                   <Pressable key={item.value} style={styles.interviewDropdownOption} onPress={() => toggle(item.value)}>
                     <Text style={checked ? styles.interviewDropdownOptionTextActive : styles.interviewDropdownOptionText}>{item.label}</Text>
-                    <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={18} color={checked ? '#0f766e' : '#9ca3af'} />
+                    <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={18} color={checked ? PRColors.ocean : '#9ca3af'} />
                   </Pressable>
                 );
               })}
@@ -2278,7 +2281,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         Nada aqui e planilha padrao. Um agente de inteligencia artificial monta e ajusta seu treino seguindo a metodologia do treinador, sempre com base no que voce foi contando ate agora. Nao existe um modelo pronto que serve pra qualquer pessoa, seu treino nasce das suas respostas.
       </Text>
       <Text style={styles.copyTight}>Depois de confirmar a assinatura, ainda vem uma entrevista completa (saude, historico de corrida, condicionamento fisico) pra deixar sua prescricao ainda mais precisa e segura pra voce especificamente. Sua assinatura fica em R$19,90 por mes, e voce pode cancelar quando quiser, sem multa.</Text>
-      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{answers.objective === 'Comecar a correr' ? 'Quero comecar meus treinos' : 'Quero comecar minha preparacao'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
+      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{answers.objective === 'Comecar a correr' ? 'Quero comecar meus treinos' : 'Quero comecar minha preparacao'}</Text><Ionicons name="arrow-forward" size={18} color={PRColors.mineral} /></Pressable>
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
     </View>
   );
@@ -2300,7 +2303,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
                 : 'Sua rotina foi salva. Toque em "Gerar treino da semana", na tela de treino, para atualizar seu programa com a rotina nova agora.')
             : 'Parabens por completar sua entrevista! Seus dados foram salvos e serao usados para montar seu programa de treinos personalizado.'}
       </Text>
-      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : mode === 'routine' ? 'Ver meu treino' : 'Ver meu treino'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></Pressable>
+      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : mode === 'routine' ? 'Ver meu treino' : 'Ver meu treino'}</Text><Ionicons name="arrow-forward" size={18} color={PRColors.mineral} /></Pressable>
       {mode === 'onboarding' ? <Pressable style={styles.secondaryButton} onPress={reviewInterview} disabled={saving}><Text style={styles.secondaryButtonText}>Revisar minhas respostas</Text></Pressable> : null}
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
     </View>
@@ -2310,7 +2313,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       <Text style={styles.sectionLabel}>Primeiro acesso</Text>
       <Text style={styles.titleSmall}>Quero conhecer um pouco de voce primeiro</Text>
       <Text style={styles.copyTight}>Sao so 5 perguntas rapidas, leva menos de 2 minutos. Nao e um formulario qualquer: a cada resposta sua, a gente ja ajusta o que vem a seguir, porque seu treino tambem nao vai ser um modelo pronto igual pro resto da turma. E o primeiro passo pra entender de onde voce parte e pra onde quer chegar.</Text>
-      <Pressable style={styles.primaryButton} onPress={() => setStarted(true)}><Text style={styles.primaryButtonText}>Comecar</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>
+      <Pressable style={styles.primaryButton} onPress={() => setStarted(true)}><Text style={styles.primaryButtonText}>Comecar</Text><Ionicons name="chatbubbles" size={18} color={PRColors.mineral} /></Pressable>
     </View>
   );
   if (!started) return (
@@ -2322,7 +2325,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
           ? 'De tempos em tempos pedimos para voce responder algumas perguntas rapidas, para atualizarmos seu treino e acompanharmos sua evolucao ao longo do tempo.'
           : 'Agora vamos a fundo. Essa parte e mais longa porque e ela que faz a diferenca: sua saude, seu historico de corrida, seu condicionamento atual, sua rotina real. E com essas respostas que a gente monta um treino pensado pra voce, nao uma planilha generica que serve pra qualquer pessoa. Quanto mais completa e sincera for sua resposta, mais seguro e mais certeiro fica o seu programa.\n\nEsta pronto para comecar?'}
       </Text>
-      <Pressable style={styles.primaryButton} onPress={() => setStarted(true)}><Text style={styles.primaryButtonText}>Sim, comecar agora</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>
+      <Pressable style={styles.primaryButton} onPress={() => setStarted(true)}><Text style={styles.primaryButtonText}>Sim, comecar agora</Text><Ionicons name="chatbubbles" size={18} color={PRColors.mineral} /></Pressable>
       <Pressable style={styles.secondaryButton} onPress={onLater}><Text style={styles.secondaryButtonText}>Fazer depois</Text></Pressable>
     </View>
   );
@@ -2350,7 +2353,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
           {summarizeRoutineAnswers(answers).map((line) => <Text key={line} style={styles.copyTight}>{line}</Text>)}
         </View>
       ) : null}
-      {question?.help ? <Pressable style={styles.helpButton} onPress={() => setHelpOpen(!helpOpen)}><Ionicons name="information-circle-outline" size={18} color="#0f766e" /><Text style={styles.helpButtonText}>Entenda</Text></Pressable> : null}
+      {question?.help ? <Pressable style={styles.helpButton} onPress={() => setHelpOpen(!helpOpen)}><Ionicons name="information-circle-outline" size={18} color={PRColors.ocean} /><Text style={styles.helpButtonText}>Entenda</Text></Pressable> : null}
       {helpOpen ? <Text style={styles.formHint}>{question?.help}</Text> : null}
 
       {(question?.type === 'single' || question?.type === 'scale') ? <View style={question.type === 'scale' ? styles.scaleGrid : styles.answerList}>{(question.type === 'scale' ? Array.from({ length: 10 }, (_, i) => option(String(i + 1))) : question.options ?? []).map((item) => { const selected = value === item.value || (question.type === 'scale' && value === Number(item.value)); return <Pressable key={item.value} style={[styles.answerButton, selected && styles.answerButtonActive, question.type === 'scale' && styles.scaleButton]} onPress={() => choose(question.type === 'scale' ? Number(item.value) : item.value)}><Text style={[styles.answerButtonText, selected && styles.answerButtonTextActive]}>{item.label}</Text></Pressable>; })}</View> : null}
@@ -2998,7 +3001,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
       <Pressable style={[styles.primaryButton, isCheckingOut && styles.disabledButton]} disabled={isCheckingOut} onPress={openSubscriptionCheckout}>
         <Text style={styles.primaryButtonText}>{isCheckingOut ? 'Preparando pagamento...' : 'Ativar minha assinatura'}</Text>
-        <Ionicons name="card" size={18} color="#ffffff" />
+        <Ionicons name="card" size={18} color={PRColors.mineral} />
       </Pressable>
       <Text style={styles.formHint}>O acesso aos treinos sera liberado assim que o pagamento for confirmado.</Text>
       <View style={styles.couponBox}>
@@ -3039,7 +3042,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   }
 
   if (plan?.requiresOnboarding) {
-    return <View style={styles.section}><Text style={styles.sectionLabel}>Treino da semana</Text><Text style={styles.titleSmall}>Vamos preparar seu plano</Text><View style={styles.coachBox}><Text style={styles.coachTitle}>Entrevista inicial pendente</Text><Text style={styles.coachText}>Conclua a entrevista para que seu treino respeite seu objetivo, sua rotina e seu historico.</Text></View><Pressable style={styles.primaryButton} onPress={onOpenInterview}><Text style={styles.primaryButtonText}>Continuar entrevista</Text><Ionicons name="chatbubbles" size={18} color="#fff" /></Pressable>{plan.hasSubscriptionAccess ? null : subscriptionOffer}</View>;
+    return <View style={styles.section}><Text style={styles.sectionLabel}>Treino da semana</Text><Text style={styles.titleSmall}>Vamos preparar seu plano</Text><View style={styles.coachBox}><Text style={styles.coachTitle}>Entrevista inicial pendente</Text><Text style={styles.coachText}>Conclua a entrevista para que seu treino respeite seu objetivo, sua rotina e seu historico.</Text></View><Pressable style={styles.primaryButton} onPress={onOpenInterview}><Text style={styles.primaryButtonText}>Continuar entrevista</Text><Ionicons name="chatbubbles" size={18} color={PRColors.mineral} /></Pressable>{plan.hasSubscriptionAccess ? null : subscriptionOffer}</View>;
   }
   if (plan?.locked) {
     return (
@@ -3047,12 +3050,12 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         <Text style={styles.sectionLabel}>Treino da semana</Text>
         <View style={styles.moveActions}>
           <Pressable style={styles.moveButton} onPress={() => setWeekOffset((current) => current - 1)}>
-            <Ionicons name="chevron-back" size={15} color="#0f766e" />
+            <Ionicons name="chevron-back" size={15} color={PRColors.ocean} />
             <Text style={styles.moveButtonText}>Anterior</Text>
           </Pressable>
           <Pressable style={[styles.moveButton, weekOffset >= 1 && styles.disabledButton]} disabled={weekOffset >= 1} onPress={() => setWeekOffset((current) => current + 1)}>
             <Text style={styles.moveButtonText}>Proxima</Text>
-            <Ionicons name="chevron-forward" size={15} color="#0f766e" />
+            <Ionicons name="chevron-forward" size={15} color={PRColors.ocean} />
           </Pressable>
         </View>
         <Text style={styles.titleSmall}>{weekRange}</Text>
@@ -3067,7 +3070,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
           <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
           <Pressable style={[styles.primaryButton, isCheckingOut && styles.disabledButton]} disabled={isCheckingOut} onPress={openSubscriptionCheckout}>
             <Text style={styles.primaryButtonText}>{isCheckingOut ? 'Preparando pagamento...' : 'Ativar minha assinatura'}</Text>
-            <Ionicons name="card" size={18} color="#ffffff" />
+            <Ionicons name="card" size={18} color={PRColors.mineral} />
           </Pressable>
           <Text style={styles.formHint}>Seu treino ja esta preparado. Apos a confirmacao, o acesso e liberado para iniciar os treinos.</Text>
           <View style={styles.couponBox}>
@@ -3097,12 +3100,12 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         <Text style={styles.sectionLabel}>Treino da semana</Text>
         <View style={styles.moveActions}>
           <Pressable style={styles.moveButton} onPress={() => setWeekOffset((current) => current - 1)}>
-            <Ionicons name="chevron-back" size={15} color="#0f766e" />
+            <Ionicons name="chevron-back" size={15} color={PRColors.ocean} />
             <Text style={styles.moveButtonText}>Anterior</Text>
           </Pressable>
           <Pressable style={[styles.moveButton, styles.disabledButton]} disabled>
             <Text style={styles.moveButtonText}>Proxima</Text>
-            <Ionicons name="chevron-forward" size={15} color="#0f766e" />
+            <Ionicons name="chevron-forward" size={15} color={PRColors.ocean} />
           </Pressable>
         </View>
         <Text style={styles.titleSmall}>{upcomingWeekRangeLabel()}</Text>
@@ -3130,12 +3133,12 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         <Text style={styles.sectionLabel}>Treino da semana</Text>
         <View style={styles.moveActions}>
           <Pressable style={styles.moveButton} onPress={() => setWeekOffset((current) => current - 1)}>
-            <Ionicons name="chevron-back" size={15} color="#0f766e" />
+            <Ionicons name="chevron-back" size={15} color={PRColors.ocean} />
             <Text style={styles.moveButtonText}>Anterior</Text>
           </Pressable>
           <Pressable style={[styles.moveButton, weekOffset >= 1 && styles.disabledButton]} disabled={weekOffset >= 1} onPress={() => setWeekOffset((current) => current + 1)}>
             <Text style={styles.moveButtonText}>Proxima</Text>
-            <Ionicons name="chevron-forward" size={15} color="#0f766e" />
+            <Ionicons name="chevron-forward" size={15} color={PRColors.ocean} />
           </Pressable>
         </View>
         <Text style={styles.titleSmall}>{formatDayMonth(new Date(notGeneratedRange.startDate))} a {formatDayMonth(new Date(notGeneratedRange.endDate))}</Text>
@@ -3176,12 +3179,12 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       <Text style={styles.sectionLabel}>Treino da semana</Text>
       <View style={styles.moveActions}>
         <Pressable style={styles.moveButton} onPress={() => setWeekOffset((current) => current - 1)}>
-          <Ionicons name="chevron-back" size={15} color="#0f766e" />
+          <Ionicons name="chevron-back" size={15} color={PRColors.ocean} />
           <Text style={styles.moveButtonText}>Anterior</Text>
         </Pressable>
         <Pressable style={[styles.moveButton, weekOffset >= 1 && styles.disabledButton]} disabled={weekOffset >= 1} onPress={() => setWeekOffset((current) => current + 1)}>
           <Text style={styles.moveButtonText}>Proxima</Text>
-          <Ionicons name="chevron-forward" size={15} color="#0f766e" />
+          <Ionicons name="chevron-forward" size={15} color={PRColors.ocean} />
         </Pressable>
       </View>
       <Text style={styles.titleSmall}>{weekRange}</Text>
@@ -3222,7 +3225,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
                     <Text style={styles.sessionTitle}>{modalitySummary}</Text>
                     <Text style={styles.sessionDetail}>{expanded ? 'Toque para recolher' : 'Toque para ver o treino'}</Text>
                   </View>
-                  <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={22} color="#0f766e" />
+                  <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={22} color={PRColors.ocean} />
                 </Pressable>
 
                 {expanded ? group.sessions.map((session) => (
@@ -3265,7 +3268,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       <View style={styles.formSection}>
         <Pressable style={styles.collapseHeader} onPress={() => setRoutineAdjustmentOpen((open) => !open)}>
           <Text style={styles.formSectionTitle}>Ajuste de rotina da semana atual</Text>
-          <Ionicons name={routineAdjustmentOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#0f766e" />
+          <Ionicons name={routineAdjustmentOpen ? 'chevron-up' : 'chevron-down'} size={20} color={PRColors.ocean} />
         </Pressable>
         {routineAdjustmentOpen ? (
           <>
@@ -3281,7 +3284,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             </View>
             <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={applyRoutineAdjustment}>
               <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : applyRoutinePermanently ? 'Salvar rotina permanente e gerar treino' : 'Gerar ajustes so desta semana'}</Text>
-              <Ionicons name="sparkles" size={18} color="#ffffff" />
+              <Ionicons name="sparkles" size={18} color={PRColors.mineral} />
             </Pressable>
           </>
         ) : null}
@@ -3489,7 +3492,7 @@ function ThreeKmTest({
 
       <Pressable style={[styles.primaryButton, isSaving && styles.disabledButton]} disabled={isSaving} onPress={saveTest}>
         <Text style={styles.primaryButtonText}>{isSaving ? 'Salvando...' : 'Salvar teste e ver meu programa'}</Text>
-        <Ionicons name="cloud-upload" size={18} color="#ffffff" />
+        <Ionicons name="cloud-upload" size={18} color={PRColors.mineral} />
       </Pressable>
 
       <Pressable style={styles.secondaryButton} onPress={onLater}>
@@ -4431,12 +4434,12 @@ function StravaSync({ accessToken }: { accessToken: string }) {
         {!connection?.connected ? (
           <Pressable style={[styles.primaryButton, connecting && styles.disabledButton]} disabled={connecting} onPress={connectStrava}>
             <Text style={styles.primaryButtonText}>{connecting ? 'Abrindo autorizacao...' : 'Conectar com Strava'}</Text>
-            <Ionicons name="link" size={18} color="#ffffff" />
+            <Ionicons name="link" size={18} color={PRColors.mineral} />
           </Pressable>
         ) : (
           <Pressable style={styles.secondaryOutlineButton} onPress={verifyNow}>
             <Text style={styles.secondaryOutlineButtonText}>Verificar agora</Text>
-            <Ionicons name="refresh" size={18} color="#0f766e" />
+            <Ionicons name="refresh" size={18} color={PRColors.ocean} />
           </Pressable>
         )}
         {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
@@ -4757,7 +4760,7 @@ function Anamnese({
 
       <Pressable style={[styles.primaryButton, isSaving && styles.disabledButton]} disabled={isSaving} onPress={saveProfile}>
         <Text style={styles.primaryButtonText}>{isSaving ? 'Salvando...' : 'Salvar anamnese'}</Text>
-        <Ionicons name="save" size={18} color="#ffffff" />
+        <Ionicons name="save" size={18} color={PRColors.mineral} />
       </Pressable>
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
@@ -4961,7 +4964,7 @@ function Billing({ accessToken }: { accessToken: string }) {
           ) : null}
           <Pressable style={[styles.primaryButton, isCheckingOut && styles.disabledButton]} disabled={isCheckingOut} onPress={subscribe}>
             <Text style={styles.primaryButtonText}>{isCheckingOut ? 'Preparando pagamento...' : active ? 'Atualizar forma de pagamento' : 'Ativar assinatura'}</Text>
-            <Ionicons name="card" size={18} color="#ffffff" />
+            <Ionicons name="card" size={18} color={PRColors.mineral} />
           </Pressable>
         </View>
       ) : null}
@@ -4995,7 +4998,7 @@ function Billing({ accessToken }: { accessToken: string }) {
       ) : null}
 
       <Pressable style={styles.secondaryButton} onPress={() => loadBilling(true)}>
-        <Ionicons name="refresh" size={18} color="#0f766e" />
+        <Ionicons name="refresh" size={18} color={PRColors.ocean} />
         <Text style={styles.secondaryButtonText}>Atualizar situacao</Text>
       </Pressable>
       {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
@@ -5057,7 +5060,7 @@ function AppMenu({ visible, activeTab, onChange, onLogout, onClose }: { visible:
               const active = tab.id === activeTab;
               return (
                 <Pressable style={[styles.menuItem, active && styles.menuItemActive]} key={tab.id} onPress={() => onChange(tab.id)}>
-                  <Ionicons name={tab.icon} size={21} color={active ? '#0f766e' : '#64748b'} />
+                  <Ionicons name={tab.icon} size={21} color={active ? PRColors.ocean : '#64748b'} />
                   <Text style={[styles.menuItemText, active && styles.menuItemTextActive]}>{tab.label}</Text>
                 </Pressable>
               );
@@ -5306,7 +5309,7 @@ async function exchangeLoginLinkIfPresent(): Promise<AuthSession | null> {
 function Metric({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string }) {
   return (
     <View style={styles.metricCard}>
-      <Ionicons name={icon} size={22} color="#0f766e" />
+      <Ionicons name={icon} size={22} color={PRColors.ocean} />
       <Text style={styles.metricLabel}>{label}</Text>
       <Text style={styles.metricValue}>{value}</Text>
     </View>
@@ -5456,7 +5459,7 @@ function StrengthExerciseList({ category, exercises }: { category?: string; exer
                 <Text style={styles.exerciseName}>{exercise.name}</Text>
                 <Text style={styles.exerciseSummary}>{exercise.sets} series | {exercise.reps} reps | pausa {exercise.restSeconds}s</Text>
               </View>
-              <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#0f766e" />
+              <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color={PRColors.ocean} />
             </Pressable>
             {isOpen ? (
               <View style={styles.exerciseExplanation}>
@@ -5471,7 +5474,7 @@ function StrengthExerciseList({ category, exercises }: { category?: string; exer
                 <Text style={styles.prescriptionText}>{exercise.description || 'Explicacao ainda nao cadastrada.'}</Text>
                 {exercise.videoUrl ? (
                   <Pressable style={styles.videoButton} onPress={() => Linking.openURL(exercise.videoUrl!)}>
-                    <Ionicons name="play-circle" size={16} color="#0f766e" />
+                    <Ionicons name="play-circle" size={16} color={PRColors.ocean} />
                     <Text style={styles.videoButtonText}>Assistir demonstracao</Text>
                   </Pressable>
                 ) : <Text style={styles.noVideoText}>Exercicio sem video cadastrado.</Text>}
@@ -5791,7 +5794,7 @@ function CompletionForm({
         <View style={styles.painNudgeBox}>
           <Text style={styles.painNudgeText}>Notei que você sentiu dor nesse treino — quer detalhar isso agora para seu treinador acompanhar melhor?</Text>
           <Pressable style={styles.secondaryButton} onPress={onOpenPainReport}>
-            <Ionicons name="medkit" size={16} color="#0f766e" />
+            <Ionicons name="medkit" size={16} color={PRColors.ocean} />
             <Text style={styles.secondaryButtonText}>Relatar dor em detalhes</Text>
           </Pressable>
         </View>
@@ -5809,7 +5812,7 @@ function CompletionForm({
       />
 
       <Pressable style={styles.saveCompletionButton} onPress={onSave}>
-        <Ionicons name="checkmark-circle" size={16} color="#ffffff" />
+        <Ionicons name="checkmark-circle" size={16} color={PRColors.mineral} />
         <Text style={styles.saveCompletionText}>Confirmar treino e enviar feedback</Text>
       </Pressable>
       {message ? <Text style={styles.completionConfirmation}>{message}</Text> : null}
@@ -5938,7 +5941,7 @@ function TimeDropdown({ value, onChange }: { value: string; onChange: (value: st
     <View style={styles.dropdownBox}>
       <Pressable style={styles.dropdownButton} onPress={() => setOpen(!open)}>
         <Text style={styles.dropdownButtonText}>{label}</Text>
-        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color="#0f766e" />
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={PRColors.ocean} />
       </Pressable>
       {open && (
         <View style={styles.dropdownMenu}>
@@ -5980,7 +5983,7 @@ function modalityOrderRank(modality: string) {
 }
 
 function modalityAccentColor(modality: string) {
-  if (modality === 'corrida' || modality === 'esteira') return '#0f766e';
+  if (modality === 'corrida' || modality === 'esteira') return PRColors.ocean;
   if (modality === 'fortalecimento_corredores') return '#d97706';
   if (modality === 'forca') return '#7c3aed';
   return '#64748b';
@@ -6014,7 +6017,7 @@ function RescheduleControl({
     <View style={styles.dropdownBox}>
       <Pressable style={styles.dropdownButton} onPress={() => setOpen((current) => !current)}>
         <Text style={styles.dropdownButtonText}>Reagendar</Text>
-        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color="#0f766e" />
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={PRColors.ocean} />
       </Pressable>
       {open ? (
         <View style={styles.dropdownMenu}>
@@ -6728,11 +6731,17 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#dbe4ea',
-    backgroundColor: '#ffffff',
+    borderBottomColor: PRColors.stone,
+    backgroundColor: PRColors.white,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  headerBrandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
   },
   appContent: {
     paddingHorizontal: 12,
@@ -6760,7 +6769,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   alertTitle: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 13,
     fontWeight: '900',
   },
@@ -6778,7 +6787,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   earlyStudentNoticeTitle: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 17,
     fontWeight: '900',
   },
@@ -6790,7 +6799,7 @@ const styles = StyleSheet.create({
   whatsAppButton: {
     minHeight: 44,
     borderWidth: 1,
-    borderColor: '#0f766e',
+    borderColor: PRColors.ocean,
     borderRadius: 8,
     backgroundColor: '#ffffff',
     flexDirection: 'row',
@@ -6800,7 +6809,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   whatsAppButtonText: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 14,
     fontWeight: '800',
     textAlign: 'center',
@@ -6836,7 +6845,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   heroEyebrow: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 13,
     fontWeight: '900',
     textTransform: 'uppercase',
@@ -6870,7 +6879,7 @@ const styles = StyleSheet.create({
   heroButton: {
     minHeight: 58,
     borderRadius: 8,
-    backgroundColor: '#0f766e',
+    backgroundColor: PRColors.pulse,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -6888,7 +6897,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   headerTitle: {
-    color: '#111827',
+    color: PRColors.mineral,
     fontSize: 18,
     fontWeight: '800',
   },
@@ -6898,13 +6907,13 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   headerObjective: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 12,
     fontWeight: '800',
     marginTop: 5,
   },
   headerOverline: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 12,
     fontWeight: '800',
     textTransform: 'uppercase',
@@ -6913,7 +6922,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 8,
-    backgroundColor: '#111827',
+    backgroundColor: PRColors.mineral,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -6960,7 +6969,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   menuItemTextActive: {
-    color: '#0f766e',
+    color: PRColors.ocean,
   },
   copy: {
     color: '#475569',
@@ -6978,7 +6987,7 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
   sectionLabel: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 13,
     fontWeight: '800',
     textTransform: 'uppercase',
@@ -7045,7 +7054,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   showPasswordText: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 13,
     fontWeight: '800',
   },
@@ -7076,14 +7085,18 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   termsLink: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontWeight: '700',
     textDecorationLine: 'underline',
   },
   primaryButton: {
+    // 30/08: cor de decisao primaria da identidade visual (Verde Pulso) — era azul-petroleo
+    // (#0f766e) generico, sem ligacao com o resto do sistema de marca. Fundo claro exige texto
+    // escuro (ver primaryButtonText/os Ionicons brancos dentro de primaryButton, trocados junto
+    // pra Mineral — senao ficam ilegiveis em cima do verde).
     minHeight: 54,
     borderRadius: 8,
-    backgroundColor: '#0f766e',
+    backgroundColor: PRColors.pulse,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -7096,7 +7109,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   primaryButtonText: {
-    color: '#ffffff',
+    color: PRColors.mineral,
     fontSize: 16,
     fontWeight: '800',
   },
@@ -7104,7 +7117,7 @@ const styles = StyleSheet.create({
     minHeight: 54,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#0f766e',
+    borderColor: PRColors.ocean,
     backgroundColor: '#ffffff',
     flexDirection: 'row',
     alignItems: 'center',
@@ -7112,7 +7125,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   secondaryOutlineButtonText: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 16,
     fontWeight: '800',
   },
@@ -7125,7 +7138,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   secondaryButtonText: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 15,
     fontWeight: '700',
   },
@@ -7145,7 +7158,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   noticeTitle: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 15,
     fontWeight: '900',
   },
@@ -7219,7 +7232,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   sessionDetail: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 14,
     fontWeight: '700',
   },
@@ -7361,7 +7374,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   prescriptionCategory: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 12,
     fontWeight: '900',
     textTransform: 'uppercase',
@@ -7409,7 +7422,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   runBlockDuration: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 13,
     fontWeight: '900',
   },
@@ -7429,7 +7442,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   loadField: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 13,
     fontWeight: '800',
   },
@@ -7447,7 +7460,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   videoButtonText: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 12,
     fontWeight: '900',
   },
@@ -7486,7 +7499,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   completionChipActive: {
-    borderColor: '#0f766e',
+    borderColor: PRColors.ocean,
     backgroundColor: '#ccfbf1',
   },
   completionChipText: {
@@ -7533,19 +7546,19 @@ const styles = StyleSheet.create({
   saveCompletionButton: {
     minHeight: 40,
     borderRadius: 8,
-    backgroundColor: '#0f766e',
+    backgroundColor: PRColors.pulse,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
   saveCompletionText: {
-    color: '#ffffff',
+    color: PRColors.mineral,
     fontSize: 13,
     fontWeight: '900',
   },
   completionConfirmation: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 13,
     fontWeight: '700',
     lineHeight: 19,
@@ -7676,7 +7689,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   moveButtonText: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 12,
     fontWeight: '800',
   },
@@ -7698,7 +7711,7 @@ const styles = StyleSheet.create({
   },
   zoneName: {
     width: 34,
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontWeight: '900',
   },
   zoneLabel: {
@@ -7770,7 +7783,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0f766e',
+    backgroundColor: PRColors.ocean,
   },
   couponButtonText: {
     color: '#ffffff',
@@ -7797,7 +7810,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   quickIntakeAckText: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 14,
     lineHeight: 20,
   },
@@ -7810,7 +7823,7 @@ const styles = StyleSheet.create({
   progressFill: {
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#0f766e',
+    backgroundColor: PRColors.ocean,
   },
   interviewQuestion: {
     color: '#111827',
@@ -7916,14 +7929,14 @@ const styles = StyleSheet.create({
   },
   interviewDropdownOptionTextActive: {
     fontSize: 16,
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontWeight: '700',
   },
   dropdownDoneButton: {
     marginTop: 4,
     marginHorizontal: 12,
     marginBottom: 8,
-    backgroundColor: '#0f766e',
+    backgroundColor: PRColors.ocean,
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
@@ -7947,7 +7960,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   answerButtonActive: {
-    borderColor: '#0f766e',
+    borderColor: PRColors.ocean,
     backgroundColor: '#ccfbf1',
   },
   answerButtonText: {
@@ -7958,7 +7971,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   answerButtonTextActive: {
-    color: '#0f766e',
+    color: PRColors.ocean,
   },
   scaleGrid: {
     flexDirection: 'row',
@@ -7978,7 +7991,7 @@ const styles = StyleSheet.create({
     minHeight: 36,
   },
   helpButtonText: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 13,
     fontWeight: '900',
   },
@@ -7986,14 +7999,14 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     minHeight: 36,
     borderWidth: 1,
-    borderColor: '#0f766e',
+    borderColor: PRColors.ocean,
     borderRadius: 8,
     paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   decimalButtonText: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 13,
     fontWeight: '900',
   },
@@ -8006,7 +8019,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   calculationTitle: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 13,
     fontWeight: '900',
   },
@@ -8034,7 +8047,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   optionChipActive: {
-    borderColor: '#0f766e',
+    borderColor: PRColors.ocean,
     backgroundColor: '#ccfbf1',
   },
   optionChipText: {
@@ -8101,7 +8114,7 @@ const styles = StyleSheet.create({
     minHeight: 38,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#0f766e',
+    borderColor: PRColors.ocean,
     backgroundColor: '#ffffff',
     paddingHorizontal: 10,
     flexDirection: 'row',
@@ -8110,7 +8123,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   dropdownButtonText: {
-    color: '#0f766e',
+    color: PRColors.ocean,
     fontSize: 13,
     fontWeight: '800',
   },
@@ -8168,7 +8181,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   tabTextActive: {
-    color: '#0f766e',
+    color: PRColors.ocean,
   },
 });
 
