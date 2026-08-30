@@ -14,6 +14,7 @@ import { useFonts, BigShouldersDisplay_800ExtraBold } from '@expo-google-fonts/b
 // realmente passar a usar PRFonts.bodyRegular/bodyMedium/bodyBold/bodyExtraBold/data — ver
 // comentario no useFonts() mais abaixo.
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Modal,
@@ -1259,13 +1260,15 @@ function AppInner() {
             )}
             {activeTab === 'notifications' && (
               <View style={styles.screen}>
-                <NotificationList notifications={notifications} accessToken={accessToken} onDismiss={dismissNotification} />
-                {!notifications.length ? (
+                <Text style={styles.formSectionTitle}>Avisos</Text>
+                {notifications.length ? (
                   <>
-                    <Text style={styles.sectionLabel}>Avisos</Text>
-                    <Text style={styles.statusMessage}>Nenhum aviso no momento.</Text>
+                    <Text style={styles.formHint}>Arraste um aviso para o lado para remove-lo.</Text>
+                    <NotificationList notifications={notifications} accessToken={accessToken} onDismiss={dismissNotification} />
                   </>
-                ) : null}
+                ) : (
+                  <Text style={styles.statusMessage}>Nenhum aviso no momento.</Text>
+                )}
               </View>
             )}
             {activeTab === 'progress' && <Progress completedToday={completedToday} metrics={metrics} accessToken={accessToken} />}
@@ -1828,8 +1831,6 @@ function NotificationList({ notifications, accessToken, onDismiss }: { notificat
 
   return (
     <View style={styles.alertBox}>
-      <Text style={styles.formSectionTitle}>Avisos</Text>
-      <Text style={styles.formHint}>Arraste um aviso para o lado para remove-lo.</Text>
       {visible.map((notification) => (
         <DismissibleNotification notification={notification} accessToken={accessToken} onDismiss={onDismiss} key={notification.id} />
       ))}
@@ -3134,8 +3135,15 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
             <Text style={styles.coachText}>Toque pra montar seu treino com tudo que voce ja nos contou ate aqui: objetivo, condicionamento, saude e a rotina que voce mesmo definiu. Nao e um treino generico puxado de uma tabela pronta, e montado especificamente pra voce, nesse momento. Pra ver domingo (ou dias anteriores), use "Anterior".</Text>
             <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generateCurrentWeekNow}>
+              {isLoading ? <ActivityIndicator size="small" color={PRColors.mineral} /> : null}
               <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar treino da semana'}</Text>
             </Pressable>
+            {/* 30/08: cor clara explicita, nao styles.statusMessage puro — achado por auto-revisao:
+                esse texto fica dentro do coachBox escuro (fundo PRColors.mineral), e statusMessage
+                e' cinza-escuro (pensado pra fundo claro). Sem isso, a mensagem "pode levar ate 10
+                minutos" — que existe pra evitar exatamente a confusao "acho que nao aconteceu
+                nada" — ficava la, so' que invisivel. */}
+            {status ? <Text style={[styles.statusMessage, { color: PRColors.limestone }]}>{status}</Text> : null}
           </View>
         )}
       </View>
@@ -3167,8 +3175,15 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
             <Text style={styles.coachText}>Toque para gerar seu treino a partir de hoje.</Text>
             <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generateCurrentWeekNow}>
+              {isLoading ? <ActivityIndicator size="small" color={PRColors.mineral} /> : null}
               <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar treino da semana'}</Text>
             </Pressable>
+            {/* 30/08: cor clara explicita, nao styles.statusMessage puro — achado por auto-revisao:
+                esse texto fica dentro do coachBox escuro (fundo PRColors.mineral), e statusMessage
+                e' cinza-escuro (pensado pra fundo claro). Sem isso, a mensagem "pode levar ate 10
+                minutos" — que existe pra evitar exatamente a confusao "acho que nao aconteceu
+                nada" — ficava la, so' que invisivel. */}
+            {status ? <Text style={[styles.statusMessage, { color: PRColors.limestone }]}>{status}</Text> : null}
           </View>
         ) : weekOffset < 0 ? (
           <View style={styles.coachBox}>
@@ -3297,8 +3312,9 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
               <Text style={styles.termsText}>Aplicar essa rotina permanentemente, nao so nesta semana (evita ter que refazer a entrevista).</Text>
             </View>
             <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={applyRoutineAdjustment}>
+              {isLoading ? <ActivityIndicator size="small" color={PRColors.mineral} /> : null}
               <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : applyRoutinePermanently ? 'Salvar rotina permanente e gerar treino' : 'Gerar ajustes so desta semana'}</Text>
-              <Ionicons name="sparkles" size={18} color={PRColors.mineral} />
+              {!isLoading ? <Ionicons name="sparkles" size={18} color={PRColors.mineral} /> : null}
             </Pressable>
           </>
         ) : null}
