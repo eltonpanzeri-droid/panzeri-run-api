@@ -22,6 +22,7 @@ import { TargetRacesService } from '../target-races/target-races.service';
 import { StravaService } from '../strava/strava.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { WeeklyCheckInService } from './weekly-checkin.service';
 import { StudentProfileService, ProfileEventCode } from './student-profile.service';
 
 interface SessionTemplate {
@@ -131,6 +132,7 @@ export class TrainingPlansService {
     private readonly telegram: TelegramService,
     private readonly studentProfile: StudentProfileService,
     private readonly notifications: NotificationsService,
+    private readonly weeklyCheckIn: WeeklyCheckInService,
   ) {}
 
   // REGRA DURA (2026-07-28): current() e SO LEITURA — nunca chama generateWeek() nem mexe no
@@ -515,6 +517,21 @@ export class TrainingPlansService {
       }),
     ]);
 
+    // 31/08: buscado DEPOIS do Promise.all (nao dentro), pra poder filtrar pelo id exato do plano
+    // que esta encerrando (activePlanBeforeAdjustment) — achado por auto-revisao: sem esse filtro,
+    // um check-in de semanas atras podia ser encontrado e apresentado a IA como se fosse da semana
+    // que acabou de terminar, em qualquer chamada que nao passe pelo gate de
+    // doGenerateCurrentWeekOnDemand (regeneracao manual do treinador, mudanca de rotina, cron
+    // semanal) — mesma classe de bug ja corrigida antes (contexto desatualizado apresentado como
+    // atual). Sem planId correspondente, fica null (a IA simplesmente nao recebe esse dado, em vez
+    // de receber um dado errado).
+    const latestWeeklyCheckIn = activePlanBeforeAdjustment
+      ? await this.prisma.weeklyCheckIn.findFirst({
+          where: { userId, planId: activePlanBeforeAdjustment.id },
+          select: { elaborationSatisfaction: true, adherenceSatisfaction: true, nextWeekMotivation: true },
+        })
+      : null;
+
     if (!onboarding?.completedAt) return onboardingRequiredPlan(hasSubscriptionAccess(user.subscriptionStatus));
 
     const answers = sanitizeInterviewAnswers(jsonObject(onboarding.answers));
@@ -641,6 +658,7 @@ export class TrainingPlansService {
       studentDirectives: activeDirectives.map((directive) => directive.content),
       activeObservations: activeObservations.map((observation) => observation.content),
       studentProfileSummary,
+      weeklyCheckIn: latestWeeklyCheckIn,
       todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
       weekDates: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
         weekday,
@@ -1127,6 +1145,15 @@ export class TrainingPlansService {
       select: { id: true },
     });
     if (existingPlanForWeek) return { generated: false, reason: 'ja_gerado' };
+
+    // 31/08: check-in obrigatorio antes de gerar (pedido explicito do treinador) — confirmacao de
+    // registro da semana que esta terminando + 3 perguntas em escala. Checado ANTES de consumir
+    // uma tentativa de proposito: um check-in pendente nao e' uma tentativa de geracao falhando,
+    // e' so' o aluno ainda nao ter passado por essa etapa — nao deveria custar uma das tentativas
+    // limitadas dele. Ver WeeklyCheckInService.
+    if (!(await this.weeklyCheckIn.hasCheckedInForCurrentPlan(userId))) {
+      return { generated: false, reason: 'checkin_pendente' };
+    }
 
     // Controle de tentativas (pedido explicito do treinador 16/08, incidente real com um aluno
     // batendo timeout repetidas vezes) — reseta sozinho quando a semana-alvo muda de verdade,

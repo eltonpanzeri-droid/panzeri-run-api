@@ -595,9 +595,51 @@ permanente pra mim, rastreio de entrega de e-mail, e correção de bug de logout
   chegado ainda a nenhum build novo. Não afeta nenhuma aluna real (a produção real que as alunas
   usam hoje é a PWA web, que nunca teve esse bug); era o próprio treinador testando um APK antigo.
 
+**2026-08-30** — identidade visual aplicada de verdade no app (ícone/splash não bastavam), bug real
+crítico de geração corrigido (aluna Roberta), e início do processo pra aumentar o limite de alunos
+no Strava:
+
+- **Identidade visual, fase 2 completa**: a sessão anterior só tinha trocado ícone/splash/símbolo do
+  onboarding — o treinador reclamou, com razão, que "por dentro" o app continuava com a cara antiga.
+  Corrigido: cor de decisão primária (Verde Pulso, texto escuro) aplicada em **todos** os botões
+  principais do app (mais de 15 lugares — pagamento, salvar treino, salvar anamnese, Strava, etc.),
+  ícone de destaque trocado do azul genérico antigo pro Azul Profundo da marca em todo lugar,
+  cabeçalho fixo (aparece em toda tela logada) reestilizado com o símbolo real da marca.
+- **Tela de Semana reorganizada** (pedido direto do treinador, 3 mudanças): "Avisos" saiu de cima do
+  treino e virou item de menu com contador; removido um texto que incentivava indevidamente o aluno
+  a ficar mudando a rotina toda hora; a caixa "Orientação da semana" passou a começar fechada (antes
+  competia visualmente com o treino de verdade). Nessa mesma rodada, achado e corrigido um bug real
+  já existente: em dois estados específicos da tela, o aviso "seu treino pode levar até 10 minutos"
+  nunca era exibido de fato (só o texto do botão mudava pra "Gerando...") — explica relatos antigos
+  de "cliquei e não aconteceu nada". Adicionado spinner visual nos botões de gerar treino.
+- **Bug real crítico corrigido: geração de treino falhando sempre para a aluna Roberta Kemp**. Causa
+  raiz encontrada direto no log de produção: uma diretriz detalhada dela (sessões com várias partes
+  encadeadas — séries + caminhada de recuperação + transições) fazia a IA decidir uma "parte" bem
+  curta demais, e o schema de validação (Zod) exigia no mínimo 0,05 km pra **qualquer** parte —
+  rejeitando a resposta inteira por causa de uma única parte pequena. Corrigido pra um mínimo bem
+  menor (0,01, não zero — zero quebraria o cálculo de duração, que é sempre distância × pace, sem
+  campo de tempo independente; a primeira tentativa de correção cometeu exatamente esse erro e foi
+  pega na autorevisão antes de ir pro ar).
+- **Processo de sincronização revisto**: essa sessão criou branches separadas pra cada mudança
+  (identidade visual, depois uma segunda parte, depois a tela de Semana) — gerou fricção real e
+  desnecessária pro treinador (várias telas de "Pull Request"/mesclagem no GitHub, quando antes
+  bastava commit direto). A partir de agora, o padrão volta a ser sincronizar direto pra `main`, sem
+  branch nem PR — branch só quando o treinador pedir explicitamente.
+- **Investigação do limite de alunos conectados no Strava**: a conta está no "Standard Tier" da API
+  do Strava, limitada a 10 atletas conectados simultaneamente (confirmado: 10 de 10 no momento).
+  Pesquisado o processo atual (mudou em 2026): auto-upgrade até 10 é direto no painel, sem formulário;
+  acima de 10 precisa de revisão manual da Strava (Developer Program form, com capturas de tela de
+  onde os dados do Strava aparecem no app + o botão de conectar). Confirmado que a assinatura Strava
+  do treinador está ativa (sem risco pelo prazo de 30/06/2026 que a Strava impôs pra manter acesso à
+  API). Formulário de revisão enviado pelo treinador ao final da sessão — aguardando resposta deles.
+
+**Lição de processo registrada nesta sessão** (o próprio treinador pediu um "prontuário" separado
+pra isso): ver `LICOES_COLABORACAO.md` na raiz do projeto — registro de erros reais de comportamento
+meu (não de código) nas conversas, pra reduzir repetição.
+
 ---
 
-## Onde as coisas estão agora (2026-08-29) — leitura rápida pra quem chega de fora
+## Onde as coisas estão agora (2026-08-30) — leitura rápida pra quem chega de fora
 
 **Produto em produção, sendo usado por alunas reais**: a versão web/PWA, em
 `https://panzerirun.eltonpanzeripersonal.com.br`. Entrevista, geração de treino por IA, registro de
@@ -629,6 +671,9 @@ configurada, mas nada conectado ao Panzeri Run ainda).
   decisão consciente do treinador, revisitada periodicamente.
 - Fluxo completo "5 perguntas → assinatura → entrevista completa → rotina → gerar treino" nunca foi
   testado ponta a ponta com um pagamento Asaas real (só manualmente até a tela de assinatura).
-- Logo mais elaborado ainda não existe como arquivo utilizável — o app usa hoje um ícone simples;
-  o treinador tem um prompt pronto pra gerar um novo quando quiser, mas está satisfeito com o atual
-  por enquanto.
+- Identidade visual (29-30/08): ícone/splash e a cor/marca dos botões e cabeçalho já aplicados de
+  ponta a ponta. Ainda existe uma segunda direção visual (v2, alinhada com outro app do treinador,
+  Panz Fit) proposta mas **não decidida nem implementada** — fica só como material de referência em
+  `identidade-visual-panzeri-run-v2-familia-panz/` até o treinador escolher.
+- **Limite de alunos conectados no Strava**: hoje no teto de 10 (Standard Tier). Pedido de aumento
+  enviado à Strava em 30/08, aguardando resposta deles — pode levar alguns dias/semanas.

@@ -215,7 +215,12 @@ export class StravaService implements OnModuleInit {
     }
   }
 
-  async report(userId: string, context: { trigger?: string; activityId?: string } = {}) {
+  // 31/08: `skipCache` deixa chamar isso de um endpoint que precisa ser leitura pura de verdade
+  // (ver WeeklyCheckInService.getStatus) sem gravar o cache de trainingExecutionInsight abaixo —
+  // achado por auto-revisao ao notar que essa gravacao acontecia toda vez que o aluno so' checava
+  // se falta o check-in semanal, contrariando a mesma regra que ja vale pra current() (nunca
+  // escrever so' por causa de alguem consultando um dado).
+  async report(userId: string, context: { trigger?: string; activityId?: string; skipCache?: boolean } = {}) {
     if (!(await this.shouldAnalyze(userId))) {
       return { summary: null, items: [], analysisInactive: true };
     }
@@ -370,19 +375,21 @@ export class StravaService implements OnModuleInit {
       items,
     };
 
-    await this.prisma.trainingExecutionInsight.upsert({
-      where: { planId: plan.id },
-      create: {
-        userId,
-        planId: plan.id,
-        summary: toJsonValue(report.summary),
-        items: toJsonValue(items),
-      },
-      update: {
-        summary: toJsonValue(report.summary),
-        items: toJsonValue(items),
-      },
-    });
+    if (!context.skipCache) {
+      await this.prisma.trainingExecutionInsight.upsert({
+        where: { planId: plan.id },
+        create: {
+          userId,
+          planId: plan.id,
+          summary: toJsonValue(report.summary),
+          items: toJsonValue(items),
+        },
+        update: {
+          summary: toJsonValue(report.summary),
+          items: toJsonValue(items),
+        },
+      });
+    }
 
     return report;
   }

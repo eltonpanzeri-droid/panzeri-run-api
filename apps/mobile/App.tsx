@@ -431,6 +431,13 @@ interface MeResponse {
   fitnessTests?: Array<{ id?: string; totalSeconds?: number | null; createdAt?: string | null }>;
 }
 
+interface WeeklyCheckInSummary {
+  asPrescribedSessions: number;
+  changedModalitySessions: number;
+  differentSessions: number;
+  missedSessions: number;
+}
+
 interface AppNotification {
   id: string;
   title: string;
@@ -2504,6 +2511,122 @@ async function loadInterviewState(url: string, accessToken: string): Promise<Int
   } catch { return null; }
 }
 
+// 31/08: seletor de escala 1-5 reutilizado nas 3 perguntas do check-in semanal — mesmo numero por
+// baixo das avaliacoes por sessao que ja existem no app (nao redesenha o conceito, so' aplica na
+// semana toda em vez de uma sessao so).
+function ScalePicker({ value, onChange, lowLabel, highLabel }: { value: number | null; onChange: (value: number) => void; lowLabel: string; highLabel: string }) {
+  return (
+    <View>
+      <View style={styles.scalePickerRow}>
+        {[1, 2, 3, 4, 5].map((option) => (
+          <Pressable
+            key={option}
+            style={[styles.scalePickerOption, value === option && styles.scalePickerOptionActive]}
+            onPress={() => onChange(option)}
+          >
+            <Text style={[styles.scalePickerOptionText, value === option && styles.scalePickerOptionTextActive]}>{option}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <View style={styles.scalePickerLabels}>
+        <Text style={styles.formHint}>{lowLabel}</Text>
+        <Text style={styles.formHint}>{highLabel}</Text>
+      </View>
+    </View>
+  );
+}
+
+// 31/08: check-in obrigatorio antes de gerar a proxima semana (pedido explicito do treinador) —
+// duas etapas: confirmar que o aluno registrou tudo (com os numeros reais da semana), depois 3
+// perguntas em escala sobre a semana como um todo. So' aparece quando GET weekly-checkin/status
+// diz que falta (ver generateCurrentWeekNow, dentro de Week).
+function WeeklyCheckInModal({
+  visible,
+  step,
+  summary,
+  showExplanation,
+  submitting,
+  onConfirmYes,
+  onConfirmNo,
+  onSubmit,
+}: {
+  visible: boolean;
+  step: 'confirm' | 'questions';
+  summary: WeeklyCheckInSummary | null;
+  showExplanation: boolean;
+  submitting: boolean;
+  onConfirmYes: () => void;
+  onConfirmNo: () => void;
+  onSubmit: (scores: { elaborationSatisfaction: number; adherenceSatisfaction: number; nextWeekMotivation: number }) => void;
+}) {
+  const [elaboration, setElaboration] = useState<number | null>(null);
+  const [adherence, setAdherence] = useState<number | null>(null);
+  const [motivation, setMotivation] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!visible) {
+      setElaboration(null);
+      setAdherence(null);
+      setMotivation(null);
+    }
+  }, [visible]);
+
+  const canSubmit = elaboration !== null && adherence !== null && motivation !== null;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={styles.appMenuOverlay}>
+        <View style={styles.appMenuSheet}>
+          <ScrollView contentContainerStyle={styles.appMenuContent}>
+            {step === 'confirm' && summary ? (
+              <>
+                <Text style={styles.formSectionTitle}>Antes de gerar sua nova semana</Text>
+                <Text style={styles.copyTight}>
+                  Segundo nossos registros dessa semana: {summary.asPrescribedSessions} {summary.asPrescribedSessions === 1 ? 'treino feito como previsto' : 'treinos feitos como previsto'}
+                  {summary.changedModalitySessions > 0 ? `, ${summary.changedModalitySessions} ${summary.changedModalitySessions === 1 ? 'feito com ajuste' : 'feitos com ajuste'}` : ''}
+                  {summary.differentSessions > 0 ? `, ${summary.differentSessions} ${summary.differentSessions === 1 ? 'feito de forma diferente' : 'feitos de forma diferente'} (via Strava)` : ''}
+                  {summary.missedSessions > 0 ? `, ${summary.missedSessions} sem nenhum registro` : ''}.
+                </Text>
+                {showExplanation ? (
+                  <Text style={styles.formHint}>Isso ajuda a próxima semana a ser montada com base no que realmente aconteceu, não só no que estava previsto.</Text>
+                ) : null}
+                <Text style={styles.copyTight}>Você já registrou tudo — inclusive os treinos que não conseguiu fazer?</Text>
+                <View style={styles.termsRow}>
+                  <Pressable style={styles.secondaryOutlineButton} onPress={onConfirmNo}>
+                    <Text style={styles.secondaryOutlineButtonText}>Não, preciso registrar algo</Text>
+                  </Pressable>
+                  <Pressable style={styles.primaryButton} onPress={onConfirmYes}>
+                    <Text style={styles.primaryButtonText}>Sim, já registrei tudo</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : null}
+            {step === 'questions' ? (
+              <>
+                <Text style={styles.formSectionTitle}>Sobre a semana que está terminando</Text>
+                <Text style={styles.formSectionTitle}>De forma geral, você ficou satisfeita(o) com a elaboração dos treinos dessa semana?</Text>
+                <ScalePicker value={elaboration} onChange={setElaboration} lowLabel="Detestei" highLabel="Amei" />
+                <Text style={styles.formSectionTitle}>De forma geral, o quanto você ficou satisfeita(o) em como conseguiu seguir os treinos da semana?</Text>
+                <ScalePicker value={adherence} onChange={setAdherence} lowLabel="Detestei" highLabel="Amei" />
+                <Text style={styles.formSectionTitle}>Como está sua motivação para os treinos da próxima semana?</Text>
+                <ScalePicker value={motivation} onChange={setMotivation} lowLabel="Baixa" highLabel="Alta" />
+                <Pressable
+                  style={[styles.primaryButton, (!canSubmit || submitting) && styles.disabledButton]}
+                  disabled={!canSubmit || submitting}
+                  onPress={() => canSubmit && onSubmit({ elaborationSatisfaction: elaboration!, adherenceSatisfaction: adherence!, nextWeekMotivation: motivation! })}
+                >
+                  {submitting ? <ActivityIndicator size="small" color={PRColors.mineral} /> : null}
+                  <Text style={styles.primaryButtonText}>{submitting ? 'Enviando...' : 'Confirmar e gerar treino'}</Text>
+                </Pressable>
+              </>
+            ) : null}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTest, onOpenPainReport }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   const [billingMessage, setBillingMessage] = useState('');
@@ -2515,6 +2638,11 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   const [completionMessages, setCompletionMessages] = useState<Record<string, string>>({});
   const [status, setStatus] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // 31/08: check-in obrigatorio antes de gerar (pedido do treinador) — null = tela nao aberta;
+  // 'confirm' = mostrando o resumo previsto/diferente/sem-registro + Sim/Nao; 'questions' = as 3
+  // perguntas em escala, so' depois do "Sim".
+  const [checkInGate, setCheckInGate] = useState<{ step: 'confirm' | 'questions'; summary: WeeklyCheckInSummary; showExplanation: boolean } | null>(null);
+  const [checkInSubmitting, setCheckInSubmitting] = useState(false);
   // 30/08: comeca fechado (era aberto por padrao) — pedido do treinador: antes do treino de
   // verdade aparecer na tela, o aluno tinha que passar por texto demais (avisos, essa orientacao
   // inteira). Fica só um resumo/titulo por padrão, com opção de expandir pra quem quiser ler.
@@ -2673,7 +2801,32 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   // direta do POST, o app tambem fica perguntando periodicamente (a cada 10s, por ate ~3min) se o
   // treino ja apareceu — o que responder primeiro decide. Isso funciona mesmo se a resposta do
   // POST se perder no caminho.
+  // 31/08: antes de gerar de verdade, consulta se falta o check-in semanal (pedido do treinador).
+  // Se faltar, abre a tela de confirmacao/perguntas em vez de gerar direto — runGenerateCurrentWeek
+  // (a logica que ja existia) so' e' chamada depois, seja direto (check-in ja feito) ou apos o
+  // aluno responder (ver submitCheckInAndGenerate).
   async function generateCurrentWeekNow() {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/training-plans/weekly-checkin/status`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (response.ok) {
+        const data = (await response.json()) as { needsCheckIn: boolean; summary: WeeklyCheckInSummary; showExplanation: boolean };
+        if (data.needsCheckIn) {
+          setIsLoading(false);
+          setCheckInGate({ step: 'confirm', summary: data.summary, showExplanation: data.showExplanation });
+          return;
+        }
+      }
+    } catch {
+      // Se a checagem falhar (rede instavel), segue pra geracao normal — nao trava o aluno por
+      // causa de uma consulta que e' so' um passo extra, nao a acao principal.
+    }
+    await runGenerateCurrentWeek();
+  }
+
+  async function runGenerateCurrentWeek() {
     setIsLoading(true);
     // Incidente real 09/08: sem essa mensagem, uma geracao mais demorada (a IA as vezes precisa
     // de chamadas extras pra completar a semana direito) parecia travada pra aluna, que fechava o
@@ -2709,6 +2862,13 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             setStatus('Estamos com dificuldades para gerar seu treino. Fale com seu treinador.');
           } else if (data.reason === 'antes_do_horario_de_liberacao') {
             setStatus('A semana seguinte libera a partir de domingo ao meio-dia.');
+          } else if (data.reason === 'checkin_pendente') {
+            // 31/08: so' acontece se a consulta de status (generateCurrentWeekNow) falhou por rede
+            // e seguiu direto pra geracao sem mostrar a tela de check-in — o servidor recusa aqui
+            // do mesmo jeito. Nao tenta de novo sozinho (achado por auto-revisao: se o endpoint de
+            // status estiver com problema, isso viraria um loop sem fim) — so' pede pro aluno tocar
+            // no botao de novo, o que já refaz a consulta de status do zero.
+            setStatus('Toque em "Gerar treino da semana" de novo pra continuar.');
           } else {
             setStatus('Ainda nao deu pra gerar sua semana — tente novamente em instantes.');
           }
@@ -2756,6 +2916,40 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
 
     await Promise.race([directAttempt, pollForCompletion]).catch(() => undefined);
     setIsLoading(false);
+  }
+
+  // "Nao, preciso registrar algo ainda" — so' fecha a tela, sem chamar nada. O aluno ja esta na
+  // tela de Semana, onde os treinos pendentes de registro ja aparecem.
+  function declineCheckInRegistration() {
+    setCheckInGate(null);
+    setStatus('Registre os treinos pendentes desta semana e toque em "Gerar treino da semana" de novo.');
+  }
+
+  async function submitCheckInAndGenerate(scores: { elaborationSatisfaction: number; adherenceSatisfaction: number; nextWeekMotivation: number }) {
+    if (!checkInGate?.summary) return; // nao deveria acontecer (o botao so aparece com summary carregado)
+    setCheckInSubmitting(true);
+    try {
+      const response = await fetchWithRetry(`${API_URL}/training-plans/weekly-checkin`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        // Manda de volta os mesmos numeros que a tela de confirmacao mostrou (nao deixa o servidor
+        // recalcular) — ver comentario em WeeklyCheckInService.submit sobre por que isso evita
+        // divergencia entre o que o aluno confirmou e o que fica registrado.
+        body: JSON.stringify({ ...checkInGate.summary, ...scores }),
+      });
+      if (!response.ok) {
+        setStatus('Nao conseguimos registrar suas respostas agora. Tente de novo em instantes.');
+        setCheckInSubmitting(false);
+        return;
+      }
+    } catch {
+      setStatus('Sem conexao pra registrar suas respostas. Tente de novo em instantes.');
+      setCheckInSubmitting(false);
+      return;
+    }
+    setCheckInSubmitting(false);
+    setCheckInGate(null);
+    await runGenerateCurrentWeek();
   }
 
   // Mesmo motivo do fix em correctOnboarding: Alert.alert do React Native nao tem garantia de
@@ -3146,6 +3340,16 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             {status ? <Text style={[styles.statusMessage, { color: PRColors.limestone }]}>{status}</Text> : null}
           </View>
         )}
+        <WeeklyCheckInModal
+          visible={checkInGate !== null}
+          step={checkInGate?.step ?? 'confirm'}
+          summary={checkInGate?.summary ?? null}
+          showExplanation={checkInGate?.showExplanation ?? false}
+          submitting={checkInSubmitting}
+          onConfirmNo={declineCheckInRegistration}
+          onConfirmYes={() => setCheckInGate((current) => (current ? { ...current, step: 'questions' } : current))}
+          onSubmit={submitCheckInAndGenerate}
+        />
       </View>
     );
   }
@@ -3200,6 +3404,16 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             </Text>
           </View>
         )}
+        <WeeklyCheckInModal
+          visible={checkInGate !== null}
+          step={checkInGate?.step ?? 'confirm'}
+          summary={checkInGate?.summary ?? null}
+          showExplanation={checkInGate?.showExplanation ?? false}
+          submitting={checkInSubmitting}
+          onConfirmNo={declineCheckInRegistration}
+          onConfirmYes={() => setCheckInGate((current) => (current ? { ...current, step: 'questions' } : current))}
+          onSubmit={submitCheckInAndGenerate}
+        />
       </View>
     );
   }
@@ -7021,6 +7235,39 @@ const styles = StyleSheet.create({
     color: PRColors.mineral,
     fontSize: 12,
     fontWeight: '800',
+  },
+  scalePickerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  scalePickerOption: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: PRColors.stone,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scalePickerOptionActive: {
+    backgroundColor: PRColors.pulse,
+    borderColor: PRColors.pulse,
+  },
+  scalePickerOptionText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: PRColors.graphite,
+  },
+  scalePickerOptionTextActive: {
+    color: PRColors.mineral,
+  },
+  scalePickerLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
   copy: {
     color: '#475569',

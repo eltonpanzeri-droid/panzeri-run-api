@@ -160,6 +160,16 @@ export interface MethodologyInput {
     date: string;
     pacingMode: string | null;
   }>;
+  // Check-in obrigatorio que o aluno responde antes de gerar a proxima semana (31/08, pedido
+  // explicito do treinador) — 3 respostas em escala 1-5 sobre a semana COMO UM TODO, diferente das
+  // avaliacoes por sessao que ja existem. So preenchido quando o aluno ja tem um check-in
+  // registrado pro plano que esta encerrando (ver WeeklyCheckInService) — pode ser null pra quem
+  // ainda nao passou por essa tela (aluno novo, ou plano sem sessoes ainda).
+  weeklyCheckIn?: {
+    elaborationSatisfaction: number;
+    adherenceSatisfaction: number;
+    nextWeekMotivation: number;
+  } | null;
 }
 
 // Um treino de corrida e descrito como uma SEQUENCIA ORDENADA de partes (nunca mais uma escolha

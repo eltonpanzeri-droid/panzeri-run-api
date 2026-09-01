@@ -102,6 +102,7 @@ model User {
   painReports         PainReport[]
   profileEvents       StudentProfileEvent[]
   observations        StudentObservation[]
+  weeklyCheckIns      WeeklyCheckIn[]
 }
 
 model BillingProviderConfig {
@@ -346,6 +347,7 @@ model TrainingPlan {
   aiRecommendation String?
   createdAt        DateTime          @default(now())
   sessions         TrainingSession[]
+  weeklyCheckIns   WeeklyCheckIn[]
 }
 
 model TrainingExecutionInsight {
@@ -473,6 +475,43 @@ model PainReport {
   createdAt          DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+// 31/08: check-in obrigatorio antes de gerar a proxima semana (pedido do treinador) — junta duas
+// coisas: (a) confirmacao de que o aluno registrou tudo que fez/nao fez na semana que esta
+// terminando, com os numeros reais (previsto/mudou modalidade/diferente/sem registro) capturados
+// no momento, e (b) 3 respostas em escala sobre a semana como um todo (nao por sessao — ja existe
+// avaliacao por sessao em WorkoutCompletion). Guardado em tabela propria, com numero (nao texto
+// livre), de proposito: o treinador quer poder analisar padrao de adesao/engajamento/risco de
+// abandono ou lesao no medio prazo, o que exige dado limpo e consultavel, nao um resumo em prosa.
+model WeeklyCheckIn {
+  id                      String       @id @default(uuid())
+  userId                  String
+  user                    User         @relation(fields: [userId], references: [id])
+  planId                  String?
+  plan                    TrainingPlan? @relation(fields: [planId], references: [id])
+  weekStartDate           DateTime
+  // Numeros reais da semana, capturados no momento do check-in (nao recalculados depois) — mesma
+  // fonte que StravaService.report() ja usa pra montar o relatorio de evolucao, reaproveitados
+  // aqui em vez de duplicar a logica de comparacao previsto/feito.
+  asPrescribedSessions    Int
+  changedModalitySessions Int
+  differentSessions       Int
+  missedSessions          Int
+  // Escala 1 (Detestei) a 5 (Amei), mesmo padrao visual das avaliacoes por sessao — familiar pro
+  // aluno, sem introduzir um conceito novo de escala so pra isso.
+  elaborationSatisfaction Int
+  adherenceSatisfaction   Int
+  // Escala propria: 1 (Baixa) a 5 (Alta) — unica pergunta que olha pra frente, nao pra tras.
+  nextWeekMotivation      Int
+  createdAt               DateTime @default(now())
+
+  @@index([userId, createdAt])
+  // Trava a mesma garantia de "um check-in por plano" que o codigo (WeeklyCheckInService.submit)
+  // ja tentava manter so' com um findFirst antes do create — achado por auto-revisao: sem isso no
+  // banco, duas chamadas quase simultaneas (duplo toque, dois aparelhos) podiam criar duas linhas
+  // pro mesmo plano.
+  @@unique([userId, planId])
 }
 
 model StravaConnection {
