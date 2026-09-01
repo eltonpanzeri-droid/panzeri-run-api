@@ -677,6 +677,24 @@ lesão e agir antes que vire problema:
   batendo, treino sendo gerado depois) ainda não foi feito por falta de uma sessão de aluna real à
   mão nesta verificação; fica como próximo passo.
 
+**2026-09-01** — Ajuste nos e-mails de recuperação de prospecto (`ProspectNurtureService`), a pedido
+do treinador: o link mágico precisava levar de verdade pra onde a pessoa parou, não só pro login:
+
+- **Bug real corrigido**: quem já tinha terminado as 5 perguntas rápidas mas nunca pagou (nível
+  "quente" — já tem cobrança criada no Asaas) caía, ao clicar no link do e-mail, na aba "Semana"
+  (sem nenhum plano pra mostrar), e não na aba de pagamento — mesmo o e-mail dizendo "falta só
+  confirmar o pagamento". Causa: o roteamento pós-login (`App.tsx`) só tinha regra pra forçar a aba
+  certa em dois casos (entrevista completa pendente / 5 perguntas pendentes) — faltava o terceiro
+  caso (5 perguntas feitas, mas sem pagamento), que caía no padrão genérico. Corrigido: agora manda
+  direto pra aba de assinatura nesse caso. Os outros dois níveis (quem nunca começou e quem está no
+  meio das perguntas) já caíam certo — o link mágico sempre abre exatamente onde a IA sabe que a
+  pessoa parou, sem precisar de nenhuma lógica extra no e-mail em si.
+- **Textos reescritos pra serem mais persuasivos** nos 4 degraus da sequência (8h/24h/7d/30d),
+  diferenciando quem está a um passo do pagamento (nível "quente" — copy focado em "não perca o que
+  já fez", urgência real) de quem ainda precisa terminar o cadastro. Link sempre em destaque logo no
+  início do bloco de call-to-action (não mais só no fim do parágrafo), reforçando o "pra que serve"
+  de clicar.
+
 ---
 
 ## Onde as coisas estão agora (2026-08-31) — leitura rápida pra quem chega de fora

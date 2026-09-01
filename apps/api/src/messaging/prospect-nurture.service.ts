@@ -26,17 +26,21 @@ function studentAppUrl() {
 
 // A linha de "proximo passo" muda de acordo com o que a pessoa realmente ja fez ate agora — nao
 // faz sentido pedir pra "terminar a entrevista" pra quem ja terminou e so falta pagar. O link e'
-// sempre o mesmo mecanismo (link magico de login), o que muda e' so o texto do call-to-action —
-// depois de logada, a propria tela do app ja mostra a entrevista pendente OU o botao de pagamento,
-// sem precisar de nenhuma logica extra aqui.
+// sempre o mesmo mecanismo (link magico de login) — o que muda e' o texto do call-to-action E pra
+// onde a propria tela do app leva depois de logar: 01/09, corrigido `App.tsx` pra levar direto pra
+// aba de assinatura quando as 5 perguntas rapidas ja foram respondidas mas o pagamento nao (antes
+// caia na aba "Semana", sem plano nenhum pra mostrar, contradizendo o "falta so pagar" do e-mail).
+// Sem isso, o link "magico" sempre existiu (fallback garantido: se o token ja expirou/foi usado, o
+// app cai sozinho na tela de login normal, nunca quebra) — o que faltava era o destino certo depois
+// de logar.
 function nextStepLine(level: ProspectLevel, loginUrl: string): string {
   if (level === 'quente') {
-    return `Sua entrevista ja esta pronta — falta so confirmar o pagamento pra eu montar seu primeiro treino.\n\n[Finalizar pagamento] ${loginUrl}`;
+    return `>> Finalizar pagamento agora: ${loginUrl}\n\nVocê já respondeu tudo — essa é a última etapa antes de eu montar seu primeiro treino.`;
   }
   if (level === 'morno') {
-    return `Voce ja respondeu parte da entrevista — falta so terminar pra eu montar seu treino personalizado.\n\n[Continuar de onde parei] ${loginUrl}`;
+    return `>> Continuar de onde parei: ${loginUrl}\n\nO link já abre exatamente na pergunta em que você parou — não precisa recomeçar nada.`;
   }
-  return `Leva menos de 3 minutos pra terminar seu cadastro e eu ja consigo montar seu primeiro treino.\n\n[Continuar de onde parei] ${loginUrl}`;
+  return `>> Começar agora (menos de 3 minutos): ${loginUrl}\n\nSão só 5 perguntas rápidas pra eu já ter o que preciso pra montar seu primeiro treino.`;
 }
 
 function buildEmail(trigger: string, name: string, level: ProspectLevel, loginUrl: string): { subject: string; content: string } {
@@ -44,29 +48,37 @@ function buildEmail(trigger: string, name: string, level: ProspectLevel, loginUr
 
   if (trigger === 'nurture_8h') {
     return {
-      subject: `Faltou só um passo, ${name}`,
-      content: `Oi ${name}, tudo bem?\n\nVi que você começou seu cadastro no Panzeri Run mas não terminou. Sem problema — às vezes o dia corre e a gente esquece.\n\n${step}\n\nQualquer dúvida, é só responder este e-mail — respondo pessoalmente.\n\nElton`,
+      subject: level === 'quente' ? `${name}, seu treino está a um passo de sair` : `Faltou só um passo, ${name}`,
+      content: level === 'quente'
+        ? `Oi ${name}!\n\nVocê já respondeu tudo o que eu precisava saber pra montar o seu treino — só falta confirmar o pagamento pra eu liberar.\n\n${step}\n\nLeva menos de 1 minuto. Qualquer dúvida, é só responder este e-mail — respondo pessoalmente.\n\nElton`
+        : `Oi ${name}, tudo bem?\n\nVi que você começou seu cadastro no Panzeri Run mas não terminou. Sem problema — às vezes o dia corre e a gente esquece. O que importa é que o seu treino personalizado está a poucos minutos de existir.\n\n${step}\n\nQualquer dúvida, é só responder este e-mail — respondo pessoalmente.\n\nElton`,
     };
   }
 
   if (trigger === 'nurture_24h') {
     return {
-      subject: '"Corrida não é pra mim" — será mesmo?',
-      content: `${name}, imagino que uma das dúvidas na sua cabeça seja: "será que eu aguento", "sou muito iniciante pra isso".\n\nIsso é exatamente o que eu resolvo. O treino não é genérico — é montado pra ONDE você está hoje, não pra onde você "deveria" estar. Se você nunca correu, começamos do jeito certo, sem lesão, sem sofrimento desnecessário. Se já corre, ajustamos pro seu ritmo real.\n\nE não é um app "solto" — sou eu acompanhando de verdade, ajustando quando algo não está funcionando.\n\nCusta R$19,90/mês e você pode cancelar quando quiser, sem multa.\n\n${step}\n\nElton`,
+      subject: level === 'quente' ? `Não deixe seu treino esperando, ${name}` : '"Corrida não é pra mim" — será mesmo?',
+      content: level === 'quente'
+        ? `${name}, você chegou até a última etapa e parou bem ali — não faz sentido perder isso.\n\nSeu treino já está pronto pra ser montado assim que o pagamento confirmar. É R$19,90/mês, cancela quando quiser, sem multa.\n\n${step}\n\nElton`
+        : `${name}, imagino que uma das dúvidas na sua cabeça seja: "será que eu aguento", "sou muito iniciante pra isso".\n\nIsso é exatamente o que eu resolvo. O treino não é genérico — é montado pra ONDE você está hoje, não pra onde você "deveria" estar. Se você nunca correu, começamos do jeito certo, sem lesão, sem sofrimento desnecessário. Se já corre, ajustamos pro seu ritmo real.\n\nE não é um app "solto" — sou eu acompanhando de verdade, ajustando quando algo não está funcionando.\n\nCusta R$19,90/mês e você pode cancelar quando quiser, sem multa.\n\n${step}\n\nElton`,
     };
   }
 
   if (trigger === 'nurture_7d') {
     return {
-      subject: `Uma pergunta rápida, ${name}`,
-      content: `${name}, faz uma semana que você chegou até aqui e parou. Queria entender: o que travou?\n\n- "Não tenho tempo pra treinar direito" — o programa se adapta à sua rotina, não o contrário. Você me diz quantos dias tem disponível, eu monto em cima disso.\n- "Não sei se vale o dinheiro" — R$19,90/mês é menos que uma corrida de app de transporte. E você tem acompanhamento humano, não só um algoritmo.\n- "Tenho medo de me machucar treinando errado" — é justamente o oposto do que costuma acontecer sozinho: eu ajusto intensidade e volume pra evitar lesão, não pra empurrar além do limite.\n\nSe for outra coisa, me conta — respondo pessoalmente. Se quiser só retomar:\n\n${step}\n\nElton`,
+      subject: level === 'quente' ? `${name}, isso ainda está te esperando` : `Uma pergunta rápida, ${name}`,
+      content: level === 'quente'
+        ? `${name}, faz uma semana que você terminou de responder tudo e chegou até o pagamento — e parou exatamente ali.\n\nSe foi dúvida sobre o valor: R$19,90/mês é menos que uma corrida de app de transporte, e você tem acompanhamento humano de verdade, não só um algoritmo solto. Se foi outra coisa, me conta — respondo pessoalmente.\n\n${step}\n\nElton`
+        : `${name}, faz uma semana que você chegou até aqui e parou. Queria entender: o que travou?\n\n- "Não tenho tempo pra treinar direito" — o programa se adapta à sua rotina, não o contrário. Você me diz quantos dias tem disponível, eu monto em cima disso.\n- "Não sei se vale o dinheiro" — R$19,90/mês é menos que uma corrida de app de transporte. E você tem acompanhamento humano, não só um algoritmo.\n- "Tenho medo de me machucar treinando errado" — é justamente o oposto do que costuma acontecer sozinho: eu ajusto intensidade e volume pra evitar lesão, não pra empurrar além do limite.\n\nSe for outra coisa, me conta — respondo pessoalmente. Se quiser só retomar:\n\n${step}\n\nElton`,
     };
   }
 
   // nurture_30d
   return {
-    subject: 'Ainda pensando em correr de verdade este ano?',
-    content: `${name}, faz um mês desde que você criou sua conta no Panzeri Run. Não vou insistir mais depois deste — só queria deixar a porta aberta.\n\nSe o motivo foi "não é a hora", tudo bem, sem problema nenhum. Mas se foi dúvida, preço ou medo de não conseguir seguir, eu topo conversar antes — é só responder este e-mail.\n\nSe quiser voltar quando fizer sentido pra você, seu cadastro continua aqui, esperando:\n\n${step}\n\nUm abraço,\nElton`,
+    subject: level === 'quente' ? `Última chance de aproveitar o que você já fez, ${name}` : 'Ainda pensando em correr de verdade este ano?',
+    content: level === 'quente'
+      ? `${name}, faz um mês que você terminou tudo — respondeu a entrevista inteira, chegou até o pagamento — e parou. Não vou insistir mais depois deste, só queria deixar a porta aberta pra você não perder o que já fez.\n\nSe foi dúvida ou preço, eu topo conversar antes — é só responder este e-mail. Se quiser só confirmar:\n\n${step}\n\nUm abraço,\nElton`
+      : `${name}, faz um mês desde que você criou sua conta no Panzeri Run. Não vou insistir mais depois deste — só queria deixar a porta aberta.\n\nSe o motivo foi "não é a hora", tudo bem, sem problema nenhum. Mas se foi dúvida, preço ou medo de não conseguir seguir, eu topo conversar antes — é só responder este e-mail.\n\nSe quiser voltar quando fizer sentido pra você, seu cadastro continua aqui, esperando:\n\n${step}\n\nUm abraço,\nElton`,
   };
 }
 

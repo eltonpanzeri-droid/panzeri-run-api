@@ -1117,6 +1117,16 @@ function AppInner() {
         if (interview && !interview.completedAt && !hasRoutineConfigured) setActiveTab('interview');
       } else if (interview && !interview.quickIntakeCompletedAt) {
         setActiveTab('quickIntake');
+      } else if (interview?.quickIntakeCompletedAt) {
+        // 01/09: faltava esse terceiro caso — quem ja terminou as 5 perguntas rapidas mas nunca
+        // pagou (prospecto "quente" dos e-mails de aquecimento, ver ProspectNurtureService) caia
+        // na aba padrao "Semana" (sem plano nenhum pra mostrar) em vez de ir direto pra tela de
+        // pagamento, mesmo o e-mail dizendo "falta so confirmar o pagamento". Agora manda direto
+        // pra aba de assinatura nesse caso, igual o proprio fluxo de quickIntake ja faz ao terminar
+        // (onComplete/onLater de QuickIntake tambem levam pra 'billing'). So' quando quickIntake
+        // ja foi de fato concluido — se `interview` ainda nem existir (conta genuinamente nova sem
+        // nenhuma resposta salva), fica no padrao 'week', que ja redireciona por outro caminho.
+        setActiveTab('billing');
       }
     });
     Promise.all([loadNotifications(accessToken), loadDismissedNotifications()]).then(([items, dismissed]) => {
