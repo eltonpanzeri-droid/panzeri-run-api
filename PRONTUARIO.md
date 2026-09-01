@@ -637,9 +637,49 @@ no Strava:
 pra isso): ver `LICOES_COLABORACAO.md` na raiz do projeto — registro de erros reais de comportamento
 meu (não de código) nas conversas, pra reduzir repetição.
 
+**2026-08-31** — Novo recurso: check-in semanal obrigatório antes de gerar o próximo treino,
+implementado a pedido explícito do treinador, com uma razão estratégica clara por trás — coletar
+dado limpo e estruturado (não texto livre) sobre adesão/satisfação de cada aluna, de forma
+sistemática, para no médio prazo permitir identificar padrão de engajamento, risco de abandono ou de
+lesão e agir antes que vire problema:
+
+- **Fluxo**: ao tocar em "Gerar treino da semana", o app primeiro busca
+  `GET /training-plans/weekly-checkin/status`. Se a aluna ainda não fez o check-in daquele plano,
+  mostra (a) uma tela de confirmação com a contagem real de sessões feitas como previsto, com
+  modalidade trocada, diferentes do previsto e sem nenhum registro — pedindo que ela confirme que
+  registrou tudo antes de seguir (se responder que não, é direcionada a voltar e registrar); depois
+  (b) 3 perguntas obrigatórias em escala 1–5: satisfação com a elaboração dos treinos da semana,
+  satisfação com o próprio cumprimento geral dos treinos, e motivação para a próxima semana. A
+  explicação de "pra que serve" some depois das duas primeiras vezes que a aluna responde (pedido do
+  treinador — espera que ela aprenda o padrão).
+- **Dado guardado é sempre número, nunca texto livre** — nova tabela `WeeklyCheckIn` no banco, um
+  registro por (aluna, plano), com os 4 números de contagem confirmados pela aluna + as 3 notas de
+  escala. Objetivo explícito é permitir análise de padrão depois (sistemas complexos, adesão,
+  engajamento, sinal de abandono/lesão), o que exige dado consultável, não prosa.
+- **Sem custo de IA extra**: o check-in em si é só leitura/gravação de banco. As 3 respostas de
+  escala do check-in do plano que está sendo fechado são incluídas no mesmo prompt que já ia pra IA
+  na geração da próxima semana (`autoavaliacaoDaSemanaPeloAluno`), com instrução explícita de como
+  pesar isso (sinal real, nunca decisor sozinho/fórmula) — nenhuma chamada nova à IA.
+- **Cuidados de consistência aplicados** (3 rodadas de autorevisão antes de liberar): os números
+  salvos são exatamente os que a aluna viu e confirmou na tela (não recalculados de novo no
+  `submit`, pra não divergir se algo mudar no meio do caminho); o check-in é amarrado ao plano exato
+  que está sendo fechado (`planId`), não "o mais recente que existir", pra nunca vazar autoavaliação
+  de uma semana errada pro prompt; a rota de status é só leitura de verdade (adicionado `skipCache`
+  no `StravaService.report()` pra não disparar gravação de cache ao só consultar o resumo); conta de
+  dias sempre no fuso América/São_Paulo (não no fuso do servidor); e uma trava real no banco
+  (`@@unique([userId, planId])`) garante um único check-in por plano mesmo em toque duplo/dois
+  aparelhos ao mesmo tempo.
+- **Sincronizado e implantado pelo próprio treinador** (commit direto pra `main`, sem branch, como
+  combinado) na noite de 31/08. Verificação pós-deploy feita por mim sem precisar dele: rota
+  `GET /training-plans/weekly-checkin/status` responde `401 Unauthorized` sem token (existe e está
+  protegida, não `404`), API respondendo normalmente, cron diário de cobrança rodou às 6h como
+  sempre — nenhum sinal de erro. Teste de ponta a ponta clicando de verdade (tela aparecendo, números
+  batendo, treino sendo gerado depois) ainda não foi feito por falta de uma sessão de aluna real à
+  mão nesta verificação; fica como próximo passo.
+
 ---
 
-## Onde as coisas estão agora (2026-08-30) — leitura rápida pra quem chega de fora
+## Onde as coisas estão agora (2026-08-31) — leitura rápida pra quem chega de fora
 
 **Produto em produção, sendo usado por alunas reais**: a versão web/PWA, em
 `https://panzerirun.eltonpanzeripersonal.com.br`. Entrevista, geração de treino por IA, registro de
