@@ -702,9 +702,67 @@ do treinador: o link mágico precisava levar de verdade pra onde a pessoa parou,
   reaparecer em "Alunos" (a lista operacional já exclui quem tem `subscriptionStatus: 'canceled'`
   por design, desde 27/08 — só o botão de abrir o painel estava faltando).
 
+**2026-09-02** — Painel do treinador reorganizado em abas, e sessão longa fechando praticamente toda
+a ficha do app Android no Google Play Console:
+
+- **Painel do aluno virou abas, em vez de página única gigante**: o treinador reportou precisar
+  mandar 7 prints só pra mostrar o painel de uma aluna, de tanto scroll. Reestruturado em duas
+  rodadas: (1) clicar num aluno agora troca a lista por uma vista dedicada dela (com botão "Voltar
+  pra lista"), em vez de empilhar os dois na mesma tela; (2) dentro dessa vista, 6 abas (Treinos,
+  Cadastro, Avaliação, Diretrizes, Semanas anteriores, Evolução) — cada uma só com o que interessa
+  naquele momento. Cabeçalho ficou compacto de propósito (só nome/código/Strava, sempre visível
+  acima das abas) depois de feedback direto do treinador de que o cadastro inteiro competia com o
+  que ele queria ver na aba Treinos. Decisão técnica: `<>` (Fragment) em vez de `<div>` por aba, pra
+  não quebrar os seletores CSS de grid que já existiam (`.detailPanel > .classe`). Combinado junto
+  com o treinador: essa é a fase 1 de um plano de 3 — depois vem um dashboard de evolução agregando
+  dado que já existe (aderência, notas do check-in semanal, satisfação por sessão), e só depois
+  disso, novos campos de coleta (streaks, ciclo menstrual etc.) — esse último atrelado a finalmente
+  fazer a revisão jurídica dos Termos/Política, dado que ciclo menstrual é dado pessoal sensível.
+- **RevenueCat Android, destravado de vez**: a chave de conta de serviço gerada em 31/08 nunca tinha
+  sido baixada de verdade (confirmado vasculhando Downloads); gerada de novo, política
+  `iam.disableServiceAccountKeyCreation` bloqueou de novo (2ª vez que isso acontece, vale investigar
+  se tem algo revertendo a substituição de política) e foi desativada de novo do mesmo jeito. Achado
+  o motivo real da validação falhar mesmo com a chave certa: a conta de serviço nunca tinha sido
+  convidada como usuária no Play Console (`Usuários e permissões` só tinha o próprio treinador) —
+  convidada com as permissões certas, credenciais validaram 100%.
+- **Ficha completa do app no Play Console preenchida numa sessão só**: política de privacidade,
+  detalhes de login (conta de teste dedicada, senha trocada na hora), categoria/contato,
+  classificação de conteúdo (questionário IARC completo), público-alvo (18+), texto da loja
+  (nome/descrição curta/completa), ícone e banner (gerados por código, formas simples — não IA
+  generativa), 2 capturas de tela reais (tiradas do próprio iPhone do treinador), segurança dos
+  dados (formulário completo de tipos de dado coletado/compartilhado, honesto e batendo com o schema
+  real do banco — teve que ser refeito uma vez porque uma navegação perdeu respostas no meio), sem
+  recursos financeiros, e recursos de saúde declarados só como "atividade e condicionamento físico"
+  (não como nutrição/ciclo menstrual/sono — esses ainda não existem no app, ver acima).
+- **Política de privacidade ganhou seção explícita de exclusão de conta** (pedido do próprio
+  formulário do Google, que exige uma URL explicando os passos): e-mail dedicado, prazo de resposta
+  em 5 dias úteis / conclusão em até 15 (prazo definido com o treinador, não presumido por mim),
+  lista clara do que é apagado vs. o que fica retido por obrigação fiscal.
+- **Descoberta importante pro cronograma**: o Google exige teste fechado com no mínimo 12
+  testadores participando por pelo menos 14 dias corridos antes de liberar acesso de Produção pra
+  qualquer app novo — não dá pra pular essa etapa nem acelerar. Isso empurra a data mínima de
+  lançamento público em pelo menos 2 semanas a partir de quando o teste fechado começar de verdade.
+- **Build de produção Android (`.aab`) gerado** via novo script `gerar-app-android-producao.bat`
+  (perfil `production` do EAS, diferente do perfil `preview` usado antes só pro teste no emulador) —
+  ficou ~5h na fila gratuita da Expo (avaliado e descartado assinar plano pago só por isso: resolve
+  velocidade, não é algo que vá ser precisado com frequência).
+- **Trilha de teste fechado criada no Play Console**: lista de testadores "Teste Panzeri Run" com 5
+  alunas confirmadas (Eduarda, Mariana, Elizângela, Vanessa, Juliana — todas já pagantes/cortesia,
+  zero risco de cobrança); mesma lista também cadastrada em "Teste de licença" (conta), pra quando os
+  ~8 testadores externos (amigos/família, sem assinatura) forem adicionados não correrem risco de
+  cobrança real caso abram a tela de pagamento por engano.
+- **Bloqueio real ao tentar subir o `.aab`**: o Google mudou a exigência mínima de versão do Android
+  (API 36) a partir de 31/08/2026 — pegou o projeto desatualizado (Expo SDK 51, de 2024, mira só API
+  34) e a versão do RevenueCat também precisa de uma biblioteca de faturamento mais nova. Investigado
+  o escopo exato (Expo SDK 51→54 + RevenueCat 8→9) sem precisar do treinador — risco baixo/moderado
+  (o app não usa as bibliotecas que mais costumam quebrar nesse tipo de upgrade), único ponto de
+  atenção real é o Android ligar "edge-to-edge" por padrão a partir dessa versão, que pode bagunçar
+  visualmente o cabeçalho fixo do app — precisa de teste visual antes do próximo build de produção.
+  Deixado como próxima tarefa técnica, não forçado no fim de uma sessão já longa.
+
 ---
 
-## Onde as coisas estão agora (2026-08-31) — leitura rápida pra quem chega de fora
+## Onde as coisas estão agora (2026-09-02) — leitura rápida pra quem chega de fora
 
 **Produto em produção, sendo usado por alunas reais**: a versão web/PWA, em
 `https://panzerirun.eltonpanzeripersonal.com.br`. Entrevista, geração de treino por IA, registro de
@@ -716,13 +774,14 @@ várias semanas de uso real.
 App Store. Ambos já rodam de ponta a ponta em testes reais (emulador Android + iPhone físico), com
 compra dentro do app (RevenueCat) integrada no código dos dois lados. Falta, pra publicar de fato:
 
-1. **Android**: aguardando o Google confirmar um depósito bancário pequeno pra liberar a conta de
-   pagamento do treinador no Play Console (1-3 dias úteis); depois disso, terminar de criar a conta
-   de serviço do Google Cloud e configurar a "Offering" no RevenueCat; gerar um build de produção
-   (não mais de teste) e enviar pra revisão do Google.
+1. **Android**: RevenueCat validado, ficha da loja no Play Console 100% preenchida (texto, imagens,
+   segurança dos dados, classificação, público-alvo). Build de produção (`.aab`) gerado em 02/09,
+   aguardando confirmação de conclusão. Falta: configurar a "Offering"/produto no RevenueCat, subir
+   o `.aab` na trilha de teste fechado, juntar pelo menos 12 testadores reais e rodar 14 dias — só
+   depois disso dá pra pedir liberação de Produção (exigência do próprio Google, não opcional).
 2. **iOS**: confirmar o preço da assinatura no App Store Connect, ligar o produto a uma "Offering" no
    RevenueCat (mesmo passo do Android), gerar um build de produção e enviar junto com a primeira
-   assinatura pra revisão da Apple.
+   assinatura pra revisão da Apple — ainda não retomado depois da rodada de Android desta sessão.
 3. **Testar uma compra de verdade em modo sandbox** (não cobra nada real) nas duas lojas antes do
    lançamento público, pra confirmar que o webhook do RevenueCat está liberando acesso corretamente.
 4. Conta de desenvolvedor Google Play já criada e verificada; conta de desenvolvedor Apple já
