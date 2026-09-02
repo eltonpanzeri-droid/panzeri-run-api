@@ -694,6 +694,13 @@ do treinador: o link mágico precisava levar de verdade pra onde a pessoa parou,
   já fez", urgência real) de quem ainda precisa terminar o cadastro. Link sempre em destaque logo no
   início do bloco de call-to-action (não mais só no fim do parágrafo), reforçando o "pra que serve"
   de clicar.
+- **Bug real corrigido no painel (admin)**: a lista "Ex-alunos" (quem já pagou e cancelou) sempre
+  foi só uma tabela estática — não dava pra clicar numa linha e abrir o painel completo da aluna
+  (treinos, histórico, tudo), diferente da lista "Alunos". Reportado pelo treinador depois de uma
+  aluna pedir cancelamento e ele perder o acesso ao painel dela. Corrigido: linha da tabela agora é
+  clicável e abre o mesmo painel de sempre — sem tirar a aluna da lista "Ex-alunos" nem fazê-la
+  reaparecer em "Alunos" (a lista operacional já exclui quem tem `subscriptionStatus: 'canceled'`
+  por design, desde 27/08 — só o botão de abrir o painel estava faltando).
 
 ---
 

@@ -1440,7 +1440,8 @@ export default function AdminHome() {
               </div>
               <p className="formHintText">
                 Quem ja foi aluna de verdade (pagou pelo menos uma vez, tem codigo de aluno) e depois cancelou a
-                assinatura. Diferente de Prospectos, que e' so' quem nunca chegou a pagar.
+                assinatura. Diferente de Prospectos, que e' so' quem nunca chegou a pagar. Clique numa linha pra
+                abrir o painel completo dela (treinos, historico, tudo) sem tirar ela desta lista.
               </p>
               <div className="table">
                 <div className="row header">
@@ -1450,8 +1451,14 @@ export default function AdminHome() {
                   <span>Cadastro ate cancelar</span>
                   <span>Cancelou em</span>
                 </div>
+                {/* 01/09: linha virou clicavel (pedido do treinador — perdeu acesso ao painel de uma
+                    aluna que cancelou, mesmo ela devendo continuar so' em Ex-alunos, nao em Alunos).
+                    O painel de detalhe (StudentPanel/student-detail-anchor) so' e' renderizado dentro
+                    da view 'students', entao troca a view pra la' pra mostrar o painel — mas a aluna
+                    continua de fora da lista operacional de Alunos (CoachService.dashboard() ja
+                    exclui subscriptionStatus 'canceled' dali), entao nao aparece duplicada. */}
                 {(exStudents?.exStudents ?? []).map((exStudent) => (
-                  <div className="row" key={exStudent.id}>
+                  <div className="row rowButton" key={exStudent.id} onClick={() => { setActiveView('students'); void goToStudent(exStudent.id); }}>
                     <span><strong>{exStudent.name}</strong><br /><small>{exStudent.studentCode}</small></span>
                     <span>{exStudent.email}</span>
                     <span>{exStudent.goal}</span>
