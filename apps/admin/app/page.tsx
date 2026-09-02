@@ -352,6 +352,11 @@ export default function AdminHome() {
   const [loadingFunnel, setLoadingFunnel] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [studentDetail, setStudentDetail] = useState<StudentDetail | null>(null);
+  // 01/09: 'list' e 'detail' sao os dois "modos" da view Alunos (pedido do treinador — antes era
+  // sempre lista + painel gigante empilhados na mesma tela, ele precisava rolar/printar varias
+  // vezes so pra mostrar um caso). Fica de fora de AdminView de proposito: e' um detalhe interno
+  // so' da view 'students', nao uma aba nova no menu principal.
+  const [studentViewMode, setStudentViewMode] = useState<'list' | 'detail'>('list');
   const [query, setQuery] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [trainingFilter, setTrainingFilter] = useState('all');
@@ -697,7 +702,13 @@ export default function AdminHome() {
     if (view === 'finance') void loadFinance();
     if (view === 'prospects') void loadProspects();
     if (view === 'exStudents') void loadExStudents();
-    if (view !== 'dashboard' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && view !== 'prospects' && view !== 'exStudents' && !selectedStudentId && dashboard?.students[0]) {
+    // 01/09: entrar na aba Alunos pelo menu sempre volta pra lista (nunca reabre a ultima aluna
+    // vista) — e' o novo comportamento padrao "lista primeiro". Antes disso existia aqui uma
+    // pre-carga automatica da primeira aluna do dashboard so' pra 'students' tambem; removida
+    // porque nao faz mais sentido com lista e detalhe sendo dois modos separados. A view 'weeks'
+    // ainda usa esse auto-carregamento (o seletor dela sempre espera alguem selecionado).
+    if (view === 'students') setStudentViewMode('list');
+    if (view !== 'dashboard' && view !== 'students' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && view !== 'prospects' && view !== 'exStudents' && !selectedStudentId && dashboard?.students[0]) {
       void loadStudent(dashboard.students[0].id);
     }
   }
@@ -717,8 +728,9 @@ export default function AdminHome() {
   }
 
   async function goToStudent(studentId: string) {
+    setStudentViewMode('detail');
+    scrollToTop();
     await loadStudent(studentId);
-    document.getElementById('student-detail-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function scrollToTop() {
@@ -1231,6 +1243,33 @@ export default function AdminHome() {
         ) : null}
 
         {activeView === 'students' ? <section className="workArea">
+          {/* 01/09: lista e detalhe viraram dois "modos" da mesma view (opcao B combinada com o
+              treinador: sem rota propria por aluno, so troca o que aparece na tela) — antes os dois
+              ficavam empilhados na mesma pagina, e abrir um aluno so descia pra um painel gigante
+              logo abaixo da lista (a aluna reportou precisar rolar/printar a tela inteira varias
+              vezes pra mostrar um caso). Agora clicar num aluno esconde a lista e mostra so o painel
+              dele, com um botao de volta explicito — ver studentViewMode. */}
+          {studentViewMode === 'detail' ? (
+          <div className="panel">
+            <button className="secondaryButton backToListButton" type="button" onClick={() => setStudentViewMode('list')}>
+              <ArrowUp size={16} style={{ transform: 'rotate(-90deg)' }} />
+              Voltar para a lista de alunos
+            </button>
+            <StudentPanel
+              student={studentDetail}
+              token={token}
+              onStatus={setStatus}
+              onRefresh={async () => {
+                // Sem recarregar studentDetail aqui, o painel do aluno aberto (rotina, semana de
+                // treinos, etc) ficava com dado velho depois de qualquer acao — so a lista do
+                // dashboard atualizava. Bug real 04/08: editar a rotina manualmente nao aparecia
+                // na tabela ate o treinador sair e reabrir o aluno.
+                await loadDashboard();
+                if (studentDetail) await loadStudent(studentDetail.id);
+              }}
+            />
+          </div>
+          ) : (
           <div className="panel">
             <div className="panelHeader">
               <div>
@@ -1353,28 +1392,7 @@ export default function AdminHome() {
             )}
             <Pagination pagination={dashboard?.pagination} onPageChange={setPage} />
           </div>
-
-          <div id="student-detail-anchor">
-            {studentDetail ? (
-              <button className="secondaryButton backToTopButton" type="button" onClick={scrollToTop}>
-                <ArrowUp size={16} />
-                Voltar ao topo
-              </button>
-            ) : null}
-            <StudentPanel
-              student={studentDetail}
-              token={token}
-              onStatus={setStatus}
-              onRefresh={async () => {
-                // Sem recarregar studentDetail aqui, o painel do aluno aberto (rotina, semana de
-                // treinos, etc) ficava com dado velho depois de qualquer acao — so a lista do
-                // dashboard atualizava. Bug real 04/08: editar a rotina manualmente nao aparecia
-                // na tabela ate o treinador sair e reabrir o aluno.
-                await loadDashboard();
-                if (studentDetail) await loadStudent(studentDetail.id);
-              }}
-            />
-          </div>
+          )}
         </section> : null}
 
         {activeView === 'prospects' ? (
@@ -1663,6 +1681,10 @@ function StudentPanel({
   const [checkoutLinkUrl, setCheckoutLinkUrl] = useState('');
   const [manualCpf, setManualCpf] = useState('');
   const [billingHistory, setBillingHistory] = useState<Array<{ id: string; dueDate: string | null; value: number | null; status: string; paidAt: string | null; invoiceUrl: string | null }> | null>(null);
+  // 01/09: o painel virou abas em vez de uma pagina so' com tudo empilhado (pedido do treinador —
+  // ver studentViewMode no componente pai pro contexto completo dessa mudanca). "Treinos" e' a aba
+  // padrao por ser a mais usada no dia a dia.
+  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'diretrizes' | 'semanas' | 'evolucao'>('treinos');
 
   useEffect(() => {
     setEditName(student?.name ?? '');
@@ -1679,6 +1701,7 @@ function StudentPanel({
     setCheckoutLinkUrl('');
     setManualCpf(student?.cpf ?? '');
     setBillingHistory(null);
+    setDetailTab('treinos');
   }, [student?.id, student?.name, student?.email, student?.accountStatus, student?.subscriptionStatus, student?.cpf]);
 
   useEffect(() => {
@@ -2186,6 +2209,31 @@ function StudentPanel({
         <div className="interviewAnswerRow addressRow"><span className="interviewAnswerLabel">Endereco</span><span className="interviewAnswerValue">{student.address ?? 'Nao informado'}</span></div>
       </div>
 
+      {/* 01/09: o resto do painel virou abas (pedido do treinador — antes era uma pagina so' com
+          tudo empilhado, precisava rolar/printar varias vezes so pra mostrar um caso). O aviso de
+          plano desatualizado fica sempre visivel, fora de qualquer aba, porque e' um alerta que o
+          treinador precisa ver não importa em qual aba estiver. Cada bloco de aba usa <> (Fragment)
+          em vez de <div>, de proposito — o grid de 4 colunas do .detailPanel posiciona os filhos por
+          seletor de filho direto (".detailPanel > .adminForm" etc.), e um <div> por aba quebraria
+          esses seletores sem reescrever todo o CSS de layout.  */}
+      <div className="detailTabs">
+        <button type="button" className={detailTab === 'treinos' ? 'active' : ''} onClick={() => setDetailTab('treinos')}>Treinos</button>
+        <button type="button" className={detailTab === 'cadastro' ? 'active' : ''} onClick={() => setDetailTab('cadastro')}>Cadastro</button>
+        <button type="button" className={detailTab === 'avaliacao' ? 'active' : ''} onClick={() => setDetailTab('avaliacao')}>Avaliacao</button>
+        <button type="button" className={detailTab === 'diretrizes' ? 'active' : ''} onClick={() => setDetailTab('diretrizes')}>Diretrizes</button>
+        <button type="button" className={detailTab === 'semanas' ? 'active' : ''} onClick={() => setDetailTab('semanas')}>Semanas anteriores</button>
+        <button type="button" className={detailTab === 'evolucao' ? 'active' : ''} onClick={() => setDetailTab('evolucao')}>Evolucao</button>
+      </div>
+
+      {student.needsUpdate ? (
+        <div className="needsUpdateBanner">
+          <strong>Este aluno precisa de atualizacao de treino.</strong>
+          <span>{student.needsUpdateReason ?? 'Os dados usados na ultima geracao nao batem mais com o que esta salvo agora.'} Use "Refazer nova semana de treinos" na aba Treinos quando quiser aplicar.</span>
+        </div>
+      ) : null}
+
+      {detailTab === 'cadastro' ? (
+      <>
       {student.targetRaces?.length ? (
         <section className="miniSection targetRaceHighlight">
           <h3>Prova alvo</h3>
@@ -2294,7 +2342,11 @@ function StudentPanel({
           {sendingMessage ? 'Enviando...' : 'Enviar mensagem'}
         </button>
       </section>
+      </>
+      ) : null}
 
+      {detailTab === 'diretrizes' ? (
+      <>
       <section className="miniSection technicalManagerPanel">
         <h3>Gerente tecnico</h3>
         <p className="formHintText">Converse sobre o caso deste aluno especifico: peca relatorios, opiniao, ou combine regras permanentes so para ele.</p>
@@ -2340,15 +2392,11 @@ function StudentPanel({
           {sendingChat ? 'Consultando o agente...' : 'Enviar'}
         </button>
       </section>
+      </>
+      ) : null}
 
-      <div className="detailGrid">
-        <Detail icon={<UserRound size={18} />} label="Objetivo" value={student.goal} />
-        <Detail icon={<Gauge size={18} />} label="Aderencia" value={`${student.plan?.summary.adherencePercent ?? 0}%`} />
-        <Detail icon={<CheckCircle2 size={18} />} label="Feitos" value={`${student.plan?.summary.completedSessions ?? 0}/${student.plan?.summary.prescribedSessions ?? 0}`} />
-        <Detail icon={<AlertTriangle size={18} />} label="Diferentes" value={String(student.plan?.summary.differentSessions ?? 0)} />
-      </div>
-      {student.plan?.methodology ? <p className="methodologySummary">{methodologySummaryLine(student.plan.methodology)}</p> : null}
-
+      {detailTab === 'evolucao' ? (
+      <>
       <section className="miniSection reportPanel">
         <div className="weekWorkspaceHeader">
           <div><p className="eyebrow">Supervisao tecnica</p><h3>Relatorios do agente</h3></div>
@@ -2387,6 +2435,26 @@ function StudentPanel({
         ) : <p>O relatorio aparecera automaticamente quando uma nova atividade chegar pelo Strava.</p>}
       </section>
 
+      <section className="miniSection">
+        <h3>Reavaliacoes e evolucao</h3>
+        {student.reassessments?.length ? (
+          student.reassessments.map((reassessment, index) => (
+            <div key={reassessment.completedAt ?? index} className="adminBlock">
+              <strong>{reassessment.completedAt ? dateLabel(reassessment.completedAt) : 'Data nao registrada'}</strong>
+              {reassessment.evolutionSummary ? <p>{reassessment.evolutionSummary}</p> : <p>Sem analise de evolucao gerada.</p>}
+              {reassessment.evolutionWins?.length ? <p>Avancos: {reassessment.evolutionWins.join(' | ')}</p> : null}
+              {reassessment.evolutionConcerns?.length ? <p>Pontos de atencao: {reassessment.evolutionConcerns.join(' | ')}</p> : null}
+            </div>
+          ))
+        ) : (
+          <p>Nenhuma reavaliacao concluida ainda.</p>
+        )}
+      </section>
+      </>
+      ) : null}
+
+      {detailTab === 'avaliacao' ? (
+      <>
       <section className="miniSection observationsPanel">
         <div className="weekWorkspaceHeader">
           <div><p className="eyebrow">Registrado pelo aluno</p><h3>Observacoes</h3></div>
@@ -2438,22 +2506,6 @@ function StudentPanel({
           <p>Sem teste cadastrado.</p>
         )}
       </section>
-
-      <section className="miniSection">
-        <h3>Reavaliacoes e evolucao</h3>
-        {student.reassessments?.length ? (
-          student.reassessments.map((reassessment, index) => (
-            <div key={reassessment.completedAt ?? index} className="adminBlock">
-              <strong>{reassessment.completedAt ? dateLabel(reassessment.completedAt) : 'Data nao registrada'}</strong>
-              {reassessment.evolutionSummary ? <p>{reassessment.evolutionSummary}</p> : <p>Sem analise de evolucao gerada.</p>}
-              {reassessment.evolutionWins?.length ? <p>Avancos: {reassessment.evolutionWins.join(' | ')}</p> : null}
-              {reassessment.evolutionConcerns?.length ? <p>Pontos de atencao: {reassessment.evolutionConcerns.join(' | ')}</p> : null}
-            </div>
-          ))
-        ) : (
-          <p>Nenhuma reavaliacao concluida ainda.</p>
-        )}
-      </section>
       </div>
 
       <section className="miniSection interviewPanel">
@@ -2497,14 +2549,20 @@ function StudentPanel({
           </div>
         </div>
       </section>
+      </>
+      ) : null}
+
+      {detailTab === 'treinos' ? (
+      <>
+      <div className="detailGrid">
+        <Detail icon={<UserRound size={18} />} label="Objetivo" value={student.goal} />
+        <Detail icon={<Gauge size={18} />} label="Aderencia" value={`${student.plan?.summary.adherencePercent ?? 0}%`} />
+        <Detail icon={<CheckCircle2 size={18} />} label="Feitos" value={`${student.plan?.summary.completedSessions ?? 0}/${student.plan?.summary.prescribedSessions ?? 0}`} />
+        <Detail icon={<AlertTriangle size={18} />} label="Diferentes" value={String(student.plan?.summary.differentSessions ?? 0)} />
+      </div>
+      {student.plan?.methodology ? <p className="methodologySummary">{methodologySummaryLine(student.plan.methodology)}</p> : null}
 
       <section className="miniSection weekWorkspace">
-        {student.needsUpdate ? (
-          <div className="needsUpdateBanner">
-            <strong>Este aluno precisa de atualizacao de treino.</strong>
-            <span>{student.needsUpdateReason ?? 'Os dados usados na ultima geracao nao batem mais com o que esta salvo agora.'} Use "Refazer nova semana de treinos" abaixo quando quiser aplicar.</span>
-          </div>
-        ) : null}
         <div className="weekWorkspaceHeader">
           <div>
             <p className="eyebrow">Planejamento e execucao</p>
@@ -2578,7 +2636,10 @@ function StudentPanel({
           </div>
         ) : null}
       </section>
+      </>
+      ) : null}
 
+      {detailTab === 'semanas' ? (
       <section className="miniSection">
         <h3>Historico de semanas</h3>
         {student.history?.length ? (
@@ -2605,6 +2666,7 @@ function StudentPanel({
           <p>Sem historico registrado.</p>
         )}
       </section>
+      ) : null}
       </section>
   );
 }

@@ -854,6 +854,45 @@ h3 {
   grid-column: span 2;
 }
 
+/* 01/09: abas dentro do painel do aluno (opcao B combinada com o treinador — troca de "modo" na
+   mesma pagina, sem rota propria por aluno). .detailTabs e .needsUpdateBanner ficam sempre visiveis,
+   fora de qualquer aba, entao precisam ocupar a largura toda igual as outras secoes full-width do
+   grid de 4 colunas do .detailPanel. */
+.detailPanel > .detailTabs,
+.detailPanel > .needsUpdateBanner {
+  grid-column: 1 / -1;
+}
+
+.detailTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+}
+
+.detailTabs button {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.detailTabs button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+}
+
+.backToListButton {
+  margin-bottom: 12px;
+}
+
 .detailPanel > .adminForm.messageSection {
   grid-column: span 1;
   align-self: start;
