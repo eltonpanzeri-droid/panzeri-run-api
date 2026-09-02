@@ -191,7 +191,11 @@ const PRIVACY_POLICY_HTML = `
   <p>Os dados sao mantidos enquanto a conta estiver ativa e pelo prazo necessario para cumprimento de obrigacoes legais apos o encerramento.</p>
   <h2>7. Seus direitos (LGPD)</h2>
   <p>Acesso, correcao, exclusao, portabilidade e revogacao do consentimento a qualquer momento, mediante solicitacao ao contato abaixo.</p>
-  <h2>8. Contato</h2>
+  <h2>8. Como pedir a exclusao da sua conta e dos seus dados</h2>
+  <p>Envie um e-mail para eltonpanzeri@gmail.com, do mesmo endereco cadastrado no Panzeri Run, com o assunto "Exclusao de conta". Confirmamos o pedido em ate 5 dias uteis e concluimos a exclusao em ate 15 dias.</p>
+  <p>Sao excluidos: dados de cadastro (nome, e-mail, telefone, CPF, endereco), dados de saude e condicionamento fisico, historico de treinos prescritos e realizados, e mensagens trocadas com o treinador/agente de IA.</p>
+  <p>Sao mantidos, quando exigido por lei, apenas registros de pagamento (nota fiscal/comprovante), pelo prazo minimo exigido pela legislacao fiscal brasileira — nunca usados para nenhum outro fim depois da exclusao da conta.</p>
+  <h2>9. Contato</h2>
   <p>eltonpanzeri@gmail.com</p>
 `;
 
