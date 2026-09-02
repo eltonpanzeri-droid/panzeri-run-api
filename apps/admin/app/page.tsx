@@ -2186,27 +2186,17 @@ function StudentPanel({
 
   return (
       <section className="sidePanel detailPanel">
-      <div>
+      {/* 01/09 (2ª rodada): cabecalho compacto de proposito — so' o suficiente pra confirmar "estou
+          com a aluna certa" antes de olhar qualquer aba (nome + codigo + Strava). O resto do cadastro
+          (e-mail, WhatsApp, CPF, altura, peso, escolaridade, endereco) morava aqui sempre visivel em
+          toda aba, inclusive Treinos, competindo com o que o treinador realmente queria ver naquele
+          momento — feedback direto dele depois da 1ª versao das abas. Foi pra dentro da aba Cadastro. */}
+      <div className="studentIdentityHeader">
         <p className="eyebrow">Aluno selecionado</p>
         <h2>{student.name} <small className="studentCodeTag">Cod. {student.studentCode}</small></h2>
-        <div>
-          <span className={`status ${student.strava?.connected ? 'good' : 'warn'}`}>
-            {student.strava?.connected ? 'Strava conectado' : 'Strava nao conectado'}
-          </span>
-          {student.strava?.connected && student.strava.lastActivityAt ? (
-            <small> ultima atividade: {dateTimeLabel(student.strava.lastActivityAt)}</small>
-          ) : null}
-        </div>
-        <div className="interviewAnswerGrid">
-          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">E-mail</span><span className="interviewAnswerValue">{student.email}</span></div>
-          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">WhatsApp</span><span className="interviewAnswerValue">{student.phone ?? 'Nao informado'}</span></div>
-          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Nascimento</span><span className="interviewAnswerValue">{student.birthDate ? dateLabel(student.birthDate) : 'Nao informado'}</span></div>
-          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">CPF</span><span className="interviewAnswerValue">{student.cpf ?? 'Nao informado'}</span></div>
-          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Altura</span><span className="interviewAnswerValue">{student.heightCm ? `${student.heightCm} cm` : 'Nao informado'}</span></div>
-          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Peso</span><span className="interviewAnswerValue">{student.weightKg ? `${student.weightKg} kg` : 'Nao informado'}</span></div>
-          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Escolaridade</span><span className="interviewAnswerValue">{student.education ?? 'Nao informado'}</span></div>
-        </div>
-        <div className="interviewAnswerRow addressRow"><span className="interviewAnswerLabel">Endereco</span><span className="interviewAnswerValue">{student.address ?? 'Nao informado'}</span></div>
+        <span className={`status ${student.strava?.connected ? 'good' : 'warn'}`}>
+          {student.strava?.connected ? 'Strava conectado' : 'Strava nao conectado'}
+        </span>
       </div>
 
       {/* 01/09: o resto do painel virou abas (pedido do treinador — antes era uma pagina so' com
@@ -2234,6 +2224,23 @@ function StudentPanel({
 
       {detailTab === 'cadastro' ? (
       <>
+      <section className="miniSection">
+        <h3>Dados de contato</h3>
+        {student.strava?.connected && student.strava.lastActivityAt ? (
+          <p className="formHintText">Ultima atividade no Strava: {dateTimeLabel(student.strava.lastActivityAt)}</p>
+        ) : null}
+        <div className="interviewAnswerGrid">
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">E-mail</span><span className="interviewAnswerValue">{student.email}</span></div>
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">WhatsApp</span><span className="interviewAnswerValue">{student.phone ?? 'Nao informado'}</span></div>
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Nascimento</span><span className="interviewAnswerValue">{student.birthDate ? dateLabel(student.birthDate) : 'Nao informado'}</span></div>
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">CPF</span><span className="interviewAnswerValue">{student.cpf ?? 'Nao informado'}</span></div>
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Altura</span><span className="interviewAnswerValue">{student.heightCm ? `${student.heightCm} cm` : 'Nao informado'}</span></div>
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Peso</span><span className="interviewAnswerValue">{student.weightKg ? `${student.weightKg} kg` : 'Nao informado'}</span></div>
+          <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Escolaridade</span><span className="interviewAnswerValue">{student.education ?? 'Nao informado'}</span></div>
+        </div>
+        <div className="interviewAnswerRow addressRow"><span className="interviewAnswerLabel">Endereco</span><span className="interviewAnswerValue">{student.address ?? 'Nao informado'}</span></div>
+      </section>
+
       {student.targetRaces?.length ? (
         <section className="miniSection targetRaceHighlight">
           <h3>Prova alvo</h3>

@@ -859,8 +859,20 @@ h3 {
    fora de qualquer aba, entao precisam ocupar a largura toda igual as outras secoes full-width do
    grid de 4 colunas do .detailPanel. */
 .detailPanel > .detailTabs,
-.detailPanel > .needsUpdateBanner {
+.detailPanel > .needsUpdateBanner,
+.detailPanel > .studentIdentityHeader {
   grid-column: 1 / -1;
+}
+
+.studentIdentityHeader {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.studentIdentityHeader .eyebrow {
+  flex-basis: 100%;
 }
 
 .detailTabs {
