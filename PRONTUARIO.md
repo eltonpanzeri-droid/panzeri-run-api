@@ -780,10 +780,49 @@ do treinador clicar em nada além de duas autorizações pontuais:
   de teste") e publica o `.aab` direto na trilha "Teste fechado - Alpha" via API — sem precisar abrir
   o Play Console. Chave de conta de serviço salva em `secrets/` (fora do git, padrão já existente
   desde 26/08).
-- Build de produção (`versionCode 3`) disparado antes do treinador sair; publicação na trilha de
-  teste segue automática assim que terminar. Faltam só os 8 testadores externos (fora os 5 alunas já
-  cadastradas: Eduarda, Mariana, Elizângela, Vanessa, Juliana) pra completar os 12 mínimos e começar
-  a contar os 14 dias exigidos pelo Google.
+- Build de produção (`versionCode 3`) terminou depois do treinador sair, baixado e publicado na
+  trilha "Teste fechado - Alpha" via API sozinho, sem precisar dele. **Falta 1 clique manual dele**:
+  a API do Google recusa marcar como "completa" o primeiro envio de um app que nunca passou por
+  revisão manual nenhuma — a versão ficou em "rascunho" na trilha, esperando ele abrir o Play
+  Console (Teste → Teste fechado → Alpha) e enviar essa versão pra revisão de lá, só dessa vez.
+  Depois desse primeiro envio manual, atualizações futuras devem publicar via API sem esse tropeço.
+- Faltam também os 8 testadores externos (fora os 5 alunas já cadastradas: Eduarda, Mariana,
+  Elizângela, Vanessa, Juliana) pra completar os 12 mínimos e começar a contar os 14 dias exigidos
+  pelo Google.
+
+**2026-09-03 (mais tarde, mesmo dia)** — Elton voltou e concluiu o clique manual pendente: no Play
+Console (Teste → Teste fechado → Alpha → Editar versão → Avançar), apareceu um bloqueio extra não
+previsto pelo script — **declaração de ID de publicidade** obrigatória (exigência do Android 13+, não
+relacionada ao envio em si). Verificado no código (`grep` em `package.json` do `apps/mobile`): o
+projeto não usa nenhuma lib de anúncios/analytics que dependa de Advertising ID (sem AdMob, sem
+Firebase Analytics) — declarado **"Não"**. Com isso resolvido, enviadas as 14 mudanças acumuladas
+(loja, testadores, política de privacidade, segurança de dados, categoria, declaração de anúncios)
+para revisão do Google de uma vez. Ficou em "Alterações em análise" — revisão de teste fechado costuma
+sair em horas a poucos dias (bem mais rápida que revisão de produção). Continua faltando completar a
+lista de testadores até 12 (7 pessoas fora as 5 já cadastradas) antes do relógio de 14 dias começar a
+contar. Elton vai divulgar o convite nos Stories dele pra tentar conseguir ~10 pessoas de uma vez,
+aproveitando também como oportunidade de atrair usuários novos (não só cobrir a cota do Google) — ver
+nota de viabilidade real disso (link gerenciado por lista de e-mail x link aberto) na memória
+`app_store_launch_status`.
+
+**2026-09-03 (RevenueCat Android configurado)** — Fluxo de compra real do Android estava até então
+totalmente inerte: [App.tsx:5450](apps/mobile/App.tsx:5450) já tinha o código pronto desde 28/08, mas
+`revenueCatAndroidApiKey` ficava vazio em `app.json` de propósito, esperando o produto existir de
+verdade. Feito ponta a ponta hoje, guiado por print (login do Elton no Play Console + RevenueCat, sem
+acesso direto — extensão "Claude in Chrome" não conectou nesta sessão):
+- **Play Console**: criada a assinatura `panzeri_run_mensal` (plano básico `mensal`, renovação
+  automática, **R$ 24,90/mês**, disponibilidade restrita ao Brasil), ativada.
+- **RevenueCat**: descoberta real — nem o produto do iOS nem o do Android estavam de fato importados
+  ainda (só existia um produto de teste na "Test Store" interna, ligado à offering "default"/pacote
+  "Monthly", 0 transações). Importado o produto Android (`panzeri_run_mensal:mensal`, status
+  "Published"), anexado ao entitlement já existente `panzeri_run_pro`, e adicionado ao mesmo pacote
+  "Monthly" da offering "default" (agora com produto de teste + Android real; iOS real ainda falta).
+- Chave pública do SDK Android colada em [app.json:45](apps/mobile/app.json:45)
+  (`revenueCatAndroidApiKey`). **Só passa a valer no próximo build de produção** — a versão já enviada
+  pro Google hoje (versionCode 3) foi gerada antes dessa chave existir.
+- **Pendência nova, achada nesse processo**: o produto real do **iOS** também nunca foi importado no
+  RevenueCat (só existia o de teste) — precisa do mesmo tratamento (Import + Attach entitlement +
+  adicionar ao pacote) antes do lançamento iOS, item que ainda nem tinha sido retomado.
 
 ---
 
