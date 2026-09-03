@@ -760,6 +760,31 @@ a ficha do app Android no Google Play Console:
   visualmente o cabeçalho fixo do app — precisa de teste visual antes do próximo build de produção.
   Deixado como próxima tarefa técnica, não forçado no fim de uma sessão já longa.
 
+**2026-09-03** — Upgrade executado, testado de verdade e publicação automatizada, tudo sem precisar
+do treinador clicar em nada além de duas autorizações pontuais:
+
+- **Expo SDK 51→54 + RevenueCat 8→10 feitos**: `npx expo install expo@54 --fix` resolveu a maioria
+  sozinho; React 18→19, React Native 0.74→0.81. Achado e corrigido de fato o risco visual previsto:
+  `SafeAreaView` vinha do pacote `react-native` puro, que **nunca aplicou área segura no Android**
+  (só no iOS — só "funcionava" porque o Android reservava sozinho o espaço da barra de status,
+  reserva que o edge-to-edge obrigatório do SDK 54 remove). Trocado por `SafeAreaView`/
+  `SafeAreaProvider` de `react-native-safe-area-context` (já era dependência).
+- **Testado de verdade num emulador Android local** (Pixel 6, sem precisar do treinador — instalado
+  via `adb install`, navegado via `adb shell input`/`screencap`): cabeçalho confirmado correto, sem
+  sobreposição com a barra de status. No caminho, achado um incidente real e público do lado da
+  Expo (status.expo.dev: cache de artefatos Maven fora do ar por algumas horas) que derrubou as
+  duas primeiras tentativas de build — nada a ver com o projeto, confirmado antes de insistir.
+- **Publicação automatizada via API oficial do Google Play**: como o treinador ia sair, criado um
+  script Node autônomo (sem dependência nenhuma, só `crypto`/`fetch` nativos) que autentica com a
+  conta de serviço já usada pelo RevenueCat (permissão nova concedida: "Liberar apps para as faixas
+  de teste") e publica o `.aab` direto na trilha "Teste fechado - Alpha" via API — sem precisar abrir
+  o Play Console. Chave de conta de serviço salva em `secrets/` (fora do git, padrão já existente
+  desde 26/08).
+- Build de produção (`versionCode 3`) disparado antes do treinador sair; publicação na trilha de
+  teste segue automática assim que terminar. Faltam só os 8 testadores externos (fora os 5 alunas já
+  cadastradas: Eduarda, Mariana, Elizângela, Vanessa, Juliana) pra completar os 12 mínimos e começar
+  a contar os 14 dias exigidos pelo Google.
+
 ---
 
 ## Onde as coisas estão agora (2026-09-02) — leitura rápida pra quem chega de fora
