@@ -21,7 +21,6 @@ import {
   PanResponder,
   Platform,
   Pressable,
-  SafeAreaView,
   Linking,
   ScrollView,
   StyleSheet,
@@ -30,12 +29,25 @@ import {
   TextInput,
   View,
 } from 'react-native';
+// 03/09: `SafeAreaView` do pacote `react-native` puro NUNCA aplicou de verdade a area segura no
+// Android (so' funciona no iOS) — antes disso nao importava, porque o Android reservava sozinho o
+// espaco da barra de status por baixo dos panos. Upgrade pro Expo SDK 54 (exigencia do Google de
+// mirar Android 16) liga "edge-to-edge" obrigatorio no Android, e essa reserva automatica some — o
+// cabecalho fixo do app passaria a renderizar por baixo da barra de status/navegacao sem esse
+// import vir daqui (que funciona de verdade nos dois sistemas, via SafeAreaProvider abaixo).
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 // Sem isso, notificacao chegando com o app ABERTO fica muda (comportamento padrao do SDK) — a
 // aluna so veria se o app estivesse em segundo plano/fechado. Queremos o alerta em qualquer caso.
+// 03/09: upgrade Expo SDK 54 trocou `shouldShowAlert` por `shouldShowBanner`/`shouldShowList`
+// (mesma ideia, banner = alerta na hora, list = aparece no centro de notificacoes) — mantido
+// `shouldShowAlert` tambem por compatibilidade retroativa, o tipo novo so passou a exigir os dois
+// novos campos junto.
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
@@ -1353,9 +1365,11 @@ export default function App() {
   }
 
   return (
-    <ErrorBoundary>
-      <AppInner />
-    </ErrorBoundary>
+    <SafeAreaProvider>
+      <ErrorBoundary>
+        <AppInner />
+      </ErrorBoundary>
+    </SafeAreaProvider>
   );
 }
 

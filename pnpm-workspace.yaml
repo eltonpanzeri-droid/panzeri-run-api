@@ -12,3 +12,5 @@ allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
   prisma: true
+minimumReleaseAgeExclude:
+  - react-native-purchases@10.9.0
