@@ -111,7 +111,13 @@ export class MeService {
     // CEP de verdade, so cidade/estado. Exigir o CEP aqui rejeitava no ultimo passo ("Conclua todas
     // as perguntas obrigatorias", sem dizer qual) alguem que a UI ja tinha deixado terminar —
     // pior que o bug original. Agora aceita CEP OU cidade+estado preenchidos a mao.
-    const required = ['objective', 'running_experience', 'personal_name', 'personal_phone', 'personal_birth_date', 'personal_sex', 'personal_height', 'personal_weight', 'personal_cpf', 'personal_education', 'personal_address_number'];
+    // 04/09 (correcao da correcao — caso real: Silvia continuou travada): personal_address_number
+    // tambem saiu da lista. Essa pergunta so aparece na tela quando o CEP resolve uma cidade
+    // (condition: Boolean(a.personal_address_city)) — se isso nunca acontecer (ou a pessoa passar
+    // batido por qualquer motivo), o campo fica permanentemente sem resposta possivel, mas
+    // continuava bloqueando aqui do mesmo jeito que o CEP bloqueava antes. Numero da casa nao e
+    // usado pra nada essencial (nao gera treino, nao e' cobranca) — vira sempre opcional.
+    const required = ['objective', 'running_experience', 'personal_name', 'personal_phone', 'personal_birth_date', 'personal_sex', 'personal_height', 'personal_weight', 'personal_cpf', 'personal_education'];
     const missing = required.filter((key) => answers[key] === undefined || answers[key] === '');
     const hasCep = answers.personal_cep !== undefined && answers.personal_cep !== '';
     const hasManualAddress = Boolean(String(answers.personal_address_city ?? '').trim()) && Boolean(String(answers.personal_address_state ?? '').trim());
