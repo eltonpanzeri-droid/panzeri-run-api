@@ -2482,6 +2482,14 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       })() : null}
       {question?.key === 'personal_address_number' && answers.personal_address_city ? <Text style={styles.formHint}>{[answers.personal_address_street, answers.personal_address_neighborhood].filter(Boolean).join(', ')} - {answers.personal_address_city}/{answers.personal_address_state}</Text> : null}
       {(question?.type === 'number' || question?.type === 'number_or_unknown') ? <Pressable style={styles.decimalButton} onPress={() => { const current = String(value === 'unknown' || value === 'automatic' ? '' : value ?? ''); if (!current.includes(',') && !current.includes('.')) setAnswers({ ...answers, [question.key]: `${current},` }); }}><Text style={styles.decimalButtonText}>Inserir virgula</Text></Pressable> : null}
+      {/* 04/09: pedido do Elton — a roda de numeros so conta como respondida depois que a pessoa
+          realmente mexe nela (de proposito, pra nao salvar o valor de mostruario como se fosse
+          resposta real — ver bug historico documentado mais abaixo). Sem avisar isso ANTES, quem
+          nao sabe que precisa tocar/arrastar a roda fica parado sem entender por que "Continuar"
+          nao libera. Aviso proativo, nao so' depois de errar. */}
+      {question && ['wheel_number', 'wheel_pace', 'wheel_duration_hms', 'wheel_date'].includes(question.type) && value === undefined ? (
+        <Text style={styles.formHint}>👆 Deslize a roda abaixo com o dedo até o número certo — a resposta só conta depois que você mexer nela.</Text>
+      ) : null}
       {question?.type === 'wheel_number' ? (() => {
         const digits = question.wheelDigits ?? 2;
         const min = question.wheelMin ?? 0;
