@@ -99,8 +99,17 @@ const AiSessionPartsSchema = z.array(AiSessionPartSchema).min(1).max(6);
 
 const AiSessionSchema = z.object({
   weekday: z.number().int().min(0).max(6),
-  title: z.string().min(1).max(120),
-  durationMin: z.number().int().min(10).max(240),
+  // 04/09: sem .min(1) de proposito (bug real — caso Ju, semana inteira falhou por causa de UM
+  // title vazio numa sessao so). O campo title nunca chega a ser exibido de verdade — o titulo
+  // mostrado ao aluno/treinador e sempre fixedModalityTitle(modality), decidido em codigo (ver
+  // training-plans.service.ts) — rejeitar a resposta inteira por um campo que e descartado depois
+  // e o mesmo erro ja corrigido pra "notes" em 16/08 (ver comentario abaixo), so que pra title.
+  title: z.string().max(120),
+  // 04/09, mesmo incidente: min baixado de 10 pra 1 — um valor absurdamente baixo agora e' aceito
+  // e corrigido em codigo (ver o Math.max ao montar `result` abaixo) em vez de derrubar a semana
+  // inteira. Nunca aconteceu de precisar rejeitar a resposta toda por isso ate hoje ser pior que
+  // aceitar e corrigir.
+  durationMin: z.number().int().min(1).max(240),
   // A sequencia de partes que forma este treino, na ordem em que acontecem de verdade (ver
   // AiSessionPartSchema acima). A soma de todas as partes e que vira a distancia/duracao total
   // exibida pro aluno — nao existe mais nenhum campo "resumo" separado, o total e sempre a soma
@@ -135,7 +144,9 @@ const AiSessionSchema = z.object({
 const AiStrengthSessionSchema = z.object({
   weekday: z.number().int().min(0).max(6),
   modality: z.enum(['forca', 'fortalecimento_corredores']),
-  title: z.string().min(1).max(120),
+  // 04/09: sem .min(1), mesmo motivo do AiSessionSchema acima — title de forca tambem e descartado
+  // e substituido por fixedModalityTitle(modality) em codigo, nunca exibido de verdade.
+  title: z.string().max(120),
   exerciseIds: z.array(z.string().min(1).max(60)).min(3).max(10),
   sets: z.number().int().min(2).max(5),
   reps: z.string().min(1),
@@ -546,7 +557,10 @@ export class PrescriptionAgentService {
       result.push({
         weekday: session.weekday,
         title: session.title,
-        durationMin: session.durationMin,
+        // 04/09: o schema aceita durationMin baixo pra nao rejeitar a semana inteira (ver
+        // comentario no schema), mas uma duracao real abaixo de 10min nao faz sentido pra
+        // nenhuma sessao de treino de verdade — o piso e aplicado aqui, no ponto de montagem.
+        durationMin: Math.max(10, session.durationMin),
         // Limite subiu 30% (900->1170) em 20/08, pedido do treinador (junto com o timeout maior).
         notes: truncateText(session.notes, 1170),
         parts: session.parts,
