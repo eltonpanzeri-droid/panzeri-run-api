@@ -121,7 +121,13 @@ export class MeService {
     const missing = required.filter((key) => answers[key] === undefined || answers[key] === '');
     const hasCep = answers.personal_cep !== undefined && answers.personal_cep !== '';
     const hasManualAddress = Boolean(String(answers.personal_address_city ?? '').trim()) && Boolean(String(answers.personal_address_state ?? '').trim());
-    if (missing.length || (!hasCep && !hasManualAddress)) throw new BadRequestException('Conclua todas as perguntas obrigatorias.');
+    if (!hasCep && !hasManualAddress) missing.push('endereco (CEP ou cidade/estado)');
+    // 04/09: achado real (caso Silvia) — a mensagem generica "Conclua todas as perguntas
+    // obrigatorias" nao dizia QUAL campo faltava, entao cada vez que alguem travava aqui a gente
+    // tinha que adivinhar (ja erramos 2x seguidas por isso: CEP, depois numero da casa). Agora a
+    // mensagem lista exatamente as chaves que faltam — quem travar pode nos mandar a mensagem
+    // exata em vez de so' "nao consigo concluir", encurtando o diagnostico de horas pra segundos.
+    if (missing.length) throw new BadRequestException(`Faltam respostas obrigatorias: ${missing.join(', ')}.`);
 
     const normalizedCpf = normalizeCpf(String(answers.personal_cpf));
     if (!normalizedCpf) throw new BadRequestException('CPF invalido. Revise o campo de CPF na entrevista.');
