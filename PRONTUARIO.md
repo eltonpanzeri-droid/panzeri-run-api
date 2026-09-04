@@ -86,6 +86,23 @@ aluno, pra não spammar), mas só quando alguém efetivamente abre a tela daquel
 verificação em segundo plano para alunos que ninguém está olhando. Gerar uma notificação para o
 aluno avisando que o treino foi atualizado não tem custo de IA (é só um registro no banco).
 
+## Regra adotada em 2026-09-04: dossiê de erros persistentes
+
+Quando um problema relatado pelo Elton sobrevive a **3 rodadas de correção sem resolução
+confirmada**, a **4ª correção** passa a gerar (ou atualizar) um dossiê dedicado na pasta
+`erros persistentes/`, nomeado `NNNN_Nome_da_Pessoa.md` (número sequencial de identificação +
+nome). O dossiê registra a linha do tempo completa de cada rodada (diagnóstico, correção aplicada,
+resultado) e um "aprendizado sistêmico" explícito extraído do padrão de falha — não é só um
+histórico, é pra identificar POR QUE a mesma classe de problema resistiu a correções isoladas.
+
+Motivo: alguns bugs (ver `erros persistentes/0001_Silvia_Mendes_Leal.md`, o primeiro caso) têm
+várias causas raiz diferentes escondidas atrás do mesmo sintoma relatado ("trava na entrevista") —
+corrigir uma de cada vez, sem esse registro formal, faz parecer que "nada resolve" quando na
+verdade cada correção resolveu um problema real, só não o que causava o sintoma específico daquele
+relato. O dossiê existe pra tornar esse padrão visível e extrair a lição estrutural (ex.: "mensagem
+de erro genérica esconde causa raiz" ou "marcar como respondido antes de confirmar salvamento é a
+suspeita nº 1 quando um campo obrigatório fica sem resposta").
+
 ---
 
 ## Diário
