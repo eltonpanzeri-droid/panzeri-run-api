@@ -677,9 +677,30 @@ export class CoachService {
   // testador novo) — ver createCheckout em billing.service.ts, que consulta essa tabela antes de
   // gerar qualquer cobranca real. Quem ja e assinante pagante nao e afetado (createCheckout so
   // aplica a cortesia se a assinatura ainda nao estiver ativa).
+  // 04/09: alem da lista, mostra o status real de cada um — sem isso o treinador nao tinha como
+  // saber quem realmente abriu o app e foi liberado como testador (so via Play Console, que so
+  // sabe quem aceitou o convite de teste, nao o que aconteceu dentro do nosso sistema).
   async listFreeTesterEmails() {
     const prisma = this.prisma as any;
-    return prisma.freeTesterEmail.findMany({ orderBy: { createdAt: 'desc' } });
+    const entries = await prisma.freeTesterEmail.findMany({ orderBy: { createdAt: 'desc' } });
+    if (!entries.length) return entries;
+
+    const emails = entries.map((entry: { email: string }) => entry.email);
+    const users = await this.prisma.user.findMany({
+      where: { email: { in: emails } },
+      select: { email: true, subscriptionStatus: true, subscriptionProvider: true, studentCode: true, createdAt: true },
+    });
+    const byEmail = new Map(users.map((user) => [user.email.toLowerCase(), user]));
+
+    return entries.map((entry: { email: string; [key: string]: unknown }) => {
+      const user = byEmail.get(entry.email);
+      let status: string;
+      if (!user) status = 'Ainda nao criou conta';
+      else if (user.subscriptionStatus === 'manual_active') status = 'Liberado como testador gratuito';
+      else if (['active', 'grace'].includes(user.subscriptionStatus)) status = 'Ja e aluna pagante (nao afetada pela cortesia)';
+      else status = 'Conta criada, ainda nao tentou assinar';
+      return { ...entry, accountStatus: status, studentCode: user?.studentCode ?? null };
+    });
   }
 
   async addFreeTesterEmail(email: string, note?: string) {

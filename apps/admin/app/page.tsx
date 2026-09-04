@@ -388,7 +388,7 @@ export default function AdminHome() {
   const [exStudents, setExStudents] = useState<{ total: number; exStudents: ExStudentRow[] } | null>(null);
   // 04/09: lista de testadores gratuitos (Play Store) que o proprio treinador gerencia aqui, sem
   // precisar pedir deploy de codigo pra cada pessoa nova — ver createCheckout em billing.service.ts.
-  const [freeTesterEmails, setFreeTesterEmails] = useState<{ id: string; email: string; note: string | null }[]>([]);
+  const [freeTesterEmails, setFreeTesterEmails] = useState<{ id: string; email: string; note: string | null; accountStatus?: string; studentCode?: number | null }[]>([]);
   const [newTesterEmail, setNewTesterEmail] = useState('');
   const [newTesterNote, setNewTesterNote] = useState('');
   const [couponCode, setCouponCode] = useState('');
@@ -659,7 +659,7 @@ export default function AdminHome() {
 
   async function loadFreeTesterEmails(accessToken = token) {
     if (!accessToken) return;
-    const { data, loggedOut } = await authorizedGet<{ id: string; email: string; note: string | null }[]>('/coach/free-tester-emails', accessToken);
+    const { data, loggedOut } = await authorizedGet<{ id: string; email: string; note: string | null; accountStatus?: string; studentCode?: number | null }[]>('/coach/free-tester-emails', accessToken);
     if (data) setFreeTesterEmails(data);
     else if (!loggedOut) setStatus('Nao consegui carregar a lista de testadores.');
   }
@@ -1512,12 +1512,18 @@ export default function AdminHome() {
               <div className="table">
                 <div className="row header">
                   <span>E-mail</span>
+                  <span>Status real</span>
                   <span>Nota</span>
                   <span></span>
                 </div>
                 {freeTesterEmails.map((entry) => (
                   <div className="row" key={entry.id}>
                     <span>{entry.email}</span>
+                    <span>
+                      <span className={`status ${entry.accountStatus === 'Liberado como testador gratuito' ? 'good' : entry.accountStatus === 'Ainda nao criou conta' ? '' : 'warn'}`}>
+                        {entry.accountStatus ?? '-'}
+                      </span>
+                    </span>
                     <span>{entry.note ?? '-'}</span>
                     <span><button className="secondaryButton" type="button" onClick={() => removeFreeTesterEmail(entry.id)}>Remover</button></span>
                   </div>
