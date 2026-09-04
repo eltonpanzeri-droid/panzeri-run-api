@@ -83,8 +83,12 @@ export class WorkoutCompletionsService {
     if (session.routineMismatchNote) {
       const student = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
       const statusLabel = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'fez com ajustes' : 'marcou como nao feito';
+      // 04/09: mensagem antiga nao dizia qual treino era (so o motivo do desvio) — 3 treinos fora da
+      // rotina na mesma semana geravam 3 mensagens identicas, sem como saber se eram do mesmo treino
+      // (reenvio) ou de 3 dias diferentes. Adicionado data + modalidade/titulo pra identificar cada um.
+      const dataFormatada = session.scheduledDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
       await this.telegram.notifyCoach(
-        `📋 Feedback de treino fora da rotina combinada.\nAluno: ${student?.name ?? 'desconhecido'} (Cod. ${student ? formatStudentCode(student.studentCode) : '?'})\nMotivo do desvio: ${session.routineMismatchNote}\nAluno ${statusLabel} este treino.${dto.notes?.trim() ? `\nFeedback do aluno: ${dto.notes.trim()}` : '\nSem comentario escrito pelo aluno.'}`,
+        `📋 Feedback de treino fora da rotina combinada.\nAluno: ${student?.name ?? 'desconhecido'} (Cod. ${student ? formatStudentCode(student.studentCode) : '?'})\nTreino: ${session.title} (${session.modality}) — ${dataFormatada}\nMotivo do desvio: ${session.routineMismatchNote}\nAluno ${statusLabel} este treino.${dto.notes?.trim() ? `\nFeedback do aluno: ${dto.notes.trim()}` : '\nSem comentario escrito pelo aluno.'}`,
       ).catch(() => undefined);
     }
 

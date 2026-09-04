@@ -2093,6 +2093,12 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   const [status, setStatus] = useState('');
   const [helpOpen, setHelpOpen] = useState(false);
   const [cepStatus, setCepStatus] = useState('');
+  // 04/09: bug real reportado por uma aluna — sem isso, a pergunta de CEP EXIGIA que a busca
+  // automatica (ViaCEP) desse certo pra liberar "Continuar", sem nenhum jeito de digitar o
+  // endereco na mao. Se o CEP nao existe no ViaCEP (comum em condominios/loteamentos novos) ou a
+  // API falha, a pessoa ficava travada pra sempre no meio da entrevista, perto do fim. Agora tem
+  // uma saida manual.
+  const [cepManualEntry, setCepManualEntry] = useState(false);
   // So relevante pra mode="routine": diz se essa confirmacao gerou o treino AGORA (primeira vez,
   // sem plano nenhum ainda) ou se so vale a partir da geracao automatica de domingo (aluno que ja
   // tem plano mudando a rotina) — pedido explicito do treinador 03/08.
@@ -2245,7 +2251,11 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     if (question.type === 'date' || question.type === 'wheel_date') return dateInputValueToIso(String(value ?? '')) !== null;
     if (question.type === 'cpf') return isValidCpf(String(value ?? ''));
     if (question.type === 'phone') return String(value ?? '').replace(/\D/g, '').length === 11;
-    if (question.type === 'cep') return String(value ?? '').replace(/\D/g, '').length === 8 && Boolean(answers.personal_address_city);
+    // No modo manual, so exigimos cidade e estado preenchidos a mao (rua/bairro continuam
+    // opcionais) — nao trava mais esperando o ViaCEP encontrar algo que pode nao existir la.
+    if (question.type === 'cep') return cepManualEntry
+      ? Boolean(answers.personal_address_city?.toString().trim()) && Boolean(answers.personal_address_state?.toString().trim())
+      : String(value ?? '').replace(/\D/g, '').length === 8 && Boolean(answers.personal_address_city);
     return value !== undefined && value !== null && String(value).trim() !== '';
   }
 
@@ -2410,6 +2420,18 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       {question?.type === 'phone' ? <TextInput style={styles.input} value={String(value ?? '')} keyboardType="number-pad" maxLength={15} placeholder="(11) 98765-4321" onChangeText={(text) => setAnswers({ ...answers, [question.key]: formatPhoneInputText(text) })} /> : null}
       {question?.type === 'cep' ? (() => {
         const questionKey = question.key;
+        if (cepManualEntry) {
+          return (
+            <View>
+              <Text style={styles.formHint}>Digite seu endereco manualmente:</Text>
+              <TextInput style={styles.input} value={String(answers.personal_address_street ?? '')} placeholder="Rua/Av. (opcional)" onChangeText={(text) => { setAnswers((current) => ({ ...current, personal_address_street: text })); void persist('personal_address_street', text, step); }} />
+              <TextInput style={styles.input} value={String(answers.personal_address_neighborhood ?? '')} placeholder="Bairro (opcional)" onChangeText={(text) => { setAnswers((current) => ({ ...current, personal_address_neighborhood: text })); void persist('personal_address_neighborhood', text, step); }} />
+              <TextInput style={styles.input} value={String(answers.personal_address_city ?? '')} placeholder="Cidade" onChangeText={(text) => { setAnswers((current) => ({ ...current, personal_address_city: text })); void persist('personal_address_city', text, step); }} />
+              <TextInput style={styles.input} value={String(answers.personal_address_state ?? '')} placeholder="Estado (UF)" maxLength={2} autoCapitalize="characters" onChangeText={(text) => { const upper = text.toUpperCase(); setAnswers((current) => ({ ...current, personal_address_state: upper })); void persist('personal_address_state', upper, step); }} />
+              <Pressable style={styles.decimalButton} onPress={() => { setCepManualEntry(false); setCepStatus(''); }}><Text style={styles.decimalButtonText}>Tentar buscar pelo CEP de novo</Text></Pressable>
+            </View>
+          );
+        }
         return (
           <View>
             <TextInput
@@ -2427,6 +2449,9 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
               }}
             />
             {cepStatus ? <Text style={styles.formHint}>{cepStatus}</Text> : null}
+            {/* 04/09: saida pra quem o ViaCEP nao encontra ou a busca falha — sem isso a pessoa
+                ficava travada sem conseguir avancar na entrevista, ver comentario no hasAnswer(). */}
+            <Pressable style={styles.decimalButton} onPress={() => setCepManualEntry(true)}><Text style={styles.decimalButtonText}>Nao encontrei meu CEP, digitar endereco manualmente</Text></Pressable>
           </View>
         );
       })() : null}
