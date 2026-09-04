@@ -695,7 +695,13 @@ export class CoachService {
 
   async removeFreeTesterEmail(id: string) {
     const prisma = this.prisma as any;
-    await prisma.freeTesterEmail.delete({ where: { id } }).catch(() => undefined);
+    try {
+      await prisma.freeTesterEmail.delete({ where: { id } });
+    } catch (error) {
+      // So ignora "ja nao existe" (idempotente) — qualquer outro erro real (banco fora do ar,
+      // etc.) sobe de verdade, sem mentir "removido" pro treinador quando na verdade falhou.
+      if ((error as { code?: string })?.code !== 'P2025') throw error;
+    }
     return { ok: true };
   }
 

@@ -106,9 +106,16 @@ export class MeService {
   async completeOnboarding(userId: string) {
     const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
     const answers = asAnswerObject(interview?.answers);
-    const required = ['objective', 'running_experience', 'personal_name', 'personal_phone', 'personal_birth_date', 'personal_sex', 'personal_height', 'personal_weight', 'personal_cpf', 'personal_education', 'personal_cep', 'personal_address_number'];
+    // 04/09: personal_cep saiu da lista fixa de obrigatorios — desde que o app ganhou entrada
+    // manual de endereco (pra quem o ViaCEP nao encontra), quem usa esse caminho nunca preenche um
+    // CEP de verdade, so cidade/estado. Exigir o CEP aqui rejeitava no ultimo passo ("Conclua todas
+    // as perguntas obrigatorias", sem dizer qual) alguem que a UI ja tinha deixado terminar —
+    // pior que o bug original. Agora aceita CEP OU cidade+estado preenchidos a mao.
+    const required = ['objective', 'running_experience', 'personal_name', 'personal_phone', 'personal_birth_date', 'personal_sex', 'personal_height', 'personal_weight', 'personal_cpf', 'personal_education', 'personal_address_number'];
     const missing = required.filter((key) => answers[key] === undefined || answers[key] === '');
-    if (missing.length) throw new BadRequestException('Conclua todas as perguntas obrigatorias.');
+    const hasCep = answers.personal_cep !== undefined && answers.personal_cep !== '';
+    const hasManualAddress = Boolean(String(answers.personal_address_city ?? '').trim()) && Boolean(String(answers.personal_address_state ?? '').trim());
+    if (missing.length || (!hasCep && !hasManualAddress)) throw new BadRequestException('Conclua todas as perguntas obrigatorias.');
 
     const normalizedCpf = normalizeCpf(String(answers.personal_cpf));
     if (!normalizedCpf) throw new BadRequestException('CPF invalido. Revise o campo de CPF na entrevista.');

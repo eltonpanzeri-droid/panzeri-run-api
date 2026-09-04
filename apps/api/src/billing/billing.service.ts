@@ -216,14 +216,14 @@ export class BillingService {
   }
 
   async createCheckout(userId: string, cpf?: string) {
-    this.assertConfigured();
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { id: true, name: true, email: true, cpf: true, subscriptionStatus: true, studentCode: true } });
 
     // 04/09: lista de testadores gratuitos gerenciada pelo proprio treinador no admin (tabela
     // FreeTesterEmail, sem precisar de deploy de codigo pra cada pessoa nova) — enquanto o build
     // Android do teste fechado nao tem a chave do RevenueCat, qualquer um que caia aqui seria
     // cobrado de verdade pelo Asaas por engano (bug real, caso da Silvia em 04/09). So aplica se a
-    // pessoa AINDA NAO tem assinatura ativa — quem ja e aluna pagante nao e afetado.
+    // pessoa AINDA NAO tem assinatura ativa — quem ja e aluna pagante nao e afetado. Roda ANTES do
+    // assertConfigured() de proposito: um testador nunca deveria depender do Asaas estar de pe.
     const prismaAny = this.prisma as any;
     const isFreeTester = !['active', 'manual_active', 'grace'].includes(user.subscriptionStatus)
       && Boolean(await prismaAny.freeTesterEmail.findUnique({ where: { email: user.email.toLowerCase() } }));
@@ -233,6 +233,7 @@ export class BillingService {
       return { message: 'Voce e testador(a) gratuito(a) do Panzeri Run - acesso liberado sem cobranca! Feche esta tela e veja seu treino.' };
     }
 
+    this.assertConfigured();
     let savedCpf = user.cpf;
     if (!savedCpf) {
       const normalized = normalizeCpf(cpf);

@@ -857,6 +857,22 @@ real (Silvia) usou o app e trouxe problemas concretos.
   pagamento), não atacado às cegas nesta sessão — precisa de dados reais de quantas pessoas páram
   ali antes de mudar algo.
 
+**2026-09-04 (correção da correção)** — primeira versão da proteção contra cobrança de testador
+usava uma lista de 8 e-mails **fixa no código** — o Elton apontou corretamente que isso não escala
+(ele mesmo já tinha adicionado mais 2 e-mails no Play Console sem o sistema saber, chegando a 15,
+alguns já alunas pagantes). Trocado por solução geral:
+- Tabela nova `FreeTesterEmail` no banco (migration `20260904120000_add_free_tester_email`).
+- `createCheckout` (billing.service.ts) consulta essa tabela antes de qualquer cobrança — só libera
+  cortesia automática se a pessoa AINDA NÃO tiver assinatura ativa (não mexe em quem já paga).
+- Nova seção **"Testadores gratuitos"** dentro de Prospectos no admin — o próprio Elton adiciona/
+  remove e-mails ali, aceita colar vários de uma vez separados por vírgula/espaço, sem precisar de
+  mim pra cada pessoa nova.
+- **Achado no processo**: o `.bat` de sincronização (`atualizar-github-panzeri-run.bat`) tem uma
+  lista de pastas de migration **fixa/hardcoded**, gerada em algum momento no passado e nunca mais
+  atualizada — pelo menos 3 migrations recentes (incluindo a nova de hoje) não estavam sendo
+  copiadas pro mirror automaticamente. Corrigido manualmente desta vez (copiadas na mão); o `.bat`
+  em si continua desatualizado e deveria ser regenerado numa próxima sessão pra não repetir isso.
+
 ---
 
 ## Onde as coisas estão agora (2026-09-02) — leitura rápida pra quem chega de fora
