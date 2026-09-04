@@ -824,6 +824,39 @@ acesso direto — extensão "Claude in Chrome" não conectou nesta sessão):
   RevenueCat (só existia o de teste) — precisa do mesmo tratamento (Import + Attach entitlement +
   adicionar ao pacote) antes do lançamento iOS, item que ainda nem tinha sido retomado.
 
+**2026-09-04 — 3 bugs reais reportados pelo Elton, investigados e 2 corrigidos**: primeira testadora
+real (Silvia) usou o app e trouxe problemas concretos.
+
+- **Mensagem de feedback de treino confusa** ([workout-completions.service.ts:87](apps/api/src/workout-completions/workout-completions.service.ts:87)):
+  não dizia qual treino era, só o motivo do desvio — 3 treinos diferentes geravam 3 avisos
+  idênticos no Telegram. Corrigido: agora inclui data + modalidade/título do treino.
+- **Cobrança indevida da Silvia (dinheiro real)**: causa raiz não é preço errado — R$19,90 (Asaas/
+  web) e R$24,90 (loja) são valores diferentes DE PROPÓSITO (decisão de 26/08, cobre comissão da
+  loja). O bug real: o build Android que ela instalou foi gerado ANTES da chave do RevenueCat
+  existir (ver entrada anterior, mesmo dia) — sem essa chave o app não sabe que é compra nativa da
+  Play Store, cai no fluxo antigo (Asaas, pede CPF, cobra na hora). Ela deveria ter sido testadora
+  gratuita. **Ações pendentes que só o Elton pode fazer** (estorno é ação financeira, fora do que a
+  IA executa sozinha): estornar no painel do Asaas + marcar a Silvia como "Cortesia / liberação
+  manual" no admin. Mesmo risco vale pros outros 12 testadores até o próximo build (com a chave)
+  sair — recomendado marcar cortesia neles preventivamente.
+- **Trava real na entrevista (pergunta do CEP)**: a pergunta de CEP exigia que a busca automática
+  (ViaCEP) desse certo pra liberar "Continuar", **sem nenhuma saída manual**. Se o CEP não estava na
+  base do ViaCEP (comum em condomínios/loteamentos novos) ou a API falhasse, a pessoa ficava
+  travada pra sempre, perto do fim de uma entrevista longa. Corrigido: adicionado link "Não
+  encontrei meu CEP, digitar endereço manualmente" que libera campos de rua/bairro/cidade/estado
+  direto ([App.tsx](apps/mobile/App.tsx), componente `GuidedInterview`, estado `cepManualEntry`).
+  Typecheck de `apps/mobile` e `apps/api` limpos após as mudanças.
+- **Botão "Voltar" (reportado pela Jú)**: verificado — o botão existe de fato no código (desabilitado
+  só na primeira pergunta), a tela tem scroll. Não achei ausência real; pode ter sido um problema de
+  visibilidade numa pergunta longa, ou uma versão anterior a essa funcionalidade. Não alterado sem
+  mais evidência concreta.
+- **Sinal real no funil de conversão**: no painel de Prospectos, várias pessoas aparecem como
+  "entrevista concluída, cobrança ainda não gerada" — ou seja, terminam a entrevista rápida e param
+  exatamente na tela de pagamento, sem clicar em "Ativar minha assinatura". Diferente do bug do CEP
+  (que trava no meio). Registrado como pendência de investigação focada (fricção/design da tela de
+  pagamento), não atacado às cegas nesta sessão — precisa de dados reais de quantas pessoas páram
+  ali antes de mudar algo.
+
 ---
 
 ## Onde as coisas estão agora (2026-09-02) — leitura rápida pra quem chega de fora

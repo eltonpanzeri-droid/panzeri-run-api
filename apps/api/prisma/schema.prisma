@@ -604,6 +604,18 @@ model ChallengeProgress {
   completed   Boolean   @default(false)
 }
 
+// 04/09: lista de e-mails de testadores gratuitos (Play Store, teste fechado) que o proprio
+// treinador gerencia direto no admin — sem isso, qualquer testador que tentasse assinar caia no
+// fluxo antigo (Asaas, cobranca real), ja que o build de teste ainda nao tem a chave do
+// RevenueCat. Antes de existir essa tabela, a lista ficava hardcoded no codigo — errado, pois
+// nao escalava (cada testador novo exigia deploy). Ver createCheckout em billing.service.ts.
+model FreeTesterEmail {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  note      String?
+  createdAt DateTime @default(now())
+}
+
 model Coupon {
   id              String             @id @default(uuid())
   code            String             @unique

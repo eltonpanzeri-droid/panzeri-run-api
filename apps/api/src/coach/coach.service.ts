@@ -673,6 +673,32 @@ export class CoachService {
   // separada, com nivel de interesse baseado no que a pessoa realmente fez ate agora (nao em
   // suposicao): nao respondeu nada / entrevista em andamento / entrevista concluida mas ainda sem
   // pagamento / entrevista concluida + cobranca ja gerada, so falta pagar (o nivel mais quente).
+  // 04/09: gerenciada pelo proprio treinador no admin (sem precisar de deploy de codigo pra cada
+  // testador novo) — ver createCheckout em billing.service.ts, que consulta essa tabela antes de
+  // gerar qualquer cobranca real. Quem ja e assinante pagante nao e afetado (createCheckout so
+  // aplica a cortesia se a assinatura ainda nao estiver ativa).
+  async listFreeTesterEmails() {
+    const prisma = this.prisma as any;
+    return prisma.freeTesterEmail.findMany({ orderBy: { createdAt: 'desc' } });
+  }
+
+  async addFreeTesterEmail(email: string, note?: string) {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized || !normalized.includes('@')) throw new BadRequestException('E-mail invalido.');
+    const prisma = this.prisma as any;
+    return prisma.freeTesterEmail.upsert({
+      where: { email: normalized },
+      create: { email: normalized, note: note?.trim() || null },
+      update: { note: note?.trim() || null },
+    });
+  }
+
+  async removeFreeTesterEmail(id: string) {
+    const prisma = this.prisma as any;
+    await prisma.freeTesterEmail.delete({ where: { id } }).catch(() => undefined);
+    return { ok: true };
+  }
+
   async prospects() {
     const rows = await this.prisma.user.findMany({
       where: { role: 'student', accountStatus: { not: 'archived' }, subscriptionStatus: 'pending' },

@@ -43,6 +43,21 @@ export class CoachController {
     return this.coachService.prospects();
   }
 
+  @Get('free-tester-emails')
+  listFreeTesterEmails() {
+    return this.coachService.listFreeTesterEmails();
+  }
+
+  @Post('free-tester-emails')
+  addFreeTesterEmail(@Body() body: { email: string; note?: string }) {
+    return this.coachService.addFreeTesterEmail(body.email, body.note);
+  }
+
+  @Delete('free-tester-emails/:id')
+  removeFreeTesterEmail(@Param('id') id: string) {
+    return this.coachService.removeFreeTesterEmail(id);
+  }
+
   @Get('ex-students')
   exStudents() {
     return this.coachService.exStudents();

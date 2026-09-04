@@ -386,6 +386,11 @@ export default function AdminHome() {
   const [finance, setFinance] = useState<FinanceResponse | null>(null);
   const [prospects, setProspects] = useState<{ totals: { total: number; quente: number; morno: number; frio: number }; prospects: ProspectRow[] } | null>(null);
   const [exStudents, setExStudents] = useState<{ total: number; exStudents: ExStudentRow[] } | null>(null);
+  // 04/09: lista de testadores gratuitos (Play Store) que o proprio treinador gerencia aqui, sem
+  // precisar pedir deploy de codigo pra cada pessoa nova — ver createCheckout em billing.service.ts.
+  const [freeTesterEmails, setFreeTesterEmails] = useState<{ id: string; email: string; note: string | null }[]>([]);
+  const [newTesterEmail, setNewTesterEmail] = useState('');
+  const [newTesterNote, setNewTesterNote] = useState('');
   const [couponCode, setCouponCode] = useState('');
   const [couponName, setCouponName] = useState('');
   const [couponDiscount, setCouponDiscount] = useState('100');
@@ -652,6 +657,49 @@ export default function AdminHome() {
     else if (!loggedOut) setStatus('Nao consegui carregar os prospectos.');
   }
 
+  async function loadFreeTesterEmails(accessToken = token) {
+    if (!accessToken) return;
+    const { data, loggedOut } = await authorizedGet<{ id: string; email: string; note: string | null }[]>('/coach/free-tester-emails', accessToken);
+    if (data) setFreeTesterEmails(data);
+    else if (!loggedOut) setStatus('Nao consegui carregar a lista de testadores.');
+  }
+
+  // Aceita colar varios e-mails de uma vez (separados por virgula, espaco ou quebra de linha) —
+  // mesmo formato que o Play Console usa pra listas de e-mail, pra nao precisar digitar um por um.
+  async function addFreeTesterEmail() {
+    const emails = newTesterEmail.split(/[,\s]+/).map((entry) => entry.trim()).filter(Boolean);
+    if (!emails.length) {
+      setStatus('Informe pelo menos um e-mail do testador.');
+      return;
+    }
+    let failed = 0;
+    for (const email of emails) {
+      const response = await fetch(`${API_URL}/coach/free-tester-emails`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, note: newTesterNote }),
+      });
+      if (!response.ok) failed += 1;
+    }
+    setNewTesterEmail('');
+    setNewTesterNote('');
+    setStatus(failed ? `${emails.length - failed} de ${emails.length} adicionados (${failed} falharam).` : `${emails.length} testador(es) adicionado(s) - nao vao ser cobrados.`);
+    await loadFreeTesterEmails();
+  }
+
+  async function removeFreeTesterEmail(id: string) {
+    const response = await fetch(`${API_URL}/coach/free-tester-emails/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      setStatus('Nao consegui remover esse e-mail.');
+      return;
+    }
+    setStatus('Testador removido da lista.');
+    await loadFreeTesterEmails();
+  }
+
   async function loadExStudents(accessToken = token) {
     if (!accessToken) return;
     const { data, loggedOut } = await authorizedGet<{ total: number; exStudents: ExStudentRow[] }>('/coach/ex-students', accessToken);
@@ -700,7 +748,7 @@ export default function AdminHome() {
     setMenuOpen(false);
     if (view === 'coupons') void loadCoupons();
     if (view === 'finance') void loadFinance();
-    if (view === 'prospects') void loadProspects();
+    if (view === 'prospects') { void loadProspects(); void loadFreeTesterEmails(); }
     if (view === 'exStudents') void loadExStudents();
     // 01/09: entrar na aba Alunos pelo menu sempre volta pra lista (nunca reabre a ultima aluna
     // vista) — e' o novo comportamento padrao "lista primeiro". Antes disso existia aqui uma
@@ -1442,6 +1490,39 @@ export default function AdminHome() {
                   </div>
                 ))}
                 {!prospects?.prospects.length ? <p className="formHintText">Nenhum prospecto no momento.</p> : null}
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="panelHeader">
+                <div>
+                  <p className="eyebrow">Teste fechado da Play Store</p>
+                  <h2>Testadores gratuitos</h2>
+                </div>
+              </div>
+              <p className="formHintText">
+                E-mails aqui nunca sao cobrados de verdade ao tentar assinar (enquanto o app de teste ainda cai no
+                fluxo antigo de pagamento) — recebem acesso liberado na hora. Quem ja e aluna pagante nao e afetado.
+              </p>
+              <div className="formRow">
+                <input placeholder="e-mail@gmail.com (pode colar varios separados por virgula)" value={newTesterEmail} onChange={(event) => setNewTesterEmail(event.target.value)} />
+                <input placeholder="Nota (opcional)" value={newTesterNote} onChange={(event) => setNewTesterNote(event.target.value)} />
+                <button className="primaryButton" type="button" onClick={addFreeTesterEmail}>Adicionar</button>
+              </div>
+              <div className="table">
+                <div className="row header">
+                  <span>E-mail</span>
+                  <span>Nota</span>
+                  <span></span>
+                </div>
+                {freeTesterEmails.map((entry) => (
+                  <div className="row" key={entry.id}>
+                    <span>{entry.email}</span>
+                    <span>{entry.note ?? '-'}</span>
+                    <span><button className="secondaryButton" type="button" onClick={() => removeFreeTesterEmail(entry.id)}>Remover</button></span>
+                  </div>
+                ))}
+                {!freeTesterEmails.length ? <p className="formHintText">Nenhum testador cadastrado.</p> : null}
               </div>
             </div>
           </section>
