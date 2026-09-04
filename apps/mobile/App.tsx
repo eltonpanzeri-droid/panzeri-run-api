@@ -3531,13 +3531,10 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
                         <Ionicons name={iconForModality(session.modality)} size={23} color="#111827" />
                       </View>
                     </View>
-                    {session.routineMismatchNote ? (
-                      <View style={styles.routineMismatchBanner}>
-                        <Text style={styles.routineMismatchText}>
-                          ⚠️ {session.routineMismatchNote} Conte pra gente no feedback deste treino se deu pra realizar e como você se sentiu em relação a isso.
-                        </Text>
-                      </View>
-                    ) : null}
+                    {/* 04/09: pedido explicito do treinador — esse aviso de desvio de rotina e' util
+                        pra ELE (ja vai pro Telegram dele, ver routineMismatchNote no backend), mas
+                        nao deve mais aparecer pro aluno na tela do treino. O campo continua existindo
+                        e sendo preenchido, so nao renderiza mais aqui. */}
                     {'notes' in session && session.notes ? <Text style={styles.sessionNote}>{session.notes}</Text> : null}
                     <SessionPrescription session={session} />
                     <CompletionForm
