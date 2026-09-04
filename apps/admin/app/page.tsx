@@ -1332,12 +1332,11 @@ export default function AdminHome() {
               <label>Treino
                 <select value={trainingFilter} onChange={(event) => setTrainingFilter(event.target.value)}>
                   <option value="all">Todos</option>
-                  <option value="Sem treino">Sem treino criado</option>
-                  <option value="Aguardando aluna gerar a semana">Aguardando aluna gerar a semana</option>
-                  <option value="Falha ao gerar - verificar">Falha ao gerar - verificar</option>
-                  <option value="Bloqueado (pagamento)">Bloqueado (pagamento)</option>
-                  <option value="Aguardando primeiro treino">Aguardando primeiro treino</option>
-                  <option value="Acesso liberado">Acesso liberado</option>
+                  <option value="Nunca gerou treino">Nunca gerou treino</option>
+                  <option value="Aguardando aluna gerar treino">Aguardando aluna gerar treino</option>
+                  <option value="Falha ao gerar semana de treino">Falha ao gerar semana de treino</option>
+                  <option value="Bloqueado">Bloqueado</option>
+                  <option value="Treino gerado">Treino gerado</option>
                 </select>
               </label>
               <label>Pagamento
@@ -3680,15 +3679,15 @@ function Detail({ icon, label, value }: { icon: ReactNode; label: string; value:
 }
 
 function statusClass(status: string) {
-  if (status === 'Acesso liberado') return 'good';
-  if (status === 'Sem treino') return 'warn';
-  if (status === 'Bloqueado (pagamento)') return 'danger';
+  if (status === 'Treino gerado') return 'good';
+  if (status === 'Nunca gerou treino') return 'warn';
+  if (status === 'Bloqueado') return 'danger';
   // Precisa de acao real do treinador (verificar chave da IA/logs e gerar manualmente pelo
-  // painel) — diferente de "Aguardando aluna gerar a semana", que e so a aluna nao ter tocado o
+  // painel) — diferente de "Aguardando aluna gerar treino", que e so a aluna nao ter tocado o
   // botao ainda. Ver TrainingPlansService.generateWeek / lastPlanGenerationFailedAt.
-  if (status === 'Falha ao gerar - verificar') return 'danger';
+  if (status === 'Falha ao gerar semana de treino') return 'danger';
   // Neutro de proposito — nao e um alerta, e a aluna aguardando tocar o botao de gerar a semana.
-  if (status === 'Aguardando aluna gerar a semana') return '';
+  if (status === 'Aguardando aluna gerar treino') return '';
   return '';
 }
 

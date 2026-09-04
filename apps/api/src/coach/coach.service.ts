@@ -1549,20 +1549,23 @@ function statusFromSummary(
   // consiga ve-lo no app — "Acesso liberado" so pode refletir a mesma regra usada para o aluno
   // (hasSubscriptionAccess), nunca so a existencia de sessoes prescritas.
   if (!summary.prescribedSessions) {
-    // Diferente de "Aguardando aluna gerar a semana" (normal, ainda nao tocou o botao): aqui ela
+    // Diferente de "Aguardando aluna gerar treino" (normal, ainda nao tocou o botao): aqui ela
     // (ou o treinador) JA tocou e a chamada de IA falhou — precisa de acao (ver
     // TrainingPlansService.generateWeek, lastPlanGenerationFailedAt). Fica assim ate a proxima
     // tentativa ter sucesso (o campo e limpo la), nunca se resolve sozinho.
-    if (lastPlanGenerationFailedAt) return 'Falha ao gerar - verificar';
+    if (lastPlanGenerationFailedAt) return 'Falha ao gerar semana de treino';
     // Desde que a geracao virou sob demanda (botao "Gerar treino da semana", 06/08), e normal uma
-    // aluna com historico real ficar alguns dias sem plano ativo pra semana atual — nao e "Sem
-    // treino" (que soa como algo quebrado), e sim aguardando ela mesma tocar o botao.
-    if (hasEverHadPlan) return 'Aguardando aluna gerar a semana';
-    return 'Sem treino';
+    // aluna com historico real ficar alguns dias sem plano ativo pra semana atual — nao e "Nunca
+    // gerou treino" (isso e' so pra quem nunca gerou NENHUM plano na vida).
+    if (hasEverHadPlan) return 'Aguardando aluna gerar treino';
+    return 'Nunca gerou treino';
   }
-  if (!hasSubscriptionAccess(subscriptionStatus)) return 'Bloqueado (pagamento)';
-  if (!summary.eligibleSessions) return 'Aguardando primeiro treino';
-  return 'Acesso liberado';
+  if (!hasSubscriptionAccess(subscriptionStatus)) return 'Bloqueado';
+  // 04/09: unificado com o antigo "Acesso liberado" — a distincao (tem sessao "elegivel" ainda
+  // hoje ou nao) so' dizia se o primeiro dia da rotina ja tinha chegado, nao se o treino existia.
+  // Confundia o treinador (caso real: Felipe — treino ja gerado e visivel pra ele, mas aparecia
+  // como se nao tivesse nada). O que importa aqui e' so' "o treino existe", nao qual dia esta nele.
+  return 'Treino gerado';
 }
 
 function round(value: number) {
