@@ -2199,9 +2199,17 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
 
   async function choose(nextValue: InterviewAnswer) {
     if (!question) return;
+    // 04/09: achado real (pedido do Elton, caso Silvia) — antes, `setAnswers` rodava ANTES do
+    // `persist` confirmar sucesso. Isso significa que o "Continuar" liberava na hora que a pessoa
+    // tocava numa opcao, mesmo que o salvamento no servidor falhasse silenciosamente logo em
+    // seguida (rede instavel, por exemplo) — ela podia avancar achando que respondeu, sem a
+    // resposta nunca ter chegado no banco. Agora so' marca como respondido depois que o servidor
+    // confirma — se falhar, a pergunta continua sem resposta de verdade e o "Continuar" continua
+    // bloqueado, com uma mensagem clara em vez de deixar passar batido.
+    const saved = await persist(question.key, nextValue, step);
+    if (!saved) return;
     const nextAnswers = { ...answers, [question.key]: nextValue };
     setAnswers(nextAnswers);
-    await persist(question.key, nextValue, step);
   }
 
   async function lookupCep(rawDigits: string) {
