@@ -2295,7 +2295,24 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     try {
       if (!response.ok) {
         const data = await response.json().catch(() => ({} as { message?: string }));
-        setStatus(typeof data.message === 'string' ? data.message : 'Nao consegui concluir. Revise as respostas e tente novamente.');
+        const message = typeof data.message === 'string' ? data.message : 'Nao consegui concluir. Revise as respostas e tente novamente.';
+        // 04/09: o backend agora lista exatamente quais campos faltam ("Faltam respostas
+        // obrigatorias: running_experience.") — caso real (Silvia) mostrou que descobrir isso nao
+        // bastava, ela ainda precisava clicar em "Voltar" varias vezes pra achar a pergunta certa
+        // no meio de 60. Em vez disso, pulamos o `step` direto pra essa pergunta automaticamente.
+        const missingKeys = message
+          .replace('Faltam respostas obrigatorias: ', '')
+          .replace(/\.$/, '')
+          .split(',')
+          .map((key: string) => key.trim());
+        const targetIndex = visibleQuestions.findIndex((q) => missingKeys.includes(q.key));
+        if (targetIndex >= 0) {
+          setStep(targetIndex);
+          setHelpOpen(false);
+          setStatus('Faltou responder a pergunta abaixo — te levamos direto pra ela.');
+        } else {
+          setStatus(message);
+        }
         return;
       }
       if (mode === 'routine') {
