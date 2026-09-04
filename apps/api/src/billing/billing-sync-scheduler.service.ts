@@ -16,13 +16,26 @@ export class BillingSyncSchedulerService {
 
   constructor(private readonly billing: BillingService) {}
 
+  // 04/09: achado numa revisao pensando em escala — sem essa trava, se a varredura de um dia
+  // demorasse mais de 24h (nunca aconteceu ainda, mas fica mais provavel com mais assinantes e
+  // mais chamadas ao Asaas), o cron do dia seguinte comecaria por cima do anterior ainda rodando,
+  // processando os mesmos alunos 2x ao mesmo tempo.
+  private isRunning = false;
+
   @Cron(CronExpression.EVERY_DAY_AT_6AM)
   async syncAllStudents() {
+    if (this.isRunning) {
+      this.logger.warn('Sincronizacao diaria de pagamentos ainda estava rodando quando o horario de hoje chegou — pulando esta execucao.');
+      return;
+    }
+    this.isRunning = true;
     try {
       const result = await this.billing.refreshAllPendingStudents();
       this.logger.log(`Sincronizacao diaria de pagamentos: ${result.checked} verificado(s), ${result.changed} status alterado(s), ${result.failed} falha(s).`);
     } catch (error) {
       this.logger.warn(`Falha na sincronizacao diaria de pagamentos: ${(error as Error).message}`);
+    } finally {
+      this.isRunning = false;
     }
   }
 }

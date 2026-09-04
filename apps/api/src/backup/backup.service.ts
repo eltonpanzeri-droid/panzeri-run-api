@@ -7,8 +7,19 @@ import { mkdtemp, readFile, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { EmailService } from '../messaging/email.service';
+import { TelegramService } from '../billing/telegram.service';
 
 const execAsync = promisify(exec);
+
+// 04/09: achado numa revisao pensando em escala — o backup e enviado como ANEXO de e-mail (Resend),
+// que tem um limite real de tamanho (a maioria dos provedores fica entre 25-40MB). Conforme o banco
+// cresce com mais assinantes/mais historico, o dump pode ultrapassar isso um dia e o backup diario
+// comecaria a falhar silenciosamente — antes disso, uma falha so ficava num log de servidor que
+// ninguem olha. Nao mudei a forma de guardar o backup (mudar pra armazenamento em nuvem e' uma
+// decisao de infraestrutura maior, fora do escopo de uma correcao de codigo sozinha), mas agora
+// qualquer falha avisa o treinador no Telegram no mesmo dia, sem esperar precisar restaurar algo
+// pra descobrir que os backups pararam.
+const BACKUP_SIZE_WARNING_BYTES = 20 * 1024 * 1024;
 
 @Injectable()
 export class BackupService {
@@ -17,6 +28,7 @@ export class BackupService {
   constructor(
     private readonly config: ConfigService,
     private readonly email: EmailService,
+    private readonly telegram: TelegramService,
   ) {}
 
   // 07:00 UTC = 04:00 no horario de Sao Paulo (UTC-3), fora do horario de uso do app.
@@ -25,6 +37,9 @@ export class BackupService {
     const result = await this.runBackup();
     if (!result.ok) {
       this.logger.error(`Backup diario falhou: ${result.error}`);
+      await this.telegram.notifyCoach(`Falha no backup diario do banco de dados!\n\nMotivo: ${result.error}\n\nIsso precisa de atencao — sem backup de hoje, um problema no banco perderia dados mais recentes.`).catch(() => undefined);
+    } else if (result.sizeBytes && result.sizeBytes > BACKUP_SIZE_WARNING_BYTES) {
+      await this.telegram.notifyCoach(`Aviso: o backup diario de hoje ficou grande (${(result.sizeBytes / 1024 / 1024).toFixed(1)}MB). Se continuar crescendo, pode um dia passar do limite de anexo do e-mail e o backup comecar a falhar sem aviso — vale considerar mudar pra armazenamento em nuvem antes disso acontecer.`).catch(() => undefined);
     }
   }
 

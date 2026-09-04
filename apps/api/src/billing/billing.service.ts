@@ -92,6 +92,18 @@ export class BillingService {
   private readonly logger = new Logger(BillingService.name);
   private readonly recentCheckouts = new Map<string, { checkoutUrl: string; at: number }>();
 
+  // 04/09: achado numa revisao pensando em escala — este mapa em memoria nunca perdia entradas
+  // (so' cresce a cada tentativa de checkout, pra sempre, mesmo depois do cooldown de 30s expirar).
+  // A 1000 assinantes ao longo de meses isso vira um vazamento de memoria lento e real, mesmo sendo
+  // pequeno por entrada. Chamado toda vez que uma entrada nova e adicionada — custo desprezivel
+  // (nao roda em request quente nenhum, so' em criacao de checkout).
+  private pruneRecentCheckouts() {
+    const cutoff = Date.now() - CHECKOUT_RETRY_COOLDOWN_MS;
+    for (const [userId, entry] of this.recentCheckouts) {
+      if (entry.at < cutoff) this.recentCheckouts.delete(userId);
+    }
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
@@ -345,6 +357,7 @@ export class BillingService {
       await this.telegram.notifyCoach(`${title}\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nStatus: aguardando pagamento (R$ 19,90/mes)`);
     }
     this.recentCheckouts.set(userId, { checkoutUrl, at: Date.now() });
+    this.pruneRecentCheckouts();
 
     return { checkoutUrl };
   }
@@ -472,22 +485,29 @@ export class BillingService {
     }
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: billing.userId }, select: { name: true, email: true, subscriptionStatus: true, studentCode: true } });
-    const wasAlreadyActive = user.subscriptionStatus === 'active';
 
-    await this.prisma.$transaction([
+    // 04/09: corrigida uma corrida real de webhook duplicado (o Asaas pode reenviar o mesmo evento
+    // 2x, comum apos timeout de resposta) — antes lia subscriptionStatus ANTES do update pra decidir
+    // se avisava o treinador/gerava a 1a semana, e duas entregas quase simultaneas liam o mesmo
+    // valor "nao ativo" antes de qualquer uma escrever, duplicando aviso no Telegram + e-mail +
+    // geracao de treino. Agora o proprio UPDATE so' afeta a linha se o status ainda for diferente
+    // (`updateMany` com where condicional) — o Postgres serializa updates concorrentes na mesma
+    // linha, entao so' a 1a entrega realmente muda o status; a 2a bate 0 linhas e nao notifica de novo.
+    const [, userUpdateResult] = await this.prisma.$transaction([
       this.prisma.billingSubscription.update({
         where: { id: billing.id },
         data: { providerStatus: current },
       }),
-      this.prisma.user.update({
-        where: { id: billing.userId },
+      this.prisma.user.updateMany({
+        where: { id: billing.userId, subscriptionStatus: { not: appStatus } },
         data: { subscriptionStatus: appStatus, subscriptionUpdatedAt: new Date() },
       }),
     ]);
+    const statusActuallyChanged = userUpdateResult.count > 0;
 
     if (appStatus === 'active') {
       await this.createWelcomeNotificationOnce(billing.userId);
-      if (!wasAlreadyActive) {
+      if (statusActuallyChanged) {
         await this.assignStudentCodeIfNeeded(billing.userId);
         const updatedUser = await this.prisma.user.findUniqueOrThrow({ where: { id: billing.userId }, select: { studentCode: true } });
         this.triggerFirstWeekGeneration(billing.userId);
@@ -535,16 +555,19 @@ export class BillingService {
 
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, subscriptionStatus: true, studentCode: true } });
     if (!user) return { received: true };
-    const wasAlreadyActive = user.subscriptionStatus === 'active';
 
-    await this.prisma.user.update({
-      where: { id: userId },
+    // 04/09: mesma correcao de corrida do webhook do Asaas acima (ver comentario la) — update
+    // condicional em vez de ler status antes e escrever depois, pra 2 entregas duplicadas do mesmo
+    // evento do RevenueCat nao dobrarem aviso/e-mail/geracao de treino.
+    const updateResult = await this.prisma.user.updateMany({
+      where: { id: userId, subscriptionStatus: { not: appStatus } },
       data: { subscriptionStatus: appStatus, subscriptionProvider: 'revenuecat', subscriptionUpdatedAt: new Date() },
     });
+    const statusActuallyChanged = updateResult.count > 0;
 
     if (appStatus === 'active') {
       await this.createWelcomeNotificationOnce(userId);
-      if (!wasAlreadyActive) {
+      if (statusActuallyChanged) {
         await this.assignStudentCodeIfNeeded(userId);
         const updatedUser = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { studentCode: true } });
         this.triggerFirstWeekGeneration(userId);
@@ -660,7 +683,6 @@ export class BillingService {
     const nextChargeAt = subscription.nextDueDate ? new Date(subscription.nextDueDate + 'T12:00:00.000Z') : null;
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true, subscriptionStatus: true, studentCode: true } });
-    const wasAlreadyActive = user.subscriptionStatus === 'active';
     // 27/08, achado por auto-revisao antes de entregar: subscriptionUpdatedAt era atualizado
     // TODA VEZ que este sync roda, mesmo quando o status nao mudou nada. refreshAllPendingStudents
     // (varredura diaria as 6h + botao "Sincronizar todos") continua incluindo assinaturas ja
@@ -668,28 +690,31 @@ export class BillingService {
     // entao a data de cancelamento de uma ex-aluna "andava" sozinha todo dia pra frente, e a
     // pagina de Ex-alunos nunca mostrava a data real do cancelamento. So grava subscriptionUpdatedAt
     // quando o status realmente mudou.
-    const statusChanged = appStatus !== user.subscriptionStatus;
-
-    await this.prisma.$transaction([
+    // 04/09: mesma correcao de corrida dos webhooks acima — update condicional (so' afeta a linha
+    // se o status realmente for diferente) em vez de comparar contra uma leitura anterior, pra uma
+    // eventual sobreposicao entre o cron diario e um clique manual de "Sincronizar" no mesmo aluno
+    // nao dobrar aviso/e-mail/geracao de treino.
+    const [, userUpdateResult] = await this.prisma.$transaction([
       this.prisma.billingSubscription.update({
         where: { id: billingId },
         data: { providerStatus: latestPaymentStatus ?? providerStatus, nextChargeAt },
       }),
-      this.prisma.user.update({
-        where: { id: userId },
+      this.prisma.user.updateMany({
+        where: { id: userId, subscriptionStatus: { not: appStatus } },
         // Sempre que este sync realmente roda (seja automatico sem override, seja pedido
         // explicito do treinador), o Asaas volta a ser a fonte da verdade — limpa a trava manual.
         data: {
           subscriptionStatus: appStatus,
-          ...(statusChanged ? { subscriptionUpdatedAt: new Date() } : {}),
+          subscriptionUpdatedAt: new Date(),
           subscriptionManualOverride: false,
         },
       }),
     ]);
+    const statusActuallyChanged = userUpdateResult.count > 0;
 
     if (appStatus === 'active') {
       await this.createWelcomeNotificationOnce(userId);
-      if (!wasAlreadyActive) {
+      if (statusActuallyChanged) {
         await this.assignStudentCodeIfNeeded(userId);
         const updatedUser = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { studentCode: true } });
         this.triggerFirstWeekGeneration(userId);

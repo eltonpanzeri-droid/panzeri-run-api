@@ -21,11 +21,21 @@ const MAX_CONCURRENT_AI_CALLS = 3;
 // demais.
 const TASK_TIMEOUT_MS = 600_000;
 
+// 04/09: achado numa revisao pensando em escala (1000 assinantes) — o teto acima protege cada
+// chamada JA EM ANDAMENTO, mas nao existia limite nenhum pro tempo de ESPERA na fila antes de
+// comecar. Com so 3 vagas, um pico real de uso simultaneo (ex.: muita gente confirmando o
+// check-in semanal ao mesmo tempo numa segunda de manha) podia deixar um pedido esperando vaga
+// por muitos minutos, em silencio, sem nenhum erro claro pro aluno — so' um "Gerando..." parado.
+// Isso NAO aumenta o numero de chamadas simultaneas (que depende do limite real da conta
+// Anthropic, nao verificado aqui) — so' desiste de esperar e devolve erro claro depois de um
+// tempo razoavel, em vez de deixar o aluno pendurado indefinidamente.
+const QUEUE_WAIT_TIMEOUT_MS = 120_000;
+
 @Injectable()
 export class AiQueueService {
   private readonly logger = new Logger(AiQueueService.name);
   private active = 0;
-  private readonly waiting: Array<() => void> = [];
+  private readonly waiting: Array<{ resolve: () => void; timedOut: boolean }> = [];
 
   async run<T>(task: () => Promise<T>): Promise<T> {
     await this.acquire();
@@ -56,17 +66,31 @@ export class AiQueueService {
     }
 
     this.logger.log(`Fila de IA cheia (${this.active} em andamento) — aguardando vaga.`);
-    return new Promise((resolve) => {
-      this.waiting.push(() => {
-        this.active += 1;
-        resolve();
-      });
+    return new Promise((resolve, reject) => {
+      const entry = {
+        resolve: () => {
+          clearTimeout(timer);
+          this.active += 1;
+          resolve();
+        },
+        timedOut: false,
+      };
+      const timer = setTimeout(() => {
+        entry.timedOut = true;
+        this.logger.warn(`Chamada de IA esperou mais de ${QUEUE_WAIT_TIMEOUT_MS / 1000}s na fila — desistindo antes mesmo de comecar.`);
+        reject(new Error('Sistema de IA sobrecarregado no momento. Tente novamente em alguns minutos.'));
+      }, QUEUE_WAIT_TIMEOUT_MS);
+      this.waiting.push(entry);
     });
   }
 
   private release() {
     this.active -= 1;
-    const next = this.waiting.shift();
-    if (next) next();
+    // Pula entradas que ja desistiram por timeout (marcadas timedOut) — sem isso, a vaga liberada
+    // iria pra alguem que ja recebeu erro e nao esta mais esperando, deixando o proximo da fila de
+    // verdade esperando mais do que precisava.
+    let next = this.waiting.shift();
+    while (next?.timedOut) next = this.waiting.shift();
+    if (next) next.resolve();
   }
 }

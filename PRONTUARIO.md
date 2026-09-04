@@ -873,6 +873,59 @@ alguns já alunas pagantes). Trocado por solução geral:
   copiadas pro mirror automaticamente. Corrigido manualmente desta vez (copiadas na mão); o `.bat`
   em si continua desatualizado e deveria ser regenerado numa próxima sessão pra não repetir isso.
 
+**2026-09-04 (revisão rigorosa pedida pelo Elton)** — depois de corrigir a lista geral, o Elton
+pediu revisão de verdade (testar, simular erros comuns) em vez de dar por resolvido. Achados reais
+nessa segunda passada, todos corrigidos:
+- **Backend rejeitaria quem completasse a entrevista com CEP manual**: `completeOnboarding`
+  ([me.service.ts:109](apps/api/src/me/me.service.ts:109)) exigia `personal_cep` sempre preenchido
+  — quem usa a entrada manual (adicionada mais cedo hoje) nunca preenche esse campo, só cidade/
+  estado. A pessoa teria passado por toda a UI achando que deu certo e recebido um erro genérico
+  só no "Concluir". Corrigido: exige CEP OU cidade+estado manuais.
+- **"Remover" testador da lista podia mentir sucesso**: erro real de banco era engolido igual a
+  "já não existia" — corrigido pra só ignorar o caso idempotente (P2025), qualquer outro erro sobe
+  de verdade.
+- **Checagem de testador dependia do Asaas estar configurado/no ar** (`assertConfigured()` rodava
+  antes) — testador nunca deveria depender disso pra ser reconhecido; reordenado.
+- Confirmado que `applyCoupon`/outras rotas de conclusão de entrevista (reavaliação, rotina) não
+  têm o mesmo problema de `personal_cep` obrigatório — só existia esse ponto único.
+
+**2026-09-04 (auditoria de escala — "imagine 1000 assinantes")** — Elton pediu revisão completa
+pensando em gargalos que só apareceriam com muito mais gente usando ao mesmo tempo. 7 achados reais
+corrigidos (com `tsc --noEmit` limpo depois de cada um):
+1. **Fila de IA sem limite de espera** ([ai-queue.service.ts](apps/api/src/common/ai-queue.service.ts)):
+   o teto de 3 chamadas simultâneas já existia e é bom, mas não havia limite pra quanto tempo um
+   pedido esperava por uma vaga — sob pico real (ex.: muita gente confirmando check-in semanal ao
+   mesmo tempo), alguém podia ficar esperando minutos em silêncio, sem erro nenhum. Agora desiste
+   depois de 2 minutos com mensagem clara.
+2. **Cron de análise do Strava sem trava contra sobreposição** — se um dia excepcional demorasse
+   mais que 24h (mais provável com mais alunos conectados), o cron do dia seguinte começaria por
+   cima do anterior, processando gente 2x. Trava adicionada.
+3. **Cron de sincronização do Asaas** — mesma trava, mesmo motivo.
+4. **Corrida real em 3 pontos de atualização de status de pagamento** (webhook Asaas, webhook
+   RevenueCat, sync manual/cron) — se o provedor reenviasse o mesmo evento 2x quase ao mesmo tempo
+   (comum em webhooks, acontece por timeout), os dois processos liam "ainda não ativo" antes de
+   qualquer um escrever, duplicando aviso no Telegram + e-mail + geração de treino. Trocado pra
+   update atômico condicional (Postgres serializa updates concorrentes na mesma linha).
+5. **Vazamento de memória lento no mapa de checkouts recentes** ([billing.service.ts](apps/api/src/billing/billing.service.ts)):
+   nunca perdia entradas, só crescia pra sempre. Agora limpa entradas expiradas a cada novo checkout.
+6. **Backup diário sem alerta de falha** — hoje só loga no servidor (que ninguém olha); se o dump
+   crescer além do limite de anexo do Resend (risco real conforme o banco cresce), falharia
+   silenciosamente todo dia até precisar restaurar algo e descobrir tarde demais. Agora avisa no
+   Telegram em caso de falha, e também avisa (sem falhar) se o tamanho já estiver ficando grande.
+7. **Índice ausente pros filtros mais usados** (`role`+`subscriptionStatus`+`accountStatus`, usados
+   no painel do treinador, prospectos e nos crons diários) — inofensivo a 1000 linhas, mas barato de
+   adicionar agora em vez de esperar crescer além disso.
+
+**Achados identificados mas NÃO alterados** (documentados, não escondidos):
+- `MAX_CONCURRENT_AI_CALLS = 3` pode ser baixo demais sob concorrência real de 1000 assinantes —
+  não mudei o número às cegas porque bumpar isso sem saber o limite real de taxa da conta Anthropic
+  pode piorar (trocar espera silenciosa por erros 429 em cascata). Precisa checar o limite real no
+  console da Anthropic antes de decidir um número novo.
+- N+1 de consultas no cron diário de avisos (até ~3000 consultas pequenas sequenciais/dia) e envio
+  de push notification 1-a-1 em vez de em lote (Expo aceita lote de 100) — ambos reais, mas de baixo
+  impacto na prática a 1000 assinantes (terminam em segundos/menos de 1 minuto mesmo sequenciais,
+  rodam fora do horário de pico) — não mexidos pra não gastar esforço em algo sem ganho real hoje.
+
 ---
 
 ## Onde as coisas estão agora (2026-09-02) — leitura rápida pra quem chega de fora

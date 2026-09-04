@@ -103,6 +103,13 @@ model User {
   profileEvents       StudentProfileEvent[]
   observations        StudentObservation[]
   weeklyCheckIns      WeeklyCheckIn[]
+
+  // 04/09: achado numa revisao pensando em escala — nao existia indice nenhum pros filtros mais
+  // usados (painel do treinador, prospectos, crons diarios), todos batem em (role,
+  // subscriptionStatus, accountStatus) juntos ou em subconjuntos disso. A 1000 linhas o Postgres
+  // ainda resolve rapido sem indice (tabela pequena), mas fica barato garantir isso agora em vez
+  // de esperar a base crescer alem disso.
+  @@index([role, subscriptionStatus, accountStatus])
 }
 
 model BillingProviderConfig {
