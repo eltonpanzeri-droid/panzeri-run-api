@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { MessagingService } from './messaging.service';
 
 const REMINDER_COOLDOWN_DAYS = 3;
@@ -13,6 +14,7 @@ export class NotificationTriggersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly messaging: MessagingService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_9AM)
@@ -65,6 +67,18 @@ export class NotificationTriggersService {
         subject: 'Seu pagamento nao foi processado - Panzeri Run',
         content: `Ola ${student.name},\n\nSeu ultimo pagamento nao foi processado (pode ter sido algum problema no cartao cadastrado). Enquanto isso nao for regularizado, seus treinos ficam bloqueados.\n\n${linkLine}\n\nQualquer duvida, fale com seu treinador.\n\nPanzeri Run`,
       });
+      // 05/09: push notification complementar ao e-mail — janela de 72h (= REMINDER_COOLDOWN_DAYS)
+      // garante que webhook (primeira detecção) e cron (lembrete recorrente) não se sobreponham.
+      await this.notifications.notifyUserIfNotRecent(
+        student.id,
+        {
+          title: 'Pagamento nao processado',
+          message: 'Toque aqui para ver sua situacao de pagamento e regularizar.',
+          type: 'billing_payment_failed',
+          action: 'billing_regularize',
+        },
+        REMINDER_COOLDOWN_DAYS * 24,
+      ).catch(() => undefined);
       return;
     }
 

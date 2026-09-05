@@ -27,6 +27,130 @@ type AsaasWebhookPayload = {
   payment?: { id?: string; subscription?: string; status?: string; value?: number };
 };
 
+// 05/09: estado de UX derivado dos campos reais do banco — nunca expoe subscriptionStatus raw
+// para o frontend. Ver plano ELTON2/PLANO_COMUNICACAO_ASSINATURA.md.
+export type SubscriptionUiState =
+  | 'never_subscribed'
+  | 'active'
+  | 'cancellation_scheduled'
+  | 'overdue'
+  | 'ex_subscriber';
+
+export type SubscriptionContext = {
+  state: SubscriptionUiState;
+  // true se studentCode IS NOT NULL — ja teve acesso ativo (pago, cupom ou cortesia)
+  // Garantia: nunca usar linguagem de "primeira assinatura" quando true
+  hasHadAccess: boolean;
+  ctaLabel: string | null;
+  // 'open_checkout':  chamar POST /billing/checkout (primeiro acesso)
+  // 'pay_overdue':    abrir actionUrl (fatura pendente no Asaas via overdueInvoiceUrl)
+  // 'reactivate':     chamar POST /billing/checkout (ex-assinante retomando)
+  ctaAction: 'open_checkout' | 'pay_overdue' | 'reactivate' | null;
+  // Preenchida apenas para 'pay_overdue'; resolve via BillingSubscription.overdueInvoiceUrl
+  actionUrl: string | null;
+  // Apenas quando state = 'cancellation_scheduled': data em que o acesso termina
+  accessEndsAt: string | null;
+  statusMessage: string;
+  detailMessage: string | null;
+};
+
+export function deriveSubscriptionContext(
+  user: {
+    subscriptionStatus: string;
+    subscriptionCancelRequestedAt: Date | null;
+    studentCode: number | null;
+  },
+  billing: { overdueInvoiceUrl: string | null; nextChargeAt: Date | null } | null,
+): SubscriptionContext {
+  const status = user.subscriptionStatus;
+  const hasHadAccess = user.studentCode != null;
+
+  // cancellation_scheduled: acesso ativo mas auto-renew desligado (RevenueCat)
+  if (['active', 'manual_active', 'grace'].includes(status) && user.subscriptionCancelRequestedAt) {
+    const accessEndsAt = billing?.nextChargeAt ? billing.nextChargeAt.toISOString().slice(0, 10) : null;
+    return {
+      state: 'cancellation_scheduled',
+      hasHadAccess,
+      ctaLabel: 'Manter assinatura',
+      ctaAction: null,
+      actionUrl: null,
+      accessEndsAt,
+      statusMessage: accessEndsAt ? `Ativa até ${formatDateBR(accessEndsAt)}` : 'Cancelamento agendado',
+      detailMessage: `Cancelamento registrado. Você continua com acesso${accessEndsAt ? ` até ${formatDateBR(accessEndsAt)}` : ' até o fim do período pago'}.`,
+    };
+  }
+
+  if (['active', 'manual_active', 'grace'].includes(status)) {
+    return {
+      state: 'active',
+      hasHadAccess,
+      ctaLabel: null,
+      ctaAction: null,
+      actionUrl: null,
+      accessEndsAt: null,
+      statusMessage: 'Ativa',
+      detailMessage: null,
+    };
+  }
+
+  if (status === 'overdue') {
+    return {
+      state: 'overdue',
+      hasHadAccess,
+      ctaLabel: 'Regularizar pagamento',
+      ctaAction: 'pay_overdue',
+      actionUrl: billing?.overdueInvoiceUrl ?? null,
+      accessEndsAt: null,
+      statusMessage: 'Pagamento pendente',
+      detailMessage:
+        'Seu último pagamento não foi confirmado — isso pode ter ocorrido por um problema com o cartão cadastrado. Toque no botão abaixo para pagar a fatura pendente com outro cartão.',
+    };
+  }
+
+  if (status === 'canceled') {
+    return {
+      state: 'ex_subscriber',
+      hasHadAccess,
+      ctaLabel: 'Retomar programa',
+      ctaAction: 'reactivate',
+      actionUrl: null,
+      accessEndsAt: null,
+      statusMessage: 'Acesso encerrado',
+      detailMessage: 'Seu acesso foi encerrado. Retome seu programa quando quiser.',
+    };
+  }
+
+  // status === 'pending': distingue nunca-assinou de ex-assinante em edge case
+  if (hasHadAccess) {
+    return {
+      state: 'ex_subscriber',
+      hasHadAccess,
+      ctaLabel: 'Retomar programa',
+      ctaAction: 'reactivate',
+      actionUrl: null,
+      accessEndsAt: null,
+      statusMessage: 'Acesso encerrado',
+      detailMessage: 'Seu acesso foi encerrado. Retome seu programa quando quiser.',
+    };
+  }
+
+  return {
+    state: 'never_subscribed',
+    hasHadAccess: false,
+    ctaLabel: 'Ativar assinatura',
+    ctaAction: 'open_checkout',
+    actionUrl: null,
+    accessEndsAt: null,
+    statusMessage: 'Aguardando ativação',
+    detailMessage: null,
+  };
+}
+
+function formatDateBR(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-');
+  return `${day}/${month}/${year}`;
+}
+
 const ACTIVE_STATUSES = new Set(['received', 'confirmed', 'received_in_cash']);
 const OVERDUE_STATUSES = new Set(['overdue', 'refunded', 'refund_requested', 'chargeback_requested', 'chargeback_dispute']);
 const ACTIVE_EVENTS = new Set(['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED']);
@@ -130,7 +254,14 @@ export class BillingService {
     const [user, billing] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
-        select: { subscriptionStatus: true, subscriptionUpdatedAt: true, cpf: true, subscriptionManualOverride: true },
+        select: {
+          subscriptionStatus: true,
+          subscriptionUpdatedAt: true,
+          subscriptionCancelRequestedAt: true,
+          studentCode: true,
+          cpf: true,
+          subscriptionManualOverride: true,
+        },
       }),
       this.prisma.billingSubscription.findUnique({ where: { userId } }),
     ]);
@@ -155,6 +286,14 @@ export class BillingService {
       }
     }
 
+    // 05/09: subscriptionContext derivado dos campos atuais (pos-sync quando aplicavel) — additive,
+    // preserva todos os campos existentes para compatibilidade com versoes antigas do app.
+    const latestBilling = billing ? await this.prisma.billingSubscription.findUnique({ where: { userId } }) : null;
+    const subscriptionContext = deriveSubscriptionContext(
+      { subscriptionStatus: appStatus, subscriptionCancelRequestedAt: user.subscriptionCancelRequestedAt, studentCode: user.studentCode },
+      latestBilling ? { overdueInvoiceUrl: latestBilling.overdueInvoiceUrl ?? null, nextChargeAt: latestBilling.nextChargeAt ?? null } : null,
+    );
+
     return {
       provider: billing?.provider ?? 'asaas',
       planName: PLAN_DESCRIPTION,
@@ -167,6 +306,7 @@ export class BillingService {
       updatedAt: user.subscriptionUpdatedAt,
       canCancel: billing?.provider !== 'coupon' && Boolean(['active', 'manual_active', 'grace', 'pending'].includes(appStatus)),
       syncError,
+      subscriptionContext,
     };
   }
 
@@ -504,10 +644,30 @@ export class BillingService {
       }),
     ]);
     const statusActuallyChanged = userUpdateResult.count > 0;
+    const paymentId = payload.payment?.id;
 
     if (appStatus === 'active') {
-      await this.createWelcomeNotificationOnce(billing.userId);
+      // 05/09: limpa overdueInvoiceUrl quando status volta para active (pagamento confirmado)
       if (statusActuallyChanged) {
+        await this.prisma.billingSubscription.update({
+          where: { id: billing.id },
+          data: { overdueInvoiceUrl: null },
+        });
+      }
+      await this.createWelcomeNotificationOnce(billing.userId);
+      // 05/09: notificacao de renovacao confirmada — separada da welcome (que e' idempotente
+      // por design e nao seria criada nas renovacoes mensais subsequentes)
+      if (statusActuallyChanged) {
+        await this.notifications.notifyUserIfNotRecent(
+          billing.userId,
+          {
+            title: 'Pagamento confirmado',
+            message: 'Seu pagamento foi confirmado. Continue treinando!',
+            type: 'billing_payment_confirmed',
+            externalRef: paymentId,
+          },
+          24,
+        );
         await this.assignStudentCodeIfNeeded(billing.userId);
         const updatedUser = await this.prisma.user.findUniqueOrThrow({ where: { id: billing.userId }, select: { studentCode: true } });
         this.triggerFirstWeekGeneration(billing.userId);
@@ -518,6 +678,49 @@ export class BillingService {
           content: `Ola ${user.name},\n\nSeu pagamento foi confirmado! Agora abra o aplicativo — vamos te guiar por uma entrevista completa para montar seu programa personalizado.\n\nPanzeri Run`,
         });
       }
+    }
+
+    if (appStatus === 'overdue' && statusActuallyChanged) {
+      // 05/09: busca invoiceUrl da fatura — payload do Asaas tem o payment.id mas nao o invoiceUrl
+      // diretamente; uma chamada extra aqui e necessaria. Fora de transacao de banco (invariante).
+      if (paymentId) {
+        try {
+          const paymentDetail = await this.asaasRequest<AsaasPayment>(`/payments/${paymentId}`);
+          if (paymentDetail.invoiceUrl) {
+            await this.prisma.billingSubscription.update({
+              where: { id: billing.id },
+              data: { overdueInvoiceUrl: paymentDetail.invoiceUrl },
+            });
+          }
+        } catch {
+          this.logger.warn(`Falha ao buscar invoiceUrl do pagamento ${paymentId} para overdue notification`);
+        }
+      }
+      await this.notifications.notifyUserIfNotRecent(
+        billing.userId,
+        {
+          title: 'Pagamento não processado',
+          message: 'Seu último pagamento não foi confirmado. Toque aqui para regularizar.',
+          type: 'billing_payment_failed',
+          action: 'billing_regularize',
+          externalRef: paymentId,
+        },
+        24,
+      );
+    }
+
+    if (appStatus === 'canceled' && statusActuallyChanged) {
+      await this.notifications.notifyUserIfNotRecent(
+        billing.userId,
+        {
+          title: 'Acesso encerrado',
+          message: 'Sua assinatura foi encerrada. Retome seu programa quando quiser.',
+          type: 'billing_access_expired',
+          action: 'billing_view',
+          externalRef: paymentId,
+        },
+        72,
+      );
     }
 
     return { received: true };
@@ -545,8 +748,21 @@ export class BillingService {
     // isso, ver resolveAppStatusFromRevenueCatEvent). Mas e' um pedido real dela, entao marca
     // subscriptionCancelRequestedAt pra Ex-alunos mostrar isso certo mais pra frente, quando o
     // acesso realmente expirar.
+    // 05/09: notificacao de cancelamento agendado adicionada — aluna sabe que cancelou e ate quando
+    // ainda tem acesso. externalRef usa tipo+produto pois o RevenueCat nao tem payment.id aqui.
     if (event?.type === 'CANCELLATION') {
       await this.prisma.user.update({ where: { id: userId }, data: { subscriptionCancelRequestedAt: new Date() } }).catch(() => {});
+      await this.notifications.notifyUserIfNotRecent(
+        userId,
+        {
+          title: 'Cancelamento registrado',
+          message: 'Você cancelou a renovação automática. Seu acesso continua até o fim do período pago.',
+          type: 'billing_cancellation_scheduled',
+          action: 'billing_view',
+          externalRef: `CANCELLATION:${event.product_id ?? userId}`,
+        },
+        72,
+      ).catch(() => undefined);
       return { received: true };
     }
 
@@ -697,7 +913,18 @@ export class BillingService {
     const [, userUpdateResult] = await this.prisma.$transaction([
       this.prisma.billingSubscription.update({
         where: { id: billingId },
-        data: { providerStatus: latestPaymentStatus ?? providerStatus, nextChargeAt },
+        data: {
+          providerStatus: latestPaymentStatus ?? providerStatus,
+          nextChargeAt,
+          // 05/09: overdueInvoiceUrl acompanha o status — limpo quando volta a active, populado
+          // com a URL da cobrança atual quando overdue. Nunca usar checkoutUrl antigo: pode
+          // apontar para cobrança diferente da que está pendente agora.
+          ...(appStatus === 'active'
+            ? { overdueInvoiceUrl: null }
+            : appStatus === 'overdue'
+              ? { overdueInvoiceUrl: latestPayment?.invoiceUrl ?? null }
+              : {}),
+        },
       }),
       this.prisma.user.updateMany({
         where: { id: userId, subscriptionStatus: { not: appStatus } },
@@ -724,7 +951,44 @@ export class BillingService {
           subject: 'Pagamento confirmado - monte sua rotina de treinos!',
           content: `Ola ${user.name},\n\nSeu pagamento foi confirmado! Agora abra o aplicativo — vamos te guiar por uma entrevista completa para montar seu programa personalizado.\n\nPanzeri Run`,
         });
+        // 05/09: notificação interna quando overdue/pending → active (complementa e-mail acima)
+        await this.notifications.notifyUserIfNotRecent(
+          userId,
+          {
+            title: 'Pagamento confirmado',
+            message: 'Seu pagamento foi confirmado. Bons treinos!',
+            type: 'billing_payment_confirmed',
+            externalRef: latestPayment?.id,
+          },
+          72,
+        ).catch(() => undefined);
       }
+    } else if (appStatus === 'overdue' && statusActuallyChanged) {
+      // 05/09: status mudou para overdue no sync (cron diário ou sync manual do treinador).
+      // externalRef = latestPayment.id garante que cobranças de meses diferentes não se dedupliquem.
+      await this.notifications.notifyUserIfNotRecent(
+        userId,
+        {
+          title: 'Pagamento não processado',
+          message: 'Seu último pagamento não foi confirmado. Toque aqui para regularizar.',
+          type: 'billing_payment_failed',
+          action: 'billing_regularize',
+          externalRef: latestPayment?.id,
+        },
+        24,
+      ).catch(() => undefined);
+    } else if (appStatus === 'canceled' && statusActuallyChanged) {
+      // 05/09: acesso encerrado (Asaas marcou inactive/deleted, ou EXPIRATION no RevenueCat).
+      await this.notifications.notifyUserIfNotRecent(
+        userId,
+        {
+          title: 'Acesso encerrado',
+          message: 'Seu acesso ao Panzeri Run foi encerrado. Reative quando quiser retomar.',
+          type: 'billing_access_expired',
+          action: 'billing_reactivate',
+        },
+        168,
+      ).catch(() => undefined);
     }
 
     return { providerStatus: latestPaymentStatus ?? providerStatus, appStatus, nextChargeAt };

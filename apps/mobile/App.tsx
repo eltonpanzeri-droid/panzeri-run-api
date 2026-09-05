@@ -456,6 +456,9 @@ interface AppNotification {
   message: string;
   type: string;
   read: boolean;
+  // 05/09: ação semântica interna — define o que acontece ao tocar na notificação.
+  // Usado para futura navegação contextual (ex: 'billing_regularize' abre tela de pagamento).
+  action?: string | null;
 }
 
 // Na web, chamamos pelo mesmo dominio do app (repassado pelo nginx em /api) em vez do
@@ -5102,6 +5105,18 @@ function Billing({ accessToken }: { accessToken: string }) {
     canCancel: boolean;
     syncError?: boolean;
     hasCpf?: boolean;
+    // 05/09: contexto semântico de assinatura — derivado pelo backend, elimina lógica duplicada
+    // no app. Pode ser null em versões antigas da API (fallback para lógica anterior).
+    subscriptionContext?: {
+      state: string;
+      hasHadAccess: boolean;
+      ctaLabel: string | null;
+      ctaAction: 'open_checkout' | 'pay_overdue' | 'reactivate' | null;
+      actionUrl: string | null;
+      accessEndsAt: string | null;
+      statusMessage: string;
+      detailMessage: string | null;
+    } | null;
   } | null>(null);
   const [message, setMessage] = useState('');
   const [couponCode, setCouponCode] = useState('');
@@ -5236,6 +5251,29 @@ function Billing({ accessToken }: { accessToken: string }) {
     }
   }
 
+  // 05/09: CTA orientado ao estado da assinatura — delega ao subscribe() quando o fluxo é de
+  // checkout/reativação, abre a fatura pendente diretamente quando o estado é overdue.
+  async function handleCta() {
+    const ctx = details?.subscriptionContext;
+    if (!ctx || ctx.ctaAction === 'open_checkout' || ctx.ctaAction === 'reactivate') {
+      await subscribe();
+      return;
+    }
+    if (ctx.ctaAction === 'pay_overdue') {
+      if (!ctx.actionUrl) {
+        setMessage('Nao consegui obter o link da fatura. Atualize a situacao e tente novamente.');
+        return;
+      }
+      setMessage('Abrindo fatura para pagamento...');
+      try {
+        if (Platform.OS === 'web') { window.location.href = ctx.actionUrl; }
+        else { await Linking.openURL(ctx.actionUrl); setMessage('Conclua o pagamento e volte ao aplicativo.'); }
+      } catch {
+        setMessage('Nao consegui abrir o link. Verifique sua internet e tente novamente.');
+      }
+    }
+  }
+
   async function cancel() {
     setMessage('Cancelando assinatura...');
     try {
@@ -5271,26 +5309,52 @@ function Billing({ accessToken }: { accessToken: string }) {
       <View style={styles.formSection}>
         <Text style={styles.formSectionTitle}>Sua assinatura</Text>
         <Text style={styles.reportText}>Valor: {details?.priceLabel ?? 'R$ 19,90 por mes'}</Text>
-        <Text style={styles.reportText}>Situacao: {active ? 'Ativa' : details?.status === 'overdue' ? 'Pagamento pendente' : details?.status === 'canceled' ? 'Cancelada' : 'Aguardando ativacao'}</Text>
+        <Text style={styles.reportText}>Situacao: {details?.subscriptionContext?.statusMessage ?? (active ? 'Ativa' : details?.status === 'overdue' ? 'Pagamento pendente' : details?.status === 'canceled' ? 'Cancelada' : 'Aguardando ativacao')}</Text>
         <Text style={styles.reportText}>Pagamento: {paymentConfirmed ? 'Pagamento confirmado' : active ? 'Assinatura ativa' : 'Aguardando pagamento'}</Text>
         {details?.nextChargeAt ? <Text style={styles.reportText}>Proxima cobranca: {new Date(details.nextChargeAt).toLocaleDateString('pt-BR')}</Text> : null}
       </View>
 
-      {needsPaymentSetup ? (
+      {/* 05/09: aviso contextual quando o estado da assinatura exige ação imediata (ex: overdue). */}
+      {details?.subscriptionContext?.detailMessage ? (
         <View style={styles.formSection}>
-          {!details?.hasCpf ? (
-            <>
-              <Text style={styles.formSectionTitle}>CPF</Text>
-              <Text style={styles.formHint}>Necessario para gerar a cobranca no Asaas.</Text>
-              <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
-            </>
-          ) : null}
-          <Pressable style={[styles.primaryButton, isCheckingOut && styles.disabledButton]} disabled={isCheckingOut} onPress={subscribe}>
-            <Text style={styles.primaryButtonText}>{isCheckingOut ? 'Preparando pagamento...' : active ? 'Atualizar forma de pagamento' : 'Ativar assinatura'}</Text>
-            <Ionicons name="card" size={18} color={PRColors.mineral} />
-          </Pressable>
+          <Text style={styles.formHint}>{details.subscriptionContext.detailMessage}</Text>
         </View>
       ) : null}
+
+      {/* 05/09: CTA orientado ao estado — usa subscriptionContext quando disponível, fallback
+          para lógica anterior em versões antigas da API (campo ausente). */}
+      {(() => {
+        const ctx = details?.subscriptionContext;
+        const ctaAction = ctx ? ctx.ctaAction : (needsPaymentSetup ? 'open_checkout' : null);
+        const ctaLabel = ctx?.ctaLabel ?? (needsPaymentSetup ? (isCheckingOut ? 'Preparando pagamento...' : active ? 'Atualizar forma de pagamento' : 'Ativar assinatura') : null);
+        if (!ctaAction || !ctaLabel) return null;
+        if (ctaAction === 'pay_overdue') {
+          return (
+            <View style={styles.formSection}>
+              <Pressable style={styles.primaryButton} onPress={handleCta}>
+                <Text style={styles.primaryButtonText}>{ctaLabel}</Text>
+                <Ionicons name="card" size={18} color={PRColors.mineral} />
+              </Pressable>
+            </View>
+          );
+        }
+        // open_checkout / reactivate: fluxo de checkout normal com CPF se necessário
+        return (
+          <View style={styles.formSection}>
+            {!details?.hasCpf ? (
+              <>
+                <Text style={styles.formSectionTitle}>CPF</Text>
+                <Text style={styles.formHint}>Necessario para gerar a cobranca no Asaas.</Text>
+                <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
+              </>
+            ) : null}
+            <Pressable style={[styles.primaryButton, isCheckingOut && styles.disabledButton]} disabled={isCheckingOut} onPress={handleCta}>
+              <Text style={styles.primaryButtonText}>{isCheckingOut ? 'Preparando pagamento...' : ctaLabel}</Text>
+              <Ionicons name="card" size={18} color={PRColors.mineral} />
+            </Pressable>
+          </View>
+        );
+      })()}
 
       {!active ? (
         <View style={styles.formSection}>

@@ -943,6 +943,38 @@ corrigidos (com `tsc --noEmit` limpo depois de cada um):
   impacto na prática a 1000 assinantes (terminam em segundos/menos de 1 minuto mesmo sequenciais,
   rodam fora do horário de pico) — não mexidos pra não gastar esforço em algo sem ganho real hoje.
 
+**2026-09-05** — Investigação e implementação do plano de comunicação de estado de assinatura,
+disparado por aluna real (Fernanda Zimerer) com pagamento travado em "Aguardando pagamento" (cartão
+virtual bloqueando a recorrência):
+
+- **Diagnóstico raiz**: quando a recorrência falha no Asaas, o webhook entra mas o sistema atualizava
+  o `subscriptionStatus` silenciosamente sem avisar a aluna de nenhuma forma (e-mail dependia do
+  Resend, que só foi habilitado recentemente; push não existia). A aluna só descobriu por conta própria.
+- **3 colunas adicionadas ao schema** (migration `20260905100000_billing_notifications_infra`):
+  - `BillingSubscription.overdueInvoiceUrl`: URL específica da fatura pendente atual (nunca o
+    `checkoutUrl` antigo — pode apontar pra outra cobrança). Populado no webhook e no sync; limpo
+    quando volta a `active`.
+  - `UserNotification.action`: ação semântica interna (ex: `billing_regularize`) — nunca URL externa
+    embutida na notificação; a URL real é resolvida autenticada no momento do clique.
+  - `UserNotification.externalRef`: ID do evento externo (ex: `payment.id` do Asaas) — deduplicação
+    primária: o mesmo evento nunca gera duas notificações, independente de janela de tempo.
+- **`deriveSubscriptionContext()` exportada do `billing.service.ts`**: 5 estados derivados dos campos
+  reais do banco (never_subscribed / active / cancellation_scheduled / overdue / ex_subscriber), com
+  `statusMessage`, `detailMessage`, `ctaLabel`, `ctaAction` e `actionUrl` prontos pro app consumir
+  sem lógica duplicada no cliente.
+- **`notifyUserIfNotRecent()` no `NotificationsService`**: deduplicação em dois níveis — primário por
+  `externalRef` (mesmo evento), secundário por janela de tempo sem `externalRef`. Retorna `boolean`
+  indicando se a notificação foi criada ou suprimida.
+- **Notificações disparadas agora em 4 caminhos**: webhook Asaas (overdue/active/canceled), webhook
+  RevenueCat (CANCELLATION), `refreshFromAsaas()` (cron 6h + sync manual), cron 9h de `checkPaymentPending`.
+- **App mobile atualizado**: `Billing` consome `subscriptionContext`, mostra mensagem contextual por
+  estado, CTA correto por ação (`pay_overdue` abre `actionUrl` diretamente; `open_checkout`/`reactivate`
+  chamam o fluxo de checkout existente). Nunca mostra "Ativar assinatura" pra quem já teve acesso.
+- **`PrismaClient` regenerado** após a migration — typecheck limpo em `apps/api` e `apps/mobile`.
+- **Fernanda**: indicado enviar o link de fatura diretamente pelo WhatsApp (via painel do Asaas,
+  "Enviar mensagem desta cobrança") para que ela pague com outro cartão enquanto o sistema de
+  notificação não estava ainda funcionando.
+
 ---
 
 ## Onde as coisas estão agora (2026-09-02) — leitura rápida pra quem chega de fora

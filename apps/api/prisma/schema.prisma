@@ -128,6 +128,11 @@ model BillingSubscription {
   externalSubscriptionId String?   @unique
   externalChargeId       String?   @unique
   checkoutUrl            String?
+  // URL da fatura PENDENTE/ATRASADA atual no Asaas — populado quando status muda para overdue
+  // (via webhook ou refreshFromAsaas), limpo quando volta para active. Nunca é o checkoutUrl
+  // antigo: aponta especificamente para a cobrança que precisa de ação agora. Usado pelo
+  // subscriptionContext da API; nunca armazenado diretamente em UserNotification.
+  overdueInvoiceUrl      String?
   providerStatus         String    @default("new")
   lastNotificationToken  String?
   nextChargeAt           DateTime?
@@ -232,14 +237,22 @@ model LoginLinkToken {
 }
 
 model UserNotification {
-  id        String    @id @default(uuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id])
-  title     String
-  message   String
-  type      String    @default("info")
-  readAt    DateTime?
-  createdAt DateTime  @default(now())
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  title       String
+  message     String
+  type        String    @default("info")
+  // Acao semantica interna que o app executa ao tocar na notificacao (ex: 'billing_regularize',
+  // 'training_view'). Nunca uma URL externa — a URL real e resolvida autenticada via API no
+  // momento do clique, garantindo que sempre aponta para o estado atual correto.
+  action      String?
+  // ID do evento externo que originou esta notificacao (ex: payment.id do Asaas). Usado como
+  // chave primaria de deduplicacao: o mesmo evento nunca gera duas notificacoes, independente
+  // de quantas vezes o webhook ou o cron reprocessar o mesmo aluno.
+  externalRef String?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
 
   @@index([userId, createdAt])
 }

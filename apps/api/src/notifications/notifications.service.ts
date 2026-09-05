@@ -16,15 +16,50 @@ export class NotificationsService {
   // (nunca prisma.userNotification.create direto) em qualquer lugar que avisa um ALUNO — os
   // avisos que existem hoje pra COACH (ex: workout-completions.service.ts) continuam usando
   // prisma direto, o treinador nao tem token de push (usa o painel web + Telegram).
-  async notifyUser(userId: string, params: { title: string; message: string; type?: string }) {
+  async notifyUser(userId: string, params: { title: string; message: string; type?: string; action?: string; externalRef?: string }) {
     const [notification, user] = await Promise.all([
       this.prisma.userNotification.create({
-        data: { userId, title: params.title, message: params.message, type: params.type ?? 'info' },
+        data: {
+          userId,
+          title: params.title,
+          message: params.message,
+          type: params.type ?? 'info',
+          action: params.action ?? null,
+          externalRef: params.externalRef ?? null,
+        },
       }),
       this.prisma.user.findUnique({ where: { id: userId }, select: { expoPushToken: true } }),
     ]);
     await this.push.send(user?.expoPushToken, params.title, params.message).catch(() => undefined);
     return notification;
+  }
+
+  // 05/09: deduplicacao em dois niveis — primario por identidade do evento (externalRef, ex:
+  // payment.id do Asaas), secundario por janela de tempo quando nao ha externalRef disponivel.
+  // Retorna true se criou notificacao, false se suprimida por dedup.
+  async notifyUserIfNotRecent(
+    userId: string,
+    params: { title: string; message: string; type: string; action?: string; externalRef?: string },
+    windowHours: number,
+  ): Promise<boolean> {
+    // Nivel primario: mesmo evento nao gera duplicata, independente de janela de tempo
+    if (params.externalRef) {
+      const existsByRef = await this.prisma.userNotification.findFirst({
+        where: { userId, type: params.type, externalRef: params.externalRef },
+        select: { id: true },
+      });
+      if (existsByRef) return false;
+    } else {
+      // Nivel secundario: sem externalRef, deduplica por janela de tempo
+      const since = new Date(Date.now() - windowHours * 3600000);
+      const existsByWindow = await this.prisma.userNotification.findFirst({
+        where: { userId, type: params.type, createdAt: { gte: since } },
+        select: { id: true },
+      });
+      if (existsByWindow) return false;
+    }
+    await this.notifyUser(userId, params);
+    return true;
   }
 
   async registerPushToken(userId: string, token: string) {
@@ -33,26 +68,33 @@ export class NotificationsService {
   }
 
   async list(userId: string) {
-    const stored = await this.prisma.userNotification.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-    });
+    const [stored, unreadCount] = await Promise.all([
+      this.prisma.userNotification.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      }),
+      // 05/09: unreadCount somente de notificacoes persistidas — contextAlerts sao sempre
+      // exibidos mas nao somam ao badge do sino (sao contextuais, nao eventos).
+      this.prisma.userNotification.count({ where: { userId, readAt: null } }),
+    ]);
 
-    const automatic = await this.weekAlerts(userId);
+    const contextAlerts = await this.weekAlerts(userId);
 
     return {
-      items: [
-        ...automatic,
-        ...stored.map((item) => ({
-          id: item.id,
-          title: item.title,
-          message: item.message,
-          type: item.type,
-          read: Boolean(item.readAt),
-          createdAt: item.createdAt,
-        })),
-      ],
+      unreadCount,
+      // Notificacoes persistidas com estado real de lida/nao lida
+      items: stored.map((item) => ({
+        id: item.id,
+        title: item.title,
+        message: item.message,
+        type: item.type,
+        action: item.action ?? null,
+        read: Boolean(item.readAt),
+        createdAt: item.createdAt,
+      })),
+      // Alertas contextuais em memoria — sempre presentes, sem estado de lida
+      contextAlerts,
     };
   }
 
