@@ -370,19 +370,27 @@ export class BillingService {
   async createCheckout(userId: string, cpf?: string) {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { id: true, name: true, email: true, cpf: true, subscriptionStatus: true, studentCode: true } });
 
+    // 06/09: guarda de acesso ja ativo — retorna sucesso sem criar nada no Asaas. Cobre tanto o
+    // path de testador (manual_active) quanto o de aluno pagante (active/grace). Sem isso, uma
+    // segunda tentativa apos o testador ja ter sido ativado caia no Asaas e criava cobranca real
+    // (bug confirmado com Ricardo Davino em 06/09: Telegram disparou corretamente na 1a tentativa,
+    // mas o app tratou a resposta sem checkoutUrl como erro, o aluno tentou de novo, e o Asaas
+    // gerou fatura de R$19,90 pra quem deveria ser gratuito). Precisa vir ANTES da checagem de
+    // testador pra cobrir re-tentativas.
+    const ALREADY_ACTIVE = ['active', 'manual_active', 'grace'];
+    if (ALREADY_ACTIVE.includes(user.subscriptionStatus)) {
+      return { activated: true, message: 'Seu acesso ja esta ativo. Feche esta tela e acesse seus treinos.' };
+    }
+
     // 04/09: lista de testadores gratuitos gerenciada pelo proprio treinador no admin (tabela
-    // FreeTesterEmail, sem precisar de deploy de codigo pra cada pessoa nova) — enquanto o build
-    // Android do teste fechado nao tem a chave do RevenueCat, qualquer um que caia aqui seria
-    // cobrado de verdade pelo Asaas por engano (bug real, caso da Silvia em 04/09). So aplica se a
-    // pessoa AINDA NAO tem assinatura ativa — quem ja e aluna pagante nao e afetado. Roda ANTES do
+    // FreeTesterEmail, sem precisar de deploy de codigo pra cada pessoa nova). Roda ANTES do
     // assertConfigured() de proposito: um testador nunca deveria depender do Asaas estar de pe.
     const prismaAny = this.prisma as any;
-    const isFreeTester = !['active', 'manual_active', 'grace'].includes(user.subscriptionStatus)
-      && Boolean(await prismaAny.freeTesterEmail.findUnique({ where: { email: user.email.toLowerCase() } }));
+    const isFreeTester = Boolean(await prismaAny.freeTesterEmail.findUnique({ where: { email: user.email.toLowerCase() } }));
     if (isFreeTester) {
       await this.activateCouponAccess(userId, 'TESTADOR_GRATUITO');
       await this.telegram.notifyCoach(`Testador(a) gratuito(a) liberado(a) automaticamente (sem cobranca).\n\nAluno: ${user.name}\nE-mail: ${user.email}`).catch(() => undefined);
-      return { message: 'Voce e testador(a) gratuito(a) do Panzeri Run - acesso liberado sem cobranca! Feche esta tela e veja seu treino.' };
+      return { activated: true, message: 'Voce e testador(a) gratuito(a) do Panzeri Run - acesso liberado sem cobranca! Feche esta tela e veja seu treino.' };
     }
 
     this.assertConfigured();

@@ -3232,7 +3232,14 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     }
     try {
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.checkoutUrl) throw new Error(typeof data.message === 'string' ? data.message : 'Nao consegui abrir o pagamento. Tente novamente.');
+      if (!response.ok) throw new Error(typeof data.message === 'string' ? data.message : 'Nao consegui abrir o pagamento. Tente novamente.');
+      // 06/09: mesma correcao da tela Billing — acesso ja ativo retorna { activated: true }
+      // sem checkoutUrl; recarrega status em vez de tratar como erro.
+      if (data.activated || !data.checkoutUrl) {
+        setBillingMessage(typeof data.message === 'string' ? data.message : 'Acesso liberado! Feche esta tela e acesse seus treinos.');
+        setIsCheckingOut(false);
+        return;
+      }
       setBillingMessage('Abrindo pagamento...');
       // No navegador (PWA), Linking.openURL usa window.open — apos o await da chamada de rede
       // acima, o navegador ja nao trata isso como gesto direto do usuario e o bloqueador de
@@ -5200,7 +5207,18 @@ function Billing({ accessToken }: { accessToken: string }) {
     }
     try {
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.checkoutUrl) throw new Error(typeof data.message === 'string' ? data.message : 'Nao consegui abrir o pagamento. Tente novamente.');
+      if (!response.ok) throw new Error(typeof data.message === 'string' ? data.message : 'Nao consegui abrir o pagamento. Tente novamente.');
+      // 06/09: acesso ja ativo (testador gratuito, cupom 100%, ou status manual_active) — API
+      // retorna { activated: true, message } sem checkoutUrl. Antes isso era tratado como erro
+      // (!data.checkoutUrl lançava), o aluno ficava preso na tela de billing e tentava de novo,
+      // na segunda tentativa o Asaas criava uma cobrança real (bug confirmado, Ricardo Davino).
+      // Agora: recarrega o status de billing para refletir o acesso e sai da tela.
+      if (data.activated || !data.checkoutUrl) {
+        setMessage(typeof data.message === 'string' ? data.message : 'Acesso liberado! Feche esta tela e acesse seus treinos.');
+        setIsCheckingOut(false);
+        await loadBilling(false);
+        return;
+      }
       setMessage('Abrindo pagamento...');
       // No navegador (PWA), Linking.openURL usa window.open — depois de um await (a chamada
       // de rede acima), o navegador ja nao considera isso um gesto direto do usuario e o
