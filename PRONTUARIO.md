@@ -988,9 +988,9 @@ virtual bloqueando a recorrência):
 - **Bug de sincronização de modalidade (Jéssica Rodrigues)**: `syncInterviewAnswersFromAvailability` sincronizava dias/horários da entrevista quando a rotina mudava, mas esquecia de sincronizar `routine_modality_choice` — o painel e o agente de IA podiam receber uma descrição de modalidade diferente da rotina real. Corrigido em `me.service.ts`.
 - **Tela de carregamento durante geração do treino**: uma aluna interpretou os 25+ minutos de silêncio durante a geração como "erro" (reportado no WhatsApp). Corrigido: quando `isLoading` está ativo, ambas as variações do bloco de geração (com e sem `notGeneratedRange`) mostram um spinner + texto explicando que pode levar alguns minutos + que o celular pode ser usado normalmente. O estado `isLoading` já existia, faltava usá-lo pra substituir o conteúdo do card em vez de só trocar o texto do botão.
 - **Bugs da entrevista (todos no App.tsx)**: (1) campo `personal_height` tinha o `help` explicando errado o formato (cm vs. m); corrigido com exemplo concreto. (2) Campos opcionais bloqueavam o avanço se o save falhasse — `next()` retornava imediatamente em caso de erro, mesmo para `optional: true`; corrigido para só bloquear se `!question.optional`. (3) Adicionado botão "Prefiro não responder · Pular esta pergunta" em todas as questões opcionais (exceto CPF e telefone), que salva `null` no servidor e avança — esses campos nunca poderão ficar em `null` em banco para quem os pulou (era `undefined` antes, que é indiferente para o agente). (4) A função de conclusão extraída em `finishOrAdvance()` para evitar duplicação entre `next()` e `skip()`.
-- **Bug pendente: Ricardo Davino travado na entrevista** — campo `abdomen_circumference` (wheel, opcional) falha ao salvar com "Não consegui salvar esta resposta." mesmo após relogar. Causa exata não confirmada (sem acesso aos logs de produção — EasyPanel login falhou). Hipóteses: rate limiting (120 req/min, possível se rodou muito rápido), erro de banco específico, ou estado corrompido. **Workaround disponível quando nosso deploy subir**: a correção de campos opcionais (não bloquear se save falhar) já está no código e desbloqueia Ricardo automaticamente quando o build chegar em produção. Enquanto isso, nenhum mecanismo no admin permite avançar a entrevista de alguém manualmente.
-- **Regra de workflow restaurada**: o treinador quis voltar ao padrão anterior — a IA faz commit local, o treinador dá push via GitHub Desktop. A IA não deve fazer push direto via SSH (exceto se explicitamente autorizada a cada vez). O deploy no EasyPanel também é manual (não há auto-deploy por push no GitHub — ao contrário do que estava registrado em 2026-07-30, isso foi descoberto ser incorreto).
-- Commit `fd9a8c0` no GitHub com todas as mudanças desta sessão (Rotina tab, loading screen, bugs de entrevista, sincronização de modalidade). Aguardando Elton fazer deploy manual no EasyPanel e gerar novo build EAS pra o Ricardo ser desbloqueado.
+- **Ricardo Davino — entrevista + assinatura**: estava travado no campo `abdomen_circumference` (wheel, opcional). Com o deploy de 07/09 (veja abaixo), a correção de campos opcionais chegou à produção — o app agora avança mesmo se o save falhar num campo opcional. A assinatura do Ricardo "caiu sozinha" em 06/09 (cobrança indevida, mesmo padrão da Silvia — bug já corrigido no mesmo deploy). Ele está em Ex-alunos com entrevista e rotina completas mas sem plano ativo. Ação pendente do treinador: dar cortesia/liberação manual e gerar treino da semana para ele.
+- **Deploy de 07/09 confirmado**: Elton fez push via GitHub Desktop → EasyPanel auto-deployou `fd9a8c0` (confirmado no painel de implantações do EasyPanel). O EasyPanel **SIM** faz auto-deploy a cada push — a afirmação contrária desta entrada foi corrigida. Produção agora roda com: aba Rotina no admin, loading screen de geração, botão "Pular" na entrevista, correção de campos opcionais, sincronização de modalidade.
+- **Workflow git definitivo (07/09)**: há DOIS diretórios distintos no computador do treinador — `C:\...\Aplicativo Panzeri Run` (onde a IA edita o código) e `C:\...\GitHub\panzeri-run-api` (onde o GitHub Desktop monitora). Após cada edição, a IA DEVE copiar os arquivos alterados para o segundo diretório antes de avisar que está pronto para commit. Sem essa cópia, o GitHub Desktop mostra "No local changes". Registrado em memória permanente (`github_desktop_repo_path.md`). Corrigir isso definitivamente (reconfigurar GitHub Desktop para apontar para o diretório real) eliminaria o problema, mas ainda não foi feito.
 
 ---
 
@@ -1002,13 +1002,18 @@ treino, pagamento via Asaas (boleto/cartão recorrente), backup diário, alertas
 grave pro treinador via Telegram, check-in semanal obrigatório antes de gerar nova semana,
 notificações de cobrança em atraso — tudo funcionando e testado com alunas reais.
 
-**Aguardando deploy**: commit `fd9a8c0` no GitHub (aba Rotina no admin, loading screen de geração,
-correção de campos opcionais na entrevista, botão "Pular", sincronização de modalidade). Elton
-precisa acionar manualmente o deploy no EasyPanel.
+**Em produção desde 07/09**: commit `fd9a8c0` deployado via auto-deploy do EasyPanel (aba Rotina no
+admin, loading screen de geração, correção de campos opcionais na entrevista, botão "Pular",
+sincronização de modalidade). O EasyPanel auto-deploya a cada push — sem ação manual necessária.
 
-**Aguardando novo build EAS**: as correções de entrevista (pular campo, opcional não trava) só chegam
-a Ricardo Davino e outros alunos depois de um novo build mobile (EAS). O aluno Ricardo está travado
-na pergunta de abdômen da entrevista; o deploy resolve automaticamente.
+**Ricardo Davino — ação pendente do treinador**: entrevista e rotina completas, assinatura cancelada
+em 06/09 (mesmo padrão da Silvia — bug já corrigido neste deploy). Está em Ex-alunos. Para
+reativá-lo: (1) dar cortesia/liberação manual no painel admin; (2) gerar treino da semana via
+"Refazer nova semana de treinos". A correção de campos opcionais que o desbloqueia na entrevista já
+está em produção.
+
+**Aguardando novo build EAS**: para os clientes que usam o app nativo (Android/iOS), as correções
+de entrevista desta sessão só chegam após novo build EAS. Usuários PWA já recebem a versão nova.
 
 **Em construção, ainda não publicado**: apps nativos Android e iOS.
 
