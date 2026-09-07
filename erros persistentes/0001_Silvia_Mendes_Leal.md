@@ -3,7 +3,7 @@
 **Aluna/testadora:** Silvia Mendes Leal (silvia.mendesleal@gmail.com)
 **Problema original relatado:** travava na entrevista guiada, "pergunta 60", sem conseguir concluir.
 **Aberto em:** 04/09/2026
-**Status no momento deste registro:** ainda não confirmado como resolvido — em acompanhamento.
+**Status no momento deste registro:** correções da Rodada 4 deployadas no commit `fd9a8c0` (07/09/2026). Aguardando confirmação real da Silvia de que consegue concluir a entrevista no build atual da loja.
 
 Este é o primeiro registro do processo de "erros persistentes": quando o mesmo problema relatado
 sobrevive a 3 tentativas de correção sem resolução confirmada, a 4ª correção passa a gerar (ou
@@ -51,9 +51,15 @@ atualizar) um dossiê como este, pra aprendermos com o padrão em vez de só rem
   3. Aviso proativo nas perguntas de "roda" (wheel picker) explicando que é preciso deslizar de
      verdade — achado adicional depois que ela reportou travar na "pergunta 4" e o Elton apontou,
      corretamente, que atribuir isso à pessoa não entender a interface é falha de design, não dela.
-- **Resultado:** ainda não confirmado — todas essas correções são de **app mobile**, só chegam num
-  build novo publicado na loja. A Silvia, no build atual, ainda depende do processo manual
-  (clicar Voltar) pra terminar agora.
+- **Resultado (atualizado 07/09):** correções deployadas no commit `fd9a8c0`, que entrou em produção via auto-deploy do EasyPanel no mesmo dia. Usuários PWA (web) já recebem a versão nova. Para a Silvia no app nativo da loja: precisa de novo build EAS, ainda não publicado. Ainda aguardando confirmação real da Silvia.
+
+### Erros de implementação encontrados durante esta série de correções
+
+**07/09/2026 — erro de escopo TypeScript (`Cannot find name 'includeToday'`)**
+- **Contexto:** enquanto implementava o diálogo "Incluir hoje?" (funcionalidade nova, não ligada à Silvia), o campo `generateFrom: includeToday === false ? ...` foi inserido no `methodologyInput` dentro de `generateWeek()`, que não tem o parâmetro `includeToday`. O TypeScript recusou na hora: `error TS2304: Cannot find name 'includeToday'` em `training-plans.service.ts:666`.
+- **Causa:** a função que realmente recebe `includeToday` é `doGenerateCurrentWeekOnDemand`; ela chama `generateWeek()` internamente, mas as funções têm escopos separados.
+- **Correção:** `generateFrom?: string | null` adicionado às options de `generateWeek`; data calculada onde o parâmetro existe (`doGenerateCurrentWeekOnDemand`) e repassada via options. Typecheck zerado nos dois apps.
+- **Lição:** antes de usar um parâmetro de uma função F1 dentro de uma chamada para F2, verificar se F2 é realmente o escopo certo — principalmente quando as duas funções têm o mesmo prefixo de nome e parecem equivalentes.
 
 ---
 
