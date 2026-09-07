@@ -3326,7 +3326,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         const data = await response.json().catch(() => ({}));
         const message = Array.isArray(data.message) ? data.message[0] : data.message;
         setCompletionMessages((current) => ({ ...current, [session.id]: message ?? 'Nao consegui salvar. Confira os dados e tente novamente.' }));
-        return;
+        return false;
       }
 
       setCompletionMessages((current) => ({ ...current, [session.id]: 'Treino registrado com sucesso! Seu treinador ja pode acompanhar seu progresso.' }));
@@ -3334,8 +3334,10 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         ...current,
         sessions: current.sessions.map((item) => item.id === session.id ? { ...item, completion: body } : item),
       } : current);
+      return true;
     } catch {
       setCompletionMessages((current) => ({ ...current, [session.id]: 'Sem conexao. Tente salvar novamente.' }));
+      return false;
     }
   }
 
@@ -3577,8 +3579,8 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
           <View style={styles.coachBox}>
             <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
             <Text style={styles.coachText}>Toque pra montar seu treino com tudo que voce ja nos contou ate aqui: objetivo, condicionamento, saude e a rotina que voce mesmo definiu. Nao e um treino generico puxado de uma tabela pronta, e montado especificamente pra voce, nesse momento. Pra ver domingo (ou dias anteriores), use "Anterior".</Text>
-            <Pressable style={styles.primaryButton} onPress={generateCurrentWeekNow}>
-              <Text style={styles.primaryButtonText}>Gerar treino da semana</Text>
+            <Pressable style={[styles.primaryButton, (isLoading || isGeneratingWeek) && styles.disabledButton]} disabled={isLoading || isGeneratingWeek} onPress={generateCurrentWeekNow}>
+              <Text style={styles.primaryButtonText}>{isGeneratingWeek ? 'Gerando...' : 'Gerar treino da semana'}</Text>
             </Pressable>
             {status ? <Text style={[styles.statusMessage, { color: PRColors.limestone }]}>{status}</Text> : null}
           </View>
@@ -3629,8 +3631,8 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             <View style={styles.coachBox}>
               <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
               <Text style={styles.coachText}>Toque para gerar seu treino a partir de hoje.</Text>
-              <Pressable style={styles.primaryButton} onPress={generateCurrentWeekNow}>
-                <Text style={styles.primaryButtonText}>Gerar treino da semana</Text>
+              <Pressable style={[styles.primaryButton, (isLoading || isGeneratingWeek) && styles.disabledButton]} disabled={isLoading || isGeneratingWeek} onPress={generateCurrentWeekNow}>
+                <Text style={styles.primaryButtonText}>{isGeneratingWeek ? 'Gerando...' : 'Gerar treino da semana'}</Text>
               </Pressable>
               {status ? <Text style={[styles.statusMessage, { color: PRColors.limestone }]}>{status}</Text> : null}
             </View>
@@ -6161,10 +6163,35 @@ function CompletionForm({
   session: WeekPlanSession;
   draft: CompletionDraft;
   onChange: (patch: Partial<CompletionDraft>) => void;
-  onSave: () => void;
+  onSave: () => Promise<boolean>;
   message?: string;
   onOpenPainReport?: () => void;
 }) {
+  // isSavedOnServer: true quando session.completion ja existe no banco (aluno ja enviou feedback).
+  // Inicializa isEditing=false (modo travado) se ja foi salvo; true (modo editavel) na primeira vez.
+  const isSavedOnServer = !!session.completion;
+  const [isEditing, setIsEditing] = useState(!isSavedOnServer);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Ao mudar de treino (sessao diferente), reinicia o estado local.
+  useEffect(() => {
+    setIsEditing(!isSavedOnServer);
+    setIsSubmitting(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id]);
+
+  async function handleSave() {
+    setIsSubmitting(true);
+    try {
+      const success = await onSave();
+      if (success) setIsEditing(false);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  // locked: feedback ja enviado e usuario nao clicou em "Alterar feedback" ainda.
+  const locked = isSavedOnServer && !isEditing;
   const isRun = session.structure?.type === 'run';
   const isAerobic = session.structure?.type === 'aerobic';
   const isStrength = session.structure?.type === 'strength';
@@ -6172,6 +6199,17 @@ function CompletionForm({
   return (
     <View style={styles.completionBox}>
       <Text style={styles.completionTitle}>Registro do treino</Text>
+      {locked && (
+        <View style={styles.completionRegisteredBanner}>
+          <Ionicons name="checkmark-circle" size={15} color="#187A55" />
+          <Text style={styles.completionRegisteredText}>
+            {draft.status === 'done' ? 'Feito' : draft.status === 'adjusted' ? 'Ajustado' : 'Nao feito'}
+            {draft.completedDate ? ` em ${draft.completedDate}` : ''} — treinador pode acompanhar.
+          </Text>
+        </View>
+      )}
+      {/* Formulario — visivel sempre para mostrar o registro anterior, mas nao interativo quando travado */}
+      <View pointerEvents={locked ? 'none' : 'auto'} style={locked ? { opacity: 0.55 } : undefined}>
       <View style={styles.completionStatusRow}>
         {[
           { label: 'Feito', value: 'done' },
@@ -6445,11 +6483,27 @@ function CompletionForm({
         </View>
       )}
 
-      <Pressable style={styles.saveCompletionButton} onPress={onSave}>
-        <Ionicons name="checkmark-circle" size={16} color={PRColors.mineral} />
-        <Text style={styles.saveCompletionText}>Confirmar treino e enviar feedback</Text>
-      </Pressable>
-      {message ? <Text style={styles.completionConfirmation}>{message}</Text> : null}
+      </View>{/* fecha o wrapper pointerEvents */}
+      {locked ? (
+        <Pressable style={styles.secondaryButton} onPress={() => setIsEditing(true)}>
+          <Text style={styles.secondaryButtonText}>Alterar feedback</Text>
+        </Pressable>
+      ) : (
+        <>
+          <Pressable style={[styles.saveCompletionButton, isSubmitting && styles.disabledButton]} disabled={isSubmitting} onPress={handleSave}>
+            <Ionicons name="checkmark-circle" size={16} color={PRColors.mineral} />
+            <Text style={styles.saveCompletionText}>
+              {isSubmitting ? 'Enviando...' : isSavedOnServer ? 'Atualizar feedback' : 'Confirmar treino e enviar feedback'}
+            </Text>
+          </Pressable>
+          {isSavedOnServer && !isSubmitting && (
+            <Pressable style={styles.secondaryButton} onPress={() => setIsEditing(false)}>
+              <Text style={styles.secondaryButtonText}>Cancelar alteracao</Text>
+            </Pressable>
+          )}
+          {message ? <Text style={styles.completionConfirmation}>{message}</Text> : null}
+        </>
+      )}
     </View>
   );
 }
@@ -8295,6 +8349,24 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 19,
     textAlign: 'center',
+  },
+  // Banner verde exibido quando o feedback ja foi enviado ao servidor e o formulario esta travado.
+  completionRegisteredBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#ecfdf5',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  completionRegisteredText: {
+    flex: 1,
+    color: '#166534',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
   },
   reportRow: {
     borderRadius: 8,
