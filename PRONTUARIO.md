@@ -1025,6 +1025,22 @@ de entrevista desta sessão só chegam após novo build EAS. Usuários PWA já r
 - **iOS**: produto RevenueCat não importado ainda. Aguardando retomada.
 - Testar compra real em sandbox ainda pendente nas duas lojas.
 
+**2026-09-07** — Sessão de diagnóstico do check-in + redesign do modal:
+- Diagnóstico confirmado (Elton reproduziu ao vivo): ao tocar "Gerar treino da semana", o modal de
+  check-in aparecia com 2 botões lado a lado — no iPhone o botão "Sim" ficava cortado fora da tela.
+  Ao clicar "Não, preciso registrar algo", o modal fechava mas o app mostrava a semana *nova* (não
+  gerada), sem os treinos da semana passada visíveis. O aluno ficava sem caminho para registrar e
+  sem treino novo. Causa real do problema da Lucelena.
+- Fix de navegação: "Não, preciso registrar ainda" agora navega para `weekOffset=-1` (semana
+  anterior), onde os treinos da semana passada ficam visíveis e clicáveis para registro.
+- Nova opção 3 "Não quero registrar — pode gerar assim mesmo": cria um check-in sentinela
+  (`elaborationSatisfaction=0`) sem migration; a IA recebe `semDados:true` e não presume execução.
+- Layout do modal redesenhado: 3 opções empilhadas verticalmente (sem corte em tela estreita).
+- Bug de data no iOS nativo confirmado (mostra 06/09 em vez de 07/09): fix já está no código desde
+  commit `86eaef3` mas o app nativo precisa de novo build EAS para incluir a correção.
+- Commits desta sessão: `df26fa0` (micro-feedback por exercício + simplificação "Não feito"),
+  `86eaef3` (fix de fuso em datas), e o commit desta sessão (check-in 3 opções).
+
 **Não iniciado ainda**: integração com WhatsApp (VPS Hostinger com Evolution API/n8n configurada, mas
 não conectada ao Panzeri Run).
 
