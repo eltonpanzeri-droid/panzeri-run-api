@@ -2665,9 +2665,9 @@ function ScalePicker({ value, onChange, lowLabel, highLabel }: { value: number |
 }
 
 // 31/08: check-in obrigatorio antes de gerar a proxima semana (pedido explicito do treinador) —
-// duas etapas: confirmar que o aluno registrou tudo (com os numeros reais da semana), depois 3
-// perguntas em escala sobre a semana como um todo. So' aparece quando GET weekly-checkin/status
-// diz que falta (ver generateCurrentWeekNow, dentro de Week).
+// duas etapas: confirmar registros (com 3 opcoes) + 3 perguntas em escala. Aparece quando
+// GET weekly-checkin/status diz que falta (ver generateCurrentWeekNow, dentro de Week).
+// 07/09: redesenhado — 3 opcoes empilhadas (evita corte em telas estreitas), nova op 3 "pular".
 function WeeklyCheckInModal({
   visible,
   step,
@@ -2676,6 +2676,7 @@ function WeeklyCheckInModal({
   submitting,
   onConfirmYes,
   onConfirmNo,
+  onSkip,
   onSubmit,
 }: {
   visible: boolean;
@@ -2685,6 +2686,7 @@ function WeeklyCheckInModal({
   submitting: boolean;
   onConfirmYes: () => void;
   onConfirmNo: () => void;
+  onSkip: () => void;
   onSubmit: (scores: { elaborationSatisfaction: number; adherenceSatisfaction: number; nextWeekMotivation: number }) => void;
 }) {
   const [elaboration, setElaboration] = useState<number | null>(null);
@@ -2716,15 +2718,21 @@ function WeeklyCheckInModal({
                   {summary.missedSessions > 0 ? `, ${summary.missedSessions} sem nenhum registro` : ''}.
                 </Text>
                 {showExplanation ? (
-                  <Text style={styles.formHint}>Isso ajuda a próxima semana a ser montada com base no que realmente aconteceu, não só no que estava previsto.</Text>
+                  <Text style={styles.formHint}>Registrar ajuda a próxima semana a ser montada com base no que realmente aconteceu, não só no que estava previsto.</Text>
                 ) : null}
                 <Text style={styles.copyTight}>Você já registrou tudo — inclusive os treinos que não conseguiu fazer?</Text>
-                <View style={styles.termsRow}>
-                  <Pressable style={styles.secondaryOutlineButton} onPress={onConfirmNo}>
-                    <Text style={styles.secondaryOutlineButtonText}>Não, preciso registrar algo</Text>
-                  </Pressable>
+                {/* 07/09: 3 opcoes empilhadas — evita corte em tela estreita (bug real: botao "Sim"
+                    ficava cortado no iPhone com layout lado a lado). Opcao 2 navega pra semana
+                    anterior onde os treinos ficam visiveis para registro. Opcao 3 pula sem bloquear. */}
+                <View style={styles.checkInOptionsColumn}>
                   <Pressable style={styles.primaryButton} onPress={onConfirmYes}>
-                    <Text style={styles.primaryButtonText}>Sim, já registrei tudo</Text>
+                    <Text style={styles.primaryButtonText}>Sim, já registrei — pode gerar novos treinos</Text>
+                  </Pressable>
+                  <Pressable style={styles.secondaryOutlineButton} onPress={onConfirmNo}>
+                    <Text style={styles.secondaryOutlineButtonText}>Não, preciso registrar ainda</Text>
+                  </Pressable>
+                  <Pressable style={styles.checkInSkipButton} onPress={onSkip}>
+                    <Text style={styles.checkInSkipButtonText}>Não quero registrar — pode gerar assim mesmo</Text>
                   </Pressable>
                 </View>
               </>
@@ -3046,11 +3054,41 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     setIsLoading(false);
   }
 
-  // "Nao, preciso registrar algo ainda" — so' fecha a tela, sem chamar nada. O aluno ja esta na
-  // tela de Semana, onde os treinos pendentes de registro ja aparecem.
+  // "Nao, preciso registrar algo ainda" — fecha o modal E navega pra semana anterior, que e' onde
+  // os treinos sem registro ficam. Bug real (07/09 — Lucelena): a mensagem anterior dizia "registre
+  // os treinos desta semana" mas a tela atual mostrava a semana NOVA (nao gerada), sem os treinos
+  // da semana passada visiveis. O aluno ficava sem caminho pra registrar nada e sem treino novo.
+  // Com setWeekOffset(-1), o app carrega a semana passada automaticamente; o aluno registra
+  // (feito, ajustado ou nao feito), volta pra "Proxima" e toca "Gerar treino da semana" de novo.
   function declineCheckInRegistration() {
     setCheckInGate(null);
-    setStatus('Registre os treinos pendentes desta semana e toque em "Gerar treino da semana" de novo.');
+    setWeekOffset(-1);
+    setStatus('Registre os treinos que faltam (feito, ajustado ou não feito). Depois toque em "Próxima" → "Gerar treino da semana".');
+  }
+
+  // 07/09: opcao 3 — aluno escolheu nao registrar. Cria um check-in sentinela no servidor
+  // (elaborationSatisfaction=0) que desbloqueia a geracao sem dados de autoavaliacao. A IA recebe
+  // contexto "sem dados, nao presuma execucao" em vez dos scores normais.
+  async function skipCheckInAndGenerate() {
+    setCheckInSubmitting(true);
+    try {
+      const response = await fetchWithRetry(`${API_URL}/training-plans/weekly-checkin/skip`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) {
+        setStatus('Não conseguimos processar agora. Tente novamente em instantes.');
+        setCheckInSubmitting(false);
+        return;
+      }
+    } catch {
+      setStatus('Sem conexão. Tente novamente em instantes.');
+      setCheckInSubmitting(false);
+      return;
+    }
+    setCheckInSubmitting(false);
+    setCheckInGate(null);
+    await runGenerateCurrentWeek();
   }
 
   async function submitCheckInAndGenerate(scores: { elaborationSatisfaction: number; adherenceSatisfaction: number; nextWeekMotivation: number }) {
@@ -3484,6 +3522,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
           submitting={checkInSubmitting}
           onConfirmNo={declineCheckInRegistration}
           onConfirmYes={() => setCheckInGate((current) => (current ? { ...current, step: 'questions' } : current))}
+          onSkip={skipCheckInAndGenerate}
           onSubmit={submitCheckInAndGenerate}
         />
       </View>
@@ -3550,6 +3589,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
           submitting={checkInSubmitting}
           onConfirmNo={declineCheckInRegistration}
           onConfirmYes={() => setCheckInGate((current) => (current ? { ...current, step: 'questions' } : current))}
+          onSkip={skipCheckInAndGenerate}
           onSubmit={submitCheckInAndGenerate}
         />
       </View>
@@ -7680,6 +7720,26 @@ const styles = StyleSheet.create({
     color: PRColors.ocean,
     fontSize: 16,
     fontWeight: '800',
+  },
+  // 07/09: estilos do redesign do modal de check-in — 3 opcoes empilhadas verticalmente
+  checkInOptionsColumn: {
+    flexDirection: 'column',
+    gap: 10,
+    marginTop: 4,
+  },
+  checkInSkipButton: {
+    minHeight: 44,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkInSkipButtonText: {
+    color: PRColors.limestone,
+    fontSize: 13,
+    fontWeight: '500',
+    textDecorationLine: 'underline',
+    textAlign: 'center',
   },
   disabledButton: {
     opacity: 0.55,

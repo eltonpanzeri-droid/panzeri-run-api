@@ -166,7 +166,7 @@ export interface MethodologyInput {
   // registrado pro plano que esta encerrando (ver WeeklyCheckInService) — pode ser null pra quem
   // ainda nao passou por essa tela (aluno novo, ou plano sem sessoes ainda).
   weeklyCheckIn?: {
-    elaborationSatisfaction: number;
+    elaborationSatisfaction: number; // 0 = sentinel "pulou" (optou por nao registrar)
     adherenceSatisfaction: number;
     nextWeekMotivation: number;
   } | null;

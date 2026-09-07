@@ -529,6 +529,7 @@ export class TrainingPlansService {
       ? await this.prisma.weeklyCheckIn.findFirst({
           where: { userId, planId: activePlanBeforeAdjustment.id },
           select: { elaborationSatisfaction: true, adherenceSatisfaction: true, nextWeekMotivation: true },
+          // Nota: elaborationSatisfaction === 0 e o sentinel de "pulou" — ver WeeklyCheckInService.skip
         })
       : null;
 

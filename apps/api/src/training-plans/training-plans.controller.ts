@@ -42,6 +42,14 @@ export class TrainingPlansController {
     return this.weeklyCheckIn.submit(user.sub, dto);
   }
 
+  // 07/09: aluno opta por pular o registro — cria um check-in sentinela (elaborationSatisfaction=0)
+  // que desbloqueia a geracao sem dados de autoavaliacao. A IA recebe contexto "sem dados, nao
+  // presuma execucao" em vez dos scores normais.
+  @Post('weekly-checkin/skip')
+  skipWeeklyCheckIn(@CurrentUser() user: CurrentUserPayload) {
+    return this.weeklyCheckIn.skip(user.sub);
+  }
+
   @Get('week-by-offset')
   weekByOffset(@CurrentUser() user: CurrentUserPayload, @Query('offset') offset: string) {
     return this.trainingPlansService.getWeekByOffset(user.sub, Number(offset) || 0);

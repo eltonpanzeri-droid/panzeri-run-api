@@ -746,11 +746,19 @@ export class PrescriptionAgentService {
         // treinador) — autoavaliacao da semana COMO UM TODO (nao por sessao, ja coberto acima em
         // historicoSemanal). Escala 1 (baixo) a 5 (alto) nos tres campos. Null quando o aluno
         // ainda nao passou por essa etapa (ex: primeira semana).
-        autoavaliacaoDaSemanaPeloAluno: input.weeklyCheckIn ? {
-          satisfacaoComAElaboracaoDosTreinos: input.weeklyCheckIn.elaborationSatisfaction,
-          satisfacaoComOProprioSeguimentoDoPlano: input.weeklyCheckIn.adherenceSatisfaction,
-          motivacaoDeclaradaParaAProximaSemana: input.weeklyCheckIn.nextWeekMotivation,
-        } : null,
+        // elaborationSatisfaction === 0 e o sentinel de "pulou" (ver WeeklyCheckInService.skip).
+        // Quando pulado, a IA nao recebe scores de satisfacao e nao deve presumir execucao ou
+        // ausencia de treino — continua a programacao proposta. So menciona a falta de dados se
+        // houver diretriz que dependa explicitamente de execucao nao confirmada.
+        autoavaliacaoDaSemanaPeloAluno: input.weeklyCheckIn
+          ? input.weeklyCheckIn.elaborationSatisfaction === 0
+            ? { semDados: true, motivo: 'Aluno optou por nao registrar o feedback da semana. Nao ha informacao sobre o que foi ou nao foi feito. Nao presuma execucao nem ausencia. Siga a programacao proposta. Se houver diretriz que dependa de um treino ter sido feito e nao houver indicacao em outro lugar de que nao foi, considere-o feito.' }
+            : {
+                satisfacaoComAElaboracaoDosTreinos: input.weeklyCheckIn.elaborationSatisfaction,
+                satisfacaoComOProprioSeguimentoDoPlano: input.weeklyCheckIn.adherenceSatisfaction,
+                motivacaoDeclaradaParaAProximaSemana: input.weeklyCheckIn.nextWeekMotivation,
+              }
+          : null,
         hoje: input.todayDate ?? null,
         dataDeCadaDiaDaSemanaSendoGerada: input.weekDates ?? null,
         diasDisponiveisParaCorrida: runSlots,

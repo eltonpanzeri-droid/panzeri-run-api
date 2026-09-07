@@ -101,6 +101,42 @@ export class WeeklyCheckInService {
     }
   }
 
+  // 07/09: aluno optou por nao registrar o feedback — nao bloqueia a geracao, mas a IA recebe
+  // contexto "sem dados, nao presuma execucao" em vez dos scores de satisfacao. Sentinel:
+  // elaborationSatisfaction === 0 (score valido e 1-5, entao 0 e inequivoco). Sem migration nova.
+  async skip(userId: string) {
+    const plan = await this.currentActivePlan(userId);
+    if (!plan) return { skipped: true }; // sem plano ativo, nao ha o que registrar
+
+    const existing = await this.prisma.weeklyCheckIn.findFirst({ where: { userId, planId: plan.id } });
+    if (existing) return existing; // idempotente — registro ja existe (mesmo que seja um skip anterior)
+
+    try {
+      return await this.prisma.weeklyCheckIn.create({
+        data: {
+          userId,
+          planId: plan.id,
+          weekStartDate: plan.startDate,
+          asPrescribedSessions: 0,
+          changedModalitySessions: 0,
+          differentSessions: 0,
+          missedSessions: 0,
+          // sentinel "pulou": elaborationSatisfaction === 0 (score valido e 1-5, nunca 0 em uso real)
+          elaborationSatisfaction: 0,
+          adherenceSatisfaction: 0,
+          nextWeekMotivation: 0,
+        },
+      });
+    } catch (error) {
+      // Corrida entre findFirst e create (duplo toque) — mesmo tratamento de WeeklyCheckInService.submit
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const existingAfterRace = await this.prisma.weeklyCheckIn.findFirst({ where: { userId, planId: plan.id } });
+        if (existingAfterRace) return existingAfterRace;
+      }
+      throw error;
+    }
+  }
+
   // Usado por TrainingPlansService antes de permitir gerar a proxima semana — leitura pura, sem
   // efeito colateral, nunca cria nada sozinha.
   async hasCheckedInForCurrentPlan(userId: string): Promise<boolean> {
