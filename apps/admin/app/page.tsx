@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flame, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, UserRound, UserX, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flame, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -30,36 +30,28 @@ interface DashboardResponse {
   };
 }
 
+// 07/09: substituída a interface antiga (baseada em tabela de alunos) pelo novo endpoint
+// /analytics/funnel que rastreia eventos reais de funil (app_opened → pagamento).
 interface FunnelReport {
-  totals: {
-    totalStudents: number;
-    neverStartedOrFinishedInterview: number;
-    completedInterviewNoPayment: number;
-    paid: number;
-  };
-  averages: {
-    diasCadastroAteEntrevista: number | null;
-    diasEntrevistaAtePagamento: number | null;
-  };
-  completedInterviewNoPaymentList: Array<{
-    id: string;
-    studentCode: string;
-    name: string;
-    email: string;
-    interviewCompletedAt: string | null;
-    diasDesdeAEntrevista: number | null;
-  }>;
-  neverStartedInterviewList: Array<{
-    id: string;
-    studentCode: string;
-    name: string;
-    email: string;
-    createdAt: string;
-    diasDesdeOCadastro: number;
+  days: number;
+  since: string;
+  preCadastroDropoff: number;
+  funnel: Array<{ event: string; label: string; sessions: number }>;
+  questionErrors: Array<{ questionId: string | null; count: number }>;
+  stalledSessions: Array<{
+    sessionId: string;
+    userId: string | null;
+    userName: string | null;
+    signedUpAt: string;
+    lastEvent: string | null;
+    lastQuestionId: string | null;
+    lastSeenHoursAgo: number | null;
+    hasError: boolean;
+    lastError: { questionId: string | null; metadata: unknown; at: string } | null;
   }>;
 }
 
-type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications';
+type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel';
 
 type ExStudentRow = {
   id: string;
@@ -537,27 +529,6 @@ export default function AdminHome() {
     }
   }
 
-  async function loadFunnelReport() {
-    if (!token) return;
-    setLoadingFunnel(true);
-    setStatus('Calculando levantamento do funil...');
-    try {
-      const response = await fetch(`${API_URL}/coach/funnel-report`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        setStatus('Nao consegui calcular o levantamento.');
-        return;
-      }
-      const data = (await response.json()) as FunnelReport;
-      setFunnelReport(data);
-      setStatus('Levantamento atualizado.');
-    } catch {
-      setStatus('Nao consegui conectar com a API.');
-    } finally {
-      setLoadingFunnel(false);
-    }
-  }
 
   // 28/08: retryAfterRefresh so' existe pra evitar loop — se a renovacao automatica (dentro deste
   // mesmo bloco) ainda assim nao resolver, aceita que a sessao expirou de verdade e desloga, sem
@@ -648,6 +619,15 @@ export default function AdminHome() {
     const { data, loggedOut } = await authorizedGet<FinanceResponse>('/coach/finance', accessToken);
     if (data) setFinance(data);
     else if (!loggedOut) setStatus('Nao consegui carregar o financeiro.');
+  }
+
+  async function loadFunnel(accessToken = token) {
+    if (!accessToken) return;
+    setLoadingFunnel(true);
+    const { data, loggedOut } = await authorizedGet<FunnelReport>('/analytics/funnel', accessToken);
+    setLoadingFunnel(false);
+    if (data) setFunnelReport(data);
+    else if (!loggedOut) setStatus('Nao consegui carregar o funil.');
   }
 
   async function loadProspects(accessToken = token) {
@@ -750,6 +730,7 @@ export default function AdminHome() {
     if (view === 'finance') void loadFinance();
     if (view === 'prospects') { void loadProspects(); void loadFreeTesterEmails(); }
     if (view === 'exStudents') void loadExStudents();
+    if (view === 'funnel') void loadFunnel();
     // 01/09: entrar na aba Alunos pelo menu sempre volta pra lista (nunca reabre a ultima aluna
     // vista) — e' o novo comportamento padrao "lista primeiro". Antes disso existia aqui uma
     // pre-carga automatica da primeira aluna do dashboard so' pra 'students' tambem; removida
@@ -1103,7 +1084,7 @@ export default function AdminHome() {
             </button>
             <div>
               <p className="eyebrow">Painel do treinador</p>
-              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : 'Financeiro'}</h1>
+              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : 'Financeiro'}</h1>
               <small className="apiVersion">API {apiVersion}</small>
             </div>
           </div>
@@ -1137,6 +1118,7 @@ export default function AdminHome() {
             <button className={activeView === 'coupons' ? 'active' : ''} type="button" onClick={() => changeView('coupons')}><Ticket size={19} />Cupons</button>
             <button className={activeView === 'finance' ? 'active' : ''} type="button" onClick={() => changeView('finance')}><CreditCard size={19} />Financeiro</button>
             <button className={activeView === 'notifications' ? 'active' : ''} type="button" onClick={() => changeView('notifications')}><Bell size={19} />Notificacoes{notifications.length ? ` (${notifications.length})` : ''}</button>
+            <button className={activeView === 'funnel' ? 'active' : ''} type="button" onClick={() => changeView('funnel')}><TrendingUp size={19} />Funil</button>
           </nav>
         ) : null}
 
@@ -1203,49 +1185,11 @@ export default function AdminHome() {
 
         {activeView === 'dashboard' ? (
           <section className="miniSection">
-            <h3>Funil de conversao (cadastro - entrevista - pagamento)</h3>
-            <p>Levantamento sob demanda direto do banco — nao recalcula sozinho, clique pra atualizar.</p>
-            <button className="secondaryButton" type="button" disabled={loadingFunnel} onClick={loadFunnelReport}>
-              {loadingFunnel ? 'Calculando...' : funnelReport ? 'Atualizar levantamento' : 'Carregar levantamento'}
+            <h3>Funil de cadastro</h3>
+            <p>Rastreamento em tempo real: desde a abertura do app até o pagamento, com detecção de erros na entrevista.</p>
+            <button className="secondaryButton" type="button" onClick={() => changeView('funnel')}>
+              <TrendingUp size={16} /> Ver funil completo
             </button>
-            {funnelReport ? (
-              <>
-                <div className="stats funnelStats">
-                  <Stat label="Total de alunos" value={String(funnelReport.totals.totalStudents)} detail="cadastrados" />
-                  <Stat label="Nunca completou a entrevista" value={String(funnelReport.totals.neverStartedOrFinishedInterview)} detail="cadastrou e parou" />
-                  <Stat label="Completou entrevista, nao pagou" value={String(funnelReport.totals.completedInterviewNoPayment)} detail="maior intencao" />
-                  <Stat label="Pagando" value={String(funnelReport.totals.paid)} detail="conversao real" />
-                </div>
-                <p className="formHintText">
-                  Tempo medio cadastro ate entrevista: {funnelReport.averages.diasCadastroAteEntrevista ?? '-'} dias.{' '}
-                  Tempo medio entrevista ate pagamento: {funnelReport.averages.diasEntrevistaAtePagamento ?? '-'} dias (aproximado).
-                </p>
-                {funnelReport.completedInterviewNoPaymentList.length ? (
-                  <div className="funnelList">
-                    <h4>Completou entrevista, nunca pagou ({funnelReport.completedInterviewNoPaymentList.length})</h4>
-                    {funnelReport.completedInterviewNoPaymentList.map((item) => (
-                      <div className="funnelListRow" key={item.id}>
-                        <span><strong>{item.name}</strong> (Cod. {item.studentCode})</span>
-                        <span>{item.email}</span>
-                        <span>{item.diasDesdeAEntrevista != null ? `${item.diasDesdeAEntrevista} dias desde a entrevista` : '-'}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                {funnelReport.neverStartedInterviewList.length ? (
-                  <div className="funnelList">
-                    <h4>Nunca completou a entrevista ({funnelReport.neverStartedInterviewList.length})</h4>
-                    {funnelReport.neverStartedInterviewList.map((item) => (
-                      <div className="funnelListRow" key={item.id}>
-                        <span><strong>{item.name}</strong> (Cod. {item.studentCode})</span>
-                        <span>{item.email}</span>
-                        <span>{item.diasDesdeOCadastro} dias desde o cadastro</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </>
-            ) : null}
           </section>
         ) : null}
 
@@ -1618,6 +1562,8 @@ export default function AdminHome() {
         ) : null}
 
         {activeView === 'finance' ? <FinanceView finance={finance} onRefresh={() => loadFinance()} /> : null}
+
+        {activeView === 'funnel' ? <FunnelView report={funnelReport} loading={loadingFunnel} onRefresh={() => loadFunnel()} /> : null}
       </section>
     </main>
   );
@@ -1677,6 +1623,104 @@ function CouponsView({
           </article>
         )) : <p>Nenhum cupom criado ainda.</p>}
       </div>
+    </section>
+  );
+}
+
+function FunnelView({ report, loading, onRefresh }: { report: FunnelReport | null; loading: boolean; onRefresh: () => void }) {
+  const top = report?.funnel[0]?.sessions ?? 1;
+  return (
+    <section className="panel fullPanel">
+      <div className="panelHeader">
+        <div><p className="eyebrow">Analytics</p><h2>Funil de cadastro</h2></div>
+        <button className="secondaryButton" type="button" onClick={onRefresh}>Atualizar</button>
+      </div>
+
+      {loading ? <p style={{ padding: '24px', color: 'var(--muted)' }}>Carregando...</p> : null}
+
+      {!loading && report ? (
+        <>
+          <p style={{ padding: '0 24px', color: 'var(--muted)', fontSize: 13, marginBottom: 8 }}>
+            Últimos {report.days} dias · {report.preCadastroDropoff} pessoa(s) abriram o app mas não criaram conta
+          </p>
+
+          {/* Funil de conversão */}
+          <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {report.funnel.map((step, i) => {
+              const pct = top > 0 ? Math.round((step.sessions / top) * 100) : 0;
+              const prevSessions = i > 0 ? (report.funnel[i - 1]?.sessions ?? step.sessions) : step.sessions;
+              const dropPct = i > 0 && prevSessions > 0 ? Math.round(((prevSessions - step.sessions) / prevSessions) * 100) : null;
+              return (
+                <div key={step.event} className="funnelStep">
+                  <div className="funnelStepBar" style={{ width: `${pct}%` }} />
+                  <div className="funnelStepLabel">
+                    <span>{step.label}</span>
+                    <span className="funnelStepCount">
+                      {step.sessions} {dropPct !== null && dropPct > 0 ? <span className="funnelDropoff">−{dropPct}%</span> : null}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Erros de pergunta */}
+          {report.questionErrors.length > 0 ? (
+            <div style={{ padding: '0 24px 24px' }}>
+              <h3 style={{ fontSize: 14, marginBottom: 8 }}>Perguntas com mais erros</h3>
+              <table className="dataTable">
+                <thead><tr><th>Pergunta</th><th>Erros</th></tr></thead>
+                <tbody>
+                  {report.questionErrors.map((e) => (
+                    <tr key={e.questionId ?? 'desconhecida'}>
+                      <td><code>{e.questionId ?? '—'}</code></td>
+                      <td>{e.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          {/* Sessões travadas */}
+          {report.stalledSessions.length > 0 ? (
+            <div style={{ padding: '0 24px 24px' }}>
+              <h3 style={{ fontSize: 14, marginBottom: 8 }}>Pessoas paradas na entrevista ({report.stalledSessions.length})</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {report.stalledSessions.map((s) => (
+                  <div key={s.sessionId} className={`funnelStalled${s.hasError ? ' funnelStalledError' : ''}`}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <span style={{ fontWeight: 600 }}>{s.userName ?? `Sessão anônima ${s.sessionId.slice(0, 8)}`}</span>
+                      {s.lastSeenHoursAgo !== null ? (
+                        <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                          {s.lastSeenHoursAgo < 24 ? `${s.lastSeenHoursAgo}h atrás` : `${Math.floor(s.lastSeenHoursAgo / 24)}d atrás`}
+                        </span>
+                      ) : null}
+                    </div>
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                      Parou em: <strong>{s.lastEvent ?? '—'}</strong>
+                      {s.lastQuestionId ? ` · pergunta: ${s.lastQuestionId}` : ''}
+                    </span>
+                    {s.hasError && s.lastError ? (
+                      <span style={{ fontSize: 12, color: '#dc2626' }}>
+                        ⚠️ Último erro na pergunta <code>{s.lastError.questionId ?? '?'}</code>
+                      </span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p style={{ padding: '0 24px 24px', color: 'var(--muted)', fontSize: 13 }}>
+              Nenhuma pessoa parada na entrevista nos últimos {report.days} dias. ✅
+            </p>
+          )}
+        </>
+      ) : null}
+
+      {!loading && !report ? (
+        <p style={{ padding: '24px', color: 'var(--muted)' }}>Clique em Atualizar para carregar o funil.</p>
+      ) : null}
     </section>
   );
 }

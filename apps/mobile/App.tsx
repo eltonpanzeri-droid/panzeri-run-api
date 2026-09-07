@@ -157,6 +157,7 @@ interface AuthSession {
 
 interface AuthResponse {
   user?: {
+    id?: string;
     email?: string;
     name?: string;
     role?: string;
@@ -479,6 +480,40 @@ const LEGAL_TERMS_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.h
 const LEGAL_PRIVACY_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host/politica-privacidade';
 const AUTH_SESSION_KEY = 'panzeri-run-auth-session';
 const DISMISSED_NOTIFICATIONS_KEY = 'panzeri-run-dismissed-notifications';
+// Chave do UUID anonimo de rastreamento de funil — gerado na primeira abertura do app,
+// salvo em AsyncStorage e reutilizado enquanto o app nao for reinstalado. Nunca contem
+// dados pessoais: e' um ID aleatorio que o servidor vincula ao userId so' apos o cadastro.
+const FUNNEL_SESSION_KEY = 'panzeri-run-funnel-session';
+
+// Gera e persiste um UUID simples para rastreamento de funil (nao criptografico — uso analitico).
+let funnelSessionIdCache: string | null = null;
+async function getFunnelSessionId(): Promise<string> {
+  if (funnelSessionIdCache) return funnelSessionIdCache;
+  try {
+    const stored = await AsyncStorage.getItem(FUNNEL_SESSION_KEY);
+    if (stored) { funnelSessionIdCache = stored; return stored; }
+    const generated = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+    await AsyncStorage.setItem(FUNNEL_SESSION_KEY, generated);
+    funnelSessionIdCache = generated;
+    return generated;
+  } catch {
+    return 'unknown';
+  }
+}
+
+// Fire-and-forget — nunca bloqueia o fluxo do usuario, nunca propaga erro.
+function trackFunnel(event: string, extra?: { questionId?: string; userId?: string; metadata?: Record<string, unknown> }) {
+  getFunnelSessionId().then((sessionId) => {
+    fetch(`${API_URL}/analytics/event`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, event, ...(extra ?? {}) }),
+    }).catch(() => undefined);
+  }).catch(() => undefined);
+}
 
 // Popup de OAuth (window.open) e um padrao de desktop que nao funciona de forma confiavel em
 // PWA instalada no celular — a maioria dos navegadores mobile bloqueia a popup silenciosamente,
@@ -1018,6 +1053,14 @@ function AppInner() {
 
   useEffect(() => {
     registerWebApp();
+    // Rastreamento de funil: registra abertura do app uma unica vez por sessao de navegador
+    // (sessionStorage garante que recargas na mesma aba nao geram duplicatas). No nativo,
+    // o app so reexecuta esse efeito se for destruido e recriado do zero (nao em background).
+    const alreadyTracked = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('funnel_app_opened');
+    if (!alreadyTracked) {
+      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('funnel_app_opened', '1');
+      trackFunnel('app_opened');
+    }
   }, []);
 
   useEffect(() => {
@@ -1610,6 +1653,7 @@ function Login({
       return;
     }
 
+    if (mode === 'register') trackFunnel('signup_started');
     setIsSubmitting(true);
     try {
       if (mode === 'login') {
@@ -1663,6 +1707,7 @@ function Login({
 
       if (!registerResponse.ok) {
         const message = await extractErrorMessage(registerResponse);
+        trackFunnel('signup_error', { metadata: { errorMessage: message ?? 'unknown' } });
         setStatus(
           message === 'E-mail ja cadastrado.'
             ? 'Este e-mail ja tem uma conta. Toque em "Entrar" e use sua senha, ou em "Esqueci minha senha" se nao lembrar.'
@@ -1684,6 +1729,8 @@ function Login({
       }
 
       setStatus('Conta criada com sucesso.');
+      // Vincula a sessao anonima ao userId recem-criado — a partir daqui o funil tem identidade.
+      trackFunnel('signup_completed', { userId: data.user?.id });
       const refreshToken = data.tokens?.refreshToken;
       if (!refreshToken) {
         setStatus('Conta criada, mas nao recebi a renovacao de acesso.');
@@ -1691,6 +1738,7 @@ function Login({
       }
       onEnter({ email: data.user?.email ?? cleanEmail, name: data.user?.name ?? name.trim(), accessToken, refreshToken });
     } catch {
+      trackFunnel('signup_error', { metadata: { errorMessage: 'network_error' } });
       setStatus('Nao consegui conectar com a API agora.');
     } finally {
       setIsSubmitting(false);
@@ -2188,6 +2236,8 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   async function persist(key: string, nextValue: InterviewAnswer, nextStep = step) {
     setSaving(true);
     setStatus('');
+    // Primeira pergunta respondida == inicio da entrevista para fins de rastreamento.
+    if (nextStep === 0 && mode === 'onboarding') trackFunnel('interview_started');
     try {
       const response = await fetch(answerUrl, {
         method: 'PUT',
@@ -2195,8 +2245,10 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         body: JSON.stringify({ key, value: nextValue, currentStep: nextStep }),
       });
       if (!response.ok) throw new Error('save');
+      if (mode === 'onboarding') trackFunnel('question_answered', { questionId: key });
       return true;
     } catch {
+      if (mode === 'onboarding') trackFunnel('question_error', { questionId: key, metadata: { step: nextStep } });
       setStatus('Nao consegui salvar esta resposta. Tente novamente.');
       return false;
     } finally {
@@ -2244,6 +2296,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         const data = await response.json().catch(() => ({} as { firstTime?: boolean }));
         setRoutineFirstTime(Boolean(data?.firstTime));
       }
+      if (mode === 'onboarding') trackFunnel('interview_completed');
       setFinished(true);
     } catch {
       setStatus('Nao consegui concluir. Revise as respostas e tente novamente.');
@@ -5252,6 +5305,12 @@ function Billing({ accessToken }: { accessToken: string }) {
       const response = await fetchWithRetry(API_URL + '/billing/me', { headers: { Authorization: 'Bearer ' + accessToken } });
       if (!response.ok) throw new Error();
       const data = await response.json();
+      // Rastreamento: se o status mudou para ativo nesta atualizacao, e' o momento do pagamento.
+      const prevStatus = details?.status;
+      const newStatus = data?.status;
+      if (prevStatus && prevStatus !== 'active' && newStatus === 'active') {
+        trackFunnel('payment_completed');
+      }
       setDetails(data);
       if (showConfirmation) {
         setMessage(data.syncError ? 'Mostrando a ultima situacao salva. Nao consegui atualizar agora.' : 'Situacao da assinatura atualizada.');
@@ -5275,7 +5334,12 @@ function Billing({ accessToken }: { accessToken: string }) {
     }
   }
 
-  useEffect(() => { void loadBilling(false); void loadHistory(); }, [accessToken]);
+  useEffect(() => {
+    void loadBilling(false);
+    void loadHistory();
+    // Rastreamento: abertura da tela de pagamento (prospecto chegou ate aqui).
+    trackFunnel('payment_started');
+  }, [accessToken]);
 
   async function subscribe() {
     // Trava contra cliques repetidos: sem isso, cada toque no botao (mesmo que o anterior ainda

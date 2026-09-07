@@ -2336,3 +2336,90 @@ h3 {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== Funil de cadastro (07/09) ===== */
+
+.funnelStep {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+}
+
+.funnelStepBar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--accent-soft);
+  transition: width 0.4s ease;
+  z-index: 0;
+}
+
+.funnelStepLabel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 10px 14px;
+  gap: 16px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.funnelStepCount {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.funnelDropoff {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.funnelStalled {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.funnelStalledError {
+  border-color: #fca5a5;
+  background: var(--danger-soft);
+}
+
+.dataTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.dataTable th,
+.dataTable td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dataTable th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+}
+

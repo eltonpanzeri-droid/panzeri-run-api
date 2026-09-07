@@ -103,6 +103,7 @@ model User {
   profileEvents       StudentProfileEvent[]
   observations        StudentObservation[]
   weeklyCheckIns      WeeklyCheckIn[]
+  funnelEvents        FunnelEvent[]
 
   // 04/09: achado numa revisao pensando em escala — nao existia indice nenhum pros filtros mais
   // usados (painel do treinador, prospectos, crons diarios), todos batem em (role,
@@ -698,4 +699,33 @@ model StudentProfile {
   userId    String   @id
   summary   String   @default("")
   updatedAt DateTime @updatedAt
+}
+
+// Rastreamento de funil de onboarding (07/09): cada evento relevante do prospecto/aluno desde
+// a abertura do app ate o pagamento. sessionId e um UUID anonimo gerado no cliente (AsyncStorage)
+// antes de qualquer criacao de conta — permite medir abandono pre-cadastro. userId e preenchido
+// assim que a conta e criada e linkado ao mesmo sessionId. Eventos disparados so pelo cliente
+// (fire-and-forget, nunca bloqueia a UI). Dados aqui sao operacionais/internos: o treinador
+// ve quantas pessoas entram e onde travam — nenhum dado de saude ou senha passa por aqui.
+model FunnelEvent {
+  id         String   @id @default(cuid())
+  // UUID gerado no cliente e guardado em AsyncStorage — persiste entre sessoes do app enquanto
+  // o usuario nao reinstala. Permite rastrear o mesmo prospecto atraves de multiplas visitas.
+  sessionId  String
+  // Preenchido pelo cliente assim que a conta e criada — vincula o historico anonimo ao usuario.
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  // Tipo do evento: app_opened | signup_started | signup_error | signup_completed |
+  // interview_started | question_answered | question_error | interview_completed |
+  // payment_started | payment_completed
+  event      String
+  // Qual pergunta da entrevista (key da pergunta, ex: 'personal_weight') — so em question_*
+  questionId String?
+  // Dados complementares: mensagem de erro, utm_source, user agent, etc. Sem dados sensiveis.
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([userId])
+  @@index([event, createdAt])
 }
