@@ -98,6 +98,19 @@ export class WorkoutCompletionsService {
     const missedComment = typeof (details as Record<string, unknown>).missedComment === 'string'
       ? ((details as Record<string, unknown>).missedComment as string)
       : '';
+    const exerciseFeedbackRaw = (details as Record<string, unknown>).exerciseFeedback;
+    const exerciseFeedback = Array.isArray(exerciseFeedbackRaw)
+      ? (exerciseFeedbackRaw as unknown[]).filter((item): item is { name: string; loadKg: string; satisfaction: string } =>
+          typeof item === 'object' && item !== null && 'name' in item)
+      : [];
+    const exerciseFeedbackText = exerciseFeedback.length
+      ? exerciseFeedback.map((item) => {
+          const load = item.loadKg ? `${item.loadKg}kg` : null;
+          const feel = item.satisfaction === 'otimo' ? 'otimo' : item.satisfaction === 'ok' ? 'ok' : item.satisfaction === 'dificil' ? 'dificil' : null;
+          const parts = [load, feel].filter(Boolean).join(', ');
+          return parts ? `${item.name} (${parts})` : item.name;
+        }).join('; ')
+      : '';
 
     const statusLabelForProfile = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'fez com ajustes' : 'nao fez';
     const profileParts = [
@@ -110,6 +123,7 @@ export class WorkoutCompletionsService {
       dto.satisfactionCapacidade ? `Satisfacao com como conseguiu fazer: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
       dto.satisfactionCarga ? `Carga do treino: ${cargaLabel(dto.satisfactionCarga)}.` : '',
       dto.painFlag && dto.painFlag !== 'none' ? `Dor sinalizada: ${dto.painFlag}.` : '',
+      exerciseFeedbackText ? `Feedback por exercicio: ${exerciseFeedbackText}.` : '',
       missedReasons.length ? `Motivo(s) de nao ter treinado: ${missedReasons.map(missedReasonLabel).join(', ')}.` : '',
       missedComment.trim() ? `Comentario do aluno sobre a falta: ${missedComment.trim()}` : '',
       dto.notes?.trim() ? `Feedback do aluno: ${dto.notes.trim()}` : '',

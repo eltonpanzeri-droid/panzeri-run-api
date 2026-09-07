@@ -193,7 +193,7 @@ interface WeekPlanSession {
     satisfactionCarga?: string | null;
     painFlag?: string | null;
     notes?: string | null;
-    details?: { loadsText?: string; pacingMode?: string; missedReasons?: string[]; missedComment?: string } | null;
+    details?: { loadsText?: string; pacingMode?: string; missedReasons?: string[]; missedComment?: string; exerciseFeedback?: Array<{ name: string; loadKg: string; satisfaction: string }> } | null;
   } | null;
 }
 
@@ -351,6 +351,10 @@ interface CompletionDraft {
   // comentario livre opcional — ver MISSED_REASON_OPTIONS.
   missedReasons: string[];
   missedComment: string;
+  // Por exercicio, so para treinos de forca (musculacao e fortalecimento). Cada item guarda
+  // o nome do exercicio, a carga usada (string vazia = nao informado) e a percepcao de
+  // dificuldade/satisfacao. Guardado dentro de details{} no servidor — sem migration.
+  exerciseFeedback: Array<{ name: string; loadKg: string; satisfaction: string }>;
 }
 
 interface StravaReport {
@@ -3195,6 +3199,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         pacingMode: draft.pacingMode || undefined,
         missedReasons: draft.status === 'missed' && draft.missedReasons.length ? draft.missedReasons : undefined,
         missedComment: draft.status === 'missed' && draft.missedComment.trim() ? draft.missedComment.trim() : undefined,
+        exerciseFeedback: draft.exerciseFeedback.length ? draft.exerciseFeedback : undefined,
       },
     };
 
@@ -6147,14 +6152,56 @@ function CompletionForm({
             </View>
           ) : null}
 
-          {isStrength ? (
-            <TextInput
-              style={[styles.compactInput, styles.multilineInput]}
-              value={draft.loadsText}
-              onChangeText={(value) => onChange({ loadsText: value })}
-              multiline
-              placeholder="Cargas usadas por exercicio"
-            />
+          {isStrength && session.structure?.type === 'strength' && (session.structure.exercises?.length ?? 0) > 0 ? (
+            /* 07/09: micro-feedback por exercicio — carga usada (opcional, so se loadField=true) +
+               percepcao rapida ("Como foi?"). Substitui o textarea de texto livre anterior, que
+               o aluno raramente preenchia de forma estruturada. exerciseFeedback fica dentro de
+               details{} no servidor sem migration. */
+            <View>
+              <Text style={styles.formHint}>Registro por exercicio (opcional)</Text>
+              {session.structure.exercises!.map((exercise, index) => {
+                const fb = draft.exerciseFeedback.find((item) => item.name === exercise.name) ?? { name: exercise.name, loadKg: '', satisfaction: '' };
+                const updateFb = (patch: Partial<typeof fb>) => {
+                  const updated = draft.exerciseFeedback.filter((item) => item.name !== exercise.name);
+                  const merged = { ...fb, ...patch };
+                  onChange({ exerciseFeedback: merged.loadKg || merged.satisfaction ? [...updated, merged] : updated });
+                };
+                return (
+                  <View key={`${exercise.name}-${index}`} style={styles.exerciseFeedbackRow}>
+                    <Text style={styles.exerciseFeedbackName}>{exercise.name}</Text>
+                    <Text style={styles.exerciseFeedbackMeta}>{exercise.sets}×{exercise.reps}</Text>
+                    {exercise.loadField ? (
+                      <View style={styles.exerciseFeedbackLoadRow}>
+                        <TextInput
+                          style={styles.exerciseFeedbackLoadInput}
+                          value={fb.loadKg}
+                          onChangeText={(value) => updateFb({ loadKg: value })}
+                          keyboardType="numeric"
+                          placeholder="kg"
+                          maxLength={6}
+                        />
+                        <Text style={styles.exerciseFeedbackLoadLabel}>kg</Text>
+                      </View>
+                    ) : null}
+                    <View style={styles.completionStatusRow}>
+                      {[
+                        { label: 'Otimo', value: 'otimo' },
+                        { label: 'Ok', value: 'ok' },
+                        { label: 'Dificil', value: 'dificil' },
+                      ].map((option) => (
+                        <Pressable
+                          key={option.value}
+                          style={[styles.completionChip, fb.satisfaction === option.value && styles.completionChipActive]}
+                          onPress={() => updateFb({ satisfaction: fb.satisfaction === option.value ? '' : option.value })}
+                        >
+                          <Text style={[styles.completionChipText, fb.satisfaction === option.value && styles.completionChipTextActive]}>{option.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
           ) : null}
 
           <Text style={styles.formHint}>Percepcao de dificuldade do treino (RPE){draft.status === 'done' ? ' - obrigatorio' : ' - opcional'}</Text>
@@ -6725,6 +6772,7 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     pacingMode: '',
     missedReasons: [],
     missedComment: '',
+    exerciseFeedback: [],
   };
 }
 
@@ -6748,6 +6796,7 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     pacingMode: completion.details?.pacingMode ?? '',
     missedReasons: completion.details?.missedReasons ?? [],
     missedComment: completion.details?.missedComment ?? '',
+    exerciseFeedback: completion.details?.exerciseFeedback ?? [],
   };
 }
 
@@ -7991,6 +8040,43 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
+  },
+  exerciseFeedbackRow: {
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    paddingTop: 10,
+    marginTop: 6,
+    gap: 6,
+  },
+  exerciseFeedbackName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  exerciseFeedbackMeta: {
+    fontSize: 12,
+    color: '#64748b',
+    marginBottom: 2,
+  },
+  exerciseFeedbackLoadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  exerciseFeedbackLoadInput: {
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 14,
+    color: '#1e293b',
+    width: 80,
+    textAlign: 'center',
+  },
+  exerciseFeedbackLoadLabel: {
+    fontSize: 13,
+    color: '#64748b',
   },
   completionChip: {
     minHeight: 32,
