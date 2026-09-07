@@ -943,6 +943,13 @@ corrigidos (com `tsc --noEmit` limpo depois de cada um):
   impacto na prática a 1000 assinantes (terminam em segundos/menos de 1 minuto mesmo sequenciais,
   rodam fora do horário de pico) — não mexidos pra não gastar esforço em algo sem ganho real hoje.
 
+**2026-09-06** — Dois incidentes com testadores cobrados indevidamente, análise do Strava reprovado e documentação de integrações:
+
+- **Incidente: Ricardo Davino cobrado pelo Asaas (R$19,90)** — segundo caso do mesmo tipo após a Silvia (04/09). Causa raiz nova: dois bugs que se combinaram. (1) O app tratava resposta de acesso liberado sem `checkoutUrl` como **erro** — mostrava a mensagem de sucesso como erro e ficava na tela de billing, bloqueando a saída. (2) Na retentativa, a guarda do `createCheckout` usava `ACTIVE_STATUSES = {'received','confirmed','received_in_cash'}` (só status do Asaas) para bloquear o acesso a assinaturas ativas, mas `manual_active` (status pós-cortesia) não estava ali — o código passava para o Asaas e criava cobrança real. **Regra absoluta que não pode ser violada:** testador gratuito nunca pode receber cobrança real do Asaas. **Correções deployadas em 06/09**: (a) `createCheckout` agora checa `user.subscriptionStatus` logo na entrada — qualquer status ativo (`active`, `manual_active`, `grace`) retorna `{ activated: true, message }` sem tocar no Asaas; (b) app trata `activated: true` ou resposta ok sem `checkoutUrl` como sucesso, mostra mensagem e recarrega o status de billing. Regra permanente de código: qualquer caminho que resulte em acesso liberado deve retornar `{ activated: true }` — nunca usar `checkoutUrl` como proxy de sucesso. Assinatura e cobrança do Ricardo canceladas manualmente no Asaas pelo treinador.
+- **Verificado: único caminho de criação de assinatura/cobrança no Asaas** é `createCheckout` → `/subscriptions POST` (linha 436 do `billing.service.ts`). A guarda adicionada hoje cobre esse único ponto. O caminho do treinador (`coach.service.ts:127`) passa pelo mesmo `createCheckout`. Não existe outro lugar.
+- **Strava API reprovado** — e-mail recebido negando aumento de limite. Análise completa em `integracoes/strava/analise-elegibilidade.md`. Causas prováveis: (1) sem "experiência complementar" (só extraímos dados, não devolvemos nada ao Strava); (2) descrição técnica imprecisa no formulário; (3) política de privacidade sem URL pública e sem menção a dados de terceiros; (4) política do Strava proíbe explicitamente uso de dados da API em IA — consentimento do aluno não resolve essa restrição, é uma proibição contratual direta.
+- **Documentação de integrações criada** em `integracoes/` — uma pasta por plataforma (Strava, Garmin, Polar, Apple Watch/HealthKit, COROS, Amazfit), mais `COMUM.md` com o denominador comum entre todas. O COMUM.md mapeia os bloqueantes universais: Política de Privacidade pública com revisão jurídica, consentimento granular, fluxo de revogação/deleção, OAuth padronizado, minimização de dados. Nada a ser implementado sem aprovação — é material de análise.
+
 **2026-09-05** — Investigação e implementação do plano de comunicação de estado de assinatura,
 disparado por aluna real (Fernanda Zimerer) com pagamento travado em "Aguardando pagamento" (cartão
 virtual bloqueando a recorrência):
@@ -975,44 +982,50 @@ virtual bloqueando a recorrência):
   "Enviar mensagem desta cobrança") para que ela pague com outro cartão enquanto o sistema de
   notificação não estava ainda funcionando.
 
+**2026-09-06/07** — Bugs de entrevista e melhorias de UX (sessão multitópico):
+
+- **Aba "Rotina" adicionada ao painel admin**: antes, para ver a rotina semanal de um aluno, o treinador precisava abrir a aba Avaliação e rolar até a seção de rotina. Agora existe uma aba dedicada "Rotina" entre Avaliação e Diretrizes, com a `RoutineAvailabilityTable` e o `ManualRoutineEditor` direto, sem precisar passar pela avaliação inteira. A rotina continua disponível em Avaliação também (não foi removida de lá).
+- **Bug de sincronização de modalidade (Jéssica Rodrigues)**: `syncInterviewAnswersFromAvailability` sincronizava dias/horários da entrevista quando a rotina mudava, mas esquecia de sincronizar `routine_modality_choice` — o painel e o agente de IA podiam receber uma descrição de modalidade diferente da rotina real. Corrigido em `me.service.ts`.
+- **Tela de carregamento durante geração do treino**: uma aluna interpretou os 25+ minutos de silêncio durante a geração como "erro" (reportado no WhatsApp). Corrigido: quando `isLoading` está ativo, ambas as variações do bloco de geração (com e sem `notGeneratedRange`) mostram um spinner + texto explicando que pode levar alguns minutos + que o celular pode ser usado normalmente. O estado `isLoading` já existia, faltava usá-lo pra substituir o conteúdo do card em vez de só trocar o texto do botão.
+- **Bugs da entrevista (todos no App.tsx)**: (1) campo `personal_height` tinha o `help` explicando errado o formato (cm vs. m); corrigido com exemplo concreto. (2) Campos opcionais bloqueavam o avanço se o save falhasse — `next()` retornava imediatamente em caso de erro, mesmo para `optional: true`; corrigido para só bloquear se `!question.optional`. (3) Adicionado botão "Prefiro não responder · Pular esta pergunta" em todas as questões opcionais (exceto CPF e telefone), que salva `null` no servidor e avança — esses campos nunca poderão ficar em `null` em banco para quem os pulou (era `undefined` antes, que é indiferente para o agente). (4) A função de conclusão extraída em `finishOrAdvance()` para evitar duplicação entre `next()` e `skip()`.
+- **Bug pendente: Ricardo Davino travado na entrevista** — campo `abdomen_circumference` (wheel, opcional) falha ao salvar com "Não consegui salvar esta resposta." mesmo após relogar. Causa exata não confirmada (sem acesso aos logs de produção — EasyPanel login falhou). Hipóteses: rate limiting (120 req/min, possível se rodou muito rápido), erro de banco específico, ou estado corrompido. **Workaround disponível quando nosso deploy subir**: a correção de campos opcionais (não bloquear se save falhar) já está no código e desbloqueia Ricardo automaticamente quando o build chegar em produção. Enquanto isso, nenhum mecanismo no admin permite avançar a entrevista de alguém manualmente.
+- **Regra de workflow restaurada**: o treinador quis voltar ao padrão anterior — a IA faz commit local, o treinador dá push via GitHub Desktop. A IA não deve fazer push direto via SSH (exceto se explicitamente autorizada a cada vez). O deploy no EasyPanel também é manual (não há auto-deploy por push no GitHub — ao contrário do que estava registrado em 2026-07-30, isso foi descoberto ser incorreto).
+- Commit `fd9a8c0` no GitHub com todas as mudanças desta sessão (Rotina tab, loading screen, bugs de entrevista, sincronização de modalidade). Aguardando Elton fazer deploy manual no EasyPanel e gerar novo build EAS pra o Ricardo ser desbloqueado.
+
 ---
 
-## Onde as coisas estão agora (2026-09-02) — leitura rápida pra quem chega de fora
+## Onde as coisas estão agora (2026-09-07) — leitura rápida pra quem chega de fora
 
 **Produto em produção, sendo usado por alunas reais**: a versão web/PWA, em
 `https://panzerirun.eltonpanzeripersonal.com.br`. Entrevista, geração de treino por IA, registro de
 treino, pagamento via Asaas (boleto/cartão recorrente), backup diário, alertas de crash e de dor
-grave pro treinador via Telegram — tudo isso funcionando e testado com alunas reais ao longo de
-várias semanas de uso real.
+grave pro treinador via Telegram, check-in semanal obrigatório antes de gerar nova semana,
+notificações de cobrança em atraso — tudo funcionando e testado com alunas reais.
 
-**Em construção, ainda não publicado**: apps nativos Android e iOS, pra publicar na Google Play e
-App Store. Ambos já rodam de ponta a ponta em testes reais (emulador Android + iPhone físico), com
-compra dentro do app (RevenueCat) integrada no código dos dois lados. Falta, pra publicar de fato:
+**Aguardando deploy**: commit `fd9a8c0` no GitHub (aba Rotina no admin, loading screen de geração,
+correção de campos opcionais na entrevista, botão "Pular", sincronização de modalidade). Elton
+precisa acionar manualmente o deploy no EasyPanel.
 
-1. **Android**: RevenueCat validado, ficha da loja no Play Console 100% preenchida (texto, imagens,
-   segurança dos dados, classificação, público-alvo). Build de produção (`.aab`) gerado em 02/09,
-   aguardando confirmação de conclusão. Falta: configurar a "Offering"/produto no RevenueCat, subir
-   o `.aab` na trilha de teste fechado, juntar pelo menos 12 testadores reais e rodar 14 dias — só
-   depois disso dá pra pedir liberação de Produção (exigência do próprio Google, não opcional).
-2. **iOS**: confirmar o preço da assinatura no App Store Connect, ligar o produto a uma "Offering" no
-   RevenueCat (mesmo passo do Android), gerar um build de produção e enviar junto com a primeira
-   assinatura pra revisão da Apple — ainda não retomado depois da rodada de Android desta sessão.
-3. **Testar uma compra de verdade em modo sandbox** (não cobra nada real) nas duas lojas antes do
-   lançamento público, pra confirmar que o webhook do RevenueCat está liberando acesso corretamente.
-4. Conta de desenvolvedor Google Play já criada e verificada; conta de desenvolvedor Apple já
-   existia antes desta sessão.
+**Aguardando novo build EAS**: as correções de entrevista (pular campo, opcional não trava) só chegam
+a Ricardo Davino e outros alunos depois de um novo build mobile (EAS). O aluno Ricardo está travado
+na pergunta de abdômen da entrevista; o deploy resolve automaticamente.
 
-**Não iniciado ainda**: integração com WhatsApp (existe uma VPS Hostinger com Evolution API/n8n já
-configurada, mas nada conectado ao Panzeri Run ainda).
+**Em construção, ainda não publicado**: apps nativos Android e iOS.
+
+- **Android**: RevenueCat configurado e validado. Teste fechado enviado pro Google (03/09), em análise.
+  Precisa de 12 testadores por 14 dias corridos antes de liberar Produção. O próximo build de produção
+  deve incluir a chave do RevenueCat Android (adicionada depois do build `versionCode 3`) e as
+  correções desta sessão. Strava: pedido de aumento de limite enviado (30/08) — reprovado (06/09),
+  análise em `integracoes/strava/analise-elegibilidade.md`.
+- **iOS**: produto RevenueCat não importado ainda. Aguardando retomada.
+- Testar compra real em sandbox ainda pendente nas duas lojas.
+
+**Não iniciado ainda**: integração com WhatsApp (VPS Hostinger com Evolution API/n8n configurada, mas
+não conectada ao Panzeri Run).
 
 **Pendências que não bloqueiam lançamento, mas seguem em aberto**:
-- Texto de Termos de Uso / Política de Privacidade ainda não teve revisão jurídica profissional —
-  decisão consciente do treinador, revisitada periodicamente.
-- Fluxo completo "5 perguntas → assinatura → entrevista completa → rotina → gerar treino" nunca foi
-  testado ponta a ponta com um pagamento Asaas real (só manualmente até a tela de assinatura).
-- Identidade visual (29-30/08): ícone/splash e a cor/marca dos botões e cabeçalho já aplicados de
-  ponta a ponta. Ainda existe uma segunda direção visual (v2, alinhada com outro app do treinador,
-  Panz Fit) proposta mas **não decidida nem implementada** — fica só como material de referência em
-  `identidade-visual-panzeri-run-v2-familia-panz/` até o treinador escolher.
-- **Limite de alunos conectados no Strava**: hoje no teto de 10 (Standard Tier). Pedido de aumento
-  enviado à Strava em 30/08, aguardando resposta deles — pode levar alguns dias/semanas.
+- Texto de Termos de Uso / Política de Privacidade ainda não teve revisão jurídica profissional.
+- Fluxo completo "5 perguntas → assinatura → entrevista completa → rotina → gerar treino" nunca
+  testado ponta a ponta com pagamento Asaas real.
+- Identidade visual v2 (alinhada com Panz Fit) proposta mas não decidida nem implementada.
+- Strava API reprovada para aumento de limite além de 10 atletas.
