@@ -3504,7 +3504,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             <Ionicons name="chevron-forward" size={15} color={PRColors.ocean} />
           </Pressable>
         </View>
-        <Text style={styles.titleSmall}>{formatDayMonth(new Date(notGeneratedRange.startDate))} a {formatDayMonth(new Date(notGeneratedRange.endDate))}</Text>
+        <Text style={styles.titleSmall}>{formatDayMonthUtc(new Date(notGeneratedRange.startDate))} a {formatDayMonthUtc(new Date(notGeneratedRange.endDate))}</Text>
         {weekOffset === 0 && !isBeforeWeeklyRelease() && !notGeneratedRange.hasEverHadPlan ? (
           <View style={styles.coachBox}>
             <Text style={styles.coachTitle}>Estamos preparando seu primeiro programa</Text>
@@ -4196,7 +4196,7 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
       {races.map((race) => (
         <View style={styles.formSection} key={race.id}>
           <Text style={styles.formSectionTitle}>{race.name}</Text>
-          <Text style={styles.reportText}>Data: {formatDayMonth(new Date(race.raceDate))} · Distancia: {race.distanceKm} km</Text>
+          <Text style={styles.reportText}>Data: {formatDayMonthUtc(new Date(race.raceDate))} · Distancia: {race.distanceKm} km</Text>
           {race.paceSecondsPerKm ? <Text style={styles.reportText}>Pace alvo: {formatPace(race.paceSecondsPerKm)} ({race.speedKmh} km/h)</Text> : null}
           <Text style={styles.reportText}>Situacao: {race.status === 'em_andamento' ? 'Em andamento' : race.status === 'concluida' ? 'Concluida' : 'Arquivada'}</Text>
           {race.notes ? <Text style={styles.reportText}>{race.notes}</Text> : null}
