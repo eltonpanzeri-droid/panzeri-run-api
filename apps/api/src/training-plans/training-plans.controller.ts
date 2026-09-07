@@ -25,9 +25,11 @@ export class TrainingPlansController {
 
   // So chamado pelo botao explicito "Gerar treino da semana" no app da aluna — nunca por abrir
   // nenhuma tela. Ver TrainingPlansService.generateCurrentWeekOnDemand.
+  // includeToday: undefined (sem Body) ou true = incluir hoje na geracao; false = comecar amanha
+  // (aluno escolheu "Nao, a partir de amanha" no dialogo do app — ver generateCurrentWeekNow).
   @Post('generate-current-week')
-  generateCurrentWeek(@CurrentUser() user: CurrentUserPayload) {
-    return this.trainingPlansService.generateCurrentWeekOnDemand(user.sub);
+  generateCurrentWeek(@CurrentUser() user: CurrentUserPayload, @Body() dto: { includeToday?: boolean }) {
+    return this.trainingPlansService.generateCurrentWeekOnDemand(user.sub, dto.includeToday);
   }
 
   // Consultado pelo app ANTES de tocar em "Gerar treino da semana" — decide se mostra a tela de

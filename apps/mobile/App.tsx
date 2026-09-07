@@ -2853,6 +2853,9 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   // 07/09: true enquanto a geracao da semana esta em andamento — exibe um banner bem visivel
   // para que o aluno saiba que o treino esta sendo montado e vai demorar alguns minutos.
   const [isGeneratingWeek, setIsGeneratingWeek] = useState(false);
+  // true quando o backend confirmou que hoje tem treino na rotina do aluno — guia o dialogo
+  // "Incluir treino de hoje?" (so exibido de segunda a sabado; nunca no domingo).
+  const [generationTodayHasRoutine, setGenerationTodayHasRoutine] = useState(false);
 
   useEffect(() => {
     if (accessToken) {
@@ -3013,7 +3016,10 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (response.ok) {
-        const data = (await response.json()) as { needsCheckIn: boolean; summary: WeeklyCheckInSummary; showExplanation: boolean };
+        const data = (await response.json()) as { needsCheckIn: boolean; summary: WeeklyCheckInSummary; showExplanation: boolean; todayHasRoutine: boolean };
+        // Guarda agora: se o aluno precisar do check-in e so' voltar aqui depois de concluir, o
+        // estado ja esta pronto — skipCheckInAndGenerate/submitCheckInAndGenerate consultam esse flag.
+        setGenerationTodayHasRoutine(data.todayHasRoutine ?? false);
         if (data.needsCheckIn) {
           setIsLoading(false);
           setCheckInGate({ step: 'confirm', summary: data.summary, showExplanation: data.showExplanation });
@@ -3024,10 +3030,45 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       // Se a checagem falhar (rede instavel), segue pra geracao normal — nao trava o aluno por
       // causa de uma consulta que e' so' um passo extra, nao a acao principal.
     }
+    // De segunda a sabado E com treino na rotina do aluno: pergunta se inclui hoje ou so' amanha.
+    // No domingo (apos 12h a geracao ja foi liberada) nao ha ambiguidade — sempre a partir de segunda.
+    const todayWeekday = new Date().getDay(); // 0=dom, 1=seg…6=sab
+    if (todayWeekday >= 1 && todayWeekday <= 6 && generationTodayHasRoutine) {
+      setIsLoading(false);
+      askIncludeTodayAndGenerate();
+      return;
+    }
     await runGenerateCurrentWeek();
   }
 
-  async function runGenerateCurrentWeek() {
+  // Dialogo "Incluir treino de hoje?" — aparece de segunda a sabado quando o aluno tem treino
+  // na rotina do dia da geracao. Depois da escolha, passa includeToday ao endpoint de geracao
+  // para o servidor calcular o generateFrom com o fuso correto (America/Sao_Paulo).
+  function askIncludeTodayAndGenerate() {
+    const title = 'Incluir o treino de hoje?';
+    const message =
+      'Você deseja incluir o dia de hoje na geração de treinos dessa semana ou já posso gerar a partir de amanhã, seguindo a rotina que você assinalou?';
+    if (Platform.OS === 'web') {
+      // window.confirm: OK = incluir hoje, Cancelar = a partir de amanha.
+      const includesToday = window.confirm(`${title}\n\n${message}\n\nOK → Sim, inclua o dia de hoje\nCancelar → Não, a partir de amanhã`);
+      void runGenerateCurrentWeek(includesToday);
+    } else {
+      Alert.alert(
+        title,
+        message,
+        [
+          { text: 'Sim, inclua o dia de hoje', onPress: () => { void runGenerateCurrentWeek(true); } },
+          { text: 'Não, a partir de amanhã', style: 'cancel', onPress: () => { void runGenerateCurrentWeek(false); } },
+        ],
+        { cancelable: false },
+      );
+    }
+  }
+
+  // includeToday: undefined = domingo (sem dialogo, gera normalmente);
+  //              true  = aluno escolheu "Sim, inclua o dia de hoje";
+  //              false = aluno escolheu "Nao, a partir de amanha" — servidor calcula generateFrom.
+  async function runGenerateCurrentWeek(includeToday?: boolean) {
     setIsLoading(true);
     setIsGeneratingWeek(true);
     // Incidente real 09/08: sem essa mensagem, uma geracao mais demorada (a IA as vezes precisa
@@ -3043,7 +3084,8 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       try {
         const response = await fetch(`${API_URL}/training-plans/generate-current-week`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ includeToday }),
         });
         if (settled) return;
         if (!response.ok) return; // deixa o polling abaixo decidir, sem mostrar erro ainda
@@ -3157,6 +3199,11 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     }
     setCheckInSubmitting(false);
     setCheckInGate(null);
+    const todayWeekday = new Date().getDay();
+    if (todayWeekday >= 1 && todayWeekday <= 6 && generationTodayHasRoutine) {
+      askIncludeTodayAndGenerate();
+      return;
+    }
     await runGenerateCurrentWeek();
   }
 
@@ -3184,6 +3231,11 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     }
     setCheckInSubmitting(false);
     setCheckInGate(null);
+    const todayWeekday = new Date().getDay();
+    if (todayWeekday >= 1 && todayWeekday <= 6 && generationTodayHasRoutine) {
+      askIncludeTodayAndGenerate();
+      return;
+    }
     await runGenerateCurrentWeek();
   }
 

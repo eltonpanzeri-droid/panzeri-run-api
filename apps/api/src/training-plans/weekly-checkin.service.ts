@@ -46,10 +46,22 @@ export class WeeklyCheckInService {
 
   async getStatus(userId: string) {
     const plan = await this.currentActivePlan(userId);
-    if (!plan) return { needsCheckIn: false, summary: null, showExplanation: false };
+    if (!plan) return { needsCheckIn: false, summary: null, showExplanation: false, todayHasRoutine: false };
 
-    const existing = await this.prisma.weeklyCheckIn.findFirst({ where: { userId, planId: plan.id } });
-    if (existing) return { needsCheckIn: false, summary: null, showExplanation: false };
+    // todayHasRoutine: informa o app se hoje (dia da geracao) tem treino na rotina do aluno.
+    // Consultado junto com o check-in existente para nao adicionar uma viagem extra ao banco.
+    // Usado pelo app para exibir o dialogo "incluir hoje?" antes de gerar — so aparece
+    // de segunda a sabado E quando todayHasRoutine=true (ver generateCurrentWeekNow no app).
+    const [existing, todayRoutine] = await Promise.all([
+      this.prisma.weeklyCheckIn.findFirst({ where: { userId, planId: plan.id }, select: { id: true } }),
+      this.prisma.weeklyAvailability.findFirst({
+        where: { userId, weekday: todayInSaoPaulo().getUTCDay(), noTraining: false },
+        select: { id: true },
+      }),
+    ]);
+    const todayHasRoutine = !!todayRoutine;
+
+    if (existing) return { needsCheckIn: false, summary: null, showExplanation: false, todayHasRoutine };
 
     const [summary, totalCheckIns] = await Promise.all([
       this.computeSummary(userId, plan.id, { skipCache: true }),
@@ -57,7 +69,7 @@ export class WeeklyCheckInService {
     ]);
     // Explicacao do "pra que serve" some depois das duas primeiras vezes (pedido do treinador —
     // ele espera que o aluno aprenda o padrao e nao precise mais de contexto repetido toda semana).
-    return { needsCheckIn: true, summary, showExplanation: totalCheckIns < 2 };
+    return { needsCheckIn: true, summary, showExplanation: totalCheckIns < 2, todayHasRoutine };
   }
 
   async submit(userId: string, dto: SubmitWeeklyCheckInDto) {

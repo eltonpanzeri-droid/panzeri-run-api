@@ -423,7 +423,7 @@ export class TrainingPlansService {
   async generateWeek(
     userId: string,
     weeklyOverride?: WeeklyAvailabilityInput[],
-    options?: { referenceDate?: Date; planStatus?: string; archiveCurrentActive?: boolean; allowToday?: boolean },
+    options?: { referenceDate?: Date; planStatus?: string; archiveCurrentActive?: boolean; allowToday?: boolean; generateFrom?: string | null },
   ) {
     const referenceDate = options?.referenceDate ?? new Date();
     const planStatus = options?.planStatus ?? 'active';
@@ -661,6 +661,10 @@ export class TrainingPlansService {
       studentProfileSummary,
       weeklyCheckIn: latestWeeklyCheckIn,
       todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
+      // options.generateFrom: definido quando o aluno escolheu "Nao, a partir de amanha" no app
+      // (doGenerateCurrentWeekOnDemand calcula e repassa via options) — instrui a IA a nao
+      // prescrever treinos para dias anteriores a essa data. null/undefined = sem restricao.
+      generateFrom: options?.generateFrom ?? null,
       weekDates: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
         weekday,
         date: addDays(weekStart, weekdayOffsetFromMonday(weekday)).toISOString().slice(0, 10),
@@ -1145,18 +1149,21 @@ export class TrainingPlansService {
   // WEEKLY_RELEASE_HOUR de domingo, mas a geracao de verdade so acontece quando a propria aluna
   // toca o botao — a partir do dia do toque em diante, nunca retroativo, mesmo que ela fique
   // semanas sem abrir o app.
-  async generateCurrentWeekOnDemand(userId: string): Promise<{ generated: boolean; reason: string }> {
+  // includeToday: true (ou undefined) = gerar a partir de hoje; false = pular hoje e comecar
+  // amanha. Escolha feita pelo proprio aluno via dialogo no app ("Incluir treino de hoje?").
+  // Nao afeta o calculo de qual semana gerar — so informa a IA para nao prescrever hoje.
+  async generateCurrentWeekOnDemand(userId: string, includeToday?: boolean): Promise<{ generated: boolean; reason: string }> {
     const inFlight = this.currentWeekGenerationInFlight.get(userId);
     if (inFlight) return inFlight;
 
-    const promise = this.doGenerateCurrentWeekOnDemand(userId).finally(() => {
+    const promise = this.doGenerateCurrentWeekOnDemand(userId, includeToday).finally(() => {
       this.currentWeekGenerationInFlight.delete(userId);
     });
     this.currentWeekGenerationInFlight.set(userId, promise);
     return promise;
   }
 
-  private async doGenerateCurrentWeekOnDemand(userId: string): Promise<{ generated: boolean; reason: string }> {
+  private async doGenerateCurrentWeekOnDemand(userId: string, includeToday?: boolean): Promise<{ generated: boolean; reason: string }> {
     const [anyPlanEver, user, availability] = await Promise.all([
       this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } }),
       this.prisma.user.findUnique({
@@ -1239,8 +1246,13 @@ export class TrainingPlansService {
     });
 
     const allowToday = hour < TODAY_INCLUSION_CUTOFF_HOUR;
+    // includeToday=false: aluno escolheu "Nao, a partir de amanha" no dialogo do app — repassa
+    // pra generateWeek, que injeta generateFrom no methodologyInput da IA. undefined/true = normal.
+    const generateFrom = includeToday === false
+      ? addDays(todayInSaoPaulo(), 1).toISOString().slice(0, 10)
+      : null;
     try {
-      await this.generateWeek(userId, undefined, { allowToday });
+      await this.generateWeek(userId, undefined, { allowToday, generateFrom });
     } catch (error) {
       // generateWeek() ja alerta o treinador por Telegram a CADA falha individual (ver o throw la
       // dentro) — aqui so cuidamos do alerta ADICIONAL "esgotou as tentativas", um sinal diferente

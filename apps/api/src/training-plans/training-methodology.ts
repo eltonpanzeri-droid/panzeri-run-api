@@ -102,6 +102,10 @@ export interface MethodologyInput {
   studentProfileSummary?: string;
   todayDate?: string;
   weekDates?: Array<{ weekday: number; date: string }>;
+  // Data a partir da qual gerar treinos (YYYY-MM-DD, exclusive das datas anteriores). Definida
+  // quando o aluno escolheu "gerar a partir de amanha" no dialogo do app. Null = incluir todos
+  // os dias da rotina da semana, incluindo hoje (comportamento padrao e caso do domingo).
+  generateFrom?: string | null;
   recentReassessment?: {
     completedAt: string;
     answers: Record<string, unknown>;
