@@ -197,6 +197,10 @@ export interface PaceEvidence {
   stravaAveragePace?: { secondsPerKm: number; sampleRuns: number } | null;
 }
 
+// Nomes completos dos dias da semana em portugues — usados nas mensagens de aviso de mismatch
+// de rotina para o treinador (em vez de "weekday 1, 2, 3..."), tanto nos logs quanto no Telegram.
+const WEEKDAY_PT_FULL = ['domingo', 'segunda-feira', 'terca-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sabado'];
+
 @Injectable()
 export class PrescriptionAgentService {
   private readonly logger = new Logger(PrescriptionAgentService.name);
@@ -479,6 +483,7 @@ export class PrescriptionAgentService {
         rationale: rationale.length > 0 ? rationale : ['Decisao gerada pelo agente de IA.'],
         safetyAdjustment,
         routineMismatch: validated.routineMismatch,
+        routineMismatchMissingRunWeekdays: validated.missingRunWeekdays,
         sessionMismatches: { ...validated.sessionMismatches, ...strengthValidation.sessionMismatches },
       };
     } catch (error) {
@@ -510,6 +515,9 @@ export class PrescriptionAgentService {
     // 03/08). Mesmo formato de chave usado em validateStrengthSessions, pra poder combinar os dois
     // num so objeto em generateWeek.
     sessionMismatches: Record<string, string>;
+    // Weekdays que a rotina de corrida esperava mas a IA nao cobriu — usado por generateWeek()
+    // pra formatar a notificacao Telegram com nome e data de cada dia faltante.
+    missingRunWeekdays: number[];
   } {
     // ATE 02/08 isso rejeitava a semana INTEIRA quando a IA cobria menos dias do que a rotina
     // cadastrada — ordem explicita do treinador: cobertura de dias (e duracao, ver
@@ -523,7 +531,7 @@ export class PrescriptionAgentService {
     const missingWeekdays = runSlots.filter((slot) => !coveredWeekdays.has(slot.weekday));
     let routineMismatch: string | null = null;
     if (sessions.length < runSlots.length || missingWeekdays.length) {
-      routineMismatch = `IA gerou ${sessions.length} dia(s) de corrida em vez dos ${runSlots.length} combinados na rotina${missingWeekdays.length ? ` (faltou weekday ${missingWeekdays.map((slot) => slot.weekday).join(',')})` : ''}.`;
+      routineMismatch = `IA gerou ${sessions.length} dia(s) de corrida em vez dos ${runSlots.length} combinados na rotina${missingWeekdays.length ? ` (sem cobertura: ${missingWeekdays.map((slot) => WEEKDAY_PT_FULL[slot.weekday] ?? `dia ${slot.weekday}`).join(', ')})` : ''}.`;
       this.logger.log(`Aviso (nao bloqueia): ${routineMismatch}`);
     }
 
@@ -549,8 +557,11 @@ export class PrescriptionAgentService {
       // um campo de texto opcional que ela pode legitimamente ter deixado vazio mesmo tendo um
       // motivo real). Ordem explicita do treinador: quem decide e sempre a IA — o codigo so avisa
       // (log + routineMismatch, ver acima) pra o treinador acompanhar, nunca descarta a resposta.
-      if (slot && session.durationMin !== slot.durationMin && !session.durationJustification?.trim()) {
-        durationMismatches.push(`weekday ${session.weekday}: ${session.durationMin}min (combinado ${slot.durationMin}min)`);
+      // 07/09: tolerancia de 20% — so reporta desvio quando a diferenca supera 20% do tempo
+      // combinado (ex: 60min combinado, aceita de 48 a 72min sem aviso). Antes qualquer diferenca
+      // de 1min ja disparava — criava ruido desnecessario sem sinalizar nada preocupante de fato.
+      if (slot && Math.abs(session.durationMin - slot.durationMin) / slot.durationMin > 0.20 && !session.durationJustification?.trim()) {
+        durationMismatches.push(`${WEEKDAY_PT_FULL[session.weekday] ?? `dia ${session.weekday}`}: ${session.durationMin}min (combinado ${slot.durationMin}min)`);
         sessionMismatches[`${session.weekday}:corrida`] = `Este treino foi gerado com ${session.durationMin}min, diferente dos ${slot.durationMin}min combinados na sua rotina.`;
       }
 
@@ -573,7 +584,7 @@ export class PrescriptionAgentService {
       routineMismatch = routineMismatch ? `${routineMismatch} ${durationNote}` : durationNote;
     }
 
-    return { sessions: result, routineMismatch, sessionMismatches };
+    return { sessions: result, routineMismatch, sessionMismatches, missingRunWeekdays: missingWeekdays.map((s) => s.weekday) };
   }
 
   // Chamado so com os slots da rotina que ficaram sem nenhuma sessao correspondente (ver

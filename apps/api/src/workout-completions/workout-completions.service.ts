@@ -76,6 +76,10 @@ export class WorkoutCompletionsService {
       },
     });
 
+    // Data formatada usada tanto no Telegram de mismatch quanto na notificacao de painel do treinador.
+    const dataFormatada = session.scheduledDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
+    const weekdayAbrev = session.scheduledDate.toLocaleDateString('pt-BR', { weekday: 'short', timeZone: 'America/Sao_Paulo' });
+
     // Sessao foi marcada em generateWeek() como fora da rotina/tempo combinado (sem diretriz que
     // explique) — pedido explicito do treinador 03/08: quando o aluno registra o feedback desse
     // treino especifico, encaminha pro Telegram do treinador junto com o motivo do desvio, alem
@@ -83,10 +87,6 @@ export class WorkoutCompletionsService {
     if (session.routineMismatchNote) {
       const student = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
       const statusLabel = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'fez com ajustes' : 'marcou como nao feito';
-      // 04/09: mensagem antiga nao dizia qual treino era (so o motivo do desvio) — 3 treinos fora da
-      // rotina na mesma semana geravam 3 mensagens identicas, sem como saber se eram do mesmo treino
-      // (reenvio) ou de 3 dias diferentes. Adicionado data + modalidade/titulo pra identificar cada um.
-      const dataFormatada = session.scheduledDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
       await this.telegram.notifyCoach(
         `📋 Feedback de treino fora da rotina combinada.\nAluno: ${student?.name ?? 'desconhecido'} (Cod. ${student ? formatStudentCode(student.studentCode) : '?'})\nTreino: ${session.title} (${session.modality}) — ${dataFormatada}\nMotivo do desvio: ${session.routineMismatchNote}\nAluno ${statusLabel} este treino.${dto.notes?.trim() ? `\nFeedback do aluno: ${dto.notes.trim()}` : '\nSem comentario escrito pelo aluno.'}`,
       ).catch(() => undefined);
@@ -148,11 +148,18 @@ export class WorkoutCompletionsService {
         missedComment.trim() ? `Comentario do aluno: ${missedComment.trim()}` : '',
         dto.notes?.trim() ? `Feedback: ${dto.notes.trim()}` : 'Sem comentario.',
       ].filter(Boolean).join(' ');
+      // 07/09: titulo identifica o treino (aluno + modalidade + data) pra ficar proeminente no
+      // painel. Mensagem traz so o feedback — hierarquia mais clara sem misturar tudo numa string.
+      const modalityLabel = session.modality === 'corrida' ? 'Corrida' :
+        session.modality === 'fortalecimento_corredores' ? 'Fortalecimento' :
+        session.modality === 'forca' ? 'Musculacao' : session.title;
+      const distanceText = dto.distanceKm ? ` ${dto.distanceKm}km` : '';
+      const notifTitle = `${student?.name?.split(' ')[0] ?? 'Aluno'} — ${modalityLabel}${distanceText} ${weekdayAbrev} ${dataFormatada}`;
       await this.prisma.userNotification.createMany({
         data: coaches.map((coach) => ({
           userId: coach.id,
-          title: previous ? 'Registro de treino atualizado' : 'Aluno registrou um treino',
-          message: `${student?.name ?? 'Aluno'} ${statusLabel} ${session.title}. ${details}`,
+          title: notifTitle,
+          message: `${statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}. ${details}`,
           type: dto.status === 'missed' ? 'warning' : 'info',
         })),
       });

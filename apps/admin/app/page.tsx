@@ -607,7 +607,7 @@ export default function AdminHome() {
       });
       if (notificationsResponse.ok) {
         const notificationData = (await notificationsResponse.json()) as { items: CoachNotification[] };
-        setNotifications(notificationData.items.filter((item) => !item.id.startsWith('auto-')).slice(0, 8));
+        setNotifications(notificationData.items.filter((item) => !item.id.startsWith('auto-')));
       }
       setStatus('Painel atualizado.');
       const selectedStudent = data.students.find((student) => student.id === selectedStudentId) ?? (activeView === 'dashboard' ? undefined : data.students[0]);
@@ -1145,18 +1145,20 @@ export default function AdminHome() {
         {activeView === 'dashboard' && notifications.length ? (
           <section className="notificationStrip">
             <button className="notificationHeading notificationToggle" type="button" onClick={() => setNotificationsOpen((open) => !open)}>
-              <Bell size={18} /><strong>Atualizacoes dos alunos ({notifications.length})</strong>
+              <Bell size={18} /><strong>Atualizacoes dos alunos ({notifications.filter((n) => !n.read).length} novas)</strong>
               {notificationsOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </button>
             {notificationsOpen ? (
-              <div className="notificationList">
-                {notifications.slice(0, 5).map((notification) => (
-                  <div className="coachNotification" key={notification.id}>
-                    <strong>{notification.title}</strong>
+              <div className="notificationListScroll">
+                {notifications.slice(0, 6).map((notification) => (
+                  <div className={`coachNotification ${notification.read ? 'notificationRead' : ''}`} key={notification.id}>
+                    <p className="notifTitle">{notification.title}</p>
                     <span>{notification.message}</span>
                   </div>
                 ))}
-                <button className="secondaryButton" type="button" onClick={() => changeView('notifications')}>Ver todas as notificacoes</button>
+                {notifications.length > 6 ? (
+                  <button className="secondaryButton" type="button" onClick={() => changeView('notifications')}>Ver todas ({notifications.length})</button>
+                ) : null}
               </div>
             ) : null}
           </section>
@@ -1170,16 +1172,16 @@ export default function AdminHome() {
                 <h2>Atualizacoes dos alunos</h2>
               </div>
             </div>
-            <div className="notificationList notificationListFull">
+            <div className="notificationListFull">
               {notifications.length ? notifications.map((notification) => (
-                <div className={`coachNotification ${notification.read ? 'notificationRead' : ''}`} key={notification.id}>
-                  <div>
-                    <strong>{notification.title}</strong>
+                <div className={`coachNotificationFull ${notification.read ? 'notificationRead' : ''}`} key={notification.id}>
+                  <div className="notifBody">
+                    <p className="notifTitle">{notification.title}</p>
                     <span>{notification.message}</span>
                     <small>{dateTimeLabel(notification.createdAt)}</small>
                   </div>
                   {!notification.read ? (
-                    <button className="secondaryButton" type="button" onClick={() => markNotificationRead(notification.id)}>Marcar como lida</button>
+                    <button className="secondaryButton notifReadBtn" type="button" onClick={() => markNotificationRead(notification.id)}>Lida</button>
                   ) : null}
                 </div>
               )) : <p>Nenhuma notificacao registrada.</p>}

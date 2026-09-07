@@ -249,6 +249,9 @@ export interface WeeklyMethodologyDecision {
   // generateWeek() usa isso pra avisar o treinador so quando nao ha diretriz ativa (com diretriz,
   // o desvio e esperado).
   routineMismatch?: string | null;
+  // Weekdays esperados na rotina de corrida mas que a IA nao cobriu — usados por generateWeek()
+  // pra montar a notificacao Telegram com nome/data de cada dia faltante.
+  routineMismatchMissingRunWeekdays?: number[];
   // Mesma informacao, quebrada por sessao (chave "weekday:modality", modality="corrida" pra
   // qualquer sessao de corrida) — generateWeek() usa isso pra marcar SO a sessao especifica que
   // saiu do combinado (TrainingSession.routineMismatchNote), em vez de tratar a semana inteira

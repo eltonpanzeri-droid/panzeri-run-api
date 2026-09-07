@@ -2639,22 +2639,31 @@ async function loadInterviewState(url: string, accessToken: string): Promise<Int
   } catch { return null; }
 }
 
+// Cores de gradiente para a escala 1-5: vermelho -> laranja -> amarelo -> verde claro -> verde.
+// Cada botao tem cor propria — 1 = pior, 5 = melhor — independente de estar ativo ou nao.
+// Ativo: cor cheia com texto branco. Inativo: fundo neutro claro, texto grafite.
+const SCALE_GRADIENT = ['#E03E2D', '#F5893A', '#F5C800', '#66BB6A', '#1B8A5A'];
+
 // 31/08: seletor de escala 1-5 reutilizado nas 3 perguntas do check-in semanal — mesmo numero por
 // baixo das avaliacoes por sessao que ja existem no app (nao redesenha o conceito, so' aplica na
-// semana toda em vez de uma sessao so).
+// semana toda em vez de uma sessao so). 07/09: redesenhado com cores de gradiente emocional.
 function ScalePicker({ value, onChange, lowLabel, highLabel }: { value: number | null; onChange: (value: number) => void; lowLabel: string; highLabel: string }) {
   return (
     <View>
       <View style={styles.scalePickerRow}>
-        {[1, 2, 3, 4, 5].map((option) => (
-          <Pressable
-            key={option}
-            style={[styles.scalePickerOption, value === option && styles.scalePickerOptionActive]}
-            onPress={() => onChange(option)}
-          >
-            <Text style={[styles.scalePickerOptionText, value === option && styles.scalePickerOptionTextActive]}>{option}</Text>
-          </Pressable>
-        ))}
+        {[1, 2, 3, 4, 5].map((option) => {
+          const isActive = value === option;
+          const scaleColor = SCALE_GRADIENT[option - 1];
+          return (
+            <Pressable
+              key={option}
+              style={[styles.scalePickerOption, { borderColor: scaleColor, backgroundColor: isActive ? scaleColor : '#EDE9E0' }]}
+              onPress={() => onChange(option)}
+            >
+              <Text style={[styles.scalePickerOptionText, { color: isActive ? '#FFFFFF' : PRColors.graphite }]}>{option}</Text>
+            </Pressable>
+          );
+        })}
       </View>
       <View style={styles.scalePickerLabels}>
         <Text style={styles.formHint}>{lowLabel}</Text>
@@ -2788,6 +2797,9 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
   const [weekOffset, setWeekOffset] = useState(0);
   const [notGeneratedRange, setNotGeneratedRange] = useState<{ startDate: string; endDate: string; hasSubscriptionAccess: boolean; hasEverHadPlan: boolean } | null>(null);
+  // 07/09: true enquanto a geracao da semana esta em andamento — exibe um banner bem visivel
+  // para que o aluno saiba que o treino esta sendo montado e vai demorar alguns minutos.
+  const [isGeneratingWeek, setIsGeneratingWeek] = useState(false);
 
   useEffect(() => {
     if (accessToken) {
@@ -2964,10 +2976,13 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
 
   async function runGenerateCurrentWeek() {
     setIsLoading(true);
+    setIsGeneratingWeek(true);
     // Incidente real 09/08: sem essa mensagem, uma geracao mais demorada (a IA as vezes precisa
     // de chamadas extras pra completar a semana direito) parecia travada pra aluna, que fechava o
     // app achando que tinha dado erro. Preparando o aluno pra demora evita esse abandono.
-    setStatus('Seu treino esta sendo analisado e fica pronto em ate 10 minutos. Pode continuar usando o celular normalmente e voltar aqui depois.');
+    // 07/09: mensagem mantida para compatibilidade; o banner proeminente isGeneratingWeek substitui
+    // a visibilidade do status — veja a renderizacao abaixo.
+    setStatus('Gerando seu treino da semana...');
 
     let settled = false;
 
@@ -3052,6 +3067,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
 
     await Promise.race([directAttempt, pollForCompletion]).catch(() => undefined);
     setIsLoading(false);
+    setIsGeneratingWeek(false);
   }
 
   // "Nao, preciso registrar algo ainda" — fecha o modal E navega pra semana anterior, que e' onde
@@ -3599,6 +3615,18 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Treino da semana</Text>
+
+      {/* 07/09: banner proeminente exibido enquanto a geracao da semana esta em andamento.
+          Fica no topo da secao, bem vísivel, para que o aluno saiba o que esta acontecendo
+          sem precisar ler um statusMessage pequeno no rodape. */}
+      {isGeneratingWeek ? (
+        <View style={styles.generatingBanner}>
+          <ActivityIndicator size="large" color={PRColors.pulse} style={{ marginBottom: 12 }} />
+          <Text style={styles.generatingBannerTitle}>Montando seu treino da semana</Text>
+          <Text style={styles.generatingBannerText}>Isso pode levar até 10 minutos. Pode continuar usando o celular — quando estiver pronto você recebe uma notificação e os treinos aparecem aqui.</Text>
+        </View>
+      ) : null}
+
       <View style={styles.moveActions}>
         <Pressable style={styles.moveButton} onPress={() => setWeekOffset((current) => current - 1)}>
           <Ionicons name="chevron-back" size={15} color={PRColors.ocean} />
@@ -7539,24 +7567,15 @@ const styles = StyleSheet.create({
   },
   scalePickerOption: {
     flex: 1,
-    minHeight: 44,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: PRColors.stone,
+    minHeight: 48,
+    borderRadius: 10,
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scalePickerOptionActive: {
-    backgroundColor: PRColors.pulse,
-    borderColor: PRColors.pulse,
-  },
   scalePickerOptionText: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '800',
-    color: PRColors.graphite,
-  },
-  scalePickerOptionTextActive: {
-    color: PRColors.mineral,
   },
   scalePickerLabels: {
     flexDirection: 'row',
@@ -8231,6 +8250,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '600',
+  },
+  // 07/09: banner proeminente mostrado enquanto isGeneratingWeek=true
+  generatingBanner: {
+    borderRadius: 12,
+    backgroundColor: PRColors.mineral,
+    padding: 24,
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  generatingBannerTitle: {
+    color: PRColors.pulse,
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  generatingBannerText: {
+    color: '#cbd5e1',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
   },
   coachBox: {
     borderRadius: 8,

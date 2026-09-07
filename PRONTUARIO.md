@@ -992,6 +992,16 @@ virtual bloqueando a recorrência):
 - **Deploy de 07/09 confirmado**: Elton fez push via GitHub Desktop → EasyPanel auto-deployou `fd9a8c0` (confirmado no painel de implantações do EasyPanel). O EasyPanel **SIM** faz auto-deploy a cada push — a afirmação contrária desta entrada foi corrigida. Produção agora roda com: aba Rotina no admin, loading screen de geração, botão "Pular" na entrevista, correção de campos opcionais, sincronização de modalidade.
 - **Workflow git definitivo (07/09)**: há DOIS diretórios distintos no computador do treinador — `C:\...\Aplicativo Panzeri Run` (onde a IA edita o código) e `C:\...\GitHub\panzeri-run-api` (onde o GitHub Desktop monitora). Após cada edição, a IA DEVE copiar os arquivos alterados para o segundo diretório antes de avisar que está pronto para commit. Sem essa cópia, o GitHub Desktop mostra "No local changes". Registrado em memória permanente (`github_desktop_repo_path.md`). Corrigir isso definitivamente (reconfigurar GitHub Desktop para apontar para o diretório real) eliminaria o problema, mas ainda não foi feito.
 
+**2026-09-07 (sessão 2)** — Notificações Telegram, painel admin e UX de geração:
+
+- **Tolerância de 20% na alerta de rotina diferente**: antes, qualquer diferença de duração entre o treino gerado pela IA e o horário combinado disparava o alerta "rotina diferente". Agora só alerta se a diferença for maior que 20% — evita falso positivo por pequena variação.
+- **Formato legível no Telegram**: substituído o "weekday 1, 2, 3..." por formato completo — ex.: `segunda-feira 07/09 — corrida 12.5km contínuo`. O message de "rotina diferente" agora lista cada sessão desviada com dia da semana, data e detalhe de modalidade (corrida: km + método contínuo/intervalado; fortalecimento/musculação: fallback ao título da IA por ora — campo `muscleGroup` não existe no schema sem migration).
+- **Nova notificação Telegram a cada treino gerado**: antes, o treinador só recebia Telegram em caso de mismatch ou falha. Agora, toda geração bem-sucedida dispara `✅ Treino da semana gerado.` com a lista de sessões, aluno e período.
+- **Painel admin de notificações reformulado**: strip com scroll (max-height 300px) em vez de grid fixo de 8 itens; painel lateral em flex-column com cards completos; título de cada notificação passou a mostrar `[Aluno — Modalidade Xkm seg 07/09]` — identidade do treino na primeira linha, feedback do aluno abaixo; botão "Lida" compacto; contador de não lidas no cabeçalho; limite do servidor elevado de 20 para 50.
+- **Banner de geração em andamento (isGeneratingWeek)**: o estado `isLoading` já dava feedback mínimo no botão; adicionado `isGeneratingWeek` separado que exibe um card proeminente com `ActivityIndicator` grande, título em destaque e instrução de que o celular pode ser usado normalmente enquanto aguarda.
+- **ScalePicker com gradiente de cores**: os 5 botões de escala (check-in) agora têm cada um sua cor semântica (#E03E2D→#F5C800→#1B8A5A), com fundo colorido quando ativo e borda colorida quando inativo — elimina o visual monocromático anterior.
+- **Arquivos alterados**: `apps/api/src/training-plans/prescription-agent.service.ts`, `apps/api/src/training-plans/training-methodology.ts`, `apps/api/src/training-plans/training-plans.service.ts`, `apps/api/src/workout-completions/workout-completions.service.ts`, `apps/api/src/notifications/notifications.service.ts`, `apps/mobile/App.tsx`, `apps/admin/app/page.tsx`, `apps/admin/app/styles.css`.
+
 ---
 
 ## Onde as coisas estão agora (2026-09-07) — leitura rápida pra quem chega de fora
@@ -1005,6 +1015,8 @@ notificações de cobrança em atraso — tudo funcionando e testado com alunas 
 **Em produção desde 07/09**: commit `fd9a8c0` deployado via auto-deploy do EasyPanel (aba Rotina no
 admin, loading screen de geração, correção de campos opcionais na entrevista, botão "Pular",
 sincronização de modalidade). O EasyPanel auto-deploya a cada push — sem ação manual necessária.
+
+**Pronto para commit (sessão 2 de 07/09)**: Telegram com formato legível (dia + data + modalidade + km/método), tolerância de 20% na alerta de rotina diferente, notificação Telegram a cada geração bem-sucedida, painel admin de notificações reformulado (scroll + identidade do treino em destaque), banner `isGeneratingWeek` proeminente no app mobile, ScalePicker com gradiente de cores. Aguardando commit manual via GitHub Desktop.
 
 **Ricardo Davino — ação pendente do treinador**: entrevista e rotina completas, assinatura cancelada
 em 06/09 (mesmo padrão da Silvia — bug já corrigido neste deploy). Está em Ex-alunos. Para

@@ -762,8 +762,39 @@ export class TrainingPlansService {
     // prescription-agent.service.ts) — so avisa o treinador que a rotina saiu diferente do
     // combinado. Com diretriz ativa, o desvio e esperado e nao precisa de aviso.
     if (methodology.routineMismatch && activeDirectives.length === 0) {
+      // 07/09: mensagem reformatada — dia + data + modalidade + metodo + km em vez de "weekday N".
+      const mismatchLines: string[] = [];
+      // Sessoes que existem mas divergiram da rotina (duracao diferente ou dia fora do combinado)
+      const mismatchedWeekdays = [...new Set(
+        Object.keys(methodology.sessionMismatches ?? {})
+          .filter((key) => key.endsWith(':corrida'))
+          .map((key) => parseInt(key.split(':')[0], 10))
+          .filter((wd) => !Number.isNaN(wd)),
+      )];
+      for (const wd of mismatchedWeekdays) {
+        const aiSession = methodology.sessions.find((s) => s.weekday === wd);
+        const date = addDays(weekStart, weekdayOffsetFromMonday(wd));
+        const dateFmt = date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
+        if (aiSession) {
+          const totalKm = aiSession.parts.reduce((sum: number, p: SessionPartDecision) =>
+            p.kind === 'continua' ? sum + p.distanceKm :
+            p.kind === 'intervalada' ? sum + (p.stimulusStepKm + p.recoveryStepKm) * p.repeatCount : sum, 0);
+          const hasInterval = aiSession.parts.some((p: SessionPartDecision) => p.kind === 'intervalada');
+          const kmText = totalKm > 0 ? `${Number.isInteger(totalKm) ? totalKm : totalKm.toFixed(1)}km ` : '';
+          mismatchLines.push(`• ${dateFmt} — corrida ${kmText}${hasInterval ? 'intervalado' : 'contínuo'}`);
+        } else {
+          mismatchLines.push(`• ${dateFmt}`);
+        }
+      }
+      // Dias esperados mas sem cobertura pela IA
+      for (const wd of (methodology.routineMismatchMissingRunWeekdays ?? [])) {
+        const date = addDays(weekStart, weekdayOffsetFromMonday(wd));
+        const dateFmt = date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
+        mismatchLines.push(`• ${dateFmt} — sem cobertura pela IA`);
+      }
+      const mismatchBody = mismatchLines.length ? mismatchLines.join('\n') : methodology.routineMismatch;
       await this.telegram.notifyCoach(
-        `ℹ️ Treino gerado, mas com rotina diferente do estipulado (sem diretriz do gerente tecnico).\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\n${methodology.routineMismatch}`,
+        `ℹ️ Treino gerado com rotina diferente do estipulado (sem diretriz).\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\n${mismatchBody}`,
       ).catch(() => null);
     }
 
@@ -1031,6 +1062,25 @@ export class TrainingPlansService {
         message: 'Seu programa de treino desta semana foi atualizado automaticamente.',
         type: 'info',
       });
+    }
+
+    // 07/09: aviso pro treinador sempre que qualquer treino for gerado — antes so chegava mensagem
+    // quando havia mismatch de rotina. Agora o treinador tem visibilidade de toda geracao.
+    {
+      const weekStartFmt = weekStart.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
+      const weekEndFmt = addDays(weekStart, 6).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
+      const sessionLines = sessionsToCreate
+        .sort((a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime())
+        .map((s) => {
+          const dateFmt = s.scheduledDate.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
+          const modalityFmt = s.modality === 'corrida' ? 'corrida' : s.modality === 'fortalecimento_corredores' ? 'fortalecimento' : 'musculacao';
+          const detail = s.distanceKm ? `${s.distanceKm}km` : `${s.durationMin}min`;
+          return `• ${dateFmt} — ${modalityFmt} ${detail}`;
+        })
+        .join('\n');
+      await this.telegram.notifyCoach(
+        `✅ Treino da semana gerado.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nSemana: ${weekStartFmt} a ${weekEndFmt}\n${sessionLines}`,
+      ).catch(() => null);
     }
 
     if (activePlanBeforeAdjustment) {

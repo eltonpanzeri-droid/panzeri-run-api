@@ -72,7 +72,7 @@ export class NotificationsService {
       this.prisma.userNotification.findMany({
         where: { userId },
         orderBy: { createdAt: 'desc' },
-        take: 20,
+        take: 50,
       }),
       // 05/09: unreadCount somente de notificacoes persistidas — contextAlerts sao sempre
       // exibidos mas nao somam ao badge do sino (sao contextuais, nao eventos).
