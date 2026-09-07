@@ -1770,7 +1770,7 @@ function StudentPanel({
   // 01/09: o painel virou abas em vez de uma pagina so' com tudo empilhado (pedido do treinador —
   // ver studentViewMode no componente pai pro contexto completo dessa mudanca). "Treinos" e' a aba
   // padrao por ser a mais usada no dia a dia.
-  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'diretrizes' | 'semanas' | 'evolucao'>('treinos');
+  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao'>('treinos');
 
   useEffect(() => {
     setEditName(student?.name ?? '');
@@ -2296,6 +2296,7 @@ function StudentPanel({
         <button type="button" className={detailTab === 'treinos' ? 'active' : ''} onClick={() => setDetailTab('treinos')}>Treinos</button>
         <button type="button" className={detailTab === 'cadastro' ? 'active' : ''} onClick={() => setDetailTab('cadastro')}>Cadastro</button>
         <button type="button" className={detailTab === 'avaliacao' ? 'active' : ''} onClick={() => setDetailTab('avaliacao')}>Avaliacao</button>
+        <button type="button" className={detailTab === 'rotina' ? 'active' : ''} onClick={() => setDetailTab('rotina')}>Rotina</button>
         <button type="button" className={detailTab === 'diretrizes' ? 'active' : ''} onClick={() => setDetailTab('diretrizes')}>Diretrizes</button>
         <button type="button" className={detailTab === 'semanas' ? 'active' : ''} onClick={() => setDetailTab('semanas')}>Semanas anteriores</button>
         <button type="button" className={detailTab === 'evolucao' ? 'active' : ''} onClick={() => setDetailTab('evolucao')}>Evolucao</button>
@@ -2641,6 +2642,18 @@ function StudentPanel({
             <button type="button" onClick={mergeFromDuplicate}>Mesclar para esta conta</button>
           </div>
         </div>
+      </section>
+      </>
+      ) : null}
+
+      {detailTab === 'rotina' ? (
+      <>
+      <section className="miniSection">
+        <div className="weekWorkspaceHeader">
+          <div><p className="eyebrow">Rotina semanal</p><h3>Dias e horarios de treino</h3></div>
+        </div>
+        <RoutineAvailabilityTable answers={student.interview?.answers ?? {}} availability={student.availability ?? []} />
+        <ManualRoutineEditor studentId={student.id} token={token} availability={student.availability ?? []} onStatus={onStatus} onSaved={onRefresh} />
       </section>
       </>
       ) : null}

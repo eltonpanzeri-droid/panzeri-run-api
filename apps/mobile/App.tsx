@@ -797,7 +797,7 @@ const interviewQuestions: InterviewQuestion[] = [
   })),
   { key: 'continuous_medications', module: 'Saude', prompt: 'Faz uso continuo de medicamentos?', type: 'text', optional: true },
   { key: 'medical_recommendation', module: 'Saude', prompt: 'Existe alguma recomendacao medica para seus treinos?', type: 'text', optional: true },
-  { key: 'personal_height', module: 'Avaliacao fisica recente', prompt: 'Qual e sua altura em centimetros?', type: 'wheel_number', wheelDigits: 3, wheelMin: 100, wheelMax: 220, wheelUnit: 'cm' },
+  { key: 'personal_height', module: 'Avaliacao fisica recente', prompt: 'Qual e sua altura em centimetros?', help: 'Gire a roda ate mostrar sua altura em centimetros inteiros. Exemplo: se voce tem 1,70m, pare em 170. Se mede 1,65m, pare em 165.', type: 'wheel_number', wheelDigits: 3, wheelMin: 100, wheelMax: 220, wheelUnit: 'cm' },
   { key: 'personal_weight', module: 'Avaliacao fisica recente', prompt: 'Qual e seu peso atual em quilogramas? Use virgula para decimais. Exemplo: 82,5.', type: 'number' },
   { key: 'body_fat_percentage', module: 'Avaliacao fisica recente', prompt: 'Percentual de gordura corporal (se souber)', type: 'number_or_unknown', optional: true },
   ...[
@@ -2200,6 +2200,78 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     }
   }
 
+  // 06/09: logica de conclusao extraida de next() — chamada por next() e skip() apos salvar.
+  async function finishOrAdvance(nextStep: number) {
+    if (nextStep < visibleQuestions.length) {
+      setStep(nextStep);
+      setHelpOpen(false);
+      setStatus('');
+      return;
+    }
+    setSaving(true);
+    let response: Response;
+    try {
+      response = await fetchWithRetry(completeUrl, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+    } catch {
+      setStatus('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
+      setSaving(false);
+      return;
+    }
+    try {
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({} as { message?: string }));
+        const message = typeof data.message === 'string' ? data.message : 'Nao consegui concluir. Revise as respostas e tente novamente.';
+        const missingKeys = message
+          .replace('Faltam respostas obrigatorias: ', '')
+          .replace(/\.$/, '')
+          .split(',')
+          .map((key: string) => key.trim());
+        const targetIndex = visibleQuestions.findIndex((q) => missingKeys.includes(q.key));
+        if (targetIndex >= 0) {
+          setStep(targetIndex);
+          setHelpOpen(false);
+          setStatus('Faltou responder a pergunta abaixo — te levamos direto pra ela.');
+        } else {
+          setStatus(message);
+        }
+        return;
+      }
+      if (mode === 'routine') {
+        const data = await response.json().catch(() => ({} as { firstTime?: boolean }));
+        setRoutineFirstTime(Boolean(data?.firstTime));
+      }
+      setFinished(true);
+    } catch {
+      setStatus('Nao consegui concluir. Revise as respostas e tente novamente.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // 06/09: pula a pergunta atual salvando null explicitamente (o aluno escolheu nao responder).
+  // Nao disponivel para CPF e telefone (obrigatorios para cobranca e contato).
+  async function skip() {
+    if (!question) return;
+    setSaving(true);
+    setStatus('');
+    try {
+      const response = await fetch(answerUrl, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: question.key, value: null, currentStep: step + 1 }),
+      });
+      if (!response.ok) throw new Error('save');
+      const nextAnswers = { ...answers };
+      delete (nextAnswers as Record<string, unknown>)[question.key];
+      setAnswers(nextAnswers);
+      await finishOrAdvance(step + 1);
+    } catch {
+      setStatus('Nao consegui salvar. Verifique sua internet e tente novamente.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function choose(nextValue: InterviewAnswer) {
     if (!question) return;
     // 04/09: achado real (pedido do Elton, caso Silvia) — antes, `setAnswers` rodava ANTES do
@@ -2287,55 +2359,12 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         return;
       }
     }
-    if (!(await persist(question.key, question.type === 'notice' ? true : value ?? '', step + 1))) return;
-    if (step < visibleQuestions.length - 1) {
-      setStep(step + 1);
-      setHelpOpen(false);
-      setStatus('');
-      return;
-    }
-    setSaving(true);
-    let response: Response;
-    try {
-      response = await fetchWithRetry(completeUrl, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
-    } catch {
-      setStatus('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
-      setSaving(false);
-      return;
-    }
-    try {
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({} as { message?: string }));
-        const message = typeof data.message === 'string' ? data.message : 'Nao consegui concluir. Revise as respostas e tente novamente.';
-        // 04/09: o backend agora lista exatamente quais campos faltam ("Faltam respostas
-        // obrigatorias: running_experience.") — caso real (Silvia) mostrou que descobrir isso nao
-        // bastava, ela ainda precisava clicar em "Voltar" varias vezes pra achar a pergunta certa
-        // no meio de 60. Em vez disso, pulamos o `step` direto pra essa pergunta automaticamente.
-        const missingKeys = message
-          .replace('Faltam respostas obrigatorias: ', '')
-          .replace(/\.$/, '')
-          .split(',')
-          .map((key: string) => key.trim());
-        const targetIndex = visibleQuestions.findIndex((q) => missingKeys.includes(q.key));
-        if (targetIndex >= 0) {
-          setStep(targetIndex);
-          setHelpOpen(false);
-          setStatus('Faltou responder a pergunta abaixo — te levamos direto pra ela.');
-        } else {
-          setStatus(message);
-        }
-        return;
-      }
-      if (mode === 'routine') {
-        const data = await response.json().catch(() => ({} as { firstTime?: boolean }));
-        setRoutineFirstTime(Boolean(data?.firstTime));
-      }
-      setFinished(true);
-    } catch {
-      setStatus('Nao consegui concluir. Revise as respostas e tente novamente.');
-    } finally {
-      setSaving(false);
-    }
+    // 06/09: campo opcional — nao bloqueia o avanco se o save falhar (rede instavel).
+    // O erro ja apareceu em persist(); limpa a mensagem e continua sem travar o aluno.
+    const saved = await persist(question.key, question.type === 'notice' ? true : value ?? '', step + 1);
+    if (!saved && !question.optional) return;
+    if (!saved) setStatus('');
+    await finishOrAdvance(step + 1);
   }
 
   async function reviewInterview() {
@@ -2562,6 +2591,16 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       {question?.key === 'basal_metabolism' ? <Pressable style={[styles.answerButton, value === 'automatic' && styles.answerButtonActive]} onPress={() => choose('automatic')}><Text style={[styles.answerButtonText, value === 'automatic' && styles.answerButtonTextActive]}>Calcular automaticamente</Text></Pressable> : null}
       {question && ['wheel_number', 'wheel_pace', 'wheel_duration_hms', 'wheel_date'].includes(question.type) && value !== undefined ? (
         <Text style={styles.confirmationText}>Sua resposta: {formatWheelAnswerDisplay(question, value)}</Text>
+      ) : null}
+
+      {/* 06/09: toda pergunta (exceto CPF e telefone) tem saida — o aluno nunca fica travado.
+          Para perguntas obrigatorias (CPF, telefone), nao ha botao de pular.
+          Para todas as demais, inclusive as que eram "obrigatorias" antes, o aluno pode escolher
+          nao responder — a IA recebe o campo como ausente e o treinador ve no painel. */}
+      {question && !['cpf', 'phone'].includes(question.type) && question.type !== 'notice' ? (
+        <Pressable style={styles.skipButton} onPress={skip} disabled={saving}>
+          <Text style={styles.skipButtonText}>Prefiro não responder · Pular esta pergunta</Text>
+        </Pressable>
       ) : null}
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
@@ -3411,7 +3450,13 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
           </Pressable>
         </View>
         <Text style={styles.titleSmall}>{upcomingWeekRangeLabel()}</Text>
-        {notGeneratedRange && !notGeneratedRange.hasEverHadPlan ? (
+        {isLoading ? (
+          <View style={styles.coachBox}>
+            <ActivityIndicator size="large" color={PRColors.limestone} style={{ marginBottom: 16 }} />
+            <Text style={styles.coachTitle}>Montando seu programa de treinos...</Text>
+            <Text style={[styles.coachText, { color: PRColors.limestone }]}>Isso pode levar alguns minutos. Voce pode continuar usando o celular — quando estiver pronto voce recebe uma notificacao e os treinos aparecem aqui.</Text>
+          </View>
+        ) : notGeneratedRange && !notGeneratedRange.hasEverHadPlan ? (
           <View style={styles.coachBox}>
             <Text style={styles.coachTitle}>Estamos preparando seu primeiro programa</Text>
             <Text style={styles.coachText}>Complete "Rotina de treinos" no menu principal para montarmos sua semana inicial automaticamente.</Text>
@@ -3420,15 +3465,9 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
           <View style={styles.coachBox}>
             <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
             <Text style={styles.coachText}>Toque pra montar seu treino com tudo que voce ja nos contou ate aqui: objetivo, condicionamento, saude e a rotina que voce mesmo definiu. Nao e um treino generico puxado de uma tabela pronta, e montado especificamente pra voce, nesse momento. Pra ver domingo (ou dias anteriores), use "Anterior".</Text>
-            <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generateCurrentWeekNow}>
-              {isLoading ? <ActivityIndicator size="small" color={PRColors.mineral} /> : null}
-              <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar treino da semana'}</Text>
+            <Pressable style={styles.primaryButton} onPress={generateCurrentWeekNow}>
+              <Text style={styles.primaryButtonText}>Gerar treino da semana</Text>
             </Pressable>
-            {/* 30/08: cor clara explicita, nao styles.statusMessage puro — achado por auto-revisao:
-                esse texto fica dentro do coachBox escuro (fundo PRColors.mineral), e statusMessage
-                e' cinza-escuro (pensado pra fundo claro). Sem isso, a mensagem "pode levar ate 10
-                minutos" — que existe pra evitar exatamente a confusao "acho que nao aconteceu
-                nada" — ficava la, so' que invisivel. */}
             {status ? <Text style={[styles.statusMessage, { color: PRColors.limestone }]}>{status}</Text> : null}
           </View>
         )}
@@ -3467,20 +3506,22 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             <Text style={styles.coachText}>Complete "Rotina de treinos" no menu principal para montarmos sua semana inicial automaticamente.</Text>
           </View>
         ) : weekOffset === 0 && !isBeforeWeeklyRelease() ? (
-          <View style={styles.coachBox}>
-            <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
-            <Text style={styles.coachText}>Toque para gerar seu treino a partir de hoje.</Text>
-            <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={generateCurrentWeekNow}>
-              {isLoading ? <ActivityIndicator size="small" color={PRColors.mineral} /> : null}
-              <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : 'Gerar treino da semana'}</Text>
-            </Pressable>
-            {/* 30/08: cor clara explicita, nao styles.statusMessage puro — achado por auto-revisao:
-                esse texto fica dentro do coachBox escuro (fundo PRColors.mineral), e statusMessage
-                e' cinza-escuro (pensado pra fundo claro). Sem isso, a mensagem "pode levar ate 10
-                minutos" — que existe pra evitar exatamente a confusao "acho que nao aconteceu
-                nada" — ficava la, so' que invisivel. */}
-            {status ? <Text style={[styles.statusMessage, { color: PRColors.limestone }]}>{status}</Text> : null}
-          </View>
+          isLoading ? (
+            <View style={styles.coachBox}>
+              <ActivityIndicator size="large" color={PRColors.limestone} style={{ marginBottom: 16 }} />
+              <Text style={styles.coachTitle}>Montando seu programa de treinos...</Text>
+              <Text style={[styles.coachText, { color: PRColors.limestone }]}>Isso pode levar alguns minutos. Voce pode continuar usando o celular — quando estiver pronto voce recebe uma notificacao e os treinos aparecem aqui.</Text>
+            </View>
+          ) : (
+            <View style={styles.coachBox}>
+              <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
+              <Text style={styles.coachText}>Toque para gerar seu treino a partir de hoje.</Text>
+              <Pressable style={styles.primaryButton} onPress={generateCurrentWeekNow}>
+                <Text style={styles.primaryButtonText}>Gerar treino da semana</Text>
+              </Pressable>
+              {status ? <Text style={[styles.statusMessage, { color: PRColors.limestone }]}>{status}</Text> : null}
+            </View>
+          )
         ) : weekOffset < 0 ? (
           <View style={styles.coachBox}>
             <Text style={styles.coachTitle}>Treino nao gerado nessa semana</Text>
@@ -8468,6 +8509,18 @@ const styles = StyleSheet.create({
     color: PRColors.ocean,
     fontSize: 13,
     fontWeight: '900',
+  },
+  // 06/09: saida visivel em toda pergunta que nao seja CPF ou telefone.
+  skipButton: {
+    alignSelf: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    marginTop: 4,
+  },
+  skipButtonText: {
+    color: PRColors.slate,
+    fontSize: 13,
+    textDecorationLine: 'underline',
   },
   calculationBox: {
     borderRadius: 8,

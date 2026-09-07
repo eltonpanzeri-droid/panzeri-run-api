@@ -117,8 +117,12 @@ export class MeService {
     // batido por qualquer motivo), o campo fica permanentemente sem resposta possivel, mas
     // continuava bloqueando aqui do mesmo jeito que o CEP bloqueava antes. Numero da casa nao e
     // usado pra nada essencial (nao gera treino, nao e' cobranca) — vira sempre opcional.
-    const required = ['objective', 'running_experience', 'personal_name', 'personal_phone', 'personal_birth_date', 'personal_sex', 'personal_height', 'personal_weight', 'personal_cpf', 'personal_education'];
-    const missing = required.filter((key) => answers[key] === undefined || answers[key] === '');
+    // 06/09: campos verdadeiramente obrigatorios reducidos a CPF, telefone e nome —
+    // os demais aceitam null (aluno escolheu "Prefiro nao responder" na entrevista).
+    // CPF e telefone continuam obrigatorios por razoes operacionais (cobranca e contato).
+    // Nome e' obrigatorio para identificacao basica na plataforma e nos avisos do treinador.
+    const required = ['personal_name', 'personal_phone', 'personal_cpf'];
+    const missing = required.filter((key) => answers[key] === undefined || answers[key] === '' || answers[key] === null);
     const hasCep = answers.personal_cep !== undefined && answers.personal_cep !== '';
     const hasManualAddress = Boolean(String(answers.personal_address_city ?? '').trim()) && Boolean(String(answers.personal_address_state ?? '').trim());
     if (!hasCep && !hasManualAddress) missing.push('endereco (CEP ou cidade/estado)');
@@ -163,12 +167,14 @@ export class MeService {
           data: {
             name: String(answers.personal_name),
             phone: String(answers.personal_phone),
-            birthDate: parseInterviewDate(String(answers.personal_birth_date)),
-            sex: String(answers.personal_sex),
+            // 06/09: campos opcionais agora aceitam null (aluno pode pular na entrevista).
+            // String(null) = 'null' — usando operador de coalescencia pra nao gravar 'null' no banco.
+            birthDate: answers.personal_birth_date != null ? parseInterviewDate(String(answers.personal_birth_date)) : null,
+            sex: answers.personal_sex != null ? String(answers.personal_sex) : null,
             heightCm: decimalValue(answers.personal_height),
             weightKg: decimalValue(answers.personal_weight),
             cpf: normalizedCpf,
-            education: String(answers.personal_education),
+            education: answers.personal_education != null ? String(answers.personal_education) : null,
             address: interviewAddressSummary(answers),
           },
         });
@@ -199,15 +205,15 @@ export class MeService {
             preferredModalities,
             otherModalities: stringArray(answers.favorite_activities),
             trainingLocations: ['Corrida na rua'],
-            mainGoal: String(answers.objective),
-            experienceLevel: String(answers.running_experience),
+            mainGoal: answers.objective != null ? String(answers.objective) : 'Nao informado',
+            experienceLevel: answers.running_experience != null ? String(answers.running_experience) : null,
           },
           update: {
             preferredModalities,
             otherModalities: stringArray(answers.favorite_activities),
             trainingLocations: ['Corrida na rua'],
-            mainGoal: String(answers.objective),
-            experienceLevel: String(answers.running_experience),
+            mainGoal: answers.objective != null ? String(answers.objective) : 'Nao informado',
+            experienceLevel: answers.running_experience != null ? String(answers.running_experience) : null,
           },
         });
         await tx.weeklyAvailability.deleteMany({ where: { userId } });
@@ -555,7 +561,9 @@ function buildRoutineChangeTelegramMessage(studentName: string | undefined, stud
   if (firstTime) {
     return `🔁 Aluno "${name}" (Cod. ${code}) montou a rotina de treinos no Panzeri Run\n\nO primeiro treino esta sendo gerado automaticamente.`;
   }
-  return `🔁 Aluno "${name}" (Cod. ${code}) solicitou alteracao de rotina no Panzeri Run\n\nEssa rotina passara a valer automaticamente apenas na proxima geracao automatica de domingo. Caso o treinador deseje antecipar, basta apenas "Refazer nova semana de treinos" no painel do aluno.`;
+  // 06/09: corrigido — o cron de domingo foi removido; a mensagem anterior mentia que a rotina
+  // "valeria automaticamente no domingo", fazendo o treinador esperar algo que nunca acontecia.
+  return `🔁 Aluno "${name}" (Cod. ${code}) solicitou alteracao de rotina no Panzeri Run\n\n⚠️ NAO ha mais geracao automatica de domingo. Para aplicar a rotina nova nesta semana, use "Refazer nova semana de treinos" no painel do aluno.`;
 }
 
 function normalizeModalityDurationsForCompare(value: unknown): Record<string, number> {
@@ -839,6 +847,32 @@ export function syncInterviewAnswersFromAvailability(
     updated[`${dayKey}_fortalecimento_time`] = minutesToInterviewBucket(durations.fortalecimento_corredores ?? 0);
     updated[`${dayKey}_musculacao_time`] = minutesToInterviewBucket(durations.forca ?? 0);
   }
+
+  // 06/09: sincroniza tambem o routine_modality_choice — campo lido diretamente pelo agente de IA
+  // como descricao da modalidade escolhida. Sem essa sincronizacao, o agente via o valor da
+  // entrevista original (ex: 'corrida_musculacao') mesmo depois do aluno trocar para fortalecimento,
+  // gerando treinos com musculacao que o aluno nao queria mais.
+  const allModalities = new Set<string>();
+  for (const day of availability) {
+    if (!day.noTraining) {
+      for (const m of day.modalities) allModalities.add(m);
+    }
+  }
+  const hasCorrida = allModalities.has('corrida');
+  const hasFortalecimento = allModalities.has('fortalecimento_corredores');
+  const hasForca = allModalities.has('forca');
+  if (hasCorrida || hasFortalecimento || hasForca) {
+    if (hasCorrida && hasFortalecimento && hasForca) {
+      updated['routine_modality_choice'] = 'corrida_fortalecimento_musculacao';
+    } else if (hasCorrida && hasFortalecimento) {
+      updated['routine_modality_choice'] = 'corrida_fortalecimento';
+    } else if (hasCorrida && hasForca) {
+      updated['routine_modality_choice'] = 'corrida_musculacao';
+    } else {
+      updated['routine_modality_choice'] = 'corrida';
+    }
+  }
+
   return updated;
 }
 
