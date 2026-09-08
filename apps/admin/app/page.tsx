@@ -3072,14 +3072,8 @@ function EditableSession({
   );
 }
 
-// 08/09: esteira removida — nao existe como opcao manual do treinador. Corrida vs esteira
-// e contexto pra IA, nao uma modalidade distinta na rotina/sessao manual.
-// Combos disponiveis no AddSessionButton sao definidos em PICKER_COMBOS (abaixo).
-const MANUAL_SESSION_MODALITIES: Array<{ value: string; label: string }> = [
-  { value: 'corrida', label: 'Corrida' },
-  { value: 'forca', label: 'Musculacao' },
-  { value: 'fortalecimento_corredores', label: 'Fortalecimento para corredores' },
-];
+// 08/09: MANUAL_SESSION_MODALITIES removida — substituida por PICKER_COMBOS abaixo.
+// esteira removida junto: nao existe como opcao manual; corrida vs esteira e so contexto pra IA.
 
 // Combinacoes oferecidas no picker de "Adicionar treino".
 // Ordem: individuais primeiro, depois combos, depois combo total.
