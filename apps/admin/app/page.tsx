@@ -3127,14 +3127,19 @@ function AddSessionButton({
   // Nada mais pode ser adicionado
   if (!availableCombos.length && pendingRoutine.length === 0) return null;
 
-  // Cria uma ou mais sessoes em sequencia (pula modalidades ja existentes)
+  // Cria uma ou mais sessoes em sequencia (pula modalidades ja existentes).
+  // Para batch (2+), dispara regenerate em paralelo logo apos criar — o treinador nao precisa
+  // abrir cada sessao manualmente e clicar "Gerar novo treino".
+  // Para sessao unica, mantem o comportamento original (abre o editor).
   async function createSessions(modalities: string[]) {
     const toAdd = modalities.filter((m) => !normalizedExisting.has(m));
     if (!toAdd.length) return;
+    const isBatch = toAdd.length > 1;
     setIsCreating(true);
-    onStatus(toAdd.length > 1 ? 'Adicionando treinos...' : 'Adicionando treino...');
+    onStatus(isBatch ? 'Criando sessoes...' : 'Adicionando treino...');
     try {
-      let lastId = '';
+      // Passo 1: criar todas as sessoes
+      const createdIds: string[] = [];
       for (const modality of toAdd) {
         const response = await fetch(`${API_URL}/coach/students/${studentId}/sessions`, {
           method: 'POST',
@@ -3148,12 +3153,33 @@ function AddSessionButton({
           setIsCreating(false);
           return;
         }
-        lastId = (data.id as string) ?? lastId;
+        if (data.id) createdIds.push(data.id as string);
       }
-      const msg = toAdd.length > 1 ? 'Treinos adicionados.' : 'Treino adicionado.';
-      onStatus(`${msg} Preencha ou peca pra IA gerar.`);
+
       setPickerOpen(false);
-      if (lastId) onCreated(lastId);
+
+      if (isBatch) {
+        // Passo 2 (batch): gerar conteudo via IA para cada sessao em paralelo
+        onStatus(`${createdIds.length} sessoes criadas. Gerando conteudo com IA...`);
+        // allowToday:true porque o treinador esta adicionando manualmente — sem ambiguidade
+        await Promise.all(
+          createdIds.map((id) =>
+            fetch(`${API_URL}/coach/students/${studentId}/sessions/${id}/regenerate`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ allowToday: true }),
+            }).catch(() => undefined),
+          ),
+        );
+        onStatus('Treinos gerados.');
+        const lastId = createdIds[createdIds.length - 1];
+        if (lastId) onCreated(lastId);
+      } else {
+        // Sessao unica: abre o editor pra o treinador preencher ou pedir geracao
+        onStatus('Treino adicionado. Preencha ou peca pra IA gerar.');
+        const lastId = createdIds[createdIds.length - 1];
+        if (lastId) onCreated(lastId);
+      }
     } catch {
       onStatus('Nao consegui conectar com a API.');
     } finally {
