@@ -1341,7 +1341,7 @@ export default function AdminHome() {
                   <span>
                     <strong>{student.name} <small className="studentCodeTag">Cod. {student.studentCode}</small></strong>
                     <small>{student.email}</small>
-                    <small className={`status ${student.stravaConnected ? 'good' : 'warn'}`}>{student.stravaConnected ? 'Strava conectado' : 'Strava nao conectado'}</small>
+                    <small className="status warn">Strava: recurso indisponivel</small>
                   </span>
                   <span>{student.goal}</span>
                   <span>{student.adherencePercent}%</span>
@@ -2330,9 +2330,7 @@ function StudentPanel({
       <div className="studentIdentityHeader">
         <p className="eyebrow">Aluno selecionado</p>
         <h2>{student.name} <small className="studentCodeTag">Cod. {student.studentCode}</small></h2>
-        <span className={`status ${student.strava?.connected ? 'good' : 'warn'}`}>
-          {student.strava?.connected ? 'Strava conectado' : 'Strava nao conectado'}
-        </span>
+        <span className="status warn">Strava: recurso indisponivel</span>
       </div>
 
       {/* 01/09: o resto do painel virou abas (pedido do treinador — antes era uma pagina so' com
@@ -2563,20 +2561,8 @@ function StudentPanel({
       <section className="miniSection stravaAnalysisPanel">
         <div className="weekWorkspaceHeader">
           <div><p className="eyebrow">Agente II</p><h3>Analise automatica do Strava</h3></div>
-          <span>{student.analysisAgent?.updatedAt ? dateTimeLabel(student.analysisAgent.updatedAt) : 'Aguardando atividade'}</span>
         </div>
-        {student.analysisAgent ? (
-          <>
-            <p>{student.analysisAgent.summary.coachAnalysis?.text ?? 'Analise registrada.'}</p>
-            <div className="detailGrid">
-              <Detail icon={<CheckCircle2 size={18} />} label="Execucao" value={`${student.analysisAgent.summary.executionPercent ?? 0}%`} />
-              <Detail icon={<Gauge size={18} />} label="Aderencia" value={`${student.analysisAgent.summary.adherencePercent ?? 0}%`} />
-              <Detail icon={<Activity size={18} />} label="Km em 28 dias" value={String(student.analysisAgent.summary.progression?.last28Days?.distanceKm ?? 0)} />
-              <Detail icon={<Activity size={18} />} label="Tendencia" value={trendLabel(student.analysisAgent.summary.progression?.loadTrend)} />
-            </div>
-            <p>Ultimos 28 dias: {student.analysisAgent.summary.progression?.last28Days?.sessions ?? 0} atividades, {student.analysisAgent.summary.progression?.last28Days?.durationMin ?? 0} min, maior corrida de {student.analysisAgent.summary.progression?.last28Days?.longestDistanceKm ?? 0} km.</p>
-          </>
-        ) : <p>O relatorio aparecera automaticamente quando uma nova atividade chegar pelo Strava.</p>}
+        <p className="formHintText">Recurso indisponível. A integração com o Strava ainda não está disponível.</p>
       </section>
 
       <section className="miniSection">
@@ -2732,7 +2718,7 @@ function StudentPanel({
             <button className="secondaryButton" type="button" onClick={regenerateWeek}><RefreshCw size={16} />Refazer nova semana de treinos</button>
             <button className="secondaryButton" type="button" onClick={recoverSessions}><RefreshCw size={16} />Recuperar treinos presos em programa antigo</button>
             <button className="secondaryButton" type="button" onClick={syncAvailability}><RefreshCw size={16} />Sincronizar disponibilidade da entrevista</button>
-            <button className="secondaryButton" type="button" onClick={analyzeStrava}><RefreshCw size={16} />Gerar relatorio do Strava agora</button>
+            <button className="secondaryButton" type="button" disabled title="Integracao com Strava ainda nao disponivel">Strava: recurso indisponivel</button>
             {student.generationBlocked ? (
               <button className="secondaryButton" type="button" onClick={allowExtraGenerationAttempt}><RefreshCw size={16} />Liberar mais uma tentativa de geracao</button>
             ) : null}
