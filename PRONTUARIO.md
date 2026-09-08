@@ -1004,7 +1004,7 @@ virtual bloqueando a recorrência):
 
 ---
 
-## Onde as coisas estão agora (2026-09-07) — leitura rápida pra quem chega de fora
+## Onde as coisas estão agora (2026-09-08) — leitura rápida pra quem chega de fora
 
 **Produto em produção, sendo usado por alunas reais**: a versão web/PWA, em
 `https://panzerirun.eltonpanzeripersonal.com.br`. Entrevista, geração de treino por IA, registro de
@@ -1016,7 +1016,7 @@ notificações de cobrança em atraso — tudo funcionando e testado com alunas 
 admin, loading screen de geração, correção de campos opcionais na entrevista, botão "Pular",
 sincronização de modalidade). O EasyPanel auto-deploya a cada push — sem ação manual necessária.
 
-**Pronto para commit (sessões de UX e geração, 07/09)**: Telegram com formato legível (dia + data + modalidade + km/método), tolerância de 20% na alerta de rotina diferente, notificação Telegram a cada geração bem-sucedida, painel admin de notificações reformulado (scroll + identidade do treino em destaque), banner `isGeneratingWeek` proeminente no app mobile, ScalePicker com gradiente de cores. **Mais (sessão mais recente)**: CompletionForm com estado pós-envio bloqueado (banner + "Alterar feedback" / "Atualizar feedback" / "Cancelar alteração"), botão "Gerar treino da semana" desabilitado durante geração, diálogo "Incluir hoje?" (de segunda a sábado, quando hoje tem treino na rotina), campo `gerarAPartirDe` na IA. Aguardando commit manual via GitHub Desktop.
+**Pronto para commit (08/09)**: todos os itens da sessão 07/09 anteriores, mais: `createManualSession` com filtro `planId` (bug de Luiza), Telegram com `esteira` mapeada corretamente, `computeSummary` separando `missed` de `null`, novo campo `unregisteredSessions` no histórico + instrução de prompt "sem registro ≠ não fez", múltiplas modalidades como cards separados no app, feedback por exercício inline, paginação no topo da lista admin. Aguardando commit manual via GitHub Desktop.
 
 **Ricardo Davino — ação pendente do treinador**: entrevista e rotina completas, assinatura cancelada
 em 06/09 (mesmo padrão da Silvia — bug já corrigido neste deploy). Está em Ex-alunos. Para
@@ -1061,6 +1061,17 @@ de entrevista desta sessão só chegam após novo build EAS. Usuários PWA já r
 - **Erro de escopo TypeScript encontrado e corrigido na mesma sessão**: `generateFrom` foi inicialmente colocado no `methodologyInput` dentro de `generateWeek()`, que não tem o parâmetro `includeToday` — TypeScript recusou com `error TS2304: Cannot find name 'includeToday'`. Corrigido: `generateFrom?: string | null` adicionado ao `options` de `generateWeek`; data calculada em `doGenerateCurrentWeekOnDemand` e repassada via options. TypeScript zerado nos dois apps após a correção.
 - **Bug A (Eduarda) — diagnóstico concluído, correção pendente de aprovação**: `computeSummary` (weekly-checkin.service.ts) trata `status='missed'` igual a `null` (sem registro), gerando o texto "1 treino sem registro" para treinos que o aluno marcou como "não feito". Isso faz a aluna recusar o check-in, bloqueando a geração. A semana da Eduarda foi gerada corretamente no servidor (07/09–13/09, confirmado no painel) mas o bloqueio do check-in impede ela de ver o treino. Correção não aplicada ainda — precisa de aprovação.
 - **Arquivos alterados**: `apps/mobile/App.tsx`, `apps/api/src/training-plans/training-methodology.ts`, `apps/api/src/training-plans/weekly-checkin.service.ts`, `apps/api/src/training-plans/training-plans.service.ts`, `apps/api/src/training-plans/training-plans.controller.ts`, `apps/api/src/training-plans/prescription-agent.service.ts`.
+
+**2026-09-08 — Bugs de Luiza + IA "sem registro = não fez" + UX de modalidades e feedback**
+
+- **Bug crítico: `createManualSession` sem filtro de `planId`** — ao adicionar treino manualmente pelo admin, o código buscava sessões existentes em TODOS os planos (incluindo arquivados), não só no plano ativo. Luiza gerou o treino dela na terça (08/09), uma geração anterior (arquivada) tinha uma sessão de Corrida para essa terça — o admin mostrava "Sem treino" (plano ativo, correto), mas `createManualSession` encontrava a sessão no plano arquivado e rejeitava com "Já existe um treino dessa modalidade cadastrado para esse dia". Corrigido: filtro `planId: activePlan.id` adicionado à busca.
+- **Bug Telegram: "musculação 10km"** — o mapeamento de modalidade para texto legível no Telegram não tinha `esteira`, que caía no `else` → `'musculacao'`. Como `esteira` é modalidade de corrida e tem `distanceKm`, o resultado era "musculação 10km" (absurdo). Corrigido: `esteira` mapeada junto com `corrida`.
+- **Bug `computeSummary` — "não feito" ≠ "sem registro"** (Eduarda, diagnóstico já feito em 07/09): `status='missed'` (aluno marcou "não feito" explicitamente) era contado como `missedSessions` junto com `null` (sem nenhuma interação). Isso gerava "1 treino sem registro" para treinos explicitamente dispensados, confundindo a aluna na tela de check-in. Corrigido: separados — `null` não entra em nenhum bucket; `missed` continua em `missedSessions`; `done`/`adjusted` em `asPrescribedSessions`.
+- **IA interpreta "sem registro" como "não fez"** — o histórico semanal (`historicoSemanal`) enviado pra IA mostrava `prescribedSessions` e `completedSessions` mas não separava sessões sem registro (pode ter feito) de sessões marcadas como "não feito" (evidência real de ausência). Corrigido em duas frentes: (1) novo campo `unregisteredSessions` em `MethodologyHistoryWeek` e no objeto enviado à IA; (2) nova instrução de prompt explícita: "ausência de registro NÃO é ausência de execução — continue a progressão normalmente quando não houver evidência contrária".
+- **UX: múltiplas modalidades no mesmo dia viram cards separados** — antes, Corrida + Musculação no mesmo dia ficavam num único card colapsável com "+" no título, obrigando a rolar por tudo para chegar na segunda modalidade. Agora cada modalidade tem seu próprio card independente com toggle individual. `expandedDays` migrado de chave por data para chave por `session.id`.
+- **UX: feedback por exercício inline** — os botões de kg e Ótimo/Ok/Difícil foram movidos para DENTRO de cada exercício expandido em `StrengthExerciseList`, com indicador visual de preenchimento (✓ verde) na row colapsada. A seção separada "Registro por exercício" no rodapé do formulário foi removida. `SessionPrescription` e `StrengthExerciseList` passaram a aceitar `exerciseFeedback`, `onExerciseFeedbackChange` e `feedbackLocked` como props opcionais.
+- **Admin — paginação no topo da lista**: botões Anterior/Próxima e "Página X de Y" duplicados no topo da lista de alunos (compact), além do que já existia no rodapé.
+- **Arquivos alterados**: `apps/api/src/training-plans/training-plans.service.ts`, `apps/api/src/training-plans/training-methodology.ts`, `apps/api/src/training-plans/weekly-checkin.service.ts`, `apps/api/src/training-plans/prescription-agent.service.ts`, `apps/mobile/App.tsx`, `apps/admin/app/page.tsx`.
 
 **Não iniciado ainda**: integração com WhatsApp (VPS Hostinger com Evolution API/n8n configurada, mas
 não conectada ao Panzeri Run).

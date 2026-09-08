@@ -62,6 +62,13 @@ export interface MethodologyHistoryWeek {
   longestRunMinutes: number;
   prescribedSessions: number;
   completedSessions: number;
+  // 08/09: separar "sem registro" (aluno nao abriu o app — pode ter feito o treino sim) de "nao
+  // feito" (aluno marcou explicitamente). A IA recebia so prescribedSessions-completedSessions e
+  // concluia que esses treinos nao foram feitos — errado quando o aluno simplesmente nao registrou.
+  // unregisteredSessions = sessoes que o aluno nao abriu (completion === null); as restantes
+  // (prescribedSessions - completedSessions - unregisteredSessions) foram marcadas explicitamente
+  // como "nao feito" — so essas sao evidencia real de ausencia.
+  unregisteredSessions: number;
   // Datas reais (incidente real 10/08 — aluna fez uma prova no domingo, e na terca seguinte a IA
   // escreveu "voce completou ontem", quando na verdade ja fazia 2 dias — ela nao tinha NENHUMA
   // data real pra calcular isso, so os numeros agregados da semana acima, sem nenhum dia anexado).

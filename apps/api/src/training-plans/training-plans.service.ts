@@ -600,6 +600,9 @@ export class TrainingPlansService {
         longestRunMinutes: Math.max(0, ...completedRuns.map((session) => session.completion?.durationMin ?? session.durationMin ?? 0)),
         prescribedSessions: historyPlan.sessions.length,
         completedSessions: historyPlan.sessions.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted').length,
+        // 08/09: sessoes sem nenhuma interacao (completion===null) — aluno pode ter feito sem registrar.
+        // prescribedSessions - completedSessions - unregisteredSessions = marcadas "nao feito" mesmo.
+        unregisteredSessions: historyPlan.sessions.filter((session) => session.completion === null).length,
         weekStartDate: historyPlan.startDate.toISOString().slice(0, 10),
         longestRunDate: longestRun ? longestRun.scheduledDate.toISOString().slice(0, 10) : null,
       };
@@ -1077,7 +1080,10 @@ export class TrainingPlansService {
         .sort((a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime())
         .map((s) => {
           const dateFmt = s.scheduledDate.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
-          const modalityFmt = s.modality === 'corrida' ? 'corrida' : s.modality === 'fortalecimento_corredores' ? 'fortalecimento' : 'musculacao';
+          // 08/09: esteira e' modalidade de corrida mas nao estava listada — caia no else e vinha
+          // "musculacao Xkm" no Telegram (esteira tem distanceKm, musculacao nao). Agora mapeada
+          // junto com corrida. forca -> musculacao ja era correto.
+          const modalityFmt = s.modality === 'corrida' || s.modality === 'esteira' ? 'corrida' : s.modality === 'fortalecimento_corredores' ? 'fortalecimento' : 'musculacao';
           const detail = s.distanceKm ? `${s.distanceKm}km` : `${s.durationMin}min`;
           return `• ${dateFmt} — ${modalityFmt} ${detail}`;
         })
@@ -1609,8 +1615,12 @@ export class TrainingPlansService {
       throw new BadRequestException('Este aluno ainda nao tem um programa ativo — gere a semana antes de adicionar um treino avulso.');
     }
 
+    // 08/09: filtro planId obrigatorio — sem ele buscava em todos os planos (inclusive arquivados)
+    // e rejeitava a adicao com "ja existe" quando o plano anterior tinha esse treino mesmo o plano
+    // ativo nao tendo nada naquele dia (caso real: Luiza em 08/09, arquivo com corrida na terca
+    // impedindo adicao manual que o admin mostrava como "sem treino").
     const existing = await this.prisma.trainingSession.findFirst({
-      where: { userId, scheduledDate, modality: input.modality },
+      where: { planId: activePlan.id, scheduledDate, modality: input.modality },
       select: { id: true },
     });
     if (existing) {

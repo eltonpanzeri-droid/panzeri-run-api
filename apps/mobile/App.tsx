@@ -3763,59 +3763,77 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             {recommendationOpen ? <Text style={styles.coachText}>{plan.recommendation}</Text> : null}
           </View>
         ) : null}
-        {groupedSessions.map((group) => {
-          const expanded = Boolean(expandedDays[group.key]);
-          const modalitySummary = group.sessions.map((session) => session.title).join(' + ');
-          return (
-            <View style={styles.weekItem} key={group.key}>
-              <View style={styles.weekDate}>
-                <Text style={styles.weekDay}>{group.day}</Text>
-                <Text style={styles.weekNumber}>{group.date}</Text>
-              </View>
-              <View style={styles.weekSessionCard}>
-                <Pressable
-                  style={styles.collapseHeader}
-                  onPress={() => setExpandedDays((current) => ({ ...current, [group.key]: !current[group.key] }))}
-                >
-                  <View style={styles.weekSessionTitleBlock}>
-                    <Text style={styles.sessionTitle}>{modalitySummary}</Text>
-                    <Text style={styles.sessionDetail}>{expanded ? 'Toque para recolher' : 'Toque para ver o treino'}</Text>
-                  </View>
-                  <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={22} color={PRColors.ocean} />
-                </Pressable>
-
-                {expanded ? group.sessions.map((session) => (
-                  <View key={session.id} style={[styles.formSection, { borderLeftWidth: 4, borderLeftColor: modalityAccentColor(session.modality) }]}>
-                    <View style={styles.weekSessionHeader}>
-                      <View style={styles.weekSessionTitleBlock}>
-                        <Text style={styles.sessionTitle}>{session.title}</Text>
-                        <Text style={styles.sessionDetail}>{session.detail}</Text>
-                      </View>
-                      <View style={styles.weekIcon}>
-                        <Ionicons name={iconForModality(session.modality)} size={23} color="#111827" />
-                      </View>
-                    </View>
-                    {/* 04/09: pedido explicito do treinador — esse aviso de desvio de rotina e' util
-                        pra ELE (ja vai pro Telegram dele, ver routineMismatchNote no backend), mas
-                        nao deve mais aparecer pro aluno na tela do treino. O campo continua existindo
-                        e sendo preenchido, so nao renderiza mais aqui. */}
-                    {'notes' in session && session.notes ? <Text style={styles.sessionNote}>{session.notes}</Text> : null}
-                    <SessionPrescription session={session} />
-                    <CompletionForm
-                      session={session}
-                      draft={completionDrafts[session.id] ?? defaultCompletionDraft(session)}
-                      onChange={(patch) => updateCompletionDraft(session, patch)}
-                      onSave={() => saveCompletion(session)}
-                      message={completionMessages[session.id]}
-                      onOpenPainReport={onOpenPainReport}
-                    />
-                    <RescheduleControl session={session} planStartDate={plan?.startDate} onReschedule={rescheduleSession} />
-                  </View>
-                )) : null}
-              </View>
+        {/* 08/09: cada modalidade do dia vira um card independente — antes todas ficavam num
+            so card aberto com "+" no titulo, obrigando a rolar a tela inteira pra achar a
+            modalidade certa. Agora Corrida e Musculacao no mesmo dia sao dois cards separados,
+            cada um com seu proprio toggle, sem scroll gigante. expandedDays agora e' indexado
+            por session.id (antes era por data, colapsava tudo junto). */}
+        {groupedSessions.map((group) => (
+          <View style={styles.weekItem} key={group.key}>
+            <View style={styles.weekDate}>
+              <Text style={styles.weekDay}>{group.day}</Text>
+              <Text style={styles.weekNumber}>{group.date}</Text>
             </View>
-          );
-        })}
+            <View style={{ flex: 1, minWidth: 0, gap: 8 }}>
+              {group.sessions.map((session) => {
+                const sessionExpanded = Boolean(expandedDays[session.id]);
+                return (
+                  <View style={styles.weekSessionCard} key={session.id}>
+                    <Pressable
+                      style={styles.collapseHeader}
+                      onPress={() => setExpandedDays((current) => ({ ...current, [session.id]: !current[session.id] }))}
+                    >
+                      <View style={styles.weekSessionTitleBlock}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Ionicons name={iconForModality(session.modality)} size={18} color="#111827" />
+                          <Text style={styles.sessionTitle}>{session.title}</Text>
+                        </View>
+                        <Text style={styles.sessionDetail}>{sessionExpanded ? 'Toque para recolher' : 'Toque para ver o treino'}</Text>
+                      </View>
+                      <Ionicons name={sessionExpanded ? 'chevron-up' : 'chevron-down'} size={22} color={PRColors.ocean} />
+                    </Pressable>
+
+                    {sessionExpanded ? (
+                      <View style={[styles.formSection, { borderLeftWidth: 4, borderLeftColor: modalityAccentColor(session.modality) }]}>
+                        <View style={styles.weekSessionHeader}>
+                          <View style={styles.weekSessionTitleBlock}>
+                            <Text style={styles.sessionDetail}>{session.detail}</Text>
+                          </View>
+                        </View>
+                        {/* 04/09: aviso de desvio de rotina util so pro treinador (vai pro Telegram) —
+                            nao exibe mais pro aluno aqui. O campo continua salvo no banco. */}
+                        {'notes' in session && session.notes ? <Text style={styles.sessionNote}>{session.notes}</Text> : null}
+                        <SessionPrescription
+                          session={session}
+                          exerciseFeedback={completionDrafts[session.id]?.exerciseFeedback}
+                          onExerciseFeedbackChange={(name, patch) => {
+                            const draft = completionDrafts[session.id] ?? defaultCompletionDraft(session);
+                            const existing = draft.exerciseFeedback.find((item) => item.name === name) ?? { name, loadKg: '', satisfaction: '' };
+                            const merged = { ...existing, ...patch };
+                            const updated = draft.exerciseFeedback.filter((item) => item.name !== name);
+                            updateCompletionDraft(session, {
+                              exerciseFeedback: merged.loadKg || merged.satisfaction ? [...updated, merged] : updated,
+                            });
+                          }}
+                          feedbackLocked={!!(session.completion && !(expandedDays[`edit:${session.id}`]))}
+                        />
+                        <CompletionForm
+                          session={session}
+                          draft={completionDrafts[session.id] ?? defaultCompletionDraft(session)}
+                          onChange={(patch) => updateCompletionDraft(session, patch)}
+                          onSave={() => saveCompletion(session)}
+                          message={completionMessages[session.id]}
+                          onOpenPainReport={onOpenPainReport}
+                        />
+                        <RescheduleControl session={session} planStartDate={plan?.startDate} onReschedule={rescheduleSession} />
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        ))}
       </View>
 
       <View style={styles.formSection}>
@@ -5984,14 +6002,32 @@ function SessionCard({
   );
 }
 
-function SessionPrescription({ session }: { session: WeekPlanSession }) {
+function SessionPrescription({
+  session,
+  exerciseFeedback,
+  onExerciseFeedbackChange,
+  feedbackLocked,
+}: {
+  session: WeekPlanSession;
+  exerciseFeedback?: Array<{ name: string; loadKg: string; satisfaction: string }>;
+  onExerciseFeedbackChange?: (name: string, patch: { loadKg?: string; satisfaction?: string }) => void;
+  feedbackLocked?: boolean;
+}) {
   const structure = session.structure;
   if (!structure) {
     return null;
   }
 
   if (structure.type === 'strength') {
-    return <StrengthExerciseList category={structure.category} exercises={structure.exercises ?? []} />;
+    return (
+      <StrengthExerciseList
+        category={structure.category}
+        exercises={structure.exercises ?? []}
+        exerciseFeedback={exerciseFeedback}
+        onExerciseFeedbackChange={onExerciseFeedbackChange}
+        feedbackLocked={feedbackLocked}
+      />
+    );
   }
 
   if (structure.type === 'aerobic') {
@@ -6083,8 +6119,23 @@ function SessionPrescription({ session }: { session: WeekPlanSession }) {
   );
 }
 
-function StrengthExerciseList({ category, exercises }: { category?: string; exercises: NonNullable<Extract<SessionStructure, { type: 'strength' }>['exercises']> }) {
+function StrengthExerciseList({
+  category,
+  exercises,
+  exerciseFeedback,
+  onExerciseFeedbackChange,
+  feedbackLocked,
+}: {
+  category?: string;
+  exercises: NonNullable<Extract<SessionStructure, { type: 'strength' }>['exercises']>;
+  // 08/09: feedback inline por exercicio — kg + Otimo/Ok/Dificil aparecem dentro do proprio
+  // exercicio expandido, nao numa secao separada la embaixo do formulario (pedido do treinador).
+  exerciseFeedback?: Array<{ name: string; loadKg: string; satisfaction: string }>;
+  onExerciseFeedbackChange?: (name: string, patch: { loadKg?: string; satisfaction?: string }) => void;
+  feedbackLocked?: boolean;
+}) {
   const [openExercise, setOpenExercise] = useState<number | null>(null);
+  const hasFeedback = Boolean(onExerciseFeedbackChange);
   return (
     <View style={styles.prescriptionBox}>
       {category ? <Text style={styles.prescriptionCategory}>{category}</Text> : null}
@@ -6094,6 +6145,9 @@ function StrengthExerciseList({ category, exercises }: { category?: string; exer
       </View>
       {exercises.map((exercise, index) => {
         const isOpen = openExercise === index;
+        const fb = hasFeedback
+          ? (exerciseFeedback?.find((item) => item.name === exercise.name) ?? { name: exercise.name, loadKg: '', satisfaction: '' })
+          : null;
         return (
           <View style={styles.strengthExercise} key={`${exercise.name}-${index}`}>
             <Pressable style={styles.strengthExerciseTop} onPress={() => setOpenExercise(isOpen ? null : index)}>
@@ -6102,6 +6156,10 @@ function StrengthExerciseList({ category, exercises }: { category?: string; exer
                 <Text style={styles.exerciseName}>{exercise.name}</Text>
                 <Text style={styles.exerciseSummary}>{exercise.sets} series | {exercise.reps} reps | pausa {exercise.restSeconds}s</Text>
               </View>
+              {/* Indicador rapido de feedback ja preenchido (sem precisar abrir o exercicio) */}
+              {fb && (fb.loadKg || fb.satisfaction) ? (
+                <Ionicons name="checkmark-circle" size={16} color="#187A55" />
+              ) : null}
               <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color={PRColors.ocean} />
             </Pressable>
             {isOpen ? (
@@ -6121,6 +6179,40 @@ function StrengthExerciseList({ category, exercises }: { category?: string; exer
                     <Text style={styles.videoButtonText}>Assistir demonstracao</Text>
                   </Pressable>
                 ) : <Text style={styles.noVideoText}>Exercicio sem video cadastrado.</Text>}
+                {/* Feedback inline — kg + percepcao — aparece dentro do exercicio expandido */}
+                {hasFeedback && fb ? (
+                  <View pointerEvents={feedbackLocked ? 'none' : 'auto'} style={[{ marginTop: 10, gap: 8 }, feedbackLocked ? { opacity: 0.55 } : undefined]}>
+                    <Text style={styles.exerciseFeedbackName}>Seu registro (opcional)</Text>
+                    {exercise.loadField ? (
+                      <View style={styles.exerciseFeedbackLoadRow}>
+                        <TextInput
+                          style={styles.exerciseFeedbackLoadInput}
+                          value={fb.loadKg}
+                          onChangeText={(value) => onExerciseFeedbackChange!(exercise.name, { loadKg: value })}
+                          keyboardType="numeric"
+                          placeholder="kg"
+                          maxLength={6}
+                        />
+                        <Text style={styles.exerciseFeedbackLoadLabel}>kg</Text>
+                      </View>
+                    ) : null}
+                    <View style={styles.completionStatusRow}>
+                      {[
+                        { label: 'Otimo', value: 'otimo' },
+                        { label: 'Ok', value: 'ok' },
+                        { label: 'Dificil', value: 'dificil' },
+                      ].map((option) => (
+                        <Pressable
+                          key={option.value}
+                          style={[styles.completionChip, fb.satisfaction === option.value && styles.completionChipActive]}
+                          onPress={() => onExerciseFeedbackChange!(exercise.name, { satisfaction: fb.satisfaction === option.value ? '' : option.value })}
+                        >
+                          <Text style={[styles.completionChipText, fb.satisfaction === option.value && styles.completionChipTextActive]}>{option.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -6374,57 +6466,9 @@ function CompletionForm({
             </View>
           ) : null}
 
-          {isStrength && session.structure?.type === 'strength' && (session.structure.exercises?.length ?? 0) > 0 ? (
-            /* 07/09: micro-feedback por exercicio — carga usada (opcional, so se loadField=true) +
-               percepcao rapida ("Como foi?"). Substitui o textarea de texto livre anterior, que
-               o aluno raramente preenchia de forma estruturada. exerciseFeedback fica dentro de
-               details{} no servidor sem migration. */
-            <View>
-              <Text style={styles.formHint}>Registro por exercicio (opcional)</Text>
-              {session.structure.exercises!.map((exercise, index) => {
-                const fb = draft.exerciseFeedback.find((item) => item.name === exercise.name) ?? { name: exercise.name, loadKg: '', satisfaction: '' };
-                const updateFb = (patch: Partial<typeof fb>) => {
-                  const updated = draft.exerciseFeedback.filter((item) => item.name !== exercise.name);
-                  const merged = { ...fb, ...patch };
-                  onChange({ exerciseFeedback: merged.loadKg || merged.satisfaction ? [...updated, merged] : updated });
-                };
-                return (
-                  <View key={`${exercise.name}-${index}`} style={styles.exerciseFeedbackRow}>
-                    <Text style={styles.exerciseFeedbackName}>{exercise.name}</Text>
-                    <Text style={styles.exerciseFeedbackMeta}>{exercise.sets}×{exercise.reps}</Text>
-                    {exercise.loadField ? (
-                      <View style={styles.exerciseFeedbackLoadRow}>
-                        <TextInput
-                          style={styles.exerciseFeedbackLoadInput}
-                          value={fb.loadKg}
-                          onChangeText={(value) => updateFb({ loadKg: value })}
-                          keyboardType="numeric"
-                          placeholder="kg"
-                          maxLength={6}
-                        />
-                        <Text style={styles.exerciseFeedbackLoadLabel}>kg</Text>
-                      </View>
-                    ) : null}
-                    <View style={styles.completionStatusRow}>
-                      {[
-                        { label: 'Otimo', value: 'otimo' },
-                        { label: 'Ok', value: 'ok' },
-                        { label: 'Dificil', value: 'dificil' },
-                      ].map((option) => (
-                        <Pressable
-                          key={option.value}
-                          style={[styles.completionChip, fb.satisfaction === option.value && styles.completionChipActive]}
-                          onPress={() => updateFb({ satisfaction: fb.satisfaction === option.value ? '' : option.value })}
-                        >
-                          <Text style={[styles.completionChipText, fb.satisfaction === option.value && styles.completionChipTextActive]}>{option.label}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          ) : null}
+          {/* 08/09: feedback por exercicio (kg + Otimo/Ok/Dificil) movido pra dentro de cada
+              exercicio expandido em StrengthExerciseList — nao fica mais aqui como secao separada
+              embaixo do formulario (pedido do treinador: "junto com o exercicio, nao la embaixo"). */}
 
           <Text style={styles.formHint}>Percepcao de dificuldade do treino (RPE){draft.status === 'done' ? ' - obrigatorio' : ' - opcional'}</Text>
           <View style={styles.completionStatusRow}>

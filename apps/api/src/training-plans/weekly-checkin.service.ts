@@ -192,9 +192,16 @@ export class WeeklyCheckInService {
     for (const session of sessions) {
       const isPastOrToday = startOfDay(session.scheduledDate).getTime() <= today.getTime();
       if (!isPastOrToday) continue;
-      const done = session.completion?.status === 'done' || session.completion?.status === 'adjusted';
-      if (done) asPrescribedSessions += 1;
-      else missedSessions += 1;
+      const status = session.completion?.status;
+      // 08/09: separar status='missed' (aluno marcou "nao feito" explicitamente) de completion=null
+      // (sem nenhuma interacao — treino pode ter sido feito e nao registrado). Antes ambos iam pra
+      // missedSessions, gerando "sem registro" falso pro aluno quando ele marcou "nao feito" de
+      // proposito — causava confusao e bloqueio de geracao desnecessario (bug Eduarda).
+      // Sessoes sem completion (null) nao contam aqui — o aluno confirma que "registrou o que tinha
+      // pra registrar" na propria tela do check-in; o numero nao precisa bater com as sessoes passadas.
+      if (status === 'done' || status === 'adjusted') asPrescribedSessions += 1;
+      else if (status === 'missed') missedSessions += 1;
+      // status null/undefined: sem interacao — nao conta em nenhum bucket (nao e' missedSessions)
     }
     return { asPrescribedSessions, changedModalitySessions: 0, differentSessions: 0, missedSessions };
   }

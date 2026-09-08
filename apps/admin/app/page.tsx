@@ -1320,6 +1320,10 @@ export default function AdminHome() {
                 </button>
               </div>
             ) : null}
+            {/* 08/09: paginacao tambem no topo da lista — antes so havia no final, exigindo rolar
+                ate la pra trocar de pagina (pedido do treinador: "esse botao deve ficar na parte
+                de cima tambem"). Mesmo componente com compact=true para nao ocupar espaco. */}
+            <Pagination pagination={dashboard?.pagination} onPageChange={setPage} compact />
             {studentListCollapsed ? null : (
             <div className="table">
               <div className="row header">
