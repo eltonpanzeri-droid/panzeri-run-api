@@ -2772,6 +2772,13 @@ function StudentPanel({
                       token={token}
                       scheduledDate={dayDate}
                       existingModalities={existingModalities}
+                      routineModalities={
+                        // 08/09: passa modalidades da rotina para o picker saber oferecer "todos do dia"
+                        (() => {
+                          const rd = student.availability?.find((d) => d.weekday === weekday);
+                          return rd && !rd.noTraining ? rd.modalities : [];
+                        })()
+                      }
                       onStatus={onStatus}
                       onCreated={(newSessionId) => {
                         setJustAddedSessionId(newSessionId);
@@ -2900,14 +2907,8 @@ function EditableSession({
   }
 
   async function regenerateSession(allowToday?: boolean) {
-    if (
-      !allowToday &&
-      !window.confirm(
-        'Gerar novo treino so para este dia? Isso recalcula apenas esta sessao, aplicando diretivas ativas do aluno. Os outros dias da semana nao sao alterados. Nao e possivel gerar de novo para um dia que ja passou.',
-      )
-    ) {
-      return;
-    }
+    // 08/09: removido o confirm "tem certeza?" — o treinador ja esta dentro da sessao especifica,
+    // o contexto e obvio. So o gate de today_session_locked (abaixo) permanece.
     onStatus('Gerando novo treino...');
     setIsRegenerating(true);
     try {
@@ -3071,18 +3072,37 @@ function EditableSession({
   );
 }
 
+// 08/09: esteira removida — nao existe como opcao manual do treinador. Corrida vs esteira
+// e contexto pra IA, nao uma modalidade distinta na rotina/sessao manual.
+// Combos disponiveis no AddSessionButton sao definidos em PICKER_COMBOS (abaixo).
 const MANUAL_SESSION_MODALITIES: Array<{ value: string; label: string }> = [
   { value: 'corrida', label: 'Corrida' },
-  { value: 'esteira', label: 'Corrida na esteira' },
   { value: 'forca', label: 'Musculacao' },
   { value: 'fortalecimento_corredores', label: 'Fortalecimento para corredores' },
 ];
 
+// Combinacoes oferecidas no picker de "Adicionar treino".
+// Ordem: individuais primeiro, depois combos, depois combo total.
+const PICKER_COMBOS: Array<{ label: string; modalities: string[] }> = [
+  { label: 'Corrida', modalities: ['corrida'] },
+  { label: 'Musculacao', modalities: ['forca'] },
+  { label: 'Fortalecimento', modalities: ['fortalecimento_corredores'] },
+  { label: 'Corrida + Musculacao', modalities: ['corrida', 'forca'] },
+  { label: 'Corrida + Fortalecimento', modalities: ['corrida', 'fortalecimento_corredores'] },
+  { label: 'Corrida + Musculacao + Fortalecimento', modalities: ['corrida', 'forca', 'fortalecimento_corredores'] },
+];
+
+// 08/09: redesenhado para suportar:
+// - "Adicionar todos do dia" quando a rotina tem 2+ modalidades pendentes
+// - combos fixos (Corrida, Musculacao, Fortalecimento e combinacoes) em vez de lista individual
+// - suporte a adicionar multiplas sessoes em sequencia (uma chamada por modalidade)
+// - esteira tratada como corrida — nao aparece como opcao separada
 function AddSessionButton({
   studentId,
   token,
   scheduledDate,
   existingModalities,
+  routineModalities,
   onStatus,
   onCreated,
 }: {
@@ -3090,39 +3110,62 @@ function AddSessionButton({
   token: string;
   scheduledDate: string;
   existingModalities: Set<string>;
+  // Modalidades da rotina oficial para este dia (pode ser vazio se nao e dia de rotina)
+  routineModalities: string[];
   onStatus: (message: string) => void;
   onCreated: (sessionId: string) => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const options = MANUAL_SESSION_MODALITIES.filter((option) => !existingModalities.has(option.value));
 
-  async function createSession(modality: string) {
+  // esteira e corrida sao equivalentes; normalizamos sempre para corrida ao criar sessao manual
+  function normalizeM(m: string) { return m === 'esteira' ? 'corrida' : m; }
+  const normalizedExisting = new Set([...existingModalities].map(normalizeM));
+
+  // Modalidades da rotina para este dia, normalizadas e deduplicadas
+  const normalizedRoutine = [...new Set(routineModalities.map(normalizeM))];
+  // Quais ainda nao foram adicionadas
+  const pendingRoutine = normalizedRoutine.filter((m) => !normalizedExisting.has(m));
+
+  // Combos que ainda tem pelo menos uma modalidade faltando
+  const availableCombos = PICKER_COMBOS.filter((combo) => combo.modalities.some((m) => !normalizedExisting.has(m)));
+
+  // Nada mais pode ser adicionado
+  if (!availableCombos.length && pendingRoutine.length === 0) return null;
+
+  // Cria uma ou mais sessoes em sequencia (pula modalidades ja existentes)
+  async function createSessions(modalities: string[]) {
+    const toAdd = modalities.filter((m) => !normalizedExisting.has(m));
+    if (!toAdd.length) return;
     setIsCreating(true);
-    onStatus('Adicionando treino...');
+    onStatus(toAdd.length > 1 ? 'Adicionando treinos...' : 'Adicionando treino...');
     try {
-      const response = await fetch(`${API_URL}/coach/students/${studentId}/sessions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scheduledDate, modality }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        const detail = Array.isArray(data?.message) ? data.message.join(', ') : data?.message;
-        onStatus(detail ? `Nao foi possivel adicionar: ${detail}` : 'Nao foi possivel adicionar o treino.');
-        return;
+      let lastId = '';
+      for (const modality of toAdd) {
+        const response = await fetch(`${API_URL}/coach/students/${studentId}/sessions`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scheduledDate, modality }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const detail = Array.isArray(data?.message) ? data.message.join(', ') : data?.message;
+          onStatus(detail ? `Nao foi possivel adicionar: ${detail}` : 'Nao foi possivel adicionar o treino.');
+          setIsCreating(false);
+          return;
+        }
+        lastId = (data.id as string) ?? lastId;
       }
-      onStatus('Treino adicionado. Preencha ou peca pra IA gerar.');
+      const msg = toAdd.length > 1 ? 'Treinos adicionados.' : 'Treino adicionado.';
+      onStatus(`${msg} Preencha ou peca pra IA gerar.`);
       setPickerOpen(false);
-      onCreated(data.id as string);
+      if (lastId) onCreated(lastId);
     } catch {
       onStatus('Nao consegui conectar com a API.');
     } finally {
       setIsCreating(false);
     }
   }
-
-  if (!options.length) return null;
 
   if (!pickerOpen) {
     return (
@@ -3132,17 +3175,36 @@ function AddSessionButton({
     );
   }
 
+  // Label legivel para uma lista de modalidades
+  function modalityLabel(m: string) {
+    if (m === 'corrida') return 'Corrida';
+    if (m === 'forca') return 'Musculacao';
+    if (m === 'fortalecimento_corredores') return 'Fortalecimento';
+    return m;
+  }
+
   return (
     <div className="addSessionPicker">
-      {options.map((option) => (
+      {/* Botao "todos do dia" so aparece quando a rotina tem 2+ modalidades pendentes */}
+      {pendingRoutine.length >= 2 ? (
         <button
-          key={option.value}
+          type="button"
+          className="primaryButton"
+          disabled={isCreating}
+          onClick={() => createSessions(pendingRoutine)}
+        >
+          Todos do dia ({pendingRoutine.map(modalityLabel).join(' + ')})
+        </button>
+      ) : null}
+      {availableCombos.map((combo) => (
+        <button
+          key={combo.modalities.join('+')}
           type="button"
           className="secondaryButton"
           disabled={isCreating}
-          onClick={() => createSession(option.value)}
+          onClick={() => createSessions(combo.modalities)}
         >
-          {option.label}
+          {combo.label}
         </button>
       ))}
       <button type="button" className="addSessionCancel" disabled={isCreating} onClick={() => setPickerOpen(false)}>Cancelar</button>
