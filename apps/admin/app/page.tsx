@@ -3514,7 +3514,7 @@ function RunStepEditor({
       </div>
 
       {intensityMode === 'pace' ? (
-        <div className="intensityInputs"><label>Pace inicial<input value={paceStart} onChange={(event) => updatePace('paceStart', event.target.value)} placeholder="05:13" /></label><label>Pace final<input value={paceEnd} onChange={(event) => updatePace('paceEnd', event.target.value)} placeholder="05:38" /></label></div>
+        <div className="intensityInputs"><label>Pace limite (rapido)<input value={paceStart} onChange={(event) => updatePace('paceStart', event.target.value)} placeholder="05:13" /></label><label>Pace limite (lento)<input value={paceEnd} onChange={(event) => updatePace('paceEnd', event.target.value)} placeholder="05:38" /></label></div>
       ) : null}
       {intensityMode === 'speed' ? (
         <div className="intensityInputs"><label>Velocidade minima<input value={speedStart} onChange={(event) => updateSpeed('speedStart', event.target.value)} placeholder="10,7" /></label><label>Velocidade maxima<input value={speedEnd} onChange={(event) => updateSpeed('speedEnd', event.target.value)} placeholder="11,5" /></label></div>
