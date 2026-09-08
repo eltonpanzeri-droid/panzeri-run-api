@@ -110,6 +110,7 @@ Use revisor com contexto separado para mudanças em auth, billing, prescrição,
 
 ## Memória e documentação
 
+- No início de qualquer sessão nova neste repositório, leia o `PRONTUARIO.md` por completo antes de qualquer ação além de leitura simples. Ele existe exatamente para isso: contexto rápido e atualizado pra quem chega sem memória das conversas anteriores. Não presuma que o Elton vai pedir isso explicitamente.
 - Consulte primeiro código e testes atuais; memória é pista, não autoridade.
 - Registre fatos em FACTS, decisões em ADRs, procedimentos em RUNBOOKS e incidentes em INCIDENTS.
 - Toda decisão contém data, status (`proposed`, `active`, `superseded`, `experimental`), evidência, alternativas e gatilho de revisão.

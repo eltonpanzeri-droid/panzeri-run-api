@@ -2011,21 +2011,27 @@ function WheelColumn({ values, selectedIndex, onChangeIndex, width }: { values: 
     if (settleTimer.current) clearTimeout(settleTimer.current);
   }, []);
 
-  function reportIndexFromOffset(offsetY: number) {
-    const index = Math.round(offsetY / WHEEL_ITEM_HEIGHT);
-    onChangeIndex(Math.max(0, Math.min(values.length - 1, index)));
-  }
-
   // Mesmo com tres eventos de rolagem redundantes, isso ainda falhou pra outra aluna (Duane) —
   // ou seja, depender so de deteccao de gesto de rolagem nao e confiavel o suficiente num
-  // navegador/PWA. Por isso o toque direto (no item da lista, ou nos botoes -/+) agora e o
+  // navegador/PWA. Por isso o toque direto (no item da lista, ou nos botoes -/+) continua sendo o
   // caminho PRINCIPAL e garantido: um "onPress" e um evento simples e sincrono, sem ambiguidade
   // de timing nenhuma — nao tem como ele "nao disparar" do jeito que um gesto de rolagem pode.
-  // A rolagem continua funcionando (ainda e mais rapido pra pular varios valores), mas ninguem
-  // depende mais soh dela pra confirmar a escolha.
-  function handleScroll(offsetY: number) {
+  //
+  // 08/09: bug real reportado pela Thais — os tres eventos de rolagem (onScroll, onScrollEndDrag,
+  // onMomentumScrollEnd) disparavam onChangeIndex DIRETO, cada um podendo reportar um indice
+  // diferente do mesmo gesto de arrastar (onScrollEndDrag pega o offset no momento em que o dedo
+  // solta, ainda em movimento por inercia; onMomentumScrollEnd pega o offset final de verdade).
+  // Isso virava dois ou tres PUTs concorrentes pro mesmo campo na entrevista (ver `persist` em
+  // GuidedInterview) — a resposta de um chegando fora de ordem podia mostrar "Nao consegui salvar"
+  // mesmo com o valor certo ja salvo por outro, ou pior, um valor antigo sobrescrevendo o novo e
+  // fazendo o useEffect acima puxar a roda de volta — o que a aluna via como "a roda parou de
+  // responder ao arrasto". Agora os tres caminhos passam pelo MESMO timer de espera: so' o ultimo
+  // indice reportado depois de 150ms sem novo evento e' realmente enviado (um so' onChangeIndex por
+  // gesto). O toque direto (item da lista, botoes -/+) continua sincrono, sem essa espera.
+  function reportIndexFromOffset(offsetY: number) {
     if (settleTimer.current) clearTimeout(settleTimer.current);
-    settleTimer.current = setTimeout(() => reportIndexFromOffset(offsetY), 130);
+    const index = Math.max(0, Math.min(values.length - 1, Math.round(offsetY / WHEEL_ITEM_HEIGHT)));
+    settleTimer.current = setTimeout(() => onChangeIndex(index), 150);
   }
   function step(delta: number) {
     onChangeIndex(Math.max(0, Math.min(values.length - 1, selectedIndex + delta)));
@@ -2044,7 +2050,7 @@ function WheelColumn({ values, selectedIndex, onChangeIndex, width }: { values: 
           decelerationRate="fast"
           contentContainerStyle={{ paddingVertical }}
           scrollEventThrottle={16}
-          onScroll={(event) => handleScroll(event.nativeEvent.contentOffset.y)}
+          onScroll={(event) => reportIndexFromOffset(event.nativeEvent.contentOffset.y)}
           onScrollEndDrag={(event) => reportIndexFromOffset(event.nativeEvent.contentOffset.y)}
           onMomentumScrollEnd={(event) => reportIndexFromOffset(event.nativeEvent.contentOffset.y)}
         >

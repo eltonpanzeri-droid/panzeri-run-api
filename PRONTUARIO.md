@@ -8,6 +8,37 @@ Não é extenso de propósito. A ideia é atualizar este arquivo a cada 1–2 se
 incidente importante), acrescentando um novo bloco em "Diário" e ajustando as seções acima se algo
 estrutural mudou. Não é um changelog técnico completo — para isso existe o histórico do git.
 
+**08/09/2026**: este documento absorveu o `MEMORIA_DO_PROJETO_PANZERI_RUN.md`, que ficou desatualizado
+em vários pontos (teste de 3km, processador de pagamento) e foi descontinuado. A partir de agora este
+é o único documento de referência geral do projeto.
+
+---
+
+## Referência rápida (instalação, acessos, comandos)
+
+Link de produção real que as alunas usam: `https://panzerirun.eltonpanzeripersonal.com.br` (domínio
+próprio, configurado em 19/08; o link antigo do EasyPanel continua ativo em paralelo, mas não é o que
+se divulga).
+
+Como a aluna instala o PWA na tela principal:
+
+- iPhone: abrir o link pelo Safari → botão de compartilhar → "Adicionar à Tela de Início" → confirmar.
+- Android: abrir o link pelo Chrome → três pontinhos → "Adicionar à tela inicial" ou "Instalar app" →
+  confirmar.
+
+Scripts locais úteis (raiz do repositório):
+
+- `abrir-painel-admin-estavel.bat` — abre o painel do treinador local (`http://127.0.0.1:3000`).
+- `abrir-mobile-preview.bat` / `abrir-mobile-navegador.bat` / `abrir-mobile-expo.bat` — abrem o app
+  mobile local de formas diferentes.
+- `atualizar-github-panzeri-run.bat` — sincroniza o código local com o mirror que o GitHub Desktop
+  monitora (ver nota sobre os dois diretórios, entrada de 06/09/07/09 no Diário).
+- `gerar-app-android.bat` / `gerar-app-android-producao.bat` — geram build Android (preview/produção).
+
+Cuidados: nunca registrar senha, token, secret ou chave privada neste documento nem em nenhum outro
+arquivo de texto do repositório. Dados sensíveis ficam no EasyPanel, em variáveis de ambiente, ou em
+`secrets/` (fora do git).
+
 ---
 
 ## O que é o Panzeri Run
@@ -1072,6 +1103,36 @@ de entrevista desta sessão só chegam após novo build EAS. Usuários PWA já r
 - **UX: feedback por exercício inline** — os botões de kg e Ótimo/Ok/Difícil foram movidos para DENTRO de cada exercício expandido em `StrengthExerciseList`, com indicador visual de preenchimento (✓ verde) na row colapsada. A seção separada "Registro por exercício" no rodapé do formulário foi removida. `SessionPrescription` e `StrengthExerciseList` passaram a aceitar `exerciseFeedback`, `onExerciseFeedbackChange` e `feedbackLocked` como props opcionais.
 - **Admin — paginação no topo da lista**: botões Anterior/Próxima e "Página X de Y" duplicados no topo da lista de alunos (compact), além do que já existia no rodapé.
 - **Arquivos alterados**: `apps/api/src/training-plans/training-plans.service.ts`, `apps/api/src/training-plans/training-methodology.ts`, `apps/api/src/training-plans/weekly-checkin.service.ts`, `apps/api/src/training-plans/prescription-agent.service.ts`, `apps/mobile/App.tsx`, `apps/admin/app/page.tsx`.
+
+**2026-09-08 (Cowork) — Bug real reportado pela aluna Thais: roda de números travando na Avaliação
+física recente, sem conseguir registrar as medidas**
+
+- **Diagnóstico**: em `WheelColumn` (`apps/mobile/App.tsx`), três eventos de rolagem redundantes
+  (`onScroll`, `onScrollEndDrag`, `onMomentumScrollEnd` — redundância deliberada desde o caso da
+  Duane, ver comentário no código) disparavam `onChangeIndex` DIRETO cada um, sem coordenação entre
+  si. Um gesto de arrastar rápido (fling) podia gerar 2-3 chamadas com índices diferentes do mesmo
+  gesto, cada uma virando um PUT concorrente pra `/me/onboarding/answer`. Resposta chegando fora de
+  ordem: mostrava "Não consegui salvar esta resposta" mesmo com o valor certo já salvo por outra
+  chamada, ou um valor antigo sobrescrevia o novo em `answers` e o `useEffect` que sincroniza a
+  posição visual da roda puxava ela de volta — o que a aluna sentiu como "a roda parou de responder
+  ao arrasto, só funciona apertando a setinha". Bate exatamente com o relato dela.
+- **Correção aplicada** (via Cowork, sessão sem `device_bash`/typecheck — **precisa passar pelos
+  gates do Code antes de comitar**: typecheck de `apps/mobile`, lint, teste manual real na tela de
+  Avaliação física recente): os três eventos agora passam pelo MESMO timer de espera de 150ms — só
+  o último índice reportado depois da rolagem ficar quieta é enviado (um único `onChangeIndex`, logo
+  um único PUT, por gesto). Toque direto no item da lista e nos botões -/+ continuam síncronos, sem
+  essa espera — não foram alterados. Risco Médio (UX/estado local), reversível.
+- **Achado adicional, mais sério, NÃO CORRIGIDO — precisa de aprovação antes de mexer (risco Alto,
+  concorrência)**: `saveOnboardingAnswer` (`apps/api/src/me/me.service.ts:69`) faz
+  `findUnique` + `upsert` (leitura, depois escrita do objeto `answers` inteiro) sem transação nem
+  lock. Duas requisições concorrentes pro mesmo aluno podem se sobrescrever: a que demorar mais pra
+  responder pode gravar por cima de uma resposta mais recente de OUTRA pergunta que foi salva no
+  meio do caminho (lost update clássico). A correção do frontend acima reduz muito a frequência
+  disso (normalmente 1 PUT por gesto agora, não 2-3), mas não elimina a causa raiz no backend. Fix
+  provável: `UPDATE ... SET answers = answers || jsonb_build_object($key, $value)` atômico no
+  Postgres em vez de ler-modificar-escrever em código, ou uma transação serializável. Não
+  implementado — CLAUDE.md classifica concorrência como Alto risco (Gauntlet Loop obrigatório).
+- **Arquivo alterado**: `apps/mobile/App.tsx` (`WheelColumn`).
 
 **Não iniciado ainda**: integração com WhatsApp (VPS Hostinger com Evolution API/n8n configurada, mas
 não conectada ao Panzeri Run).
