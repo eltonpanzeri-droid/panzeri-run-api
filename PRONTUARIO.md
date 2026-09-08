@@ -1143,3 +1143,70 @@ não conectada ao Panzeri Run).
   testado ponta a ponta com pagamento Asaas real.
 - Identidade visual v2 (alinhada com Panz Fit) proposta mas não decidida nem implementada.
 - Strava API reprovada para aumento de limite além de 10 atletas.
+
+**2026-09-08 (Cowork) — Verificação pedida pelo Elton: fluxo entrevista→rotina, ajuste "só essa
+semana" vs. permanente, e aba Rotina no admin — depois do caso da Thais (rotina vazia com plano já
+gerado)**
+
+- **Fluxo 5 perguntas → assinatura → entrevista completa → rotina**: confirmado correto no código
+  atual. Ao concluir a entrevista principal (`mainInterviewQuestions`, que deliberadamente NÃO inclui
+  o módulo "Rotina semanal"), o app manda automaticamente para a aba `routine` (`App.tsx:1264`) — já
+  existe um comentário no código confirmando que isso foi corrigido em 16/08 exatamente pra evitar
+  cair direto em "Semana" sem rotina configurada. Nenhum gap encontrado aqui.
+- **Rotina oficial vs. ajuste só desta semana**: confirmado que os dois caminhos existem e são
+  bem separados. "Salvar rotina permanente" chama `PUT /me/availability` e só entra em vigor na
+  geração automática de domingo (a semana atual não muda). "Gerar ajustes só desta semana" chama
+  `POST /training-plans/week` com a disponibilidade dessa tela embutida no corpo da requisição — não
+  grava em `WeeklyAvailability` nem na entrevista, é usado só naquela chamada (`weeklyOverride` em
+  `training-plans.service.ts`). Esse segundo caminho NÃO tem relação com o bug da rotina vazia.
+- **Aba Rotina separada no painel admin**: já existe (adicionada 06-07/09, ver Diário acima),
+  confirmada também na tela que o Elton mostrou. Continua também disponível dentro de Avaliação, por
+  decisão deliberada da época (não é duplicação por engano).
+- **Conclusão**: nenhuma das três coisas verificadas é bug — as três já estão implementadas como o
+  Elton descreveu. O problema real da rotina vazia da Thais continua sendo o achado anterior (mesmo
+  dia): `syncAvailabilityFromInterview` sem trava contra sobrescrever rotina real com rotina vazia
+  calculada da entrevista. Nada foi implementado ainda para esse ponto — segue precisando de
+  aprovação (risco Alto/Médio, dado tocado por estudantes pagantes em produção).
+
+**2026-09-08 (Cowork) — Pergunta do Elton: dá pra fixar rotina em só 2 momentos (entrevista de rotina
+única + ajuste "só essa semana" na tela de Semana), acabando com o retrabalho da aluna? Achado novo:
+terceiro caminho que mexe em `WeeklyAvailability` sem o usuário nunca ter "respondido rotina duas
+vezes" pela tela — o problema é de encanamento interno, não de UX repetida**
+
+- **A pergunta do Elton estava certa como diagnóstico de produto**: hoje só existem mesmo dois
+  momentos em que a ALUNA vê e mexe em rotina pela tela — (1) o módulo "Rotina semanal" dentro da
+  entrevista guiada (perguntas tipo `${dia}_run_time`, respondidas uma vez), e (2) a tela de Semana,
+  com a opção "só essa semana" (não grava nada permanente) ou "salvar como rotina permanente"
+  (grava). Não existe uma terceira tela pedindo a mesma coisa de novo. Ou seja, do ponto de vista de
+  "quantas telas pedem isso pra ela preencher", já está em 2 — o retrabalho que ele viu não vem de
+  uma pergunta duplicada na interface.
+- **O retrabalho real é outro, e mais grave**: reli `completeOnboarding` (`me.service.ts`, a função
+  que fecha a entrevista PRINCIPAL — nome, saúde, preferências, CPF etc., que deliberadamente NÃO
+  inclui as perguntas de rotina). Ela também calcula `buildInterviewAvailability(answers)` e, dentro
+  da mesma transação, apaga e recria `WeeklyAvailability` inteira (linhas ~159 e ~219-220) — MESMO
+  sem nenhuma pergunta de rotina ter sido respondida ainda, porque a ordem normal é: entrevista
+  principal termina → SÓ DEPOIS o app manda pra tela de Rotina. Ou seja: no exato momento em que a
+  aluna termina a entrevista principal, antes mesmo dela ver a tela de rotina, o sistema já apaga
+  qualquer rotina real que existisse e grava uma rotina vazia (nenhum dia com treino) — de forma
+  automática, silenciosa, sem ela ter feito nada de errado. Se depois disso ela demorar pra chegar na
+  tela de Rotina, ou o app já tiver gerado treino da semana antes disso, o efeito é exatamente o "sumiu
+  a rotina" que apareceu com a Thais. Esse é o terceiro lugar que escreve em `WeeklyAvailability` a
+  partir do rascunho da entrevista (os outros dois já mapeados são `syncAvailabilityFromInterview` —
+  botão "sincronizar" do admin — e o próprio `completeRoutineFromInterview`, que é chamado quando ela
+  termina a tela de Rotina de fato). Os três usam a mesma função de conversão
+  (`buildInterviewAvailability`) e nenhum tem trava contra sobrescrever uma rotina real com uma vazia.
+- **Resposta à proposta do Elton ("será que não é melhor a gente fixar só nisso?")**: sim, e a forma
+  mais limpa de fazer isso é justamente parar de tratar isso como "consertar a interface" (ela já está
+  certa, só 2 telas) e tratar como "consertar o encanamento" — fazer `completeOnboarding` (fim da
+  entrevista PRINCIPAL) simplesmente NÃO tocar em `WeeklyAvailability`, porque essa não é a etapa
+  responsável por isso — quem é responsável é a tela de Rotina, que roda logo em seguida e já chama
+  `completeRoutineFromInterview` quando a aluna termina de respondê-la de verdade. Isso é mais
+  direcionado do que só colocar uma trava defensiva em `syncAvailabilityFromInterview` (que também
+  continua valendo a pena, como segunda camada de proteção, já que o botão "sincronizar" do admin
+  também pode disparar o mesmo problema se usado num momento errado).
+- **Nada implementado ainda** — proposta registrada aqui para decisão do Elton / execução via Code
+  com Gauntlet Loop (risco Alto: mexe em dado de rotina de alunas pagantes em produção). Quando for
+  implementar, dá pra testar bem objetivamente: criar entrevista principal sem responder nenhuma
+  pergunta de rotina, terminar a entrevista principal, e conferir que `WeeklyAvailability` da aluna
+  NÃO mudou (continua como estava antes, seja vazia de verdade pra aluna nova, seja preservada pra
+  quem já tinha rotina configurada por reavaliação).
