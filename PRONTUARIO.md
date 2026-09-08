@@ -1204,9 +1204,55 @@ vezes" pela tela — o problema é de encanamento interno, não de UX repetida**
   direcionado do que só colocar uma trava defensiva em `syncAvailabilityFromInterview` (que também
   continua valendo a pena, como segunda camada de proteção, já que o botão "sincronizar" do admin
   também pode disparar o mesmo problema se usado num momento errado).
-- **Nada implementado ainda** — proposta registrada aqui para decisão do Elton / execução via Code
-  com Gauntlet Loop (risco Alto: mexe em dado de rotina de alunas pagantes em produção). Quando for
-  implementar, dá pra testar bem objetivamente: criar entrevista principal sem responder nenhuma
-  pergunta de rotina, terminar a entrevista principal, e conferir que `WeeklyAvailability` da aluna
-  NÃO mudou (continua como estava antes, seja vazia de verdade pra aluna nova, seja preservada pra
-  quem já tinha rotina configurada por reavaliação).
+- **Implementado no mesmo dia (ver entrada seguinte, 08/09 à noite)** — Elton pediu explicitamente
+  pra aplicar essa correção depois de novos relatos da Thais na entrevista. Ver detalhes abaixo.
+
+**2026-09-08 (Cowork, à noite) — Implementadas as duas correções de rotina propostas acima, mais um
+ajuste no picker de rolagem por causa de novos relatos da Thais na entrevista ("muitos erros")**
+
+- **`completeOnboarding` (`apps/api/src/me/me.service.ts`) não mexe mais em `WeeklyAvailability`**:
+  removida a reconstrução de disponibilidade que rodava ao concluir a entrevista PRINCIPAL (antes
+  calculava `buildInterviewAvailability(answers)` e fazia `deleteMany`+`create` da tabela inteira,
+  mesmo sem a aluna ter respondido o módulo "Rotina semanal" ainda). Comentário explicando o porquê
+  deixado no código, referenciando o caso da Thais. Quem continua responsável por
+  `WeeklyAvailability` de verdade: a tela de Rotina (`completeRoutineFromInterview`) e as telas de
+  edição direta (`updateAvailability`, painel do treinador).
+- **Trava de segurança em `syncAvailabilityFromInterview`** (mesmo arquivo, usada tanto pela tela de
+  Rotina da aluna quanto pelo botão "Sincronizar disponibilidade da entrevista" do painel do
+  treinador): se a rotina calculada da entrevista vier totalmente vazia (nenhum dia com treino) mas
+  já existir uma rotina real configurada (pelo menos um dia com treino), a função agora ABORTA sem
+  gravar nada — devolve `{ synced: false, aborted: true, days, firstTime: false }` em vez de apagar
+  a rotina real. Loga um warning explicando o motivo pra investigação futura.
+- **Frontend (`apps/mobile/App.tsx`) ajustado pra esse novo retorno**: quando a tela de Rotina da
+  aluna recebe `aborted: true` ao concluir, NÃO mostra mais a tela de "concluído" como se tivesse
+  dado certo — mostra uma mensagem clara ("Não consegui atualizar sua rotina agora porque as
+  respostas ficaram incompletas. Sua rotina anterior continua ativa...") e mantém a aluna na tela de
+  revisão. Antes, com o retorno antigo, isso teria passado batido silenciosamente pro aluno achar
+  que salvou.
+- **Achado novo e não relacionado ao bug de rotina, a partir de prints reais da conversa da Thais no
+  WhatsApp (08/09)**: ela reclamou que "quando aumento muito as medidas ele não vai pra próxima" nas
+  perguntas de roda (circunferências, `Avaliação física recente`). Causa real: a correção de 08/09 de
+  manhã (debounce de 150ms unificando os três eventos de rolagem) também fazia `onMomentumScrollEnd`
+  passar pelo MESMO timer de 150ms — só que esse evento já é o indice final de verdade (a inércia da
+  rolagem já acabou quando ele dispara), então aquela espera extra era pura perda de tempo, e quanto
+  maior a distância rolada (medidas indo de 30 a 200cm, por exemplo), mais longa a inércia e mais
+  essa espera extra se destacava — dando a sensação de "trava" que ela descreveu ("tem que dar um
+  tempo pra ele"). Corrigido: `onMomentumScrollEnd` agora confirma o índice na hora, sem debounce;
+  `onScroll`/`onScrollEndDrag` continuam com o debounce de 150ms (ainda podem ser substituídos por um
+  evento seguinte do mesmo gesto, diferente de `onMomentumScrollEnd`). `WheelColumn` em
+  `apps/mobile/App.tsx`.
+- **Dois outros itens da mesma conversa, verificados e NÃO são bugs**: (1) erro "403 — limite de
+  atletas conectados excedido" do Strava é o teto conhecido de 10 alunas simultâneas (ver decisão de
+  06/09, aceito por ora); (2) uma tela "preta"/carregando que ela printou não pôde ser diagnosticada
+  com certeza (imagem chegou sem conteúdo visível) — hipótese mais provável é a tela normal de
+  "Estamos montando seu treino" (geração de treino pode levar até 10 minutos), mas fica em aberto
+  até haver um print mais claro ou ela dizer exatamente em que tela aconteceu.
+- **Risco e validação**: risco Alto (dado de rotina de alunas pagantes) para as mudanças de backend,
+  Médio (UX/estado local) para a mudança do picker. Implementado nesta sessão do Cowork, SEM
+  `device_bash`/typecheck/lint/teste real — só verificação manual de sintaxe (chaves balanceadas).
+  **Precisa passar pelos gates do Code antes de ir pra produção**: typecheck de `apps/api` e
+  `apps/mobile`, lint, e idealmente um teste manual real (terminar a entrevista principal sem responder
+  rotina e conferir que a rotina antiga não sumiu; rolar a roda de uma medida numa distância grande e
+  ver se confirma sem demora perceptível depois de soltar).
+- **Arquivos alterados**: `apps/api/src/me/me.service.ts` (`completeOnboarding`,
+  `syncAvailabilityFromInterview`), `apps/mobile/App.tsx` (`WheelColumn`, `finishOrAdvance`).
