@@ -2906,28 +2906,19 @@ function EditableSession({
     }
   }
 
-  async function regenerateSession(allowToday?: boolean) {
-    // 08/09: removido o confirm "tem certeza?" — o treinador ja esta dentro da sessao especifica,
-    // o contexto e obvio. So o gate de today_session_locked (abaixo) permanece.
+  async function regenerateSession() {
+    // 08/09: sem confirmacoes de nenhum tipo — o treinador clicou dentro da sessao especifica,
+    // o contexto e claro. allowToday sempre true (o treinador decide quando gerar, nao o sistema).
     onStatus('Gerando novo treino...');
     setIsRegenerating(true);
     try {
       const response = await fetch(`${API_URL}/coach/students/${studentId}/sessions/${session.id}/regenerate`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ allowToday: Boolean(allowToday) }),
+        body: JSON.stringify({ allowToday: true }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        if (data?.code === 'today_session_locked') {
-          setIsRegenerating(false);
-          if (window.confirm('Este e o treino de hoje — o aluno pode ja estar vendo ou ate ja ter comecado. Tem certeza que quer gerar um novo treino para hoje mesmo assim?')) {
-            await regenerateSession(true);
-          } else {
-            onStatus('');
-          }
-          return;
-        }
         onStatus(typeof data?.message === 'string' ? data.message : 'Nao consegui gerar um novo treino.');
         return;
       }
