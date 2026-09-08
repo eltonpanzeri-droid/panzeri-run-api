@@ -2082,14 +2082,11 @@ function estimatePaceFromAnswers(answers: Record<string, unknown>): { paceSecond
 }
 
 function composeRecommendation(paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default', recommendation: string, runningRemovedForPain = false) {
-  const note =
-    paceSource === 'self_report_5k'
-      ? 'Como voce ainda nao fez o teste oficial de 3 km, usamos o tempo de 5 km que voce informou para calcular os ritmos do seu treino. Assim que fizer o teste de 3 km, o treino sera recalculado automaticamente com mais precisao.'
-      : paceSource === 'qualitative'
-        ? 'Como voce ainda nao fez o teste oficial de 3 km, usamos o nivel de condicionamento que voce informou para estimar os ritmos do seu treino. Assim que fizer o teste de 3 km, o treino sera recalculado automaticamente com mais precisao.'
-        : paceSource === 'default'
-          ? 'Ainda nao temos seu teste de 3 km nem outra referencia de ritmo, entao usamos um ritmo geral inicial. Faca o teste de 3 km assim que possivel para deixar seu treino muito mais preciso e individualizado.'
-          : null;
+  // 08/09: teste de 3km suspenso pelo treinador — as mensagens que pediam o teste ao aluno
+  // foram removidas daqui. Nenhum texto visivel ao aluno deve mencionar o teste de 3km.
+  // (Ordem original de suspensao: 2026-07-28; reconfirmada 09/08 e 08/09.)
+  const note: string | null = null;
+  void paceSource; // usado apenas internamente pelo chamador para logar a fonte de pace
 
   const painNote = runningRemovedForPain
     ? 'Por causa da dor que voce relatou, tiramos a corrida da sua semana por enquanto — isso nao e medo de voce se machucar, e o cuidado que um treinador de verdade tem nesse momento. O fortalecimento para corredores que preparamos agora e parte real do seu progresso: ele trabalha exatamente o que vai te ajudar a voltar a correr melhor e com mais seguranca. Continue nos contando como a dor evolui (pelo menu de relato de dor) assim que tiver novidade, para liberarmos a corrida assim que fizer sentido.'

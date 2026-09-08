@@ -4013,8 +4013,11 @@ const ROUTINE_DAY_WEEKDAYS: Record<string, number> = {
 };
 
 function RoutineAvailabilityTable({ answers, availability }: { answers: Record<string, unknown>; availability: NonNullable<StudentDetail['availability']> }) {
-  const rows: Array<{ label: string; modalityKey: string; availableSuffix: string }> = [
-    { label: 'Corrida', modalityKey: 'corrida', availableSuffix: 'run_available_time' },
+  const rows: Array<{ label: string; modalityKey: string; availableSuffix: string; aliases?: string[] }> = [
+    // 08/09: esteira e corrida sao equivalentes na rotina (o tipo e so contexto pra IA) — a linha
+    // "Corrida" mostra o valor de qualquer das duas, priorizando corrida. Dados historicos podem
+    // ter 'esteira' no lugar de 'corrida'; o admin nao deve esconder isso como "NAO".
+    { label: 'Corrida', modalityKey: 'corrida', availableSuffix: 'run_available_time', aliases: ['esteira'] },
     { label: 'Fortalecimento', modalityKey: 'fortalecimento_corredores', availableSuffix: 'fortalecimento_available_time' },
     { label: 'Musculacao', modalityKey: 'forca', availableSuffix: 'musculacao_available_time' },
   ];
@@ -4033,7 +4036,11 @@ function RoutineAvailabilityTable({ answers, availability }: { answers: Record<s
             <td>{row.label}</td>
             {ROUTINE_DAYS.map(([dayKey]) => {
               const day = availability.find((item) => item.weekday === ROUTINE_DAY_WEEKDAYS[dayKey]);
-              const minutes = day && !day.noTraining ? day.modalityDurations?.[row.modalityKey] : undefined;
+              // Verifica a chave principal e aliases (ex: corrida e esteira sao equivalentes)
+              const allKeys = [row.modalityKey, ...(row.aliases ?? [])];
+              const minutes = day && !day.noTraining
+                ? allKeys.reduce<number | undefined>((found, key) => found ?? day.modalityDurations?.[key], undefined)
+                : undefined;
               const isNone = !minutes;
               return <td key={dayKey} className={isNone ? 'routineCellOff' : 'routineCellOn'}>{isNone ? 'NAO' : `${minutes} min`}</td>;
             })}
