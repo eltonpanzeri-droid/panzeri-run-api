@@ -410,6 +410,10 @@ model TrainingSession {
   routineMismatchNote String?
   createdAt          DateTime           @default(now())
   completion         WorkoutCompletion?
+
+  // 09/09 — indice para queries de evolucao do atleta (busca por usuario + ordem cronologica).
+  // Sem isso a query principal de evolucao faz full-scan em TrainingSession inteira.
+  @@index([userId, scheduledDate])
 }
 
 model WorkoutCompletion {
