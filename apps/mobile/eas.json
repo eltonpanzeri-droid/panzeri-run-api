@@ -5,6 +5,7 @@
   },
   "build": {
     "preview": {
+      "node": "22.x",
       "distribution": "internal",
       "android": {
         "buildType": "apk"
@@ -14,6 +15,7 @@
       }
     },
     "production": {
+      "node": "22.x",
       "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
