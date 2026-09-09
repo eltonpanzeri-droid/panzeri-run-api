@@ -156,7 +156,6 @@ export class MeService {
       if (informedBasal !== null) answers.basal_metabolism = informedBasal;
     }
 
-    const availability = buildInterviewAvailability(answers);
     const preferredModalities = stringArray(answers.current_activities);
     const completedAt = new Date();
 
@@ -216,8 +215,19 @@ export class MeService {
             experienceLevel: answers.running_experience != null ? String(answers.running_experience) : null,
           },
         });
-        await tx.weeklyAvailability.deleteMany({ where: { userId } });
-        for (const day of availability) await tx.weeklyAvailability.create({ data: { userId, ...day } });
+        // 08/09 (bug real — caso Thais, rotina sumindo com plano de treino ja gerado): ESTE metodo
+        // fecha a entrevista PRINCIPAL, que deliberadamente NAO inclui o modulo "Rotina semanal"
+        // (ver mainInterviewQuestions/routineQuestions no App.tsx). Antes desta correcao, aqui
+        // mesmo apagavamos e recriavamos WeeklyAvailability inteira a partir de
+        // buildInterviewAvailability(answers) — mas nesse momento a aluna via de regra AINDA NAO
+        // respondeu a rotina (isso so acontece na tela seguinte, "Rotina de treinos", que chama
+        // completeRoutineFromInterview e grava a rotina de verdade). Resultado: terminar a
+        // entrevista principal podia apagar silenciosamente uma rotina real ja configurada (ex.:
+        // aluna refazendo a entrevista principal numa reavaliacao) e substituir por uma vazia,
+        // antes mesmo dela chegar na tela de rotina. Quem e' de fato responsavel por
+        // WeeklyAvailability e' a tela de Rotina (completeRoutineFromInterview) e as telas de
+        // edicao direta (updateAvailability, painel do treinador) — completeOnboarding agora nao
+        // mexe mais nisso. Ver PRONTUARIO.md 08/09 para o diagnostico completo.
         await tx.onboardingInterview.update({ where: { userId }, data: { answers, completedAt } });
       });
     } catch (error) {
@@ -259,23 +269,36 @@ export class MeService {
     // e assinante confirmado e esta reabrindo/refazendo a entrevista (ex: corrigindo algo) — nesse
     // caso gera na hora como sempre, porque ele ja pagou e o gatilho de pagamento nao vai disparar
     // de novo (subscriptionStatus ja estava active antes desta chamada).
-    const payingUser = await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } });
+    const [payingUser, existingAvailability] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } }),
+      // 08/09 (bug real — caso Daniele, testadora): completeOnboarding fecha a entrevista
+      // PRINCIPAL, que nao inclui o modulo de rotina. Para alunos novos, WeeklyAvailability
+      // ainda nao existe neste ponto — a rotina real so e salva quando o aluno conclui a
+      // tela "Rotina de treinos" (completeRoutineFromInterview). Se gerarmos aqui sem rotina,
+      // generateWeek cai no fallback padrao (forca seg, corrida ter/qui/sab) e cria um plano
+      // errado. Quando completeRoutineFromInterview roda depois, a rotina real e salva, mas
+      // generateFirstWeekIfNeeded nao regera pois um plano ja existe — resultado: aluno fica
+      // com sessoes totalmente erradas. EXCECAO: aluno JA assinante refazendo a entrevista
+      // (ex: corrigindo algo) DEVE gerar agora, porque ele ja tem rotina configurada e o
+      // gatilho de pagamento nao vai disparar de novo. Gate: so gerar se ja houver pelo
+      // menos um dia de treino cadastrado em WeeklyAvailability.
+      this.prisma.weeklyAvailability.findFirst({ where: { userId, noTraining: false } }),
+    ]);
     if (payingUser && hasSubscriptionAccess(payingUser.subscriptionStatus)) {
-      // generateWeek() cuida sozinho de arquivar o plano ativo anterior e de migrar os dias ja
-      // passados/de hoje pro plano novo. NUNCA arquivamos manualmente antes de chamar generateWeek
-      // — isso ja foi um bug real aqui (sessoes com registro de execucao perdidas ao regenerar),
-      // ver [[routine_change_auto_regen]].
-      // NAO AWAIT (bug real em producao 2026-07-29): generateWeek() pode levar 30s+ — se
-      // esperassemos aqui, o proprio POST /me/onboarding/complete travava esse tempo todo.
-      // REMOVIDO (08/08, bug real corrigido): havia aqui um adiamento pra "domingo antes das
-      // 19h" que contava com o job automatico de domingo terminar o servico depois — esse job
-      // nao roda mais sozinho (geracao virou sob demanda), entao o adiamento deixava a aluna
-      // permanentemente sem programa nenhum. generateWeek() ja rola sozinho pra semana seguinte
-      // quando nao sobra dia disponivel nesta, entao chamar direto sempre produz o resultado
-      // certo, sem precisar adiar nada.
-      void this.trainingPlans.generateWeek(userId).catch((error) => {
-        this.logger.warn(`generateWeek apos completeOnboarding falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
-      });
+      if (existingAvailability) {
+        // Aluno existente refazendo a entrevista: ja tem rotina → gera agora.
+        // generateWeek() cuida sozinho de arquivar o plano ativo anterior.
+        // NUNCA arquivamos manualmente antes de chamar generateWeek — ja foi um bug real.
+        // NAO AWAIT: pode levar 30s+.
+        void this.trainingPlans.generateWeek(userId).catch((error) => {
+          this.logger.warn(`generateWeek apos completeOnboarding falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+        });
+      } else {
+        // Aluno novo: rotina ainda nao foi configurada — completeRoutineFromInterview vai
+        // salvar a disponibilidade real e chamar generateFirstWeekIfNeeded na sequencia.
+        // Gerar aqui usaria o fallback padrao e produziria treinos errados.
+        this.logger.log(`Entrevista concluida para ${userId} (assinante sem rotina ainda) — aguardando completeRoutineFromInterview para gerar o programa com a rotina real.`);
+      }
     } else {
       this.logger.log(`Entrevista concluida para ${userId} — geracao da primeira semana adiada ate a confirmacao do pagamento.`);
     }
@@ -284,12 +307,15 @@ export class MeService {
   }
 
   // As respostas de rotina da entrevista (${dia}_run_time etc.) so viram registros de
-  // WeeklyAvailability dentro de completeOnboarding. Se o aluno reabre a entrevista para
-  // revisar/atualizar essas respostas mas nao chega a concluir de novo (ou outra tela de
-  // rotina sobrescreve depois), a disponibilidade real usada para gerar o treino fica
-  // desatualizada em relacao ao que a entrevista diz. Este metodo recalcula
-  // WeeklyAvailability a partir do que ja esta salvo em OnboardingInterview.answers, sem
-  // exigir que o aluno refaca a entrevista.
+  // WeeklyAvailability atraves DESTE metodo — chamado pela tela "Rotina de treinos" do aluno
+  // (completeRoutineFromInterview) ou pelo botao de reparo do treinador no painel
+  // ("Sincronizar disponibilidade da entrevista"). (08/09: completeOnboarding, que fecha a
+  // entrevista PRINCIPAL, NAO mexe mais em WeeklyAvailability — ver comentario la e
+  // PRONTUARIO.md 08/09, caso Thais.) Se o aluno reabre a entrevista para revisar/atualizar
+  // essas respostas mas nao chega a concluir de novo (ou outra tela de rotina sobrescreve
+  // depois), a disponibilidade real usada para gerar o treino fica desatualizada em relacao ao
+  // que a entrevista diz. Este metodo recalcula WeeklyAvailability a partir do que ja esta
+  // salvo em OnboardingInterview.answers, sem exigir que o aluno refaca a entrevista.
   // notifyAsStudentRequest so e true quando quem chamou foi o proprio aluno (tela "Rotina de
   // treinos", via completeRoutineFromInterview) — o botao de reparo do treinador no painel
   // ("Sincronizar disponibilidade da entrevista") reaproveita este mesmo metodo mas NAO deve
@@ -308,6 +334,24 @@ export class MeService {
     // adivinhacao: nao da pra saber se routineChanged deu false porque nada mudou de verdade, ou
     // se e um bug de comparacao. Loga sempre, nao so quando algo falha.
     this.logger.log(`syncAvailabilityFromInterview para ${userId}: routineChanged=${routineChanged}. Rotina anterior: ${JSON.stringify(currentAvailability.map((d) => ({ weekday: d.weekday, noTraining: d.noTraining, modalities: d.modalities, modalityDurations: d.modalityDurations })))}. Rotina nova (da entrevista): ${JSON.stringify(availability)}`);
+
+    // 08/09 (bug real — caso Thais): trava de seguranca contra apagar uma rotina real (com pelo
+    // menos um dia de treino configurado) e substituir por uma rotina totalmente vazia calculada
+    // da entrevista. Isso so pode acontecer se as respostas de rotina na entrevista estiverem
+    // incompletas/ausentes no momento da chamada (ex.: entrevista reaberta numa reavaliacao sem
+    // o modulo de rotina ter sido refeito) — nunca e' isso que o aluno realmente quer. Preferimos
+    // abortar e avisar a apagar silenciosamente uma rotina que ja funcionava.
+    const currentHasTraining = currentAvailability.some((day) => !day.noTraining);
+    const newHasTraining = availability.some((day) => !day.noTraining);
+    if (currentHasTraining && !newHasTraining) {
+      this.logger.warn(`syncAvailabilityFromInterview ABORTADO para ${userId}: a rotina calculada da entrevista veio totalmente vazia, mas ja existia uma rotina real configurada. Nada foi alterado no banco — revise as respostas do modulo "Rotina semanal" na entrevista deste aluno antes de tentar sincronizar de novo.`);
+      return {
+        synced: false,
+        aborted: true,
+        days: currentAvailability.filter((day) => !day.noTraining).length,
+        firstTime: false,
+      };
+    }
 
     await this.prisma.$transaction([
       this.prisma.weeklyAvailability.deleteMany({ where: { userId } }),
