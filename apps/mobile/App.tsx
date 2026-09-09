@@ -1256,12 +1256,20 @@ function AppInner() {
                 accessToken={accessToken}
                 userName={userName}
                 onLater={() => setActiveTab('week')}
-                // Bug real reportado 16/08: ao terminar so a entrevista principal (que
-                // deliberadamente NAO inclui o modulo "Rotina semanal", ver mainInterviewQuestions
-                // abaixo), o app mandava direto pra tela de Semana, onde aparecia o botao "Gerar
-                // treino da semana" antes da rotina existir. Agora manda pra aba Rotina, que e o
-                // proximo passo real do fluxo.
-                onComplete={() => { setRestartInterviewFromStart(false); void refreshRoutineFromServer(); setActiveTab('routine'); }}
+                // 16/08: ao terminar a entrevista principal, manda pra aba Rotina (proximo passo
+                // real do fluxo), pois a rotina ainda nao existe neste ponto.
+                // 09/09: se o aluno JA tem rotina configurada (voltou ao menu "Entrevista inicial"
+                // depois de ter concluido tudo), vai direto pra semana — evita o labirinto de duas
+                // telas de conclusao em sequencia (entrevista concluida → rotina registrada → semana).
+                onComplete={() => {
+                  setRestartInterviewFromStart(false);
+                  void refreshRoutineFromServer();
+                  const hasRoutine = Boolean(
+                    (savedMe?.weeklyAvailability?.length ?? 0) > 0 ||
+                    (savedMe?.availability?.length ?? 0) > 0,
+                  );
+                  setActiveTab(hasRoutine ? 'week' : 'routine');
+                }}
                 questions={mainInterviewQuestions}
                 restartFromStart={restartInterviewFromStart}
               />
@@ -2861,7 +2869,9 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   const [couponCode, setCouponCode] = useState('');
   const [cpf, setCpf] = useState('');
   const [isCheckingOut, setIsCheckingOut] = useState(false);
-  const [weeklyRoutine, setWeeklyRoutine] = useState<RoutineDay[]>(cloneRoutine(baseRoutineDays));
+  // weeklyRoutine removido 09/09 junto com "Ajuste de rotina da semana atual" (funcionalidade
+  // quebrada: a opcao temporaria nunca enviava a rotina modificada pra API; a opcao permanente
+  // duplicava o fluxo ja existente no menu "Rotina de treinos"). Ver diagnostico 09/09.
   const [completionDrafts, setCompletionDrafts] = useState<Record<string, CompletionDraft>>({});
   const [completionMessages, setCompletionMessages] = useState<Record<string, string>>({});
   const [status, setStatus] = useState('');
@@ -2875,8 +2885,6 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   // verdade aparecer na tela, o aluno tinha que passar por texto demais (avisos, essa orientacao
   // inteira). Fica só um resumo/titulo por padrão, com opção de expandir pra quem quiser ler.
   const [recommendationOpen, setRecommendationOpen] = useState(false);
-  const [routineAdjustmentOpen, setRoutineAdjustmentOpen] = useState(false);
-  const [applyRoutinePermanently, setApplyRoutinePermanently] = useState(false);
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
   const [weekOffset, setWeekOffset] = useState(0);
   const [notGeneratedRange, setNotGeneratedRange] = useState<{ startDate: string; endDate: string; hasSubscriptionAccess: boolean; hasEverHadPlan: boolean } | null>(null);
@@ -2894,9 +2902,6 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     }
   }, [accessToken, weekOffset]);
 
-  useEffect(() => {
-    setWeeklyRoutine(cloneRoutine(baseRoutineDays));
-  }, [baseRoutineDays]);
 
   async function loadWeekForOffset(offset: number) {
     setIsLoading(true);
@@ -2991,15 +2996,12 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
     setIsLoading(true);
     setStatus('');
     try {
+      // 09/09: weeklyRoutine removido junto com "Ajuste de rotina da semana atual" — a geracao
+      // agora usa sempre a WeeklyAvailability salva no banco, sem override local.
       const response = await fetch(`${API_URL}/training-plans/week`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          availability: routineToAvailability(weeklyRoutine),
-        }),
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
 
       if (!response.ok) {
@@ -3267,69 +3269,6 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       return;
     }
     await runGenerateCurrentWeek();
-  }
-
-  // Mesmo motivo do fix em correctOnboarding: Alert.alert do React Native nao tem garantia de
-  // aparecer na web, o que deixava esse botao parecendo travado no navegador.
-  function applyRoutineAdjustment() {
-    const summary = summarizeRoutineForConfirmation(weeklyRoutine);
-    const title = applyRoutinePermanently ? 'Confirma mudanca permanente de rotina?' : 'Confirma mudanca de rotina apenas para essa semana?';
-    if (Platform.OS === 'web') {
-      if (window.confirm(`${title}\n\n${summary}`)) submitRoutineAdjustment();
-      return;
-    }
-    Alert.alert(
-      title,
-      summary,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Confirmar', onPress: () => submitRoutineAdjustment() },
-      ],
-    );
-  }
-
-  async function submitRoutineAdjustment() {
-    if (!applyRoutinePermanently) {
-      await generatePlan();
-      return;
-    }
-
-    setIsLoading(true);
-    setStatus('');
-    try {
-      const response = await fetch(`${API_URL}/me/availability`, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ availability: routineToAvailability(weeklyRoutine) }),
-      });
-
-      let firstTime = false;
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        setStatus(typeof data.message === 'string' ? data.message : 'Nao consegui salvar a rotina permanente.');
-        setIsLoading(false);
-        return;
-      }
-      const data = await response.json().catch(() => ({}));
-      firstTime = Boolean(data?.firstTime);
-
-      // Mudanca de rotina de quem ja tem plano NUNCA gera na hora (pedido explicito do treinador
-      // 03/08) — so vale a partir da geracao automatica de domingo, a semana atual continua igual.
-      // So na primeira vez (aluno sem nenhum plano ainda) e que isso gera de verdade agora.
-      if (firstTime) {
-        await loadPlan();
-        setStatus('Sua rotina foi registrada. Seu primeiro treino esta sendo gerado automaticamente e pode levar ate 10 minutos para aparecer.');
-      } else {
-        setIsLoading(false);
-        setStatus('Sua nova rotina foi salva. Ela vale a partir da geracao automatica de domingo — a semana atual continua igual. Voce pode ajustar quantas vezes quiser ate la.');
-      }
-    } catch {
-      setStatus('Nao consegui conectar com a API agora.');
-      setIsLoading(false);
-    }
   }
 
   // Move um treino ja gerado pra outro dia da MESMA semana, de verdade (persistido no servidor,
@@ -3878,31 +3817,6 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
         ))}
       </View>
 
-      <View style={styles.formSection}>
-        <Pressable style={styles.collapseHeader} onPress={() => setRoutineAdjustmentOpen((open) => !open)}>
-          <Text style={styles.formSectionTitle}>Ajuste de rotina da semana atual</Text>
-          <Ionicons name={routineAdjustmentOpen ? 'chevron-up' : 'chevron-down'} size={20} color={PRColors.ocean} />
-        </Pressable>
-        {routineAdjustmentOpen ? (
-          <>
-            <Text style={styles.formHint}>
-              Para criar sua rotina de treinos, precisamos saber com maxima exatidao como voce vai organizar sua rotina de treinos. Voce deve em primeiro lugar pensar qual a rotina que voce realmente vai conseguir fazer. Queremos saber quais modalidades voce quer que criemos um treino para voce e o tempo que vai se comprometer a executar cada um deles, bem como os dias que os fara. Sera voce quem nos dira isso e nos criaremos os treinos de acordo com o que voce colocar na resposta. Se voce marcar mais de uma modalidade no mesmo dia, isso significa que fara as duas naquele dia — nao e uma escolha entre elas, e um compromisso com as duas.{'\n\n'}
-              Entendemos que na pratica, nem sempre o aluno consegue fazer todos os treinos que sao propostos. Nos ajustaremos os treinos de acordo com o que voce realmente estiver conseguindo fazer. Alem disso, voce pode fazer uma alteracao permanente por mes na sua rotina. Para imprevistos pontuais (viagem, fase mais corrida, ou outro motivo de ausencia), sem precisar mudar a rotina toda, use o menu "Observacoes" para avisar seu treinador.
-            </Text>
-            <Text style={styles.formHint}>Mude dias, modalidades e tempos somente de hoje em diante. Treinos anteriores serao preservados.</Text>
-            <RoutineEditor routineDays={weeklyRoutine} onChange={setWeeklyRoutine} />
-            <View style={styles.termsRow}>
-              <Switch value={applyRoutinePermanently} onValueChange={setApplyRoutinePermanently} />
-              <Text style={styles.termsText}>Aplicar essa rotina permanentemente, nao so nesta semana (evita ter que refazer a entrevista).</Text>
-            </View>
-            <Pressable style={[styles.primaryButton, isLoading && styles.disabledButton]} disabled={isLoading} onPress={applyRoutineAdjustment}>
-              {isLoading ? <ActivityIndicator size="small" color={PRColors.mineral} /> : null}
-              <Text style={styles.primaryButtonText}>{isLoading ? 'Gerando...' : applyRoutinePermanently ? 'Salvar rotina permanente e gerar treino' : 'Gerar ajustes so desta semana'}</Text>
-              {!isLoading ? <Ionicons name="sparkles" size={18} color={PRColors.mineral} /> : null}
-            </Pressable>
-          </>
-        ) : null}
-      </View>
     </View>
   );
 }
@@ -7168,16 +7082,6 @@ function paceInputToSeconds(value: string) {
   }
 
   return Number(match[1]) * 60 + Number(match[2]);
-}
-
-function summarizeRoutineForConfirmation(routineDays: RoutineDay[]) {
-  return routineDays.map((day) => {
-    if (day.modalities.length === 0 || day.modalities.includes('Sem treinos')) {
-      return `${day.label}: Sem treinos`;
-    }
-    const modalitiesSummary = day.modalities.map((modality) => `${modality} (${day.minutesByModality[modality] ?? '30'}min)`).join(', ');
-    return `${day.label}: ${modalitiesSummary}`;
-  }).join('\n');
 }
 
 function routineToAvailability(routineDays: RoutineDay[]) {

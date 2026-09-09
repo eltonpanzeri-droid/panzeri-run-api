@@ -2627,26 +2627,22 @@ function StudentPanel({
         {student.interview?.updatedAt ? <p>Ultima atualizacao: {dateTimeLabel(student.interview.updatedAt)}</p> : null}
         {student.interview && Object.keys(student.interview.answers ?? {}).length ? (
           <div className="interviewAnswers">
-            {groupInterviewAnswers(student.interview.answers).map((group) => (
-              <details key={group.title} open={group.title === 'Objetivo' || group.title === 'Rotina semanal'}>
+            {/* 09/09: grupo "Rotina semanal" removido daqui — a rotina tem aba propria
+                (detailTab === 'rotina') e exibi-la tambem aqui criava duplicacao para todos
+                os alunos que responderam o fluxo de rotina pelo app. */}
+            {groupInterviewAnswers(student.interview.answers).filter((group) => group.title !== 'Rotina semanal').map((group) => (
+              <details key={group.title} open={group.title === 'Objetivo'}>
                 <summary>{group.title}</summary>
-                {group.title === 'Rotina semanal' ? (
-                  <>
-                    <RoutineAvailabilityTable answers={student.interview!.answers} availability={student.availability ?? []} />
-                    <ManualRoutineEditor studentId={student.id} token={token} availability={student.availability ?? []} onStatus={onStatus} onSaved={onRefresh} />
-                  </>
-                ) : (
-                  <div className="interviewAnswerGrid">
-                    {group.items.map(([key, value]) => (
-                      <div className="interviewAnswerRow" key={key}>
-                        <span className="interviewAnswerLabel">{interviewLabel(key)}</span>
-                        <span className="interviewAnswerValue">
-                          {key === 'longest_distance_recent_time' ? (longestDistancePaceSummary(student.interview!.answers) ?? interviewValue(key, value)) : interviewValue(key, value)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="interviewAnswerGrid">
+                  {group.items.map(([key, value]) => (
+                    <div className="interviewAnswerRow" key={key}>
+                      <span className="interviewAnswerLabel">{interviewLabel(key)}</span>
+                      <span className="interviewAnswerValue">
+                        {key === 'longest_distance_recent_time' ? (longestDistancePaceSummary(student.interview!.answers) ?? interviewValue(key, value)) : interviewValue(key, value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </details>
             ))}
           </div>
