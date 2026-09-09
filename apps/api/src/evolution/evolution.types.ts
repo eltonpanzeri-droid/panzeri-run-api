@@ -69,6 +69,12 @@ export interface WeeklyVolume {
 
   /** true quando coveragePercent < 30 */
   lowCoverageWarning: boolean;
+
+  /**
+   * Soma de km percorridos nas sessões feitas da semana (campo distanceKm do WorkoutCompletion).
+   * null quando nenhuma sessão feita teve distância preenchida.
+   */
+  kmPercorridos: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +89,8 @@ export interface MonthlyAggregate {
   sessoesSemRegistro: number;
   adherencePercent: number | null;
   coveragePercent: number;
+  /** Soma de km percorridos nas sessões feitas do mês */
+  kmPercorridos: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +171,9 @@ export interface EvolutionOverview {
   /** Total de sessões sem qualquer registro, acumulado */
   totalSemRegistro: number;
 
+  /** Soma total de km percorridos em todas as sessões feitas com distância preenchida */
+  totalKmPercorridos: number;
+
   /** Resumos de aderência por período */
   adherence: {
     allTime: AdherenceSummary;
@@ -217,6 +228,8 @@ export interface RawSessionData {
   completionStatus: 'done' | 'adjusted' | 'missed' | null;
   completionDate: ISODate | null;
   perceivedEffort: number | null;
+  /** distanceKm do WorkoutCompletion; null se não preenchido ou sem completion */
+  distanceKm: number | null;
 }
 
 /**

@@ -8,7 +8,7 @@ import Constants from 'expo-constants';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BrandMark } from './theme/BrandMark';
-import Svg, { G, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
 import { useFonts, BigShouldersDisplay_800ExtraBold } from '@expo-google-fonts/big-shoulders-display';
 // Public Sans e JetBrains Mono (identidade-visual-panzeri-run) entram aqui quando alguma tela
@@ -4139,6 +4139,7 @@ interface EvolutionAdherenceMobile {
   adherencePercent: number | null;
   coveragePercent: number;
   lowCoverageWarning: boolean;
+  kmPercorridos: number | null;
 }
 interface EvolutionModalityMobile {
   modality: string;
@@ -4150,6 +4151,7 @@ interface EvolutionOverviewMobile {
   dataAvailableSince: string | null;
   totalWeeksWithPlan: number;
   totalSemRegistro: number;
+  totalKmPercorridos: number;
   adherence: {
     allTime: EvolutionAdherenceMobile;
     last4Weeks: EvolutionAdherenceMobile;
@@ -4160,50 +4162,118 @@ interface EvolutionOverviewMobile {
   recentWeeks: EvolutionWeekMobile[];
 }
 
-/** Gráfico de barras empilhadas: verde=feito, vermelho=nao feito, amarelo=sem registro */
-function EvolutionBarChart({ weeks }: { weeks: EvolutionWeekMobile[] }) {
+/** Gráfico de área: km percorridos por semana */
+function KmAreaChart({ weeks }: { weeks: EvolutionWeekMobile[] }) {
   if (weeks.length === 0) return null;
-  const chartH = 90;
-  const barW = 18;
-  const gap = 6;
-  const paddingLeft = 4;
-  const paddingBottom = 22;
+
+  const data = weeks.map((w) => w.kmPercorridos ?? 0);
+  const hasAnyKm = data.some((v) => v > 0);
+
+  if (!hasAnyKm) {
+    return (
+      <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+        <Text style={{ fontSize: 12, color: '#94a3b8' }}>Nenhuma distância registrada nesse período</Text>
+        <Text style={{ fontSize: 11, color: '#cbd5e1', marginTop: 4 }}>Preencha a distância ao registrar o treino</Text>
+      </View>
+    );
+  }
+
   const n = weeks.length;
-  const svgW = paddingLeft + n * (barW + gap) + 8;
-  const svgH = chartH + paddingBottom;
-  const maxSessions = Math.max(...weeks.map((w) => w.sessoesPrescritas), 1);
+  const chartH = 90;
+  const paddingLeft = 34; // espaço para rótulos do eixo Y
+  const paddingBottom = 22;
+  const paddingTop = 16; // espaço para rótulo do pico
+  const paddingRight = 8;
+  const spacing = 26; // px entre pontos
+  const svgW = paddingLeft + (n - 1) * spacing + paddingRight;
+  const svgH = chartH + paddingBottom + paddingTop;
+
+  const maxKm = Math.max(...data, 0.1);
+  const getX = (i: number) => paddingLeft + i * spacing;
+  const getY = (km: number) => paddingTop + chartH - (km / maxKm) * (chartH - 2);
+  const baseline = (paddingTop + chartH).toFixed(1);
+
+  const pts = data.map((km, i) => ({ x: getX(i), y: getY(km), km }));
+  const lineD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const areaD = `${lineD} L${pts[n - 1].x.toFixed(1)},${baseline} L${pts[0].x.toFixed(1)},${baseline} Z`;
+
+  // índice do pico para mostrar rótulo
+  const peakIdx = data.indexOf(maxKm);
 
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
       <Svg width={svgW} height={svgH}>
-        {weeks.map((w, i) => {
-          const x = paddingLeft + i * (barW + gap);
-          const scale = chartH / maxSessions;
-          const fH = Math.round(w.sessoesFeitas * scale);
-          const nH = Math.round(w.sessoesNaoFeitas * scale);
-          const sH = Math.round(w.sessoesSemRegistro * scale);
-          // label: DD/MM
-          const label = w.weekStart.slice(8, 10) + '/' + w.weekStart.slice(5, 7);
-          return (
-            <G key={w.weekStart}>
-              {/* sem registro (amarelo, topo) */}
-              {sH > 0 && <Rect x={x} y={chartH - fH - nH - sH} width={barW} height={sH} fill="#fde047" rx={2} />}
-              {/* nao feito (vermelho, meio) */}
-              {nH > 0 && <Rect x={x} y={chartH - fH - nH} width={barW} height={nH} fill="#fca5a5" rx={2} />}
-              {/* feito (verde, base) */}
-              {fH > 0 && <Rect x={x} y={chartH - fH} width={barW} height={fH} fill="#86efac" rx={2} />}
-              {/* semana vazia (barra cinza fina) */}
-              {fH === 0 && nH === 0 && sH === 0 && (
-                <Rect x={x} y={chartH - 3} width={barW} height={3} fill="#e2e8f0" rx={1} />
-              )}
-              <SvgText x={x + barW / 2} y={chartH + 14} textAnchor="middle" fontSize={8} fill="#94a3b8">
-                {label}
-              </SvgText>
-            </G>
-          );
+        <Defs>
+          <LinearGradient id="kmGradFill" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.22" />
+            <Stop offset="100%" stopColor="#0ea5e9" stopOpacity="0.02" />
+          </LinearGradient>
+        </Defs>
+
+        {/* Grade horizontal leve */}
+        {[0.25, 0.5, 0.75].map((frac) => {
+          const yG = (paddingTop + chartH - frac * (chartH - 2)).toFixed(1);
+          return <Rect key={frac} x={paddingLeft} y={yG} width={svgW - paddingLeft - paddingRight} height={1} fill="#f1f5f9" />;
         })}
-        {/* baseline */}
-        <Rect x={0} y={chartH} width={svgW} height={1} fill="#e2e8f0" />
+
+        {/* Área preenchida */}
+        <Path d={areaD} fill="url(#kmGradFill)" />
+
+        {/* Linha */}
+        <Path d={lineD} fill="none" stroke="#0ea5e9" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* Pontos */}
+        {pts.map((p, i) =>
+          p.km > 0 ? (
+            <G key={i}>
+              <Circle cx={p.x} cy={p.y} r={i === peakIdx ? 4 : 3} fill="#fff" stroke="#0ea5e9" strokeWidth={2} />
+              {/* Rótulo só no pico */}
+              {i === peakIdx && (
+                <SvgText
+                  x={p.x}
+                  y={p.y - 8}
+                  textAnchor="middle"
+                  fontSize={9}
+                  fontWeight="bold"
+                  fill="#0369a1"
+                >
+                  {Number.isInteger(p.km) ? `${p.km}km` : `${p.km.toFixed(1)}km`}
+                </SvgText>
+              )}
+            </G>
+          ) : (
+            <Circle key={i} cx={p.x} cy={p.y} r={2} fill="#e2e8f0" />
+          ),
+        )}
+
+        {/* Eixo X — datas */}
+        {weeks.map((w, i) => {
+          // mostra todas as datas se <= 8 semanas; caso contrário alterna
+          const show = n <= 8 || i % 2 === 0 || i === n - 1;
+          return show ? (
+            <SvgText
+              key={i}
+              x={getX(i)}
+              y={svgH - 5}
+              textAnchor="middle"
+              fontSize={7.5}
+              fill="#94a3b8"
+            >
+              {w.weekStart.slice(8, 10) + '/' + w.weekStart.slice(5, 7)}
+            </SvgText>
+          ) : null;
+        })}
+
+        {/* Eixo Y: máximo e zero */}
+        <SvgText x={paddingLeft - 3} y={paddingTop + 4} textAnchor="end" fontSize={8} fill="#94a3b8">
+          {maxKm >= 10 ? `${Math.round(maxKm)}` : maxKm.toFixed(1)}
+        </SvgText>
+        <SvgText x={paddingLeft - 3} y={paddingTop + chartH} textAnchor="end" fontSize={8} fill="#cbd5e1">
+          0
+        </SvgText>
+
+        {/* Baseline */}
+        <Rect x={paddingLeft} y={paddingTop + chartH} width={svgW - paddingLeft - paddingRight} height={1} fill="#e2e8f0" />
       </Svg>
     </ScrollView>
   );
@@ -4310,18 +4380,17 @@ function Progress({ accessToken }: { accessToken: string }) {
             </View>
           ) : null}
 
-          {/* Gráfico de barras semanal */}
+          {/* Gráfico de km — área */}
           <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#e2e8f0' }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e293b', marginBottom: 8 }}>Últimas 12 semanas</Text>
-            <EvolutionBarChart weeks={data.recentWeeks} />
-            <View style={{ flexDirection: 'row', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
-              {[['#86efac', 'Feito'], ['#fca5a5', 'Não feito'], ['#fde047', 'Sem registro']].map(([color, label]) => (
-                <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <View style={{ width: 10, height: 10, backgroundColor: color, borderRadius: 2 }} />
-                  <Text style={{ fontSize: 10, color: '#64748b' }}>{label}</Text>
-                </View>
-              ))}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e293b' }}>Km percorridos</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: '#0369a1' }}>
+                {data.totalKmPercorridos > 0
+                  ? `${Number.isInteger(data.totalKmPercorridos) ? data.totalKmPercorridos : data.totalKmPercorridos.toFixed(1)} km total`
+                  : '—'}
+              </Text>
             </View>
+            <KmAreaChart weeks={data.recentWeeks} />
           </View>
 
           {/* Distribuição de modalidades */}

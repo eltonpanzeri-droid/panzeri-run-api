@@ -82,6 +82,7 @@ export class EvolutionMetricService {
       completionStatus: (s.completion?.status ?? null) as RawSessionData['completionStatus'],
       completionDate: s.completion?.completedAt?.toISOString().slice(0, 10) ?? null,
       perceivedEffort: s.completion?.perceivedEffort ?? null,
+      distanceKm: s.completion?.distanceKm ?? null,
     }));
   }
 
@@ -106,17 +107,22 @@ export class EvolutionMetricService {
   private buildWeeklyVolumes(sessions: RawSessionData[], todayBR: ISODate): WeeklyVolume[] {
     const byWeek = new Map<
       ISODate,
-      { prescritas: number; feitas: number; naoFeitas: number; semRegistro: number }
+      { prescritas: number; feitas: number; naoFeitas: number; semRegistro: number; kmTotal: number; kmCount: number }
     >();
 
     for (const s of sessions) {
       const ws = getWeekStart(s.scheduledDate);
-      if (!byWeek.has(ws)) byWeek.set(ws, { prescritas: 0, feitas: 0, naoFeitas: 0, semRegistro: 0 });
+      if (!byWeek.has(ws)) byWeek.set(ws, { prescritas: 0, feitas: 0, naoFeitas: 0, semRegistro: 0, kmTotal: 0, kmCount: 0 });
       const bucket = byWeek.get(ws)!;
       const status = this.classifySession(s, todayBR);
       bucket.prescritas++;
-      if (status === 'feita') bucket.feitas++;
-      else if (status === 'nao_feita') bucket.naoFeitas++;
+      if (status === 'feita') {
+        bucket.feitas++;
+        if (s.distanceKm != null) {
+          bucket.kmTotal += s.distanceKm;
+          bucket.kmCount++;
+        }
+      } else if (status === 'nao_feita') bucket.naoFeitas++;
       else if (status === 'sem_registro') bucket.semRegistro++;
       // futuras não entram em nenhum bucket de execução
     }
@@ -126,6 +132,8 @@ export class EvolutionMetricService {
       .map(([weekStart, b]) => {
         const adherencePercent = calcAdherence(b.feitas, b.naoFeitas);
         const coveragePercent = calcCoverage(b.feitas, b.naoFeitas, b.prescritas);
+        // arredonda para 1 casa decimal
+        const kmPercorridos = b.kmCount > 0 ? Math.round(b.kmTotal * 10) / 10 : null;
         return {
           weekStart,
           sessoesPrescritas: b.prescritas,
@@ -135,6 +143,7 @@ export class EvolutionMetricService {
           adherencePercent,
           coveragePercent,
           lowCoverageWarning: coveragePercent < 30,
+          kmPercorridos,
         };
       });
   }
@@ -288,17 +297,22 @@ export class EvolutionMetricService {
   ): MonthlyAggregate[] {
     const byMonth = new Map<
       string,
-      { prescritas: number; feitas: number; naoFeitas: number; semRegistro: number }
+      { prescritas: number; feitas: number; naoFeitas: number; semRegistro: number; kmTotal: number; kmCount: number }
     >();
 
     for (const s of sessions) {
       const month = getMonth(s.scheduledDate);
-      if (!byMonth.has(month)) byMonth.set(month, { prescritas: 0, feitas: 0, naoFeitas: 0, semRegistro: 0 });
+      if (!byMonth.has(month)) byMonth.set(month, { prescritas: 0, feitas: 0, naoFeitas: 0, semRegistro: 0, kmTotal: 0, kmCount: 0 });
       const bucket = byMonth.get(month)!;
       const status = this.classifySession(s, todayBR);
       bucket.prescritas++;
-      if (status === 'feita') bucket.feitas++;
-      else if (status === 'nao_feita') bucket.naoFeitas++;
+      if (status === 'feita') {
+        bucket.feitas++;
+        if (s.distanceKm != null) {
+          bucket.kmTotal += s.distanceKm;
+          bucket.kmCount++;
+        }
+      } else if (status === 'nao_feita') bucket.naoFeitas++;
       else if (status === 'sem_registro') bucket.semRegistro++;
     }
 
@@ -312,6 +326,7 @@ export class EvolutionMetricService {
         sessoesSemRegistro: b.semRegistro,
         adherencePercent: calcAdherence(b.feitas, b.naoFeitas),
         coveragePercent: calcCoverage(b.feitas, b.naoFeitas, b.prescritas),
+        kmPercorridos: b.kmCount > 0 ? Math.round(b.kmTotal * 10) / 10 : null,
       }));
   }
 
@@ -334,6 +349,17 @@ export class EvolutionMetricService {
       (s) => this.classifySession(s, todayBR) === 'sem_registro',
     ).length;
 
+    // Soma total de km: só sessões feitas com distanceKm preenchido
+    const totalKmPercorridos = Math.round(
+      sessions
+        .filter(
+          (s) =>
+            (s.completionStatus === 'done' || s.completionStatus === 'adjusted') &&
+            s.distanceKm != null,
+        )
+        .reduce((sum, s) => sum + (s.distanceKm ?? 0), 0) * 10,
+    ) / 10;
+
     const dataAvailableSince =
       sessions.length > 0 ? sessions[0].scheduledDate : null;
 
@@ -343,6 +369,7 @@ export class EvolutionMetricService {
       dataAvailableSince,
       totalWeeksWithPlan,
       totalSemRegistro,
+      totalKmPercorridos,
       adherence: {
         allTime: this.buildAdherenceSummary(sessions, todayBR, 'all_time'),
         last4Weeks: this.buildAdherenceSummary(sessions, todayBR, 'last_4_weeks'),
