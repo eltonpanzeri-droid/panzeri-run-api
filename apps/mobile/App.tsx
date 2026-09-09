@@ -1077,6 +1077,12 @@ function AppInner() {
     if (activeTab !== 'fixAnswers') setFixAnswersModule(null);
   }, [activeTab]);
 
+  // 09/09: reseta routineSetupMode ao sair da aba routine — evita que o usuario fique
+  // preso na entrevista ao trocar de aba e voltar depois.
+  useEffect(() => {
+    if (activeTab !== 'routine') setRoutineSetupMode(false);
+  }, [activeTab]);
+
   useEffect(() => {
     // 28/08: rede de seguranca — sem esse .catch(), um erro nao previsto em qualquer ponto dessa
     // cadeia (aconteceu de verdade com window.location no app nativo) prendia o app pra sempre na
@@ -1303,14 +1309,23 @@ function AppInner() {
               />
             )}
             {activeTab === 'routine' && routineSetupMode && (
-              <GuidedInterview
-                accessToken={accessToken}
-                userName={userName}
-                onLater={() => { setRoutineSetupMode(false); setActiveTab('week'); }}
-                onComplete={() => { void refreshRoutineFromServer(); setRoutineSetupMode(false); setActiveTab('week'); }}
-                questions={routineQuestions}
-                mode="routine"
-              />
+              <View style={{ flex: 1 }}>
+                {/* Link sempre visível para sair da entrevista de rotina e voltar à visão geral */}
+                <Pressable
+                  style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}
+                  onPress={() => setRoutineSetupMode(false)}
+                >
+                  <Text style={{ color: PRColors.ocean, fontSize: 14, fontWeight: '700' }}>← Voltar</Text>
+                </Pressable>
+                <GuidedInterview
+                  accessToken={accessToken}
+                  userName={userName}
+                  onLater={() => { setRoutineSetupMode(false); setActiveTab('week'); }}
+                  onComplete={() => { void refreshRoutineFromServer(); setRoutineSetupMode(false); setActiveTab('week'); }}
+                  questions={routineQuestions}
+                  mode="routine"
+                />
+              </View>
             )}
             {activeTab === 'reassessment' && (
               <GuidedInterview
@@ -4512,64 +4527,96 @@ function RoutineOverviewScreen({
               <Text style={{ fontSize: 12, fontWeight: '700', color: PRColors.graphite }}>{mod.label}</Text>
             </View>
           ))}
+          {/* Linha de tempo disponível por dia */}
+          <View
+            style={{
+              height: ROW_H,
+              justifyContent: 'center',
+              paddingHorizontal: 10,
+              borderTopWidth: 2,
+              borderTopColor: PRColors.stone,
+              backgroundColor: '#EEECEA',
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: '600', color: PRColors.slate }}>Tempo disponível</Text>
+          </View>
         </View>
 
         {/* Colunas dos dias (scroll horizontal) */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row' }}>
-            {DAYS.map((day, di) => (
-              <View
-                key={day.weekday}
-                style={{
-                  width: CELL_W,
-                  borderRightWidth: di < DAYS.length - 1 ? 1 : 0,
-                  borderRightColor: PRColors.stone,
-                }}
-              >
-                {/* Cabeçalho do dia */}
-                <View style={{ height: HEADER_H, justifyContent: 'center', alignItems: 'center', backgroundColor: PRColors.graphite }}>
-                  <Text style={{ fontSize: 11, fontWeight: '800', color: PRColors.pulse, letterSpacing: 0.5 }}>
-                    {day.label}
-                  </Text>
-                </View>
-                {/* Células de cada modalidade */}
-                {MODALITIES.map((mod, i) => {
-                  const cell = cellInfo(day.weekday, mod.key);
-                  return (
-                    <View
-                      key={mod.key}
-                      style={{
-                        height: ROW_H,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        borderTopWidth: 1,
-                        borderTopColor: PRColors.stone,
-                        backgroundColor: cell.active
-                          ? '#E8FAD0'
-                          : cell.rest
-                          ? '#EFEFED'
-                          : i % 2 === 0 ? '#FAFAF8' : '#F4F0E6',
-                      }}
-                    >
-                      <Text
+            {DAYS.map((day, di) => {
+              const entry = byWeekday.get(day.weekday);
+              const tempoDisp = entry && !entry.noTraining ? entry.availableMin : null;
+              return (
+                <View
+                  key={day.weekday}
+                  style={{
+                    width: CELL_W,
+                    borderRightWidth: di < DAYS.length - 1 ? 1 : 0,
+                    borderRightColor: PRColors.stone,
+                  }}
+                >
+                  {/* Cabeçalho do dia */}
+                  <View style={{ height: HEADER_H, justifyContent: 'center', alignItems: 'center', backgroundColor: PRColors.graphite }}>
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: PRColors.pulse, letterSpacing: 0.5 }}>
+                      {day.label}
+                    </Text>
+                  </View>
+                  {/* Células de cada modalidade */}
+                  {MODALITIES.map((mod, i) => {
+                    const cell = cellInfo(day.weekday, mod.key);
+                    return (
+                      <View
+                        key={mod.key}
                         style={{
-                          fontSize: 10,
-                          fontWeight: cell.active ? '700' : '500',
-                          color: cell.active
-                            ? PRColors.success
+                          height: ROW_H,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          borderTopWidth: 1,
+                          borderTopColor: PRColors.stone,
+                          backgroundColor: cell.active
+                            ? '#E8FAD0'
                             : cell.rest
-                            ? PRColors.slate
-                            : '#C0BDB5',
+                            ? '#EFEFED'
+                            : i % 2 === 0 ? '#FAFAF8' : '#F4F0E6',
                         }}
-                        numberOfLines={1}
                       >
-                        {cell.text}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-            ))}
+                        <Text
+                          style={{
+                            fontSize: 10,
+                            fontWeight: cell.active ? '700' : '500',
+                            color: cell.active
+                              ? PRColors.success
+                              : cell.rest
+                              ? PRColors.slate
+                              : '#C0BDB5',
+                          }}
+                          numberOfLines={1}
+                        >
+                          {cell.text}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                  {/* Célula de tempo disponível */}
+                  <View
+                    style={{
+                      height: ROW_H,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      borderTopWidth: 2,
+                      borderTopColor: PRColors.stone,
+                      backgroundColor: '#EEECEA',
+                    }}
+                  >
+                    <Text style={{ fontSize: 10, fontWeight: '600', color: tempoDisp ? PRColors.ocean : '#C0BDB5' }} numberOfLines={1}>
+                      {tempoDisp ? `${tempoDisp}min` : (entry?.noTraining ? 'DESC' : '—')}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
           </View>
         </ScrollView>
       </View>
