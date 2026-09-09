@@ -2025,13 +2025,28 @@ function WheelColumn({ values, selectedIndex, onChangeIndex, width }: { values: 
   // GuidedInterview) — a resposta de um chegando fora de ordem podia mostrar "Nao consegui salvar"
   // mesmo com o valor certo ja salvo por outro, ou pior, um valor antigo sobrescrevendo o novo e
   // fazendo o useEffect acima puxar a roda de volta — o que a aluna via como "a roda parou de
-  // responder ao arrasto". Agora os tres caminhos passam pelo MESMO timer de espera: so' o ultimo
-  // indice reportado depois de 150ms sem novo evento e' realmente enviado (um so' onChangeIndex por
-  // gesto). O toque direto (item da lista, botoes -/+) continua sincrono, sem essa espera.
+  // responder ao arrasto". onScroll e onScrollEndDrag passam por um timer de espera de 150ms (so'
+  // o ultimo indice reportado depois de 150ms sem novo evento e' enviado) porque o valor deles
+  // ainda pode ser substituido por um evento seguinte do MESMO gesto.
+  //
+  // 08/09 (segunda rodada, mesmo caso — "quando aumento muito as medidas ele nao vai pra proxima"):
+  // onMomentumScrollEnd e' diferente — ele so dispara quando a inercia da rolagem JA acabou de
+  // verdade, entao o indice dele e' sempre o final, nada depois vai substituir. Antes ele passava
+  // pelo MESMO timer de 150ms dos outros dois, o que somava uma espera extra desnecessaria DEPOIS
+  // da roda ja ter parado visualmente — e quanto maior a distancia rolada (medidas indo de 30 a
+  // 200, por exemplo), mais longa a inercia e mais essa espera extra se destacava, dando a
+  // impressao de tela travada ("tem que dar um tempo pra ele"). Agora onMomentumScrollEnd confirma
+  // na hora, sem esperar mais nada — so cancela um timer pendente dos outros dois eventos, caso
+  // exista, pra nao mandar um indice antigo por cima do final.
   function reportIndexFromOffset(offsetY: number) {
     if (settleTimer.current) clearTimeout(settleTimer.current);
     const index = Math.max(0, Math.min(values.length - 1, Math.round(offsetY / WHEEL_ITEM_HEIGHT)));
     settleTimer.current = setTimeout(() => onChangeIndex(index), 150);
+  }
+  function reportIndexImmediately(offsetY: number) {
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    const index = Math.max(0, Math.min(values.length - 1, Math.round(offsetY / WHEEL_ITEM_HEIGHT)));
+    onChangeIndex(index);
   }
   function step(delta: number) {
     onChangeIndex(Math.max(0, Math.min(values.length - 1, selectedIndex + delta)));
@@ -2052,7 +2067,7 @@ function WheelColumn({ values, selectedIndex, onChangeIndex, width }: { values: 
           scrollEventThrottle={16}
           onScroll={(event) => reportIndexFromOffset(event.nativeEvent.contentOffset.y)}
           onScrollEndDrag={(event) => reportIndexFromOffset(event.nativeEvent.contentOffset.y)}
-          onMomentumScrollEnd={(event) => reportIndexFromOffset(event.nativeEvent.contentOffset.y)}
+          onMomentumScrollEnd={(event) => reportIndexImmediately(event.nativeEvent.contentOffset.y)}
         >
           {values.map((label, index) => (
             <Pressable key={`${label}-${index}`} style={styles.wheelItem} onPress={() => onChangeIndex(index)}>
@@ -2299,7 +2314,16 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         return;
       }
       if (mode === 'routine') {
-        const data = await response.json().catch(() => ({} as { firstTime?: boolean }));
+        const data = await response.json().catch(() => ({} as { firstTime?: boolean; aborted?: boolean }));
+        // 08/09 (trava de seguranca no backend, caso Thais): se a rotina calculada da entrevista
+        // veio vazia mas a aluna ja tinha uma rotina real configurada, o servidor NAO apaga nada e
+        // devolve aborted:true. Nesse caso nao mostramos a tela de "concluido" como se tivesse
+        // dado certo — a rotina anterior continua valendo, mas ela precisa saber que essa
+        // atualizacao especifica nao foi aplicada.
+        if (data?.aborted) {
+          setStatus('Nao consegui atualizar sua rotina agora porque as respostas ficaram incompletas. Sua rotina anterior continua ativa. Revise as respostas de rotina acima e tente novamente, ou fale com seu treinador.');
+          return;
+        }
         setRoutineFirstTime(Boolean(data?.firstTime));
       }
       if (mode === 'onboarding') trackFunnel('interview_completed');
@@ -3783,8 +3807,15 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
             <View style={{ flex: 1, minWidth: 0, gap: 8 }}>
               {group.sessions.map((session) => {
                 const sessionExpanded = Boolean(expandedDays[session.id]);
+                const sessionStatus = session.completion?.status ?? null;
+                const cardStatusStyle =
+                  sessionStatus === 'done' || sessionStatus === 'adjusted'
+                    ? { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }
+                    : sessionStatus === 'missed'
+                    ? { backgroundColor: '#f9fafb', borderColor: '#d1d5db' }
+                    : {};
                 return (
-                  <View style={styles.weekSessionCard} key={session.id}>
+                  <View style={[styles.weekSessionCard, cardStatusStyle]} key={session.id}>
                     <Pressable
                       style={styles.collapseHeader}
                       onPress={() => setExpandedDays((current) => ({ ...current, [session.id]: !current[session.id] }))}
@@ -3795,6 +3826,11 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
                           <Text style={styles.sessionTitle}>{session.title}</Text>
                         </View>
                         <Text style={styles.sessionDetail}>{sessionExpanded ? 'Toque para recolher' : 'Toque para ver o treino'}</Text>
+                        {sessionStatus === 'done' || sessionStatus === 'adjusted' ? (
+                          <Text style={styles.sessionStatusDone}>✓ Feito</Text>
+                        ) : sessionStatus === 'missed' ? (
+                          <Text style={styles.sessionStatusMissed}>✗ Não feito</Text>
+                        ) : null}
                       </View>
                       <Ionicons name={sessionExpanded ? 'chevron-up' : 'chevron-down'} size={22} color={PRColors.ocean} />
                     </Pressable>
@@ -8086,6 +8122,16 @@ const styles = StyleSheet.create({
     color: PRColors.ocean,
     fontSize: 14,
     fontWeight: '700',
+  },
+  sessionStatusDone: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#166534',
+  },
+  sessionStatusMissed: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#6b7280',
   },
   sessionNote: {
     color: '#475569',
