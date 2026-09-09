@@ -317,6 +317,9 @@ interface InterviewQuestion {
   type: 'single' | 'multi' | 'scale' | 'text' | 'number' | 'number_or_unknown' | 'date' | 'cpf' | 'phone' | 'cep' | 'notice' | 'wheel_number' | 'wheel_pace' | 'wheel_duration_hms' | 'wheel_date' | 'dropdown_single' | 'dropdown_multi';
   options?: InterviewOption[];
   optional?: boolean;
+  // skipDisabled: impede o botão "Prefiro não responder" mesmo para perguntas não-obrigatórias.
+  // Usar em perguntas cuja ausência de resposta inviabiliza o sistema (ex: modalidade da rotina).
+  skipDisabled?: boolean;
   help?: string;
   condition?: (answers: InterviewAnswers) => boolean;
   wheelDigits?: number;
@@ -860,6 +863,8 @@ const interviewQuestions: InterviewQuestion[] = [
     module: 'Rotina semanal',
     prompt: 'Quais modalidades voce quer que a gente monte pra voce?',
     type: 'dropdown_single' as const,
+    // skipDisabled: sem isso, nao sabemos quais modalidades prescrever — campo obrigatorio real.
+    skipDisabled: true,
     options: [
       option('Somente corrida', 'corrida'),
       option('Corrida + Fortalecimento para corredores', 'corrida_fortalecimento'),
@@ -2761,7 +2766,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
           Para perguntas obrigatorias (CPF, telefone), nao ha botao de pular.
           Para todas as demais, inclusive as que eram "obrigatorias" antes, o aluno pode escolher
           nao responder — a IA recebe o campo como ausente e o treinador ve no painel. */}
-      {question && !['cpf', 'phone'].includes(question.type) && question.type !== 'notice' ? (
+      {question && !['cpf', 'phone'].includes(question.type) && question.type !== 'notice' && !question.skipDisabled ? (
         <Pressable style={styles.skipButton} onPress={skip} disabled={saving}>
           <Text style={styles.skipButtonText}>Prefiro não responder · Pular esta pergunta</Text>
         </Pressable>

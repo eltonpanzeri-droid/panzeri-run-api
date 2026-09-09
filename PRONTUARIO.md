@@ -1038,6 +1038,27 @@ virtual bloqueando a recorrência):
 - **ScalePicker com gradiente de cores**: os 5 botões de escala (check-in) agora têm cada um sua cor semântica (#E03E2D→#F5C800→#1B8A5A), com fundo colorido quando ativo e borda colorida quando inativo — elimina o visual monocromático anterior.
 - **Arquivos alterados**: `apps/api/src/training-plans/prescription-agent.service.ts`, `apps/api/src/training-plans/training-methodology.ts`, `apps/api/src/training-plans/training-plans.service.ts`, `apps/api/src/workout-completions/workout-completions.service.ts`, `apps/api/src/notifications/notifications.service.ts`, `apps/mobile/App.tsx`, `apps/admin/app/page.tsx`, `apps/admin/app/styles.css`.
 
+**2026-09-09 (sessão 2) — RoutineOverviewScreen: tabela de rotina antes da entrevista**
+
+- **Nova tela `RoutineOverviewScreen`** em `apps/mobile/App.tsx`: quando o aluno toca em "Rotina de
+  treinos" no menu, agora vê primeiro uma tabela da rotina atual (coluna fixa de labels + scroll
+  horizontal com as 7 colunas de dias) — igual ao painel do treinador — antes de entrar na
+  entrevista de configuração. Linhas: Corrida, Fortalecimento, Musculação (fonte: `WeeklyAvailability`
+  canônica) + linha "Tempo disponível" (`availableMin` por dia). Células codificadas: verde + minutos
+  (modalidade ativa com duração), "NÃO" cinza (modalidade inativa no dia), "DESC" cinza
+  (`noTraining=true`), "—" (sem entrada). Cabeçalho dos dias em verde Pulso sobre fundo Graphite.
+- **Botão condicional**: "Alterar rotina semanal" (já tem rotina) ou "Configurar rotina semanal" (sem
+  rotina); "Voltar" retorna para a aba Semana sem entrar na entrevista.
+- **Estado `routineSetupMode`**: controla se a aba `routine` mostra `RoutineOverviewScreen` (false)
+  ou `GuidedInterview` (true). `useEffect` reseta para false sempre que `activeTab !== 'routine'` —
+  garante que trocar de aba e voltar sempre exibe a visão geral primeiro.
+- **Bug corrigido — preso na entrevista**: ao trocar de aba sem sair da entrevista, `routineSetupMode`
+  ficava `true` e o aluno voltava direto para a entrevista ao retornar para "Rotina". Corrigido pelo
+  `useEffect` acima, seguindo o padrão já existente de `fixAnswersModule`.
+- **Escape sempre disponível**: botão "← Voltar" fixo acima do `GuidedInterview` quando em modo
+  setup — funciona independente do que a tela de introdução da entrevista mostrar.
+- **Arquivo alterado**: `apps/mobile/App.tsx`.
+
 **2026-09-09 — Auditoria arquitetural de rotina (Fase 0) + implementação da WeeklyAvailability como fonte canônica**
 
 Esta sessão teve duas partes distintas.
@@ -1099,6 +1120,12 @@ WA→answers eliminado, chaves de rotina filtradas antes da IA via `stripRoutine
 `completeOnboarding` não toca mais em `WeeklyAvailability` (fix caso Thais, 08/09). Guard de
 segurança em `syncAvailabilityFromInterview` (aborta se rotina calculada viria vazia, 08/09). O
 EasyPanel auto-deploya a cada push — sem ação manual necessária.
+
+**Próximo deploy pendente (09/09, sessão 2)**: `RoutineOverviewScreen` — ao tocar em "Rotina de
+treinos" no menu, o aluno vê a tabela da rotina atual antes de entrar na entrevista, com botão
+"Alterar/Configurar rotina semanal". Bug corrigido: trocar de aba e voltar não prende mais o aluno
+na tela da entrevista. Arquivo alterado: `apps/mobile/App.tsx`. Espelho GitHub Desktop sincronizado,
+aguardando commit/push/deploy do Elton.
 
 **Fonte canônica da rotina (decisão arquitetural, 09/09)**: `WeeklyAvailability` é a única fonte
 operacional. As chaves de rotina em `OnboardingInterview.answers` são preservadas historicamente mas
