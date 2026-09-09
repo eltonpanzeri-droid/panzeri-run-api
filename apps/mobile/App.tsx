@@ -54,7 +54,7 @@ Notifications.setNotificationHandler({
 });
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications';
+type Tab = 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'meusDados' | 'notifications';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -1027,6 +1027,9 @@ function AppInner() {
   const [activeTab, setActiveTab] = useState<Tab>('week');
   const [menuOpen, setMenuOpen] = useState(false);
   const [restartInterviewFromStart, setRestartInterviewFromStart] = useState(false);
+  // 09/09: modulo selecionado para correcao granular — quando nao-nulo, a aba fixAnswers mostra
+  // o GuidedInterview filtrado para esse modulo em vez do menu de modulos.
+  const [fixAnswersModule, setFixAnswersModule] = useState<string | null>(null);
   const [completedToday, setCompletedToday] = useState(false);
   const [threeKmSeconds, setThreeKmSeconds] = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -1066,6 +1069,11 @@ function AppInner() {
   useEffect(() => {
     if (accessToken) void registerPushTokenIfNeeded(accessToken);
   }, [accessToken]);
+
+  // 09/09: reseta o modulo de correcao sempre que o usuario navegar para fora de fixAnswers
+  useEffect(() => {
+    if (activeTab !== 'fixAnswers') setFixAnswersModule(null);
+  }, [activeTab]);
 
   useEffect(() => {
     // 28/08: rede de seguranca — sem esse .catch(), um erro nao previsto em qualquer ponto dessa
@@ -1305,11 +1313,32 @@ function AppInner() {
                 restartFromStart={restartInterviewFromStart}
               />
             )}
-            {activeTab === 'fixAnswers' && (
+            {activeTab === 'fixAnswers' && !fixAnswersModule && (
               <FixAnswersMenu
                 accessToken={accessToken}
                 onOpenOnboarding={() => { setRestartInterviewFromStart(true); setActiveTab('interview'); }}
                 onOpenReassessment={() => { setRestartInterviewFromStart(true); setActiveTab('reassessment'); }}
+                onOpenModule={(mod) => setFixAnswersModule(mod)}
+              />
+            )}
+            {/* 09/09: correcao por modulo — GuidedInterview filtrado, sem reabrir a entrevista
+                (completedAt permanece intacto). Salva via PUT /me/onboarding/answer igual ao
+                fluxo normal; ao concluir volta para o menu de modulos sem afetar o treino ativo. */}
+            {activeTab === 'fixAnswers' && fixAnswersModule && (
+              <GuidedInterview
+                accessToken={accessToken}
+                userName={userName}
+                onLater={() => setFixAnswersModule(null)}
+                onComplete={() => setFixAnswersModule(null)}
+                questions={mainInterviewQuestions.filter((q) => q.module === fixAnswersModule)}
+                mode="fixModule"
+              />
+            )}
+            {activeTab === 'meusDados' && (
+              <MeusDados
+                savedMe={savedMe}
+                onEditContactInfo={() => { setFixAnswersModule('Dados pessoais'); setActiveTab('fixAnswers'); }}
+                onBack={() => setActiveTab('week')}
               />
             )}
             {activeTab === 'anamnese' && (
@@ -2167,7 +2196,7 @@ function MultiDropdown({ options, value, onChange, placeholder = 'Selecione uma 
   );
 }
 
-function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding', restartFromStart = false }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment' | 'routine' | 'quickIntake'; restartFromStart?: boolean }) {
+function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding', restartFromStart = false }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment' | 'routine' | 'quickIntake' | 'fixModule'; restartFromStart?: boolean }) {
   const [answers, setAnswers] = useState<InterviewAnswers>({});
   const [step, setStep] = useState(0);
   const [started, setStarted] = useState(false);
@@ -2236,7 +2265,14 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       // load/save — completedAt e currentStep ali sao da entrevista inteira (ja concluida antes
       // do pagamento), nao tem nada a ver com a rotina em si. Por isso sempre comeca do zero,
       // nunca herda "ja concluido" nem retoma um passo no meio de outra pergunta.
-      if (mode === 'routine') {
+      if (mode === 'fixModule') {
+        // 09/09: correcao por modulo — sempre comeca do zero (passo 0), nunca herda o completedAt
+        // da entrevista original (que estaria true pra alunos ativos) e ja pula a intro screen
+        // (started=true), pois o aluno ja conhece o fluxo e sabe o que quer corrigir.
+        setFinished(false);
+        setStep(0);
+        setStarted(true);
+      } else if (mode === 'routine') {
         setFinished(false);
         setStep(0);
         setStarted(true);
@@ -2291,6 +2327,12 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       setStep(nextStep);
       setHelpOpen(false);
       setStatus('');
+      return;
+    }
+    // 09/09: fixModule nao tem endpoint de conclusao — as respostas ja foram salvas pergunta a
+    // pergunta via PUT /me/onboarding/answer. Apenas marca finished e exibe a tela de confirmacao.
+    if (mode === 'fixModule') {
+      setFinished(true);
       return;
     }
     setSaving(true);
@@ -2493,8 +2535,8 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   );
   if (finished) return (
     <View style={styles.section}>
-      <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao concluida' : mode === 'routine' ? 'Rotina registrada' : 'Entrevista concluida'}</Text>
-      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : mode === 'routine' ? (routineFirstTime ? 'Estamos montando seu treino' : 'Rotina salva') : 'Vamos montar seu programa'}</Text>
+      <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao concluida' : mode === 'routine' ? 'Rotina registrada' : mode === 'fixModule' ? 'Respostas atualizadas' : 'Entrevista concluida'}</Text>
+      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : mode === 'routine' ? (routineFirstTime ? 'Estamos montando seu treino' : 'Rotina salva') : mode === 'fixModule' ? 'Tudo certo' : 'Vamos montar seu programa'}</Text>
       <Text style={styles.copyTight}>
         {mode === 'reassessment'
           ? 'Suas respostas foram salvas. Seu treinador vai revisar sua evolucao e ajustar seu treino conforme necessario.'
@@ -2507,9 +2549,11 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
                 // cumpria, deixando o aluno com uma rotina nova salva mas nenhum treino atualizado
                 // e nenhuma pista do que fazer a respeito.
                 : 'Sua rotina foi salva. Toque em "Gerar treino da semana", na tela de treino, para atualizar seu programa com a rotina nova agora.')
-            : 'Parabens por completar sua entrevista! Seus dados foram salvos e serao usados para montar seu programa de treinos personalizado.'}
+            : mode === 'fixModule'
+              ? 'Suas respostas foram salvas. Essas informacoes serao usadas na proxima geracao de treino.'
+              : 'Parabens por completar sua entrevista! Seus dados foram salvos e serao usados para montar seu programa de treinos personalizado.'}
       </Text>
-      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : mode === 'routine' ? 'Ver meu treino' : 'Ver meu treino'}</Text><Ionicons name="arrow-forward" size={18} color={PRColors.mineral} /></Pressable>
+      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : mode === 'fixModule' ? 'Voltar' : 'Ver meu treino'}</Text><Ionicons name="arrow-forward" size={18} color={PRColors.mineral} /></Pressable>
       {mode === 'onboarding' ? <Pressable style={styles.secondaryButton} onPress={reviewInterview} disabled={saving}><Text style={styles.secondaryButtonText}>Revisar minhas respostas</Text></Pressable> : null}
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
     </View>
@@ -4374,7 +4418,54 @@ const QUICK_EDIT_OBJECTIVE_OPTIONS = [
   option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'),
 ];
 
-function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment }: { accessToken: string; onOpenOnboarding: () => void; onOpenReassessment: () => void }) {
+// 09/09: tela "Meus dados" — exibe os dados de contato e permite editá-los via modulo
+// "Dados pessoais" da entrevista sem precisar reabrir a entrevista inteira.
+function MeusDados({ savedMe, onEditContactInfo, onBack }: { savedMe: MeResponse | null; onEditContactInfo: () => void; onBack: () => void }) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Meus dados</Text>
+      <Text style={styles.titleSmall}>Dados de cadastro</Text>
+      <View style={styles.formSection}>
+        {savedMe?.name ? (
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+            <Text style={styles.inputLabel}>Nome</Text>
+            <Text style={styles.reportText}>{savedMe.name}</Text>
+          </View>
+        ) : null}
+        {savedMe?.email ? (
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+            <Text style={styles.inputLabel}>E-mail</Text>
+            <Text style={styles.reportText}>{savedMe.email}</Text>
+          </View>
+        ) : null}
+        {savedMe?.birthDate ? (
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+            <Text style={styles.inputLabel}>Nascimento</Text>
+            <Text style={styles.reportText}>{formatFullDate(new Date(savedMe.birthDate))}</Text>
+          </View>
+        ) : null}
+      </View>
+      <Text style={styles.copyTight}>
+        Para atualizar nome, telefone, data de nascimento, endereco ou outros dados pessoais, toque em "Editar dados" abaixo.
+      </Text>
+      <Pressable style={styles.primaryButton} onPress={onEditContactInfo}>
+        <Text style={styles.primaryButtonText}>Editar dados</Text>
+        <Ionicons name="create-outline" size={18} color={PRColors.mineral} />
+      </Pressable>
+      <Pressable style={[styles.secondaryButton, { marginTop: 8 }]} onPress={onBack}>
+        <Text style={styles.secondaryButtonText}>Voltar ao treino</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// 09/09: lista de modulos da entrevista disponíveis para correcao granular (exclui Boas-vindas
+// que e so uma nota introdutoria sem respostas editaveis, e Rotina semanal que tem aba propria).
+const INTERVIEW_MODULES_FOR_FIX = Array.from(
+  new Set(mainInterviewQuestions.filter((q) => q.module !== 'Boas-vindas').map((q) => q.module)),
+);
+
+function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment, onOpenModule }: { accessToken: string; onOpenOnboarding: () => void; onOpenReassessment: () => void; onOpenModule: (moduleName: string) => void }) {
   const [onboardingCompletedAt, setOnboardingCompletedAt] = useState<string | null>(null);
   const [reassessments, setReassessments] = useState<Array<{ id: string; completedAt: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -4512,9 +4603,24 @@ function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment }: {
                 ))}
               </View>
               {objectiveMessage ? <Text style={styles.statusMessage}>{objectiveMessage}</Text> : null}
-              <Text style={styles.formHint}>Precisa corrigir outra coisa alem do objetivo (rotina, saude, dados pessoais)? Use o botao abaixo — ele reabre a entrevista inteira.</Text>
-              <Pressable style={styles.secondaryButton} onPress={correctOnboarding} disabled={busyId === 'onboarding'}>
-                <Text style={styles.secondaryButtonText}>{busyId === 'onboarding' ? 'Abrindo...' : 'Corrigir entrevista inicial'}</Text>
+
+              {/* 09/09: correcao por modulo — cada secao da entrevista pode ser corrigida
+                  individualmente sem precisar reabrir a entrevista inteira (o que ocultaria
+                  o treino ativo). O GuidedInterview filtrado salva via PUT /me/onboarding/answer
+                  da mesma forma que durante o onboarding, sem alterar o completedAt. */}
+              <Text style={styles.inputLabel}>Corrigir por secao</Text>
+              <Text style={styles.formHint}>Toque na secao que quer corrigir. Suas respostas ficam pre-preenchidas — basta atualizar o que mudou.</Text>
+              <View style={{ gap: 8, marginTop: 4 }}>
+                {INTERVIEW_MODULES_FOR_FIX.map((mod) => (
+                  <Pressable key={mod} style={styles.secondaryButton} onPress={() => onOpenModule(mod)}>
+                    <Text style={styles.secondaryButtonText}>{mod}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Text style={[styles.formHint, { marginTop: 16 }]}>Precisou corrigir algo que nao funciona por secao? Use o botao abaixo para reabrir a entrevista inteira. Atenção: enquanto estiver reaberta, seu treino fica em espera.</Text>
+              <Pressable style={[styles.secondaryButton, { marginTop: 4 }]} onPress={correctOnboarding} disabled={busyId === 'onboarding'}>
+                <Text style={styles.secondaryButtonText}>{busyId === 'onboarding' ? 'Abrindo...' : 'Reabrir entrevista completa'}</Text>
               </Pressable>
             </>
           ) : null}
@@ -5645,6 +5751,7 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     { id: 'interview', label: 'Entrevista inicial', icon: 'chatbubbles' },
     { id: 'routine', label: 'Rotina de treinos', icon: 'time' },
     { id: 'reassessment', label: 'Reavaliacao periodica', icon: 'refresh-circle' },
+    { id: 'meusDados', label: 'Meus dados', icon: 'person-circle-outline' },
     { id: 'fixAnswers', label: 'Corrigir respostas anteriores', icon: 'create-outline' },
     { id: 'targetRace', label: 'Prova alvo', icon: 'trophy' },
     { id: 'painReport', label: 'Relatar dor', icon: 'medkit' },
