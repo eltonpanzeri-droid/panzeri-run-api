@@ -1115,19 +1115,22 @@ treino, pagamento via Asaas (boleto/cartão recorrente), backup diário, alertas
 grave pro treinador via Telegram, check-in semanal obrigatório antes de gerar nova semana,
 notificações de cobrança em atraso — tudo funcionando e testado com alunas reais.
 
-**Última versão em produção (09/09)**: WeeklyAvailability como fonte canônica da rotina — back-sync
-WA→answers eliminado, chaves de rotina filtradas antes da IA via `stripRoutineKeysFromAnswers`.
-`completeOnboarding` não toca mais em `WeeklyAvailability` (fix caso Thais, 08/09). Guard de
-segurança em `syncAvailabilityFromInterview` (aborta se rotina calculada viria vazia, 08/09). O
-EasyPanel auto-deploya a cada push — sem ação manual necessária.
+**Última versão em produção (09/09, sessão 3)**: três mudanças relacionadas à semântica de "sem
+registro": (1) bug fix em `coach.service.ts` — `summarizeSessions` colapsava sem registro em falta
+confirmada; corrigido com `unregisteredSessions` separado e aderência recalculada como `feito ÷
+(feito + não feito)`; (2) cards de treino agora usam sistema de cores: 🟢 feito, 🔴 não feito,
+🟡 amarelo para sessões passadas sem registro (após meia-noite D+1), com label "⚠ Sem registro";
+(3) notificação ao gerar nova semana agora inclui contagem de treinos sem registro da semana
+anterior e explica o impacto na prescrição. Arquivos: `coach.service.ts`, `training-plans.service.ts`,
+`App.tsx`. Typecheck limpo nos dois apps. EasyPanel auto-deploya a cada push.
 
-**Próximo deploy pendente (09/09, sessão 2)**: `RoutineOverviewScreen` — ao tocar em "Rotina de
-treinos" no menu, o aluno vê a tabela da rotina atual antes de entrar na entrevista, com botão
-"Alterar/Configurar rotina semanal". Três bugs corrigidos: (1) trocar de aba e voltar não prende
-mais o aluno na tela da entrevista; (2) botão "← Voltar" externo (topo) funcionando; (3) botão
-"Voltar" interno do GuidedInterview (linha "Voltar | Continuar") não mandava mais para a aba Semana
-(`onLater` corrigido para só `setRoutineSetupMode(false)`). Arquivo alterado: `apps/mobile/App.tsx`.
-Espelho GitHub Desktop sincronizado, aguardando commit/push/deploy do Elton.
+**Deployado (09/09, sessão 2)**: `RoutineOverviewScreen` — ao tocar em "Rotina de treinos" no menu,
+o aluno vê a tabela da rotina atual antes de entrar na entrevista, com botão "Alterar/Configurar
+rotina semanal". Três bugs corrigidos: (1) trocar de aba e voltar não prende mais o aluno na tela
+da entrevista; (2) botão "← Voltar" externo (topo) funcionando; (3) botão "Voltar" interno do
+GuidedInterview (`onLater` corrigido para só `setRoutineSetupMode(false)`). Arquivo: `apps/mobile/App.tsx`.
+Também criado `.easignore` para reduzir archive EAS de 309 MB (`.pnpm-store` e `apps/api/admin`
+estavam sendo incluídos desnecessariamente) — build Android ainda pendente de nova execução.
 
 **Fonte canônica da rotina (decisão arquitetural, 09/09)**: `WeeklyAvailability` é a única fonte
 operacional. As chaves de rotina em `OnboardingInterview.answers` são preservadas historicamente mas
