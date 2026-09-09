@@ -1,0 +1,37 @@
+# Dependências — o EAS instala no servidor, não precisam ir no archive
+node_modules/
+.pnpm-store/
+
+# Apps que não são o mobile
+apps/api/
+apps/admin/
+
+# Temporários e gerados
+tmp/
+.next/
+dist/
+out/
+build/
+
+# Git e CI
+.git/
+.github/
+.claude/
+
+# Docs e scripts locais (não afetam o build)
+PRONTUARIO.md
+MEMORIA_DO_PROJETO_PANZERI_RUN.md
+ELTON2/
+RUNBOOKS/
+JURIDICO*/
+"erros persistentes"/
+Documentacao_*.docx
+*.bat
+integracoes/
+identidade-visual*/
+panz/
+INSTALAR_NO_IPHONE.txt
+PROPOSTA_HARNESS_AGENTES.md
+ORDEM_CLAUDE_IMPLEMENTACAO_ROTINA_CANONICA.md
+inventario-rotina-*.sql
+REVISAO_INVENTARIO_ROTINA_*.md
