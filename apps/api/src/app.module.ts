@@ -21,6 +21,7 @@ import { TargetRacesModule } from './target-races/target-races.module';
 import { PainReportsModule } from './pain-reports/pain-reports.module';
 import { ObservationsModule } from './observations/observations.module';
 import { FunnelModule } from './funnel/funnel.module';
+import { EvolutionModule } from './evolution/evolution.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -50,6 +51,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     PainReportsModule,
     ObservationsModule,
     FunnelModule,
+    EvolutionModule,
   ],
   controllers: [AppController],
   providers: [
