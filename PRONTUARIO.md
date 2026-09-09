@@ -1123,9 +1123,11 @@ EasyPanel auto-deploya a cada push — sem ação manual necessária.
 
 **Próximo deploy pendente (09/09, sessão 2)**: `RoutineOverviewScreen` — ao tocar em "Rotina de
 treinos" no menu, o aluno vê a tabela da rotina atual antes de entrar na entrevista, com botão
-"Alterar/Configurar rotina semanal". Bug corrigido: trocar de aba e voltar não prende mais o aluno
-na tela da entrevista. Arquivo alterado: `apps/mobile/App.tsx`. Espelho GitHub Desktop sincronizado,
-aguardando commit/push/deploy do Elton.
+"Alterar/Configurar rotina semanal". Três bugs corrigidos: (1) trocar de aba e voltar não prende
+mais o aluno na tela da entrevista; (2) botão "← Voltar" externo (topo) funcionando; (3) botão
+"Voltar" interno do GuidedInterview (linha "Voltar | Continuar") não mandava mais para a aba Semana
+(`onLater` corrigido para só `setRoutineSetupMode(false)`). Arquivo alterado: `apps/mobile/App.tsx`.
+Espelho GitHub Desktop sincronizado, aguardando commit/push/deploy do Elton.
 
 **Fonte canônica da rotina (decisão arquitetural, 09/09)**: `WeeklyAvailability` é a única fonte
 operacional. As chaves de rotina em `OnboardingInterview.answers` são preservadas historicamente mas

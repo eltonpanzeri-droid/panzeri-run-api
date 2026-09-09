@@ -1325,7 +1325,7 @@ function AppInner() {
                 <GuidedInterview
                   accessToken={accessToken}
                   userName={userName}
-                  onLater={() => { setRoutineSetupMode(false); setActiveTab('week'); }}
+                  onLater={() => setRoutineSetupMode(false)}
                   onComplete={() => { void refreshRoutineFromServer(); setRoutineSetupMode(false); setActiveTab('week'); }}
                   questions={routineQuestions}
                   mode="routine"
