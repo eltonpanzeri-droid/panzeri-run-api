@@ -33,6 +33,58 @@ export function sanitizeInterviewAnswers(answers: Record<string, unknown>): Reco
   return sanitized;
 }
 
+// ORDEM EXECUTIVA 09/09/2026 (Dr. Vanzao): WeeklyAvailability e a fonte canonica da rotina
+// operacional. As chaves de rotina em OnboardingInterview.answers nao devem mais contaminar
+// o contexto dos agentes de IA — a IA recebe a rotina exclusivamente via
+// diasDisponiveisParaCorrida/Forca, derivados da WA.
+
+const INTERVIEW_WEEK_DAY_PREFIXES = [
+  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+] as const;
+
+const ROUTINE_ANSWER_SUFFIXES = [
+  '_run_time', '_fortalecimento_time', '_musculacao_time',
+  '_run_available_time', '_fortalecimento_available_time', '_musculacao_available_time',
+] as const;
+
+const ROUTINE_STATIC_KEYS = new Set([
+  'routine_modality_choice', 'routine_observation', 'routine_intro',
+  'routine_modality_confirmation', 'routine_confirmation',
+]);
+
+const ROUTINE_PER_DAY_KEYS: Set<string> = new Set();
+for (const day of INTERVIEW_WEEK_DAY_PREFIXES) {
+  for (const suffix of ROUTINE_ANSWER_SUFFIXES) {
+    ROUTINE_PER_DAY_KEYS.add(`${day}${suffix}`);
+  }
+}
+
+/**
+ * Remove todas as chaves de rotina semanal de um objeto de respostas de entrevista antes de
+ * montar o MethodologyInput.
+ *
+ * A IA de prescricao recebe a rotina operacional exclusivamente via diasDisponiveisParaCorrida
+ * e diasDisponiveisParaForca, ambos derivados da WeeklyAvailability (fonte canonica). Passar
+ * as chaves de rotina do answers junto criaria duas descricoes conflitantes da mesma rotina —
+ * a IA poderia confiar na versao desatualizada do answers quando as duas divergissem.
+ *
+ * Essa funcao opera apenas sobre o objeto em memoria antes da chamada a IA e NUNCA altera o
+ * registro persistido no banco. Chaves nao relacionadas a rotina (objetivo, saude, historico,
+ * dor, etc.) sao preservadas integralmente.
+ *
+ * Principio 4 da ORDEM EXECUTIVA (Dr. Vanzao, 09/09/2026): respostas legadas nao devem
+ * contradizer nem contaminar o contexto de IA.
+ */
+export function stripRoutineKeysFromAnswers(answers: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(answers)) {
+    if (!ROUTINE_STATIC_KEYS.has(key) && !ROUTINE_PER_DAY_KEYS.has(key)) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 export const PANZERI_PRESCRIPTION_PRINCIPLES = [
   'Individualizar acima de qualquer modelo fixo: objetivo, experiencia, condicionamento, rotina, dores, idade, teste e evolucao.',
   'Usar distribuicao polarizada como referencia flexivel, buscando aproximadamente 80% do volume em baixa intensidade.',

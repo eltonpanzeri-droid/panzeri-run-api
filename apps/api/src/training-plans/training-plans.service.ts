@@ -12,6 +12,7 @@ import {
   PANZERI_METHODOLOGY_VERSION,
   PANZERI_PRESCRIPTION_PRINCIPLES,
   sanitizeInterviewAnswers,
+  stripRoutineKeysFromAnswers,
   parseMmSsToSeconds,
   isCurrentlyRunning,
 } from './training-methodology';
@@ -535,7 +536,10 @@ export class TrainingPlansService {
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan(hasSubscriptionAccess(user.subscriptionStatus));
 
-    const answers = sanitizeInterviewAnswers(jsonObject(onboarding.answers));
+    // stripRoutineKeysFromAnswers: remove chaves {dia}_run_time, routine_modality_choice etc.
+    // antes de montar o MethodologyInput — a IA recebe rotina exclusivamente via
+    // diasDisponiveisParaCorrida/Forca (WA). ORDEM EXECUTIVA Dr. Vanzao, 09/09/2026.
+    const answers = stripRoutineKeysFromAnswers(sanitizeInterviewAnswers(jsonObject(onboarding.answers)));
     const paceFallback = estimatePaceFromAnswers(answers);
     const paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default' = latestTest ? 'test' : paceFallback?.source ?? 'default';
 
@@ -1501,7 +1505,8 @@ export class TrainingPlansService {
       this.prisma.reassessment.findFirst({ where: { userId, completedAt: { not: null } }, orderBy: { completedAt: 'desc' } }),
     ]);
 
-    const answers = sanitizeInterviewAnswers(jsonObject(onboarding?.answers));
+    // stripRoutineKeysFromAnswers: idem ao generateWeek() — rotina via WA, nao via answers.
+    const answers = stripRoutineKeysFromAnswers(sanitizeInterviewAnswers(jsonObject(onboarding?.answers)));
     const painSafety = await this.painReports.computeSafetyTier(userId);
     const safetyAdjustment = painSafety.tier !== 'normal';
     const paceFallback = estimatePaceFromAnswers(answers);

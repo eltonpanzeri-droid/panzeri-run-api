@@ -422,21 +422,16 @@ export class MeService {
   async updateAvailability(userId: string, dto: UpdateAvailabilityDto) {
     validateAvailability(dto.availability);
 
-    const [currentAvailability, onboarding] = await Promise.all([
-      this.prisma.weeklyAvailability.findMany({ where: { userId } }),
-      this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } }),
-    ]);
+    const currentAvailability = await this.prisma.weeklyAvailability.findMany({ where: { userId } });
     const routineChanged = availabilityChanged(currentAvailability, dto.availability);
     this.logger.log(`updateAvailability para ${userId}: routineChanged=${routineChanged}. Rotina anterior: ${JSON.stringify(currentAvailability.map((d) => ({ weekday: d.weekday, noTraining: d.noTraining, modalities: d.modalities, modalityDurations: d.modalityDurations })))}. Rotina enviada: ${JSON.stringify(dto.availability)}`);
 
-    // A entrevista inicial guarda sua propria copia dos dias/duracao (${dia}_run_time etc.),
-    // usada na tabela "Horario" do painel admin e no contexto que os agentes de IA recebem
-    // (respostasEntrevista) — sem sincronizar essa copia aqui, ela ficava presa na resposta
-    // original da entrevista pra sempre, mesmo depois do aluno mudar a rotina de verdade por
-    // aqui. Isso fazia o painel mostrar horario desatualizado e os agentes receberem uma
-    // descricao de rotina que contradizia a disponibilidade real usada pra montar o treino.
-    const syncedAnswers = syncInterviewAnswersFromAvailability(asAnswerObject(onboarding?.answers), dto.availability);
-
+    // ORDEM EXECUTIVA 09/09/2026 (Dr. Vanzao): WeeklyAvailability e a fonte canonica da rotina
+    // operacional. A sincronizacao reversa WA→answers foi eliminada: nao ha mais back-sync das
+    // chaves {dia}_run_time para o JSON de entrevista quando o aluno muda a rotina aqui.
+    // A IA recebe a rotina via diasDisponiveisParaCorrida/Forca (derivados da WA) e as chaves de
+    // rotina em answers sao filtradas por stripRoutineKeysFromAnswers antes do MethodologyInput.
+    // Rollback: git revert + restaurar o Promise.all com onboarding e as linhas de sync abaixo.
     await this.prisma.$transaction([
       this.prisma.weeklyAvailability.deleteMany({ where: { userId } }),
       ...dto.availability.map((day) =>
@@ -451,7 +446,6 @@ export class MeService {
           },
         }),
       ),
-      ...(onboarding ? [this.prisma.onboardingInterview.update({ where: { userId }, data: { answers: syncedAnswers } })] : []),
       ...(routineChanged ? [this.prisma.user.update({ where: { id: userId }, data: { lastRoutineChangeAt: new Date() } })] : []),
     ]);
 
@@ -494,21 +488,12 @@ export class MeService {
       throw new BadRequestException('Este e-mail ja pertence a outra conta.');
     }
 
-    const [currentAvailability, onboarding] = await Promise.all([
-      this.prisma.weeklyAvailability.findMany({ where: { userId } }),
-      this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } }),
-    ]);
+    const currentAvailability = await this.prisma.weeklyAvailability.findMany({ where: { userId } });
     const routineChanged = availabilityChanged(currentAvailability, dto.availability.availability);
-    // Ver comentario equivalente em updateAvailability sobre por que a entrevista precisa
-    // refletir a rotina real sempre que ela muda por aqui (painel admin e agentes de IA leem
-    // as respostas antigas da entrevista, nao so a WeeklyAvailability).
-    const syncedAnswers = syncInterviewAnswersFromAvailability(asAnswerObject(onboarding?.answers), dto.availability.availability);
+    // ORDEM EXECUTIVA 09/09/2026: sincronizacao reversa WA→answers eliminada.
+    // Ver comentario equivalente em updateAvailability para justificativa completa e rollback.
 
     const result = await this.prisma.$transaction(async (tx) => {
-      if (onboarding) {
-        await tx.onboardingInterview.update({ where: { userId }, data: { answers: syncedAnswers } });
-      }
-
       await tx.user.update({
         where: { id: userId },
         data: {
