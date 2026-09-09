@@ -84,14 +84,19 @@ estruturados, por exemplo), com um exemplo concreto do erro a evitar.
 
 ## Onde vive cada dado importante
 
-- **Rotina/disponibilidade real (dias, modalidade, duração)** — tabela `WeeklyAvailability`. É a
-  ÚNICA fonte usada para decidir quais dias/modalidades o motor de treino gera. Confirmado nesta
-  auditoria: a entrevista NÃO alimenta isso diretamente na geração do treino.
+- **Rotina/disponibilidade real (dias, modalidade, duração)** — tabela `WeeklyAvailability`. Fonte
+  canônica única da rotina operacional (ORDEM EXECUTIVA Dr. Vanzão, 09/09/2026). É a ÚNICA fonte
+  usada para decidir quais dias/modalidades o agente de IA gera. Gravada por: `completeRoutineFromInterview`
+  (tela de Rotina do onboarding), `updateAvailability` (aluno muda rotina pelo app), `updateAnamnese`
+  (treinador edita pelo painel admin). Nunca mais é sobrescrita por `completeOnboarding` (entrevista
+  principal) nem tem back-sync a partir da entrevista.
 - **Respostas da entrevista inicial** (`OnboardingInterview.answers`, JSON livre) — usadas para: (a)
-  popular perfil/saúde/preferências do aluno no momento em que a entrevista é concluída; (b) estimar
-  um pace de fallback quando não há teste de 3km; (c) contexto de leitura para o agente de
-  prescrição (objetivo, histórico, dor relatada) e para o Gerente Técnico; (d) exibição no painel
-  admin; (e) mapeamento de perguntas equivalentes na reavaliação periódica. Não decide rotina.
+  popular perfil/saúde/preferências do aluno quando a entrevista é concluída; (b) estimar pace de
+  fallback quando não há teste; (c) contexto biográfico/saúde/objetivo para o agente de prescrição
+  (as chaves de rotina — `{dia}_run_time`, `routine_modality_choice` etc. — são filtradas por
+  `stripRoutineKeysFromAnswers` antes de chegar à IA); (d) exibição no painel admin; (e) mapeamento
+  de perguntas equivalentes na reavaliação periódica. As chaves de rotina em `answers` são preservadas
+  historicamente mas nunca mais atualizadas quando a rotina muda.
 - **Plano de treino ativo** (`TrainingPlan` + `TrainingSession`) — gerado por
   `TrainingPlansService.generateWeek()`. Guarda um `inputSnapshot` (teste usado, disponibilidade
   usada, versão do motor) para detectar quando está desatualizado.
@@ -1033,9 +1038,55 @@ virtual bloqueando a recorrência):
 - **ScalePicker com gradiente de cores**: os 5 botões de escala (check-in) agora têm cada um sua cor semântica (#E03E2D→#F5C800→#1B8A5A), com fundo colorido quando ativo e borda colorida quando inativo — elimina o visual monocromático anterior.
 - **Arquivos alterados**: `apps/api/src/training-plans/prescription-agent.service.ts`, `apps/api/src/training-plans/training-methodology.ts`, `apps/api/src/training-plans/training-plans.service.ts`, `apps/api/src/workout-completions/workout-completions.service.ts`, `apps/api/src/notifications/notifications.service.ts`, `apps/mobile/App.tsx`, `apps/admin/app/page.tsx`, `apps/admin/app/styles.css`.
 
+**2026-09-09 — Auditoria arquitetural de rotina (Fase 0) + implementação da WeeklyAvailability como fonte canônica**
+
+Esta sessão teve duas partes distintas.
+
+**Parte 1 — Fase 0: Inventário (só leitura, sem toque no banco)**
+
+Três versões de script de inventário produzidas, com duas reprovações formais pelo Dr. Vanzão (ELTON²):
+- **v1** (TypeScript + SQL básico): reprovado por N+1, tolerância arbitrária de ±15min, sem sanitização,
+  dados pessoais expostos (email, routine_observation), sem proteções de execução.
+- **v2** (SQL, READ ONLY): reprovado por não implementar `sanitizeAnswersForModalityChoice`, não incluir
+  `availableMin` na comparação, fallback operacional incompleto, CTE `divergent_users` placeholder quebrado.
+- **v3** (SQL, versão atual): grade simétrica `(userId × weekday × modality)`, faixa real de comparação
+  (`faixa_lower`/`faixa_upper`, sem tolerância numérica), fallback `modalityDurations ?? availableMin ?? 0`,
+  sanitização real com todos os enums de `routine_modality_choice`, 5 flags booleanas independentes, 5
+  contagens por tipo de achado, pseudonimização com `studentCode` ou `SN_` + hash MD5. Artefatos:
+  `inventario-rotina-fase0-v3.sql` e `REVISAO_INVENTARIO_ROTINA_FASE_0_V3.md`. **Não executado em
+  produção ainda** — requer ambiente isolado (réplica ou backup) e aprovação explícita.
+
+**Parte 2 — ORDEM EXECUTIVA Dr. Vanzão: WeeklyAvailability como fonte canônica única**
+
+Dr. Vanzão declarou WA como a única fonte operacional de rotina e ordenou implementação imediata. Artefato
+de decisão: `ORDEM_CLAUDE_IMPLEMENTACAO_ROTINA_CANONICA.md` na raiz do repositório.
+
+Três mudanças implementadas e deployadas:
+
+- **`me.service.ts` — back-sync WA→answers eliminado** (em `updateAvailability` e `updateAnamnese`):
+  a sincronização reversa `syncInterviewAnswersFromAvailability` foi removida dos dois pontos onde era
+  chamada. Quando o aluno ou o treinador mudam a rotina, só `WeeklyAvailability` é atualizada — as chaves
+  `{dia}_run_time` em `answers` ficam como estão (dados históricos preservados, não apagados). A função
+  `syncInterviewAnswersFromAvailability` permanece no arquivo como código inativo (reversível via git revert).
+
+- **`training-methodology.ts` — nova `stripRoutineKeysFromAnswers(answers)`**: remove todas as chaves de
+  rotina do objeto de respostas antes de montar o `MethodologyInput`. Chaves removidas: as 5 estáticas
+  (`routine_modality_choice`, `routine_observation`, `routine_intro`, `routine_modality_confirmation`,
+  `routine_confirmation`) + as 42 por dia × modalidade (`{dia}_run_time`, `{dia}_fortalecimento_time`,
+  `{dia}_musculacao_time`, `{dia}_run_available_time` etc.). Opera só em memória, nunca toca o banco.
+
+- **`training-plans.service.ts` — aplicada em `generateWeek()` e `regenerateSession()`**: o `answers`
+  passado ao `MethodologyInput` como `respostasEntrevista` agora passa por
+  `stripRoutineKeysFromAnswers(sanitizeInterviewAnswers(...))`. A IA recebe rotina exclusivamente via
+  `diasDisponiveisParaCorrida`/`diasDisponiveisParaForca` (derivados da WA). Nenhuma chave de rotina
+  do answers chega mais ao contexto do agente.
+
+Gates: typecheck limpo, lint limpo em `me.service.ts` e `training-methodology.ts` (5 erros pré-existentes
+em `training-plans.service.ts`, linhas não tocadas). Deployado pelo Elton na mesma sessão.
+
 ---
 
-## Onde as coisas estão agora (2026-09-08) — leitura rápida pra quem chega de fora
+## Onde as coisas estão agora (2026-09-09) — leitura rápida pra quem chega de fora
 
 **Produto em produção, sendo usado por alunas reais**: a versão web/PWA, em
 `https://panzerirun.eltonpanzeripersonal.com.br`. Entrevista, geração de treino por IA, registro de
@@ -1043,27 +1094,30 @@ treino, pagamento via Asaas (boleto/cartão recorrente), backup diário, alertas
 grave pro treinador via Telegram, check-in semanal obrigatório antes de gerar nova semana,
 notificações de cobrança em atraso — tudo funcionando e testado com alunas reais.
 
-**Em produção desde 07/09**: commit `fd9a8c0` deployado via auto-deploy do EasyPanel (aba Rotina no
-admin, loading screen de geração, correção de campos opcionais na entrevista, botão "Pular",
-sincronização de modalidade). O EasyPanel auto-deploya a cada push — sem ação manual necessária.
+**Última versão em produção (09/09)**: WeeklyAvailability como fonte canônica da rotina — back-sync
+WA→answers eliminado, chaves de rotina filtradas antes da IA via `stripRoutineKeysFromAnswers`.
+`completeOnboarding` não toca mais em `WeeklyAvailability` (fix caso Thais, 08/09). Guard de
+segurança em `syncAvailabilityFromInterview` (aborta se rotina calculada viria vazia, 08/09). O
+EasyPanel auto-deploya a cada push — sem ação manual necessária.
 
-**Pronto para commit (08/09)**: todos os itens da sessão 07/09 anteriores, mais: `createManualSession` com filtro `planId` (bug de Luiza), Telegram com `esteira` mapeada corretamente, `computeSummary` separando `missed` de `null`, novo campo `unregisteredSessions` no histórico + instrução de prompt "sem registro ≠ não fez", múltiplas modalidades como cards separados no app, feedback por exercício inline, paginação no topo da lista admin. Aguardando commit manual via GitHub Desktop.
+**Fonte canônica da rotina (decisão arquitetural, 09/09)**: `WeeklyAvailability` é a única fonte
+operacional. As chaves de rotina em `OnboardingInterview.answers` são preservadas historicamente mas
+nunca mais são: (1) atualizadas quando a rotina muda; (2) enviadas ao contexto da IA. A IA recebe
+rotina exclusivamente via `diasDisponiveisParaCorrida`/`diasDisponiveisParaForca`.
 
 **Ricardo Davino — ação pendente do treinador**: entrevista e rotina completas, assinatura cancelada
-em 06/09 (mesmo padrão da Silvia — bug já corrigido neste deploy). Está em Ex-alunos. Para
-reativá-lo: (1) dar cortesia/liberação manual no painel admin; (2) gerar treino da semana via
-"Refazer nova semana de treinos". A correção de campos opcionais que o desbloqueia na entrevista já
-está em produção.
+em 06/09. Está em Ex-alunos. Para reativá-lo: (1) dar cortesia/liberação manual no painel admin;
+(2) gerar treino da semana via "Refazer nova semana de treinos".
 
-**Aguardando novo build EAS**: para os clientes que usam o app nativo (Android/iOS), as correções
-de entrevista desta sessão só chegam após novo build EAS. Usuários PWA já recebem a versão nova.
+**Aguardando novo build EAS**: para os clientes que usam o app nativo (Android/iOS), correções de
+entrevista e UX das sessões 07-09/09 só chegam após novo build EAS. Usuários PWA já recebem.
 
 **Em construção, ainda não publicado**: apps nativos Android e iOS.
 
 - **Android**: RevenueCat configurado e validado. Teste fechado enviado pro Google (03/09), em análise.
   Precisa de 12 testadores por 14 dias corridos antes de liberar Produção. O próximo build de produção
   deve incluir a chave do RevenueCat Android (adicionada depois do build `versionCode 3`) e as
-  correções desta sessão. Strava: pedido de aumento de limite enviado (30/08) — reprovado (06/09),
+  correções recentes. Strava: pedido de aumento de limite reprovado (06/09),
   análise em `integracoes/strava/analise-elegibilidade.md`.
 - **iOS**: produto RevenueCat não importado ainda. Aguardando retomada.
 - Testar compra real em sandbox ainda pendente nas duas lojas.
@@ -1143,6 +1197,7 @@ não conectada ao Panzeri Run).
   testado ponta a ponta com pagamento Asaas real.
 - Identidade visual v2 (alinhada com Panz Fit) proposta mas não decidida nem implementada.
 - Strava API reprovada para aumento de limite além de 10 atletas.
+- Ricardo Davino: liberação manual de cortesia ainda pendente do Elton.
 
 **2026-09-08 (Cowork) — Verificação pedida pelo Elton: fluxo entrevista→rotina, ajuste "só essa
 semana" vs. permanente, e aba Rotina no admin — depois do caso da Thais (rotina vazia com plano já
