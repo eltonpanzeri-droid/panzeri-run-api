@@ -1039,6 +1039,8 @@ function AppInner() {
   const [anamneseRoutine, setAnamneseRoutine] = useState<RoutineDay[]>(cloneRoutine(defaultRoutineDays));
   const [savedMe, setSavedMe] = useState<MeResponse | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  // 09/09: controla se a aba 'routine' mostra a visão geral (false) ou a entrevista de configuração (true)
+  const [routineSetupMode, setRoutineSetupMode] = useState(false);
 
   const metrics = useMemo(() => calculateThreeKmMetrics(Number(threeKmSeconds)), [threeKmSeconds]);
 
@@ -1292,12 +1294,20 @@ function AppInner() {
                 mode="quickIntake"
               />
             )}
-            {activeTab === 'routine' && (
+            {/* 09/09: aba 'routine' — mostra visão geral primeiro; entrevista só ao clicar no botão */}
+            {activeTab === 'routine' && !routineSetupMode && (
+              <RoutineOverviewScreen
+                availability={savedMe?.availability ?? savedMe?.weeklyAvailability ?? []}
+                onSetup={() => setRoutineSetupMode(true)}
+                onBack={() => setActiveTab('week')}
+              />
+            )}
+            {activeTab === 'routine' && routineSetupMode && (
               <GuidedInterview
                 accessToken={accessToken}
                 userName={userName}
-                onLater={() => setActiveTab('week')}
-                onComplete={() => { void refreshRoutineFromServer(); setActiveTab('week'); }}
+                onLater={() => { setRoutineSetupMode(false); setActiveTab('week'); }}
+                onComplete={() => { void refreshRoutineFromServer(); setRoutineSetupMode(false); setActiveTab('week'); }}
                 questions={routineQuestions}
                 mode="routine"
               />
@@ -4417,6 +4427,167 @@ const QUICK_EDIT_OBJECTIVE_OPTIONS = [
   option('Melhorar meu tempo nos 10 km'), option('Completar 21 km'), option('Melhorar meu tempo nos 21 km'),
   option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'),
 ];
+
+// 09/09: tela de visão geral da rotina semanal — exibe tabela de modalidades × dias
+// antes de entrar na entrevista de configuração de rotina.
+// Layout: coluna fixa de labels à esquerda + ScrollView horizontal com as 7 colunas de dias.
+// Fonte de dados: SavedAvailabilityDay[] da WA canônica (passada como prop).
+function RoutineOverviewScreen({
+  availability,
+  onSetup,
+  onBack,
+}: {
+  availability: SavedAvailabilityDay[];
+  onSetup: () => void;
+  onBack: () => void;
+}) {
+  const hasRoutine = availability.length > 0;
+
+  // Ordem de exibição: Seg → Dom (weekday 1..6, 0)
+  const DAYS = [
+    { label: 'Seg', weekday: 1 },
+    { label: 'Ter', weekday: 2 },
+    { label: 'Qua', weekday: 3 },
+    { label: 'Qui', weekday: 4 },
+    { label: 'Sex', weekday: 5 },
+    { label: 'Sáb', weekday: 6 },
+    { label: 'Dom', weekday: 0 },
+  ] as const;
+
+  const MODALITIES = [
+    { label: 'Corrida', key: 'corrida' },
+    { label: 'Fortalecimento', key: 'fortalecimento_corredores' },
+    { label: 'Musculação', key: 'forca' },
+  ] as const;
+
+  // Mapa weekday → entrada da WA para acesso O(1)
+  const byWeekday = new Map<number, SavedAvailabilityDay>();
+  for (const day of availability) {
+    byWeekday.set(day.weekday, day);
+  }
+
+  // Retorna conteúdo e estado visual da célula para um dado dia + modalidade
+  function cellInfo(weekday: number, modalityKey: string): { text: string; active: boolean; rest: boolean } {
+    const entry = byWeekday.get(weekday);
+    if (!entry) return { text: '—', active: false, rest: false };
+    if (entry.noTraining) return { text: 'DESC', active: false, rest: true };
+    const hasModality = entry.modalities.includes(modalityKey);
+    if (!hasModality) return { text: 'NÃO', active: false, rest: false };
+    const duration = (entry.modalityDurations as Record<string, number> | null | undefined)?.[modalityKey] ?? entry.availableMin;
+    return { text: duration ? `${duration}min` : '✓', active: true, rest: false };
+  }
+
+  const CELL_W = 52;
+  const LABEL_W = 122;
+  const ROW_H = 46;
+  const HEADER_H = 32;
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Rotina semanal</Text>
+      <Text style={[styles.reportText, { marginBottom: 16 }]}>
+        {hasRoutine
+          ? 'Sua rotina atual de treinos.'
+          : 'Você ainda não configurou sua rotina. Configure para receber treinos personalizados.'}
+      </Text>
+
+      {/* Tabela: coluna fixa de labels + dias em scroll horizontal */}
+      <View style={{ flexDirection: 'row', marginBottom: 20, borderWidth: 1, borderColor: PRColors.stone, borderRadius: 8, overflow: 'hidden' }}>
+        {/* Coluna de labels (fixa) */}
+        <View style={{ width: LABEL_W, borderRightWidth: 1, borderRightColor: PRColors.stone }}>
+          {/* Célula do cabeçalho (vazia, alinhada com as colunas dos dias) */}
+          <View style={{ height: HEADER_H, backgroundColor: PRColors.graphite }} />
+          {MODALITIES.map((mod, i) => (
+            <View
+              key={mod.key}
+              style={{
+                height: ROW_H,
+                justifyContent: 'center',
+                paddingHorizontal: 10,
+                borderTopWidth: 1,
+                borderTopColor: PRColors.stone,
+                backgroundColor: i % 2 === 0 ? '#FAFAF8' : '#F4F0E6',
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '700', color: PRColors.graphite }}>{mod.label}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Colunas dos dias (scroll horizontal) */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row' }}>
+            {DAYS.map((day, di) => (
+              <View
+                key={day.weekday}
+                style={{
+                  width: CELL_W,
+                  borderRightWidth: di < DAYS.length - 1 ? 1 : 0,
+                  borderRightColor: PRColors.stone,
+                }}
+              >
+                {/* Cabeçalho do dia */}
+                <View style={{ height: HEADER_H, justifyContent: 'center', alignItems: 'center', backgroundColor: PRColors.graphite }}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: PRColors.pulse, letterSpacing: 0.5 }}>
+                    {day.label}
+                  </Text>
+                </View>
+                {/* Células de cada modalidade */}
+                {MODALITIES.map((mod, i) => {
+                  const cell = cellInfo(day.weekday, mod.key);
+                  return (
+                    <View
+                      key={mod.key}
+                      style={{
+                        height: ROW_H,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        borderTopWidth: 1,
+                        borderTopColor: PRColors.stone,
+                        backgroundColor: cell.active
+                          ? '#E8FAD0'
+                          : cell.rest
+                          ? '#EFEFED'
+                          : i % 2 === 0 ? '#FAFAF8' : '#F4F0E6',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: cell.active ? '700' : '500',
+                          color: cell.active
+                            ? PRColors.success
+                            : cell.rest
+                            ? PRColors.slate
+                            : '#C0BDB5',
+                        }}
+                        numberOfLines={1}
+                      >
+                        {cell.text}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      </View>
+
+      {/* Botão principal */}
+      <Pressable style={styles.primaryButton} onPress={onSetup}>
+        <Text style={styles.primaryButtonText}>
+          {hasRoutine ? 'Alterar rotina semanal' : 'Configurar rotina semanal'}
+        </Text>
+      </Pressable>
+
+      {/* Voltar */}
+      <Pressable style={[styles.secondaryButton, { marginTop: 12 }]} onPress={onBack}>
+        <Text style={styles.secondaryButtonText}>Voltar</Text>
+      </Pressable>
+    </View>
+  );
+}
 
 // 09/09: tela "Meus dados" — exibe os dados de contato e permite editá-los via modulo
 // "Dados pessoais" da entrevista sem precisar reabrir a entrevista inteira.
