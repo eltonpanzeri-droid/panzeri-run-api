@@ -1069,10 +1069,27 @@ export class TrainingPlansService {
     // pre-geracao "scheduled" de domingo, que ja tem seu proprio aviso — ver Sunday-19h
     // notice no app). E so um INSERT no banco, sem nenhuma chamada de IA — nao tem custo de
     // token nenhum gerar este aviso.
+    // 09/09: texto adaptado ao histórico de registros da semana anterior — sem registro ≠ não feito;
+    // mostrar o número cria consciência sobre o impacto na qualidade da prescrição.
     if (planStatus === 'active') {
+      const prevPlan = previousPlans[0] ?? null;
+      const unregisteredCount = prevPlan
+        ? prevPlan.sessions.filter((s) => s.completion === null).length
+        : 0;
+      let notifMessage: string;
+      if (unregisteredCount === 0) {
+        notifMessage =
+          'Você registrou todos os treinos da semana passada — isso ajuda a IA a prescrever com mais precisão. Seu novo programa chegou!';
+      } else if (unregisteredCount === 1) {
+        notifMessage =
+          '1 treino da semana passada ficou sem registro. Por segurança na prescrição, não podemos considerá-lo como feito sem confirmação. Registre o que você fez!';
+      } else {
+        notifMessage =
+          `${unregisteredCount} treinos da semana passada ficaram sem registro. Por rigor na segurança da prescrição, não podemos considerá-los como feitos. Registre o que você fez para a IA ter seu histórico real.`;
+      }
       await this.notifications.notifyUser(userId, {
-        title: 'Novo treino gerado',
-        message: 'Seu programa de treino desta semana foi atualizado automaticamente.',
+        title: '🏃 Seu novo programa chegou!',
+        message: notifMessage,
         type: 'info',
       });
     }

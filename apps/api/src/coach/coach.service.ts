@@ -1367,7 +1367,7 @@ function buildTechnicalReportContent(detail: any) {
       },
       {
         title: 'Pontos para supervisao do treinador',
-        text: `Monitorar treinos diferentes do proposto (${summary.differentSessions}), treinos sem registro (${summary.missedSessions}) e comentarios do aluno. Validar manualmente se houver dor, fadiga alta ou queda consistente de desempenho.`,
+        text: `Monitorar treinos diferentes do proposto (${summary.differentSessions}), treinos marcados como nao feito (${summary.missedSessions}), treinos sem registro (${summary.unregisteredSessions}) e comentarios do aluno. Sem registro nao equivale a nao feito — aluno pode ter treinado sem registrar. Validar manualmente se houver dor, fadiga alta ou queda consistente de desempenho.`,
       },
     ],
   };
@@ -1506,20 +1506,27 @@ function summarizeSessions(sessions: Array<{ scheduledDate: Date; durationMin: n
   const eligible = sessions.filter((session) => session.scheduledDate <= today);
   const eligibleSessions = eligible.length;
   const completedSessions = eligible.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted').length;
-  const missedSessions = eligible.filter((session) => session.completion?.status === 'missed' || !session.completion).length;
+  // 09/09: separar missed (aluno marcou "não fiz" explicitamente) de sem registro (completion===null,
+  // aluno não interagiu — pode ter feito sem registrar). Antes ambos iam para missedSessions, gerando
+  // contagem de faltas inflada. SEM REGISTRO ≠ NÃO FEITO. Ver [[unregistered_vs_missed_sessions]].
+  const missedSessions = eligible.filter((session) => session.completion?.status === 'missed').length;
+  const unregisteredSessions = eligible.filter((session) => !session.completion).length;
   const differentSessions = eligible.filter((session) => session.completion?.status === 'adjusted').length;
   const prescribedKm = round(sessions.reduce((total, session) => total + (session.distanceKm ?? 0), 0));
   const completedKm = round(sessions.reduce((total, session) => total + (session.completion?.distanceKm ?? 0), 0));
+  // Aderência: feito ÷ (feito + não feito). Sem registro não entra no denominador — não sabemos se foi feito.
+  const adherenceDenominator = completedSessions + missedSessions;
 
   return {
     prescribedSessions,
     eligibleSessions,
     completedSessions,
     missedSessions,
+    unregisteredSessions,
     differentSessions,
     prescribedKm,
     completedKm,
-    adherencePercent: eligibleSessions ? Math.round((completedSessions / eligibleSessions) * 100) : 0,
+    adherencePercent: adherenceDenominator ? Math.round((completedSessions / adherenceDenominator) * 100) : 0,
   };
 }
 
@@ -1529,6 +1536,7 @@ function emptySummary() {
     eligibleSessions: 0,
     completedSessions: 0,
     missedSessions: 0,
+    unregisteredSessions: 0,
     differentSessions: 0,
     prescribedKm: 0,
     completedKm: 0,

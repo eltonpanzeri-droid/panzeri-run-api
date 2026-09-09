@@ -3821,11 +3821,19 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
               {group.sessions.map((session) => {
                 const sessionExpanded = Boolean(expandedDays[session.id]);
                 const sessionStatus = session.completion?.status ?? null;
+                // 09/09: sistema de cores por estado do treino
+                // Verde = feito/ajustado | Vermelho = não feito (confirmado) | Amarelo = sem registro (passado)
+                // Amarelo aplica somente após meia-noite do dia seguinte ao treino — "sem registro" ≠ "não feito"
+                const nowBR = new Date(Date.now() - 3 * 60 * 60 * 1000);
+                const todayBR = nowBR.toISOString().slice(0, 10);
+                const isPastUnregistered = !session.completion && session.date < todayBR;
                 const cardStatusStyle =
                   sessionStatus === 'done' || sessionStatus === 'adjusted'
                     ? { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }
                     : sessionStatus === 'missed'
-                    ? { backgroundColor: '#f9fafb', borderColor: '#d1d5db' }
+                    ? { backgroundColor: '#fef2f2', borderColor: '#fecaca' }
+                    : isPastUnregistered
+                    ? { backgroundColor: '#fefce8', borderColor: '#fde047' }
                     : {};
                 return (
                   <View style={[styles.weekSessionCard, cardStatusStyle]} key={session.id}>
@@ -3843,6 +3851,8 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
                           <Text style={styles.sessionStatusDone}>✓ Feito</Text>
                         ) : sessionStatus === 'missed' ? (
                           <Text style={styles.sessionStatusMissed}>✗ Não feito</Text>
+                        ) : isPastUnregistered ? (
+                          <Text style={{ fontSize: 12, color: '#92400e', fontWeight: '600' }}>⚠ Sem registro</Text>
                         ) : null}
                       </View>
                       <Ionicons name={sessionExpanded ? 'chevron-up' : 'chevron-down'} size={22} color={PRColors.ocean} />
