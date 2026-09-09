@@ -8,6 +8,7 @@ import Constants from 'expo-constants';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BrandMark } from './theme/BrandMark';
+import Svg, { G, Rect, Text as SvgText } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
 import { useFonts, BigShouldersDisplay_800ExtraBold } from '@expo-google-fonts/big-shoulders-display';
 // Public Sans e JetBrains Mono (identidade-visual-panzeri-run) entram aqui quando alguma tela
@@ -1417,7 +1418,7 @@ function AppInner() {
                 )}
               </View>
             )}
-            {activeTab === 'progress' && <Progress completedToday={completedToday} metrics={metrics} accessToken={accessToken} />}
+            {activeTab === 'progress' && <Progress accessToken={accessToken} />}
             {activeTab === 'targetRace' && <TargetRaceScreen accessToken={accessToken} />}
             {activeTab === 'painReport' && <PainReportScreen accessToken={accessToken} />}
             {activeTab === 'observations' && <ObservationsScreen accessToken={accessToken} />}
@@ -4116,64 +4117,236 @@ function ThreeKmTest({
   );
 }
 
-function Progress({ completedToday: _completedToday, metrics, accessToken }: { completedToday: boolean; metrics: ThreeKmMetrics; accessToken: string }) {
-  const [stravaReport, setStravaReport] = useState<StravaReport | null>(null);
+// ---------------------------------------------------------------------------
+// Evolução do Atleta — tela mobile (Step 6, 09/09/2026)
+// Tipos inline — apps separados, sem compartilhamento de tipos com a API.
+// ---------------------------------------------------------------------------
+interface EvolutionWeekMobile {
+  weekStart: string;
+  sessoesPrescritas: number;
+  sessoesFeitas: number;
+  sessoesNaoFeitas: number;
+  sessoesSemRegistro: number;
+  adherencePercent: number | null;
+  coveragePercent: number;
+  lowCoverageWarning: boolean;
+}
+interface EvolutionAdherenceMobile {
+  sessoesPrescritas: number;
+  sessoesFeitas: number;
+  sessoesNaoFeitas: number;
+  sessoesSemRegistro: number;
+  adherencePercent: number | null;
+  coveragePercent: number;
+  lowCoverageWarning: boolean;
+}
+interface EvolutionModalityMobile {
+  modality: string;
+  sessoesPrescritas: number;
+  percentOfTotalPrescribed: number;
+  adherencePercent: number | null;
+}
+interface EvolutionOverviewMobile {
+  dataAvailableSince: string | null;
+  totalWeeksWithPlan: number;
+  totalSemRegistro: number;
+  adherence: {
+    allTime: EvolutionAdherenceMobile;
+    last4Weeks: EvolutionAdherenceMobile;
+    last8Weeks: EvolutionAdherenceMobile;
+  };
+  consistency: { currentStreakWeeks: number; longestStreakWeeks: number; lastRegisteredDate: string | null };
+  modalityBreakdown: EvolutionModalityMobile[];
+  recentWeeks: EvolutionWeekMobile[];
+}
+
+/** Gráfico de barras empilhadas: verde=feito, vermelho=nao feito, amarelo=sem registro */
+function EvolutionBarChart({ weeks }: { weeks: EvolutionWeekMobile[] }) {
+  if (weeks.length === 0) return null;
+  const chartH = 90;
+  const barW = 18;
+  const gap = 6;
+  const paddingLeft = 4;
+  const paddingBottom = 22;
+  const n = weeks.length;
+  const svgW = paddingLeft + n * (barW + gap) + 8;
+  const svgH = chartH + paddingBottom;
+  const maxSessions = Math.max(...weeks.map((w) => w.sessoesPrescritas), 1);
+
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
+      <Svg width={svgW} height={svgH}>
+        {weeks.map((w, i) => {
+          const x = paddingLeft + i * (barW + gap);
+          const scale = chartH / maxSessions;
+          const fH = Math.round(w.sessoesFeitas * scale);
+          const nH = Math.round(w.sessoesNaoFeitas * scale);
+          const sH = Math.round(w.sessoesSemRegistro * scale);
+          // label: DD/MM
+          const label = w.weekStart.slice(8, 10) + '/' + w.weekStart.slice(5, 7);
+          return (
+            <G key={w.weekStart}>
+              {/* sem registro (amarelo, topo) */}
+              {sH > 0 && <Rect x={x} y={chartH - fH - nH - sH} width={barW} height={sH} fill="#fde047" rx={2} />}
+              {/* nao feito (vermelho, meio) */}
+              {nH > 0 && <Rect x={x} y={chartH - fH - nH} width={barW} height={nH} fill="#fca5a5" rx={2} />}
+              {/* feito (verde, base) */}
+              {fH > 0 && <Rect x={x} y={chartH - fH} width={barW} height={fH} fill="#86efac" rx={2} />}
+              {/* semana vazia (barra cinza fina) */}
+              {fH === 0 && nH === 0 && sH === 0 && (
+                <Rect x={x} y={chartH - 3} width={barW} height={3} fill="#e2e8f0" rx={1} />
+              )}
+              <SvgText x={x + barW / 2} y={chartH + 14} textAnchor="middle" fontSize={8} fill="#94a3b8">
+                {label}
+              </SvgText>
+            </G>
+          );
+        })}
+        {/* baseline */}
+        <Rect x={0} y={chartH} width={svgW} height={1} fill="#e2e8f0" />
+      </Svg>
+    </ScrollView>
+  );
+}
+
+const MODALITY_LABEL: Record<string, string> = {
+  corrida: '🏃 Corrida',
+  fortalecimento_corredores: '💪 Fortalecimento',
+  forca: '🏋 Força',
+  esteira: '🔄 Esteira',
+};
+
+function Progress({ accessToken }: { accessToken: string }) {
+  const [data, setData] = useState<EvolutionOverviewMobile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState<'allTime' | 'last4Weeks' | 'last8Weeks'>('last4Weeks');
 
   useEffect(() => {
     if (!accessToken) return;
-    fetch(`${API_URL}/strava/report`, {
+    setLoading(true);
+    fetch(`${API_URL}/me/evolution/overview?recentWeeks=12`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((report) => {
-        if (report) setStravaReport(report as StravaReport);
-      })
-      .catch(() => undefined);
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setData(d as EvolutionOverviewMobile); })
+      .catch(() => undefined)
+      .finally(() => setLoading(false));
   }, [accessToken]);
 
+  const adherence = data
+    ? period === 'allTime'
+      ? data.adherence.allTime
+      : period === 'last4Weeks'
+      ? data.adherence.last4Weeks
+      : data.adherence.last8Weeks
+    : null;
+
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionLabel}>Evolucao</Text>
-      <Text style={styles.titleSmall}>Resumo do aluno</Text>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }}>
+      <Text style={styles.sectionLabel}>Evolução</Text>
+      <Text style={[styles.titleSmall, { marginBottom: 16 }]}>Seu histórico de treinos</Text>
 
-      {/* Teste de 3km desativado (pedido do treinador, 2026-07-28, reforcado 09/08: nenhuma
-          citacao visivel ao aluno) — metrica "Melhor 3km" removida daqui. */}
-      <View style={styles.metricGrid}>
-        <Metric icon="checkmark-done" label="Aderencia" value={stravaReport?.summary ? `${stravaReport.summary.adherencePercent}%` : 'Sem dados'} />
-        <Metric icon="map" label="Km realizados" value={stravaReport?.summary ? String(stravaReport.summary.actualKm) : 'Sem dados'} />
-      </View>
-
-      {!stravaReport?.summary ? <Text style={styles.formHint}>Conecte o Strava na aba propria para atualizar os indicadores automaticamente.</Text> : null}
-
-      {stravaReport?.summary ? (
-        <View style={styles.formSection}>
-          <Text style={styles.formSectionTitle}>Prescrito x feito</Text>
-          {stravaReport.summary.coachAnalysis ? (
-            <View style={styles.coachBox}>
-              <Text style={styles.coachTitle}>{stravaReport.summary.coachAnalysis.title}</Text>
-              <Text style={styles.coachText}>{stravaReport.summary.coachAnalysis.text}</Text>
-            </View>
-          ) : null}
-          <View style={styles.metricGrid}>
-            <Metric icon="checkmark-done" label="Aderencia geral" value={`${stravaReport.summary.adherencePercent}%`} />
-            <Metric icon="map" label="Km prescrito/feito" value={`${stravaReport.summary.prescribedKm} / ${stravaReport.summary.actualKm}`} />
-            <Metric icon="time" label="Min prescrito/feito" value={`${stravaReport.summary.prescribedMinutes} / ${stravaReport.summary.actualMinutes}`} />
+      {loading ? (
+        <ActivityIndicator size="small" color={PRColors.ocean} />
+      ) : !data ? (
+        <Text style={styles.formHint}>Não foi possível carregar os dados de evolução.</Text>
+      ) : (
+        <>
+          {/* Seletor de período */}
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+            {(['last4Weeks', 'last8Weeks', 'allTime'] as const).map((p) => (
+              <Pressable
+                key={p}
+                onPress={() => setPeriod(p)}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 20,
+                  backgroundColor: period === p ? PRColors.ocean : '#f1f5f9',
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '600', color: period === p ? '#fff' : '#64748b' }}>
+                  {p === 'last4Weeks' ? '4 sem.' : p === 'last8Weeks' ? '8 sem.' : 'Tudo'}
+                </Text>
+              </Pressable>
+            ))}
           </View>
-          {stravaReport.items.map((item) => (
-            <View style={styles.reportRow} key={`${item.date}-${item.title}`}>
-              <Text style={styles.reportTitle}>{item.date} - {item.title}</Text>
-              <Text style={styles.reportText}>
-                {reportStatusLabel(item)}
-                {item.distanceDiff !== null && item.distanceDiff !== undefined ? ` | diferenca: ${item.distanceDiff} km` : ''}
-                {item.durationDiff !== null && item.durationDiff !== undefined ? ` | ${item.durationDiff} min` : ''}
-                {item.pace ? ` | pace ${item.pace}` : ''}
-                {item.perceivedEffort ? ` | esforco ${item.perceivedEffort}/10` : ''}
+
+          {/* Cards de resumo */}
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+            <View style={{ flex: 1, backgroundColor: '#f0fdf4', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#bbf7d0' }}>
+              <Text style={{ fontSize: 11, color: '#16a34a', fontWeight: '600', marginBottom: 4 }}>ADERÊNCIA</Text>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: '#15803d' }}>
+                {adherence?.adherencePercent != null ? `${adherence.adherencePercent}%` : '—'}
+              </Text>
+              <Text style={{ fontSize: 10, color: '#4ade80', marginTop: 2 }}>
+                {adherence ? `${adherence.sessoesFeitas} feito${adherence.sessoesFeitas !== 1 ? 's' : ''} / ${adherence.sessoesFeitas + adherence.sessoesNaoFeitas} reg.` : ''}
               </Text>
             </View>
-          ))}
-        </View>
-      ) : null}
-    </View>
+            <View style={{ flex: 1, backgroundColor: '#eff6ff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#bfdbfe' }}>
+              <Text style={{ fontSize: 11, color: '#2563eb', fontWeight: '600', marginBottom: 4 }}>SEQUÊNCIA</Text>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: '#1d4ed8' }}>
+                {data.consistency.currentStreakWeeks}
+              </Text>
+              <Text style={{ fontSize: 10, color: '#93c5fd', marginTop: 2 }}>
+                {data.consistency.currentStreakWeeks === 1 ? 'semana ativa' : 'semanas ativas'}
+              </Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: '#fefce8', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#fde047' }}>
+              <Text style={{ fontSize: 11, color: '#92400e', fontWeight: '600', marginBottom: 4 }}>SEM REG.</Text>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: '#92400e' }}>
+                {data.totalSemRegistro}
+              </Text>
+              <Text style={{ fontSize: 10, color: '#ca8a04', marginTop: 2 }}>treinos</Text>
+            </View>
+          </View>
+
+          {/* Aviso de baixa cobertura */}
+          {adherence?.lowCoverageWarning ? (
+            <View style={{ backgroundColor: '#fefce8', borderRadius: 10, padding: 10, marginBottom: 12, borderLeftWidth: 3, borderLeftColor: '#fde047' }}>
+              <Text style={{ fontSize: 12, color: '#92400e' }}>
+                ⚠ Aderência calculada sobre {adherence.coveragePercent}% dos treinos — registre mais para um número preciso.
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Gráfico de barras semanal */}
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#e2e8f0' }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e293b', marginBottom: 8 }}>Últimas 12 semanas</Text>
+            <EvolutionBarChart weeks={data.recentWeeks} />
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
+              {[['#86efac', 'Feito'], ['#fca5a5', 'Não feito'], ['#fde047', 'Sem registro']].map(([color, label]) => (
+                <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 10, height: 10, backgroundColor: color, borderRadius: 2 }} />
+                  <Text style={{ fontSize: 10, color: '#64748b' }}>{label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* Distribuição de modalidades */}
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#e2e8f0' }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e293b', marginBottom: 10 }}>Treinos por modalidade</Text>
+            {data.modalityBreakdown.map((m) => (
+              <View key={m.modality} style={{ marginBottom: 10 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <Text style={{ fontSize: 12, color: '#334155' }}>{MODALITY_LABEL[m.modality] ?? m.modality}</Text>
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: '#475569' }}>{m.percentOfTotalPrescribed}%</Text>
+                </View>
+                <View style={{ height: 6, backgroundColor: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
+                  <View style={{ height: 6, width: `${m.percentOfTotalPrescribed}%`, backgroundColor: PRColors.ocean, borderRadius: 3 }} />
+                </View>
+              </View>
+            ))}
+          </View>
+
+          {/* Rodapé */}
+          <Text style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>
+            Desde {data.dataAvailableSince ? data.dataAvailableSince.slice(0, 7).replace('-', '/') : '—'} · {data.totalWeeksWithPlan} semanas com programa
+          </Text>
+        </>
+      )}
+    </ScrollView>
   );
 }
 
