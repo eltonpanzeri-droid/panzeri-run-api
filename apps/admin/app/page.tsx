@@ -2135,25 +2135,6 @@ function StudentPanel({
     }
   }
 
-  async function analyzeStrava() {
-    if (!student) return;
-    onStatus('Gerando relatorio do Strava...');
-    try {
-      const response = await fetch(`${API_URL}/coach/students/${student.id}/strava/analyze`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        onStatus('Nao consegui gerar o relatorio do Strava.');
-        return;
-      }
-      const data = (await response.json()) as { analyzed: boolean; reason: string };
-      onStatus(data.reason);
-    } catch {
-      onStatus('Nao consegui conectar com a API.');
-    }
-  }
-
   async function recoverSessions() {
     if (!student) return;
     onStatus('Verificando treinos presos em programas antigos...');
@@ -4032,16 +4013,6 @@ function modalityLabel(value: string) {
     bike: 'Bike ou aerobico',
   };
   return labels[value] ?? value;
-}
-
-function trendLabel(value?: string) {
-  const labels: Record<string, string> = {
-    aumentando: 'Carga aumentando',
-    reduzindo: 'Carga reduzindo',
-    estavel: 'Carga estavel',
-    sem_base_anterior: 'Construindo historico',
-  };
-  return labels[value ?? ''] ?? 'Sem dados';
 }
 
 function isStrengthModality(modality: string) {

@@ -781,7 +781,9 @@ export class TrainingPlansService {
       for (const wd of mismatchedWeekdays) {
         const aiSession = methodology.sessions.find((s) => s.weekday === wd);
         const date = addDays(weekStart, weekdayOffsetFromMonday(wd));
-        const dateFmt = date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
+        // scheduledDate e weekStart sao armazenados como meia-noite UTC — usar UTC aqui evita
+        // o deslocamento de -3h que fazia a data aparecer como o dia anterior no Telegram.
+        const dateFmt = date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
         if (aiSession) {
           const totalKm = aiSession.parts.reduce((sum: number, p: SessionPartDecision) =>
             p.kind === 'continua' ? sum + p.distanceKm :
@@ -796,7 +798,7 @@ export class TrainingPlansService {
       // Dias esperados mas sem cobertura pela IA
       for (const wd of (methodology.routineMismatchMissingRunWeekdays ?? [])) {
         const date = addDays(weekStart, weekdayOffsetFromMonday(wd));
-        const dateFmt = date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
+        const dateFmt = date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
         mismatchLines.push(`• ${dateFmt} — sem cobertura pela IA`);
       }
       const mismatchBody = mismatchLines.length ? mismatchLines.join('\n') : methodology.routineMismatch;
@@ -1074,12 +1076,14 @@ export class TrainingPlansService {
     // 07/09: aviso pro treinador sempre que qualquer treino for gerado — antes so chegava mensagem
     // quando havia mismatch de rotina. Agora o treinador tem visibilidade de toda geracao.
     {
-      const weekStartFmt = weekStart.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
-      const weekEndFmt = addDays(weekStart, 6).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
+      // scheduledDate e weekStart sao meia-noite UTC. Usar 'UTC' evita o deslocamento de -3h
+      // que fazia as datas aparecerem um dia antes no Telegram (bug reportado 09/09 com Daniele).
+      const weekStartFmt = weekStart.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+      const weekEndFmt = addDays(weekStart, 6).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
       const sessionLines = sessionsToCreate
         .sort((a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime())
         .map((s) => {
-          const dateFmt = s.scheduledDate.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
+          const dateFmt = s.scheduledDate.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
           // 08/09: esteira e' modalidade de corrida mas nao estava listada — caia no else e vinha
           // "musculacao Xkm" no Telegram (esteira tem distanceKm, musculacao nao). Agora mapeada
           // junto com corrida. forca -> musculacao ja era correto.
