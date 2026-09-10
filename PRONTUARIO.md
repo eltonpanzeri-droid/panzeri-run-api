@@ -1105,9 +1105,56 @@ Três mudanças implementadas e deployadas:
 Gates: typecheck limpo, lint limpo em `me.service.ts` e `training-methodology.ts` (5 erros pré-existentes
 em `training-plans.service.ts`, linhas não tocadas). Deployado pelo Elton na mesma sessão.
 
+**2026-09-10 — Calendário de provas alvo (backend + admin + mobile) + ROADMAP.md**
+
+- **Endpoint `GET /coach/races/calendar`** adicionado em `coach.controller.ts` e `coach.service.ts`:
+  retorna todas as `TargetRace` com `status='em_andamento'` de todos os alunos, ordenadas por data,
+  com nome e código do aluno, distância, pace calculado e prioridade. Campos: `id`, `studentName`,
+  `studentCode`, `name`, `raceDate` (YYYY-MM-DD), `distanceKm`, `targetSeconds`, `priority`,
+  `paceSecondsPerKm`. Usado exclusivamente pelo painel admin.
+
+- **`RaceCalendarView`** — novo componente inserido em `apps/admin/app/page.tsx` (entre `FunnelView` e
+  `FinanceView`). Agrupa provas por mês (Map<YYYY-MM, RaceCalendarEntry[]>), exibe countdown em dias,
+  nome/código do aluno, distância, pace e prioridade. Provas passadas renderizadas com `opacity: 0.65`.
+  Botão de acesso no sidebar: ícone `Flag` (lucide-react), label "Provas". Estado: `raceCalendar`,
+  `loadingRaceCalendar`; função `loadRaceCalendar()` carregada via `changeView()` quando necessário.
+  `AdminView` type atualizado para incluir `'raceCalendar'`.
+
+- **`TargetRaceScreen` com toggle de viewMode** em `apps/mobile/App.tsx`: estado `viewMode: 'form' |
+  'timeline'`; novo label "Linha do tempo (N)" com contagem de provas ativas; view timeline agrupa
+  provas por mês (`racesByMonth`), mostra countdown, ações rápidas por prova. Formulário original
+  preservado intacto sob `viewMode === 'form'`. Helpers adicionados: `formatRaceDate`,
+  `formatRaceMonth`, `daysUntilRace`, `racePriorityLabel`, `raceStatusLabel`.
+
+- **ROADMAP.md** criado na raiz do repositório: inventário plano de todas as iniciativas do produto,
+  sem ordem de prioridade, sem fases. Categorias: produto mobile, produto admin, agentes de IA,
+  integrações, lojas, segurança, infraestrutura, crescimento/marketing, financeiro, plataforma.
+  Incorporou itens do `PRONTUARIO.md` e memórias de sessões anteriores. Ideia dos "perfis de
+  treinadores fictícios criados por IA" foi explicitamente descartada pelo Elton — não consta.
+
+- **Briefing estratégico de produto** (sem implementação): discussão de 6 ideias — calendário de
+  treinos com bolinhas por dia (estilo Strava, não implementado), gráfico de km com seleção de
+  período (não implementado), timeline da jornada do atleta (implementada como view na TargetRaceScreen),
+  treino extra no calendário de bolinhas (recomendado, não implementado), gráfico arrastável
+  lateral (não recomendado — gráfico de evolução já existe), cards instagramáveis (recomendado,
+  implementar após lançamento nas lojas — requer `react-native-view-shot`).
+
+- **Demais itens do roadmap estratégico** discutidos no mesmo dia: rede social interna estilo Strava,
+  integração Panz Fit (profunda — não só deep link), Garmin/Polar/Apple Watch, segurança LGPD, Play
+  Store (completar 12 testadores), App Store (retomar iOS), melhoria de gestão financeira, site
+  institucional + página de vendas + Instagram, multi-treinador (longo prazo).
+
+- **Arquivos alterados**: `apps/api/src/coach/coach.controller.ts`,
+  `apps/api/src/coach/coach.service.ts`, `apps/admin/app/page.tsx`, `apps/mobile/App.tsx`, `ROADMAP.md`.
+  Nenhum commit foi feito nesta sessão — todos os arquivos da sessão anterior (me.service.ts,
+  me.controller.ts, evolution.types.ts, evolution-metric.service.ts, e os desta sessão) aguardam commit.
+
+- **Gates desta sessão**: typecheck limpo nos três apps confirmado (erros pré-existentes em coach,
+  não causados por esta sessão). Nenhum erro novo introduzido.
+
 ---
 
-## Onde as coisas estão agora (2026-09-09) — leitura rápida pra quem chega de fora
+## Onde as coisas estão agora (2026-09-10) — leitura rápida pra quem chega de fora
 
 **Produto em produção, sendo usado por alunas reais**: a versão web/PWA, em
 `https://panzerirun.eltonpanzeripersonal.com.br`. Entrevista, geração de treino por IA, registro de
@@ -1123,6 +1170,11 @@ confirmada; corrigido com `unregisteredSessions` separado e aderência recalcula
 (3) notificação ao gerar nova semana agora inclui contagem de treinos sem registro da semana
 anterior e explica o impacto na prescrição. Arquivos: `coach.service.ts`, `training-plans.service.ts`,
 `App.tsx`. Typecheck limpo nos dois apps. EasyPanel auto-deploya a cada push.
+
+**Prontos para commit mas ainda não commitados (10/09)**: `coach.controller.ts` (endpoint
+`GET races/calendar`), `coach.service.ts` (método `racesCalendar()`), `admin/page.tsx`
+(`RaceCalendarView`, botão no sidebar), `mobile/App.tsx` (toggle "Linha do tempo" na TargetRaceScreen),
+`ROADMAP.md` (novo). Mais arquivos de sessões anteriores também sem commit.
 
 **Deployado (09/09, sessão 2)**: `RoutineOverviewScreen` — ao tocar em "Rotina de treinos" no menu,
 o aluno vê a tabela da rotina atual antes de entrar na entrevista, com botão "Alterar/Configurar
