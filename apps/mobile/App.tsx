@@ -5705,12 +5705,27 @@ function StravaSync({ accessToken }: { accessToken: string }) {
     }
   }
 
+  // Alunos sem Strava conectado veem aviso de "em breve" — mantem acesso para quem ja tem
+  // a integracao ativa, mas nao exibe o botao de conexao para novos usuarios (decisao do
+  // treinador, 10/09/2026: integracao pausada para novos, ativos nao sao afetados).
+  const stravaUnavailable = !loading && !connection?.connected;
+
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Integracao</Text>
       <Text style={styles.titleSmall}>Sincronizar com Strava</Text>
       <Text style={styles.formHint}>Autorize uma vez. Depois, os treinos enviados pelo seu relogio ao Strava chegam automaticamente ao Panzeri Run.</Text>
 
+      {stravaUnavailable ? (
+        // Gate: integracao pausada para novos usuarios
+        <View style={{ backgroundColor: '#f8fafc', borderRadius: 12, padding: 16, marginTop: 12, borderWidth: 1, borderColor: '#e2e8f0', alignItems: 'center', gap: 8 }}>
+          <Ionicons name="time-outline" size={32} color="#94a3b8" />
+          <Text style={{ fontSize: 15, fontWeight: '700', color: '#334155', textAlign: 'center' }}>Em breve</Text>
+          <Text style={{ fontSize: 13, color: '#64748b', textAlign: 'center', lineHeight: 20 }}>
+            A integracao com o Strava estara disponivel em uma proxima atualizacao do app.
+          </Text>
+        </View>
+      ) : (
       <View style={styles.formSection}>
         <View style={styles.reportRow}>
           <Text style={styles.reportTitle}>{loading ? 'Consultando conexao...' : connection?.connected ? 'Strava conectado' : 'Strava nao conectado'}</Text>
@@ -5743,6 +5758,7 @@ function StravaSync({ accessToken }: { accessToken: string }) {
         )}
         {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
       </View>
+      )}
     </View>
   );
 }
