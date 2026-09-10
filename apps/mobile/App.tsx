@@ -4787,6 +4787,8 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
   const [races, setRaces] = useState<TargetRaceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
+  // 10/09: toggle entre formulário de nova meta e linha do tempo das provas.
+  const [viewMode, setViewMode] = useState<'form' | 'timeline'>('form');
   const [name, setName] = useState('');
   const [raceDateInput, setRaceDateInput] = useState('');
   const [distanceInput, setDistanceInput] = useState('');
@@ -4925,15 +4927,138 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
     }
   }
 
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Agrupa provas por mês YYYY-MM e ordena cronologicamente para a linha do tempo.
+  const activeRaces = races.filter((r) => r.status === 'em_andamento');
+  const sortedRaces = [...races].sort((a, b) => a.raceDate.localeCompare(b.raceDate));
+  const racesByMonth = sortedRaces.reduce<Map<string, TargetRaceItem[]>>((acc, r) => {
+    const month = r.raceDate.slice(0, 7);
+    if (!acc.has(month)) acc.set(month, []);
+    acc.get(month)!.push(r);
+    return acc;
+  }, new Map());
+
+  function formatRaceDate(iso: string) {
+    const [y, m, d] = iso.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    return dt.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
+  }
+
+  function formatRaceMonth(ym: string) {
+    const [y, m] = ym.split('-').map(Number);
+    const dt = new Date(y, m - 1, 1);
+    return dt.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  }
+
+  function daysUntilRace(iso: string) {
+    const diff = Math.ceil((new Date(`${iso}T12:00:00`).getTime() - new Date(`${today}T12:00:00`).getTime()) / 86400000);
+    if (diff < 0) return `ha ${Math.abs(diff)} dias`;
+    if (diff === 0) return 'hoje!';
+    if (diff === 1) return 'amanha';
+    return `em ${diff} dias`;
+  }
+
+  const racePriorityLabel: Record<string, string> = { principal: 'Principal', secundaria: 'Secundaria', principal_: 'Principal' };
+  const raceStatusLabel: Record<string, string> = { em_andamento: 'Em andamento', concluida: 'Concluida', arquivada: 'Arquivada' };
+
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Prova alvo</Text>
       <Text style={styles.titleSmall}>Suas metas de prova</Text>
-      <Text style={styles.copyTight}>
-        Registre a prova que voce esta buscando. Vamos usar isso como norte para montar seu treino — mas fatores que nao controlamos diretamente (sua rotina, alimentacao, sono e dedicacao) tambem influenciam o resultado final. Por isso, escolha uma meta realista com aquilo que voce esta disposto a se comprometer a treinar ate la. Nao garantimos o resultado, mas vamos trabalhar para chegar o mais perto possivel dele com seguranca.
-      </Text>
 
-      <View style={styles.formSection}>
+      {/* Toggle Nova meta / Linha do tempo */}
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+        <Pressable
+          style={[styles.secondaryButton, viewMode === 'form' && { backgroundColor: '#6366f1', borderColor: '#6366f1' }]}
+          onPress={() => setViewMode('form')}
+        >
+          <Text style={[styles.secondaryButtonText, viewMode === 'form' && { color: '#fff' }]}>Nova meta</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.secondaryButton, viewMode === 'timeline' && { backgroundColor: '#6366f1', borderColor: '#6366f1' }]}
+          onPress={() => setViewMode('timeline')}
+        >
+          <Text style={[styles.secondaryButtonText, viewMode === 'timeline' && { color: '#fff' }]}>Linha do tempo {activeRaces.length > 0 ? `(${activeRaces.length})` : ''}</Text>
+        </Pressable>
+      </View>
+
+      {/* ── LINHA DO TEMPO ── */}
+      {viewMode === 'timeline' ? (
+        <View>
+          {loading ? <Text style={styles.statusMessage}>Carregando...</Text> : null}
+          {!loading && races.length === 0 ? (
+            <Text style={styles.copyTight}>Nenhuma prova registrada ainda. Use "Nova meta" para adicionar.</Text>
+          ) : null}
+          {Array.from(racesByMonth.entries()).map(([month, monthRaces]) => (
+            <View key={month} style={{ marginBottom: 20 }}>
+              <Text style={[styles.sectionLabel, { marginBottom: 8, textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.8 }]}>
+                {formatRaceMonth(month)}
+              </Text>
+              {monthRaces.map((race) => {
+                const isPast = race.raceDate < today;
+                const isConcluida = race.status === 'concluida';
+                return (
+                  <View
+                    key={race.id}
+                    style={{
+                      backgroundColor: isPast ? '#f9fafb' : '#f0fdf4',
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: isPast ? '#e5e7eb' : '#bbf7d0',
+                      padding: 12,
+                      marginBottom: 8,
+                      opacity: isConcluida ? 0.7 : 1,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: '#111' }}>{race.name}</Text>
+                        <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                          {formatRaceDate(race.raceDate)}
+                          {race.distanceKm ? ` · ${race.distanceKm} km` : ''}
+                        </Text>
+                        {race.paceSecondsPerKm ? (
+                          <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 1 }}>
+                            Pace alvo: {formatPace(race.paceSecondsPerKm)}
+                          </Text>
+                        ) : null}
+                        <Text style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                          {racePriorityLabel[race.priority] ?? race.priority} · {raceStatusLabel[race.status] ?? race.status}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: isPast ? '#6b7280' : '#16a34a' }}>
+                          {daysUntilRace(race.raceDate)}
+                        </Text>
+                      </View>
+                    </View>
+                    {/* Ações rápidas */}
+                    <View style={[styles.couponRow, { marginTop: 8 }]}>
+                      {race.status === 'em_andamento' ? (
+                        <Pressable style={styles.secondaryButton} onPress={() => updateStatus(race.id, 'concluida')}>
+                          <Text style={styles.secondaryButtonText}>Concluida</Text>
+                        </Pressable>
+                      ) : null}
+                      <Pressable style={styles.secondaryButton} onPress={() => removeRace(race.id)}>
+                        <Text style={styles.secondaryButtonText}>Remover</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {/* ── FORMULÁRIO DE NOVA META ── */}
+      {viewMode === 'form' ? (
+        <>
+          <Text style={styles.copyTight}>
+            Registre a prova que voce esta buscando. Vamos usar isso como norte para montar seu treino — mas fatores que nao controlamos diretamente (sua rotina, alimentacao, sono e dedicacao) tambem influenciam o resultado final. Por isso, escolha uma meta realista com aquilo que voce esta disposto a se comprometer a treinar ate la. Nao garantimos o resultado, mas vamos trabalhar para chegar o mais perto possivel dele com seguranca.
+          </Text>
+          <View style={styles.formSection}>
         <Text style={styles.formSectionTitle}>Nova meta</Text>
         <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Nome da prova (ex: Meia Maratona de SP)" />
         <TextInput style={styles.input} value={raceDateInput} onChangeText={(text) => setRaceDateInput(formatDateInputText(text))} placeholder="Data (dd/mm/aaaa)" keyboardType="number-pad" maxLength={10} />
@@ -4983,29 +5108,10 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
           <Text style={styles.primaryButtonText}>{saving ? 'Salvando...' : 'Salvar meta'}</Text>
         </Pressable>
       </View>
-
-      {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
-      {loading ? <Text style={styles.statusMessage}>Carregando...</Text> : null}
-
-      {races.map((race) => (
-        <View style={styles.formSection} key={race.id}>
-          <Text style={styles.formSectionTitle}>{race.name}</Text>
-          <Text style={styles.reportText}>Data: {formatDayMonthUtc(new Date(race.raceDate))} · Distancia: {race.distanceKm} km</Text>
-          {race.paceSecondsPerKm ? <Text style={styles.reportText}>Pace alvo: {formatPace(race.paceSecondsPerKm)} ({race.speedKmh} km/h)</Text> : null}
-          <Text style={styles.reportText}>Situacao: {race.status === 'em_andamento' ? 'Em andamento' : race.status === 'concluida' ? 'Concluida' : 'Arquivada'}</Text>
-          {race.notes ? <Text style={styles.reportText}>{race.notes}</Text> : null}
-          <View style={styles.couponRow}>
-            {race.status !== 'concluida' ? (
-              <Pressable style={styles.secondaryButton} onPress={() => updateStatus(race.id, 'concluida')}>
-                <Text style={styles.secondaryButtonText}>Marcar concluida</Text>
-              </Pressable>
-            ) : null}
-            <Pressable style={styles.secondaryButton} onPress={() => removeRace(race.id)}>
-              <Text style={styles.secondaryButtonText}>Remover</Text>
-            </Pressable>
-          </View>
-        </View>
-      ))}
+          {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
+          {loading ? <Text style={styles.statusMessage}>Carregando...</Text> : null}
+        </>
+      ) : null}
     </View>
   );
 }

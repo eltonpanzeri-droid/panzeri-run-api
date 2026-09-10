@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flame, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flag, Flame, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -51,7 +51,20 @@ interface FunnelReport {
   }>;
 }
 
-type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel';
+type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel' | 'raceCalendar';
+
+// 10/09: calendário global de provas alvo — retornado por GET /coach/races/calendar.
+interface RaceCalendarEntry {
+  id: string;
+  studentName: string | null;
+  studentCode: number | null;
+  name: string;
+  raceDate: string; // YYYY-MM-DD
+  distanceKm: number | null;
+  targetSeconds: number | null;
+  priority: string | null;
+  paceSecondsPerKm: number | null;
+}
 
 type ExStudentRow = {
   id: string;
@@ -342,6 +355,8 @@ export default function AdminHome() {
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [funnelReport, setFunnelReport] = useState<FunnelReport | null>(null);
   const [loadingFunnel, setLoadingFunnel] = useState(false);
+  const [raceCalendar, setRaceCalendar] = useState<RaceCalendarEntry[] | null>(null);
+  const [loadingRaceCalendar, setLoadingRaceCalendar] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [studentDetail, setStudentDetail] = useState<StudentDetail | null>(null);
   // 01/09: 'list' e 'detail' sao os dois "modos" da view Alunos (pedido do treinador — antes era
@@ -630,6 +645,16 @@ export default function AdminHome() {
     else if (!loggedOut) setStatus('Nao consegui carregar o funil.');
   }
 
+  // 10/09: carrega o calendário global de provas alvo de todos os alunos ativos.
+  async function loadRaceCalendar(accessToken = token) {
+    if (!accessToken) return;
+    setLoadingRaceCalendar(true);
+    const { data, loggedOut } = await authorizedGet<RaceCalendarEntry[]>('/coach/races/calendar', accessToken);
+    setLoadingRaceCalendar(false);
+    if (data) setRaceCalendar(data);
+    else if (!loggedOut) setStatus('Nao consegui carregar o calendario de provas.');
+  }
+
   async function loadProspects(accessToken = token) {
     if (!accessToken) return;
     const { data, loggedOut } = await authorizedGet<{ totals: { total: number; quente: number; morno: number; frio: number }; prospects: ProspectRow[] }>('/coach/prospects', accessToken);
@@ -731,6 +756,7 @@ export default function AdminHome() {
     if (view === 'prospects') { void loadProspects(); void loadFreeTesterEmails(); }
     if (view === 'exStudents') void loadExStudents();
     if (view === 'funnel') void loadFunnel();
+    if (view === 'raceCalendar') void loadRaceCalendar();
     // 01/09: entrar na aba Alunos pelo menu sempre volta pra lista (nunca reabre a ultima aluna
     // vista) — e' o novo comportamento padrao "lista primeiro". Antes disso existia aqui uma
     // pre-carga automatica da primeira aluna do dashboard so' pra 'students' tambem; removida
@@ -1084,7 +1110,7 @@ export default function AdminHome() {
             </button>
             <div>
               <p className="eyebrow">Painel do treinador</p>
-              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : 'Financeiro'}</h1>
+              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : 'Financeiro'}</h1>
               <small className="apiVersion">API {apiVersion}</small>
             </div>
           </div>
@@ -1119,6 +1145,7 @@ export default function AdminHome() {
             <button className={activeView === 'finance' ? 'active' : ''} type="button" onClick={() => changeView('finance')}><CreditCard size={19} />Financeiro</button>
             <button className={activeView === 'notifications' ? 'active' : ''} type="button" onClick={() => changeView('notifications')}><Bell size={19} />Notificacoes{notifications.length ? ` (${notifications.length})` : ''}</button>
             <button className={activeView === 'funnel' ? 'active' : ''} type="button" onClick={() => changeView('funnel')}><TrendingUp size={19} />Funil</button>
+            <button className={activeView === 'raceCalendar' ? 'active' : ''} type="button" onClick={() => changeView('raceCalendar')}><Flag size={19} />Provas</button>
           </nav>
         ) : null}
 
@@ -1568,6 +1595,8 @@ export default function AdminHome() {
         {activeView === 'finance' ? <FinanceView finance={finance} onRefresh={() => loadFinance()} /> : null}
 
         {activeView === 'funnel' ? <FunnelView report={funnelReport} loading={loadingFunnel} onRefresh={() => loadFunnel()} /> : null}
+
+        {activeView === 'raceCalendar' ? <RaceCalendarView races={raceCalendar} loading={loadingRaceCalendar} onRefresh={() => loadRaceCalendar()} /> : null}
       </section>
     </main>
   );
@@ -1725,6 +1754,141 @@ function FunnelView({ report, loading, onRefresh }: { report: FunnelReport | nul
       {!loading && !report ? (
         <p style={{ padding: '24px', color: 'var(--muted)' }}>Clique em Atualizar para carregar o funil.</p>
       ) : null}
+    </section>
+  );
+}
+
+// 10/09: calendário global de provas alvo — visão do treinador de todas as provas marcadas pelos
+// alunos, agrupadas por mês, em ordem cronológica. Mostra: data, aluno, prova, distância, meta de
+// pace e prioridade. Provas arquivadas (concluídas/canceladas) não aparecem (filtradas no backend).
+function RaceCalendarView({ races, loading, onRefresh }: { races: RaceCalendarEntry[] | null; loading: boolean; onRefresh: () => void }) {
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Agrupar provas por mês (YYYY-MM)
+  const grouped: Map<string, RaceCalendarEntry[]> = new Map();
+  if (races) {
+    for (const race of races) {
+      const month = race.raceDate.slice(0, 7);
+      if (!grouped.has(month)) grouped.set(month, []);
+      grouped.get(month)!.push(race);
+    }
+  }
+
+  function formatDate(iso: string) {
+    const [year, month, day] = iso.split('-').map(Number);
+    const d = new Date(year, month - 1, day);
+    return d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
+  }
+
+  function formatMonth(ym: string) {
+    const [year, month] = ym.split('-').map(Number);
+    const d = new Date(year, month - 1, 1);
+    return d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  }
+
+  function formatPace(secondsPerKm: number | null) {
+    if (!secondsPerKm) return '—';
+    const m = Math.floor(secondsPerKm / 60);
+    const s = secondsPerKm % 60;
+    return `${m}:${String(s).padStart(2, '0')}/km`;
+  }
+
+  function daysUntil(iso: string) {
+    const diff = Math.ceil((new Date(iso).getTime() - new Date(today).getTime()) / 86400000);
+    if (diff < 0) return `há ${Math.abs(diff)} dias`;
+    if (diff === 0) return 'hoje';
+    if (diff === 1) return 'amanhã';
+    return `em ${diff} dias`;
+  }
+
+  const priorityLabel: Record<string, string> = {
+    main: '⭐ Principal',
+    secondary: 'Secundária',
+    practice: 'Treino',
+  };
+
+  return (
+    <section className="panel fullPanel">
+      <div className="panelHeader">
+        <div>
+          <p className="eyebrow">Provas alvo</p>
+          <h2>Calendario de provas</h2>
+        </div>
+        <button className="secondaryButton" type="button" onClick={onRefresh}>
+          {loading ? 'Carregando...' : 'Atualizar'}
+        </button>
+      </div>
+
+      {loading ? (
+        <p style={{ padding: '24px', color: 'var(--muted)' }}>Carregando...</p>
+      ) : !races ? (
+        <p style={{ padding: '24px', color: 'var(--muted)' }}>Clique em Atualizar para carregar.</p>
+      ) : races.length === 0 ? (
+        <p style={{ padding: '24px', color: 'var(--muted)' }}>Nenhuma prova marcada pelos alunos.</p>
+      ) : (
+        <div style={{ padding: '0 24px 32px' }}>
+          {Array.from(grouped.entries()).map(([month, monthRaces]) => (
+            <div key={month} style={{ marginBottom: 28 }}>
+              <h3 style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)', marginBottom: 10 }}>
+                {formatMonth(month)}
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {monthRaces.map((race) => {
+                  const isPast = race.raceDate < today;
+                  return (
+                    <div
+                      key={race.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '120px 1fr auto',
+                        gap: '8px 16px',
+                        alignItems: 'center',
+                        padding: '12px 14px',
+                        borderRadius: 8,
+                        background: isPast ? 'var(--surface-muted, rgba(0,0,0,0.04))' : 'var(--surface, rgba(0,0,0,0.02))',
+                        border: `1px solid ${isPast ? 'var(--border-muted, #e0e0e0)' : 'var(--border, #e0e0e0)'}`,
+                        opacity: isPast ? 0.65 : 1,
+                      }}
+                    >
+                      {/* Coluna 1: data + countdown */}
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{formatDate(race.raceDate)}</div>
+                        <div style={{ fontSize: 11, color: isPast ? 'var(--muted)' : '#16a34a', marginTop: 2 }}>{daysUntil(race.raceDate)}</div>
+                      </div>
+
+                      {/* Coluna 2: nome da prova + aluno */}
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 600 }}>{race.name}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                          {race.studentName ?? 'Aluno desconhecido'}
+                          {race.studentCode ? ` · #${String(race.studentCode).padStart(7, '0')}` : ''}
+                        </div>
+                        {race.priority ? (
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                            {priorityLabel[race.priority] ?? race.priority}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {/* Coluna 3: distância + pace alvo */}
+                      <div style={{ textAlign: 'right' }}>
+                        {race.distanceKm ? (
+                          <div style={{ fontSize: 14, fontWeight: 700 }}>{race.distanceKm} km</div>
+                        ) : null}
+                        {race.paceSecondsPerKm ? (
+                          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                            {formatPace(race.paceSecondsPerKm)}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

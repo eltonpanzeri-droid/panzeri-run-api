@@ -95,6 +95,12 @@ export class CoachController {
     return this.coachService.signupFunnel();
   }
 
+  // 10/09: calendário de provas — todas as provas de todos os alunos ativos, ordenadas por data.
+  @Get('races/calendar')
+  racesCalendar() {
+    return this.coachService.racesCalendar();
+  }
+
   @Get('dashboard')
   dashboard(
     @Query('search') search?: string,

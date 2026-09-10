@@ -1258,6 +1258,30 @@ export class CoachService {
       },
     });
   }
+  // 10/09: calendário de provas — retorna todas as TargetRaces com status em_andamento de todos
+  // os alunos, ordenadas por data, com nome e código do aluno para montagem do calendário no admin.
+  async racesCalendar() {
+    const races = await this.prisma.targetRace.findMany({
+      where: { status: 'em_andamento' },
+      orderBy: { raceDate: 'asc' },
+      include: {
+        user: { select: { name: true, studentCode: true } },
+      },
+    });
+    return races.map((r) => ({
+      id: r.id,
+      studentName: r.user.name,
+      studentCode: r.user.studentCode,
+      name: r.name,
+      raceDate: r.raceDate.toISOString().slice(0, 10),
+      distanceKm: r.distanceKm,
+      targetSeconds: r.targetSeconds,
+      priority: r.priority,
+      paceSecondsPerKm:
+        r.targetSeconds && r.distanceKm ? Math.round(r.targetSeconds / r.distanceKm) : null,
+    }));
+  }
+
   private assertStudent(studentId: string) {
     return this.prisma.user.findFirstOrThrow({
       where: { id: studentId, role: 'student' },
