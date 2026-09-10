@@ -5,8 +5,8 @@
   },
   "build": {
     "preview": {
-      "node": "22.x",
       "distribution": "internal",
+      "image": "ubuntu-26.04-jdk-17-ndk-r27b-sdk-57",
       "android": {
         "buildType": "apk"
       },
@@ -15,8 +15,8 @@
       }
     },
     "production": {
-      "node": "22.x",
       "autoIncrement": true,
+      "image": "ubuntu-26.04-jdk-17-ndk-r27b-sdk-57",
       "android": {
         "buildType": "app-bundle"
       },
