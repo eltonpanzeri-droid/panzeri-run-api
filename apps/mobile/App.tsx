@@ -2634,6 +2634,10 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     </View>
   );
 
+  // 10/09: guard — se visibleQuestions estiver vazio (answers ainda carregando + condicoes
+  // bloqueando todas as perguntas ao mesmo tempo), nao renderiza pergunta em branco.
+  if (!question) return <View style={styles.section}><Text style={styles.statusMessage}>Carregando perguntas...</Text></View>;
+
   // Numeramos a pergunta atual de proposito, mas NUNCA mostramos quanto falta (nada de "8 de 22")
   // — o numero de perguntas visiveis muda dinamicamente conforme as respostas (condicionais de
   // saude/corrida), entao um total "fixo" seria ate enganoso. Mostrar so o quanto ja foi
@@ -2797,7 +2801,9 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       ) : null}
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
-      <View style={styles.interviewActions}><Pressable style={[styles.secondaryButton, step === 0 && styles.disabledButton]} disabled={step === 0} onPress={() => { setStep(Math.max(0, step - 1)); setStatus(''); }}><Text style={styles.secondaryButtonText}>Voltar</Text></Pressable><Pressable style={[styles.primaryButton, saving && styles.disabledButton]} disabled={saving} onPress={next}><Text style={styles.primaryButtonText}>{step === visibleQuestions.length - 1 ? 'Concluir' : 'Continuar'}</Text></Pressable></View>
+      {/* 10/09: em fixModule no passo 0, "Voltar" vai para a lista de categorias (onLater),
+          nao fica desabilitado — o aluno precisa conseguir sair sem ter que concluir. */}
+      <View style={styles.interviewActions}><Pressable style={[styles.secondaryButton, (step === 0 && mode !== 'fixModule') && styles.disabledButton]} disabled={step === 0 && mode !== 'fixModule'} onPress={() => { if (step === 0 && mode === 'fixModule') { onLater(); return; } setStep(Math.max(0, step - 1)); setStatus(''); }}><Text style={styles.secondaryButtonText}>Voltar</Text></Pressable><Pressable style={[styles.primaryButton, saving && styles.disabledButton]} disabled={saving} onPress={next}><Text style={styles.primaryButtonText}>{step === visibleQuestions.length - 1 ? 'Concluir' : 'Continuar'}</Text></Pressable></View>
     </View>
   );
 }
@@ -6621,7 +6627,10 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
   const tabs: Array<{ id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
     { id: 'notifications', label: 'Avisos', icon: 'notifications-outline' },
     { id: 'week', label: 'Treino da semana', icon: 'calendar' },
-    { id: 'interview', label: 'Entrevista inicial', icon: 'chatbubbles' },
+    // 10/09: removido do menu — era redundante com "Corrigir respostas anteriores", que ja tem
+    // a opcao "Reabrir entrevista completa" la dentro. Para alunos em onboarding, o redirect
+    // automatico (useEffect) ja leva para a aba 'interview' sem precisar do item no menu.
+    // { id: 'interview', label: 'Entrevista inicial', icon: 'chatbubbles' },
     { id: 'routine', label: 'Rotina de treinos', icon: 'time' },
     { id: 'reassessment', label: 'Reavaliacao periodica', icon: 'refresh-circle' },
     { id: 'meusDados', label: 'Meus dados', icon: 'person-circle-outline' },
