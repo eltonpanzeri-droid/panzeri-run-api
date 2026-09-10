@@ -7742,9 +7742,11 @@ function RescheduleControl({
 }) {
   const [open, setOpen] = useState(false);
   if (!planStartDate) return null;
-  // 'T12:00:00Z' evita shift de timezone: new Date('YYYY-MM-DD') e UTC midnight,
-  // que em UTC-3 vira o dia anterior (getDate() retorna -1 dia). Meio-dia UTC e seguro.
-  const monday = new Date(planStartDate + 'T12:00:00Z');
+  // planStartDate pode ser ISO completo ('2026-09-07T03:00:00Z') ou so data ('2026-09-07').
+  // slice(0,10) extrai apenas 'YYYY-MM-DD' antes de concatenar o horario fixo, evitando
+  // data invalida E o shift de timezone: new Date('YYYY-MM-DD') e UTC midnight, que em
+  // UTC-3 vira o dia anterior. Meio-dia UTC (09h BR) resolve os dois problemas.
+  const monday = new Date(planStartDate.slice(0, 10) + 'T12:00:00Z');
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const options = [1, 2, 3, 4, 5, 6, 0].map((weekday) => {
