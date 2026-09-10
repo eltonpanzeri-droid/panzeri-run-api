@@ -6487,7 +6487,12 @@ interface HistoryWeekMobile {
   sessions: HistorySessionMobile[];
 }
 
-const DAY_COLS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+// 10/09: semana começa na segunda, só iniciais (igual Strava).
+// DAY_ORDER: índice de weekday (0=Dom..6=Sab) na ordem de exibição.
+const DAY_LABELS = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
+const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Seg Ter Qua Qui Sex Sab Dom
+// Cores alternadas claras por coluna para ajudar a separar os dias visualmente.
+const DAY_COL_BG = ['#f4f7ff', '#f9fafb', '#f4f7ff', '#f9fafb', '#f4f7ff', '#f9fafb', '#fff0f4'];
 
 function computeWeekOffsetMobile(weekStart: string): number {
   const now = new Date(Date.now() - 3 * 60 * 60 * 1000);
@@ -6502,26 +6507,26 @@ function computeWeekOffsetMobile(weekStart: string): number {
   return Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
 }
 
-function SessionBubble({ session }: { session: HistorySessionMobile }) {
+// 10/09: retorna a cor de fundo de uma sessão baseado em status + modalidade.
+function sessionBubbleColor(session: HistorySessionMobile, today: string): string {
   const isRun = session.modality === 'corrida' || session.modality === 'esteira';
-  const today = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const isPast = session.date < today;
-
-  let bgColor = '#e2e8f0'; // sem completion (futuro ou neutro)
   if (session.completionStatus === 'done' || session.completionStatus === 'adjusted') {
-    bgColor = isRun ? '#22c55e' : '#6366f1';
-  } else if (session.completionStatus === 'missed') {
-    bgColor = '#ef4444';
-  } else if (isPast) {
-    bgColor = '#f59e0b'; // sem registro no passado
+    return isRun ? '#22c55e' : '#6366f1';
   }
+  if (session.completionStatus === 'missed') return '#ef4444';
+  if (session.date < today) return '#f59e0b';
+  return '#e2e8f0';
+}
 
+function SessionBubble({ session }: { session: HistorySessionMobile }) {
+  const today = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const bgColor = sessionBubbleColor(session, today);
   const km = session.completedDistanceKm;
   const label = km != null && km > 0 ? (km >= 10 ? `${Math.round(km)}` : `${km}`) : null;
 
   return (
     <View style={{
-      width: 36, height: 36, borderRadius: 18,
+      width: 34, height: 34, borderRadius: 17,
       backgroundColor: bgColor,
       alignItems: 'center', justifyContent: 'center',
       ...(session.isExtra ? { borderWidth: 2, borderColor: '#0ea5e9' } : {}),
@@ -6529,8 +6534,87 @@ function SessionBubble({ session }: { session: HistorySessionMobile }) {
       {label ? (
         <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>{label}</Text>
       ) : (
-        <Ionicons name={iconForModality(session.modality)} size={14} color="#fff" />
+        <Ionicons name={iconForModality(session.modality)} size={13} color="#fff" />
       )}
+    </View>
+  );
+}
+
+// 10/09: quando há múltiplas sessões no mesmo dia, renderiza uma bola maior com badge
+// (número de sessões no canto) e km no centro quando há corrida — igual ao Strava.
+function DayCellMulti({ sessions, colIndex }: { sessions: HistorySessionMobile[]; colIndex: number }) {
+  const cellBg = DAY_COL_BG[colIndex % DAY_COL_BG.length];
+  const today = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  if (sessions.length === 0) {
+    return (
+      <View style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: cellBg }}>
+        <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#dde3ee' }} />
+      </View>
+    );
+  }
+
+  if (sessions.length === 1) {
+    const s = sessions[0];
+    const bgColor = sessionBubbleColor(s, today);
+    const km = s.completedDistanceKm;
+    const label = km != null && km > 0 ? (km >= 10 ? `${Math.round(km)}` : `${km}`) : null;
+    return (
+      <View style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: cellBg }}>
+        <View style={{
+          width: 34, height: 34, borderRadius: 17,
+          backgroundColor: bgColor,
+          alignItems: 'center', justifyContent: 'center',
+          ...(s.isExtra ? { borderWidth: 2, borderColor: '#0ea5e9' } : {}),
+        }}>
+          {label ? (
+            <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>{label}</Text>
+          ) : (
+            <Ionicons name={iconForModality(s.modality)} size={13} color="#fff" />
+          )}
+        </View>
+      </View>
+    );
+  }
+
+  // Múltiplas sessões: bola maior, cor dominante, km se tem corrida.
+  const hasRun = sessions.some((s) => s.modality === 'corrida' || s.modality === 'esteira');
+  const allDone = sessions.every((s) => s.completionStatus === 'done' || s.completionStatus === 'adjusted');
+  const anyMissed = sessions.some((s) => s.completionStatus === 'missed');
+  const isPast = sessions.some((s) => s.date < today);
+  const hasExtra = sessions.some((s) => s.isExtra);
+
+  let bgColor = '#e2e8f0';
+  if (allDone) bgColor = hasRun ? '#22c55e' : '#6366f1';
+  else if (anyMissed) bgColor = '#ef4444';
+  else if (isPast) bgColor = '#f59e0b';
+
+  const totalKm = sessions.reduce((sum, s) => sum + (s.completedDistanceKm ?? 0), 0);
+  const kmLabel = hasRun && totalKm > 0
+    ? (totalKm >= 10 ? `${Math.round(totalKm)}` : `${totalKm.toFixed(1)}`)
+    : null;
+
+  return (
+    <View style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: cellBg }}>
+      <View style={{
+        width: 38, height: 38, borderRadius: 19,
+        backgroundColor: bgColor,
+        alignItems: 'center', justifyContent: 'center',
+        ...(hasExtra ? { borderWidth: 2, borderColor: '#0ea5e9' } : {}),
+      }}>
+        <Text style={{ color: '#fff', fontSize: kmLabel ? 11 : 12, fontWeight: '900' }}>
+          {kmLabel ?? `×${sessions.length}`}
+        </Text>
+      </View>
+      {/* Badge Strava: número de sessões no canto superior direito */}
+      <View style={{
+        position: 'absolute', top: 2, right: 2,
+        width: 15, height: 15, borderRadius: 8,
+        backgroundColor: '#1e293b',
+        alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Text style={{ color: '#fff', fontSize: 8, fontWeight: '800' }}>{sessions.length}</Text>
+      </View>
     </View>
   );
 }
@@ -6551,97 +6635,97 @@ function HistoryCalendar({ accessToken, onNavigateToWeek }: { accessToken: strin
       .finally(() => setLoading(false));
   }, [accessToken]);
 
-  return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }}>
-      <Text style={styles.sectionLabel}>Historico de treinos</Text>
-      <Text style={[styles.titleSmall, { marginBottom: 8 }]}>Todas as semanas</Text>
-      <Text style={[styles.formHint, { marginBottom: 16 }]}>Toque em uma semana para ver e registrar feedback.</Text>
+  // 10/09: legenda compacta em 2 linhas, acima do cabeçalho.
+  const legendItems = [
+    { color: '#22c55e', label: 'Corrida' },
+    { color: '#6366f1', label: 'Força' },
+    { color: '#ef4444', label: 'Não feito' },
+    { color: '#f59e0b', label: 'Sem registro' },
+    { color: '#e2e8f0', label: 'Futuro' },
+  ];
 
-      {/* Legenda */}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
-        {[
-          { color: '#22c55e', label: 'Corrida feita' },
-          { color: '#6366f1', label: 'Forca/Fortalec. feito' },
-          { color: '#ef4444', label: 'Nao feito' },
-          { color: '#f59e0b', label: 'Sem registro' },
-          { color: '#e2e8f0', label: 'Futuro / sem treino' },
-        ].map((item) => (
-          <View key={item.color} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: item.color }} />
-            <Text style={{ fontSize: 11, color: '#64748b' }}>{item.label}</Text>
+  return (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 48 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
+        <Text style={styles.sectionLabel}>Histórico de treinos</Text>
+        <Text style={[styles.formHint, { marginBottom: 10 }]}>Toque em uma semana para ver e registrar feedback.</Text>
+
+        {/* Legenda horizontal compacta */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+          {legendItems.map((item) => (
+            <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.color }} />
+              <Text style={{ fontSize: 10, color: '#64748b' }}>{item.label}</Text>
+            </View>
+          ))}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#22c55e', borderWidth: 2, borderColor: '#0ea5e9' }} />
+            <Text style={{ fontSize: 10, color: '#64748b' }}>Extra</Text>
           </View>
-        ))}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#22c55e', borderWidth: 2, borderColor: '#0ea5e9' }} />
-          <Text style={{ fontSize: 11, color: '#64748b' }}>Extra (pelo aluno)</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 15, height: 15, borderRadius: 8, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#fff', fontSize: 7, fontWeight: '800' }}>2</Text>
+            </View>
+            <Text style={{ fontSize: 10, color: '#64748b' }}>+ sessões no dia</Text>
+          </View>
         </View>
       </View>
 
-      {/* Cabecalho dos dias */}
-      <View style={{ flexDirection: 'row', paddingHorizontal: 4, marginBottom: 4 }}>
-        <View style={{ flex: 1 }} />
-        {DAY_COLS.map((d) => (
-          <View key={d} style={{ width: 42, alignItems: 'center' }}>
-            <Text style={{ fontSize: 10, fontWeight: '700', color: '#94a3b8' }}>{d}</Text>
+      {/* Cabeçalho fixo dos dias — S T Q Q S S D com fundo alternado */}
+      <View style={{ flexDirection: 'row', marginBottom: 0 }}>
+        <View style={{ width: 56 }} />
+        {DAY_LABELS.map((label, colIndex) => (
+          <View key={colIndex} style={{ width: 44, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: DAY_COL_BG[colIndex] }}>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: '#94a3b8', letterSpacing: 0.5 }}>{label}</Text>
           </View>
         ))}
-        <View style={{ width: 52 }} />
+        <View style={{ flex: 1 }} />
       </View>
 
       {loading ? (
         <ActivityIndicator size="small" color={PRColors.ocean} style={{ marginTop: 24 }} />
       ) : weeks.length === 0 ? (
-        <Text style={styles.formHint}>Nenhuma semana encontrada ainda.</Text>
+        <Text style={[styles.formHint, { paddingHorizontal: 16 }]}>Nenhuma semana encontrada ainda.</Text>
       ) : (
-        weeks.map((week) => {
+        weeks.map((week, weekIndex) => {
           const offset = computeWeekOffsetMobile(week.weekStart);
-          // Monta mapa weekday → sessions
           const byDay: Record<number, HistorySessionMobile[]> = {};
           for (const s of week.sessions) {
             if (!byDay[s.weekday]) byDay[s.weekday] = [];
             byDay[s.weekday].push(s);
           }
           return (
-            <Pressable
-              key={week.weekStart}
-              onPress={() => onNavigateToWeek(offset)}
-              style={{
+            <View key={week.weekStart}>
+              {/* Separador de semana — label acima das bolinhas, estilo Strava */}
+              <View style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                paddingVertical: 8,
-                paddingHorizontal: 4,
-                borderBottomWidth: 1,
-                borderBottomColor: '#f1f5f9',
-              }}
-            >
-              {/* Label da semana */}
-              <View style={{ flex: 1, paddingRight: 4 }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: '#334155' }}>{week.weekLabel}</Text>
-              </View>
-
-              {/* Colunas de dias Dom=0..Sab=6 */}
-              {[0, 1, 2, 3, 4, 5, 6].map((wd) => {
-                const daySessions = byDay[wd] ?? [];
-                return (
-                  <View key={wd} style={{ width: 42, alignItems: 'center', gap: 2 }}>
-                    {daySessions.length === 0 ? (
-                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#e2e8f0' }} />
-                    ) : (
-                      daySessions.map((s) => <SessionBubble key={s.id} session={s} />)
-                    )}
-                  </View>
-                );
-              })}
-
-              {/* Total km da semana */}
-              <View style={{ width: 52, alignItems: 'flex-end' }}>
+                paddingHorizontal: 16,
+                paddingTop: weekIndex === 0 ? 6 : 10,
+                paddingBottom: 4,
+                borderTopWidth: weekIndex === 0 ? 0 : 1,
+                borderTopColor: '#e2e8f0',
+              }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: '#475569', flex: 1 }}>{week.weekLabel}</Text>
                 {week.totalKmDone > 0 ? (
                   <Text style={{ fontSize: 11, fontWeight: '800', color: '#0ea5e9' }}>{week.totalKmDone} km</Text>
                 ) : (
                   <Text style={{ fontSize: 11, color: '#cbd5e1' }}>—</Text>
                 )}
               </View>
-            </Pressable>
+
+              {/* Linha de bolinhas — toca para navegar para a semana */}
+              <Pressable
+                onPress={() => onNavigateToWeek(offset)}
+                style={{ flexDirection: 'row', alignItems: 'center' }}
+              >
+                <View style={{ width: 56 }} />
+                {DAY_ORDER.map((wd, colIndex) => (
+                  <DayCellMulti key={wd} sessions={byDay[wd] ?? []} colIndex={colIndex} />
+                ))}
+                <View style={{ flex: 1 }} />
+              </Pressable>
+            </View>
           );
         })
       )}
