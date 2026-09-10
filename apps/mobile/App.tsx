@@ -2393,9 +2393,15 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       setStatus('');
       return;
     }
-    // 09/09: fixModule nao tem endpoint de conclusao — as respostas ja foram salvas pergunta a
-    // pergunta via PUT /me/onboarding/answer. Apenas marca finished e exibe a tela de confirmacao.
+    // 09/09: fixModule nao tem endpoint de conclusao formal — as respostas ja foram salvas
+    // pergunta a pergunta via PUT /me/onboarding/answer. Apenas notifica o treinador e exibe
+    // a tela de confirmacao. Chamada nao bloqueante: se falhar, o aluno ainda ve o "Tudo certo".
+    // 10/09: adicionado POST fix-completed para avisar o treinador via Telegram.
     if (mode === 'fixModule') {
+      void fetch(`${API_URL}/me/onboarding/fix-completed`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }).catch(() => undefined);
       setFinished(true);
       return;
     }

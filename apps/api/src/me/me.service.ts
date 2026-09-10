@@ -97,10 +97,22 @@ export class MeService {
     });
     if (missing.length) throw new BadRequestException('Responda todas as perguntas antes de continuar.');
 
-    return this.prisma.onboardingInterview.update({
+    const result = await this.prisma.onboardingInterview.update({
       where: { userId },
       data: { quickIntakeCompletedAt: new Date() },
     });
+
+    // 10/09: aviso ao treinador — aluno completou as 5 perguntas iniciais.
+    // Proximo passo esperado: ir para a tela de pagamento.
+    const student = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, studentCode: true, email: true },
+    });
+    void this.telegram.notifyCoach(
+      `✅ Aluno respondeu as 5 perguntas iniciais no Panzeri Run\n\nAluno: ${student?.name ?? student?.email ?? 'desconhecido'} (Cod. ${formatStudentCode(student?.studentCode)})\n\nPróximo passo: pagamento da assinatura.`,
+    ).catch(() => undefined);
+
+    return result;
   }
 
   async completeOnboarding(userId: string) {
@@ -245,6 +257,16 @@ export class MeService {
       this.logger.warn(`recordEvent(ONBOARDING_COMPLETED) falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
     });
 
+    // 10/09: aviso ao treinador — aluno concluiu a entrevista completa.
+    // Nome ja esta disponivel nas respostas (personal_name); busca no banco so pra ter studentCode.
+    const studentForTelegram = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, studentCode: true },
+    });
+    void this.telegram.notifyCoach(
+      `✅ Aluno concluiu a entrevista inicial no Panzeri Run\n\nAluno: ${studentForTelegram?.name ?? stringValue(answers.personal_name) ?? 'desconhecido'} (Cod. ${formatStudentCode(studentForTelegram?.studentCode)})\nObjetivo: ${stringValue(answers.objective)}\nExperiência com corrida: ${stringValue(answers.running_experience)}`,
+    ).catch(() => undefined);
+
     // Campo novo (2026-07-31): observacao livre especificamente sobre a rotina, preenchida
     // durante a propria entrevista (ex: "ja treino musculacao em outro lugar"). Grava no
     // prontuario UMA vez aqui (zero custo de IA, e so texto) — o agente de resumo do prontuario
@@ -386,6 +408,20 @@ export class MeService {
   // em vigor na proxima geracao de domingo.
   async completeRoutineFromInterview(userId: string) {
     return this.syncAvailabilityFromInterview(userId, true);
+  }
+
+  // 10/09: chamado pelo app quando o aluno conclui a correcao de respostas via fixModule
+  // (modulo "Corrigir respostas anteriores"). Apenas notifica o treinador — o salvamento
+  // das respostas ja foi feito incrementalmente por saveOnboardingAnswer durante a sessao.
+  async notifyFixAnswers(userId: string) {
+    const student = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, studentCode: true },
+    });
+    void this.telegram.notifyCoach(
+      `🔄 Aluno corrigiu respostas da entrevista no Panzeri Run\n\nAluno: ${student?.name ?? 'desconhecido'} (Cod. ${formatStudentCode(student?.studentCode)})\n\nAs respostas foram atualizadas. Verifique o perfil e avalie se o programa de treinos precisa ser regenerado.`,
+    ).catch(() => undefined);
+    return { notified: true };
   }
 
   updateProfile(userId: string, dto: UpdateProfileDto) {

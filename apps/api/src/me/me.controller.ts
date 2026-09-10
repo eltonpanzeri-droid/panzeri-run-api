@@ -71,6 +71,13 @@ export class MeController {
     return this.meService.reopenOnboarding(user.sub);
   }
 
+  // 10/09: chamado pelo app quando o aluno conclui a correcao de respostas via fixModule.
+  // Notifica o treinador via Telegram — as respostas em si ja foram salvas por PUT onboarding/answer.
+  @Post('onboarding/fix-completed')
+  notifyFixAnswers(@CurrentUser() user: CurrentUserPayload) {
+    return this.meService.notifyFixAnswers(user.sub);
+  }
+
   // Chamado pela tela "Rotina de treinos" (pos-pagamento) ao confirmar a rotina — respostas em si
   // ja foram salvas incrementalmente por PUT onboarding/answer (mesma entrevista, modulo "Rotina
   // semanal"); este POST so converte essas respostas em disponibilidade real e dispara a geracao.
