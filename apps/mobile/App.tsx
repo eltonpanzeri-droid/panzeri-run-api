@@ -7742,7 +7742,9 @@ function RescheduleControl({
 }) {
   const [open, setOpen] = useState(false);
   if (!planStartDate) return null;
-  const monday = new Date(planStartDate);
+  // 'T12:00:00Z' evita shift de timezone: new Date('YYYY-MM-DD') e UTC midnight,
+  // que em UTC-3 vira o dia anterior (getDate() retorna -1 dia). Meio-dia UTC e seguro.
+  const monday = new Date(planStartDate + 'T12:00:00Z');
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const options = [1, 2, 3, 4, 5, 6, 0].map((weekday) => {
