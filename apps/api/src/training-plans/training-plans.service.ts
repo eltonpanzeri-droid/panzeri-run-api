@@ -2136,6 +2136,7 @@ export class TrainingPlansService {
         id: session.id,
         day: dayNames[session.weekday] ?? 'Dia',
         date: formatDate(session.scheduledDate),
+        isoDate: session.scheduledDate.toISOString().slice(0, 10),
         title: session.title,
         detail: [structureDurationLabel(session.structure, session.durationMin), session.intensityZone, session.paceMinSec]
           .filter(Boolean)

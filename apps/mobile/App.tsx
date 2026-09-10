@@ -173,6 +173,7 @@ interface WeekPlanSession {
   id: string;
   day: string;
   date: string;
+  isoDate?: string; // 'YYYY-MM-DD' para comparacoes de data; date e 'DD/MM' apenas para exibicao
   title: string;
   detail: string;
   modality: string;
@@ -3894,7 +3895,10 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                 // Amarelo aplica somente após meia-noite do dia seguinte ao treino — "sem registro" ≠ "não feito"
                 const nowBR = new Date(Date.now() - 3 * 60 * 60 * 1000);
                 const todayBR = nowBR.toISOString().slice(0, 10);
-                const isPastUnregistered = !session.completion && session.date < todayBR;
+                // isoDate = 'YYYY-MM-DD' (campo adicionado na API); date = 'DD/MM' (so exibicao).
+                // A comparacao de strings so funciona corretamente com formato ISO.
+                const sessionIsoDate = session.isoDate ?? ''; // fallback vazio: nao aplica amarelo
+                const isPastUnregistered = !session.completion && sessionIsoDate < todayBR && sessionIsoDate !== '';
                 const cardStatusStyle =
                   sessionStatus === 'done' || sessionStatus === 'adjusted'
                     ? { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }
