@@ -2278,7 +2278,17 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         ? `${API_URL}/me/onboarding/complete-quick-intake`
         : `${API_URL}/me/onboarding/complete`;
 
-  const visibleQuestions = useMemo(() => questions.filter((question) => !question.condition || question.condition(answers)), [answers, questions]);
+  const visibleQuestions = useMemo(() => questions.filter((question) => {
+    if (!question.condition) return true;
+    if (question.condition(answers)) return true;
+    // 10/09: em fixModule, uma pergunta que ja foi respondida mas cuja condition a ocultaria
+    // (ex: objective tem `condition: a => a.objective === undefined` para pular se veio do
+    // quickIntake) deve aparecer mesmo assim — o aluno quer poder alterar respostas ja salvas.
+    // Condições de relevância (ex: isCurrentlyRunning) continuam sendo respeitadas: se a
+    // pergunta nunca foi respondida e a condition é false, fica oculta normalmente.
+    if (mode === 'fixModule' && answers[question.key] !== undefined) return true;
+    return false;
+  }), [answers, questions, mode]);
   const question = visibleQuestions[Math.min(step, Math.max(visibleQuestions.length - 1, 0))];
   const value = question ? answers[question.key] : undefined;
 
@@ -5160,6 +5170,8 @@ function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment, onO
   const [objectiveStep, setObjectiveStep] = useState(0);
   const [savingObjective, setSavingObjective] = useState(false);
   const [objectiveMessage, setObjectiveMessage] = useState('');
+  // 10/09: fica recolhido por padrão — o aluno expande só se quiser alterar o objetivo.
+  const [showObjectiveEdit, setShowObjectiveEdit] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -5269,20 +5281,28 @@ function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment, onO
           <Text style={styles.reportText}>{onboardingCompletedAt ? `Concluida em ${formatFullDate(new Date(onboardingCompletedAt))}` : 'Ainda nao concluida'}</Text>
           {onboardingCompletedAt ? (
             <>
-              <Text style={styles.inputLabel}>Mudar objetivo</Text>
-              <View style={styles.answerList}>
-                {QUICK_EDIT_OBJECTIVE_OPTIONS.map((item) => (
-                  <Pressable
-                    key={item.value}
-                    style={[styles.answerButton, objective === item.value && styles.answerButtonActive]}
-                    onPress={() => saveObjective(item.value)}
-                    disabled={savingObjective}
-                  >
-                    <Text style={[styles.answerButtonText, objective === item.value && styles.answerButtonTextActive]}>{item.label}</Text>
-                  </Pressable>
-                ))}
-              </View>
-              {objectiveMessage ? <Text style={styles.statusMessage}>{objectiveMessage}</Text> : null}
+              <Pressable onPress={() => setShowObjectiveEdit((v) => !v)}>
+                <Text style={styles.inputLabel}>Mudar objetivo {showObjectiveEdit ? '▲' : '▼'}</Text>
+              </Pressable>
+              {showObjectiveEdit ? (
+                <>
+                  <View style={styles.answerList}>
+                    {QUICK_EDIT_OBJECTIVE_OPTIONS.map((item) => (
+                      <Pressable
+                        key={item.value}
+                        style={[styles.answerButton, objective === item.value && styles.answerButtonActive]}
+                        onPress={() => saveObjective(item.value)}
+                        disabled={savingObjective}
+                      >
+                        <Text style={[styles.answerButtonText, objective === item.value && styles.answerButtonTextActive]}>{item.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  {objectiveMessage ? <Text style={styles.statusMessage}>{objectiveMessage}</Text> : null}
+                </>
+              ) : (
+                <Text style={styles.formHint}>Objetivo atual: {objective || 'não definido'}</Text>
+              )}
 
               {/* 09/09: correcao por modulo — cada secao da entrevista pode ser corrigida
                   individualmente sem precisar reabrir a entrevista inteira (o que ocultaria
