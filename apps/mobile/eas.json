@@ -6,9 +6,9 @@
   "build": {
     "preview": {
       "node": "22.13.0",
+      "pnpm": "11.8.0",
       "distribution": "internal",
       "android": {
-        "image": "ubuntu-26.04-jdk-17-ndk-r27b-sdk-57",
         "buildType": "apk"
       },
       "ios": {
@@ -17,9 +17,9 @@
     },
     "production": {
       "node": "22.13.0",
+      "pnpm": "11.8.0",
       "autoIncrement": true,
       "android": {
-        "image": "ubuntu-26.04-jdk-17-ndk-r27b-sdk-57",
         "buildType": "app-bundle"
       },
       "ios": {}
