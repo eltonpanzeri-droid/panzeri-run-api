@@ -2335,7 +2335,16 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
           setStep(0);
           setStarted(true);
         } else if ((state?.currentStep ?? 0) > 0 && !state?.completedAt) {
-          setStep(state?.currentStep ?? 0);
+          // 10/09: BUG CRITICO — quando o aluno vem do quickIntake (quickIntakeCompletedAt
+          // existe mas completedAt nao), o currentStep gravado no banco e' o ultimo passo
+          // do quickIntake. Mas as visibleQuestions da entrevista completa (mainInterviewQuestions)
+          // tem indices completamente diferentes: passo 7 do quickIntake cai em "Experiencia com
+          // agachamento" na entrevista completa, pulando running_experience, longest_distance,
+          // weekly_running_km, best_comfortable_pace, etc. Resultado: entrevista marcada como
+          // concluida sem dados de corrida. Correcao: quando vem do quickIntake, sempre comecar
+          // do passo 0 — o aluno ja conhece o fluxo e as respostas anteriores ficam pre-preenchidas.
+          const fromQuickIntake = Boolean(state?.quickIntakeCompletedAt);
+          setStep(fromQuickIntake ? 0 : (state?.currentStep ?? 0));
           setStarted(true);
         }
       }
