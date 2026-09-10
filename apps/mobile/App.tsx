@@ -4351,6 +4351,8 @@ interface EvolutionWeekMobile {
   coveragePercent: number;
   lowCoverageWarning: boolean;
   kmPercorridos: number | null;
+  kmPrescritos: number | null;
+  kmExtras: number | null;
 }
 interface EvolutionAdherenceMobile {
   sessoesPrescritas: number;
@@ -4383,14 +4385,30 @@ interface EvolutionOverviewMobile {
   recentWeeks: EvolutionWeekMobile[];
 }
 
-/** Gráfico de área: km percorridos por semana */
-function KmAreaChart({ weeks }: { weeks: EvolutionWeekMobile[] }) {
+// 10/09: Gráfico de linhas interativo (sem área preenchida) para km por semana.
+// Suporta múltiplas séries: percorrido (azul), prescrito (cinza), extras (verde).
+// Sem preenchimento de área (mais limpo conforme pedido). Scrollável horizontalmente.
+
+type KmSerie = { key: 'percorrido' | 'prescrito' | 'extras'; label: string; color: string; data: (number | null)[] };
+
+function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: Array<'percorrido' | 'prescrito' | 'extras'> }) {
   if (weeks.length === 0) return null;
 
-  const data = weeks.map((w) => w.kmPercorridos ?? 0);
-  const hasAnyKm = data.some((v) => v > 0);
+  const activeSeries: KmSerie[] = [];
+  if (series.includes('percorrido')) {
+    activeSeries.push({ key: 'percorrido', label: 'Percorrido', color: '#0ea5e9', data: weeks.map((w) => w.kmPercorridos) });
+  }
+  if (series.includes('prescrito')) {
+    activeSeries.push({ key: 'prescrito', label: 'Prescrito', color: '#94a3b8', data: weeks.map((w) => w.kmPrescritos) });
+  }
+  if (series.includes('extras')) {
+    activeSeries.push({ key: 'extras', label: 'Extras', color: '#22c55e', data: weeks.map((w) => w.kmExtras) });
+  }
 
-  if (!hasAnyKm) {
+  const allValues = activeSeries.flatMap((s) => s.data).filter((v): v is number => v != null && v > 0);
+  const hasAnyData = allValues.length > 0;
+
+  if (!hasAnyData) {
     return (
       <View style={{ paddingVertical: 20, alignItems: 'center' }}>
         <Text style={{ fontSize: 12, color: '#94a3b8' }}>Nenhuma distância registrada nesse período</Text>
@@ -4400,101 +4418,106 @@ function KmAreaChart({ weeks }: { weeks: EvolutionWeekMobile[] }) {
   }
 
   const n = weeks.length;
-  const chartH = 90;
-  const paddingLeft = 34; // espaço para rótulos do eixo Y
-  const paddingBottom = 22;
-  const paddingTop = 16; // espaço para rótulo do pico
-  const paddingRight = 8;
-  const spacing = 26; // px entre pontos
+  const chartH = 100;
+  const paddingLeft = 34;
+  const paddingBottom = 24;
+  const paddingTop = 20;
+  const paddingRight = 12;
+  const spacing = Math.max(24, Math.min(36, 260 / Math.max(n - 1, 1)));
   const svgW = paddingLeft + (n - 1) * spacing + paddingRight;
   const svgH = chartH + paddingBottom + paddingTop;
 
-  const maxKm = Math.max(...data, 0.1);
+  const maxKm = Math.max(...allValues, 0.1);
   const getX = (i: number) => paddingLeft + i * spacing;
-  const getY = (km: number) => paddingTop + chartH - (km / maxKm) * (chartH - 2);
-  const baseline = (paddingTop + chartH).toFixed(1);
+  const getY = (km: number) => paddingTop + chartH - (km / maxKm) * (chartH - 4);
 
-  const pts = data.map((km, i) => ({ x: getX(i), y: getY(km), km }));
-  const lineD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-  const areaD = `${lineD} L${pts[n - 1].x.toFixed(1)},${baseline} L${pts[0].x.toFixed(1)},${baseline} Z`;
-
-  // índice do pico para mostrar rótulo
-  const peakIdx = data.indexOf(maxKm);
+  // Marcas do eixo Y: 0 + 2 intermediários + máximo
+  const yTicks = [0, 0.5, 1].map((frac) => ({
+    value: maxKm * frac,
+    y: getY(maxKm * frac),
+    label: frac === 0 ? '0' : frac === 1
+      ? (maxKm >= 10 ? `${Math.round(maxKm)}` : maxKm.toFixed(1))
+      : (maxKm * 0.5 >= 10 ? `${Math.round(maxKm * 0.5)}` : (maxKm * 0.5).toFixed(1)),
+  }));
 
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
       <Svg width={svgW} height={svgH}>
-        <Defs>
-          <LinearGradient id="kmGradFill" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.22" />
-            <Stop offset="100%" stopColor="#0ea5e9" stopOpacity="0.02" />
-          </LinearGradient>
-        </Defs>
-
         {/* Grade horizontal leve */}
-        {[0.25, 0.5, 0.75].map((frac) => {
-          const yG = (paddingTop + chartH - frac * (chartH - 2)).toFixed(1);
-          return <Rect key={frac} x={paddingLeft} y={yG} width={svgW - paddingLeft - paddingRight} height={1} fill="#f1f5f9" />;
+        {[0.25, 0.5, 0.75, 1].map((frac) => {
+          const yG = getY(maxKm * frac).toFixed(1);
+          return <Rect key={frac} x={paddingLeft} y={yG} width={svgW - paddingLeft - paddingRight} height={1} fill={frac === 1 ? '#cbd5e1' : '#f1f5f9'} />;
         })}
+        <Rect x={paddingLeft} y={(paddingTop + chartH).toFixed(1)} width={svgW - paddingLeft - paddingRight} height={1} fill="#e2e8f0" />
 
-        {/* Área preenchida */}
-        <Path d={areaD} fill="url(#kmGradFill)" />
+        {/* Eixo Y */}
+        {yTicks.map((tick) => (
+          <SvgText key={tick.value} x={paddingLeft - 3} y={tick.y + 3} textAnchor="end" fontSize={8} fill="#94a3b8">
+            {tick.label}
+          </SvgText>
+        ))}
 
-        {/* Linha */}
-        <Path d={lineD} fill="none" stroke="#0ea5e9" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+        {/* Séries */}
+        {activeSeries.map((serie) => {
+          const pts = serie.data.map((km, i) => ({
+            x: getX(i),
+            y: km != null && km > 0 ? getY(km) : null,
+            km,
+            i,
+          }));
 
-        {/* Pontos */}
-        {pts.map((p, i) =>
-          p.km > 0 ? (
-            <G key={i}>
-              <Circle cx={p.x} cy={p.y} r={i === peakIdx ? 4 : 3} fill="#fff" stroke="#0ea5e9" strokeWidth={2} />
-              {/* Rótulo só no pico */}
-              {i === peakIdx && (
-                <SvgText
-                  x={p.x}
-                  y={p.y - 8}
-                  textAnchor="middle"
-                  fontSize={9}
-                  fontWeight="bold"
-                  fill="#0369a1"
-                >
-                  {Number.isInteger(p.km) ? `${p.km}km` : `${p.km.toFixed(1)}km`}
-                </SvgText>
+          // Linha: conecta pontos consecutivos com valor > 0, quebrando onde não há dado
+          const segments: string[] = [];
+          let inSegment = false;
+          let segPath = '';
+          for (const p of pts) {
+            if (p.y !== null) {
+              segPath += `${inSegment ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)} `;
+              inSegment = true;
+            } else {
+              if (segPath) segments.push(segPath.trim());
+              segPath = '';
+              inSegment = false;
+            }
+          }
+          if (segPath) segments.push(segPath.trim());
+
+          // Pico para rótulo
+          const maxVal = Math.max(...(serie.data.filter((v): v is number => v != null)));
+          const peakIdx = serie.data.indexOf(maxVal);
+
+          return (
+            <G key={serie.key}>
+              {segments.map((d, si) => (
+                <Path key={si} d={d} fill="none" stroke={serie.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              ))}
+              {pts.map((p) =>
+                p.y !== null ? (
+                  <G key={p.i}>
+                    <Circle cx={p.x} cy={p.y} r={p.i === peakIdx ? 4 : 3} fill="#fff" stroke={serie.color} strokeWidth={2} />
+                    {p.i === peakIdx && p.km != null && p.km > 0 && (
+                      <SvgText x={p.x} y={p.y - 9} textAnchor="middle" fontSize={8.5} fontWeight="bold" fill={serie.color}>
+                        {p.km >= 10 ? `${Math.round(p.km)}` : `${p.km.toFixed(1)}`}km
+                      </SvgText>
+                    )}
+                  </G>
+                ) : (
+                  <Circle key={p.i} cx={p.x} cy={paddingTop + chartH - 2} r={2} fill="#e2e8f0" />
+                ),
               )}
             </G>
-          ) : (
-            <Circle key={i} cx={p.x} cy={p.y} r={2} fill="#e2e8f0" />
-          ),
-        )}
+          );
+        })}
 
-        {/* Eixo X — datas */}
+        {/* Eixo X — datas das semanas */}
         {weeks.map((w, i) => {
-          // mostra todas as datas se <= 8 semanas; caso contrário alterna
           const show = n <= 8 || i % 2 === 0 || i === n - 1;
           return show ? (
-            <SvgText
-              key={i}
-              x={getX(i)}
-              y={svgH - 5}
-              textAnchor="middle"
-              fontSize={7.5}
-              fill="#94a3b8"
-            >
+            <SvgText key={i} x={getX(i)} y={svgH - 6} textAnchor="middle" fontSize={7.5} fill="#94a3b8">
               {w.weekStart.slice(8, 10) + '/' + w.weekStart.slice(5, 7)}
             </SvgText>
           ) : null;
         })}
-
-        {/* Eixo Y: máximo e zero */}
-        <SvgText x={paddingLeft - 3} y={paddingTop + 4} textAnchor="end" fontSize={8} fill="#94a3b8">
-          {maxKm >= 10 ? `${Math.round(maxKm)}` : maxKm.toFixed(1)}
-        </SvgText>
-        <SvgText x={paddingLeft - 3} y={paddingTop + chartH} textAnchor="end" fontSize={8} fill="#cbd5e1">
-          0
-        </SvgText>
-
-        {/* Baseline */}
-        <Rect x={paddingLeft} y={paddingTop + chartH} width={svgW - paddingLeft - paddingRight} height={1} fill="#e2e8f0" />
       </Svg>
     </ScrollView>
   );
@@ -4507,15 +4530,36 @@ const MODALITY_LABEL: Record<string, string> = {
   esteira: '🔄 Esteira',
 };
 
+// 10/09: períodos do gráfico de km — filtro client-side sobre as 24 semanas buscadas.
+const CHART_PERIODS = [
+  { key: '4sem', label: '4 sem', weeks: 4 },
+  { key: '8sem', label: '8 sem', weeks: 8 },
+  { key: '3m', label: '3 meses', weeks: 13 },
+  { key: '6m', label: '6 meses', weeks: 26 },
+] as const;
+type ChartPeriodKey = (typeof CHART_PERIODS)[number]['key'];
+
 function Progress({ accessToken }: { accessToken: string }) {
   const [data, setData] = useState<EvolutionOverviewMobile | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<'allTime' | 'last4Weeks' | 'last8Weeks'>('last4Weeks');
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriodKey>('3m');
+  // 10/09: checkboxes de séries do gráfico — percorrido ativo por padrão.
+  const [chartSeries, setChartSeries] = useState<Set<'percorrido' | 'prescrito' | 'extras'>>(new Set(['percorrido']));
+
+  function toggleSerie(key: 'percorrido' | 'prescrito' | 'extras') {
+    setChartSeries((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) { next.delete(key); } else { next.add(key); }
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!accessToken) return;
     setLoading(true);
-    fetch(`${API_URL}/me/evolution/overview?recentWeeks=12`, {
+    // 10/09: busca 26 semanas (6 meses) para cobrir todos os períodos do gráfico sem refetch.
+    fetch(`${API_URL}/me/evolution/overview?recentWeeks=26`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
       .then((r) => (r.ok ? r.json() : null))
@@ -4601,17 +4645,71 @@ function Progress({ accessToken }: { accessToken: string }) {
             </View>
           ) : null}
 
-          {/* Gráfico de km — área */}
+          {/* Gráfico de km — linhas interativas, 10/09 */}
           <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#e2e8f0' }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e293b' }}>Km percorridos</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e293b' }}>Volume por semana</Text>
               <Text style={{ fontSize: 13, fontWeight: '800', color: '#0369a1' }}>
                 {data.totalKmPercorridos > 0
                   ? `${Number.isInteger(data.totalKmPercorridos) ? data.totalKmPercorridos : data.totalKmPercorridos.toFixed(1)} km total`
                   : '—'}
               </Text>
             </View>
-            <KmAreaChart weeks={data.recentWeeks} />
+
+            {/* Seletor de período do gráfico */}
+            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
+              {CHART_PERIODS.map((p) => (
+                <Pressable
+                  key={p.key}
+                  onPress={() => setChartPeriod(p.key)}
+                  style={{
+                    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 14,
+                    backgroundColor: chartPeriod === p.key ? '#0ea5e9' : '#f1f5f9',
+                  }}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: chartPeriod === p.key ? '#fff' : '#64748b' }}>
+                    {p.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* O gráfico em si */}
+            {(() => {
+              const periodWeeks = CHART_PERIODS.find((p) => p.key === chartPeriod)?.weeks ?? 13;
+              const sliced = data.recentWeeks.slice(-periodWeeks);
+              return <KmLineChart weeks={sliced} series={[...chartSeries]} />;
+            })()}
+
+            {/* Checkboxes de séries — abaixo do gráfico */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
+              {([
+                { key: 'percorrido' as const, label: 'Total percorrido', color: '#0ea5e9' },
+                { key: 'prescrito' as const, label: 'Total prescrito', color: '#94a3b8' },
+                { key: 'extras' as const, label: 'Extras (pelo aluno)', color: '#22c55e' },
+              ]).map((serie) => {
+                const active = chartSeries.has(serie.key);
+                return (
+                  <Pressable
+                    key={serie.key}
+                    onPress={() => toggleSerie(serie.key)}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                  >
+                    <View style={{
+                      width: 16, height: 16, borderRadius: 4,
+                      borderWidth: 2, borderColor: serie.color,
+                      backgroundColor: active ? serie.color : 'transparent',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {active && <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900', lineHeight: 12 }}>✓</Text>}
+                    </View>
+                    <Text style={{ fontSize: 11, color: active ? '#1e293b' : '#94a3b8', fontWeight: active ? '600' : '400' }}>
+                      {serie.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
 
           {/* Distribuição de modalidades */}
@@ -6749,7 +6847,7 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     { id: 'painReport', label: 'Relatar dor', icon: 'medkit' },
     { id: 'observations', label: 'Relatar observação', icon: 'chatbox-ellipses' },
     { id: 'progress', label: 'Evolucao', icon: 'stats-chart' },
-    { id: 'history', label: 'Historico de treinos', icon: 'calendar-outline' },
+    { id: 'history', label: 'Calendario de treinos', icon: 'calendar-outline' },
     { id: 'strava', label: 'Sincronizar com Strava', icon: 'sync' },
     { id: 'billing', label: 'Plano e faturamento', icon: 'card' },
     { id: 'profile', label: 'Perfil', icon: 'person' },

@@ -93,15 +93,24 @@ export class EvolutionMetricService {
       (s) => (s.plan as { status: string }).status === 'active' || s.completion !== null,
     );
 
-    return relevant.map((s) => ({
-      sessionId: s.id,
-      scheduledDate: s.scheduledDate.toISOString().slice(0, 10),
-      modality: s.modality,
-      completionStatus: (s.completion?.status ?? null) as RawSessionData['completionStatus'],
-      completionDate: s.completion?.completedAt?.toISOString().slice(0, 10) ?? null,
-      perceivedEffort: s.completion?.perceivedEffort ?? null,
-      distanceKm: s.completion?.distanceKm ?? null,
-    }));
+    return relevant.map((s) => {
+      // isExtra: sessão criada pelo próprio aluno (campo derivado do JSON structure).
+      // Não existe coluna dedicada no schema — é inferido do campo `structure` da sessão.
+      const structureObj = typeof s.structure === 'object' && s.structure !== null ? s.structure as Record<string, unknown> : {};
+      const isExtra = structureObj['source'] === 'student' && structureObj['type'] === 'extra';
+
+      return {
+        sessionId: s.id,
+        scheduledDate: s.scheduledDate.toISOString().slice(0, 10),
+        modality: s.modality,
+        completionStatus: (s.completion?.status ?? null) as RawSessionData['completionStatus'],
+        completionDate: s.completion?.completedAt?.toISOString().slice(0, 10) ?? null,
+        perceivedEffort: s.completion?.perceivedEffort ?? null,
+        distanceKm: s.completion?.distanceKm ?? null,
+        plannedDistanceKm: s.distanceKm ?? null,
+        isExtra,
+      };
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -125,20 +134,43 @@ export class EvolutionMetricService {
   private buildWeeklyVolumes(sessions: RawSessionData[], todayBR: ISODate): WeeklyVolume[] {
     const byWeek = new Map<
       ISODate,
-      { prescritas: number; feitas: number; naoFeitas: number; semRegistro: number; kmTotal: number; kmCount: number }
+      {
+        prescritas: number; feitas: number; naoFeitas: number; semRegistro: number;
+        kmTotal: number; kmCount: number;
+        kmExtrasTotal: number; kmExtrasCount: number;
+        kmPrescritosTotal: number; kmPrescritosCount: number;
+      }
     >();
 
     for (const s of sessions) {
       const ws = getWeekStart(s.scheduledDate);
-      if (!byWeek.has(ws)) byWeek.set(ws, { prescritas: 0, feitas: 0, naoFeitas: 0, semRegistro: 0, kmTotal: 0, kmCount: 0 });
+      if (!byWeek.has(ws)) {
+        byWeek.set(ws, {
+          prescritas: 0, feitas: 0, naoFeitas: 0, semRegistro: 0,
+          kmTotal: 0, kmCount: 0,
+          kmExtrasTotal: 0, kmExtrasCount: 0,
+          kmPrescritosTotal: 0, kmPrescritosCount: 0,
+        });
+      }
       const bucket = byWeek.get(ws)!;
       const status = this.classifySession(s, todayBR);
       bucket.prescritas++;
+
+      // km planejado (TrainingSession.distanceKm) — conta para todas as sessões, não só as feitas
+      if (s.plannedDistanceKm != null) {
+        bucket.kmPrescritosTotal += s.plannedDistanceKm;
+        bucket.kmPrescritosCount++;
+      }
+
       if (status === 'feita') {
         bucket.feitas++;
         if (s.distanceKm != null) {
           bucket.kmTotal += s.distanceKm;
           bucket.kmCount++;
+          if (s.isExtra) {
+            bucket.kmExtrasTotal += s.distanceKm;
+            bucket.kmExtrasCount++;
+          }
         }
       } else if (status === 'nao_feita') bucket.naoFeitas++;
       else if (status === 'sem_registro') bucket.semRegistro++;
@@ -150,8 +182,7 @@ export class EvolutionMetricService {
       .map(([weekStart, b]) => {
         const adherencePercent = calcAdherence(b.feitas, b.naoFeitas);
         const coveragePercent = calcCoverage(b.feitas, b.naoFeitas, b.prescritas);
-        // arredonda para 1 casa decimal
-        const kmPercorridos = b.kmCount > 0 ? Math.round(b.kmTotal * 10) / 10 : null;
+        const round1 = (v: number) => Math.round(v * 10) / 10;
         return {
           weekStart,
           sessoesPrescritas: b.prescritas,
@@ -161,7 +192,9 @@ export class EvolutionMetricService {
           adherencePercent,
           coveragePercent,
           lowCoverageWarning: coveragePercent < 30,
-          kmPercorridos,
+          kmPercorridos: b.kmCount > 0 ? round1(b.kmTotal) : null,
+          kmPrescritos: b.kmPrescritosCount > 0 ? round1(b.kmPrescritosTotal) : null,
+          kmExtras: b.kmExtrasCount > 0 ? round1(b.kmExtrasTotal) : null,
         };
       });
   }

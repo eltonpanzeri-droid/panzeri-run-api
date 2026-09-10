@@ -75,6 +75,20 @@ export interface WeeklyVolume {
    * null quando nenhuma sessão feita teve distância preenchida.
    */
   kmPercorridos: number | null;
+
+  /**
+   * Soma de km planejados/prescritos para a semana (campo distanceKm do TrainingSession).
+   * Inclui apenas sessões com distância planejada registrada.
+   * null quando nenhuma sessão teve distância planejada.
+   */
+  kmPrescritos: number | null;
+
+  /**
+   * Km de sessões extras feitas pelo aluno (structure.source === 'student', type === 'extra').
+   * Já incluso em kmPercorridos. Útil para isolar o volume de iniciativa própria.
+   * null quando nenhuma sessão extra teve distância registrada.
+   */
+  kmExtras: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -230,6 +244,10 @@ export interface RawSessionData {
   perceivedEffort: number | null;
   /** distanceKm do WorkoutCompletion; null se não preenchido ou sem completion */
   distanceKm: number | null;
+  /** distanceKm do TrainingSession (km planejado pela IA); null se sessão não tinha distância */
+  plannedDistanceKm: number | null;
+  /** true se a sessão foi criada pelo próprio aluno (structure.source === 'student', type === 'extra') */
+  isExtra: boolean;
 }
 
 /**
