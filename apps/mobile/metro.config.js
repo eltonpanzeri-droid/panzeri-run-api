@@ -1,59 +1,54 @@
 // metro.config.js
 //
-// Contexto: monorepo pnpm + Expo. O pnpm armazena dependencias em
-// node_modules/.pnpm usando junctions (symlinks no Windows). O Metro nao segue
-// junctions corretamente por padrao: ao resolver 'react' ou 'react-dom' de dentro
-// de um pacote no .pnpm, ele pode criar um modulo com ID diferente do que o App
-// importou diretamente, resultando em duas instancias distintas no bundle e
-// "Invalid hook call" / "Cannot read properties of null (reading 'useState')".
+// Contexto: monorepo pnpm + Expo + Windows.
 //
-// A correcao abaixo:
-// 1. Adiciona watchFolders com a raiz do monorepo para Metro enxergar a estrutura
-//    completa de node_modules e resolver junctions corretamente.
-// 2. Define nodeModulesPaths com ordem explicita (mobile primeiro, raiz segundo)
-//    para evitar ambiguidade de resolucao em pacotes hoisted.
-// 3. Usa resolveRequest para forcar 'react' e 'react-dom' a resolverem sempre
-//    para a instancia de apps/mobile/node_modules, independente de qual arquivo
-//    (incluindo arquivos dentro de .pnpm) esta importando.
+// PROBLEMA RAIZ (confirmado via analise do bundle):
+// O pnpm virtual store contem react@18.3.1 (instalada pelo app admin Next.js).
+// O Metro inclui watchFolders=[monorepoRoot], entao enxerga esse store.
+// O pacote @expo-google-fonts/big-shoulders-display resolve seu peer 'react'
+// para react@18.3.1 (a versao disponivel no store pnpm para esse peer).
+// Resultado: bundle contem react@18.3.1 E react@19.1.0 simultaneamente.
+// react-dom@19 seta o dispatcher via ReactSharedInternals.H (API do React 19),
+// mas o useState() do react@18.3.1 le via ReactCurrentDispatcher (API do React 18),
+// que fica null → "Invalid hook call" / "Cannot read properties of null (reading 'useState')".
 //
-// Referencia: https://docs.expo.dev/guides/monorepos/
+// CORRECAO: resolveRequest intercepta qualquer import de 'react' ou 'react/...'
+// e forca resolucao a partir do node_modules do proprio app mobile (react@19.1.0),
+// sem importar de qual modulo do pnpm store veio a chamada.
+//
+// watchFolders e nodeModulesPaths garantem que Metro enxerga o store
+// do pnpm e resolve dependencias na ordem correta (mobile > raiz do monorepo).
 
 const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');
 
 const projectRoot = __dirname;
-// Raiz do monorepo (dois niveis acima de apps/mobile)
 const monorepoRoot = path.resolve(projectRoot, '../..');
 
 const config = getDefaultConfig(projectRoot);
 
-// 1. Permite Metro ver todos os arquivos do monorepo, incluindo o .pnpm store
+// Permite Metro ver todos os arquivos do monorepo, incluindo o .pnpm store
 config.watchFolders = [monorepoRoot];
 
-// 2. Ordem de resolucao: mobile primeiro (dependencias locais), raiz depois (hoisted)
+// Ordem de resolucao: mobile primeiro, raiz do monorepo depois
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(monorepoRoot, 'node_modules'),
 ];
 
-// 3. Instancia unica de React e React DOM para todo o bundle.
-// Sem isso, arquivos dentro do .pnpm podem receber um modulo com ID diferente
-// mesmo que o arquivo fisico seja o mesmo, quebrando os hooks do React.
-const reactPath = path.resolve(projectRoot, 'node_modules/react');
-const reactDomPath = path.resolve(projectRoot, 'node_modules/react-dom');
+// Segue junctions do Windows (equivalentes a symlinks no pnpm)
+config.resolver.unstable_enableSymlinks = true;
 
+// CORRECAO PRINCIPAL: forca todo require('react') / require('react/...') a resolver
+// pelo node_modules do app mobile (react@19.1.0), impedindo que o react@18.3.1
+// do pnpm store (peer do @expo-google-fonts) entre no bundle.
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName === 'react') {
-    return { type: 'sourceFile', filePath: require.resolve(reactPath) };
+  if (moduleName === 'react' || moduleName.startsWith('react/')) {
+    return {
+      filePath: require.resolve(moduleName, { paths: [projectRoot] }),
+      type: 'sourceFile',
+    };
   }
-  if (moduleName === 'react-dom' || moduleName === 'react-dom/client' || moduleName === 'react-dom/server') {
-    const subPath = moduleName.includes('/') ? moduleName.split('/').slice(1).join('/') : '';
-    const targetPath = subPath
-      ? path.resolve(reactDomPath, subPath)
-      : reactDomPath;
-    return { type: 'sourceFile', filePath: require.resolve(targetPath) };
-  }
-  // Delegacao padrao para todos os outros modulos
   return context.resolveRequest(context, moduleName, platform);
 };
 
