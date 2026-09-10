@@ -67,6 +67,30 @@ export class TrainingPlansController {
   ) {
     return this.trainingPlansService.rescheduleSession(user.sub, sessionId, Number(dto?.targetWeekday));
   }
+
+  // Registro de treino extra pelo proprio aluno (corrida alem do plano, etc.).
+  // Cria sessao + completion atomicamente. Aceita qualquer data passada, bloqueia futuro.
+  @Post('extra-session')
+  addExtraSession(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: {
+      date: string;
+      modality: string;
+      distanceKm?: number | null;
+      durationMin?: number | null;
+      notes?: string | null;
+      perceivedEffort?: number | null;
+    },
+  ) {
+    return this.trainingPlansService.addStudentExtraSession(user.sub, dto);
+  }
+
+  // Historico de semanas para o calendario visual do mobile.
+  // Mesmo filtro da evolucao: plano ativo + sessoes completadas de planos arquivados.
+  @Get('history')
+  getHistory(@CurrentUser() user: CurrentUserPayload, @Query('weeks') weeks?: string) {
+    return this.trainingPlansService.getStudentHistory(user.sub, weeks ? Number(weeks) : 20);
+  }
 }
 
 interface WeeklyAvailabilityInput {

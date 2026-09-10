@@ -55,7 +55,7 @@ Notifications.setNotificationHandler({
 });
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'meusDados' | 'notifications';
+type Tab = 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'meusDados' | 'notifications' | 'history';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -1031,6 +1031,9 @@ function AppInner() {
   const [acceptedExerciseResponsibility, setAcceptedExerciseResponsibility] = useState(false);
   const [exerciseResponsibilityRequired, setExerciseResponsibilityRequired] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('week');
+  // weekTabOffset: quando o calendario historico navega para uma semana especifica,
+  // este valor e' passado como initialWeekOffset para o componente Week ao montar.
+  const [weekTabOffset, setWeekTabOffset] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [restartInterviewFromStart, setRestartInterviewFromStart] = useState(false);
   // 09/09: modulo selecionado para correcao granular — quando nao-nulo, a aba fixAnswers mostra
@@ -1400,6 +1403,7 @@ function AppInner() {
                 accessToken={accessToken}
                 baseRoutineDays={anamneseRoutine}
                 metrics={metrics}
+                initialWeekOffset={weekTabOffset}
                 onOpenInterview={() => setActiveTab('interview')}
                 onOpenTest={() => setActiveTab('test')}
                 onOpenPainReport={() => setActiveTab('painReport')}
@@ -1419,6 +1423,15 @@ function AppInner() {
               </View>
             )}
             {activeTab === 'progress' && <Progress accessToken={accessToken} />}
+            {activeTab === 'history' && (
+              <HistoryCalendar
+                accessToken={accessToken}
+                onNavigateToWeek={(offset) => {
+                  setWeekTabOffset(offset);
+                  setActiveTab('week');
+                }}
+              />
+            )}
             {activeTab === 'targetRace' && <TargetRaceScreen accessToken={accessToken} />}
             {activeTab === 'painReport' && <PainReportScreen accessToken={accessToken} />}
             {activeTab === 'observations' && <ObservationsScreen accessToken={accessToken} />}
@@ -2938,7 +2951,7 @@ function WeeklyCheckInModal({
   );
 }
 
-function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTest, onOpenPainReport }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void }) {
+function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpenInterview, onOpenTest, onOpenPainReport }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; initialWeekOffset?: number; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   const [billingMessage, setBillingMessage] = useState('');
   const [couponCode, setCouponCode] = useState('');
@@ -2961,7 +2974,12 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
   // inteira). Fica só um resumo/titulo por padrão, com opção de expandir pra quem quiser ler.
   const [recommendationOpen, setRecommendationOpen] = useState(false);
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
-  const [weekOffset, setWeekOffset] = useState(0);
+  const [weekOffset, setWeekOffset] = useState(initialWeekOffset ?? 0);
+  // Estado do modal de treino extra
+  const [showExtraModal, setShowExtraModal] = useState(false);
+  const [extraForm, setExtraForm] = useState({ modality: 'corrida', date: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '' });
+  const [extraSaving, setExtraSaving] = useState(false);
+  const [extraMessage, setExtraMessage] = useState('');
   const [notGeneratedRange, setNotGeneratedRange] = useState<{ startDate: string; endDate: string; hasSubscriptionAccess: boolean; hasEverHadPlan: boolean } | null>(null);
   // 07/09: true enquanto a geracao da semana esta em andamento — exibe um banner bem visivel
   // para que o aluno saiba que o treino esta sendo montado e vai demorar alguns minutos.
@@ -3016,6 +3034,55 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
       setStatus('Nao consegui conectar com a API agora.');
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  function todayBRString() {
+    const d = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    return d.toISOString().slice(0, 10);
+  }
+
+  async function saveExtraSession() {
+    const dateRaw = extraForm.date || todayBRString();
+    // Converter DD/MM/AAAA → YYYY-MM-DD se necessario
+    let dateISO = dateRaw;
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateRaw)) {
+      const [dd, mm, yyyy] = dateRaw.split('/');
+      dateISO = `${yyyy}-${mm}-${dd}`;
+    }
+    setExtraSaving(true);
+    setExtraMessage('');
+    try {
+      const body: Record<string, unknown> = { date: dateISO, modality: extraForm.modality };
+      if (extraForm.distanceKm) body.distanceKm = parseFloat(extraForm.distanceKm.replace(',', '.'));
+      if (extraForm.durationMin) body.durationMin = parseFloat(extraForm.durationMin);
+      if (extraForm.notes.trim()) body.notes = extraForm.notes.trim();
+      if (extraForm.perceivedEffort) body.perceivedEffort = parseInt(extraForm.perceivedEffort, 10);
+
+      const resp = await fetch(`${API_URL}/training-plans/extra-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(body),
+      });
+      const data = (await resp.json()) as { sessionId?: string; weekOffset?: number; message?: string };
+      if (!resp.ok) {
+        setExtraMessage(data.message ?? 'Erro ao registrar treino extra.');
+        return;
+      }
+      setExtraMessage('Treino extra registrado!');
+      setShowExtraModal(false);
+      setExtraForm({ modality: 'corrida', date: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '' });
+      // Recarrega a semana correta (pode ser a semana atual ou uma passada)
+      const targetOffset = data.weekOffset ?? 0;
+      if (targetOffset === weekOffset) {
+        await loadPlan();
+      } else {
+        setWeekOffset(targetOffset);
+      }
+    } catch {
+      setExtraMessage('Nao foi possivel conectar com a API.');
+    } finally {
+      setExtraSaving(false);
     }
   }
 
@@ -3890,6 +3957,7 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
                           onSave={() => saveCompletion(session)}
                           message={completionMessages[session.id]}
                           onOpenPainReport={onOpenPainReport}
+                          onCollapse={() => setExpandedDays((cur) => ({ ...cur, [session.id]: false }))}
                         />
                         <RescheduleControl session={session} planStartDate={plan?.startDate} onReschedule={rescheduleSession} />
                       </View>
@@ -3901,6 +3969,123 @@ function Week({ accessToken, baseRoutineDays, metrics, onOpenInterview, onOpenTe
           </View>
         ))}
       </View>
+
+      {/* Botao de treino extra — visivel quando ha plano ativo e o aluno ja tem acesso */}
+      {plan && !plan.requiresOnboarding && !plan.locked && (
+        <Pressable
+          style={[styles.secondaryButton, { marginTop: 16, alignSelf: 'center' }]}
+          onPress={() => {
+            setExtraForm({ modality: 'corrida', date: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '' });
+            setExtraMessage('');
+            setShowExtraModal(true);
+          }}
+        >
+          <Ionicons name="add-circle-outline" size={18} color={PRColors.ocean} />
+          <Text style={styles.secondaryButtonText}>Registrar treino extra</Text>
+        </Pressable>
+      )}
+
+      {/* Modal de treino extra */}
+      <Modal visible={showExtraModal} transparent animationType="slide" onRequestClose={() => setShowExtraModal(false)}>
+        <Pressable style={styles.appMenuOverlay} onPress={() => setShowExtraModal(false)}>
+          <Pressable style={[styles.appMenuSheet, { maxHeight: '90%' }]} onPress={(e) => e.stopPropagation()}>
+            <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 16 }}>
+              <Text style={styles.sectionLabel}>Registrar treino extra</Text>
+              <Text style={styles.formHint}>Fez um treino fora do programa? Registre aqui — os km contam na sua evolucao.</Text>
+
+              <Text style={styles.inputLabel}>Modalidade</Text>
+              <View style={styles.completionStatusRow}>
+                {[
+                  { label: 'Corrida', value: 'corrida' },
+                  { label: 'Musculacao', value: 'forca' },
+                  { label: 'Fortalecimento', value: 'fortalecimento_corredores' },
+                ].map((opt) => (
+                  <Pressable
+                    key={opt.value}
+                    style={[styles.completionChip, extraForm.modality === opt.value && styles.completionChipActive]}
+                    onPress={() => setExtraForm((f) => ({ ...f, modality: opt.value }))}
+                  >
+                    <Text style={[styles.completionChipText, extraForm.modality === opt.value && styles.completionChipTextActive]}>{opt.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Text style={styles.inputLabel}>Data (deixe vazio para hoje)</Text>
+              <TextInput
+                style={styles.compactInput}
+                value={extraForm.date}
+                onChangeText={(v) => setExtraForm((f) => ({ ...f, date: formatDateInputText(v) }))}
+                placeholder="DD/MM/AAAA"
+                keyboardType="numeric"
+                maxLength={10}
+              />
+
+              {(extraForm.modality === 'corrida' || extraForm.modality === 'esteira') && (
+                <>
+                  <View style={styles.completionGrid}>
+                    <View style={styles.completionWheelGroup}>
+                      <Text style={styles.inputLabel}>Distancia (km)</Text>
+                      <TextInput
+                        style={styles.compactInput}
+                        value={extraForm.distanceKm}
+                        onChangeText={(v) => setExtraForm((f) => ({ ...f, distanceKm: v }))}
+                        placeholder="ex: 8.5"
+                        keyboardType="decimal-pad"
+                      />
+                    </View>
+                    <View style={styles.completionWheelGroup}>
+                      <Text style={styles.inputLabel}>Tempo (min)</Text>
+                      <TextInput
+                        style={styles.compactInput}
+                        value={extraForm.durationMin}
+                        onChangeText={(v) => setExtraForm((f) => ({ ...f, durationMin: v }))}
+                        placeholder="ex: 55"
+                        keyboardType="number-pad"
+                      />
+                    </View>
+                  </View>
+                </>
+              )}
+
+              <Text style={styles.inputLabel}>Nota (opcional)</Text>
+              <TextInput
+                style={[styles.compactInput, styles.multilineInput]}
+                value={extraForm.notes}
+                onChangeText={(v) => setExtraForm((f) => ({ ...f, notes: v }))}
+                multiline
+                placeholder="Como foi? Algo a registrar?"
+              />
+
+              <Text style={styles.inputLabel}>RPE — percepcao de dificuldade (opcional)</Text>
+              <View style={styles.completionStatusRow}>
+                {['1','2','3','4','5','6','7','8','9','10'].map((v) => (
+                  <Pressable
+                    key={v}
+                    style={[styles.completionChip, extraForm.perceivedEffort === v && styles.completionChipActive]}
+                    onPress={() => setExtraForm((f) => ({ ...f, perceivedEffort: f.perceivedEffort === v ? '' : v }))}
+                  >
+                    <Text style={[styles.completionChipText, extraForm.perceivedEffort === v && styles.completionChipTextActive]}>{v}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              {extraMessage ? <Text style={styles.statusMessage}>{extraMessage}</Text> : null}
+
+              <Pressable
+                style={[styles.saveCompletionButton, extraSaving && styles.disabledButton]}
+                disabled={extraSaving}
+                onPress={() => void saveExtraSession()}
+              >
+                <Ionicons name="checkmark-circle" size={16} color={PRColors.mineral} />
+                <Text style={styles.saveCompletionText}>{extraSaving ? 'Registrando...' : 'Registrar treino extra'}</Text>
+              </Pressable>
+              <Pressable style={styles.secondaryButton} onPress={() => setShowExtraModal(false)}>
+                <Text style={styles.secondaryButtonText}>Cancelar</Text>
+              </Pressable>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
     </View>
   );
@@ -4130,6 +4315,7 @@ interface EvolutionWeekMobile {
   adherencePercent: number | null;
   coveragePercent: number;
   lowCoverageWarning: boolean;
+  kmPercorridos: number | null;
 }
 interface EvolutionAdherenceMobile {
   sessoesPrescritas: number;
@@ -6219,6 +6405,189 @@ function billingMonthLabel(isoDate: string | null) {
   const monthIndex = Number(month) - 1;
   return monthIndex >= 0 && monthIndex < 12 ? `${months[monthIndex]} ${year}` : isoDate;
 }
+// ---------------------------------------------------------------------------
+// HistoryCalendar — calendario de todas as semanas estilo Strava (09/09/2026)
+// ---------------------------------------------------------------------------
+
+interface HistorySessionMobile {
+  id: string;
+  date: string;
+  weekday: number;
+  modality: string;
+  title: string;
+  completionStatus: 'done' | 'adjusted' | 'missed' | null;
+  completedDistanceKm: number | null;
+  isExtra: boolean;
+}
+interface HistoryWeekMobile {
+  weekStart: string;
+  weekLabel: string;
+  totalKmDone: number;
+  sessions: HistorySessionMobile[];
+}
+
+const DAY_COLS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+
+function computeWeekOffsetMobile(weekStart: string): number {
+  const now = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const today = now.toISOString().slice(0, 10);
+  // Segunda-feira da semana atual
+  const d = new Date(today + 'T12:00:00Z');
+  const dow = d.getUTCDay();
+  const diff = dow === 0 ? -6 : 1 - dow;
+  d.setUTCDate(d.getUTCDate() + diff);
+  const currentWS = d.toISOString().slice(0, 10);
+  const diffMs = new Date(weekStart + 'T12:00:00Z').getTime() - new Date(currentWS + 'T12:00:00Z').getTime();
+  return Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
+}
+
+function SessionBubble({ session }: { session: HistorySessionMobile }) {
+  const isRun = session.modality === 'corrida' || session.modality === 'esteira';
+  const today = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const isPast = session.date < today;
+
+  let bgColor = '#e2e8f0'; // sem completion (futuro ou neutro)
+  if (session.completionStatus === 'done' || session.completionStatus === 'adjusted') {
+    bgColor = isRun ? '#22c55e' : '#6366f1';
+  } else if (session.completionStatus === 'missed') {
+    bgColor = '#ef4444';
+  } else if (isPast) {
+    bgColor = '#f59e0b'; // sem registro no passado
+  }
+
+  const km = session.completedDistanceKm;
+  const label = km != null && km > 0 ? (km >= 10 ? `${Math.round(km)}` : `${km}`) : null;
+
+  return (
+    <View style={{
+      width: 36, height: 36, borderRadius: 18,
+      backgroundColor: bgColor,
+      alignItems: 'center', justifyContent: 'center',
+      ...(session.isExtra ? { borderWidth: 2, borderColor: '#0ea5e9' } : {}),
+    }}>
+      {label ? (
+        <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>{label}</Text>
+      ) : (
+        <Ionicons name={iconForModality(session.modality)} size={14} color="#fff" />
+      )}
+    </View>
+  );
+}
+
+function HistoryCalendar({ accessToken, onNavigateToWeek }: { accessToken: string; onNavigateToWeek: (offset: number) => void }) {
+  const [weeks, setWeeks] = useState<HistoryWeekMobile[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    setLoading(true);
+    fetch(`${API_URL}/training-plans/history?weeks=24`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setWeeks(Array.isArray(d) ? d as HistoryWeekMobile[] : []))
+      .catch(() => undefined)
+      .finally(() => setLoading(false));
+  }, [accessToken]);
+
+  return (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }}>
+      <Text style={styles.sectionLabel}>Historico de treinos</Text>
+      <Text style={[styles.titleSmall, { marginBottom: 8 }]}>Todas as semanas</Text>
+      <Text style={[styles.formHint, { marginBottom: 16 }]}>Toque em uma semana para ver e registrar feedback.</Text>
+
+      {/* Legenda */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+        {[
+          { color: '#22c55e', label: 'Corrida feita' },
+          { color: '#6366f1', label: 'Forca/Fortalec. feito' },
+          { color: '#ef4444', label: 'Nao feito' },
+          { color: '#f59e0b', label: 'Sem registro' },
+          { color: '#e2e8f0', label: 'Futuro / sem treino' },
+        ].map((item) => (
+          <View key={item.color} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: item.color }} />
+            <Text style={{ fontSize: 11, color: '#64748b' }}>{item.label}</Text>
+          </View>
+        ))}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#22c55e', borderWidth: 2, borderColor: '#0ea5e9' }} />
+          <Text style={{ fontSize: 11, color: '#64748b' }}>Extra (pelo aluno)</Text>
+        </View>
+      </View>
+
+      {/* Cabecalho dos dias */}
+      <View style={{ flexDirection: 'row', paddingHorizontal: 4, marginBottom: 4 }}>
+        <View style={{ flex: 1 }} />
+        {DAY_COLS.map((d) => (
+          <View key={d} style={{ width: 42, alignItems: 'center' }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: '#94a3b8' }}>{d}</Text>
+          </View>
+        ))}
+        <View style={{ width: 52 }} />
+      </View>
+
+      {loading ? (
+        <ActivityIndicator size="small" color={PRColors.ocean} style={{ marginTop: 24 }} />
+      ) : weeks.length === 0 ? (
+        <Text style={styles.formHint}>Nenhuma semana encontrada ainda.</Text>
+      ) : (
+        weeks.map((week) => {
+          const offset = computeWeekOffsetMobile(week.weekStart);
+          // Monta mapa weekday → sessions
+          const byDay: Record<number, HistorySessionMobile[]> = {};
+          for (const s of week.sessions) {
+            if (!byDay[s.weekday]) byDay[s.weekday] = [];
+            byDay[s.weekday].push(s);
+          }
+          return (
+            <Pressable
+              key={week.weekStart}
+              onPress={() => onNavigateToWeek(offset)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingVertical: 8,
+                paddingHorizontal: 4,
+                borderBottomWidth: 1,
+                borderBottomColor: '#f1f5f9',
+              }}
+            >
+              {/* Label da semana */}
+              <View style={{ flex: 1, paddingRight: 4 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: '#334155' }}>{week.weekLabel}</Text>
+              </View>
+
+              {/* Colunas de dias Dom=0..Sab=6 */}
+              {[0, 1, 2, 3, 4, 5, 6].map((wd) => {
+                const daySessions = byDay[wd] ?? [];
+                return (
+                  <View key={wd} style={{ width: 42, alignItems: 'center', gap: 2 }}>
+                    {daySessions.length === 0 ? (
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#e2e8f0' }} />
+                    ) : (
+                      daySessions.map((s) => <SessionBubble key={s.id} session={s} />)
+                    )}
+                  </View>
+                );
+              })}
+
+              {/* Total km da semana */}
+              <View style={{ width: 52, alignItems: 'flex-end' }}>
+                {week.totalKmDone > 0 ? (
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#0ea5e9' }}>{week.totalKmDone} km</Text>
+                ) : (
+                  <Text style={{ fontSize: 11, color: '#cbd5e1' }}>—</Text>
+                )}
+              </View>
+            </Pressable>
+          );
+        })
+      )}
+    </ScrollView>
+  );
+}
+
 function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, onClose }: { visible: boolean; activeTab: Tab; notificationsCount: number; onChange: (tab: Tab) => void; onLogout: () => void; onClose: () => void }) {
   const tabs: Array<{ id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
     { id: 'notifications', label: 'Avisos', icon: 'notifications-outline' },
@@ -6232,6 +6601,7 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     { id: 'painReport', label: 'Relatar dor', icon: 'medkit' },
     { id: 'observations', label: 'Relatar observação', icon: 'chatbox-ellipses' },
     { id: 'progress', label: 'Evolucao', icon: 'stats-chart' },
+    { id: 'history', label: 'Historico de treinos', icon: 'calendar-outline' },
     { id: 'strava', label: 'Sincronizar com Strava', icon: 'sync' },
     { id: 'billing', label: 'Plano e faturamento', icon: 'card' },
     { id: 'profile', label: 'Perfil', icon: 'person' },
@@ -6834,6 +7204,15 @@ const CARGA_OPTIONS = [
   { label: 'Muito pesada', value: 'muito_pesada' },
 ];
 
+/** Detecta se a sessao e' de corrida intervalada (tem steps de caminhada planejados) */
+function isIntervalSession(session: WeekPlanSession): boolean {
+  if (session.structure?.type !== 'run') return false;
+  const blocks = (session.structure as { blocks?: Array<{ steps?: Array<{ activityType?: string }> }> }).blocks;
+  return Array.isArray(blocks) && blocks.some((b) =>
+    Array.isArray(b.steps) && b.steps.some((s) => s.activityType === 'caminhada'),
+  );
+}
+
 function CompletionForm({
   session,
   draft,
@@ -6841,6 +7220,7 @@ function CompletionForm({
   onSave,
   message,
   onOpenPainReport,
+  onCollapse,
 }: {
   session: WeekPlanSession;
   draft: CompletionDraft;
@@ -6848,6 +7228,7 @@ function CompletionForm({
   onSave: () => Promise<boolean>;
   message?: string;
   onOpenPainReport?: () => void;
+  onCollapse?: () => void;
 }) {
   // isSavedOnServer: true quando session.completion ja existe no banco (aluno ja enviou feedback).
   // Inicializa isEditing=false (modo travado) se ja foi salvo; true (modo editavel) na primeira vez.
@@ -6985,22 +7366,45 @@ function CompletionForm({
 
           {isRun ? (
             <View>
-              <Text style={styles.formHint}>Voce correu o percurso todo, ou teve pausas para caminhar/parar?</Text>
-              <View style={styles.completionStatusRow}>
-                {[
-                  { label: 'Corri o tempo todo', value: 'correu_tudo' },
-                  { label: 'Caminhei em pequenos trechos', value: 'caminhou_pouco' },
-                  { label: 'Caminhei/parei bastante', value: 'caminhou_muito' },
-                ].map((option) => (
-                  <Pressable
-                    key={option.value}
-                    style={[styles.completionChip, draft.pacingMode === option.value && styles.completionChipActive]}
-                    onPress={() => onChange({ pacingMode: option.value })}
-                  >
-                    <Text style={[styles.completionChipText, draft.pacingMode === option.value && styles.completionChipTextActive]}>{option.label}</Text>
-                  </Pressable>
-                ))}
-              </View>
+              {isIntervalSession(session) ? (
+                <>
+                  <Text style={styles.formHint}>Treino intervalado: alem das pausas de recuperacao planejadas, voce precisou parar mais?</Text>
+                  <View style={styles.completionStatusRow}>
+                    {[
+                      { label: 'Fiz todos os intervalos', value: 'intervalos_completos' },
+                      { label: 'Adaptei alguns', value: 'intervalos_adaptados' },
+                      { label: 'Parei alem do planejado', value: 'parou_alem' },
+                    ].map((option) => (
+                      <Pressable
+                        key={option.value}
+                        style={[styles.completionChip, draft.pacingMode === option.value && styles.completionChipActive]}
+                        onPress={() => onChange({ pacingMode: option.value })}
+                      >
+                        <Text style={[styles.completionChipText, draft.pacingMode === option.value && styles.completionChipTextActive]}>{option.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.formHint}>Voce conseguiu correr o tempo todo, ou teve pausas nao planejadas?</Text>
+                  <View style={styles.completionStatusRow}>
+                    {[
+                      { label: 'Corri o tempo todo', value: 'correu_tudo' },
+                      { label: 'Caminhei em pequenos trechos', value: 'caminhou_pouco' },
+                      { label: 'Caminhei/parei bastante', value: 'caminhou_muito' },
+                    ].map((option) => (
+                      <Pressable
+                        key={option.value}
+                        style={[styles.completionChip, draft.pacingMode === option.value && styles.completionChipActive]}
+                        onPress={() => onChange({ pacingMode: option.value })}
+                      >
+                        <Text style={[styles.completionChipText, draft.pacingMode === option.value && styles.completionChipTextActive]}>{option.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </>
+              )}
             </View>
           ) : null}
 
@@ -7137,6 +7541,14 @@ function CompletionForm({
           )}
           {message ? <Text style={styles.completionConfirmation}>{message}</Text> : null}
         </>
+      )}
+      {onCollapse && (
+        <Pressable
+          style={{ alignSelf: 'center', marginTop: 12, paddingVertical: 8, paddingHorizontal: 16 }}
+          onPress={onCollapse}
+        >
+          <Text style={{ color: PRColors.ocean, fontSize: 13, fontWeight: '700' }}>↑ Recolher</Text>
+        </Pressable>
       )}
     </View>
   );

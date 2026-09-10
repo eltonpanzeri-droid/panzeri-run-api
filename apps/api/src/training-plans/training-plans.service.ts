@@ -1687,6 +1687,142 @@ export class TrainingPlansService {
     return session;
   }
 
+  // Registro de treino extra iniciado pelo proprio aluno (nao pelo treinador). Cria a sessao
+  // E o completion atomicamente — o treino ja foi realizado, o aluno esta registrando depois.
+  // Diferente de createManualSession (coach only, data futura), aqui:
+  //   • Somente o proprio aluno pode chamar
+  //   • Aceita qualquer data passada (sem limite de lookback)
+  //   • Bloqueia apenas datas futuras
+  //   • Cria completion imediatamente com status 'done'
+  async addStudentExtraSession(
+    userId: string,
+    input: {
+      date: string;
+      modality: string;
+      distanceKm?: number | null;
+      durationMin?: number | null;
+      notes?: string | null;
+      perceivedEffort?: number | null;
+    },
+  ): Promise<{ sessionId: string; weekOffset: number }> {
+    const [year, month, day] = input.date.split('-').map(Number);
+    const scheduledDate = new Date(Date.UTC(year, month - 1, day));
+    if (Number.isNaN(scheduledDate.getTime())) {
+      throw new BadRequestException('Data invalida.');
+    }
+
+    const today = todayInSaoPaulo();
+    const tomorrow = new Date(today);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    if (scheduledDate >= tomorrow) {
+      throw new BadRequestException('Treinos extras so podem ser registrados para hoje ou datas passadas.');
+    }
+
+    const activePlan = await this.prisma.trainingPlan.findFirst({
+      where: { userId, status: 'active' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!activePlan) {
+      throw new BadRequestException('Voce nao tem um programa ativo no momento.');
+    }
+
+    const isRun = input.modality === 'corrida' || input.modality === 'esteira';
+    const title = `${fixedModalityTitle(input.modality)} (extra)`;
+    const structure = isRun
+      ? { type: 'extra', source: 'student', modality: input.modality }
+      : { type: 'extra', source: 'student', modality: input.modality, category: fixedModalityTitle(input.modality) };
+
+    const session = await this.prisma.trainingSession.create({
+      data: {
+        planId: activePlan.id,
+        userId,
+        scheduledDate,
+        weekday: scheduledDate.getUTCDay(),
+        modality: input.modality,
+        title,
+        locationSuggestion: 'Livre',
+        structure,
+      },
+    });
+
+    await this.prisma.workoutCompletion.create({
+      data: {
+        sessionId: session.id,
+        userId,
+        status: 'done',
+        completedAt: scheduledDate,
+        distanceKm: input.distanceKm ?? null,
+        durationMin: input.durationMin ?? null,
+        perceivedEffort: input.perceivedEffort ?? null,
+        notes: input.notes ?? null,
+        source: 'student_extra',
+      },
+    });
+
+    // Calcula o weekOffset para o mobile saber para qual semana navegar
+    const sessionDay = input.date; // 'YYYY-MM-DD'
+    const weekOffset = computeWeekOffset(sessionDay, today);
+
+    return { sessionId: session.id, weekOffset };
+  }
+
+  // Retorna as ultimas N semanas com resumo de sessoes para o calendario historico.
+  // Filtro identico ao da evolucao: plano ativo OU sessoes completadas de plano arquivado.
+  async getStudentHistory(userId: string, weeks = 20): Promise<HistoryWeek[]> {
+    const sessions = await this.prisma.trainingSession.findMany({
+      where: { userId },
+      include: {
+        completion: true,
+        plan: { select: { status: true } },
+      },
+      orderBy: { scheduledDate: 'desc' },
+    });
+
+    const relevant = sessions.filter(
+      (s) => (s.plan as { status: string }).status === 'active' || s.completion !== null,
+    );
+
+    const byWeek = new Map<string, HistoryWeek>();
+    for (const s of relevant) {
+      const ws = getWeekStartFromDate(s.scheduledDate);
+      if (!byWeek.has(ws)) {
+        byWeek.set(ws, {
+          weekStart: ws,
+          weekLabel: formatWeekLabel(ws),
+          totalKmDone: 0,
+          sessions: [],
+        });
+      }
+      const week = byWeek.get(ws)!;
+      const completionStatus = (s.completion?.status ?? null) as 'done' | 'adjusted' | 'missed' | null;
+      const completedDistanceKm = s.completion?.distanceKm ?? null;
+      const structureObj = s.structure as Record<string, unknown> | null;
+      const isExtra = structureObj?.['source'] === 'student' && structureObj?.['type'] === 'extra';
+      if (completionStatus === 'done' || completionStatus === 'adjusted') {
+        week.totalKmDone += completedDistanceKm ?? 0;
+      }
+      week.sessions.push({
+        id: s.id,
+        date: s.scheduledDate.toISOString().slice(0, 10),
+        weekday: s.scheduledDate.getUTCDay(),
+        modality: s.modality,
+        title: s.title,
+        completionStatus,
+        completedDistanceKm,
+        isExtra,
+      });
+    }
+
+    return [...byWeek.entries()]
+      .sort(([a], [b]) => b.localeCompare(a)) // decrescente (semana mais recente primeiro)
+      .slice(0, weeks)
+      .map(([, week]) => ({
+        ...week,
+        totalKmDone: Math.round(week.totalKmDone * 10) / 10,
+        sessions: week.sessions.sort((a, b) => a.weekday - b.weekday),
+      }));
+  }
+
   // Rotulo puramente cosmetico, guardado so pra referencia futura do treinador no admin — nunca
   // lido de volta por nenhuma logica (a IA nao declara mais uma categoria, ver AiSessionSchema em
   // prescription-agent.service.ts). Derivado do que a propria IA preencheu pra aquele dia.
@@ -2371,3 +2507,61 @@ function formatElapsed(totalSeconds: number) {
     ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
     : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
+
+// ---------------------------------------------------------------------------
+// Helpers para addStudentExtraSession / getStudentHistory
+// ---------------------------------------------------------------------------
+
+export interface HistorySessionSummary {
+  id: string;
+  date: string;       // 'YYYY-MM-DD'
+  weekday: number;    // 0=Dom … 6=Sab
+  modality: string;
+  title: string;
+  completionStatus: 'done' | 'adjusted' | 'missed' | null;
+  completedDistanceKm: number | null;
+  isExtra: boolean;
+}
+
+export interface HistoryWeek {
+  weekStart: string;  // 'YYYY-MM-DD' (segunda-feira)
+  weekLabel: string;  // ex: '31 ago.–6 set.'
+  totalKmDone: number;
+  sessions: HistorySessionSummary[];
+}
+
+/** Retorna 'YYYY-MM-DD' da segunda-feira da semana de uma Date UTC */
+function getWeekStartFromDate(date: Date): string {
+  const day = date.getUTCDay(); // 0=Dom
+  const diff = day === 0 ? -6 : 1 - day;
+  const monday = new Date(date);
+  monday.setUTCDate(date.getUTCDate() + diff);
+  return monday.toISOString().slice(0, 10);
+}
+
+/** Formata o label da semana em PT-BR (ex: '31 ago.–6 set.') */
+function formatWeekLabel(weekStart: string): string {
+  const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const start = new Date(weekStart + 'T12:00:00Z');
+  const end = new Date(weekStart + 'T12:00:00Z');
+  end.setUTCDate(end.getUTCDate() + 6);
+  const sd = start.getUTCDate();
+  const ed = end.getUTCDate();
+  const sm = MONTHS[start.getUTCMonth()];
+  const em = MONTHS[end.getUTCMonth()];
+  return start.getUTCMonth() === end.getUTCMonth()
+    ? `${sd}–${ed} ${em}.`
+    : `${sd} ${sm}.–${ed} ${em}.`;
+}
+
+/**
+ * Calcula o weekOffset de uma data relativa a hoje (BR).
+ * Negativo = semana passada, 0 = semana atual.
+ */
+function computeWeekOffset(dateStr: string, today: Date): number {
+  const currentWS = new Date(getWeekStartFromDate(today));
+  const targetWS = new Date(getWeekStartFromDate(new Date(dateStr + 'T12:00:00Z')));
+  const diffMs = targetWS.getTime() - currentWS.getTime();
+  return Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
+}
+

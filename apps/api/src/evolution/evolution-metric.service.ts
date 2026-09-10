@@ -69,13 +69,31 @@ export class EvolutionMetricService {
   // -------------------------------------------------------------------------
 
   private async fetchRawSessions(userId: string): Promise<RawSessionData[]> {
+    // Corte de data: sessoes antes de 01/08/2026 sao de periodo de testes
+    // (multiplas chamadas a generateWeek geraram sessoes fantasma sem completion).
+    const DATA_CUTOFF = new Date('2026-08-01T00:00:00Z');
+
     const sessions = await this.prisma.trainingSession.findMany({
-      where: { userId },
-      include: { completion: true },
+      where: {
+        userId,
+        scheduledDate: { gte: DATA_CUTOFF },
+      },
+      include: {
+        completion: true,
+        plan: { select: { status: true } },
+      },
       orderBy: { scheduledDate: 'asc' },
     });
 
-    return sessions.map((s) => ({
+    // Sessoes de planos arquivados sem completion sao fantasmas de regeneracao
+    // (plano novo foi gerado, sessoes do plano antigo ficam no banco mas nao foram
+    // mostradas ao aluno). So sao relevantes sessoes do plano ativo OU que o aluno
+    // efetivamente completou (mesmo que o plano tenha sido arquivado depois).
+    const relevant = sessions.filter(
+      (s) => (s.plan as { status: string }).status === 'active' || s.completion !== null,
+    );
+
+    return relevant.map((s) => ({
       sessionId: s.id,
       scheduledDate: s.scheduledDate.toISOString().slice(0, 10),
       modality: s.modality,
