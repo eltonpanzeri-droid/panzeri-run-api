@@ -5670,102 +5670,128 @@ type WeekData = {
   prescribedSessions: number;
 };
 
-/** Gráfico SVG de KM semanal: barras = feito, linha tracejada = prescrito. */
-/** Gráfico semanal: duas colunas por semana (prescrito + realizado) + linha de tendência.
+/** Volume semanal: 3 colunas por semana + linha de tendência.
  *
- *  Cores da coluna REALIZADO — cada cor tem um motivo de treinamento:
- *  🟩 Verde  (≥ 90% do prescrito): meta atingida, carga absorvida conforme planejado.
- *  🟧 Laranja (< 90% do prescrito): abaixo da meta — investigar causa antes de progredir.
- *  🩵 Ciano  (acima do prescrito): volume extra além do plano — pode indicar treino autônomo
- *             ou sessão bônus; relevante monitorar junto com RPE e dor.
- *  Coluna PRESCRITO: sempre azul-acinzentado — é apenas a referência do planejado.
- *  Linha de tendência: regressão linear do volume realizado no período (sobe/desce/estável).
+ *  ▪ Prescrito  (cinza #94a3b8) — km planejados pelo treinador
+ *  ▪ Realizado  (verde #22c55e) — total de km completados na semana
+ *  ▪ Extras     (ciano #06b6d4) — km realizados além do prescrito (treinos bônus ou avulsos)
+ *  ▪ Tendência  (índigo #6366f1) — regressão linear sobre o volume realizado
+ *
+ *  Rótulo km visível no topo de TODAS as barras com valor > 0.
  */
 function KmEvolutionChart({ weeks, period }: { weeks: WeekData[]; period: number }) {
   const visible = weeks.slice(period === 999 ? 0 : Math.max(0, weeks.length - period));
   if (visible.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados suficientes para o período selecionado.</p>;
 
-  const VW = 620; const VH = 210;
-  const ML = 40; const MR = 10; const MT = 20; const MB = 30;
+  const VW = 640; const VH = 220;
+  const ML = 44; const MR = 12; const MT = 24; const MB = 32;
   const CW = VW - ML - MR; const CH = VH - MT - MB;
 
   const maxKm = Math.max(...visible.flatMap((w) => [w.completedKm, w.prescribedKm]), 5);
   const topKm = Math.ceil(maxKm / 5) * 5;
 
-  const slotW = CW / visible.length;
-  // Cada barra ocupa ~30% do slot; gap visual entre elas
-  const bW = Math.max(3, Math.min(18, slotW * 0.31));
-
-  // Centros das duas barras dentro de cada slot
-  const xPre = (i: number) => ML + i * slotW + slotW * 0.30; // prescrito (esquerda)
-  const xDone = (i: number) => ML + i * slotW + slotW * 0.68; // realizado (direita)
-  const xMid = (i: number) => ML + i * slotW + slotW * 0.49; // label eixo X
-  const yVal = (km: number) => MT + CH - (km / topKm) * CH;
-
-  // Linha de tendência: regressão linear sobre os km realizados
   const n = visible.length;
-  if (n < 1) return null;
+  const slotW = CW / n;
+  // 3 barras por slot: prescrito (esq), realizado (centro), extras (dir)
+  // largura de cada barra: máximo 14px, mínimo 3px
+  const bW = Math.max(3, Math.min(14, slotW * 0.28));
+
+  const xPre  = (i: number) => ML + i * slotW + slotW * 0.22; // prescrito — esquerda
+  const xReal = (i: number) => ML + i * slotW + slotW * 0.50; // realizado — centro
+  const xExt  = (i: number) => ML + i * slotW + slotW * 0.78; // extras    — direita
+  const xMid  = (i: number) => ML + i * slotW + slotW * 0.50; // label eixo X
+  const yV = (km: number) => MT + CH - (km / topKm) * CH;
+
+  // Linha de tendência: regressão linear sobre realizado
   const meanX = (n - 1) / 2;
   const meanY = visible.reduce((s, w) => s + w.completedKm, 0) / n;
   const denom = visible.reduce((s, _, i) => s + (i - meanX) ** 2, 0);
   const slope = denom !== 0 ? visible.reduce((s, w, i) => s + (i - meanX) * (w.completedKm - meanY), 0) / denom : 0;
   const intercept = meanY - slope * meanX;
-  const trendPath = `M${xDone(0)},${yVal(intercept)} L${xDone(n - 1)},${yVal(intercept + slope * (n - 1))}`;
+  const ty0 = Math.max(0, intercept);
+  const ty1 = Math.max(0, intercept + slope * (n - 1));
 
-  const showLabel = bW >= 10;
-  const xLabels: number[] = visible.length <= 12
+  const showLabel = bW >= 8;
+  const xLabels = n <= 12
     ? visible.map((_, i) => i)
     : [0, Math.floor(n / 4), Math.floor(n / 2), Math.floor(3 * n / 4), n - 1];
 
+  function fmtKm(v: number) { return v % 1 === 0 ? String(v) : v.toFixed(1); }
+
+  // Grid ticks
+  const gridTicks = [0];
+  const step = topKm <= 20 ? 5 : topKm <= 60 ? 10 : topKm <= 120 ? 20 : 30;
+  for (let km = step; km <= topKm; km += step) gridTicks.push(km);
+
   return (
     <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', overflow: 'visible', display: 'block' }}>
-      {/* Grid */}
-      {[0, topKm / 4, topKm / 2, topKm * 3 / 4, topKm].map((km) => (
+      {/* Grid horizontal */}
+      {gridTicks.map((km) => (
         <g key={km}>
-          <line x1={ML} x2={VW - MR} y1={yVal(km)} y2={yVal(km)} stroke="var(--line)" strokeWidth={km === 0 ? 1 : 0.5} />
-          <text x={ML - 4} y={yVal(km) + 4} textAnchor="end" fontSize={9} fill="var(--muted)">{km}km</text>
+          <line x1={ML} x2={VW - MR} y1={yV(km)} y2={yV(km)}
+            stroke="var(--line)" strokeWidth={km === 0 ? 1.2 : 0.5} />
+          <text x={ML - 5} y={yV(km) + 4} textAnchor="end" fontSize={9} fill="var(--muted)">{km}km</text>
         </g>
       ))}
 
-      {/* Barras: prescrito (esq) + realizado (dir) */}
+      {/* Barras */}
       {visible.map((w, i) => {
-        const pctDone = w.prescribedKm > 0 ? w.completedKm / w.prescribedKm : 1;
-        const baseKm = Math.min(w.completedKm, w.prescribedKm);
         const extraKm = Math.max(0, w.completedKm - w.prescribedKm);
-        const baseColor = w.completedKm === 0 ? '#cbd5e1' : pctDone >= 0.9 ? '#22c55e' : '#f59e0b';
-
+        const bhPre  = Math.max(w.prescribedKm > 0 ? 1 : 0, (w.prescribedKm / topKm) * CH);
+        const bhReal = Math.max(w.completedKm  > 0 ? 1 : 0, (w.completedKm  / topKm) * CH);
+        const bhExt  = (extraKm / topKm) * CH;
         return (
           <g key={i}>
-            <title>{w.startDate}: prescrito {w.prescribedKm}km · realizado {w.completedKm}km ({Math.round(pctDone * 100)}%)</title>
-            {/* Barra prescrito */}
+            <title>{w.startDate}: prescrito {w.prescribedKm}km · realizado {w.completedKm}km{extraKm > 0 ? ` (${extraKm.toFixed(1)}km extra)` : ''}</title>
+
+            {/* Prescrito */}
             {w.prescribedKm > 0 && (
-              <rect x={xPre(i) - bW / 2} y={yVal(w.prescribedKm)} width={bW} height={Math.max(1, (w.prescribedKm / topKm) * CH)} rx={2} fill="#94a3b8" opacity={0.6} />
+              <>
+                <rect x={xPre(i) - bW / 2} y={yV(w.prescribedKm)} width={bW} height={bhPre} rx={2} fill="#94a3b8" />
+                {showLabel && (
+                  <text x={xPre(i)} y={yV(w.prescribedKm) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#64748b">
+                    {fmtKm(w.prescribedKm)}
+                  </text>
+                )}
+              </>
             )}
-            {/* Barra realizado — base (até o prescrito) */}
+
+            {/* Realizado (total) */}
             {w.completedKm > 0 && (
-              <rect x={xDone(i) - bW / 2} y={yVal(baseKm)} width={bW} height={Math.max(1, (baseKm / topKm) * CH)} rx={2} fill={baseColor} />
+              <>
+                <rect x={xReal(i) - bW / 2} y={yV(w.completedKm)} width={bW} height={bhReal} rx={2} fill="#22c55e" />
+                {showLabel && (
+                  <text x={xReal(i)} y={yV(w.completedKm) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#16a34a">
+                    {fmtKm(w.completedKm)}
+                  </text>
+                )}
+              </>
             )}
-            {/* Parcela extra (acima do prescrito) */}
+
+            {/* Extras */}
             {extraKm > 0 && (
-              <rect x={xDone(i) - bW / 2} y={yVal(w.completedKm)} width={bW} height={(extraKm / topKm) * CH} rx={2} fill="#06b6d4" />
-            )}
-            {/* Rótulo no topo da barra realizado */}
-            {showLabel && w.completedKm > 0 && (
-              <text x={xDone(i)} y={yVal(w.completedKm) - 3} textAnchor="middle" fontSize={8} fontWeight={700}
-                fill={extraKm > 0 ? '#06b6d4' : baseColor}>
-                {w.completedKm % 1 === 0 ? w.completedKm : w.completedKm.toFixed(1)}
-              </text>
+              <>
+                <rect x={xExt(i) - bW / 2} y={yV(extraKm)} width={bW} height={bhExt} rx={2} fill="#06b6d4" />
+                {showLabel && (
+                  <text x={xExt(i)} y={yV(extraKm) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#0891b2">
+                    {fmtKm(extraKm)}
+                  </text>
+                )}
+              </>
             )}
           </g>
         );
       })}
 
-      {/* Linha de tendência — regressão linear */}
-      {n >= 2 && <path d={trendPath} fill="none" stroke="#6366f1" strokeWidth={2} strokeLinecap="round" opacity={0.85} />}
+      {/* Linha de tendência */}
+      {n >= 2 && (
+        <line x1={xReal(0)} y1={yV(ty0)} x2={xReal(n - 1)} y2={yV(ty1)}
+          stroke="#6366f1" strokeWidth={2} strokeLinecap="round" opacity={0.9} />
+      )}
 
       {/* Labels eixo X */}
       {xLabels.map((i) => (
-        <text key={i} x={xMid(i)} y={VH - 4} textAnchor="middle" fontSize={9} fill="var(--muted)">
+        <text key={i} x={xMid(i)} y={VH - 6} textAnchor="middle" fontSize={9} fill="var(--muted)">
           {visible[i]?.startDate.slice(5).replace('-', '/')}
         </text>
       ))}
@@ -5789,12 +5815,13 @@ function EvolutionKeyNumbers({ weeks, period }: { weeks: WeekData[]; period: num
       <div style={keyNumStyle}><span style={keyNumLabel}>Melhor semana</span><strong>{bestWeek} km</strong></div>
       <div style={keyNumStyle}><span style={keyNumLabel}>Total no período</span><strong>{totalKm} km</strong></div>
       {/* legenda */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>
-        <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:2, background:'#22c55e', marginRight:4, verticalAlign:'middle' }} />Feito</span>
-        <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:2, background:'#f59e0b', marginRight:4, verticalAlign:'middle' }} />Parcial</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginLeft: 'auto', fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
+        <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:2, background:'#94a3b8', marginRight:4, verticalAlign:'middle' }} />Prescrito</span>
+        <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:2, background:'#22c55e', marginRight:4, verticalAlign:'middle' }} />Realizado</span>
+        <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:2, background:'#06b6d4', marginRight:4, verticalAlign:'middle' }} />Extras</span>
         <span style={{ display:'inline-flex', alignItems:'center', gap:4 }}>
-          <svg width={22} height={4} style={{ verticalAlign:'middle' }}><line x1={0} y1={2} x2={22} y2={2} stroke="#6366f1" strokeWidth={1.5} strokeDasharray="4 3" /></svg>
-          Prescrito
+          <svg width={22} height={4} style={{ verticalAlign:'middle' }}><line x1={0} y1={2} x2={22} y2={2} stroke="#6366f1" strokeWidth={2} /></svg>
+          Tendência
         </span>
       </div>
     </div>
