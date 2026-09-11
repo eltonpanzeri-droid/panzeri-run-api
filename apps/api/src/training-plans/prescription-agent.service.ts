@@ -763,20 +763,57 @@ export class PrescriptionAgentService {
         prontuarioDoAluno: input.studentProfileSummary || null,
         // Check-in que o aluno respondeu antes de pedir essa geracao (31/08, pedido do
         // treinador) — autoavaliacao da semana COMO UM TODO (nao por sessao, ja coberto acima em
-        // historicoSemanal). Escala 1 (baixo) a 5 (alto) nos tres campos. Null quando o aluno
-        // ainda nao passou por essa etapa (ex: primeira semana).
-        // elaborationSatisfaction === 0 e o sentinel de "pulou" (ver WeeklyCheckInService.skip).
-        // Quando pulado, a IA nao recebe scores de satisfacao e nao deve presumir execucao ou
-        // ausencia de treino — continua a programacao proposta. So menciona a falta de dados se
-        // houver diretriz que dependa explicitamente de execucao nao confirmada.
+        // historicoSemanal). Null quando o aluno ainda nao passou por essa etapa (ex: 1a semana).
+        // Sentinel de "pulou": elaborationSatisfaction===0 (v1) ou checkinSkipped=true (v2).
+        // Quando pulado, a IA nao recebe scores e nao deve presumir execucao nem ausencia.
+        // 11/09: v2 tem 15 perguntas em 3 blocos com contextos semanticos distintos:
+        //   Bloco 1 = dados objetivos/retrospectivos da semana passada
+        //   Bloco 2 = estado atual fisico/emocional do aluno NO MOMENTO da geracao
+        //   Bloco 3 = expectativas e preferencias para a proxima semana
+        // A IA NAO deve derivar regras deterministicas dessas respostas. Use como contexto.
         autoavaliacaoDaSemanaPeloAluno: input.weeklyCheckIn
-          ? input.weeklyCheckIn.elaborationSatisfaction === 0
-            ? { semDados: true, motivo: 'Aluno optou por nao registrar o feedback da semana. Nao ha informacao sobre o que foi ou nao foi feito. Nao presuma execucao nem ausencia. Siga a programacao proposta. Se houver diretriz que dependa de um treino ter sido feito e nao houver indicacao em outro lugar de que nao foi, considere-o feito.' }
-            : {
-                satisfacaoComAElaboracaoDosTreinos: input.weeklyCheckIn.elaborationSatisfaction,
-                satisfacaoComOProprioSeguimentoDoPlano: input.weeklyCheckIn.adherenceSatisfaction,
-                motivacaoDeclaradaParaAProximaSemana: input.weeklyCheckIn.nextWeekMotivation,
+          ? (() => {
+              const ci = input.weeklyCheckIn!;
+              // Sentinel de skip: v1 (elaborationSatisfaction===0) ou v2 (checkinSkipped=true)
+              const isSkipped = ci.checkinSkipped || ci.elaborationSatisfaction === 0;
+              if (isSkipped) {
+                return { semDados: true, motivo: 'Aluno optou por nao registrar o feedback da semana. Nao ha informacao sobre o que foi ou nao foi feito. Nao presuma execucao nem ausencia. Siga a programacao proposta. Se houver diretriz que dependa de um treino ter sido feito e nao houver indicacao em outro lugar de que nao foi, considere-o feito.' };
               }
+              // V2: 15 perguntas em 3 blocos
+              if (ci.checkinVersion === 2 && ci.prescriptionLiking != null) {
+                return {
+                  versao: 2,
+                  bloco1_comoFoiASemana: {
+                    avaliacaoDaPropostaDeTreinos: ci.prescriptionLiking,
+                    adequacaoDaSemanaASituacaoAtual: ci.prescriptionSuitability,
+                    percepcaoDeExecucaoDosPlanos: ci.perceivedExecution,
+                    satisfacaoComAPropriaExecucao: ci.executionSatisfaction,
+                    motivacaoAoFinalDaSemana: ci.postWeekMotivation,
+                  },
+                  bloco2_comoEstaAgora: {
+                    qualidadeDoSonoNaSemana: ci.weeklySleep,
+                    sensacaoFisicaAtual: ci.currentPhysicalFatigue,
+                    nivelDeEstresseNaSemana: ci.weeklyStress,
+                    interferenciaDaRotinaNasTreinamentos: ci.routineInterference,
+                    respostaDoCorpoVsHabitual: ci.bodyResponseVsNormal,
+                  },
+                  bloco3_proximaSemana: {
+                    motivacaoParaProximaSemana: ci.nextWeekMotivation,
+                    confiancaDeExecutarProximaSemana: ci.nextWeekConfidence,
+                    viabilidadeDaAgendaProximaSemana: ci.expectedScheduleFeasibility,
+                    estadoFisicoEsperadoNoInicioDaSemana: ci.expectedPhysicalState,
+                    preferenciaDeclaradaParaProximaSemana: ci.preferredNextWeekTraining,
+                  },
+                };
+              }
+              // V1: 3 perguntas (legado 31/08)
+              return {
+                versao: 1,
+                satisfacaoComAElaboracaoDosTreinos: ci.elaborationSatisfaction,
+                satisfacaoComOProprioSeguimentoDoPlano: ci.adherenceSatisfaction,
+                motivacaoDeclaradaParaAProximaSemana: ci.nextWeekMotivation,
+              };
+            })()
           : null,
         hoje: input.todayDate ?? null,
         // Definido quando o aluno escolheu "Nao, a partir de amanha" no app — ver instrucao

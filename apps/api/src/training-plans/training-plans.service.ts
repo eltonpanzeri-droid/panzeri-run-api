@@ -529,8 +529,23 @@ export class TrainingPlansService {
     const latestWeeklyCheckIn = activePlanBeforeAdjustment
       ? await this.prisma.weeklyCheckIn.findFirst({
           where: { userId, planId: activePlanBeforeAdjustment.id },
-          select: { elaborationSatisfaction: true, adherenceSatisfaction: true, nextWeekMotivation: true },
-          // Nota: elaborationSatisfaction === 0 e o sentinel de "pulou" — ver WeeklyCheckInService.skip
+          select: {
+            // V1 campos (legado 31/08)
+            elaborationSatisfaction: true, adherenceSatisfaction: true,
+            // V2 Bloco 1
+            prescriptionLiking: true, prescriptionSuitability: true, perceivedExecution: true,
+            executionSatisfaction: true, postWeekMotivation: true,
+            // V2 Bloco 2
+            weeklySleep: true, currentPhysicalFatigue: true, weeklyStress: true,
+            routineInterference: true, bodyResponseVsNormal: true,
+            // Bloco 3 (nextWeekMotivation compartilhado v1/v2)
+            nextWeekMotivation: true, nextWeekConfidence: true,
+            expectedScheduleFeasibility: true, expectedPhysicalState: true,
+            preferredNextWeekTraining: true,
+            // Meta
+            checkinVersion: true, checkinSkipped: true,
+          },
+          // Nota: sentinel de "pulou" = elaborationSatisfaction===0 (v1) ou checkinSkipped=true (v2)
         })
       : null;
 

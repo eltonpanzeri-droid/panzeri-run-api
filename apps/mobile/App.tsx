@@ -460,6 +460,25 @@ interface WeeklyCheckInSummary {
   missedSessions: number;
 }
 
+// 11/09: scores do check-in v2 (15 perguntas em 3 blocos)
+interface CheckInV2Scores {
+  prescriptionLiking: number;
+  prescriptionSuitability: number;
+  perceivedExecution: number;
+  executionSatisfaction: number;
+  postWeekMotivation: number;
+  weeklySleep: number;
+  currentPhysicalFatigue: number;
+  weeklyStress: number;
+  routineInterference: number;
+  bodyResponseVsNormal: number;
+  nextWeekMotivation: number;
+  nextWeekConfidence: number;
+  expectedScheduleFeasibility: number;
+  expectedPhysicalState: number;
+  preferredNextWeekTraining: string;
+}
+
 interface AppNotification {
   id: string;
   title: string;
@@ -2884,10 +2903,23 @@ function ScalePicker({ value, onChange, lowLabel, highLabel }: { value: number |
   );
 }
 
-// 31/08: check-in obrigatorio antes de gerar a proxima semana (pedido explicito do treinador) —
-// duas etapas: confirmar registros (com 3 opcoes) + 3 perguntas em escala. Aparece quando
-// GET weekly-checkin/status diz que falta (ver generateCurrentWeekNow, dentro de Week).
-// 07/09: redesenhado — 3 opcoes empilhadas (evita corte em telas estreitas), nova op 3 "pular".
+// 11/09: check-in v2 — 3 blocos de 5 perguntas cada, com indicador de progresso (1 de 3 / 2 de 3
+// / 3 de 3). A tela de confirmacao de registros (step='confirm') permanece igual. Ao confirmar
+// ("Sim, ja registrei"), entra no fluxo de 3 paginas internas ao modal.
+// Opcoes da pergunta 15 (preferencia de treino para proxima semana).
+const PREFERRED_TRAINING_OPTIONS: { id: string; label: string }[] = [
+  { id: 'semana_leve', label: 'Uma semana mais leve e tranquila' },
+  { id: 'semana_normal', label: 'Manter o ritmo da semana passada' },
+  { id: 'aumentar_carga', label: 'Aumentar a carga gradualmente' },
+  { id: 'mais_volume', label: 'Mais quilômetros no total' },
+  { id: 'mais_qualidade', label: 'Menos treinos, mais qualidade' },
+  { id: 'mais_corrida', label: 'Mais dias de corrida' },
+  { id: 'mais_forca', label: 'Mais treinos de força' },
+  { id: 'recuperacao_ativa', label: 'Foco em recuperação e leveza' },
+  { id: 'prova_proxima', label: 'Tenho prova chegando — preparar' },
+  { id: 'sem_preferencia', label: 'Sem preferência, o treinador decide' },
+];
+
 function WeeklyCheckInModal({
   visible,
   step,
@@ -2907,21 +2939,73 @@ function WeeklyCheckInModal({
   onConfirmYes: () => void;
   onConfirmNo: () => void;
   onSkip: () => void;
-  onSubmit: (scores: { elaborationSatisfaction: number; adherenceSatisfaction: number; nextWeekMotivation: number }) => void;
+  onSubmit: (scores: CheckInV2Scores) => void;
 }) {
-  const [elaboration, setElaboration] = useState<number | null>(null);
-  const [adherence, setAdherence] = useState<number | null>(null);
-  const [motivation, setMotivation] = useState<number | null>(null);
+  const [page, setPage] = useState<1 | 2 | 3>(1);
+  // Bloco 1
+  const [prescriptionLiking, setPrescriptionLiking] = useState<number | null>(null);
+  const [prescriptionSuitability, setPrescriptionSuitability] = useState<number | null>(null);
+  const [perceivedExecution, setPerceivedExecution] = useState<number | null>(null);
+  const [executionSatisfaction, setExecutionSatisfaction] = useState<number | null>(null);
+  const [postWeekMotivation, setPostWeekMotivation] = useState<number | null>(null);
+  // Bloco 2
+  const [weeklySleep, setWeeklySleep] = useState<number | null>(null);
+  const [currentPhysicalFatigue, setCurrentPhysicalFatigue] = useState<number | null>(null);
+  const [weeklyStress, setWeeklyStress] = useState<number | null>(null);
+  const [routineInterference, setRoutineInterference] = useState<number | null>(null);
+  const [bodyResponseVsNormal, setBodyResponseVsNormal] = useState<number | null>(null);
+  // Bloco 3
+  const [nextWeekMotivation, setNextWeekMotivation] = useState<number | null>(null);
+  const [nextWeekConfidence, setNextWeekConfidence] = useState<number | null>(null);
+  const [expectedScheduleFeasibility, setExpectedScheduleFeasibility] = useState<number | null>(null);
+  const [expectedPhysicalState, setExpectedPhysicalState] = useState<number | null>(null);
+  const [preferredNextWeekTraining, setPreferredNextWeekTraining] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) {
-      setElaboration(null);
-      setAdherence(null);
-      setMotivation(null);
+      setPage(1);
+      setPrescriptionLiking(null); setPrescriptionSuitability(null);
+      setPerceivedExecution(null); setExecutionSatisfaction(null); setPostWeekMotivation(null);
+      setWeeklySleep(null); setCurrentPhysicalFatigue(null);
+      setWeeklyStress(null); setRoutineInterference(null); setBodyResponseVsNormal(null);
+      setNextWeekMotivation(null); setNextWeekConfidence(null);
+      setExpectedScheduleFeasibility(null); setExpectedPhysicalState(null);
+      setPreferredNextWeekTraining(null);
     }
   }, [visible]);
 
-  const canSubmit = elaboration !== null && adherence !== null && motivation !== null;
+  // Reset para pagina 1 quando entra no step de perguntas
+  useEffect(() => {
+    if (step === 'questions') setPage(1);
+  }, [step]);
+
+  const canAdvancePage1 = prescriptionLiking !== null && prescriptionSuitability !== null &&
+    perceivedExecution !== null && executionSatisfaction !== null && postWeekMotivation !== null;
+  const canAdvancePage2 = weeklySleep !== null && currentPhysicalFatigue !== null &&
+    weeklyStress !== null && routineInterference !== null && bodyResponseVsNormal !== null;
+  const canSubmitPage3 = nextWeekMotivation !== null && nextWeekConfidence !== null &&
+    expectedScheduleFeasibility !== null && expectedPhysicalState !== null && preferredNextWeekTraining !== null;
+
+  function handleSubmit() {
+    if (!canSubmitPage3) return;
+    onSubmit({
+      prescriptionLiking: prescriptionLiking!,
+      prescriptionSuitability: prescriptionSuitability!,
+      perceivedExecution: perceivedExecution!,
+      executionSatisfaction: executionSatisfaction!,
+      postWeekMotivation: postWeekMotivation!,
+      weeklySleep: weeklySleep!,
+      currentPhysicalFatigue: currentPhysicalFatigue!,
+      weeklyStress: weeklyStress!,
+      routineInterference: routineInterference!,
+      bodyResponseVsNormal: bodyResponseVsNormal!,
+      nextWeekMotivation: nextWeekMotivation!,
+      nextWeekConfidence: nextWeekConfidence!,
+      expectedScheduleFeasibility: expectedScheduleFeasibility!,
+      expectedPhysicalState: expectedPhysicalState!,
+      preferredNextWeekTraining: preferredNextWeekTraining!,
+    });
+  }
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -2941,9 +3025,6 @@ function WeeklyCheckInModal({
                   <Text style={styles.formHint}>Registrar ajuda a próxima semana a ser montada com base no que realmente aconteceu, não só no que estava previsto.</Text>
                 ) : null}
                 <Text style={styles.copyTight}>Você já registrou tudo — inclusive os treinos que não conseguiu fazer?</Text>
-                {/* 07/09: 3 opcoes empilhadas — evita corte em tela estreita (bug real: botao "Sim"
-                    ficava cortado no iPhone com layout lado a lado). Opcao 2 navega pra semana
-                    anterior onde os treinos ficam visiveis para registro. Opcao 3 pula sem bloquear. */}
                 <View style={styles.checkInOptionsColumn}>
                   <Pressable style={styles.primaryButton} onPress={onConfirmYes}>
                     <Text style={styles.primaryButtonText}>Sim, já registrei — pode gerar novos treinos</Text>
@@ -2957,23 +3038,114 @@ function WeeklyCheckInModal({
                 </View>
               </>
             ) : null}
+
             {step === 'questions' ? (
               <>
-                <Text style={styles.formSectionTitle}>Sobre a semana que está terminando</Text>
-                <Text style={styles.formSectionTitle}>De forma geral, você ficou satisfeita(o) com a elaboração dos treinos dessa semana?</Text>
-                <ScalePicker value={elaboration} onChange={setElaboration} lowLabel="Detestei" highLabel="Amei" />
-                <Text style={styles.formSectionTitle}>De forma geral, o quanto você ficou satisfeita(o) em como conseguiu seguir os treinos da semana?</Text>
-                <ScalePicker value={adherence} onChange={setAdherence} lowLabel="Detestei" highLabel="Amei" />
-                <Text style={styles.formSectionTitle}>Como está sua motivação para os treinos da próxima semana?</Text>
-                <ScalePicker value={motivation} onChange={setMotivation} lowLabel="Baixa" highLabel="Alta" />
-                <Pressable
-                  style={[styles.primaryButton, (!canSubmit || submitting) && styles.disabledButton]}
-                  disabled={!canSubmit || submitting}
-                  onPress={() => canSubmit && onSubmit({ elaborationSatisfaction: elaboration!, adherenceSatisfaction: adherence!, nextWeekMotivation: motivation! })}
-                >
-                  {submitting ? <ActivityIndicator size="small" color={PRColors.mineral} /> : null}
-                  <Text style={styles.primaryButtonText}>{submitting ? 'Enviando...' : 'Confirmar e gerar treino'}</Text>
-                </Pressable>
+                {/* Indicador de progresso */}
+                <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 16, gap: 8 }}>
+                  {([1, 2, 3] as const).map((p) => (
+                    <View key={p} style={{ width: p === page ? 24 : 8, height: 8, borderRadius: 4, backgroundColor: p === page ? PRColors.ocean : PRColors.stone }} />
+                  ))}
+                  <Text style={[styles.formHint, { marginBottom: 0, marginLeft: 4 }]}>{page} de 3</Text>
+                </View>
+
+                {/* Bloco 1: Como foi sua semana */}
+                {page === 1 ? (
+                  <>
+                    <Text style={styles.formSectionTitle}>Como foi sua semana? 🏃</Text>
+                    <Text style={styles.formSectionTitle}>Como você avalia a proposta de treinos dessa semana?</Text>
+                    <ScalePicker value={prescriptionLiking} onChange={setPrescriptionLiking} lowLabel="Péssima" highLabel="Ótima" />
+                    <Text style={styles.formSectionTitle}>A semana de treinos pareceu adequada à sua situação atual?</Text>
+                    <ScalePicker value={prescriptionSuitability} onChange={setPrescriptionSuitability} lowLabel="Pouco adequada" highLabel="Muito adequada" />
+                    <Text style={styles.formSectionTitle}>O quanto você conseguiu executar os treinos como planejado?</Text>
+                    <ScalePicker value={perceivedExecution} onChange={setPerceivedExecution} lowLabel="Quase nada" highLabel="Tudo" />
+                    <Text style={styles.formSectionTitle}>Quão satisfeito(a) você ficou com sua execução da semana?</Text>
+                    <ScalePicker value={executionSatisfaction} onChange={setExecutionSatisfaction} lowLabel="Insatisfeito" highLabel="Muito satisfeito" />
+                    <Text style={styles.formSectionTitle}>Ao final dessa semana, como está sua motivação para continuar treinando?</Text>
+                    <ScalePicker value={postWeekMotivation} onChange={setPostWeekMotivation} lowLabel="Baixa" highLabel="Alta" />
+                    <Pressable
+                      style={[styles.primaryButton, !canAdvancePage1 && styles.disabledButton]}
+                      disabled={!canAdvancePage1}
+                      onPress={() => setPage(2)}
+                    >
+                      <Text style={styles.primaryButtonText}>Próximo →</Text>
+                    </Pressable>
+                  </>
+                ) : null}
+
+                {/* Bloco 2: Como você está */}
+                {page === 2 ? (
+                  <>
+                    <Text style={styles.formSectionTitle}>Como você está? 💙</Text>
+                    <Text style={styles.formSectionTitle}>Como foi a qualidade geral do seu sono nessa semana?</Text>
+                    <ScalePicker value={weeklySleep} onChange={setWeeklySleep} lowLabel="Ruim" highLabel="Ótimo" />
+                    <Text style={styles.formSectionTitle}>Como você está se sentindo fisicamente agora?</Text>
+                    <ScalePicker value={currentPhysicalFatigue} onChange={setCurrentPhysicalFatigue} lowLabel="Muito cansado" highLabel="Ótimo" />
+                    <Text style={styles.formSectionTitle}>Qual foi seu nível de estresse nessa semana?</Text>
+                    <ScalePicker value={weeklyStress} onChange={setWeeklyStress} lowLabel="Muito estressante" highLabel="Tranquila" />
+                    <Text style={styles.formSectionTitle}>O quanto obrigações do dia a dia atrapalharam seus treinos?</Text>
+                    <ScalePicker value={routineInterference} onChange={setRoutineInterference} lowLabel="Atrapalharam muito" highLabel="Não atrapalharam" />
+                    <Text style={styles.formSectionTitle}>Como seu corpo está respondendo aos treinos comparado ao habitual?</Text>
+                    <ScalePicker value={bodyResponseVsNormal} onChange={setBodyResponseVsNormal} lowLabel="Pior que o normal" highLabel="Melhor que o normal" />
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <Pressable style={[styles.secondaryOutlineButton, { flex: 1 }]} onPress={() => setPage(1)}>
+                        <Text style={styles.secondaryOutlineButtonText}>← Voltar</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.primaryButton, { flex: 2 }, !canAdvancePage2 && styles.disabledButton]}
+                        disabled={!canAdvancePage2}
+                        onPress={() => setPage(3)}
+                      >
+                        <Text style={styles.primaryButtonText}>Próximo →</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                ) : null}
+
+                {/* Bloco 3: Próxima semana */}
+                {page === 3 ? (
+                  <>
+                    <Text style={styles.formSectionTitle}>Próxima semana 🎯</Text>
+                    <Text style={styles.formSectionTitle}>Como está sua motivação para os treinos da próxima semana?</Text>
+                    <ScalePicker value={nextWeekMotivation} onChange={setNextWeekMotivation} lowLabel="Baixa" highLabel="Alta" />
+                    <Text style={styles.formSectionTitle}>O quanto você acredita que vai conseguir executar os treinos da próxima semana?</Text>
+                    <ScalePicker value={nextWeekConfidence} onChange={setNextWeekConfidence} lowLabel="Pouco confiante" highLabel="Muito confiante" />
+                    <Text style={styles.formSectionTitle}>Sua agenda da próxima semana tem espaço para os treinos?</Text>
+                    <ScalePicker value={expectedScheduleFeasibility} onChange={setExpectedScheduleFeasibility} lowLabel="Agenda difícil" highLabel="Semana livre" />
+                    <Text style={styles.formSectionTitle}>Como você espera estar fisicamente no início da próxima semana?</Text>
+                    <ScalePicker value={expectedPhysicalState} onChange={setExpectedPhysicalState} lowLabel="Cansado" highLabel="Recuperado" />
+                    <Text style={styles.formSectionTitle}>O que você prefere para a próxima semana?</Text>
+                    {PREFERRED_TRAINING_OPTIONS.map((opt) => (
+                      <Pressable
+                        key={opt.id}
+                        style={[
+                          styles.secondaryOutlineButton,
+                          preferredNextWeekTraining === opt.id && { backgroundColor: PRColors.ocean, borderColor: PRColors.ocean },
+                          { marginBottom: 6 },
+                        ]}
+                        onPress={() => setPreferredNextWeekTraining(opt.id)}
+                      >
+                        <Text style={[
+                          styles.secondaryOutlineButtonText,
+                          preferredNextWeekTraining === opt.id && { color: PRColors.mineral },
+                        ]}>{opt.label}</Text>
+                      </Pressable>
+                    ))}
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                      <Pressable style={[styles.secondaryOutlineButton, { flex: 1 }]} onPress={() => setPage(2)}>
+                        <Text style={styles.secondaryOutlineButtonText}>← Voltar</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.primaryButton, { flex: 2 }, (!canSubmitPage3 || submitting) && styles.disabledButton]}
+                        disabled={!canSubmitPage3 || submitting}
+                        onPress={handleSubmit}
+                      >
+                        {submitting ? <ActivityIndicator size="small" color={PRColors.mineral} /> : null}
+                        <Text style={styles.primaryButtonText}>{submitting ? 'Enviando...' : 'Confirmar e gerar treino'}</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                ) : null}
               </>
             ) : null}
           </ScrollView>
@@ -3413,7 +3585,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
     await runGenerateCurrentWeek();
   }
 
-  async function submitCheckInAndGenerate(scores: { elaborationSatisfaction: number; adherenceSatisfaction: number; nextWeekMotivation: number }) {
+  async function submitCheckInAndGenerate(scores: CheckInV2Scores) {
     if (!checkInGate?.summary) return; // nao deveria acontecer (o botao so aparece com summary carregado)
     setCheckInSubmitting(true);
     try {
@@ -3423,7 +3595,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
         // Manda de volta os mesmos numeros que a tela de confirmacao mostrou (nao deixa o servidor
         // recalcular) — ver comentario em WeeklyCheckInService.submit sobre por que isso evita
         // divergencia entre o que o aluno confirmou e o que fica registrado.
-        body: JSON.stringify({ ...checkInGate.summary, ...scores }),
+        body: JSON.stringify({ ...checkInGate.summary, ...scores, checkinVersion: 2 }),
       });
       if (!response.ok) {
         setStatus('Nao conseguimos registrar suas respostas agora. Tente de novo em instantes.');

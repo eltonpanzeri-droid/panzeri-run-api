@@ -511,14 +511,17 @@ model PainReport {
 // 31/08: check-in obrigatorio antes de gerar a proxima semana (pedido do treinador) — junta duas
 // coisas: (a) confirmacao de que o aluno registrou tudo que fez/nao fez na semana que esta
 // terminando, com os numeros reais (previsto/mudou modalidade/diferente/sem registro) capturados
-// no momento, e (b) 3 respostas em escala sobre a semana como um todo (nao por sessao — ja existe
+// no momento, e (b) respostas em escala sobre a semana como um todo (nao por sessao — ja existe
 // avaliacao por sessao em WorkoutCompletion). Guardado em tabela propria, com numero (nao texto
 // livre), de proposito: o treinador quer poder analisar padrao de adesao/engajamento/risco de
 // abandono ou lesao no medio prazo, o que exige dado limpo e consultavel, nao um resumo em prosa.
+// 11/09: expandido de 3 para 15 perguntas em 3 blocos (checkinVersion=2). As 3 colunas
+// originais ficam nullable para nao quebrar registros antigos (v1). Sentinel de "pulou" em v1:
+// elaborationSatisfaction===0; em v2: checkinSkipped=true. A IA recebe semDados em ambos os casos.
 model WeeklyCheckIn {
-  id                      String       @id @default(uuid())
+  id                      String        @id @default(uuid())
   userId                  String
-  user                    User         @relation(fields: [userId], references: [id])
+  user                    User          @relation(fields: [userId], references: [id])
   planId                  String?
   plan                    TrainingPlan? @relation(fields: [planId], references: [id])
   weekStartDate           DateTime
@@ -529,13 +532,33 @@ model WeeklyCheckIn {
   changedModalitySessions Int
   differentSessions       Int
   missedSessions          Int
-  // Escala 1 (Detestei) a 5 (Amei), mesmo padrao visual das avaliacoes por sessao — familiar pro
-  // aluno, sem introduzir um conceito novo de escala so pra isso.
-  elaborationSatisfaction Int
-  adherenceSatisfaction   Int
-  // Escala propria: 1 (Baixa) a 5 (Alta) — unica pergunta que olha pra frente, nao pra tras.
-  nextWeekMotivation      Int
-  createdAt               DateTime @default(now())
+  // V1 (3 perguntas, 31/08). Nullable a partir de 11/09 para compat com v2.
+  // elaborationSatisfaction===0 era o sentinel de "pulou" no v1 — preservado para leitura.
+  elaborationSatisfaction Int?
+  adherenceSatisfaction   Int?
+  // nextWeekMotivation compartilhado entre v1 (pergunta 3) e v2 (pergunta 11, bloco 3).
+  nextWeekMotivation      Int?
+  // V2 Bloco 1: Como foi sua semana (11/09)
+  prescriptionLiking           Int?
+  prescriptionSuitability      Int?
+  perceivedExecution           Int?
+  executionSatisfaction        Int?
+  postWeekMotivation           Int?
+  // V2 Bloco 2: Como voce esta
+  weeklySleep                  Int?
+  currentPhysicalFatigue       Int?
+  weeklyStress                 Int?
+  routineInterference          Int?
+  bodyResponseVsNormal         Int?
+  // V2 Bloco 3: Proxima semana (nextWeekMotivation acima + os 4 abaixo + preferencia textual)
+  nextWeekConfidence           Int?
+  expectedScheduleFeasibility  Int?
+  expectedPhysicalState        Int?
+  preferredNextWeekTraining    String?
+  // Meta: versao do formulario (1=3 perguntas, 2=15 perguntas) e flag de skip explicito
+  checkinVersion               Int     @default(1)
+  checkinSkipped               Boolean @default(false)
+  createdAt                    DateTime @default(now())
 
   @@index([userId, createdAt])
   // Trava a mesma garantia de "um check-in por plano" que o codigo (WeeklyCheckInService.submit)

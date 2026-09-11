@@ -224,14 +224,35 @@ export interface MethodologyInput {
     pacingMode: string | null;
   }>;
   // Check-in obrigatorio que o aluno responde antes de gerar a proxima semana (31/08, pedido
-  // explicito do treinador) — 3 respostas em escala 1-5 sobre a semana COMO UM TODO, diferente das
-  // avaliacoes por sessao que ja existem. So preenchido quando o aluno ja tem um check-in
-  // registrado pro plano que esta encerrando (ver WeeklyCheckInService) — pode ser null pra quem
-  // ainda nao passou por essa tela (aluno novo, ou plano sem sessoes ainda).
+  // explicito do treinador). Pode ser null pra quem ainda nao passou por essa tela (aluno novo,
+  // ou plano sem sessoes ainda). 11/09: expandido para suportar v1 (3 perguntas) e v2 (15).
+  // Sentinel de skip: elaborationSatisfaction===0 (v1) ou checkinSkipped===true (v2).
   weeklyCheckIn?: {
-    elaborationSatisfaction: number; // 0 = sentinel "pulou" (optou por nao registrar)
-    adherenceSatisfaction: number;
-    nextWeekMotivation: number;
+    // Meta
+    checkinVersion: number;
+    checkinSkipped: boolean;
+    // V1 (legado 31/08) — null em v2
+    elaborationSatisfaction: number | null;
+    adherenceSatisfaction: number | null;
+    // Compartilhado v1 (P3) e v2 (P11)
+    nextWeekMotivation: number | null;
+    // V2 Bloco 1
+    prescriptionLiking: number | null;
+    prescriptionSuitability: number | null;
+    perceivedExecution: number | null;
+    executionSatisfaction: number | null;
+    postWeekMotivation: number | null;
+    // V2 Bloco 2
+    weeklySleep: number | null;
+    currentPhysicalFatigue: number | null;
+    weeklyStress: number | null;
+    routineInterference: number | null;
+    bodyResponseVsNormal: number | null;
+    // V2 Bloco 3
+    nextWeekConfidence: number | null;
+    expectedScheduleFeasibility: number | null;
+    expectedPhysicalState: number | null;
+    preferredNextWeekTraining: string | null;
   } | null;
 }
 
