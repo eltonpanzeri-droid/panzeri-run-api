@@ -2685,8 +2685,7 @@ function StudentPanel({
       ) : null}
 
       {detailTab === 'evolucao' ? (() => {
-        // 10/09: dados semanais para gráfico — combina histórico (newest-first) revertido para
-        // ordem cronológica (oldest-first). Inclui o plano ativo pois uniqueHistory abrange todos.
+        // 10/09: dados semanais para gráfico (oldest-first).
         const allWeeks = [...(student.history ?? [])].reverse().map((h) => ({
           startDate: String(h.startDate).slice(0, 10),
           completedKm: h.summary.completedKm ?? 0,
@@ -2695,13 +2694,28 @@ function StudentPanel({
           completedSessions: h.summary.completedSessions ?? 0,
           prescribedSessions: h.summary.prescribedSessions ?? 0,
         }));
+        const hist = student.history ?? [];
+
+        // Contadores para badges
+        let feedbackSessions = 0; let commentCount = 0;
+        for (const p of hist) for (const s of p.sessions ?? []) {
+          if (s.perceivedEffort != null || s.satisfaction != null) feedbackSessions++;
+          if (s.feedback?.trim()) commentCount++;
+        }
+        const PAIN_KW = ['dor', 'lesao', 'lesão', 'machuc', 'inflam', 'torce', 'torci'];
+        const painObs = (student.observations ?? []).filter(
+          (o) => PAIN_KW.some((kw) => o.content.toLowerCase().includes(kw))
+        );
+        let painComments = 0;
+        for (const p of hist) for (const s of p.sessions ?? [])
+          if (s.feedback && PAIN_KW.some((kw) => s.feedback!.toLowerCase().includes(kw))) painComments++;
+
         return (
-        <>
-        {/* 1. GRÁFICO DE KM */}
-        <section className="miniSection">
-          <div className="weekWorkspaceHeader">
-            <div><p className="eyebrow">Quilometragem semanal</p><h3>Feito vs. prescrito</h3></div>
-            <div style={{ display: 'flex', gap: 4 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+
+          {/* ① QUILOMETRAGEM */}
+          <EvoSection icon="📊" title="Quilometragem semanal" badge={`${allWeeks.length} sem`}>
+            <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
               {([4, 8, 12, 999] as const).map((p) => (
                 <button key={p} type="button"
                   style={{ padding: '2px 10px', fontSize: 12, borderRadius: 6,
@@ -2713,48 +2727,87 @@ function StudentPanel({
                 </button>
               ))}
             </div>
-          </div>
-          <KmEvolutionChart weeks={allWeeks} period={chartPeriod} />
-          <EvolutionKeyNumbers weeks={allWeeks} period={chartPeriod} />
-        </section>
+            <KmEvolutionChart weeks={allWeeks} period={chartPeriod} />
+            <EvolutionKeyNumbers weeks={allWeeks} period={chartPeriod} />
+          </EvoSection>
 
-        {/* 2. CALENDÁRIO DE BOLINHAS */}
-        <section className="miniSection">
-          <div className="weekWorkspaceHeader">
-            <div><p className="eyebrow">Ultimas 8 semanas</p><h3>Calendario de treinos</h3></div>
-          </div>
-          <TrainingCalendarDots history={student.history ?? []} />
-        </section>
+          {/* ② CALENDÁRIO */}
+          <EvoSection icon="📅" title="Calendário de treinos" badge="8 sem">
+            <TrainingCalendarDots history={hist} />
+          </EvoSection>
 
-        {/* 3. FEEDBACKS DO ALUNO */}
-        <section className="miniSection">
-          <div className="weekWorkspaceHeader">
-            <div><p className="eyebrow">Percepção do aluno</p><h3>Feedbacks e satisfação</h3></div>
-          </div>
-          <FeedbackSection history={student.history ?? []} />
-        </section>
+          {/* ③ ESFORÇO PERCEBIDO */}
+          <EvoSection icon="💪" title="Esforço percebido" badge={feedbackSessions > 0 ? `${feedbackSessions} treinos` : undefined}>
+            <EffortSection history={hist} />
+          </EvoSection>
 
-        {/* 4. ANÁLISE DE CARGA — tabs: Semanal / Aguda:Crônica / Aderência */}
-        <section className="miniSection">
-          <div className="weekWorkspaceHeader">
-            <div><p className="eyebrow">Progressao e risco</p><h3>Analise de carga</h3></div>
-          </div>
-          <LoadAnalysisSection weeks={allWeeks} />
-        </section>
+          {/* ④ SATISFAÇÃO */}
+          <EvoSection icon="😊" title="Satisfação por categoria" badge={feedbackSessions > 0 ? `${feedbackSessions} respostas` : undefined}>
+            <SatisfactionSection history={hist} />
+          </EvoSection>
 
-        {/* 5. RELATÓRIOS — colapsados */}
-        <section className="miniSection reportPanel">
-          <div className="weekWorkspaceHeader">
-            <div><p className="eyebrow">Supervisao tecnica</p><h3>Relatorios do agente</h3></div>
-            <div className="reportActions">
-              <button type="button" onClick={() => generateReport('technical')}><FileText size={16} />Gerar prestacao tecnica</button>
-              <button type="button" onClick={() => generateReport('evolution')}><Activity size={16} />Gerar relatorio de evolucao</button>
+          {/* ⑤ COMENTÁRIOS */}
+          <EvoSection icon="💬" title="Comentários em texto" badge={commentCount > 0 ? commentCount : undefined}>
+            <CommentsSection history={hist} />
+          </EvoSection>
+
+          {/* ⑥ DORES E RELATOS */}
+          <EvoSection icon="🩹" title="Dores e relatos" badge={(painObs.length + painComments) > 0 ? painObs.length + painComments : undefined}>
+            <PainReportsSection
+              health={student.health}
+              observations={student.observations ?? []}
+              history={hist}
+            />
+          </EvoSection>
+
+          {/* ⑦ ANÁLISE DE CARGA */}
+          <EvoSection icon="📈" title="Análise de carga (ACWR)" badge={allWeeks.length > 1 ? `${allWeeks.length} sem` : undefined}>
+            <LoadAnalysisSection weeks={allWeeks} />
+          </EvoSection>
+
+          {/* ⑧ REAVALIAÇÕES */}
+          <EvoSection icon="🔄" title="Reavaliações" badge={student.reassessments?.length ?? 0}>
+            {student.reassessments?.length ? (
+              student.reassessments.map((r, i) => (
+                <div key={r.completedAt ?? i} style={{ borderLeft: '3px solid var(--line)', paddingLeft: 12, marginBottom: 12 }}>
+                  <strong style={{ fontSize: 13 }}>{r.completedAt ? dateLabel(r.completedAt) : 'Data nao registrada'}</strong>
+                  {r.evolutionSummary ? <p style={{ fontSize: 13, marginTop: 4 }}>{r.evolutionSummary}</p> : <p style={{ fontSize: 13, color: 'var(--muted)' }}>Sem analise gerada.</p>}
+                  {r.evolutionWins?.length ? <p style={{ fontSize: 12, color: '#22c55e', marginTop: 4 }}>✓ {r.evolutionWins.join(' · ')}</p> : null}
+                  {r.evolutionConcerns?.length ? <p style={{ fontSize: 12, color: '#f59e0b', marginTop: 2 }}>⚠ {r.evolutionConcerns.join(' · ')}</p> : null}
+                </div>
+              ))
+            ) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma reavaliacao concluida ainda.</p>}
+          </EvoSection>
+
+          {/* ⑨ PROVAS ALVO */}
+          <EvoSection icon="🏁" title="Provas alvo" badge={student.targetRaces?.length ?? 0}>
+            {student.targetRaces?.length ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {student.targetRaces.map((race) => (
+                  <div key={race.id} style={{ display: 'flex', gap: 12, alignItems: 'baseline', fontSize: 13, borderLeft: '3px solid var(--accent)', paddingLeft: 10 }}>
+                    <strong>{race.name}</strong>
+                    <span style={{ color: 'var(--muted)' }}>{dateLabel(race.raceDate)}</span>
+                    {race.distanceKm && <span>{race.distanceKm} km</span>}
+                    {race.paceSecondsPerKm && <span style={{ color: 'var(--muted)' }}>meta {Math.floor(race.paceSecondsPerKm/60)}:{String(race.paceSecondsPerKm%60).padStart(2,'0')}/km</span>}
+                    <span style={{ fontSize: 11, background: race.status === 'active' ? '#22c55e22' : 'var(--line)', color: race.status === 'active' ? '#22c55e' : 'var(--muted)', borderRadius: 4, padding: '1px 6px' }}>{race.status}</span>
+                  </div>
+                ))}
+              </div>
+            ) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma prova alvo cadastrada.</p>}
+          </EvoSection>
+
+          {/* ⑩ RELATÓRIOS DO AGENTE */}
+          <EvoSection icon="📋" title="Relatórios do agente" badge={student.reports?.length ?? 0}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+              <button type="button" className="primaryButton" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+                onClick={() => generateReport('technical')}>
+                <FileText size={15} />Gerar prestacao tecnica
+              </button>
+              <button type="button" className="primaryButton" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+                onClick={() => generateReport('evolution')}>
+                <Activity size={15} />Gerar relatorio de evolucao
+              </button>
             </div>
-          </div>
-          <details>
-            <summary style={{ cursor: 'pointer', color: 'var(--accent)', fontWeight: 500, fontSize: 14, padding: '6px 0' }}>
-              Ver relatorios gerados ({student.reports?.length ?? 0})
-            </summary>
             {student.reports?.length ? (
               <div className="reportHistory">
                 {student.reports.map((report) => (
@@ -2764,27 +2817,10 @@ function StudentPanel({
                   </details>
                 ))}
               </div>
-            ) : <p>Nenhum relatorio gerado ainda.</p>}
-          </details>
-        </section>
+            ) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum relatorio gerado ainda.</p>}
+          </EvoSection>
 
-        {/* 6. REAVALIAÇÕES */}
-        <section className="miniSection">
-          <h3>Reavaliacoes</h3>
-          {student.reassessments?.length ? (
-            student.reassessments.map((reassessment, index) => (
-              <div key={reassessment.completedAt ?? index} className="adminBlock">
-                <strong>{reassessment.completedAt ? dateLabel(reassessment.completedAt) : 'Data nao registrada'}</strong>
-                {reassessment.evolutionSummary ? <p>{reassessment.evolutionSummary}</p> : <p>Sem analise de evolucao gerada.</p>}
-                {reassessment.evolutionWins?.length ? <p>Avancos: {reassessment.evolutionWins.join(' | ')}</p> : null}
-                {reassessment.evolutionConcerns?.length ? <p>Pontos de atencao: {reassessment.evolutionConcerns.join(' | ')}</p> : null}
-              </div>
-            ))
-          ) : (
-            <p>Nenhuma reavaliacao concluida ainda.</p>
-          )}
-        </section>
-        </>
+        </div>
         );
       })() : null}
 
@@ -5039,209 +5075,296 @@ function TrainingCalendarDots({ history }: { history: StudentDetail['history'] }
   );
 }
 
+// ─── EVOLUÇÃO: COMPONENTES BASE ─────────────────────────────────────────────
+
+/** Acordeon genérico para a aba Evolução. */
+function EvoSection({ icon, title, badge, children }: {
+  icon: string; title: string; badge?: string | number; children: ReactNode;
+}) {
+  return (
+    <details style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--surface)', overflow: 'hidden' }}>
+      <summary style={{
+        cursor: 'pointer', padding: '13px 16px', display: 'flex', alignItems: 'center',
+        gap: 10, listStyle: 'none', fontWeight: 600, fontSize: 14, userSelect: 'none',
+        WebkitUserSelect: 'none',
+      }}>
+        <span style={{ fontSize: 17, lineHeight: 1 }}>{icon}</span>
+        <span style={{ flex: 1, color: 'var(--text)' }}>{title}</span>
+        {badge != null && badge !== 0 && (
+          <span style={{ background: 'var(--line)', borderRadius: 10, padding: '1px 9px', fontSize: 11, fontWeight: 500, color: 'var(--muted)' }}>
+            {badge}
+          </span>
+        )}
+        <ChevronDown size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+      </summary>
+      <div style={{ padding: '6px 16px 18px' }}>
+        {children}
+      </div>
+    </details>
+  );
+}
+
 // ─── FEEDBACKS DO ALUNO ─────────────────────────────────────────────────────
 
-type FlatSession = {
-  date: string;
-  weekStart: string;
-  modality: string;
-  perceivedEffort: number | null;
-  satisfaction: string | null;
-  satisfactionElaboracao: string | null;
-  satisfactionCapacidade: string | null;
-  satisfactionCarga: string | null;
-  feedback: string | null;
-  status: string;
-};
-
 const SAT_SCORE: Record<string, number> = { amei: 5, gostei: 4, ok: 3, nao_gostei: 2, detestei: 1 };
-const SAT_LABEL: Record<string, string> = { amei: 'Amei', gostei: 'Gostei', ok: 'Ok', nao_gostei: 'Nao gostei', detestei: 'Detestei' };
-const SAT_COLOR: Record<string, string> = { amei: '#22c55e', gostei: '#86efac', ok: '#fbbf24', nao_gostei: '#fb923c', detestei: '#ef4444' };
+const SAT_LABEL: Record<string, string> = { amei: '😍 Amei', gostei: '😊 Gostei', ok: '😐 Ok', nao_gostei: '😕 Nao gostei', detestei: '😤 Detestei' };
+const SAT_EMOJI: Record<string, string> = { amei: '😍', gostei: '😊', ok: '😐', nao_gostei: '😕', detestei: '😤' };
 
-function FeedbackSection({ history }: { history: StudentDetail['history'] }) {
-  // Flatten todas as sessões com feedback (status done/adjusted)
-  const allSessions: FlatSession[] = [];
+/** Flatten de sessões com feedback de um histórico. */
+function flatFeedbackSessions(history: StudentDetail['history']) {
+  const out: Array<{
+    date: string; weekStart: string; modality: string; title: string;
+    perceivedEffort: number | null;
+    satisfaction: string | null; satisfactionElaboracao: string | null;
+    satisfactionCapacidade: string | null; satisfactionCarga: string | null;
+    feedback: string | null;
+  }> = [];
   for (const plan of (history ?? [])) {
     for (const session of (plan.sessions ?? [])) {
-      const hasFeedback =
-        session.perceivedEffort != null ||
-        session.satisfaction != null ||
-        session.satisfactionElaboracao != null ||
-        session.satisfactionCapacidade != null ||
-        session.satisfactionCarga != null ||
-        (session.feedback && session.feedback.trim().length > 0);
-      if (!hasFeedback) continue;
-      allSessions.push({
+      out.push({
         date: String(session.date).slice(0, 10),
         weekStart: String(plan.startDate).slice(0, 10),
         modality: session.modality ?? '',
+        title: session.title ?? '',
         perceivedEffort: session.perceivedEffort ?? null,
         satisfaction: session.satisfaction ?? null,
         satisfactionElaboracao: session.satisfactionElaboracao ?? null,
         satisfactionCapacidade: session.satisfactionCapacidade ?? null,
         satisfactionCarga: session.satisfactionCarga ?? null,
         feedback: session.feedback ?? null,
-        status: session.completionStatus ?? '',
       });
     }
   }
-
-  if (allSessions.length === 0) {
-    return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum feedback registrado pelo aluno ainda.</p>;
-  }
-
-  // Agrupa esforço médio por semana
-  const effortByWeek = new Map<string, number[]>();
-  for (const s of allSessions) {
-    if (s.perceivedEffort == null) continue;
-    if (!effortByWeek.has(s.weekStart)) effortByWeek.set(s.weekStart, []);
-    effortByWeek.get(s.weekStart)!.push(s.perceivedEffort);
-  }
-  const effortWeeks = Array.from(effortByWeek.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([week, values]) => ({
-      week,
-      avg: values.reduce((s, v) => s + v, 0) / values.length,
-      count: values.length,
-    }));
-
-  // Distribuição das satisfações
-  const satFields: Array<{ key: keyof FlatSession; label: string }> = [
-    { key: 'satisfaction', label: 'Geral' },
-    { key: 'satisfactionElaboracao', label: 'Elaboração' },
-    { key: 'satisfactionCapacidade', label: 'Capacidade' },
-    { key: 'satisfactionCarga', label: 'Carga' },
-  ];
-  const satDist = satFields.map(({ key, label }) => {
-    const counts: Record<string, number> = {};
-    let total = 0;
-    for (const s of allSessions) {
-      const v = String(s[key] ?? '');
-      if (!v || !SAT_SCORE[v]) continue;
-      counts[v] = (counts[v] ?? 0) + 1;
-      total++;
-    }
-    const avgNum = total > 0
-      ? Object.entries(counts).reduce((acc, [k, n]) => acc + (SAT_SCORE[k] ?? 0) * n, 0) / total
-      : null;
-    return { label, counts, total, avg: avgNum };
-  });
-
-  // Comentários de texto (mais recentes primeiro)
-  const comments = [...allSessions]
-    .filter((s) => s.feedback && s.feedback.trim().length > 0)
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 8);
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* ── Gráfico de esforço percebido ── */}
-      {effortWeeks.length > 0 && (
-        <div>
-          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Esforço percebido por semana</p>
-          <EffortTrendChart weeks={effortWeeks} />
-        </div>
-      )}
-
-      {/* ── Satisfação por categoria ── */}
-      {satDist.some((d) => d.total > 0) && (
-        <div>
-          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Satisfação por categoria</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {satDist.filter((d) => d.total > 0).map((d) => (
-              <div key={d.label}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                  <span style={{ width: 80, fontSize: 12, fontWeight: 500, color: 'var(--text)', flexShrink: 0 }}>{d.label}</span>
-                  <div style={{ flex: 1, display: 'flex', height: 18, borderRadius: 4, overflow: 'hidden', gap: 1 }}>
-                    {['amei','gostei','ok','nao_gostei','detestei'].map((v) =>
-                      (d.counts[v] ?? 0) > 0 ? (
-                        <div key={v} title={`${SAT_LABEL[v]}: ${d.counts[v]}`}
-                          style={{ flex: d.counts[v], background: SAT_COLOR[v], display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: '#fff' }}>{d.counts[v]}</span>
-                        </div>
-                      ) : null
-                    )}
-                  </div>
-                  {d.avg != null && (
-                    <span style={{ fontSize: 12, fontWeight: 700, color: d.avg >= 4 ? '#22c55e' : d.avg >= 3 ? '#fbbf24' : '#ef4444', width: 36, textAlign: 'right' }}>
-                      {d.avg.toFixed(1)}★
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-          {/* Legenda de satisfação */}
-          <div style={{ display: 'flex', gap: 10, marginTop: 8, fontSize: 10, color: 'var(--muted)', flexWrap: 'wrap' }}>
-            {(['amei','gostei','ok','nao_gostei','detestei'] as const).map((v) => (
-              <span key={v} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 2, background: SAT_COLOR[v], display: 'inline-block' }} />{SAT_LABEL[v]}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Comentários ── */}
-      {comments.length > 0 && (
-        <details>
-          <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--accent)', marginBottom: 6 }}>
-            Ver comentários em texto ({comments.length})
-          </summary>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-            {comments.map((c) => (
-              <div key={c.date + c.modality} style={{ borderLeft: '3px solid var(--line)', paddingLeft: 10 }}>
-                <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>
-                  {c.date} · {c.modality}{c.perceivedEffort != null ? ` · esforço ${c.perceivedEffort}/10` : ''}
-                </p>
-                <p style={{ fontSize: 13, color: 'var(--text)' }}>{c.feedback}</p>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
-    </div>
-  );
+  return out;
 }
 
-/** Gráfico de barras do esforço percebido médio por semana (escala 1-10). */
-function EffortTrendChart({ weeks }: { weeks: Array<{ week: string; avg: number; count: number }> }) {
-  const W = 560; const H = 120; const PL = 28; const PT = 8; const PB = 24; const PR = 8;
+/** Gráfico de barras do esforço percebido por sessão (cor pelo nível). */
+function EffortSection({ history }: { history: StudentDetail['history'] }) {
+  const sessions = flatFeedbackSessions(history).filter((s) => s.perceivedEffort != null);
+  if (sessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum esforço registrado ainda.</p>;
+
+  // Agrupa média por semana
+  const byWeek = new Map<string, number[]>();
+  for (const s of sessions) {
+    if (!byWeek.has(s.weekStart)) byWeek.set(s.weekStart, []);
+    byWeek.get(s.weekStart)!.push(s.perceivedEffort!);
+  }
+  const weeks = Array.from(byWeek.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([week, vals]) => ({ week, avg: vals.reduce((a, v) => a + v, 0) / vals.length, count: vals.length }));
+
+  const W = 560; const H = 130; const PL = 28; const PT = 10; const PB = 26; const PR = 8;
   const chartW = W - PL - PR; const chartH = H - PT - PB;
   const gap = chartW / (weeks.length || 1);
-  const barW = Math.max(4, gap * 0.6);
+  const barW = Math.max(6, gap * 0.65);
   const yFn = (v: number) => PT + chartH - (v / 10) * chartH;
   const xFn = (i: number) => PL + i * gap + gap / 2;
-
-  function barFill(avg: number): string {
-    if (avg <= 3) return '#93c5fd';
-    if (avg <= 6) return '#fbbf24';
-    if (avg <= 8) return '#fb923c';
-    return '#ef4444';
-  }
-
+  const fill = (avg: number) => avg <= 3 ? '#93c5fd' : avg <= 6 ? '#fbbf24' : avg <= 8 ? '#fb923c' : '#ef4444';
   const xLabels = weeks.length <= 8
     ? weeks.map((w, i) => ({ i, label: w.week.slice(5, 10).replace('-', '/') }))
     : [0, Math.floor(weeks.length / 2), weeks.length - 1].map((i) => ({ i, label: weeks[i].week.slice(5, 10).replace('-', '/') }));
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
-      {[0, 5, 7, 10].map((v) => (
-        <g key={v}>
-          <line x1={PL} y1={yFn(v)} x2={W - PR} y2={yFn(v)} stroke="var(--line)" strokeWidth={0.5} strokeDasharray={v === 5 || v === 7 ? '3,3' : ''} />
-          <text x={PL - 3} y={yFn(v) + 3} textAnchor="end" fontSize={9} fill="var(--muted)">{v}</text>
-        </g>
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+        {[0, 5, 7, 10].map((v) => (
+          <g key={v}>
+            <line x1={PL} y1={yFn(v)} x2={W-PR} y2={yFn(v)} stroke="var(--line)" strokeWidth={0.5} strokeDasharray={v > 0 && v < 10 ? '3,3' : ''} />
+            <text x={PL-3} y={yFn(v)+3} textAnchor="end" fontSize={9} fill="var(--muted)">{v}</text>
+          </g>
+        ))}
+        {weeks.map((w, i) => (
+          <rect key={i} x={xFn(i)-barW/2} y={yFn(w.avg)} width={barW} height={PT+chartH-yFn(w.avg)} fill={fill(w.avg)} rx={3}>
+            <title>{w.week}: média {w.avg.toFixed(1)} · {w.count} treino(s)</title>
+          </rect>
+        ))}
+        {xLabels.map(({i, label}) => (
+          <text key={i} x={xFn(i)} y={H-5} textAnchor="middle" fontSize={9} fill="var(--muted)">{label}</text>
+        ))}
+      </svg>
+      <div style={{ display: 'flex', gap: 10, marginTop: 4, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
+        {[['#93c5fd','1-3 fácil'],['#fbbf24','4-6 moderado'],['#fb923c','7-8 intenso'],['#ef4444','9-10 máximo']].map(([c,l]) => (
+          <span key={l}><span style={{display:'inline-block',width:10,height:10,borderRadius:2,background:c,marginRight:3,verticalAlign:'middle'}}/>{l}</span>
+        ))}
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>{sessions.length} registros de esforço no total.</p>
+    </div>
+  );
+}
+
+/** Satisfação por categoria — tiles com score e breakdown por emoji. */
+function SatisfactionSection({ history }: { history: StudentDetail['history'] }) {
+  const allSessions = flatFeedbackSessions(history);
+  const categories: Array<{ key: 'satisfaction'|'satisfactionElaboracao'|'satisfactionCapacidade'|'satisfactionCarga'; label: string; desc: string }> = [
+    { key: 'satisfaction', label: 'Geral', desc: 'Como se sentiu com o treino no geral' },
+    { key: 'satisfactionElaboracao', label: 'Elaboração', desc: 'Se achou o treino bem elaborado/explicado' },
+    { key: 'satisfactionCapacidade', label: 'Capacidade', desc: 'Se se sentiu capaz de realizar' },
+    { key: 'satisfactionCarga', label: 'Carga', desc: 'Se a carga foi adequada ao seu momento' },
+  ];
+  const dists = categories.map(({ key, label, desc }) => {
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const s of allSessions) {
+      const v = s[key];
+      if (!v || !SAT_SCORE[v]) continue;
+      counts[v] = (counts[v] ?? 0) + 1;
+      total++;
+    }
+    const avg = total > 0
+      ? Object.entries(counts).reduce((a, [k, n]) => a + (SAT_SCORE[k] ?? 0) * n, 0) / total
+      : null;
+    // Valor mais comum
+    const top = Object.entries(counts).sort(([,a],[,b]) => b-a)[0];
+    return { label, desc, counts, total, avg, topValue: top?.[0] ?? null };
+  }).filter((d) => d.total > 0);
+
+  if (dists.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma avaliação registrada ainda.</p>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {dists.map((d) => (
+        <div key={d.label} style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 14px', border: '1px solid var(--line)' }}>
+          {/* Cabeçalho: label + score */}
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>{d.label}</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{d.desc}</span>
+            <span style={{ marginLeft: 'auto', fontWeight: 700, fontSize: 16,
+              color: d.avg! >= 4 ? '#22c55e' : d.avg! >= 3 ? '#fbbf24' : '#ef4444' }}>
+              {d.avg!.toFixed(1)} <span style={{ fontSize: 12 }}>/ 5</span>
+            </span>
+          </div>
+          {/* Breakdown por emoji */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {(['amei','gostei','ok','nao_gostei','detestei'] as const).map((v) => {
+              const n = d.counts[v] ?? 0;
+              if (!n) return null;
+              const pct = Math.round((n / d.total) * 100);
+              return (
+                <span key={v} title={`${SAT_LABEL[v]}: ${n} vez(es) — ${pct}%`} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  background: v === d.topValue ? '#22c55e18' : 'var(--line)',
+                  border: v === d.topValue ? '1px solid #22c55e44' : '1px solid transparent',
+                  borderRadius: 20, padding: '3px 10px', fontSize: 12,
+                }}>
+                  <span style={{ fontSize: 14 }}>{SAT_EMOJI[v]}</span>
+                  <span style={{ fontWeight: v === d.topValue ? 700 : 400 }}>{n}</span>
+                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>({pct}%)</span>
+                </span>
+              );
+            })}
+            <span style={{ marginLeft: 4, fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>{d.total} resp.</span>
+          </div>
+        </div>
       ))}
-      {weeks.map((w, i) => (
-        <rect key={i} x={xFn(i) - barW / 2} y={yFn(w.avg)} width={barW} height={PT + chartH - yFn(w.avg)}
-          fill={barFill(w.avg)} rx={3}>
-          <title>{w.week}: média {w.avg.toFixed(1)} ({w.count} treinos)</title>
-        </rect>
+    </div>
+  );
+}
+
+/** Lista de comentários em texto livre. */
+function CommentsSection({ history }: { history: StudentDetail['history'] }) {
+  const comments = flatFeedbackSessions(history)
+    .filter((s) => s.feedback && s.feedback.trim().length > 0)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  if (comments.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum comentário em texto registrado ainda.</p>;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {comments.map((c, i) => (
+        <div key={c.date + c.modality + i} style={{ borderLeft: '3px solid var(--line)', paddingLeft: 12 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 3, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>{c.date}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>{c.modality || c.title}</span>
+            {c.perceivedEffort != null && (
+              <span style={{ fontSize: 11, background: 'var(--line)', borderRadius: 4, padding: '0 6px' }}>
+                esforço {c.perceivedEffort}/10
+              </span>
+            )}
+            {c.satisfaction && SAT_EMOJI[c.satisfaction] && (
+              <span style={{ fontSize: 13 }} title={SAT_LABEL[c.satisfaction]}>{SAT_EMOJI[c.satisfaction]}</span>
+            )}
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>{c.feedback}</p>
+        </div>
       ))}
-      {xLabels.map(({ i, label }) => (
-        <text key={i} x={xFn(i)} y={H - 4} textAnchor="middle" fontSize={9} fill="var(--muted)">{label}</text>
-      ))}
-    </svg>
+    </div>
+  );
+}
+
+/** Relatos de dores e lesões — perfil de saúde + observações + comentários com palavras-chave. */
+function PainReportsSection({ health, observations, history }: {
+  health: StudentDetail['health'];
+  observations: NonNullable<StudentDetail['observations']>;
+  history: StudentDetail['history'];
+}) {
+  const PAIN_KW = ['dor', 'lesao', 'lesão', 'machuc', 'inflam', 'torce', 'torci', 'joelho', 'tornoz', 'canela', 'quadril', 'costas', 'lombar', 'tendão', 'tendao'];
+  const matchesPain = (text: string) => PAIN_KW.some((kw) => text.toLowerCase().includes(kw));
+
+  const painObs = observations.filter((o) => matchesPain(o.content));
+  const painComments = flatFeedbackSessions(history)
+    .filter((s) => s.feedback && matchesPain(s.feedback))
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const hasHealthData = health?.injuries || health?.healthProblems || health?.medications;
+  const hasAny = hasHealthData || painObs.length > 0 || painComments.length > 0;
+
+  if (!hasAny) return (
+    <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum relato de dor ou lesão encontrado no perfil, observações ou feedback.</p>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Perfil de saúde */}
+      {hasHealthData && (
+        <div>
+          <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)', marginBottom: 8 }}>Perfil de saúde (entrevista)</p>
+          {health?.injuries && (
+            <div style={{ borderLeft: '3px solid #f59e0b', paddingLeft: 10, marginBottom: 8 }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 2 }}>Lesões / histórico</p>
+              <p style={{ fontSize: 13 }}>{health.injuries}</p>
+            </div>
+          )}
+          {health?.healthProblems && (
+            <div style={{ borderLeft: '3px solid #f59e0b', paddingLeft: 10, marginBottom: 8 }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 2 }}>Problemas de saúde</p>
+              <p style={{ fontSize: 13 }}>{health.healthProblems}</p>
+            </div>
+          )}
+          {health?.medications && (
+            <div style={{ borderLeft: '3px solid #94a3b8', paddingLeft: 10 }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 2 }}>Medicamentos</p>
+              <p style={{ fontSize: 13 }}>{health.medications}</p>
+            </div>
+          )}
+        </div>
+      )}
+      {/* Observações com menção a dor */}
+      {painObs.length > 0 && (
+        <div>
+          <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)', marginBottom: 8 }}>
+            Observações do aluno com menção a dor ({painObs.length})
+          </p>
+          {painObs.map((o) => (
+            <div key={o.id} style={{ borderLeft: '3px solid #ef4444', paddingLeft: 10, marginBottom: 8, opacity: o.active ? 1 : 0.5 }}>
+              <p style={{ fontSize: 13, lineHeight: 1.5 }}>{o.content}</p>
+              {!o.active && <p style={{ fontSize: 11, color: 'var(--muted)' }}>— arquivada</p>}
+            </div>
+          ))}
+        </div>
+      )}
+      {/* Comentários pós-treino com menção a dor */}
+      {painComments.length > 0 && (
+        <div>
+          <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)', marginBottom: 8 }}>
+            Relatos em feedback de treinos ({painComments.length})
+          </p>
+          {painComments.map((c, i) => (
+            <div key={c.date + i} style={{ borderLeft: '3px solid #ef4444', paddingLeft: 10, marginBottom: 10 }}>
+              <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>{c.date} · {c.modality || c.title}</p>
+              <p style={{ fontSize: 13, lineHeight: 1.5 }}>{c.feedback}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
