@@ -6839,88 +6839,135 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
   );
 }
 
-/** Razão Aguda:Crônica (ACWR) — Fadiga ÷ Fitness, com zonas de risco. */
+/** Razão Aguda:Crônica (ACWR) — Fadiga ÷ Fitness, com zonas de risco.
+ *  Grade de quadriculado (H + V), escala Y de 0 a 3.0, labels X rotacionados,
+ *  valores inline apenas nos pontos mais relevantes (primeiro, último, máx, mín).
+ */
 function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
-  if (weeks.length < 2) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Minimo 2 semanas de dados para calcular a razao.</p>;
+  if (weeks.length < 2) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Mínimo 2 semanas de dados para calcular a razão.</p>;
 
-  // Acute = media das 4 semanas mais recentes até cada ponto; Chronic = media das 6 semanas
   const acwr = weeks.map((_, i) => {
-    const acute = weeks.slice(Math.max(0, i - 3), i + 1);
+    const acute   = weeks.slice(Math.max(0, i - 3), i + 1);
     const chronic = weeks.slice(Math.max(0, i - 5), i + 1);
-    const acuteAvg = acute.reduce((s, w) => s + w.completedKm, 0) / acute.length;
-    const chronicAvg = chronic.reduce((s, w) => s + w.completedKm, 0) / chronic.length;
-    return chronicAvg > 0 ? acuteAvg / chronicAvg : 1;
+    const aAvg = acute.reduce((s, w) => s + w.completedKm, 0) / acute.length;
+    const cAvg = chronic.reduce((s, w) => s + w.completedKm, 0) / chronic.length;
+    return cAvg > 0 ? aAvg / cAvg : 1;
   });
 
-  const W = 560; const H = 160; const PL = 36; const PT = 8; const PB = 28; const PR = 8;
+  const n = acwr.length;
+  const W = 620; const H = 240;
+  const PL = 40; const PT = 12; const PB = 56; const PR = 12; // PB grande para labels rotacionados
   const chartW = W - PL - PR; const chartH = H - PT - PB;
-  const maxRatio = 3;
-  const yFn = (r: number) => PT + chartH - Math.min(r / maxRatio, 1) * chartH;
-  const gap = chartW / (acwr.length - 1 || 1);
-  const xFn = (i: number) => PL + i * gap;
 
-  const points = acwr.map((r, i) => `${xFn(i)},${yFn(r)}`).join(' ');
+  // Escala Y: sempre 0–3, com ticks a cada 0.5
+  const MAX_R = 3.0;
+  const yFn = (r: number) => PT + chartH - Math.min(Math.max(r, 0) / MAX_R, 1) * chartH;
+  const gap  = chartW / (n - 1 || 1);
+  const xFn  = (i: number) => PL + i * gap;
 
-  const xLabels: { i: number; label: string }[] = [];
-  if (weeks.length <= 8) {
-    weeks.forEach((w, i) => xLabels.push({ i, label: w.startDate.slice(5, 10).replace('-', '/') }));
-  } else {
-    [0, Math.floor(weeks.length / 2), weeks.length - 1].forEach((i) =>
-      xLabels.push({ i, label: weeks[i].startDate.slice(5, 10).replace('-', '/') }));
-  }
+  const polyPts = acwr.map((r, i) => `${xFn(i)},${yFn(r)}`).join(' ');
+
+  // Ticks horizontais (grade H)
+  const hTicks = [0, 0.5, 1.0, 1.3, 1.5, 2.0, 2.5, 3.0];
+  // Ticks verticais (grade V) — um por ponto, mas exibimos linha apenas a cada slot controlado
+  const vTickEvery = n <= 12 ? 1 : n <= 24 ? 2 : Math.ceil(n / 12);
+
+  // Labels X — mostra a cada vTickEvery pontos
+  const xLabelIdxs = weeks.map((_, i) => i).filter((i) => i % vTickEvery === 0 || i === n - 1);
+
+  // Pontos onde mostrar o valor inline: primeiro, último, máximo e mínimo
+  const maxIdx = acwr.reduce((m, v, i) => v > acwr[m] ? i : m, 0);
+  const minIdx = acwr.reduce((m, v, i) => v < acwr[m] ? i : m, 0);
+  const labelSet = new Set([0, n - 1, maxIdx, minIdx]);
 
   return (
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block', overflow: 'visible' }}>
+
+        {/* ── Zonas de cor ────────────────────────────── */}
         {/* Zona segura: 0.8–1.3 */}
-        <rect x={PL} y={yFn(1.3)} width={chartW} height={yFn(0.8) - yFn(1.3)} fill="#22c55e" opacity={0.12} />
+        <rect x={PL} y={yFn(1.3)} width={chartW} height={yFn(0.8) - yFn(1.3)} fill="#22c55e" opacity={0.13} />
         {/* Zona de risco: >1.5 */}
-        <rect x={PL} y={PT} width={chartW} height={Math.max(0, yFn(1.5) - PT)} fill="#ef4444" opacity={0.10} />
-        {/* Linhas de referência */}
-        {[0.8, 1.0, 1.3, 1.5].map((r) => (
-          <g key={r}>
-            <line x1={PL} y1={yFn(r)} x2={W - PR} y2={yFn(r)} stroke="var(--line)" strokeWidth={r === 1.0 ? 1 : 0.5} strokeDasharray={r === 1.0 ? '0' : '3,3'} />
-            <text x={PL - 4} y={yFn(r) + 3} textAnchor="end" fontSize={9} fill="var(--muted)">{r.toFixed(1)}</text>
-          </g>
-        ))}
-        {/* Linha ACWR */}
-        {acwr.length > 1 && (
-          <polyline points={points} fill="none" stroke="#3b82f6" strokeWidth={2} strokeLinejoin="round" />
-        )}
-        {/* Pontos + valores inline */}
+        <rect x={PL} y={PT} width={chartW} height={Math.max(0, yFn(1.5) - PT)} fill="#ef4444" opacity={0.09} />
+
+        {/* ── Grade H ─────────────────────────────────── */}
+        {hTicks.map((r) => {
+          const isRef = r === 0.8 || r === 1.0 || r === 1.3 || r === 1.5;
+          return (
+            <g key={r}>
+              <line x1={PL} x2={W - PR} y1={yFn(r)} y2={yFn(r)}
+                stroke="var(--line)"
+                strokeWidth={r === 1.0 ? 1.2 : 0.5}
+                strokeDasharray={isRef && r !== 1.0 ? '4,3' : '0'} />
+              <text x={PL - 5} y={yFn(r) + 4} textAnchor="end" fontSize={9}
+                fill={isRef ? 'var(--text)' : 'var(--muted)'} fontWeight={isRef ? 600 : 400}>
+                {r.toFixed(1)}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* ── Grade V ─────────────────────────────────── */}
+        {weeks.map((_, i) => i % vTickEvery === 0 || i === n - 1 ? (
+          <line key={i} x1={xFn(i)} x2={xFn(i)} y1={PT} y2={PT + chartH}
+            stroke="var(--line)" strokeWidth={0.4} />
+        ) : null)}
+
+        {/* ── Linha ACWR ──────────────────────────────── */}
+        {n > 1 && <polyline points={polyPts} fill="none" stroke="#3b82f6" strokeWidth={2.2} strokeLinejoin="round" />}
+
+        {/* ── Pontos + labels seletivos ───────────────── */}
         {acwr.map((r, i) => {
           const cx = xFn(i); const cy = yFn(r);
           const safe = r >= 0.8 && r <= 1.3;
           const risky = r > 1.5;
-          const labelColor = risky ? '#ef4444' : safe ? '#22c55e' : '#f59e0b';
-          // Alterna posição (acima/abaixo) para evitar sobreposição quando há muitos pontos
-          const above = i % 2 === 0;
-          const labelY = above ? cy - 8 : cy + 16;
-          const showVal = weeks.length <= 16 || i === 0 || i === acwr.length - 1 || i % 2 === 0;
+          const lColor = risky ? '#ef4444' : safe ? '#16a34a' : '#d97706';
+          const showLbl = labelSet.has(i);
+          // Pontos extremos ficam acima, outros abaixo para não colidir
+          const lY = (i === maxIdx) ? cy - 9 : cy + 15;
           return (
             <g key={i}>
-              <circle cx={cx} cy={cy} r={4} fill="#3b82f6">
+              <circle cx={cx} cy={cy} r={i === maxIdx || i === minIdx ? 5 : 3.5} fill="#3b82f6">
                 <title>{weeks[i].startDate}: {r.toFixed(2)}</title>
               </circle>
-              {showVal && (
-                <text x={cx} y={labelY} textAnchor="middle" fontSize={8.5} fontWeight={700} fill={labelColor}>
+              {showLbl && (
+                <text x={cx} y={lY} textAnchor="middle" fontSize={9} fontWeight={700} fill={lColor}>
                   {r.toFixed(2)}
                 </text>
               )}
             </g>
           );
         })}
-        {/* X labels */}
-        {xLabels.map(({ i, label }) => (
-          <text key={i} x={xFn(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="var(--muted)">{label}</text>
+
+        {/* ── Labels eixo X (rotacionados -45°) ──────── */}
+        {xLabelIdxs.map((i) => (
+          <text key={i}
+            x={xFn(i)} y={PT + chartH + 10}
+            transform={`rotate(-45, ${xFn(i)}, ${PT + chartH + 10})`}
+            textAnchor="end" fontSize={8.5} fill="var(--muted)">
+            {weeks[i].startDate.slice(5, 10).replace('-', '/')}
+          </text>
         ))}
       </svg>
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>
-        <span style={{ display:'inline-block', width:12, height:12, background:'#22c55e', opacity:0.3, verticalAlign:'middle', marginRight:4 }} />0.8 a 1.3 = zona segura
-        {'  '}
-        <span style={{ display:'inline-block', width:12, height:12, background:'#ef4444', opacity:0.3, verticalAlign:'middle', marginRight:4, marginLeft:8 }} />Acima de 1.5 = risco de lesao (carga recente alta demais para a base do atleta)
+
+      {/* ── Legenda ─────────────────────────────────────── */}
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span>
+            <span style={{ display:'inline-block', width:12, height:12, background:'#22c55e', opacity:0.35, verticalAlign:'middle', marginRight:4, borderRadius:2 }} />
+            0.8 a 1.3 = zona segura
+          </span>
+          <span>
+            <span style={{ display:'inline-block', width:12, height:12, background:'#ef4444', opacity:0.25, verticalAlign:'middle', marginRight:4, borderRadius:2 }} />
+            Acima de 1.5 = carga recente alta em relação à base
+          </span>
+          <span>Abaixo de 0.8 = estímulo possivelmente insuficiente</span>
+        </div>
+        <div style={{ fontSize: 10, fontStyle: 'italic', color: 'var(--muted)', marginTop: 2, borderTop: '1px solid var(--line)', paddingTop: 4 }}>
+          ⚠️ O ACWR é um indicador auxiliar — um valor fora da zona segura isoladamente não representa necessariamente risco.
+          Interprete sempre em conjunto com RPE, sono, dor e contexto do atleta. Nunca altere a prescrição com base nesse número sozinho.
+        </div>
       </div>
-      <div style={{ fontSize: 11, color: 'var(--muted)' }}>Abaixo de 0.8 o estimulo pode ser insuficiente para evoluir.</div>
     </div>
   );
 }
