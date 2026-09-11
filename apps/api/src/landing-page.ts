@@ -433,7 +433,7 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
     <p class="sub">Todo mundo que já pensou em correr um dia se perguntou se ia se machucar, se ia aguentar, se estava fazendo do jeito certo. Aqui isso não é problema seu — toda semana, seu treino já vem decidido.</p>
     <div class="actions">
       <a class="cta" href="https://panzerirun.eltonpanzeripersonal.com.br">Começar agora →</a>
-      <p class="cta-price">a partir de <strong class="mono">R$ 19,90</strong>/mês</p>
+      <p class="cta-price">a partir de <strong class="mono">R$ 24,90</strong>/mês</p>
     </div>
   </section>
 
@@ -478,7 +478,7 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
         <path d="M6 18.5 12 8l2 3.4-4 6.6h5l2.6 3.6H6.4l-.4-3.1Z" fill="var(--teal)"/>
       </svg>
     </span>
-    <p>Isso não é uma IA genérica repetindo o que qualquer treino de internet diria. É a metodologia real do <strong>treinador Elton Panzeri</strong>, anos treinando gente de verdade, formalizada em um sistema que ele coordena e supervisiona de perto.</p>
+    <p>É a metodologia desenvolvida por Elton Panzeri, transformada em uma prescrição inteligente para cada corredor.</p>
   </section>
 
   <div class="rule"></div>
@@ -494,7 +494,7 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
     </details>
     <details>
       <summary>Isso substitui ter um treinador de verdade?</summary>
-      <p>Não é uma IA solta na internet. É a metodologia real do treinador Elton Panzeri, formalizada em um sistema que ele coordena e supervisiona tecnicamente. O que muda é que você não depende de agenda, mensagem ou disponibilidade dele pra ter seu treino pronto toda semana.</p>
+      <p>É a metodologia desenvolvida por Elton Panzeri, transformada em uma prescrição inteligente para cada corredor.</p>
     </details>
     <details>
       <summary>E se eu não conseguir seguir o treino numa semana?</summary>
@@ -514,7 +514,7 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
 
   <section class="finish">
     <div class="amount-row">
-      <span class="amount mono">R$19,90</span>
+      <span class="amount mono">R$24,90</span>
       <span class="per">/ mês, sem fidelidade</span>
     </div>
     <h2>Sua primeira semana pode estar pronta ainda hoje.</h2>
