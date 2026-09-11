@@ -650,7 +650,7 @@ export class BillingService {
       wouldReturn ? `Voltaria: ${RETURN_LABELS[wouldReturn] ?? wouldReturn}` : null,
     ].filter(Boolean);
 
-    await this.telegram.sendMessage(lines.join('\n'));
+    await this.telegram.notifyCoach(lines.join('\n'));
   }
 
   async processAsaasWebhook(accessToken: string | undefined, payload: AsaasWebhookPayload) {
