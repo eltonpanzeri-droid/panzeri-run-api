@@ -1985,6 +1985,8 @@ function StudentPanel({
   // ver studentViewMode no componente pai pro contexto completo dessa mudanca). "Treinos" e' a aba
   // padrao por ser a mais usada no dia a dia.
   const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao'>('treinos');
+  // 10/09: seletor de período do gráfico de KM na aba Evolução (padrão 12 semanas = ~3 meses).
+  const [chartPeriod, setChartPeriod] = useState<4 | 8 | 12 | 999>(12);
 
   useEffect(() => {
     setEditName(student?.name ?? '');
@@ -2682,51 +2684,93 @@ function StudentPanel({
       </>
       ) : null}
 
-      {detailTab === 'evolucao' ? (
-      <>
-      <section className="miniSection reportPanel">
-        <div className="weekWorkspaceHeader">
-          <div><p className="eyebrow">Supervisao tecnica</p><h3>Relatorios do agente</h3></div>
-        </div>
-        <div className="reportActions">
-          <button type="button" onClick={() => generateReport('technical')}><FileText size={16} />Gerar prestacao tecnica</button>
-          <button type="button" onClick={() => generateReport('evolution')}><Activity size={16} />Gerar relatorio de evolucao</button>
-        </div>
-        {student.reports?.length ? (
-          <div className="reportHistory">
-            {student.reports.map((report) => (
-              <details key={report.id} className="reportItem">
-                <summary><strong>{report.title}</strong><span>{dateTimeLabel(report.createdAt)}</span></summary>
-                <ReportContent report={report} />
-              </details>
-            ))}
-          </div>
-        ) : <p>Nenhum relatorio gerado ainda.</p>}
-      </section>
-      <section className="miniSection stravaAnalysisPanel">
-        <div className="weekWorkspaceHeader">
-          <div><p className="eyebrow">Agente II</p><h3>Analise automatica do Strava</h3></div>
-        </div>
-        <p className="formHintText">Recurso indisponível. A integração com o Strava ainda não está disponível.</p>
-      </section>
-
-      <section className="miniSection">
-        <h3>Reavaliacoes e evolucao</h3>
-        {student.reassessments?.length ? (
-          student.reassessments.map((reassessment, index) => (
-            <div key={reassessment.completedAt ?? index} className="adminBlock">
-              <strong>{reassessment.completedAt ? dateLabel(reassessment.completedAt) : 'Data nao registrada'}</strong>
-              {reassessment.evolutionSummary ? <p>{reassessment.evolutionSummary}</p> : <p>Sem analise de evolucao gerada.</p>}
-              {reassessment.evolutionWins?.length ? <p>Avancos: {reassessment.evolutionWins.join(' | ')}</p> : null}
-              {reassessment.evolutionConcerns?.length ? <p>Pontos de atencao: {reassessment.evolutionConcerns.join(' | ')}</p> : null}
+      {detailTab === 'evolucao' ? (() => {
+        // 10/09: dados semanais para gráfico — combina histórico (newest-first) revertido para
+        // ordem cronológica (oldest-first). Inclui o plano ativo pois uniqueHistory abrange todos.
+        const allWeeks = [...(student.history ?? [])].reverse().map((h) => ({
+          startDate: String(h.startDate).slice(0, 10),
+          completedKm: h.summary.completedKm ?? 0,
+          prescribedKm: h.summary.prescribedKm ?? 0,
+          adherencePercent: h.summary.adherencePercent ?? 0,
+          completedSessions: h.summary.completedSessions ?? 0,
+          prescribedSessions: h.summary.prescribedSessions ?? 0,
+        }));
+        return (
+        <>
+        {/* 1. GRÁFICO DE KM */}
+        <section className="miniSection">
+          <div className="weekWorkspaceHeader">
+            <div><p className="eyebrow">Quilometragem semanal</p><h3>Feito vs. prescrito</h3></div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {([4, 8, 12, 999] as const).map((p) => (
+                <button key={p} type="button"
+                  style={{ padding: '2px 10px', fontSize: 12, borderRadius: 6,
+                    background: chartPeriod === p ? 'var(--accent)' : 'transparent',
+                    color: chartPeriod === p ? '#fff' : 'var(--accent)',
+                    border: '1px solid var(--accent)', cursor: 'pointer', fontWeight: 500 }}
+                  onClick={() => setChartPeriod(p)}>
+                  {p === 999 ? 'Tudo' : `${p} sem`}
+                </button>
+              ))}
             </div>
-          ))
-        ) : (
-          <p>Nenhuma reavaliacao concluida ainda.</p>
-        )}
-      </section>
-      </>
-      ) : null}
+          </div>
+          <KmEvolutionChart weeks={allWeeks} period={chartPeriod} />
+          <EvolutionKeyNumbers weeks={allWeeks} period={chartPeriod} />
+        </section>
+
+        {/* 2. CALENDÁRIO DE BOLINHAS */}
+        <section className="miniSection">
+          <div className="weekWorkspaceHeader">
+            <div><p className="eyebrow">Ultimas 8 semanas</p><h3>Calendario de treinos</h3></div>
+          </div>
+          <TrainingCalendarDots history={student.history ?? []} />
+        </section>
+
+        {/* 3. RELATÓRIOS — colapsados */}
+        <section className="miniSection reportPanel">
+          <div className="weekWorkspaceHeader">
+            <div><p className="eyebrow">Supervisao tecnica</p><h3>Relatorios do agente</h3></div>
+            <div className="reportActions">
+              <button type="button" onClick={() => generateReport('technical')}><FileText size={16} />Gerar prestacao tecnica</button>
+              <button type="button" onClick={() => generateReport('evolution')}><Activity size={16} />Gerar relatorio de evolucao</button>
+            </div>
+          </div>
+          <details>
+            <summary style={{ cursor: 'pointer', color: 'var(--accent)', fontWeight: 500, fontSize: 14, padding: '6px 0' }}>
+              Ver relatorios gerados ({student.reports?.length ?? 0})
+            </summary>
+            {student.reports?.length ? (
+              <div className="reportHistory">
+                {student.reports.map((report) => (
+                  <details key={report.id} className="reportItem">
+                    <summary><strong>{report.title}</strong><span>{dateTimeLabel(report.createdAt)}</span></summary>
+                    <ReportContent report={report} />
+                  </details>
+                ))}
+              </div>
+            ) : <p>Nenhum relatorio gerado ainda.</p>}
+          </details>
+        </section>
+
+        {/* 4. REAVALIAÇÕES */}
+        <section className="miniSection">
+          <h3>Reavaliacoes</h3>
+          {student.reassessments?.length ? (
+            student.reassessments.map((reassessment, index) => (
+              <div key={reassessment.completedAt ?? index} className="adminBlock">
+                <strong>{reassessment.completedAt ? dateLabel(reassessment.completedAt) : 'Data nao registrada'}</strong>
+                {reassessment.evolutionSummary ? <p>{reassessment.evolutionSummary}</p> : <p>Sem analise de evolucao gerada.</p>}
+                {reassessment.evolutionWins?.length ? <p>Avancos: {reassessment.evolutionWins.join(' | ')}</p> : null}
+                {reassessment.evolutionConcerns?.length ? <p>Pontos de atencao: {reassessment.evolutionConcerns.join(' | ')}</p> : null}
+              </div>
+            ))
+          ) : (
+            <p>Nenhuma reavaliacao concluida ainda.</p>
+          )}
+        </section>
+        </>
+        );
+      })() : null}
 
       {detailTab === 'avaliacao' ? (
       <>
@@ -4416,11 +4460,40 @@ function longestDistancePaceSummary(answers: Record<string, unknown>): string | 
   return `${hms} (aprox. ${distanceKm} km) - pace estimado ${paceMin}:${String(paceSec).padStart(2, '0')}/km`;
 }
 
+// 10/09: ordem preferida dentro de cada grupo para colocar campos relacionados juntos
+// (ex: "Maior distância" e "Vezes na maior distância" aparecem adjacentes).
+const INTERVIEW_GROUP_ORDER: Record<string, string[]> = {
+  'Experiencia com corrida': [
+    'running_experience', 'weekly_running_km', 'best_comfortable_pace', 'current_continuous_run',
+    'quick_current_stage', 'recent_running_feeling', 'fitness_self_rating', 'races_last_12_months',
+    'longest_distance_recent', 'longest_distance_recent_count',
+    'longest_distance_recent_time',
+    'second_longest_distance_recent', 'second_longest_distance_recent_count',
+    'third_longest_distance_recent', 'third_longest_distance_recent_count',
+    'longest_distance', 'ran_5k_recently',
+  ],
+};
+
 function groupInterviewAnswers(answers: Record<string, unknown>) {
   const groups = new Map<string, Array<[string, unknown]>>();
-  Object.entries(answers).filter(([key]) => key !== 'rating_intro').forEach(([key, value]) => {
+  // 10/09: filtrar 'rating_intro' e chaves de marcação "tela vista" sem valor informativo.
+  Object.entries(answers).filter(([key]) => key !== 'rating_intro' && !HIDDEN_INTERVIEW_KEYS.has(key)).forEach(([key, value]) => {
     const title = interviewGroup(key);
     groups.set(title, [...(groups.get(title) ?? []), [key, value]]);
+  });
+  // Reordenar campos dentro de cada grupo para colocar relacionados juntos.
+  groups.forEach((items, title) => {
+    const order = INTERVIEW_GROUP_ORDER[title];
+    if (order) {
+      items.sort(([a], [b]) => {
+        const ia = order.indexOf(a);
+        const ib = order.indexOf(b);
+        if (ia === -1 && ib === -1) return 0;
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+    }
   });
   return Array.from(groups, ([title, items]) => ({ title, items }));
 }
@@ -4463,6 +4536,17 @@ function interviewLabel(key: string) {
     personal_cep: 'CEP', personal_address_street: 'Rua', personal_address_number: 'Numero', personal_address_complement: 'Complemento',
     personal_address_neighborhood: 'Bairro', personal_address_city: 'Cidade', personal_address_state: 'Estado',
     training_modality_preference: 'Preferencia de modalidades',
+    routine_modality_choice: 'Modalidade de treino preferida',
+    routine_modality_confirmation: 'Confirmacao de modalidade',
+    quick_current_stage: 'Estagio atual com a corrida',
+    quick_main_barrier: 'Principais barreiras',
+    quick_expectations: 'Expectativas do treinamento',
+    quick_has_target_race: 'Tem prova como objetivo',
+    quick_target_race_name: 'Nome da prova alvo',
+    quick_target_race_date: 'Data da prova alvo',
+    routine_intro: 'Introducao de rotina (tela vista)',
+    welcome_intro: 'Boas-vindas (tela vista)',
+    routine_confirmation: 'Confirmacao de rotina (tela vista)',
     additional_info: 'Informacoes adicionais do aluno',
     rating_energy: 'Nota - Energia no dia a dia', rating_training_readiness: 'Nota - Disposicao para treinar', rating_fitness: 'Nota - Condicionamento fisico',
     rating_strength: 'Nota - Forca fisica', rating_sleep: 'Nota - Qualidade do sono', rating_recovery: 'Nota - Recuperacao apos os treinos',
@@ -4513,6 +4597,45 @@ const INTERVIEW_CHOICE_LABELS: Record<string, Record<string, string>> = {
   reassessment_satisfaction: {
     muito_insatisfeito: 'Muito insatisfeito', insatisfeito: 'Insatisfeito', neutro: 'Neutro', satisfeito: 'Satisfeito', muito_satisfeito: 'Muito satisfeito',
   },
+  // 10/09: valores codificados das perguntas do quick-intake que chegavam crus no painel.
+  running_experience: {
+    currently_lt_3m: 'Corro atualmente, comecei ha menos de 3 meses.',
+    currently_lt_6m: 'Corro atualmente, comecei ha menos de 6 meses.',
+    currently_lt_1y: 'Corro atualmente, comecei ha menos de 1 ano.',
+    currently_gt_1y: 'Corro atualmente, comecei ha mais de 1 ano.',
+  },
+  quick_current_stage: {
+    nao_continuo: 'Ainda nao consigo correr continuamente',
+    comecando_alterno: 'Estou comecando e alterno corrida e caminhada',
+    alguns_km: 'Ja consigo correr alguns quilometros',
+    frequencia: 'Corro com frequencia',
+    performance: 'Ja treino para provas e busco performance',
+  },
+  quick_has_target_race: { sim: 'Sim', nao: 'Ainda nao tenho prova como objetivo' },
+  quick_main_barrier: {
+    falta_tempo: 'Falta de tempo',
+    constancia: 'Dificuldade para manter constancia',
+    medo_lesao: 'Medo de se machucar',
+    nao_sei_treinar: 'Nao sei como treinar',
+    ja_tentei: 'Ja tentei antes e nao consegui manter',
+    conciliar_musculacao: 'Dificuldade para conciliar corrida e musculacao',
+  },
+  quick_expectations: {
+    foco: 'Que me ajudem a manter o foco',
+    desafio: 'Que saibam me desafiar quando puder ir alem',
+    diminuir_ritmo: 'Que percebam quando e melhor diminuir o ritmo',
+    seguranca: 'Que me deem seguranca de estar no caminho certo',
+    ajustar_caminho: 'Que me ajudem a ajustar o caminho quando algo mudar',
+    entender_rotina: 'Que entendam minha rotina',
+    entender_treinamento: 'Que me ajudem a entender o treinamento',
+    atentos_evolucao: 'Que estejam atentos a minha evolucao',
+  },
+  routine_modality_choice: {
+    somente_corrida: 'Somente corrida',
+    corrida_fortalecimento: 'Corrida + fortalecimento para corredores',
+    corrida_musculacao: 'Corrida + musculacao',
+    corrida_fortalecimento_musculacao: 'Corrida + fortalecimento + musculacao',
+  },
   daily_steps: {
     ate_3000: '0 a 3 mil passos', '3000_a_5000': '3 mil a 5 mil passos', '5000_a_8000': '5 mil a 8 mil passos',
     '8000_a_10000': '8 mil a 10 mil passos', '10000_a_15000': '10 mil a 15 mil passos', '15000_a_20000': '15 mil a 20 mil passos',
@@ -4539,8 +4662,15 @@ const DISTANCE_BUCKET_KEYS = new Set(['longest_distance', 'longest_distance_rece
 const DISTANCE_COUNT_KEYS = new Set(['longest_distance_recent_count', 'second_longest_distance_recent_count', 'third_longest_distance_recent_count']);
 const WEEKDAY_KEY_PREFIXES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
+// 10/09: chaves que só marcam "o aluno viu esta tela" — boolean Sim sem valor informativo para o treinador.
+const HIDDEN_INTERVIEW_KEYS = new Set(['routine_intro', 'welcome_intro', 'routine_confirmation', 'routine_modality_confirmation']);
+
 function interviewValue(key: string, value: unknown) {
-  if (Array.isArray(value)) return value.length ? value.join(', ') : 'Nenhum';
+  // 10/09: arrays (multi-select) agora traduzem cada item antes de juntar — antes chegavam como valores crus.
+  if (Array.isArray(value)) {
+    if (!value.length) return 'Nenhum';
+    return value.map((item) => INTERVIEW_CHOICE_LABELS[key]?.[String(item)] ?? String(item)).join(', ');
+  }
   if (value === true) return 'Sim';
   if (value === false) return 'Nao';
   if (value === 'unknown') return 'Nao sei';
@@ -4571,6 +4701,217 @@ function weekdayLabel(weekday: number) {
 async function copyText(text: string) {
   if (!text) return;
   await navigator.clipboard.writeText(text);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10/09: Componentes de Evolução
+// ─────────────────────────────────────────────────────────────────────────────
+
+type WeekData = {
+  startDate: string;     // YYYY-MM-DD
+  completedKm: number;
+  prescribedKm: number;
+  adherencePercent: number;
+  completedSessions: number;
+  prescribedSessions: number;
+};
+
+/** Gráfico SVG de KM semanal: barras = feito, linha tracejada = prescrito. */
+function KmEvolutionChart({ weeks, period }: { weeks: WeekData[]; period: number }) {
+  const visible = weeks.slice(period === 999 ? 0 : Math.max(0, weeks.length - period));
+  if (visible.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados suficientes para o período selecionado.</p>;
+
+  const VW = 560, VH = 140;
+  const ML = 34, MR = 6, MT = 10, MB = 28;
+  const CW = VW - ML - MR;
+  const CH = VH - MT - MB;
+  const maxKm = Math.max(...visible.flatMap((w) => [w.completedKm, w.prescribedKm]), 5);
+  const topKm = Math.ceil(maxKm / 5) * 5;
+  const barSlot = CW / visible.length;
+  const barW = Math.max(4, Math.min(28, barSlot * 0.55));
+
+  const xCenter = (i: number) => ML + i * barSlot + barSlot / 2;
+  const yVal = (km: number) => MT + CH - (km / topKm) * CH;
+
+  // Linha tracejada dos km prescritos
+  const linePts = visible.map((w, i) => `${xCenter(i)},${yVal(w.prescribedKm)}`).join(' ');
+
+  // Labels do eixo X: mostrar apenas início, meio e fim para não sobrecarregar
+  const xLabels: number[] = visible.length <= 8
+    ? visible.map((_, i) => i)
+    : [0, Math.floor(visible.length / 2), visible.length - 1];
+
+  return (
+    <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', overflow: 'visible', display: 'block' }}>
+      {/* Grid lines */}
+      {[0, topKm / 2, topKm].map((km) => (
+        <g key={km}>
+          <line x1={ML} x2={VW - MR} y1={yVal(km)} y2={yVal(km)} stroke="var(--line)" strokeWidth={0.7} />
+          <text x={ML - 4} y={yVal(km) + 4} textAnchor="end" fontSize={9} fill="var(--muted)">
+            {km}km
+          </text>
+        </g>
+      ))}
+      {/* Barras — completedKm */}
+      {visible.map((w, i) => {
+        const bh = (w.completedKm / topKm) * CH;
+        return (
+          <rect
+            key={i}
+            x={xCenter(i) - barW / 2}
+            y={yVal(w.completedKm)}
+            width={barW}
+            height={Math.max(1, bh)}
+            rx={2}
+            fill={w.completedKm >= w.prescribedKm * 0.9 ? '#22c55e' : w.completedKm > 0 ? '#f59e0b' : '#e2e8f0'}
+          />
+        );
+      })}
+      {/* Linha tracejada — prescribedKm */}
+      {visible.some((w) => w.prescribedKm > 0) && (
+        <polyline points={linePts} fill="none" stroke="#6366f1" strokeWidth={1.5} strokeDasharray="4 3" />
+      )}
+      {/* Labels eixo X */}
+      {xLabels.map((i) => (
+        <text key={i} x={xCenter(i)} y={VH - 4} textAnchor="middle" fontSize={9} fill="var(--muted)">
+          {visible[i]?.startDate.slice(5).replace('-', '/')}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+/** Legenda + números-chave abaixo do gráfico. */
+function EvolutionKeyNumbers({ weeks, period }: { weeks: WeekData[]; period: number }) {
+  const visible = weeks.slice(period === 999 ? 0 : Math.max(0, weeks.length - period));
+  const last4 = weeks.slice(Math.max(0, weeks.length - 4));
+  const avgKm4 = last4.length ? (last4.reduce((s, w) => s + w.completedKm, 0) / last4.length).toFixed(1) : '–';
+  const avgAdh4 = last4.length ? Math.round(last4.reduce((s, w) => s + w.adherencePercent, 0) / last4.length) : null;
+  const bestWeek = visible.length ? Math.max(...visible.map((w) => w.completedKm)).toFixed(1) : '–';
+  const totalKm = visible.reduce((s, w) => s + w.completedKm, 0).toFixed(1);
+
+  return (
+    <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+      <div style={keyNumStyle}><span style={keyNumLabel}>Média KM (4 sem)</span><strong>{avgKm4} km</strong></div>
+      <div style={keyNumStyle}><span style={keyNumLabel}>Aderência (4 sem)</span><strong>{avgAdh4 !== null ? `${avgAdh4}%` : '–'}</strong></div>
+      <div style={keyNumStyle}><span style={keyNumLabel}>Melhor semana</span><strong>{bestWeek} km</strong></div>
+      <div style={keyNumStyle}><span style={keyNumLabel}>Total no período</span><strong>{totalKm} km</strong></div>
+      {/* legenda */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>
+        <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:2, background:'#22c55e', marginRight:4, verticalAlign:'middle' }} />Feito</span>
+        <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:2, background:'#f59e0b', marginRight:4, verticalAlign:'middle' }} />Parcial</span>
+        <span style={{ display:'inline-flex', alignItems:'center', gap:4 }}>
+          <svg width={22} height={4} style={{ verticalAlign:'middle' }}><line x1={0} y1={2} x2={22} y2={2} stroke="#6366f1" strokeWidth={1.5} strokeDasharray="4 3" /></svg>
+          Prescrito
+        </span>
+      </div>
+    </div>
+  );
+}
+const keyNumStyle: React.CSSProperties = {
+  background: 'var(--surface-alt, #f8fafc)',
+  border: '1px solid var(--line)',
+  borderRadius: 8,
+  padding: '6px 12px',
+  minWidth: 110,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+};
+const keyNumLabel: React.CSSProperties = { fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' };
+
+/** Calendário de bolinhas — últimas 8 semanas, por dia, colorido por status. */
+function TrainingCalendarDots({ history }: { history: StudentDetail['history'] }) {
+  // Coleta todas as sessões de todos os planos históricos
+  const sessionMap = new Map<string, string>(); // date → completionStatus
+  for (const plan of (history ?? [])) {
+    for (const session of (plan.sessions ?? [])) {
+      const day = String(session.date).slice(0, 10);
+      // Planos mais recentes têm prioridade (history vem newest-first)
+      if (!sessionMap.has(day)) sessionMap.set(day, session.completionStatus ?? 'sem_registro');
+    }
+  }
+
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  // Calcula o início: 7 semanas atrás + semana atual = 8 semanas visíveis. Começa na
+  // segunda-feira da semana 7 semanas atrás para que a semana atual esteja sempre incluída.
+  const startDate = new Date(today);
+  startDate.setDate(today.getDate() - 7 * 7 - ((today.getDay() + 6) % 7)); // começa na segunda
+  startDate.setHours(0, 0, 0, 0);
+
+  const WEEKDAYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'];
+  const weeks: Date[][] = [];
+  let cur = new Date(startDate);
+  for (let w = 0; w < 8; w++) {
+    const week: Date[] = [];
+    for (let d = 0; d < 7; d++) {
+      week.push(new Date(cur));
+      cur.setDate(cur.getDate() + 1);
+    }
+    weeks.push(week);
+  }
+
+  function dotColor(dateStr: string): string {
+    const status = sessionMap.get(dateStr);
+    if (!status) return 'transparent'; // sem treino prescrito
+    if (status === 'done' || status === 'adjusted') return '#22c55e';
+    if (status === 'missed') return '#ef4444';
+    // sem_registro: passado = amarelo, futuro/hoje = cinza
+    if (dateStr <= todayStr) return '#f59e0b';
+    return '#94a3b8';
+  }
+
+  function hasSessions(dateStr: string): boolean {
+    return sessionMap.has(dateStr);
+  }
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <div style={{ minWidth: 320 }}>
+        {/* Header dos dias da semana */}
+        <div style={{ display: 'grid', gridTemplateColumns: '52px repeat(7, 1fr)', gap: '4px 6px', marginBottom: 4 }}>
+          <div />
+          {WEEKDAYS.map((d) => (
+            <div key={d} style={{ textAlign: 'center', fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>{d}</div>
+          ))}
+        </div>
+        {/* Linhas de semana */}
+        {weeks.map((week, wi) => {
+          const weekLabel = `${week[0].getDate().toString().padStart(2, '0')}/${(week[0].getMonth() + 1).toString().padStart(2, '0')}`;
+          return (
+            <div key={wi} style={{ display: 'grid', gridTemplateColumns: '52px repeat(7, 1fr)', gap: '4px 6px', marginBottom: 6 }}>
+              <div style={{ fontSize: 10, color: 'var(--muted)', paddingTop: 4, textAlign: 'right', paddingRight: 6 }}>{weekLabel}</div>
+              {week.map((day, di) => {
+                const dateStr = day.toISOString().slice(0, 10);
+                const hasSession = hasSessions(dateStr);
+                const color = dotColor(dateStr);
+                const isToday = dateStr === todayStr;
+                return (
+                  <div key={di} title={dateStr} style={{
+                    width: 22, height: 22, borderRadius: '50%',
+                    background: hasSession ? color : 'var(--line)',
+                    opacity: hasSession ? 1 : 0.25,
+                    margin: '0 auto',
+                    boxSizing: 'border-box',
+                    border: isToday ? '2px solid var(--accent)' : 'none',
+                  }} />
+                );
+              })}
+            </div>
+          );
+        })}
+        {/* Legenda */}
+        <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
+          <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#22c55e', marginRight:4, verticalAlign:'middle' }} />Feito</span>
+          <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#ef4444', marginRight:4, verticalAlign:'middle' }} />Nao feito</span>
+          <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#f59e0b', marginRight:4, verticalAlign:'middle' }} />Sem registro</span>
+          <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#94a3b8', marginRight:4, verticalAlign:'middle' }} />Futuro</span>
+          <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'var(--line)', marginRight:4, verticalAlign:'middle', opacity:0.25 }} />Sem treino</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 

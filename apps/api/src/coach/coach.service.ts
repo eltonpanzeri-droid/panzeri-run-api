@@ -921,7 +921,8 @@ export class CoachService {
         },
         plans: {
           orderBy: { createdAt: 'desc' },
-          take: 8,
+          // 10/09: ampliado de 8 para 16 semanas para cobrir ~4 meses de histórico nos gráficos do admin.
+          take: 16,
           include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
         },
         coachReports: { orderBy: { createdAt: 'desc' }, take: 20 },
