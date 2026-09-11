@@ -32,6 +32,22 @@ export class WorkoutCompletionsService {
       throw new BadRequestException('Informe o esforco percebido de 1 a 10.');
     }
 
+    // Feedback v1: bloco 1 obrigatorio para done e adjusted.
+    if ((dto.status === 'done' || dto.status === 'adjusted') &&
+        (!dto.preSleepQuality || !dto.prePhysicalFatigue || !dto.preStressLevel || !dto.preMotivation)) {
+      throw new BadRequestException('Preencha todas as perguntas do bloco "Como voce chegou".');
+    }
+    if ((dto.status === 'done' || dto.status === 'adjusted') &&
+        (!dto.satisfactionElaboracao || !dto.satisfactionCapacidade || !dto.postWorkoutFeeling)) {
+      throw new BadRequestException('Preencha todas as perguntas do bloco "Como foi o treino".');
+    }
+    if ((dto.status === 'done' || dto.status === 'adjusted') && !dto.painFlag) {
+      throw new BadRequestException('Informe se sentiu dor ou desconforto no treino.');
+    }
+    if (dto.painFlag && dto.painFlag !== 'none' && !dto.painTiming) {
+      throw new BadRequestException('Informe quando a dor ou desconforto apareceu.');
+    }
+
     const previous = await this.prisma.workoutCompletion.findUnique({ where: { sessionId: dto.sessionId } });
     const completedAt = dto.completedAt ? new Date(dto.completedAt) : undefined;
     const completion = await this.prisma.workoutCompletion.upsert({
@@ -52,6 +68,13 @@ export class WorkoutCompletionsService {
         satisfactionCapacidade: dto.satisfactionCapacidade,
         satisfactionCarga: dto.satisfactionCarga,
         painFlag: dto.painFlag,
+        preSleepQuality: dto.preSleepQuality,
+        prePhysicalFatigue: dto.prePhysicalFatigue,
+        preStressLevel: dto.preStressLevel,
+        preMotivation: dto.preMotivation,
+        postWorkoutFeeling: dto.postWorkoutFeeling,
+        painTiming: dto.painTiming,
+        feedbackVersion: 1,
         notes: dto.notes,
         details,
         source: 'manual',
@@ -70,6 +93,12 @@ export class WorkoutCompletionsService {
         satisfactionCapacidade: dto.satisfactionCapacidade,
         satisfactionCarga: dto.satisfactionCarga,
         painFlag: dto.painFlag,
+        preSleepQuality: dto.preSleepQuality,
+        prePhysicalFatigue: dto.prePhysicalFatigue,
+        preStressLevel: dto.preStressLevel,
+        preMotivation: dto.preMotivation,
+        postWorkoutFeeling: dto.postWorkoutFeeling,
+        painTiming: dto.painTiming,
         notes: dto.notes,
         details,
         source: 'manual',
@@ -117,12 +146,22 @@ export class WorkoutCompletionsService {
       `Aluno ${statusLabelForProfile} o treino "${session.title}".`,
       dto.distanceKm ? `Distancia: ${dto.distanceKm}km.` : '',
       dto.avgPaceSecondsKm ? `Pace medio: ${Math.floor(dto.avgPaceSecondsKm / 60)}:${String(dto.avgPaceSecondsKm % 60).padStart(2, '0')}/km.` : '',
-      dto.perceivedEffort ? `Esforco percebido: ${dto.perceivedEffort}/10.` : '',
+      // Estado pre-treino (v1)
+      dto.preSleepQuality ? `Sono noite anterior: ${dto.preSleepQuality}/5.` : '',
+      dto.prePhysicalFatigue ? `Cansaco fisico pre-treino: ${dto.prePhysicalFatigue}/5.` : '',
+      dto.preStressLevel ? `Estresse pre-treino: ${dto.preStressLevel}/5.` : '',
+      dto.preMotivation ? `Motivacao pre-treino: ${dto.preMotivation}/5.` : '',
+      // Execucao
+      dto.perceivedEffort ? `Esforco percebido (RPE): ${dto.perceivedEffort}/10.` : '',
       dto.satisfactionElaboracao ? `Satisfacao com a elaboracao do treino: ${satisfactionLabel(dto.satisfactionElaboracao)}.` : '',
+      dto.satisfactionCapacidade ? `Satisfacao com como conseguiu executar: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
+      dto.postWorkoutFeeling ? `Sensacao ao terminar: ${dto.postWorkoutFeeling}/5.` : '',
+      // Dor
+      dto.painFlag && dto.painFlag !== 'none' ? `Dor/desconforto: ${painFlagLabel(dto.painFlag)}.` : '',
+      dto.painTiming ? `Timing da dor: ${painTimingLabel(dto.painTiming)}.` : '',
+      // Historico (pre-v1)
       dto.satisfaction ? `Satisfacao em fazer o treino: ${satisfactionLabel(dto.satisfaction)}.` : '',
-      dto.satisfactionCapacidade ? `Satisfacao com como conseguiu fazer: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
       dto.satisfactionCarga ? `Carga do treino: ${cargaLabel(dto.satisfactionCarga)}.` : '',
-      dto.painFlag && dto.painFlag !== 'none' ? `Dor sinalizada: ${dto.painFlag}.` : '',
       exerciseFeedbackText ? `Feedback por exercicio: ${exerciseFeedbackText}.` : '',
       missedReasons.length ? `Motivo(s) de nao ter treinado: ${missedReasons.map(missedReasonLabel).join(', ')}.` : '',
       missedComment.trim() ? `Comentario do aluno sobre a falta: ${missedComment.trim()}` : '',
@@ -139,11 +178,14 @@ export class WorkoutCompletionsService {
       const coaches = await this.prisma.user.findMany({ where: { email: { in: coachEmails } }, select: { id: true } });
       const statusLabel = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'registrou com ajustes' : 'marcou como nao feito';
       const details = [
-        dto.perceivedEffort ? `Esforco: ${dto.perceivedEffort}/10.` : '',
-        dto.satisfaction ? `Satisfacao em fazer o treino: ${satisfactionLabel(dto.satisfaction)}.` : '',
-        dto.satisfactionElaboracao ? `Satisfacao com a elaboracao: ${satisfactionLabel(dto.satisfactionElaboracao)}.` : '',
-        dto.satisfactionCapacidade ? `Satisfacao com como conseguiu fazer: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
-        dto.satisfactionCarga ? `Carga: ${cargaLabel(dto.satisfactionCarga)}.` : '',
+        dto.preSleepQuality ? `Sono: ${dto.preSleepQuality}/5.` : '',
+        dto.prePhysicalFatigue ? `Cansaco pre: ${dto.prePhysicalFatigue}/5.` : '',
+        dto.preMotivation ? `Motivacao pre: ${dto.preMotivation}/5.` : '',
+        dto.perceivedEffort ? `RPE: ${dto.perceivedEffort}/10.` : '',
+        dto.satisfactionElaboracao ? `Elaboracao: ${satisfactionLabel(dto.satisfactionElaboracao)}.` : '',
+        dto.satisfactionCapacidade ? `Execucao: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
+        dto.postWorkoutFeeling ? `Sensacao final: ${dto.postWorkoutFeeling}/5.` : '',
+        dto.painFlag && dto.painFlag !== 'none' ? `Dor: ${painFlagLabel(dto.painFlag)}${dto.painTiming ? ` (${painTimingLabel(dto.painTiming)})` : ''}.` : '',
         missedReasons.length ? `Motivo(s) da falta: ${missedReasons.map(missedReasonLabel).join(', ')}.` : '',
         missedComment.trim() ? `Comentario do aluno: ${missedComment.trim()}` : '',
         dto.notes?.trim() ? `Feedback: ${dto.notes.trim()}` : 'Sem comentario.',
@@ -212,6 +254,28 @@ export const CARGA_SCORE: Record<string, number> = {
   pesada: 1,
   muito_pesada: 2,
 };
+
+export function painFlagLabel(value: string) {
+  const labels: Record<string, string> = {
+    none: 'Nenhuma',
+    leve: 'Leve',
+    moderado: 'Moderado',
+    forte: 'Forte',
+  };
+  return labels[value] ?? value;
+}
+
+export function painTimingLabel(value: string) {
+  const labels: Record<string, string> = {
+    ja_comecei_sentindo: 'ja comecei sentindo',
+    comeco_passou: 'apareceu no comeco e passou',
+    comeco_continuou: 'apareceu no comeco e continuou',
+    durante_passou: 'apareceu durante e passou',
+    durante_continuou: 'apareceu durante e continuou ate o final',
+    so_depois: 'so percebi depois que terminei',
+  };
+  return labels[value] ?? value;
+}
 
 // Mesmas opcoes/valores do seletor de motivo de falta no app (ver MISSED_REASON_OPTIONS em
 // App.tsx) — mantido em texto legivel aqui pro prontuario e pro treinador, nao pro aluno.

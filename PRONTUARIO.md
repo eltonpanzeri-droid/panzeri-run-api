@@ -1176,6 +1176,26 @@ Feature de correlação (NÃO diagnóstico): permite identificar se alunas perde
 
 **Gates**: typecheck limpo nos três apps (api, mobile, admin). URL do `CicloTab` corrigida antes do commit (`/api/proxy/...` → `${API_URL}/coach/...`).
 
+**2026-09-11 — Feedback pós-treino v1 (sistema longitudinal)**
+
+Reformulação completa do formulário de registro de treino no app mobile. O feedback passou a ser tratado como fonte primária de dados longitudinais sobre o aluno, não apenas pesquisa de satisfação.
+
+**Estrutura: 3 blocos sequenciais** (apenas para `done`/`adjusted`; `missed` mantém fluxo direto):
+- **Bloco 1 "Como você chegou"**: sono (1–5), cansaço físico (1–5), estresse (1–5), motivação (1–5). Botão "Por que responder é importante" sempre visível, começa recolhido, expande ao toque.
+- **Bloco 2 "Como foi o treino"**: RPE 1–10, satisfação com elaboração (`SATISFACTION_OPTIONS`), satisfação com execução (`EXECUCAO_OPTIONS` — novos rótulos, mesmos valores), sensação ao terminar (1–5).
+- **Bloco 3 "Dor e observações"**: `painFlag` com 4 opções (Não / Sim leve / Sim moderado / Sim forte), `painTiming` condicional (6 opções de quando apareceu), observações livres opcionais.
+
+**Validação**: cada bloco precisa estar completo para avançar; o botão de salvar só aparece no bloco 3.
+
+**Schema (migration `20260911210000_add_workout_feedback_v2`)**:
+- Novos campos: `preSleepQuality Int?`, `prePhysicalFatigue Int?`, `preStressLevel Int?`, `preMotivation Int?`, `postWorkoutFeeling Int?`, `painTiming String?`, `feedbackVersion Int @default(1)`.
+- `painFlag` ganhou valor `'moderado'` (aceito no DTO e validação server-side).
+- Campos históricos `satisfaction` e `satisfactionCarga` preservados no banco; não coletados na nova UI, mas ainda aceitos pelo endpoint para compatibilidade com feedbacks antigos.
+
+**Backend**: DTO (`upsert-workout-completion.dto.ts`), service (`workout-completions.service.ts`) — validação server-side dos blocos 1+2 para `done`/`adjusted`, `painTiming` obrigatório quando `painFlag !== 'none'`, `profileParts` e notificação ao treinador atualizados, funções `painFlagLabel()` e `painTimingLabel()` exportadas.
+
+**Gates**: typecheck limpo (api + mobile). Prisma client regenerado após migration.
+
 ---
 
 ## Onde as coisas estão agora (2026-09-11) — leitura rápida pra quem chega de fora
@@ -1195,7 +1215,7 @@ confirmada; corrigido com `unregisteredSessions` separado e aderência recalcula
 anterior e explica o impacto na prescrição. Arquivos: `coach.service.ts`, `training-plans.service.ts`,
 `App.tsx`. Typecheck limpo nos dois apps. EasyPanel auto-deploya a cada push.
 
-**Prontos para commit (11/09)**: todos os arquivos da feature de ciclo menstrual (módulo completo, schema, entrevista mobile, tela mobile, aba admin, integrações) + calendário de provas (10/09) + demais arquivos de sessões anteriores.
+**Prontos para commit (11/09, sessão 2)**: feedback pós-treino v1 (3 blocos, dados longitudinais), migration `20260911210000_add_workout_feedback_v2`, `CompletionForm` reescrito com progresso 1/2/3, validação por bloco, ScalePicker para escalas 1–5; todos os arquivos da feature de ciclo menstrual + calendário de provas + demais acumulados de sessões anteriores.
 
 **Deployado (09/09, sessão 2)**: `RoutineOverviewScreen` — ao tocar em "Rotina de treinos" no menu,
 o aluno vê a tabela da rotina atual antes de entrar na entrevista, com botão "Alterar/Configurar

@@ -339,12 +339,23 @@ interface InterviewQuestion {
 interface CompletionDraft {
   status: 'done' | 'missed' | 'adjusted';
   completedDate: string;
+  // Feedback v1 — bloco 1: estado pre-treino (escala '1'..'5')
+  preSleepQuality: string;
+  prePhysicalFatigue: string;
+  preStressLevel: string;
+  preMotivation: string;
+  // Feedback v1 — bloco 2: execucao
   perceivedEffort: string;
   satisfactionElaboracao: string;
-  satisfaction: string;
   satisfactionCapacidade: string;
-  satisfactionCarga: string;
+  postWorkoutFeeling: string;
+  // Feedback v1 — bloco 3: dor
   painFlag: string;
+  painTiming: string; // so preenchido quando painFlag != 'none' e != ''
+  // Campos historicos (pre-v1) — lidos do banco ao abrir feedback anterior; nao mais coletados
+  satisfaction: string;
+  satisfactionCarga: string;
+  // Metricas de execucao
   durationMin: string;
   distanceKm: string;
   avgPace: string;
@@ -3679,12 +3690,22 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       sessionId: session.id,
       status: draft.status,
       completedAt: dateInputValueToIso(draft.completedDate) ?? undefined,
+      // Feedback v1 — bloco 1 (estado pre-treino)
+      preSleepQuality: Number(draft.preSleepQuality) || undefined,
+      prePhysicalFatigue: Number(draft.prePhysicalFatigue) || undefined,
+      preStressLevel: Number(draft.preStressLevel) || undefined,
+      preMotivation: Number(draft.preMotivation) || undefined,
+      // Feedback v1 — bloco 2 (execucao)
       perceivedEffort: Number(draft.perceivedEffort) || undefined,
       satisfactionElaboracao: draft.satisfactionElaboracao || undefined,
-      satisfaction: draft.satisfaction || undefined,
       satisfactionCapacidade: draft.satisfactionCapacidade || undefined,
-      satisfactionCarga: draft.satisfactionCarga || undefined,
+      postWorkoutFeeling: Number(draft.postWorkoutFeeling) || undefined,
+      // Feedback v1 — bloco 3 (dor)
       painFlag: draft.painFlag || undefined,
+      painTiming: draft.painTiming || undefined,
+      // Campos historicos (pre-v1) — enviados quando presentes no draft (edicao de feedbacks antigos)
+      satisfaction: draft.satisfaction || undefined,
+      satisfactionCarga: draft.satisfactionCarga || undefined,
       durationMin: Number(draft.durationMin) || undefined,
       distanceKm: Number(draft.distanceKm.replace(',', '.')) || undefined,
       avgPaceSecondsKm: paceInputToSeconds(draft.avgPace) ?? undefined,
@@ -8007,6 +8028,27 @@ const SATISFACTION_OPTIONS = [
   { label: 'Detestei', value: 'detestei' },
 ];
 
+// Labels de execucao para satisfactionCapacidade (feedback v1).
+// Os valores no banco continuam sendo amei/gostei/neutro/nao_gostei/detestei (compativel com
+// historico), so os labels exibidos ao aluno mudam para refletir a pergunta de execucao.
+const EXECUCAO_OPTIONS = [
+  { label: 'Muito satisfeito', value: 'amei' },
+  { label: 'Satisfeito', value: 'gostei' },
+  { label: 'Neutro', value: 'neutro' },
+  { label: 'Insatisfeito', value: 'nao_gostei' },
+  { label: 'Muito insatisfeito', value: 'detestei' },
+];
+
+// Opcoes de timing da dor (feedback v1 — bloco 3).
+const PAIN_TIMING_OPTIONS = [
+  { label: 'Ja comecei sentindo', value: 'ja_comecei_sentindo' },
+  { label: 'Apareceu no comeco e passou', value: 'comeco_passou' },
+  { label: 'Apareceu no comeco e continuou', value: 'comeco_continuou' },
+  { label: 'Apareceu durante e passou', value: 'durante_passou' },
+  { label: 'Apareceu durante e continuou ate o final', value: 'durante_continuou' },
+  { label: 'So percebi depois de terminar', value: 'so_depois' },
+];
+
 const CARGA_OPTIONS = [
   { label: 'Muito leve', value: 'muito_leve' },
   { label: 'Leve', value: 'leve' },
@@ -8023,6 +8065,14 @@ function isIntervalSession(session: WeekPlanSession): boolean {
     Array.isArray(b.steps) && b.steps.some((s) => s.activityType === 'caminhada'),
   );
 }
+
+// Labels das escalas 1-5 por dimensao (feedback v1).
+// Retorna o texto do rotulo inferior e superior para exibir no ScalePicker.
+const SLEEP_LABELS: [string, string] = ['Muito ruim', 'Excelente'];
+const FATIGUE_LABELS: [string, string] = ['Muito baixo', 'Muito alto'];
+const STRESS_LABELS: [string, string] = ['Muito baixo', 'Muito alto'];
+const MOTIVATION_LABELS: [string, string] = ['Muito baixa', 'Muito alta'];
+const POST_FEELING_LABELS: [string, string] = ['Muito mal', 'Muito bem'];
 
 function CompletionForm({
   session,
@@ -8041,16 +8091,18 @@ function CompletionForm({
   onOpenPainReport?: () => void;
   onCollapse?: () => void;
 }) {
-  // isSavedOnServer: true quando session.completion ja existe no banco (aluno ja enviou feedback).
-  // Inicializa isEditing=false (modo travado) se ja foi salvo; true (modo editavel) na primeira vez.
   const isSavedOnServer = !!session.completion;
   const [isEditing, setIsEditing] = useState(!isSavedOnServer);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Bloco 1/2/3 — so para done/adjusted em modo edicao
+  const [feedbackStep, setFeedbackStep] = useState(0);
+  // Botao "Por que responder e importante" sempre recolhido por padrao; expande ao toque
+  const [whyExpanded, setWhyExpanded] = useState(false);
 
-  // Ao mudar de treino (sessao diferente), reinicia o estado local.
   useEffect(() => {
     setIsEditing(!isSavedOnServer);
     setIsSubmitting(false);
+    setFeedbackStep(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id]);
 
@@ -8064,15 +8116,132 @@ function CompletionForm({
     }
   }
 
-  // locked: feedback ja enviado e usuario nao clicou em "Alterar feedback" ainda.
   const locked = isSavedOnServer && !isEditing;
   const isRun = session.structure?.type === 'run';
   const isAerobic = session.structure?.type === 'aerobic';
-  const isStrength = session.structure?.type === 'strength';
+
+  // Validacao de cada bloco antes de avancar
+  const block1Complete = draft.preSleepQuality && draft.prePhysicalFatigue && draft.preStressLevel && draft.preMotivation;
+  const block2Complete = draft.perceivedEffort && draft.satisfactionElaboracao && draft.satisfactionCapacidade && draft.postWorkoutFeeling;
+  const block3Complete = draft.painFlag && (draft.painFlag === 'none' || draft.painTiming);
+
+  // Indicador de progresso 1/2/3
+  function ProgressDots({ current }: { current: number }) {
+    return (
+      <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        {[0, 1, 2].map((i) => (
+          <View key={i} style={{
+            width: i === current ? 24 : 8, height: 8, borderRadius: 4,
+            backgroundColor: i === current ? PRColors.pulse : i < current ? PRColors.ocean : '#C8C0B0',
+            opacity: i > current ? 0.45 : 1,
+          }} />
+        ))}
+        <Text style={{ fontSize: 11, color: PRColors.graphite, marginLeft: 6, fontWeight: '500' }}>
+          {current + 1} de 3
+        </Text>
+      </View>
+    );
+  }
+
+  // Componente de chip de opcao com label de texto (para elaboracao, execucao, etc.)
+  function OptionChips({ options, selected, onSelect }: { options: { label: string; value: string }[]; selected: string; onSelect: (v: string) => void }) {
+    return (
+      <View style={styles.completionStatusRow}>
+        {options.map((opt) => (
+          <Pressable key={opt.value} style={[styles.completionChip, selected === opt.value && styles.completionChipActive]} onPress={() => onSelect(opt.value)}>
+            <Text style={[styles.completionChipText, selected === opt.value && styles.completionChipTextActive]}>{opt.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    );
+  }
+
+  // Escala 1-5 numerica colorida (reutiliza ScalePicker existente, mas recebendo string)
+  function ScaleStr({ value, onChange: onChangeFn, lowLabel, highLabel }: { value: string; onChange: (v: string) => void; lowLabel: string; highLabel: string }) {
+    return (
+      <ScalePicker
+        value={value ? Number(value) : null}
+        onChange={(n) => onChangeFn(String(n))}
+        lowLabel={lowLabel}
+        highLabel={highLabel}
+      />
+    );
+  }
+
+  // Metricas de execucao (data, tempo, distancia, pace, modo de corrida) — compartilhado entre blocos
+  function ExecMetrics() {
+    return (
+      <View>
+        <View style={styles.completionFieldGroup}>
+          <Text style={styles.inputLabel}>Data realizada</Text>
+          <TextInput
+            style={styles.compactInput}
+            value={draft.completedDate}
+            onChangeText={(v) => onChange({ completedDate: formatDateInputText(v) })}
+            keyboardType="numeric"
+            placeholder="DD/MM/AAAA"
+            maxLength={10}
+          />
+        </View>
+        {(isRun || isAerobic) && (
+          <View style={styles.completionGrid}>
+            <View style={styles.completionWheelGroup}>
+              <Text style={styles.inputLabel}>Tempo</Text>
+              <DurationWheelField value={draft.durationMin} onChangeValue={(v) => onChange(isRun ? { durationMin: v, avgPace: computePaceFromInputs(v, draft.distanceKm) } : { durationMin: v })} />
+            </View>
+            {isRun && (
+              <>
+                <View style={styles.completionWheelGroup}>
+                  <Text style={styles.inputLabel}>Distancia</Text>
+                  <DistanceWheelField value={draft.distanceKm} onChangeValue={(v) => onChange({ distanceKm: v, avgPace: computePaceFromInputs(draft.durationMin, v) })} />
+                </View>
+                <View style={styles.completionFieldGroup}>
+                  <Text style={styles.inputLabel}>Pace medio</Text>
+                  <TextInput style={styles.compactInput} value={draft.avgPace} onChangeText={(v) => onChange({ avgPace: v })} placeholder="mm:ss" />
+                </View>
+              </>
+            )}
+          </View>
+        )}
+        {isRun && (
+          <View>
+            {isIntervalSession(session) ? (
+              <>
+                <Text style={styles.formHint}>Alem das pausas planejadas, voce precisou parar mais?</Text>
+                <OptionChips
+                  options={[
+                    { label: 'Fiz todos os intervalos', value: 'intervalos_completos' },
+                    { label: 'Adaptei alguns', value: 'intervalos_adaptados' },
+                    { label: 'Parei alem do planejado', value: 'parou_alem' },
+                  ]}
+                  selected={draft.pacingMode}
+                  onSelect={(v) => onChange({ pacingMode: v })}
+                />
+              </>
+            ) : (
+              <>
+                <Text style={styles.formHint}>Voce conseguiu correr o tempo todo?</Text>
+                <OptionChips
+                  options={[
+                    { label: 'Corri o tempo todo', value: 'correu_tudo' },
+                    { label: 'Caminhei em pequenos trechos', value: 'caminhou_pouco' },
+                    { label: 'Caminhei/parei bastante', value: 'caminhou_muito' },
+                  ]}
+                  selected={draft.pacingMode}
+                  onSelect={(v) => onChange({ pacingMode: v })}
+                />
+              </>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.completionBox}>
       <Text style={styles.completionTitle}>Registro do treino</Text>
+
       {locked && (
         <View style={styles.completionRegisteredBanner}>
           <Ionicons name="checkmark-circle" size={15} color="#187A55" />
@@ -8082,269 +8251,207 @@ function CompletionForm({
           </Text>
         </View>
       )}
-      {/* Formulario — visivel sempre para mostrar o registro anterior, mas nao interativo quando travado */}
+
       <View pointerEvents={locked ? 'none' : 'auto'} style={locked ? { opacity: 0.55 } : undefined}>
-      <View style={styles.completionStatusRow}>
-        {[
-          { label: 'Feito', value: 'done' },
-          { label: 'Nao feito', value: 'missed' },
-          { label: 'Ajustado', value: 'adjusted' },
-        ].map((option) => (
-          <Pressable
-            key={option.value}
-            style={[styles.completionChip, draft.status === option.value && styles.completionChipActive]}
-            onPress={() => onChange({ status: option.value as CompletionDraft['status'] })}
-          >
-            <Text style={[styles.completionChipText, draft.status === option.value && styles.completionChipTextActive]}>{option.label}</Text>
-          </Pressable>
-        ))}
+        {/* Seletor de status — sempre visivel */}
+        <View style={styles.completionStatusRow}>
+          {[
+            { label: 'Feito', value: 'done' },
+            { label: 'Nao feito', value: 'missed' },
+            { label: 'Ajustado', value: 'adjusted' },
+          ].map((opt) => (
+            <Pressable
+              key={opt.value}
+              style={[styles.completionChip, draft.status === opt.value && styles.completionChipActive]}
+              onPress={() => { onChange({ status: opt.value as CompletionDraft['status'] }); if (!locked) setFeedbackStep(0); }}
+            >
+              <Text style={[styles.completionChipText, draft.status === opt.value && styles.completionChipTextActive]}>{opt.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* FLUXO MISSED */}
+        {draft.status === 'missed' && (
+          <View>
+            <Text style={styles.formHint}>Por que voce nao conseguiu fazer esse treino? (pode marcar mais de um)</Text>
+            <View style={styles.completionStatusRow}>
+              {MISSED_REASON_OPTIONS.map((opt) => {
+                const active = draft.missedReasons.includes(opt.value);
+                return (
+                  <Pressable key={opt.value} style={[styles.completionChip, active && styles.completionChipActive]}
+                    onPress={() => onChange({ missedReasons: active ? draft.missedReasons.filter((v) => v !== opt.value) : [...draft.missedReasons, opt.value] })}>
+                    <Text style={[styles.completionChipText, active && styles.completionChipTextActive]}>{opt.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={styles.completionFieldGroup}>
+              <Text style={styles.inputLabel}>Quer contar mais sobre isso?</Text>
+              <TextInput style={[styles.compactInput, styles.multilineInput]} value={draft.missedComment}
+                onChangeText={(v) => onChange({ missedComment: v })} multiline placeholder="Conte com suas palavras, se quiser (opcional)" />
+            </View>
+          </View>
+        )}
+
+        {/* FLUXO DONE/ADJUSTED — 3 blocos em sequencia */}
+        {(draft.status === 'done' || draft.status === 'adjusted') && (
+          <View>
+            {/* BLOCO 1 — Como voce chegou */}
+            {(locked || feedbackStep === 0) && (
+              <View>
+                {!locked && <ProgressDots current={0} />}
+                {!locked && (
+                  <View style={{ marginBottom: 12 }}>
+                    <Pressable
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6 }}
+                      onPress={() => setWhyExpanded((v) => !v)}
+                    >
+                      <Ionicons name={whyExpanded ? 'chevron-down' : 'chevron-forward'} size={14} color={PRColors.ocean} />
+                      <Text style={{ fontSize: 12, color: PRColors.ocean, fontWeight: '600' }}>Por que responder e importante</Text>
+                    </Pressable>
+                    {whyExpanded && (
+                      <View style={{ backgroundColor: '#F0F5FF', borderRadius: 8, padding: 12, marginTop: 4 }}>
+                        <Text style={{ fontSize: 12, color: PRColors.graphite, lineHeight: 18 }}>
+                          Seu feedback faz parte do treino.{'\n\n'}
+                          Essas respostas nos ajudam a entender como voce chegou para treinar, como respondeu ao que foi prescrito e como terminou a sessao.
+                          Com o tempo, essas informacoes tornam seus proximos treinos cada vez mais individualizados.{'\n\n'}
+                          treinar → registrar → compreender → ajustar → evoluir.
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+                {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Como voce chegou</Text>}
+                <Text style={styles.formHint}>Como foi seu sono na ultima noite?</Text>
+                <ScaleStr value={draft.preSleepQuality} onChange={(v) => onChange({ preSleepQuality: v })} lowLabel={SLEEP_LABELS[0]} highLabel={SLEEP_LABELS[1]} />
+                <Text style={styles.formHint}>Como estava seu cansaco fisico antes de comecar?</Text>
+                <ScaleStr value={draft.prePhysicalFatigue} onChange={(v) => onChange({ prePhysicalFatigue: v })} lowLabel={FATIGUE_LABELS[0]} highLabel={FATIGUE_LABELS[1]} />
+                <Text style={styles.formHint}>Como estava seu nivel de estresse antes de comecar?</Text>
+                <ScaleStr value={draft.preStressLevel} onChange={(v) => onChange({ preStressLevel: v })} lowLabel={STRESS_LABELS[0]} highLabel={STRESS_LABELS[1]} />
+                <Text style={styles.formHint}>Como estava sua motivacao para treinar?</Text>
+                <ScaleStr value={draft.preMotivation} onChange={(v) => onChange({ preMotivation: v })} lowLabel={MOTIVATION_LABELS[0]} highLabel={MOTIVATION_LABELS[1]} />
+                {!locked && (
+                  <Pressable
+                    style={[styles.saveCompletionButton, !block1Complete && styles.disabledButton]}
+                    disabled={!block1Complete}
+                    onPress={() => setFeedbackStep(1)}
+                  >
+                    <Text style={styles.saveCompletionText}>Continuar →</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+
+            {/* BLOCO 2 — Como foi o treino */}
+            {(locked || feedbackStep === 1) && (
+              <View>
+                {!locked && <ProgressDots current={1} />}
+                {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Como foi o treino</Text>}
+                <ExecMetrics />
+                <Text style={styles.formHint}>Qual foi sua percepcao de esforco neste treino? (RPE 1–10)</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
+                  {Array.from({ length: 10 }, (_, i) => String(i + 1)).map((v) => (
+                    <Pressable key={v} style={[styles.completionChip, { minWidth: 36 }, draft.perceivedEffort === v && styles.completionChipActive]} onPress={() => onChange({ perceivedEffort: v })}>
+                      <Text style={[styles.completionChipText, draft.perceivedEffort === v && styles.completionChipTextActive]}>{v}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <Text style={[styles.formHint, { marginBottom: 0 }]}>Muito leve</Text>
+                  <Text style={[styles.formHint, { marginBottom: 0 }]}>Maximo</Text>
+                </View>
+                <Text style={styles.formHint}>Quanto voce gostou da forma como este treino foi elaborado?</Text>
+                <OptionChips options={SATISFACTION_OPTIONS} selected={draft.satisfactionElaboracao} onSelect={(v) => onChange({ satisfactionElaboracao: v })} />
+                <Text style={styles.formHint}>Quanto voce ficou satisfeito com a forma como conseguiu realizar o treino?</Text>
+                <OptionChips options={EXECUCAO_OPTIONS} selected={draft.satisfactionCapacidade} onSelect={(v) => onChange({ satisfactionCapacidade: v })} />
+                <Text style={styles.formHint}>Como voce se sentiu ao terminar o treino?</Text>
+                <ScaleStr value={draft.postWorkoutFeeling} onChange={(v) => onChange({ postWorkoutFeeling: v })} lowLabel={POST_FEELING_LABELS[0]} highLabel={POST_FEELING_LABELS[1]} />
+                {!locked && (
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                    <Pressable style={[styles.secondaryButton, { flex: 1 }]} onPress={() => setFeedbackStep(0)}>
+                      <Text style={styles.secondaryButtonText}>← Voltar</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.saveCompletionButton, { flex: 2 }, !block2Complete && styles.disabledButton]}
+                      disabled={!block2Complete}
+                      onPress={() => setFeedbackStep(2)}
+                    >
+                      <Text style={styles.saveCompletionText}>Continuar →</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* BLOCO 3 — Dor e observacoes */}
+            {(locked || feedbackStep === 2) && (
+              <View>
+                {!locked && <ProgressDots current={2} />}
+                {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Dor e observacoes</Text>}
+                <Text style={styles.formHint}>Voce sentiu dor ou algum desconforto importante neste treino?</Text>
+                <OptionChips
+                  options={[
+                    { label: 'Nao', value: 'none' },
+                    { label: 'Sim, mas leve', value: 'leve' },
+                    { label: 'Sim, moderado', value: 'moderado' },
+                    { label: 'Sim, forte', value: 'forte' },
+                  ]}
+                  selected={draft.painFlag}
+                  onSelect={(v) => onChange({ painFlag: v, painTiming: v === 'none' ? '' : draft.painTiming })}
+                />
+                {draft.painFlag && draft.painFlag !== 'none' && (
+                  <View>
+                    <Text style={styles.formHint}>Quando essa dor ou desconforto apareceu?</Text>
+                    <OptionChips options={PAIN_TIMING_OPTIONS} selected={draft.painTiming} onSelect={(v) => onChange({ painTiming: v })} />
+                  </View>
+                )}
+                {draft.painFlag && draft.painFlag !== 'none' && onOpenPainReport && (
+                  <View style={styles.painNudgeBox}>
+                    <Text style={styles.painNudgeText}>Quer detalhar essa dor para seu treinador acompanhar melhor?</Text>
+                    <Pressable style={styles.secondaryButton} onPress={onOpenPainReport}>
+                      <Ionicons name="medkit" size={16} color={PRColors.ocean} />
+                      <Text style={styles.secondaryButtonText}>Relatar dor em detalhes</Text>
+                    </Pressable>
+                  </View>
+                )}
+                <TextInput
+                  style={[styles.compactInput, styles.multilineInput, { marginTop: 12 }]}
+                  value={draft.notes}
+                  onChangeText={(v) => onChange({ notes: v })}
+                  multiline
+                  placeholder="Observacoes opcionais: clima, terreno, alimentacao, sensacoes diferentes..."
+                />
+                {!locked && (
+                  <Pressable style={[styles.secondaryButton, { marginBottom: 4 }]} onPress={() => setFeedbackStep(1)}>
+                    <Text style={styles.secondaryButtonText}>← Voltar</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+          </View>
+        )}
       </View>
 
-      {draft.status === 'missed' ? (
-        <View>
-          <Text style={styles.formHint}>Por que voce nao conseguiu fazer esse treino? (pode marcar mais de um)</Text>
-          <View style={styles.completionStatusRow}>
-            {MISSED_REASON_OPTIONS.map((option) => {
-              const active = draft.missedReasons.includes(option.value);
-              return (
-                <Pressable
-                  key={option.value}
-                  style={[styles.completionChip, active && styles.completionChipActive]}
-                  onPress={() =>
-                    onChange({
-                      missedReasons: active
-                        ? draft.missedReasons.filter((value) => value !== option.value)
-                        : [...draft.missedReasons, option.value],
-                    })
-                  }
-                >
-                  <Text style={[styles.completionChipText, active && styles.completionChipTextActive]}>{option.label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <View style={styles.completionFieldGroup}>
-            <Text style={styles.inputLabel}>Quer contar mais sobre isso?</Text>
-            <TextInput
-              style={[styles.compactInput, styles.multilineInput]}
-              value={draft.missedComment}
-              onChangeText={(value) => onChange({ missedComment: value })}
-              multiline
-              placeholder="Conte com suas palavras, se quiser (opcional)"
-            />
-          </View>
-        </View>
-      ) : (
-        /* Treino feito ou ajustado: perguntas sobre execucao e satisfacao */
-        <View>
-          <View style={styles.completionFieldGroup}>
-            <Text style={styles.inputLabel}>Data realizada</Text>
-            <TextInput
-              style={styles.compactInput}
-              value={draft.completedDate}
-              onChangeText={(value) => onChange({ completedDate: formatDateInputText(value) })}
-              keyboardType="numeric"
-              placeholder="DD/MM/AAAA"
-              maxLength={10}
-            />
-          </View>
-
-          {(isRun || isAerobic) && (
-            <View style={styles.completionGrid}>
-              <View style={styles.completionWheelGroup}>
-                <Text style={styles.inputLabel}>Tempo</Text>
-                <DurationWheelField value={draft.durationMin} onChangeValue={(value) => onChange(isRun ? { durationMin: value, avgPace: computePaceFromInputs(value, draft.distanceKm) } : { durationMin: value })} />
-              </View>
-              {isRun ? (
-                <>
-                  <View style={styles.completionWheelGroup}>
-                    <Text style={styles.inputLabel}>Distancia</Text>
-                    <DistanceWheelField value={draft.distanceKm} onChangeValue={(value) => onChange({ distanceKm: value, avgPace: computePaceFromInputs(draft.durationMin, value) })} />
-                  </View>
-                  <View style={styles.completionFieldGroup}>
-                    <Text style={styles.inputLabel}>Pace medio</Text>
-                    <TextInput
-                      style={styles.compactInput}
-                      value={draft.avgPace}
-                      onChangeText={(value) => onChange({ avgPace: value })}
-                      placeholder="mm:ss"
-                    />
-                  </View>
-                </>
-              ) : null}
-            </View>
-          )}
-
-          {isRun ? (
-            <View>
-              {isIntervalSession(session) ? (
-                <>
-                  <Text style={styles.formHint}>Treino intervalado: alem das pausas de recuperacao planejadas, voce precisou parar mais?</Text>
-                  <View style={styles.completionStatusRow}>
-                    {[
-                      { label: 'Fiz todos os intervalos', value: 'intervalos_completos' },
-                      { label: 'Adaptei alguns', value: 'intervalos_adaptados' },
-                      { label: 'Parei alem do planejado', value: 'parou_alem' },
-                    ].map((option) => (
-                      <Pressable
-                        key={option.value}
-                        style={[styles.completionChip, draft.pacingMode === option.value && styles.completionChipActive]}
-                        onPress={() => onChange({ pacingMode: option.value })}
-                      >
-                        <Text style={[styles.completionChipText, draft.pacingMode === option.value && styles.completionChipTextActive]}>{option.label}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.formHint}>Voce conseguiu correr o tempo todo, ou teve pausas nao planejadas?</Text>
-                  <View style={styles.completionStatusRow}>
-                    {[
-                      { label: 'Corri o tempo todo', value: 'correu_tudo' },
-                      { label: 'Caminhei em pequenos trechos', value: 'caminhou_pouco' },
-                      { label: 'Caminhei/parei bastante', value: 'caminhou_muito' },
-                    ].map((option) => (
-                      <Pressable
-                        key={option.value}
-                        style={[styles.completionChip, draft.pacingMode === option.value && styles.completionChipActive]}
-                        onPress={() => onChange({ pacingMode: option.value })}
-                      >
-                        <Text style={[styles.completionChipText, draft.pacingMode === option.value && styles.completionChipTextActive]}>{option.label}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                </>
-              )}
-            </View>
-          ) : null}
-
-          {/* 08/09: feedback por exercicio (kg + Otimo/Ok/Dificil) movido pra dentro de cada
-              exercicio expandido em StrengthExerciseList — nao fica mais aqui como secao separada
-              embaixo do formulario (pedido do treinador: "junto com o exercicio, nao la embaixo"). */}
-
-          <Text style={styles.formHint}>Percepcao de dificuldade do treino (RPE){draft.status === 'done' ? ' - obrigatorio' : ' - opcional'}</Text>
-          <View style={styles.completionStatusRow}>
-            {Array.from({ length: 10 }, (_, index) => String(index + 1)).map((value) => (
-              <Pressable
-                key={value}
-                style={[styles.completionChip, draft.perceivedEffort === value && styles.completionChipActive]}
-                onPress={() => onChange({ perceivedEffort: value })}
-              >
-                <Text style={[styles.completionChipText, draft.perceivedEffort === value && styles.completionChipTextActive]}>{value}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          {/* 19/08: uma unica pergunta "satisfacao com o treino" era vaga demais (amei o que? nao
-              gostei do que?) — virou 4 perguntas especificas, cada uma sobre uma coisa diferente,
-              pedido explicito do treinador ("pergunta vaga = aluno perdido, igual comando vago pra
-              IA"). As 3 primeiras usam a mesma escala (a pergunta acima e' que da o contexto, nao o
-              rotulo da resposta); a de carga usa escala propria de adequacao. */}
-          <Text style={styles.formHint}>Como foi sua satisfacao com a elaboracao deste treino? (opcional)</Text>
-          <View style={styles.completionStatusRow}>
-            {SATISFACTION_OPTIONS.map((option) => (
-              <Pressable
-                key={option.value}
-                style={[styles.completionChip, draft.satisfactionElaboracao === option.value && styles.completionChipActive]}
-                onPress={() => onChange({ satisfactionElaboracao: option.value })}
-              >
-                <Text style={[styles.completionChipText, draft.satisfactionElaboracao === option.value && styles.completionChipTextActive]}>{option.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <Text style={styles.formHint}>Como foi sua satisfacao em fazer este treino? (opcional)</Text>
-          <View style={styles.completionStatusRow}>
-            {SATISFACTION_OPTIONS.map((option) => (
-              <Pressable
-                key={option.value}
-                style={[styles.completionChip, draft.satisfaction === option.value && styles.completionChipActive]}
-                onPress={() => onChange({ satisfaction: option.value })}
-              >
-                <Text style={[styles.completionChipText, draft.satisfaction === option.value && styles.completionChipTextActive]}>{option.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <Text style={styles.formHint}>Como foi sua satisfacao em como voce conseguiu fazer o treino? (opcional)</Text>
-          <View style={styles.completionStatusRow}>
-            {SATISFACTION_OPTIONS.map((option) => (
-              <Pressable
-                key={option.value}
-                style={[styles.completionChip, draft.satisfactionCapacidade === option.value && styles.completionChipActive]}
-                onPress={() => onChange({ satisfactionCapacidade: option.value })}
-              >
-                <Text style={[styles.completionChipText, draft.satisfactionCapacidade === option.value && styles.completionChipTextActive]}>{option.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <Text style={styles.formHint}>Como voce sentiu a carga deste treino? (opcional)</Text>
-          <View style={styles.completionStatusRow}>
-            {CARGA_OPTIONS.map((option) => (
-              <Pressable
-                key={option.value}
-                style={[styles.completionChip, draft.satisfactionCarga === option.value && styles.completionChipActive]}
-                onPress={() => onChange({ satisfactionCarga: option.value })}
-              >
-                <Text style={[styles.completionChipText, draft.satisfactionCarga === option.value && styles.completionChipTextActive]}>{option.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <Text style={styles.formHint}>Sentiu dor nesse treino?</Text>
-          <View style={styles.completionStatusRow}>
-            {[
-              { label: 'Nao', value: 'none' },
-              { label: 'Sim, leve', value: 'leve' },
-              { label: 'Sim, incomodou bastante', value: 'forte' },
-            ].map((option) => (
-              <Pressable
-                key={option.value}
-                style={[styles.completionChip, draft.painFlag === option.value && styles.completionChipActive]}
-                onPress={() => onChange({ painFlag: option.value })}
-              >
-                <Text style={[styles.completionChipText, draft.painFlag === option.value && styles.completionChipTextActive]}>{option.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-          {(draft.painFlag === 'leve' || draft.painFlag === 'forte') && onOpenPainReport ? (
-            <View style={styles.painNudgeBox}>
-              <Text style={styles.painNudgeText}>Notei que você sentiu dor nesse treino — quer detalhar isso agora para seu treinador acompanhar melhor?</Text>
-              <Pressable style={styles.secondaryButton} onPress={onOpenPainReport}>
-                <Ionicons name="medkit" size={16} color={PRColors.ocean} />
-                <Text style={styles.secondaryButtonText}>Relatar dor em detalhes</Text>
-              </Pressable>
-            </View>
-          ) : null}
-
-          <Text style={styles.formHint}>
-            Quanto mais sincero e detalhado for seu comentario, melhor conseguimos ajustar a qualidade dos seus proximos treinos.
-          </Text>
-          <TextInput
-            style={[styles.compactInput, styles.multilineInput]}
-            value={draft.notes}
-            onChangeText={(value) => onChange({ notes: value })}
-            multiline
-            placeholder="Comentario sobre o treino (opcional): o que achou, dificuldades, dores..."
-          />
-        </View>
-      )}
-
-      </View>{/* fecha o wrapper pointerEvents */}
+      {/* Botoes de salvar */}
       {locked ? (
-        <Pressable style={styles.secondaryButton} onPress={() => setIsEditing(true)}>
+        <Pressable style={styles.secondaryButton} onPress={() => { setIsEditing(true); setFeedbackStep(0); }}>
           <Text style={styles.secondaryButtonText}>Alterar feedback</Text>
         </Pressable>
       ) : (
         <>
-          <Pressable style={[styles.saveCompletionButton, isSubmitting && styles.disabledButton]} disabled={isSubmitting} onPress={handleSave}>
-            <Ionicons name="checkmark-circle" size={16} color={PRColors.mineral} />
-            <Text style={styles.saveCompletionText}>
-              {isSubmitting ? 'Enviando...' : isSavedOnServer ? 'Atualizar feedback' : 'Confirmar treino e enviar feedback'}
-            </Text>
-          </Pressable>
+          {/* Salvar aparece no bloco 3 (done/adjusted) ou sempre (missed) */}
+          {(draft.status === 'missed' || feedbackStep === 2) && (
+            <Pressable
+              style={[styles.saveCompletionButton, (isSubmitting || (draft.status !== 'missed' && !block3Complete)) && styles.disabledButton]}
+              disabled={isSubmitting || (draft.status !== 'missed' && !block3Complete)}
+              onPress={handleSave}
+            >
+              <Ionicons name="checkmark-circle" size={16} color={PRColors.mineral} />
+              <Text style={styles.saveCompletionText}>
+                {isSubmitting ? 'Enviando...' : isSavedOnServer ? 'Atualizar feedback' : 'Confirmar treino e enviar feedback'}
+              </Text>
+            </Pressable>
+          )}
           {isSavedOnServer && !isSubmitting && (
             <Pressable style={styles.secondaryButton} onPress={() => setIsEditing(false)}>
               <Text style={styles.secondaryButtonText}>Cancelar alteracao</Text>
@@ -8354,10 +8461,7 @@ function CompletionForm({
         </>
       )}
       {onCollapse && (
-        <Pressable
-          style={{ alignSelf: 'center', marginTop: 12, paddingVertical: 8, paddingHorizontal: 16 }}
-          onPress={onCollapse}
-        >
+        <Pressable style={{ alignSelf: 'center', marginTop: 12, paddingVertical: 8, paddingHorizontal: 16 }} onPress={onCollapse}>
           <Text style={{ color: PRColors.ocean, fontSize: 13, fontWeight: '700' }}>↑ Recolher</Text>
         </Pressable>
       )}
@@ -8805,12 +8909,18 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
   return {
     status: 'done',
     completedDate: todayDateInputValue(),
+    preSleepQuality: '',
+    prePhysicalFatigue: '',
+    preStressLevel: '',
+    preMotivation: '',
     perceivedEffort: '',
     satisfactionElaboracao: '',
-    satisfaction: '',
     satisfactionCapacidade: '',
-    satisfactionCarga: '',
+    postWorkoutFeeling: '',
     painFlag: '',
+    painTiming: '',
+    satisfaction: '',
+    satisfactionCarga: '',
     durationMin: session.durationMin ? String(session.durationMin) : '',
     distanceKm: session.distanceKm ? String(session.distanceKm) : '',
     avgPace: '',
@@ -8829,12 +8939,18 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
   return {
     status: completion.status,
     completedDate: completion.completedAt ? isoDateToInputValue(completion.completedAt) : todayDateInputValue(),
+    preSleepQuality: (completion as Record<string, unknown>).preSleepQuality != null ? String((completion as Record<string, unknown>).preSleepQuality) : '',
+    prePhysicalFatigue: (completion as Record<string, unknown>).prePhysicalFatigue != null ? String((completion as Record<string, unknown>).prePhysicalFatigue) : '',
+    preStressLevel: (completion as Record<string, unknown>).preStressLevel != null ? String((completion as Record<string, unknown>).preStressLevel) : '',
+    preMotivation: (completion as Record<string, unknown>).preMotivation != null ? String((completion as Record<string, unknown>).preMotivation) : '',
     perceivedEffort: completion.perceivedEffort ? String(completion.perceivedEffort) : '',
     satisfactionElaboracao: completion.satisfactionElaboracao ?? '',
-    satisfaction: completion.satisfaction ?? '',
     satisfactionCapacidade: completion.satisfactionCapacidade ?? '',
-    satisfactionCarga: completion.satisfactionCarga ?? '',
+    postWorkoutFeeling: (completion as Record<string, unknown>).postWorkoutFeeling != null ? String((completion as Record<string, unknown>).postWorkoutFeeling) : '',
     painFlag: completion.painFlag ?? '',
+    painTiming: (completion as Record<string, unknown>).painTiming != null ? String((completion as Record<string, unknown>).painTiming) : '',
+    satisfaction: completion.satisfaction ?? '',
+    satisfactionCarga: completion.satisfactionCarga ?? '',
     durationMin: completion.durationMin ? String(completion.durationMin) : '',
     distanceKm: completion.distanceKm ? String(completion.distanceKm) : '',
     avgPace: completion.avgPaceSecondsKm ? paceSecondsToInput(completion.avgPaceSecondsKm) : '',

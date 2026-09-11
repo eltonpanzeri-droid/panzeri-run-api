@@ -444,11 +444,32 @@ model WorkoutCompletion {
   // IA) sao colunas novas. Todas usam a mesma escala de 5 categorias (amei..detestei), exceto
   // satisfactionCarga que usa uma escala propria de adequacao (muito_leve..muito_pesada) — ver
   // SATISFACTION_SCORE/CARGA_SCORE em workout-completions.service.ts pra conversao numerica.
-  satisfaction         String? // dimensao 2: satisfacao em FAZER o treino
-  satisfactionElaboracao String? // dimensao 1: satisfacao com a ELABORACAO do treino
-  satisfactionCapacidade String? // dimensao 3: satisfacao com COMO CONSEGUIU fazer o treino
-  satisfactionCarga      String? // dimensao 4: a carga estava adequada? (muito_leve..muito_pesada)
-  painFlag         String?
+  satisfaction         String? // dimensao 2 historica: satisfacao em FAZER o treino — coletada ate 10/09/2026; substituida por postWorkoutFeeling
+  satisfactionElaboracao String? // dimensao 1: satisfacao com a ELABORACAO do treino (v1: obrigatoria a partir de 11/09)
+  satisfactionCapacidade String? // dimensao 3: satisfacao com COMO CONSEGUIU fazer (v1: obrigatoria a partir de 11/09)
+  satisfactionCarga      String? // dimensao 4 historica: carga adequada? — coletada ate 10/09/2026; nao mais coletada na v1
+
+  painFlag         String?   // none | leve | moderado | forte ('moderado' adicionado na v1)
+
+  // Feedback v1 (11/09/2026) — bloco 1: estado pre-treino
+  // 1=extremo negativo, 5=extremo positivo (ver labels em App.tsx/prescription-agent para cada variavel)
+  preSleepQuality    Int? // 1=muito ruim, 5=excelente
+  prePhysicalFatigue Int? // 1=muito baixo, 5=muito alto (cansaco fisico)
+  preStressLevel     Int? // 1=muito baixo, 5=muito alto (estresse)
+  preMotivation      Int? // 1=muito baixa, 5=muito alta
+
+  // Feedback v1 (11/09/2026) — bloco 2: experiencia da sessao
+  postWorkoutFeeling Int? // 1=muito mal, 5=muito bem (sensacao imediatamente apos terminar)
+
+  // Feedback v1 (11/09/2026) — bloco 3: dor
+  painTiming String? // condicional (so preenchido quando painFlag != 'none'):
+                     // ja_comecei_sentindo | comeco_passou | comeco_continuou |
+                     // durante_passou | durante_continuou | so_depois
+
+  // Versionamento: incrementar so quando o significado de uma variavel mudar de verdade.
+  // v1 = estrutura de 11/09/2026 (blocos 1-2-3, 8 perguntas obrigatorias + dor).
+  feedbackVersion Int @default(1)
+
   notes            String?
   details          Json?
   source           String           @default("manual")
