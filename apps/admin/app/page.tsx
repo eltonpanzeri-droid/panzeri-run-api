@@ -4466,11 +4466,12 @@ const INTERVIEW_GROUP_ORDER: Record<string, string[]> = {
   'Experiencia com corrida': [
     'running_experience', 'weekly_running_km', 'best_comfortable_pace', 'current_continuous_run',
     'quick_current_stage', 'recent_running_feeling', 'fitness_self_rating', 'races_last_12_months',
-    'longest_distance_recent', 'longest_distance_recent_count',
-    'longest_distance_recent_time',
+    // longest_distance (campo legado numérico) fica junto de recent e count para aparecerem na
+    // mesma linha da grade — "Maior distância | Maior distância (legado) | Vezes | Tempo".
+    'longest_distance_recent', 'longest_distance', 'longest_distance_recent_count', 'longest_distance_recent_time',
     'second_longest_distance_recent', 'second_longest_distance_recent_count',
     'third_longest_distance_recent', 'third_longest_distance_recent_count',
-    'longest_distance', 'ran_5k_recently',
+    'ran_5k_recently',
   ],
 };
 
@@ -4538,6 +4539,7 @@ function interviewLabel(key: string) {
     training_modality_preference: 'Preferencia de modalidades',
     routine_modality_choice: 'Modalidade de treino preferida',
     routine_modality_confirmation: 'Confirmacao de modalidade',
+    routine_observation: 'Observacao sobre a rotina',
     quick_current_stage: 'Estagio atual com a corrida',
     quick_main_barrier: 'Principais barreiras',
     quick_expectations: 'Expectativas do treinamento',
@@ -4842,7 +4844,7 @@ function TrainingCalendarDots({ history }: { history: StudentDetail['history'] }
 
   const WEEKDAYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'];
   const weeks: Date[][] = [];
-  let cur = new Date(startDate);
+  const cur = new Date(startDate);
   for (let w = 0; w < 8; w++) {
     const week: Date[] = [];
     for (let d = 0; d < 7; d++) {
