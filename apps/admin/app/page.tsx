@@ -5700,7 +5700,6 @@ function KmEvolutionChart({ weeks, period }: { weeks: WeekData[]; period: number
   const xPre = (i: number) => ML + i * slotW + slotW * 0.30; // prescrito (esquerda)
   const xDone = (i: number) => ML + i * slotW + slotW * 0.68; // realizado (direita)
   const xMid = (i: number) => ML + i * slotW + slotW * 0.49; // label eixo X
-  const y0 = MT + CH;
   const yVal = (km: number) => MT + CH - (km / topKm) * CH;
 
   // Linha de tendência: regressão linear sobre os km realizados
