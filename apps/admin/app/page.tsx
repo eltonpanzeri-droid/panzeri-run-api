@@ -2726,7 +2726,15 @@ function StudentPanel({
           <TrainingCalendarDots history={student.history ?? []} />
         </section>
 
-        {/* 3. RELATÓRIOS — colapsados */}
+        {/* 3. ANÁLISE DE CARGA — tabs: Semanal / Aguda:Crônica / Aderência */}
+        <section className="miniSection">
+          <div className="weekWorkspaceHeader">
+            <div><p className="eyebrow">Progressao e risco</p><h3>Analise de carga</h3></div>
+          </div>
+          <LoadAnalysisSection weeks={allWeeks} />
+        </section>
+
+        {/* 5. RELATÓRIOS — colapsados */}
         <section className="miniSection reportPanel">
           <div className="weekWorkspaceHeader">
             <div><p className="eyebrow">Supervisao tecnica</p><h3>Relatorios do agente</h3></div>
@@ -2752,7 +2760,7 @@ function StudentPanel({
           </details>
         </section>
 
-        {/* 4. REAVALIAÇÕES */}
+        {/* 6. REAVALIAÇÕES */}
         <section className="miniSection">
           <h3>Reavaliacoes</h3>
           {student.reassessments?.length ? (
@@ -4822,15 +4830,30 @@ const keyNumStyle: React.CSSProperties = {
 };
 const keyNumLabel: React.CSSProperties = { fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' };
 
-/** Calendário de bolinhas — últimas 8 semanas, por dia, colorido por status. */
+/** Retorna abreviação de 1 letra para a modalidade (usada nas bolinhas do calendário). */
+function modalityLetter(modality: string): string {
+  const m = (modality ?? '').toLowerCase();
+  if (m.includes('corrida') || m === 'running') return 'C';
+  if (m.includes('muscul')) return 'M';
+  if (m.includes('fortale') || m.includes('forte')) return 'F';
+  if (m.includes('caminh') || m === 'walk') return 'W';
+  return '+';
+}
+
+/** Calendário de bolinhas — últimas 8 semanas, por dia, colorido por status, com letra de modalidade. */
 function TrainingCalendarDots({ history }: { history: StudentDetail['history'] }) {
   // Coleta todas as sessões de todos os planos históricos
-  const sessionMap = new Map<string, string>(); // date → completionStatus
+  const sessionMap = new Map<string, { status: string; modality: string }>(); // date → { status, modality }
   for (const plan of (history ?? [])) {
     for (const session of (plan.sessions ?? [])) {
       const day = String(session.date).slice(0, 10);
       // Planos mais recentes têm prioridade (history vem newest-first)
-      if (!sessionMap.has(day)) sessionMap.set(day, session.completionStatus ?? 'sem_registro');
+      if (!sessionMap.has(day)) {
+        sessionMap.set(day, {
+          status: session.completionStatus ?? 'sem_registro',
+          modality: session.modality ?? '',
+        });
+      }
     }
   }
 
@@ -4855,17 +4878,14 @@ function TrainingCalendarDots({ history }: { history: StudentDetail['history'] }
   }
 
   function dotColor(dateStr: string): string {
-    const status = sessionMap.get(dateStr);
-    if (!status) return 'transparent'; // sem treino prescrito
+    const entry = sessionMap.get(dateStr);
+    if (!entry) return 'transparent'; // sem treino prescrito
+    const { status } = entry;
     if (status === 'done' || status === 'adjusted') return '#22c55e';
     if (status === 'missed') return '#ef4444';
     // sem_registro: passado = amarelo, futuro/hoje = cinza
     if (dateStr <= todayStr) return '#f59e0b';
     return '#94a3b8';
-  }
-
-  function hasSessions(dateStr: string): boolean {
-    return sessionMap.has(dateStr);
   }
 
   return (
@@ -4886,38 +4906,273 @@ function TrainingCalendarDots({ history }: { history: StudentDetail['history'] }
               <div style={{ fontSize: 10, color: 'var(--muted)', paddingTop: 4, textAlign: 'right', paddingRight: 6 }}>{weekLabel}</div>
               {week.map((day, di) => {
                 const dateStr = day.toISOString().slice(0, 10);
-                const hasSession = hasSessions(dateStr);
+                const entry = sessionMap.get(dateStr);
+                const hasSession = !!entry;
                 const color = dotColor(dateStr);
                 const isToday = dateStr === todayStr;
+                const letter = entry ? modalityLetter(entry.modality) : '';
                 return (
-                  <div key={di} title={dateStr} style={{
-                    width: 22, height: 22, borderRadius: '50%',
+                  <div key={di} title={`${dateStr}${entry ? ` – ${entry.modality || 'treino'}` : ''}`} style={{
+                    width: 24, height: 24, borderRadius: '50%',
                     background: hasSession ? color : 'var(--line)',
-                    opacity: hasSession ? 1 : 0.25,
+                    opacity: hasSession ? 1 : 0.2,
                     margin: '0 auto',
                     boxSizing: 'border-box',
                     border: isToday ? '2px solid var(--accent)' : 'none',
-                  }} />
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 8, fontWeight: 700, color: '#fff',
+                    letterSpacing: 0,
+                  }}>{hasSession ? letter : ''}</div>
                 );
               })}
             </div>
           );
         })}
-        {/* Legenda */}
+        {/* Legenda de status */}
         <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
           <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#22c55e', marginRight:4, verticalAlign:'middle' }} />Feito</span>
           <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#ef4444', marginRight:4, verticalAlign:'middle' }} />Nao feito</span>
           <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#f59e0b', marginRight:4, verticalAlign:'middle' }} />Sem registro</span>
           <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#94a3b8', marginRight:4, verticalAlign:'middle' }} />Futuro</span>
-          <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'var(--line)', marginRight:4, verticalAlign:'middle', opacity:0.25 }} />Sem treino</span>
+          <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'var(--line)', marginRight:4, verticalAlign:'middle', opacity:0.2 }} />Sem treino</span>
+        </div>
+        {/* Legenda de letras de modalidade */}
+        <div style={{ display: 'flex', gap: 10, marginTop: 6, fontSize: 10, color: 'var(--muted)', flexWrap: 'wrap' }}>
+          {[['C','Corrida'],['M','Musculação'],['F','Fortalecimento'],['W','Caminhada'],['+','Outro']].map(([l, label]) => (
+            <span key={l} style={{ display:'flex', alignItems:'center', gap:4 }}>
+              <span style={{ display:'inline-flex', width:14, height:14, borderRadius:'50%', background:'#64748b', alignItems:'center', justifyContent:'center', fontSize:7, fontWeight:700, color:'#fff' }}>{l}</span>
+              {label}
+            </span>
+          ))}
         </div>
       </div>
     </div>
   );
 }
 
+// ─── ANÁLISE DE CARGA ───────────────────────────────────────────────────────
 
+/** Container com abas: Carga Semanal / Aguda:Crônica / Aderência. */
+function LoadAnalysisSection({ weeks }: { weeks: WeekData[] }) {
+  const [tab, setTab] = useState<'semanal' | 'acr' | 'aderencia'>('semanal');
+  const tabs: Array<{ key: typeof tab; label: string }> = [
+    { key: 'semanal', label: 'Carga Semanal' },
+    { key: 'acr', label: 'Aguda:Cronica' },
+    { key: 'aderencia', label: 'Aderencia' },
+  ];
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap' }}>
+        {tabs.map(({ key, label }) => (
+          <button key={key} type="button"
+            style={{ padding: '3px 12px', fontSize: 12, borderRadius: 6,
+              background: tab === key ? 'var(--accent)' : 'transparent',
+              color: tab === key ? '#fff' : 'var(--accent)',
+              border: '1px solid var(--accent)', cursor: 'pointer', fontWeight: 500 }}
+            onClick={() => setTab(key)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === 'semanal' && <LoadChartSemanal weeks={weeks} />}
+      {tab === 'acr' && <LoadChartACR weeks={weeks} />}
+      {tab === 'aderencia' && <LoadChartAderencia weeks={weeks} />}
+    </div>
+  );
+}
 
+/** Barras coloridas por variação percentual em relação à semana anterior. */
+function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
+  if (weeks.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados.</p>;
+
+  // Cor por % de variação: azul=sem ref, verde=≤+10%, laranja=+10-25%, vermelho=>25%
+  function barColor(i: number): string {
+    if (i === 0) return '#3b82f6'; // primeira semana — sem referência
+    const prev = weeks[i - 1].completedKm;
+    if (prev === 0) return '#3b82f6';
+    const delta = (weeks[i].completedKm - prev) / prev;
+    if (delta <= 0.10) return '#22c55e';
+    if (delta <= 0.25) return '#f59e0b';
+    return '#ef4444';
+  }
+
+  const maxKm = Math.max(...weeks.map((w) => Math.max(w.completedKm, w.prescribedKm)), 1);
+  const W = 560; const H = 150; const PL = 36; const PT = 8; const PB = 28; const PR = 8;
+  const chartW = W - PL - PR;
+  const chartH = H - PT - PB;
+  const barW = Math.max(4, (chartW / weeks.length) * 0.6);
+  const gap = chartW / weeks.length;
+
+  const yFn = (km: number) => PT + chartH - (km / maxKm) * chartH;
+  const xFn = (i: number) => PL + i * gap + gap / 2;
+
+  const xLabels: { i: number; label: string }[] = [];
+  if (weeks.length <= 8) {
+    weeks.forEach((w, i) => xLabels.push({ i, label: w.startDate.slice(5, 10).replace('-', '/') }));
+  } else {
+    [0, Math.floor(weeks.length / 2), weeks.length - 1].forEach((i) =>
+      xLabels.push({ i, label: weeks[i].startDate.slice(5, 10).replace('-', '/') }));
+  }
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+        {/* Grid */}
+        {[0, 0.5, 1].map((f) => {
+          const y = PT + chartH * (1 - f);
+          return <g key={f}>
+            <line x1={PL} y1={y} x2={W - PR} y2={y} stroke="var(--line)" strokeWidth={0.5} />
+            <text x={PL - 4} y={y + 3} textAnchor="end" fontSize={9} fill="var(--muted)">{(maxKm * f).toFixed(0)}</text>
+          </g>;
+        })}
+        {/* Barras */}
+        {weeks.map((w, i) => {
+          const x = xFn(i);
+          const y = yFn(w.completedKm);
+          return (
+            <rect key={i} x={x - barW / 2} y={y} width={barW} height={PT + chartH - y}
+              fill={barColor(i)} rx={2}
+              style={{ cursor: 'default' }}>
+              <title>{w.startDate}: {w.completedKm.toFixed(1)} km</title>
+            </rect>
+          );
+        })}
+        {/* X labels */}
+        {xLabels.map(({ i, label }) => (
+          <text key={i} x={xFn(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="var(--muted)">{label}</text>
+        ))}
+      </svg>
+      {/* Legenda */}
+      <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
+        {[['#22c55e','Progressao segura (queda ou ate +10%)'],['#f59e0b','Subida forte (+10% a +25%)'],['#ef4444','Salto de carga (acima de +25%)'],['#3b82f6','Sem semana de referencia']].map(([c, l]) => (
+          <span key={l}><span style={{ display:'inline-block', width:10, height:10, borderRadius:2, background:c, marginRight:4, verticalAlign:'middle' }} />{l}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Razão Aguda:Crônica (ACWR) — Fadiga ÷ Fitness, com zonas de risco. */
+function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
+  if (weeks.length < 2) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Minimo 2 semanas de dados para calcular a razao.</p>;
+
+  // Acute = media das 4 semanas mais recentes até cada ponto; Chronic = media das 6 semanas
+  const acwr = weeks.map((_, i) => {
+    const acute = weeks.slice(Math.max(0, i - 3), i + 1);
+    const chronic = weeks.slice(Math.max(0, i - 5), i + 1);
+    const acuteAvg = acute.reduce((s, w) => s + w.completedKm, 0) / acute.length;
+    const chronicAvg = chronic.reduce((s, w) => s + w.completedKm, 0) / chronic.length;
+    return chronicAvg > 0 ? acuteAvg / chronicAvg : 1;
+  });
+
+  const W = 560; const H = 160; const PL = 36; const PT = 8; const PB = 28; const PR = 8;
+  const chartW = W - PL - PR; const chartH = H - PT - PB;
+  const maxRatio = 3;
+  const yFn = (r: number) => PT + chartH - Math.min(r / maxRatio, 1) * chartH;
+  const gap = chartW / (acwr.length - 1 || 1);
+  const xFn = (i: number) => PL + i * gap;
+
+  const points = acwr.map((r, i) => `${xFn(i)},${yFn(r)}`).join(' ');
+
+  const xLabels: { i: number; label: string }[] = [];
+  if (weeks.length <= 8) {
+    weeks.forEach((w, i) => xLabels.push({ i, label: w.startDate.slice(5, 10).replace('-', '/') }));
+  } else {
+    [0, Math.floor(weeks.length / 2), weeks.length - 1].forEach((i) =>
+      xLabels.push({ i, label: weeks[i].startDate.slice(5, 10).replace('-', '/') }));
+  }
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+        {/* Zona segura: 0.8–1.3 */}
+        <rect x={PL} y={yFn(1.3)} width={chartW} height={yFn(0.8) - yFn(1.3)} fill="#22c55e" opacity={0.12} />
+        {/* Zona de risco: >1.5 */}
+        <rect x={PL} y={PT} width={chartW} height={Math.max(0, yFn(1.5) - PT)} fill="#ef4444" opacity={0.10} />
+        {/* Linhas de referência */}
+        {[0.8, 1.0, 1.3, 1.5].map((r) => (
+          <g key={r}>
+            <line x1={PL} y1={yFn(r)} x2={W - PR} y2={yFn(r)} stroke="var(--line)" strokeWidth={r === 1.0 ? 1 : 0.5} strokeDasharray={r === 1.0 ? '0' : '3,3'} />
+            <text x={PL - 4} y={yFn(r) + 3} textAnchor="end" fontSize={9} fill="var(--muted)">{r.toFixed(1)}</text>
+          </g>
+        ))}
+        {/* Linha ACWR */}
+        {acwr.length > 1 && (
+          <polyline points={points} fill="none" stroke="#3b82f6" strokeWidth={2} strokeLinejoin="round" />
+        )}
+        {/* Pontos */}
+        {acwr.map((r, i) => (
+          <circle key={i} cx={xFn(i)} cy={yFn(r)} r={3} fill="#3b82f6">
+            <title>{weeks[i].startDate}: {r.toFixed(2)}</title>
+          </circle>
+        ))}
+        {/* X labels */}
+        {xLabels.map(({ i, label }) => (
+          <text key={i} x={xFn(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="var(--muted)">{label}</text>
+        ))}
+      </svg>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>
+        <span style={{ display:'inline-block', width:12, height:12, background:'#22c55e', opacity:0.3, verticalAlign:'middle', marginRight:4 }} />0.8 a 1.3 = zona segura
+        {'  '}
+        <span style={{ display:'inline-block', width:12, height:12, background:'#ef4444', opacity:0.3, verticalAlign:'middle', marginRight:4, marginLeft:8 }} />Acima de 1.5 = risco de lesao (carga recente alta demais para a base do atleta)
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--muted)' }}>Abaixo de 0.8 o estimulo pode ser insuficiente para evoluir.</div>
+    </div>
+  );
+}
+
+/** Linha de aderência semanal (%) */
+function LoadChartAderencia({ weeks }: { weeks: WeekData[] }) {
+  if (weeks.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados.</p>;
+
+  const W = 560; const H = 160; const PL = 36; const PT = 8; const PB = 28; const PR = 8;
+  const chartW = W - PL - PR; const chartH = H - PT - PB;
+  const yFn = (pct: number) => PT + chartH - Math.min(pct / 100, 1) * chartH;
+  const gap = chartW / (weeks.length - 1 || 1);
+  const xFn = (i: number) => PL + i * gap;
+
+  const points = weeks.map((w, i) => `${xFn(i)},${yFn(w.adherencePercent)}`).join(' ');
+  // Área preenchida abaixo da linha
+  const areaPoints = `${xFn(0)},${PT + chartH} ${points} ${xFn(weeks.length - 1)},${PT + chartH}`;
+
+  const xLabels: { i: number; label: string }[] = [];
+  if (weeks.length <= 8) {
+    weeks.forEach((w, i) => xLabels.push({ i, label: w.startDate.slice(5, 10).replace('-', '/') }));
+  } else {
+    [0, Math.floor(weeks.length / 2), weeks.length - 1].forEach((i) =>
+      xLabels.push({ i, label: weeks[i].startDate.slice(5, 10).replace('-', '/') }));
+  }
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+        {[0, 50, 80, 100].map((pct) => (
+          <g key={pct}>
+            <line x1={PL} y1={yFn(pct)} x2={W - PR} y2={yFn(pct)} stroke="var(--line)" strokeWidth={0.5} />
+            <text x={PL - 4} y={yFn(pct) + 3} textAnchor="end" fontSize={9} fill="var(--muted)">{pct}%</text>
+          </g>
+        ))}
+        {weeks.length > 1 && (
+          <>
+            <polygon points={areaPoints} fill="#22c55e" opacity={0.12} />
+            <polyline points={points} fill="none" stroke="#22c55e" strokeWidth={2} strokeLinejoin="round" />
+          </>
+        )}
+        {weeks.map((w, i) => (
+          <circle key={i} cx={xFn(i)} cy={yFn(w.adherencePercent)} r={3} fill="#22c55e">
+            <title>{w.startDate}: {w.adherencePercent.toFixed(0)}%</title>
+          </circle>
+        ))}
+        {xLabels.map(({ i, label }) => (
+          <text key={i} x={xFn(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="var(--muted)">{label}</text>
+        ))}
+      </svg>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+        Percentual de treinos feitos sobre os planejados na semana (avulsos ficam fora da conta). Queda sustentada de aderencia costuma anteceder o abandono da planilha.
+      </div>
+    </div>
+  );
+}
 
 
 
