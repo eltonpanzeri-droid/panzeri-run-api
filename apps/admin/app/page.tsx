@@ -2726,7 +2726,15 @@ function StudentPanel({
           <TrainingCalendarDots history={student.history ?? []} />
         </section>
 
-        {/* 3. ANÁLISE DE CARGA — tabs: Semanal / Aguda:Crônica / Aderência */}
+        {/* 3. FEEDBACKS DO ALUNO */}
+        <section className="miniSection">
+          <div className="weekWorkspaceHeader">
+            <div><p className="eyebrow">Percepção do aluno</p><h3>Feedbacks e satisfação</h3></div>
+          </div>
+          <FeedbackSection history={student.history ?? []} />
+        </section>
+
+        {/* 4. ANÁLISE DE CARGA — tabs: Semanal / Aguda:Crônica / Aderência */}
         <section className="miniSection">
           <div className="weekWorkspaceHeader">
             <div><p className="eyebrow">Progressao e risco</p><h3>Analise de carga</h3></div>
@@ -4830,7 +4838,16 @@ const keyNumStyle: React.CSSProperties = {
 };
 const keyNumLabel: React.CSSProperties = { fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' };
 
-/** Retorna abreviação de 1 letra para a modalidade (usada nas bolinhas do calendário). */
+type CalSession = {
+  status: string;
+  modality: string;
+  distanceKm: number | null | undefined;
+  perceivedEffort: number | null | undefined;
+  satisfaction: string | null | undefined;
+  title: string;
+};
+
+/** Abreviação de modalidade. */
 function modalityLetter(modality: string): string {
   const m = (modality ?? '').toLowerCase();
   if (m.includes('corrida') || m === 'running') return 'C';
@@ -4840,18 +4857,38 @@ function modalityLetter(modality: string): string {
   return '+';
 }
 
-/** Calendário de bolinhas — últimas 8 semanas, por dia, colorido por status, com letra de modalidade. */
+/** Cor da borda pelo esforço percebido (ring). */
+function effortRingColor(effort: number | null | undefined): string | null {
+  if (!effort) return null;
+  if (effort <= 3) return '#93c5fd'; // fácil — azul claro
+  if (effort <= 6) return '#fbbf24'; // moderado — âmbar
+  if (effort <= 8) return '#fb923c'; // intenso — laranja
+  return '#ef4444';                  // muito intenso — vermelho
+}
+
+/** Calendário de bolinhas maior — 8 semanas, multi-sessão por dia, anel de esforço. */
 function TrainingCalendarDots({ history }: { history: StudentDetail['history'] }) {
-  // Coleta todas as sessões de todos os planos históricos
-  const sessionMap = new Map<string, { status: string; modality: string }>(); // date → { status, modality }
+  // dayPlanMap: para cada dia, registra qual plano (mais recente) reivindicou esse dia
+  const dayPlanMap = new Map<string, string>(); // date → plan.id
+  const dayMap = new Map<string, CalSession[]>();
+
   for (const plan of (history ?? [])) {
     for (const session of (plan.sessions ?? [])) {
       const day = String(session.date).slice(0, 10);
-      // Planos mais recentes têm prioridade (history vem newest-first)
-      if (!sessionMap.has(day)) {
-        sessionMap.set(day, {
+      if (!dayPlanMap.has(day)) {
+        // Primeira vez que vemos esse dia = plano mais recente (history é newest-first)
+        dayPlanMap.set(day, plan.id);
+        dayMap.set(day, []);
+      }
+      // Só adiciona sessões do plano que reivindicou esse dia (evita duplicatas de planos antigos)
+      if (dayPlanMap.get(day) === plan.id) {
+        dayMap.get(day)!.push({
           status: session.completionStatus ?? 'sem_registro',
           modality: session.modality ?? '',
+          distanceKm: session.distanceKm,
+          perceivedEffort: session.perceivedEffort,
+          satisfaction: session.satisfaction,
+          title: session.title ?? '',
         });
       }
     }
@@ -4877,76 +4914,334 @@ function TrainingCalendarDots({ history }: { history: StudentDetail['history'] }
     weeks.push(week);
   }
 
-  function dotColor(dateStr: string): string {
-    const entry = sessionMap.get(dateStr);
-    if (!entry) return 'transparent'; // sem treino prescrito
-    const { status } = entry;
+  function sessionColor(status: string, dateStr: string): string {
     if (status === 'done' || status === 'adjusted') return '#22c55e';
     if (status === 'missed') return '#ef4444';
-    // sem_registro: passado = amarelo, futuro/hoje = cinza
     if (dateStr <= todayStr) return '#f59e0b';
     return '#94a3b8';
   }
 
+  const DOT = 44; // px — tamanho da bolinha principal
+
   return (
     <div style={{ overflowX: 'auto' }}>
-      <div style={{ minWidth: 320 }}>
+      <div style={{ minWidth: 380 }}>
         {/* Header dos dias da semana */}
-        <div style={{ display: 'grid', gridTemplateColumns: '52px repeat(7, 1fr)', gap: '4px 6px', marginBottom: 4 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(7, 1fr)`, gap: '4px 4px', marginBottom: 6 }}>
           <div />
           {WEEKDAYS.map((d) => (
-            <div key={d} style={{ textAlign: 'center', fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>{d}</div>
+            <div key={d} style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{d}</div>
           ))}
         </div>
         {/* Linhas de semana */}
         {weeks.map((week, wi) => {
           const weekLabel = `${week[0].getDate().toString().padStart(2, '0')}/${(week[0].getMonth() + 1).toString().padStart(2, '0')}`;
           return (
-            <div key={wi} style={{ display: 'grid', gridTemplateColumns: '52px repeat(7, 1fr)', gap: '4px 6px', marginBottom: 6 }}>
-              <div style={{ fontSize: 10, color: 'var(--muted)', paddingTop: 4, textAlign: 'right', paddingRight: 6 }}>{weekLabel}</div>
+            <div key={wi} style={{ display: 'grid', gridTemplateColumns: `52px repeat(7, 1fr)`, gap: '4px 4px', marginBottom: 8, alignItems: 'center' }}>
+              <div style={{ fontSize: 10, color: 'var(--muted)', textAlign: 'right', paddingRight: 8 }}>{weekLabel}</div>
               {week.map((day, di) => {
                 const dateStr = day.toISOString().slice(0, 10);
-                const entry = sessionMap.get(dateStr);
-                const hasSession = !!entry;
-                const color = dotColor(dateStr);
+                const sessions = dayMap.get(dateStr) ?? [];
                 const isToday = dateStr === todayStr;
-                const letter = entry ? modalityLetter(entry.modality) : '';
+                if (sessions.length === 0) {
+                  // Sem treino — bolinha vazia discreta
+                  return (
+                    <div key={di} style={{ display: 'flex', justifyContent: 'center' }}>
+                      <div title={dateStr} style={{
+                        width: DOT, height: DOT, borderRadius: '50%',
+                        background: 'var(--line)', opacity: 0.18,
+                        border: isToday ? '2px solid var(--accent)' : 'none',
+                      }} />
+                    </div>
+                  );
+                }
+                // Sessão principal = corrida se existir, senão primeira
+                const primary = sessions.find((s) => s.modality.toLowerCase().includes('corrida')) ?? sessions[0];
+                const extra = sessions.length - 1; // número de sessões adicionais
+                const bg = sessionColor(primary.status, dateStr);
+                const ring = effortRingColor(primary.perceivedEffort);
+                const letter = modalityLetter(primary.modality);
+                // Texto do dot: km para corrida, letra para outros
+                const isCorrida = primary.modality.toLowerCase().includes('corrida');
+                const kmText = isCorrida && primary.distanceKm ? `${primary.distanceKm % 1 === 0 ? primary.distanceKm.toFixed(0) : primary.distanceKm.toFixed(1)}` : null;
+                const tooltipParts = sessions.map((s) =>
+                  `${s.title || s.modality}${s.distanceKm ? ` ${s.distanceKm}km` : ''}${s.perceivedEffort ? ` • esf.${s.perceivedEffort}` : ''}${s.satisfaction ? ` • ${s.satisfaction}` : ''}`
+                );
                 return (
-                  <div key={di} title={`${dateStr}${entry ? ` – ${entry.modality || 'treino'}` : ''}`} style={{
-                    width: 24, height: 24, borderRadius: '50%',
-                    background: hasSession ? color : 'var(--line)',
-                    opacity: hasSession ? 1 : 0.2,
-                    margin: '0 auto',
-                    boxSizing: 'border-box',
-                    border: isToday ? '2px solid var(--accent)' : 'none',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 8, fontWeight: 700, color: '#fff',
-                    letterSpacing: 0,
-                  }}>{hasSession ? letter : ''}</div>
+                  <div key={di} style={{ display: 'flex', justifyContent: 'center' }}>
+                    <div style={{ position: 'relative', display: 'inline-block' }}>
+                      <div title={`${dateStr}\n${tooltipParts.join('\n')}`} style={{
+                        width: DOT, height: DOT, borderRadius: '50%',
+                        background: bg,
+                        boxSizing: 'border-box',
+                        border: isToday ? `2px solid var(--accent)` : ring ? `3px solid ${ring}` : 'none',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexDirection: 'column',
+                        cursor: 'default',
+                      }}>
+                        {kmText ? (
+                          <>
+                            <span style={{ fontSize: 11, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{kmText}</span>
+                            <span style={{ fontSize: 7.5, fontWeight: 600, color: 'rgba(255,255,255,0.85)', lineHeight: 1 }}>km</span>
+                          </>
+                        ) : (
+                          <span style={{ fontSize: 13, fontWeight: 800, color: '#fff' }}>{letter}</span>
+                        )}
+                      </div>
+                      {/* Badge para sessões extras (força + corrida no mesmo dia) */}
+                      {extra > 0 && (
+                        <div style={{
+                          position: 'absolute', top: -4, right: -4,
+                          width: 16, height: 16, borderRadius: '50%',
+                          background: '#6366f1', color: '#fff',
+                          fontSize: 9, fontWeight: 700,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          border: '1.5px solid var(--bg)',
+                        }} title={sessions.slice(1).map((s) => s.modality).join(', ')}>
+                          +{extra}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 );
               })}
             </div>
           );
         })}
-        {/* Legenda de status */}
-        <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
-          <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#22c55e', marginRight:4, verticalAlign:'middle' }} />Feito</span>
-          <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#ef4444', marginRight:4, verticalAlign:'middle' }} />Nao feito</span>
-          <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#f59e0b', marginRight:4, verticalAlign:'middle' }} />Sem registro</span>
-          <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#94a3b8', marginRight:4, verticalAlign:'middle' }} />Futuro</span>
-          <span><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'var(--line)', marginRight:4, verticalAlign:'middle', opacity:0.2 }} />Sem treino</span>
+        {/* Legenda */}
+        <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap', rowGap: 6 }}>
+          {[['#22c55e','Feito'],['#ef4444','Nao feito'],['#f59e0b','Sem registro'],['#94a3b8','Futuro']].map(([c, l]) => (
+            <span key={l}><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:c, marginRight:4, verticalAlign:'middle' }} />{l}</span>
+          ))}
+          <span style={{ borderLeft: '1px solid var(--line)', paddingLeft: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {[['C','Corrida'],['M','Muscul.'],['F','Fortal.'],['W','Caminhada']].map(([l, label]) => (
+              <span key={l} style={{ display:'flex', alignItems:'center', gap:3 }}>
+                <span style={{ display:'inline-flex', width:14, height:14, borderRadius:'50%', background:'#64748b', alignItems:'center', justifyContent:'center', fontSize:7, fontWeight:700, color:'#fff' }}>{l}</span>
+                {label}
+              </span>
+            ))}
+          </span>
         </div>
-        {/* Legenda de letras de modalidade */}
-        <div style={{ display: 'flex', gap: 10, marginTop: 6, fontSize: 10, color: 'var(--muted)', flexWrap: 'wrap' }}>
-          {[['C','Corrida'],['M','Musculação'],['F','Fortalecimento'],['W','Caminhada'],['+','Outro']].map(([l, label]) => (
-            <span key={l} style={{ display:'flex', alignItems:'center', gap:4 }}>
-              <span style={{ display:'inline-flex', width:14, height:14, borderRadius:'50%', background:'#64748b', alignItems:'center', justifyContent:'center', fontSize:7, fontWeight:700, color:'#fff' }}>{l}</span>
-              {label}
+        <div style={{ display: 'flex', gap: 10, marginTop: 5, fontSize: 10, color: 'var(--muted)', flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontWeight: 600 }}>Anel de esforço:</span>
+          {[['#93c5fd','1-3 fácil'],['#fbbf24','4-6 mod.'],['#fb923c','7-8 intenso'],['#ef4444','9-10 máx']].map(([c, l]) => (
+            <span key={l} style={{ display:'flex', alignItems:'center', gap:3 }}>
+              <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', border:`2px solid ${c}`, verticalAlign:'middle' }} />{l}
             </span>
           ))}
+          <span style={{ marginLeft: 6 }}>
+            <span style={{ display:'inline-flex', width:14, height:14, borderRadius:'50%', background:'#6366f1', alignItems:'center', justifyContent:'center', fontSize:7, fontWeight:700, color:'#fff', marginRight:3 }}>+1</span>
+            sessao adicional no dia
+          </span>
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── FEEDBACKS DO ALUNO ─────────────────────────────────────────────────────
+
+type FlatSession = {
+  date: string;
+  weekStart: string;
+  modality: string;
+  perceivedEffort: number | null;
+  satisfaction: string | null;
+  satisfactionElaboracao: string | null;
+  satisfactionCapacidade: string | null;
+  satisfactionCarga: string | null;
+  feedback: string | null;
+  status: string;
+};
+
+const SAT_SCORE: Record<string, number> = { amei: 5, gostei: 4, ok: 3, nao_gostei: 2, detestei: 1 };
+const SAT_LABEL: Record<string, string> = { amei: 'Amei', gostei: 'Gostei', ok: 'Ok', nao_gostei: 'Nao gostei', detestei: 'Detestei' };
+const SAT_COLOR: Record<string, string> = { amei: '#22c55e', gostei: '#86efac', ok: '#fbbf24', nao_gostei: '#fb923c', detestei: '#ef4444' };
+
+function FeedbackSection({ history }: { history: StudentDetail['history'] }) {
+  // Flatten todas as sessões com feedback (status done/adjusted)
+  const allSessions: FlatSession[] = [];
+  for (const plan of (history ?? [])) {
+    for (const session of (plan.sessions ?? [])) {
+      const hasFeedback =
+        session.perceivedEffort != null ||
+        session.satisfaction != null ||
+        session.satisfactionElaboracao != null ||
+        session.satisfactionCapacidade != null ||
+        session.satisfactionCarga != null ||
+        (session.feedback && session.feedback.trim().length > 0);
+      if (!hasFeedback) continue;
+      allSessions.push({
+        date: String(session.date).slice(0, 10),
+        weekStart: String(plan.startDate).slice(0, 10),
+        modality: session.modality ?? '',
+        perceivedEffort: session.perceivedEffort ?? null,
+        satisfaction: session.satisfaction ?? null,
+        satisfactionElaboracao: session.satisfactionElaboracao ?? null,
+        satisfactionCapacidade: session.satisfactionCapacidade ?? null,
+        satisfactionCarga: session.satisfactionCarga ?? null,
+        feedback: session.feedback ?? null,
+        status: session.completionStatus ?? '',
+      });
+    }
+  }
+
+  if (allSessions.length === 0) {
+    return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum feedback registrado pelo aluno ainda.</p>;
+  }
+
+  // Agrupa esforço médio por semana
+  const effortByWeek = new Map<string, number[]>();
+  for (const s of allSessions) {
+    if (s.perceivedEffort == null) continue;
+    if (!effortByWeek.has(s.weekStart)) effortByWeek.set(s.weekStart, []);
+    effortByWeek.get(s.weekStart)!.push(s.perceivedEffort);
+  }
+  const effortWeeks = Array.from(effortByWeek.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([week, values]) => ({
+      week,
+      avg: values.reduce((s, v) => s + v, 0) / values.length,
+      count: values.length,
+    }));
+
+  // Distribuição das satisfações
+  const satFields: Array<{ key: keyof FlatSession; label: string }> = [
+    { key: 'satisfaction', label: 'Geral' },
+    { key: 'satisfactionElaboracao', label: 'Elaboração' },
+    { key: 'satisfactionCapacidade', label: 'Capacidade' },
+    { key: 'satisfactionCarga', label: 'Carga' },
+  ];
+  const satDist = satFields.map(({ key, label }) => {
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const s of allSessions) {
+      const v = String(s[key] ?? '');
+      if (!v || !SAT_SCORE[v]) continue;
+      counts[v] = (counts[v] ?? 0) + 1;
+      total++;
+    }
+    const avgNum = total > 0
+      ? Object.entries(counts).reduce((acc, [k, n]) => acc + (SAT_SCORE[k] ?? 0) * n, 0) / total
+      : null;
+    return { label, counts, total, avg: avgNum };
+  });
+
+  // Comentários de texto (mais recentes primeiro)
+  const comments = [...allSessions]
+    .filter((s) => s.feedback && s.feedback.trim().length > 0)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 8);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* ── Gráfico de esforço percebido ── */}
+      {effortWeeks.length > 0 && (
+        <div>
+          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Esforço percebido por semana</p>
+          <EffortTrendChart weeks={effortWeeks} />
+        </div>
+      )}
+
+      {/* ── Satisfação por categoria ── */}
+      {satDist.some((d) => d.total > 0) && (
+        <div>
+          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Satisfação por categoria</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {satDist.filter((d) => d.total > 0).map((d) => (
+              <div key={d.label}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                  <span style={{ width: 80, fontSize: 12, fontWeight: 500, color: 'var(--text)', flexShrink: 0 }}>{d.label}</span>
+                  <div style={{ flex: 1, display: 'flex', height: 18, borderRadius: 4, overflow: 'hidden', gap: 1 }}>
+                    {['amei','gostei','ok','nao_gostei','detestei'].map((v) =>
+                      (d.counts[v] ?? 0) > 0 ? (
+                        <div key={v} title={`${SAT_LABEL[v]}: ${d.counts[v]}`}
+                          style={{ flex: d.counts[v], background: SAT_COLOR[v], display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: '#fff' }}>{d.counts[v]}</span>
+                        </div>
+                      ) : null
+                    )}
+                  </div>
+                  {d.avg != null && (
+                    <span style={{ fontSize: 12, fontWeight: 700, color: d.avg >= 4 ? '#22c55e' : d.avg >= 3 ? '#fbbf24' : '#ef4444', width: 36, textAlign: 'right' }}>
+                      {d.avg.toFixed(1)}★
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Legenda de satisfação */}
+          <div style={{ display: 'flex', gap: 10, marginTop: 8, fontSize: 10, color: 'var(--muted)', flexWrap: 'wrap' }}>
+            {(['amei','gostei','ok','nao_gostei','detestei'] as const).map((v) => (
+              <span key={v} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: SAT_COLOR[v], display: 'inline-block' }} />{SAT_LABEL[v]}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Comentários ── */}
+      {comments.length > 0 && (
+        <details>
+          <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--accent)', marginBottom: 6 }}>
+            Ver comentários em texto ({comments.length})
+          </summary>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+            {comments.map((c) => (
+              <div key={c.date + c.modality} style={{ borderLeft: '3px solid var(--line)', paddingLeft: 10 }}>
+                <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>
+                  {c.date} · {c.modality}{c.perceivedEffort != null ? ` · esforço ${c.perceivedEffort}/10` : ''}
+                </p>
+                <p style={{ fontSize: 13, color: 'var(--text)' }}>{c.feedback}</p>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+/** Gráfico de barras do esforço percebido médio por semana (escala 1-10). */
+function EffortTrendChart({ weeks }: { weeks: Array<{ week: string; avg: number; count: number }> }) {
+  const W = 560; const H = 120; const PL = 28; const PT = 8; const PB = 24; const PR = 8;
+  const chartW = W - PL - PR; const chartH = H - PT - PB;
+  const gap = chartW / (weeks.length || 1);
+  const barW = Math.max(4, gap * 0.6);
+  const yFn = (v: number) => PT + chartH - (v / 10) * chartH;
+  const xFn = (i: number) => PL + i * gap + gap / 2;
+
+  function barFill(avg: number): string {
+    if (avg <= 3) return '#93c5fd';
+    if (avg <= 6) return '#fbbf24';
+    if (avg <= 8) return '#fb923c';
+    return '#ef4444';
+  }
+
+  const xLabels = weeks.length <= 8
+    ? weeks.map((w, i) => ({ i, label: w.week.slice(5, 10).replace('-', '/') }))
+    : [0, Math.floor(weeks.length / 2), weeks.length - 1].map((i) => ({ i, label: weeks[i].week.slice(5, 10).replace('-', '/') }));
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+      {[0, 5, 7, 10].map((v) => (
+        <g key={v}>
+          <line x1={PL} y1={yFn(v)} x2={W - PR} y2={yFn(v)} stroke="var(--line)" strokeWidth={0.5} strokeDasharray={v === 5 || v === 7 ? '3,3' : ''} />
+          <text x={PL - 3} y={yFn(v) + 3} textAnchor="end" fontSize={9} fill="var(--muted)">{v}</text>
+        </g>
+      ))}
+      {weeks.map((w, i) => (
+        <rect key={i} x={xFn(i) - barW / 2} y={yFn(w.avg)} width={barW} height={PT + chartH - yFn(w.avg)}
+          fill={barFill(w.avg)} rx={3}>
+          <title>{w.week}: média {w.avg.toFixed(1)} ({w.count} treinos)</title>
+        </rect>
+      ))}
+      {xLabels.map(({ i, label }) => (
+        <text key={i} x={xFn(i)} y={H - 4} textAnchor="middle" fontSize={9} fill="var(--muted)">{label}</text>
+      ))}
+    </svg>
   );
 }
 
