@@ -2839,7 +2839,7 @@ function StudentPanel({
 
           <EvoSection icon="🕒" title="Timeline integrada" badge={allSessions.filter((s) => s.completionStatus !== 'sem_registro').length}
             desc="Todos os treinos em ordem cronológica inversa com estado pré-treino, RPE, satisfação, sensação final, dor e comentário de cada sessão num único card.">
-            <TimelineIntegradaSection history={hist} onNavigatePlan={(planId) => { setExpandedHistoryId(planId); setDetailTab('semanas'); }} />
+            <TimelineIntegradaSection history={hist} />
           </EvoSection>
 
           {/* ── REGISTROS ─────────────────────────────────────────────────── */}
@@ -5056,7 +5056,7 @@ const PRE_SERIES: Array<{ key: PreWorkoutSeries; label: string; color: string; f
   { key: 'motivacao', label: 'Motivação',  color: '#22c55e', field: 'preMotivation' },
 ];
 
-function PreWorkoutStateSection({ history, period }: { history: StudentDetail['history']; period?: number }) {
+function PreWorkoutStateSection({ history }: { history: StudentDetail['history']; period?: number }) {
   const [active, setActive] = useState<Set<PreWorkoutSeries>>(new Set(['sono', 'cansaco', 'estresse', 'motivacao']));
   const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('sessao');
 
@@ -5179,7 +5179,7 @@ const EXP_SERIES: Array<{ key: ExpSeries; label: string; color: string }> = [
 ];
 const SAT_TO_5: Record<string, number> = { amei: 5, gostei: 4, neutro: 3, nao_gostei: 2, detestei: 1 };
 
-function ExperienciaTreinoSection({ history, period }: { history: StudentDetail['history']; period?: number }) {
+function ExperienciaTreinoSection({ history }: { history: StudentDetail['history']; period?: number }) {
   const [active, setActive] = useState<Set<ExpSeries>>(new Set(['elaboracao', 'execucao', 'sensacao']));
   const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('sessao');
   const [showDist, setShowDist] = useState(false);
@@ -5333,10 +5333,9 @@ function DorLongitudinalSection({ history }: { history: StudentDetail['history']
   if (sessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum dado de dor disponível (coleta a partir de 11/09/2026).</p>;
 
   const withPain = sessions.filter((s) => s.painFlag && s.painFlag !== 'none');
-  const noPain = sessions.length - withPain.length;
 
   // Gráfico de pontos coloridos por nível de dor
-  const W = 560; const H = 80; const PL = 8; const PR = 8; const PT = 12; const PB = 24;
+  const W = 560; const H = 80; const PL = 8; const PR = 8;
   const gW = W - PL - PR; const n = sessions.length;
   const xStep = n > 1 ? gW / (n - 1) : 0;
   const cx = (i: number) => PL + i * xStep;
@@ -5564,9 +5563,9 @@ function ExplorarRelacoesSection({ history }: { history: StudentDetail['history'
 }
 
 // ── TIMELINE INTEGRADA ─────────────────────────────────────────────────────
-function TimelineIntegradaSection({ history, onNavigatePlan }: {
+function TimelineIntegradaSection({ history }: {
   history: StudentDetail['history'];
-  onNavigatePlan?: (planId: string) => void;
+
 }) {
   const [limit, setLimit] = useState(20);
 
@@ -5590,7 +5589,7 @@ function TimelineIntegradaSection({ history, onNavigatePlan }: {
   return (
     <div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {visible.map(({ plan, session: s }) => {
+        {visible.map(({ session: s }) => {
           const painLvl = painFlagNumeric(s.painFlag ?? null);
           const isMissed = s.completionStatus === 'missed';
           return (
@@ -6376,6 +6375,7 @@ function EffortLegend({ sessions }: { sessions: Array<{ perceivedEffort: number|
 }
 
 /** Satisfação por categoria — gráfico individual por categoria + filtro de modalidade. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function SatisfactionSection({ history, period }: { history: StudentDetail['history']; period?: number }) {
   const [modalityFilter, setModalityFilter] = useState<string>('all');
   const allSessions = flatFeedbackSessions(history);
