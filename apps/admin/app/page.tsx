@@ -2792,7 +2792,7 @@ function StudentPanel({
 
           <EvoSection icon="📋" title="Aderência aos treinos" badge={filteredWeeks.length > 0 ? `${filteredWeeks.length} sem` : undefined}
             desc="% de treinos planejados que foram realizados por semana. Meta ideal: acima de 80%. Queda sustentada por 2+ semanas merece atenção ao contexto.">
-            <LoadChartAderencia weeks={filteredWeeks} />
+            <LoadChartAderencia weeks={filteredWeeks} history={hist} />
           </EvoSection>
 
           <EvoSection icon="📈" title="Análise de carga (ACWR)" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
@@ -5671,82 +5671,102 @@ type WeekData = {
 };
 
 /** Gráfico SVG de KM semanal: barras = feito, linha tracejada = prescrito. */
+/** Gráfico semanal: duas colunas por semana (prescrito + realizado) + linha de tendência.
+ *
+ *  Cores da coluna REALIZADO — cada cor tem um motivo de treinamento:
+ *  🟩 Verde  (≥ 90% do prescrito): meta atingida, carga absorvida conforme planejado.
+ *  🟧 Laranja (< 90% do prescrito): abaixo da meta — investigar causa antes de progredir.
+ *  🩵 Ciano  (acima do prescrito): volume extra além do plano — pode indicar treino autônomo
+ *             ou sessão bônus; relevante monitorar junto com RPE e dor.
+ *  Coluna PRESCRITO: sempre azul-acinzentado — é apenas a referência do planejado.
+ *  Linha de tendência: regressão linear do volume realizado no período (sobe/desce/estável).
+ */
 function KmEvolutionChart({ weeks, period }: { weeks: WeekData[]; period: number }) {
   const visible = weeks.slice(period === 999 ? 0 : Math.max(0, weeks.length - period));
   if (visible.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados suficientes para o período selecionado.</p>;
 
-  const VW = 600, VH = 180;
-  const ML = 36, MR = 8, MT = 22, MB = 30;
-  const CW = VW - ML - MR;
-  const CH = VH - MT - MB;
+  const VW = 620; const VH = 210;
+  const ML = 40; const MR = 10; const MT = 20; const MB = 30;
+  const CW = VW - ML - MR; const CH = VH - MT - MB;
+
   const maxKm = Math.max(...visible.flatMap((w) => [w.completedKm, w.prescribedKm]), 5);
   const topKm = Math.ceil(maxKm / 5) * 5;
-  const barSlot = CW / visible.length;
-  const barW = Math.max(4, Math.min(32, barSlot * 0.60));
 
-  const xCenter = (i: number) => ML + i * barSlot + barSlot / 2;
+  const slotW = CW / visible.length;
+  // Cada barra ocupa ~30% do slot; gap visual entre elas
+  const bW = Math.max(3, Math.min(18, slotW * 0.31));
+
+  // Centros das duas barras dentro de cada slot
+  const xPre = (i: number) => ML + i * slotW + slotW * 0.30; // prescrito (esquerda)
+  const xDone = (i: number) => ML + i * slotW + slotW * 0.68; // realizado (direita)
+  const xMid = (i: number) => ML + i * slotW + slotW * 0.49; // label eixo X
+  const y0 = MT + CH;
   const yVal = (km: number) => MT + CH - (km / topKm) * CH;
 
-  // Linha tracejada dos km prescritos
-  const linePts = visible.map((w, i) => `${xCenter(i)},${yVal(w.prescribedKm)}`).join(' ');
+  // Linha de tendência: regressão linear sobre os km realizados
+  const n = visible.length;
+  if (n < 1) return null;
+  const meanX = (n - 1) / 2;
+  const meanY = visible.reduce((s, w) => s + w.completedKm, 0) / n;
+  const denom = visible.reduce((s, _, i) => s + (i - meanX) ** 2, 0);
+  const slope = denom !== 0 ? visible.reduce((s, w, i) => s + (i - meanX) * (w.completedKm - meanY), 0) / denom : 0;
+  const intercept = meanY - slope * meanX;
+  const trendPath = `M${xDone(0)},${yVal(intercept)} L${xDone(n - 1)},${yVal(intercept + slope * (n - 1))}`;
 
-  // Labels do eixo X: mostrar início, a cada 2, e fim quando há muitas semanas
+  const showLabel = bW >= 10;
   const xLabels: number[] = visible.length <= 12
     ? visible.map((_, i) => i)
-    : visible.map((_, i) => i).filter((i) => i === 0 || i === visible.length - 1 || i % Math.ceil(visible.length / 8) === 0);
-
-  // Rótulo de valor na barra: só mostra se a barra tiver largura suficiente (≥ 14px)
-  const showBarLabel = barW >= 14;
+    : [0, Math.floor(n / 4), Math.floor(n / 2), Math.floor(3 * n / 4), n - 1];
 
   return (
     <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', overflow: 'visible', display: 'block' }}>
-      {/* Grid lines */}
-      {[0, topKm / 4, topKm / 2, topKm * 3/4, topKm].map((km) => (
+      {/* Grid */}
+      {[0, topKm / 4, topKm / 2, topKm * 3 / 4, topKm].map((km) => (
         <g key={km}>
           <line x1={ML} x2={VW - MR} y1={yVal(km)} y2={yVal(km)} stroke="var(--line)" strokeWidth={km === 0 ? 1 : 0.5} />
           <text x={ML - 4} y={yVal(km) + 4} textAnchor="end" fontSize={9} fill="var(--muted)">{km}km</text>
         </g>
       ))}
-      {/* Barras — completedKm */}
+
+      {/* Barras: prescrito (esq) + realizado (dir) */}
       {visible.map((w, i) => {
-        const bh = (w.completedKm / topKm) * CH;
-        const color = w.completedKm >= w.prescribedKm * 0.9 ? '#22c55e' : w.completedKm > 0 ? '#f59e0b' : '#e2e8f0';
-        const barTop = yVal(w.completedKm);
+        const pctDone = w.prescribedKm > 0 ? w.completedKm / w.prescribedKm : 1;
+        const baseKm = Math.min(w.completedKm, w.prescribedKm);
+        const extraKm = Math.max(0, w.completedKm - w.prescribedKm);
+        const baseColor = w.completedKm === 0 ? '#cbd5e1' : pctDone >= 0.9 ? '#22c55e' : '#f59e0b';
+
         return (
           <g key={i}>
-            <rect
-              x={xCenter(i) - barW / 2}
-              y={barTop}
-              width={barW}
-              height={Math.max(1, bh)}
-              rx={3}
-              fill={color}
-            >
-              <title>{w.startDate}: {w.completedKm}km feito / {w.prescribedKm}km prescrito</title>
-            </rect>
-            {/* Rótulo de km no topo da barra */}
-            {showBarLabel && w.completedKm > 0 && (
-              <text
-                x={xCenter(i)}
-                y={barTop - 3}
-                textAnchor="middle"
-                fontSize={8}
-                fontWeight={600}
-                fill={color}
-              >
+            <title>{w.startDate}: prescrito {w.prescribedKm}km · realizado {w.completedKm}km ({Math.round(pctDone * 100)}%)</title>
+            {/* Barra prescrito */}
+            {w.prescribedKm > 0 && (
+              <rect x={xPre(i) - bW / 2} y={yVal(w.prescribedKm)} width={bW} height={Math.max(1, (w.prescribedKm / topKm) * CH)} rx={2} fill="#94a3b8" opacity={0.6} />
+            )}
+            {/* Barra realizado — base (até o prescrito) */}
+            {w.completedKm > 0 && (
+              <rect x={xDone(i) - bW / 2} y={yVal(baseKm)} width={bW} height={Math.max(1, (baseKm / topKm) * CH)} rx={2} fill={baseColor} />
+            )}
+            {/* Parcela extra (acima do prescrito) */}
+            {extraKm > 0 && (
+              <rect x={xDone(i) - bW / 2} y={yVal(w.completedKm)} width={bW} height={(extraKm / topKm) * CH} rx={2} fill="#06b6d4" />
+            )}
+            {/* Rótulo no topo da barra realizado */}
+            {showLabel && w.completedKm > 0 && (
+              <text x={xDone(i)} y={yVal(w.completedKm) - 3} textAnchor="middle" fontSize={8} fontWeight={700}
+                fill={extraKm > 0 ? '#06b6d4' : baseColor}>
                 {w.completedKm % 1 === 0 ? w.completedKm : w.completedKm.toFixed(1)}
               </text>
             )}
           </g>
         );
       })}
-      {/* Linha tracejada — prescribedKm */}
-      {visible.some((w) => w.prescribedKm > 0) && (
-        <polyline points={linePts} fill="none" stroke="#6366f1" strokeWidth={1.5} strokeDasharray="4 3" opacity={0.7} />
-      )}
+
+      {/* Linha de tendência — regressão linear */}
+      {n >= 2 && <path d={trendPath} fill="none" stroke="#6366f1" strokeWidth={2} strokeLinecap="round" opacity={0.85} />}
+
       {/* Labels eixo X */}
       {xLabels.map((i) => (
-        <text key={i} x={xCenter(i)} y={VH - 4} textAnchor="middle" fontSize={9} fill="var(--muted)">
+        <text key={i} x={xMid(i)} y={VH - 4} textAnchor="middle" fontSize={9} fill="var(--muted)">
           {visible[i]?.startDate.slice(5).replace('-', '/')}
         </text>
       ))}
@@ -5938,8 +5958,14 @@ function TrainingCalendarDots({ history, onDayClick }: {
                         style={{
                         width: DOT, height: DOT, borderRadius: '50%',
                         background: bg,
-                        boxSizing: 'border-box',
-                        border: isToday ? `2px solid var(--accent)` : ring ? `3px solid ${ring}` : 'none',
+                        // Anel de esforço via box-shadow — fora do círculo, com gap branco para destacar.
+                        // Camada 1 (interna): gap branco de 2px. Camada 2 (externa): anel colorido 3px.
+                        // Quando é "hoje", substitui pelo anel de acento do tema.
+                        boxShadow: isToday
+                          ? '0 0 0 2px var(--bg), 0 0 0 5px var(--accent)'
+                          : ring
+                          ? `0 0 0 2px var(--bg), 0 0 0 5px ${ring}`
+                          : 'none',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         flexDirection: 'column',
                         cursor: onDayClick ? 'pointer' : 'default',
@@ -5995,7 +6021,8 @@ function TrainingCalendarDots({ history, onDayClick }: {
           <span style={{ fontWeight: 600 }}>Anel de esforço:</span>
           {[['#93c5fd','1-3 fácil'],['#fbbf24','4-6 mod.'],['#fb923c','7-8 intenso'],['#ef4444','9-10 máx']].map(([c, l]) => (
             <span key={l} style={{ display:'flex', alignItems:'center', gap:3 }}>
-              <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', border:`2px solid ${c}`, verticalAlign:'middle' }} />{l}
+              {/* Mini-dot igual ao do calendário: fundo neutro + anel externo colorido */}
+              <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#64748b', boxShadow:`0 0 0 2px var(--bg), 0 0 0 4px ${c}`, verticalAlign:'middle', marginRight: 2 }} />{l}
             </span>
           ))}
           <span style={{ marginLeft: 6 }}>
@@ -6834,12 +6861,29 @@ function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
         {acwr.length > 1 && (
           <polyline points={points} fill="none" stroke="#3b82f6" strokeWidth={2} strokeLinejoin="round" />
         )}
-        {/* Pontos */}
-        {acwr.map((r, i) => (
-          <circle key={i} cx={xFn(i)} cy={yFn(r)} r={3} fill="#3b82f6">
-            <title>{weeks[i].startDate}: {r.toFixed(2)}</title>
-          </circle>
-        ))}
+        {/* Pontos + valores inline */}
+        {acwr.map((r, i) => {
+          const cx = xFn(i); const cy = yFn(r);
+          const safe = r >= 0.8 && r <= 1.3;
+          const risky = r > 1.5;
+          const labelColor = risky ? '#ef4444' : safe ? '#22c55e' : '#f59e0b';
+          // Alterna posição (acima/abaixo) para evitar sobreposição quando há muitos pontos
+          const above = i % 2 === 0;
+          const labelY = above ? cy - 8 : cy + 16;
+          const showVal = weeks.length <= 16 || i === 0 || i === acwr.length - 1 || i % 2 === 0;
+          return (
+            <g key={i}>
+              <circle cx={cx} cy={cy} r={4} fill="#3b82f6">
+                <title>{weeks[i].startDate}: {r.toFixed(2)}</title>
+              </circle>
+              {showVal && (
+                <text x={cx} y={labelY} textAnchor="middle" fontSize={8.5} fontWeight={700} fill={labelColor}>
+                  {r.toFixed(2)}
+                </text>
+              )}
+            </g>
+          );
+        })}
         {/* X labels */}
         {xLabels.map(({ i, label }) => (
           <text key={i} x={xFn(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="var(--muted)">{label}</text>
@@ -6855,54 +6899,162 @@ function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
   );
 }
 
-/** Linha de aderência semanal (%) */
-function LoadChartAderencia({ weeks }: { weeks: WeekData[] }) {
+/** Gráfico de colunas de aderência semanal com filtro por modalidade.
+ *
+ *  3 colunas por semana — cada uma com o número inline:
+ *  🔵 Cinza (Prescritos): sessões planejadas para a semana
+ *  🟢 Verde  (Feitos):     sessões concluídas (done + adjusted)
+ *  🟡 Âmbar  (Sem reg.):   sessões sem registro de conclusão pelo aluno
+ *  🩵 Ciano  (Extras):     sessões além do prescrito (só visível no filtro "Geral")
+ */
+function LoadChartAderencia({ weeks, history }: {
+  weeks: WeekData[];
+  history?: Array<{ startDate: string | null; sessions?: Array<{ modality: string; completionStatus: string }> | null }>;
+}) {
+  const [modFilter, setModFilter] = useState<string>('all');
+
   if (weeks.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados.</p>;
 
-  const W = 560; const H = 160; const PL = 36; const PT = 8; const PB = 28; const PR = 8;
-  const chartW = W - PL - PR; const chartH = H - PT - PB;
-  const yFn = (pct: number) => PT + chartH - Math.min(pct / 100, 1) * chartH;
-  const gap = chartW / (weeks.length - 1 || 1);
-  const xFn = (i: number) => PL + i * gap;
-
-  const points = weeks.map((w, i) => `${xFn(i)},${yFn(w.adherencePercent)}`).join(' ');
-  // Área preenchida abaixo da linha
-  const areaPoints = `${xFn(0)},${PT + chartH} ${points} ${xFn(weeks.length - 1)},${PT + chartH}`;
-
-  const xLabels: { i: number; label: string }[] = [];
-  if (weeks.length <= 8) {
-    weeks.forEach((w, i) => xLabels.push({ i, label: w.startDate.slice(5, 10).replace('-', '/') }));
-  } else {
-    [0, Math.floor(weeks.length / 2), weeks.length - 1].forEach((i) =>
-      xLabels.push({ i, label: weeks[i].startDate.slice(5, 10).replace('-', '/') }));
+  // Map: weekStart → sessions[]
+  const planMap = new Map<string, Array<{ modality: string; completionStatus: string }>>();
+  for (const plan of (history ?? [])) {
+    const ws = String(plan.startDate ?? '').slice(0, 10);
+    planMap.set(ws, (plan.sessions ?? []).map((s) => ({ modality: s.modality ?? '', completionStatus: s.completionStatus ?? '' })));
   }
+
+  function normMod(m: string): string {
+    const ml = m.toLowerCase();
+    if (ml.includes('corrida')) return 'corrida';
+    if (ml.includes('muscul')) return 'musculacao';
+    if (ml.includes('fortalec')) return 'fortalecimento';
+    if (ml.includes('caminhada')) return 'caminhada';
+    return 'outro';
+  }
+
+  // Only show modality options that actually appear in data
+  const modsInData = new Set<string>();
+  for (const sessions of planMap.values()) sessions.forEach((s) => modsInData.add(normMod(s.modality)));
+  const MOD_OPTS = [
+    { key: 'all', label: 'Geral' },
+    { key: 'corrida', label: 'Corrida' },
+    { key: 'musculacao', label: 'Musculação' },
+    { key: 'fortalecimento', label: 'Fortalec.' },
+    { key: 'caminhada', label: 'Caminhada' },
+  ].filter((m) => m.key === 'all' || modsInData.has(m.key));
+
+  const barData = weeks.map((w) => {
+    const all = planMap.get(w.startDate) ?? [];
+    const filtered = modFilter === 'all' ? all : all.filter((s) => normMod(s.modality) === modFilter);
+    const prescritos = filtered.length;
+    const feitos = filtered.filter((s) => s.completionStatus === 'done' || s.completionStatus === 'adjusted').length;
+    const semReg = filtered.filter((s) => s.completionStatus === 'sem_registro').length;
+    // Extras: só no modo Geral — sessões completadas além do prescrito na semana
+    const extras = modFilter === 'all' ? Math.max(0, w.completedSessions - w.prescribedSessions) : 0;
+    return { startDate: w.startDate, prescritos, feitos, semReg, extras };
+  });
+
+  const maxVal = Math.max(...barData.map((d) => Math.max(d.prescritos, d.feitos + d.extras, d.semReg)), 1);
+
+  const VW = 620; const VH = 210;
+  const ML = 24; const MR = 8; const MT = 24; const MB = 36;
+  const CW = VW - ML - MR; const CH = VH - MT - MB;
+  const slotW = CW / barData.length;
+  const bW = Math.max(4, Math.min(16, slotW * 0.28));
+
+  // 3 bar positions per slot
+  const xPre  = (i: number) => ML + i * slotW + slotW * 0.22;
+  const xFeit = (i: number) => ML + i * slotW + slotW * 0.50;
+  const xSem  = (i: number) => ML + i * slotW + slotW * 0.78;
+  const xMid  = (i: number) => ML + i * slotW + slotW * 0.50;
+  const y0 = MT + CH;
+  const yV = (v: number) => MT + CH - (v / maxVal) * CH;
+
+  const showLabel = bW >= 8;
+  const xLabels = barData.length <= 12
+    ? barData.map((_, i) => i)
+    : [0, Math.floor(barData.length / 3), Math.floor(2 * barData.length / 3), barData.length - 1];
 
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block', overflow: 'visible' }}>
-        {[0, 50, 80, 100].map((pct) => (
-          <g key={pct}>
-            <line x1={PL} y1={yFn(pct)} x2={W - PR} y2={yFn(pct)} stroke="var(--line)" strokeWidth={0.5} />
-            <text x={PL - 4} y={yFn(pct) + 3} textAnchor="end" fontSize={9} fill="var(--muted)">{pct}%</text>
+      {/* Filtro de modalidade */}
+      {MOD_OPTS.length > 1 && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+          {MOD_OPTS.map((m) => (
+            <button key={m.key} type="button" onClick={() => setModFilter(m.key)} style={{
+              padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              border: '1.5px solid',
+              borderColor: modFilter === m.key ? 'var(--accent)' : 'var(--line)',
+              background: modFilter === m.key ? 'var(--accent)' : 'transparent',
+              color: modFilter === m.key ? '#fff' : 'var(--text)',
+              transition: 'all 0.15s',
+            }}>{m.label}</button>
+          ))}
+        </div>
+      )}
+
+      <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block', overflow: 'visible' }}>
+        {/* Baseline + gridlines */}
+        <line x1={ML} x2={VW - MR} y1={y0} y2={y0} stroke="var(--line)" strokeWidth={1} />
+        {Array.from({ length: maxVal }, (_, v) => v + 1).map((v) => (
+          <g key={v}>
+            <line x1={ML} x2={VW - MR} y1={yV(v)} y2={yV(v)} stroke="var(--line)" strokeWidth={0.4} />
+            <text x={ML - 4} y={yV(v) + 4} textAnchor="end" fontSize={9} fill="var(--muted)">{v}</text>
           </g>
         ))}
-        {weeks.length > 1 && (
-          <>
-            <polygon points={areaPoints} fill="#22c55e" opacity={0.12} />
-            <polyline points={points} fill="none" stroke="#22c55e" strokeWidth={2} strokeLinejoin="round" />
-          </>
-        )}
-        {weeks.map((w, i) => (
-          <circle key={i} cx={xFn(i)} cy={yFn(w.adherencePercent)} r={3} fill="#22c55e">
-            <title>{w.startDate}: {w.adherencePercent.toFixed(0)}%</title>
-          </circle>
-        ))}
-        {xLabels.map(({ i, label }) => (
-          <text key={i} x={xFn(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="var(--muted)">{label}</text>
+
+        {/* Barras */}
+        {barData.map((d, i) => {
+          const bhPre   = (d.prescritos / maxVal) * CH;
+          const bhFeit  = (d.feitos     / maxVal) * CH;
+          const bhExtra = (d.extras     / maxVal) * CH;
+          const bhSem   = (d.semReg     / maxVal) * CH;
+          return (
+            <g key={i}>
+              <title>{d.startDate}: {d.prescritos} prescritos · {d.feitos} feitos · {d.semReg} sem registro{d.extras > 0 ? ` · ${d.extras} extra${d.extras > 1 ? 's' : ''}` : ''}</title>
+              {/* Prescrito */}
+              {d.prescritos > 0 && <rect x={xPre(i) - bW / 2} y={yV(d.prescritos)} width={bW} height={bhPre} rx={2} fill="#94a3b8" opacity={0.75} />}
+              {showLabel && d.prescritos > 0 && (
+                <text x={xPre(i)} y={yV(d.prescritos) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#64748b">{d.prescritos}</text>
+              )}
+              {/* Feito */}
+              {d.feitos > 0 && <rect x={xFeit(i) - bW / 2} y={yV(d.feitos)} width={bW} height={bhFeit} rx={2} fill="#22c55e" />}
+              {/* Extra empilhado no topo do "feito" */}
+              {d.extras > 0 && <rect x={xFeit(i) - bW / 2} y={yV(d.feitos + d.extras)} width={bW} height={bhExtra} rx={2} fill="#06b6d4" />}
+              {showLabel && (d.feitos + d.extras) > 0 && (
+                <text x={xFeit(i)} y={yV(d.feitos + d.extras) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700}
+                  fill={d.extras > 0 ? '#06b6d4' : '#22c55e'}>
+                  {d.feitos}{d.extras > 0 ? `+${d.extras}` : ''}
+                </text>
+              )}
+              {/* Sem registro */}
+              {d.semReg > 0 && <rect x={xSem(i) - bW / 2} y={yV(d.semReg)} width={bW} height={bhSem} rx={2} fill="#f59e0b" />}
+              {showLabel && d.semReg > 0 && (
+                <text x={xSem(i)} y={yV(d.semReg) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#d97706">{d.semReg}</text>
+              )}
+            </g>
+          );
+        })}
+
+        {/* Labels eixo X */}
+        {xLabels.map((i) => (
+          <text key={i} x={xMid(i)} y={VH - 10} textAnchor="middle" fontSize={9} fill="var(--muted)">
+            {barData[i]?.startDate.slice(5, 10).replace('-', '/')}
+          </text>
         ))}
       </svg>
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-        Percentual de treinos feitos sobre os planejados na semana (avulsos ficam fora da conta). Queda sustentada de aderencia costuma anteceder o abandono da planilha.
+
+      {/* Legenda */}
+      <div style={{ display: 'flex', gap: 14, fontSize: 11, color: 'var(--muted)', marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+        {[
+          ['#94a3b8', 'Prescritos'],
+          ['#22c55e', 'Feitos'],
+          ['#f59e0b', 'Sem registro'],
+          ['#06b6d4', 'Extras (além do plano)'],
+        ].map(([c, l]) => (
+          <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: c }} />{l}
+          </span>
+        ))}
       </div>
     </div>
   );
