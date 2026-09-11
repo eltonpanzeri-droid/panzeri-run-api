@@ -1988,9 +1988,6 @@ function StudentPanel({
   // 11/09: período universal da aba Evolução — compartilhado por todos os gráficos e seções.
   // Padrão 12 semanas (~3 meses). Opções: 4/8/12/24/52/999(Tudo).
   const [evolPeriod, setEvolPeriod] = useState<4 | 8 | 12 | 24 | 52 | 999>(12);
-  // chartPeriod: alias de compatibilidade com KmEvolutionChart/EvolutionKeyNumbers.
-  const chartPeriod = evolPeriod;
-  const setChartPeriod = setEvolPeriod as (v: 4 | 8 | 12 | 999) => void;
 
   useEffect(() => {
     setEditName(student?.name ?? '');
