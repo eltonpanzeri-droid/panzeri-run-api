@@ -1985,8 +1985,12 @@ function StudentPanel({
   // ver studentViewMode no componente pai pro contexto completo dessa mudanca). "Treinos" e' a aba
   // padrao por ser a mais usada no dia a dia.
   const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao'>('treinos');
-  // 10/09: seletor de período do gráfico de KM na aba Evolução (padrão 12 semanas = ~3 meses).
-  const [chartPeriod, setChartPeriod] = useState<4 | 8 | 12 | 999>(12);
+  // 11/09: período universal da aba Evolução — compartilhado por todos os gráficos e seções.
+  // Padrão 12 semanas (~3 meses). Opções: 4/8/12/24/52/999(Tudo).
+  const [evolPeriod, setEvolPeriod] = useState<4 | 8 | 12 | 24 | 52 | 999>(12);
+  // chartPeriod: alias de compatibilidade com KmEvolutionChart/EvolutionKeyNumbers.
+  const chartPeriod = evolPeriod;
+  const setChartPeriod = setEvolPeriod as (v: 4 | 8 | 12 | 999) => void;
 
   useEffect(() => {
     setEditName(student?.name ?? '');
@@ -2710,40 +2714,56 @@ function StudentPanel({
         for (const p of hist) for (const s of p.sessions ?? [])
           if (s.feedback && PAIN_KW.some((kw) => s.feedback!.toLowerCase().includes(kw))) painComments++;
 
+        // 11/09: handler para navegar para Semanas anteriores ao clicar em bolinha do calendário.
+        const handleCalendarDayClick = (planId: string) => {
+          setExpandedHistoryId(planId);
+          setDetailTab('semanas');
+        };
+
         return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
 
+          {/* ── FILTRO UNIVERSAL DE PERÍODO ──────────────────────────────────── */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 4px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Período</span>
+            {([
+              [4,  '4 sem'], [8, '8 sem'], [12, '12 sem'],
+              [24, '6 meses'], [52, '1 ano'], [999, 'Tudo'],
+            ] as [4|8|12|24|52|999, string][]).map(([p, label]) => (
+              <button key={p} type="button"
+                style={{ padding: '4px 12px', fontSize: 12, borderRadius: 20,
+                  background: evolPeriod === p ? 'var(--accent)' : 'var(--surface)',
+                  color: evolPeriod === p ? '#fff' : 'var(--muted)',
+                  border: `1px solid ${evolPeriod === p ? 'var(--accent)' : 'var(--line)'}`,
+                  cursor: 'pointer', fontWeight: evolPeriod === p ? 700 : 400 }}
+                onClick={() => setEvolPeriod(p)}>
+                {label}
+              </button>
+            ))}
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>
+              Clique nas bolinhas do calendário para ver o treino completo
+            </span>
+          </div>
+
           {/* ① QUILOMETRAGEM */}
           <EvoSection icon="📊" title="Quilometragem semanal" badge={`${allWeeks.length} sem`}>
-            <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-              {([4, 8, 12, 999] as const).map((p) => (
-                <button key={p} type="button"
-                  style={{ padding: '2px 10px', fontSize: 12, borderRadius: 6,
-                    background: chartPeriod === p ? 'var(--accent)' : 'transparent',
-                    color: chartPeriod === p ? '#fff' : 'var(--accent)',
-                    border: '1px solid var(--accent)', cursor: 'pointer', fontWeight: 500 }}
-                  onClick={() => setChartPeriod(p)}>
-                  {p === 999 ? 'Tudo' : `${p} sem`}
-                </button>
-              ))}
-            </div>
-            <KmEvolutionChart weeks={allWeeks} period={chartPeriod} />
-            <EvolutionKeyNumbers weeks={allWeeks} period={chartPeriod} />
+            <KmEvolutionChart weeks={allWeeks} period={evolPeriod} />
+            <EvolutionKeyNumbers weeks={allWeeks} period={evolPeriod} />
           </EvoSection>
 
           {/* ② CALENDÁRIO */}
           <EvoSection icon="📅" title="Calendário de treinos" badge="8 sem">
-            <TrainingCalendarDots history={hist} />
+            <TrainingCalendarDots history={hist} onDayClick={handleCalendarDayClick} />
           </EvoSection>
 
           {/* ③ ESFORÇO PERCEBIDO */}
           <EvoSection icon="💪" title="Esforço percebido" badge={feedbackSessions > 0 ? `${feedbackSessions} treinos` : undefined}>
-            <EffortSection history={hist} />
+            <EffortSection history={hist} period={evolPeriod} />
           </EvoSection>
 
           {/* ④ SATISFAÇÃO */}
           <EvoSection icon="😊" title="Satisfação por categoria" badge={feedbackSessions > 0 ? `${feedbackSessions} respostas` : undefined}>
-            <SatisfactionSection history={hist} />
+            <SatisfactionSection history={hist} period={evolPeriod} />
           </EvoSection>
 
           {/* ⑤ COMENTÁRIOS */}
@@ -4775,14 +4795,14 @@ function KmEvolutionChart({ weeks, period }: { weeks: WeekData[]; period: number
   const visible = weeks.slice(period === 999 ? 0 : Math.max(0, weeks.length - period));
   if (visible.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados suficientes para o período selecionado.</p>;
 
-  const VW = 560, VH = 140;
-  const ML = 34, MR = 6, MT = 10, MB = 28;
+  const VW = 600, VH = 180;
+  const ML = 36, MR = 8, MT = 22, MB = 30;
   const CW = VW - ML - MR;
   const CH = VH - MT - MB;
   const maxKm = Math.max(...visible.flatMap((w) => [w.completedKm, w.prescribedKm]), 5);
   const topKm = Math.ceil(maxKm / 5) * 5;
   const barSlot = CW / visible.length;
-  const barW = Math.max(4, Math.min(28, barSlot * 0.55));
+  const barW = Math.max(4, Math.min(32, barSlot * 0.60));
 
   const xCenter = (i: number) => ML + i * barSlot + barSlot / 2;
   const yVal = (km: number) => MT + CH - (km / topKm) * CH;
@@ -4790,40 +4810,59 @@ function KmEvolutionChart({ weeks, period }: { weeks: WeekData[]; period: number
   // Linha tracejada dos km prescritos
   const linePts = visible.map((w, i) => `${xCenter(i)},${yVal(w.prescribedKm)}`).join(' ');
 
-  // Labels do eixo X: mostrar apenas início, meio e fim para não sobrecarregar
-  const xLabels: number[] = visible.length <= 8
+  // Labels do eixo X: mostrar início, a cada 2, e fim quando há muitas semanas
+  const xLabels: number[] = visible.length <= 12
     ? visible.map((_, i) => i)
-    : [0, Math.floor(visible.length / 2), visible.length - 1];
+    : visible.map((_, i) => i).filter((i) => i === 0 || i === visible.length - 1 || i % Math.ceil(visible.length / 8) === 0);
+
+  // Rótulo de valor na barra: só mostra se a barra tiver largura suficiente (≥ 14px)
+  const showBarLabel = barW >= 14;
 
   return (
     <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', overflow: 'visible', display: 'block' }}>
       {/* Grid lines */}
-      {[0, topKm / 2, topKm].map((km) => (
+      {[0, topKm / 4, topKm / 2, topKm * 3/4, topKm].map((km) => (
         <g key={km}>
-          <line x1={ML} x2={VW - MR} y1={yVal(km)} y2={yVal(km)} stroke="var(--line)" strokeWidth={0.7} />
-          <text x={ML - 4} y={yVal(km) + 4} textAnchor="end" fontSize={9} fill="var(--muted)">
-            {km}km
-          </text>
+          <line x1={ML} x2={VW - MR} y1={yVal(km)} y2={yVal(km)} stroke="var(--line)" strokeWidth={km === 0 ? 1 : 0.5} />
+          <text x={ML - 4} y={yVal(km) + 4} textAnchor="end" fontSize={9} fill="var(--muted)">{km}km</text>
         </g>
       ))}
       {/* Barras — completedKm */}
       {visible.map((w, i) => {
         const bh = (w.completedKm / topKm) * CH;
+        const color = w.completedKm >= w.prescribedKm * 0.9 ? '#22c55e' : w.completedKm > 0 ? '#f59e0b' : '#e2e8f0';
+        const barTop = yVal(w.completedKm);
         return (
-          <rect
-            key={i}
-            x={xCenter(i) - barW / 2}
-            y={yVal(w.completedKm)}
-            width={barW}
-            height={Math.max(1, bh)}
-            rx={2}
-            fill={w.completedKm >= w.prescribedKm * 0.9 ? '#22c55e' : w.completedKm > 0 ? '#f59e0b' : '#e2e8f0'}
-          />
+          <g key={i}>
+            <rect
+              x={xCenter(i) - barW / 2}
+              y={barTop}
+              width={barW}
+              height={Math.max(1, bh)}
+              rx={3}
+              fill={color}
+            >
+              <title>{w.startDate}: {w.completedKm}km feito / {w.prescribedKm}km prescrito</title>
+            </rect>
+            {/* Rótulo de km no topo da barra */}
+            {showBarLabel && w.completedKm > 0 && (
+              <text
+                x={xCenter(i)}
+                y={barTop - 3}
+                textAnchor="middle"
+                fontSize={8}
+                fontWeight={600}
+                fill={color}
+              >
+                {w.completedKm % 1 === 0 ? w.completedKm : w.completedKm.toFixed(1)}
+              </text>
+            )}
+          </g>
         );
       })}
       {/* Linha tracejada — prescribedKm */}
       {visible.some((w) => w.prescribedKm > 0) && (
-        <polyline points={linePts} fill="none" stroke="#6366f1" strokeWidth={1.5} strokeDasharray="4 3" />
+        <polyline points={linePts} fill="none" stroke="#6366f1" strokeWidth={1.5} strokeDasharray="4 3" opacity={0.7} />
       )}
       {/* Labels eixo X */}
       {xLabels.map((i) => (
@@ -4903,7 +4942,12 @@ function effortRingColor(effort: number | null | undefined): string | null {
 }
 
 /** Calendário de bolinhas maior — 8 semanas, multi-sessão por dia, anel de esforço. */
-function TrainingCalendarDots({ history }: { history: StudentDetail['history'] }) {
+// 11/09: onDayClick — callback disparado ao clicar em uma bolinha; recebe o planId do plano
+// daquele dia para que a aba Semanas anteriores possa expandi-lo diretamente.
+function TrainingCalendarDots({ history, onDayClick }: {
+  history: StudentDetail['history'];
+  onDayClick?: (planId: string) => void;
+}) {
   // dayPlanMap: para cada dia, registra qual plano (mais recente) reivindicou esse dia
   const dayPlanMap = new Map<string, string>(); // date → plan.id
   const dayMap = new Map<string, CalSession[]>();
@@ -5003,18 +5047,27 @@ function TrainingCalendarDots({ history }: { history: StudentDetail['history'] }
                 const tooltipParts = sessions.map((s) =>
                   `${s.title || s.modality}${s.distanceKm ? ` ${s.distanceKm}km` : ''}${s.perceivedEffort ? ` • esf.${s.perceivedEffort}` : ''}${s.satisfaction ? ` • ${s.satisfaction}` : ''}`
                 );
+                // planId associado ao dia (para navegar na aba Semanas anteriores)
+                const dayPlanId = dayPlanMap.get(dateStr) ?? '';
                 return (
                   <div key={di} style={{ display: 'flex', justifyContent: 'center' }}>
                     <div style={{ position: 'relative', display: 'inline-block' }}>
-                      <div title={`${dateStr}\n${tooltipParts.join('\n')}`} style={{
+                      <div
+                        title={`${dateStr}\n${tooltipParts.join('\n')}${onDayClick ? '\n\nClique para ver o treino completo' : ''}`}
+                        onClick={onDayClick && dayPlanId ? () => onDayClick(dayPlanId) : undefined}
+                        style={{
                         width: DOT, height: DOT, borderRadius: '50%',
                         background: bg,
                         boxSizing: 'border-box',
                         border: isToday ? `2px solid var(--accent)` : ring ? `3px solid ${ring}` : 'none',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         flexDirection: 'column',
-                        cursor: 'default',
-                      }}>
+                        cursor: onDayClick ? 'pointer' : 'default',
+                        transition: 'opacity 0.15s',
+                      }}
+                        onMouseEnter={onDayClick ? (e) => { (e.currentTarget as HTMLElement).style.opacity = '0.8'; } : undefined}
+                        onMouseLeave={onDayClick ? (e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; } : undefined}
+                      >
                         {kmText ? (
                           <>
                             <span style={{ fontSize: 11, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{kmText}</span>
@@ -5138,73 +5191,267 @@ function flatFeedbackSessions(history: StudentDetail['history']) {
   return out;
 }
 
-/** Gráfico de barras do esforço percebido por sessão (cor pelo nível). */
-function EffortSection({ history }: { history: StudentDetail['history'] }) {
-  const sessions = flatFeedbackSessions(history).filter((s) => s.perceivedEffort != null);
-  if (sessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum esforço registrado ainda.</p>;
+/** Esforço percebido — scatter plot por sessão + média semanal + tendência + filtro de período. */
+function EffortSection({ history, period }: { history: StudentDetail['history']; period?: number }) {
+  const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('semana');
+  const allSessions = flatFeedbackSessions(history).filter((s) => s.perceivedEffort != null);
+  if (allSessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum esforço registrado ainda.</p>;
 
-  // Agrupa média por semana
+  // Filtra por período (em semanas) — period=999 = tudo
+  const cutoff = period && period !== 999
+    ? new Date(Date.now() - period * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    : '0000-00-00';
+  const sessions = allSessions.filter((s) => s.date >= cutoff);
+
+  const effortColor = (v: number) => v <= 3 ? '#93c5fd' : v <= 6 ? '#fbbf24' : v <= 8 ? '#fb923c' : '#ef4444';
+
+  const VW = 620, VH = 200;
+  const ML = 28, MR = 10, MT = 12, MB = 32;
+  const CW = VW - ML - MR, CH = VH - MT - MB;
+  const yFn = (v: number) => MT + CH - ((v - 1) / 9) * CH;
+
+  if (aggBy === 'sessao') {
+    // Scatter plot individual — cada sessão é um ponto
+    const sorted = [...sessions].sort((a, b) => a.date.localeCompare(b.date));
+    if (sorted.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem registros no período.</p>;
+    const xFn = (i: number) => ML + (i / Math.max(1, sorted.length - 1)) * CW;
+    // Média móvel de 5 sessões
+    const movAvg = sorted.map((_, i) => {
+      const slice = sorted.slice(Math.max(0, i-2), i+3);
+      return slice.reduce((s, x) => s + x.perceivedEffort!, 0) / slice.length;
+    });
+    const avg = sessions.reduce((s, x) => s + x.perceivedEffort!, 0) / sessions.length;
+    const xLabels = sorted.length <= 10
+      ? sorted.map((s, i) => ({ i, label: s.date.slice(5).replace('-', '/') }))
+      : [0, Math.floor(sorted.length/3), Math.floor(2*sorted.length/3), sorted.length-1]
+          .map((i) => ({ i, label: sorted[i].date.slice(5).replace('-', '/') }));
+    return (
+      <div>
+        <AggToggle value={aggBy} onChange={setAggBy} />
+        <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
+          {[1,2,3,4,5,6,7,8,9,10].map((v) => (
+            <g key={v}>
+              <line x1={ML} x2={VW-MR} y1={yFn(v)} y2={yFn(v)} stroke="var(--line)" strokeWidth={v===5||v===8?0.8:0.3} strokeDasharray={v===5||v===8?'4,3':''}/>
+              <text x={ML-3} y={yFn(v)+3.5} textAnchor="end" fontSize={8} fill="var(--muted)">{v}</text>
+            </g>
+          ))}
+          {/* Zona confort */}
+          <rect x={ML} y={yFn(6)} width={CW} height={yFn(4)-yFn(6)} fill="#fbbf2411" />
+          {/* Linha de tendência (média móvel) */}
+          <polyline
+            points={movAvg.map((v, i) => `${xFn(i)},${yFn(v)}`).join(' ')}
+            fill="none" stroke="#6366f1" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.7}
+          />
+          {/* Pontos */}
+          {sorted.map((s, i) => (
+            <circle key={i} cx={xFn(i)} cy={yFn(s.perceivedEffort!)} r={5}
+              fill={effortColor(s.perceivedEffort!)} stroke="var(--bg)" strokeWidth={1.5} opacity={0.9}>
+              <title>{s.date} — {s.title || s.modality}: {s.perceivedEffort}/10</title>
+            </circle>
+          ))}
+          {/* Linha de média geral */}
+          <line x1={ML} x2={VW-MR} y1={yFn(avg)} y2={yFn(avg)} stroke="#6366f1" strokeWidth={1} strokeDasharray="6,4" opacity={0.4}/>
+          <text x={VW-MR+2} y={yFn(avg)+3} fontSize={8} fill="#6366f1" opacity={0.8}>⌀{avg.toFixed(1)}</text>
+          {/* Labels eixo X */}
+          {xLabels.map(({i,label}) => (
+            <text key={i} x={xFn(i)} y={VH-4} textAnchor="middle" fontSize={8} fill="var(--muted)">{label}</text>
+          ))}
+        </svg>
+        <EffortLegend sessions={sessions} />
+      </div>
+    );
+  }
+
+  if (aggBy === 'mes') {
+    // Agrupado por mês — média mensal
+    const byMonth = new Map<string, number[]>();
+    for (const s of sessions) {
+      const month = s.date.slice(0, 7); // 'YYYY-MM'
+      if (!byMonth.has(month)) byMonth.set(month, []);
+      byMonth.get(month)!.push(s.perceivedEffort!);
+    }
+    const months = Array.from(byMonth.entries()).sort(([a],[b])=>a.localeCompare(b))
+      .map(([month, vals]) => ({ month, avg: vals.reduce((a,v)=>a+v,0)/vals.length, count: vals.length, min: Math.min(...vals), max: Math.max(...vals) }));
+    if (months.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem registros no período.</p>;
+    const gap = CW / months.length;
+    const barW = Math.max(8, Math.min(40, gap * 0.65));
+    const xFn = (i: number) => ML + i * gap + gap / 2;
+    return (
+      <div>
+        <AggToggle value={aggBy} onChange={setAggBy} />
+        <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
+          {[1,3,5,7,8,10].map((v) => (
+            <g key={v}>
+              <line x1={ML} x2={VW-MR} y1={yFn(v)} y2={yFn(v)} stroke="var(--line)" strokeWidth={v===5||v===8?0.8:0.3}/>
+              <text x={ML-3} y={yFn(v)+3.5} textAnchor="end" fontSize={8} fill="var(--muted)">{v}</text>
+            </g>
+          ))}
+          {months.map((m, i) => (
+            <g key={i}>
+              {/* Barra min-max (amplitude) */}
+              <line x1={xFn(i)} x2={xFn(i)} y1={yFn(m.max)} y2={yFn(m.min)} stroke={effortColor(m.avg)} strokeWidth={3} opacity={0.25}/>
+              {/* Barra principal (média) */}
+              <rect x={xFn(i)-barW/2} y={yFn(m.avg)} width={barW} height={Math.max(1,yFn(1)-yFn(m.avg))} fill={effortColor(m.avg)} rx={3} opacity={0.85}/>
+              {/* Rótulo valor */}
+              <text x={xFn(i)} y={yFn(m.avg)-3} textAnchor="middle" fontSize={8} fontWeight={600} fill={effortColor(m.avg)}>{m.avg.toFixed(1)}</text>
+              <text x={xFn(i)} y={VH-4} textAnchor="middle" fontSize={8} fill="var(--muted)">
+                {m.month.slice(5)}/{m.month.slice(2,4)}
+              </text>
+            </g>
+          ))}
+        </svg>
+        <EffortLegend sessions={sessions} />
+      </div>
+    );
+  }
+
+  // aggBy === 'semana' (padrão) — barras de média semanal
   const byWeek = new Map<string, number[]>();
   for (const s of sessions) {
     if (!byWeek.has(s.weekStart)) byWeek.set(s.weekStart, []);
     byWeek.get(s.weekStart)!.push(s.perceivedEffort!);
   }
-  const weeks = Array.from(byWeek.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([week, vals]) => ({ week, avg: vals.reduce((a, v) => a + v, 0) / vals.length, count: vals.length }));
+  const weeks = Array.from(byWeek.entries()).sort(([a],[b])=>a.localeCompare(b))
+    .map(([week, vals]) => ({ week, avg: vals.reduce((a,v)=>a+v,0)/vals.length, count: vals.length, min: Math.min(...vals), max: Math.max(...vals) }));
+  if (weeks.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem registros no período.</p>;
 
-  const W = 560; const H = 130; const PL = 28; const PT = 10; const PB = 26; const PR = 8;
-  const chartW = W - PL - PR; const chartH = H - PT - PB;
-  const gap = chartW / (weeks.length || 1);
-  const barW = Math.max(6, gap * 0.65);
-  const yFn = (v: number) => PT + chartH - (v / 10) * chartH;
-  const xFn = (i: number) => PL + i * gap + gap / 2;
-  const fill = (avg: number) => avg <= 3 ? '#93c5fd' : avg <= 6 ? '#fbbf24' : avg <= 8 ? '#fb923c' : '#ef4444';
-  const xLabels = weeks.length <= 8
-    ? weeks.map((w, i) => ({ i, label: w.week.slice(5, 10).replace('-', '/') }))
-    : [0, Math.floor(weeks.length / 2), weeks.length - 1].map((i) => ({ i, label: weeks[i].week.slice(5, 10).replace('-', '/') }));
+  const gap = CW / weeks.length;
+  const barW = Math.max(6, Math.min(36, gap * 0.60));
+  const xFn = (i: number) => ML + i * gap + gap / 2;
+  // Tendência linear simples (regressão)
+  const n = weeks.length;
+  const meanX = (n-1)/2;
+  const meanY = weeks.reduce((s,w)=>s+w.avg,0)/n;
+  const slope = weeks.reduce((s,w,i)=>s+(i-meanX)*(w.avg-meanY),0) / weeks.reduce((s,_,i)=>s+(i-meanX)**2,0);
+  const intercept = meanY - slope * meanX;
+  const trendPts = `${xFn(0)},${yFn(intercept)} ${xFn(n-1)},${yFn(intercept + slope*(n-1))}`;
+
+  const xLabels = weeks.length <= 10
+    ? weeks.map((_,i)=>i)
+    : weeks.map((_,i)=>i).filter((i)=>i===0||i===n-1||i%Math.ceil(n/6)===0);
 
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
-        {[0, 5, 7, 10].map((v) => (
+      <AggToggle value={aggBy} onChange={setAggBy} />
+      <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
+        {[1,2,3,4,5,6,7,8,9,10].map((v) => (
           <g key={v}>
-            <line x1={PL} y1={yFn(v)} x2={W-PR} y2={yFn(v)} stroke="var(--line)" strokeWidth={0.5} strokeDasharray={v > 0 && v < 10 ? '3,3' : ''} />
-            <text x={PL-3} y={yFn(v)+3} textAnchor="end" fontSize={9} fill="var(--muted)">{v}</text>
+            <line x1={ML} x2={VW-MR} y1={yFn(v)} y2={yFn(v)} stroke="var(--line)" strokeWidth={v===5||v===8?0.8:0.3} strokeDasharray={v===5||v===8?'4,3':''}/>
+            <text x={ML-3} y={yFn(v)+3.5} textAnchor="end" fontSize={8} fill="var(--muted)">{v}</text>
           </g>
         ))}
-        {weeks.map((w, i) => (
-          <rect key={i} x={xFn(i)-barW/2} y={yFn(w.avg)} width={barW} height={PT+chartH-yFn(w.avg)} fill={fill(w.avg)} rx={3}>
-            <title>{w.week}: média {w.avg.toFixed(1)} · {w.count} treino(s)</title>
-          </rect>
+        {/* Zona 4-6 moderado */}
+        <rect x={ML} y={yFn(6)} width={CW} height={yFn(4)-yFn(6)} fill="#fbbf2411" />
+        {/* Amplitude (linha min-max) */}
+        {weeks.map((w,i) => (
+          <line key={`r${i}`} x1={xFn(i)} x2={xFn(i)} y1={yFn(w.max)} y2={yFn(w.min)} stroke={effortColor(w.avg)} strokeWidth={2} opacity={0.2}/>
         ))}
-        {xLabels.map(({i, label}) => (
-          <text key={i} x={xFn(i)} y={H-5} textAnchor="middle" fontSize={9} fill="var(--muted)">{label}</text>
+        {/* Barras de média */}
+        {weeks.map((w,i) => (
+          <g key={i}>
+            <rect x={xFn(i)-barW/2} y={yFn(w.avg)} width={barW} height={Math.max(1,yFn(1)-yFn(w.avg))} fill={effortColor(w.avg)} rx={3} opacity={0.85}>
+              <title>{w.week}: média {w.avg.toFixed(1)} · min {w.min} · max {w.max} · {w.count} treino(s)</title>
+            </rect>
+            {/* Rótulo no topo da barra */}
+            {barW >= 16 && (
+              <text x={xFn(i)} y={yFn(w.avg)-3} textAnchor="middle" fontSize={7.5} fontWeight={600} fill={effortColor(w.avg)}>{w.avg.toFixed(1)}</text>
+            )}
+          </g>
+        ))}
+        {/* Linha de tendência */}
+        {n >= 3 && <line x1={xFn(0)} y1={yFn(intercept)} x2={xFn(n-1)} y2={yFn(intercept+slope*(n-1))}
+          stroke="#6366f1" strokeWidth={1.5} strokeDasharray="6,3" opacity={0.6}/>}
+        {n >= 3 && <polyline points={trendPts} fill="none"/>}
+        {/* Labels eixo X */}
+        {xLabels.map((i) => (
+          <text key={i} x={xFn(i)} y={VH-4} textAnchor="middle" fontSize={8} fill="var(--muted)">
+            {weeks[i].week.slice(5).replace('-','/')}
+          </text>
         ))}
       </svg>
-      <div style={{ display: 'flex', gap: 10, marginTop: 4, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
-        {[['#93c5fd','1-3 fácil'],['#fbbf24','4-6 moderado'],['#fb923c','7-8 intenso'],['#ef4444','9-10 máximo']].map(([c,l]) => (
-          <span key={l}><span style={{display:'inline-block',width:10,height:10,borderRadius:2,background:c,marginRight:3,verticalAlign:'middle'}}/>{l}</span>
-        ))}
-      </div>
-      <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>{sessions.length} registros de esforço no total.</p>
+      <EffortLegend sessions={sessions} />
     </div>
   );
 }
 
-/** Satisfação por categoria — tiles com score e breakdown por emoji. */
-function SatisfactionSection({ history }: { history: StudentDetail['history'] }) {
+function AggToggle({ value, onChange }: { value: 'sessao'|'semana'|'mes'; onChange: (v: 'sessao'|'semana'|'mes') => void }) {
+  return (
+    <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+      {(['sessao','semana','mes'] as const).map((v) => (
+        <button key={v} type="button"
+          style={{ padding: '2px 10px', fontSize: 11, borderRadius: 6,
+            background: value === v ? 'var(--accent)' : 'var(--surface)',
+            color: value === v ? '#fff' : 'var(--muted)',
+            border: `1px solid ${value === v ? 'var(--accent)' : 'var(--line)'}`,
+            cursor: 'pointer' }}
+          onClick={() => onChange(v)}>
+          {v === 'sessao' ? 'Por sessão' : v === 'semana' ? 'Por semana' : 'Por mês'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function EffortLegend({ sessions }: { sessions: Array<{ perceivedEffort: number|null }> }) {
+  const counts = { facil: 0, moderado: 0, intenso: 0, maximo: 0 };
+  for (const s of sessions) {
+    const v = s.perceivedEffort!;
+    if (v <= 3) counts.facil++;
+    else if (v <= 6) counts.moderado++;
+    else if (v <= 8) counts.intenso++;
+    else counts.maximo++;
+  }
+  const total = sessions.length;
+  return (
+    <div style={{ display: 'flex', gap: 10, marginTop: 6, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
+      {[['#93c5fd','1-3 fácil', counts.facil],['#fbbf24','4-6 moderado',counts.moderado],
+        ['#fb923c','7-8 intenso',counts.intenso],['#ef4444','9-10 máximo',counts.maximo]].map(([c,l,n]) => (
+        <span key={l as string}>
+          <span style={{display:'inline-block',width:10,height:10,borderRadius:2,background:c as string,marginRight:3,verticalAlign:'middle'}}/>
+          {l} <span style={{ color: 'var(--text)', fontWeight: 600 }}>{n}</span>
+          <span style={{ fontSize: 10 }}> ({total > 0 ? Math.round((n as number/total)*100) : 0}%)</span>
+        </span>
+      ))}
+      <span style={{ marginLeft: 'auto' }}>{total} registro{total !== 1 ? 's' : ''}</span>
+    </div>
+  );
+}
+
+/** Satisfação por categoria — tendência semanal + tiles com breakdown. */
+function SatisfactionSection({ history, period }: { history: StudentDetail['history']; period?: number }) {
+  const [showTrend, setShowTrend] = useState(true);
   const allSessions = flatFeedbackSessions(history);
-  const categories: Array<{ key: 'satisfaction'|'satisfactionElaboracao'|'satisfactionCapacidade'|'satisfactionCarga'; label: string; desc: string }> = [
-    { key: 'satisfaction', label: 'Geral', desc: 'Como se sentiu com o treino no geral' },
-    { key: 'satisfactionElaboracao', label: 'Elaboração', desc: 'Se achou o treino bem elaborado/explicado' },
-    { key: 'satisfactionCapacidade', label: 'Capacidade', desc: 'Se se sentiu capaz de realizar' },
-    { key: 'satisfactionCarga', label: 'Carga', desc: 'Se a carga foi adequada ao seu momento' },
+
+  // Filtra por período
+  const cutoff = period && period !== 999
+    ? new Date(Date.now() - period * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    : '0000-00-00';
+  const sessions = allSessions.filter((s) => s.date >= cutoff);
+
+  const categories: Array<{ key: 'satisfaction'|'satisfactionElaboracao'|'satisfactionCapacidade'|'satisfactionCarga'; label: string; desc: string; color: string }> = [
+    { key: 'satisfaction', label: 'Geral', desc: 'Como se sentiu com o treino no geral', color: '#22c55e' },
+    { key: 'satisfactionElaboracao', label: 'Elaboração', desc: 'Se achou o treino bem elaborado/explicado', color: '#6366f1' },
+    { key: 'satisfactionCapacidade', label: 'Capacidade', desc: 'Se se sentiu capaz de realizar', color: '#f59e0b' },
+    { key: 'satisfactionCarga', label: 'Carga', desc: 'Se a carga foi adequada ao seu momento', color: '#ef4444' },
   ];
-  const dists = categories.map(({ key, label, desc }) => {
+
+  // Tendência semanal por categoria — agrupada por weekStart
+  const weekKeys = Array.from(new Set(sessions.map((s) => s.weekStart))).sort();
+  const catWeekData = categories.map(({ key, label, color }) => ({
+    label, color,
+    points: weekKeys.map((week) => {
+      const ws = sessions.filter((s) => s.weekStart === week && s[key] && SAT_SCORE[s[key]!]);
+      if (ws.length === 0) return null;
+      const avg = ws.reduce((a, s) => a + (SAT_SCORE[s[key]!] ?? 0), 0) / ws.length;
+      return avg;
+    }),
+  }));
+
+  // Resumo por categoria (totais)
+  const dists = categories.map(({ key, label, desc, color }) => {
     const counts: Record<string, number> = {};
     let total = 0;
-    for (const s of allSessions) {
+    for (const s of sessions) {
       const v = s[key];
       if (!v || !SAT_SCORE[v]) continue;
       counts[v] = (counts[v] ?? 0) + 1;
@@ -5213,27 +5460,105 @@ function SatisfactionSection({ history }: { history: StudentDetail['history'] })
     const avg = total > 0
       ? Object.entries(counts).reduce((a, [k, n]) => a + (SAT_SCORE[k] ?? 0) * n, 0) / total
       : null;
-    // Valor mais comum
     const top = Object.entries(counts).sort(([,a],[,b]) => b-a)[0];
-    return { label, desc, counts, total, avg, topValue: top?.[0] ?? null };
+    // Tendência: compara primeira metade vs segunda metade do período
+    const half = Math.floor(weekKeys.length / 2);
+    const firstHalf = sessions.filter((s) => weekKeys.indexOf(s.weekStart) < half && s[key] && SAT_SCORE[s[key]!]);
+    const secondHalf = sessions.filter((s) => weekKeys.indexOf(s.weekStart) >= half && s[key] && SAT_SCORE[s[key]!]);
+    const avgFirst = firstHalf.length ? firstHalf.reduce((a,s)=>a+(SAT_SCORE[s[key]!]??0),0)/firstHalf.length : null;
+    const avgSecond = secondHalf.length ? secondHalf.reduce((a,s)=>a+(SAT_SCORE[s[key]!]??0),0)/secondHalf.length : null;
+    const trend = avgFirst && avgSecond ? avgSecond - avgFirst : null;
+    return { label, desc, color, counts, total, avg, topValue: top?.[0] ?? null, trend };
   }).filter((d) => d.total > 0);
 
   if (dists.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma avaliação registrada ainda.</p>;
 
+  // Gráfico de tendência semanal
+  const VW = 620, VH = 160;
+  const ML = 24, MR = 70, MT = 14, MB = 28;
+  const CW = VW - ML - MR, CH = VH - MT - MB;
+  const xFn = (i: number) => ML + (weekKeys.length <= 1 ? CW/2 : (i / (weekKeys.length - 1)) * CW);
+  const yFn = (v: number) => MT + CH - ((v - 1) / 4) * CH; // escala 1-5
+
+  const xLabels = weekKeys.length <= 8
+    ? weekKeys.map((_, i) => i)
+    : [0, Math.floor(weekKeys.length/2), weekKeys.length-1];
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Toggle tendência */}
+      {weekKeys.length >= 2 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button type="button"
+            style={{ padding: '2px 10px', fontSize: 11, borderRadius: 6,
+              background: showTrend ? 'var(--accent)' : 'var(--surface)',
+              color: showTrend ? '#fff' : 'var(--muted)',
+              border: `1px solid ${showTrend ? 'var(--accent)' : 'var(--line)'}`, cursor: 'pointer' }}
+            onClick={() => setShowTrend(!showTrend)}>
+            {showTrend ? '📉 Ocultar tendência' : '📈 Ver tendência semanal'}
+          </button>
+          <span style={{ fontSize: 11, color: 'var(--muted)' }}>{weekKeys.length} semanas · {sessions.length} respostas</span>
+        </div>
+      )}
+      {/* Gráfico de tendência */}
+      {showTrend && weekKeys.length >= 2 && (
+        <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px', border: '1px solid var(--line)' }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+            Tendência semanal (escala 1–5)
+          </p>
+          <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
+            {[1,2,3,4,5].map((v) => (
+              <g key={v}>
+                <line x1={ML} x2={VW-MR} y1={yFn(v)} y2={yFn(v)} stroke="var(--line)" strokeWidth={v===3?0.8:0.3}/>
+                <text x={ML-3} y={yFn(v)+3.5} textAnchor="end" fontSize={8} fill="var(--muted)">{v}</text>
+              </g>
+            ))}
+            {catWeekData.map(({ label, color, points }) => {
+              const pts = points.map((v, i) => v !== null ? `${xFn(i)},${yFn(v)}` : null).filter(Boolean);
+              if (pts.length < 2) return null;
+              return (
+                <g key={label}>
+                  <polyline points={pts.join(' ')} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" opacity={0.85}/>
+                  {points.map((v, i) => v !== null ? (
+                    <circle key={i} cx={xFn(i)} cy={yFn(v)} r={3} fill={color} stroke="var(--bg)" strokeWidth={1}>
+                      <title>{weekKeys[i]}: {label} — {v.toFixed(2)}/5</title>
+                    </circle>
+                  ) : null)}
+                </g>
+              );
+            })}
+            {/* Labels eixo X */}
+            {xLabels.map((i) => (
+              <text key={i} x={xFn(i)} y={VH-4} textAnchor="middle" fontSize={8} fill="var(--muted)">
+                {weekKeys[i]?.slice(5).replace('-','/')}
+              </text>
+            ))}
+            {/* Legenda lateral */}
+            {catWeekData.map(({ label, color }, i) => (
+              <g key={label}>
+                <rect x={VW-MR+4} y={MT + i*18} width={8} height={8} fill={color} rx={2}/>
+                <text x={VW-MR+15} y={MT + i*18 + 7} fontSize={9} fill="var(--muted)">{label}</text>
+              </g>
+            ))}
+          </svg>
+        </div>
+      )}
+      {/* Tiles de resumo por categoria */}
       {dists.map((d) => (
         <div key={d.label} style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 14px', border: '1px solid var(--line)' }}>
-          {/* Cabeçalho: label + score */}
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
             <span style={{ fontWeight: 700, fontSize: 14 }}>{d.label}</span>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{d.desc}</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>{d.desc}</span>
+            {d.trend !== null && Math.abs(d.trend) >= 0.1 && (
+              <span style={{ fontSize: 12, color: d.trend > 0 ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
+                {d.trend > 0 ? '↑' : '↓'} {Math.abs(d.trend).toFixed(1)}
+              </span>
+            )}
             <span style={{ marginLeft: 'auto', fontWeight: 700, fontSize: 16,
               color: d.avg! >= 4 ? '#22c55e' : d.avg! >= 3 ? '#fbbf24' : '#ef4444' }}>
               {d.avg!.toFixed(1)} <span style={{ fontSize: 12 }}>/ 5</span>
             </span>
           </div>
-          {/* Breakdown por emoji */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {(['amei','gostei','ok','nao_gostei','detestei'] as const).map((v) => {
               const n = d.counts[v] ?? 0;

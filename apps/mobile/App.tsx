@@ -6354,7 +6354,12 @@ function Billing({ accessToken }: { accessToken: string }) {
   } | null>(null);
   const [message, setMessage] = useState('');
   const [couponCode, setCouponCode] = useState('');
-  const [confirmCancel, setConfirmCancel] = useState(false);
+  // 11/09: fluxo multi-etapas de cancelamento (pesquisa de saída).
+  // cancelStep=null → botão "Cancelar assinatura"; 'reason'→'feedback'→'return' → confirma.
+  const [cancelStep, setCancelStep] = useState<'reason' | 'feedback' | 'return' | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelFeedbackText, setCancelFeedbackText] = useState('');
+  const [cancelWouldReturn, setCancelWouldReturn] = useState('');
   const [cpf, setCpf] = useState('');
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [history, setHistory] = useState<Array<{ id: string; dueDate: string | null; value: number | null; status: string; paidAt: string | null; invoiceUrl: string | null }>>([]);
@@ -6535,11 +6540,20 @@ function Billing({ accessToken }: { accessToken: string }) {
     try {
       const response = await fetch(API_URL + '/billing/cancel', {
         method: 'POST',
-        headers: { Authorization: 'Bearer ' + accessToken },
+        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        // 11/09: envia pesquisa de saída junto com o cancelamento; campos são opcionais no servidor.
+        body: JSON.stringify({
+          ...(cancelReason ? { reason: cancelReason } : {}),
+          ...(cancelFeedbackText.trim() ? { feedbackText: cancelFeedbackText.trim() } : {}),
+          ...(cancelWouldReturn ? { wouldReturn: cancelWouldReturn } : {}),
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error();
-      setConfirmCancel(false);
+      setCancelStep(null);
+      setCancelReason('');
+      setCancelFeedbackText('');
+      setCancelWouldReturn('');
       setMessage(data.message ?? 'Assinatura cancelada.');
       await loadBilling();
     } catch {
@@ -6625,18 +6639,101 @@ function Billing({ accessToken }: { accessToken: string }) {
         </View>
       ) : null}
 
-      {details?.canCancel && !confirmCancel ? (
-        <Pressable style={styles.secondaryButton} onPress={() => setConfirmCancel(true)}>
+      {details?.canCancel && !cancelStep ? (
+        <Pressable style={styles.secondaryButton} onPress={() => setCancelStep('reason')}>
           <Text style={styles.secondaryButtonText}>Cancelar assinatura</Text>
         </Pressable>
       ) : null}
 
-      {confirmCancel ? (
+      {/* 11/09: pesquisa de saída — fluxo de 3 etapas antes de confirmar o cancelamento */}
+      {cancelStep === 'reason' ? (
         <View style={styles.formSection}>
-          <Text style={styles.formSectionTitle}>Confirmar cancelamento?</Text>
-          <Text style={styles.formHint}>As proximas cobrancas serao interrompidas e o acesso sera encerrado.</Text>
-          <Pressable style={styles.secondaryButton} onPress={cancel}><Text style={styles.secondaryButtonText}>Sim, cancelar</Text></Pressable>
-          <Pressable style={styles.primaryButton} onPress={() => setConfirmCancel(false)}><Text style={styles.primaryButtonText}>Manter assinatura</Text></Pressable>
+          <Text style={styles.formSectionTitle}>Por que voce esta cancelando?</Text>
+          <Text style={styles.formHint}>Sua resposta nos ajuda a melhorar o programa.</Text>
+          {[
+            { value: 'sem_tempo', label: 'Falta de tempo' },
+            { value: 'sem_resultado', label: 'Nao vi os resultados que esperava' },
+            { value: 'preco', label: 'Preco esta alto pra mim agora' },
+            { value: 'pausa', label: 'Vou dar uma pausa temporaria' },
+            { value: 'objetivo', label: 'Ja atingi meu objetivo' },
+            { value: 'tecnico', label: 'Problemas tecnicos com o app' },
+            { value: 'outro', label: 'Outro motivo' },
+          ].map(opt => (
+            <Pressable
+              key={opt.value}
+              style={[styles.optionButton, cancelReason === opt.value && styles.optionButtonSelected]}
+              onPress={() => setCancelReason(opt.value)}
+            >
+              <Text style={[styles.optionButtonText, cancelReason === opt.value && styles.optionButtonTextSelected]}>
+                {cancelReason === opt.value ? '● ' : '○ '}{opt.label}
+              </Text>
+            </Pressable>
+          ))}
+          <Pressable
+            style={[styles.primaryButton, !cancelReason && styles.disabledButton]}
+            disabled={!cancelReason}
+            onPress={() => setCancelStep('feedback')}
+          >
+            <Text style={styles.primaryButtonText}>Proximo</Text>
+          </Pressable>
+          <Pressable style={styles.linkButton} onPress={() => { setCancelStep(null); setCancelReason(''); }}>
+            <Text style={styles.linkButtonText}>Manter assinatura</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {cancelStep === 'feedback' ? (
+        <View style={styles.formSection}>
+          <Text style={styles.formSectionTitle}>O que poderia ter sido diferente?</Text>
+          <Text style={styles.formHint}>Campo opcional — escreva o que quiser ou deixe em branco.</Text>
+          <TextInput
+            style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]}
+            value={cancelFeedbackText}
+            onChangeText={setCancelFeedbackText}
+            placeholder="Escreva aqui..."
+            multiline
+            numberOfLines={3}
+          />
+          <Pressable style={styles.primaryButton} onPress={() => setCancelStep('return')}>
+            <Text style={styles.primaryButtonText}>Proximo</Text>
+          </Pressable>
+          <Pressable style={styles.linkButton} onPress={() => setCancelStep('reason')}>
+            <Text style={styles.linkButtonText}>← Voltar</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {cancelStep === 'return' ? (
+        <View style={styles.formSection}>
+          <Text style={styles.formSectionTitle}>Voce voltaria para o Panzeri Run?</Text>
+          {[
+            { value: 'sim', label: '😊  Sim, com certeza' },
+            { value: 'talvez', label: '🤔  Talvez, depende' },
+            { value: 'nao', label: '😕  Provavelmente nao' },
+          ].map(opt => (
+            <Pressable
+              key={opt.value}
+              style={[styles.optionButton, cancelWouldReturn === opt.value && styles.optionButtonSelected]}
+              onPress={() => setCancelWouldReturn(opt.value)}
+            >
+              <Text style={[styles.optionButtonText, cancelWouldReturn === opt.value && styles.optionButtonTextSelected]}>
+                {opt.label}
+              </Text>
+            </Pressable>
+          ))}
+          <Text style={[styles.formHint, { marginTop: 12 }]}>
+            As proximas cobrancas serao interrompidas e o acesso sera encerrado.
+          </Text>
+          <Pressable
+            style={[styles.cancelConfirmButton, !cancelWouldReturn && styles.disabledButton]}
+            disabled={!cancelWouldReturn}
+            onPress={cancel}
+          >
+            <Text style={styles.cancelConfirmButtonText}>Confirmar cancelamento</Text>
+          </Pressable>
+          <Pressable style={styles.primaryButton} onPress={() => setCancelStep('feedback')}>
+            <Text style={styles.primaryButtonText}>← Voltar</Text>
+          </Pressable>
         </View>
       ) : null}
 
@@ -9280,6 +9377,53 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: PRColors.ocean,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  // 11/09: estilos da pesquisa de saída (fluxo de cancelamento multi-etapas).
+  optionButton: {
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 8,
+    backgroundColor: '#f8fafc',
+  },
+  optionButtonSelected: {
+    borderColor: PRColors.ocean,
+    backgroundColor: '#e0f2fe',
+  },
+  optionButtonText: {
+    fontSize: 14,
+    color: '#475569',
+  },
+  optionButtonTextSelected: {
+    color: PRColors.ocean,
+    fontWeight: '700',
+  },
+  linkButton: {
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  linkButtonText: {
+    color: '#94a3b8',
+    fontSize: 14,
+  },
+  cancelConfirmButton: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fee2e2',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#fca5a5',
+    marginTop: 8,
+  },
+  cancelConfirmButtonText: {
+    color: '#dc2626',
     fontSize: 15,
     fontWeight: '700',
   },
