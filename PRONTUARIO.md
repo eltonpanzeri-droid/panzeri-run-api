@@ -1436,3 +1436,80 @@ ajuste no picker de rolagem por causa de novos relatos da Thais na entrevista ("
   ver se confirma sem demora perceptível depois de soltar).
 - **Arquivos alterados**: `apps/api/src/me/me.service.ts` (`completeOnboarding`,
   `syncAvailabilityFromInterview`), `apps/mobile/App.tsx` (`WheelColumn`, `finishOrAdvance`).
+
+**2026-09-11 (sessão 3) — Aba Evolução: redesign completo dos gráficos + histórico longitudinal**
+
+Redesign total da aba Evolução no painel admin (`apps/admin/app/page.tsx`), transformando gráficos
+básicos em painéis longitudinais comparáveis ao SisRun.
+
+**6 novas seções de análise longitudinal**:
+- `VisaoGeralSection`: cards de resumo de km total, aderência média e tendência de evolução.
+- `PreWorkoutStateSection`: gráfico de médias de sono/cansaço/estresse/motivação por semana (dados do
+  bloco 1 do feedback pós-treino v1 — coletados a partir de 11/09).
+- `ExperienciaTreinoSection`: RPE médio semanal + satisfação com elaboração/execução ao longo do tempo.
+- `DorLongitudinalSection`: histórico de incidência de dor (nenhuma / leve / moderada / forte) por
+  semana, com linha de percentual de sessões com dor.
+- `ExplorarRelacoesSection`: gráfico de dispersão cruzando pares de variáveis (ex.: sono × RPE,
+  estresse × aderência) para identificar correlações longitudinais.
+- `TimelineIntegradaSection`: linha do tempo unificando eventos-chave (provas alvo, mudanças de
+  rotina, semanas com dor reportada) com o volume de km.
+
+**KmEvolutionChart — 3 barras separadas por semana** (commits `9f622ed`, `2cbc23a`):
+- Barra cinza (#94a3b8) = km Prescrito pelo treinador.
+- Barra verde (#22c55e) = km Realizado total.
+- Barra ciano (#06b6d4) = km Extras (`max(0, completedKm − prescribedKm)` — só sessões além do
+  prescrito). Antes os extras eram empilhados sobre Realizado; agora são uma coluna separada,
+  tornando o comparativo imediato.
+- Rótulos inline em TODAS as 3 barras (não só ao passar o mouse).
+- Linha de tendência SÓLIDA via regressão linear sobre `completedKm` (linha tracejada eliminada).
+- Primeira versão rejeitada pelo Elton (linha tracejada, sem rótulos em Prescrito, extras empilhados);
+  segunda versão aprovada.
+
+**LoadChartAderencia — gráfico de colunas com filtro de modalidade** (mesmo commit):
+- Substituiu gráfico de linha anterior por 3 colunas por semana: Prescrito (cinza), Feito (verde) +
+  Extras stacked (ciano), Sem Registro (âmbar).
+- Filtro interativo de modalidade via `useState<string>('all')`: botões aparecem somente para as
+  modalidades presentes nos dados reais (corrida / musculação / fortalecimento / caminhada / outro).
+- Rótulos numéricos inline nas colunas (visíveis sem hover, quando `bW >= 8`).
+- Dados carregados de `history` (planos + sessões com `modality` e `completionStatus`);
+  mapeados para a semana canônica via `weekStart`.
+
+**LoadChartACR — escala e grade corrigidas** (commit `f91b73e`):
+- Antes: linha plana em 1.0 com zona vermelha (>1.5) ocupando metade visual do gráfico; rótulos
+  horizontais sobrepostos; apenas grade horizontal.
+- Depois: ticks em 0 / 0.5 / 1.0 / 1.3 / 1.5 / 2.0 / 2.5 / 3.0; grade H+V (linhas verticais a
+  cada `vTickEvery` pontos, adaptativo ao total de semanas); rótulos do eixo X rotacionados −45°;
+  labels só em pontos-chave (primeiro, último, máximo, mínimo); `H=240`, `PB=56`.
+- Legenda agora inclui aviso contextual explícito: "O ACWR é um indicador auxiliar — um valor fora
+  da zona segura isoladamente não representa necessariamente risco. Interprete sempre em conjunto com
+  RPE, sono, dor e contexto do atleta. Nunca altere a prescrição com base nesse número sozinho."
+
+**Anel de esforço — box-shadow** (commit `9f622ed`):
+- Problema: `border: 3px solid ${ring}` com `box-sizing: border-box` desenhava o anel DENTRO do
+  círculo colorido, onde a cor sumia contra o fundo.
+- Correção: `boxShadow: '0 0 0 2px var(--bg), 0 0 0 5px ${ring}'` cria anel externo com gap branco
+  visível em qualquer fundo. Mesmo padrão aplicado na legenda do effort ring.
+
+**Correções ESLint/TypeScript** (commit `825f2e3` e demais):
+- `y0`: variável `const y0 = MT + CH` declarada mas não usada no KmEvolutionChart inicial —
+  removida para passar o build do Next.js.
+- `period`: parâmetro de `KmEvolutionChart` sem uso — anotado com `_period` ou encapsulado.
+- `noPain`, `PT`, `PB`, `onNavigatePlan`, `plan`, `SatisfactionSection`: demais variáveis/funções
+  não utilizadas encontradas e corrigidas (removidas ou prefixadas com `_`) durante o lint completo.
+
+**coach.service.ts — 12 novos campos no histórico** (mesmo lote de commits desta sessão):
+- `flatFeedbackSessions()` passa ao cliente admin os dados do bloco 1 (sono, cansaço, estresse,
+  motivação), bloco 2 (RPE, sensação ao terminar, satisfação com elaboração/execução) e bloco 3
+  (painFlag, painTiming): `preSleepQuality`, `prePhysicalFatigue`, `preStressLevel`,
+  `preMotivation`, `postWorkoutFeeling`, `painFlag`, `painTiming`, `feedbackVersion`,
+  `completedAt`, `completedDurationMin`, `completedDistanceKm`, `completedPaceSecondsKm`.
+- Usado pelas 6 novas seções da aba Evolução para alimentar os gráficos longitudinais.
+
+**Gates desta sessão**: typecheck limpo nos três apps antes de cada commit; lint verde; sem
+migration nova além das já documentadas em sessão anterior (20260911210000_add_workout_feedback_v2).
+
+**Commits desta sessão (espelho pendente de push)**:
+- `9f622ed` — feat(admin): redesenha graficos da aba Evolucao
+- `825f2e3` — fix(admin): remove variavel y0 nao utilizada no KmEvolutionChart (ESLint)
+- `2cbc23a` — feat(admin): KmEvolutionChart com 3 barras por semana e labels em todas
+- `f91b73e` — fix(admin): ACWR com escala correta, grade H+V, labels rotacionados e aviso contextual
