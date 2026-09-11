@@ -284,12 +284,27 @@ interface StudentDetail {
       structure?: Record<string, unknown> | null;
       notes?: string | null;
       completionStatus: string;
+      completedAt?: string | null;
+      completedDurationMin?: number | null;
+      completedDistanceKm?: number | null;
+      completedPaceSecondsKm?: number | null;
       perceivedEffort?: number | null;
       satisfactionElaboracao?: string | null;
       satisfaction?: string | null;
       satisfactionCapacidade?: string | null;
       satisfactionCarga?: string | null;
       feedback?: string | null;
+      // Feedback v1 — bloco 1
+      preSleepQuality?: number | null;
+      prePhysicalFatigue?: number | null;
+      preStressLevel?: number | null;
+      preMotivation?: number | null;
+      // Feedback v1 — bloco 2
+      postWorkoutFeeling?: number | null;
+      // Feedback v1 — bloco 3
+      painFlag?: string | null;
+      painTiming?: string | null;
+      feedbackVersion?: number | null;
     }>;
   }>;
 }
@@ -2689,7 +2704,7 @@ function StudentPanel({
       ) : null}
 
       {detailTab === 'evolucao' ? (() => {
-        // 10/09: dados semanais para gráfico (oldest-first).
+        // Dados semanais para gráficos (oldest-first).
         const allWeeks = [...(student.history ?? [])].reverse().map((h) => ({
           startDate: String(h.startDate).slice(0, 10),
           completedKm: h.summary.completedKm ?? 0,
@@ -2699,11 +2714,12 @@ function StudentPanel({
           prescribedSessions: h.summary.prescribedSessions ?? 0,
         }));
         const hist = student.history ?? [];
+        const allSessions = flatFeedbackSessions(hist);
 
         // Contadores para badges
         let feedbackSessions = 0; let commentCount = 0;
-        for (const p of hist) for (const s of p.sessions ?? []) {
-          if (s.perceivedEffort != null || s.satisfaction != null) feedbackSessions++;
+        for (const s of allSessions) {
+          if (s.perceivedEffort != null || s.satisfactionElaboracao != null || s.preSleepQuality != null) feedbackSessions++;
           if (s.feedback?.trim()) commentCount++;
         }
         const PAIN_KW = ['dor', 'lesao', 'lesão', 'machuc', 'inflam', 'torce', 'torci'];
@@ -2711,26 +2727,35 @@ function StudentPanel({
           (o) => PAIN_KW.some((kw) => o.content.toLowerCase().includes(kw))
         );
         let painComments = 0;
-        for (const p of hist) for (const s of p.sessions ?? [])
+        for (const s of allSessions)
           if (s.feedback && PAIN_KW.some((kw) => s.feedback!.toLowerCase().includes(kw))) painComments++;
 
-        // 11/09: handler para navegar para Semanas anteriores ao clicar em bolinha do calendário.
+        const sessionsWithV1Pain = allSessions.filter((s) => s.painFlag != null && (s.completionStatus === 'done' || s.completionStatus === 'adjusted'));
+
         const handleCalendarDayClick = (planId: string) => {
           setExpandedHistoryId(planId);
           setDetailTab('semanas');
         };
 
-        // Filtra semanas pelo período universal
         const cutoffDate = evolPeriod !== 999
           ? new Date(Date.now() - evolPeriod * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
           : '0000-00-00';
         const filteredWeeks = allWeeks.filter((w) => w.startDate >= cutoffDate);
+        const filteredSessions = allSessions.filter((s) => s.date >= cutoffDate);
+
+        // Divisor de grupo
+        const GroupLabel = ({ label }: { label: string }) => (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0 2px', userSelect: 'none' }}>
+            <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)' }}>{label}</span>
+            <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+          </div>
+        );
 
         return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
 
           {/* ── FILTRO UNIVERSAL DE PERÍODO ──────────────────────────────────── */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 4px', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>Período</span>
             {([
               [4,'1m'],[8,'2m'],[12,'3m'],[24,'6m'],[52,'1a'],[999,'Tudo'],
@@ -2745,66 +2770,86 @@ function StudentPanel({
                 {label}
               </button>
             ))}
-            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>
-              💡 Clique nas bolinhas do calendário para ver o treino
-            </span>
           </div>
 
-          {/* ① QUILOMETRAGEM */}
-          <EvoSection icon="📊" title="Quilometragem semanal" badge={`${filteredWeeks.length} sem`}
+          {/* ── VISÃO GERAL ───────────────────────────────────────────────── */}
+          <GroupLabel label="Visão geral do período" />
+          <VisaoGeralSection sessions={filteredSessions} weeks={filteredWeeks} />
+
+          {/* ── TREINAMENTO ───────────────────────────────────────────────── */}
+          <GroupLabel label="Treinamento" />
+
+          <EvoSection icon="📊" title="Volume semanal" badge={`${filteredWeeks.length} sem`}
             desc="Km completados por semana (barra) vs prescritos (linha tracejada). Cor da barra = variação % vs semana anterior. Linha roxa = tendência de evolução.">
             <KmEvolutionChart weeks={filteredWeeks} period={999} />
             <EvolutionKeyNumbers weeks={allWeeks} period={evolPeriod} />
           </EvoSection>
 
-          {/* ② CALENDÁRIO */}
           <EvoSection icon="📅" title="Calendário de treinos" badge="8 sem"
             desc="Últimas 8 semanas. Cor = status do treino. Anel colorido = nível de esforço percebido. Clique em qualquer bolinha para ver o treino completo na aba Semanas anteriores.">
             <TrainingCalendarDots history={hist} onDayClick={handleCalendarDayClick} />
           </EvoSection>
 
-          {/* ③ ESFORÇO PERCEBIDO */}
-          <EvoSection icon="💪" title="Esforço percebido" badge={feedbackSessions > 0 ? `${feedbackSessions} treinos` : undefined}
-            desc="PSE (Percepção Subjetiva de Esforço) 1-10 registrada pelo aluno após cada treino. Alterne entre visualização por sessão (scatter), semana ou mês. Filtre por modalidade para identificar padrões específicos.">
-            <EffortSection history={hist} period={evolPeriod} />
-          </EvoSection>
-
-          {/* ④ SATISFAÇÃO */}
-          <EvoSection icon="😊" title="Satisfação por categoria" badge={feedbackSessions > 0 ? `${feedbackSessions} respostas` : undefined}
-            desc="Avaliação pós-treino em 4 dimensões: satisfação geral, elaboração do treino, capacidade de execução e adequação da carga. Gráficos separados por categoria com filtro por modalidade. Setas ↑↓ indicam tendência do período.">
-            <SatisfactionSection history={hist} period={evolPeriod} />
-          </EvoSection>
-
-          {/* ⑤ ANÁLISE DE CARGA (Carga Semanal + ACWR) */}
-          <EvoSection icon="📈" title="Análise de carga (ACWR)" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
-            desc="Carga Semanal: km por semana colorido por % de aumento. ACWR (Aguda:Crônica): razão entre carga recente (4 sem) e carga base (6 sem). Zona verde 0.8-1.3 = seguro. Acima de 1.5 = risco de lesão por overtraining.">
-            <LoadAnalysisSection weeks={filteredWeeks} />
-          </EvoSection>
-
-          {/* ⑥ ADERÊNCIA */}
           <EvoSection icon="📋" title="Aderência aos treinos" badge={filteredWeeks.length > 0 ? `${filteredWeeks.length} sem` : undefined}
-            desc="% de treinos planejados que foram realizados por semana. Meta ideal: acima de 80%. Quedas sustentadas costumam anteceder o abandono da planilha — atenção ao contexto quando o índice cair por 2+ semanas seguidas.">
+            desc="% de treinos planejados que foram realizados por semana. Meta ideal: acima de 80%. Queda sustentada por 2+ semanas merece atenção ao contexto.">
             <LoadChartAderencia weeks={filteredWeeks} />
           </EvoSection>
 
-          {/* ⑦+⑧ DORES E COMENTÁRIOS — layout 2 colunas */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-            <EvoSection icon="🩹" title="Dores e relatos" badge={(painObs.length + painComments) > 0 ? painObs.length + painComments : undefined}
-              desc="Perfil de saúde (entrevista) + observações e feedbacks do aluno com menção a dor, lesão ou desconforto físico. Leia antes de aumentar carga.">
-              <PainReportsSection
-                health={student.health}
-                observations={student.observations ?? []}
-                history={hist}
-              />
-            </EvoSection>
+          <EvoSection icon="📈" title="Análise de carga (ACWR)" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
+            desc="Carga Semanal + ACWR (Aguda:Crônica). Zona verde 0.8–1.3 = seguro. Acima de 1.5 = risco de overtraining.">
+            <LoadAnalysisSection weeks={filteredWeeks} />
+          </EvoSection>
 
-            <EvoSection icon="💬" title="Comentários em texto" badge={commentCount > 0 ? commentCount : undefined}
-              desc="Texto livre registrado pelo aluno após os treinos. Fonte qualitativa importante: revela motivação, dificuldades específicas e contexto de vida fora da planilha.">
-              <CommentsSection history={hist} />
-            </EvoSection>
-          </div>
+          <EvoSection icon="💪" title="Esforço percebido (RPE)" badge={feedbackSessions > 0 ? `${feedbackSessions} treinos` : undefined}
+            desc="RPE 1–10 por sessão, semana ou mês. Filtre por modalidade. Clique nas bolinhas do calendário para ver o treino completo.">
+            <EffortSection history={hist} period={evolPeriod} />
+          </EvoSection>
 
-          {/* ⑨+⑩ REAVALIAÇÕES + PROVAS — layout 2 colunas */}
+          {/* ── ESTADO E RESPOSTA ─────────────────────────────────────────── */}
+          <GroupLabel label="Estado e resposta ao treinamento" />
+
+          <EvoSection icon="🌙" title="Estado antes dos treinos" badge={filteredSessions.filter((s) => s.preSleepQuality != null).length > 0 ? `${filteredSessions.filter((s) => s.preSleepQuality != null).length} registros` : undefined}
+            desc="Quatro variáveis pré-treino (escala 1–5): sono, cansaço físico, estresse e motivação. Coletados a partir de 11/09/2026. Ligue/desligue cada série para comparar trajetórias.">
+            <PreWorkoutStateSection history={hist} period={evolPeriod} />
+          </EvoSection>
+
+          <EvoSection icon="⭐" title="Experiência com o treino" badge={feedbackSessions > 0 ? `${feedbackSessions} respostas` : undefined}
+            desc="Três dimensões: elaboração (como o treino foi montado), execução (como o aluno conseguiu fazer), sensação final (como terminou). Todas em escala 1–5. Ver distribuição das respostas expande detalhes.">
+            <ExperienciaTreinoSection history={hist} period={evolPeriod} />
+          </EvoSection>
+
+          <EvoSection icon="🩹" title="Dor ao longo do tempo" badge={sessionsWithV1Pain.length > 0 ? sessionsWithV1Pain.filter((s) => s.painFlag !== 'none').length : undefined}
+            desc="Intensidade de dor por sessão (0 = sem dor, 1 = leve, 2 = moderada, 3 = forte). Episódios detalhados com quando a dor apareceu. Círculo maior = dor mais intensa. Dados de v1 (a partir de 11/09/2026) + observações antigas.">
+            <DorLongitudinalSection history={hist} />
+            {/* Mantém relatos históricos de texto para contexto */}
+            {(painObs.length + painComments) > 0 && (
+              <details style={{ marginTop: 12 }}>
+                <summary style={{ fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>Relatos históricos de dor em texto ({painObs.length + painComments})</summary>
+                <PainReportsSection health={student.health} observations={student.observations ?? []} history={hist} />
+              </details>
+            )}
+          </EvoSection>
+
+          {/* ── ANÁLISE ───────────────────────────────────────────────────── */}
+          <GroupLabel label="Análise e exploração" />
+
+          <EvoSection icon="🔍" title="Explorar relações" desc="Cruze duas variáveis numéricas em scatter plot. Cada ponto = uma sessão. Cor = modalidade. Hover para ver detalhes. Não interprete como causalidade — é ferramenta de investigação.">
+            <ExplorarRelacoesSection history={hist} />
+          </EvoSection>
+
+          <EvoSection icon="🕒" title="Timeline integrada" badge={allSessions.filter((s) => s.completionStatus !== 'sem_registro').length}
+            desc="Todos os treinos em ordem cronológica inversa com estado pré-treino, RPE, satisfação, sensação final, dor e comentário de cada sessão num único card.">
+            <TimelineIntegradaSection history={hist} onNavigatePlan={(planId) => { setExpandedHistoryId(planId); setDetailTab('semanas'); }} />
+          </EvoSection>
+
+          {/* ── REGISTROS ─────────────────────────────────────────────────── */}
+          <GroupLabel label="Registros e histórico" />
+
+          <EvoSection icon="💬" title="Comentários em texto" badge={commentCount > 0 ? commentCount : undefined}
+            desc="Texto livre registrado pelo aluno após os treinos. Fonte qualitativa — revela motivação, dificuldades e contexto fora do plano.">
+            <CommentsSection history={hist} />
+          </EvoSection>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
             <EvoSection icon="🔄" title="Reavaliações" badge={student.reassessments?.length ?? 0}
               desc="Síntese das reavaliações periódicas — evolução, conquistas e pontos de atenção gerados pela IA após cada ciclo avaliativo.">
@@ -2838,7 +2883,6 @@ function StudentPanel({
             </EvoSection>
           </div>
 
-          {/* ⑩ RELATÓRIOS DO AGENTE */}
           <EvoSection icon="📋" title="Relatórios do agente" badge={student.reports?.length ?? 0}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
               <button type="button" className="primaryButton" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
@@ -4920,8 +4964,703 @@ async function copyText(text: string) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 10/09: Componentes de Evolução
+// 10/09 / 11/09: Componentes de Evolução
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Helpers compartilhados pelos novos componentes v1
+type FlatSession = ReturnType<typeof flatFeedbackSessions>[number];
+
+function painFlagNumeric(flag: string | null): number {
+  if (!flag || flag === 'none') return 0;
+  if (flag === 'leve') return 1;
+  if (flag === 'moderado') return 2;
+  if (flag === 'forte') return 3;
+  return 0;
+}
+
+const PAIN_COLOR: Record<number, string> = { 0: '#22c55e', 1: '#facc15', 2: '#fb923c', 3: '#ef4444' };
+const PAIN_LABEL: Record<number, string> = { 0: 'Sem dor', 1: 'Leve', 2: 'Moderada', 3: 'Forte' };
+
+const SCALE5_GRADIENT = ['#ef4444', '#fb923c', '#facc15', '#86efac', '#22c55e'];
+function scale5Color(v: number | null) { return v ? SCALE5_GRADIENT[v - 1] : '#cbd5e1'; }
+
+const PAIN_TIMING_LABELS: Record<string, string> = {
+  ja_comecei_sentindo: 'Já comecei sentindo',
+  comeco_passou: 'Comecou e passou',
+  comeco_continuou: 'Comecou e continuou',
+  durante_passou: 'Durante e passou',
+  durante_continuou: 'Durante até o final',
+  so_depois: 'Só depois do treino',
+};
+
+function minToHhmm(min: number | null): string {
+  if (!min) return '—';
+  const h = Math.floor(min / 60); const m = Math.round(min % 60);
+  return h > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${m}min`;
+}
+
+// ── VISÃO GERAL ────────────────────────────────────────────────────────────
+/** Faixa de indicadores-chave do período acima dos cards. */
+function VisaoGeralSection({ sessions, weeks }: { sessions: FlatSession[]; weeks: WeekData[] }) {
+  const done = sessions.filter((s) => s.completionStatus === 'done' || s.completionStatus === 'adjusted');
+  const withRPE = done.filter((s) => s.perceivedEffort != null);
+  const withElab = done.filter((s) => s.satisfactionElaboracao != null);
+  const withExec = done.filter((s) => s.satisfactionCapacidade != null);
+  const withMotiv = done.filter((s) => s.preMotivation != null);
+  const withPain = done.filter((s) => s.painFlag && s.painFlag !== 'none');
+
+  const satScore = (v: string | null) => ({ amei: 5, gostei: 4, neutro: 3, nao_gostei: 2, detestei: 1 }[v ?? ''] ?? null);
+  const avg = (arr: (number | null)[]) => { const v = arr.filter((x): x is number => x != null); return v.length ? (v.reduce((a,b)=>a+b,0)/v.length) : null; };
+  const fmt = (n: number | null, den: number, dec = 1) => n == null ? '–' : `${n.toFixed(dec)}/${den}`;
+
+  const avgRPE = avg(withRPE.map((s) => s.perceivedEffort));
+  const avgElab = avg(withElab.map((s) => satScore(s.satisfactionElaboracao)));
+  const avgExec = avg(withExec.map((s) => satScore(s.satisfactionCapacidade)));
+  const avgMotiv = avg(withMotiv.map((s) => s.preMotivation));
+  const totalPrescribed = weeks.reduce((a, w) => a + w.prescribedSessions, 0);
+  const totalDone = weeks.reduce((a, w) => a + w.completedSessions, 0);
+  const totalKmP = weeks.reduce((a, w) => a + w.prescribedKm, 0);
+  const totalKmC = weeks.reduce((a, w) => a + w.completedKm, 0);
+  const adherence = totalPrescribed > 0 ? Math.round((totalDone / totalPrescribed) * 100) : null;
+
+  const tiles: Array<{ label: string; value: string; sub?: string; color?: string }> = [
+    { label: 'Aderência', value: adherence != null ? `${adherence}%` : '–', color: adherence != null ? (adherence >= 80 ? '#22c55e' : adherence >= 60 ? '#fb923c' : '#ef4444') : undefined },
+    { label: 'Treinos feitos', value: totalPrescribed > 0 ? `${totalDone}` : '–', sub: totalPrescribed > 0 ? `de ${totalPrescribed}` : undefined },
+    { label: 'Km', value: totalKmC > 0 ? `${totalKmC.toFixed(0)}` : '–', sub: totalKmP > 0 ? `de ${totalKmP.toFixed(0)} km` : undefined },
+    { label: 'RPE médio', value: fmt(avgRPE, 10), sub: withRPE.length > 0 ? `${withRPE.length} registros` : undefined },
+    { label: 'Elaboração', value: fmt(avgElab, 5), sub: withElab.length > 0 ? `${withElab.length} registros` : undefined },
+    { label: 'Execução', value: fmt(avgExec, 5), sub: withExec.length > 0 ? `${withExec.length} registros` : undefined },
+    { label: 'Motivação pré', value: fmt(avgMotiv, 5), sub: withMotiv.length > 0 ? `${withMotiv.length} registros` : undefined },
+    { label: 'Treinos c/ dor', value: withPain.length > 0 ? String(withPain.length) : '0', sub: done.length > 0 ? `de ${done.length}` : undefined, color: withPain.length > 0 ? '#fb923c' : undefined },
+  ];
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8, padding: '12px 0 4px' }}>
+      {tiles.map((t) => (
+        <div key={t.label} style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', lineHeight: 1.2 }}>{t.label}</span>
+          <span style={{ fontSize: 22, fontWeight: 800, color: t.color ?? 'var(--fg)', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{t.value}</span>
+          {t.sub && <span style={{ fontSize: 10, color: 'var(--muted)' }}>{t.sub}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── ESTADO ANTES DOS TREINOS ───────────────────────────────────────────────
+type PreWorkoutSeries = 'sono' | 'cansaco' | 'estresse' | 'motivacao';
+const PRE_SERIES: Array<{ key: PreWorkoutSeries; label: string; color: string; field: keyof FlatSession }> = [
+  { key: 'sono',      label: 'Sono',       color: '#6366f1', field: 'preSleepQuality' },
+  { key: 'cansaco',   label: 'Cansaço',    color: '#f59e0b', field: 'prePhysicalFatigue' },
+  { key: 'estresse',  label: 'Estresse',   color: '#ef4444', field: 'preStressLevel' },
+  { key: 'motivacao', label: 'Motivação',  color: '#22c55e', field: 'preMotivation' },
+];
+
+function PreWorkoutStateSection({ history, period }: { history: StudentDetail['history']; period?: number }) {
+  const [active, setActive] = useState<Set<PreWorkoutSeries>>(new Set(['sono', 'cansaco', 'estresse', 'motivacao']));
+  const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('sessao');
+
+  const allSessions = flatFeedbackSessions(history)
+    .filter((s) => PRE_SERIES.some((p) => s[p.field] != null))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (allSessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum dado de estado pré-treino disponível ainda (coleta começou em 11/09/2026).</p>;
+
+  // Agregar por período se necessário
+  type DataPoint = { label: string; values: Partial<Record<PreWorkoutSeries, number | null>>; n: number };
+  let points: DataPoint[] = [];
+
+  if (aggBy === 'sessao') {
+    points = allSessions.map((s) => ({
+      label: s.date.slice(5).replace('-', '/'),
+      n: 1,
+      values: {
+        sono: s.preSleepQuality,
+        cansaco: s.prePhysicalFatigue,
+        estresse: s.preStressLevel,
+        motivacao: s.preMotivation,
+      },
+    }));
+  } else {
+    const buckets = new Map<string, { sum: Partial<Record<PreWorkoutSeries, number>>; cnt: Partial<Record<PreWorkoutSeries, number>>; n: number }>();
+    for (const s of allSessions) {
+      const key = aggBy === 'semana' ? s.weekStart : s.date.slice(0, 7);
+      if (!buckets.has(key)) buckets.set(key, { sum: {}, cnt: {}, n: 0 });
+      const b = buckets.get(key)!; b.n++;
+      for (const { key: k, field } of PRE_SERIES) {
+        const v = s[field] as number | null;
+        if (v != null) { b.sum[k] = (b.sum[k] ?? 0) + v; b.cnt[k] = (b.cnt[k] ?? 0) + 1; }
+      }
+    }
+    points = [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([key, b]) => ({
+      label: aggBy === 'semana' ? key.slice(5).replace('-', '/') : key.slice(0, 7),
+      n: b.n,
+      values: Object.fromEntries(PRE_SERIES.map(({ key: k }) => [k, b.cnt[k] ? (b.sum[k]! / b.cnt[k]!) : null])) as Partial<Record<PreWorkoutSeries, number | null>>,
+    }));
+  }
+
+  const W = 560; const H = 180; const PL = 32; const PR = 8; const PT = 12; const PB = 28;
+  const gW = W - PL - PR; const gH = H - PT - PB;
+  const n = points.length;
+  const xStep = n > 1 ? gW / (n - 1) : gW;
+  const yScale = (v: number) => PT + gH - ((v - 1) / 4) * gH;
+
+  const xLabels = n <= 8 ? points.map((p, i) => ({ i, label: p.label }))
+    : [0, Math.floor(n / 4), Math.floor(n / 2), Math.floor(3 * n / 4), n - 1].map((i) => ({ i, label: points[i].label }));
+
+  return (
+    <div>
+      {/* Controles */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+        {PRE_SERIES.map(({ key: k, label, color }) => (
+          <button key={k} type="button" onClick={() => setActive((prev) => { const s = new Set(prev); s.has(k) ? s.delete(k) : s.add(k); return s; })}
+            style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, cursor: 'pointer', fontWeight: active.has(k) ? 700 : 400,
+              background: active.has(k) ? color + '22' : 'var(--surface)',
+              border: `1.5px solid ${active.has(k) ? color : 'var(--line)'}`,
+              color: active.has(k) ? color : 'var(--muted)' }}>
+            {active.has(k) ? '✓ ' : ''}{label}
+          </button>
+        ))}
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+          {(['sessao', 'semana', 'mes'] as const).map((a) => (
+            <button key={a} type="button" onClick={() => setAggBy(a)}
+              style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, cursor: 'pointer',
+                background: aggBy === a ? 'var(--accent)' : 'var(--surface)',
+                color: aggBy === a ? '#fff' : 'var(--muted)',
+                border: `1px solid ${aggBy === a ? 'var(--accent)' : 'var(--line)'}` }}>
+              {a === 'sessao' ? 'Por sessão' : a === 'semana' ? 'Por semana' : 'Por mês'}
+            </button>
+          ))}
+        </span>
+      </div>
+      {aggBy !== 'sessao' && <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Médias agregadas — n={points.reduce((a, p) => a + p.n, 0)} sessões</p>}
+      {/* Gráfico */}
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
+        {/* Grid */}
+        {[1,2,3,4,5].map((v) => { const y = yScale(v); return (
+          <g key={v}>
+            <line x1={PL} y1={y} x2={W - PR} y2={y} stroke="var(--line)" strokeWidth={0.5} />
+            <text x={PL - 4} y={y + 4} fontSize={8} fill="var(--muted)" textAnchor="end">{v}</text>
+          </g>
+        ); })}
+        {/* Linhas de cada série */}
+        {PRE_SERIES.filter(({ key: k }) => active.has(k)).map(({ key: k, color }) => {
+          const pts = points.map((p, i) => ({ x: PL + i * xStep, y: p.values[k] != null ? yScale(p.values[k]!) : null }));
+          const segments: string[] = [];
+          let seg = '';
+          for (const { x, y } of pts) {
+            if (y == null) { if (seg) segments.push(seg); seg = ''; }
+            else seg += seg ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
+          }
+          if (seg) segments.push(seg);
+          return (
+            <g key={k}>
+              {segments.map((d, i) => <path key={i} d={d} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />)}
+              {pts.map((pt, i) => pt.y != null ? <circle key={i} cx={pt.x} cy={pt.y} r={3} fill={color} /> : null)}
+            </g>
+          );
+        })}
+        {/* Eixo X */}
+        {xLabels.map(({ i, label }) => (
+          <text key={i} x={PL + i * xStep} y={H - 4} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
+        ))}
+      </svg>
+      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Escala 1–5. Ausência = dado não coletado (sessões anteriores a 11/09/2026).</p>
+    </div>
+  );
+}
+
+// ── EXPERIÊNCIA COM O TREINO ───────────────────────────────────────────────
+type ExpSeries = 'elaboracao' | 'execucao' | 'sensacao';
+const EXP_SERIES: Array<{ key: ExpSeries; label: string; color: string }> = [
+  { key: 'elaboracao', label: 'Elaboração', color: '#818cf8' },
+  { key: 'execucao',   label: 'Execução',   color: '#34d399' },
+  { key: 'sensacao',   label: 'Sensação final', color: '#f472b6' },
+];
+const SAT_TO_5: Record<string, number> = { amei: 5, gostei: 4, neutro: 3, nao_gostei: 2, detestei: 1 };
+
+function ExperienciaTreinoSection({ history, period }: { history: StudentDetail['history']; period?: number }) {
+  const [active, setActive] = useState<Set<ExpSeries>>(new Set(['elaboracao', 'execucao', 'sensacao']));
+  const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('sessao');
+  const [showDist, setShowDist] = useState(false);
+
+  const allSessions = flatFeedbackSessions(history)
+    .filter((s) => s.satisfactionElaboracao != null || s.satisfactionCapacidade != null || s.postWorkoutFeeling != null)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (allSessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados de experiência de treino disponíveis.</p>;
+
+  type DataPoint = { label: string; elaboracao: number | null; execucao: number | null; sensacao: number | null; n: number };
+
+  function toNum(s: FlatSession): { elaboracao: number | null; execucao: number | null; sensacao: number | null } {
+    return {
+      elaboracao: s.satisfactionElaboracao ? (SAT_TO_5[s.satisfactionElaboracao] ?? null) : null,
+      execucao: s.satisfactionCapacidade ? (SAT_TO_5[s.satisfactionCapacidade] ?? null) : null,
+      sensacao: s.postWorkoutFeeling ?? null,
+    };
+  }
+
+  let points: DataPoint[] = [];
+  if (aggBy === 'sessao') {
+    points = allSessions.map((s) => ({ label: s.date.slice(5).replace('-', '/'), n: 1, ...toNum(s) }));
+  } else {
+    const buckets = new Map<string, { sum: Record<string, number>; cnt: Record<string, number>; n: number }>();
+    for (const s of allSessions) {
+      const key = aggBy === 'semana' ? s.weekStart : s.date.slice(0, 7);
+      if (!buckets.has(key)) buckets.set(key, { sum: {}, cnt: {}, n: 0 });
+      const b = buckets.get(key)!; b.n++;
+      const nums = toNum(s);
+      for (const [k, v] of Object.entries(nums)) {
+        if (v != null) { b.sum[k] = (b.sum[k] ?? 0) + v; b.cnt[k] = (b.cnt[k] ?? 0) + 1; }
+      }
+    }
+    points = [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([key, b]) => ({
+      label: aggBy === 'semana' ? key.slice(5).replace('-', '/') : key.slice(0, 7),
+      n: b.n,
+      elaboracao: b.cnt.elaboracao ? b.sum.elaboracao / b.cnt.elaboracao : null,
+      execucao: b.cnt.execucao ? b.sum.execucao / b.cnt.execucao : null,
+      sensacao: b.cnt.sensacao ? b.sum.sensacao / b.cnt.sensacao : null,
+    }));
+  }
+
+  const W = 560; const H = 180; const PL = 32; const PR = 8; const PT = 12; const PB = 28;
+  const gW = W - PL - PR; const gH = H - PT - PB;
+  const n = points.length;
+  const xStep = n > 1 ? gW / (n - 1) : gW;
+  const yScale = (v: number) => PT + gH - ((v - 1) / 4) * gH;
+  const xLabels = n <= 8 ? points.map((p, i) => ({ i, label: p.label }))
+    : [0, Math.floor(n / 4), Math.floor(n / 2), Math.floor(3 * n / 4), n - 1].map((i) => ({ i, label: points[i].label }));
+
+  // Distribuição de respostas
+  const distCounts: Record<ExpSeries, Record<string, number>> = { elaboracao: {}, execucao: {}, sensacao: {} };
+  for (const s of allSessions) {
+    if (s.satisfactionElaboracao) distCounts.elaboracao[s.satisfactionElaboracao] = (distCounts.elaboracao[s.satisfactionElaboracao] ?? 0) + 1;
+    if (s.satisfactionCapacidade) distCounts.execucao[s.satisfactionCapacidade] = (distCounts.execucao[s.satisfactionCapacidade] ?? 0) + 1;
+    if (s.postWorkoutFeeling) { const k = String(s.postWorkoutFeeling); distCounts.sensacao[k] = (distCounts.sensacao[k] ?? 0) + 1; }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+        {EXP_SERIES.map(({ key: k, label, color }) => (
+          <button key={k} type="button" onClick={() => setActive((prev) => { const s = new Set(prev); s.has(k) ? s.delete(k) : s.add(k); return s; })}
+            style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, cursor: 'pointer', fontWeight: active.has(k) ? 700 : 400,
+              background: active.has(k) ? color + '22' : 'var(--surface)', border: `1.5px solid ${active.has(k) ? color : 'var(--line)'}`,
+              color: active.has(k) ? color : 'var(--muted)' }}>
+            {active.has(k) ? '✓ ' : ''}{label}
+          </button>
+        ))}
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+          {(['sessao', 'semana', 'mes'] as const).map((a) => (
+            <button key={a} type="button" onClick={() => setAggBy(a)}
+              style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, cursor: 'pointer',
+                background: aggBy === a ? 'var(--accent)' : 'var(--surface)', color: aggBy === a ? '#fff' : 'var(--muted)',
+                border: `1px solid ${aggBy === a ? 'var(--accent)' : 'var(--line)'}` }}>
+              {a === 'sessao' ? 'Por sessão' : a === 'semana' ? 'Por semana' : 'Por mês'}
+            </button>
+          ))}
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
+        {[1,2,3,4,5].map((v) => { const y = yScale(v); return (
+          <g key={v}>
+            <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="var(--line)" strokeWidth={0.5} />
+            <text x={PL-4} y={y+4} fontSize={8} fill="var(--muted)" textAnchor="end">{v}</text>
+          </g>
+        ); })}
+        {EXP_SERIES.filter(({ key: k }) => active.has(k)).map(({ key: k, color }) => {
+          const vals = points.map((p, i) => ({ x: PL + i * xStep, y: p[k] != null ? yScale(p[k]!) : null }));
+          const segments: string[] = []; let seg = '';
+          for (const { x, y } of vals) {
+            if (y == null) { if (seg) segments.push(seg); seg = ''; }
+            else seg += seg ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
+          }
+          if (seg) segments.push(seg);
+          return (
+            <g key={k}>
+              {segments.map((d, i) => <path key={i} d={d} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />)}
+              {vals.map((pt, i) => pt.y != null ? <circle key={i} cx={pt.x} cy={pt.y} r={3} fill={color} /> : null)}
+            </g>
+          );
+        })}
+        {xLabels.map(({ i, label }) => (
+          <text key={i} x={PL + i * xStep} y={H-4} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
+        ))}
+      </svg>
+      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+        Elaboração e Execução: escala derivada de amei(5)→detestei(1). Sensação final: escala 1–5 direta (a partir de 11/09/2026).
+      </p>
+      <button type="button" onClick={() => setShowDist((v) => !v)}
+        style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', marginTop: 4 }}>
+        {showDist ? '▲ Ocultar distribuição' : '▼ Ver distribuição das respostas'}
+      </button>
+      {showDist && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10, marginTop: 8 }}>
+          {EXP_SERIES.map(({ key: k, label, color }) => {
+            const counts = distCounts[k];
+            const total = Object.values(counts).reduce((a, b) => a + b, 0);
+            if (total === 0) return null;
+            const entries = k === 'sensacao'
+              ? [1,2,3,4,5].map((v) => ({ label: String(v), count: counts[String(v)] ?? 0 }))
+              : ['amei','gostei','neutro','nao_gostei','detestei'].map((v) => ({ label: { amei: 'Amei', gostei: 'Gostei', neutro: 'Neutro', nao_gostei: 'Nao gostei', detestei: 'Detestei' }[v]!, count: counts[v] ?? 0 }));
+            return (
+              <div key={k}>
+                <p style={{ fontSize: 11, fontWeight: 700, color, marginBottom: 4 }}>{label}</p>
+                {entries.filter((e) => e.count > 0).map((e) => (
+                  <div key={e.label} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <span style={{ fontSize: 10, width: 70, color: 'var(--muted)' }}>{e.label}</span>
+                    <div style={{ flex: 1, height: 6, background: 'var(--line)', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ width: `${(e.count / total) * 100}%`, height: '100%', background: color, borderRadius: 3 }} />
+                    </div>
+                    <span style={{ fontSize: 10, color: 'var(--muted)', width: 20, textAlign: 'right' }}>{e.count}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── DOR LONGITUDINAL ───────────────────────────────────────────────────────
+function DorLongitudinalSection({ history }: { history: StudentDetail['history'] }) {
+  const sessions = flatFeedbackSessions(history)
+    .filter((s) => s.painFlag != null && (s.completionStatus === 'done' || s.completionStatus === 'adjusted'))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (sessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum dado de dor disponível (coleta a partir de 11/09/2026).</p>;
+
+  const withPain = sessions.filter((s) => s.painFlag && s.painFlag !== 'none');
+  const noPain = sessions.length - withPain.length;
+
+  // Gráfico de pontos coloridos por nível de dor
+  const W = 560; const H = 80; const PL = 8; const PR = 8; const PT = 12; const PB = 24;
+  const gW = W - PL - PR; const n = sessions.length;
+  const xStep = n > 1 ? gW / (n - 1) : 0;
+  const cx = (i: number) => PL + i * xStep;
+  const cy = H / 2;
+
+  const xLabels = n <= 8 ? sessions.map((s, i) => ({ i, label: s.date.slice(5).replace('-', '/') }))
+    : [0, Math.floor(n / 4), Math.floor(n / 2), Math.floor(3 * n / 4), n - 1].map((i) => ({ i, label: sessions[i].date.slice(5).replace('-', '/') }));
+
+  return (
+    <div>
+      {/* Resumo */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 10 }}>
+        {([0,1,2,3] as const).map((lvl) => {
+          const cnt = sessions.filter((s) => painFlagNumeric(s.painFlag) === lvl).length;
+          return (
+            <div key={lvl} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: PAIN_COLOR[lvl] }} />
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>{PAIN_LABEL[lvl]}: <strong style={{ color: 'var(--fg)' }}>{cnt}</strong></span>
+            </div>
+          );
+        })}
+        <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 'auto' }}>{sessions.length} treinos com registro de dor</span>
+      </div>
+      {/* Timeline de pontos */}
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
+        <line x1={PL} y1={cy} x2={W-PR} y2={cy} stroke="var(--line)" strokeWidth={1} />
+        {sessions.map((s, i) => {
+          const lvl = painFlagNumeric(s.painFlag);
+          const r = lvl === 0 ? 4 : lvl === 1 ? 6 : lvl === 2 ? 8 : 10;
+          return (
+            <g key={s.id}>
+              <title>{s.date} — {s.title} — {PAIN_LABEL[lvl]}{s.painTiming ? ` (${PAIN_TIMING_LABELS[s.painTiming] ?? s.painTiming})` : ''}</title>
+              <circle cx={cx(i)} cy={cy} r={r} fill={PAIN_COLOR[lvl]} opacity={lvl === 0 ? 0.4 : 0.85} />
+            </g>
+          );
+        })}
+        {xLabels.map(({ i, label }) => (
+          <text key={i} x={cx(i)} y={H - 4} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
+        ))}
+      </svg>
+      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+        Círculo maior = dor mais intensa. Passe o mouse sobre cada ponto para ver o treino e o momento da dor.
+      </p>
+      {/* Lista de episódios com dor */}
+      {withPain.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--fg)' }}>Episódios registrados com dor ({withPain.length})</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {withPain.slice().reverse().map((s) => {
+              const lvl = painFlagNumeric(s.painFlag);
+              return (
+                <div key={s.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 10px', background: 'var(--surface)', borderRadius: 8, borderLeft: `3px solid ${PAIN_COLOR[lvl]}` }}>
+                  <div style={{ flexShrink: 0, width: 10, height: 10, borderRadius: '50%', background: PAIN_COLOR[lvl], marginTop: 2 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--fg)' }}>{s.date.slice(5).replace('-', '/')}</span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>{s.title}</span>
+                      <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: PAIN_COLOR[lvl] + '22', color: PAIN_COLOR[lvl], fontWeight: 600 }}>{PAIN_LABEL[lvl]}</span>
+                    </div>
+                    {s.painTiming && <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{PAIN_TIMING_LABELS[s.painTiming] ?? s.painTiming}</p>}
+                    {s.feedback && <p style={{ fontSize: 11, color: 'var(--fg)', marginTop: 2, fontStyle: 'italic' }}>"{s.feedback}"</p>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── EXPLORAR RELAÇÕES (scatter plot) ──────────────────────────────────────
+type RelVar = 'sono' | 'cansaco' | 'estresse' | 'motivacao' | 'rpe' | 'elaboracao' | 'execucao' | 'sensacao' | 'dor';
+const REL_VAR_OPTIONS: Array<{ key: RelVar; label: string }> = [
+  { key: 'sono',        label: 'Sono (1–5)' },
+  { key: 'cansaco',     label: 'Cansaço pré (1–5)' },
+  { key: 'estresse',    label: 'Estresse pré (1–5)' },
+  { key: 'motivacao',   label: 'Motivação pré (1–5)' },
+  { key: 'rpe',         label: 'RPE (1–10)' },
+  { key: 'elaboracao',  label: 'Elaboração (1–5)' },
+  { key: 'execucao',    label: 'Execução (1–5)' },
+  { key: 'sensacao',    label: 'Sensação final (1–5)' },
+  { key: 'dor',         label: 'Dor (0–3)' },
+];
+
+function getVarValue(s: FlatSession, v: RelVar): number | null {
+  switch (v) {
+    case 'sono':       return s.preSleepQuality;
+    case 'cansaco':    return s.prePhysicalFatigue;
+    case 'estresse':   return s.preStressLevel;
+    case 'motivacao':  return s.preMotivation;
+    case 'rpe':        return s.perceivedEffort;
+    case 'elaboracao': return s.satisfactionElaboracao ? (SAT_TO_5[s.satisfactionElaboracao] ?? null) : null;
+    case 'execucao':   return s.satisfactionCapacidade ? (SAT_TO_5[s.satisfactionCapacidade] ?? null) : null;
+    case 'sensacao':   return s.postWorkoutFeeling;
+    case 'dor':        return painFlagNumeric(s.painFlag);
+    default:           return null;
+  }
+}
+
+function getVarRange(v: RelVar): [number, number] {
+  return v === 'rpe' ? [1, 10] : v === 'dor' ? [0, 3] : [1, 5];
+}
+
+function ExplorarRelacoesSection({ history }: { history: StudentDetail['history'] }) {
+  const [varA, setVarA] = useState<RelVar>('cansaco');
+  const [varB, setVarB] = useState<RelVar>('rpe');
+  const [hovered, setHovered] = useState<string | null>(null);
+
+  const allSessions = flatFeedbackSessions(history)
+    .filter((s) => s.completionStatus === 'done' || s.completionStatus === 'adjusted');
+
+  const pts = allSessions
+    .map((s) => ({ s, a: getVarValue(s, varA), b: getVarValue(s, varB) }))
+    .filter((p): p is { s: FlatSession; a: number; b: number } => p.a != null && p.b != null);
+
+  const [minA, maxA] = getVarRange(varA);
+  const [minB, maxB] = getVarRange(varB);
+
+  const W = 400; const H = 280; const PAD = 40;
+  const gW = W - PAD * 2; const gH = H - PAD * 2;
+  const xPos = (v: number) => PAD + ((v - minA) / (maxA - minA)) * gW;
+  const yPos = (v: number) => H - PAD - ((v - minB) / (maxB - minB)) * gH;
+
+  const labelA = REL_VAR_OPTIONS.find((o) => o.key === varA)?.label ?? varA;
+  const labelB = REL_VAR_OPTIONS.find((o) => o.key === varB)?.label ?? varB;
+
+  const hoveredPt = pts.find((p) => p.s.id === hovered);
+
+  return (
+    <div>
+      {/* Seletor de variáveis */}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>Variável A (eixo horizontal)</label>
+          <select value={varA} onChange={(e) => setVarA(e.target.value as RelVar)}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--fg)' }}>
+            {REL_VAR_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </select>
+        </div>
+        <div style={{ fontSize: 18, color: 'var(--muted)', paddingTop: 16 }}>×</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>Variável B (eixo vertical)</label>
+          <select value={varB} onChange={(e) => setVarB(e.target.value as RelVar)}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--fg)' }}>
+            {REL_VAR_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </select>
+        </div>
+        <span style={{ fontSize: 11, color: 'var(--muted)', paddingTop: 16 }}>
+          {pts.length} pontos com ambas as variáveis registradas
+        </span>
+      </div>
+      {pts.length < 3 ? (
+        <p style={{ color: 'var(--muted)', fontSize: 13 }}>Dados insuficientes para o cruzamento selecionado (mínimo 3 sessões com ambas as variáveis).</p>
+      ) : (
+        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W, height: 'auto', overflow: 'visible', flex: '1 1 280px' }}>
+            {/* Grid */}
+            {Array.from({ length: maxA - minA + 1 }, (_, i) => minA + i).map((v) => (
+              <line key={v} x1={xPos(v)} y1={PAD} x2={xPos(v)} y2={H - PAD} stroke="var(--line)" strokeWidth={0.5} />
+            ))}
+            {Array.from({ length: maxB - minB + 1 }, (_, i) => minB + i).map((v) => (
+              <line key={v} x1={PAD} y1={yPos(v)} x2={W - PAD} y2={yPos(v)} stroke="var(--line)" strokeWidth={0.5} />
+            ))}
+            {/* Eixos */}
+            <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="var(--muted)" strokeWidth={1} />
+            <line x1={PAD} y1={PAD} x2={PAD} y2={H - PAD} stroke="var(--muted)" strokeWidth={1} />
+            {/* Labels eixo X */}
+            {Array.from({ length: maxA - minA + 1 }, (_, i) => minA + i).map((v) => (
+              <text key={v} x={xPos(v)} y={H - PAD + 12} fontSize={8} fill="var(--muted)" textAnchor="middle">{v}</text>
+            ))}
+            {/* Labels eixo Y */}
+            {Array.from({ length: maxB - minB + 1 }, (_, i) => minB + i).map((v) => (
+              <text key={v} x={PAD - 6} y={yPos(v) + 3} fontSize={8} fill="var(--muted)" textAnchor="end">{v}</text>
+            ))}
+            {/* Label eixo nomes */}
+            <text x={W / 2} y={H - 4} fontSize={9} fill="var(--muted)" textAnchor="middle">{labelA}</text>
+            <text x={10} y={H / 2} fontSize={9} fill="var(--muted)" textAnchor="middle" transform={`rotate(-90, 10, ${H/2})`}>{labelB}</text>
+            {/* Pontos */}
+            {pts.map((p) => (
+              <circle
+                key={p.s.id}
+                cx={xPos(p.a)} cy={yPos(p.b)} r={5}
+                fill={p.s.modality.toLowerCase().includes('corrida') ? '#6366f1' : p.s.modality.toLowerCase().includes('muscula') ? '#f59e0b' : '#22c55e'}
+                opacity={hovered === p.s.id ? 1 : 0.65}
+                stroke={hovered === p.s.id ? 'var(--fg)' : 'none'} strokeWidth={1.5}
+                onMouseEnter={() => setHovered(p.s.id)}
+                onMouseLeave={() => setHovered(null)}
+                style={{ cursor: 'pointer' }}
+              />
+            ))}
+          </svg>
+          {/* Painel de detalhe ao hover */}
+          <div style={{ flex: '0 0 160px', minWidth: 140 }}>
+            {hoveredPt ? (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8, padding: 10 }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg)', marginBottom: 4 }}>{hoveredPt.s.date.slice(5).replace('-', '/')}</p>
+                <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>{hoveredPt.s.title}</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <span style={{ fontSize: 11, color: 'var(--fg)' }}>{labelA}: <strong>{hoveredPt.a}</strong></span>
+                  <span style={{ fontSize: 11, color: 'var(--fg)' }}>{labelB}: <strong>{hoveredPt.b}</strong></span>
+                  {hoveredPt.s.perceivedEffort && <span style={{ fontSize: 11, color: 'var(--muted)' }}>RPE: {hoveredPt.s.perceivedEffort}</span>}
+                  {hoveredPt.s.painFlag && hoveredPt.s.painFlag !== 'none' && <span style={{ fontSize: 11, color: '#fb923c' }}>Dor: {PAIN_LABEL[painFlagNumeric(hoveredPt.s.painFlag)]}</span>}
+                </div>
+              </div>
+            ) : (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8, padding: 10 }}>
+                <p style={{ fontSize: 11, color: 'var(--muted)' }}>Passe o mouse sobre um ponto para ver os detalhes do treino.</p>
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366f1' }} /><span style={{ fontSize: 10, color: 'var(--muted)' }}>Corrida</span></div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b' }} /><span style={{ fontSize: 10, color: 'var(--muted)' }}>Musculação</span></div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e' }} /><span style={{ fontSize: 10, color: 'var(--muted)' }}>Outros</span></div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+        Cada ponto = uma sessão. Cor = modalidade. Não interprete como causalidade — é associação descritiva para investigação.
+      </p>
+    </div>
+  );
+}
+
+// ── TIMELINE INTEGRADA ─────────────────────────────────────────────────────
+function TimelineIntegradaSection({ history, onNavigatePlan }: {
+  history: StudentDetail['history'];
+  onNavigatePlan?: (planId: string) => void;
+}) {
+  const [limit, setLimit] = useState(20);
+
+  // Montar eventos de todas as sessões com qualquer dado
+  const events = (history ?? []).flatMap((plan) =>
+    (plan.sessions ?? []).map((s) => ({ plan, session: s }))
+  ).filter(({ session: s }) =>
+    s.completionStatus !== 'sem_registro' && s.completionStatus != null
+  ).sort((a, b) => String(b.session.date).localeCompare(String(a.session.date)));
+
+  const visible = events.slice(0, limit);
+
+  function sessionIcon(mod: string) {
+    const m = mod.toLowerCase();
+    if (m.includes('corrida') || m.includes('run')) return '🏃';
+    if (m.includes('muscula') || m.includes('forca') || m.includes('força')) return '🏋️';
+    if (m.includes('caminhada') || m.includes('walk')) return '🚶';
+    return '⚡';
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {visible.map(({ plan, session: s }) => {
+          const painLvl = painFlagNumeric(s.painFlag ?? null);
+          const isMissed = s.completionStatus === 'missed';
+          return (
+            <div key={s.id} style={{
+              display: 'flex', gap: 10, padding: '10px 12px',
+              background: 'var(--surface)', borderRadius: 8,
+              borderLeft: `3px solid ${isMissed ? '#94a3b8' : painLvl > 1 ? PAIN_COLOR[painLvl] : 'var(--accent)'}`,
+              opacity: isMissed ? 0.6 : 1,
+            }}>
+              <div style={{ flexShrink: 0, fontSize: 18, lineHeight: 1.2 }}>{sessionIcon(s.modality ?? '')}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {/* Linha 1: data + título + status */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline', marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--fg)' }}>{String(s.date).slice(5).replace('-', '/')}</span>
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>{s.title}</span>
+                  <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: isMissed ? '#94a3b822' : '#22c55e22', color: isMissed ? '#94a3b8' : '#22c55e', fontWeight: 600 }}>
+                    {isMissed ? 'Não fez' : s.completionStatus === 'adjusted' ? 'Ajustado' : 'Feito'}
+                  </span>
+                </div>
+                {/* Linha 2: bloco 1 — estado pré */}
+                {(s.preSleepQuality != null || s.prePhysicalFatigue != null || s.preStressLevel != null || s.preMotivation != null) && (
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 3 }}>
+                    {s.preSleepQuality != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Sono <span style={{ color: scale5Color(s.preSleepQuality), fontWeight: 700 }}>{s.preSleepQuality}/5</span></span>}
+                    {s.prePhysicalFatigue != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Cansaço <span style={{ color: scale5Color(s.prePhysicalFatigue), fontWeight: 700 }}>{s.prePhysicalFatigue}/5</span></span>}
+                    {s.preStressLevel != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Estresse <span style={{ fontWeight: 700 }}>{s.preStressLevel}/5</span></span>}
+                    {s.preMotivation != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Motivação <span style={{ color: scale5Color(s.preMotivation), fontWeight: 700 }}>{s.preMotivation}/5</span></span>}
+                  </div>
+                )}
+                {/* Linha 3: bloco 2 — treino */}
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 3 }}>
+                  {s.perceivedEffort != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>RPE <strong style={{ color: 'var(--fg)' }}>{s.perceivedEffort}/10</strong></span>}
+                  {s.satisfactionElaboracao != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Elaboração <strong>{s.satisfactionElaboracao}</strong></span>}
+                  {s.satisfactionCapacidade != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Execução <strong>{s.satisfactionCapacidade}</strong></span>}
+                  {s.postWorkoutFeeling != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Sensação final <span style={{ color: scale5Color(s.postWorkoutFeeling), fontWeight: 700 }}>{s.postWorkoutFeeling}/5</span></span>}
+                </div>
+                {/* Dor */}
+                {s.painFlag && s.painFlag !== 'none' && (
+                  <div style={{ marginBottom: 3 }}>
+                    <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 3, background: PAIN_COLOR[painLvl] + '22', color: PAIN_COLOR[painLvl], fontWeight: 600 }}>
+                      🩹 Dor {PAIN_LABEL[painLvl].toLowerCase()}{s.painTiming ? ` — ${PAIN_TIMING_LABELS[s.painTiming] ?? s.painTiming}` : ''}
+                    </span>
+                  </div>
+                )}
+                {/* Comentário */}
+                {s.feedback?.trim() && (
+                  <p style={{ fontSize: 11, color: 'var(--fg)', fontStyle: 'italic', marginTop: 2 }}>"{s.feedback.trim()}"</p>
+                )}
+                {/* Métricas de execução */}
+                {(s.completedDistanceKm || s.completedDurationMin) && (
+                  <p style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                    {s.completedDistanceKm ? `${s.completedDistanceKm.toFixed(1)} km` : ''}{s.completedDistanceKm && s.completedDurationMin ? ' · ' : ''}
+                    {s.completedDurationMin ? minToHhmm(s.completedDurationMin) : ''}
+                    {s.completedPaceSecondsKm ? ` · ${Math.floor(s.completedPaceSecondsKm/60)}:${String(s.completedPaceSecondsKm%60).padStart(2,'0')}/km` : ''}
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {events.length > limit && (
+        <button type="button" onClick={() => setLimit((v) => v + 20)}
+          style={{ marginTop: 10, fontSize: 12, color: 'var(--accent)', background: 'none', border: '1px solid var(--accent)', borderRadius: 6, padding: '5px 14px', cursor: 'pointer', width: '100%' }}>
+          Carregar mais ({events.length - limit} restantes)
+        </button>
+      )}
+      {events.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum treino registrado no período.</p>}
+    </div>
+  );
+}
 
 type WeekData = {
   startDate: string;     // YYYY-MM-DD
@@ -5313,25 +6052,50 @@ const SAT_EMOJI: Record<string, string> = { amei: '😍', gostei: '😊', ok: '�
 /** Flatten de sessões com feedback de um histórico. */
 function flatFeedbackSessions(history: StudentDetail['history']) {
   const out: Array<{
-    date: string; weekStart: string; modality: string; title: string;
+    id: string; date: string; weekStart: string; modality: string; title: string;
+    durationMin: number | null; distanceKm: number | null;
+    completionStatus: string;
+    completedDurationMin: number | null; completedDistanceKm: number | null;
+    completedPaceSecondsKm: number | null;
     perceivedEffort: number | null;
     satisfaction: string | null; satisfactionElaboracao: string | null;
     satisfactionCapacidade: string | null; satisfactionCarga: string | null;
     feedback: string | null;
+    // Feedback v1
+    preSleepQuality: number | null; prePhysicalFatigue: number | null;
+    preStressLevel: number | null; preMotivation: number | null;
+    postWorkoutFeeling: number | null;
+    painFlag: string | null; painTiming: string | null;
+    feedbackVersion: number | null;
   }> = [];
   for (const plan of (history ?? [])) {
     for (const session of (plan.sessions ?? [])) {
       out.push({
+        id: session.id,
         date: String(session.date).slice(0, 10),
         weekStart: String(plan.startDate).slice(0, 10),
         modality: session.modality ?? '',
         title: session.title ?? '',
+        durationMin: session.durationMin ?? null,
+        distanceKm: session.distanceKm ?? null,
+        completionStatus: session.completionStatus ?? 'sem_registro',
+        completedDurationMin: session.completedDurationMin ?? null,
+        completedDistanceKm: session.completedDistanceKm ?? null,
+        completedPaceSecondsKm: session.completedPaceSecondsKm ?? null,
         perceivedEffort: session.perceivedEffort ?? null,
         satisfaction: session.satisfaction ?? null,
         satisfactionElaboracao: session.satisfactionElaboracao ?? null,
         satisfactionCapacidade: session.satisfactionCapacidade ?? null,
         satisfactionCarga: session.satisfactionCarga ?? null,
         feedback: session.feedback ?? null,
+        preSleepQuality: session.preSleepQuality ?? null,
+        prePhysicalFatigue: session.prePhysicalFatigue ?? null,
+        preStressLevel: session.preStressLevel ?? null,
+        preMotivation: session.preMotivation ?? null,
+        postWorkoutFeeling: session.postWorkoutFeeling ?? null,
+        painFlag: session.painFlag ?? null,
+        painTiming: session.painTiming ?? null,
+        feedbackVersion: session.feedbackVersion ?? null,
       });
     }
   }

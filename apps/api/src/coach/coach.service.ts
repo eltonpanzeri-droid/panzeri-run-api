@@ -1145,12 +1145,27 @@ export class CoachService {
           notes: [session.notes, session.recommendations].filter(Boolean).join(' '),
           routineMismatchNote: session.routineMismatchNote,
           completionStatus: session.completion?.status ?? 'sem_registro',
+          completedAt: session.completion?.completedAt ?? null,
+          completedDurationMin: session.completion?.durationMin ?? null,
+          completedDistanceKm: session.completion?.distanceKm ?? null,
+          completedPaceSecondsKm: session.completion?.avgPaceSecondsKm ?? null,
           perceivedEffort: session.completion?.perceivedEffort ?? null,
           satisfactionElaboracao: session.completion?.satisfactionElaboracao ?? null,
           satisfaction: session.completion?.satisfaction ?? null,
           satisfactionCapacidade: session.completion?.satisfactionCapacidade ?? null,
           satisfactionCarga: session.completion?.satisfactionCarga ?? null,
           feedback: session.completion?.notes ?? null,
+          // Feedback v1 — bloco 1: estado pre-treino
+          preSleepQuality: session.completion?.preSleepQuality ?? null,
+          prePhysicalFatigue: session.completion?.prePhysicalFatigue ?? null,
+          preStressLevel: session.completion?.preStressLevel ?? null,
+          preMotivation: session.completion?.preMotivation ?? null,
+          // Feedback v1 — bloco 2: experiencia
+          postWorkoutFeeling: session.completion?.postWorkoutFeeling ?? null,
+          // Feedback v1 — bloco 3: dor
+          painFlag: session.completion?.painFlag ?? null,
+          painTiming: session.completion?.painTiming ?? null,
+          feedbackVersion: session.completion?.feedbackVersion ?? null,
         })),
       })),
     };
