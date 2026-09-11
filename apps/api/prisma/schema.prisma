@@ -49,6 +49,12 @@ model User {
   // por nenhum sync, entao sobrevive pra sempre e da pra distinguir "ela pediu" de "a assinatura
   // caiu sozinha" na pagina de Ex-alunos, mesmo dias/semanas depois.
   subscriptionCancelRequestedAt    DateTime?
+  // 11/09: pesquisa de saída (exit survey) preenchida pelo aluno ao cancelar.
+  // cancelReason: sem_tempo | sem_resultado | preco | pausa | objetivo | tecnico | outro
+  // cancelWouldReturn: sim | talvez | nao
+  cancelReason                     String?
+  cancelFeedbackText               String?
+  cancelWouldReturn                String?
   // 26/08: quem controla subscriptionStatus pra essa aluna — 'asaas' (site/PWA, cobranca via
   // billing.service.ts) ou 'revenuecat' (assinatura comprada dentro do app nativo iOS/Android,
   // Apple IAP ou Google Play Billing). Existe pra o cron diario do Asaas (billing-sync-scheduler)

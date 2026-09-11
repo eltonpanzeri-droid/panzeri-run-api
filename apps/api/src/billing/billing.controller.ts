@@ -28,7 +28,13 @@ export class BillingController {
 
   @UseGuards(AuthGuard('jwt'))
   @Post('cancel')
-  cancel(@CurrentUser() user: CurrentUserPayload) { return this.billingService.cancel(user.sub); }
+  cancel(
+    @CurrentUser() user: CurrentUserPayload,
+    // 11/09: pesquisa de saída — campos opcionais, não bloqueiam o cancelamento se ausentes.
+    @Body() body?: { reason?: string; feedbackText?: string; wouldReturn?: string },
+  ) {
+    return this.billingService.cancel(user.sub, body?.reason, body?.feedbackText, body?.wouldReturn);
+  }
 
   @UseGuards(AuthGuard('jwt'))
   @Post('coupon')

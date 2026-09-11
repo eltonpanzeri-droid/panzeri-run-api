@@ -593,24 +593,64 @@ export class BillingService {
     this.triggerFirstWeekGeneration(userId);
   }
 
-  async cancel(userId: string) {
+  async cancel(userId: string, reason?: string, feedbackText?: string, wouldReturn?: string) {
     const billing = await this.prisma.billingSubscription.findUnique({ where: { userId } });
     // 27/08: subscriptionCancelRequestedAt marca que foi a PROPRIA aluna que pediu, nos dois
     // caminhos abaixo — nunca e' sobrescrito por sync nenhum depois (ver comentario no schema).
+    // 11/09: survey de saida salva junto com o cancelamento (reason/feedbackText/wouldReturn).
+    const surveyData = {
+      ...(reason ? { cancelReason: reason } : {}),
+      ...(feedbackText ? { cancelFeedbackText: feedbackText } : {}),
+      ...(wouldReturn ? { cancelWouldReturn: wouldReturn } : {}),
+    };
     if (!billing?.externalSubscriptionId) {
       await this.prisma.$transaction([
         billing
           ? this.prisma.billingSubscription.update({ where: { userId }, data: { providerStatus: 'cancel_requested' } })
           : this.prisma.billingSubscription.create({ data: { userId, provider: 'manual', providerStatus: 'cancel_requested' } }),
-        this.prisma.user.update({ where: { id: userId }, data: { subscriptionStatus: 'canceled', subscriptionUpdatedAt: new Date(), subscriptionCancelRequestedAt: new Date() } }),
+        this.prisma.user.update({
+          where: { id: userId },
+          data: { subscriptionStatus: 'canceled', subscriptionUpdatedAt: new Date(), subscriptionCancelRequestedAt: new Date(), ...surveyData },
+        }),
       ]);
+      // Notifica o treinador com o motivo de cancelamento
+      this.sendCancelSurveyToTelegram(userId, reason, feedbackText, wouldReturn).catch(() => {});
       return { status: 'canceled', message: 'Solicitacao de cancelamento registrada.' };
     }
 
     await this.asaasRequest(`/subscriptions/${billing.externalSubscriptionId}`, { method: 'DELETE' });
     await this.updateStatus(userId, 'canceled', 'canceled');
-    await this.prisma.user.update({ where: { id: userId }, data: { subscriptionCancelRequestedAt: new Date() } });
+    await this.prisma.user.update({ where: { id: userId }, data: { subscriptionCancelRequestedAt: new Date(), ...surveyData } });
+    this.sendCancelSurveyToTelegram(userId, reason, feedbackText, wouldReturn).catch(() => {});
     return { status: 'canceled', message: 'Assinatura cancelada.' };
+  }
+
+  private async sendCancelSurveyToTelegram(userId: string, reason?: string, feedbackText?: string, wouldReturn?: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, studentCode: true },
+    });
+    if (!user) return;
+
+    const REASON_LABELS: Record<string, string> = {
+      sem_tempo: 'Falta de tempo',
+      sem_resultado: 'Sem resultados esperados',
+      preco: 'Preço alto',
+      pausa: 'Pausa temporária',
+      objetivo: 'Já atingiu o objetivo',
+      tecnico: 'Problemas técnicos',
+      outro: 'Outro motivo',
+    };
+    const RETURN_LABELS: Record<string, string> = { sim: 'Sim', talvez: 'Talvez', nao: 'Nao' };
+
+    const lines = [
+      `🚪 <b>${user.name}</b> (Cod. ${formatStudentCode(user.studentCode)}) cancelou a assinatura.`,
+      reason ? `Motivo: ${REASON_LABELS[reason] ?? reason}` : null,
+      feedbackText ? `Feedback: "${feedbackText}"` : null,
+      wouldReturn ? `Voltaria: ${RETURN_LABELS[wouldReturn] ?? wouldReturn}` : null,
+    ].filter(Boolean);
+
+    await this.telegram.sendMessage(lines.join('\n'));
   }
 
   async processAsaasWebhook(accessToken: string | undefined, payload: AsaasWebhookPayload) {

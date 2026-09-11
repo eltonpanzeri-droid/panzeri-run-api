@@ -2717,101 +2717,123 @@ function StudentPanel({
           setDetailTab('semanas');
         };
 
+        // Filtra semanas pelo período universal
+        const cutoffDate = evolPeriod !== 999
+          ? new Date(Date.now() - evolPeriod * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+          : '0000-00-00';
+        const filteredWeeks = allWeeks.filter((w) => w.startDate >= cutoffDate);
+
         return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
 
           {/* ── FILTRO UNIVERSAL DE PERÍODO ──────────────────────────────────── */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 4px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Período</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 4px' }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>Período</span>
             {([
-              [4,  '4 sem'], [8, '8 sem'], [12, '12 sem'],
-              [24, '6 meses'], [52, '1 ano'], [999, 'Tudo'],
+              [4,'1m'],[8,'2m'],[12,'3m'],[24,'6m'],[52,'1a'],[999,'Tudo'],
             ] as [4|8|12|24|52|999, string][]).map(([p, label]) => (
               <button key={p} type="button"
-                style={{ padding: '4px 12px', fontSize: 12, borderRadius: 20,
+                style={{ padding: '3px 10px', fontSize: 12, borderRadius: 20,
                   background: evolPeriod === p ? 'var(--accent)' : 'var(--surface)',
                   color: evolPeriod === p ? '#fff' : 'var(--muted)',
                   border: `1px solid ${evolPeriod === p ? 'var(--accent)' : 'var(--line)'}`,
-                  cursor: 'pointer', fontWeight: evolPeriod === p ? 700 : 400 }}
+                  cursor: 'pointer', fontWeight: evolPeriod === p ? 700 : 400, flexShrink: 0 }}
                 onClick={() => setEvolPeriod(p)}>
                 {label}
               </button>
             ))}
-            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>
-              Clique nas bolinhas do calendário para ver o treino completo
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>
+              💡 Clique nas bolinhas do calendário para ver o treino
             </span>
           </div>
 
           {/* ① QUILOMETRAGEM */}
-          <EvoSection icon="📊" title="Quilometragem semanal" badge={`${allWeeks.length} sem`}>
-            <KmEvolutionChart weeks={allWeeks} period={evolPeriod} />
+          <EvoSection icon="📊" title="Quilometragem semanal" badge={`${filteredWeeks.length} sem`}
+            desc="Km completados por semana (barra) vs prescritos (linha tracejada). Cor da barra = variação % vs semana anterior. Linha roxa = tendência de evolução.">
+            <KmEvolutionChart weeks={filteredWeeks} period={999} />
             <EvolutionKeyNumbers weeks={allWeeks} period={evolPeriod} />
           </EvoSection>
 
           {/* ② CALENDÁRIO */}
-          <EvoSection icon="📅" title="Calendário de treinos" badge="8 sem">
+          <EvoSection icon="📅" title="Calendário de treinos" badge="8 sem"
+            desc="Últimas 8 semanas. Cor = status do treino. Anel colorido = nível de esforço percebido. Clique em qualquer bolinha para ver o treino completo na aba Semanas anteriores.">
             <TrainingCalendarDots history={hist} onDayClick={handleCalendarDayClick} />
           </EvoSection>
 
           {/* ③ ESFORÇO PERCEBIDO */}
-          <EvoSection icon="💪" title="Esforço percebido" badge={feedbackSessions > 0 ? `${feedbackSessions} treinos` : undefined}>
+          <EvoSection icon="💪" title="Esforço percebido" badge={feedbackSessions > 0 ? `${feedbackSessions} treinos` : undefined}
+            desc="PSE (Percepção Subjetiva de Esforço) 1-10 registrada pelo aluno após cada treino. Alterne entre visualização por sessão (scatter), semana ou mês. Filtre por modalidade para identificar padrões específicos.">
             <EffortSection history={hist} period={evolPeriod} />
           </EvoSection>
 
           {/* ④ SATISFAÇÃO */}
-          <EvoSection icon="😊" title="Satisfação por categoria" badge={feedbackSessions > 0 ? `${feedbackSessions} respostas` : undefined}>
+          <EvoSection icon="😊" title="Satisfação por categoria" badge={feedbackSessions > 0 ? `${feedbackSessions} respostas` : undefined}
+            desc="Avaliação pós-treino em 4 dimensões: satisfação geral, elaboração do treino, capacidade de execução e adequação da carga. Gráficos separados por categoria com filtro por modalidade. Setas ↑↓ indicam tendência do período.">
             <SatisfactionSection history={hist} period={evolPeriod} />
           </EvoSection>
 
-          {/* ⑤ COMENTÁRIOS */}
-          <EvoSection icon="💬" title="Comentários em texto" badge={commentCount > 0 ? commentCount : undefined}>
-            <CommentsSection history={hist} />
+          {/* ⑤ ANÁLISE DE CARGA (Carga Semanal + ACWR) */}
+          <EvoSection icon="📈" title="Análise de carga (ACWR)" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
+            desc="Carga Semanal: km por semana colorido por % de aumento. ACWR (Aguda:Crônica): razão entre carga recente (4 sem) e carga base (6 sem). Zona verde 0.8-1.3 = seguro. Acima de 1.5 = risco de lesão por overtraining.">
+            <LoadAnalysisSection weeks={filteredWeeks} />
           </EvoSection>
 
-          {/* ⑥ DORES E RELATOS */}
-          <EvoSection icon="🩹" title="Dores e relatos" badge={(painObs.length + painComments) > 0 ? painObs.length + painComments : undefined}>
-            <PainReportsSection
-              health={student.health}
-              observations={student.observations ?? []}
-              history={hist}
-            />
+          {/* ⑥ ADERÊNCIA */}
+          <EvoSection icon="📋" title="Aderência aos treinos" badge={filteredWeeks.length > 0 ? `${filteredWeeks.length} sem` : undefined}
+            desc="% de treinos planejados que foram realizados por semana. Meta ideal: acima de 80%. Quedas sustentadas costumam anteceder o abandono da planilha — atenção ao contexto quando o índice cair por 2+ semanas seguidas.">
+            <LoadChartAderencia weeks={filteredWeeks} />
           </EvoSection>
 
-          {/* ⑦ ANÁLISE DE CARGA */}
-          <EvoSection icon="📈" title="Análise de carga (ACWR)" badge={allWeeks.length > 1 ? `${allWeeks.length} sem` : undefined}>
-            <LoadAnalysisSection weeks={allWeeks} />
-          </EvoSection>
+          {/* ⑦+⑧ DORES E COMENTÁRIOS — layout 2 colunas */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+            <EvoSection icon="🩹" title="Dores e relatos" badge={(painObs.length + painComments) > 0 ? painObs.length + painComments : undefined}
+              desc="Perfil de saúde (entrevista) + observações e feedbacks do aluno com menção a dor, lesão ou desconforto físico. Leia antes de aumentar carga.">
+              <PainReportsSection
+                health={student.health}
+                observations={student.observations ?? []}
+                history={hist}
+              />
+            </EvoSection>
 
-          {/* ⑧ REAVALIAÇÕES */}
-          <EvoSection icon="🔄" title="Reavaliações" badge={student.reassessments?.length ?? 0}>
-            {student.reassessments?.length ? (
-              student.reassessments.map((r, i) => (
-                <div key={r.completedAt ?? i} style={{ borderLeft: '3px solid var(--line)', paddingLeft: 12, marginBottom: 12 }}>
-                  <strong style={{ fontSize: 13 }}>{r.completedAt ? dateLabel(r.completedAt) : 'Data nao registrada'}</strong>
-                  {r.evolutionSummary ? <p style={{ fontSize: 13, marginTop: 4 }}>{r.evolutionSummary}</p> : <p style={{ fontSize: 13, color: 'var(--muted)' }}>Sem analise gerada.</p>}
-                  {r.evolutionWins?.length ? <p style={{ fontSize: 12, color: '#22c55e', marginTop: 4 }}>✓ {r.evolutionWins.join(' · ')}</p> : null}
-                  {r.evolutionConcerns?.length ? <p style={{ fontSize: 12, color: '#f59e0b', marginTop: 2 }}>⚠ {r.evolutionConcerns.join(' · ')}</p> : null}
-                </div>
-              ))
-            ) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma reavaliacao concluida ainda.</p>}
-          </EvoSection>
+            <EvoSection icon="💬" title="Comentários em texto" badge={commentCount > 0 ? commentCount : undefined}
+              desc="Texto livre registrado pelo aluno após os treinos. Fonte qualitativa importante: revela motivação, dificuldades específicas e contexto de vida fora da planilha.">
+              <CommentsSection history={hist} />
+            </EvoSection>
+          </div>
 
-          {/* ⑨ PROVAS ALVO */}
-          <EvoSection icon="🏁" title="Provas alvo" badge={student.targetRaces?.length ?? 0}>
-            {student.targetRaces?.length ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {student.targetRaces.map((race) => (
-                  <div key={race.id} style={{ display: 'flex', gap: 12, alignItems: 'baseline', fontSize: 13, borderLeft: '3px solid var(--accent)', paddingLeft: 10 }}>
-                    <strong>{race.name}</strong>
-                    <span style={{ color: 'var(--muted)' }}>{dateLabel(race.raceDate)}</span>
-                    {race.distanceKm && <span>{race.distanceKm} km</span>}
-                    {race.paceSecondsPerKm && <span style={{ color: 'var(--muted)' }}>meta {Math.floor(race.paceSecondsPerKm/60)}:{String(race.paceSecondsPerKm%60).padStart(2,'0')}/km</span>}
-                    <span style={{ fontSize: 11, background: race.status === 'active' ? '#22c55e22' : 'var(--line)', color: race.status === 'active' ? '#22c55e' : 'var(--muted)', borderRadius: 4, padding: '1px 6px' }}>{race.status}</span>
+          {/* ⑨+⑩ REAVALIAÇÕES + PROVAS — layout 2 colunas */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+            <EvoSection icon="🔄" title="Reavaliações" badge={student.reassessments?.length ?? 0}
+              desc="Síntese das reavaliações periódicas — evolução, conquistas e pontos de atenção gerados pela IA após cada ciclo avaliativo.">
+              {student.reassessments?.length ? (
+                student.reassessments.map((r, i) => (
+                  <div key={r.completedAt ?? i} style={{ borderLeft: '3px solid var(--line)', paddingLeft: 12, marginBottom: 12 }}>
+                    <strong style={{ fontSize: 13 }}>{r.completedAt ? dateLabel(r.completedAt) : 'Data nao registrada'}</strong>
+                    {r.evolutionSummary ? <p style={{ fontSize: 13, marginTop: 4 }}>{r.evolutionSummary}</p> : <p style={{ fontSize: 13, color: 'var(--muted)' }}>Sem analise gerada.</p>}
+                    {r.evolutionWins?.length ? <p style={{ fontSize: 12, color: '#22c55e', marginTop: 4 }}>✓ {r.evolutionWins.join(' · ')}</p> : null}
+                    {r.evolutionConcerns?.length ? <p style={{ fontSize: 12, color: '#f59e0b', marginTop: 2 }}>⚠ {r.evolutionConcerns.join(' · ')}</p> : null}
                   </div>
-                ))}
-              </div>
-            ) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma prova alvo cadastrada.</p>}
-          </EvoSection>
+                ))
+              ) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma reavaliacao concluida ainda.</p>}
+            </EvoSection>
+
+            <EvoSection icon="🏁" title="Provas alvo" badge={student.targetRaces?.length ?? 0}
+              desc="Provas cadastradas como meta do aluno. Usadas pela IA para periodização e geração das semanas de pico e polimento.">
+              {student.targetRaces?.length ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {student.targetRaces.map((race) => (
+                    <div key={race.id} style={{ display: 'flex', gap: 12, alignItems: 'baseline', fontSize: 13, borderLeft: '3px solid var(--accent)', paddingLeft: 10, flexWrap: 'wrap' }}>
+                      <strong>{race.name}</strong>
+                      <span style={{ color: 'var(--muted)' }}>{dateLabel(race.raceDate)}</span>
+                      {race.distanceKm && <span>{race.distanceKm} km</span>}
+                      {race.paceSecondsPerKm && <span style={{ color: 'var(--muted)' }}>meta {Math.floor(race.paceSecondsPerKm/60)}:{String(race.paceSecondsPerKm%60).padStart(2,'0')}/km</span>}
+                      <span style={{ fontSize: 11, background: race.status === 'active' ? '#22c55e22' : 'var(--line)', color: race.status === 'active' ? '#22c55e' : 'var(--muted)', borderRadius: 4, padding: '1px 6px' }}>{race.status}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma prova alvo cadastrada.</p>}
+            </EvoSection>
+          </div>
 
           {/* ⑩ RELATÓRIOS DO AGENTE */}
           <EvoSection icon="📋" title="Relatórios do agente" badge={student.reports?.length ?? 0}>
@@ -5128,8 +5150,8 @@ function TrainingCalendarDots({ history, onDayClick }: {
 // ─── EVOLUÇÃO: COMPONENTES BASE ─────────────────────────────────────────────
 
 /** Acordeon genérico para a aba Evolução. */
-function EvoSection({ icon, title, badge, children }: {
-  icon: string; title: string; badge?: string | number; children: ReactNode;
+function EvoSection({ icon, title, badge, desc, children }: {
+  icon: string; title: string; badge?: string | number; desc?: string; children: ReactNode;
 }) {
   return (
     <details style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--surface)', overflow: 'hidden' }}>
@@ -5147,6 +5169,11 @@ function EvoSection({ icon, title, badge, children }: {
         )}
         <ChevronDown size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
       </summary>
+      {desc && (
+        <div style={{ padding: '8px 16px 0', background: 'var(--accent-soft)', borderBottom: '1px solid var(--line)' }}>
+          <p style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.5, margin: '0 0 8px' }}>ℹ️ {desc}</p>
+        </div>
+      )}
       <div style={{ padding: '6px 16px 18px' }}>
         {children}
       </div>
@@ -5188,17 +5215,39 @@ function flatFeedbackSessions(history: StudentDetail['history']) {
   return out;
 }
 
-/** Esforço percebido — scatter plot por sessão + média semanal + tendência + filtro de período. */
+// Modalidades usadas no filtro de esforço e satisfação
+const MODALITY_FILTERS = [
+  { key: 'all', label: 'Todas' },
+  { key: 'corrida', label: '🏃 Corrida' },
+  { key: 'musculacao', label: '🏋️ Musculação' },
+  { key: 'fortalecimento', label: '💪 Fortalec.' },
+  { key: 'caminhada', label: '🚶 Caminhada' },
+] as const;
+
+function matchesModality(modality: string, filter: string): boolean {
+  if (filter === 'all') return true;
+  const m = modality.toLowerCase();
+  if (filter === 'corrida') return m.includes('corrida') || m === 'running';
+  if (filter === 'musculacao') return m.includes('muscul');
+  if (filter === 'fortalecimento') return m.includes('fortale') || m.includes('forte');
+  if (filter === 'caminhada') return m.includes('caminh') || m === 'walk';
+  return true;
+}
+
+/** Esforço percebido — scatter plot por sessão + média semanal + tendência + filtro modalidade. */
 function EffortSection({ history, period }: { history: StudentDetail['history']; period?: number }) {
   const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('semana');
+  const [modalityFilter, setModalityFilter] = useState<string>('all');
   const allSessions = flatFeedbackSessions(history).filter((s) => s.perceivedEffort != null);
   if (allSessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum esforço registrado ainda.</p>;
 
-  // Filtra por período (em semanas) — period=999 = tudo
+  // Filtra por período e modalidade
   const cutoff = period && period !== 999
     ? new Date(Date.now() - period * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
     : '0000-00-00';
-  const sessions = allSessions.filter((s) => s.date >= cutoff);
+  const sessions = allSessions
+    .filter((s) => s.date >= cutoff)
+    .filter((s) => matchesModality(s.modality, modalityFilter));
 
   const effortColor = (v: number) => v <= 3 ? '#93c5fd' : v <= 6 ? '#fbbf24' : v <= 8 ? '#fb923c' : '#ef4444';
 
@@ -5207,10 +5256,33 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
   const CW = VW - ML - MR, CH = VH - MT - MB;
   const yFn = (v: number) => MT + CH - ((v - 1) / 9) * CH;
 
+  // Filtros de modalidade + agregação
+  const FilterBar = () => (
+    <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
+      {MODALITY_FILTERS.map((f) => {
+        const count = allSessions.filter((s) =>
+          s.date >= cutoff && matchesModality(s.modality, f.key)
+        ).length;
+        if (f.key !== 'all' && count === 0) return null;
+        return (
+          <button key={f.key} type="button"
+            style={{ padding: '2px 9px', fontSize: 11, borderRadius: 6,
+              background: modalityFilter === f.key ? '#6366f1' : 'var(--surface)',
+              color: modalityFilter === f.key ? '#fff' : 'var(--muted)',
+              border: `1px solid ${modalityFilter === f.key ? '#6366f1' : 'var(--line)'}`,
+              cursor: 'pointer' }}
+            onClick={() => setModalityFilter(f.key)}>
+            {f.label} {f.key !== 'all' && <span style={{ opacity: 0.7 }}>({count})</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   if (aggBy === 'sessao') {
     // Scatter plot individual — cada sessão é um ponto
     const sorted = [...sessions].sort((a, b) => a.date.localeCompare(b.date));
-    if (sorted.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem registros no período.</p>;
+    if (sorted.length === 0) return <div><AggToggle value={aggBy} onChange={setAggBy} /><FilterBar /><p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem registros no período/modalidade.</p></div>;
     const xFn = (i: number) => ML + (i / Math.max(1, sorted.length - 1)) * CW;
     // Média móvel de 5 sessões
     const movAvg = sorted.map((_, i) => {
@@ -5276,6 +5348,7 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
     return (
       <div>
         <AggToggle value={aggBy} onChange={setAggBy} />
+        <FilterBar />
         <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
           {[1,3,5,7,8,10].map((v) => (
             <g key={v}>
@@ -5330,6 +5403,7 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
   return (
     <div>
       <AggToggle value={aggBy} onChange={setAggBy} />
+      <FilterBar />
       <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
         {[1,2,3,4,5,6,7,8,9,10].map((v) => (
           <g key={v}>
@@ -5414,65 +5488,54 @@ function EffortLegend({ sessions }: { sessions: Array<{ perceivedEffort: number|
   );
 }
 
-/** Satisfação por categoria — tendência semanal + tiles com breakdown. */
+/** Satisfação por categoria — gráfico individual por categoria + filtro de modalidade. */
 function SatisfactionSection({ history, period }: { history: StudentDetail['history']; period?: number }) {
-  const [showTrend, setShowTrend] = useState(true);
+  const [modalityFilter, setModalityFilter] = useState<string>('all');
   const allSessions = flatFeedbackSessions(history);
 
   // Filtra por período
   const cutoff = period && period !== 999
     ? new Date(Date.now() - period * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
     : '0000-00-00';
-  const sessions = allSessions.filter((s) => s.date >= cutoff);
+  const sessionsByPeriod = allSessions.filter((s) => s.date >= cutoff);
+  const sessions = sessionsByPeriod.filter((s) => matchesModality(s.modality, modalityFilter));
 
-  const categories: Array<{ key: 'satisfaction'|'satisfactionElaboracao'|'satisfactionCapacidade'|'satisfactionCarga'; label: string; desc: string; color: string }> = [
-    { key: 'satisfaction', label: 'Geral', desc: 'Como se sentiu com o treino no geral', color: '#22c55e' },
-    { key: 'satisfactionElaboracao', label: 'Elaboração', desc: 'Se achou o treino bem elaborado/explicado', color: '#6366f1' },
-    { key: 'satisfactionCapacidade', label: 'Capacidade', desc: 'Se se sentiu capaz de realizar', color: '#f59e0b' },
-    { key: 'satisfactionCarga', label: 'Carga', desc: 'Se a carga foi adequada ao seu momento', color: '#ef4444' },
+  const categories: Array<{ key: 'satisfaction'|'satisfactionElaboracao'|'satisfactionCapacidade'|'satisfactionCarga'; label: string; desc: string; color: string; icon: string }> = [
+    { key: 'satisfaction', label: 'Geral', desc: 'Como se sentiu com o treino no geral', color: '#22c55e', icon: '⭐' },
+    { key: 'satisfactionElaboracao', label: 'Elaboração', desc: 'Se achou o treino bem elaborado/explicado', color: '#6366f1', icon: '📋' },
+    { key: 'satisfactionCapacidade', label: 'Capacidade', desc: 'Se se sentiu capaz de realizar', color: '#f59e0b', icon: '💪' },
+    { key: 'satisfactionCarga', label: 'Carga', desc: 'Se a carga foi adequada ao seu momento', color: '#ef4444', icon: '⚖️' },
   ];
 
-  // Tendência semanal por categoria — agrupada por weekStart
   const weekKeys = Array.from(new Set(sessions.map((s) => s.weekStart))).sort();
-  const catWeekData = categories.map(({ key, label, color }) => ({
-    label, color,
-    points: weekKeys.map((week) => {
-      const ws = sessions.filter((s) => s.weekStart === week && s[key] && SAT_SCORE[s[key]!]);
-      if (ws.length === 0) return null;
-      const avg = ws.reduce((a, s) => a + (SAT_SCORE[s[key]!] ?? 0), 0) / ws.length;
-      return avg;
-    }),
-  }));
 
-  // Resumo por categoria (totais)
-  const dists = categories.map(({ key, label, desc, color }) => {
-    const counts: Record<string, number> = {};
-    let total = 0;
-    for (const s of sessions) {
-      const v = s[key];
-      if (!v || !SAT_SCORE[v]) continue;
-      counts[v] = (counts[v] ?? 0) + 1;
-      total++;
-    }
-    const avg = total > 0
-      ? Object.entries(counts).reduce((a, [k, n]) => a + (SAT_SCORE[k] ?? 0) * n, 0) / total
-      : null;
-    const top = Object.entries(counts).sort(([,a],[,b]) => b-a)[0];
-    // Tendência: compara primeira metade vs segunda metade do período
-    const half = Math.floor(weekKeys.length / 2);
-    const firstHalf = sessions.filter((s) => weekKeys.indexOf(s.weekStart) < half && s[key] && SAT_SCORE[s[key]!]);
-    const secondHalf = sessions.filter((s) => weekKeys.indexOf(s.weekStart) >= half && s[key] && SAT_SCORE[s[key]!]);
-    const avgFirst = firstHalf.length ? firstHalf.reduce((a,s)=>a+(SAT_SCORE[s[key]!]??0),0)/firstHalf.length : null;
-    const avgSecond = secondHalf.length ? secondHalf.reduce((a,s)=>a+(SAT_SCORE[s[key]!]??0),0)/secondHalf.length : null;
-    const trend = avgFirst && avgSecond ? avgSecond - avgFirst : null;
-    return { label, desc, color, counts, total, avg, topValue: top?.[0] ?? null, trend };
-  }).filter((d) => d.total > 0);
+  // Filtro de modalidade
+  const SatFilterBar = () => (
+    <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+      {MODALITY_FILTERS.map((f) => {
+        const count = sessionsByPeriod.filter((s) => matchesModality(s.modality, f.key)).length;
+        if (f.key !== 'all' && count === 0) return null;
+        return (
+          <button key={f.key} type="button"
+            style={{ padding: '3px 10px', fontSize: 11, borderRadius: 14, cursor: 'pointer', border: 'none',
+              background: modalityFilter === f.key ? '#6366f1' : 'var(--surface)',
+              color: modalityFilter === f.key ? '#fff' : 'var(--muted)' }}
+            onClick={() => setModalityFilter(f.key)}>
+            {f.label}{f.key !== 'all' && <span style={{ marginLeft: 4, opacity: 0.75 }}>({count})</span>}
+          </button>
+        );
+      })}
+      <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center', marginLeft: 4 }}>
+        {sessions.length} resp. · {weekKeys.length} sem.
+      </span>
+    </div>
+  );
 
-  if (dists.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma avaliação registrada ainda.</p>;
+  if (sessionsByPeriod.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma avaliação registrada ainda.</p>;
 
-  // Gráfico de tendência semanal
-  const VW = 620, VH = 160;
-  const ML = 24, MR = 70, MT = 14, MB = 28;
+  // Gráfico SVG individual por categoria
+  const VW = 580, VH = 140;
+  const ML = 22, MR = 8, MT = 10, MB = 24;
   const CW = VW - ML - MR, CH = VH - MT - MB;
   const xFn = (i: number) => ML + (weekKeys.length <= 1 ? CW/2 : (i / (weekKeys.length - 1)) * CW);
   const yFn = (v: number) => MT + CH - ((v - 1) / 4) * CH; // escala 1-5
@@ -5481,103 +5544,122 @@ function SatisfactionSection({ history, period }: { history: StudentDetail['hist
     ? weekKeys.map((_, i) => i)
     : [0, Math.floor(weekKeys.length/2), weekKeys.length-1];
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Toggle tendência */}
-      {weekKeys.length >= 2 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button type="button"
-            style={{ padding: '2px 10px', fontSize: 11, borderRadius: 6,
-              background: showTrend ? 'var(--accent)' : 'var(--surface)',
-              color: showTrend ? '#fff' : 'var(--muted)',
-              border: `1px solid ${showTrend ? 'var(--accent)' : 'var(--line)'}`, cursor: 'pointer' }}
-            onClick={() => setShowTrend(!showTrend)}>
-            {showTrend ? '📉 Ocultar tendência' : '📈 Ver tendência semanal'}
-          </button>
-          <span style={{ fontSize: 11, color: 'var(--muted)' }}>{weekKeys.length} semanas · {sessions.length} respostas</span>
-        </div>
-      )}
-      {/* Gráfico de tendência */}
-      {showTrend && weekKeys.length >= 2 && (
-        <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px', border: '1px solid var(--line)' }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-            Tendência semanal (escala 1–5)
-          </p>
-          <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
-            {[1,2,3,4,5].map((v) => (
-              <g key={v}>
-                <line x1={ML} x2={VW-MR} y1={yFn(v)} y2={yFn(v)} stroke="var(--line)" strokeWidth={v===3?0.8:0.3}/>
-                <text x={ML-3} y={yFn(v)+3.5} textAnchor="end" fontSize={8} fill="var(--muted)">{v}</text>
-              </g>
-            ))}
-            {catWeekData.map(({ label, color, points }) => {
-              const pts = points.map((v, i) => v !== null ? `${xFn(i)},${yFn(v)}` : null).filter(Boolean);
-              if (pts.length < 2) return null;
-              return (
-                <g key={label}>
-                  <polyline points={pts.join(' ')} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" opacity={0.85}/>
-                  {points.map((v, i) => v !== null ? (
-                    <circle key={i} cx={xFn(i)} cy={yFn(v)} r={3} fill={color} stroke="var(--bg)" strokeWidth={1}>
-                      <title>{weekKeys[i]}: {label} — {v.toFixed(2)}/5</title>
-                    </circle>
-                  ) : null)}
-                </g>
-              );
-            })}
-            {/* Labels eixo X */}
-            {xLabels.map((i) => (
-              <text key={i} x={xFn(i)} y={VH-4} textAnchor="middle" fontSize={8} fill="var(--muted)">
-                {weekKeys[i]?.slice(5).replace('-','/')}
-              </text>
-            ))}
-            {/* Legenda lateral */}
-            {catWeekData.map(({ label, color }, i) => (
-              <g key={label}>
-                <rect x={VW-MR+4} y={MT + i*18} width={8} height={8} fill={color} rx={2}/>
-                <text x={VW-MR+15} y={MT + i*18 + 7} fontSize={9} fill="var(--muted)">{label}</text>
-              </g>
-            ))}
-          </svg>
-        </div>
-      )}
-      {/* Tiles de resumo por categoria */}
-      {dists.map((d) => (
-        <div key={d.label} style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 14px', border: '1px solid var(--line)' }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
-            <span style={{ fontWeight: 700, fontSize: 14 }}>{d.label}</span>
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>{d.desc}</span>
-            {d.trend !== null && Math.abs(d.trend) >= 0.1 && (
-              <span style={{ fontSize: 12, color: d.trend > 0 ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
-                {d.trend > 0 ? '↑' : '↓'} {Math.abs(d.trend).toFixed(1)}
-              </span>
-            )}
-            <span style={{ marginLeft: 'auto', fontWeight: 700, fontSize: 16,
-              color: d.avg! >= 4 ? '#22c55e' : d.avg! >= 3 ? '#fbbf24' : '#ef4444' }}>
-              {d.avg!.toFixed(1)} <span style={{ fontSize: 12 }}>/ 5</span>
+  const CatChart = ({ cat }: { cat: typeof categories[number] }) => {
+    const pts = weekKeys.map((week) => {
+      const ws = sessions.filter((s) => s.weekStart === week && s[cat.key] && SAT_SCORE[s[cat.key]!]);
+      if (ws.length === 0) return null;
+      return ws.reduce((a, s) => a + (SAT_SCORE[s[cat.key]!] ?? 0), 0) / ws.length;
+    });
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const s of sessions) {
+      const v = s[cat.key];
+      if (!v || !SAT_SCORE[v]) continue;
+      counts[v] = (counts[v] ?? 0) + 1;
+      total++;
+    }
+    const avg = total > 0
+      ? Object.entries(counts).reduce((a, [k, n]) => a + (SAT_SCORE[k] ?? 0) * n, 0) / total
+      : null;
+    const top = Object.entries(counts).sort(([,a],[,b]) => b-a)[0];
+    // Tendência
+    const half = Math.floor(weekKeys.length / 2);
+    const firstHalf = sessions.filter((s) => weekKeys.indexOf(s.weekStart) < half && s[cat.key] && SAT_SCORE[s[cat.key]!]);
+    const secondHalf = sessions.filter((s) => weekKeys.indexOf(s.weekStart) >= half && s[cat.key] && SAT_SCORE[s[cat.key]!]);
+    const avgFirst = firstHalf.length ? firstHalf.reduce((a,s)=>a+(SAT_SCORE[s[cat.key]!]??0),0)/firstHalf.length : null;
+    const avgSecond = secondHalf.length ? secondHalf.reduce((a,s)=>a+(SAT_SCORE[s[cat.key]!]??0),0)/secondHalf.length : null;
+    const trend = avgFirst && avgSecond ? avgSecond - avgFirst : null;
+
+    if (total === 0) return (
+      <div style={{ padding: '10px 14px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--bg)', opacity: 0.5 }}>
+        <span style={{ fontWeight: 700, fontSize: 13 }}>{cat.icon} {cat.label}</span>
+        <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 8 }}>Sem dados no período/filtro</span>
+      </div>
+    );
+
+    const polyPts = pts.map((v, i) => v !== null ? `${xFn(i)},${yFn(v)}` : null).filter(Boolean).join(' ');
+
+    return (
+      <div style={{ border: '1px solid var(--line)', borderRadius: 8, background: 'var(--bg)', overflow: 'hidden' }}>
+        {/* Cabeçalho */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px 6px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>{cat.icon} {cat.label}</span>
+          <span style={{ fontSize: 11, color: 'var(--muted)', flex: 1 }}>{cat.desc}</span>
+          {trend !== null && Math.abs(trend) >= 0.1 && (
+            <span style={{ fontSize: 12, color: trend > 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>
+              {trend > 0 ? '↑' : '↓'} {Math.abs(trend).toFixed(1)}
             </span>
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {(['amei','gostei','ok','nao_gostei','detestei'] as const).map((v) => {
-              const n = d.counts[v] ?? 0;
-              if (!n) return null;
-              const pct = Math.round((n / d.total) * 100);
-              return (
-                <span key={v} title={`${SAT_LABEL[v]}: ${n} vez(es) — ${pct}%`} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  background: v === d.topValue ? '#22c55e18' : 'var(--line)',
-                  border: v === d.topValue ? '1px solid #22c55e44' : '1px solid transparent',
-                  borderRadius: 20, padding: '3px 10px', fontSize: 12,
-                }}>
-                  <span style={{ fontSize: 14 }}>{SAT_EMOJI[v]}</span>
-                  <span style={{ fontWeight: v === d.topValue ? 700 : 400 }}>{n}</span>
-                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>({pct}%)</span>
-                </span>
-              );
-            })}
-            <span style={{ marginLeft: 4, fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>{d.total} resp.</span>
-          </div>
+          )}
+          {avg !== null && (
+            <span style={{ fontWeight: 800, fontSize: 17,
+              color: avg >= 4 ? '#22c55e' : avg >= 3 ? '#fbbf24' : '#ef4444' }}>
+              {avg.toFixed(1)}<span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>/5</span>
+            </span>
+          )}
         </div>
-      ))}
+        {/* Chips de distribuição */}
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', padding: '8px 14px 4px' }}>
+          {(['amei','gostei','ok','nao_gostei','detestei'] as const).map((v) => {
+            const n = counts[v] ?? 0;
+            if (!n) return null;
+            const pct = Math.round((n / total) * 100);
+            return (
+              <span key={v} title={`${SAT_LABEL[v]}: ${n} — ${pct}%`} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                background: v === top?.[0] ? cat.color + '20' : 'var(--surface)',
+                border: `1px solid ${v === top?.[0] ? cat.color + '55' : 'transparent'}`,
+                borderRadius: 20, padding: '2px 9px', fontSize: 12,
+              }}>
+                <span style={{ fontSize: 13 }}>{SAT_EMOJI[v]}</span>
+                <span style={{ fontWeight: v === top?.[0] ? 700 : 400 }}>{n}</span>
+                <span style={{ fontSize: 10, color: 'var(--muted)' }}>({pct}%)</span>
+              </span>
+            );
+          })}
+          <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center', marginLeft: 2 }}>{total} resp.</span>
+        </div>
+        {/* Gráfico de tendência semanal (só se há >= 2 semanas) */}
+        {weekKeys.length >= 2 && polyPts && (
+          <div style={{ padding: '4px 10px 8px' }}>
+            <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block', overflow: 'visible' }}>
+              {[1,2,3,4,5].map((v) => (
+                <g key={v}>
+                  <line x1={ML} x2={VW-MR} y1={yFn(v)} y2={yFn(v)} stroke="var(--line)" strokeWidth={v===3?0.8:0.3} strokeDasharray={v===3?'4,3':''}/>
+                  <text x={ML-3} y={yFn(v)+3.5} textAnchor="end" fontSize={8} fill="var(--muted)">{v}</text>
+                </g>
+              ))}
+              {/* Área preenchida */}
+              {(() => {
+                const validPts = pts.map((v, i) => v !== null ? { x: xFn(i), y: yFn(v) } : null).filter(Boolean) as {x:number;y:number}[];
+                if (validPts.length < 2) return null;
+                const areaPath = `M${validPts[0].x},${yFn(1)} ` +
+                  validPts.map(p => `L${p.x},${p.y}`).join(' ') +
+                  ` L${validPts[validPts.length-1].x},${yFn(1)} Z`;
+                return <path d={areaPath} fill={cat.color} opacity={0.08}/>;
+              })()}
+              <polyline points={polyPts} fill="none" stroke={cat.color} strokeWidth={2} strokeLinejoin="round" opacity={0.9}/>
+              {pts.map((v, i) => v !== null ? (
+                <circle key={i} cx={xFn(i)} cy={yFn(v)} r={3} fill={cat.color} stroke="var(--bg)" strokeWidth={1}>
+                  <title>{weekKeys[i]}: {v.toFixed(2)}/5</title>
+                </circle>
+              ) : null)}
+              {/* Labels eixo X */}
+              {xLabels.map((i) => (
+                <text key={i} x={xFn(i)} y={VH-2} textAnchor="middle" fontSize={8} fill="var(--muted)">
+                  {weekKeys[i]?.slice(5).replace('-','/')}
+                </text>
+              ))}
+            </svg>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <SatFilterBar />
+      {categories.map((cat) => <CatChart key={cat.key} cat={cat} />)}
     </div>
   );
 }
@@ -5693,17 +5775,13 @@ function PainReportsSection({ health, observations, history }: {
 // ─── ANÁLISE DE CARGA ───────────────────────────────────────────────────────
 
 /** Container com abas: Carga Semanal / Aguda:Crônica / Aderência. */
+/** Carga semanal + ACWR — dois sub-gráficos em tabs (Aderência virou seção própria). */
 function LoadAnalysisSection({ weeks }: { weeks: WeekData[] }) {
-  const [tab, setTab] = useState<'semanal' | 'acr' | 'aderencia'>('semanal');
-  const tabs: Array<{ key: typeof tab; label: string }> = [
-    { key: 'semanal', label: 'Carga Semanal' },
-    { key: 'acr', label: 'Aguda:Cronica' },
-    { key: 'aderencia', label: 'Aderencia' },
-  ];
+  const [tab, setTab] = useState<'semanal' | 'acr'>('semanal');
   return (
     <div>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap' }}>
-        {tabs.map(({ key, label }) => (
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
+        {([['semanal','Carga Semanal'],['acr','Aguda:Crônica']] as const).map(([key, label]) => (
           <button key={key} type="button"
             style={{ padding: '3px 12px', fontSize: 12, borderRadius: 6,
               background: tab === key ? 'var(--accent)' : 'transparent',
@@ -5716,18 +5794,16 @@ function LoadAnalysisSection({ weeks }: { weeks: WeekData[] }) {
       </div>
       {tab === 'semanal' && <LoadChartSemanal weeks={weeks} />}
       {tab === 'acr' && <LoadChartACR weeks={weeks} />}
-      {tab === 'aderencia' && <LoadChartAderencia weeks={weeks} />}
     </div>
   );
 }
 
-/** Barras coloridas por variação percentual em relação à semana anterior. */
+/** Barras coloridas por variação percentual + gridlines a cada 5km + linha de tendência. */
 function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
   if (weeks.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados.</p>;
 
-  // Cor por % de variação: azul=sem ref, verde=≤+10%, laranja=+10-25%, vermelho=>25%
   function barColor(i: number): string {
-    if (i === 0) return '#3b82f6'; // primeira semana — sem referência
+    if (i === 0) return '#3b82f6';
     const prev = weeks[i - 1].completedKm;
     if (prev === 0) return '#3b82f6';
     const delta = (weeks[i].completedKm - prev) / prev;
@@ -5736,57 +5812,88 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
     return '#ef4444';
   }
 
-  const maxKm = Math.max(...weeks.map((w) => Math.max(w.completedKm, w.prescribedKm)), 1);
-  const W = 560; const H = 150; const PL = 36; const PT = 8; const PB = 28; const PR = 8;
+  const maxKm = Math.max(...weeks.map((w) => Math.max(w.completedKm, w.prescribedKm)), 5);
+  const topKm = Math.ceil(maxKm / 5) * 5; // arredonda para múltiplo de 5
+  const W = 620; const H = 170; const PL = 38; const PT = 10; const PB = 30; const PR = 10;
   const chartW = W - PL - PR;
   const chartH = H - PT - PB;
-  const barW = Math.max(4, (chartW / weeks.length) * 0.6);
+  const barW = Math.max(4, (chartW / weeks.length) * 0.60);
   const gap = chartW / weeks.length;
 
-  const yFn = (km: number) => PT + chartH - (km / maxKm) * chartH;
+  const yFn = (km: number) => PT + chartH - (km / topKm) * chartH;
   const xFn = (i: number) => PL + i * gap + gap / 2;
 
+  // Gridlines a cada 5km
+  const gridLines: number[] = [];
+  for (let km = 0; km <= topKm; km += 5) gridLines.push(km);
+
+  // Linha de tendência (regressão linear simples)
+  const n = weeks.length;
+  const meanX = (n - 1) / 2;
+  const meanY = weeks.reduce((s, w) => s + w.completedKm, 0) / n;
+  const slope = weeks.reduce((s, w, i) => s + (i - meanX) * (w.completedKm - meanY), 0)
+    / (weeks.reduce((s, _, i) => s + (i - meanX) ** 2, 0) || 1);
+  const intercept = meanY - slope * meanX;
+
   const xLabels: { i: number; label: string }[] = [];
-  if (weeks.length <= 8) {
+  if (weeks.length <= 10) {
     weeks.forEach((w, i) => xLabels.push({ i, label: w.startDate.slice(5, 10).replace('-', '/') }));
   } else {
-    [0, Math.floor(weeks.length / 2), weeks.length - 1].forEach((i) =>
-      xLabels.push({ i, label: weeks[i].startDate.slice(5, 10).replace('-', '/') }));
+    weeks.forEach((_, i) => {
+      if (i === 0 || i === n - 1 || i % Math.ceil(n / 8) === 0)
+        xLabels.push({ i, label: weeks[i].startDate.slice(5, 10).replace('-', '/') });
+    });
   }
 
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
-        {/* Grid */}
-        {[0, 0.5, 1].map((f) => {
-          const y = PT + chartH * (1 - f);
-          return <g key={f}>
-            <line x1={PL} y1={y} x2={W - PR} y2={y} stroke="var(--line)" strokeWidth={0.5} />
-            <text x={PL - 4} y={y + 3} textAnchor="end" fontSize={9} fill="var(--muted)">{(maxKm * f).toFixed(0)}</text>
-          </g>;
-        })}
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block', overflow: 'visible' }}>
+        {/* Gridlines a cada 5km */}
+        {gridLines.map((km) => (
+          <g key={km}>
+            <line x1={PL} y1={yFn(km)} x2={W - PR} y2={yFn(km)} stroke="var(--line)" strokeWidth={km === 0 ? 1 : 0.4} />
+            <text x={PL - 4} y={yFn(km) + 3.5} textAnchor="end" fontSize={8.5} fill="var(--muted)">{km}</text>
+          </g>
+        ))}
         {/* Barras */}
         {weeks.map((w, i) => {
           const x = xFn(i);
           const y = yFn(w.completedKm);
           return (
-            <rect key={i} x={x - barW / 2} y={y} width={barW} height={PT + chartH - y}
-              fill={barColor(i)} rx={2}
-              style={{ cursor: 'default' }}>
-              <title>{w.startDate}: {w.completedKm.toFixed(1)} km</title>
-            </rect>
+            <g key={i}>
+              <rect x={x - barW / 2} y={y} width={barW} height={Math.max(1, PT + chartH - y)}
+                fill={barColor(i)} rx={2}>
+                <title>{w.startDate}: {w.completedKm.toFixed(1)} km feito{weeks[i-1] ? ` (${((w.completedKm - weeks[i-1].completedKm) / (weeks[i-1].completedKm||1) * 100).toFixed(0)}% vs semana anterior)` : ''}</title>
+              </rect>
+              {/* Rótulo no topo da barra (se barra ≥ 14px) */}
+              {barW >= 14 && w.completedKm > 0 && (
+                <text x={x} y={y - 3} textAnchor="middle" fontSize={7.5} fontWeight={600} fill={barColor(i)}>
+                  {w.completedKm % 1 === 0 ? w.completedKm : w.completedKm.toFixed(1)}
+                </text>
+              )}
+            </g>
           );
         })}
+        {/* Linha de tendência */}
+        {n >= 3 && (
+          <line
+            x1={xFn(0)} y1={yFn(Math.max(0, intercept))}
+            x2={xFn(n - 1)} y2={yFn(Math.max(0, intercept + slope * (n - 1)))}
+            stroke="#6366f1" strokeWidth={1.5} strokeDasharray="6,3" opacity={0.7}
+          />
+        )}
         {/* X labels */}
         {xLabels.map(({ i, label }) => (
-          <text key={i} x={xFn(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="var(--muted)">{label}</text>
+          <text key={i} x={xFn(i)} y={H - 8} textAnchor="middle" fontSize={8.5} fill="var(--muted)">{label}</text>
         ))}
       </svg>
-      {/* Legenda */}
-      <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
-        {[['#22c55e','Progressao segura (queda ou ate +10%)'],['#f59e0b','Subida forte (+10% a +25%)'],['#ef4444','Salto de carga (acima de +25%)'],['#3b82f6','Sem semana de referencia']].map(([c, l]) => (
+      <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap', alignItems: 'center' }}>
+        {[['#22c55e','≤+10% (seguro)'],['#f59e0b','+10% a +25%'],['#ef4444','>+25% (salto)'],['#3b82f6','1ª semana']].map(([c, l]) => (
           <span key={l}><span style={{ display:'inline-block', width:10, height:10, borderRadius:2, background:c, marginRight:4, verticalAlign:'middle' }} />{l}</span>
         ))}
+        {n >= 3 && <span style={{ marginLeft: 8 }}>
+          <span style={{ display:'inline-block', width:16, height:2, background:'#6366f1', marginRight:4, verticalAlign:'middle', opacity:0.7 }} />Tendência
+        </span>}
       </div>
     </div>
   );
@@ -5824,7 +5931,7 @@ function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
 
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block', overflow: 'visible' }}>
         {/* Zona segura: 0.8–1.3 */}
         <rect x={PL} y={yFn(1.3)} width={chartW} height={yFn(0.8) - yFn(1.3)} fill="#22c55e" opacity={0.12} />
         {/* Zona de risco: >1.5 */}
@@ -5885,7 +5992,7 @@ function LoadChartAderencia({ weeks }: { weeks: WeekData[] }) {
 
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block', overflow: 'visible' }}>
         {[0, 50, 80, 100].map((pct) => (
           <g key={pct}>
             <line x1={PL} y1={yFn(pct)} x2={W - PR} y2={yFn(pct)} stroke="var(--line)" strokeWidth={0.5} />
