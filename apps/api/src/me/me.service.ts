@@ -227,6 +227,31 @@ export class MeService {
             experienceLevel: answers.running_experience != null ? String(answers.running_experience) : null,
           },
         });
+        // Ciclo menstrual: salva perfil menstrual se a aluna informou na entrevista (11/09).
+        // Apenas cria/atualiza — nunca apaga dados de ciclos ja registrados (logs).
+        // A pergunta so aparece para sex=Feminino; os demais nao chegam a ter essas chaves.
+        if (answers.personal_sex === 'Feminino' && answers.menstrual_has_active_cycle !== undefined) {
+          const hasActiveCycle = answers.menstrual_has_active_cycle === 'Sim';
+          const usesContraceptive = answers.menstrual_uses_contraceptive === 'Sim';
+          const menstrualData = {
+            hasActiveCycle,
+            usesHormonalContraceptive: hasActiveCycle ? usesContraceptive : null,
+            contraceptiveType: usesContraceptive && answers.menstrual_contraceptive_type != null
+              ? String(answers.menstrual_contraceptive_type)
+              : null,
+            cycleLengthDays: hasActiveCycle && !usesContraceptive && answers.menstrual_cycle_length != null
+              ? Number(answers.menstrual_cycle_length)
+              : null,
+            periodLengthDays: hasActiveCycle && !usesContraceptive && answers.menstrual_period_length != null
+              ? Number(answers.menstrual_period_length)
+              : null,
+          };
+          await tx.menstrualProfile.upsert({
+            where: { userId },
+            create: { userId, ...menstrualData },
+            update: menstrualData,
+          });
+        }
         // 08/09 (bug real — caso Thais, rotina sumindo com plano de treino ja gerado): ESTE metodo
         // fecha a entrevista PRINCIPAL, que deliberadamente NAO inclui o modulo "Rotina semanal"
         // (ver mainInterviewQuestions/routineQuestions no App.tsx). Antes desta correcao, aqui

@@ -15,9 +15,10 @@ import { TargetRacesModule } from '../target-races/target-races.module';
 import { StravaModule } from '../strava/strava.module';
 import { BillingModule } from '../billing/billing.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { MenstrualCycleModule } from '../menstrual-cycle/menstrual-cycle.module';
 
 @Module({
-  imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, StravaModule, forwardRef(() => BillingModule), StudentProfileModule, NotificationsModule],
+  imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, StravaModule, forwardRef(() => BillingModule), StudentProfileModule, NotificationsModule, MenstrualCycleModule],
   controllers: [TrainingPlansController],
   providers: [TrainingPlansService, PrescriptionAgentService, StravaAnalysisAgentService, WeeklyPlanSchedulerService, StravaAnalysisSchedulerService, DirectiveExpiryNotifierService, WeeklyCheckInService],
   exports: [TrainingPlansService, StudentProfileModule, WeeklyPlanSchedulerService],

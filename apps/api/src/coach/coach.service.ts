@@ -27,6 +27,7 @@ import { satisfactionLabel, cargaLabel, SATISFACTION_SCORE, CARGA_SCORE } from '
 import { NotificationTriggersService } from '../messaging/notification-triggers.service';
 import { computeProspectLevel } from '../messaging/prospect-level';
 import { ProspectNurtureService } from '../messaging/prospect-nurture.service';
+import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.service';
 
 @Injectable()
 export class CoachService {
@@ -43,6 +44,7 @@ export class CoachService {
     private readonly weeklyPlanScheduler: WeeklyPlanSchedulerService,
     private readonly notificationTriggers: NotificationTriggersService,
     private readonly prospectNurture: ProspectNurtureService,
+    private readonly menstrualCycle: MenstrualCycleService,
   ) {}
 
   // Botao "Rodar verificacao de avisos agora" no painel admin — roda o MESMO codigo do cron
@@ -1281,6 +1283,20 @@ export class CoachService {
       paceSecondsPerKm:
         r.targetSeconds && r.distanceKm ? Math.round(r.targetSeconds / r.distanceKm) : null,
     }));
+  }
+
+  // Retorna perfil menstrual + logs + correlacoes de fase para o painel do treinador (11/09).
+  // Disponivel apenas para alunas — o endpoint no controller ja garante isso, mas o servico
+  // tambem retorna null graciosamente caso o perfil nao exista.
+  async getStudentMenstrualData(studentId: string) {
+    await this.assertStudent(studentId);
+    const [profile, logs, phase, correlations] = await Promise.all([
+      this.menstrualCycle.getProfile(studentId),
+      this.menstrualCycle.getLogs(studentId),
+      this.menstrualCycle.getEstimatedPhaseContext(studentId),
+      this.menstrualCycle.getCorrelations(studentId),
+    ]);
+    return { profile, logs, phase, correlations };
   }
 
   private assertStudent(studentId: string) {

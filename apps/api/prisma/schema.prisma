@@ -110,6 +110,8 @@ model User {
   observations        StudentObservation[]
   weeklyCheckIns      WeeklyCheckIn[]
   funnelEvents        FunnelEvent[]
+  menstrualProfile    MenstrualProfile?
+  menstrualCycleLogs  MenstrualCycleLog[]
 
   // 04/09: achado numa revisao pensando em escala — nao existia indice nenhum pros filtros mais
   // usados (painel do treinador, prospectos, crons diarios), todos batem em (role,
@@ -566,6 +568,45 @@ model WeeklyCheckIn {
   // banco, duas chamadas quase simultaneas (duplo toque, dois aparelhos) podiam criar duas linhas
   // pro mesmo plano.
   @@unique([userId, planId])
+}
+
+// 11/09: rastreamento de ciclo menstrual para correlacao com aderencia/dor/desempenho.
+// Finalidade: correlacao estatistica (ex: "na fase 1 a aderencia cai X%") — nao diagnostico.
+// O agente de treino recebe o contexto como dado geral, nao como regra de prescricao.
+// A futura camada de analise de padroes (agente de evolucao) cruzara esses dados com o historico.
+model MenstrualProfile {
+  id                        String    @id @default(uuid())
+  userId                    String    @unique
+  user                      User      @relation(fields: [userId], references: [id])
+  // Ciclo ativo: true = sim, false = nao/menopausa, null = preferiu nao informar
+  hasActiveCycle            Boolean?
+  // Uso de anticoncepcional hormonal (null = preferiu nao informar)
+  usesHormonalContraceptive Boolean?
+  // Tipo quando usa anticoncepcional — identificador semantico (ex: 'pilula_combinada', 'diu_hormonal')
+  contraceptiveType         String?
+  // Duracao tipica do ciclo (dias do 1o ao proximo 1o dia) — null quando usa hormonal ou nao informou
+  // AVISO: quando usesHormonalContraceptive=true as fases estimadas NAO sao confiaveis
+  cycleLengthDays           Int?
+  // Duracao tipica da menstruacao — null quando usa hormonal ou nao informou
+  periodLengthDays          Int?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+}
+
+// Um registro por ciclo (aluna informa o 1o dia da menstruacao + sintomas opcionais)
+model MenstrualCycleLog {
+  id             String           @id @default(uuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id])
+  // Data do 1o dia — armazenado como DateTime mas representa so a data (horario zerado)
+  cycleStartDate DateTime
+  // Sintomas no dia 1 (escala 1–5, opcionais — a aluna pode registrar so a data)
+  crampsLevel    Int?   // 1=sem cólicas, 5=muito intensa
+  energyLevel    Int?   // 1=muito baixa, 5=alta
+  moodLevel      Int?   // 1=muito instavel, 5=muito estavel
+  createdAt      DateTime @default(now())
+
+  @@index([userId, cycleStartDate])
 }
 
 model StravaConnection {

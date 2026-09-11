@@ -1152,9 +1152,33 @@ em `training-plans.service.ts`, linhas não tocadas). Deployado pelo Elton na me
 - **Gates desta sessão**: typecheck limpo nos três apps confirmado (erros pré-existentes em coach,
   não causados por esta sessão). Nenhum erro novo introduzido.
 
+**2026-09-11 — Rastreamento de ciclo menstrual**
+
+Feature de correlação (NÃO diagnóstico): permite identificar se alunas perdem mais treinos, relatam mais dor ou têm check-ins piores em fases específicas do ciclo. Toda a stack implementada de ponta a ponta.
+
+**Schema (migration `20260911200000_add_menstrual_cycle`)**:
+- `MenstrualProfile` (1:1 com User): `hasActiveCycle`, `usesHormonalContraceptive`, `contraceptiveType`, `cycleLengthDays` (default 28), `periodLengthDays` (default 5), `lastCycleStartDate`.
+- `MenstrualCycleLog` (N:1 com User): `cycleStartDate`, `notes`, escalas opcionais (cramps/energy/mood/bloating — Int? 1–5).
+- Problema resolvido: dois FKs em `MenstrualCycleLog` usando o mesmo campo `userId` geravam nome de constraint duplicado. Solução: removida a relação direta `MenstrualCycleLog↔MenstrualProfile`; o log só referencia o `User`.
+
+**Backend (`apps/api/src/menstrual-cycle/`)**:
+- `MenstrualCycleService`: `getProfile`, `upsertProfile`, `createLog`, `getLogs`, `getEstimatedPhaseContext` (calcula fase atual com base na data do último ciclo), `getCorrelations` (aderência por fase nas últimas 8 semanas).
+- `MenstrualCycleController`: endpoints REST protegidos por JWT — `GET /menstrual-cycle/status`, `POST /menstrual-cycle/profile`, `POST /menstrual-cycle/log`, `GET /menstrual-cycle/logs`.
+- Módulo integrado: importado em `AppModule`, `TrainingPlansModule`, `CoachModule`.
+
+**Integração com a IA**: `MethodologyInput` recebe `menstrualContext?` com fase, dia do ciclo e flag de confiabilidade. O `PrescriptionAgentService` passa isso ao agente como `contextoCicloMenstrual` — contexto informativo, nunca prescritivo. Usuárias de anticoncepcional hormonal recebem `estimativaConfiavel: false`.
+
+**Entrevista inicial (mobile)**: 5 perguntas condicionadas a `personal_sex === 'Feminino'`, todas opcionais — se tem ciclo ativo, se usa anticoncepcional, qual tipo, duração do ciclo e duração da menstruação. Respondidas durante o onboarding e salvas no `completeOnboarding` do `me.service.ts`.
+
+**App mobile — tela "Registrar ciclo menstrual"** (novo item condicional no menu lateral, visível só pra quem respondeu `sex === 'Feminino'` na entrevista): mostra fase atual estimada com disclaimer para quem usa anticoncepcional hormonal; formulário de registro de novo ciclo (data + sintomas opcionais 1–5); histórico de ciclos anteriores.
+
+**Painel admin**: aba "Ciclo" visível na ficha do aluno apenas quando `interview.answers.personal_sex === 'Feminino'`. Exibe perfil resumido, fase estimada, tabela de correlações (fase × aderência) e histórico de logs. Endpoint: `GET /coach/students/:studentId/menstrual-cycle`.
+
+**Gates**: typecheck limpo nos três apps (api, mobile, admin). URL do `CicloTab` corrigida antes do commit (`/api/proxy/...` → `${API_URL}/coach/...`).
+
 ---
 
-## Onde as coisas estão agora (2026-09-10) — leitura rápida pra quem chega de fora
+## Onde as coisas estão agora (2026-09-11) — leitura rápida pra quem chega de fora
 
 **Produto em produção, sendo usado por alunas reais**: a versão web/PWA, em
 `https://panzerirun.eltonpanzeripersonal.com.br`. Entrevista, geração de treino por IA, registro de
@@ -1171,10 +1195,7 @@ confirmada; corrigido com `unregisteredSessions` separado e aderência recalcula
 anterior e explica o impacto na prescrição. Arquivos: `coach.service.ts`, `training-plans.service.ts`,
 `App.tsx`. Typecheck limpo nos dois apps. EasyPanel auto-deploya a cada push.
 
-**Prontos para commit mas ainda não commitados (10/09)**: `coach.controller.ts` (endpoint
-`GET races/calendar`), `coach.service.ts` (método `racesCalendar()`), `admin/page.tsx`
-(`RaceCalendarView`, botão no sidebar), `mobile/App.tsx` (toggle "Linha do tempo" na TargetRaceScreen),
-`ROADMAP.md` (novo). Mais arquivos de sessões anteriores também sem commit.
+**Prontos para commit (11/09)**: todos os arquivos da feature de ciclo menstrual (módulo completo, schema, entrevista mobile, tela mobile, aba admin, integrações) + calendário de provas (10/09) + demais arquivos de sessões anteriores.
 
 **Deployado (09/09, sessão 2)**: `RoutineOverviewScreen` — ao tocar em "Rotina de treinos" no menu,
 o aluno vê a tabela da rotina atual antes de entrar na entrevista, com botão "Alterar/Configurar

@@ -25,6 +25,7 @@ import { TelegramService, formatStudentCode } from '../billing/telegram.service'
 import { NotificationsService } from '../notifications/notifications.service';
 import { WeeklyCheckInService } from './weekly-checkin.service';
 import { StudentProfileService, ProfileEventCode } from './student-profile.service';
+import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.service';
 
 interface SessionTemplate {
   title: string;
@@ -134,6 +135,7 @@ export class TrainingPlansService {
     private readonly studentProfile: StudentProfileService,
     private readonly notifications: NotificationsService,
     private readonly weeklyCheckIn: WeeklyCheckInService,
+    private readonly menstrualCycle: MenstrualCycleService,
   ) {}
 
   // REGRA DURA (2026-07-28): current() e SO LEITURA — nunca chama generateWeek() nem mexe no
@@ -549,6 +551,11 @@ export class TrainingPlansService {
         })
       : null;
 
+    // Contexto do ciclo menstrual — apenas para alunas com ciclo ativo registrado (11/09).
+    // getEstimatedPhaseContext retorna null para quem nao tem perfil menstrual ou nao tem log.
+    // Falha aqui nunca bloqueia a geracao — e dado de contexto, nao dado critico de prescricao.
+    const menstrualContext = await this.menstrualCycle.getEstimatedPhaseContext(userId).catch(() => null);
+
     if (!onboarding?.completedAt) return onboardingRequiredPlan(hasSubscriptionAccess(user.subscriptionStatus));
 
     // stripRoutineKeysFromAnswers: remove chaves {dia}_run_time, routine_modality_choice etc.
@@ -682,6 +689,7 @@ export class TrainingPlansService {
       activeObservations: activeObservations.map((observation) => observation.content),
       studentProfileSummary,
       weeklyCheckIn: latestWeeklyCheckIn,
+      menstrualContext,
       todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
       // options.generateFrom: definido quando o aluno escolheu "Nao, a partir de amanha" no app
       // (doGenerateCurrentWeekOnDemand calcula e repassa via options) — instrui a IA a nao

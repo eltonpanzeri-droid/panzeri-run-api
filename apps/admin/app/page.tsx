@@ -2,7 +2,7 @@
 
 import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flag, Flame, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
 const STUDENT_APP_URL = 'https://agenteselton-panzeri-run-app.hbljgk.easypanel.host';
@@ -1984,7 +1984,7 @@ function StudentPanel({
   // 01/09: o painel virou abas em vez de uma pagina so' com tudo empilhado (pedido do treinador —
   // ver studentViewMode no componente pai pro contexto completo dessa mudanca). "Treinos" e' a aba
   // padrao por ser a mais usada no dia a dia.
-  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao'>('treinos');
+  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo'>('treinos');
   // 11/09: período universal da aba Evolução — compartilhado por todos os gráficos e seções.
   // Padrão 12 semanas (~3 meses). Opções: 4/8/12/24/52/999(Tudo).
   const [evolPeriod, setEvolPeriod] = useState<4 | 8 | 12 | 24 | 52 | 999>(12);
@@ -2496,6 +2496,9 @@ function StudentPanel({
         <button type="button" className={detailTab === 'diretrizes' ? 'active' : ''} onClick={() => setDetailTab('diretrizes')}>Diretrizes</button>
         <button type="button" className={detailTab === 'semanas' ? 'active' : ''} onClick={() => setDetailTab('semanas')}>Semanas anteriores</button>
         <button type="button" className={detailTab === 'evolucao' ? 'active' : ''} onClick={() => setDetailTab('evolucao')}>Evolucao</button>
+        {student?.interview?.answers?.personal_sex === 'Feminino' && (
+          <button type="button" className={detailTab === 'ciclo' ? 'active' : ''} onClick={() => setDetailTab('ciclo')}>Ciclo</button>
+        )}
       </div>
 
       {student.needsUpdate ? (
@@ -3092,7 +3095,127 @@ function StudentPanel({
         )}
       </section>
       ) : null}
+
+      {detailTab === 'ciclo' ? (
+        <CicloTab studentId={student.id} accessToken={token} />
+      ) : null}
+
       </section>
+  );
+}
+
+function CicloTab({ studentId, accessToken }: { studentId: string; accessToken: string }) {
+  const [data, setData] = React.useState<{
+    profile: { hasActiveCycle: boolean | null; usesHormonalContraceptive: boolean | null; contraceptiveType: string | null; cycleLengthDays: number | null; periodLengthDays: number | null } | null;
+    logs: Array<{ id: string; cycleStartDate: string; crampsLevel: number | null; energyLevel: number | null; moodLevel: number | null }>;
+    phase: { phase: string; dayOfCycle: number; isReliable: boolean } | null;
+    correlations: {
+      isReliable: boolean;
+      cycleCount: number;
+      phaseStats: Array<{ phase: string; done: number; missed: number; noInteraction: number; adherencePercent: number | null }>;
+      averageSymptoms: { crampsLevel: number | null; energyLevel: number | null; moodLevel: number | null };
+    } | null;
+  } | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    void (async () => {
+      setLoading(true);
+      const res = await fetch(`${API_URL}/coach/students/${studentId}/menstrual-cycle`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) setData(await res.json());
+      setLoading(false);
+    })();
+  }, [studentId, accessToken]);
+
+  const PHASE_LABELS: Record<string, string> = {
+    menstruacao: 'Menstruação', folicular: 'Folicular', ovulatoria: 'Ovulação', lutea: 'Lútea',
+  };
+
+  if (loading) return <section className="miniSection"><p>Carregando dados do ciclo...</p></section>;
+  if (!data?.profile) return <section className="miniSection"><p>A aluna ainda não registrou informações de ciclo menstrual.</p></section>;
+
+  const { profile, logs, phase, correlations } = data;
+
+  return (
+    <section className="miniSection">
+      <h3>Ciclo menstrual</h3>
+      <div className="card">
+        <h4>Perfil</h4>
+        <p><strong>Ciclo ativo:</strong> {profile.hasActiveCycle === true ? 'Sim' : profile.hasActiveCycle === false ? 'Não / menopausa' : 'Prefere não informar'}</p>
+        {profile.hasActiveCycle && <>
+          <p><strong>Anticoncepcional hormonal:</strong> {profile.usesHormonalContraceptive === true ? 'Sim' : profile.usesHormonalContraceptive === false ? 'Não' : 'Prefere não informar'}</p>
+          {profile.usesHormonalContraceptive && <p><strong>Tipo:</strong> {profile.contraceptiveType ?? '—'}</p>}
+          {!profile.usesHormonalContraceptive && profile.cycleLengthDays && <p><strong>Duração do ciclo:</strong> {profile.cycleLengthDays} dias</p>}
+          {!profile.usesHormonalContraceptive && profile.periodLengthDays && <p><strong>Duração da menstruação:</strong> {profile.periodLengthDays} dias</p>}
+        </>}
+      </div>
+
+      {phase && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <h4>Fase estimada hoje</h4>
+          <p><strong>{PHASE_LABELS[phase.phase] ?? phase.phase}</strong> · Dia {phase.dayOfCycle + 1} do ciclo</p>
+          {!phase.isReliable && <p style={{ color: '#d97706' }}>⚠️ Estimativa não confiável — usa anticoncepcional hormonal.</p>}
+        </div>
+      )}
+
+      {correlations && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <h4>Correlação fase × aderência ({correlations.cycleCount} ciclos registrados)</h4>
+          {!correlations.isReliable && <p style={{ color: '#d97706', marginBottom: 8 }}>⚠️ Dados de fase não confiáveis (anticoncepcional hormonal).</p>}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: '#f1f5f9' }}>
+                <th style={{ padding: '6px 8px', textAlign: 'left' }}>Fase</th>
+                <th style={{ padding: '6px 8px' }}>Feitos</th>
+                <th style={{ padding: '6px 8px' }}>Perdidos</th>
+                <th style={{ padding: '6px 8px' }}>Aderência</th>
+              </tr>
+            </thead>
+            <tbody>
+              {correlations.phaseStats.map((row) => (
+                <tr key={row.phase} style={{ borderTop: '1px solid #e2e8f0' }}>
+                  <td style={{ padding: '6px 8px' }}>{PHASE_LABELS[row.phase] ?? row.phase}</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'center' }}>{row.done}</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'center' }}>{row.missed}</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'center' }}>{row.adherencePercent != null ? `${row.adherencePercent}%` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+            Média de sintomas: cólicas {correlations.averageSymptoms.crampsLevel ?? '—'}/5 · energia {correlations.averageSymptoms.energyLevel ?? '—'}/5 · humor {correlations.averageSymptoms.moodLevel ?? '—'}/5
+          </p>
+        </div>
+      )}
+
+      {logs.length > 0 && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <h4>Histórico de ciclos ({logs.length})</h4>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: '#f1f5f9' }}>
+                <th style={{ padding: '6px 8px', textAlign: 'left' }}>Data início</th>
+                <th style={{ padding: '6px 8px' }}>Cólicas</th>
+                <th style={{ padding: '6px 8px' }}>Energia</th>
+                <th style={{ padding: '6px 8px' }}>Humor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log) => (
+                <tr key={log.id} style={{ borderTop: '1px solid #e2e8f0' }}>
+                  <td style={{ padding: '6px 8px' }}>{log.cycleStartDate.slice(0, 10)}</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'center' }}>{log.crampsLevel ?? '—'}</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'center' }}>{log.energyLevel ?? '—'}</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'center' }}>{log.moodLevel ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 

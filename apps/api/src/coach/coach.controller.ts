@@ -253,6 +253,11 @@ export class CoachController {
   sendStudentMessage(@Param('studentId') studentId: string, @Body() dto: SendStudentMessageDto) {
     return this.coachService.sendStudentMessage(studentId, dto);
   }
+
+  @Get('students/:studentId/menstrual-cycle')
+  getStudentMenstrualData(@Param('studentId') studentId: string) {
+    return this.coachService.getStudentMenstrualData(studentId);
+  }
 }
 
 

@@ -874,6 +874,18 @@ export class PrescriptionAgentService {
           oQuantoEstaAbertoAAjustarAMeta: race.adjustmentOpenness,
           oQuantoSenteAnsiedade: race.anxietyLevel,
         })),
+        // Contexto do ciclo menstrual (11/09) — so presente para alunas com ciclo ativo registrado.
+        // Este e um dado de CONTEXTO GERAL, nao uma regra de prescricao. Use para calibrar tom e
+        // expectativas se parecer relevante, mas nunca para decidir treino/carga de forma
+        // deterministica (ex: "como esta em menstruacao, reduzo automaticamente"). A correlacao
+        // sistematica de fase x aderencia/dor sera feita por um agente de analise futuro.
+        contextoCicloMenstrual: input.menstrualContext ? {
+          fase: input.menstrualContext.phase,
+          diaDoClico: input.menstrualContext.dayOfCycle,
+          estimativaConfiavel: input.menstrualContext.isReliable,
+          // isReliable=false: aluna usa anticoncepcional hormonal — a fase estimada pode nao
+          // refletir os ciclos hormonais reais.
+        } : null,
       },
       null,
       2,

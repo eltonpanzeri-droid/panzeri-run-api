@@ -22,6 +22,7 @@ import { PainReportsModule } from './pain-reports/pain-reports.module';
 import { ObservationsModule } from './observations/observations.module';
 import { FunnelModule } from './funnel/funnel.module';
 import { EvolutionModule } from './evolution/evolution.module';
+import { MenstrualCycleModule } from './menstrual-cycle/menstrual-cycle.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -52,6 +53,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     ObservationsModule,
     FunnelModule,
     EvolutionModule,
+    MenstrualCycleModule,
   ],
   controllers: [AppController],
   providers: [

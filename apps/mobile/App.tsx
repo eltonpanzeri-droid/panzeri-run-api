@@ -55,7 +55,7 @@ Notifications.setNotificationHandler({
 });
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'meusDados' | 'notifications' | 'history';
+type Tab = 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'meusDados' | 'notifications' | 'history' | 'ciclo';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -427,6 +427,7 @@ interface SavedAvailabilityDay {
 interface MeResponse {
   email?: string;
   name?: string;
+  sex?: string | null;
   subscriptionStatus?: string | null;
   birthDate?: string | null;
   heightCm?: number | null;
@@ -914,6 +915,24 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'personal_phone', module: 'Dados pessoais', prompt: 'Qual e o seu WhatsApp (com DDD)?', type: 'phone', help: 'Usamos para avisos importantes sobre pagamento, treino e acompanhamento.' },
   { key: 'personal_birth_date', module: 'Dados pessoais', prompt: 'Qual e sua data de nascimento?', type: 'wheel_date' },
   { key: 'personal_sex', module: 'Dados pessoais', prompt: 'Como voce prefere informar seu sexo?', type: 'single', options: [option('Feminino'), option('Masculino'), option('Prefiro nao informar')] },
+  // Ciclo menstrual (11/09) — condicional: so aparece para sexo=Feminino. Dados usados para
+  // correlacao de aderencia/dor por fase no futuro. Nao fazem parte de nenhuma decisao de prescricao
+  // direta; sao passados como contexto geral para o agente de treino.
+  { key: 'menstrual_has_active_cycle', module: 'Ciclo menstrual', prompt: 'Voce tem ciclo menstrual ativo?', type: 'single', optional: true,
+    options: [option('Sim'), option('Nao / menopausa'), option('Prefiro nao informar')],
+    condition: (a: InterviewAnswers) => a.personal_sex === 'Feminino' },
+  { key: 'menstrual_uses_contraceptive', module: 'Ciclo menstrual', prompt: 'Voce usa anticoncepcional hormonal?', type: 'single', optional: true,
+    options: [option('Sim'), option('Nao'), option('Prefiro nao informar')],
+    condition: (a: InterviewAnswers) => a.personal_sex === 'Feminino' && a.menstrual_has_active_cycle === 'Sim' },
+  { key: 'menstrual_contraceptive_type', module: 'Ciclo menstrual', prompt: 'Qual tipo de anticoncepcional voce usa?', type: 'dropdown_single', optional: true,
+    options: ['Pilula combinada', 'Pilula so de progestageno', 'DIU hormonal (Mirena/Kyleena)', 'DIU de cobre (nao hormonal)', 'Anel vaginal', 'Adesivo transdermico', 'Injecao mensal', 'Injecao trimestral', 'Implante subcutaneo', 'Outro'].map((v) => option(v)),
+    condition: (a: InterviewAnswers) => a.personal_sex === 'Feminino' && a.menstrual_uses_contraceptive === 'Sim' },
+  { key: 'menstrual_cycle_length', module: 'Ciclo menstrual', prompt: 'Quantos dias dura seu ciclo em media? (do 1o dia da menstruacao ate o proximo)', type: 'wheel_number', optional: true,
+    wheelDigits: 2, wheelMin: 21, wheelMax: 40, wheelUnit: 'dias',
+    condition: (a: InterviewAnswers) => a.personal_sex === 'Feminino' && a.menstrual_has_active_cycle === 'Sim' && a.menstrual_uses_contraceptive === 'Nao' },
+  { key: 'menstrual_period_length', module: 'Ciclo menstrual', prompt: 'Quantos dias costuma durar sua menstruacao?', type: 'wheel_number', optional: true,
+    wheelDigits: 2, wheelMin: 2, wheelMax: 10, wheelUnit: 'dias',
+    condition: (a: InterviewAnswers) => a.personal_sex === 'Feminino' && a.menstrual_has_active_cycle === 'Sim' && a.menstrual_uses_contraceptive === 'Nao' },
   { key: 'personal_cpf', module: 'Dados pessoais', prompt: 'Qual e o seu CPF?', type: 'cpf', help: 'Usamos para gerar a cobranca da assinatura com seguranca.' },
   { key: 'personal_education', module: 'Dados pessoais', prompt: 'Qual e a sua escolaridade?', type: 'dropdown_single', options: ['Fundamental incompleto', 'Fundamental completo', 'Medio incompleto', 'Medio completo', 'Superior incompleto', 'Superior completo', 'Pos-graduacao', 'Mestrado', 'Doutorado', 'PhD'].map((v) => option(v)) },
   { key: 'personal_cep', module: 'Dados pessoais', prompt: 'Qual e o seu CEP?', type: 'cep', help: 'Vamos buscar automaticamente rua, bairro, cidade e estado a partir do seu CEP.' },
@@ -1283,6 +1302,7 @@ function AppInner() {
             notificationsCount={notifications.length}
             onLogout={logout}
             onClose={() => setMenuOpen(false)}
+            isFeminino={savedMe?.sex === 'Feminino'}
             onChange={(tab) => {
               setActiveTab(tab);
               setMenuOpen(false);
@@ -1455,6 +1475,7 @@ function AppInner() {
             {activeTab === 'targetRace' && <TargetRaceScreen accessToken={accessToken} />}
             {activeTab === 'painReport' && <PainReportScreen accessToken={accessToken} />}
             {activeTab === 'observations' && <ObservationsScreen accessToken={accessToken} />}
+            {activeTab === 'ciclo' && <MenstrualCycleScreen accessToken={accessToken} />}
             {activeTab === 'strava' && <StravaSync accessToken={accessToken} />}
             {activeTab === 'billing' && <Billing accessToken={accessToken} />}
             {activeTab === 'profile' && (
@@ -6059,6 +6080,173 @@ function ObservationsScreen({ accessToken }: { accessToken: string }) {
   );
 }
 
+// ── Ciclo Menstrual ──────────────────────────────────────────────────────────────────────────────
+// Tela para a aluna registrar o inicio de cada ciclo + sintomas opcionais (cólicas, energia, humor).
+// Os dados são usados para correlação de fase x aderência/dor — nenhuma decisão de prescrição
+// depende deles diretamente. O agente de treino recebe apenas o contexto geral de fase atual.
+// Aviso embutido quando a estimativa de fase não é confiável (usa anticoncepcional hormonal).
+
+interface CycleLog {
+  id: string;
+  cycleStartDate: string;
+  crampsLevel: number | null;
+  energyLevel: number | null;
+  moodLevel: number | null;
+}
+
+interface PhaseContextResponse {
+  phase: 'menstruacao' | 'folicular' | 'ovulatoria' | 'lutea';
+  dayOfCycle: number;
+  isReliable: boolean;
+}
+
+const CYCLE_PHASE_LABELS: Record<string, string> = {
+  menstruacao: '🩸 Menstruação',
+  folicular: '🌱 Fase folicular',
+  ovulatoria: '🌸 Ovulação',
+  lutea: '🌕 Fase lútea',
+};
+
+function MenstrualCycleScreen({ accessToken }: { accessToken: string }) {
+  const [phase, setPhase] = useState<PhaseContextResponse | null>(null);
+  const [logs, setLogs] = useState<CycleLog[]>([]);
+  const [dateInput, setDateInput] = useState('');
+  const [crampsLevel, setCrampsLevel] = useState<number | null>(null);
+  const [energyLevel, setEnergyLevel] = useState<number | null>(null);
+  const [moodLevel, setMoodLevel] = useState<number | null>(null);
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    try {
+      const [phaseRes, logsRes] = await Promise.all([
+        fetch(`${API_URL}/menstrual-cycle/status`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+        fetch(`${API_URL}/menstrual-cycle/logs`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+      ]);
+      if (phaseRes.ok) setPhase(await phaseRes.json() as PhaseContextResponse | null);
+      if (logsRes.ok) setLogs(await logsRes.json() as CycleLog[]);
+    } catch { /* silencioso — dados de contexto, nao criticos */ }
+  }
+
+  useEffect(() => { void load(); }, [accessToken]);
+
+  async function registerCycle() {
+    if (!dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      setMessage('Informe a data no formato AAAA-MM-DD (ex: 2026-09-01).');
+      return;
+    }
+    setSaving(true);
+    setMessage('');
+    try {
+      const body: Record<string, unknown> = { cycleStartDate: dateInput };
+      if (crampsLevel != null) body.crampsLevel = crampsLevel;
+      if (energyLevel != null) body.energyLevel = energyLevel;
+      if (moodLevel != null) body.moodLevel = moodLevel;
+      const response = await fetch(`${API_URL}/menstrual-cycle/log`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({} as { message?: string }));
+        setMessage(typeof data.message === 'string' ? data.message : 'Nao foi possivel registrar.');
+        return;
+      }
+      setDateInput('');
+      setCrampsLevel(null);
+      setEnergyLevel(null);
+      setMoodLevel(null);
+      setMessage('Ciclo registrado com sucesso!');
+      await load();
+    } catch { setMessage('Nao foi possivel registrar.'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Ciclo menstrual</Text>
+      <Text style={styles.titleSmall}>Registro de ciclos para acompanhamento</Text>
+      <Text style={styles.copyTight}>
+        Esses dados são usados para identificar padrões ao longo do tempo (por exemplo, se você tende a sentir mais cansaço ou faltar treinos em determinadas fases). Eles não alteram a prescrição de treino diretamente — são contexto de acompanhamento.
+      </Text>
+
+      {phase && (
+        <View style={[styles.coachBox, { marginTop: 16 }]}>
+          <Text style={styles.formSectionTitle}>Fase estimada hoje</Text>
+          <Text style={styles.reportText}>{CYCLE_PHASE_LABELS[phase.phase] ?? phase.phase} · dia {phase.dayOfCycle + 1} do ciclo</Text>
+          {!phase.isReliable && (
+            <Text style={[styles.copyTight, { color: '#f59e0b', marginTop: 6 }]}>
+              ⚠️ Você usa anticoncepcional hormonal — a estimativa de fase pode não refletir seu ciclo hormonal real.
+            </Text>
+          )}
+        </View>
+      )}
+
+      <View style={[styles.coachBox, { marginTop: 16 }]}>
+        <Text style={styles.formSectionTitle}>Registrar novo ciclo</Text>
+        <Text style={styles.copyTight}>Informe o 1º dia da menstruação (data de início do ciclo):</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="AAAA-MM-DD (ex: 2026-09-01)"
+          value={dateInput}
+          onChangeText={setDateInput}
+          keyboardType="numeric"
+        />
+        <Text style={[styles.formSectionTitle, { marginTop: 12 }]}>Sintomas no dia 1 (opcional, escala 1–5)</Text>
+        <View style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap', marginTop: 8 }}>
+          {[
+            { label: '🩸 Cólicas', value: crampsLevel, set: setCrampsLevel, hint: '1=sem • 5=intensa' },
+            { label: '⚡ Energia', value: energyLevel, set: setEnergyLevel, hint: '1=muito baixa • 5=alta' },
+            { label: '😊 Humor', value: moodLevel, set: setMoodLevel, hint: '1=instável • 5=estável' },
+          ].map(({ label, value, set, hint }) => (
+            <View key={label} style={{ flex: 1, minWidth: 90 }}>
+              <Text style={styles.copyTight}>{label}</Text>
+              <Text style={[styles.copyTight, { fontSize: 10, color: '#94a3b8' }]}>{hint}</Text>
+              <View style={{ flexDirection: 'row', gap: 4, marginTop: 4 }}>
+                {[1, 2, 3, 4, 5].map((n) => {
+                  const isActive = value === n;
+                  const color = SCALE_GRADIENT[n - 1];
+                  return (
+                    <Pressable
+                      key={n}
+                      style={[styles.scalePickerOption, { borderColor: color, backgroundColor: isActive ? color : '#EDE9E0', width: 30, height: 30 }]}
+                      onPress={() => set(value === n ? null : n)}
+                    >
+                      <Text style={[styles.scalePickerOptionText, { color: isActive ? '#FFFFFF' : PRColors.graphite }]}>{n}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ))}
+        </View>
+        {!!message && <Text style={styles.statusMessage}>{message}</Text>}
+        <Pressable style={[styles.primaryButton, (saving || !dateInput) && styles.disabledButton, { marginTop: 16 }]} onPress={() => void registerCycle()} disabled={saving || !dateInput}>
+          <Text style={styles.primaryButtonText}>{saving ? 'Salvando...' : 'Registrar ciclo'}</Text>
+        </Pressable>
+      </View>
+
+      {logs.length > 0 && (
+        <View style={[styles.coachBox, { marginTop: 16 }]}>
+          <Text style={styles.formSectionTitle}>Histórico de ciclos</Text>
+          {logs.map((log) => (
+            <View key={log.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+              <Text style={styles.reportText}>📅 {log.cycleStartDate.slice(0, 10)}</Text>
+              {(log.crampsLevel || log.energyLevel || log.moodLevel) ? (
+                <Text style={styles.copyTight}>
+                  {log.crampsLevel ? `🩸 Cólicas: ${log.crampsLevel}/5  ` : ''}
+                  {log.energyLevel ? `⚡ Energia: ${log.energyLevel}/5  ` : ''}
+                  {log.moodLevel ? `😊 Humor: ${log.moodLevel}/5` : ''}
+                </Text>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 function StravaSync({ accessToken }: { accessToken: string }) {
   const [connection, setConnection] = useState<StravaConnectionStatus | null>(null);
   const [message, setMessage] = useState('');
@@ -7206,7 +7394,7 @@ function HistoryCalendar({ accessToken, onNavigateToWeek }: { accessToken: strin
   );
 }
 
-function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, onClose }: { visible: boolean; activeTab: Tab; notificationsCount: number; onChange: (tab: Tab) => void; onLogout: () => void; onClose: () => void }) {
+function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, onClose, isFeminino }: { visible: boolean; activeTab: Tab; notificationsCount: number; onChange: (tab: Tab) => void; onLogout: () => void; onClose: () => void; isFeminino: boolean }) {
   const tabs: Array<{ id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
     { id: 'notifications', label: 'Avisos', icon: 'notifications-outline' },
     { id: 'week', label: 'Treino da semana', icon: 'calendar' },
@@ -7226,6 +7414,8 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     { id: 'strava', label: 'Sincronizar com Strava', icon: 'sync' },
     { id: 'billing', label: 'Plano e faturamento', icon: 'card' },
     { id: 'profile', label: 'Perfil', icon: 'person' },
+    // Ciclo menstrual: so visivel para alunas (sex=Feminino) — 11/09
+    ...(isFeminino ? [{ id: 'ciclo' as Tab, label: 'Registrar ciclo menstrual', icon: 'medical-outline' as keyof typeof Ionicons.glyphMap }] : []),
   ];
 
   // Bug real reportado 16/08 (aluna Vanessa) — o menu tinha 13 itens dentro de um View comum,

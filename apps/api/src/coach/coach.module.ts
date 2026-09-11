@@ -8,9 +8,10 @@ import { MessagingModule } from '../messaging/messaging.module';
 import { BackupModule } from '../backup/backup.module';
 import { MeModule } from '../me/me.module';
 import { BillingModule } from '../billing/billing.module';
+import { MenstrualCycleModule } from '../menstrual-cycle/menstrual-cycle.module';
 
 @Module({
-  imports: [TrainingPlansModule, StravaModule, MessagingModule, BackupModule, MeModule, BillingModule],
+  imports: [TrainingPlansModule, StravaModule, MessagingModule, BackupModule, MeModule, BillingModule, MenstrualCycleModule],
   controllers: [CoachController, CoachToolingController],
   providers: [CoachService],
 })
