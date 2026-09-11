@@ -360,6 +360,95 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
     line-height: 1.55;
   }
 
+  .product-demo {
+    margin-top: clamp(30px, 5vw, 44px);
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: clamp(14px, 2.4vw, 22px);
+  }
+  .demo-card {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .demo-card video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 9 / 16;
+    object-fit: cover;
+    background: #05080d;
+  }
+  .demo-copy { padding: 19px; }
+  .demo-copy .step {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--teal);
+    font-family: 'Track', monospace;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .demo-copy h3 {
+    margin: 0 0 8px;
+    font-family: 'Shoulders', sans-serif;
+    font-size: 19px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .demo-copy p {
+    margin: 0;
+    color: var(--ink-dim);
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+  .memory-panel {
+    margin-top: clamp(36px, 6vw, 56px);
+    padding: clamp(24px, 5vw, 42px);
+    border-radius: 8px;
+    background: var(--teal-deep);
+    color: #f5fbfa;
+  }
+  .memory-panel .tag { color: #8fe3d8; }
+  .memory-panel h2 {
+    margin: 0;
+    max-width: 19ch;
+    font-family: 'Shoulders', sans-serif;
+    font-size: clamp(27px, 4.5vw, 40px);
+    line-height: 1.05;
+    text-transform: uppercase;
+  }
+  .memory-panel > p {
+    margin: 18px 0 0;
+    max-width: 65ch;
+    color: #d2e7e3;
+    font-size: 16px;
+    line-height: 1.65;
+  }
+  .memory-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    margin-top: 28px;
+    background: rgba(255,255,255,.22);
+  }
+  .memory-item { padding: 18px; background: var(--teal-deep); }
+  .memory-item strong { display: block; margin-bottom: 7px; font-size: 15px; }
+  .memory-item span { color: #bdd8d3; font-size: 13.5px; line-height: 1.5; }
+  @media (max-width: 720px) {
+    .product-demo { grid-template-columns: 1fr; }
+    .demo-card { display: grid; grid-template-columns: minmax(135px, 42%) 1fr; }
+    .demo-card video { height: 100%; min-height: 310px; }
+    .demo-copy { align-self: center; }
+    .memory-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 390px) {
+    .demo-card { grid-template-columns: 1fr; }
+    .demo-card video { max-height: 520px; }
+  }
+
   .faq {
     margin-top: clamp(26px, 5vw, 38px);
     display: flex;
@@ -448,6 +537,56 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
   <div class="rule"></div>
 
   <section class="section-head">
+    <span class="tag">Veja o acompanhamento</span>
+    <h2>Você informa. O Panzeri Run aprende o seu contexto.</h2>
+  </section>
+  <div class="product-demo">
+    <article class="demo-card">
+      <video controls muted playsinline preload="metadata" aria-label="Demonstração da tela de treinos do Panzeri Run">
+        <source src="/media/tela-treinos.mp4" type="video/mp4" />
+      </video>
+      <div class="demo-copy">
+        <span class="step">01 · Treino do dia</span>
+        <h3>Orientação clara</h3>
+        <p>Você abre o app e encontra o treino prescrito para o seu momento, com objetivo e execução organizados.</p>
+      </div>
+    </article>
+    <article class="demo-card">
+      <video controls muted playsinline preload="metadata" aria-label="Demonstração da tela de evolução e rotina do Panzeri Run">
+        <source src="/media/evolucao-rotina.mp4" type="video/mp4" />
+      </video>
+      <div class="demo-copy">
+        <span class="step">02 · Evolução e rotina</span>
+        <h3>Histórico que continua</h3>
+        <p>Treinos, respostas e evolução permanecem ligados. A próxima decisão não começa do zero nem depende de você recontar tudo.</p>
+      </div>
+    </article>
+    <article class="demo-card">
+      <video controls muted playsinline preload="metadata" aria-label="Demonstração da tela de relato de dor do Panzeri Run">
+        <source src="/media/relatar-dor.mp4" type="video/mp4" />
+      </video>
+      <div class="demo-copy">
+        <span class="step">03 · Relato de dor</span>
+        <h3>O corpo também responde</h3>
+        <p>Você registra dor, dificuldade e sensação do treino. Esses sinais entram no contexto antes da próxima prescrição.</p>
+      </div>
+    </article>
+  </div>
+
+  <section class="memory-panel">
+    <span class="tag">Não é um chat aleatório</span>
+    <h2>Memória contínua, contexto real e método.</h2>
+    <p>Em uma conversa isolada com uma IA, a qualidade da resposta depende do que você consegue explicar naquele momento. No Panzeri Run, cada registro passa a fazer parte do seu histórico de treino. Os agentes cruzam esse conjunto de informações usando a metodologia desenvolvida por Elton Panzeri para orientar a próxima decisão.</p>
+    <div class="memory-grid">
+      <div class="memory-item"><strong>O que você fez</strong><span>Treinos prescritos, realizados e adaptações ficam conectados ao longo das semanas.</span></div>
+      <div class="memory-item"><strong>Como você respondeu</strong><span>Dor, esforço, sono, cansaço, rotina e percepção ajudam a interpretar o resultado.</span></div>
+      <div class="memory-item"><strong>O que vem depois</strong><span>O sistema cruza o histórico e aplica os critérios do método para ajustar a continuidade.</span></div>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <section class="section-head">
     <span class="tag">Por que é diferente</span>
     <h2>Não existe treino genérico aqui.</h2>
   </section>
@@ -494,7 +633,7 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
     </details>
     <details>
       <summary>Isso substitui ter um treinador de verdade?</summary>
-      <p>É a metodologia desenvolvida por Elton Panzeri, transformada em uma prescrição inteligente para cada corredor.</p>
+      <p>O Panzeri Run transforma a metodologia desenvolvida por Elton Panzeri em uma prescrição inteligente e contínua. Ele consegue organizar e cruzar muitos registros do seu histórico sem depender apenas da memória de uma conversa. Ainda assim, nenhum aplicativo substitui avaliação médica ou atendimento presencial quando eles são necessários.</p>
     </details>
     <details>
       <summary>E se eu não conseguir seguir o treino numa semana?</summary>
@@ -530,8 +669,8 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
 <footer>
   <p class="fine">Panzeri Run · treinador Elton Panzeri</p>
   <div class="links">
-    <a href="https://panzerirun.eltonpanzeripersonal.com.br/termos-de-uso">Termos de uso</a>
-    <a href="https://panzerirun.eltonpanzeripersonal.com.br/politica-privacidade">Privacidade</a>
+    <a href="/termos-de-uso">Termos de uso</a>
+    <a href="/politica-privacidade">Privacidade</a>
   </div>
 </footer>
 </body>

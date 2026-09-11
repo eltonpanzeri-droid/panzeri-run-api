@@ -29,6 +29,7 @@ RUN pnpm db:generate
 
 COPY apps/api/tsconfig.json apps/api/tsconfig.build.json apps/api/nest-cli.json ./
 COPY apps/api/src ./src
+COPY apps/api/public ./public
 RUN pnpm build
 
 EXPOSE 3333
