@@ -2816,7 +2816,7 @@ function StudentPanel({
 
           <EvoSection icon="⭐" title="Experiência com o treino" badge={feedbackSessions > 0 ? `${feedbackSessions} respostas` : undefined}
             desc="Quatro dimensões: elaboração (como o treino foi montado), execução (como o aluno conseguiu fazer), sensação corporal e humor final (1–5). Zona verde = ótimo, amarela = ok, vermelha = atenção. Ver distribuição expande detalhes.">
-            <ExperienciaTreinoSection history={hist} period={evolPeriod} />
+            <ExperienciaTreinoSection history={hist} period={evolPeriod} onDayClick={handleCalendarDayClick} />
           </EvoSection>
 
           <EvoSection icon="🔁" title="Arco do treino (pré → pós)"
@@ -5242,10 +5242,12 @@ const EXP_SERIES: Array<{ key: ExpSeries; label: string; color: string }> = [
 ];
 const SAT_TO_5: Record<string, number> = { amei: 5, gostei: 4, neutro: 3, nao_gostei: 2, detestei: 1 };
 
-function ExperienciaTreinoSection({ history }: { history: StudentDetail['history']; period?: number }) {
+function ExperienciaTreinoSection({ history, onDayClick }: { history: StudentDetail['history']; period?: number; onDayClick?: (planId: string) => void }) {
   const [active, setActive] = useState<Set<ExpSeries>>(new Set(['elaboracao', 'execucao', 'sensacao', 'humor']));
   const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('sessao');
   const [showDist, setShowDist] = useState(false);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; idx: number } | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
 
   const allSessions = flatFeedbackSessions(history)
     .filter((s) => s.satisfactionElaboracao != null || s.satisfactionCapacidade != null || s.postWorkoutFeeling != null || s.postWorkoutMood != null)
@@ -5327,36 +5329,81 @@ function ExperienciaTreinoSection({ history }: { history: StudentDetail['history
           ))}
         </span>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
-        {/* Bandas de zona: verde 3.5-5, amarelo 2-3.5, vermelho 1-2 */}
-        <rect x={PL} y={yScale(5)} width={gW} height={yScale(3.5) - yScale(5)} fill="#22c55e18" />
-        <rect x={PL} y={yScale(3.5)} width={gW} height={yScale(2) - yScale(3.5)} fill="#f59e0b14" />
-        <rect x={PL} y={yScale(2)} width={gW} height={PT + gH - yScale(2)} fill="#ef444418" />
-        {[1,2,3,4,5].map((v) => { const y = yScale(v); return (
-          <g key={v}>
-            <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="var(--line)" strokeWidth={v === 3 ? 1 : 0.4} strokeDasharray={v === 3 ? '3,3' : undefined} />
-            <text x={PL-4} y={y+4} fontSize={8} fill="var(--muted)" textAnchor="end">{v}</text>
-          </g>
-        ); })}
-        {EXP_SERIES.filter(({ key: k }) => active.has(k)).map(({ key: k, color }) => {
-          const vals = points.map((p, i) => ({ x: PL + i * xStep, y: p[k] != null ? yScale(p[k]!) : null }));
-          const segments: string[] = []; let seg = '';
-          for (const { x, y } of vals) {
-            if (y == null) { if (seg) segments.push(seg); seg = ''; }
-            else seg += seg ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
-          }
-          if (seg) segments.push(seg);
+      <div ref={wrapRef} style={{ position: 'relative' }}>
+        {/* Tooltip HTML sobre o SVG */}
+        {tooltip != null && aggBy === 'sessao' && (() => {
+          const s = allSessions[tooltip.idx];
+          if (!s) return null;
+          const vals: string[] = [];
+          if (s.satisfactionElaboracao) vals.push(`Elaboração: ${SAT_LABEL[s.satisfactionElaboracao] ?? s.satisfactionElaboracao}`);
+          if (s.satisfactionCapacidade) vals.push(`Execução: ${SAT_LABEL[s.satisfactionCapacidade] ?? s.satisfactionCapacidade}`);
+          if (s.postWorkoutFeeling != null) vals.push(`Sensação: ${s.postWorkoutFeeling}/5`);
+          if (s.postWorkoutMood != null) vals.push(`Humor: ${s.postWorkoutMood}/5`);
           return (
-            <g key={k}>
-              {segments.map((d, i) => <path key={i} d={d} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeOpacity={0.85} />)}
-              {vals.map((pt, i) => pt.y != null ? <circle key={i} cx={pt.x} cy={pt.y} r={2.5} fill={color} /> : null)}
-            </g>
+            <div style={{
+              position: 'absolute', left: tooltip.x, top: tooltip.y,
+              transform: 'translate(-50%, -110%)',
+              background: 'var(--surface)', border: '1px solid var(--line)',
+              borderRadius: 8, padding: '8px 10px', fontSize: 11, zIndex: 50,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: 180, pointerEvents: 'none',
+            }}>
+              <p style={{ fontWeight: 700, marginBottom: 4, color: 'var(--text)' }}>{s.date.slice(5).replace('-', '/')} · {s.title || s.modality}</p>
+              {vals.map((v, i) => <p key={i} style={{ color: 'var(--muted)', marginBottom: 2 }}>{v}</p>)}
+              {onDayClick && <p style={{ color: 'var(--accent)', marginTop: 4, fontWeight: 600 }}>Clique para ver o treino →</p>}
+            </div>
           );
-        })}
-        {xLabels.map(({ i, label }) => (
-          <text key={i} x={PL + i * xStep} y={H-4} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
-        ))}
-      </svg>
+        })()}
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', overflow: 'visible', cursor: aggBy === 'sessao' && onDayClick ? 'default' : undefined }}>
+          {/* Bandas de zona: verde 3.5-5, amarelo 2-3.5, vermelho 1-2 */}
+          <rect x={PL} y={yScale(5)} width={gW} height={yScale(3.5) - yScale(5)} fill="#22c55e18" />
+          <rect x={PL} y={yScale(3.5)} width={gW} height={yScale(2) - yScale(3.5)} fill="#f59e0b14" />
+          <rect x={PL} y={yScale(2)} width={gW} height={PT + gH - yScale(2)} fill="#ef444418" />
+          {[1,2,3,4,5].map((v) => { const y = yScale(v); return (
+            <g key={v}>
+              <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="var(--line)" strokeWidth={v === 3 ? 1 : 0.4} strokeDasharray={v === 3 ? '3,3' : undefined} />
+              <text x={PL-4} y={y+4} fontSize={8} fill="var(--muted)" textAnchor="end">{v}</text>
+            </g>
+          ); })}
+          {EXP_SERIES.filter(({ key: k }) => active.has(k)).map(({ key: k, color }) => {
+            const vals = points.map((p, i) => ({ x: PL + i * xStep, y: p[k] != null ? yScale(p[k]!) : null }));
+            const segments: string[] = []; let seg = '';
+            for (const { x, y } of vals) {
+              if (y == null) { if (seg) segments.push(seg); seg = ''; }
+              else seg += seg ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
+            }
+            if (seg) segments.push(seg);
+            return (
+              <g key={k}>
+                {segments.map((d, i) => <path key={i} d={d} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeOpacity={0.85} />)}
+                {vals.map((pt, i) => pt.y != null ? <circle key={i} cx={pt.x} cy={pt.y} r={2.5} fill={color} /> : null)}
+              </g>
+            );
+          })}
+          {/* Áreas clicáveis invisíveis por ponto (Por sessão): cobrem todas as séries de uma vez */}
+          {aggBy === 'sessao' && points.map((_, i) => {
+            const cx = PL + i * xStep;
+            return (
+              <rect key={i} x={cx - 10} y={PT} width={20} height={gH}
+                fill="transparent"
+                style={{ cursor: onDayClick ? 'pointer' : 'default' }}
+                onMouseEnter={() => {
+                  if (!wrapRef.current) return;
+                  const svgEl = wrapRef.current.querySelector('svg')!;
+                  const svgRect = svgEl.getBoundingClientRect();
+                  const wrapRect = wrapRef.current.getBoundingClientRect();
+                  const scaleX = svgRect.width / W;
+                  setTooltip({ x: cx * scaleX + (svgRect.left - wrapRect.left), y: PT * scaleX + (svgRect.top - wrapRect.top), idx: i });
+                }}
+                onMouseLeave={() => setTooltip(null)}
+                onClick={() => { if (onDayClick && allSessions[i]) onDayClick(allSessions[i].planId); }}
+              />
+            );
+          })}
+          {xLabels.map(({ i, label }) => (
+            <text key={i} x={PL + i * xStep} y={H-4} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
+          ))}
+        </svg>
+      </div>
       <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
         Elaboração e Execução: amei(5)→detestei(1). Sensação corporal e Humor: escala 1–5 direta (a partir de 11/09/2026).
       </p>
@@ -6323,7 +6370,7 @@ const SAT_EMOJI: Record<string, string> = { amei: '😍', gostei: '😊', ok: '�
 /** Flatten de sessões com feedback de um histórico. */
 function flatFeedbackSessions(history: StudentDetail['history']) {
   const out: Array<{
-    id: string; date: string; weekStart: string; modality: string; title: string;
+    id: string; planId: string; date: string; weekStart: string; modality: string; title: string;
     durationMin: number | null; distanceKm: number | null;
     completionStatus: string;
     completedDurationMin: number | null; completedDistanceKm: number | null;
@@ -6343,6 +6390,7 @@ function flatFeedbackSessions(history: StudentDetail['history']) {
     for (const session of (plan.sessions ?? [])) {
       out.push({
         id: session.id,
+        planId: plan.id,
         date: String(session.date).slice(0, 10),
         weekStart: String(plan.startDate).slice(0, 10),
         modality: session.modality ?? '',
