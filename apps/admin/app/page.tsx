@@ -2820,8 +2820,8 @@ function StudentPanel({
           </EvoSection>
 
           <EvoSection icon="🔁" title="Arco do treino (pré → pós)"
-            badge={(() => { const n = flatFeedbackSessions(hist).filter((s) => (s.completionStatus === 'done' || s.completionStatus === 'adjusted') && (s.preSleepQuality != null || s.preMotivation != null) && (s.postWorkoutFeeling != null || s.postWorkoutMood != null)).length; return n > 0 ? `${n} sessões` : undefined; })()}
-            desc="Como o aluno chegou (prontidão) vs como saiu (sensação física + humor). Delta verde = treino energizou; vermelho = treinou em déficit. Série de deltas negativos por 3+ semanas = sinal de overtraining.">
+            badge={(() => { const n = flatFeedbackSessions(hist).filter((s) => (s.completionStatus === 'done' || s.completionStatus === 'adjusted') && (s.preSleepQuality != null || s.preMotivation != null) && (s.postWorkoutFeeling != null || s.postWorkoutMood != null || s.satisfactionCapacidade != null)).length; return n > 0 ? `${n} sessões` : undefined; })()}
+            desc="Como o aluno chegou (prontidão) vs como saiu (sensação + humor + execução). RPE alto com satisfação boa = sofrimento bom 💪. Dor aplica penalidade no delta. Série de deltas negativos por 3+ semanas = sinal de overtraining.">
             <ArcoTreinoSection history={hist} />
           </EvoSection>
 
@@ -5444,6 +5444,31 @@ function ExperienciaTreinoSection({ history, onDayClick }: { history: StudentDet
 
 // ── ARCO DO TREINO ────────────────────────────────────────────────────────
 // Compara "como chegou" (prontidão pré-treino) vs "como saiu" (sensação+humor pós-treino).
+// ── HELPERS PARA ARCO DO TREINO ───────────────────────────────────────────
+/** satisfactionCapacidade (string categórica) → escala 1-5 */
+function satCapScore(v: string | null | undefined): number | null {
+  if (!v) return null;
+  const m: Record<string, number> = { amei: 5, gostei: 4, ok: 3, neutro: 3, nao_gostei: 2, detestei: 1 };
+  return m[v] ?? null;
+}
+/** Penalidade de dor sobre o delta final: none/null = neutro (não penaliza) */
+function painPenalty(flag: string | null | undefined): number {
+  if (!flag || flag === 'none') return 0;
+  if (flag === 'leve') return -0.5;
+  if (flag === 'moderado') return -1.0;
+  return -2.0; // forte
+}
+/** RPE (1–10) + satisfação de execução → contexto do esforço percebido */
+function rpeContext(rpe: number | null | undefined, satCap: string | null | undefined): 'bom' | 'ruim' | 'ambiguo' | 'leve' | null {
+  if (rpe == null) return null;
+  if (rpe >= 7) {
+    if (satCap === 'amei' || satCap === 'gostei') return 'bom';        // sofrimento bom 💪
+    if (satCap === 'nao_gostei' || satCap === 'detestei') return 'ruim'; // sofrimento ruim
+    return 'ambiguo'; // RPE alto, satisfação desconhecida/neutra
+  }
+  return 'leve';
+}
+
 // Delta verde = treino energizou ou manteve o estado. Delta vermelho = treino drenou.
 // Série de deltas negativos = sinal de overtraining ou acúmulo de fadiga.
 function ArcoTreinoSection({ history }: { history: StudentDetail['history'] }) {
@@ -5451,7 +5476,7 @@ function ArcoTreinoSection({ history }: { history: StudentDetail['history'] }) {
     .filter((s) => (s.completionStatus === 'done' || s.completionStatus === 'adjusted'))
     .filter((s) => {
       const hasPre = s.preSleepQuality != null || s.prePhysicalFatigue != null || s.preStressLevel != null || s.preMotivation != null;
-      const hasPost = s.postWorkoutFeeling != null || s.postWorkoutMood != null;
+      const hasPost = s.postWorkoutFeeling != null || s.postWorkoutMood != null || s.satisfactionCapacidade != null;
       return hasPre && hasPost;
     })
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -5459,13 +5484,25 @@ function ArcoTreinoSection({ history }: { history: StudentDetail['history'] }) {
   if (sessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Dados insuficientes — é necessário ter pelo menos uma sessão com campos pré E pós preenchidos (a partir de 11/09/2026).</p>;
 
   // Pré: índice de prontidão (1-5)
-  // Pós: média(sensação corporal, humor) — apenas os disponíveis
+  // Pós: média(sensação corporal, humor, execução) ajustada por penalidade de dor
   const points = sessions.map((s, i) => {
     const pre = computeReadiness(s) ?? 0;
-    const postVals = [s.postWorkoutFeeling, s.postWorkoutMood].filter((v): v is number => v != null);
-    const post = postVals.length > 0 ? postVals.reduce((a, b) => a + b, 0) / postVals.length : null;
+    const satScore = satCapScore(s.satisfactionCapacidade);
+    const postVals = [s.postWorkoutFeeling, s.postWorkoutMood, satScore].filter((v): v is number => v != null);
+    const postRaw = postVals.length > 0 ? postVals.reduce((a, b) => a + b, 0) / postVals.length : null;
+    // Penalidade de dor — none/null é neutro
+    const penalty = painPenalty(s.painFlag);
+    const post = postRaw != null ? Math.max(1, Math.min(5, postRaw + penalty)) : null;
     const delta = post != null ? post - pre : null;
-    return { i, label: s.date.slice(5).replace('-', '/'), pre, post, delta };
+    const rpeCtx = rpeContext(s.perceivedEffort, s.satisfactionCapacidade);
+    return {
+      i, label: s.date.slice(5).replace('-', '/'),
+      pre, post, delta,
+      rpe: s.perceivedEffort,
+      rpeCtx,
+      hasPain: !!(s.painFlag && s.painFlag !== 'none'),
+      penalty,
+    };
   });
 
   const W = 560; const H = 160; const PL = 32; const PR = 8; const PT = 12; const PB = 28;
@@ -5474,7 +5511,7 @@ function ArcoTreinoSection({ history }: { history: StudentDetail['history'] }) {
   const xStep = n > 1 ? gW / (n - 1) : gW;
   const yScale5 = (v: number) => PT + gH - ((v - 1) / 4) * gH;
 
-  // Delta chart: barra por sessão, altura proporcional ao delta (-4 a +4)
+  // Delta chart
   const DH = 48; const midY = 12 + DH / 2;
   const barH = (d: number) => Math.abs(d) / 4 * (DH / 2);
   const barY = (d: number) => d >= 0 ? midY - barH(d) : midY;
@@ -5483,6 +5520,11 @@ function ArcoTreinoSection({ history }: { history: StudentDetail['history'] }) {
     : [0, Math.floor(n/4), Math.floor(n/2), Math.floor(3*n/4), n-1].map((i) => ({ i, label: points[i].label }));
 
   const barW = Math.max(2, Math.min(12, gW / n - 2));
+
+  const RPE_H = 36;
+  const RPE_COLOR: Record<string, string> = { bom: '#22c55e', ruim: '#ef4444', ambiguo: '#f59e0b', leve: '#94a3b8' };
+
+  const hasRpe = points.some((p) => p.rpe != null);
 
   return (
     <div>
@@ -5493,6 +5535,7 @@ function ArcoTreinoSection({ history }: { history: StudentDetail['history'] }) {
         const avg = withDelta.reduce((a, p) => a + p.delta!, 0) / withDelta.length;
         const pos = withDelta.filter((p) => p.delta! > 0.2).length;
         const neg = withDelta.filter((p) => p.delta! < -0.2).length;
+        const softBom = points.filter((p) => p.rpeCtx === 'bom').length;
         return (
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
             <div style={{ textAlign: 'center' }}>
@@ -5507,6 +5550,12 @@ function ArcoTreinoSection({ history }: { history: StudentDetail['history'] }) {
               <div style={{ fontSize: 20, fontWeight: 800, color: '#ef4444' }}>{neg}</div>
               <div style={{ fontSize: 10, color: 'var(--muted)' }}>treinos que drenaram</div>
             </div>
+            {softBom > 0 && (
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: '#22c55e' }}>{softBom}</div>
+                <div style={{ fontSize: 10, color: 'var(--muted)' }}>sofrimento bom 💪</div>
+              </div>
+            )}
           </div>
         );
       })()}
@@ -5535,7 +5584,7 @@ function ArcoTreinoSection({ history }: { history: StudentDetail['history'] }) {
           if (seg) segs.push(seg);
           return segs.map((d, i) => <path key={i} d={d} fill="none" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4,3" strokeLinejoin="round" />);
         })()}
-        {/* Linha pós (sensação) — sólida azul */}
+        {/* Linha pós (sensação + humor + execução) — sólida azul */}
         {(() => {
           const segs: string[] = []; let seg = '';
           for (const p of points) {
@@ -5546,7 +5595,11 @@ function ArcoTreinoSection({ history }: { history: StudentDetail['history'] }) {
           if (seg) segs.push(seg);
           return (<g>
             {segs.map((d, i) => <path key={i} d={d} fill="none" stroke="#0ea5e9" strokeWidth={2} strokeLinejoin="round" />)}
-            {points.map((p) => p.post != null ? <circle key={p.i} cx={PL + p.i * xStep} cy={yScale5(p.post)} r={3} fill="#0ea5e9" /> : null)}
+            {points.map((p) => p.post != null ? (
+              <circle key={p.i} cx={PL + p.i * xStep} cy={yScale5(p.post)} r={3}
+                fill={p.hasPain ? '#f59e0b' : '#0ea5e9'}
+                stroke={p.hasPain ? '#0ea5e9' : 'none'} strokeWidth={1.5} />
+            ) : null)}
           </g>);
         })()}
         {/* Círculos pré */}
@@ -5560,32 +5613,75 @@ function ArcoTreinoSection({ history }: { history: StudentDetail['history'] }) {
       {/* Gráfico de delta (barras) */}
       <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 12, marginBottom: 2 }}>Delta pós−pré por sessão</p>
       <svg viewBox={`0 0 ${W} ${DH + 24}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
-        {/* Linha zero */}
         <line x1={PL} y1={midY} x2={W-PR} y2={midY} stroke="var(--line)" strokeWidth={1} />
         <text x={PL-4} y={midY+4} fontSize={7} fill="var(--muted)" textAnchor="end">0</text>
-        {/* Barras */}
         {points.map((p) => {
           if (p.delta == null) return null;
           const color = p.delta > 0.2 ? '#22c55e' : p.delta < -0.2 ? '#ef4444' : '#94a3b8';
           const bh = barH(p.delta);
           const by = barY(p.delta);
           const x = PL + p.i * xStep - barW / 2;
-          return <rect key={p.i} x={x} y={by} width={barW} height={Math.max(1, bh)} fill={color} fillOpacity={0.8} rx={1} />;
+          return (
+            <g key={p.i}>
+              <rect x={x} y={by} width={barW} height={Math.max(1, bh)} fill={color} fillOpacity={0.8} rx={1} />
+              {/* Marcador laranja quando há penalidade de dor */}
+              {p.hasPain && (
+                <text x={PL + p.i * xStep} y={p.delta >= 0 ? by - 2 : by + bh + 8} fontSize={7} textAnchor="middle" fill="#f59e0b">▲</text>
+              )}
+            </g>
+          );
         })}
-        {/* Labels eixo X */}
         {xLabels.map(({ i, label }) => (
           <text key={i} x={PL + i * xStep} y={DH + 20} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
         ))}
       </svg>
 
+      {/* Faixa de RPE — sofrimento bom vs ruim */}
+      {hasRpe && (
+        <>
+          <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 10, marginBottom: 2 }}>Esforço percebido — RPE (1–10)</p>
+          <svg viewBox={`0 0 ${W} ${RPE_H + 20}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
+            <line x1={PL} y1={RPE_H / 2 + 4} x2={W-PR} y2={RPE_H / 2 + 4} stroke="var(--line)" strokeWidth={0.5} strokeDasharray="3,3" />
+            <text x={PL-4} y={8} fontSize={7} fill="var(--muted)" textAnchor="end">10</text>
+            <text x={PL-4} y={RPE_H + 4} fontSize={7} fill="var(--muted)" textAnchor="end">1</text>
+            {points.map((p) => {
+              if (p.rpe == null) return null;
+              const cx = PL + p.i * xStep;
+              const cy = 4 + RPE_H - ((p.rpe - 1) / 9) * RPE_H;
+              const r = 3 + (p.rpe / 10) * 5; // raio escala com RPE
+              const color = p.rpeCtx ? RPE_COLOR[p.rpeCtx] : '#94a3b8';
+              return (
+                <g key={p.i}>
+                  <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={0.75} />
+                  <text x={cx} y={cy + 3.5} fontSize={6} textAnchor="middle" fill="white" fontWeight="bold">{p.rpe}</text>
+                </g>
+              );
+            })}
+            {xLabels.map(({ i, label }) => (
+              <text key={i} x={PL + i * xStep} y={RPE_H + 20} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
+            ))}
+          </svg>
+        </>
+      )}
+
       {/* Legenda */}
-      <div style={{ display: 'flex', gap: 16, marginTop: 6, flexWrap: 'wrap', fontSize: 11, color: 'var(--muted)' }}>
-        <span><span style={{ display: 'inline-block', width: 20, height: 2, background: '#94a3b8', verticalAlign: 'middle', marginRight: 4 }} />Prontidão pré-treino</span>
-        <span><span style={{ display: 'inline-block', width: 20, height: 2, background: '#0ea5e9', verticalAlign: 'middle', marginRight: 4 }} />Sensação pós-treino</span>
+      <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap', fontSize: 11, color: 'var(--muted)' }}>
+        <span><span style={{ display: 'inline-block', width: 20, height: 2, background: '#94a3b8', verticalAlign: 'middle', marginRight: 4 }} />Prontidão pré</span>
+        <span><span style={{ display: 'inline-block', width: 20, height: 2, background: '#0ea5e9', verticalAlign: 'middle', marginRight: 4 }} />Sensação pós (sensação + humor + execução)</span>
+        <span><span style={{ color: '#f59e0b', marginRight: 2 }}>●</span>Pós c/ dor (penalidade no delta)</span>
         <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#22c55e', borderRadius: 1, verticalAlign: 'middle', marginRight: 4 }} />Energizou</span>
         <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#ef4444', borderRadius: 1, verticalAlign: 'middle', marginRight: 4 }} />Drenou</span>
+        <span><span style={{ color: '#f59e0b', marginRight: 2 }}>▲</span>Dor (delta ajustado)</span>
       </div>
-      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Série de deltas negativos por 3+ semanas = sinal de overtraining ou acúmulo de fadiga.</p>
+      {hasRpe && (
+        <div style={{ display: 'flex', gap: 12, marginTop: 4, flexWrap: 'wrap', fontSize: 11, color: 'var(--muted)' }}>
+          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#22c55e', verticalAlign: 'middle', marginRight: 4 }} />RPE alto + gostou (sofrimento bom 💪)</span>
+          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#ef4444', verticalAlign: 'middle', marginRight: 4 }} />RPE alto + não gostou</span>
+          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#f59e0b', verticalAlign: 'middle', marginRight: 4 }} />RPE alto (execução não informada)</span>
+          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#94a3b8', verticalAlign: 'middle', marginRight: 4 }} />RPE leve (&lt;7)</span>
+        </div>
+      )}
+      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Pós = média(sensação, humor, execução) com penalidade de dor (leve −0,5 / moderado −1,0 / forte −2,0). RPE alto + verde = sofrimento bom. Série de deltas negativos por 3+ semanas = sinal de overtraining.</p>
     </div>
   );
 }
