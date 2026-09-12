@@ -5234,11 +5234,14 @@ function PreWorkoutStateSection({ history }: { history: StudentDetail['history']
 
 // ── EXPERIÊNCIA COM O TREINO ───────────────────────────────────────────────
 type ExpSeries = 'elaboracao' | 'execucao' | 'sensacao' | 'humor';
-const EXP_SERIES: Array<{ key: ExpSeries; label: string; color: string }> = [
-  { key: 'elaboracao', label: 'Elaboração',   color: '#818cf8' },
-  { key: 'execucao',   label: 'Execução',     color: '#34d399' },
-  { key: 'sensacao',   label: 'Sensação corporal', color: '#f472b6' },
-  { key: 'humor',      label: 'Humor final',  color: '#fb923c' },
+// yOffset: deslocamento vertical fixo em unidades SVG para separar visualmente linhas com o mesmo valor.
+// Escala: 140 unidades SVG = 4 degraus (1-5), portanto 1 degrau ≈ 35u. Um offset de ±3u ≈ 8,5% de um degrau —
+// visualmente separável mas sem distorcer a leitura dos dados.
+const EXP_SERIES: Array<{ key: ExpSeries; label: string; color: string; yOffset: number; dash?: string }> = [
+  { key: 'elaboracao', label: 'Elaboração',        color: '#818cf8', yOffset: -3 },
+  { key: 'execucao',   label: 'Execução',           color: '#34d399', yOffset: -1, dash: '6,3' },
+  { key: 'sensacao',   label: 'Sensação corporal',  color: '#f472b6', yOffset: +1, dash: '2,4' },
+  { key: 'humor',      label: 'Humor final',        color: '#fb923c', yOffset: +3, dash: '9,3' },
 ];
 const SAT_TO_5: Record<string, number> = { amei: 5, gostei: 4, neutro: 3, nao_gostei: 2, detestei: 1 };
 
@@ -5364,8 +5367,9 @@ function ExperienciaTreinoSection({ history, onDayClick }: { history: StudentDet
               <text x={PL-4} y={y+4} fontSize={8} fill="var(--muted)" textAnchor="end">{v}</text>
             </g>
           ); })}
-          {EXP_SERIES.filter(({ key: k }) => active.has(k)).map(({ key: k, color }) => {
-            const vals = points.map((p, i) => ({ x: PL + i * xStep, y: p[k] != null ? yScale(p[k]!) : null }));
+          {EXP_SERIES.filter(({ key: k }) => active.has(k)).map(({ key: k, color, yOffset, dash }) => {
+            // Aplica offset vertical por série para separar visualmente linhas com o mesmo valor
+            const vals = points.map((p, i) => ({ x: PL + i * xStep, y: p[k] != null ? yScale(p[k]!) + yOffset : null }));
             const segments: string[] = []; let seg = '';
             for (const { x, y } of vals) {
               if (y == null) { if (seg) segments.push(seg); seg = ''; }
@@ -5374,7 +5378,7 @@ function ExperienciaTreinoSection({ history, onDayClick }: { history: StudentDet
             if (seg) segments.push(seg);
             return (
               <g key={k}>
-                {segments.map((d, i) => <path key={i} d={d} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeOpacity={0.85} />)}
+                {segments.map((d, i) => <path key={i} d={d} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeOpacity={0.9} strokeDasharray={dash} />)}
                 {vals.map((pt, i) => pt.y != null ? <circle key={i} cx={pt.x} cy={pt.y} r={2.5} fill={color} /> : null)}
               </g>
             );
