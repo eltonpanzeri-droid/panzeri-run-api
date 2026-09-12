@@ -3200,7 +3200,14 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
   const [completionDrafts, setCompletionDrafts] = useState<Record<string, CompletionDraft>>({});
   const [completionMessages, setCompletionMessages] = useState<Record<string, string>>({});
   const [status, setStatus] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  // Bug real corrigido 12/09 (Juliana, Lucelane): isLoading começa true para que a primeira
+  // renderização não caia no bloco de pagamento (plan=null, notGeneratedRange=null, isLoading=false
+  // era a condição perfeita para mostrar "Seu acesso está quase pronto" antes mesmo da API responder).
+  const [isLoading, setIsLoading] = useState(true);
+  // planLoadError: true quando a chamada de API falhou (rede ou erro de servidor). Separa o estado
+  // "não sei se tem acesso" (erro) do estado "sei que não tem acesso" (sem assinatura). Sem isso,
+  // qualquer falha de rede mostrava a tela de pagamento mesmo pra alunos com cortesia (manual_active).
+  const [planLoadError, setPlanLoadError] = useState(false);
   // 31/08: check-in obrigatorio antes de gerar (pedido do treinador) — null = tela nao aberta;
   // 'confirm' = mostrando o resumo previsto/diferente/sem-registro + Sim/Nao; 'questions' = as 3
   // perguntas em escala, so' depois do "Sim".
@@ -3236,6 +3243,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
   async function loadWeekForOffset(offset: number) {
     setIsLoading(true);
     setStatus('');
+    setPlanLoadError(false);
     setNotGeneratedRange(null);
     try {
       // Bug real corrigido 16/08 (aluna Vanessa): esse +1 deslocava TODO offset (inclusive
@@ -3252,6 +3260,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
 
       if (!response.ok) {
         setStatus('Nao consegui carregar essa semana.');
+        setPlanLoadError(true);
         return;
       }
 
@@ -3269,6 +3278,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       );
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
+      setPlanLoadError(true);
     } finally {
       setIsLoading(false);
     }
@@ -3326,6 +3336,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
   async function loadPlan() {
     setIsLoading(true);
     setStatus('');
+    setPlanLoadError(false);
     setNotGeneratedRange(null);
     try {
       const response = await fetch(`${API_URL}/training-plans/current`, {
@@ -3336,6 +3347,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
 
       if (!response.ok) {
         setStatus('Nao consegui carregar a semana.');
+        setPlanLoadError(true);
         return;
       }
 
@@ -3366,6 +3378,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       );
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
+      setPlanLoadError(true);
     } finally {
       setIsLoading(false);
     }
@@ -3883,14 +3896,15 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
     </View>
   );
 
-  // A compra precisa estar disponível mesmo quando a semana ainda nao foi criada.
-  // Isso evita deixar novos alunos presos em uma tela vazia sem caminho de assinatura.
-  // IMPORTANTE (bug real corrigido 08/08): "!plan" sozinho NAO significa "nao pagou" — desde a
-  // geracao sob demanda, fica sem programa ativo por dias e normal pra quem ja pagou e tem
-  // historico (so nao tocou "Gerar treino da semana" ainda). Sem o "!hasSubscriptionAccess"
-  // abaixo, esse bloco vencia sempre e mostrava "ative seu plano" ate pra quem ja tinha pago —
-  // aconteceu de verdade com a aluna Carina, que tinha pago e respondido tudo.
-  if (!plan && (!notGeneratedRange || !notGeneratedRange.hasSubscriptionAccess)) {
+  // Bug real corrigido 12/09 (Juliana, Lucelane): "!plan && !notGeneratedRange" tambem e verdadeiro
+  // durante o carregamento inicial e apos falha de API — sem as guards abaixo, qualquer dessas
+  // situacoes mostrava "Seu acesso esta quase pronto" para alunos com status manual_active (cortesia).
+  // Tres protecoes em camadas:
+  //   1. isLoading=true inicialmente (via useState(true)) evita o flash na primeira renderizacao
+  //   2. !isLoading na condicao bloqueia o bloco enquanto qualquer carga esta em andamento
+  //   3. !planLoadError impede que falha de rede/servidor acione a tela de pagamento
+  // A compra so aparece quando sabemos com certeza (via resposta da API) que o acesso nao foi liberado.
+  if (!isLoading && !planLoadError && !plan && (!notGeneratedRange || !notGeneratedRange.hasSubscriptionAccess)) {
     return (
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Treino da semana</Text>
@@ -3903,6 +3917,37 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
         </View>
         {subscriptionOffer}
         {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+      </View>
+    );
+  }
+
+  // Estado de carregamento inicial: ainda nao recebemos resposta da API (plan e notGeneratedRange
+  // ainda sao null). Isso cobre o tempo entre montar o componente e a API responder.
+  if (isLoading && !plan && !notGeneratedRange) {
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Treino da semana</Text>
+        <View style={styles.coachBox}>
+          <ActivityIndicator size="large" color={PRColors.limestone} style={{ marginBottom: 16 }} />
+          <Text style={styles.coachTitle}>Carregando seus treinos...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Estado de erro: a API respondeu com erro ou a conexao caiu. Nao sabemos o status de acesso,
+  // entao NAO mostramos a tela de pagamento — exibimos o erro e um botao de tentar novamente.
+  if (planLoadError && !plan && !notGeneratedRange) {
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Treino da semana</Text>
+        <View style={styles.coachBox}>
+          <Text style={styles.coachTitle}>Nao consegui carregar</Text>
+          <Text style={styles.coachText}>{status || 'Verifique sua conexao e tente novamente.'}</Text>
+          <Pressable style={styles.primaryButton} onPress={() => weekOffset === 0 ? loadPlan() : loadWeekForOffset(weekOffset)}>
+            <Text style={styles.primaryButtonText}>Tentar novamente</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
