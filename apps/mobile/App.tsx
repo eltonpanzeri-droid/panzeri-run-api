@@ -8054,8 +8054,20 @@ function DurationWheelField({ value, onChangeValue }: { value: string; onChangeV
   );
 }
 
-// Converte string de km para km inteiros e metros (usado para as rodas de distancia).
-// Resolucao: 100 m (0.1 km) — coluna km e coluna decimal (0-9, cada = 0.1 km).
+// Converte string de km para componentes inteiros (km, decimos, centesimos).
+// Resolucao: 10 m (0.01 km) — 3 colunas: km | 0.X | 0.0X.
+// Ex: "30.02" → { km:30, tenths:0, hundredths:2 }
+function distanceKmToComponents(val: string): { km: number; tenths: number; hundredths: number } {
+  const total = Math.max(0, Math.round((Number(val) || 0) * 100)); // unidades de 0.01 km
+  const km = Math.floor(total / 100);
+  const rem = total % 100;
+  return { km, tenths: Math.floor(rem / 10), hundredths: rem % 10 };
+}
+function componentsToDistanceKm(km: number, tenths: number, hundredths: number): string {
+  const total = km * 100 + tenths * 10 + hundredths; // em unidades de 0.01 km
+  return total > 0 ? String(total / 100) : '';
+}
+// Mantido para compatibilidade com outros callers (extraForm, etc.)
 function distanceKmToKmM(distanceKmValue: string): { km: number; m: number } {
   const totalMeters = Math.max(0, Math.round((Number(distanceKmValue) || 0) * 1000));
   return { km: Math.floor(totalMeters / 1000), m: totalMeters % 1000 };
@@ -8064,27 +8076,26 @@ function kmMToDistanceKm(km: number, m: number): string {
   const totalMeters = km * 1000 + m;
   return totalMeters > 0 ? String(totalMeters / 1000) : '';
 }
-// 12/09 (v3): WheelPicker em Modal para distancia (mesma razao do DurationWheelField acima).
-// Coluna 1: km inteiros (0-99). Coluna 2: decimal (0-9, cada posicao = 0.1 km).
+// 12/09 (v3): WheelPicker em Modal — 3 colunas (km / decimos 0.1 / centesimos 0.01).
+// Permite registrar, por ex., 30,02 km com precisao de 10 m, sem abrir teclado.
 function DistanceWheelField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
   const [open, setOpen] = useState(false);
-  const { km: dKm, m: dM } = distanceKmToKmM(value);
-  // dec = indice 0-9 correspondente a 0.0 / 0.1 / ... / 0.9 km
+  const { km: dKm, tenths: dT, hundredths: dH } = distanceKmToComponents(value);
   const [tempKm, setTempKm] = useState(dKm);
-  const [tempDec, setTempDec] = useState(Math.round(dM / 100));
+  const [tempTenths, setTempTenths] = useState(dT);
+  const [tempHundredths, setTempHundredths] = useState(dH);
 
   function openModal() {
-    const { km, m } = distanceKmToKmM(value);
-    setTempKm(km);
-    setTempDec(Math.min(9, Math.round(m / 100)));
+    const { km, tenths, hundredths } = distanceKmToComponents(value);
+    setTempKm(km); setTempTenths(tenths); setTempHundredths(hundredths);
     setOpen(true);
   }
   function confirm() {
-    onChangeValue(kmMToDistanceKm(tempKm, tempDec * 100));
+    onChangeValue(componentsToDistanceKm(tempKm, tempTenths, tempHundredths));
     setOpen(false);
   }
 
-  const display = value ? `${(Number(value) || 0).toFixed(1)} km` : '-- km';
+  const display = value ? `${(Number(value) || 0).toFixed(2)} km` : '-- km';
 
   return (
     <>
@@ -8097,8 +8108,9 @@ function DistanceWheelField({ value, onChangeValue }: { value: string; onChangeV
           <View style={{ backgroundColor: '#FAF8F5', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 }} onStartShouldSetResponder={() => true}>
             <Text style={{ textAlign: 'center', fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 16 }}>Distância percorrida</Text>
             <WheelPicker columns={[
-              { label: 'km',  values: Array.from({ length: 100 }, (_, i) => String(i)), selectedIndex: tempKm, onChangeIndex: (i) => setTempKm(i) },
-              { label: ',X km', values: ['0','1','2','3','4','5','6','7','8','9'], selectedIndex: tempDec, onChangeIndex: (i) => setTempDec(i) },
+              { label: 'km',   values: Array.from({ length: 100 }, (_, i) => String(i)),                     selectedIndex: tempKm,         onChangeIndex: (i) => setTempKm(i) },
+              { label: ',X',   values: ['0','1','2','3','4','5','6','7','8','9'],                             selectedIndex: tempTenths,     onChangeIndex: (i) => setTempTenths(i) },
+              { label: ',0X',  values: ['0','1','2','3','4','5','6','7','8','9'],                             selectedIndex: tempHundredths, onChangeIndex: (i) => setTempHundredths(i) },
             ]} />
             <Pressable style={{ backgroundColor: PRColors.ocean, borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 16 }} onPress={confirm}>
               <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Confirmar</Text>
