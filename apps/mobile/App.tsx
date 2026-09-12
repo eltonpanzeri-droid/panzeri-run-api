@@ -4165,6 +4165,15 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                           <Ionicons name={iconForModality(session.modality)} size={18} color="#111827" />
                           <Text style={styles.sessionTitle}>{session.title}</Text>
                         </View>
+                        {/* 12/09: exibe tempo e distancia prescritos no cabecalho colapsado */}
+                        {!sessionExpanded && (session.durationMin || session.distanceKm) ? (
+                          <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                            {[
+                              session.durationMin ? `${Math.round(session.durationMin)} min` : null,
+                              session.distanceKm ? `${session.distanceKm} km` : null,
+                            ].filter(Boolean).join(' · ')}
+                          </Text>
+                        ) : null}
                         <Text style={styles.sessionDetail}>{sessionExpanded ? 'Toque para recolher' : 'Toque para ver o treino'}</Text>
                         {sessionStatus === 'done' || sessionStatus === 'adjusted' ? (
                           <Text style={styles.sessionStatusDone}>✓ Feito</Text>
@@ -8000,6 +8009,8 @@ function ExerciseMetric({ label, value }: { label: string; value: string }) {
 // 12/09: substituido WheelPicker por TextInputs simples para evitar piscar e ocupacao excessiva
 // de tela. O WheelPicker dentro de ScrollView causava re-renders em cascata (wheel piscando e
 // nao respondendo ao arrasto apos o primeiro toque). TextInput e' mais confiavel e compacto.
+// 12/09: substituido TextInput por stepper +/- — evita abrir teclado ao tocar nos campos de tempo.
+// Layout: botao ▲, valor, botao ▼, label — para h, min e seg.
 function DurationWheelField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
   const { h, m, s } = durationMinToHms(value);
   function update(newH: number, newM: number, newS: number) {
@@ -8009,23 +8020,30 @@ function DurationWheelField({ value, onChangeValue }: { value: string; onChangeV
       Math.min(59, Math.max(0, isNaN(newS) ? 0 : newS)),
     ));
   }
-  const fieldStyle = { height: 40, width: 52, borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#ffffff', textAlign: 'center' as const, fontSize: 16, fontWeight: '700' as const, color: '#111827' };
+  const stepBtn = { width: 38, height: 28, borderRadius: 6, backgroundColor: '#E2DDD5', alignItems: 'center' as const, justifyContent: 'center' as const };
+  const valText = { fontSize: 22, fontWeight: '700' as const, color: '#111827', minWidth: 36, textAlign: 'center' as const };
+  const units = [
+    { label: 'h',   val: h, inc: () => update(h + 1, m, s), dec: () => update(h - 1, m, s) },
+    { label: 'min', val: m, inc: () => update(h, m + 1, s), dec: () => update(h, m - 1, s) },
+    { label: 'seg', val: s, inc: () => update(h, m, s + 1), dec: () => update(h, m, s - 1) },
+  ];
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-      <View style={{ alignItems: 'center', gap: 2 }}>
-        <TextInput style={fieldStyle} value={String(h)} onChangeText={(t) => update(parseInt(t) || 0, m, s)} keyboardType="numeric" maxLength={2} selectTextOnFocus />
-        <Text style={{ fontSize: 11, color: '#64748b' }}>h</Text>
-      </View>
-      <Text style={{ fontSize: 18, color: '#94a3b8', marginBottom: 12 }}>:</Text>
-      <View style={{ alignItems: 'center', gap: 2 }}>
-        <TextInput style={fieldStyle} value={String(m).padStart(2, '0')} onChangeText={(t) => update(h, parseInt(t) || 0, s)} keyboardType="numeric" maxLength={2} selectTextOnFocus />
-        <Text style={{ fontSize: 11, color: '#64748b' }}>min</Text>
-      </View>
-      <Text style={{ fontSize: 18, color: '#94a3b8', marginBottom: 12 }}>:</Text>
-      <View style={{ alignItems: 'center', gap: 2 }}>
-        <TextInput style={fieldStyle} value={String(s).padStart(2, '0')} onChangeText={(t) => update(h, m, parseInt(t) || 0)} keyboardType="numeric" maxLength={2} selectTextOnFocus />
-        <Text style={{ fontSize: 11, color: '#64748b' }}>seg</Text>
-      </View>
+    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 2 }}>
+      {units.map(({ label, val, inc, dec }, i) => (
+        <React.Fragment key={label}>
+          {i > 0 && <Text style={{ fontSize: 20, color: '#94a3b8', marginBottom: 22 }}>:</Text>}
+          <View style={{ alignItems: 'center', gap: 3 }}>
+            <Pressable style={stepBtn} onPress={inc} hitSlop={6}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>▲</Text>
+            </Pressable>
+            <Text style={valText}>{String(val).padStart(2, '0')}</Text>
+            <Pressable style={stepBtn} onPress={dec} hitSlop={6}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>▼</Text>
+            </Pressable>
+            <Text style={{ fontSize: 11, color: '#64748b' }}>{label}</Text>
+          </View>
+        </React.Fragment>
+      ))}
     </View>
   );
 }
@@ -8042,19 +8060,25 @@ function kmMToDistanceKm(km: number, m: number): string {
   const totalMeters = km * 1000 + m;
   return totalMeters > 0 ? String(totalMeters / 1000) : '';
 }
-// 12/09: substituido WheelPicker por TextInput simples (mesma razao do DurationWheelField acima).
+// 12/09: substituido TextInput por stepper +/- (0.1 km por passo) — sem abrir teclado.
 function DistanceWheelField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
-  const fieldStyle = { height: 40, width: 80, borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#ffffff', textAlign: 'center' as const, fontSize: 16, fontWeight: '700' as const, color: '#111827' };
+  const km = Number(value) || 0;
+  function step(delta: number) {
+    const newVal = Math.max(0, Math.round((km + delta) * 10) / 10);
+    onChangeValue(newVal > 0 ? String(newVal) : '');
+  }
+  const stepBtn = { width: 44, height: 28, borderRadius: 6, backgroundColor: '#E2DDD5', alignItems: 'center' as const, justifyContent: 'center' as const };
   return (
-    <View style={{ alignItems: 'center', gap: 2 }}>
-      <TextInput
-        style={fieldStyle}
-        value={value}
-        onChangeText={(t) => onChangeValue(t.replace(',', '.'))}
-        keyboardType="decimal-pad"
-        placeholder="0.0"
-        selectTextOnFocus
-      />
+    <View style={{ alignItems: 'center', gap: 3 }}>
+      <Pressable style={stepBtn} onPress={() => step(0.1)} hitSlop={6}>
+        <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>▲</Text>
+      </Pressable>
+      <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827', minWidth: 60, textAlign: 'center' }}>
+        {km > 0 ? km.toFixed(1) : '0.0'}
+      </Text>
+      <Pressable style={stepBtn} onPress={() => step(-0.1)} hitSlop={6}>
+        <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>▼</Text>
+      </Pressable>
       <Text style={{ fontSize: 11, color: '#64748b' }}>km</Text>
     </View>
   );
@@ -8173,15 +8197,12 @@ function CompletionForm({
   const isSavedOnServer = !!session.completion;
   const [isEditing, setIsEditing] = useState(!isSavedOnServer);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // Bloco 1/2/3 — so para done/adjusted em modo edicao
-  const [feedbackStep, setFeedbackStep] = useState(0);
   // Botao "Por que responder e importante" sempre recolhido por padrao; expande ao toque
   const [whyExpanded, setWhyExpanded] = useState(false);
 
   useEffect(() => {
     setIsEditing(!isSavedOnServer);
     setIsSubmitting(false);
-    setFeedbackStep(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id]);
 
@@ -8199,28 +8220,11 @@ function CompletionForm({
   const isRun = session.structure?.type === 'run';
   const isAerobic = session.structure?.type === 'aerobic';
 
-  // Validacao de cada bloco antes de avancar
-  const block1Complete = draft.preSleepQuality && draft.prePhysicalFatigue && draft.preStressLevel && draft.preMotivation;
-  const block2Complete = draft.perceivedEffort && draft.satisfactionElaboracao && draft.satisfactionCapacidade && draft.postWorkoutFeeling && draft.postWorkoutMood;
-  const block3Complete = draft.painFlag && (draft.painFlag === 'none' || draft.painTiming);
-
-  // Indicador de progresso 1/2/3
-  function ProgressDots({ current }: { current: number }) {
-    return (
-      <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-        {[0, 1, 2].map((i) => (
-          <View key={i} style={{
-            width: i === current ? 24 : 8, height: 8, borderRadius: 4,
-            backgroundColor: i === current ? PRColors.pulse : i < current ? PRColors.ocean : '#C8C0B0',
-            opacity: i > current ? 0.45 : 1,
-          }} />
-        ))}
-        <Text style={{ fontSize: 11, color: PRColors.graphite, marginLeft: 6, fontWeight: '500' }}>
-          {current + 1} de 3
-        </Text>
-      </View>
-    );
-  }
+  // 12/09: formulario unico — validacao conjunta de todos os campos para habilitar o botao Salvar.
+  const allSectionsComplete =
+    !!(draft.preSleepQuality && draft.prePhysicalFatigue && draft.preStressLevel && draft.preMotivation) &&
+    !!(draft.perceivedEffort && draft.satisfactionElaboracao && draft.satisfactionCapacidade && draft.postWorkoutFeeling && draft.postWorkoutMood) &&
+    !!(draft.painFlag && (draft.painFlag === 'none' || draft.painTiming));
 
   // Componente de chip de opcao com label de texto (para elaboracao, execucao, etc.)
   function OptionChips({ options, selected, onSelect }: { options: { label: string; value: string }[]; selected: string; onSelect: (v: string) => void }) {
@@ -8373,7 +8377,7 @@ function CompletionForm({
             <Pressable
               key={opt.value}
               style={[styles.completionChip, draft.status === opt.value && styles.completionChipActive]}
-              onPress={() => { onChange({ status: opt.value as CompletionDraft['status'] }); if (!locked) setFeedbackStep(0); }}
+              onPress={() => { onChange({ status: opt.value as CompletionDraft['status'] }); }}
             >
               <Text style={[styles.completionChipText, draft.status === opt.value && styles.completionChipTextActive]}>{opt.label}</Text>
             </Pressable>
@@ -8403,189 +8407,158 @@ function CompletionForm({
           </View>
         )}
 
-        {/* FLUXO DONE/ADJUSTED — 3 blocos em sequencia */}
+        {/* FLUXO DONE/ADJUSTED — 12/09: formulario unico em scroll (sem navegacao entre blocos) */}
         {(draft.status === 'done' || draft.status === 'adjusted') && (
           <View>
-            {/* BLOCO 1 — Como voce chegou */}
-            {(locked || feedbackStep === 0) && (
-              <View>
-                {!locked && <ProgressDots current={0} />}
-                {!locked && (
-                  <View style={{ marginBottom: 12 }}>
-                    <Pressable
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6 }}
-                      onPress={() => setWhyExpanded((v) => !v)}
-                    >
-                      <Ionicons name={whyExpanded ? 'chevron-down' : 'chevron-forward'} size={14} color={PRColors.ocean} />
-                      <Text style={{ fontSize: 12, color: PRColors.ocean, fontWeight: '600' }}>Por que responder e importante</Text>
-                    </Pressable>
-                    {whyExpanded && (
-                      <View style={{ backgroundColor: '#F0F5FF', borderRadius: 8, padding: 12, marginTop: 4 }}>
-                        <Text style={{ fontSize: 12, color: PRColors.graphite, lineHeight: 18 }}>
-                          Seu feedback faz parte do treino.{'\n\n'}
-                          Essas respostas nos ajudam a entender como voce chegou para treinar, como respondeu ao que foi prescrito e como terminou a sessao.
-                          Com o tempo, essas informacoes tornam seus proximos treinos cada vez mais individualizados.{'\n\n'}
-                          treinar → registrar → compreender → ajustar → evoluir.
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                )}
-                {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Como voce chegou</Text>}
-                <Text style={styles.formHint}>Como foi seu sono na ultima noite?</Text>
-                <ScaleStr value={draft.preSleepQuality} onChange={(v) => onChange({ preSleepQuality: v })} lowLabel={SLEEP_LABELS[0]} highLabel={SLEEP_LABELS[1]} />
-                <Text style={styles.formHint}>Como estava seu cansaco fisico antes de comecar?</Text>
-                <ScaleStr value={draft.prePhysicalFatigue} onChange={(v) => onChange({ prePhysicalFatigue: v })} lowLabel={FATIGUE_LABELS[0]} highLabel={FATIGUE_LABELS[1]} />
-                <Text style={styles.formHint}>Como estava seu nivel de estresse antes de comecar?</Text>
-                <ScaleStr value={draft.preStressLevel} onChange={(v) => onChange({ preStressLevel: v })} lowLabel={STRESS_LABELS[0]} highLabel={STRESS_LABELS[1]} />
-                <Text style={styles.formHint}>Como estava sua motivacao para treinar?</Text>
-                <ScaleStr value={draft.preMotivation} onChange={(v) => onChange({ preMotivation: v })} lowLabel={MOTIVATION_LABELS[0]} highLabel={MOTIVATION_LABELS[1]} />
-                {!locked && (
+            {/* SECAO 1 — Como voce chegou */}
+            <View>
+              {!locked && (
+                <View style={{ marginBottom: 8 }}>
+                  <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 6 }]}>Como voce chegou</Text>
                   <Pressable
-                    style={[styles.saveCompletionButton, !block1Complete && styles.disabledButton]}
-                    disabled={!block1Complete}
-                    onPress={() => setFeedbackStep(1)}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 }}
+                    onPress={() => setWhyExpanded((v) => !v)}
                   >
-                    <Text style={styles.saveCompletionText}>Continuar →</Text>
+                    <Ionicons name={whyExpanded ? 'chevron-down' : 'chevron-forward'} size={14} color={PRColors.ocean} />
+                    <Text style={{ fontSize: 12, color: PRColors.ocean, fontWeight: '600' }}>Por que responder e importante</Text>
                   </Pressable>
-                )}
-              </View>
-            )}
-
-            {/* BLOCO 2 — Como foi o treino */}
-            {(locked || feedbackStep === 1) && (
-              <View>
-                {!locked && <ProgressDots current={1} />}
-
-                {/* Metricas de execucao (data, tempo, distancia, pace) */}
-                <ExecMetrics />
-
-                {/* RPE 1–10 com gradiente de cor (mesmo padrao visual do bloco 1) */}
-                <Text style={styles.formHint}>Percepcao de esforco neste treino (RPE)</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
-                  {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
-                    const isActive = draft.perceivedEffort === String(n);
-                    const col = RPE_GRADIENT_10[n - 1];
-                    return (
-                      <Pressable
-                        key={n}
-                        onPress={() => onChange({ perceivedEffort: String(n) })}
-                        style={{ width: 38, height: 38, borderRadius: 8, borderWidth: 2, borderColor: col, backgroundColor: isActive ? col : '#EDE9E0', alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        <Text style={{ fontSize: 14, fontWeight: '700', color: isActive ? '#ffffff' : '#374151' }}>{n}</Text>
-                      </Pressable>
-                    );
-                  })}
+                  {whyExpanded && (
+                    <View style={{ backgroundColor: '#F0F5FF', borderRadius: 8, padding: 12, marginTop: 4 }}>
+                      <Text style={{ fontSize: 12, color: PRColors.graphite, lineHeight: 18 }}>
+                        Seu feedback faz parte do treino.{'\n\n'}
+                        Essas respostas nos ajudam a entender como voce chegou para treinar, como respondeu ao que foi prescrito e como terminou a sessao.
+                        Com o tempo, essas informacoes tornam seus proximos treinos cada vez mais individualizados.{'\n\n'}
+                        treinar → registrar → compreender → ajustar → evoluir.
+                      </Text>
+                    </View>
+                  )}
                 </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <Text style={[styles.formHint, { marginBottom: 0 }]}>Muito leve</Text>
-                  <Text style={[styles.formHint, { marginBottom: 0 }]}>Maximo</Text>
-                </View>
+              )}
+              <Text style={styles.formHint}>Como foi seu sono na ultima noite?</Text>
+              <ScaleStr value={draft.preSleepQuality} onChange={(v) => onChange({ preSleepQuality: v })} lowLabel={SLEEP_LABELS[0]} highLabel={SLEEP_LABELS[1]} />
+              <Text style={styles.formHint}>Como estava seu cansaco fisico antes de comecar?</Text>
+              <ScaleStr value={draft.prePhysicalFatigue} onChange={(v) => onChange({ prePhysicalFatigue: v })} lowLabel={FATIGUE_LABELS[0]} highLabel={FATIGUE_LABELS[1]} />
+              <Text style={styles.formHint}>Como estava seu nivel de estresse antes de comecar?</Text>
+              <ScaleStr value={draft.preStressLevel} onChange={(v) => onChange({ preStressLevel: v })} lowLabel={STRESS_LABELS[0]} highLabel={STRESS_LABELS[1]} />
+              <Text style={styles.formHint}>Como estava sua motivacao para treinar?</Text>
+              <ScaleStr value={draft.preMotivation} onChange={(v) => onChange({ preMotivation: v })} lowLabel={MOTIVATION_LABELS[0]} highLabel={MOTIVATION_LABELS[1]} />
+            </View>
 
-                {/* Elaboracao — ScalePicker 1-5 */}
-                <Text style={styles.formHint}>Como voce avalia a forma como este treino foi elaborado?</Text>
-                <ScalePicker
-                  value={satisfactionToNum(draft.satisfactionElaboracao)}
-                  onChange={(n) => onChange({ satisfactionElaboracao: numToSatisfaction(n) })}
-                  lowLabel="Pessimo"
-                  highLabel="Adorei"
-                />
+            {/* Divisor entre secoes */}
+            <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 16 }} />
 
-                {/* Execucao — ScalePicker 1-5 */}
-                <Text style={styles.formHint}>Como voce se saiu na execucao do treino?</Text>
-                <ScalePicker
-                  value={satisfactionToNum(draft.satisfactionCapacidade)}
-                  onChange={(n) => onChange({ satisfactionCapacidade: numToSatisfaction(n) })}
-                  lowLabel="Muito insatisfeito"
-                  highLabel="Muito satisfeito"
-                />
+            {/* SECAO 2 — Como foi o treino */}
+            <View>
+              {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Como foi o treino</Text>}
 
-                {/* Sensacao fisica ao terminar */}
-                <Text style={styles.formHint}>Como seu CORPO se sentiu ao terminar?</Text>
-                <ScaleStr value={draft.postWorkoutFeeling} onChange={(v) => onChange({ postWorkoutFeeling: v })} lowLabel={POST_FEELING_LABELS[0]} highLabel={POST_FEELING_LABELS[1]} />
+              {/* Metricas de execucao (data, tempo, distancia, pace) */}
+              <ExecMetrics />
 
-                {/* Sensacao emocional ao terminar (campo novo — guardado em details) */}
-                <Text style={styles.formHint}>Como voce terminou EMOCIONALMENTE?</Text>
-                <ScaleStr value={draft.postWorkoutMood} onChange={(v) => onChange({ postWorkoutMood: v })} lowLabel={POST_MOOD_LABELS[0]} highLabel={POST_MOOD_LABELS[1]} />
-
-                {!locked && (
-                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                    <Pressable style={[styles.secondaryButton, { flex: 1 }]} onPress={() => setFeedbackStep(0)}>
-                      <Text style={styles.secondaryButtonText}>← Voltar</Text>
-                    </Pressable>
+              {/* RPE 1–10 com gradiente de cor */}
+              <Text style={styles.formHint}>Percepcao de esforco neste treino (RPE)</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
+                {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
+                  const isActive = draft.perceivedEffort === String(n);
+                  const col = RPE_GRADIENT_10[n - 1];
+                  return (
                     <Pressable
-                      style={[styles.saveCompletionButton, { flex: 2 }, !block2Complete && styles.disabledButton]}
-                      disabled={!block2Complete}
-                      onPress={() => setFeedbackStep(2)}
+                      key={n}
+                      onPress={() => onChange({ perceivedEffort: String(n) })}
+                      style={{ width: 38, height: 38, borderRadius: 8, borderWidth: 2, borderColor: col, backgroundColor: isActive ? col : '#EDE9E0', alignItems: 'center', justifyContent: 'center' }}
                     >
-                      <Text style={styles.saveCompletionText}>Continuar →</Text>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: isActive ? '#ffffff' : '#374151' }}>{n}</Text>
                     </Pressable>
-                  </View>
-                )}
+                  );
+                })}
               </View>
-            )}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                <Text style={[styles.formHint, { marginBottom: 0 }]}>Muito leve</Text>
+                <Text style={[styles.formHint, { marginBottom: 0 }]}>Maximo</Text>
+              </View>
 
-            {/* BLOCO 3 — Dor e observacoes */}
-            {(locked || feedbackStep === 2) && (
-              <View>
-                {!locked && <ProgressDots current={2} />}
-                {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Dor e observacoes</Text>}
-                <Text style={styles.formHint}>Voce sentiu dor ou algum desconforto importante neste treino?</Text>
-                <OptionChips
-                  options={[
-                    { label: 'Nao', value: 'none' },
-                    { label: 'Sim, mas leve', value: 'leve' },
-                    { label: 'Sim, moderado', value: 'moderado' },
-                    { label: 'Sim, forte', value: 'forte' },
-                  ]}
-                  selected={draft.painFlag}
-                  onSelect={(v) => onChange({ painFlag: v, painTiming: v === 'none' ? '' : draft.painTiming })}
-                />
-                {draft.painFlag && draft.painFlag !== 'none' && (
-                  <View>
-                    <Text style={styles.formHint}>Quando essa dor ou desconforto apareceu?</Text>
-                    <OptionChips options={PAIN_TIMING_OPTIONS} selected={draft.painTiming} onSelect={(v) => onChange({ painTiming: v })} />
-                  </View>
-                )}
-                {draft.painFlag && draft.painFlag !== 'none' && onOpenPainReport && (
-                  <View style={styles.painNudgeBox}>
-                    <Text style={styles.painNudgeText}>Quer detalhar essa dor para seu treinador acompanhar melhor?</Text>
-                    <Pressable style={styles.secondaryButton} onPress={onOpenPainReport}>
-                      <Ionicons name="medkit" size={16} color={PRColors.ocean} />
-                      <Text style={styles.secondaryButtonText}>Relatar dor em detalhes</Text>
-                    </Pressable>
-                  </View>
-                )}
-                <TextInput
-                  style={[styles.compactInput, styles.multilineInput, { marginTop: 12 }]}
-                  value={draft.notes}
-                  onChangeText={(v) => onChange({ notes: v })}
-                  multiline
-                  placeholder="Observacoes opcionais: clima, terreno, alimentacao, sensacoes diferentes..."
-                />
-                {!locked && (
-                  <Pressable style={[styles.secondaryButton, { marginBottom: 4 }]} onPress={() => setFeedbackStep(1)}>
-                    <Text style={styles.secondaryButtonText}>← Voltar</Text>
+              {/* Elaboracao — ScalePicker 1-5 */}
+              <Text style={styles.formHint}>Como voce avalia a forma como este treino foi elaborado?</Text>
+              <ScalePicker
+                value={satisfactionToNum(draft.satisfactionElaboracao)}
+                onChange={(n) => onChange({ satisfactionElaboracao: numToSatisfaction(n) })}
+                lowLabel="Pessimo"
+                highLabel="Adorei"
+              />
+
+              {/* Execucao — ScalePicker 1-5 */}
+              <Text style={styles.formHint}>Como voce se saiu na execucao do treino?</Text>
+              <ScalePicker
+                value={satisfactionToNum(draft.satisfactionCapacidade)}
+                onChange={(n) => onChange({ satisfactionCapacidade: numToSatisfaction(n) })}
+                lowLabel="Muito insatisfeito"
+                highLabel="Muito satisfeito"
+              />
+
+              {/* Sensacao fisica ao terminar */}
+              <Text style={styles.formHint}>Como seu CORPO se sentiu ao terminar?</Text>
+              <ScaleStr value={draft.postWorkoutFeeling} onChange={(v) => onChange({ postWorkoutFeeling: v })} lowLabel={POST_FEELING_LABELS[0]} highLabel={POST_FEELING_LABELS[1]} />
+
+              {/* Sensacao emocional ao terminar (campo novo — guardado em details) */}
+              <Text style={styles.formHint}>Como voce terminou EMOCIONALMENTE?</Text>
+              <ScaleStr value={draft.postWorkoutMood} onChange={(v) => onChange({ postWorkoutMood: v })} lowLabel={POST_MOOD_LABELS[0]} highLabel={POST_MOOD_LABELS[1]} />
+            </View>
+
+            {/* Divisor entre secoes */}
+            <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 16 }} />
+
+            {/* SECAO 3 — Dor e observacoes */}
+            <View>
+              {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Dor e observacoes</Text>}
+              <Text style={styles.formHint}>Voce sentiu dor ou algum desconforto importante neste treino?</Text>
+              <OptionChips
+                options={[
+                  { label: 'Nao', value: 'none' },
+                  { label: 'Sim, mas leve', value: 'leve' },
+                  { label: 'Sim, moderado', value: 'moderado' },
+                  { label: 'Sim, forte', value: 'forte' },
+                ]}
+                selected={draft.painFlag}
+                onSelect={(v) => onChange({ painFlag: v, painTiming: v === 'none' ? '' : draft.painTiming })}
+              />
+              {draft.painFlag && draft.painFlag !== 'none' && (
+                <View>
+                  <Text style={styles.formHint}>Quando essa dor ou desconforto apareceu?</Text>
+                  <OptionChips options={PAIN_TIMING_OPTIONS} selected={draft.painTiming} onSelect={(v) => onChange({ painTiming: v })} />
+                </View>
+              )}
+              {draft.painFlag && draft.painFlag !== 'none' && onOpenPainReport && (
+                <View style={styles.painNudgeBox}>
+                  <Text style={styles.painNudgeText}>Quer detalhar essa dor para seu treinador acompanhar melhor?</Text>
+                  <Pressable style={styles.secondaryButton} onPress={onOpenPainReport}>
+                    <Ionicons name="medkit" size={16} color={PRColors.ocean} />
+                    <Text style={styles.secondaryButtonText}>Relatar dor em detalhes</Text>
                   </Pressable>
-                )}
-              </View>
-            )}
+                </View>
+              )}
+              <TextInput
+                style={[styles.compactInput, styles.multilineInput, { marginTop: 12 }]}
+                value={draft.notes}
+                onChangeText={(v) => onChange({ notes: v })}
+                multiline
+                placeholder="Observacoes opcionais: clima, terreno, alimentacao, sensacoes diferentes..."
+              />
+            </View>
           </View>
         )}
       </View>
 
       {/* Botoes de salvar */}
       {locked ? (
-        <Pressable style={styles.secondaryButton} onPress={() => { setIsEditing(true); setFeedbackStep(0); }}>
+        <Pressable style={styles.secondaryButton} onPress={() => { setIsEditing(true); }}>
           <Text style={styles.secondaryButtonText}>Alterar feedback</Text>
         </Pressable>
       ) : (
         <>
-          {/* Salvar aparece no bloco 3 (done/adjusted) ou sempre (missed) */}
-          {(draft.status === 'missed' || feedbackStep === 2) && (
+          {/* 12/09: Salvar aparece sempre (formulario unico) — antes so aparecia no bloco 3 */}
+          {(draft.status === 'missed' || draft.status === 'done' || draft.status === 'adjusted') && (
             <Pressable
-              style={[styles.saveCompletionButton, (isSubmitting || (draft.status !== 'missed' && !block3Complete)) && styles.disabledButton]}
-              disabled={isSubmitting || (draft.status !== 'missed' && !block3Complete)}
+              style={[styles.saveCompletionButton, (isSubmitting || (draft.status !== 'missed' && !allSectionsComplete)) && styles.disabledButton]}
+              disabled={isSubmitting || (draft.status !== 'missed' && !allSectionsComplete)}
               onPress={handleSave}
             >
               <Ionicons name="checkmark-circle" size={16} color={PRColors.mineral} />

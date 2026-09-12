@@ -75,7 +75,8 @@ const planEngineVersion = 'rules-v11-' + PANZERI_METHODOLOGY_VERSION;
 // explicito do treinador (10/08): nao faz sentido repetir "aqueca antes de comecar" quando o
 // treino ja se inicia com pelo menos 5 minutos de caminhada descritos como parte real do treino.
 const STANDARD_WARMUP_COOLDOWN_TEXT =
-  'Aquecimento: 5-10 min de corrida bem leve ou caminhada rapida antes de comecar o treino prescrito. Resfriamento: 5 min de corrida bem leve ou caminhada logo apos terminar, seguido de alongamento leve.';
+  // 12/09: removido "seguido de alongamento leve" do resfriamento — pedido do treinador.
+  'Aquecimento: 5-10 min de corrida bem leve ou caminhada rapida antes de comecar o treino prescrito. Resfriamento: 5 min de corrida bem leve ou caminhada logo apos terminar.';
 const STANDARD_WARMUP_COOLDOWN_MIN_LEADING_WALK_MIN = 5;
 
 // Disjuntor contra gasto em loop: current() e chamado toda vez que ALGUEM SO ABRE a pagina do
