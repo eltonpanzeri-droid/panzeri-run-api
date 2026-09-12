@@ -166,7 +166,7 @@ const TERMS_OF_USE_HTML = `
   <h2>3. Nao substitui avaliacao medica</h2>
   <p>O Panzeri Run nao presta servico medico, fisioterapeutico ou de emergencia. Recomenda-se avaliacao medica previa, especialmente para pessoas com condicoes de saude preexistentes.</p>
   <h2>4. Assinatura e pagamento</h2>
-  <p>O acesso ao programa de treinos depende de assinatura mensal ativa (R$19,90/mes), processada via Asaas. O cancelamento pode ser feito a qualquer momento, sem multa, produzindo efeito conforme as regras vigentes de cobranca.</p>
+  <p>O acesso ao programa de treinos depende de assinatura mensal ativa. Para novas assinaturas, o valor atual e de R$24,90/mes, processado pelo canal de pagamento escolhido. Condicoes anteriores ja contratadas podem ser preservadas. O cancelamento pode ser feito a qualquer momento, sem multa, produzindo efeito conforme as regras vigentes de cobranca.</p>
   <h2>5. Responsabilidade sobre informacoes</h2>
   <p>O programa de treinos e construido com base nas informacoes fornecidas pelo aluno. Informacoes incompletas, desatualizadas ou incorretas podem comprometer a adequacao e a seguranca do treino prescrito.</p>
   <h2>6. Alteracoes</h2>
@@ -198,4 +198,3 @@ const PRIVACY_POLICY_HTML = `
   <h2>9. Contato</h2>
   <p>eltonpanzeri@gmail.com</p>
 `;
-

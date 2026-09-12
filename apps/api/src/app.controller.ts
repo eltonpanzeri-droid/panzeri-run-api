@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Res } from '@nestjs/common';
+import { createReadStream, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { TelegramService } from './billing/telegram.service';
 import { LANDING_PAGE_HTML } from './landing-page';
 
@@ -13,6 +15,44 @@ export class AppController {
   @Get()
   landingPage(@Res() response: { type: (value: string) => { send: (value: string) => void } }) {
     response.type('html').send(LANDING_PAGE_HTML);
+  }
+
+  @Get('media/:filename')
+  landingMedia(
+    @Param('filename') filename: string,
+    @Headers('range') range: string | undefined,
+    @Res() response: any,
+  ) {
+    const allowed: Record<string, string> = {
+      'tela-treinos.mp4': 'tela-treinos.mp4',
+      'evolucao-rotina.mp4': 'evolucao-rotina.mp4',
+      'relatar-dor.mp4': 'relatar-dor.mp4',
+    };
+    const asset = allowed[filename];
+    if (!asset) return response.status(404).send('Arquivo não encontrado');
+
+    const filePath = join(process.cwd(), 'public', 'landing', asset);
+    const fileSize = statSync(filePath).size;
+    response.setHeader('Accept-Ranges', 'bytes');
+    response.setHeader('Content-Type', 'video/mp4');
+    response.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+
+    if (!range) {
+      response.setHeader('Content-Length', fileSize);
+      return createReadStream(filePath).pipe(response);
+    }
+
+    const [startText, endText] = range.replace('bytes=', '').split('-');
+    const start = Number(startText);
+    const end = endText ? Number(endText) : Math.min(start + 1024 * 1024 - 1, fileSize - 1);
+    if (!Number.isFinite(start) || start < 0 || end >= fileSize || start > end) {
+      response.status(416).setHeader('Content-Range', `bytes */${fileSize}`);
+      return response.end();
+    }
+    response.status(206);
+    response.setHeader('Content-Range', `bytes ${start}-${end}/${fileSize}`);
+    response.setHeader('Content-Length', end - start + 1);
+    return createReadStream(filePath, { start, end }).pipe(response);
   }
 
   // Sem isso, uma tela travada no app do aluno (ex: durante a entrevista, o momento mais critico
