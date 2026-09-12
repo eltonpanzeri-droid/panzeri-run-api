@@ -1508,6 +1508,55 @@ básicos em painéis longitudinais comparáveis ao SisRun.
 **Gates desta sessão**: typecheck limpo nos três apps antes de cada commit; lint verde; sem
 migration nova além das já documentadas em sessão anterior (20260911210000_add_workout_feedback_v2).
 
+**2026-09-12 — Redesenho completo do CompletionForm**
+
+Reformulação da experiência de registro de treino após teste real com treino de 21km.
+
+**Problemas identificados e corrigidos:**
+
+- **DurationWheelField / DistanceWheelField substituídos por TextInputs** — os wheels piscavam e
+  travavam no iOS dentro de ScrollView aninhado (re-renders em cascata ao calcular pace). Agora:
+  3 campos compactos h / min / seg inline para duração; 1 TextInput decimal para distância.
+  Sem migration, sem mudança na lógica de cálculo de pace (computePaceFromInputs ainda usado).
+
+- **SessionPrescription colapsável** — botão "Recolher prescrição / Ver prescrição" adicionado
+  (começa expandida). Resolve o aluno precisar rolar muito para chegar no formulário de registro.
+  `runSummary` (totais globais) oculto quando há só 1 bloco de corrida — era completamente
+  redundante com os dados do bloco único que aparece logo abaixo.
+
+- **session.notes (aquecimento/resfriamento da IA) movido para dentro do colapsível** — antes
+  aparecia sempre visível e ocupava espaço. Agora some quando o aluno recolhe a prescrição.
+  Removê-lo programaticamente não seria possível sem parsear texto da IA.
+
+- **Bloco 2 redesenhado:**
+  - RPE 1–10 com gradiente de 10 cores (RPE_GRADIENT_10: vermelho→verde escuro), mesmo padrão
+    visual colorido do bloco 1 — resolve o "tinha que apertar várias vezes".
+  - Elaboração e Execução migrados para ScalePicker 1–5 (Pessimo→Adorei / Muito insatisfeito→Muito
+    satisfeito). Mapeamento `satisfactionToNum` / `numToSatisfaction` mantém compatibilidade com os
+    valores string do banco (amei/gostei/neutro/nao_gostei/detestei).
+  - `postWorkoutFeeling` (campo existente, 1–5) renomeado para "Como seu CORPO se sentiu ao
+    terminar?" — `POST_FEELING_LABELS` atualizados: "Exausto / no limite" → "Cheio de energia".
+  - `postWorkoutMood` (campo novo, string '1'..'5') — "Como você terminou EMOCIONALMENTE?"
+    ("Frustrado / chateado" → "Orgulhoso / muito feliz"). Guardado em `details.postWorkoutMood` —
+    sem migration. Lido em `completionDraftFromSession` via `completion.details.postWorkoutMood`.
+
+- **Pergunta de caminhada reformulada** — antes: 3 chips (Corri tudo / Caminhei pouco /
+  Caminhei bastante). Agora: primário Não/Sim; ao escolher Sim, aparecem 7 sub-opções:
+  "Caminhei apenas o pedido no treino" / "Caminhei pouco — esforço estava alto" / "Caminhei
+  bastante — esforço estava alto" / "Caminhei por outros motivos" / "Parei para beber água" /
+  "Parei para ir ao banheiro" / "Parei por outros motivos". Guardado em `details.pacingMode`
+  (campo existente — sem migration). 'correu_tudo' = Não; qualquer sub-opção = Sim.
+
+- **`block2Complete`** agora exige `postWorkoutMood` além dos demais campos do bloco 2.
+
+**Arquivos alterados**: `apps/mobile/App.tsx`.
+
+**Gates**: TypeScript limpo em mobile e admin. Sem migration.
+
+**Commit**: `4b63e28 — feat(mobile): redesenho completo do CompletionForm`
+
+---
+
 **Commits desta sessão (espelho pendente de push)**:
 - `9f622ed` — feat(admin): redesenha graficos da aba Evolucao
 - `825f2e3` — fix(admin): remove variavel y0 nao utilizada no KmEvolutionChart (ESLint)
