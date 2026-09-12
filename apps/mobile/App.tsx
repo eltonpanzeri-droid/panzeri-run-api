@@ -8032,7 +8032,7 @@ function DurationWheelField({ value, onChangeValue }: { value: string; onChangeV
   return (
     <>
       <Pressable onPress={openModal} style={{ alignItems: 'center', gap: 3 }}>
-        <Text style={{ fontSize: 28, fontWeight: '700', color: '#111827', letterSpacing: 1 }}>{display}</Text>
+        <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827', letterSpacing: 0.5 }}>{display}</Text>
         <Text style={{ fontSize: 11, color: PRColors.ocean, fontWeight: '600' }}>Toque para alterar</Text>
       </Pressable>
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
@@ -8089,7 +8089,7 @@ function DistanceWheelField({ value, onChangeValue }: { value: string; onChangeV
   return (
     <>
       <Pressable onPress={openModal} style={{ alignItems: 'center', gap: 3 }}>
-        <Text style={{ fontSize: 28, fontWeight: '700', color: '#111827' }}>{display}</Text>
+        <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827' }}>{display}</Text>
         <Text style={{ fontSize: 11, color: PRColors.ocean, fontWeight: '600' }}>Toque para alterar</Text>
       </Pressable>
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
@@ -8295,16 +8295,20 @@ function CompletionForm({
         {(isRun || isAerobic) && (
           <View>
             {/* Tempo e distancia lado a lado como displays tapaveis que abrem Modal com rodas */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 12 }}>
-              <View style={{ alignItems: 'center', flex: 1 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'stretch', marginBottom: 12 }}>
+              <View style={{ alignItems: 'center', flex: 1, paddingHorizontal: 8 }}>
                 <Text style={[styles.inputLabel, { marginBottom: 6 }]}>Tempo</Text>
                 <DurationWheelField value={draft.durationMin} onChangeValue={(v) => onChange(isRun ? { durationMin: v, avgPace: computePaceFromInputs(v, draft.distanceKm) } : { durationMin: v })} />
               </View>
               {isRun && (
-                <View style={{ alignItems: 'center', flex: 1 }}>
-                  <Text style={[styles.inputLabel, { marginBottom: 6 }]}>Distancia</Text>
-                  <DistanceWheelField value={draft.distanceKm} onChangeValue={(v) => onChange({ distanceKm: v, avgPace: computePaceFromInputs(draft.durationMin, v) })} />
-                </View>
+                <>
+                  {/* Separador vertical */}
+                  <View style={{ width: 1, backgroundColor: '#E2DDD5', marginVertical: 4 }} />
+                  <View style={{ alignItems: 'center', flex: 1, paddingHorizontal: 8 }}>
+                    <Text style={[styles.inputLabel, { marginBottom: 6 }]}>Distancia</Text>
+                    <DistanceWheelField value={draft.distanceKm} onChangeValue={(v) => onChange({ distanceKm: v, avgPace: computePaceFromInputs(draft.durationMin, v) })} />
+                  </View>
+                </>
               )}
             </View>
             {isRun && (
