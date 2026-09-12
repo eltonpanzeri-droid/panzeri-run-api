@@ -33,12 +33,21 @@ export class WorkoutCompletionsService {
     }
 
     // Feedback v1: bloco 1 obrigatorio para done e adjusted.
-    if ((dto.status === 'done' || dto.status === 'adjusted') &&
+    // Compatibilidade retroativa (12/09): clientes antigos (Play Store pre-v1) nao enviam nenhum
+    // campo de pre-treino. So' aplicamos a validacao completa quando ao menos um deles veio —
+    // o que indica um cliente novo que conhece esses campos. Clientes antigos passam sem eles.
+    const isV1Client =
+      dto.preSleepQuality !== undefined ||
+      dto.prePhysicalFatigue !== undefined ||
+      dto.preStressLevel !== undefined ||
+      dto.preMotivation !== undefined;
+    if (isV1Client && (dto.status === 'done' || dto.status === 'adjusted') &&
         (!dto.preSleepQuality || !dto.prePhysicalFatigue || !dto.preStressLevel || !dto.preMotivation)) {
       throw new BadRequestException('Preencha todas as perguntas do bloco "Como voce chegou".');
     }
+    // postWorkoutFeeling tambem e' campo v1 — so exigido quando cliente e' v1.
     if ((dto.status === 'done' || dto.status === 'adjusted') &&
-        (!dto.satisfactionElaboracao || !dto.satisfactionCapacidade || !dto.postWorkoutFeeling)) {
+        (!dto.satisfactionElaboracao || !dto.satisfactionCapacidade || (isV1Client && !dto.postWorkoutFeeling))) {
       throw new BadRequestException('Preencha todas as perguntas do bloco "Como foi o treino".');
     }
     if ((dto.status === 'done' || dto.status === 'adjusted') && !dto.painFlag) {
