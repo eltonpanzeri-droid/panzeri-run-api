@@ -348,7 +348,8 @@ interface CompletionDraft {
   perceivedEffort: string;
   satisfactionElaboracao: string;
   satisfactionCapacidade: string;
-  postWorkoutFeeling: string;
+  postWorkoutFeeling: string;   // Corpo: como fisicamente ao terminar (1-5)
+  postWorkoutMood: string;      // Humor: como emocionalmente ao terminar (1-5, em details, sem migration)
   // Feedback v1 — bloco 3: dor
   painFlag: string;
   painTiming: string; // so preenchido quando painFlag != 'none' e != ''
@@ -3716,6 +3717,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
         missedReasons: draft.status === 'missed' && draft.missedReasons.length ? draft.missedReasons : undefined,
         missedComment: draft.status === 'missed' && draft.missedComment.trim() ? draft.missedComment.trim() : undefined,
         exerciseFeedback: draft.exerciseFeedback.length ? draft.exerciseFeedback : undefined,
+        postWorkoutMood: draft.postWorkoutMood ? Number(draft.postWorkoutMood) : undefined,
       },
     };
 
@@ -4184,9 +4186,11 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                         </View>
                         {/* 04/09: aviso de desvio de rotina util so pro treinador (vai pro Telegram) —
                             nao exibe mais pro aluno aqui. O campo continua salvo no banco. */}
-                        {'notes' in session && session.notes ? <Text style={styles.sessionNote}>{session.notes}</Text> : null}
+                        {/* 12/09: session.notes (texto IA: aquecimento/resfriamento) agora aparece dentro
+                            do colapsivel da SessionPrescription em vez de sempre visivel aqui */}
                         <SessionPrescription
                           session={session}
+                          sessionNotes={'notes' in session && session.notes ? session.notes : undefined}
                           exerciseFeedback={completionDrafts[session.id]?.exerciseFeedback}
                           onExerciseFeedbackChange={(name, patch) => {
                             const draft = completionDrafts[session.id] ?? defaultCompletionDraft(session);
@@ -7744,15 +7748,19 @@ function SessionCard({
 
 function SessionPrescription({
   session,
+  sessionNotes,
   exerciseFeedback,
   onExerciseFeedbackChange,
   feedbackLocked,
 }: {
   session: WeekPlanSession;
+  sessionNotes?: string;
   exerciseFeedback?: Array<{ name: string; loadKg: string; satisfaction: string }>;
   onExerciseFeedbackChange?: (name: string, patch: { loadKg?: string; satisfaction?: string }) => void;
   feedbackLocked?: boolean;
 }) {
+  // 12/09: prescricao colapsavel — comeca expandida, pode recolher para dar espaco ao formulario
+  const [prescExpanded, setPrescExpanded] = useState(true);
   const structure = session.structure;
   if (!structure) {
     return null;
@@ -7801,16 +7809,35 @@ function SessionPrescription({
 
   return (
     <View style={styles.prescriptionBox}>
-      <View style={styles.runSummary}>
-        <View>
-          <Text style={styles.runMetricLabel}>Distancia prevista</Text>
-          <Text style={styles.runMetricValue}>{structure.distanceKm ?? session.distanceKm ?? '-'} km</Text>
+      {/* Toggle de visibilidade da prescricao */}
+      <Pressable
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4, marginBottom: prescExpanded ? 8 : 0 }}
+        onPress={() => setPrescExpanded((v) => !v)}
+      >
+        <Ionicons name={prescExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={PRColors.ocean} />
+        <Text style={{ fontSize: 12, color: PRColors.ocean, fontWeight: '600' }}>
+          {prescExpanded ? 'Recolher prescricao' : 'Ver prescricao'}
+        </Text>
+      </Pressable>
+      {prescExpanded && (
+        <>
+      {/* Texto do treino (notas da IA: aquecimento, resfriamento etc.) — colapsavel com prescricao */}
+      {sessionNotes ? (
+        <Text style={[styles.prescriptionText, { marginBottom: 8, fontStyle: 'italic', color: '#475569' }]}>{sessionNotes}</Text>
+      ) : null}
+      {/* Resumo global so aparece quando ha multiplos blocos (senao e redundante com o bloco unico) */}
+      {runBlocks.length > 1 && (
+        <View style={styles.runSummary}>
+          <View>
+            <Text style={styles.runMetricLabel}>Distancia prevista</Text>
+            <Text style={styles.runMetricValue}>{structure.distanceKm ?? session.distanceKm ?? '-'} km</Text>
+          </View>
+          <View>
+            <Text style={styles.runMetricLabel}>Duracao total</Text>
+            <Text style={styles.runMetricValue}>{structure.durationRange ?? `${structure.durationMin ?? session.durationMin ?? '-'} min`}</Text>
+          </View>
         </View>
-        <View>
-          <Text style={styles.runMetricLabel}>Duracao total</Text>
-          <Text style={styles.runMetricValue}>{structure.durationRange ?? `${structure.durationMin ?? session.durationMin ?? '-'} min`}</Text>
-        </View>
-      </View>
+      )}
       {runBlocks.map((block) => {
         if (block.repeatCount && block.steps?.length) {
           return (
@@ -7855,6 +7882,8 @@ function SessionPrescription({
           </View>
         );
       })}
+        </>
+      )}
     </View>
   );
 }
@@ -7968,17 +7997,36 @@ function ExerciseMetric({ label, value }: { label: string; value: string }) {
 
 // Antes era um campo de texto livre (so minutos inteiros) — trocado por roda h/min/seg pra
 // registrar o tempo real com precisao de segundo, como pedido por uma aluna ("cada segundo conta").
+// 12/09: substituido WheelPicker por TextInputs simples para evitar piscar e ocupacao excessiva
+// de tela. O WheelPicker dentro de ScrollView causava re-renders em cascata (wheel piscando e
+// nao respondendo ao arrasto apos o primeiro toque). TextInput e' mais confiavel e compacto.
 function DurationWheelField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
   const { h, m, s } = durationMinToHms(value);
-  const hValues = wheelNumberValues(0, 9, 1);
-  const mValues = wheelNumberValues(0, 59, 2);
-  const sValues = wheelNumberValues(0, 59, 2);
+  function update(newH: number, newM: number, newS: number) {
+    onChangeValue(hmsToDurationMin(
+      Math.min(23, Math.max(0, isNaN(newH) ? 0 : newH)),
+      Math.min(59, Math.max(0, isNaN(newM) ? 0 : newM)),
+      Math.min(59, Math.max(0, isNaN(newS) ? 0 : newS)),
+    ));
+  }
+  const fieldStyle = { height: 40, width: 52, borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#ffffff', textAlign: 'center' as const, fontSize: 16, fontWeight: '700' as const, color: '#111827' };
   return (
-    <WheelPicker columns={[
-      { label: 'h', values: hValues, selectedIndex: h, onChangeIndex: (index) => onChangeValue(hmsToDurationMin(index, m, s)) },
-      { label: 'min', values: mValues, selectedIndex: m, onChangeIndex: (index) => onChangeValue(hmsToDurationMin(h, index, s)) },
-      { label: 'seg', values: sValues, selectedIndex: s, onChangeIndex: (index) => onChangeValue(hmsToDurationMin(h, m, index)) },
-    ]} />
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+      <View style={{ alignItems: 'center', gap: 2 }}>
+        <TextInput style={fieldStyle} value={String(h)} onChangeText={(t) => update(parseInt(t) || 0, m, s)} keyboardType="numeric" maxLength={2} selectTextOnFocus />
+        <Text style={{ fontSize: 11, color: '#64748b' }}>h</Text>
+      </View>
+      <Text style={{ fontSize: 18, color: '#94a3b8', marginBottom: 12 }}>:</Text>
+      <View style={{ alignItems: 'center', gap: 2 }}>
+        <TextInput style={fieldStyle} value={String(m).padStart(2, '0')} onChangeText={(t) => update(h, parseInt(t) || 0, s)} keyboardType="numeric" maxLength={2} selectTextOnFocus />
+        <Text style={{ fontSize: 11, color: '#64748b' }}>min</Text>
+      </View>
+      <Text style={{ fontSize: 18, color: '#94a3b8', marginBottom: 12 }}>:</Text>
+      <View style={{ alignItems: 'center', gap: 2 }}>
+        <TextInput style={fieldStyle} value={String(s).padStart(2, '0')} onChangeText={(t) => update(h, m, parseInt(t) || 0)} keyboardType="numeric" maxLength={2} selectTextOnFocus />
+        <Text style={{ fontSize: 11, color: '#64748b' }}>seg</Text>
+      </View>
+    </View>
   );
 }
 
@@ -7994,16 +8042,21 @@ function kmMToDistanceKm(km: number, m: number): string {
   const totalMeters = km * 1000 + m;
   return totalMeters > 0 ? String(totalMeters / 1000) : '';
 }
+// 12/09: substituido WheelPicker por TextInput simples (mesma razao do DurationWheelField acima).
 function DistanceWheelField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
-  const { km, m } = distanceKmToKmM(value);
-  const meterIndex = Math.min(99, Math.round(m / 10));
-  const kmValues = wheelNumberValues(0, 199, 1);
-  const meterValues = wheelNumberValues(0, 99, 2);
+  const fieldStyle = { height: 40, width: 80, borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#ffffff', textAlign: 'center' as const, fontSize: 16, fontWeight: '700' as const, color: '#111827' };
   return (
-    <WheelPicker columns={[
-      { label: 'km', values: kmValues, selectedIndex: km, onChangeIndex: (index) => onChangeValue(kmMToDistanceKm(index, meterIndex * 10)) },
-      { label: ',', values: meterValues, selectedIndex: meterIndex, onChangeIndex: (index) => onChangeValue(kmMToDistanceKm(km, index * 10)) },
-    ]} />
+    <View style={{ alignItems: 'center', gap: 2 }}>
+      <TextInput
+        style={fieldStyle}
+        value={value}
+        onChangeText={(t) => onChangeValue(t.replace(',', '.'))}
+        keyboardType="decimal-pad"
+        placeholder="0.0"
+        selectTextOnFocus
+      />
+      <Text style={{ fontSize: 11, color: '#64748b' }}>km</Text>
+    </View>
   );
 }
 
@@ -8072,7 +8125,33 @@ const SLEEP_LABELS: [string, string] = ['Muito ruim', 'Excelente'];
 const FATIGUE_LABELS: [string, string] = ['Muito baixo', 'Muito alto'];
 const STRESS_LABELS: [string, string] = ['Muito baixo', 'Muito alto'];
 const MOTIVATION_LABELS: [string, string] = ['Muito baixa', 'Muito alta'];
-const POST_FEELING_LABELS: [string, string] = ['Muito mal', 'Muito bem'];
+const POST_FEELING_LABELS: [string, string] = ['Exausto / no limite', 'Cheio de energia'];
+const POST_MOOD_LABELS: [string, string] = ['Frustrado / chateado', 'Orgulhoso / muito feliz'];
+
+// Gradiente de 10 cores para o RPE (vermelho → verde escuro), mapeando 1-10
+const RPE_GRADIENT_10 = ['#E03E2D', '#E35020', '#E66214', '#F0823A', '#F5A300', '#F5C800', '#90CC44', '#5CB85C', '#2A9E60', '#1B8A5A'];
+
+// Sub-opcoes quando o aluno precisou caminhar/parar em treino continuo
+const WALKING_SUBOPTIONS: { label: string; value: string }[] = [
+  { label: 'Caminhei apenas o pedido no treino', value: 'caminhou_conforme_prescrito' },
+  { label: 'Caminhei pouco — esforco estava alto', value: 'caminhou_pouco_esforco' },
+  { label: 'Caminhei bastante — esforco estava alto', value: 'caminhou_muito_esforco' },
+  { label: 'Caminhei por outros motivos', value: 'caminhou_outros' },
+  { label: 'Parei para beber agua', value: 'parou_agua' },
+  { label: 'Parei para ir ao banheiro', value: 'parou_banheiro' },
+  { label: 'Parei por outros motivos', value: 'parou_outros' },
+];
+
+// Converte string de satisfacao (amei/gostei/neutro/nao_gostei/detestei) para numero 1-5 e vice-versa.
+// Mantido para leitura de feedbacks antigos; novos feedbacks usam ScalePicker e armazenam diretamente.
+function satisfactionToNum(v: string): number | null {
+  const map: Record<string, number> = { detestei: 1, nao_gostei: 2, neutro: 3, gostei: 4, amei: 5 };
+  return map[v] ?? null;
+}
+function numToSatisfaction(n: number): string {
+  const map: Record<number, string> = { 1: 'detestei', 2: 'nao_gostei', 3: 'neutro', 4: 'gostei', 5: 'amei' };
+  return map[n] ?? '';
+}
 
 function CompletionForm({
   session,
@@ -8122,7 +8201,7 @@ function CompletionForm({
 
   // Validacao de cada bloco antes de avancar
   const block1Complete = draft.preSleepQuality && draft.prePhysicalFatigue && draft.preStressLevel && draft.preMotivation;
-  const block2Complete = draft.perceivedEffort && draft.satisfactionElaboracao && draft.satisfactionCapacidade && draft.postWorkoutFeeling;
+  const block2Complete = draft.perceivedEffort && draft.satisfactionElaboracao && draft.satisfactionCapacidade && draft.postWorkoutFeeling && draft.postWorkoutMood;
   const block3Complete = draft.painFlag && (draft.painFlag === 'none' || draft.painTiming);
 
   // Indicador de progresso 1/2/3
@@ -8220,16 +8299,47 @@ function CompletionForm({
               </>
             ) : (
               <>
-                <Text style={styles.formHint}>Voce conseguiu correr o tempo todo?</Text>
-                <OptionChips
-                  options={[
-                    { label: 'Corri o tempo todo', value: 'correu_tudo' },
-                    { label: 'Caminhei em pequenos trechos', value: 'caminhou_pouco' },
-                    { label: 'Caminhei/parei bastante', value: 'caminhou_muito' },
-                  ]}
-                  selected={draft.pacingMode}
-                  onSelect={(v) => onChange({ pacingMode: v })}
-                />
+                {/* 12/09: pergunta de caminhada com logica Nao/Sim + sub-opcoes */}
+                <Text style={styles.formHint}>Precisou caminhar ou parar durante o treino?</Text>
+                <View style={[styles.completionStatusRow, { marginBottom: 8 }]}>
+                  {[
+                    { label: 'Nao', primary: 'nao' },
+                    { label: 'Sim', primary: 'sim' },
+                  ].map(({ label, primary }) => {
+                    const currentPrimary = draft.pacingMode === 'correu_tudo' ? 'nao' : draft.pacingMode ? 'sim' : '';
+                    const isActive = currentPrimary === primary;
+                    return (
+                      <Pressable
+                        key={primary}
+                        style={[styles.completionChip, isActive && styles.completionChipActive]}
+                        onPress={() => {
+                          if (primary === 'nao') onChange({ pacingMode: 'correu_tudo' });
+                          else onChange({ pacingMode: draft.pacingMode && draft.pacingMode !== 'correu_tudo' ? draft.pacingMode : 'caminhou_sim' });
+                        }}
+                      >
+                        <Text style={[styles.completionChipText, isActive && styles.completionChipTextActive]}>{label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                {/* Sub-opcoes: aparece quando escolheu Sim */}
+                {draft.pacingMode && draft.pacingMode !== 'correu_tudo' && (
+                  <View style={{ marginBottom: 8 }}>
+                    <Text style={[styles.formHint, { marginBottom: 6 }]}>Qual foi o motivo? (escolha o principal)</Text>
+                    {WALKING_SUBOPTIONS.map((opt) => {
+                      const isActive = draft.pacingMode === opt.value;
+                      return (
+                        <Pressable
+                          key={opt.value}
+                          style={[styles.completionChip, { width: '100%', marginBottom: 4, justifyContent: 'flex-start' }, isActive && styles.completionChipActive]}
+                          onPress={() => onChange({ pacingMode: opt.value })}
+                        >
+                          <Text style={[styles.completionChipText, isActive && styles.completionChipTextActive]}>{opt.label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
               </>
             )}
           </View>
@@ -8346,26 +8456,58 @@ function CompletionForm({
             {(locked || feedbackStep === 1) && (
               <View>
                 {!locked && <ProgressDots current={1} />}
-                {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Como foi o treino</Text>}
+
+                {/* Metricas de execucao (data, tempo, distancia, pace) */}
                 <ExecMetrics />
-                <Text style={styles.formHint}>Qual foi sua percepcao de esforco neste treino? (RPE 1–10)</Text>
+
+                {/* RPE 1–10 com gradiente de cor (mesmo padrao visual do bloco 1) */}
+                <Text style={styles.formHint}>Percepcao de esforco neste treino (RPE)</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
-                  {Array.from({ length: 10 }, (_, i) => String(i + 1)).map((v) => (
-                    <Pressable key={v} style={[styles.completionChip, { minWidth: 36 }, draft.perceivedEffort === v && styles.completionChipActive]} onPress={() => onChange({ perceivedEffort: v })}>
-                      <Text style={[styles.completionChipText, draft.perceivedEffort === v && styles.completionChipTextActive]}>{v}</Text>
-                    </Pressable>
-                  ))}
+                  {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
+                    const isActive = draft.perceivedEffort === String(n);
+                    const col = RPE_GRADIENT_10[n - 1];
+                    return (
+                      <Pressable
+                        key={n}
+                        onPress={() => onChange({ perceivedEffort: String(n) })}
+                        style={{ width: 38, height: 38, borderRadius: 8, borderWidth: 2, borderColor: col, backgroundColor: isActive ? col : '#EDE9E0', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: isActive ? '#ffffff' : '#374151' }}>{n}</Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
                   <Text style={[styles.formHint, { marginBottom: 0 }]}>Muito leve</Text>
                   <Text style={[styles.formHint, { marginBottom: 0 }]}>Maximo</Text>
                 </View>
-                <Text style={styles.formHint}>Quanto voce gostou da forma como este treino foi elaborado?</Text>
-                <OptionChips options={SATISFACTION_OPTIONS} selected={draft.satisfactionElaboracao} onSelect={(v) => onChange({ satisfactionElaboracao: v })} />
-                <Text style={styles.formHint}>Quanto voce ficou satisfeito com a forma como conseguiu realizar o treino?</Text>
-                <OptionChips options={EXECUCAO_OPTIONS} selected={draft.satisfactionCapacidade} onSelect={(v) => onChange({ satisfactionCapacidade: v })} />
-                <Text style={styles.formHint}>Como voce se sentiu ao terminar o treino?</Text>
+
+                {/* Elaboracao — ScalePicker 1-5 */}
+                <Text style={styles.formHint}>Como voce avalia a forma como este treino foi elaborado?</Text>
+                <ScalePicker
+                  value={satisfactionToNum(draft.satisfactionElaboracao)}
+                  onChange={(n) => onChange({ satisfactionElaboracao: numToSatisfaction(n) })}
+                  lowLabel="Pessimo"
+                  highLabel="Adorei"
+                />
+
+                {/* Execucao — ScalePicker 1-5 */}
+                <Text style={styles.formHint}>Como voce se saiu na execucao do treino?</Text>
+                <ScalePicker
+                  value={satisfactionToNum(draft.satisfactionCapacidade)}
+                  onChange={(n) => onChange({ satisfactionCapacidade: numToSatisfaction(n) })}
+                  lowLabel="Muito insatisfeito"
+                  highLabel="Muito satisfeito"
+                />
+
+                {/* Sensacao fisica ao terminar */}
+                <Text style={styles.formHint}>Como seu CORPO se sentiu ao terminar?</Text>
                 <ScaleStr value={draft.postWorkoutFeeling} onChange={(v) => onChange({ postWorkoutFeeling: v })} lowLabel={POST_FEELING_LABELS[0]} highLabel={POST_FEELING_LABELS[1]} />
+
+                {/* Sensacao emocional ao terminar (campo novo — guardado em details) */}
+                <Text style={styles.formHint}>Como voce terminou EMOCIONALMENTE?</Text>
+                <ScaleStr value={draft.postWorkoutMood} onChange={(v) => onChange({ postWorkoutMood: v })} lowLabel={POST_MOOD_LABELS[0]} highLabel={POST_MOOD_LABELS[1]} />
+
                 {!locked && (
                   <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
                     <Pressable style={[styles.secondaryButton, { flex: 1 }]} onPress={() => setFeedbackStep(0)}>
@@ -8917,6 +9059,7 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     satisfactionElaboracao: '',
     satisfactionCapacidade: '',
     postWorkoutFeeling: '',
+    postWorkoutMood: '',
     painFlag: '',
     painTiming: '',
     satisfaction: '',
@@ -8947,6 +9090,7 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     satisfactionElaboracao: completion.satisfactionElaboracao ?? '',
     satisfactionCapacidade: completion.satisfactionCapacidade ?? '',
     postWorkoutFeeling: (completion as Record<string, unknown>).postWorkoutFeeling != null ? String((completion as Record<string, unknown>).postWorkoutFeeling) : '',
+    postWorkoutMood: (completion as Record<string, unknown>).details != null && (completion.details as Record<string, unknown>)?.postWorkoutMood != null ? String((completion.details as Record<string, unknown>).postWorkoutMood) : '',
     painFlag: completion.painFlag ?? '',
     painTiming: (completion as Record<string, unknown>).painTiming != null ? String((completion as Record<string, unknown>).painTiming) : '',
     satisfaction: completion.satisfaction ?? '',
