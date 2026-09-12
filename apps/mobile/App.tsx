@@ -8004,54 +8004,58 @@ function ExerciseMetric({ label, value }: { label: string; value: string }) {
   return <View style={styles.exerciseMetric}><Text style={styles.exerciseMetricLabel}>{label}</Text><Text style={styles.exerciseMetricValue}>{value}</Text></View>;
 }
 
-// Antes era um campo de texto livre (so minutos inteiros) — trocado por roda h/min/seg pra
-// registrar o tempo real com precisao de segundo, como pedido por uma aluna ("cada segundo conta").
-// 12/09: substituido WheelPicker por TextInputs simples para evitar piscar e ocupacao excessiva
-// de tela. O WheelPicker dentro de ScrollView causava re-renders em cascata (wheel piscando e
-// nao respondendo ao arrasto apos o primeiro toque). TextInput e' mais confiavel e compacto.
-// 12/09: substituido TextInput por stepper +/- — evita abrir teclado ao tocar nos campos de tempo.
-// Layout: botao ▲, valor, botao ▼, label — para h, min e seg.
+// 12/09 (v3): WheelPicker em Modal — resolve o conflito de scroll (roda piscava dentro do
+// ScrollView do formulario) e o teclado (TextInput) sem sacrificar a experiencia de arrastar.
+// O Modal fica fora da hierarquia do ScrollView pai, entao as rodas funcionam perfeitamente.
+// O aluno toca no display do tempo, a bottom-sheet abre com as 3 rodas (h/min/seg), confirma.
 function DurationWheelField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
-  const { h, m, s } = durationMinToHms(value);
-  function update(newH: number, newM: number, newS: number) {
-    onChangeValue(hmsToDurationMin(
-      Math.min(23, Math.max(0, isNaN(newH) ? 0 : newH)),
-      Math.min(59, Math.max(0, isNaN(newM) ? 0 : newM)),
-      Math.min(59, Math.max(0, isNaN(newS) ? 0 : newS)),
-    ));
+  const [open, setOpen] = useState(false);
+  const { h: dH, m: dM, s: dS } = durationMinToHms(value);
+  const [tempH, setTempH] = useState(dH);
+  const [tempM, setTempM] = useState(dM);
+  const [tempS, setTempS] = useState(dS);
+
+  function openModal() {
+    const cur = durationMinToHms(value);
+    setTempH(cur.h); setTempM(cur.m); setTempS(cur.s);
+    setOpen(true);
   }
-  const stepBtn = { width: 38, height: 28, borderRadius: 6, backgroundColor: '#E2DDD5', alignItems: 'center' as const, justifyContent: 'center' as const };
-  const valText = { fontSize: 22, fontWeight: '700' as const, color: '#111827', minWidth: 36, textAlign: 'center' as const };
-  const units = [
-    { label: 'h',   val: h, inc: () => update(h + 1, m, s), dec: () => update(h - 1, m, s) },
-    { label: 'min', val: m, inc: () => update(h, m + 1, s), dec: () => update(h, m - 1, s) },
-    { label: 'seg', val: s, inc: () => update(h, m, s + 1), dec: () => update(h, m, s - 1) },
-  ];
+  function confirm() {
+    onChangeValue(hmsToDurationMin(tempH, tempM, tempS));
+    setOpen(false);
+  }
+
+  const display = value
+    ? `${String(dH).padStart(2, '0')}:${String(dM).padStart(2, '0')}:${String(dS).padStart(2, '0')}`
+    : '--:--:--';
+
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 2 }}>
-      {units.map(({ label, val, inc, dec }, i) => (
-        <React.Fragment key={label}>
-          {i > 0 && <Text style={{ fontSize: 20, color: '#94a3b8', marginBottom: 22 }}>:</Text>}
-          <View style={{ alignItems: 'center', gap: 3 }}>
-            <Pressable style={stepBtn} onPress={inc} hitSlop={6}>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>▲</Text>
+    <>
+      <Pressable onPress={openModal} style={{ alignItems: 'center', gap: 3 }}>
+        <Text style={{ fontSize: 28, fontWeight: '700', color: '#111827', letterSpacing: 1 }}>{display}</Text>
+        <Text style={{ fontSize: 11, color: PRColors.ocean, fontWeight: '600' }}>Toque para alterar</Text>
+      </Pressable>
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }} onPress={() => setOpen(false)}>
+          <View style={{ backgroundColor: '#FAF8F5', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 }} onStartShouldSetResponder={() => true}>
+            <Text style={{ textAlign: 'center', fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 16 }}>Duração do treino</Text>
+            <WheelPicker columns={[
+              { label: 'h',   values: Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')), selectedIndex: tempH, onChangeIndex: (i) => setTempH(i) },
+              { label: 'min', values: Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')), selectedIndex: tempM, onChangeIndex: (i) => setTempM(i) },
+              { label: 'seg', values: Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')), selectedIndex: tempS, onChangeIndex: (i) => setTempS(i) },
+            ]} />
+            <Pressable style={{ backgroundColor: PRColors.ocean, borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 16 }} onPress={confirm}>
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Confirmar</Text>
             </Pressable>
-            <Text style={valText}>{String(val).padStart(2, '0')}</Text>
-            <Pressable style={stepBtn} onPress={dec} hitSlop={6}>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>▼</Text>
-            </Pressable>
-            <Text style={{ fontSize: 11, color: '#64748b' }}>{label}</Text>
           </View>
-        </React.Fragment>
-      ))}
-    </View>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
-// Distancia: mantida como roda (relogio), mas a parte dos metros mostra so DUAS casas (00-99,
-// cada posicao = 10m) em vez de tres — mesmo formato que Strava e Polar usam pra exibir distancia
-// (ex: "8,51 km"). A resolucao real continua sendo de 10 em 10 metros, so a exibicao mudou de
-// "000..990" pra "00..99", igual a casa decimal que esses apps mostram.
+// Converte string de km para km inteiros e metros (usado para as rodas de distancia).
+// Resolucao: 100 m (0.1 km) — coluna km e coluna decimal (0-9, cada = 0.1 km).
 function distanceKmToKmM(distanceKmValue: string): { km: number; m: number } {
   const totalMeters = Math.max(0, Math.round((Number(distanceKmValue) || 0) * 1000));
   return { km: Math.floor(totalMeters / 1000), m: totalMeters % 1000 };
@@ -8060,27 +8064,49 @@ function kmMToDistanceKm(km: number, m: number): string {
   const totalMeters = km * 1000 + m;
   return totalMeters > 0 ? String(totalMeters / 1000) : '';
 }
-// 12/09: substituido TextInput por stepper +/- (0.1 km por passo) — sem abrir teclado.
+// 12/09 (v3): WheelPicker em Modal para distancia (mesma razao do DurationWheelField acima).
+// Coluna 1: km inteiros (0-99). Coluna 2: decimal (0-9, cada posicao = 0.1 km).
 function DistanceWheelField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
-  const km = Number(value) || 0;
-  function step(delta: number) {
-    const newVal = Math.max(0, Math.round((km + delta) * 10) / 10);
-    onChangeValue(newVal > 0 ? String(newVal) : '');
+  const [open, setOpen] = useState(false);
+  const { km: dKm, m: dM } = distanceKmToKmM(value);
+  // dec = indice 0-9 correspondente a 0.0 / 0.1 / ... / 0.9 km
+  const [tempKm, setTempKm] = useState(dKm);
+  const [tempDec, setTempDec] = useState(Math.round(dM / 100));
+
+  function openModal() {
+    const { km, m } = distanceKmToKmM(value);
+    setTempKm(km);
+    setTempDec(Math.min(9, Math.round(m / 100)));
+    setOpen(true);
   }
-  const stepBtn = { width: 44, height: 28, borderRadius: 6, backgroundColor: '#E2DDD5', alignItems: 'center' as const, justifyContent: 'center' as const };
+  function confirm() {
+    onChangeValue(kmMToDistanceKm(tempKm, tempDec * 100));
+    setOpen(false);
+  }
+
+  const display = value ? `${(Number(value) || 0).toFixed(1)} km` : '-- km';
+
   return (
-    <View style={{ alignItems: 'center', gap: 3 }}>
-      <Pressable style={stepBtn} onPress={() => step(0.1)} hitSlop={6}>
-        <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>▲</Text>
+    <>
+      <Pressable onPress={openModal} style={{ alignItems: 'center', gap: 3 }}>
+        <Text style={{ fontSize: 28, fontWeight: '700', color: '#111827' }}>{display}</Text>
+        <Text style={{ fontSize: 11, color: PRColors.ocean, fontWeight: '600' }}>Toque para alterar</Text>
       </Pressable>
-      <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827', minWidth: 60, textAlign: 'center' }}>
-        {km > 0 ? km.toFixed(1) : '0.0'}
-      </Text>
-      <Pressable style={stepBtn} onPress={() => step(-0.1)} hitSlop={6}>
-        <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>▼</Text>
-      </Pressable>
-      <Text style={{ fontSize: 11, color: '#64748b' }}>km</Text>
-    </View>
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }} onPress={() => setOpen(false)}>
+          <View style={{ backgroundColor: '#FAF8F5', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 }} onStartShouldSetResponder={() => true}>
+            <Text style={{ textAlign: 'center', fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 16 }}>Distância percorrida</Text>
+            <WheelPicker columns={[
+              { label: 'km',  values: Array.from({ length: 100 }, (_, i) => String(i)), selectedIndex: tempKm, onChangeIndex: (i) => setTempKm(i) },
+              { label: ',X km', values: ['0','1','2','3','4','5','6','7','8','9'], selectedIndex: tempDec, onChangeIndex: (i) => setTempDec(i) },
+            ]} />
+            <Pressable style={{ backgroundColor: PRColors.ocean, borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 16 }} onPress={confirm}>
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Confirmar</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -8267,22 +8293,25 @@ function CompletionForm({
           />
         </View>
         {(isRun || isAerobic) && (
-          <View style={styles.completionGrid}>
-            <View style={styles.completionWheelGroup}>
-              <Text style={styles.inputLabel}>Tempo</Text>
-              <DurationWheelField value={draft.durationMin} onChangeValue={(v) => onChange(isRun ? { durationMin: v, avgPace: computePaceFromInputs(v, draft.distanceKm) } : { durationMin: v })} />
-            </View>
-            {isRun && (
-              <>
-                <View style={styles.completionWheelGroup}>
-                  <Text style={styles.inputLabel}>Distancia</Text>
+          <View>
+            {/* Tempo e distancia lado a lado como displays tapaveis que abrem Modal com rodas */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 12 }}>
+              <View style={{ alignItems: 'center', flex: 1 }}>
+                <Text style={[styles.inputLabel, { marginBottom: 6 }]}>Tempo</Text>
+                <DurationWheelField value={draft.durationMin} onChangeValue={(v) => onChange(isRun ? { durationMin: v, avgPace: computePaceFromInputs(v, draft.distanceKm) } : { durationMin: v })} />
+              </View>
+              {isRun && (
+                <View style={{ alignItems: 'center', flex: 1 }}>
+                  <Text style={[styles.inputLabel, { marginBottom: 6 }]}>Distancia</Text>
                   <DistanceWheelField value={draft.distanceKm} onChangeValue={(v) => onChange({ distanceKm: v, avgPace: computePaceFromInputs(draft.durationMin, v) })} />
                 </View>
-                <View style={styles.completionFieldGroup}>
-                  <Text style={styles.inputLabel}>Pace medio</Text>
-                  <TextInput style={styles.compactInput} value={draft.avgPace} onChangeText={(v) => onChange({ avgPace: v })} placeholder="mm:ss" />
-                </View>
-              </>
+              )}
+            </View>
+            {isRun && (
+              <View style={styles.completionFieldGroup}>
+                <Text style={styles.inputLabel}>Pace medio (calculado automaticamente ou edite)</Text>
+                <TextInput style={styles.compactInput} value={draft.avgPace} onChangeText={(v) => onChange({ avgPace: v })} placeholder="mm:ss" />
+              </View>
             )}
           </View>
         )}
@@ -8407,9 +8436,18 @@ function CompletionForm({
           </View>
         )}
 
-        {/* FLUXO DONE/ADJUSTED — 12/09: formulario unico em scroll (sem navegacao entre blocos) */}
+        {/* FLUXO DONE/ADJUSTED — 12/09: formulario unico em scroll; metricas primeiro */}
         {(draft.status === 'done' || draft.status === 'adjusted') && (
           <View>
+            {/* SECAO 0 — Metricas do treino (tempo, distancia, pace) — PRIMEIRO */}
+            <View>
+              {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 8 }]}>O que voce fez</Text>}
+              <ExecMetrics />
+            </View>
+
+            {/* Divisor entre secoes */}
+            <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 16 }} />
+
             {/* SECAO 1 — Como voce chegou */}
             <View>
               {!locked && (
@@ -8450,9 +8488,6 @@ function CompletionForm({
             {/* SECAO 2 — Como foi o treino */}
             <View>
               {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Como foi o treino</Text>}
-
-              {/* Metricas de execucao (data, tempo, distancia, pace) */}
-              <ExecMetrics />
 
               {/* RPE 1–10 com gradiente de cor */}
               <Text style={styles.formHint}>Percepcao de esforco neste treino (RPE)</Text>
