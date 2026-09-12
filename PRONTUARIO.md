@@ -1247,6 +1247,24 @@ entrevista e UX das sessões 07-09/09 só chegam após novo build EAS. Usuários
 - **iOS**: produto RevenueCat não importado ainda. Aguardando retomada.
 - Testar compra real em sandbox ainda pendente nas duas lojas.
 
+**2026-09-12 — Bug recorrente: tela de pagamento exibida para alunas com acesso liberado (Juliana, Lucelane)**
+
+Terceiro caso confirmado do padrão "tela de pagamento aparece para quem já tem acesso" (anteriores: Carina em 08/08, Reabrir entrevista em 28/07). **Causa raiz diferente dos dois anteriores** — desta vez estava no componente `Week` do `App.tsx`, não no fluxo de entrevista.
+
+**Diagnóstico**: o bloco `if (!plan && !notGeneratedRange)` (linha ~3893) disparava em três cenários além do legítimo "sem assinatura":
+1. Primeira renderização: `plan=null, notGeneratedRange=null, isLoading=false` antes do `useEffect` chamar `loadPlan()`
+2. Durante o carregamento: `isLoading=true`, mas a verificação de `isLoading` estava DEPOIS do `return` que exibia a tela de pagamento — nunca era alcançada
+3. Falha de API: `loadPlan()` saía com `plan=null, notGeneratedRange=null, isLoading=false` (estado indistinguível de "sem assinatura")
+
+**Correção (commit `2b1fe57`, 12/09)** — 3 camadas:
+- `isLoading` inicializa como `true` (evita flash na primeira renderização)
+- Novo estado `planLoadError` separado para falhas de API (não confunde "não sei se tem acesso" com "sei que não tem acesso")
+- Condição do bloco de pagamento exige `!isLoading && !planLoadError`
+- Novo bloco de carregamento (spinner) para `plan=null && notGeneratedRange=null && isLoading=true`
+- Novo bloco de erro com botão "Tentar novamente" quando `planLoadError=true`
+
+**Padrão recorrente confirmado**: toda vez que uma condição de estado transitório (carregamento, erro de rede) fica indistinguível de um estado funcional legítimo ("sem assinatura"), alunas com acesso válido veem a tela de pagamento. A regra permanente: **qualquer bloco de UI de pagamento só pode disparar quando a API confirmou explicitamente que não há acesso** — nunca quando o estado é desconhecido.
+
 **2026-09-07** — Sessão de diagnóstico do check-in + redesign do modal:
 - Diagnóstico confirmado (Elton reproduziu ao vivo): ao tocar "Gerar treino da semana", o modal de
   check-in aparecia com 2 botões lado a lado — no iPhone o botão "Sim" ficava cortado fora da tela.
