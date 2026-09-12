@@ -1162,6 +1162,10 @@ export class CoachService {
           preMotivation: session.completion?.preMotivation ?? null,
           // Feedback v1 — bloco 2: experiencia
           postWorkoutFeeling: session.completion?.postWorkoutFeeling ?? null,
+          // postWorkoutMood fica em details (campo sem migration propria — 12/09/2026)
+          postWorkoutMood: session.completion?.details != null && typeof session.completion.details === 'object'
+            ? (Number((session.completion.details as Record<string, unknown>).postWorkoutMood) || null)
+            : null,
           // Feedback v1 — bloco 3: dor
           painFlag: session.completion?.painFlag ?? null,
           painTiming: session.completion?.painTiming ?? null,

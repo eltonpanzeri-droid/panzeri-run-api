@@ -301,6 +301,7 @@ interface StudentDetail {
       preMotivation?: number | null;
       // Feedback v1 — bloco 2
       postWorkoutFeeling?: number | null;
+      postWorkoutMood?: number | null;
       // Feedback v1 — bloco 3
       painFlag?: string | null;
       painTiming?: string | null;
@@ -2814,8 +2815,14 @@ function StudentPanel({
           </EvoSection>
 
           <EvoSection icon="⭐" title="Experiência com o treino" badge={feedbackSessions > 0 ? `${feedbackSessions} respostas` : undefined}
-            desc="Três dimensões: elaboração (como o treino foi montado), execução (como o aluno conseguiu fazer), sensação final (como terminou). Todas em escala 1–5. Ver distribuição das respostas expande detalhes.">
+            desc="Quatro dimensões: elaboração (como o treino foi montado), execução (como o aluno conseguiu fazer), sensação corporal e humor final (1–5). Zona verde = ótimo, amarela = ok, vermelha = atenção. Ver distribuição expande detalhes.">
             <ExperienciaTreinoSection history={hist} period={evolPeriod} />
+          </EvoSection>
+
+          <EvoSection icon="🔁" title="Arco do treino (pré → pós)"
+            badge={(() => { const n = flatFeedbackSessions(hist).filter((s) => (s.completionStatus === 'done' || s.completionStatus === 'adjusted') && (s.preSleepQuality != null || s.preMotivation != null) && (s.postWorkoutFeeling != null || s.postWorkoutMood != null)).length; return n > 0 ? `${n} sessões` : undefined; })()}
+            desc="Como o aluno chegou (prontidão) vs como saiu (sensação física + humor). Delta verde = treino energizou; vermelho = treinou em déficit. Série de deltas negativos por 3+ semanas = sinal de overtraining.">
+            <ArcoTreinoSection history={hist} />
           </EvoSection>
 
           <EvoSection icon="🩹" title="Dor ao longo do tempo" badge={sessionsWithV1Pain.length > 0 ? sessionsWithV1Pain.filter((s) => s.painFlag !== 'none').length : undefined}
@@ -5056,8 +5063,21 @@ const PRE_SERIES: Array<{ key: PreWorkoutSeries; label: string; color: string; f
   { key: 'motivacao', label: 'Motivação',  color: '#22c55e', field: 'preMotivation' },
 ];
 
+// Índice de Prontidão: média das 4 variáveis, invertendo cansaço e estresse
+// (alto cansaço/estresse = ruim → inverte para escala positiva)
+// Resultado fica na escala 1-5 como as séries individuais.
+function computeReadiness(s: { preSleepQuality: number | null; prePhysicalFatigue: number | null; preStressLevel: number | null; preMotivation: number | null }): number | null {
+  const vals: number[] = [];
+  if (s.preSleepQuality != null)    vals.push(s.preSleepQuality);
+  if (s.prePhysicalFatigue != null) vals.push(6 - s.prePhysicalFatigue); // invertido
+  if (s.preStressLevel != null)     vals.push(6 - s.preStressLevel);     // invertido
+  if (s.preMotivation != null)      vals.push(s.preMotivation);
+  return vals.length >= 2 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+}
+
 function PreWorkoutStateSection({ history }: { history: StudentDetail['history']; period?: number }) {
   const [active, setActive] = useState<Set<PreWorkoutSeries>>(new Set(['sono', 'cansaco', 'estresse', 'motivacao']));
+  const [showReadiness, setShowReadiness] = useState(true);
   const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('sessao');
 
   const allSessions = flatFeedbackSessions(history)
@@ -5067,13 +5087,14 @@ function PreWorkoutStateSection({ history }: { history: StudentDetail['history']
   if (allSessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum dado de estado pré-treino disponível ainda (coleta começou em 11/09/2026).</p>;
 
   // Agregar por período se necessário
-  type DataPoint = { label: string; values: Partial<Record<PreWorkoutSeries, number | null>>; n: number };
+  type DataPoint = { label: string; values: Partial<Record<PreWorkoutSeries, number | null>>; n: number; readiness: number | null };
   let points: DataPoint[] = [];
 
   if (aggBy === 'sessao') {
     points = allSessions.map((s) => ({
       label: s.date.slice(5).replace('-', '/'),
       n: 1,
+      readiness: computeReadiness(s),
       values: {
         sono: s.preSleepQuality,
         cansaco: s.prePhysicalFatigue,
@@ -5092,11 +5113,15 @@ function PreWorkoutStateSection({ history }: { history: StudentDetail['history']
         if (v != null) { b.sum[k] = (b.sum[k] ?? 0) + v; b.cnt[k] = (b.cnt[k] ?? 0) + 1; }
       }
     }
-    points = [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([key, b]) => ({
-      label: aggBy === 'semana' ? key.slice(5).replace('-', '/') : key.slice(0, 7),
-      n: b.n,
-      values: Object.fromEntries(PRE_SERIES.map(({ key: k }) => [k, b.cnt[k] ? (b.sum[k]! / b.cnt[k]!) : null])) as Partial<Record<PreWorkoutSeries, number | null>>,
-    }));
+    points = [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([key, b]) => {
+      const avgVals = Object.fromEntries(PRE_SERIES.map(({ key: k }) => [k, b.cnt[k] ? (b.sum[k]! / b.cnt[k]!) : null])) as Partial<Record<PreWorkoutSeries, number | null>>;
+      return {
+        label: aggBy === 'semana' ? key.slice(5).replace('-', '/') : key.slice(0, 7),
+        n: b.n,
+        values: avgVals,
+        readiness: computeReadiness({ preSleepQuality: avgVals.sono ?? null, prePhysicalFatigue: avgVals.cansaco ?? null, preStressLevel: avgVals.estresse ?? null, preMotivation: avgVals.motivacao ?? null }),
+      };
+    });
   }
 
   const W = 560; const H = 180; const PL = 32; const PR = 8; const PT = 12; const PB = 28;
@@ -5136,10 +5161,18 @@ function PreWorkoutStateSection({ history }: { history: StudentDetail['history']
       {aggBy !== 'sessao' && <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Médias agregadas — n={points.reduce((a, p) => a + p.n, 0)} sessões</p>}
       {/* Gráfico */}
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
+        {/* Bandas de zona: vermelho 1-2, amarelo 2-3.5, verde 3.5-5 */}
+        <rect x={PL} y={yScale(5)} width={gW} height={yScale(3.5) - yScale(5)} fill="#22c55e18" />
+        <rect x={PL} y={yScale(3.5)} width={gW} height={yScale(2) - yScale(3.5)} fill="#f59e0b14" />
+        <rect x={PL} y={yScale(2)} width={gW} height={PT + gH - yScale(2)} fill="#ef444418" />
+        {/* Rótulos de zona (direita) */}
+        <text x={W - PR + 3} y={yScale(4.5) + 4} fontSize={7} fill="#22c55e99" textAnchor="start">ótimo</text>
+        <text x={W - PR + 3} y={yScale(2.75) + 4} fontSize={7} fill="#f59e0b99" textAnchor="start">ok</text>
+        <text x={W - PR + 3} y={yScale(1.5) + 4} fontSize={7} fill="#ef444499" textAnchor="start">baixo</text>
         {/* Grid */}
         {[1,2,3,4,5].map((v) => { const y = yScale(v); return (
           <g key={v}>
-            <line x1={PL} y1={y} x2={W - PR} y2={y} stroke="var(--line)" strokeWidth={0.5} />
+            <line x1={PL} y1={y} x2={W - PR} y2={y} stroke="var(--line)" strokeWidth={v === 3 ? 1 : 0.4} strokeDasharray={v === 3 ? '3,3' : undefined} />
             <text x={PL - 4} y={y + 4} fontSize={8} fill="var(--muted)" textAnchor="end">{v}</text>
           </g>
         ); })}
@@ -5155,48 +5188,79 @@ function PreWorkoutStateSection({ history }: { history: StudentDetail['history']
           if (seg) segments.push(seg);
           return (
             <g key={k}>
-              {segments.map((d, i) => <path key={i} d={d} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />)}
-              {pts.map((pt, i) => pt.y != null ? <circle key={i} cx={pt.x} cy={pt.y} r={3} fill={color} /> : null)}
+              {segments.map((d, i) => <path key={i} d={d} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeOpacity={0.8} />)}
+              {pts.map((pt, i) => pt.y != null ? <circle key={i} cx={pt.x} cy={pt.y} r={2.5} fill={color} /> : null)}
             </g>
           );
         })}
+        {/* Linha de Prontidão (readiness index — média ponderada invertendo cansaço e estresse) */}
+        {showReadiness && (() => {
+          const pts = points.map((p, i) => ({ x: PL + i * xStep, y: p.readiness != null ? yScale(p.readiness) : null }));
+          const segs: string[] = []; let seg = '';
+          for (const { x, y } of pts) {
+            if (y == null) { if (seg) segs.push(seg); seg = ''; }
+            else seg += seg ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
+          }
+          if (seg) segs.push(seg);
+          return (
+            <g>
+              {segs.map((d, i) => <path key={i} d={d} fill="none" stroke="#0ea5e9" strokeWidth={2.5} strokeLinejoin="round" strokeDasharray="5,3" />)}
+              {pts.map((pt, i) => pt.y != null ? <circle key={i} cx={pt.x} cy={pt.y} r={3.5} fill="#0ea5e9" fillOpacity={0.85} /> : null)}
+            </g>
+          );
+        })()}
         {/* Eixo X */}
         {xLabels.map(({ i, label }) => (
           <text key={i} x={PL + i * xStep} y={H - 4} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
         ))}
       </svg>
+      {/* Legenda de prontidão */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6, flexWrap: 'wrap' }}>
+        <button type="button" onClick={() => setShowReadiness((v) => !v)}
+          style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '3px 10px', borderRadius: 20, cursor: 'pointer',
+            background: showReadiness ? '#0ea5e922' : 'var(--surface)',
+            border: `1.5px solid ${showReadiness ? '#0ea5e9' : 'var(--line)'}`,
+            color: showReadiness ? '#0ea5e9' : 'var(--muted)', fontWeight: showReadiness ? 700 : 400 }}>
+          {showReadiness ? '✓ ' : ''}Prontidão (índice)
+        </button>
+        <span style={{ fontSize: 10, color: 'var(--muted)' }}>
+          Prontidão = média(sono, motivação, 6−cansaço, 6−estresse) — escala 1–5. Abaixo de 2.5 merece atenção.
+        </span>
+      </div>
       <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Escala 1–5. Ausência = dado não coletado (sessões anteriores a 11/09/2026).</p>
     </div>
   );
 }
 
 // ── EXPERIÊNCIA COM O TREINO ───────────────────────────────────────────────
-type ExpSeries = 'elaboracao' | 'execucao' | 'sensacao';
+type ExpSeries = 'elaboracao' | 'execucao' | 'sensacao' | 'humor';
 const EXP_SERIES: Array<{ key: ExpSeries; label: string; color: string }> = [
-  { key: 'elaboracao', label: 'Elaboração', color: '#818cf8' },
-  { key: 'execucao',   label: 'Execução',   color: '#34d399' },
-  { key: 'sensacao',   label: 'Sensação final', color: '#f472b6' },
+  { key: 'elaboracao', label: 'Elaboração',   color: '#818cf8' },
+  { key: 'execucao',   label: 'Execução',     color: '#34d399' },
+  { key: 'sensacao',   label: 'Sensação corporal', color: '#f472b6' },
+  { key: 'humor',      label: 'Humor final',  color: '#fb923c' },
 ];
 const SAT_TO_5: Record<string, number> = { amei: 5, gostei: 4, neutro: 3, nao_gostei: 2, detestei: 1 };
 
 function ExperienciaTreinoSection({ history }: { history: StudentDetail['history']; period?: number }) {
-  const [active, setActive] = useState<Set<ExpSeries>>(new Set(['elaboracao', 'execucao', 'sensacao']));
+  const [active, setActive] = useState<Set<ExpSeries>>(new Set(['elaboracao', 'execucao', 'sensacao', 'humor']));
   const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('sessao');
   const [showDist, setShowDist] = useState(false);
 
   const allSessions = flatFeedbackSessions(history)
-    .filter((s) => s.satisfactionElaboracao != null || s.satisfactionCapacidade != null || s.postWorkoutFeeling != null)
+    .filter((s) => s.satisfactionElaboracao != null || s.satisfactionCapacidade != null || s.postWorkoutFeeling != null || s.postWorkoutMood != null)
     .sort((a, b) => a.date.localeCompare(b.date));
 
   if (allSessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados de experiência de treino disponíveis.</p>;
 
-  type DataPoint = { label: string; elaboracao: number | null; execucao: number | null; sensacao: number | null; n: number };
+  type DataPoint = { label: string; elaboracao: number | null; execucao: number | null; sensacao: number | null; humor: number | null; n: number };
 
-  function toNum(s: FlatSession): { elaboracao: number | null; execucao: number | null; sensacao: number | null } {
+  function toNum(s: FlatSession): { elaboracao: number | null; execucao: number | null; sensacao: number | null; humor: number | null } {
     return {
       elaboracao: s.satisfactionElaboracao ? (SAT_TO_5[s.satisfactionElaboracao] ?? null) : null,
       execucao: s.satisfactionCapacidade ? (SAT_TO_5[s.satisfactionCapacidade] ?? null) : null,
       sensacao: s.postWorkoutFeeling ?? null,
+      humor: s.postWorkoutMood ?? null,
     };
   }
 
@@ -5220,6 +5284,7 @@ function ExperienciaTreinoSection({ history }: { history: StudentDetail['history
       elaboracao: b.cnt.elaboracao ? b.sum.elaboracao / b.cnt.elaboracao : null,
       execucao: b.cnt.execucao ? b.sum.execucao / b.cnt.execucao : null,
       sensacao: b.cnt.sensacao ? b.sum.sensacao / b.cnt.sensacao : null,
+      humor: b.cnt.humor ? b.sum.humor / b.cnt.humor : null,
     }));
   }
 
@@ -5232,11 +5297,12 @@ function ExperienciaTreinoSection({ history }: { history: StudentDetail['history
     : [0, Math.floor(n / 4), Math.floor(n / 2), Math.floor(3 * n / 4), n - 1].map((i) => ({ i, label: points[i].label }));
 
   // Distribuição de respostas
-  const distCounts: Record<ExpSeries, Record<string, number>> = { elaboracao: {}, execucao: {}, sensacao: {} };
+  const distCounts: Record<ExpSeries, Record<string, number>> = { elaboracao: {}, execucao: {}, sensacao: {}, humor: {} };
   for (const s of allSessions) {
     if (s.satisfactionElaboracao) distCounts.elaboracao[s.satisfactionElaboracao] = (distCounts.elaboracao[s.satisfactionElaboracao] ?? 0) + 1;
     if (s.satisfactionCapacidade) distCounts.execucao[s.satisfactionCapacidade] = (distCounts.execucao[s.satisfactionCapacidade] ?? 0) + 1;
     if (s.postWorkoutFeeling) { const k = String(s.postWorkoutFeeling); distCounts.sensacao[k] = (distCounts.sensacao[k] ?? 0) + 1; }
+    if (s.postWorkoutMood) { const k = String(s.postWorkoutMood); distCounts.humor[k] = (distCounts.humor[k] ?? 0) + 1; }
   }
 
   return (
@@ -5262,9 +5328,13 @@ function ExperienciaTreinoSection({ history }: { history: StudentDetail['history
         </span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
+        {/* Bandas de zona: verde 3.5-5, amarelo 2-3.5, vermelho 1-2 */}
+        <rect x={PL} y={yScale(5)} width={gW} height={yScale(3.5) - yScale(5)} fill="#22c55e18" />
+        <rect x={PL} y={yScale(3.5)} width={gW} height={yScale(2) - yScale(3.5)} fill="#f59e0b14" />
+        <rect x={PL} y={yScale(2)} width={gW} height={PT + gH - yScale(2)} fill="#ef444418" />
         {[1,2,3,4,5].map((v) => { const y = yScale(v); return (
           <g key={v}>
-            <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="var(--line)" strokeWidth={0.5} />
+            <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="var(--line)" strokeWidth={v === 3 ? 1 : 0.4} strokeDasharray={v === 3 ? '3,3' : undefined} />
             <text x={PL-4} y={y+4} fontSize={8} fill="var(--muted)" textAnchor="end">{v}</text>
           </g>
         ); })}
@@ -5278,8 +5348,8 @@ function ExperienciaTreinoSection({ history }: { history: StudentDetail['history
           if (seg) segments.push(seg);
           return (
             <g key={k}>
-              {segments.map((d, i) => <path key={i} d={d} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />)}
-              {vals.map((pt, i) => pt.y != null ? <circle key={i} cx={pt.x} cy={pt.y} r={3} fill={color} /> : null)}
+              {segments.map((d, i) => <path key={i} d={d} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeOpacity={0.85} />)}
+              {vals.map((pt, i) => pt.y != null ? <circle key={i} cx={pt.x} cy={pt.y} r={2.5} fill={color} /> : null)}
             </g>
           );
         })}
@@ -5288,7 +5358,7 @@ function ExperienciaTreinoSection({ history }: { history: StudentDetail['history
         ))}
       </svg>
       <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-        Elaboração e Execução: escala derivada de amei(5)→detestei(1). Sensação final: escala 1–5 direta (a partir de 11/09/2026).
+        Elaboração e Execução: amei(5)→detestei(1). Sensação corporal e Humor: escala 1–5 direta (a partir de 11/09/2026).
       </p>
       <button type="button" onClick={() => setShowDist((v) => !v)}
         style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', marginTop: 4 }}>
@@ -5300,7 +5370,8 @@ function ExperienciaTreinoSection({ history }: { history: StudentDetail['history
             const counts = distCounts[k];
             const total = Object.values(counts).reduce((a, b) => a + b, 0);
             if (total === 0) return null;
-            const entries = k === 'sensacao'
+            const isNumeric = k === 'sensacao' || k === 'humor';
+            const entries = isNumeric
               ? [1,2,3,4,5].map((v) => ({ label: String(v), count: counts[String(v)] ?? 0 }))
               : ['amei','gostei','neutro','nao_gostei','detestei'].map((v) => ({ label: { amei: 'Amei', gostei: 'Gostei', neutro: 'Neutro', nao_gostei: 'Nao gostei', detestei: 'Detestei' }[v]!, count: counts[v] ?? 0 }));
             return (
@@ -5320,6 +5391,154 @@ function ExperienciaTreinoSection({ history }: { history: StudentDetail['history
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── ARCO DO TREINO ────────────────────────────────────────────────────────
+// Compara "como chegou" (prontidão pré-treino) vs "como saiu" (sensação+humor pós-treino).
+// Delta verde = treino energizou ou manteve o estado. Delta vermelho = treino drenou.
+// Série de deltas negativos = sinal de overtraining ou acúmulo de fadiga.
+function ArcoTreinoSection({ history }: { history: StudentDetail['history'] }) {
+  const sessions = flatFeedbackSessions(history)
+    .filter((s) => (s.completionStatus === 'done' || s.completionStatus === 'adjusted'))
+    .filter((s) => {
+      const hasPre = s.preSleepQuality != null || s.prePhysicalFatigue != null || s.preStressLevel != null || s.preMotivation != null;
+      const hasPost = s.postWorkoutFeeling != null || s.postWorkoutMood != null;
+      return hasPre && hasPost;
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (sessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Dados insuficientes — é necessário ter pelo menos uma sessão com campos pré E pós preenchidos (a partir de 11/09/2026).</p>;
+
+  // Pré: índice de prontidão (1-5)
+  // Pós: média(sensação corporal, humor) — apenas os disponíveis
+  const points = sessions.map((s, i) => {
+    const pre = computeReadiness(s) ?? 0;
+    const postVals = [s.postWorkoutFeeling, s.postWorkoutMood].filter((v): v is number => v != null);
+    const post = postVals.length > 0 ? postVals.reduce((a, b) => a + b, 0) / postVals.length : null;
+    const delta = post != null ? post - pre : null;
+    return { i, label: s.date.slice(5).replace('-', '/'), pre, post, delta };
+  });
+
+  const W = 560; const H = 160; const PL = 32; const PR = 8; const PT = 12; const PB = 28;
+  const gW = W - PL - PR; const gH = H - PT - PB;
+  const n = points.length;
+  const xStep = n > 1 ? gW / (n - 1) : gW;
+  const yScale5 = (v: number) => PT + gH - ((v - 1) / 4) * gH;
+
+  // Delta chart: barra por sessão, altura proporcional ao delta (-4 a +4)
+  const DH = 48; const midY = 12 + DH / 2;
+  const barH = (d: number) => Math.abs(d) / 4 * (DH / 2);
+  const barY = (d: number) => d >= 0 ? midY - barH(d) : midY;
+
+  const xLabels = n <= 8 ? points.map((p) => ({ i: p.i, label: p.label }))
+    : [0, Math.floor(n/4), Math.floor(n/2), Math.floor(3*n/4), n-1].map((i) => ({ i, label: points[i].label }));
+
+  const barW = Math.max(2, Math.min(12, gW / n - 2));
+
+  return (
+    <div>
+      {/* KPIs de resumo */}
+      {(() => {
+        const withDelta = points.filter((p) => p.delta != null);
+        if (withDelta.length === 0) return null;
+        const avg = withDelta.reduce((a, p) => a + p.delta!, 0) / withDelta.length;
+        const pos = withDelta.filter((p) => p.delta! > 0.2).length;
+        const neg = withDelta.filter((p) => p.delta! < -0.2).length;
+        return (
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: avg >= 0 ? '#22c55e' : '#ef4444' }}>{avg >= 0 ? '+' : ''}{avg.toFixed(1)}</div>
+              <div style={{ fontSize: 10, color: 'var(--muted)' }}>delta médio</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#22c55e' }}>{pos}</div>
+              <div style={{ fontSize: 10, color: 'var(--muted)' }}>treinos que energizaram</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#ef4444' }}>{neg}</div>
+              <div style={{ fontSize: 10, color: 'var(--muted)' }}>treinos que drenaram</div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Gráfico de linhas pré vs pós */}
+      <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Prontidão pré × Sensação pós (escala 1–5)</p>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
+        {/* Bandas */}
+        <rect x={PL} y={yScale5(5)} width={gW} height={yScale5(3.5) - yScale5(5)} fill="#22c55e10" />
+        <rect x={PL} y={yScale5(3.5)} width={gW} height={yScale5(2) - yScale5(3.5)} fill="#f59e0b10" />
+        <rect x={PL} y={yScale5(2)} width={gW} height={PT + gH - yScale5(2)} fill="#ef444410" />
+        {/* Grid */}
+        {[1,2,3,4,5].map((v) => { const y = yScale5(v); return (
+          <g key={v}>
+            <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="var(--line)" strokeWidth={0.4} />
+            <text x={PL-4} y={y+4} fontSize={8} fill="var(--muted)" textAnchor="end">{v}</text>
+          </g>
+        ); })}
+        {/* Linha pré (prontidão) — tracejada cinza */}
+        {(() => {
+          const segs: string[] = []; let seg = '';
+          for (const p of points) {
+            const x = PL + p.i * xStep; const y = yScale5(p.pre);
+            seg += seg ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
+          }
+          if (seg) segs.push(seg);
+          return segs.map((d, i) => <path key={i} d={d} fill="none" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4,3" strokeLinejoin="round" />);
+        })()}
+        {/* Linha pós (sensação) — sólida azul */}
+        {(() => {
+          const segs: string[] = []; let seg = '';
+          for (const p of points) {
+            if (p.post == null) { if (seg) segs.push(seg); seg = ''; continue; }
+            const x = PL + p.i * xStep; const y = yScale5(p.post);
+            seg += seg ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
+          }
+          if (seg) segs.push(seg);
+          return (<g>
+            {segs.map((d, i) => <path key={i} d={d} fill="none" stroke="#0ea5e9" strokeWidth={2} strokeLinejoin="round" />)}
+            {points.map((p) => p.post != null ? <circle key={p.i} cx={PL + p.i * xStep} cy={yScale5(p.post)} r={3} fill="#0ea5e9" /> : null)}
+          </g>);
+        })()}
+        {/* Círculos pré */}
+        {points.map((p) => <circle key={p.i} cx={PL + p.i * xStep} cy={yScale5(p.pre)} r={2.5} fill="#94a3b8" />)}
+        {/* Eixo X */}
+        {xLabels.map(({ i, label }) => (
+          <text key={i} x={PL + i * xStep} y={H-4} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
+        ))}
+      </svg>
+
+      {/* Gráfico de delta (barras) */}
+      <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 12, marginBottom: 2 }}>Delta pós−pré por sessão</p>
+      <svg viewBox={`0 0 ${W} ${DH + 24}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
+        {/* Linha zero */}
+        <line x1={PL} y1={midY} x2={W-PR} y2={midY} stroke="var(--line)" strokeWidth={1} />
+        <text x={PL-4} y={midY+4} fontSize={7} fill="var(--muted)" textAnchor="end">0</text>
+        {/* Barras */}
+        {points.map((p) => {
+          if (p.delta == null) return null;
+          const color = p.delta > 0.2 ? '#22c55e' : p.delta < -0.2 ? '#ef4444' : '#94a3b8';
+          const bh = barH(p.delta);
+          const by = barY(p.delta);
+          const x = PL + p.i * xStep - barW / 2;
+          return <rect key={p.i} x={x} y={by} width={barW} height={Math.max(1, bh)} fill={color} fillOpacity={0.8} rx={1} />;
+        })}
+        {/* Labels eixo X */}
+        {xLabels.map(({ i, label }) => (
+          <text key={i} x={PL + i * xStep} y={DH + 20} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
+        ))}
+      </svg>
+
+      {/* Legenda */}
+      <div style={{ display: 'flex', gap: 16, marginTop: 6, flexWrap: 'wrap', fontSize: 11, color: 'var(--muted)' }}>
+        <span><span style={{ display: 'inline-block', width: 20, height: 2, background: '#94a3b8', verticalAlign: 'middle', marginRight: 4 }} />Prontidão pré-treino</span>
+        <span><span style={{ display: 'inline-block', width: 20, height: 2, background: '#0ea5e9', verticalAlign: 'middle', marginRight: 4 }} />Sensação pós-treino</span>
+        <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#22c55e', borderRadius: 1, verticalAlign: 'middle', marginRight: 4 }} />Energizou</span>
+        <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#ef4444', borderRadius: 1, verticalAlign: 'middle', marginRight: 4 }} />Drenou</span>
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Série de deltas negativos por 3+ semanas = sinal de overtraining ou acúmulo de fadiga.</p>
     </div>
   );
 }
@@ -6116,7 +6335,7 @@ function flatFeedbackSessions(history: StudentDetail['history']) {
     // Feedback v1
     preSleepQuality: number | null; prePhysicalFatigue: number | null;
     preStressLevel: number | null; preMotivation: number | null;
-    postWorkoutFeeling: number | null;
+    postWorkoutFeeling: number | null; postWorkoutMood: number | null;
     painFlag: string | null; painTiming: string | null;
     feedbackVersion: number | null;
   }> = [];
@@ -6145,6 +6364,7 @@ function flatFeedbackSessions(history: StudentDetail['history']) {
         preStressLevel: session.preStressLevel ?? null,
         preMotivation: session.preMotivation ?? null,
         postWorkoutFeeling: session.postWorkoutFeeling ?? null,
+        postWorkoutMood: session.postWorkoutMood ?? null,
         painFlag: session.painFlag ?? null,
         painTiming: session.painTiming ?? null,
         feedbackVersion: session.feedbackVersion ?? null,
