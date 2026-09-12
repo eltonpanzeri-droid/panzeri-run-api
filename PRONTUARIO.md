@@ -1562,3 +1562,79 @@ Reformulação da experiência de registro de treino após teste real com treino
 - `825f2e3` — fix(admin): remove variavel y0 nao utilizada no KmEvolutionChart (ESLint)
 - `2cbc23a` — feat(admin): KmEvolutionChart com 3 barras por semana e labels em todas
 - `f91b73e` — fix(admin): ACWR com escala correta, grade H+V, labels rotacionados e aviso contextual
+
+---
+
+**2026-09-12 (continuação) — Correções pós-teste do CompletionForm**
+
+Quatro pontos levantados pelo Elton após testar o redesenho do formulário:
+
+1. **Texto de alongamento removido** — `STANDARD_WARMUP_COOLDOWN_TEXT` em
+   `training-plans.service.ts` terminava com "seguido de alongamento leve." — removido. Agora
+   o resfriamento termina em "logo apos terminar." Sem migration.
+
+2. **Steppers ▲/▼ para duração e distância** — `DurationWheelField` e `DistanceWheelField`
+   trocados de TextInputs (que abriam o teclado ao toque) para botões Pressable ▲/▼.
+   Duração: incremento por h / min / seg individualmente. Distância: incremento de 0.1 km por
+   passo. Visual: valor grande centralizado entre os dois botões; nenhum campo editável.
+
+3. **Formulário em página única** — Removida a navegação Continuar/Voltar entre os 3 blocos.
+   Todo o formulário now aparece em um único scroll quando o aluno está em modo edição. As 3
+   seções ("Como voce chegou", "Como foi o treino", "Dor e observacoes") ficam separadas por
+   um divisor visual (`height:1, backgroundColor:#E2DDD5`). O botão Salvar foi movido para
+   o rodapé e aparece sempre (antes só aparecia após confirmar o bloco 3). `feedbackStep`,
+   `setFeedbackStep`, `ProgressDots`, `block1Complete` e `block2Complete` removidos;
+   validação unificada em `allSectionsComplete`.
+
+4. **Tempo e distância prescritos no cabeçalho colapsado** — Quando o card de sessão está
+   recolhido, exibe `session.durationMin` e `session.distanceKm` abaixo do título (ex:
+   "45 min · 8.0 km"). Some quando expandido (a prescrição detalhada já aparece dentro).
+
+**Arquivos alterados**: `apps/mobile/App.tsx`, `apps/api/src/training-plans/training-plans.service.ts`.
+
+**Gates**: TypeScript limpo (mobile). Sem migration.
+
+**Commit**: `c7665ae — fix: formulario de feedback em scroll unico, steppers para tempo/distancia...`
+
+**2026-09-12 (continuação 2) — Investigação de bugs reportados por testadores + bug crítico da API**
+
+Dois reportes chegaram via WhatsApp/Instagram de pessoas testando o app:
+
+**Lucelane ("Estou sem acesso ao app")** — Aluna ativa que se cadastrou também como testadora. A tela
+que ela vê ("Seu acesso está quase pronto" com campo de CPF e "Ativar minha assinatura") é exibida
+quando `!plan && !hasSubscriptionAccess`. As hipóteses, em ordem de probabilidade:
+1. Ela entrou no app com um **e-mail diferente** do e-mail de aluna (conta nova sem assinatura).
+2. O `subscriptionStatus` da conta dela está como `'pending'` por falha de sync do cron de billing.
+**Diagnóstico necessário**: verificar no painel admin qual conta a Lucelane está usando e qual o
+`subscriptionStatus`. Se for conta diferente: orientar a usar o e-mail correto, ou adicionar a conta
+de testadora ao painel como aluna. Não há código a corrigir até confirmar a causa.
+
+**Tiago ("Preencha todas as perguntas do bloco 'Como você chegou'")** — BUG CRÍTICO encontrado e
+corrigido. A causa: ontem adicionamos validação no servidor (`workout-completions.service.ts`) que
+exige os 4 campos de pré-treino (`preSleepQuality`, `prePhysicalFatigue`, `preStressLevel`,
+`preMotivation`) e `postWorkoutFeeling` para qualquer completion `done`/`adjusted`. Mas o build
+da Play Store que os testadores têm é mais antigo — esses campos não existem na interface deles.
+Resultado: o Tiago preenche o que consegue com a tela antiga, tenta salvar, e a API nova retorna 400.
+
+**Correção aplicada**: lógica `isV1Client` em `workout-completions.service.ts`. Se ao menos um campo
+de pré-treino veio no DTO, é cliente v1 e todos devem vir. Se nenhum veio, é cliente antigo — passa
+sem eles. A validação de satisfação/elaboração/painFlag (que existia na tela antiga) permanece
+obrigatória para todos.
+
+**Gates**: TypeScript limpo (API). Sem migration.
+
+**Commit**: `3c65ab9 — fix: validacao de feedback v1 retrocompativel com clientes antigos da Play Store`
+
+**Play Store — atualização para testadores**: Os testadores com build da Play Store NÃO verão o novo
+formulário (scroll único, wheel picker de tempo/distância, métricas no topo) sem uma nova build EAS.
+Com o fix acima, ao menos eles voltam a conseguir salvar treinos. Para receber o redesenho completo,
+é necessário um novo `gerar-app-android-producao.bat` + subir o AAB no Play Console. A decisão de
+quando fazer isso é do Elton.
+
+**Pente fino no CompletionForm (novo formato)** — revisão do código, sem bugs novos encontrados:
+- `whyExpanded` declarado corretamente (linha 8239).
+- `distanceKm.replace(',', '.')` seguro: `defaultCompletionDraft` sempre inicializa como `''`.
+- `allSectionsComplete` exige `postWorkoutMood`, mas a API não valida esse campo (vai em `details`).
+  Inconsistência intencional: o mobile é mais rigoroso que a API para garantir captura do humor.
+- Editar completions antigas (sem campos v1) requer preencher tudo de novo → fricção esperada
+  (nenhuma "jornada de edição retroativa" foi projetada, o treinador não pediu isso).
