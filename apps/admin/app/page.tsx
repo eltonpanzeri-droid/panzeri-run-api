@@ -6158,8 +6158,8 @@ function TrainingCalendarDots({ history, onDayClick }: {
             <div key={d} style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{d}</div>
           ))}
         </div>
-        {/* Linhas de semana */}
-        {weeks.map((week, wi) => {
+        {/* Linhas de semana — mais recente no topo */}
+        {[...weeks].reverse().map((week, wi) => {
           const weekLabel = `${week[0].getDate().toString().padStart(2, '0')}/${(week[0].getMonth() + 1).toString().padStart(2, '0')}`;
           return (
             <div key={wi} style={{ display: 'grid', gridTemplateColumns: `52px repeat(7, 1fr)`, gap: '4px 4px', marginBottom: 8, alignItems: 'center' }}>
