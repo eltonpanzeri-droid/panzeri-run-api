@@ -3362,7 +3362,22 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
         return;
       }
       if (data && !data.locked && !data.requiresOnboarding && !isDetailedPlan(data as WeekPlan)) {
+        // Bug corrigido 12/09 (Lucelane et al.): setPlan(null) aqui deixava notGeneratedRange=null
+        // tambem, e a condicao de pagamento (!plan && !notGeneratedRange) ficava verdadeira —
+        // mostrava "Seu acesso esta quase pronto" para alunos com assinatura valida que tinham um
+        // plano em formato antigo no banco. A correcao e tratar esse estado como "plano gerado mas
+        // nao exibivel" — salvar notGeneratedRange com o acesso real do usuario (obtido do campo
+        // hasSubscriptionAccess do plano, que a API inclui quando unlocked=true) para que a logica
+        // de pagamento saiba que o acesso foi confirmado, mesmo sem plano exibivel.
         setPlan(null);
+        setNotGeneratedRange({
+          startDate: (data as WeekPlan & { startDate?: string }).startDate ?? '',
+          endDate: (data as WeekPlan & { endDate?: string }).endDate ?? '',
+          // hasSubscriptionAccess vem do plano quando a API o retornou com unlocked=true;
+          // se ausente, assume true (plano antigo existente = usuario ja pagou)
+          hasSubscriptionAccess: (data as { hasSubscriptionAccess?: boolean }).hasSubscriptionAccess ?? true,
+          hasEverHadPlan: true,
+        });
         setStatus('Programa antigo detectado. Gere uma nova semana para ver os treinos detalhados.');
         return;
       }
@@ -3403,7 +3418,15 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
 
       const data = (await response.json()) as WeekPlan;
       if (!data.locked && !data.requiresOnboarding && !isDetailedPlan(data)) {
+        // Bug corrigido 12/09: mesmo fix do loadPlan — setar notGeneratedRange para que a
+        // condicao de pagamento nao dispare indevidamente apos falha de isDetailedPlan.
         setPlan(null);
+        setNotGeneratedRange({
+          startDate: (data as WeekPlan & { startDate?: string }).startDate ?? '',
+          endDate: (data as WeekPlan & { endDate?: string }).endDate ?? '',
+          hasSubscriptionAccess: (data as { hasSubscriptionAccess?: boolean }).hasSubscriptionAccess ?? true,
+          hasEverHadPlan: true,
+        });
         setStatus('A API ainda esta com a versao antiga. Publique no EasyPanel e gere novamente.');
         return;
       }

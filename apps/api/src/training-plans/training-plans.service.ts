@@ -2156,6 +2156,10 @@ export class TrainingPlansService {
       generatedAt: plan.createdAt,
       recommendation: plan.aiRecommendation,
       locked: false,
+      // Incluso explicitamente para que o app mobile possa distinguir "plano existe mas nao
+      // exibivel (isDetailedPlan=false)" de "aluno nao tem assinatura" — sem esse campo o
+      // mobile nao tinha como saber o status de acesso quando o plano e retornado desbloqueado.
+      hasSubscriptionAccess: unlocked,
       sessions: plan.sessions.map((session) => ({
         id: session.id,
         day: dayNames[session.weekday] ?? 'Dia',
