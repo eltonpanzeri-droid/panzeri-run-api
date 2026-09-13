@@ -65,6 +65,7 @@ export class TechnicalManagerAgentService {
   }
 
   async chat(studentId: string, message: string): Promise<{ reply: string }> {
+    this.logger.log(`POST /chat recebido: studentId=${studentId}, message.length=${message?.length ?? 'undefined'}`);
     if (!this.client) {
       throw new BadRequestException('Agente gerente tecnico nao configurado (falta ANTHROPIC_API_KEY).');
     }

@@ -2054,7 +2054,9 @@ function StudentPanel({
         body: JSON.stringify({ message: outgoing }),
       });
       if (!response.ok) {
-        onStatus('Nao consegui conversar com o agente agora.');
+        let detail = '';
+        try { const body = await response.json(); detail = ` (HTTP ${response.status}: ${body?.message ?? JSON.stringify(body)})`; } catch { detail = ` (HTTP ${response.status})`; }
+        onStatus(`Nao consegui conversar com o agente agora.${detail}`);
         return;
       }
       await loadTechnicalManagerData(student.id);
