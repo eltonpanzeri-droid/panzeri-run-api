@@ -140,22 +140,33 @@ Causas possíveis:
    retorna `onboardingRequiredPlan(...)` antes de chegar ao plano.
 5. **Conta errada**: ela está logando com a conta de testadora (sem assinatura), não a conta de aluna.
 
-**Atenção de data**: hoje é domingo (13/09/2026). `startOfWeek(new Date())` retorna o domingo da
-semana atual = 2026-09-13. Um plano com `startDate = 2026-09-07` (segunda-feira da semana passada)
-NÃO seria encontrado pela query `startDate IN [2026-09-13, 2026-09-20]`. Se o plano dela foi gerado
-com `startDate = 2026-09-07`, ele estaria invisível — mas isso só aconteceria se `generateWeek()`
-usar uma lógica de `weekStart` diferente de `current()`, o que não deveria ser o caso.
+**Correção da análise de data** (auditoria 13/09, ORDEM ELTON²): a dossiê estava errada aqui.
+`startOfWeek(new Date())` em domingo 13/09/2026 retorna **segunda 07/09/2026**, não domingo 13/09.
+O cálculo: `day = 0 → diff = -6 → 13 - 6 = 7`. A query em `current()` busca `startDate IN [07/09, 14/09]`.
+Um plano com `startDate = 07/09` (segunda) **seria encontrado** corretamente.
+
+**Dados do painel admin coletados em 13/09/2026 ~13h42 SP:**
+- `subscriptionStatus`: "Pagamento confirmado" / Asaas confirmed. Sync: 13/09/2026 03:00
+- Lista de alunos: badge "Treino gerado" → admin encontrou plano `active` com `startDate = coachWeekStart = 07/09`
+- Aba "Semanas anteriores": mostra 07/09 como semana mais recente (6/8 treinos | 100% | 19.05/41.9 km)
+- Juliana (Cod. 0000002): mesma situação — "Treino gerado", Semanas anteriores mostra 07/09
+- Tiago (Cod. 0000050): Treinos tab mostra 07/09 como semana ATIVA — plano visível
+
+**Contradição-chave**: admin mostra "Treino gerado" (plano `active` com `startDate=07/09` existe) mas
+API retorna `notGenerated: true` para o app. Isso só é possível se o estado mudou entre o carregamento
+do painel e o último `current()` chamado pelo app, ou se o app tem estado React stale.
 
 ---
 
-## Diagnóstico necessário antes de qualquer nova tentativa
+## Diagnóstico restante (13/09/2026)
 
-1. **Painel admin**: qual é o `subscriptionStatus` da conta da Lucelane?
-2. **Painel admin (aba Treinos)**: ela tem um `TrainingPlan` com `status: 'active'`? Para qual
-   `startDate`? O `startDate` é 2026-09-13 (domingo) ou 2026-09-07 (segunda)?
-3. **Qual e-mail ela está usando** no app? É o mesmo da conta de aluna cadastrada no painel?
-4. Se o plano existe e é `active`: qual é o retorno real de `GET /training-plans/current` para ela?
-   (verificar nos logs do EasyPanel ou adicionar log temporário)
+Plano existe (`active`, `startDate=07/09`) conforme painel. Causa do `notGenerated: true` no app:
+**HIPÓTESE MAIS PROVÁVEL: estado React stale no app da Lucelane.**
+
+**Próxima ação obrigatória**: pedir que ela feche completamente o app (force-close) e reabra.
+Se o plano aparecer → era estado stale, bug resolvido sem deploy.
+Se continuar não aparecendo → há discrepância real entre estado do DB e o que `current()` retorna.
+Nesse caso, adicionar log temporário na API para capturar o response exato de `GET /training-plans/current` para o userId dela.
 
 ---
 

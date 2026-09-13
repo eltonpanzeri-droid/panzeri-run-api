@@ -823,6 +823,19 @@ export class BillingService {
     // 04/09: mesma correcao de corrida do webhook do Asaas acima (ver comentario la) — update
     // condicional em vez de ler status antes e escrever depois, pra 2 entregas duplicadas do mesmo
     // evento do RevenueCat nao dobrarem aviso/e-mail/geracao de treino.
+    // 13/09: guarda de precedencia — grants manuais (manual_active, grace) nao podem ser
+    // rebaixados por eventos do RevenueCat (ex: EXPIRATION sobrescrevendo manual_active). O
+    // treinador concede manual_active deliberadamente; um evento de expiracao de loja nao tem
+    // autoridade para revogar isso. Se o treinador quiser revogar, faz pelo painel do admin.
+    const MANUAL_GRANT_STATUSES: string[] = ['manual_active', 'grace'];
+    const currentStatus = user.subscriptionStatus ?? '';
+    const wouldDowngradeManualGrant = MANUAL_GRANT_STATUSES.includes(currentStatus) && !MANUAL_GRANT_STATUSES.includes(appStatus);
+    if (wouldDowngradeManualGrant) {
+      this.logger.warn(
+        `RevenueCat evento ${event?.type} tentou mudar status de "${currentStatus}" para "${appStatus}" — ignorado porque grants manuais têm precedência sobre eventos de loja. userId=${userId}`,
+      );
+      return { received: true };
+    }
     const updateResult = await this.prisma.user.updateMany({
       where: { id: userId, subscriptionStatus: { not: appStatus } },
       data: { subscriptionStatus: appStatus, subscriptionProvider: 'revenuecat', subscriptionUpdatedAt: new Date() },

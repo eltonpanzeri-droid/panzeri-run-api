@@ -227,8 +227,12 @@ export class TrainingPlansService {
   // mais "agendado" daqui pra frente); fica como rede de seguranca permanente, sem custo — so
   // troca status no banco, nunca chama IA.
   private async fixStuckScheduledPlan(userId: string, weekStart: Date) {
+    // Busca scheduled tanto na semana atual quanto na seguinte: current() já inclui ambas no
+    // IN clause (ver comentario do bug de 16/08 acima), então fixStuckScheduledPlan precisa da
+    // mesma janela para promover plans agendados para qualquer uma dessas datas.
     const stuckScheduled = await this.prisma.trainingPlan.findFirst({
-      where: { userId, status: 'scheduled', startDate: weekStart },
+      where: { userId, status: 'scheduled', startDate: { in: [weekStart, addDays(weekStart, 7)] } },
+      orderBy: { startDate: 'desc' },
       select: { id: true },
     });
     if (!stuckScheduled) return;
@@ -244,7 +248,7 @@ export class TrainingPlansService {
   async fixAllStuckScheduledPlans() {
     const weekStart = startOfWeek(new Date());
     const stuck = await this.prisma.trainingPlan.findMany({
-      where: { status: 'scheduled', startDate: weekStart },
+      where: { status: 'scheduled', startDate: { in: [weekStart, addDays(weekStart, 7)] } },
       select: { id: true, userId: true },
     });
     for (const plan of stuck) {
