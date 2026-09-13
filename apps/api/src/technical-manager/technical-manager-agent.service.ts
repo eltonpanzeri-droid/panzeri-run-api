@@ -34,11 +34,19 @@ export class TechnicalManagerAgentService {
   }
 
   async history(studentId: string) {
-    return this.prisma.coachChatMessage.findMany({
+    // Busca as HISTORY_LIMIT mensagens mais RECENTES (desc) e inverte para devolver em
+    // ordem cronologica ascendente — garantindo que a janela sempre inclua as mensagens
+    // mais novas (incluindo a que o treinador acabou de enviar, salva antes desta chamada).
+    // A ordem 'asc' + take retornava as mais ANTIGAS, causando dois bugs quando a conversa
+    // passa de HISTORY_LIMIT mensagens: (1) o painel do admin exibia so o historico antigo;
+    // (2) o array enviado a Anthropic terminava com role 'assistant', e a API rejeita requests
+    // cuja ultima mensagem nao e do 'user', gerando HTTP 500 na rota POST /chat.
+    const messages = await this.prisma.coachChatMessage.findMany({
       where: { userId: studentId },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
       take: HISTORY_LIMIT,
     });
+    return messages.reverse();
   }
 
   async directives(studentId: string) {
