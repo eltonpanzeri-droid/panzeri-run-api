@@ -115,8 +115,10 @@ export class WorkoutCompletionsService {
     });
 
     // Data formatada usada tanto no Telegram de mismatch quanto na notificacao de painel do treinador.
-    const dataFormatada = session.scheduledDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
-    const weekdayAbrev = session.scheduledDate.toLocaleDateString('pt-BR', { weekday: 'short', timeZone: 'America/Sao_Paulo' });
+    // scheduledDate e meia-noite UTC — usar 'UTC' evita o deslocamento de -3h que fazia a data
+    // aparecer como o dia anterior no Telegram (mesmo fix ja aplicado em training-plans.service.ts).
+    const dataFormatada = session.scheduledDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+    const weekdayAbrev = session.scheduledDate.toLocaleDateString('pt-BR', { weekday: 'short', timeZone: 'UTC' });
 
     // Sessao foi marcada em generateWeek() como fora da rotina/tempo combinado (sem diretriz que
     // explique) — pedido explicito do treinador 03/08: quando o aluno registra o feedback desse
