@@ -102,6 +102,10 @@ export class TechnicalManagerAgentService {
       const tools = this.buildTools(studentId);
       reply = await this.aiQueue.run(() => this.runConversation(student.name, messages, tools));
     } catch (error) {
+      this.logger.error(
+        `Falha no chat do gerente tecnico para studentId=${studentId}: ${(error as Error)?.message ?? String(error)}`,
+        (error as Error)?.stack,
+      );
       // Se o AI call falhar, remove a mensagem do treinador que ja foi salva — evita que
       // ela fique como "orpha" e quebre a alternancia de roles na proxima tentativa.
       await this.prisma.coachChatMessage.delete({ where: { id: created.id } }).catch(() => undefined);
