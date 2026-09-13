@@ -1,62 +1,38 @@
-import { buildWeeklyMethodologyDecision } from '../src/training-plans/training-methodology';
+import { computeRunSlots, computeStrengthSlots, sanitizeInterviewAnswers, stripRoutineKeysFromAnswers, hasSafetyConcern, isNovice, parseMmSsToSeconds } from '../src/training-plans/training-methodology';
 
-const availability = [
-  { weekday: 2, modalities: ['corrida'], availableMin: 45 },
-  { weekday: 4, modalities: ['corrida'], availableMin: 50 },
-  { weekday: 6, modalities: ['corrida'], availableMin: 80 },
-];
-
-describe('Panzeri training methodology', () => {
-  it('prioriza longo com corrida e caminhada para iniciante', () => {
-    const decision = buildWeeklyMethodologyDecision({
-      goal: 'Completar 5 km', experience: 'Nunca corri regularmente.', answers: { ran_5k_recently: 'no', fitness_self_rating: 'muito_leve' },
-      availability, history: [], stravaRunMinutes: 0, stravaLongestRunMinutes: 0,
-    });
-    expect(decision.sessions.find((session) => session.weekday === 6)?.sessionType).toBe('walk_run');
-    expect(decision.sessions.some((session) => session.sessionType === 'quality_run')).toBe(false);
+// The removed deterministic builder is not the current prescription engine.
+describe('Panzeri methodology context', () => {
+  it('uses modality-specific availability and keeps slots ordered', () => {
+    const availability = [
+      { weekday: 6, modalities: ['corrida', 'forca'], availableMin: 80, modalityDurations: { corrida: 60, forca: 20 } },
+      { weekday: 2, modalities: ['esteira'], availableMin: 45 },
+    ];
+    expect(computeRunSlots(availability)).toEqual([{ weekday: 2, durationMin: 45 }, { weekday: 6, durationMin: 60 }]);
+    expect(computeStrengthSlots(availability)).toEqual([{ weekday: 6, modality: 'forca', durationMin: 20 }]);
   });
-
-  it('inclui longo e apenas um treino de qualidade para corredor experiente', () => {
-    const decision = buildWeeklyMethodologyDecision({
-      goal: 'Melhorar meu tempo nos 10 km', experience: 'Corro regularmente ha mais de 2 anos.', answers: { ran_5k_recently: 'yes', longest_distance_recent: 15, recent_running_feeling: 'tranquila' },
-      availability, history: [{ runMinutes: 150, completedRunMinutes: 140, longestRunMinutes: 70, prescribedSessions: 3, completedSessions: 3 }],
-      stravaRunMinutes: 140, stravaLongestRunMinutes: 70,
-    });
-    expect(decision.sessions.filter((session) => session.sessionType === 'quality_run')).toHaveLength(1);
-    expect(decision.sessions.filter((session) => session.sessionType === 'long_run')).toHaveLength(1);
+  it('preserves legacy pain without mutating answers', () => {
+    const answers = { pain_region: 'joelho', current_continuous_run: 'Até 5 minutos', current_pain: 'yes' };
+    expect(sanitizeInterviewAnswers(answers)).toEqual({ current_pain: 'yes', pain_other_location: 'joelho' });
+    expect(answers.pain_region).toBe('joelho');
+    expect(sanitizeInterviewAnswers({ pain_region: 'joelho', pain_regions: ['joelho'] })).toEqual({ pain_regions: ['joelho'] });
   });
-
-  it('nao aumenta novamente um longo grande apos aumento recente', () => {
-    const decision = buildWeeklyMethodologyDecision({
-      goal: 'Completar 21 km', experience: 'Corro regularmente ha mais de 2 anos.', answers: { ran_5k_recently: 'yes', longest_distance_recent: 15, recent_running_feeling: 'tranquila' },
-      availability, history: [
-        { runMinutes: 170, completedRunMinutes: 170, longestRunMinutes: 75, prescribedSessions: 3, completedSessions: 3 },
-        { runMinutes: 155, completedRunMinutes: 155, longestRunMinutes: 65, prescribedSessions: 3, completedSessions: 3 },
-      ], stravaRunMinutes: 170, stravaLongestRunMinutes: 75,
-    });
-    expect(decision.sessions.find((session) => session.sessionType === 'long_run')?.durationMin).toBeLessThanOrEqual(75);
+  it('removes routine answers but preserves health and goals', () => {
+    const answers = { monday_run_time: 30, routine_modality_choice: 'corrida', current_pain: 'yes', goal: '10km' };
+    expect(stripRoutineKeysFromAnswers(answers)).toEqual({ current_pain: 'yes', goal: '10km' });
+    expect(answers.monday_run_time).toBe(30);
   });
-
-  it('reduz cautela mas nao bloqueia treino intervalado so por um relato antigo de dor na entrevista', () => {
-    // Uma dor relatada na entrevista de onboarding (resposta unica, nunca expira sozinha) deve
-    // reduzir volume/intensidade como precaucao, mas dor por si so nao deveria bloquear
-    // intervalado para sempre — isso so acontece com um relato ESTRUTURADO e recente de dor
-    // intensa (painTier explicito 'remove_running'), calculado pelo PainReportsService.
-    const decision = buildWeeklyMethodologyDecision({
-      goal: 'Melhorar meu tempo nos 5 km', experience: 'Corro regularmente ha mais de 2 anos.', answers: { current_pain: 'yes' },
-      availability, history: [], stravaRunMinutes: 0, stravaLongestRunMinutes: 0,
-    });
-    expect(decision.safetyAdjustment).toBe(true);
-    expect(decision.sessions.some((session) => session.sessionType === 'quality_run')).toBe(true);
+  it('retains pain and injury safety flags', () => {
+    expect(hasSafetyConcern({ current_pain: 'yes' })).toBe(true);
+    expect(hasSafetyConcern({ important_injury: 'Com limitações' })).toBe(true);
+    expect(hasSafetyConcern({ current_pain: 'no' })).toBe(false);
   });
-
-  it('remove treino intervalado quando o tier calculado e remove_running (dor intensa recente)', () => {
-    const decision = buildWeeklyMethodologyDecision({
-      goal: 'Melhorar meu tempo nos 5 km', experience: 'Corro regularmente ha mais de 2 anos.', answers: {},
-      availability, history: [], stravaRunMinutes: 0, stravaLongestRunMinutes: 0,
-      painTier: 'remove_running',
-    });
-    expect(decision.safetyAdjustment).toBe(true);
-    expect(decision.sessions.some((session) => session.sessionType === 'quality_run')).toBe(false);
+  it('recognizes novice and experienced current runners', () => {
+    expect(isNovice('Nunca corri regularmente', {})).toBe(true);
+    expect(isNovice('Corro há dois anos', { running_experience: 'currently_gt_1y', longest_distance: 15, recent_running_feeling: 'tranquila' })).toBe(false);
+  });
+  it('accepts current and legacy duration formats', () => {
+    expect(parseMmSsToSeconds('25:30')).toBe(1530);
+    expect(parseMmSsToSeconds('1:25:30')).toBe(5130);
+    expect(parseMmSsToSeconds('1:60:00')).toBeNull();
   });
 });

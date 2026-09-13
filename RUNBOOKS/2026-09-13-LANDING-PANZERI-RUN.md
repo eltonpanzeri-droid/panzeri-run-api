@@ -4,7 +4,7 @@
 
 Apenas o patch da landing foi aplicado, sem conflitos, sobre `f12e07f80a9100ba8fc03ccf3cc229e6494c3b59`, em cópia isolada. Build completo da API, typecheck e lint focal passaram após instalação local das dependências e geração do cliente Prisma. Nenhum banco, pagamento ou migração foi executado.
 
-O comando oficial de testes falhou em 7 suítes antes de executar testes: configuração sem tipos Jest e teste antigo importando `buildWeeklyMethodologyDecision`, função ausente na própria base remota. Esses arquivos não foram alterados pela landing. A instalação também reportou 22 vulnerabilidades de dependências; não foram feitas atualizações automáticas fora do escopo. Envio/publicação ficam bloqueados conforme os gates do projeto. O código está preparado localmente, mas não foi enviado ao GitHub e não está liberado para deploy.
+Validação final: build completo, typecheck e lint focal passaram. Corrigida a configuração de tipos Jest; dois testes legados foram atualizados para os helpers e catálogos atuais, sem restaurar os seletores determinísticos removidos. Sete suítes e 20 testes passaram, inclusive na revisão independente. A instalação reportou 22 vulnerabilidades de dependências preexistentes; não foram feitas atualizações automáticas fora do escopo. Push e publicação ainda precisam de comprovação. As observações de bloqueio local abaixo são histórico anterior, superado por esta validação na cópia isolada.
 
 Data: 13/09/2026. Projeto canônico: Aplicativo Panzeri Run, em OneDrive/Documentos.
 Status: implementada e validada em prévia isolada; não publicada, não enviada ao GitHub e não sincronizada com espelho. Alterações preexistentes do projeto foram preservadas.
@@ -38,7 +38,7 @@ Validação repetida: TypeScript focal e lint passaram; Chrome/Edge passaram nos
 
 ## Backup e recuperação
 
-Atualização editorial posterior (13/09/2026): FAQ de dor detalha diferentes questionários e revisão profissional, sem prometer diagnóstico ou atendimento de urgência; FAQ de mentoria diferencia a assinatura do acompanhamento individual de Elton; FAQ de IA assume seu uso e autoria dos critérios, sem superioridade não comprovada ou garantia de prescrição. Nova seção `#na-pratica` usa Marina, personagem expressamente fictícia, para explicar avaliação, execução e ajuste semanal com base no realizado. A chuva é um exemplo de contexto, não promessa de remanejamento instantâneo. Prints, preços, cobrança e lógica do aplicativo não foram alterados.
+Atualização editorial posterior (13/09/2026): FAQ de dor detalha diferentes questionários e revisão profissional, sem prometer diagnóstico ou atendimento de urgência; FAQ de mentoria diferencia a assinatura do acompanhamento individual de Elton; FAQ de IA assume seu uso e autoria dos critérios. Nova seção `#na-pratica` usa Mariana, em exemplo fictício, para explicar avaliação, execução e ajuste semanal com base no realizado. A chuva é um exemplo de contexto, não promessa de remanejamento instantâneo. Prints, preços, cobrança e lógica do aplicativo não foram alterados.
 
 Os dois arquivos anteriores estão em `tmp/landing-backup-20260913/landing-page.ts` e `tmp/landing-backup-20260913/app.controller.ts`. Para voltar à versão anterior, restaurar apenas esses arquivos nos destinos correspondentes e repetir a compilação. Não reverter o repositório inteiro: há alterações do usuário em outras áreas.
 
