@@ -1722,4 +1722,69 @@ fazendo `syncAvailabilityFromInterview` disparar o Telegram mesmo sem mudança r
 
 **Gates**: typecheck limpo (API + mobile). Sem migration.
 
-**Nota**: esta correção exige novo build EAS para entrar em vigor no app instalado pelas alunas.
+**Nota**: esta correção (API) já foi deployada por Elton. O lado mobile (`App.tsx` — `initialAnswersRef` +
+`changesWereMade`) exige novo build EAS para entrar em vigor no app instalado pelas alunas.
+
+---
+
+**2026-09-13 — Regressão grave: `isDetailedPlan` impedindo Lucelane (e potencialmente outros) de ver o plano**
+
+**Contexto**: O commit `6215363` (12/09, mesma sessão que introduziu a tela de Rotina no admin) adicionou a
+função `isDetailedPlan()` em `apps/mobile/App.tsx`. A intenção era detectar "planos em formato antigo" (sem
+`structure.type` definido) para não mostrar a tela de pagamento incorretamente para planos antigos. A função
+verificava se TODAS as sessões tinham `structure.type === 'run' | 'strength' | 'aerobic'`.
+
+**Bug introduzido**: `isDetailedPlan()` retornava `false` para planos válidos de alunas reais — impedindo o
+app de exibir o plano e caindo no caminho `notGenerated`. Causa: o valor `'aerobic'` foi adicionado ao check
+mas **nenhum plano gerado pelo backend jamais cria `structure.type === 'aerobic'`** — o backend só cria `'run'`
+e `'strength'`. O `'aerobic'` existe no TypeScript (tipo), mas nunca no banco de dados. Qualquer sessão com
+tipo não previsto retornava `false` da função, bloqueando a exibição.
+
+**Tentativa errada (commit `0202873`, 13/09)**: Filtrou sessões com `source: 'student'` do check (teoria de
+que Lucelane tinha adicionado uma sessão extra com `type: 'extra'`). Elton confirmou que ela não adicionou
+nada. A teoria estava errada — a fix não resolveu.
+
+**Fix real (commit `be1ec20`, 13/09)**: Removida `isDetailedPlan()` inteiramente de `loadPlan()` e
+`generatePlan()`. Comportamento correto e simples: **se a API devolveu um plano, exibe o plano**. A proteção
+de tela de pagamento já existe separada (`!plan && (!notGeneratedRange || !notGeneratedRange.hasSubscriptionAccess)`)
+e só dispara quando a API confirma explicitamente que não há acesso.
+
+**Resultado após deploy**: AINDA não resolveu para a Lucelane — ver entrada seguinte.
+
+**Lição**: A `isDetailedPlan` era proteção desnecessária que criava um segundo "gate" após a API já ter
+validado e devolvido o plano. Não existe "plano em formato antigo" sendo devolvido pela API em produção —
+`current()` só devolve planos com estrutura atual. Se existisse, o lugar certo de lidar seria a API, não o
+frontend inventando critérios de validação de estrutura.
+
+---
+
+**2026-09-13 — ABERTO: Lucelane não consegue ver o programa (plano invisível após 3 tentativas)**
+
+**Dossiê**: `erros persistentes/0004_Lucelane_Plano_Invisivel.md`
+
+**Situação**: Após o deploy de `be1ec20` (remoção de `isDetailedPlan`), Lucelane continua sem ver o programa
+no Android e no iPhone. A sessão anterior (12/09) havia diagnosticado como suspeita de conta errada ou
+`subscriptionStatus: 'pending'` — diagnóstico pendente de confirmação no painel admin.
+
+**O que o código atual faz** (após `be1ec20`):
+- `loadPlan()` chama `GET /training-plans/current`
+- Se a API retornar `notGenerated: true` → `setNotGeneratedRange(...)` → ou "Ainda não liberado" (se
+  `hasSubscriptionAccess: true`) ou tela de pagamento (se `hasSubscriptionAccess: false`)
+- Se a API retornar o plano → `setPlan(data)` → plano aparece
+
+**Hipótese mais provável**: A API está retornando `notGenerated: true` para ela. Isso acontece quando
+`current()` não encontra nenhum `TrainingPlan` com `status: 'active'` e `startDate IN [weekStart, weekStart+7]`.
+
+**Diagnóstico necessário (ainda pendente)**:
+1. Qual é o `subscriptionStatus` atual da conta dela no painel admin?
+2. Ela tem um `TrainingPlan` com `status: 'active'` para a semana de 07/09?
+3. Se sim, qual é o `startDate` do plano? Bate com `startOfWeek(new Date())`?
+4. Ela está logando com o e-mail correto (conta de aluna, não conta de testadora)?
+
+**Atenção**: hoje é domingo (13/09). `startOfWeek(new Date())` com padrão date-fns retorna domingo = 13/09.
+Um plano gerado na semana passada (startDate = 07/09, segunda-feira) NÃO seria encontrado pela query
+`startDate IN [13/09, 20/09]`. Isso pode ser o problema — mas só afetaria quem gerou o plano em outro
+startDate. Verificar se `generateWeek()` usa o mesmo `startOfWeek()` que `current()`.
+
+**Estado**: ABERTO. Nenhuma mudança de código foi feita além da remoção de `isDetailedPlan`. Próximo passo
+é verificar os pontos de diagnóstico acima antes de qualquer mudança de código.

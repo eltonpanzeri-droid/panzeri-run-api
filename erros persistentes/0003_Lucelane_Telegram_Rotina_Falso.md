@@ -4,7 +4,7 @@
 **Problema relatado:** 13/09/2026 — Telegram de "solicitou alteração de rotina" disparou quando a
 aluna apenas navegou pela tela de rotina sem mudar nada.  
 **Aberto em:** 13/09/2026  
-**Status:** Corrigido na mesma sessão. Typecheck limpo. Aguardando push + deploy (API) e build EAS (mobile).
+**Status:** API corrigida e deployada em 13/09. Mobile (`App.tsx`) aguarda novo build EAS para entrar em vigor no app instalado.
 
 ---
 
