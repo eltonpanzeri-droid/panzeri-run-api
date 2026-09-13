@@ -3385,27 +3385,13 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
         setStatus('');
         return;
       }
-      if (data && !data.locked && !data.requiresOnboarding && !isDetailedPlan(data as WeekPlan)) {
-        // Bug corrigido 12/09 (Lucelane et al.): setPlan(null) aqui deixava notGeneratedRange=null
-        // tambem, e a condicao de pagamento (!plan && !notGeneratedRange) ficava verdadeira —
-        // mostrava "Seu acesso esta quase pronto" para alunos com assinatura valida que tinham um
-        // plano em formato antigo no banco. A correcao e tratar esse estado como "plano gerado mas
-        // nao exibivel" — salvar notGeneratedRange com o acesso real do usuario (obtido do campo
-        // hasSubscriptionAccess do plano, que a API inclui quando unlocked=true) para que a logica
-        // de pagamento saiba que o acesso foi confirmado, mesmo sem plano exibivel.
-        setPlan(null);
-        setNotGeneratedRange({
-          startDate: (data as WeekPlan & { startDate?: string }).startDate ?? '',
-          endDate: (data as WeekPlan & { endDate?: string }).endDate ?? '',
-          // hasSubscriptionAccess vem do plano quando a API o retornou com unlocked=true;
-          // se ausente, assume true (plano antigo existente = usuario ja pagou)
-          hasSubscriptionAccess: (data as { hasSubscriptionAccess?: boolean }).hasSubscriptionAccess ?? true,
-          hasEverHadPlan: true,
-        });
-        setStatus('Programa antigo detectado. Gere uma nova semana para ver os treinos detalhados.');
-        return;
-      }
-
+      // 13/09: isDetailedPlan removido daqui. O check foi adicionado em 12/09 para detectar
+      // "planos em formato antigo", mas causou regressao grave: retornava false para planos
+      // validos (ex: Lucelane), impedindo o aluno de ver os treinos da semana. O comportamento
+      // correto e simples: se a API devolveu um plano, exibe o plano. A protecao de tela de
+      // pagamento ja existe no bloco abaixo (!plan && !notGeneratedRange) e so dispara quando
+      // a API confirma explicitamente que o acesso nao foi liberado (notGenerated + sem acesso).
+      // Sessoes com estrutura desconhecida ja degradam graciosamente no SessionDetail (null check).
       setPlan(data as WeekPlan | null);
       if (!data) {
         setStatus('Gerando sua semana de treino...');
@@ -3441,20 +3427,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       }
 
       const data = (await response.json()) as WeekPlan;
-      if (!data.locked && !data.requiresOnboarding && !isDetailedPlan(data)) {
-        // Bug corrigido 12/09: mesmo fix do loadPlan — setar notGeneratedRange para que a
-        // condicao de pagamento nao dispare indevidamente apos falha de isDetailedPlan.
-        setPlan(null);
-        setNotGeneratedRange({
-          startDate: (data as WeekPlan & { startDate?: string }).startDate ?? '',
-          endDate: (data as WeekPlan & { endDate?: string }).endDate ?? '',
-          hasSubscriptionAccess: (data as { hasSubscriptionAccess?: boolean }).hasSubscriptionAccess ?? true,
-          hasEverHadPlan: true,
-        });
-        setStatus('A API ainda esta com a versao antiga. Publique no EasyPanel e gere novamente.');
-        return;
-      }
-
+      // 13/09: isDetailedPlan removido — ver comentario equivalente em loadPlan().
       setPlan(data);
       setStatus('Programa detalhado da semana gerado.');
     } catch {
