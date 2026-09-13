@@ -9096,9 +9096,15 @@ function weekdayFullFromShort(day: string) {
 }
 
 function isDetailedPlan(plan: WeekPlan) {
-  return plan.sessions.every(
-    (session) => session.structure?.type === 'run' || session.structure?.type === 'strength' || session.structure?.type === 'aerobic',
-  );
+  // Sessoes adicionadas pelo proprio aluno (type='extra') nao devem invalidar o plano —
+  // o check e sobre o formato do plano gerado pela IA, nao sobre sessions extras do aluno.
+  // Bug real: Lucelane 13/09/2026 adicionou uma sessao extra e o plano inteiro caiu no
+  // caminho "formato antigo" mostrando tela de pagamento / "Ainda nao liberado".
+  return plan.sessions
+    .filter((session) => (session.structure as { source?: string } | undefined)?.source !== 'student')
+    .every(
+      (session) => session.structure?.type === 'run' || session.structure?.type === 'strength' || session.structure?.type === 'aerobic',
+    );
 }
 
 function isValidCpf(value: string) {
