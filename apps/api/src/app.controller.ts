@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Headers, Param, Post, Res } from '@nestjs/common';
-import { createReadStream, statSync } from 'node:fs';
+import { createReadStream, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { TelegramService } from './billing/telegram.service';
 import { LANDING_PAGE_HTML } from './landing-page';
@@ -8,13 +8,27 @@ import { LANDING_PAGE_HTML } from './landing-page';
 export class AppController {
   constructor(private readonly telegram: TelegramService) {}
 
-  // 19/08: landing page publica de divulgacao — raiz do dominio eltonpanzeripersonal.com.br
-  // (Hostinger) aponta pra este servico via EasyPanel. Conteudo revisado com o treinador (ver
-  // PRONTUARIO.md): nao justifica a IA nem lista recursos, foca na sensacao de nao precisar
-  // decidir sozinho.
+  // The public landing stays in the API; app authentication and billing are unchanged.
   @Get()
   landingPage(@Res() response: { type: (value: string) => { send: (value: string) => void } }) {
     response.type('html').send(LANDING_PAGE_HTML);
+  }
+
+  @Get('landing-assets/:filename')
+  landingAsset(@Param('filename') filename: string, @Res() response: any) {
+    // Fixed public asset set: never expose arbitrary files or originals outside this folder.
+    if (
+      filename !== 'elton.jpeg' &&
+      filename !== 'panzeri-run-logo.png' &&
+      !/^result-(0[1-9]|1[0-9]|2[01])\.jpeg$/.test(filename)
+    ) {
+      return response.status(404).send('Arquivo não encontrado');
+    }
+    const filePath = join(process.cwd(), 'public', 'landing', 'results', filename);
+    if (!existsSync(filePath)) return response.status(404).send('Arquivo não encontrado');
+    response.setHeader('Content-Type', filename.endsWith('.png') ? 'image/png' : 'image/jpeg');
+    response.setHeader('Cache-Control', 'public, max-age=3600');
+    return createReadStream(filePath).pipe(response);
   }
 
   @Get('media/:filename')
