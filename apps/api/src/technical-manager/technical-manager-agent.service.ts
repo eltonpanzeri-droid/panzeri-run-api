@@ -89,8 +89,14 @@ export class TechnicalManagerAgentService {
         role: item.role === 'coach' ? 'user' : 'assistant',
         content: item.content,
       }));
-      const messages = rawMessages.filter(
-        (msg, i) => i === 0 || msg.role !== rawMessages[i - 1].role,
+      // Remove mensagens 'assistant' iniciais: a Anthropic exige que a primeira mensagem
+      // seja sempre 'user'. Quando a janela de historico (desc+take+reverse) comeca no meio
+      // de uma conversa longa, a primeira mensagem pode ser uma resposta do agente.
+      const firstUserIndex = rawMessages.findIndex((m) => m.role === 'user');
+      const trimmed = firstUserIndex >= 0 ? rawMessages.slice(firstUserIndex) : rawMessages;
+      // Remove consecutivos do mesmo role (mensagens orphas de chamadas anteriores que falharam).
+      const messages = trimmed.filter(
+        (msg, i) => i === 0 || msg.role !== trimmed[i - 1].role,
       );
 
       const tools = this.buildTools(studentId);
