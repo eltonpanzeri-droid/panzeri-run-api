@@ -3604,7 +3604,11 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       }
     })();
 
-    await Promise.race([directAttempt, pollForCompletion]).catch(() => undefined);
+    // Promise.all (nao race): o banner de "gerando" permanece ate o polling confirmar o resultado,
+    // mesmo que a conexao HTTP caia antes da resposta chegar. Com race, a queda de conexao resolvia
+    // o directAttempt antecipadamente (catch vazio) e zeraria isGeneratingWeek enquanto o servidor
+    // ainda estava gerando — o aluno via o botao "Gerar treino" de novo sem entender o que aconteceu.
+    await Promise.all([directAttempt, pollForCompletion]).catch(() => undefined);
     setIsLoading(false);
     setIsGeneratingWeek(false);
   }
@@ -4040,11 +4044,11 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
           </Pressable>
         </View>
         <Text style={styles.titleSmall}>{upcomingWeekRangeLabel()}</Text>
-        {isLoading ? (
+        {(isLoading || isGeneratingWeek) ? (
           <View style={styles.coachBox}>
             <ActivityIndicator size="large" color={PRColors.limestone} style={{ marginBottom: 16 }} />
-            <Text style={styles.coachTitle}>Montando seu programa de treinos...</Text>
-            <Text style={[styles.coachText, { color: PRColors.limestone }]}>Isso pode levar alguns minutos. Voce pode continuar usando o celular — quando estiver pronto voce recebe uma notificacao e os treinos aparecem aqui.</Text>
+            <Text style={styles.coachTitle}>{isGeneratingWeek ? 'Montando seu treino da semana...' : 'Montando seu programa de treinos...'}</Text>
+            <Text style={[styles.coachText, { color: PRColors.limestone }]}>{isGeneratingWeek ? 'Isso pode levar até 10 minutos. Pode continuar usando o celular — quando estiver pronto você recebe uma notificação e os treinos aparecem aqui.' : 'Isso pode levar alguns minutos. Voce pode continuar usando o celular — quando estiver pronto voce recebe uma notificacao e os treinos aparecem aqui.'}</Text>
           </View>
         ) : notGeneratedRange && !notGeneratedRange.hasEverHadPlan ? (
           <View style={styles.coachBox}>
@@ -4055,8 +4059,8 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
           <View style={styles.coachBox}>
             <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
             <Text style={styles.coachText}>Toque pra montar seu treino com tudo que voce ja nos contou ate aqui: objetivo, condicionamento, saude e a rotina que voce mesmo definiu. Nao e um treino generico puxado de uma tabela pronta, e montado especificamente pra voce, nesse momento. Pra ver domingo (ou dias anteriores), use "Anterior".</Text>
-            <Pressable style={[styles.primaryButton, (isLoading || isGeneratingWeek) && styles.disabledButton]} disabled={isLoading || isGeneratingWeek} onPress={generateCurrentWeekNow}>
-              <Text style={styles.primaryButtonText}>{isGeneratingWeek ? 'Gerando...' : 'Gerar treino da semana'}</Text>
+            <Pressable style={styles.primaryButton} onPress={generateCurrentWeekNow}>
+              <Text style={styles.primaryButtonText}>Gerar treino da semana</Text>
             </Pressable>
             {status ? <Text style={[styles.statusMessage, { color: PRColors.limestone }]}>{status}</Text> : null}
           </View>
@@ -4097,18 +4101,21 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
             <Text style={styles.coachText}>Complete "Rotina de treinos" no menu principal para montarmos sua semana inicial automaticamente.</Text>
           </View>
         ) : weekOffset === 0 && !isBeforeWeeklyRelease() ? (
-          isLoading ? (
+          // isGeneratingWeek=true: banner proeminente com spinner, igual ao da secao normal (linha
+          // 4153). Antes so aparecia o texto "Gerando..." no botao — queda de conexao zerava
+          // isLoading antes do plano chegar, e o banner some invisivel pro aluno.
+          (isLoading || isGeneratingWeek) ? (
             <View style={styles.coachBox}>
               <ActivityIndicator size="large" color={PRColors.limestone} style={{ marginBottom: 16 }} />
-              <Text style={styles.coachTitle}>Montando seu programa de treinos...</Text>
-              <Text style={[styles.coachText, { color: PRColors.limestone }]}>Isso pode levar alguns minutos. Voce pode continuar usando o celular — quando estiver pronto voce recebe uma notificacao e os treinos aparecem aqui.</Text>
+              <Text style={styles.coachTitle}>{isGeneratingWeek ? 'Montando seu treino da semana...' : 'Montando seu programa de treinos...'}</Text>
+              <Text style={[styles.coachText, { color: PRColors.limestone }]}>{isGeneratingWeek ? 'Isso pode levar até 10 minutos. Pode continuar usando o celular — quando estiver pronto você recebe uma notificação e os treinos aparecem aqui.' : 'Isso pode levar alguns minutos. Voce pode continuar usando o celular — quando estiver pronto voce recebe uma notificacao e os treinos aparecem aqui.'}</Text>
             </View>
           ) : (
             <View style={styles.coachBox}>
               <Text style={styles.coachTitle}>Sua semana esta liberada</Text>
               <Text style={styles.coachText}>Toque para gerar seu treino a partir de hoje.</Text>
-              <Pressable style={[styles.primaryButton, (isLoading || isGeneratingWeek) && styles.disabledButton]} disabled={isLoading || isGeneratingWeek} onPress={generateCurrentWeekNow}>
-                <Text style={styles.primaryButtonText}>{isGeneratingWeek ? 'Gerando...' : 'Gerar treino da semana'}</Text>
+              <Pressable style={styles.primaryButton} onPress={generateCurrentWeekNow}>
+                <Text style={styles.primaryButtonText}>Gerar treino da semana</Text>
               </Pressable>
               {status ? <Text style={[styles.statusMessage, { color: PRColors.limestone }]}>{status}</Text> : null}
             </View>
