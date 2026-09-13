@@ -2313,6 +2313,12 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   // sem plano nenhum ainda) ou se so vale a partir da geracao automatica de domingo (aluno que ja
   // tem plano mudando a rotina) — pedido explicito do treinador 03/08.
   const [routineFirstTime, setRoutineFirstTime] = useState(false);
+  // Ref com as respostas no momento do carregamento (modo "routine"). Usado para detectar se o
+  // aluno realmente alterou algo antes de concluir — sem isso, apenas navegar pelas perguntas sem
+  // mudar nada disparava Telegram falso "solicitou alteracao de rotina" porque a WA e as respostas
+  // da entrevista podiam estar dessincronizadas desde a ORDEM EXECUTIVA 09/09 (back-sync removido).
+  // Incidente real: Lucelane 13/09/2026.
+  const initialAnswersRef = useRef<InterviewAnswers>({});
 
   // "routine" reaproveita o mesmo registro de entrevista (mesma answers, mesmo load/save) — so o
   // endpoint final muda: complete-routine so converte as respostas de rotina em disponibilidade e
@@ -2380,6 +2386,8 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         setStep(0);
         setStarted(true);
       } else if (mode === 'routine') {
+        // Registra as respostas do momento do carregamento para detectar mudancas reais depois.
+        initialAnswersRef.current = { ...loadedAnswers };
         setFinished(false);
         setStep(0);
         setStarted(true);
@@ -2460,7 +2468,23 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     setSaving(true);
     let response: Response;
     try {
-      response = await fetchWithRetry(completeUrl, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      // Para mode="routine": informa ao servidor se o aluno realmente alterou alguma resposta.
+      // O servidor usa isso para decidir se dispara o Telegram "solicitou alteracao de rotina".
+      // Sem isso, navegar pelas perguntas sem mudar nada ja disparava o Telegram (incidente real
+      // Lucelane 13/09) porque WA e interview podiam estar dessincronizadas (ORDEM EXECUTIVA 09/09).
+      const routineBody = mode === 'routine'
+        ? JSON.stringify({
+            changesWereMade: JSON.stringify(answers) !== JSON.stringify(initialAnswersRef.current),
+          })
+        : undefined;
+      response = await fetchWithRetry(completeUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          ...(routineBody ? { 'Content-Type': 'application/json' } : {}),
+        },
+        ...(routineBody ? { body: routineBody } : {}),
+      });
     } catch {
       setStatus('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
       setSaving(false);

@@ -82,8 +82,16 @@ export class MeController {
   // ja foram salvas incrementalmente por PUT onboarding/answer (mesma entrevista, modulo "Rotina
   // semanal"); este POST so converte essas respostas em disponibilidade real e dispara a geracao.
   @Post('onboarding/complete-routine')
-  completeRoutine(@CurrentUser() user: CurrentUserPayload) {
-    return this.meService.completeRoutineFromInterview(user.sub);
+  completeRoutine(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body?: { changesWereMade?: boolean },
+  ) {
+    // changesWereMade: enviado pelo app quando o aluno conclui o modo "routine" da GuidedInterview.
+    // true  → aluno realmente alterou alguma resposta → Telegram "solicitou alteracao" pode disparar.
+    // false → aluno apenas navegou pelas perguntas sem mudar nada → Telegram nao dispara.
+    // Omitido (undefined) → chamadas anteriores sem o campo → comportamento conservador: assume true
+    // para nao silenciar Telegrams legítimos de versoes antigas do app.
+    return this.meService.completeRoutineFromInterview(user.sub, body?.changesWereMade);
   }
 
   @Post('exercise-responsibility')

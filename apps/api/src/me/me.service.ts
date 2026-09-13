@@ -367,7 +367,7 @@ export class MeService {
   // treinos", via completeRoutineFromInterview) — o botao de reparo do treinador no painel
   // ("Sincronizar disponibilidade da entrevista") reaproveita este mesmo metodo mas NAO deve
   // mandar um Telegram dizendo "aluno solicitou", porque quem disparou foi o proprio treinador.
-  async syncAvailabilityFromInterview(userId: string, notifyAsStudentRequest = false) {
+  async syncAvailabilityFromInterview(userId: string, notifyAsStudentRequest = false, changesWereMade = true) {
     const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
     if (!interview) {
       throw new BadRequestException('Aluno ainda nao respondeu a entrevista.');
@@ -415,7 +415,11 @@ export class MeService {
       void this.trainingPlans.generateFirstWeekIfNeeded(userId).catch((error) => {
         this.logger.warn(`generateFirstWeekIfNeeded apos syncAvailabilityFromInterview falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
       });
-      if (notifyAsStudentRequest) {
+      if (notifyAsStudentRequest && changesWereMade) {
+        // changesWereMade=false: aluno apenas navegou pela tela de rotina sem alterar nenhuma
+        // resposta — nao dispara Telegram "solicitou alteracao". Incidente real: Lucelane 13/09/2026.
+        // changesWereMade=true (default): comportamento original conservador; garante que versoes
+        // antigas do app (sem o campo) continuem notificando o treinador normalmente.
         const student = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
         void this.telegram.notifyCoach(buildRoutineChangeTelegramMessage(student?.name, student?.studentCode, !existingPlanBefore)).catch(() => undefined);
       }
@@ -431,8 +435,9 @@ export class MeService {
   // montada na entrevista — mesmo mecanismo de gate do sync acima (usado pelo botao de reparo do
   // treinador no painel): so gera na hora se for a primeira vez, senao so fica salva pra entrar
   // em vigor na proxima geracao de domingo.
-  async completeRoutineFromInterview(userId: string) {
-    return this.syncAvailabilityFromInterview(userId, true);
+  async completeRoutineFromInterview(userId: string, changesWereMade?: boolean) {
+    // changesWereMade undefined → app antigo sem o campo → assume true (conservador: nao silencia).
+    return this.syncAvailabilityFromInterview(userId, true, changesWereMade ?? true);
   }
 
   // 10/09: chamado pelo app quando o aluno conclui a correcao de respostas via fixModule
