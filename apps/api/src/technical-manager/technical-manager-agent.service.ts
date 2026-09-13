@@ -74,17 +74,33 @@ export class TechnicalManagerAgentService {
 
     const student = await this.prisma.user.findUniqueOrThrow({ where: { id: studentId }, select: { name: true } });
 
-    await this.prisma.coachChatMessage.create({ data: { userId: studentId, role: 'coach', content: message } });
+    const created = await this.prisma.coachChatMessage.create({ data: { userId: studentId, role: 'coach', content: message } });
 
-    const history = await this.history(studentId);
-    const messages: Anthropic.MessageParam[] = history.map((item) => ({
-      role: item.role === 'coach' ? 'user' : 'assistant',
-      content: item.content,
-    }));
+    let reply: string;
+    try {
+      const history = await this.history(studentId);
 
-    const tools = this.buildTools(studentId);
+      // Garante alternancia user/assistant antes de enviar a Anthropic.
+      // Mensagens orphas (coach sem resposta do agente) ficam no DB quando uma chamada anterior
+      // falhou apos salvar a mensagem mas antes de salvar a resposta. Sem esta filtragem, dois
+      // 'coach' consecutivos fazem a Anthropic rejeitar a request com erro de role, prendendo a
+      // conversa num loop de falha permanente mesmo depois de corrigido o problema original.
+      const rawMessages: Anthropic.MessageParam[] = history.map((item) => ({
+        role: item.role === 'coach' ? 'user' : 'assistant',
+        content: item.content,
+      }));
+      const messages = rawMessages.filter(
+        (msg, i) => i === 0 || msg.role !== rawMessages[i - 1].role,
+      );
 
-    const reply = await this.aiQueue.run(() => this.runConversation(student.name, messages, tools));
+      const tools = this.buildTools(studentId);
+      reply = await this.aiQueue.run(() => this.runConversation(student.name, messages, tools));
+    } catch (error) {
+      // Se o AI call falhar, remove a mensagem do treinador que ja foi salva — evita que
+      // ela fique como "orpha" e quebre a alternancia de roles na proxima tentativa.
+      await this.prisma.coachChatMessage.delete({ where: { id: created.id } }).catch(() => undefined);
+      throw error;
+    }
 
     await this.prisma.coachChatMessage.create({ data: { userId: studentId, role: 'agent', content: reply } });
 
