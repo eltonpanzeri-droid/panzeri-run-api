@@ -609,6 +609,12 @@ export class TrainingPlansService {
     const pastWeeklyRelease = todayWeekday === 0 && todayHour >= WEEKLY_RELEASE_HOUR;
     const shouldRollToNextWeek = !hasFutureDayThisWeek && !options?.referenceDate && (!activePlanBeforeAdjustment || pastWeeklyRelease);
     const weekStart = shouldRollToNextWeek ? addDays(initialWeekStart, 7) : initialWeekStart;
+    // Conjunto de weekdays que o aluno realmente treina (noTraining=false vem filtrado do banco).
+    // Usado para (1) enviar a IA somente os dias que fazem parte da rotina do aluno e (2) descartar
+    // como erro qualquer sessao extra que a IA prescreva para um dia fora dessa rotina.
+    // Incidente real 13/09/2026 — Tiago: IA recebia Dom em weekDates mesmo com Dom=NAO; prescreveu
+    // 2 sessoes para Dom que apareceram no app como treinos indevidos.
+    const trainingWeekdays = new Set(availableDays.map((d) => d.weekday));
 
     const methodologyHistory = previousPlans.map((historyPlan) => {
       const runSessions = historyPlan.sessions.filter((session) => isRunningModality(session.modality));
@@ -696,7 +702,11 @@ export class TrainingPlansService {
       // (doGenerateCurrentWeekOnDemand calcula e repassa via options) — instrui a IA a nao
       // prescrever treinos para dias anteriores a essa data. null/undefined = sem restricao.
       generateFrom: options?.generateFrom ?? null,
-      weekDates: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
+      // Envia a IA somente os dias da rotina do aluno (trainingWeekdays ja exclui noTraining=true).
+      // Garantia: a IA nunca ve Dom como opcao quando Dom=NAO, e portanto nunca prescreve sessoes
+      // para esse dia — evita o incidente de Tiago (13/09/2026) onde Dom aparecia em weekDates
+      // como data futura e a IA prescrevia 2 sessoes indevidas para ele.
+      weekDates: [0, 1, 2, 3, 4, 5, 6].filter((weekday) => trainingWeekdays.has(weekday)).map((weekday) => ({
         weekday,
         date: addDays(weekStart, weekdayOffsetFromMonday(weekday)).toISOString().slice(0, 10),
       })),
@@ -941,6 +951,14 @@ export class TrainingPlansService {
     const MAX_EXTRA_SESSIONS_PER_WEEKDAY = 1;
     const extraRunSessions = [...runDecisionsByWeekday.entries()].flatMap(([weekday, leftover]) => {
       if (!leftover.length) return [];
+      // Guarda de seguranca: descarta qualquer sessao que a IA tenha prescrito para um weekday que
+      // nao existe na rotina do aluno. Nao deveria acontecer (weekDates ja filtra por trainingWeekdays),
+      // mas protege contra casos onde a IA alucina um weekday nao enviado ou onde uma diretriz
+      // historica causou reprocessamento inesperado.
+      if (!trainingWeekdays.has(weekday)) {
+        this.logger.warn(`IA prescreveu sessao de corrida extra para weekday ${weekday} que nao faz parte da rotina do aluno — descartado. (trainingWeekdays: [${[...trainingWeekdays].join(', ')}])`);
+        return [];
+      }
       if (leftover.length > MAX_EXTRA_SESSIONS_PER_WEEKDAY) {
         this.logger.warn(`Cortado excesso de sessoes de corrida no weekday ${weekday}: IA devolveu ${leftover.length + 1} sessoes pra esse dia, mantendo so ${MAX_EXTRA_SESSIONS_PER_WEEKDAY + 1} (provavel erro de numeracao de dias da IA, nao diretriz de verdade).`);
         leftover = leftover.slice(0, MAX_EXTRA_SESSIONS_PER_WEEKDAY);

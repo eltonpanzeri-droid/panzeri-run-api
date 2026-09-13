@@ -1656,3 +1656,44 @@ quando fazer isso é do Elton.
   Inconsistência intencional: o mobile é mais rigoroso que a API para garantir captura do humor.
 - Editar completions antigas (sem campos v1) requer preencher tudo de novo → fricção esperada
   (nenhuma "jornada de edição retroativa" foi projetada, o treinador não pediu isso).
+
+**2026-09-13 — Bug real: IA prescrevia sessões para dias com `noTraining=true` (Tiago)**
+
+**Sintoma reportado**: o programa semanal do Tiago mostrava Seg/Ter/Qua/Sex sem treino ("Sem treino")
+e Dom com 2 sessões indevidas (Corrida + Fortalecimento), sendo que Dom está marcado como "Não treina"
+na rotina dele (Dom=NÃO).
+
+**Causa raiz** (`apps/api/src/training-plans/training-plans.service.ts`, `generateWeek()`):
+- O array `weekDates` enviado ao agente de IA era construído com `[0, 1, 2, 3, 4, 5, 6]` fixo — todos
+  os 7 dias da semana, sem filtrar pelos dias que o aluno realmente treina.
+- `availability` já vem do banco com `noTraining: false` (linha 474), então `availableDays` não contém
+  Dom. Mas `weekDates` usava um array fixo que incluía weekday=0 (Dom) com a data correspondente (13/09).
+- Como Dom era data futura no momento em que o programa foi gerado, a IA viu 13/09 como uma data válida
+  e prescreveu 2 sessões para ela. Essas sessões entraram pelo caminho de `extraRunSessions` (sobras do
+  `runDecisionsByWeekday`), sem nenhuma verificação de `noTraining`.
+- As sessões de Seg a Sex apareceram como "Sem treino" porque eram passadas no momento da geração —
+  foram filtradas corretamente pelo filtro de datas. A geração foi feita em algum momento anterior
+  (provavelmente sábado 12/09), e o programa ficou com só Sab + Dom preenchidos.
+
+**Correção aplicada (13/09/2026)**:
+1. `weekDates` agora filtra por `trainingWeekdays` (Set derivado de `availableDays`):
+   ```typescript
+   const trainingWeekdays = new Set(availableDays.map((d) => d.weekday));
+   weekDates: [0,1,2,3,4,5,6].filter(w => trainingWeekdays.has(w)).map(...)
+   ```
+   A IA passa a receber somente os dias que fazem parte da rotina do aluno — Dom nunca aparece quando
+   Dom=NÃO.
+
+2. Guard no loop `extraRunSessions`: mesmo que a IA alucinasse um weekday fora da rotina (improvável
+   agora, mas defensivo), a sessão é descartada com log de warning antes de ser criada.
+
+**Arquivo alterado**: `apps/api/src/training-plans/training-plans.service.ts`.
+
+**Gates**: typecheck limpo (API). Sem migration.
+
+**Contexto adicional — `shouldRollToNextWeek`**: bug separado identificado nesta sessão, ainda não
+corrigido. Se alguém gerar treino no domingo antes das 12h com Dom=NÃO na rotina, `shouldRollToNextWeek`
+permanece `false` porque a condição `(!activePlanBeforeAdjustment || pastWeeklyRelease)` impede o
+rollover para quem já tem plano ativo. O sistema fica preso na semana atual sem nenhum dia de treino
+disponível. Esse bug não causou o problema do Tiago (ele foi gerado em outro dia), mas vai morder alguém
+num cenário de domingo. Registrado para correção futura com aprovação.
