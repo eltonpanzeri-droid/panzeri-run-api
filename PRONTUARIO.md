@@ -1697,3 +1697,29 @@ permanece `false` porque a condição `(!activePlanBeforeAdjustment || pastWeekl
 rollover para quem já tem plano ativo. O sistema fica preso na semana atual sem nenhum dia de treino
 disponível. Esse bug não causou o problema do Tiago (ele foi gerado em outro dia), mas vai morder alguém
 num cenário de domingo. Registrado para correção futura com aprovação.
+
+**2026-09-13 — Bug real: Telegram falso "solicitou alteração de rotina" (Lucelane)**
+
+**Sintoma reportado**: Telegram de "solicitou alteração de rotina" disparou para a Lucelane quando ela
+apenas abriu a tela "Rotina de treinos", clicou em "Alterar rotina" e navegou pelas perguntas sem mudar
+nada — concluindo sem alterar nenhuma resposta.
+
+**Causa raiz**: A ORDEM EXECUTIVA 09/09 removeu o back-sync WA→interview (para evitar sobreescrever
+respostas da entrevista com dados da WA). Isso criou deriva silenciosa entre a `WeeklyAvailability` e as
+respostas da `OnboardingInterview`. Quando o aluno conclui a GuidedInterview em mode="routine" sem mudar
+nada, `availabilityChanged()` comparava WA vs respostas da entrevista e devolvia `true` pela deriva,
+fazendo `syncAvailabilityFromInterview` disparar o Telegram mesmo sem mudança real do aluno.
+
+**Correção aplicada (13/09/2026)**: comparação de respostas no próprio app (não no servidor):
+1. `App.tsx` (`GuidedInterview`, mode="routine"): `initialAnswersRef` guarda as respostas no momento do
+   load; `finishOrAdvance` compara JSON antes/depois e envia `changesWereMade: boolean` no corpo do POST.
+2. `me.controller.ts`: endpoint `POST onboarding/complete-routine` agora aceita `{ changesWereMade?: boolean }`.
+3. `me.service.ts`: `completeRoutineFromInterview` e `syncAvailabilityFromInterview` recebem `changesWereMade`;
+   o Telegram só dispara quando `notifyAsStudentRequest && changesWereMade`. Default conservador: `undefined → true`
+   para apps antigos sem o campo (não silencia notificações legítimas).
+
+**Arquivos alterados**: `apps/mobile/App.tsx`, `apps/api/src/me/me.controller.ts`, `apps/api/src/me/me.service.ts`.
+
+**Gates**: typecheck limpo (API + mobile). Sem migration.
+
+**Nota**: esta correção exige novo build EAS para entrar em vigor no app instalado pelas alunas.
