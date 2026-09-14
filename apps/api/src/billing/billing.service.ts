@@ -464,13 +464,15 @@ export class BillingService {
     // Fix: retry loop com 2s de intervalo — sai imediatamente quando ha invoiceUrl (zero delay
     // para assinaturas existentes que ja tem pagamento); espera ate 3 tentativas para assinaturas
     // recen-criadas onde o pagamento ainda nao foi processado.
+    this.logger.log(`[checkout] userId=${userId} subscriptionId=${subscriptionId} reused=${!reusableSubscription ? 'false' : 'true'}`);
     let payments: AsaasPaymentList = { data: [] };
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= 4; attempt++) {
       payments = await this.asaasRequest<AsaasPaymentList>(`/payments?subscription=${subscriptionId}`);
       const hasInvoiceUrl = (payments.data ?? []).some((p) => p.invoiceUrl);
+      this.logger.log(`[checkout] attempt=${attempt} paymentsCount=${payments.data?.length ?? 0} hasInvoiceUrl=${hasInvoiceUrl}`);
       if (hasInvoiceUrl) break;
-      if (attempt < 3) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 2000));
+      if (attempt < 4) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 2500));
       }
     }
     const pendingPayments = (payments.data ?? [])
@@ -478,7 +480,10 @@ export class BillingService {
       .sort((a, b) => (a.dueDate ?? a.dateCreated ?? '').localeCompare(b.dueDate ?? b.dateCreated ?? ''));
     const relevantPayment = pendingPayments[0] ?? payments.data?.[0] ?? null;
     const checkoutUrl = relevantPayment?.invoiceUrl ?? null;
-    if (!checkoutUrl) throw new BadGatewayException('O Asaas nao retornou o link de pagamento. Aguarde alguns segundos e tente novamente.');
+    if (!checkoutUrl) {
+      this.logger.error(`[checkout] sem invoiceUrl apos retries — userId=${userId} subscriptionId=${subscriptionId} payments=${JSON.stringify(payments.data?.map((p) => ({ id: p.id, status: p.status, invoiceUrl: p.invoiceUrl })))}`);
+      throw new BadGatewayException('O Asaas nao retornou o link de pagamento. Aguarde alguns segundos e tente novamente.');
+    }
 
     // So e uma assinatura de verdade NOVA (e so ai que avisa o treinador) quando o subscriptionId
     // muda em relacao ao que ja estava salvo. Clicar de novo no mesmo link pendente (usuario
@@ -1131,6 +1136,7 @@ export class BillingService {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const message = payload?.errors?.[0]?.description ?? 'O Asaas nao conseguiu processar a solicitacao.';
+      this.logger.error(`[asaas] ${init.method ?? 'GET'} ${path} → ${response.status}: ${message}`);
       throw new BadGatewayException(message);
     }
     return payload as T;
