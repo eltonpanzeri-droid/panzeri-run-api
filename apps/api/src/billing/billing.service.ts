@@ -455,13 +455,30 @@ export class BillingService {
     // paga, por exemplo), deixando o aluno sem conseguir pagar o que realmente deve. Agora busca
     // explicitamente a fatura pendente/vencida mais proxima (a que realmente precisa de acao),
     // so cai pra "primeira da lista" se por algum motivo nao achar nenhuma pendente.
-    const payments = await this.asaasRequest<AsaasPaymentList>(`/payments?subscription=${subscriptionId}`);
+    //
+    // BUG REAL CORRIGIDO (14/09 — caso do prospecto Gabriel Cunha): o Asaas gera o primeiro
+    // pagamento de uma assinatura nova de forma ASSINCRONA — ou seja, logo apos o POST /subscriptions
+    // retornar, o GET /payments pode devolver lista vazia ou pagamento sem invoiceUrl. Isso causava
+    // BadGatewayException imediata e o app mostrava "Nao consegui abrir o pagamento" pra todo
+    // prospecto novo. Na 2a tentativa (pagamento ja gerado) funcionava, mas quem desiste nao volta.
+    // Fix: retry loop com 2s de intervalo — sai imediatamente quando ha invoiceUrl (zero delay
+    // para assinaturas existentes que ja tem pagamento); espera ate 3 tentativas para assinaturas
+    // recen-criadas onde o pagamento ainda nao foi processado.
+    let payments: AsaasPaymentList = { data: [] };
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      payments = await this.asaasRequest<AsaasPaymentList>(`/payments?subscription=${subscriptionId}`);
+      const hasInvoiceUrl = (payments.data ?? []).some((p) => p.invoiceUrl);
+      if (hasInvoiceUrl) break;
+      if (attempt < 3) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 2000));
+      }
+    }
     const pendingPayments = (payments.data ?? [])
       .filter((payment) => (payment.status ?? '').toLowerCase() === 'pending' || (payment.status ?? '').toLowerCase() === 'overdue')
       .sort((a, b) => (a.dueDate ?? a.dateCreated ?? '').localeCompare(b.dueDate ?? b.dateCreated ?? ''));
     const relevantPayment = pendingPayments[0] ?? payments.data?.[0] ?? null;
     const checkoutUrl = relevantPayment?.invoiceUrl ?? null;
-    if (!checkoutUrl) throw new BadGatewayException('O Asaas nao retornou o link de pagamento.');
+    if (!checkoutUrl) throw new BadGatewayException('O Asaas nao retornou o link de pagamento. Aguarde alguns segundos e tente novamente.');
 
     // So e uma assinatura de verdade NOVA (e so ai que avisa o treinador) quando o subscriptionId
     // muda em relacao ao que ja estava salvo. Clicar de novo no mesmo link pendente (usuario
