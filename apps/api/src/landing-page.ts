@@ -23,6 +23,13 @@ const config = JSON.stringify({ checkoutUrl: CHECKOUT_URL, results }).replace(/<
 
 export const LANDING_PAGE_HTML = `<!DOCTYPE html>
 <html lang="pt-BR"><head>
+<script type="text/javascript">
+    (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+    })(window, document, "clarity", "script", "yibnn0x7im");
+</script>
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-ZJXHZVSDL8"></script>
 <script>
