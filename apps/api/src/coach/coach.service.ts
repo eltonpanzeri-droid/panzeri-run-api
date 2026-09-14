@@ -1107,6 +1107,12 @@ export class CoachService {
               completedPaceSecondsKm: session.completion?.avgPaceSecondsKm ?? null,
               completedAt: session.completion?.completedAt ?? null,
               stravaActivity: serializeStravaActivity(stravaBySession.get(session.id) ?? null),
+              // walkingReasons: motivos de caminhada/parada, multi-select (14/09/2026)
+              walkingReasons: session.completion?.details != null && typeof session.completion.details === 'object'
+                ? (Array.isArray((session.completion.details as Record<string, unknown>).walkingReasons)
+                  ? (session.completion.details as Record<string, unknown>).walkingReasons as string[]
+                  : null)
+                : null,
               // Campo unico de texto explicativo — "recommendations" foi removido em 07/08 (dois
               // campos so confundiam e gastavam token da IA a toa); sessoes antigas que ainda tem
               // algo la aparecem juntas aqui, num so texto.
@@ -1165,6 +1171,12 @@ export class CoachService {
           // postWorkoutMood fica em details (campo sem migration propria — 12/09/2026)
           postWorkoutMood: session.completion?.details != null && typeof session.completion.details === 'object'
             ? (Number((session.completion.details as Record<string, unknown>).postWorkoutMood) || null)
+            : null,
+          // walkingReasons: motivos de caminhada/parada, multi-select (14/09/2026)
+          walkingReasons: session.completion?.details != null && typeof session.completion.details === 'object'
+            ? (Array.isArray((session.completion.details as Record<string, unknown>).walkingReasons)
+              ? (session.completion.details as Record<string, unknown>).walkingReasons as string[]
+              : null)
             : null,
           // Feedback v1 — bloco 3: dor
           painFlag: session.completion?.painFlag ?? null,

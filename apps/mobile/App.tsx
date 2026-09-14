@@ -365,6 +365,9 @@ interface CompletionDraft {
   // So relevante pra treinos de corrida: "correu tudo" e diferente de "completou a distancia
   // caminhando/parando em trechos" — informacao que o Strava/pace medio sozinho nao revela.
   pacingMode: string;
+  // Selecao multipla de motivos para caminhada/parada (multi-select, 14/09/2026).
+  // Armazenado em details.walkingReasons[] — sem migration, campo JSON.
+  walkingReasons: string[];
   // So relevante quando status === 'missed'. Selecao multipla de motivos pre-definidos +
   // comentario livre opcional — ver MISSED_REASON_OPTIONS.
   missedReasons: string[];
@@ -3751,6 +3754,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       details: {
         loadsText: draft.loadsText,
         pacingMode: draft.pacingMode || undefined,
+        walkingReasons: draft.walkingReasons.length ? draft.walkingReasons : undefined,
         missedReasons: draft.status === 'missed' && draft.missedReasons.length ? draft.missedReasons : undefined,
         missedComment: draft.status === 'missed' && draft.missedComment.trim() ? draft.missedComment.trim() : undefined,
         exerciseFeedback: draft.exerciseFeedback.length ? draft.exerciseFeedback : undefined,
@@ -8443,17 +8447,23 @@ function CompletionForm({
                     );
                   })}
                 </View>
-                {/* Sub-opcoes: aparece quando escolheu Sim */}
+                {/* Sub-opcoes multi-select: aparece quando escolheu Sim (14/09/2026) */}
                 {draft.pacingMode && draft.pacingMode !== 'correu_tudo' && (
                   <View style={{ marginBottom: 8 }}>
-                    <Text style={[styles.formHint, { marginBottom: 6 }]}>Qual foi o motivo? (escolha o principal)</Text>
+                    <Text style={[styles.formHint, { marginBottom: 6 }]}>Qual foi o motivo? (pode escolher mais de um)</Text>
                     {WALKING_SUBOPTIONS.map((opt) => {
-                      const isActive = draft.pacingMode === opt.value;
+                      const isActive = (draft.walkingReasons ?? []).includes(opt.value);
                       return (
                         <Pressable
                           key={opt.value}
                           style={[styles.completionChip, { width: '100%', marginBottom: 4, justifyContent: 'flex-start' }, isActive && styles.completionChipActive]}
-                          onPress={() => onChange({ pacingMode: opt.value })}
+                          onPress={() => {
+                            const current = draft.walkingReasons ?? [];
+                            const next = isActive
+                              ? current.filter((r) => r !== opt.value)
+                              : [...current, opt.value];
+                            onChange({ walkingReasons: next });
+                          }}
                         >
                           <Text style={[styles.completionChipText, isActive && styles.completionChipTextActive]}>{opt.label}</Text>
                         </Pressable>
@@ -8695,9 +8705,10 @@ function CompletionForm({
               <Text style={styles.secondaryButtonText}>Cancelar alteracao</Text>
             </Pressable>
           )}
-          {message ? <Text style={styles.completionConfirmation}>{message}</Text> : null}
         </>
       )}
+      {/* 14/09: mensagem de confirmacao fora do bloco locked/unlocked para ficar visivel apos salvar */}
+      {message ? <Text style={styles.completionConfirmation}>{message}</Text> : null}
       {onCollapse && (
         <Pressable style={{ alignSelf: 'center', marginTop: 12, paddingVertical: 8, paddingHorizontal: 16 }} onPress={onCollapse}>
           <Text style={{ color: PRColors.ocean, fontSize: 13, fontWeight: '700' }}>↑ Recolher</Text>
@@ -9172,6 +9183,7 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     notes: '',
     loadsText: '',
     pacingMode: '',
+    walkingReasons: [],
     missedReasons: [],
     missedComment: '',
     exerciseFeedback: [],
@@ -9203,6 +9215,7 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     notes: completion.notes ?? '',
     loadsText: completion.details?.loadsText ?? '',
     pacingMode: completion.details?.pacingMode ?? '',
+    walkingReasons: Array.isArray((completion.details as Record<string, unknown> | undefined)?.walkingReasons) ? (completion.details as Record<string, unknown>).walkingReasons as string[] : [],
     missedReasons: completion.details?.missedReasons ?? [],
     missedComment: completion.details?.missedComment ?? '',
     exerciseFeedback: completion.details?.exerciseFeedback ?? [],

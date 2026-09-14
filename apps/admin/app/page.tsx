@@ -255,6 +255,8 @@ interface StudentDetail {
       completedPaceSecondsKm?: number | null;
       completedAt?: string | null;
       stravaActivity?: StravaActivity | null;
+      // Motivos de caminhada/parada, multi-select (14/09/2026)
+      walkingReasons?: string[] | null;
     }>;
   } | null;
   unmatchedStravaActivities?: StravaActivity[];
@@ -306,6 +308,8 @@ interface StudentDetail {
       painFlag?: string | null;
       painTiming?: string | null;
       feedbackVersion?: number | null;
+      // Motivos de caminhada/parada, multi-select (14/09/2026)
+      walkingReasons?: string[] | null;
     }>;
   }>;
 }
@@ -3455,6 +3459,9 @@ function EditableSession({
             <span>{session.satisfaction ? `Fazer o treino: ${satisfactionLabel(session.satisfaction)}` : 'Satisfacao em fazer o treino nao informada'}</span>
             <span>{session.satisfactionCapacidade ? `Como conseguiu fazer: ${satisfactionLabel(session.satisfactionCapacidade)}` : 'Satisfacao com como conseguiu fazer nao informada'}</span>
             <span>{session.satisfactionCarga ? `Carga: ${cargaLabel(session.satisfactionCarga)}` : 'Carga nao informada'}</span>
+            {session.walkingReasons && session.walkingReasons.length > 0 && (
+              <span>Caminhada/parada: {session.walkingReasons.join(' · ')}</span>
+            )}
             <span>{session.feedback || 'Sem comentario'}</span>
           </>
         )}
