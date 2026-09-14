@@ -7,6 +7,7 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { trackWebPageView } from './src/ga4';
 import { BrandMark } from './theme/BrandMark';
 import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
@@ -1106,6 +1107,10 @@ function AppInner() {
   const [routineSetupMode, setRoutineSetupMode] = useState(false);
 
   const metrics = useMemo(() => calculateThreeKmMetrics(Number(threeKmSeconds)), [threeKmSeconds]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' && !isRestoringSession) trackWebPageView(screen, activeTab);
+  }, [screen, activeTab, isRestoringSession]);
 
   // A tela Semana usa anamneseRoutine (carregado uma vez por sessao) como estado inicial da
   // rotina. Se a entrevista/reavaliacao for concluida no meio da sessao e essa copia local nao
