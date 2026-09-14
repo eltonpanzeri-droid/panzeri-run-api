@@ -1125,7 +1125,7 @@ export class TrainingPlansService {
       let notifMessage: string;
       if (unregisteredCount === 0) {
         notifMessage =
-          'Você registrou todos os treinos da semana passada — isso ajuda a IA a prescrever com mais precisão. Seu novo programa chegou!';
+          'Você registrou todos os treinos da semana passada, isso nos ajuda a prescrever treinos mais individualizados e personalizados para você. Continue assim. Parabéns!';
       } else if (unregisteredCount === 1) {
         notifMessage =
           '1 treino da semana passada ficou sem registro. Por segurança na prescrição, não podemos considerá-lo como feito sem confirmação. Registre o que você fez!';
