@@ -8493,7 +8493,7 @@ function CompletionForm({
         </View>
       )}
 
-      <View pointerEvents={locked ? 'none' : 'auto'} style={locked ? { opacity: 0.55 } : undefined}>
+      <View pointerEvents={locked ? 'none' : 'auto'}>
         {/* Seletor de status — sempre visivel */}
         <View style={styles.completionStatusRow}>
           {[
