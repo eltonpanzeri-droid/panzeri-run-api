@@ -124,12 +124,80 @@ export class WorkoutCompletionsService {
     // explique) — pedido explicito do treinador 03/08: quando o aluno registra o feedback desse
     // treino especifico, encaminha pro Telegram do treinador junto com o motivo do desvio, alem
     // do aviso ja recebido na hora da geracao (routineMismatch agregado da semana).
+    // 14/09: mensagem expandida para incluir todas as respostas do feedback (RPE, escalas, etc.)
     if (session.routineMismatchNote) {
       const student = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
       const statusLabel = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'fez com ajustes' : 'marcou como nao feito';
-      await this.telegram.notifyCoach(
-        `📋 Feedback de treino fora da rotina combinada.\nAluno: ${student?.name ?? 'desconhecido'} (Cod. ${student ? formatStudentCode(student.studentCode) : '?'})\nTreino: ${session.title} (${session.modality}) — ${dataFormatada}\nMotivo do desvio: ${session.routineMismatchNote}\nAluno ${statusLabel} este treino.${dto.notes?.trim() ? `\nFeedback do aluno: ${dto.notes.trim()}` : '\nSem comentario escrito pelo aluno.'}`,
-      ).catch(() => undefined);
+
+      // Extrair campos que ficam em details (sem migration propria)
+      const detailsMap = (dto.details ?? {}) as Record<string, unknown>;
+      const postWorkoutMood = typeof detailsMap.postWorkoutMood === 'number' ? detailsMap.postWorkoutMood : null;
+      const walkingReasons = Array.isArray(detailsMap.walkingReasons)
+        ? (detailsMap.walkingReasons as unknown[]).filter((v): v is string => typeof v === 'string')
+        : [];
+      const pacingMode = typeof detailsMap.pacingMode === 'string' ? detailsMap.pacingMode : null;
+
+      // Bloco de execucao (duracao, distancia, pace)
+      const execParts: string[] = [];
+      if (dto.durationMin) execParts.push(`${dto.durationMin}min`);
+      if (dto.distanceKm) execParts.push(`${dto.distanceKm}km`);
+      if (dto.avgPaceSecondsKm) execParts.push(`${Math.floor(dto.avgPaceSecondsKm / 60)}:${String(dto.avgPaceSecondsKm % 60).padStart(2, '0')}/km`);
+
+      // Bloco pre-treino
+      const preLines: string[] = [];
+      if (dto.preSleepQuality) preLines.push(`😴 Sono: ${dto.preSleepQuality}/5`);
+      if (dto.prePhysicalFatigue) preLines.push(`🦵 Cansaco fisico: ${dto.prePhysicalFatigue}/5`);
+      if (dto.preStressLevel) preLines.push(`😰 Estresse: ${dto.preStressLevel}/5`);
+      if (dto.preMotivation) preLines.push(`🔥 Motivacao: ${dto.preMotivation}/5`);
+
+      // Bloco durante/pos
+      const posLines: string[] = [];
+      if (dto.perceivedEffort) posLines.push(`💪 RPE: ${dto.perceivedEffort}/10`);
+      if (dto.satisfactionElaboracao) posLines.push(`📋 Elaboracao do treino: ${satisfactionLabel(dto.satisfactionElaboracao)}`);
+      if (dto.satisfactionCapacidade) posLines.push(`🏃 Como se saiu na execucao: ${satisfactionLabel(dto.satisfactionCapacidade)}`);
+      if (dto.postWorkoutFeeling) posLines.push(`😊 Corpo ao terminar: ${dto.postWorkoutFeeling}/5`);
+      if (postWorkoutMood !== null) posLines.push(`❤️ Emocao ao terminar: ${postWorkoutMood}/5`);
+
+      // Caminhou/parou
+      if (pacingMode && pacingMode !== 'correu_tudo') {
+        if (walkingReasons.length) {
+          posLines.push(`🚶 Caminhou/parou: ${walkingReasons.map(walkingReasonLabel).join('; ')}`);
+        } else {
+          posLines.push(`🚶 Caminhou/parou durante o treino`);
+        }
+      } else if (pacingMode === 'correu_tudo') {
+        posLines.push(`✅ Correu tudo sem caminhar/parar`);
+      }
+
+      // Dor
+      if (dto.painFlag && dto.painFlag !== 'none') {
+        const dor = `🩹 Dor: ${painFlagLabel(dto.painFlag)}${dto.painTiming ? ` — ${painTimingLabel(dto.painTiming)}` : ''}`;
+        posLines.push(dor);
+      }
+
+      // Montagem da mensagem final
+      const linhas: string[] = [
+        `📋 Feedback — treino fora da rotina.`,
+        `👤 ${student?.name ?? 'desconhecido'} (Cod. ${student ? formatStudentCode(student.studentCode) : '?'})`,
+        `🗓 ${session.title} (${session.modality}) — ${weekdayAbrev} ${dataFormatada}`,
+        `⚠️ Desvio: ${session.routineMismatchNote}`,
+        `Status: Aluno ${statusLabel} este treino.`,
+      ];
+      if (execParts.length) linhas.push(`⏱ ${execParts.join(' | ')}`);
+      if (preLines.length) {
+        linhas.push('');
+        linhas.push('PRE-TREINO');
+        linhas.push(preLines.join('  '));
+      }
+      if (posLines.length) {
+        linhas.push('');
+        linhas.push('DURANTE / POS');
+        linhas.push(...posLines);
+      }
+      linhas.push('');
+      linhas.push(dto.notes?.trim() ? `💬 ${dto.notes.trim()}` : `💬 Sem comentario escrito.`);
+
+      await this.telegram.notifyCoach(linhas.join('\n')).catch(() => undefined);
     }
 
     const missedReasons = Array.isArray((details as Record<string, unknown>).missedReasons)
@@ -284,6 +352,20 @@ export function painTimingLabel(value: string) {
     durante_passou: 'apareceu durante e passou',
     durante_continuou: 'apareceu durante e continuou ate o final',
     so_depois: 'so percebi depois que terminei',
+  };
+  return labels[value] ?? value;
+}
+
+// Labels para motivos de caminhada/parada (multi-select, 14/09/2026 — ver WALKING_SUBOPTIONS em App.tsx)
+function walkingReasonLabel(value: string) {
+  const labels: Record<string, string> = {
+    caminhou_conforme_prescrito: 'caminhou conforme prescrito',
+    caminhou_pouco_esforco: 'caminhou pouco (esforco alto)',
+    caminhou_muito_esforco: 'caminhou bastante (esforco alto)',
+    caminhou_outros: 'caminhou por outros motivos',
+    parou_agua: 'parou para beber agua',
+    parou_banheiro: 'parou para ir ao banheiro',
+    parou_outros: 'parou por outros motivos',
   };
   return labels[value] ?? value;
 }
