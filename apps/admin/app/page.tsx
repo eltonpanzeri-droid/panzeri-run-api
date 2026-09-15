@@ -5033,15 +5033,22 @@ function VisaoGeralSection({ sessions, weeks }: { sessions: FlatSession[]; weeks
   const avgElab = avg(withElab.map((s) => satScore(s.satisfactionElaboracao)));
   const avgExec = avg(withExec.map((s) => satScore(s.satisfactionCapacidade)));
   const avgMotiv = avg(withMotiv.map((s) => s.preMotivation));
-  const totalPrescribed = weeks.reduce((a, w) => a + w.prescribedSessions, 0);
-  const totalDone = weeks.reduce((a, w) => a + w.completedSessions, 0);
   const totalKmP = weeks.reduce((a, w) => a + w.prescribedKm, 0);
   const totalKmC = weeks.reduce((a, w) => a + w.completedKm, 0);
-  const adherence = totalPrescribed > 0 ? Math.round((totalDone / totalPrescribed) * 100) : null;
+  // Aderencia corrigida (14/09/2026): feito / (feito + nao_feito).
+  // Antes usava totalPrescribed (weeks.prescribedSessions), que inclui a semana atual
+  // inteira — numa segunda-feira, terca a domingo ja iam pro denominador zerando a aderencia.
+  // Sessoes futuras nunca tem status 'done' nem 'missed', entao ficam fora automaticamente.
+  const missed = sessions.filter((s) => s.completionStatus === 'missed');
+  const adherenceDenom = done.length + missed.length;
+  const adherence = adherenceDenom > 0 ? Math.round((done.length / adherenceDenom) * 100) : null;
+  // "Treinos feitos: X de Y" — Y = sessoes cujo dia ja passou (UTC-3, mesmo fuso do backend)
+  const todayBR = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const totalEligible = sessions.filter((s) => s.date <= todayBR).length;
 
   const tiles: Array<{ label: string; value: string; sub?: string; color?: string }> = [
     { label: 'Aderência', value: adherence != null ? `${adherence}%` : '–', color: adherence != null ? (adherence >= 80 ? '#22c55e' : adherence >= 60 ? '#fb923c' : '#ef4444') : undefined },
-    { label: 'Treinos feitos', value: totalPrescribed > 0 ? `${totalDone}` : '–', sub: totalPrescribed > 0 ? `de ${totalPrescribed}` : undefined },
+    { label: 'Treinos feitos', value: totalEligible > 0 ? `${done.length}` : '–', sub: totalEligible > 0 ? `de ${totalEligible}` : undefined },
     { label: 'Km', value: totalKmC > 0 ? `${totalKmC.toFixed(0)}` : '–', sub: totalKmP > 0 ? `de ${totalKmP.toFixed(0)} km` : undefined },
     { label: 'RPE médio', value: fmt(avgRPE, 10), sub: withRPE.length > 0 ? `${withRPE.length} registros` : undefined },
     { label: 'Elaboração', value: fmt(avgElab, 5), sub: withElab.length > 0 ? `${withElab.length} registros` : undefined },
