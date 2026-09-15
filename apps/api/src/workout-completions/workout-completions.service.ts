@@ -309,7 +309,7 @@ export class WorkoutCompletionsService {
     try {
       const firstRealCompletion = await this.prisma.workoutCompletion.findFirst({
         where: { userId, status: { in: ['done', 'adjusted'] } },
-        orderBy: [{ completedAt: 'asc' }, { createdAt: 'asc' }],
+        orderBy: [{ completedAt: 'asc' }, { id: 'asc' }],
         select: { sessionId: true },
       });
       if (firstRealCompletion?.sessionId === sessionId) {
