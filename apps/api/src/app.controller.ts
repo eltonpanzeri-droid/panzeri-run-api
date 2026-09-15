@@ -3,6 +3,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { TelegramService } from './billing/telegram.service';
 import { LANDING_PAGE_HTML } from './landing-page';
+import { LINKS_PAGE_HTML } from './links-page';
 
 @Controller()
 export class AppController {
@@ -12,6 +13,11 @@ export class AppController {
   @Get()
   landingPage(@Res() response: { type: (value: string) => { send: (value: string) => void } }) {
     response.type('html').send(LANDING_PAGE_HTML);
+  }
+
+  @Get('links')
+  linksPage(@Res() response: { type: (value: string) => { send: (value: string) => void } }) {
+    response.type('html').send(LINKS_PAGE_HTML);
   }
 
   @Get('landing-assets/:filename')
