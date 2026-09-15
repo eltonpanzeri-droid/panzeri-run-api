@@ -37,6 +37,10 @@ interface FunnelReport {
   since: string;
   preCadastroDropoff: number;
   funnel: Array<{ event: string; label: string; sessions: number }>;
+  sections?: {
+    acquisition: Array<{ event: string; questionId?: string; label: string; journeys: number; conversionFromPrevious: number }>;
+    activation: Array<{ event: string; questionId?: string; label: string; journeys: number; conversionFromPrevious: number }>;
+  };
   questionErrors: Array<{ questionId: string | null; count: number }>;
   stalledSessions: Array<{
     sessionId: string;
@@ -1681,7 +1685,21 @@ function CouponsView({
 }
 
 function FunnelView({ report, loading, onRefresh }: { report: FunnelReport | null; loading: boolean; onRefresh: () => void }) {
-  const top = report?.funnel[0]?.sessions ?? 1;
+  const renderCohort = (title: string, steps: NonNullable<FunnelReport['sections']>['acquisition']) => {
+    const top = steps[0]?.journeys ?? 1;
+    return <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <h3 style={{ fontSize: 16, margin: '12px 0 4px' }}>{title}</h3>
+      {steps.map((step, index) => {
+        const pct = top > 0 ? Math.round((step.journeys / top) * 100) : 0;
+        return <div key={`${step.event}:${step.questionId ?? ''}`} className="funnelStep">
+          <div className="funnelStepBar" style={{ width: `${pct}%` }} />
+          <div className="funnelStepLabel"><span>{step.label}</span><span className="funnelStepCount">
+            {step.journeys} {index > 0 ? <span className="funnelDropoff">{step.conversionFromPrevious}% avançaram</span> : null}
+          </span></div>
+        </div>;
+      })}
+    </div>;
+  };
   return (
     <section className="panel fullPanel">
       <div className="panelHeader">
@@ -1697,25 +1715,10 @@ function FunnelView({ report, loading, onRefresh }: { report: FunnelReport | nul
             Últimos {report.days} dias · {report.preCadastroDropoff} pessoa(s) abriram o app mas não criaram conta
           </p>
 
-          {/* Funil de conversão */}
-          <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {report.funnel.map((step, i) => {
-              const pct = top > 0 ? Math.round((step.sessions / top) * 100) : 0;
-              const prevSessions = i > 0 ? (report.funnel[i - 1]?.sessions ?? step.sessions) : step.sessions;
-              const dropPct = i > 0 && prevSessions > 0 ? Math.round(((prevSessions - step.sessions) / prevSessions) * 100) : null;
-              return (
-                <div key={step.event} className="funnelStep">
-                  <div className="funnelStepBar" style={{ width: `${pct}%` }} />
-                  <div className="funnelStepLabel">
-                    <span>{step.label}</span>
-                    <span className="funnelStepCount">
-                      {step.sessions} {dropPct !== null && dropPct > 0 ? <span className="funnelDropoff">−{dropPct}%</span> : null}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          {report.sections ? <>
+            {renderCohort('Aquisição e assinatura', report.sections.acquisition)}
+            {renderCohort('Ativação pós-pagamento', report.sections.activation)}
+          </> : null}
 
           {/* Erros de pergunta */}
           {report.questionErrors.length > 0 ? (

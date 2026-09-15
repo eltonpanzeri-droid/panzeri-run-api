@@ -62,3 +62,15 @@ export function trackWebPageView(screen: string, tab: string) {
     // Analytics must never interrupt authentication, navigation, or rendering.
   }
 }
+
+// Eventos agregados e sem PII. Falhas do carregador ou do bloqueador de anuncios sao ignoradas.
+export function trackWebEvent(event: string, params: Record<string, string | number | boolean> = {}) {
+  const browser = (globalThis as unknown as { window?: AnalyticsWindow }).window;
+  if (!browser?.document || !browser.location) return;
+  try {
+    if (!initialized) trackWebPageView('login', 'week');
+    browser.gtag?.('event', event, { send_to: MEASUREMENT_ID, ...params });
+  } catch {
+    // Analytics nunca interfere no produto.
+  }
+}

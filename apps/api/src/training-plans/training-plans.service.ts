@@ -776,8 +776,17 @@ export class TrainingPlansService {
       selfReportedPace: paceFallback ? { secondsPerKm: paceFallback.paceSecondsPerKm, source: paceFallback.source } : null,
       stravaAveragePace: stravaAveragePaceSecondsPerKm ? { secondsPerKm: stravaAveragePaceSecondsPerKm, sampleRuns: stravaPacedRuns.length } : null,
     };
-    const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput, paceEvidence);
+    void this.recordProductEvent(userId, 'training_generation_started');
+    const aiDecision = await (async () => {
+      try {
+        return await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput, paceEvidence);
+      } catch (error) {
+        void this.recordProductEvent(userId, 'training_generation_failed', { reason: 'technical_exception' });
+        throw error;
+      }
+    })();
     if (!aiDecision) {
+      void this.recordProductEvent(userId, 'training_generation_failed', { reason: 'ai_no_decision' });
       // O treinador foi explicito: a prescricao TEM que vir de raciocinio real da IA, nunca de
       // um motor de regras fixas — o motor antigo nao lia diretiva nenhuma nem pace especifico e
       // sempre prescrevia quase a mesma coisa, o que ele classificou como inaceitavel para alunas
@@ -1041,7 +1050,10 @@ export class TrainingPlansService {
       session.scheduledDate.getTime() > today.getTime() ||
       (Boolean(options?.allowToday) && session.scheduledDate.getTime() === today.getTime()),
     );
-    const plan = await this.prisma.trainingPlan.create({
+    const hadAnyPlanBefore = await this.prisma.trainingPlan.count({ where: { userId } }).then((count) => count > 0);
+    const plan = await (async () => {
+      try {
+        return await this.prisma.trainingPlan.create({
       data: {
         userId,
         name: 'Programa semanal',
@@ -1094,7 +1106,16 @@ export class TrainingPlansService {
           include: { completion: true },
         },
       },
-    });
+        });
+      } catch (error) {
+        void this.recordProductEvent(userId, 'training_generation_failed', { reason: 'persistence_error' });
+        throw error;
+      }
+    })();
+    void this.recordProductEvent(userId, 'training_generation_completed', { planId: plan.id });
+    if (!hadAnyPlanBefore) {
+      void this.recordProductEvent(userId, 'first_workout_available', { planId: plan.id }, 'first_workout_available');
+    }
 
     // Copia em texto da prescricao numerica que acabou de ser decidida — puro codigo, sem custo
     // de IA (a criacao do texto em si nao chama nenhum modelo). Vira insumo pro agente do
@@ -1192,6 +1213,27 @@ export class TrainingPlansService {
   // na hora, exatamente como qualquer regeneracao normal (arquivando a semana que estava em
   // andamento). Nao ha "agendado" esperando ser promovido depois — o que a IA termina de gerar
   // ja e, no mesmo instante, o que aparece pro treinador e pro aluno.
+  private async recordProductEvent(userId: string, event: string, metadata?: Record<string, unknown>, uniqueSuffix?: string) {
+    try {
+      const identity = await this.prisma.funnelEvent.findFirst({
+        where: { userId }, orderBy: { createdAt: 'desc' },
+        select: { sessionId: true, journeyId: true },
+      });
+      await this.prisma.funnelEvent.create({
+        data: {
+          sessionId: identity?.sessionId ?? `backend:${userId}`.slice(0, 64),
+          journeyId: identity?.journeyId ?? null,
+          userId,
+          event,
+          metadata: metadata as Prisma.InputJsonValue | undefined,
+          dedupeKey: uniqueSuffix ? `${uniqueSuffix}:${userId}` : null,
+        },
+      });
+    } catch {
+      // Instrumentacao nao pode alterar o resultado da geracao.
+    }
+  }
+
   async generateNextWeekIfMissing(userId: string) {
     const nextWeekStart = startOfWeek(addDays(new Date(), 7));
     const [existing, anyPlanEver] = await Promise.all([

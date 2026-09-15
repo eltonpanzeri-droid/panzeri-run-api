@@ -29,6 +29,16 @@ export class RecordEventDto {
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  journeyId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  dedupeKey?: string;
 }
 
 @Controller('analytics')
@@ -46,6 +56,8 @@ export class FunnelController {
       userId: body.userId,
       questionId: body.questionId,
       metadata: body.metadata,
+      journeyId: body.journeyId,
+      dedupeKey: body.dedupeKey,
     });
     return { ok: true };
   }

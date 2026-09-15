@@ -48,10 +48,12 @@ describe('internal funnel analytics', () => {
     expect(create).toHaveBeenCalledWith({
       data: {
         sessionId: '3f85c381-9d30-4f55-b172-7cb0dc7f9477',
+        journeyId: null,
         event: 'signup_completed',
         userId: '1abfb8f1-d5dd-493f-8317-a5fd7c8fd47d',
         questionId: null,
         metadata: undefined,
+        dedupeKey: null,
       },
     });
   });

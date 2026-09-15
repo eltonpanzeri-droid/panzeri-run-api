@@ -114,6 +114,10 @@ export class WorkoutCompletionsService {
       },
     });
 
+    if (dto.status === 'done' || dto.status === 'adjusted') {
+      void this.maybeRecordFirstCompleted(userId, session.id);
+    }
+
     // Data formatada usada tanto no Telegram de mismatch quanto na notificacao de painel do treinador.
     // scheduledDate e meia-noite UTC — usar 'UTC' evita o deslocamento de -3h que fazia a data
     // aparecer como o dia anterior no Telegram (mesmo fix ja aplicado em training-plans.service.ts).
@@ -287,6 +291,45 @@ export class WorkoutCompletionsService {
     }
 
     return completion;
+  }
+
+  async recordFirstViewed(userId: string, sessionId: string) {
+    try {
+      const first = await this.prisma.trainingSession.findFirst({
+        where: { userId }, orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }], select: { id: true },
+      });
+      if (first?.id === sessionId) await this.recordActivationEvent(userId, 'first_workout_viewed', 'first_workout_viewed');
+    } catch {
+      // Endpoint analitico sempre degrada para sucesso.
+    }
+    return { ok: true };
+  }
+
+  private async maybeRecordFirstCompleted(userId: string, sessionId: string) {
+    try {
+      const firstRealCompletion = await this.prisma.workoutCompletion.findFirst({
+        where: { userId, status: { in: ['done', 'adjusted'] } },
+        orderBy: [{ completedAt: 'asc' }, { createdAt: 'asc' }],
+        select: { sessionId: true },
+      });
+      if (firstRealCompletion?.sessionId === sessionId) {
+        await this.recordActivationEvent(userId, 'first_workout_completed', 'first_workout_completed');
+      }
+    } catch {
+      // Analytics nunca afeta a conclusao principal.
+    }
+  }
+
+  private async recordActivationEvent(userId: string, event: string, uniqueSuffix: string) {
+    try {
+      const identity = await this.prisma.funnelEvent.findFirst({ where: { userId }, orderBy: { createdAt: 'desc' }, select: { sessionId: true, journeyId: true } });
+      await this.prisma.funnelEvent.create({ data: {
+        sessionId: identity?.sessionId ?? `backend:${userId}`.slice(0, 64), journeyId: identity?.journeyId ?? null,
+        userId, event, dedupeKey: `${uniqueSuffix}:${userId}`,
+      } });
+    } catch {
+      // Idempotencia ou indisponibilidade de analytics nunca afeta o registro do treino.
+    }
   }
 }
 
