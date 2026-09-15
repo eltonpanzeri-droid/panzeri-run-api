@@ -1,13 +1,33 @@
 import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle } from '@nestjs/throttler';
+import { IsNotEmpty, IsObject, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { FunnelService } from './funnel.service';
 
-class RecordEventDto {
+export class RecordEventDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
   sessionId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  @Matches(/^[a-z_]+$/)
   event!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
   userId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
   questionId?: string;
+
+  @IsOptional()
+  @IsObject()
   metadata?: Record<string, unknown>;
 }
 
