@@ -72,8 +72,9 @@ model User {
   // notificacao, ou o app ainda nao registrou (versao antiga do app instalada).
   expoPushToken                    String?
   // Fase 0 Data Layer: atribuição de aquisição capturada no momento do cadastro.
-  // Preserva journeyId, source, medium, campaign, content, referrer, fbclid e gclid.
-  // Estrutura: { journeyId?, source?, medium?, campaign?, content?, referrer?, fbclid?, gclid? }
+  // sessionId = funnelSessionId do PWA — vincula ao FunnelEvent via WHERE sessionId = attrib->>'sessionId'.
+  // Nota: FunnelEvent.journeyId (cross-device, nunca implementado) é diferente deste campo.
+  // Estrutura: { sessionId?, source?, medium?, campaign?, content?, referrer?, fbclid?, gclid? }
   acquisitionAttribution           Json?
   // Controle de tentativas de "Gerar treino da semana" pelo proprio aluno (pedido do treinador
   // 16/08 — nao chamar a IA toda vez que o aluno aperta o botao, e nao deixar tentativas infinitas

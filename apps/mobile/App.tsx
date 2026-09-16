@@ -524,6 +524,82 @@ const DISMISSED_NOTIFICATIONS_KEY = 'panzeri-run-dismissed-notifications';
 // salvo em AsyncStorage e reutilizado enquanto o app nao for reinstalado. Nunca contem
 // dados pessoais: e' um ID aleatorio que o servidor vincula ao userId so' apos o cadastro.
 const FUNNEL_SESSION_KEY = 'panzeri-run-funnel-session';
+// Atribuição de aquisição capturada da URL na primeira abertura do PWA (first-touch).
+// Nunca sobrescrita nas navegações seguintes dentro do PWA.
+const FUNNEL_ATTRIBUTION_KEY = 'panzeri-run-funnel-attribution';
+
+// Campos de atribuição normalizados para o domínio (utm_source → source, etc.).
+// sessionId = funnelSessionId — vincula os FunnelEvents ao User.acquisitionAttribution
+// via WHERE FunnelEvent.sessionId = acquisitionAttribution->>'sessionId'.
+// Diferente de FunnelEvent.journeyId (conceito cross-device planejado, nunca implementado).
+type AcquisitionAttribution = {
+  source?: string;
+  medium?: string;
+  campaign?: string;
+  content?: string;
+  term?: string;
+  referrer?: string;
+  fbclid?: string;
+  gclid?: string;
+  sessionId?: string;
+};
+
+// Captura UTMs e referrer da URL atual (apenas web/PWA). Persiste first-touch: se já
+// existe atribuição válida armazenada, mantém a original sem sobrescrever.
+// Se não houver nenhum parâmetro relevante (sem UTM e sem referrer externo), não grava nada
+// — primeiro load sem dados não bloqueia captura posterior dentro da mesma jornada.
+async function captureAndStoreAttribution(): Promise<AcquisitionAttribution | null> {
+  try {
+    const stored = await AsyncStorage.getItem(FUNNEL_ATTRIBUTION_KEY);
+    if (stored) return JSON.parse(stored) as AcquisitionAttribution;
+
+    if (Platform.OS !== 'web') return null;
+    const browserWindow = globalThis as unknown as {
+      location?: { search?: string; origin?: string };
+      document?: { referrer?: string };
+    };
+
+    const search = browserWindow?.location?.search ?? '';
+    const params = search ? new URLSearchParams(search) : new URLSearchParams();
+    const attr: AcquisitionAttribution = {};
+    const s = (k: string) => { const v = params.get(k); return v && v.trim() ? v.trim().slice(0, 300) : undefined; };
+    attr.source   = s('utm_source');
+    attr.medium   = s('utm_medium');
+    attr.campaign = s('utm_campaign');
+    attr.content  = s('utm_content');
+    attr.term     = s('utm_term');
+    attr.fbclid   = s('fbclid');
+    attr.gclid    = s('gclid');
+
+    // Referrer capturado independentemente de UTMs — exclui mesmo domínio (não é aquisição).
+    const ref = browserWindow?.document?.referrer;
+    if (ref && ref.trim()) {
+      try {
+        const refOrigin = new URL(ref.trim()).origin;
+        const currentOrigin = browserWindow?.location?.origin ?? '';
+        if (refOrigin && refOrigin !== currentOrigin) attr.referrer = ref.trim().slice(0, 1000);
+      } catch { /* referrer malformado — ignora */ }
+    }
+
+    const hasAny = Object.values(attr).some(Boolean);
+    if (!hasAny) return null;
+
+    await AsyncStorage.setItem(FUNNEL_ATTRIBUTION_KEY, JSON.stringify(attr));
+    return attr;
+  } catch {
+    return null;
+  }
+}
+
+// Recupera atribuição já persistida sem tentar capturar novamente.
+async function getStoredAttribution(): Promise<AcquisitionAttribution | null> {
+  try {
+    const stored = await AsyncStorage.getItem(FUNNEL_ATTRIBUTION_KEY);
+    return stored ? (JSON.parse(stored) as AcquisitionAttribution) : null;
+  } catch {
+    return null;
+  }
+}
 
 // Gera e persiste um UUID simples para rastreamento de funil (nao criptografico — uso analitico).
 let funnelSessionIdCache: string | null = null;
@@ -1121,13 +1197,26 @@ function AppInner() {
 
   useEffect(() => {
     registerWebApp();
-    // Rastreamento de funil: registra abertura do app uma unica vez por sessao de navegador
-    // (sessionStorage garante que recargas na mesma aba nao geram duplicatas). No nativo,
-    // o app so reexecuta esse efeito se for destruido e recriado do zero (nao em background).
+    // Captura UTMs/referrer da URL a cada carregamento — idempotente via AsyncStorage first-touch.
+    // Chamada FORA do guard de sessao: se o mesmo tab receber UTMs numa navegacao subsequente
+    // antes do cadastro, a captura ainda acontece (desde que AsyncStorage nao tenha valor anterior).
+    captureAndStoreAttribution().catch(() => undefined);
+    // Rastreamento de funil: registra abertura do app uma unica vez por sessao de navegador.
+    // sessionStorage garante que recargas na mesma aba nao geram duplicatas.
     const alreadyTracked = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('funnel_app_opened');
     if (!alreadyTracked) {
       if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('funnel_app_opened', '1');
-      trackFunnel('app_opened');
+      // Inclui atribuicao capturada na metadata do app_opened — sessionId vincula o FunnelEvent
+      // ao User.acquisitionAttribution que sera gravado no cadastro.
+      getStoredAttribution().then((attr) => {
+        if (attr) {
+          getFunnelSessionId().then((sid) => {
+            trackFunnel('app_opened', { metadata: { ...attr, sessionId: sid } });
+          }).catch(() => trackFunnel('app_opened'));
+        } else {
+          trackFunnel('app_opened');
+        }
+      }).catch(() => trackFunnel('app_opened'));
     }
   }, []);
 
@@ -1830,6 +1919,12 @@ function Login({
         return;
       }
 
+      // Inclui atribuição de aquisição se capturada na chegada — vincula cadastro à jornada.
+      // sessionId = funnelSessionId: permite cruzar User.acquisitionAttribution com FunnelEvents
+      // via WHERE FunnelEvent.sessionId = acquisitionAttribution->>'sessionId'.
+      const [storedAttribution, funnelSessionId] = await Promise.all([getStoredAttribution(), getFunnelSessionId()]);
+      const attribution = storedAttribution ? { ...storedAttribution, sessionId: funnelSessionId } : undefined;
+
       const registerResponse = await fetch(`${API_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1839,6 +1934,7 @@ function Login({
           password,
           acceptedTerms,
           acceptedExerciseResponsibility,
+          ...(attribution ? { attribution } : {}),
         }),
       });
 

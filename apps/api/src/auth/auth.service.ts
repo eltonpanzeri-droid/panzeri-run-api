@@ -6,8 +6,12 @@ import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
+import { AcquisitionAttributionDto, RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+
+function hasAnyAttributionField(a: AcquisitionAttributionDto): boolean {
+  return !!(a.source || a.medium || a.campaign || a.content || a.term || a.referrer || a.fbclid || a.gclid || a.sessionId);
+}
 
 @Injectable()
 export class AuthService {
@@ -43,6 +47,11 @@ export class AuthService {
           acceptedTermsAt: new Date(),
           acceptedPrivacyAt: new Date(),
           acceptedExerciseResponsibilityAt: new Date(),
+          // Atribuição de aquisição — somente quando o cliente envia pelo menos um campo preenchido.
+          // Null quando o aluno chega diretamente (sem UTM/referrer). Nunca inventar origem.
+          acquisitionAttribution: dto.attribution && hasAnyAttributionField(dto.attribution)
+            ? (dto.attribution as unknown as Prisma.InputJsonValue)
+            : undefined,
         },
         select: this.publicUserSelect(),
       });

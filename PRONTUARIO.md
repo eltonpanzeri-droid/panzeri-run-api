@@ -191,6 +191,62 @@ registros de antes de 22/07/2026.
 
 ---
 
+## Panzeri Data Layer — Cadeia de atribuição de aquisição
+
+> Implementada em 16/09/2026. Vigora a partir desta data para novos cadastros.
+> Os 65 alunos anteriores têm `User.acquisitionAttribution = null` — irrecuperável.
+
+### Fluxo completo
+
+```
+Landing (script.ts)
+  → captura UTMs da URL → appenda ao CHECKOUT_URL como query params
+  → usuário clica CTA → navega para PWA com ?utm_source=...&utm_medium=...&fbclid=...
+
+PWA (App.tsx) — primeiro carregamento
+  → captureAndStoreAttribution() lê window.location.search
+  → normaliza: utm_source→source, utm_medium→medium, utm_campaign→campaign,
+               utm_content→content, utm_term→term, fbclid, gclid, document.referrer
+  → persiste em AsyncStorage['panzeri-run-funnel-attribution'] (first-touch)
+  → NÃO sobrescreve nas navegações seguintes dentro do PWA
+
+FunnelEvent 'app_opened'
+  → metadata inclui atribuição normalizada + journeyId = funnelSessionId
+  → permite analisar aquisição mesmo de visitantes que não chegam ao cadastro
+
+Cadastro (/auth/register)
+  → App.tsx carrega atribuição persistida + journeyId = funnelSessionId
+  → envia attribution: { source, medium, campaign, content, term, referrer, fbclid, gclid, journeyId }
+  → RegisterDto valida campos explicitamente (sem Record<string, unknown> livre)
+  → auth.service.ts grava em User.acquisitionAttribution somente quando attribution tem ao menos um campo preenchido
+  → quando não há atribuição: User.acquisitionAttribution = null (direto/sem campanha)
+```
+
+### Semântica de sessionId vs journeyId (IMPORTANTE — evita criar terceiro identificador)
+
+- **`FunnelEvent.sessionId`** — UUID gerado na primeira abertura do PWA, persistido em `AsyncStorage['panzeri-run-funnel-session']`. É o identificador operacional e canônico: vincula todos os eventos de funil de um mesmo dispositivo/instalação. **Usado para vincular User.acquisitionAttribution aos FunnelEvents.**
+- **`FunnelEvent.journeyId`** — campo adicionado na migration `20260915120000` com intenção de ser um identificador cross-device criado na landing antes do PWA (conceito diferente do sessionId). **Nunca foi implementado por nenhum cliente — sempre null.** Mantido no schema por compatibilidade. Tratamento futuro: se o conceito de jornada cross-device for retomado, este campo recebe a implementação real. Se não, pode ser dropado via migration no futuro. Não criar um terceiro ID concorrente.
+- **`User.acquisitionAttribution.sessionId`** — armazena o `funnelSessionId` (= `FunnelEvent.sessionId`) do momento do cadastro. Permite cruzar `User.acquisitionAttribution` com os `FunnelEvent` da mesma jornada via `WHERE "FunnelEvent"."sessionId" = "User"."acquisitionAttribution"->>'sessionId'`. **Não confundir com `FunnelEvent.journeyId` (conceito diferente, nunca implementado).**
+- **Regra permanente**: identificador canônico de jornada = `FunnelEvent.sessionId`. Não criar novo ID concorrente sem implementar os dois lados (landing + PWA) da distinção cross-device que `journeyId` pretendia resolver.
+
+### Comportamento por cenário
+
+| Cenário | acquisitionAttribution | FunnelEvent metadata |
+|---|---|---|
+| Chegou via landing com UTMs | `{ source, medium, campaign, ..., sessionId }` | `{ source, ..., sessionId }` no app_opened |
+| Chegou diretamente sem UTMs | `null` | `{}` no app_opened (sem metadata de atribuição) |
+| Chegou via referrer sem UTMs | `{ referrer: '...', sessionId }` | `{ referrer, sessionId }` no app_opened |
+| Aluno dos 65 anteriores | `null` (irrecuperável) | FunnelEvents existem mas sem UTM no metadata |
+
+### Arquivos alterados
+
+- `apps/mobile/App.tsx` — `FUNNEL_ATTRIBUTION_KEY`, `AcquisitionAttribution`, `captureAndStoreAttribution()`, `getStoredAttribution()`, modificado useEffect de `app_opened`, modificado `submit()` de registro
+- `apps/api/src/auth/dto/register.dto.ts` — `AcquisitionAttributionDto` (campos explícitos), `attribution?` em `RegisterDto`
+- `apps/api/src/auth/auth.service.ts` — `hasAnyAttributionField()`, escreve `acquisitionAttribution` no `prisma.user.create()`
+- **Nenhuma migration** — `User.acquisitionAttribution Json?` existia desde Fase 0 (16/09/2026)
+
+---
+
 ## Diário
 
 **2026-07-28** — Sessão longa e cheia de incidentes reais reportados por alunas de verdade
@@ -1838,3 +1894,17 @@ startDate. Verificar se `generateWeek()` usa o mesmo `startOfWeek()` que `curren
 
 **Estado**: ABERTO. Nenhuma mudança de código foi feita além da remoção de `isDetailedPlan`. Próximo passo
 é verificar os pontos de diagnóstico acima antes de qualquer mudança de código.
+
+**2026-09-16 — Panzeri Data Layer: cadeia de atribuição implementada (Opção C híbrida)**
+
+Auditoria revelou que `User.acquisitionAttribution` nunca foi escrito para nenhum dos 65 alunos: a landing capturava UTMs, mas o PWA nunca lia `window.location.search` e o `/auth/register` não aceitava campos de atribuição. Dados dos 65 alunos anteriores são irrecuperáveis.
+
+Correção implementada para novos cadastros:
+- `App.tsx` captura UTMs + referrer da URL na primeira abertura (first-touch, first-storage), persiste em `AsyncStorage['panzeri-run-funnel-attribution']`, nunca sobrescreve.
+- Evento `app_opened` passa atribuição em `metadata` → permite analisar conversão mesmo de visitantes que não concluem cadastro.
+- Cadastro: envia `attribution` com campos explícitos (source/medium/campaign/content/term/referrer/fbclid/gclid/journeyId) para `POST /auth/register`.
+- `RegisterDto` valida campos via `AcquisitionAttributionDto` (sem `Record<string, unknown>` livre).
+- `auth.service.ts` grava em `User.acquisitionAttribution` somente quando ao menos um campo é preenchido — null quando direto/sem campanha. Nunca inventa origem.
+- `journeyId` na atribuição = `funnelSessionId` do momento do cadastro — vincula `User.acquisitionAttribution` aos `FunnelEvents` da mesma sessão.
+- Sem migration — campo `acquisitionAttribution Json?` já existia.
+- `FunnelEvent.journeyId` (schema): campo existente mas nunca populado. Mantido. `sessionId` é o identificador canônico de jornada.
