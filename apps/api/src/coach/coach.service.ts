@@ -1335,6 +1335,208 @@ export class CoachService {
       where: { id: studentId, role: 'student' },
     });
   }
+
+  // ─── Panzeri Data Layer — Fase 1 (read-only) ────────────────────────────────
+
+  async dataGrowthFunnel() {
+    const raw = await this.prisma.funnelEvent.groupBy({
+      by: ['event'],
+      _count: { sessionId: true },
+    });
+    const counts = Object.fromEntries(raw.map((r) => [r.event, r._count.sessionId]));
+    const ordered = [
+      'app_opened',
+      'signup_started',
+      'signup_completed',
+      'interview_started',
+      'interview_completed',
+      'payment_started',
+      'payment_completed',
+      'first_workout_viewed',
+      'first_workout_completed',
+    ];
+    const funnel = ordered.map((event) => ({ event, count: counts[event] ?? 0 }));
+    const known = new Set(ordered);
+    const extra = raw.filter((r) => !known.has(r.event)).map((r) => ({ event: r.event, count: r._count.sessionId }));
+    return { funnel: [...funnel, ...extra], generatedAt: new Date() };
+  }
+
+  async dataGrowthAttribution() {
+    const prisma = this.prisma as any;
+    const total: number = await this.prisma.user.count({ where: { role: 'student' } });
+    const allWithAttrib: { acquisitionAttribution: unknown }[] = await prisma.user.findMany({
+      where: { role: 'student', acquisitionAttribution: { not: null } },
+      select: { acquisitionAttribution: true },
+    });
+    const attributed = allWithAttrib.length;
+    if (attributed < 5) {
+      return {
+        disponivel: false,
+        motivo: `Apenas ${attributed} aluno(s) com atribuição registrada — campo recém-introduzido, dados insuficientes.`,
+        totalStudents: total,
+        attributedStudents: attributed,
+      };
+    }
+    const bySource: Record<string, number> = {};
+    for (const u of allWithAttrib) {
+      const attr = u.acquisitionAttribution as Record<string, unknown> | null;
+      const source = (attr?.source as string) ?? 'desconhecido';
+      bySource[source] = (bySource[source] ?? 0) + 1;
+    }
+    return {
+      disponivel: true,
+      totalStudents: total,
+      attributedStudents: attributed,
+      bySource: Object.entries(bySource)
+        .sort(([, a], [, b]) => (b as number) - (a as number))
+        .map(([source, count]) => ({ source, count })),
+      generatedAt: new Date(),
+    };
+  }
+
+  async dataCustomerSummary() {
+    const since30 = new Date();
+    since30.setDate(since30.getDate() - 30);
+
+    const [students, sessions, completions] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { role: 'student' },
+        select: { id: true, name: true, subscriptionStatus: true },
+      }),
+      this.prisma.trainingSession.findMany({
+        where: { scheduledDate: { gte: since30 } },
+        select: { id: true, userId: true },
+      }),
+      this.prisma.workoutCompletion.findMany({
+        where: { completedAt: { gte: since30 } },
+        select: { userId: true, status: true, completedAt: true, perceivedEffort: true },
+      }),
+    ]);
+
+    const sessionsByUser: Record<string, number> = {};
+    for (const s of sessions) sessionsByUser[s.userId] = (sessionsByUser[s.userId] ?? 0) + 1;
+
+    const compByUser: Record<string, { count: number; last: Date; effortSum: number; effortCount: number }> = {};
+    for (const c of completions) {
+      if (c.status !== 'done' && c.status !== 'adjusted') continue;
+      const e = compByUser[c.userId] ?? { count: 0, last: new Date(0), effortSum: 0, effortCount: 0 };
+      e.count += 1;
+      if (c.completedAt > e.last) e.last = c.completedAt;
+      if (c.perceivedEffort) { e.effortSum += c.perceivedEffort; e.effortCount += 1; }
+      compByUser[c.userId] = e;
+    }
+
+    const today = new Date();
+    const rows = students.map((student) => {
+      const prescribed = sessionsByUser[student.id] ?? 0;
+      const comp = compByUser[student.id];
+      const completed = comp?.count ?? 0;
+      const lastCompletedAt = comp ? comp.last : null;
+      const daysSinceLast = lastCompletedAt && lastCompletedAt.getTime() > 0
+        ? Math.floor((today.getTime() - lastCompletedAt.getTime()) / 86400000)
+        : null;
+      const avgEffort = comp && comp.effortCount > 0
+        ? Math.round((comp.effortSum / comp.effortCount) * 10) / 10
+        : null;
+      const adherencePct = prescribed > 0 ? Math.round((completed / prescribed) * 100) : null;
+      const risco: 'alto' | 'medio' | 'baixo' =
+        daysSinceLast !== null && daysSinceLast > 14 ? 'alto'
+        : daysSinceLast !== null && daysSinceLast > 7 ? 'medio'
+        : 'baixo';
+      return { id: student.id, name: student.name, subscriptionStatus: student.subscriptionStatus,
+        last30Days: { prescribed, completed, adherencePct },
+        lastCompletedAt, daysSinceLast, avgPerceivedEffort: avgEffort, risco };
+    });
+
+    const order = { alto: 0, medio: 1, baixo: 2 };
+    rows.sort((a, b) => order[a.risco] - order[b.risco]);
+    return { students: rows, generatedAt: new Date() };
+  }
+
+  async dataBusinessSummary() {
+    const prisma = this.prisma as any;
+    const [byStatus, firstPaidCount, recentBillingEvents] = await Promise.all([
+      this.prisma.user.groupBy({ by: ['subscriptionStatus'], where: { role: 'student' }, _count: true }),
+      this.prisma.billingSubscription.count({ where: { firstPaidAt: { not: null } } }),
+      prisma.billingEvent.findMany({
+        orderBy: { timestamp: 'desc' },
+        take: 20,
+        select: { id: true, userId: true, event: true, prevStatus: true, nextStatus: true, value: true, timestamp: true },
+      }),
+    ]);
+    const cs = Object.fromEntries((byStatus as any[]).map((r) => [r.subscriptionStatus, Number(r._count)]));
+    const paying = (cs.active ?? 0) + (cs.grace ?? 0);
+    const active = paying + (cs.manual_active ?? 0);
+    return {
+      subscribers: {
+        active,
+        paying,
+        courtesy: cs.manual_active ?? 0,
+        pending: cs.pending ?? 0,
+        overdue: cs.overdue ?? 0,
+        canceled: cs.canceled ?? 0,
+      },
+      mrr: {
+        estimatedCents: paying * 1990,
+        estimatedBrl: (paying * 19.9),
+        pricePerStudentBrl: 19.9,
+      },
+      cohort: {
+        studentsWithFirstPaidAt: firstPaidCount,
+        nota: firstPaidCount < 3 ? 'Campo firstPaidAt recém-introduzido — dados insuficientes para análise de cohort.' : null,
+      },
+      recentBillingEvents: recentBillingEvents.length > 0
+        ? recentBillingEvents
+        : { disponivel: false, motivo: 'Nenhum BillingEvent registrado ainda — tabela recém-criada.' },
+      generatedAt: new Date(),
+    };
+  }
+
+  async dataTrainingStudentTimeline(studentId: string) {
+    await this.assertStudent(studentId);
+    const since60 = new Date();
+    since60.setDate(since60.getDate() - 60);
+    const sessions = await this.prisma.trainingSession.findMany({
+      where: { userId: studentId, scheduledDate: { gte: since60 } },
+      orderBy: { scheduledDate: 'desc' },
+      take: 30,
+      select: {
+        id: true, scheduledDate: true, modality: true, title: true,
+        durationMin: true, distanceKm: true, intensityZone: true, paceMinSec: true, notes: true,
+        completion: {
+          select: {
+            status: true, completedAt: true, durationMin: true, distanceKm: true,
+            avgPaceSecondsKm: true, perceivedEffort: true, postWorkoutFeeling: true,
+            preSleepQuality: true, prePhysicalFatigue: true, preStressLevel: true, preMotivation: true,
+            painFlag: true, painTiming: true,
+          },
+        },
+      },
+    });
+    return {
+      studentId,
+      sessions: sessions.map((s) => ({
+        sessionId: s.id,
+        scheduledDate: s.scheduledDate,
+        modality: s.modality,
+        title: s.title,
+        prescribed: { durationMin: s.durationMin, distanceKm: s.distanceKm, intensityZone: s.intensityZone, paceMinSec: s.paceMinSec, notes: s.notes },
+        execution: s.completion ? {
+          status: s.completion.status,
+          completedAt: s.completion.completedAt,
+          durationMin: s.completion.durationMin,
+          distanceKm: s.completion.distanceKm,
+          avgPaceSecondsKm: s.completion.avgPaceSecondsKm,
+          perceivedEffort: s.completion.perceivedEffort,
+          postWorkoutFeeling: s.completion.postWorkoutFeeling,
+          preState: { sleepQuality: s.completion.preSleepQuality, physicalFatigue: s.completion.prePhysicalFatigue,
+            stressLevel: s.completion.preStressLevel, motivation: s.completion.preMotivation },
+          pain: { flag: s.completion.painFlag, timing: s.completion.painTiming },
+        } : null,
+      })),
+      generatedAt: new Date(),
+    };
+  }
 }
 
 function jsonObject(value: unknown): Record<string, unknown> {

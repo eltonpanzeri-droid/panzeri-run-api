@@ -258,6 +258,33 @@ export class CoachController {
   getStudentMenstrualData(@Param('studentId') studentId: string) {
     return this.coachService.getStudentMenstrualData(studentId);
   }
+
+  // ─── Panzeri Data Layer — Fase 1 ────────────────────────────────────────────
+
+  @Get('data/growth/funnel')
+  dataGrowthFunnel() {
+    return this.coachService.dataGrowthFunnel();
+  }
+
+  @Get('data/growth/attribution')
+  dataGrowthAttribution() {
+    return this.coachService.dataGrowthAttribution();
+  }
+
+  @Get('data/customer/summary')
+  dataCustomerSummary() {
+    return this.coachService.dataCustomerSummary();
+  }
+
+  @Get('data/business/summary')
+  dataBusinessSummary() {
+    return this.coachService.dataBusinessSummary();
+  }
+
+  @Get('data/training/student/:id/timeline')
+  dataTrainingStudentTimeline(@Param('id') id: string) {
+    return this.coachService.dataTrainingStudentTimeline(id);
+  }
 }
 
 
