@@ -531,6 +531,19 @@ const JOURNEY_KEY = 'panzeri-run-journey-id';
 const ATTRIBUTION_KEY = 'panzeri-run-attribution';
 const GA4_FIRST_PAID_KEY = 'panzeri-run-ga4-first-paid';
 const ATTRIBUTION_FIELDS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid'] as const;
+const GA4_FUNNEL_EVENTS = new Set([
+  'app_opened',
+  'signup_form_viewed',
+  'signup_started',
+  'signup_completed',
+  'quick_intake_started',
+  'quick_intake_completed',
+  'subscription_viewed',
+  'subscription_cta_clicked',
+  'checkout_created',
+  'checkout_redirected',
+  'subscription_payment_confirmed',
+]);
 
 // Gera e persiste um UUID simples para rastreamento de funil (nao criptografico — uso analitico).
 let funnelSessionIdCache: string | null = null;
@@ -588,6 +601,9 @@ function trackFunnel(event: string, extra?: { questionId?: string; userId?: stri
   if (event === 'signup_completed') trackMetaEvent('CompleteRegistration');
   if (event === 'quick_intake_completed') trackMetaEvent('QuickIntakeCompleted');
   if (event === 'subscription_cta_clicked') trackMetaEvent('InitiateCheckout');
+  // GA4 is deliberately dispatched before the internal context is resolved. A failure in
+  // AsyncStorage, journey attribution, or /analytics/event must never suppress GA4 collection.
+  if (Platform.OS === 'web' && extra?.ga4 !== false && GA4_FUNNEL_EVENTS.has(event)) trackWebEvent(event);
   Promise.all([getFunnelSessionId(), getJourneyContext()]).then(([sessionId, journey]) => {
     if (extra?.userId) analyticsUserIdCache = extra.userId;
     const metadata = event === 'app_opened' ? { ...journey.attribution, ...(extra?.metadata ?? {}) } : extra?.metadata;
@@ -596,8 +612,6 @@ function trackFunnel(event: string, extra?: { questionId?: string; userId?: stri
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, journeyId: journey.journeyId, event, userId: extra?.userId ?? analyticsUserIdCache ?? undefined, questionId: extra?.questionId, metadata, dedupeKey: extra?.dedupeKey ? `${journey.journeyId}:${extra.dedupeKey}` : undefined }),
     }).catch(() => undefined);
-    const ga4Events = new Set(['app_opened', 'signup_form_viewed', 'signup_started', 'signup_completed', 'quick_intake_started', 'quick_intake_completed', 'subscription_viewed', 'subscription_cta_clicked', 'checkout_created', 'checkout_redirected', 'subscription_payment_confirmed']);
-    if (extra?.ga4 !== false && ga4Events.has(event)) trackWebEvent(event);
   }).catch(() => undefined);
 }
 
@@ -1180,13 +1194,19 @@ function AppInner() {
 
   useEffect(() => {
     registerWebApp();
+    // O GA4 Web inicia independentemente do analytics interno. O evento de abertura continua
+    // protegido por sessionStorage, enquanto o mesmo evento interno segue sua propria cadeia.
+    if (Platform.OS === 'web') {
+      trackWebPageView('login', 'week');
+    }
     // Rastreamento de funil: registra abertura do app uma unica vez por sessao de navegador
     // (sessionStorage garante que recargas na mesma aba nao geram duplicatas). No nativo,
     // o app so reexecuta esse efeito se for destruido e recriado do zero (nao em background).
     const alreadyTracked = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('funnel_app_opened');
     if (!alreadyTracked) {
       if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('funnel_app_opened', '1');
-      trackFunnel('app_opened');
+      if (Platform.OS === 'web') trackWebEvent('app_opened');
+      trackFunnel('app_opened', { ga4: false });
     }
   }, []);
 
