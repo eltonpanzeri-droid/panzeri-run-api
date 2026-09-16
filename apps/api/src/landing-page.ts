@@ -2,6 +2,9 @@ import { CHECKOUT_URL, WEB_PRICE, results, faq } from './landing/data';
 import { styles } from './landing/styles';
 import { script } from './landing/script';
 
+const metaPixelId = process.env.META_PIXEL_ID?.trim();
+const metaPixelHead = metaPixelId ? `<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${metaPixelId.replace(/[^a-zA-Z0-9_-]/g, '')}');fbq('track','PageView');</script>` : '';
+
 const escapeHtml = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const logo = `<img class="brand-icon" src="/landing-assets/panzeri-run-logo.png" width="40" height="40" alt="" decoding="async">`;
@@ -22,7 +25,7 @@ const resultCards = results
 const config = JSON.stringify({ checkoutUrl: CHECKOUT_URL, results }).replace(/</g, '\\u003c');
 
 export const LANDING_PAGE_HTML = `<!DOCTYPE html>
-<html lang="pt-BR"><head>
+<html lang="pt-BR"><head>${metaPixelHead}
 <script type="text/javascript">
     (function(c,l,a,r,i,t,y){
         c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};

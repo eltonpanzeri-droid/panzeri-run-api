@@ -8,6 +8,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const mobileSource = readFileSync(resolve(__dirname, '../../mobile/App.tsx'), 'utf8');
+const metaSource = readFileSync(resolve(__dirname, '../../mobile/src/meta.ts'), 'utf8');
+const billingSource = readFileSync(resolve(__dirname, '../src/billing/billing.service.ts'), 'utf8');
 
 describe('instrumentacao definitiva do funil', () => {
   it('aceita journeyId e chave de idempotencia sem PII', async () => {
@@ -24,6 +26,22 @@ describe('instrumentacao definitiva do funil', () => {
     expect(landingScript).toContain("fetch('/analytics/event'");
     expect(landingScript).toContain("window.gtag('event',event");
     expect(landingScript).toContain('.catch(()=>{})');
+  });
+
+  it('mapeia eventos Meta no browser sem expor credenciais CAPI', () => {
+    expect(landingScript).toContain("window.fbq==='function')window.fbq('track','ViewContent')");
+    expect(mobileSource).toContain("trackMetaEvent('CompleteRegistration')");
+    expect(mobileSource).toContain("trackMetaEvent('QuickIntakeCompleted')");
+    expect(mobileSource).toContain("trackMetaEvent('InitiateCheckout')");
+    expect(metaSource).not.toContain('META_CAPI_ACCESS_TOKEN');
+  });
+
+  it('prepara Purchase CAPI somente após a trava da primeira conversão', () => {
+    expect(billingSource).toContain("event_name: 'Purchase'");
+    expect(billingSource).toContain('event_id: params.eventId');
+    expect(billingSource).toContain('currency: \'BRL\'');
+    expect(billingSource).toContain('if (claimedFirstPayment) void this.sendMetaPurchase');
+    expect(billingSource).toContain('user_data: { ...(fbc ? { fbc } : {}), ...(fbp ? { fbp } : {}) }');
   });
 
   it('só conclui quick intake após o backend devolver o marco persistido', () => {

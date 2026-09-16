@@ -8,6 +8,7 @@ import Constants from 'expo-constants';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { trackWebEvent, trackWebPageView } from './src/ga4';
+import { trackMetaEvent } from './src/meta';
 import { BrandMark } from './theme/BrandMark';
 import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
@@ -584,6 +585,9 @@ async function getJourneyContext(): Promise<{ journeyId: string; attribution: Re
 
 // Fire-and-forget — nunca bloqueia o fluxo do usuario, nunca propaga erro.
 function trackFunnel(event: string, extra?: { questionId?: string; userId?: string; metadata?: Record<string, unknown>; dedupeKey?: string; ga4?: boolean }) {
+  if (event === 'signup_completed') trackMetaEvent('CompleteRegistration');
+  if (event === 'quick_intake_completed') trackMetaEvent('QuickIntakeCompleted');
+  if (event === 'subscription_cta_clicked') trackMetaEvent('InitiateCheckout');
   Promise.all([getFunnelSessionId(), getJourneyContext()]).then(([sessionId, journey]) => {
     if (extra?.userId) analyticsUserIdCache = extra.userId;
     const metadata = event === 'app_opened' ? { ...journey.attribution, ...(extra?.metadata ?? {}) } : extra?.metadata;

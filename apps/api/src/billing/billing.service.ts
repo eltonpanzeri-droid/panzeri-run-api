@@ -1097,14 +1097,14 @@ export class BillingService {
       const latestJourney = await this.prisma.funnelEvent.findFirst({
         where: { userId, journeyId: { not: null } },
         orderBy: { createdAt: 'desc' },
-        select: { journeyId: true, sessionId: true },
+        select: { journeyId: true, sessionId: true, metadata: true },
       });
-      await this.prisma.$transaction(async (tx) => {
+      const claimedFirstPayment = await this.prisma.$transaction(async (tx) => {
         const claimed = await tx.billingSubscription.updateMany({
           where: { id: billingId, firstPaidPaymentId: null },
           data: { firstPaidPaymentId: paymentId, firstPaidAt: new Date() },
         });
-        if (!claimed.count) return;
+        if (!claimed.count) return false;
         await tx.funnelEvent.create({
           data: {
             sessionId: latestJourney?.sessionId ?? `backend:${userId}`.slice(0, 64),
@@ -1115,11 +1115,28 @@ export class BillingService {
             dedupeKey: `subscription_payment_confirmed:${subscriptionId}`,
           },
         });
+        return true;
       });
+      if (claimedFirstPayment) void this.sendMetaPurchase({ eventId: `purchase:${subscriptionId}:${paymentId}`, attribution: latestJourney?.metadata }).catch(() => undefined);
     } catch (error) {
       // A confirmacao financeira ja foi aplicada; falha de analytics nunca reverte pagamento/acesso.
       this.logger.warn(`Falha ao registrar primeira conversao paga de ${subscriptionId}: ${String(error)}`);
     }
+  }
+
+  private async sendMetaPurchase(params: { eventId: string; attribution?: unknown }) {
+    const pixelId = this.config.get<string>('META_PIXEL_ID')?.trim();
+    const token = this.config.get<string>('META_CAPI_ACCESS_TOKEN')?.trim();
+    if (!pixelId || !token || typeof fetch !== 'function') return;
+    const attribution = params.attribution && typeof params.attribution === 'object' && !Array.isArray(params.attribution) ? params.attribution as Record<string, unknown> : {};
+    const fbc = typeof attribution.fbc === 'string' ? attribution.fbc : undefined;
+    const fbp = typeof attribution.fbp === 'string' ? attribution.fbp : undefined;
+    const response = await fetch(`https://graph.facebook.com/${this.config.get<string>('META_CAPI_VERSION')?.trim() || 'v20.0'}/${encodeURIComponent(pixelId)}/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ data: [{ event_name: 'Purchase', event_time: Math.floor(Date.now() / 1000), event_id: params.eventId, action_source: 'website', event_source_url: 'https://eltonpanzeripersonal.com.br/', user_data: { ...(fbc ? { fbc } : {}), ...(fbp ? { fbp } : {}) }, custom_data: { value: 19.90, currency: 'BRL' } }] }),
+    });
+    if (!response.ok) this.logger.warn(`Meta CAPI retornou HTTP ${response.status} ao registrar conversao`);
   }
 
   private async createWelcomeNotificationOnce(userId: string) {

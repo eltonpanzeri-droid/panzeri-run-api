@@ -10,11 +10,12 @@ let attribution={};try{const saved=JSON.parse(sessionStorage.getItem('panzeri_at
 const params=new URLSearchParams(location.search);keys.forEach(key=>{const value=params.get(key);if(value)attribution[key]=value});
 if(!attribution.referrer&&document.referrer)attribution.referrer=document.referrer;
 try{sessionStorage.setItem('panzeri_attribution',JSON.stringify(attribution))}catch{}
-const internal=(event,questionId)=>{try{fetch('/analytics/event',{method:'POST',headers:{'Content-Type':'application/json'},keepalive:true,body:JSON.stringify({sessionId:journeyId,journeyId,event,questionId,metadata:attribution,dedupeKey:journeyId+':'+event+(questionId?':'+questionId:'')})}).catch(()=>{})}catch{}};
+const browserMeta=()=>{const values={};try{document.cookie.split(';').forEach(item=>{const [key,...rest]=item.trim().split('=');if(key==='_fbp'||key==='_fbc')values[key]=decodeURIComponent(rest.join('='))})}catch{}return values};
+const internal=(event,questionId)=>{try{fetch('/analytics/event',{method:'POST',headers:{'Content-Type':'application/json'},keepalive:true,body:JSON.stringify({sessionId:journeyId,journeyId,event,questionId,metadata:{...attribution,...browserMeta()},dedupeKey:journeyId+':'+event+(questionId?':'+questionId:'')})}).catch(()=>{})}catch{}};
 const ga=(event,params={})=>{try{if(typeof window.gtag==='function')window.gtag('event',event,{send_to:'G-ZJXHZVSDL8',...params})}catch{}};
 const checkout=new URL(config.checkoutUrl,location.origin);Object.entries(attribution).forEach(([key,value])=>{if(keys.includes(key))checkout.searchParams.set(key,String(value))});checkout.searchParams.set('journey_id',journeyId);
 const ctaLocation=event=>String(event||'').replace('_cta_click','').replace('how_it_works','how_it_works').replace('mobile_sticky','mobile_sticky');
-document.querySelectorAll('[data-checkout]').forEach(link=>{link.href=checkout.href;link.addEventListener('click',()=>{const location=ctaLocation(link.dataset.track);trackEvent(link.dataset.track);trackEvent('checkout_start',{destination:'student_app'});ga('landing_cta_click',{cta_location:location});internal('landing_cta_click',location);if(typeof window.fbq==='function')window.fbq('track','InitiateCheckout')})});
+document.querySelectorAll('[data-checkout]').forEach(link=>{link.href=checkout.href;link.addEventListener('click',()=>{const location=ctaLocation(link.dataset.track);trackEvent(link.dataset.track);trackEvent('checkout_start',{destination:'student_app'});ga('landing_cta_click',{cta_location:location});internal('landing_cta_click',location);if(typeof window.fbq==='function')window.fbq('track','ViewContent')})});
 trackEvent('landing_view');
 ga('landing_view');internal('landing_view');
 const header=document.getElementById('siteHeader');const updateHeader=()=>header.classList.toggle('is-scrolled',scrollY>12);updateHeader();addEventListener('scroll',updateHeader,{passive:true});
