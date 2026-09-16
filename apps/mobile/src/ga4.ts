@@ -6,13 +6,37 @@ type AnalyticsWindow = {
   gtag?: (...args: unknown[]) => void;
   document: {
     referrer: string;
-    createElement: (tag: string) => { async: boolean; src: string; id: string };
+    createElement: (tag: string) => { async: boolean; src: string; id: string; onerror?: () => void };
     head: { appendChild: (script: unknown) => void };
   };
 };
 
 let initialized = false;
+let scriptLoadAttempted = false;
 let previousPage: string | null = null;
+
+function ensureAnalyticsRuntime(browser: AnalyticsWindow) {
+  browser.dataLayer = browser.dataLayer || [];
+  browser.gtag = browser.gtag || function (...args: unknown[]) {
+    browser.dataLayer!.push(args);
+  };
+
+  if (scriptLoadAttempted) return;
+  scriptLoadAttempted = true;
+  try {
+    const loader = browser.document.createElement('script');
+    loader.id = 'panzeri-run-ga4';
+    loader.async = true;
+    loader.src = `https://www.googletagmanager.com/gtag/js?id=${MEASUREMENT_ID}`;
+    loader.onerror = () => {
+      // GA4 failures are observable for diagnostics but never affect the app.
+      console.error(`[GA4] Failed to load ${loader.src}`);
+    };
+    browser.document.head.appendChild(loader);
+  } catch (error) {
+    console.error('[GA4] Failed to inject the Google tag', error);
+  }
+}
 
 // Preserve attribution, but never send login tokens or arbitrary query values.
 function safePageUrl(location: AnalyticsWindow['location']) {
@@ -32,18 +56,10 @@ export function trackWebPageView(screen: string, tab: string) {
   const page = `${safePageUrl(browser.location)}#/${screen === 'app' ? `app/${tab}` : 'login'}`;
   if (page === previousPage) return;
   try {
+    ensureAnalyticsRuntime(browser);
     if (!initialized) {
-      browser.dataLayer = browser.dataLayer || [];
-      browser.gtag = browser.gtag || function (...args: unknown[]) {
-        browser.dataLayer!.push(args);
-      };
-      browser.gtag('js', new Date());
-      browser.gtag('config', MEASUREMENT_ID, { send_page_view: false, page_location: page });
-      const loader = browser.document.createElement('script');
-      loader.id = 'panzeri-run-ga4';
-      loader.async = true;
-      loader.src = `https://www.googletagmanager.com/gtag/js?id=${MEASUREMENT_ID}`;
-      browser.document.head.appendChild(loader);
+      browser.gtag!('js', new Date());
+      browser.gtag!('config', MEASUREMENT_ID, { send_page_view: false, page_location: page });
       initialized = true;
     }
     let referrer = previousPage || '';
@@ -68,8 +84,9 @@ export function trackWebEvent(event: string, params: Record<string, string | num
   const browser = (globalThis as unknown as { window?: AnalyticsWindow }).window;
   if (!browser?.document || !browser.location) return;
   try {
+    ensureAnalyticsRuntime(browser);
     if (!initialized) trackWebPageView('login', 'week');
-    browser.gtag?.('event', event, { send_to: MEASUREMENT_ID, ...params });
+    browser.gtag!('event', event, { send_to: MEASUREMENT_ID, ...params });
   } catch {
     // Analytics nunca interfere no produto.
   }
