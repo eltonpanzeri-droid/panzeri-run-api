@@ -1640,8 +1640,11 @@ function buildEvolutionReportContent(detail: any) {
     ...sessions.map((session: any) => session.stravaActivity).filter(Boolean),
     ...(detail.unmatchedStravaActivities ?? []),
   ];
-  const avgEffort = done.length
-    ? Math.round((done.reduce((total: number, session: any) => total + Number(session.perceivedEffort ?? 0), 0) / done.length) * 10) / 10
+  // null = não registrado (histórico pré-v1 ou sessão sem feedback) — não entra no denominador.
+  // Nunca colapsar null em 0: zero não pertence à escala 1–10.
+  const effortObs = done.filter((session: any) => session.perceivedEffort != null);
+  const avgEffort = effortObs.length
+    ? Math.round((effortObs.reduce((total: number, session: any) => total + Number(session.perceivedEffort), 0) / effortObs.length) * 10) / 10
     : null;
   const stravaKm = round(strava.reduce((total: number, activity: any) => total + Number(activity.distanceKm ?? 0), 0));
   const stravaMinutes = Math.round(strava.reduce((total: number, activity: any) => total + Number(activity.durationMin ?? 0), 0));

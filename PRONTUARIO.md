@@ -141,6 +141,56 @@ suspeita nº 1 quando um campo obrigatório fica sem resposta").
 
 ---
 
+## Panzeri Data Layer — Regras semânticas de ausência de dados
+
+> Vigora a partir de 16/09/2026. Requisito de toda análise longitudinal e de todos os endpoints
+> da Data Layer (`/coach/data/*`).
+
+**Princípio geral**: `valor observado ≠ não respondido ≠ não coletado historicamente ≠ não aplicável`
+
+### Regras
+
+**`0` só representa zero quando zero pertence ao domínio válido da variável.**
+- Escalas 1–5 e 1–10 (perceivedEffort, preSleepQuality, etc.): domínio começa em 1. `null` = não
+  respondido. Nunca converter `null` em `0` antes de calcular média — isso colapsa "sem dado" em
+  "esforço/qualidade zero" e distorce qualquer análise longitudinal.
+- Para somas acumulativas neutras (ex: distância total = soma de km), `?? 0` é aceitável porque a
+  ausência do valor é semanticamente equivalente a "não houve" naquele eixo (não é uma resposta
+  a uma pergunta).
+
+**`null` não pode ser automaticamente convertido em zero.**
+- `value ?? 0` e `Number(value) || 0` são proibidos quando o campo representa uma resposta subjetiva
+  a uma pergunta (esforço, satisfação, dor, humor, sono, fadiga, estresse, motivação).
+- Bug corrigido: `perceivedEffort ?? 0` em `buildEvolutionReportContent` (16/09/2026) — usava null
+  como 0 no denominador da média.
+
+**Ausência histórica ≠ ausência do fenômeno.**
+Variáveis adicionadas ao longo do tempo têm `null` legítimo para todos os registros anteriores à
+sua introdução. Não inferir que "o atleta não sentiu dor" a partir de `painFlag = null` em
+registros de antes de 22/07/2026.
+
+| Variável | Existe desde |
+|---|---|
+| `perceivedEffort` | 18/06/2026 (schema inicial) |
+| `satisfaction` (dimensão fazer) | 15/07/2026 |
+| `painFlag` | 22/07/2026 |
+| `satisfactionElaboracao`, `satisfactionCapacidade`, `satisfactionCarga` | 19/08/2026 |
+| `WeeklyCheckIn` (estrutura básica) | 31/08/2026 |
+| `preSleepQuality`, `prePhysicalFatigue`, `preStressLevel`, `preMotivation`, `postWorkoutFeeling`, `painTiming`, `feedbackVersion` | 11/09/2026 |
+| `postWorkoutMood`, `walkingReasons` (em `details` JSON) | 12/09/2026 |
+| `WeeklyCheckIn` v2 (campos de bloco 1/2/3) | 11/09/2026 |
+
+**Sentinels legados — WeeklyCheckIn.**
+- Registros v1 de 31/08/2026 a ~11/09/2026: `elaborationSatisfaction = 0` significa "pulou" (sentinel),
+  **não** a resposta "zero na escala". Escala real começa em 1.
+- A partir de 11/09/2026 (v2): skip indicado por `checkinSkipped = true`; campos de resposta = `null`.
+- Regra: qualquer análise de `elaborationSatisfaction` deve excluir linhas onde
+  `elaborationSatisfaction = 0` **ou** `checkinSkipped = true` antes de tratar como observação real.
+- Ponto de normalização recomendado: criar método `WeeklyCheckInService.isSkipped(record)` que
+  unifica a lógica v1+v2. **Não implementado ainda** — aguarda demanda real da Data Layer.
+
+---
+
 ## Diário
 
 **2026-07-28** — Sessão longa e cheia de incidentes reais reportados por alunas de verdade
