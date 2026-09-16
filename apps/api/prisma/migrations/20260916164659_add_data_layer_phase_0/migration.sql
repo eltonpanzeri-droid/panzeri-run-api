@@ -19,12 +19,6 @@ CREATE INDEX "BillingEvent_userId_idx" ON "BillingEvent"("userId");
 CREATE INDEX "BillingEvent_event_idx" ON "BillingEvent"("event");
 CREATE INDEX "BillingEvent_timestamp_idx" ON "BillingEvent"("timestamp");
 
--- BillingSubscription: adicionar campos para rastreio de primeiro pagamento
-ALTER TABLE "BillingSubscription" ADD COLUMN "firstPaidAt" TIMESTAMP(3);
-ALTER TABLE "BillingSubscription" ADD COLUMN "firstPaidPaymentId" TEXT;
-
--- Criar índice único em firstPaidPaymentId (permite deduplicação de webhook)
-CREATE UNIQUE INDEX "BillingSubscription_firstPaidPaymentId_key" ON "BillingSubscription"("firstPaidPaymentId") WHERE "firstPaidPaymentId" IS NOT NULL;
-
 -- User: atribuição de aquisição como JSON (journeyId, source, medium, campaign, content, referrer, fbclid, gclid)
+-- Nota: firstPaidAt/firstPaidPaymentId já foram adicionados pela migration 20260915120000
 ALTER TABLE "User" ADD COLUMN "acquisitionAttribution" JSONB;
