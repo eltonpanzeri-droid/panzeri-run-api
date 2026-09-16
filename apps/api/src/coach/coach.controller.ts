@@ -282,8 +282,15 @@ export class CoachController {
   }
 
   @Get('data/training/student/:id/timeline')
-  dataTrainingStudentTimeline(@Param('id') id: string) {
-    return this.coachService.dataTrainingStudentTimeline(id);
+  dataTrainingStudentTimeline(
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.coachService.dataTrainingStudentTimeline(id, {
+      limit: limit ? Math.min(parseInt(limit, 10) || 50, 100) : 50,
+      offset: offset ? parseInt(offset, 10) || 0 : 0,
+    });
   }
 }
 

@@ -1369,13 +1369,8 @@ export class CoachService {
       select: { acquisitionAttribution: true },
     });
     const attributed = allWithAttrib.length;
-    if (attributed < 5) {
-      return {
-        disponivel: false,
-        motivo: `Apenas ${attributed} aluno(s) com atribuição registrada — campo recém-introduzido, dados insuficientes.`,
-        totalStudents: total,
-        attributedStudents: attributed,
-      };
+    if (attributed === 0) {
+      return { available: false, reason: 'Nenhum aluno com acquisitionAttribution registrado ainda.', totalStudents: total, sampleSize: 0 };
     }
     const bySource: Record<string, number> = {};
     for (const u of allWithAttrib) {
@@ -1384,9 +1379,9 @@ export class CoachService {
       bySource[source] = (bySource[source] ?? 0) + 1;
     }
     return {
-      disponivel: true,
+      available: true,
       totalStudents: total,
-      attributedStudents: attributed,
+      sampleSize: attributed,
       bySource: Object.entries(bySource)
         .sort(([, a], [, b]) => (b as number) - (a as number))
         .map(([source, count]) => ({ source, count })),
@@ -1439,17 +1434,11 @@ export class CoachService {
         ? Math.round((comp.effortSum / comp.effortCount) * 10) / 10
         : null;
       const adherencePct = prescribed > 0 ? Math.round((completed / prescribed) * 100) : null;
-      const risco: 'alto' | 'medio' | 'baixo' =
-        daysSinceLast !== null && daysSinceLast > 14 ? 'alto'
-        : daysSinceLast !== null && daysSinceLast > 7 ? 'medio'
-        : 'baixo';
       return { id: student.id, name: student.name, subscriptionStatus: student.subscriptionStatus,
         last30Days: { prescribed, completed, adherencePct },
-        lastCompletedAt, daysSinceLast, avgPerceivedEffort: avgEffort, risco };
+        lastCompletedAt, daysSinceLast, avgPerceivedEffort: avgEffort };
     });
 
-    const order = { alto: 0, medio: 1, baixo: 2 };
-    rows.sort((a, b) => order[a.risco] - order[b.risco]);
     return { students: rows, generatedAt: new Date() };
   }
 
@@ -1476,15 +1465,9 @@ export class CoachService {
         overdue: cs.overdue ?? 0,
         canceled: cs.canceled ?? 0,
       },
-      mrr: {
-        estimatedCents: paying * 1990,
-        estimatedBrl: (paying * 19.9),
-        pricePerStudentBrl: 19.9,
-      },
-      cohort: {
-        studentsWithFirstPaidAt: firstPaidCount,
-        nota: firstPaidCount < 3 ? 'Campo firstPaidAt recém-introduzido — dados insuficientes para análise de cohort.' : null,
-      },
+      // estimatedMRR = payingSubscribers × R$19,90 (não é receita efetivamente recebida — é projeção baseada no status atual)
+      estimatedMRR: { payingSubscribers: paying, pricePerStudentBrl: 19.9, totalBrl: paying * 19.9, totalCents: paying * 1990 },
+      cohort: { studentsWithFirstPaidAt: firstPaidCount },
       recentBillingEvents: recentBillingEvents.length > 0
         ? recentBillingEvents
         : { disponivel: false, motivo: 'Nenhum BillingEvent registrado ainda — tabela recém-criada.' },
@@ -1492,14 +1475,14 @@ export class CoachService {
     };
   }
 
-  async dataTrainingStudentTimeline(studentId: string) {
+  async dataTrainingStudentTimeline(studentId: string, { limit = 50, offset = 0 }: { limit?: number; offset?: number } = {}) {
     await this.assertStudent(studentId);
-    const since60 = new Date();
-    since60.setDate(since60.getDate() - 60);
+    const safeLimit = Math.min(Math.max(1, limit), 100);
     const sessions = await this.prisma.trainingSession.findMany({
-      where: { userId: studentId, scheduledDate: { gte: since60 } },
+      where: { userId: studentId },
       orderBy: { scheduledDate: 'desc' },
-      take: 30,
+      take: safeLimit,
+      skip: offset,
       select: {
         id: true, scheduledDate: true, modality: true, title: true,
         durationMin: true, distanceKm: true, intensityZone: true, paceMinSec: true, notes: true,
@@ -1515,6 +1498,8 @@ export class CoachService {
     });
     return {
       studentId,
+      limit: safeLimit,
+      offset,
       sessions: sessions.map((s) => ({
         sessionId: s.id,
         scheduledDate: s.scheduledDate,
