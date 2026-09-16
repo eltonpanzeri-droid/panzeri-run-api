@@ -1,44 +1,14 @@
 import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle } from '@nestjs/throttler';
-import { IsNotEmpty, IsObject, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { FunnelService } from './funnel.service';
 
-export class RecordEventDto {
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(64)
+class RecordEventDto {
   sessionId!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(64)
-  @Matches(/^[a-z_]+$/)
   event!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
   userId?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
   questionId?: string;
-
-  @IsOptional()
-  @IsObject()
   metadata?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  journeyId?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(160)
-  dedupeKey?: string;
 }
 
 @Controller('analytics')
@@ -56,8 +26,6 @@ export class FunnelController {
       userId: body.userId,
       questionId: body.questionId,
       metadata: body.metadata,
-      journeyId: body.journeyId,
-      dedupeKey: body.dedupeKey,
     });
     return { ok: true };
   }

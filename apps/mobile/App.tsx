@@ -7,8 +7,6 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { trackWebEvent, trackWebPageView } from './src/ga4';
-import { trackMetaEvent } from './src/meta';
 import { BrandMark } from './theme/BrandMark';
 import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
@@ -152,7 +150,6 @@ interface RoutineDay {
 }
 
 interface AuthSession {
-  userId?: string;
   email: string;
   name: string;
   accessToken: string;
@@ -527,41 +524,18 @@ const DISMISSED_NOTIFICATIONS_KEY = 'panzeri-run-dismissed-notifications';
 // salvo em AsyncStorage e reutilizado enquanto o app nao for reinstalado. Nunca contem
 // dados pessoais: e' um ID aleatorio que o servidor vincula ao userId so' apos o cadastro.
 const FUNNEL_SESSION_KEY = 'panzeri-run-funnel-session';
-const JOURNEY_KEY = 'panzeri-run-journey-id';
-const ATTRIBUTION_KEY = 'panzeri-run-attribution';
-const GA4_FIRST_PAID_KEY = 'panzeri-run-ga4-first-paid';
-const ATTRIBUTION_FIELDS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid'] as const;
-const GA4_FUNNEL_EVENTS = new Set([
-  'app_opened',
-  'signup_form_viewed',
-  'signup_started',
-  'signup_completed',
-  'quick_intake_started',
-  'quick_intake_completed',
-  'subscription_viewed',
-  'subscription_cta_clicked',
-  'checkout_created',
-  'checkout_redirected',
-  'subscription_payment_confirmed',
-]);
 
 // Gera e persiste um UUID simples para rastreamento de funil (nao criptografico — uso analitico).
 let funnelSessionIdCache: string | null = null;
-let journeyIdCache: string | null = null;
-let analyticsUserIdCache: string | null = null;
-let attributionCache: Record<string, string> | null = null;
-function anonymousUuid() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = Math.random() * 16 | 0;
-    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-  });
-}
 async function getFunnelSessionId(): Promise<string> {
   if (funnelSessionIdCache) return funnelSessionIdCache;
   try {
     const stored = await AsyncStorage.getItem(FUNNEL_SESSION_KEY);
     if (stored) { funnelSessionIdCache = stored; return stored; }
-    const generated = anonymousUuid();
+    const generated = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
     await AsyncStorage.setItem(FUNNEL_SESSION_KEY, generated);
     funnelSessionIdCache = generated;
     return generated;
@@ -570,57 +544,14 @@ async function getFunnelSessionId(): Promise<string> {
   }
 }
 
-async function getJourneyContext(): Promise<{ journeyId: string; attribution: Record<string, string> }> {
-  if (journeyIdCache && attributionCache) return { journeyId: journeyIdCache, attribution: attributionCache };
-  try {
-    const browser = (globalThis as unknown as { window?: { location?: { search?: string }; document?: { referrer?: string } } }).window;
-    const params = new URLSearchParams(browser?.location?.search ?? '');
-    const propagated = params.get('journey_id');
-    const storedJourney = await AsyncStorage.getItem(JOURNEY_KEY);
-    journeyIdCache = propagated || storedJourney || anonymousUuid();
-    await AsyncStorage.setItem(JOURNEY_KEY, journeyIdCache);
-    const storedAttribution = JSON.parse((await AsyncStorage.getItem(ATTRIBUTION_KEY)) || '{}') as Record<string, string>;
-    const attribution = { ...storedAttribution };
-    for (const key of ATTRIBUTION_FIELDS) {
-      const value = params.get(key);
-      if (value && !attribution[key]) attribution[key] = value;
-    }
-    if (!attribution.referrer && browser?.document?.referrer) attribution.referrer = browser.document.referrer.slice(0, 500);
-    attributionCache = attribution;
-    await AsyncStorage.setItem(ATTRIBUTION_KEY, JSON.stringify(attribution));
-    return { journeyId: journeyIdCache, attribution };
-  } catch {
-    journeyIdCache = journeyIdCache || anonymousUuid();
-    attributionCache = attributionCache || {};
-    return { journeyId: journeyIdCache, attribution: attributionCache };
-  }
-}
-
 // Fire-and-forget — nunca bloqueia o fluxo do usuario, nunca propaga erro.
-function trackFunnel(event: string, extra?: { questionId?: string; userId?: string; metadata?: Record<string, unknown>; dedupeKey?: string; ga4?: boolean }) {
-  if (event === 'signup_completed') trackMetaEvent('CompleteRegistration');
-  if (event === 'quick_intake_completed') trackMetaEvent('QuickIntakeCompleted');
-  if (event === 'subscription_cta_clicked') trackMetaEvent('InitiateCheckout');
-  // GA4 is deliberately dispatched before the internal context is resolved. A failure in
-  // AsyncStorage, journey attribution, or /analytics/event must never suppress GA4 collection.
-  if (Platform.OS === 'web' && extra?.ga4 !== false && GA4_FUNNEL_EVENTS.has(event)) trackWebEvent(event);
-  Promise.all([getFunnelSessionId(), getJourneyContext()]).then(([sessionId, journey]) => {
-    if (extra?.userId) analyticsUserIdCache = extra.userId;
-    const metadata = event === 'app_opened' ? { ...journey.attribution, ...(extra?.metadata ?? {}) } : extra?.metadata;
+function trackFunnel(event: string, extra?: { questionId?: string; userId?: string; metadata?: Record<string, unknown> }) {
+  getFunnelSessionId().then((sessionId) => {
     fetch(`${API_URL}/analytics/event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, journeyId: journey.journeyId, event, userId: extra?.userId ?? analyticsUserIdCache ?? undefined, questionId: extra?.questionId, metadata, dedupeKey: extra?.dedupeKey ? `${journey.journeyId}:${extra.dedupeKey}` : undefined }),
+      body: JSON.stringify({ sessionId, event, ...(extra ?? {}) }),
     }).catch(() => undefined);
-  }).catch(() => undefined);
-}
-
-function trackFirstPaidGa4Once(firstPaidAt?: string | null) {
-  if (!firstPaidAt) return;
-  AsyncStorage.getItem(GA4_FIRST_PAID_KEY).then((sent) => {
-    if (sent) return;
-    trackWebEvent('subscription_payment_confirmed');
-    return AsyncStorage.setItem(GA4_FIRST_PAID_KEY, firstPaidAt);
   }).catch(() => undefined);
 }
 
@@ -1176,10 +1107,6 @@ function AppInner() {
 
   const metrics = useMemo(() => calculateThreeKmMetrics(Number(threeKmSeconds)), [threeKmSeconds]);
 
-  useEffect(() => {
-    if (Platform.OS === 'web' && !isRestoringSession) trackWebPageView(screen, activeTab);
-  }, [screen, activeTab, isRestoringSession]);
-
   // A tela Semana usa anamneseRoutine (carregado uma vez por sessao) como estado inicial da
   // rotina. Se a entrevista/reavaliacao for concluida no meio da sessao e essa copia local nao
   // for atualizada, a proxima vez que a aba Semana ou Perfil salvar a rotina, ela reenvia os
@@ -1194,19 +1121,13 @@ function AppInner() {
 
   useEffect(() => {
     registerWebApp();
-    // O GA4 Web inicia independentemente do analytics interno. O evento de abertura continua
-    // protegido por sessionStorage, enquanto o mesmo evento interno segue sua propria cadeia.
-    if (Platform.OS === 'web') {
-      trackWebPageView('login', 'week');
-    }
     // Rastreamento de funil: registra abertura do app uma unica vez por sessao de navegador
     // (sessionStorage garante que recargas na mesma aba nao geram duplicatas). No nativo,
     // o app so reexecuta esse efeito se for destruido e recriado do zero (nao em background).
     const alreadyTracked = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('funnel_app_opened');
     if (!alreadyTracked) {
       if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('funnel_app_opened', '1');
-      if (Platform.OS === 'web') trackWebEvent('app_opened');
-      trackFunnel('app_opened', { ga4: false });
+      trackFunnel('app_opened');
     }
   }, []);
 
@@ -1271,7 +1192,6 @@ function AppInner() {
   }, [refreshToken, userEmail, userName]);
 
   function applyAuthSession(session: AuthSession) {
-    if (session.userId) analyticsUserIdCache = session.userId;
     setUserEmail(session.email);
     setUserName(session.name);
     setAccessToken(session.accessToken);
@@ -1906,7 +1826,7 @@ function Login({
           setStatus('Login feito, mas nao recebi a renovacao de acesso.');
           return;
         }
-        onEnter({ userId: data.user?.id, email: data.user?.email ?? cleanEmail, name: data.user?.name ?? '', accessToken, refreshToken });
+        onEnter({ email: data.user?.email ?? cleanEmail, name: data.user?.name ?? '', accessToken, refreshToken });
         return;
       }
 
@@ -1947,15 +1867,15 @@ function Login({
 
       setStatus('Conta criada com sucesso.');
       // Vincula a sessao anonima ao userId recem-criado — a partir daqui o funil tem identidade.
-      trackFunnel('signup_completed', { userId: data.user?.id, dedupeKey: `signup_completed:${data.user?.id ?? 'unknown'}` });
+      trackFunnel('signup_completed', { userId: data.user?.id });
       const refreshToken = data.tokens?.refreshToken;
       if (!refreshToken) {
         setStatus('Conta criada, mas nao recebi a renovacao de acesso.');
         return;
       }
-      onEnter({ userId: data.user?.id, email: data.user?.email ?? cleanEmail, name: data.user?.name ?? name.trim(), accessToken, refreshToken });
+      onEnter({ email: data.user?.email ?? cleanEmail, name: data.user?.name ?? name.trim(), accessToken, refreshToken });
     } catch {
-      if (mode === 'register') trackFunnel('signup_error', { metadata: { errorMessage: 'network_error' }, ga4: false });
+      trackFunnel('signup_error', { metadata: { errorMessage: 'network_error' } });
       setStatus('Nao consegui conectar com a API agora.');
     } finally {
       setIsSubmitting(false);
@@ -2036,11 +1956,7 @@ function Login({
         <Pressable
           style={[styles.secondaryOutlineButton, styles.authButton, isSubmitting && styles.disabledButton]}
           disabled={isSubmitting}
-          onPress={() => {
-            const nextMode = mode === 'login' ? 'register' : 'login';
-            setMode(nextMode);
-            if (nextMode === 'register') trackFunnel('signup_form_viewed', { dedupeKey: 'signup_form_viewed:journey' });
-          }}
+          onPress={() => setMode(mode === 'login' ? 'register' : 'login')}
         >
           <Text style={styles.secondaryOutlineButtonText}>{mode === 'login' ? 'Criar conta' : 'Ja tenho conta'}</Text>
           <Ionicons name={mode === 'login' ? 'person-add' : 'log-in-outline'} size={18} color={PRColors.ocean} />
@@ -2438,12 +2354,6 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   const value = question ? answers[question.key] : undefined;
 
   useEffect(() => {
-    if (!started || finished || !question) return;
-    if (mode === 'quickIntake') trackFunnel('quick_intake_started', { dedupeKey: 'quick_intake_started' });
-    if (mode === 'routine') trackFunnel('routine_started', { dedupeKey: 'routine_started', ga4: false });
-  }, [started, finished, mode, question?.key]);
-
-  useEffect(() => {
     const maxStep = Math.max(visibleQuestions.length - 1, 0);
     if (step > maxStep) setStep(maxStep);
   }, [visibleQuestions.length, step]);
@@ -2519,7 +2429,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     setSaving(true);
     setStatus('');
     // Primeira pergunta respondida == inicio da entrevista para fins de rastreamento.
-    if (nextStep === 0 && mode === 'onboarding') trackFunnel('interview_started', { dedupeKey: 'interview_started', ga4: false });
+    if (nextStep === 0 && mode === 'onboarding') trackFunnel('interview_started');
     try {
       const response = await fetch(answerUrl, {
         method: 'PUT',
@@ -2527,13 +2437,10 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         body: JSON.stringify({ key, value: nextValue, currentStep: nextStep }),
       });
       if (!response.ok) throw new Error('save');
-      if (mode === 'onboarding') trackFunnel('question_answered', { questionId: key, ga4: false });
-      if (mode === 'quickIntake' && ['objective', 'quick_current_stage', 'quick_has_target_race', 'quick_main_barrier', 'quick_expectations'].includes(key)) {
-        trackFunnel('quick_intake_question_completed', { questionId: key, dedupeKey: `quick_intake_question_completed:${key}`, ga4: false });
-      }
+      if (mode === 'onboarding') trackFunnel('question_answered', { questionId: key });
       return true;
     } catch {
-      if (mode === 'onboarding') trackFunnel('question_error', { questionId: key, metadata: { step: nextStep }, ga4: false });
+      if (mode === 'onboarding') trackFunnel('question_error', { questionId: key, metadata: { step: nextStep } });
       setStatus('Nao consegui salvar esta resposta. Tente novamente.');
       return false;
     } finally {
@@ -2605,11 +2512,6 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         }
         return;
       }
-      let quickIntakeWasCompleted = false;
-      if (mode === 'quickIntake') {
-        const data = await response.json().catch(() => ({} as { quickIntakeCompletedAt?: string | null }));
-        quickIntakeWasCompleted = Boolean(data?.quickIntakeCompletedAt);
-      }
       if (mode === 'routine') {
         const data = await response.json().catch(() => ({} as { firstTime?: boolean; aborted?: boolean }));
         // 08/09 (trava de seguranca no backend, caso Thais): se a rotina calculada da entrevista
@@ -2623,9 +2525,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         }
         setRoutineFirstTime(Boolean(data?.firstTime));
       }
-      if (mode === 'onboarding') trackFunnel('interview_completed', { dedupeKey: 'interview_completed', ga4: false });
-      if (mode === 'quickIntake' && quickIntakeWasCompleted) trackFunnel('quick_intake_completed', { dedupeKey: 'quick_intake_completed' });
-      if (mode === 'routine') trackFunnel('routine_completed', { dedupeKey: 'routine_completed', ga4: false });
+      if (mode === 'onboarding') trackFunnel('interview_completed');
       setFinished(true);
     } catch {
       setStatus('Nao consegui concluir. Revise as respostas e tente novamente.');
@@ -4334,12 +4234,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                   <View style={[styles.weekSessionCard, cardStatusStyle]} key={session.id}>
                     <Pressable
                       style={styles.collapseHeader}
-                      onPress={() => {
-                        if (!sessionExpanded) {
-                          fetch(`${API_URL}/workout-completions/${session.id}/viewed`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }).catch(() => undefined);
-                        }
-                        setExpandedDays((current) => ({ ...current, [session.id]: !current[session.id] }));
-                      }}
+                      onPress={() => setExpandedDays((current) => ({ ...current, [session.id]: !current[session.id] }))}
                     >
                       <View style={styles.weekSessionTitleBlock}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -6911,7 +6806,6 @@ function Billing({ accessToken }: { accessToken: string }) {
     providerStatus?: string | null;
     nextChargeAt?: string | null;
     checkoutUrl?: string | null;
-    firstPaidAt?: string | null;
     canCancel: boolean;
     syncError?: boolean;
     hasCpf?: boolean;
@@ -6946,10 +6840,6 @@ function Billing({ accessToken }: { accessToken: string }) {
       const response = await fetchWithRetry(API_URL + '/billing/me', { headers: { Authorization: 'Bearer ' + accessToken } });
       if (!response.ok) throw new Error();
       const data = await response.json();
-      trackFirstPaidGa4Once(data?.firstPaidAt);
-      if (data?.subscriptionContext?.ctaAction || data?.status === 'pending') {
-        trackFunnel('subscription_viewed', { dedupeKey: 'subscription_viewed' });
-      }
       // Rastreamento: se o status mudou para ativo nesta atualizacao, e' o momento do pagamento.
       const prevStatus = details?.status;
       const newStatus = data?.status;
@@ -7014,43 +6904,34 @@ function Billing({ accessToken }: { accessToken: string }) {
       setMessage('Informe um CPF valido (11 numeros) para continuar.');
       return;
     }
-    trackFunnel('subscription_cta_clicked', { dedupeKey: 'subscription_cta_clicked' });
     setIsCheckingOut(true);
     setMessage('Preparando pagamento seguro...');
     let response: Response;
     try {
-      trackFunnel('checkout_creation_started', { ga4: false });
       response = await fetchWithRetry(API_URL + '/billing/checkout', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
         body: JSON.stringify({ cpf: cpf.replace(/\D/g, '') }),
       });
     } catch {
-      trackFunnel('checkout_creation_failed', { metadata: { reason: 'network_error' }, ga4: false });
       setMessage('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
       setIsCheckingOut(false);
       return;
     }
     try {
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        trackFunnel('checkout_creation_failed', { metadata: { reason: `http_${response.status}` }, ga4: false });
-        throw new Error(typeof data.message === 'string' ? data.message : 'Nao consegui abrir o pagamento. Tente novamente.');
-      }
+      if (!response.ok) throw new Error(typeof data.message === 'string' ? data.message : 'Nao consegui abrir o pagamento. Tente novamente.');
       // 06/09: acesso ja ativo (testador gratuito, cupom 100%, ou status manual_active) — API
       // retorna { activated: true, message } sem checkoutUrl. Antes isso era tratado como erro
       // (!data.checkoutUrl lançava), o aluno ficava preso na tela de billing e tentava de novo,
       // na segunda tentativa o Asaas criava uma cobrança real (bug confirmado, Ricardo Davino).
       // Agora: recarrega o status de billing para refletir o acesso e sai da tela.
-      const hasValidCheckoutUrl = typeof data.checkoutUrl === 'string' && /^https?:\/\/[^\s]+$/i.test(data.checkoutUrl);
-      if (data.activated || !hasValidCheckoutUrl) {
-        if (!data.activated) trackFunnel('checkout_creation_failed', { metadata: { reason: 'invalid_checkout_url' }, ga4: false });
+      if (data.activated || !data.checkoutUrl) {
         setMessage(typeof data.message === 'string' ? data.message : 'Acesso liberado! Feche esta tela e acesse seus treinos.');
         setIsCheckingOut(false);
         await loadBilling(false);
         return;
       }
-      trackFunnel('checkout_created', { dedupeKey: 'checkout_created' });
       setMessage('Abrindo pagamento...');
       // No navegador (PWA), Linking.openURL usa window.open — depois de um await (a chamada
       // de rede acima), o navegador ja nao considera isso um gesto direto do usuario e o
@@ -7061,10 +6942,8 @@ function Billing({ accessToken }: { accessToken: string }) {
       // (em vez de abrir uma nova) nao esbarra nesse bloqueio. No app nativo (nao navegador),
       // Linking.openURL continua normalmente.
       if (Platform.OS === 'web') {
-        trackFunnel('checkout_redirected', { dedupeKey: 'checkout_redirected' });
         window.location.href = data.checkoutUrl;
       } else {
-        trackFunnel('checkout_redirected', { dedupeKey: 'checkout_redirected' });
         await Linking.openURL(data.checkoutUrl);
         setMessage('Conclua o pagamento e volte ao aplicativo.');
         setIsCheckingOut(false);

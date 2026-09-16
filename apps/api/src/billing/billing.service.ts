@@ -157,12 +157,6 @@ const ACTIVE_EVENTS = new Set(['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED']);
 const OVERDUE_EVENTS = new Set(['PAYMENT_OVERDUE', 'PAYMENT_REFUNDED', 'PAYMENT_REFUND_REQUESTED', 'PAYMENT_CHARGEBACK_REQUESTED', 'PAYMENT_CHARGEBACK_DISPUTE']);
 const CANCELED_EVENTS = new Set(['PAYMENT_DELETED', 'SUBSCRIPTION_DELETED', 'SUBSCRIPTION_INACTIVATED']);
 
-// Somente a primeira confirmacao de uma conta ainda pendente e aquisicao. Active e renovacao;
-// overdue -> active e recuperacao; ambos ficam fora do funil de novas vendas.
-export function isFirstPaidAcquisition(previousStatus: string, resolvedStatus: string | null, paymentId?: string | null) {
-  return previousStatus === 'pending' && resolvedStatus === 'active' && Boolean(paymentId);
-}
-
 function resolveAppStatusFromEvent(event?: string): 'active' | 'overdue' | 'canceled' | null {
   if (!event) return null;
   if (ACTIVE_EVENTS.has(event)) return 'active';
@@ -313,7 +307,6 @@ export class BillingService {
       canCancel: billing?.provider !== 'coupon' && Boolean(['active', 'manual_active', 'grace', 'pending'].includes(appStatus)),
       syncError,
       subscriptionContext,
-      firstPaidAt: latestBilling?.firstPaidAt ?? null,
     };
   }
 
@@ -723,10 +716,6 @@ export class BillingService {
     const statusActuallyChanged = userUpdateResult.count > 0;
     const paymentId = payload.payment?.id;
 
-    if (statusActuallyChanged && isFirstPaidAcquisition(user.subscriptionStatus, appStatus, paymentId) && paymentId) {
-      await this.recordFirstPaidConversion(billing.id, billing.userId, paymentId, subscriptionId);
-    }
-
     if (appStatus === 'active') {
       // 05/09: limpa overdueInvoiceUrl quando status volta para active (pagamento confirmado)
       if (statusActuallyChanged) {
@@ -1033,10 +1022,6 @@ export class BillingService {
     ]);
     const statusActuallyChanged = userUpdateResult.count > 0;
 
-    if (statusActuallyChanged && isFirstPaidAcquisition(user.subscriptionStatus, appStatus, latestPayment?.id) && latestPayment?.id) {
-      await this.recordFirstPaidConversion(billingId, userId, latestPayment.id, subscriptionId);
-    }
-
     if (appStatus === 'active') {
       await this.createWelcomeNotificationOnce(userId);
       if (statusActuallyChanged) {
@@ -1090,53 +1075,6 @@ export class BillingService {
     }
 
     return { providerStatus: latestPaymentStatus ?? providerStatus, appStatus, nextChargeAt };
-  }
-
-  private async recordFirstPaidConversion(billingId: string, userId: string, paymentId: string, subscriptionId: string) {
-    try {
-      const latestJourney = await this.prisma.funnelEvent.findFirst({
-        where: { userId, journeyId: { not: null } },
-        orderBy: { createdAt: 'desc' },
-        select: { journeyId: true, sessionId: true, metadata: true },
-      });
-      const claimedFirstPayment = await this.prisma.$transaction(async (tx) => {
-        const claimed = await tx.billingSubscription.updateMany({
-          where: { id: billingId, firstPaidPaymentId: null },
-          data: { firstPaidPaymentId: paymentId, firstPaidAt: new Date() },
-        });
-        if (!claimed.count) return false;
-        await tx.funnelEvent.create({
-          data: {
-            sessionId: latestJourney?.sessionId ?? `backend:${userId}`.slice(0, 64),
-            journeyId: latestJourney?.journeyId ?? null,
-            userId,
-            event: 'subscription_payment_confirmed',
-            metadata: { externalSubscriptionId: subscriptionId, paymentId },
-            dedupeKey: `subscription_payment_confirmed:${subscriptionId}`,
-          },
-        });
-        return true;
-      });
-      if (claimedFirstPayment) void this.sendMetaPurchase({ eventId: `purchase:${subscriptionId}:${paymentId}`, attribution: latestJourney?.metadata }).catch(() => undefined);
-    } catch (error) {
-      // A confirmacao financeira ja foi aplicada; falha de analytics nunca reverte pagamento/acesso.
-      this.logger.warn(`Falha ao registrar primeira conversao paga de ${subscriptionId}: ${String(error)}`);
-    }
-  }
-
-  private async sendMetaPurchase(params: { eventId: string; attribution?: unknown }) {
-    const pixelId = this.config.get<string>('META_PIXEL_ID')?.trim();
-    const token = this.config.get<string>('META_CAPI_ACCESS_TOKEN')?.trim();
-    if (!pixelId || !token || typeof fetch !== 'function') return;
-    const attribution = params.attribution && typeof params.attribution === 'object' && !Array.isArray(params.attribution) ? params.attribution as Record<string, unknown> : {};
-    const fbc = typeof attribution.fbc === 'string' ? attribution.fbc : undefined;
-    const fbp = typeof attribution.fbp === 'string' ? attribution.fbp : undefined;
-    const response = await fetch(`https://graph.facebook.com/${this.config.get<string>('META_CAPI_VERSION')?.trim() || 'v20.0'}/${encodeURIComponent(pixelId)}/events`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ data: [{ event_name: 'Purchase', event_time: Math.floor(Date.now() / 1000), event_id: params.eventId, action_source: 'website', event_source_url: 'https://eltonpanzeripersonal.com.br/', user_data: { ...(fbc ? { fbc } : {}), ...(fbp ? { fbp } : {}) }, custom_data: { value: 19.90, currency: 'BRL' } }] }),
-    });
-    if (!response.ok) this.logger.warn(`Meta CAPI retornou HTTP ${response.status} ao registrar conversao`);
   }
 
   private async createWelcomeNotificationOnce(userId: string) {

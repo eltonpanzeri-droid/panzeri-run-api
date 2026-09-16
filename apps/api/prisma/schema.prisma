@@ -71,6 +71,10 @@ model User {
   // cada novo registro; um aluno so recebe push no aparelho mais recente. Null = nunca autorizou
   // notificacao, ou o app ainda nao registrou (versao antiga do app instalada).
   expoPushToken                    String?
+  // Fase 0 Data Layer: atribuição de aquisição capturada no momento do cadastro.
+  // Preserva journeyId, source, medium, campaign, content, referrer, fbclid e gclid.
+  // Estrutura: { journeyId?, source?, medium?, campaign?, content?, referrer?, fbclid?, gclid? }
+  acquisitionAttribution           Json?
   // Controle de tentativas de "Gerar treino da semana" pelo proprio aluno (pedido do treinador
   // 16/08 — nao chamar a IA toda vez que o aluno aperta o botao, e nao deixar tentativas infinitas
   // batendo timeout sem limite). Reseta sozinho quando generationWeekStart nao bate mais com a
@@ -98,6 +102,7 @@ model User {
   notifications       UserNotification[]
   messageLogs         MessageLog[]
   reassessments       Reassessment[]
+  billingEvents       BillingEvent[]
   onboardingInterview OnboardingInterview?
   billingSubscription BillingSubscription?
   couponRedemptions   CouponRedemption[]
@@ -143,12 +148,13 @@ model BillingSubscription {
   // subscriptionContext da API; nunca armazenado diretamente em UserNotification.
   overdueInvoiceUrl      String?
   providerStatus         String    @default("new")
-  // Primeira conversao paga desta assinatura. Preenchidos uma unica vez a partir de uma
-  // confirmacao confiavel do provedor; renovacoes e recuperacoes nao alteram estes campos.
-  firstPaidPaymentId     String?   @unique
-  firstPaidAt            DateTime?
   lastNotificationToken  String?
   nextChargeAt           DateTime?
+  // Fase 0 Data Layer: timestamp do primeiro pagamento confirmado. Imutável após primeira escrita.
+  // Permite calcular LTV real, cohort analysis, tempo exato até conversão.
+  firstPaidAt            DateTime?
+  // Fase 0 Data Layer: ID do pagamento que marcou o firstPaidAt. Único, permite deduplicação de webhook.
+  firstPaidPaymentId     String?   @unique
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 }
@@ -811,8 +817,6 @@ model FunnelEvent {
   // UUID gerado no cliente e guardado em AsyncStorage — persiste entre sessoes do app enquanto
   // o usuario nao reinstala. Permite rastrear o mesmo prospecto atraves de multiplas visitas.
   sessionId  String
-  // Identificador anonimo e persistente da jornada, criado antes do cadastro na landing/PWA.
-  journeyId  String?
   // Preenchido pelo cliente assim que a conta e criada — vincula o historico anonimo ao usuario.
   userId     String?
   user       User?    @relation(fields: [userId], references: [id])
@@ -824,12 +828,26 @@ model FunnelEvent {
   questionId String?
   // Dados complementares: mensagem de erro, utm_source, user agent, etc. Sem dados sensiveis.
   metadata   Json?
-  // Chave opcional de idempotencia. Permite que marcos unicos sejam reenviados com seguranca.
-  dedupeKey  String?  @unique
   createdAt  DateTime @default(now())
 
   @@index([sessionId])
-  @@index([journeyId])
   @@index([userId])
   @@index([event, createdAt])
+}
+
+model BillingEvent {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  event         String
+  prevStatus    String?
+  nextStatus    String?
+  value         Decimal?
+  timestamp     DateTime  @default(now())
+  externalRef   String?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId])
+  @@index([event])
+  @@index([timestamp])
 }

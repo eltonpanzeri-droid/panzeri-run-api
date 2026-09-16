@@ -17,13 +17,6 @@ const KNOWN_EVENTS = new Set([
   'interview_completed',
   'payment_started',
   'payment_completed',
-  'landing_view', 'landing_cta_click', 'signup_form_viewed',
-  'quick_intake_started', 'quick_intake_question_completed', 'quick_intake_completed',
-  'subscription_viewed', 'subscription_cta_clicked', 'checkout_creation_started',
-  'checkout_creation_failed', 'checkout_created', 'checkout_redirected',
-  'subscription_payment_confirmed', 'routine_started', 'routine_completed',
-  'training_generation_started', 'training_generation_completed', 'training_generation_failed',
-  'first_workout_available', 'first_workout_viewed', 'first_workout_completed',
 ]);
 
 // Ordem do funil para exibicao no painel.
@@ -35,56 +28,6 @@ const FUNNEL_STEPS = [
   { event: 'interview_completed', label: 'Completou entrevista' },
   { event: 'payment_completed', label: 'Pagou' },
 ];
-
-const ACQUISITION_STEPS = [
-  { event: 'landing_view', label: 'Landing visualizada' },
-  { event: 'landing_cta_click', label: 'CTA clicado' },
-  { event: 'app_opened', label: 'Abriu o PWA' },
-  { event: 'signup_form_viewed', label: 'Abriu cadastro' },
-  { event: 'signup_started', label: 'Enviou cadastro' },
-  { event: 'signup_completed', label: 'Criou conta' },
-  { event: 'quick_intake_started', label: 'Iniciou 5 perguntas' },
-  { event: 'quick_intake_question_completed', questionId: 'objective', label: 'Concluiu P1' },
-  { event: 'quick_intake_question_completed', questionId: 'quick_current_stage', label: 'Concluiu P2' },
-  { event: 'quick_intake_question_completed', questionId: 'quick_has_target_race', label: 'Concluiu P3' },
-  { event: 'quick_intake_question_completed', questionId: 'quick_main_barrier', label: 'Concluiu P4' },
-  { event: 'quick_intake_question_completed', questionId: 'quick_expectations', label: 'Concluiu P5' },
-  { event: 'quick_intake_completed', label: 'Concluiu 5 perguntas' },
-  { event: 'subscription_viewed', label: 'Viu assinatura' },
-  { event: 'subscription_cta_clicked', label: 'Clicou para assinar' },
-  { event: 'checkout_created', label: 'Checkout criado' },
-  { event: 'checkout_redirected', label: 'Foi direcionado ao Asaas' },
-  { event: 'subscription_payment_confirmed', label: 'Pagamento confirmado' },
-];
-
-const ACTIVATION_STEPS = [
-  { event: 'subscription_payment_confirmed', label: 'Pagamento confirmado' },
-  { event: 'interview_started', label: 'Iniciou entrevista' },
-  { event: 'interview_completed', label: 'Concluiu entrevista' },
-  { event: 'routine_started', label: 'Iniciou rotina' },
-  { event: 'routine_completed', label: 'Concluiu rotina' },
-  { event: 'training_generation_started', label: 'Geração iniciada' },
-  { event: 'training_generation_completed', label: 'Treino gerado' },
-  { event: 'first_workout_viewed', label: 'Primeiro treino visualizado' },
-  { event: 'first_workout_completed', label: 'Primeiro treino concluído' },
-];
-
-type CohortEvent = { event: string; questionId: string | null; journeyId: string | null; userId: string | null; sessionId: string };
-
-export function buildCohortSteps(events: CohortEvent[], steps: Array<{ event: string; label: string; questionId?: string }>) {
-  const identity = (event: CohortEvent) => event.journeyId || (event.userId ? `user:${event.userId}` : `session:${event.sessionId}`);
-  let previous: Set<string> | null = null;
-  return steps.map((step) => {
-    const reached = new Set(events
-      .filter((event) => event.event === step.event && (!step.questionId || event.questionId === step.questionId))
-      .map(identity));
-    const cohort = previous === null ? reached : new Set([...previous].filter((id) => reached.has(id)));
-    const previousCount = previous?.size ?? cohort.size;
-    const conversionFromPrevious = previousCount ? Math.round((cohort.size / previousCount) * 100) : 0;
-    previous = cohort;
-    return { ...step, journeys: cohort.size, conversionFromPrevious };
-  });
-}
 
 @Injectable()
 export class FunnelService {
@@ -103,8 +46,6 @@ export class FunnelService {
     userId?: string | null;
     questionId?: string | null;
     metadata?: Record<string, unknown> | null;
-    journeyId?: string | null;
-    dedupeKey?: string | null;
   }): Promise<void> {
     if (!params.sessionId || !params.event) return;
     const event = params.event.toLowerCase().replace(/[^a-z_]/g, '');
@@ -113,12 +54,10 @@ export class FunnelService {
     await this.prisma.funnelEvent.create({
       data: {
         sessionId: params.sessionId.slice(0, 64),
-        journeyId: params.journeyId?.slice(0, 64) ?? null,
         userId: params.userId ?? null,
         event,
         questionId: params.questionId?.slice(0, 64) ?? null,
         metadata: params.metadata ? (params.metadata as Prisma.InputJsonValue) : undefined,
-        dedupeKey: params.dedupeKey?.slice(0, 160) ?? null,
       },
     }).catch((err) => {
       // Nunca propaga erro — dado de analytics nao pode derrubar o fluxo principal.
@@ -130,10 +69,6 @@ export class FunnelService {
   async getReport(days = 30) {
     const since = new Date(Date.now() - days * 86400000);
 
-    const cohortEvents = await this.prisma.funnelEvent.findMany({
-      where: { createdAt: { gte: since } },
-      select: { event: true, questionId: true, journeyId: true, userId: true, sessionId: true },
-    });
     // --- 1. Funil agregado: sessoes unicas por etapa ---
     const stepCounts = await Promise.all(
       FUNNEL_STEPS.map(async (step) => {
@@ -218,10 +153,6 @@ export class FunnelService {
       days,
       since,
       funnel: stepCounts,
-      sections: {
-        acquisition: buildCohortSteps(cohortEvents, ACQUISITION_STEPS),
-        activation: buildCohortSteps(cohortEvents, ACTIVATION_STEPS),
-      },
       questionErrors: questionErrors.map((e) => ({ questionId: e.questionId, count: e._count.id })),
       stalledSessions: stalledDetails,
       preCadastroDropoff,

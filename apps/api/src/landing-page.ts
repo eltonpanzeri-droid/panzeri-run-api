@@ -2,9 +2,6 @@ import { CHECKOUT_URL, WEB_PRICE, results, faq } from './landing/data';
 import { styles } from './landing/styles';
 import { script } from './landing/script';
 
-const metaPixelId = process.env.META_PIXEL_ID?.trim();
-const metaPixelHead = metaPixelId ? `<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${metaPixelId.replace(/[^a-zA-Z0-9_-]/g, '')}');fbq('track','PageView');</script>` : '';
-
 const escapeHtml = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const logo = `<img class="brand-icon" src="/landing-assets/panzeri-run-logo.png" width="40" height="40" alt="" decoding="async">`;
@@ -25,23 +22,7 @@ const resultCards = results
 const config = JSON.stringify({ checkoutUrl: CHECKOUT_URL, results }).replace(/</g, '\\u003c');
 
 export const LANDING_PAGE_HTML = `<!DOCTYPE html>
-<html lang="pt-BR"><head>${metaPixelHead}
-<script type="text/javascript">
-    (function(c,l,a,r,i,t,y){
-        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
-        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
-        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
-    })(window, document, "clarity", "script", "yibnn0x7im");
-</script>
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-ZJXHZVSDL8"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-ZJXHZVSDL8');
-</script>
-<meta charset="utf-8"><link rel="icon" href="/landing-assets/panzeri-run-logo.png"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#071A3D"><title>Panzeri Run | Treino de corrida personalizado</title><meta name="description" content="Treinamento de corrida personalizado para seu nível, objetivo e rotina. Planejamento para 5 km, 10 km, meia maratona e maratona."><link rel="canonical" href="https://eltonpanzeripersonal.com.br/"><meta property="og:type" content="website"><meta property="og:title" content="Panzeri Run | Treino de corrida sob medida"><meta property="og:description" content="Seu treino precisa se adaptar a você. Não o contrário."><meta property="og:url" content="https://eltonpanzeripersonal.com.br/"><meta property="og:locale" content="pt_BR"><meta name="twitter:card" content="summary"><script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Panzeri Run","applicationCategory":"HealthApplication","description":"Aplicativo de planejamento personalizado de treinamento de corrida."}</script><style>${styles}</style></head>
+<html lang="pt-BR"><head><meta charset="utf-8"><link rel="icon" href="/landing-assets/panzeri-run-logo.png"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#071A3D"><title>Panzeri Run | Treino de corrida personalizado</title><meta name="description" content="Treinamento de corrida personalizado para seu nível, objetivo e rotina. Planejamento para 5 km, 10 km, meia maratona e maratona."><link rel="canonical" href="https://eltonpanzeripersonal.com.br/"><meta property="og:type" content="website"><meta property="og:title" content="Panzeri Run | Treino de corrida sob medida"><meta property="og:description" content="Seu treino precisa se adaptar a você. Não o contrário."><meta property="og:url" content="https://eltonpanzeripersonal.com.br/"><meta property="og:locale" content="pt_BR"><meta name="twitter:card" content="summary"><script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Panzeri Run","applicationCategory":"HealthApplication","description":"Aplicativo de planejamento personalizado de treinamento de corrida."}</script><style>${styles}</style></head>
 <body id="top"><a class="skip" href="#conteudo">Ir para o conteúdo</a>
 <header class="site-header" id="siteHeader"><div class="container header-inner"><a class="brand" href="#top" aria-label="Panzeri Run, início">${logo}PANZERI RUN</a><nav class="desktop-nav" aria-label="Navegação principal">${nav}</nav>${cta('header_cta_click')}<button class="menu-toggle" id="menuToggle" aria-expanded="false" aria-controls="mobileMenu" aria-label="Abrir ou fechar menu">☰</button></div><nav class="mobile-nav" id="mobileMenu" aria-label="Navegação mobile" hidden>${nav}</nav></header>
 <main id="conteudo">
