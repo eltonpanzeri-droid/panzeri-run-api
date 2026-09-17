@@ -2719,6 +2719,9 @@ function StudentPanel({
           adherencePercent: h.summary.adherencePercent ?? 0,
           completedSessions: h.summary.completedSessions ?? 0,
           prescribedSessions: h.summary.prescribedSessions ?? 0,
+          extraKm: (h.sessions ?? [])
+            .filter((s) => (s.structure as { source?: string } | null)?.source === 'student')
+            .reduce((sum, s) => sum + (s.completedDistanceKm ?? 0), 0),
         }));
         const hist = student.history ?? [];
         const allSessions = flatFeedbackSessions(hist);
@@ -3138,7 +3141,7 @@ function StudentPanel({
                 <div className="historySessions">
                   {plan.sessions?.map((session) => (
                     <article className="historySession" key={session.id}>
-                      <div><strong>{weekdayLabel(session.weekday)} {dateLabel(session.date)} - {session.title}</strong><span>{modalityLabel(session.modality)} | {(session.completedDurationMin ?? session.durationMin) ?? 0} min {(session.completedDistanceKm ?? session.distanceKm) ? `| ${session.completedDistanceKm ?? session.distanceKm} km` : ''}</span></div>
+                      <div><strong>{weekdayLabel(session.weekday)} {dateLabel(session.date)} - {session.title}</strong><span>{modalityLabel(session.modality)} | {Math.round((session.completedDurationMin ?? session.durationMin) ?? 0)} min {(session.completedDistanceKm ?? session.distanceKm) ? `| ${session.completedDistanceKm ?? session.distanceKm} km` : ''}</span></div>
                       <AdminPrescription structure={session.structure} notes={session.notes} />
                       <p className="historyExecution">{completionLabel(session.completionStatus)}{session.perceivedEffort ? ` | PSE ${session.perceivedEffort}/10` : ''}{satisfactionDimensionsLine(session)}{session.feedback ? ` | ${session.feedback}` : ''}</p>
                     </article>
@@ -6050,6 +6053,7 @@ type WeekData = {
   adherencePercent: number;
   completedSessions: number;
   prescribedSessions: number;
+  extraKm: number;
 };
 
 /** Volume semanal: 3 colunas por semana + linha de tendência.
@@ -6118,9 +6122,10 @@ function KmEvolutionChart({ weeks, period }: { weeks: WeekData[]; period: number
 
       {/* Barras */}
       {visible.map((w, i) => {
-        const extraKm = Math.max(0, w.completedKm - w.prescribedKm);
+        const extraKm = w.extraKm ?? 0;
+        const regularKm = Math.max(0, w.completedKm - extraKm);
         const bhPre  = Math.max(w.prescribedKm > 0 ? 1 : 0, (w.prescribedKm / topKm) * CH);
-        const bhReal = Math.max(w.completedKm  > 0 ? 1 : 0, (w.completedKm  / topKm) * CH);
+        const bhReal = Math.max(regularKm > 0 ? 1 : 0, (regularKm / topKm) * CH);
         const bhExt  = (extraKm / topKm) * CH;
         return (
           <g key={i}>
@@ -6138,13 +6143,13 @@ function KmEvolutionChart({ weeks, period }: { weeks: WeekData[]; period: number
               </>
             )}
 
-            {/* Realizado (total) */}
-            {w.completedKm > 0 && (
+            {/* Realizado (treinos do plano) */}
+            {regularKm > 0 && (
               <>
-                <rect x={xReal(i) - bW / 2} y={yV(w.completedKm)} width={bW} height={bhReal} rx={2} fill="#22c55e" />
+                <rect x={xReal(i) - bW / 2} y={yV(regularKm)} width={bW} height={bhReal} rx={2} fill="#22c55e" />
                 {showLabel && (
-                  <text x={xReal(i)} y={yV(w.completedKm) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#16a34a">
-                    {fmtKm(w.completedKm)}
+                  <text x={xReal(i)} y={yV(regularKm) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#16a34a">
+                    {fmtKm(regularKm)}
                   </text>
                 )}
               </>
