@@ -8431,7 +8431,8 @@ function CompletionForm({
   }
 
   const locked = isSavedOnServer && !isEditing;
-  const isRun = session.structure?.type === 'run';
+  // Sessoes extras de corrida tem structure.type === 'extra', nao 'run' — checar modality tb
+  const isRun = session.structure?.type === 'run' || session.modality === 'corrida' || session.modality === 'esteira';
   const isAerobic = session.structure?.type === 'aerobic';
 
   // 12/09: formulario unico — validacao conjunta de todos os campos para habilitar o botao Salvar.
