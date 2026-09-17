@@ -76,6 +76,7 @@ export class TrainingPlansController {
     @Body() dto: {
       date: string;
       modality: string;
+      reason?: string | null;
       distanceKm?: number | null;
       durationMin?: number | null;
       notes?: string | null;

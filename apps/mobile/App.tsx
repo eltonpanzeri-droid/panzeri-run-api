@@ -3421,7 +3421,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
   const [weekOffset, setWeekOffset] = useState(initialWeekOffset ?? 0);
   // Estado do modal de treino extra
   const [showExtraModal, setShowExtraModal] = useState(false);
-  const [extraForm, setExtraForm] = useState({ modality: 'corrida', date: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '' });
+  const [extraForm, setExtraForm] = useState({ modality: 'corrida', date: '', reason: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '' });
   const [extraSaving, setExtraSaving] = useState(false);
   const [extraMessage, setExtraMessage] = useState('');
   const [notGeneratedRange, setNotGeneratedRange] = useState<{ startDate: string; endDate: string; hasSubscriptionAccess: boolean; hasEverHadPlan: boolean } | null>(null);
@@ -3490,6 +3490,10 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
   }
 
   async function saveExtraSession() {
+    if (!extraForm.reason) {
+      setExtraMessage('Selecione o motivo do treino extra antes de registrar.');
+      return;
+    }
     const dateRaw = extraForm.date || todayBRString();
     // Converter DD/MM/AAAA → YYYY-MM-DD se necessario
     let dateISO = dateRaw;
@@ -3500,7 +3504,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
     setExtraSaving(true);
     setExtraMessage('');
     try {
-      const body: Record<string, unknown> = { date: dateISO, modality: extraForm.modality };
+      const body: Record<string, unknown> = { date: dateISO, modality: extraForm.modality, reason: extraForm.reason };
       if (extraForm.distanceKm) body.distanceKm = parseFloat(extraForm.distanceKm.replace(',', '.'));
       if (extraForm.durationMin) body.durationMin = parseFloat(extraForm.durationMin);
       if (extraForm.notes.trim()) body.notes = extraForm.notes.trim();
@@ -3518,7 +3522,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       }
       setExtraMessage('Treino extra registrado!');
       setShowExtraModal(false);
-      setExtraForm({ modality: 'corrida', date: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '' });
+      setExtraForm({ modality: 'corrida', date: todayDateInputValue(), reason: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '' });
       // Recarrega a semana correta (pode ser a semana atual ou uma passada)
       const targetOffset = data.weekOffset ?? 0;
       if (targetOffset === weekOffset) {
@@ -4494,7 +4498,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
         <Pressable
           style={[styles.secondaryButton, { marginTop: 16, alignSelf: 'center' }]}
           onPress={() => {
-            setExtraForm({ modality: 'corrida', date: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '' });
+            setExtraForm({ modality: 'corrida', date: todayDateInputValue(), reason: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '' });
             setExtraMessage('');
             setShowExtraModal(true);
           }}
@@ -4511,6 +4515,24 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
             <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 16 }}>
               <Text style={styles.sectionLabel}>Registrar treino extra</Text>
               <Text style={styles.formHint}>Fez um treino fora do programa? Registre aqui — os km contam na sua evolucao.</Text>
+
+              <Text style={styles.inputLabel}>Por que voce esta adicionando este treino?</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {[
+                  { label: 'Me senti bem e quis treinar mais', value: 'disposicao_extra' },
+                  { label: 'Repor treino que perdi', value: 'reposicao' },
+                  { label: 'Atividade complementar', value: 'complementar' },
+                  { label: 'Indicacao do treinador', value: 'indicacao_treinador' },
+                ].map((opt) => (
+                  <Pressable
+                    key={opt.value}
+                    style={[styles.completionChip, extraForm.reason === opt.value && styles.completionChipActive]}
+                    onPress={() => setExtraForm((f) => ({ ...f, reason: opt.value }))}
+                  >
+                    <Text style={[styles.completionChipText, extraForm.reason === opt.value && styles.completionChipTextActive]}>{opt.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
 
               <Text style={styles.inputLabel}>Modalidade</Text>
               <View style={styles.completionStatusRow}>
@@ -4529,7 +4551,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                 ))}
               </View>
 
-              <Text style={styles.inputLabel}>Data (deixe vazio para hoje)</Text>
+              <Text style={styles.inputLabel}>Data do treino</Text>
               <TextInput
                 style={styles.compactInput}
                 value={extraForm.date}

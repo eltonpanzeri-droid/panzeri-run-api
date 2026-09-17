@@ -1745,6 +1745,7 @@ export class TrainingPlansService {
     input: {
       date: string;
       modality: string;
+      reason?: string | null;
       distanceKm?: number | null;
       durationMin?: number | null;
       notes?: string | null;
@@ -1775,8 +1776,8 @@ export class TrainingPlansService {
     const isRun = input.modality === 'corrida' || input.modality === 'esteira';
     const title = `${fixedModalityTitle(input.modality)} (extra)`;
     const structure = isRun
-      ? { type: 'extra', source: 'student', modality: input.modality }
-      : { type: 'extra', source: 'student', modality: input.modality, category: fixedModalityTitle(input.modality) };
+      ? { type: 'extra', source: 'student', modality: input.modality, reason: input.reason ?? null }
+      : { type: 'extra', source: 'student', modality: input.modality, category: fixedModalityTitle(input.modality), reason: input.reason ?? null };
 
     const session = await this.prisma.trainingSession.create({
       data: {
