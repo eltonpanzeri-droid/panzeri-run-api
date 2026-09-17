@@ -8544,10 +8544,13 @@ function CompletionForm({
   const isAerobic = session.structure?.type === 'aerobic';
 
   // 12/09: formulario unico — validacao conjunta de todos os campos para habilitar o botao Salvar.
+  // 17/09: allSectionsComplete so bloqueia primeira vez (isSavedOnServer=false); atualizacao de
+  // registro antigo (campos v1 vazios) nao pode ficar presa — update passa sempre.
   const allSectionsComplete =
-    !!(draft.preSleepQuality && draft.prePhysicalFatigue && draft.preStressLevel && draft.preMotivation) &&
+    isSavedOnServer ||
+    (!!(draft.preSleepQuality && draft.prePhysicalFatigue && draft.preStressLevel && draft.preMotivation) &&
     !!(draft.perceivedEffort && draft.satisfactionElaboracao && draft.satisfactionCapacidade && draft.postWorkoutFeeling && draft.postWorkoutMood) &&
-    !!(draft.painFlag && (draft.painFlag === 'none' || draft.painTiming));
+    !!(draft.painFlag && (draft.painFlag === 'none' || draft.painTiming)));
 
   // Componente de chip de opcao com label de texto (para elaboracao, execucao, etc.)
   function OptionChips({ options, selected, onSelect }: { options: { label: string; value: string }[]; selected: string; onSelect: (v: string) => void }) {
@@ -8587,6 +8590,7 @@ function CompletionForm({
             keyboardType="numeric"
             placeholder="DD/MM/AAAA"
             maxLength={10}
+            selectTextOnFocus
           />
         </View>
         {(isRun || isAerobic) && (
@@ -8898,16 +8902,23 @@ function CompletionForm({
         <>
           {/* 12/09: Salvar aparece sempre (formulario unico) — antes so aparecia no bloco 3 */}
           {(draft.status === 'missed' || draft.status === 'done' || draft.status === 'adjusted') && (
-            <Pressable
-              style={[styles.saveCompletionButton, (isSubmitting || (draft.status !== 'missed' && !allSectionsComplete)) && styles.disabledButton]}
-              disabled={isSubmitting || (draft.status !== 'missed' && !allSectionsComplete)}
-              onPress={handleSave}
-            >
-              <Ionicons name="checkmark-circle" size={16} color={PRColors.mineral} />
-              <Text style={styles.saveCompletionText}>
-                {isSubmitting ? 'Enviando...' : isSavedOnServer ? 'Atualizar feedback' : 'Confirmar treino e enviar feedback'}
-              </Text>
-            </Pressable>
+            <>
+              <Pressable
+                style={[styles.saveCompletionButton, (isSubmitting || (draft.status !== 'missed' && !allSectionsComplete)) && styles.disabledButton]}
+                disabled={isSubmitting || (draft.status !== 'missed' && !allSectionsComplete)}
+                onPress={handleSave}
+              >
+                <Ionicons name="checkmark-circle" size={16} color={PRColors.mineral} />
+                <Text style={styles.saveCompletionText}>
+                  {isSubmitting ? 'Enviando...' : isSavedOnServer ? 'Atualizar feedback' : 'Confirmar treino e enviar feedback'}
+                </Text>
+              </Pressable>
+              {!isSavedOnServer && draft.status !== 'missed' && !allSectionsComplete && (
+                <Text style={[styles.formHint, { textAlign: 'center', marginTop: 4 }]}>
+                  Responda todas as perguntas acima para habilitar o envio.
+                </Text>
+              )}
+            </>
           )}
           {isSavedOnServer && !isSubmitting && (
             <Pressable style={styles.secondaryButton} onPress={() => setIsEditing(false)}>
