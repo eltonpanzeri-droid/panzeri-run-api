@@ -50,7 +50,10 @@ export class MetaCapiService {
     if (params.eventSourceUrl) event['event_source_url'] = params.eventSourceUrl;
     if (customData) event['custom_data'] = customData;
 
-    const body = JSON.stringify({ data: [event] });
+    const testEventCode = this.config.get<string>('META_TEST_EVENT_CODE');
+    const payload: Record<string, unknown> = { data: [event] };
+    if (testEventCode) payload['test_event_code'] = testEventCode;
+    const body = JSON.stringify(payload);
     const path = `/v20.0/${pixelId}/events?access_token=${encodeURIComponent(accessToken)}`;
 
     const req = https.request(
