@@ -3,21 +3,14 @@ export const script = `
 const config=JSON.parse(document.getElementById('landing-config').textContent);
 window.dataLayer=window.dataLayer||[];
 const trackEvent=(event,params={})=>window.dataLayer.push({event,...params});
-const uuid=()=>{try{return crypto.randomUUID()}catch{return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&3|8)).toString(16)})}};
-let journeyId='';try{journeyId=localStorage.getItem('panzeri_journey_id')||uuid();localStorage.setItem('panzeri_journey_id',journeyId)}catch{journeyId=uuid()}
 const keys=['utm_source','utm_medium','utm_campaign','utm_content','utm_term','fbclid','gclid'];
 let attribution={};try{const saved=JSON.parse(sessionStorage.getItem('panzeri_attribution')||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))attribution=saved}catch{}
 const params=new URLSearchParams(location.search);keys.forEach(key=>{const value=params.get(key);if(value)attribution[key]=value});
-if(!attribution.referrer&&document.referrer)attribution.referrer=document.referrer;
 try{sessionStorage.setItem('panzeri_attribution',JSON.stringify(attribution))}catch{}
-const browserMeta=()=>{const values={};try{document.cookie.split(';').forEach(item=>{const [key,...rest]=item.trim().split('=');if(key==='_fbp'||key==='_fbc')values[key]=decodeURIComponent(rest.join('='))})}catch{}return values};
-const internal=(event,questionId)=>{try{fetch('/analytics/event',{method:'POST',headers:{'Content-Type':'application/json'},keepalive:true,body:JSON.stringify({sessionId:journeyId,journeyId,event,questionId,metadata:{...attribution,...browserMeta()},dedupeKey:journeyId+':'+event+(questionId?':'+questionId:'')})}).catch(()=>{})}catch{}};
-const ga=(event,params={})=>{try{if(typeof window.gtag==='function')window.gtag('event',event,{send_to:'G-ZJXHZVSDL8',...params})}catch{}};
-const checkout=new URL(config.checkoutUrl,location.origin);Object.entries(attribution).forEach(([key,value])=>{if(keys.includes(key))checkout.searchParams.set(key,String(value))});checkout.searchParams.set('journey_id',journeyId);
-const ctaLocation=event=>String(event||'').replace('_cta_click','').replace('how_it_works','how_it_works').replace('mobile_sticky','mobile_sticky');
-document.querySelectorAll('[data-checkout]').forEach(link=>{link.href=checkout.href;link.addEventListener('click',()=>{const location=ctaLocation(link.dataset.track);trackEvent(link.dataset.track);trackEvent('checkout_start',{destination:'student_app'});ga('landing_cta_click',{cta_location:location});internal('landing_cta_click',location);if(typeof window.fbq==='function')window.fbq('track','ViewContent')})});
+const checkout=new URL(config.checkoutUrl,location.origin);Object.entries(attribution).forEach(([key,value])=>{if(keys.includes(key))checkout.searchParams.set(key,String(value))});
+const getCookie=(name)=>{const m=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]*)');return m?decodeURIComponent(m[2]):null};
+document.querySelectorAll('[data-checkout]').forEach(link=>{link.href=checkout.href;link.addEventListener('click',()=>{trackEvent(link.dataset.track);trackEvent('checkout_start',{destination:'student_app'});const fbp=getCookie('_fbp');const fbc=attribution.fbclid?'fb.1.'+Date.now()+'.'+attribution.fbclid:null;const url=new URL(link.href);if(fbp)url.searchParams.set('_fbp',fbp);if(fbc)url.searchParams.set('_fbc',fbc);link.href=url.href})});
 trackEvent('landing_view');
-ga('landing_view');internal('landing_view');
 const header=document.getElementById('siteHeader');const updateHeader=()=>header.classList.toggle('is-scrolled',scrollY>12);updateHeader();addEventListener('scroll',updateHeader,{passive:true});
 const menu=document.getElementById('mobileMenu'),toggle=document.getElementById('menuToggle');
 const closeMenu=()=>{menu.hidden=true;toggle.setAttribute('aria-expanded','false')};

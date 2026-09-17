@@ -167,6 +167,7 @@ interface AuthResponse {
     accessToken?: string;
     refreshToken?: string;
   };
+  registrationEventId?: string;
 }
 
 interface WeekPlanSession {
@@ -542,6 +543,8 @@ type AcquisitionAttribution = {
   fbclid?: string;
   gclid?: string;
   sessionId?: string;
+  _fbp?: string;
+  _fbc?: string;
 };
 
 // Captura UTMs e referrer da URL atual (apenas web/PWA). Persiste first-touch: se já
@@ -570,6 +573,22 @@ async function captureAndStoreAttribution(): Promise<AcquisitionAttribution | nu
     attr.term     = s('utm_term');
     attr.fbclid   = s('fbclid');
     attr.gclid    = s('gclid');
+    // _fbp/_fbc: passados como query param da landing para o PWA no clique do CTA.
+    // Domínios distintos (eltonpanzeripersonal.com.br vs panzerirun.*), então transporte
+    // explícito via URL é necessário além do cookie.
+    const rawFbp = params.get('_fbp');
+    if (rawFbp && rawFbp.trim()) attr._fbp = rawFbp.trim().slice(0, 200);
+    const rawFbc = params.get('_fbc');
+    if (rawFbc && rawFbc.trim()) attr._fbc = rawFbc.trim().slice(0, 500);
+    // Fallback: ler _fbp diretamente do cookie (disponível se o Pixel foi carregado no mesmo domínio).
+    if (!attr._fbp) {
+      try {
+        const cookieMatch = (globalThis as Record<string, unknown>).document
+          ? (document.cookie.match('(^|;)\\s*_fbp\\s*=\\s*([^;]*)') ?? null)
+          : null;
+        if (cookieMatch) attr._fbp = decodeURIComponent(cookieMatch[2]).slice(0, 200);
+      } catch { /* sem cookie disponível */ }
+    }
 
     // Referrer capturado independentemente de UTMs — exclui mesmo domínio (não é aquisição).
     const ref = browserWindow?.document?.referrer;
@@ -630,6 +649,49 @@ function trackFunnel(event: string, extra?: { questionId?: string; userId?: stri
     }).catch(() => undefined);
   }).catch(() => undefined);
 }
+
+// Dispara evento Meta Pixel no browser (PWA). Guard defensivo: nunca lança, nunca bloqueia.
+function firePixel(name: string, params?: Record<string, unknown>, eventId?: string) {
+  if (Platform.OS !== 'web') return;
+  try {
+    const fbq = (globalThis as Record<string, unknown>).fbq as ((...a: unknown[]) => void) | undefined;
+    if (typeof fbq !== 'function') return;
+    fbq('track', name, params ?? {}, eventId ? { eventID: eventId } : undefined);
+  } catch { /* analytics nunca quebra o fluxo */ }
+}
+
+// Inicializa o Meta Pixel no PWA (carregamento único via JS, sem index.html customizado).
+// Precisa ser chamado uma vez antes de qualquer firePixel. Idempotente — segundo call é no-op.
+function initMetaPixel() {
+  if (Platform.OS !== 'web') return;
+  try {
+    const w = globalThis as Record<string, unknown>;
+    if (w['fbq']) return;
+    const f = (...args: unknown[]) => {
+      const fObj = f as unknown as Record<string, unknown>;
+      const cm = fObj['callMethod'] as ((...a: unknown[]) => void) | undefined;
+      if (cm) cm.apply(f, args);
+      else (fObj['queue'] as unknown[]).push(args);
+    };
+    const fObj = f as unknown as Record<string, unknown>;
+    fObj['push'] = f;
+    fObj['loaded'] = true;
+    fObj['version'] = '2.0';
+    fObj['queue'] = [];
+    w['fbq'] = f;
+    w['_fbq'] = f;
+    const t = document.createElement('script');
+    t.async = true;
+    t.src = 'https://connect.facebook.net/en_US/fbevents.js';
+    const s = document.getElementsByTagName('script')[0];
+    s?.parentNode?.insertBefore(t, s);
+    (w['fbq'] as (...a: unknown[]) => void)('init', '1019622314418918');
+    (w['fbq'] as (...a: unknown[]) => void)('track', 'PageView');
+  } catch { /* analytics nunca quebra o fluxo */ }
+}
+
+// Inicializa o Pixel no carregamento do módulo (antes de qualquer componente montar).
+if (Platform.OS === 'web') initMetaPixel();
 
 // Popup de OAuth (window.open) e um padrao de desktop que nao funciona de forma confiavel em
 // PWA instalada no celular — a maioria dos navegadores mobile bloqueia a popup silenciosamente,
@@ -1923,7 +1985,17 @@ function Login({
       // sessionId = funnelSessionId: permite cruzar User.acquisitionAttribution com FunnelEvents
       // via WHERE FunnelEvent.sessionId = acquisitionAttribution->>'sessionId'.
       const [storedAttribution, funnelSessionId] = await Promise.all([getStoredAttribution(), getFunnelSessionId()]);
-      const attribution = storedAttribution ? { ...storedAttribution, sessionId: funnelSessionId } : undefined;
+      // Lê _fbp fresco do cookie no momento do cadastro (pode ter sido atualizado pelo Pixel no PWA).
+      let freshFbp: string | undefined;
+      try {
+        if (Platform.OS === 'web') {
+          const m = document.cookie.match('(^|;)\\s*_fbp\\s*=\\s*([^;]*)');
+          if (m) freshFbp = decodeURIComponent(m[2]).slice(0, 200);
+        }
+      } catch { /* sem cookie */ }
+      const attribution = storedAttribution
+        ? { ...storedAttribution, sessionId: funnelSessionId, ...(freshFbp ? { _fbp: freshFbp } : {}) }
+        : (freshFbp ? { _fbp: freshFbp, sessionId: funnelSessionId } : undefined);
 
       const registerResponse = await fetch(`${API_URL}/auth/register`, {
         method: 'POST',
@@ -1964,6 +2036,8 @@ function Login({
       setStatus('Conta criada com sucesso.');
       // Vincula a sessao anonima ao userId recem-criado — a partir daqui o funil tem identidade.
       trackFunnel('signup_completed', { userId: data.user?.id });
+      // Browser Pixel CompleteRegistration — deduplicado com CAPI via registrationEventId.
+      firePixel('CompleteRegistration', { value: 0, currency: 'BRL' }, data.registrationEventId);
       const refreshToken = data.tokens?.refreshToken;
       if (!refreshToken) {
         setStatus('Conta criada, mas nao recebi a renovacao de acesso.');
@@ -3920,6 +3994,8 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       setBillingMessage('Informe um CPF valido (11 numeros) para continuar.');
       return;
     }
+    // Rastreamento de intenção real de pagamento (intenção do usuário, não mount do componente).
+    trackFunnel('payment_started');
     setIsCheckingOut(true);
     setBillingMessage('Preparando pagamento seguro...');
     let response: Response;
@@ -3945,6 +4021,8 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
         return;
       }
       setBillingMessage('Abrindo pagamento...');
+      // InitiateCheckout: checkoutUrl válida obtida — início real do checkout Asaas.
+      firePixel('InitiateCheckout', {}, data.paymentId ? `checkout_${data.paymentId as string}` : undefined);
       // No navegador (PWA), Linking.openURL usa window.open — apos o await da chamada de rede
       // acima, o navegador ja nao trata isso como gesto direto do usuario e o bloqueador de
       // pop-up costuma barrar a abertura SEM erro nenhum (o servidor ja criou a cobranca, so
@@ -6975,8 +7053,8 @@ function Billing({ accessToken }: { accessToken: string }) {
   useEffect(() => {
     void loadBilling(false);
     void loadHistory();
-    // Rastreamento: abertura da tela de pagamento (prospecto chegou ate aqui).
-    trackFunnel('payment_started');
+    // payment_started foi movido para subscribe() e openSubscriptionCheckout() (intenção real do
+    // usuário, não mount do componente) — não disparar aqui para evitar falsos positivos.
   }, [accessToken]);
 
   async function subscribe() {
@@ -7007,6 +7085,9 @@ function Billing({ accessToken }: { accessToken: string }) {
       setMessage('Informe um CPF valido (11 numeros) para continuar.');
       return;
     }
+    // Rastreamento de intenção real de pagamento (movido do useEffect para cá — intenção do usuário,
+    // não mount do componente).
+    trackFunnel('payment_started');
     setIsCheckingOut(true);
     setMessage('Preparando pagamento seguro...');
     let response: Response;
@@ -7036,6 +7117,8 @@ function Billing({ accessToken }: { accessToken: string }) {
         return;
       }
       setMessage('Abrindo pagamento...');
+      // InitiateCheckout: checkoutUrl válida obtida — início real do checkout Asaas.
+      firePixel('InitiateCheckout', {}, data.paymentId ? `checkout_${data.paymentId as string}` : undefined);
       // No navegador (PWA), Linking.openURL usa window.open — depois de um await (a chamada
       // de rede acima), o navegador ja nao considera isso um gesto direto do usuario e o
       // bloqueador de pop-up costuma barrar a abertura SEM erro nenhum: a chamada "funciona"

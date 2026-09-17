@@ -14,6 +14,10 @@ export class AcquisitionAttributionDto {
   // via WHERE FunnelEvent.sessionId = acquisitionAttribution->>'sessionId'.
   // Diferente de FunnelEvent.journeyId (campo cross-device, nunca implementado, sempre null).
   @IsOptional() @IsString() @MaxLength(64) sessionId?: string;
+  // _fbp / _fbc: cookies Meta Pixel para matching no CAPI. Capturados no PWA e repassados ao
+  // servidor para enriquecer a chamada de CompleteRegistration sem expor ao lado do cliente.
+  @IsOptional() @IsString() @MaxLength(200) _fbp?: string;
+  @IsOptional() @IsString() @MaxLength(500) _fbc?: string;
 }
 
 export class RegisterDto {

@@ -13,8 +13,15 @@ export class AuthController {
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('auth/register')
-  register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+  register(
+    @Body() dto: RegisterDto,
+    @Req() req: { headers: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } },
+  ) {
+    const forwarded = req.headers['x-forwarded-for'];
+    const clientIp = (Array.isArray(forwarded) ? forwarded[0] : typeof forwarded === 'string' ? forwarded : undefined)
+      ?.split(',')[0]?.trim() ?? req.socket?.remoteAddress;
+    const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : undefined;
+    return this.authService.register(dto, clientIp, userAgent);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })

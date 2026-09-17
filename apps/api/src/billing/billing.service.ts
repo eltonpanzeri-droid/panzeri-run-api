@@ -5,6 +5,7 @@ import { TelegramService, formatStudentCode } from './telegram.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { TrainingPlansService } from '../training-plans/training-plans.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { MetaCapiService } from '../meta/meta-capi.service';
 
 type AsaasCustomer = { id: string };
 type AsaasCustomerList = { data: AsaasCustomer[] };
@@ -238,6 +239,7 @@ export class BillingService {
     @Inject(forwardRef(() => TrainingPlansService))
     private readonly trainingPlans: TrainingPlansService,
     private readonly notifications: NotificationsService,
+    private readonly metaCapi: MetaCapiService,
   ) {}
 
   // Dispara a primeira geracao de treino assim que o pagamento e confirmado (generateFirstWeekIfNeeded
@@ -529,7 +531,7 @@ export class BillingService {
     this.recentCheckouts.set(userId, { checkoutUrl, at: Date.now() });
     this.pruneRecentCheckouts();
 
-    return { checkoutUrl };
+    return { checkoutUrl, paymentId: relevantPayment?.id ?? null };
   }
 
   async applyCoupon(userId: string, code: string) {
@@ -694,7 +696,7 @@ export class BillingService {
       return { received: true };
     }
 
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: billing.userId }, select: { name: true, email: true, subscriptionStatus: true, studentCode: true } });
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: billing.userId }, select: { name: true, email: true, subscriptionStatus: true, studentCode: true, acquisitionAttribution: true } });
 
     // 04/09: corrigida uma corrida real de webhook duplicado (o Asaas pode reenviar o mesmo evento
     // 2x, comum apos timeout de resposta) — antes lia subscriptionStatus ANTES do update pra decidir
@@ -747,6 +749,21 @@ export class BillingService {
           subject: 'Pagamento confirmado - monte sua rotina de treinos!',
           content: `Ola ${user.name},\n\nSeu pagamento foi confirmado! Agora abra o aplicativo — vamos te guiar por uma entrevista completa para montar seu programa personalizado.\n\nPanzeri Run`,
         });
+        // CAPI Purchase — fonte canônica de conversão; guard statusActuallyChanged já garante idempotência.
+        if (paymentId && payload.payment?.value != null) {
+          const attr = user.acquisitionAttribution as Record<string, string> | null;
+          this.metaCapi.sendEvent({
+            eventName: 'Purchase',
+            eventId: `purchase_${paymentId}`,
+            userData: {
+              em: user.email,
+              _fbp: attr?.['_fbp'] ?? null,
+              _fbc: attr?.['_fbc'] ?? null,
+            },
+            customData: { value: payload.payment.value, currency: 'BRL' },
+            eventSourceUrl: 'https://panzerirun.eltonpanzeripersonal.com.br',
+          });
+        }
       }
     }
 

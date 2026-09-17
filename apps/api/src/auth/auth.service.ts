@@ -8,9 +8,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { AcquisitionAttributionDto, RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { MetaCapiService } from '../meta/meta-capi.service';
 
 function hasAnyAttributionField(a: AcquisitionAttributionDto): boolean {
-  return !!(a.source || a.medium || a.campaign || a.content || a.term || a.referrer || a.fbclid || a.gclid || a.sessionId);
+  return !!(a.source || a.medium || a.campaign || a.content || a.term || a.referrer || a.fbclid || a.gclid || a.sessionId || a._fbp || a._fbc);
 }
 
 @Injectable()
@@ -19,9 +20,10 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly metaCapi: MetaCapiService,
   ) {}
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto, clientIp?: string, userAgent?: string) {
     if (!dto.acceptedTerms) {
       throw new BadRequestException('Aceite de termos e LGPD e obrigatorio.');
     }
@@ -62,9 +64,24 @@ export class AuthService {
       throw error;
     }
 
+    const registrationEventId = `reg_${user.id}`;
+    this.metaCapi.sendEvent({
+      eventName: 'CompleteRegistration',
+      eventId: registrationEventId,
+      userData: {
+        em: user.email,
+        _fbp: dto.attribution?._fbp,
+        _fbc: dto.attribution?._fbc,
+        clientIpAddress: clientIp,
+        clientUserAgent: userAgent,
+      },
+      eventSourceUrl: 'https://panzerirun.eltonpanzeripersonal.com.br',
+    });
+
     return {
       user,
       tokens: await this.signTokens(user.id, user.email, user.role),
+      registrationEventId,
     };
   }
 
