@@ -2722,6 +2722,9 @@ function StudentPanel({
           extraKm: (h.sessions ?? [])
             .filter((s) => (s.structure as { source?: string } | null)?.source === 'student')
             .reduce((sum, s) => sum + (s.completedDistanceKm ?? 0), 0),
+          extraSessions: (h.sessions ?? [])
+            .filter((s) => (s.structure as { source?: string } | null)?.source === 'student')
+            .length,
         }));
         const hist = student.history ?? [];
         const allSessions = flatFeedbackSessions(hist);
@@ -6054,6 +6057,7 @@ type WeekData = {
   completedSessions: number;
   prescribedSessions: number;
   extraKm: number;
+  extraSessions: number;
 };
 
 /** Volume semanal: 3 colunas por semana + linha de tendência.
@@ -7132,9 +7136,11 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
   if (weeks.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados.</p>;
 
   function barColor(i: number): string {
-    if (i === 0) return '#3b82f6';
-    const prev = weeks[i - 1].completedKm;
-    if (prev === 0) return '#3b82f6';
+    // Busca a semana anterior com km > 0 para comparação
+    let prevIdx = i - 1;
+    while (prevIdx >= 0 && weeks[prevIdx].completedKm === 0) prevIdx--;
+    if (prevIdx < 0) return '#3b82f6'; // 1ª semana com km
+    const prev = weeks[prevIdx].completedKm;
     const delta = (weeks[i].completedKm - prev) / prev;
     if (delta <= 0.10) return '#22c55e';
     if (delta <= 0.25) return '#f59e0b';
@@ -7203,8 +7209,8 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
             </g>
           );
         })}
-        {/* Linha de tendência */}
-        {n >= 3 && (
+        {/* Linha de tendência — mínimo 4 semanas para evitar distorção por ponto zero isolado */}
+        {n >= 4 && (
           <line
             x1={xFn(0)} y1={yFn(Math.max(0, intercept))}
             x2={xFn(n - 1)} y2={yFn(Math.max(0, intercept + slope * (n - 1)))}
@@ -7220,7 +7226,7 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
         {[['#22c55e','≤+10% (seguro)'],['#f59e0b','+10% a +25%'],['#ef4444','>+25% (salto)'],['#3b82f6','1ª semana']].map(([c, l]) => (
           <span key={l}><span style={{ display:'inline-block', width:10, height:10, borderRadius:2, background:c, marginRight:4, verticalAlign:'middle' }} />{l}</span>
         ))}
-        {n >= 3 && <span style={{ marginLeft: 8 }}>
+        {n >= 4 && <span style={{ marginLeft: 8 }}>
           <span style={{ display:'inline-block', width:16, height:2, background:'#6366f1', marginRight:4, verticalAlign:'middle', opacity:0.7 }} />Tendência
         </span>}
       </div>
@@ -7410,8 +7416,8 @@ function LoadChartAderencia({ weeks, history }: {
     const prescritos = filtered.length;
     const feitos = filtered.filter((s) => s.completionStatus === 'done' || s.completionStatus === 'adjusted').length;
     const semReg = filtered.filter((s) => s.completionStatus === 'sem_registro').length;
-    // Extras: só no modo Geral — sessões completadas além do prescrito na semana
-    const extras = modFilter === 'all' ? Math.max(0, w.completedSessions - w.prescribedSessions) : 0;
+    // Extras: só no modo Geral — sessões com source='student' (adicionadas pela própria aluna)
+    const extras = modFilter === 'all' ? (w.extraSessions ?? 0) : 0;
     return { startDate: w.startDate, prescritos, feitos, semReg, extras };
   });
 

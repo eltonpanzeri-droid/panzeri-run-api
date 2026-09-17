@@ -1957,3 +1957,20 @@ Tempo/Distância, data "16/09" sendo 17/09 o dia real, e mensagens (Avisos) trav
 - **Causa**: Modal "Registrar Treino Extra" coletava apenas 7 campos. Feedback v1 (11 perguntas) nunca foi adicionado ao modal. Aluno precisava de 2 passos; na prática ficava sem dados.
 - **Fix**: `extraForm` expandido com todos os campos de feedback. UI do modal com seções "Como voce chegou" / "Como foi o treino" / "Dor e observacoes" (reutilizando ScaleStr, ScalePicker, OptionChips). API: controller e service aceitam e persistem todos os campos.
 - `ScaleStr` e `OptionChips` movidos de funções locais dentro de `CompletionForm` para nível de módulo, para reuso.
+
+**2026-09-17 (continuação 2) — Admin: gráficos de aderência e carga semanal corrigidos**
+
+- **LoadChartAderencia — barra cyan nunca aparecia** (dossiê 0010): `extras = max(0, completedSessions - prescribedSessions)` — sempre 0 quando há sessões prescritas não-feitas. Fix: adicionado `extraSessions` ao tipo `WeekData` e ao mapeamento `allWeeks`, contando sessões com `structure.source === 'student'`. `LoadChartAderencia` usa `w.extraSessions`.
+- **LoadChartSemanal — cor da barra comparava com semana imediatamente anterior mesmo se ela fosse 0km**: agora busca a semana anterior mais recente com km > 0; tendência só exibida com n ≥ 4 semanas.
+- **Arquivos alterados**: `apps/admin/app/page.tsx`.
+
+**2026-09-17 (continuação 3) — Mobile: KmLineChart rótulos em todos os pontos + percorrido inclui extras + Evolução com mais dados**
+
+- **KmLineChart — rótulos em todos os pontos**: antes apenas o pico tinha rótulo. Agora todos os pontos têm rótulo com o valor em km, offset vertical por série (série 0: y-9, série 1: y-17, série 2: y-26) para não sobrepor. `paddingTop` dinâmico (`20 + activeSeries.length * 8`) para acomodar rótulos extras.
+- **KmLineChart — série "percorrido" inclui kmExtras**: a linha azul agora soma `kmPercorridos + kmExtras` — reflete tudo que o aluno correu de fato, incluindo treinos extras que ele próprio adicionou. Valor 0 vira null para não quebrar a linha.
+- **Evolução — 6 novos cards de dados**: duas linhas de 3 cards adicionadas abaixo dos cards originais (aderência/sequência/sem reg):
+  - Linha 2: "Total (km)" (allTime), "No período" (período selecionado no gráfico), "Melhor sem." (melhor semana do período).
+  - Linha 3: "Média/sem." (km/semana com km no período), "Recorde seq." (longestStreakWeeks), "Último reg." (data do último treino registrado).
+- Estatísticas de período computadas em `Progress` a partir de `data.recentWeeks` filtrado pelo `chartPeriod` corrente.
+- **Arquivo alterado**: `apps/mobile/App.tsx`.
+- **Gates**: typecheck limpo (mobile e admin).

@@ -4986,7 +4986,15 @@ function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: 
 
   const activeSeries: KmSerie[] = [];
   if (series.includes('percorrido')) {
-    activeSeries.push({ key: 'percorrido', label: 'Percorrido', color: '#0ea5e9', data: weeks.map((w) => w.kmPercorridos) });
+    activeSeries.push({
+      key: 'percorrido',
+      label: 'Percorrido',
+      color: '#0ea5e9',
+      data: weeks.map((w) => {
+        const total = (w.kmPercorridos ?? 0) + (w.kmExtras ?? 0);
+        return total > 0 ? total : null;
+      }),
+    });
   }
   if (series.includes('prescrito')) {
     activeSeries.push({ key: 'prescrito', label: 'Prescrito', color: '#94a3b8', data: weeks.map((w) => w.kmPrescritos) });
@@ -5011,7 +5019,7 @@ function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: 
   const chartH = 100;
   const paddingLeft = 34;
   const paddingBottom = 24;
-  const paddingTop = 20;
+  const paddingTop = 20 + activeSeries.length * 8;
   const paddingRight = 12;
   const spacing = Math.max(24, Math.min(36, 260 / Math.max(n - 1, 1)));
   const svgW = paddingLeft + (n - 1) * spacing + paddingRight;
@@ -5048,7 +5056,7 @@ function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: 
         ))}
 
         {/* Séries */}
-        {activeSeries.map((serie) => {
+        {activeSeries.map((serie, si) => {
           const pts = serie.data.map((km, i) => ({
             x: getX(i),
             y: km != null && km > 0 ? getY(km) : null,
@@ -5072,22 +5080,21 @@ function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: 
           }
           if (segPath) segments.push(segPath.trim());
 
-          // Pico para rótulo
-          const maxVal = Math.max(...(serie.data.filter((v): v is number => v != null)));
-          const peakIdx = serie.data.indexOf(maxVal);
+          // Offset vertical do rótulo por série para não sobrepor quando múltiplas séries ativas
+          const labelOffsetY = 9 + si * 9;
 
           return (
             <G key={serie.key}>
-              {segments.map((d, si) => (
-                <Path key={si} d={d} fill="none" stroke={serie.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              {segments.map((d, sgi) => (
+                <Path key={sgi} d={d} fill="none" stroke={serie.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
               ))}
               {pts.map((p) =>
                 p.y !== null ? (
                   <G key={p.i}>
-                    <Circle cx={p.x} cy={p.y} r={p.i === peakIdx ? 4 : 3} fill="#fff" stroke={serie.color} strokeWidth={2} />
-                    {p.i === peakIdx && p.km != null && p.km > 0 && (
-                      <SvgText x={p.x} y={p.y - 9} textAnchor="middle" fontSize={8.5} fontWeight="bold" fill={serie.color}>
-                        {p.km >= 10 ? `${Math.round(p.km)}` : `${p.km.toFixed(1)}`}km
+                    <Circle cx={p.x} cy={p.y} r={3} fill="#fff" stroke={serie.color} strokeWidth={2} />
+                    {p.km != null && p.km > 0 && (
+                      <SvgText x={p.x} y={p.y - labelOffsetY} textAnchor="middle" fontSize={7.5} fontWeight="600" fill={serie.color}>
+                        {p.km >= 10 ? `${Math.round(p.km)}` : `${p.km.toFixed(1)}`}
                       </SvgText>
                     )}
                   </G>
@@ -5166,6 +5173,23 @@ function Progress({ accessToken }: { accessToken: string }) {
       : data.adherence.last8Weeks
     : null;
 
+  const chartPeriodWeeks = CHART_PERIODS.find((p) => p.key === chartPeriod)?.weeks ?? 13;
+  const slicedWeeks = data?.recentWeeks.slice(-chartPeriodWeeks) ?? [];
+  const periodKm = slicedWeeks.reduce((acc, w) => acc + (w.kmPercorridos ?? 0) + (w.kmExtras ?? 0), 0);
+  const weeksWithKm = slicedWeeks.filter((w) => (w.kmPercorridos ?? 0) + (w.kmExtras ?? 0) > 0).length;
+  const avgWeeklyKm = weeksWithKm > 0 ? periodKm / weeksWithKm : 0;
+  const bestWeekKm = slicedWeeks.reduce((best, w) => Math.max(best, (w.kmPercorridos ?? 0) + (w.kmExtras ?? 0)), 0);
+
+  function fmtKm(km: number): string {
+    if (km === 0) return '—';
+    return km >= 10 ? `${Math.round(km)}` : km.toFixed(1);
+  }
+  function fmtDate(iso: string | null): string {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+  }
+
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }}>
       <Text style={styles.sectionLabel}>Evolução</Text>
@@ -5223,6 +5247,56 @@ function Progress({ accessToken }: { accessToken: string }) {
                 {data.totalSemRegistro}
               </Text>
               <Text style={{ fontSize: 10, color: '#ca8a04', marginTop: 2 }}>treinos</Text>
+            </View>
+          </View>
+
+          {/* Cards de volume — linha 2 */}
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+            <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+              <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 4 }}>TOTAL (km)</Text>
+              <Text style={{ fontSize: 20, fontWeight: '800', color: '#1e293b' }}>
+                {fmtKm(data.totalKmPercorridos)}
+              </Text>
+              <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>percorridos</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+              <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 4 }}>NO PERÍODO</Text>
+              <Text style={{ fontSize: 20, fontWeight: '800', color: '#1e293b' }}>
+                {periodKm > 0 ? `${fmtKm(periodKm)} km` : '—'}
+              </Text>
+              <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{chartPeriodWeeks <= 4 ? '4 sem.' : chartPeriodWeeks <= 8 ? '8 sem.' : chartPeriodWeeks <= 13 ? '3 meses' : '6 meses'}</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+              <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 4 }}>MELHOR SEM.</Text>
+              <Text style={{ fontSize: 20, fontWeight: '800', color: '#1e293b' }}>
+                {bestWeekKm > 0 ? `${fmtKm(bestWeekKm)} km` : '—'}
+              </Text>
+              <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>no período</Text>
+            </View>
+          </View>
+
+          {/* Cards de volume — linha 3 */}
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+            <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+              <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 4 }}>MÉDIA/SEM.</Text>
+              <Text style={{ fontSize: 20, fontWeight: '800', color: '#1e293b' }}>
+                {avgWeeklyKm > 0 ? `${fmtKm(avgWeeklyKm)} km` : '—'}
+              </Text>
+              <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>semanas c/ km</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+              <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 4 }}>RECORDE SEQ.</Text>
+              <Text style={{ fontSize: 20, fontWeight: '800', color: '#1e293b' }}>
+                {data.consistency.longestStreakWeeks}
+              </Text>
+              <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{data.consistency.longestStreakWeeks === 1 ? 'semana' : 'semanas'}</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+              <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 4 }}>ÚLTIMO REG.</Text>
+              <Text style={{ fontSize: 20, fontWeight: '800', color: '#1e293b' }}>
+                {fmtDate(data.consistency.lastRegisteredDate)}
+              </Text>
+              <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>treino</Text>
             </View>
           </View>
 
