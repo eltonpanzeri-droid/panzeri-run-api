@@ -1791,12 +1791,15 @@ export class TrainingPlansService {
       },
     });
 
+    // completedAt em UTC ao meio-dia para evitar deslocamento de fuso: meia-noite UTC = 21h BRT
+    // do dia anterior, o que faria isoDateToInputValue() exibir a data errada no app.
+    const completedAtNoon = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
     await this.prisma.workoutCompletion.create({
       data: {
         sessionId: session.id,
         userId,
         status: 'done',
-        completedAt: scheduledDate,
+        completedAt: completedAtNoon,
         distanceKm: input.distanceKm ?? null,
         durationMin: input.durationMin ?? null,
         perceivedEffort: input.perceivedEffort ?? null,

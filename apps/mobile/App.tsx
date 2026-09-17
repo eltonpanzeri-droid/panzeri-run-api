@@ -2164,7 +2164,10 @@ function DismissibleNotification({ notification, accessToken, onDismiss }: { not
     void fetch(`${API_URL}/notifications/${notification.id}/read`, { method: 'PATCH', headers: { Authorization: `Bearer ${accessToken}` } });
   };
   const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 8,
+    // Só captura se for claramente horizontal (dx > 20 E maior que dy) para não
+    // conflitar com o scroll vertical da lista no iOS Safari (PWA).
+    onMoveShouldSetPanResponder: (_, gesture) =>
+      Math.abs(gesture.dx) > 20 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
     onPanResponderMove: (_, gesture) => translateX.setValue(gesture.dx),
     onPanResponderRelease: (_, gesture) => {
       if (Math.abs(gesture.dx) > 80) dismiss();
@@ -9247,7 +9250,9 @@ function todayDateInputValue() {
 function isoDateToInputValue(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return todayDateInputValue();
-  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+  // Usa métodos UTC para evitar deslocamento de fuso: datas gravadas como meia-noite UTC
+  // (00:00Z) correspondem a 21h BRT do dia anterior — getDate() local retornaria o dia errado.
+  return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${date.getUTCFullYear()}`;
 }
 
 function dateInputValueToIso(value: string): string | null {
