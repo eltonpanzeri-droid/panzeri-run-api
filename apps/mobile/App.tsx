@@ -8904,8 +8904,8 @@ function CompletionForm({
           {(draft.status === 'missed' || draft.status === 'done' || draft.status === 'adjusted') && (
             <>
               <Pressable
-                style={[styles.saveCompletionButton, (isSubmitting || (draft.status !== 'missed' && !allSectionsComplete)) && styles.disabledButton]}
-                disabled={isSubmitting || (draft.status !== 'missed' && !allSectionsComplete)}
+                style={[styles.saveCompletionButton, isSubmitting && styles.disabledButton]}
+                disabled={isSubmitting}
                 onPress={handleSave}
               >
                 <Ionicons name="checkmark-circle" size={16} color={PRColors.mineral} />
@@ -8915,7 +8915,7 @@ function CompletionForm({
               </Pressable>
               {!isSavedOnServer && draft.status !== 'missed' && !allSectionsComplete && (
                 <Text style={[styles.formHint, { textAlign: 'center', marginTop: 4 }]}>
-                  Responda todas as perguntas acima para habilitar o envio.
+                  Responda todas as perguntas acima para completar o feedback (opcional para salvar).
                 </Text>
               )}
             </>

@@ -1908,3 +1908,36 @@ Correção implementada para novos cadastros:
 - `journeyId` na atribuição = `funnelSessionId` do momento do cadastro — vincula `User.acquisitionAttribution` aos `FunnelEvents` da mesma sessão.
 - Sem migration — campo `acquisitionAttribution Json?` já existia.
 - `FunnelEvent.journeyId` (schema): campo existente mas nunca populado. Mantido. `sessionId` é o identificador canônico de jornada.
+
+**2026-09-17 — Três bugs corrigidos em sessões extras (Luiza case)**
+
+**Contexto**: Aluna Luiza criou sessão extra de corrida pelo próprio app. Ao abrir o registro
+do treino depois de salvar, ela via: cabeçalho colapsado sem dados, formulário sem campos de
+Tempo/Distância, data "16/09" sendo 17/09 o dia real, e mensagens (Avisos) travando ao tentar apagar.
+
+**Bug 1 — Campos Tempo/Distância sumindo no formulário de registro** (commits 0b0dade, e51e58b)
+- **Causa**: `addStudentExtraSession` grava `structure = { type: 'extra', source: 'student' }`.
+  O `CompletionForm` só mostrava os campos quando `session.structure?.type === 'run'` — que nunca
+  é verdade para sessões criadas pela aluna.
+- **Fix** (App.tsx, CompletionForm): `isRun` agora também inclui `session.modality === 'corrida'`
+  e `'esteira'`. Sessões do coach continuam com `structure.type === 'run'` e não são afetadas.
+- **Regra**: NÃO assumir que só `structure.type === 'run'` identifica corrida — sessões extras
+  da aluna usam `type: 'extra'`, classificação real fica em `modality`.
+
+**Bug 2 — Data exibida um dia antes do real** (commit e51e58b — dossiê 0005)
+- **Causa**: `completedAt: scheduledDate` salvava meia-noite UTC. No Brasil (UTC-3), isso é
+  21h do dia anterior. `isoDateToInputValue` usava `getDate()` (hora local) → dia errado.
+- **Fix duplo**: API grava `completedAt` ao meio-dia UTC (12:00:00Z). App usa `getUTCDate()`
+  para ler datas — protege dados históricos já gravados com meia-noite UTC.
+- **Regra**: Qualquer `completedAt` definido pelo servidor usa **12:00:00Z** (não 00:00:00Z).
+  Leitura de datas no app usa sempre métodos UTC (`getUTCDate`, `getUTCMonth`, `getUTCFullYear`).
+
+**Bug 3 — Avisos travando ao tentar apagar (scroll bloqueado)** (commit e51e58b)
+- **Causa**: `PanResponder` capturava gesto com `dx > 8px` — durante scroll vertical no iPhone,
+  qualquer deriva lateral de 8px dispara o handler e bloqueia o scroll completamente.
+- **Fix**: Threshold aumentado para `dx > 20px` E `dx > dy * 1.5` (gesto claramente horizontal).
+
+**Bug 4 — Cabeçalho colapsado mostrando prescrição em vez do realizado** (commit 8cad4c4)
+- **Causa**: Cabeçalho colapsado lia `session.durationMin` (prescrição = 0 para extras).
+- **Fix**: Agora lê `session.completion?.durationMin ?? session.durationMin` para preferir
+  o valor realizado quando existe.
