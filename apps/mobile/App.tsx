@@ -4337,15 +4337,19 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                           <Ionicons name={iconForModality(session.modality)} size={18} color="#111827" />
                           <Text style={styles.sessionTitle}>{session.title}</Text>
                         </View>
-                        {/* 12/09: exibe tempo e distancia prescritos no cabecalho colapsado */}
-                        {!sessionExpanded && (session.durationMin || session.distanceKm) ? (
-                          <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                            {[
-                              session.durationMin ? `${Math.round(session.durationMin)} min` : null,
-                              session.distanceKm ? `${session.distanceKm} km` : null,
-                            ].filter(Boolean).join(' · ')}
-                          </Text>
-                        ) : null}
+                        {/* 12/09: exibe tempo e distancia no cabecalho colapsado.
+                            17/09: prefere valores realizados (completion) sobre prescrição —
+                            essencial para sessões extras sem prescrição (durationMin=0/null). */}
+                        {!sessionExpanded ? (() => {
+                          const dur = session.completion?.durationMin ?? session.durationMin;
+                          const dist = session.completion?.distanceKm ?? session.distanceKm;
+                          if (!dur && !dist) return null;
+                          return (
+                            <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                              {[dur ? `${Math.round(dur)} min` : null, dist ? `${dist} km` : null].filter(Boolean).join(' · ')}
+                            </Text>
+                          );
+                        })() : null}
                         <Text style={styles.sessionDetail}>{sessionExpanded ? 'Toque para recolher' : 'Toque para ver o treino'}</Text>
                         {sessionStatus === 'done' || sessionStatus === 'adjusted' ? (
                           <Text style={styles.sessionStatusDone}>✓ Feito</Text>
