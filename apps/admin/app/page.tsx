@@ -6147,13 +6147,18 @@ function KmEvolutionChart({ weeks, period }: { weeks: WeekData[]; period: number
               </>
             )}
 
-            {/* Realizado (treinos do plano) */}
-            {regularKm > 0 && (
+            {/* Realizado (empilhado: verde = regular + ciano = extra no topo) */}
+            {w.completedKm > 0 && (
               <>
-                <rect x={xReal(i) - bW / 2} y={yV(regularKm)} width={bW} height={bhReal} rx={2} fill="#22c55e" />
+                {regularKm > 0 && (
+                  <rect x={xReal(i) - bW / 2} y={yV(regularKm)} width={bW} height={bhReal} rx={2} fill="#22c55e" />
+                )}
+                {extraKm > 0 && (
+                  <rect x={xReal(i) - bW / 2} y={yV(w.completedKm)} width={bW} height={(extraKm / topKm) * CH} rx={2} fill="#06b6d4" />
+                )}
                 {showLabel && (
-                  <text x={xReal(i)} y={yV(regularKm) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#16a34a">
-                    {fmtKm(regularKm)}
+                  <text x={xReal(i)} y={yV(w.completedKm) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#16a34a">
+                    {fmtKm(w.completedKm)}
                   </text>
                 )}
               </>
