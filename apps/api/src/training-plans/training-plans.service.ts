@@ -1750,6 +1750,16 @@ export class TrainingPlansService {
       durationMin?: number | null;
       notes?: string | null;
       perceivedEffort?: number | null;
+      preSleepQuality?: number | null;
+      prePhysicalFatigue?: number | null;
+      preStressLevel?: number | null;
+      preMotivation?: number | null;
+      satisfactionElaboracao?: string | null;
+      satisfactionCapacidade?: string | null;
+      postWorkoutFeeling?: number | null;
+      postWorkoutMood?: number | null;
+      painFlag?: string | null;
+      painTiming?: string | null;
     },
   ): Promise<{ sessionId: string; weekOffset: number }> {
     const [year, month, day] = input.date.split('-').map(Number);
@@ -1805,6 +1815,17 @@ export class TrainingPlansService {
         durationMin: input.durationMin ?? null,
         perceivedEffort: input.perceivedEffort ?? null,
         notes: input.notes ?? null,
+        preSleepQuality: input.preSleepQuality ?? null,
+        prePhysicalFatigue: input.prePhysicalFatigue ?? null,
+        preStressLevel: input.preStressLevel ?? null,
+        preMotivation: input.preMotivation ?? null,
+        satisfactionElaboracao: input.satisfactionElaboracao ?? null,
+        satisfactionCapacidade: input.satisfactionCapacidade ?? null,
+        postWorkoutFeeling: input.postWorkoutFeeling ?? null,
+        painFlag: input.painFlag ?? null,
+        painTiming: input.painTiming ?? null,
+        details: input.postWorkoutMood != null ? { postWorkoutMood: input.postWorkoutMood } : undefined,
+        feedbackVersion: 1,
         source: 'student_extra',
       },
     });

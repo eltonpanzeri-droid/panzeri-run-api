@@ -249,6 +249,12 @@ type SessionStructure =
       blocks?: Array<{ label: string; durationMin: number; zone?: string; guidance?: string }>;
     }
   | {
+      type: 'extra';
+      source?: string;
+      modality?: string;
+      reason?: string | null;
+    }
+  | {
       type: 'strength';
       category?: string;
       exercises?: Array<{
@@ -3136,6 +3142,29 @@ function ScalePicker({ value, onChange, lowLabel, highLabel }: { value: number |
   );
 }
 
+function OptionChips({ options, selected, onSelect }: { options: { label: string; value: string }[]; selected: string; onSelect: (v: string) => void }) {
+  return (
+    <View style={styles.completionStatusRow}>
+      {options.map((opt) => (
+        <Pressable key={opt.value} style={[styles.completionChip, selected === opt.value && styles.completionChipActive]} onPress={() => onSelect(opt.value)}>
+          <Text style={[styles.completionChipText, selected === opt.value && styles.completionChipTextActive]}>{opt.label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function ScaleStr({ value, onChange: onChangeFn, lowLabel, highLabel }: { value: string; onChange: (v: string) => void; lowLabel: string; highLabel: string }) {
+  return (
+    <ScalePicker
+      value={value ? Number(value) : null}
+      onChange={(n) => onChangeFn(String(n))}
+      lowLabel={lowLabel}
+      highLabel={highLabel}
+    />
+  );
+}
+
 // 11/09: check-in v2 — 3 blocos de 5 perguntas cada, com indicador de progresso (1 de 3 / 2 de 3
 // / 3 de 3). A tela de confirmacao de registros (step='confirm') permanece igual. Ao confirmar
 // ("Sim, ja registrei"), entra no fluxo de 3 paginas internas ao modal.
@@ -3421,7 +3450,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
   const [weekOffset, setWeekOffset] = useState(initialWeekOffset ?? 0);
   // Estado do modal de treino extra
   const [showExtraModal, setShowExtraModal] = useState(false);
-  const [extraForm, setExtraForm] = useState({ modality: 'corrida', date: '', reason: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '' });
+  const [extraForm, setExtraForm] = useState({ modality: 'corrida', date: '', reason: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '', preSleepQuality: '', prePhysicalFatigue: '', preStressLevel: '', preMotivation: '', satisfactionElaboracao: '', satisfactionCapacidade: '', postWorkoutFeeling: '', postWorkoutMood: '', painFlag: '', painTiming: '' });
   const [extraSaving, setExtraSaving] = useState(false);
   const [extraMessage, setExtraMessage] = useState('');
   const [notGeneratedRange, setNotGeneratedRange] = useState<{ startDate: string; endDate: string; hasSubscriptionAccess: boolean; hasEverHadPlan: boolean } | null>(null);
@@ -3509,6 +3538,16 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       if (extraForm.durationMin) body.durationMin = parseFloat(extraForm.durationMin);
       if (extraForm.notes.trim()) body.notes = extraForm.notes.trim();
       if (extraForm.perceivedEffort) body.perceivedEffort = parseInt(extraForm.perceivedEffort, 10);
+      if (extraForm.preSleepQuality) body.preSleepQuality = parseInt(extraForm.preSleepQuality, 10);
+      if (extraForm.prePhysicalFatigue) body.prePhysicalFatigue = parseInt(extraForm.prePhysicalFatigue, 10);
+      if (extraForm.preStressLevel) body.preStressLevel = parseInt(extraForm.preStressLevel, 10);
+      if (extraForm.preMotivation) body.preMotivation = parseInt(extraForm.preMotivation, 10);
+      if (extraForm.satisfactionElaboracao) body.satisfactionElaboracao = extraForm.satisfactionElaboracao;
+      if (extraForm.satisfactionCapacidade) body.satisfactionCapacidade = extraForm.satisfactionCapacidade;
+      if (extraForm.postWorkoutFeeling) body.postWorkoutFeeling = parseInt(extraForm.postWorkoutFeeling, 10);
+      if (extraForm.postWorkoutMood) body.postWorkoutMood = parseInt(extraForm.postWorkoutMood, 10);
+      if (extraForm.painFlag) body.painFlag = extraForm.painFlag;
+      if (extraForm.painTiming) body.painTiming = extraForm.painTiming;
 
       const resp = await fetch(`${API_URL}/training-plans/extra-session`, {
         method: 'POST',
@@ -3522,7 +3561,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       }
       setExtraMessage('Treino extra registrado!');
       setShowExtraModal(false);
-      setExtraForm({ modality: 'corrida', date: todayDateInputValue(), reason: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '' });
+      setExtraForm({ modality: 'corrida', date: todayDateInputValue(), reason: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '', preSleepQuality: '', prePhysicalFatigue: '', preStressLevel: '', preMotivation: '', satisfactionElaboracao: '', satisfactionCapacidade: '', postWorkoutFeeling: '', postWorkoutMood: '', painFlag: '', painTiming: '' });
       // Recarrega a semana correta (pode ser a semana atual ou uma passada)
       const targetOffset = data.weekOffset ?? 0;
       if (targetOffset === weekOffset) {
@@ -4498,7 +4537,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
         <Pressable
           style={[styles.secondaryButton, { marginTop: 16, alignSelf: 'center' }]}
           onPress={() => {
-            setExtraForm({ modality: 'corrida', date: todayDateInputValue(), reason: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '' });
+            setExtraForm({ modality: 'corrida', date: todayDateInputValue(), reason: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '', preSleepQuality: '', prePhysicalFatigue: '', preStressLevel: '', preMotivation: '', satisfactionElaboracao: '', satisfactionCapacidade: '', postWorkoutFeeling: '', postWorkoutMood: '', painFlag: '', painTiming: '' });
             setExtraMessage('');
             setShowExtraModal(true);
           }}
@@ -4609,6 +4648,51 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                   </Pressable>
                 ))}
               </View>
+
+              {/* Feedback pre-treino */}
+              <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 12 }} />
+              <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 8 }]}>Como voce chegou</Text>
+              <Text style={styles.formHint}>Como foi seu sono na ultima noite?</Text>
+              <ScaleStr value={extraForm.preSleepQuality} onChange={(v) => setExtraForm((f) => ({ ...f, preSleepQuality: v }))} lowLabel={SLEEP_LABELS[0]} highLabel={SLEEP_LABELS[1]} />
+              <Text style={styles.formHint}>Como estava seu cansaco fisico antes de comecar?</Text>
+              <ScaleStr value={extraForm.prePhysicalFatigue} onChange={(v) => setExtraForm((f) => ({ ...f, prePhysicalFatigue: v }))} lowLabel={FATIGUE_LABELS[0]} highLabel={FATIGUE_LABELS[1]} />
+              <Text style={styles.formHint}>Como estava seu nivel de estresse antes de comecar?</Text>
+              <ScaleStr value={extraForm.preStressLevel} onChange={(v) => setExtraForm((f) => ({ ...f, preStressLevel: v }))} lowLabel={STRESS_LABELS[0]} highLabel={STRESS_LABELS[1]} />
+              <Text style={styles.formHint}>Como estava sua motivacao para treinar?</Text>
+              <ScaleStr value={extraForm.preMotivation} onChange={(v) => setExtraForm((f) => ({ ...f, preMotivation: v }))} lowLabel={MOTIVATION_LABELS[0]} highLabel={MOTIVATION_LABELS[1]} />
+
+              {/* Feedback pos-treino */}
+              <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 12 }} />
+              <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Como foi o treino</Text>
+              <Text style={styles.formHint}>Como voce avalia a forma como este treino foi elaborado?</Text>
+              <ScalePicker value={satisfactionToNum(extraForm.satisfactionElaboracao)} onChange={(n) => setExtraForm((f) => ({ ...f, satisfactionElaboracao: numToSatisfaction(n) }))} lowLabel="Pessimo" highLabel="Adorei" />
+              <Text style={styles.formHint}>Como voce se saiu na execucao do treino?</Text>
+              <ScalePicker value={satisfactionToNum(extraForm.satisfactionCapacidade)} onChange={(n) => setExtraForm((f) => ({ ...f, satisfactionCapacidade: numToSatisfaction(n) }))} lowLabel="Muito insatisfeito" highLabel="Muito satisfeito" />
+              <Text style={styles.formHint}>Como seu CORPO se sentiu ao terminar?</Text>
+              <ScaleStr value={extraForm.postWorkoutFeeling} onChange={(v) => setExtraForm((f) => ({ ...f, postWorkoutFeeling: v }))} lowLabel={POST_FEELING_LABELS[0]} highLabel={POST_FEELING_LABELS[1]} />
+              <Text style={styles.formHint}>Como voce terminou EMOCIONALMENTE?</Text>
+              <ScaleStr value={extraForm.postWorkoutMood} onChange={(v) => setExtraForm((f) => ({ ...f, postWorkoutMood: v }))} lowLabel={POST_MOOD_LABELS[0]} highLabel={POST_MOOD_LABELS[1]} />
+
+              {/* Dor */}
+              <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 12 }} />
+              <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Dor e observacoes</Text>
+              <Text style={styles.formHint}>Voce sentiu dor ou algum desconforto importante neste treino?</Text>
+              <OptionChips
+                options={[
+                  { label: 'Nao', value: 'none' },
+                  { label: 'Sim, mas leve', value: 'leve' },
+                  { label: 'Sim, moderado', value: 'moderado' },
+                  { label: 'Sim, forte', value: 'forte' },
+                ]}
+                selected={extraForm.painFlag}
+                onSelect={(v) => setExtraForm((f) => ({ ...f, painFlag: v, painTiming: v === 'none' ? '' : f.painTiming }))}
+              />
+              {extraForm.painFlag && extraForm.painFlag !== 'none' && (
+                <View>
+                  <Text style={styles.formHint}>Quando essa dor ou desconforto apareceu?</Text>
+                  <OptionChips options={PAIN_TIMING_OPTIONS} selected={extraForm.painTiming} onSelect={(v) => setExtraForm((f) => ({ ...f, painTiming: v }))} />
+                </View>
+              )}
 
               {extraMessage ? <Text style={styles.statusMessage}>{extraMessage}</Text> : null}
 
@@ -8059,6 +8143,8 @@ function SessionPrescription({
     return null;
   }
 
+  if (structure.type === 'extra') return null;
+
   if (structure.type === 'strength') {
     return (
       <StrengthExerciseList
@@ -8551,31 +8637,6 @@ function CompletionForm({
     (!!(draft.preSleepQuality && draft.prePhysicalFatigue && draft.preStressLevel && draft.preMotivation) &&
     !!(draft.perceivedEffort && draft.satisfactionElaboracao && draft.satisfactionCapacidade && draft.postWorkoutFeeling && draft.postWorkoutMood) &&
     !!(draft.painFlag && (draft.painFlag === 'none' || draft.painTiming)));
-
-  // Componente de chip de opcao com label de texto (para elaboracao, execucao, etc.)
-  function OptionChips({ options, selected, onSelect }: { options: { label: string; value: string }[]; selected: string; onSelect: (v: string) => void }) {
-    return (
-      <View style={styles.completionStatusRow}>
-        {options.map((opt) => (
-          <Pressable key={opt.value} style={[styles.completionChip, selected === opt.value && styles.completionChipActive]} onPress={() => onSelect(opt.value)}>
-            <Text style={[styles.completionChipText, selected === opt.value && styles.completionChipTextActive]}>{opt.label}</Text>
-          </Pressable>
-        ))}
-      </View>
-    );
-  }
-
-  // Escala 1-5 numerica colorida (reutiliza ScalePicker existente, mas recebendo string)
-  function ScaleStr({ value, onChange: onChangeFn, lowLabel, highLabel }: { value: string; onChange: (v: string) => void; lowLabel: string; highLabel: string }) {
-    return (
-      <ScalePicker
-        value={value ? Number(value) : null}
-        onChange={(n) => onChangeFn(String(n))}
-        lowLabel={lowLabel}
-        highLabel={highLabel}
-      />
-    );
-  }
 
   // Metricas de execucao (data, tempo, distancia, pace, modo de corrida) — compartilhado entre blocos
   function ExecMetrics() {

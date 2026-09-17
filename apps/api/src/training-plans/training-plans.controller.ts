@@ -81,6 +81,16 @@ export class TrainingPlansController {
       durationMin?: number | null;
       notes?: string | null;
       perceivedEffort?: number | null;
+      preSleepQuality?: number | null;
+      prePhysicalFatigue?: number | null;
+      preStressLevel?: number | null;
+      preMotivation?: number | null;
+      satisfactionElaboracao?: string | null;
+      satisfactionCapacidade?: string | null;
+      postWorkoutFeeling?: number | null;
+      postWorkoutMood?: number | null;
+      painFlag?: string | null;
+      painTiming?: string | null;
     },
   ) {
     return this.trainingPlansService.addStudentExtraSession(user.sub, dto);

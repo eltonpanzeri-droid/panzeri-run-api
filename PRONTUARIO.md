@@ -1941,3 +1941,19 @@ Tempo/Distância, data "16/09" sendo 17/09 o dia real, e mensagens (Avisos) trav
 - **Causa**: Cabeçalho colapsado lia `session.durationMin` (prescrição = 0 para extras).
 - **Fix**: Agora lê `session.completion?.durationMin ?? session.durationMin` para preferir
   o valor realizado quando existe.
+
+**2026-09-17 (continuação) — Admin: km e duração de extras no calendário/histórico/gráfico + formulário extra com feedback completo**
+
+**Admin — km sem aparecer no calendário e histórico flotante**
+- Calendário (`TrainingCalendarDots`): lia `session.distanceKm` (null para extras) → agora usa `session.completedDistanceKm ?? session.distanceKm`
+- Histórico: mostrava `durationMin` como float (`32.916...`) → `Math.round((session.completedDurationMin ?? session.durationMin) ?? 0)` + km real de `completedDistanceKm`
+- Gráfico de volume: barra cyan não aparecia porque `extraKm = max(0, completedKm - prescribedKm)` → sempre 0 quando realizado < prescrito. Fix: `extraKm` calculado de sessões com `structure.source === 'student'`; barra verde vira `regularKm = completedKm - extraKm`.
+
+**Bug 5 — Card de sessão extra mostrando bloco de prescrição vazio** (dossiê 0008)
+- **Causa**: `SessionPrescription` não tinha branch para `type === 'extra'`, caía no render de corrida e mostrava "Treino principal | 0 min | DISTANCIA - | PACE - | VELOCIDADE -".
+- **Fix**: `if (structure.type === 'extra') return null;` + tipo `SessionStructure` com variante `'extra'`.
+
+**Bug 6 — Formulário de treino extra sem perguntas de feedback** (dossiê 0007)
+- **Causa**: Modal "Registrar Treino Extra" coletava apenas 7 campos. Feedback v1 (11 perguntas) nunca foi adicionado ao modal. Aluno precisava de 2 passos; na prática ficava sem dados.
+- **Fix**: `extraForm` expandido com todos os campos de feedback. UI do modal com seções "Como voce chegou" / "Como foi o treino" / "Dor e observacoes" (reutilizando ScaleStr, ScalePicker, OptionChips). API: controller e service aceitam e persistem todos os campos.
+- `ScaleStr` e `OptionChips` movidos de funções locais dentro de `CompletionForm` para nível de módulo, para reuso.
