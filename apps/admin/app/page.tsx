@@ -3138,7 +3138,7 @@ function StudentPanel({
                 <div className="historySessions">
                   {plan.sessions?.map((session) => (
                     <article className="historySession" key={session.id}>
-                      <div><strong>{weekdayLabel(session.weekday)} {dateLabel(session.date)} - {session.title}</strong><span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''}</span></div>
+                      <div><strong>{weekdayLabel(session.weekday)} {dateLabel(session.date)} - {session.title}</strong><span>{modalityLabel(session.modality)} | {(session.completedDurationMin ?? session.durationMin) ?? 0} min {(session.completedDistanceKm ?? session.distanceKm) ? `| ${session.completedDistanceKm ?? session.distanceKm} km` : ''}</span></div>
                       <AdminPrescription structure={session.structure} notes={session.notes} />
                       <p className="historyExecution">{completionLabel(session.completionStatus)}{session.perceivedEffort ? ` | PSE ${session.perceivedEffort}/10` : ''}{satisfactionDimensionsLine(session)}{session.feedback ? ` | ${session.feedback}` : ''}</p>
                     </article>
@@ -6273,7 +6273,7 @@ function TrainingCalendarDots({ history, onDayClick }: {
         dayMap.get(day)!.push({
           status: session.completionStatus ?? 'sem_registro',
           modality: session.modality ?? '',
-          distanceKm: session.distanceKm,
+          distanceKm: session.completedDistanceKm ?? session.distanceKm,
           perceivedEffort: session.perceivedEffort,
           satisfaction: session.satisfaction,
           title: session.title ?? '',
