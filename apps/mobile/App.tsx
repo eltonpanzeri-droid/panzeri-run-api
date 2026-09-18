@@ -3124,7 +3124,11 @@ const SCALE_GRADIENT = ['#E03E2D', '#F5893A', '#F5C800', '#66BB6A', '#1B8A5A'];
 // 31/08: seletor de escala 1-5 reutilizado nas 3 perguntas do check-in semanal — mesmo numero por
 // baixo das avaliacoes por sessao que ja existem no app (nao redesenha o conceito, so' aplica na
 // semana toda em vez de uma sessao so). 07/09: redesenhado com cores de gradiente emocional.
-function ScalePicker({ value, onChange, lowLabel, highLabel }: { value: number | null; onChange: (value: number) => void; lowLabel: string; highLabel: string }) {
+// 18/09: prop "locked" — quando o feedback ja foi enviado (visualizacao, nao edicao), as opcoes
+// nao escolhidas ficam com fundo/borda acinzentados (em vez da cor de gradiente normal) e so a
+// resposta real mantem a cor cheia — como uma camada opaca por cima, mas deixando ver por baixo
+// exatamente o que foi respondido. Pedido do treinador com mockup de referencia.
+function ScalePicker({ value, onChange, lowLabel, highLabel, locked }: { value: number | null; onChange: (value: number) => void; lowLabel: string; highLabel: string; locked?: boolean }) {
   return (
     <View>
       <View style={styles.scalePickerRow}>
@@ -3134,10 +3138,14 @@ function ScalePicker({ value, onChange, lowLabel, highLabel }: { value: number |
           return (
             <Pressable
               key={option}
-              style={[styles.scalePickerOption, { borderColor: scaleColor, backgroundColor: isActive ? scaleColor : '#EDE9E0' }]}
+              disabled={locked}
+              style={[styles.scalePickerOption, {
+                borderColor: isActive ? scaleColor : locked ? '#B0B5BD' : scaleColor,
+                backgroundColor: isActive ? scaleColor : locked ? '#D9DCE1' : '#EDE9E0',
+              }]}
               onPress={() => onChange(option)}
             >
-              <Text style={[styles.scalePickerOptionText, { color: isActive ? '#FFFFFF' : PRColors.graphite }]}>{option}</Text>
+              <Text style={[styles.scalePickerOptionText, { color: isActive ? '#FFFFFF' : locked ? '#9CA3AF' : PRColors.graphite }]}>{option}</Text>
             </Pressable>
           );
         })}
@@ -3162,13 +3170,14 @@ function OptionChips({ options, selected, onSelect }: { options: { label: string
   );
 }
 
-function ScaleStr({ value, onChange: onChangeFn, lowLabel, highLabel }: { value: string; onChange: (v: string) => void; lowLabel: string; highLabel: string }) {
+function ScaleStr({ value, onChange: onChangeFn, lowLabel, highLabel, locked }: { value: string; onChange: (v: string) => void; lowLabel: string; highLabel: string; locked?: boolean }) {
   return (
     <ScalePicker
       value={value ? Number(value) : null}
       onChange={(n) => onChangeFn(String(n))}
       lowLabel={lowLabel}
       highLabel={highLabel}
+      locked={locked}
     />
   );
 }
@@ -8935,13 +8944,13 @@ function CompletionForm({
                 </View>
               )}
               <Text style={styles.formHint}>Como foi seu sono na ultima noite?</Text>
-              <ScaleStr value={draft.preSleepQuality} onChange={(v) => onChange({ preSleepQuality: v })} lowLabel={SLEEP_LABELS[0]} highLabel={SLEEP_LABELS[1]} />
+              <ScaleStr value={draft.preSleepQuality} onChange={(v) => onChange({ preSleepQuality: v })} lowLabel={SLEEP_LABELS[0]} highLabel={SLEEP_LABELS[1]} locked={locked} />
               <Text style={styles.formHint}>Como estava seu cansaco fisico antes de comecar?</Text>
-              <ScaleStr value={draft.prePhysicalFatigue} onChange={(v) => onChange({ prePhysicalFatigue: v })} lowLabel={FATIGUE_LABELS[0]} highLabel={FATIGUE_LABELS[1]} />
+              <ScaleStr value={draft.prePhysicalFatigue} onChange={(v) => onChange({ prePhysicalFatigue: v })} lowLabel={FATIGUE_LABELS[0]} highLabel={FATIGUE_LABELS[1]} locked={locked} />
               <Text style={styles.formHint}>Como estava seu nivel de estresse antes de comecar?</Text>
-              <ScaleStr value={draft.preStressLevel} onChange={(v) => onChange({ preStressLevel: v })} lowLabel={STRESS_LABELS[0]} highLabel={STRESS_LABELS[1]} />
+              <ScaleStr value={draft.preStressLevel} onChange={(v) => onChange({ preStressLevel: v })} lowLabel={STRESS_LABELS[0]} highLabel={STRESS_LABELS[1]} locked={locked} />
               <Text style={styles.formHint}>Como estava sua motivacao para treinar?</Text>
-              <ScaleStr value={draft.preMotivation} onChange={(v) => onChange({ preMotivation: v })} lowLabel={MOTIVATION_LABELS[0]} highLabel={MOTIVATION_LABELS[1]} />
+              <ScaleStr value={draft.preMotivation} onChange={(v) => onChange({ preMotivation: v })} lowLabel={MOTIVATION_LABELS[0]} highLabel={MOTIVATION_LABELS[1]} locked={locked} />
             </View>
 
             {/* Divisor entre secoes */}
@@ -8960,10 +8969,16 @@ function CompletionForm({
                   return (
                     <Pressable
                       key={n}
+                      disabled={locked}
                       onPress={() => onChange({ perceivedEffort: String(n) })}
-                      style={{ width: 38, height: 38, borderRadius: 8, borderWidth: 2, borderColor: col, backgroundColor: isActive ? col : '#EDE9E0', alignItems: 'center', justifyContent: 'center' }}
+                      style={{
+                        width: 38, height: 38, borderRadius: 8, borderWidth: 2,
+                        borderColor: isActive ? col : locked ? '#B0B5BD' : col,
+                        backgroundColor: isActive ? col : locked ? '#D9DCE1' : '#EDE9E0',
+                        alignItems: 'center', justifyContent: 'center',
+                      }}
                     >
-                      <Text style={{ fontSize: 14, fontWeight: '700', color: isActive ? '#ffffff' : '#374151' }}>{n}</Text>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: isActive ? '#ffffff' : locked ? '#9CA3AF' : '#374151' }}>{n}</Text>
                     </Pressable>
                   );
                 })}
@@ -8980,6 +8995,7 @@ function CompletionForm({
                 onChange={(n) => onChange({ satisfactionElaboracao: numToSatisfaction(n) })}
                 lowLabel="Pessimo"
                 highLabel="Adorei"
+                locked={locked}
               />
 
               {/* Execucao — ScalePicker 1-5 */}
@@ -8989,15 +9005,16 @@ function CompletionForm({
                 onChange={(n) => onChange({ satisfactionCapacidade: numToSatisfaction(n) })}
                 lowLabel="Muito insatisfeito"
                 highLabel="Muito satisfeito"
+                locked={locked}
               />
 
               {/* Sensacao fisica ao terminar */}
               <Text style={styles.formHint}>Como seu CORPO se sentiu ao terminar?</Text>
-              <ScaleStr value={draft.postWorkoutFeeling} onChange={(v) => onChange({ postWorkoutFeeling: v })} lowLabel={POST_FEELING_LABELS[0]} highLabel={POST_FEELING_LABELS[1]} />
+              <ScaleStr value={draft.postWorkoutFeeling} onChange={(v) => onChange({ postWorkoutFeeling: v })} lowLabel={POST_FEELING_LABELS[0]} highLabel={POST_FEELING_LABELS[1]} locked={locked} />
 
               {/* Sensacao emocional ao terminar (campo novo — guardado em details) */}
               <Text style={styles.formHint}>Como voce terminou EMOCIONALMENTE?</Text>
-              <ScaleStr value={draft.postWorkoutMood} onChange={(v) => onChange({ postWorkoutMood: v })} lowLabel={POST_MOOD_LABELS[0]} highLabel={POST_MOOD_LABELS[1]} />
+              <ScaleStr value={draft.postWorkoutMood} onChange={(v) => onChange({ postWorkoutMood: v })} lowLabel={POST_MOOD_LABELS[0]} highLabel={POST_MOOD_LABELS[1]} locked={locked} />
             </View>
 
             {/* Divisor entre secoes */}
