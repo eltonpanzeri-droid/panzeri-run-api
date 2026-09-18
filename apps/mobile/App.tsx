@@ -8896,7 +8896,7 @@ function CompletionForm({
             {/* SECAO 0 — Metricas do treino (tempo, distancia, pace) — PRIMEIRO */}
             <View>
               {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 8 }]}>O que voce fez</Text>}
-              <ExecMetrics />
+              {ExecMetrics()}
             </View>
 
             {/* Divisor entre secoes */}
