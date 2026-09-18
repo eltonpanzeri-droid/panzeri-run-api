@@ -2732,10 +2732,10 @@ function StudentPanel({
           completedSessions: h.summary.completedSessions ?? 0,
           prescribedSessions: h.summary.prescribedSessions ?? 0,
           extraKm: (h.sessions ?? [])
-            .filter((s) => (s.structure as { source?: string } | null)?.source === 'student')
+            .filter((s) => isExtraSession(s.structure))
             .reduce((sum, s) => sum + (s.completedDistanceKm ?? 0), 0),
           extraSessions: (h.sessions ?? [])
-            .filter((s) => (s.structure as { source?: string } | null)?.source === 'student')
+            .filter((s) => isExtraSession(s.structure))
             .length,
         }));
         const hist = student.history ?? [];
@@ -2811,13 +2811,18 @@ function StudentPanel({
           </EvoSection>
 
           <EvoSection icon="📅" title="Calendário de treinos" badge="8 sem"
-            desc="Últimas 8 semanas. Cor = status do treino. Anel colorido = nível de esforço percebido. Clique em qualquer bolinha para ver o treino completo na aba Semanas anteriores.">
+            desc="Últimas 8 semanas. Cor = status do treino (feito / perdido / extra / sem registro / futuro — mesma paleta usada em todos os gráficos abaixo). Anel colorido = nível de esforço percebido. Ponto ciano no canto = dia com sessão extra. Clique em qualquer bolinha para ver o treino completo na aba Semanas anteriores.">
             <TrainingCalendarDots history={hist} onDayClick={handleCalendarDayClick} />
           </EvoSection>
 
           <EvoSection icon="📋" title="Aderência aos treinos" badge={filteredWeeks.length > 0 ? `${filteredWeeks.length} sem` : undefined}
-            desc="% de treinos planejados que foram realizados por semana. Meta ideal: acima de 80%. Queda sustentada por 2+ semanas merece atenção ao contexto.">
+            desc="% de treinos planejados que foram realizados por semana. As 5 categorias (prescrito/feito/perdido/sem registro/extra) são sempre mostradas separadas — nunca somadas escondendo o detalhe. Meta ideal: acima de 80%. Queda sustentada por 2+ semanas merece atenção ao contexto.">
             <LoadChartAderencia weeks={filteredWeeks} history={hist} />
+          </EvoSection>
+
+          <EvoSection icon="🗂️" title="Detalhamento por sessão" badge={`${filteredSessions.length} sessões`}
+            desc="Toda sessão do período, uma linha por sessão — sem agregação. Prescrito, feito, extra, perdido e sem registro aparecem lado a lado com km, ritmo, RPE, dor e comentário de cada treino individual. Ordenado da mais recente para a mais antiga.">
+            <SessionDetailTable sessions={filteredSessions} />
           </EvoSection>
 
           <EvoSection icon="📈" title="Análise de carga (ACWR)" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
@@ -6295,6 +6300,7 @@ type CalSession = {
   perceivedEffort: number | null | undefined;
   satisfaction: string | null | undefined;
   title: string;
+  isExtra: boolean;
 };
 
 /** Abreviação de modalidade. */
@@ -6344,6 +6350,7 @@ function TrainingCalendarDots({ history, onDayClick }: {
           perceivedEffort: session.perceivedEffort,
           satisfaction: session.satisfaction,
           title: session.title ?? '',
+          isExtra: isExtraSession(session.structure),
         });
       }
     }
@@ -6369,11 +6376,12 @@ function TrainingCalendarDots({ history, onDayClick }: {
     weeks.push(week);
   }
 
-  function sessionColor(status: string, dateStr: string): string {
-    if (status === 'done' || status === 'adjusted') return '#22c55e';
-    if (status === 'missed') return '#ef4444';
-    if (dateStr <= todayStr) return '#f59e0b';
-    return '#94a3b8';
+  function sessionColor(status: string, dateStr: string, isExtra: boolean): string {
+    if (isExtra) return EVOLUTION_COLORS.extra;
+    if (status === 'done' || status === 'adjusted') return EVOLUTION_COLORS.feito;
+    if (status === 'missed') return EVOLUTION_COLORS.perdido;
+    if (dateStr <= todayStr) return EVOLUTION_COLORS.semRegistro;
+    return EVOLUTION_COLORS.futuro;
   }
 
   const DOT = 44; // px — tamanho da bolinha principal
@@ -6413,14 +6421,15 @@ function TrainingCalendarDots({ history, onDayClick }: {
                 // Sessão principal = corrida se existir, senão primeira
                 const primary = sessions.find((s) => s.modality.toLowerCase().includes('corrida')) ?? sessions[0];
                 const extra = sessions.length - 1; // número de sessões adicionais
-                const bg = sessionColor(primary.status, dateStr);
+                const hasExtraSession = sessions.some((s) => s.isExtra);
+                const bg = sessionColor(primary.status, dateStr, primary.isExtra);
                 const ring = effortRingColor(primary.perceivedEffort);
                 const letter = modalityLetter(primary.modality);
                 // Texto do dot: km para corrida, letra para outros
                 const isCorrida = primary.modality.toLowerCase().includes('corrida');
                 const kmText = isCorrida && primary.distanceKm ? `${primary.distanceKm % 1 === 0 ? primary.distanceKm.toFixed(0) : primary.distanceKm.toFixed(1)}` : null;
                 const tooltipParts = sessions.map((s) =>
-                  `${s.title || s.modality}${s.distanceKm ? ` ${s.distanceKm}km` : ''}${s.perceivedEffort ? ` • esf.${s.perceivedEffort}` : ''}${s.satisfaction ? ` • ${s.satisfaction}` : ''}`
+                  `${s.isExtra ? '[EXTRA] ' : ''}${s.title || s.modality}${s.distanceKm ? ` ${s.distanceKm}km` : ''}${s.perceivedEffort ? ` • esf.${s.perceivedEffort}` : ''}${s.satisfaction ? ` • ${s.satisfaction}` : ''}`
                 );
                 // planId associado ao dia (para navegar na aba Semanas anteriores)
                 const dayPlanId = dayPlanMap.get(dateStr) ?? '';
@@ -6471,6 +6480,16 @@ function TrainingCalendarDots({ history, onDayClick }: {
                           +{extra}
                         </div>
                       )}
+                      {/* Marcador de sessão extra (criada pelo aluno, fora do prescrito) — independente
+                          do badge "+N" acima, que só indica múltiplas sessões no mesmo dia. */}
+                      {hasExtraSession && (
+                        <div style={{
+                          position: 'absolute', bottom: -3, left: -3,
+                          width: 13, height: 13, borderRadius: '50%',
+                          background: EVOLUTION_COLORS.extra,
+                          border: '1.5px solid var(--bg)',
+                        }} title="Inclui sessão extra do aluno" />
+                      )}
                     </div>
                   </div>
                 );
@@ -6480,8 +6499,8 @@ function TrainingCalendarDots({ history, onDayClick }: {
         })}
         {/* Legenda */}
         <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap', rowGap: 6 }}>
-          {[['#22c55e','Feito'],['#ef4444','Nao feito'],['#f59e0b','Sem registro'],['#94a3b8','Futuro']].map(([c, l]) => (
-            <span key={l}><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:c, marginRight:4, verticalAlign:'middle' }} />{l}</span>
+          {([['feito','Feito'],['perdido','Perdido'],['extra','Extra (aluno)'],['semRegistro','Sem registro'],['futuro','Futuro']] as [keyof typeof EVOLUTION_COLORS, string][]).map(([key, l]) => (
+            <span key={l}><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:EVOLUTION_COLORS[key], marginRight:4, verticalAlign:'middle' }} />{l}</span>
           ))}
           <span style={{ borderLeft: '1px solid var(--line)', paddingLeft: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {[['C','Corrida'],['M','Muscul.'],['F','Fortal.'],['W','Caminhada']].map(([l, label]) => (
@@ -6550,6 +6569,47 @@ const SAT_SCORE: Record<string, number> = { amei: 5, gostei: 4, ok: 3, nao_goste
 const SAT_LABEL: Record<string, string> = { amei: '😍 Amei', gostei: '😊 Gostei', ok: '😐 Ok', nao_gostei: '😕 Nao gostei', detestei: '😤 Detestei' };
 const SAT_EMOJI: Record<string, string> = { amei: '😍', gostei: '😊', ok: '😐', nao_gostei: '😕', detestei: '😤' };
 
+// ─── EVOLUÇÃO: PALETA E CLASSIFICAÇÃO DE STATUS ────────────────────────────
+// Fonte única de cor por categoria de sessão — usada em Calendário, Volume semanal,
+// Aderência e Detalhamento por sessão, pra que a mesma cor sempre signifique a mesma
+// coisa em toda a aba Evolução (18/09: pedido do treinador, cores estavam duplicadas
+// e divergentes entre gráficos).
+const EVOLUTION_COLORS = {
+  prescrito: '#94a3b8',
+  feito: '#22c55e',
+  extra: '#06b6d4',
+  perdido: '#ef4444',
+  semRegistro: '#f59e0b',
+  futuro: '#94a3b8',
+  tendencia: '#6366f1',
+} as const;
+
+/** Sessão "extra" = criada pelo próprio aluno, fora do que o treinador prescreveu.
+ *  Única fonte de verdade — replica exatamente a regra usada em apps/api/src/evolution/evolution.types.ts
+ *  (RawSessionData.isExtra). Antes o admin checava só "source==='student'", divergindo do que o
+ *  aluno vê no app (que exige source E type==='extra') — corrigido em 18/09/2026.
+ */
+function isExtraSession(structure: Record<string, unknown> | null | undefined): boolean {
+  const s = structure as { source?: string; type?: string } | null | undefined;
+  return s?.source === 'student' && s?.type === 'extra';
+}
+
+type SessionStatusKind = 'feito' | 'extra' | 'perdido' | 'semRegistro' | 'futuro';
+
+/** Classifica uma sessão nas 5 categorias que a aba Evolução mostra de forma separada. */
+function classifySessionStatus(completionStatus: string, dateStr: string, isExtra: boolean): SessionStatusKind {
+  if (isExtra) return 'extra';
+  if (completionStatus === 'done' || completionStatus === 'adjusted') return 'feito';
+  if (completionStatus === 'missed') return 'perdido';
+  const todayStr = new Date().toISOString().slice(0, 10);
+  if (dateStr > todayStr) return 'futuro';
+  return 'semRegistro';
+}
+
+const SESSION_STATUS_LABEL: Record<SessionStatusKind, string> = {
+  feito: 'Feito', extra: 'Extra', perdido: 'Perdido', semRegistro: 'Sem registro', futuro: 'Futuro',
+};
+
 /** Flatten de sessões com feedback de um histórico. */
 function flatFeedbackSessions(history: StudentDetail['history']) {
   const out: Array<{
@@ -6568,19 +6628,25 @@ function flatFeedbackSessions(history: StudentDetail['history']) {
     postWorkoutFeeling: number | null; postWorkoutMood: number | null;
     painFlag: string | null; painTiming: string | null;
     feedbackVersion: number | null;
+    // Separação explícita prescrito/feito/extra/perdido/sem registro (18/09/2026)
+    isExtra: boolean;
+    statusKind: SessionStatusKind;
   }> = [];
   for (const plan of (history ?? [])) {
     for (const session of (plan.sessions ?? [])) {
+      const date = String(session.date).slice(0, 10);
+      const completionStatus = session.completionStatus ?? 'sem_registro';
+      const isExtra = isExtraSession(session.structure);
       out.push({
         id: session.id,
         planId: plan.id,
-        date: String(session.date).slice(0, 10),
+        date,
         weekStart: String(plan.startDate).slice(0, 10),
         modality: session.modality ?? '',
         title: session.title ?? '',
         durationMin: session.durationMin ?? null,
         distanceKm: session.distanceKm ?? null,
-        completionStatus: session.completionStatus ?? 'sem_registro',
+        completionStatus,
         completedDurationMin: session.completedDurationMin ?? null,
         completedDistanceKm: session.completedDistanceKm ?? null,
         completedPaceSecondsKm: session.completedPaceSecondsKm ?? null,
@@ -6599,10 +6665,70 @@ function flatFeedbackSessions(history: StudentDetail['history']) {
         painFlag: session.painFlag ?? null,
         painTiming: session.painTiming ?? null,
         feedbackVersion: session.feedbackVersion ?? null,
+        isExtra,
+        statusKind: classifySessionStatus(completionStatus, date, isExtra),
       });
     }
   }
   return out;
+}
+
+/** Tabela de detalhamento por sessão — uma linha por sessão, sem agregação nenhuma.
+ *  Existe pra auditoria caso a caso: os gráficos acima resumem em tendência/percentual,
+ *  esta tabela mostra cada treino individualmente (18/09/2026, pedido do treinador). */
+function SessionDetailTable({ sessions }: { sessions: FlatSession[] }) {
+  const sorted = [...sessions].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  if (sorted.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma sessão no período.</p>;
+
+  function fmtPace(sec: number | null) {
+    if (!sec) return '—';
+    const m = Math.floor(sec / 60);
+    const s = Math.round(sec % 60);
+    return `${m}:${String(s).padStart(2, '0')}/km`;
+  }
+  function fmtKmVal(v: number | null) {
+    return v != null ? (v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)) : '—';
+  }
+  const chipStyle = (kind: SessionStatusKind): React.CSSProperties => ({
+    display: 'inline-block', fontSize: 10, fontWeight: 700, borderRadius: 10, padding: '2px 8px',
+    background: `${EVOLUTION_COLORS[kind]}22`, color: EVOLUTION_COLORS[kind], whiteSpace: 'nowrap',
+  });
+  const td: React.CSSProperties = { padding: '5px 8px', borderBottom: '1px solid var(--line)' };
+
+  return (
+    <div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <thead>
+          <tr>
+            {['Data', 'Modalidade', 'Status', 'Km presc.', 'Km feito', 'Ritmo', 'RPE', 'Dor', 'Comentário'].map((h) => (
+              <th key={h} style={{
+                position: 'sticky', top: 0, background: 'var(--surface)', textAlign: 'left', padding: '6px 8px',
+                borderBottom: '1px solid var(--line)', color: 'var(--muted)', fontWeight: 700, fontSize: 10,
+                textTransform: 'uppercase', letterSpacing: '0.03em', zIndex: 1,
+              }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((s) => (
+            <tr key={s.id}>
+              <td style={{ ...td, whiteSpace: 'nowrap' }}>{dateLabel(s.date)}</td>
+              <td style={td}>{s.modality || '—'}</td>
+              <td style={td}><span style={chipStyle(s.statusKind)}>{SESSION_STATUS_LABEL[s.statusKind]}</span></td>
+              <td style={td}>{fmtKmVal(s.distanceKm)}</td>
+              <td style={td}>{fmtKmVal(s.completedDistanceKm)}</td>
+              <td style={td}>{fmtPace(s.completedPaceSecondsKm)}</td>
+              <td style={td}>{s.perceivedEffort ?? '—'}</td>
+              <td style={td}>{s.painFlag && s.painFlag !== 'none' ? painFlagLabel(s.painFlag) : '—'}</td>
+              <td style={{ ...td, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.feedback ?? ''}>
+                {s.feedback ?? '—'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 // Modalidades usadas no filtro de esforço e satisfação
@@ -7427,10 +7553,11 @@ function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
 
 /** Gráfico de colunas de aderência semanal com filtro por modalidade.
  *
- *  3 colunas por semana — cada uma com o número inline:
- *  🔵 Cinza (Prescritos): sessões planejadas para a semana
+ *  4 colunas por semana — cada uma com o número inline:
+ *  ⚪ Cinza (Prescritos): sessões planejadas para a semana
  *  🟢 Verde  (Feitos):     sessões concluídas (done + adjusted)
- *  🟡 Âmbar  (Sem reg.):   sessões sem registro de conclusão pelo aluno
+ *  🔴 Vermelho (Perdidos): sessões marcadas como não feitas
+ *  🟡 Âmbar  (Sem reg.):   sessões sem status de conclusão registrado pelo aluno
  *  🩵 Ciano  (Extras):     sessões além do prescrito (só visível no filtro "Geral")
  */
 function LoadChartAderencia({ weeks, history }: {
@@ -7473,24 +7600,26 @@ function LoadChartAderencia({ weeks, history }: {
     const filtered = modFilter === 'all' ? all : all.filter((s) => normMod(s.modality) === modFilter);
     const prescritos = filtered.length;
     const feitos = filtered.filter((s) => s.completionStatus === 'done' || s.completionStatus === 'adjusted').length;
+    const perdidos = filtered.filter((s) => s.completionStatus === 'missed').length;
     const semReg = filtered.filter((s) => s.completionStatus === 'sem_registro').length;
-    // Extras: só no modo Geral — sessões com source='student' (adicionadas pela própria aluna)
+    // Extras: só no modo Geral — sessões com source='student' e type='extra' (isExtraSession)
     const extras = modFilter === 'all' ? (w.extraSessions ?? 0) : 0;
-    return { startDate: w.startDate, prescritos, feitos, semReg, extras };
+    return { startDate: w.startDate, prescritos, feitos, perdidos, semReg, extras };
   });
 
-  const maxVal = Math.max(...barData.map((d) => Math.max(d.prescritos, d.feitos + d.extras, d.semReg)), 1);
+  const maxVal = Math.max(...barData.map((d) => Math.max(d.prescritos, d.feitos + d.extras, d.perdidos, d.semReg)), 1);
 
   const VW = 620; const VH = 210;
   const ML = 24; const MR = 8; const MT = 24; const MB = 36;
   const CW = VW - ML - MR; const CH = VH - MT - MB;
   const slotW = CW / barData.length;
-  const bW = Math.max(4, Math.min(16, slotW * 0.28));
+  const bW = Math.max(3, Math.min(13, slotW * 0.20));
 
-  // 3 bar positions per slot
-  const xPre  = (i: number) => ML + i * slotW + slotW * 0.22;
-  const xFeit = (i: number) => ML + i * slotW + slotW * 0.50;
-  const xSem  = (i: number) => ML + i * slotW + slotW * 0.78;
+  // 4 bar positions per slot: prescrito, feito(+extra empilhado), perdido, sem registro
+  const xPre  = (i: number) => ML + i * slotW + slotW * 0.14;
+  const xFeit = (i: number) => ML + i * slotW + slotW * 0.38;
+  const xPerd = (i: number) => ML + i * slotW + slotW * 0.62;
+  const xSem  = (i: number) => ML + i * slotW + slotW * 0.86;
   const xMid  = (i: number) => ML + i * slotW + slotW * 0.50;
   const y0 = MT + CH;
   const yV = (v: number) => MT + CH - (v / maxVal) * CH;
@@ -7533,27 +7662,33 @@ function LoadChartAderencia({ weeks, history }: {
           const bhPre   = (d.prescritos / maxVal) * CH;
           const bhFeit  = (d.feitos     / maxVal) * CH;
           const bhExtra = (d.extras     / maxVal) * CH;
+          const bhPerd  = (d.perdidos   / maxVal) * CH;
           const bhSem   = (d.semReg     / maxVal) * CH;
           return (
             <g key={i}>
-              <title>{d.startDate}: {d.prescritos} prescritos · {d.feitos} feitos · {d.semReg} sem registro{d.extras > 0 ? ` · ${d.extras} extra${d.extras > 1 ? 's' : ''}` : ''}</title>
+              <title>{d.startDate}: {d.prescritos} prescritos · {d.feitos} feitos · {d.perdidos} perdidos · {d.semReg} sem registro{d.extras > 0 ? ` · ${d.extras} extra${d.extras > 1 ? 's' : ''}` : ''}</title>
               {/* Prescrito */}
-              {d.prescritos > 0 && <rect x={xPre(i) - bW / 2} y={yV(d.prescritos)} width={bW} height={bhPre} rx={2} fill="#94a3b8" opacity={0.75} />}
+              {d.prescritos > 0 && <rect x={xPre(i) - bW / 2} y={yV(d.prescritos)} width={bW} height={bhPre} rx={2} fill={EVOLUTION_COLORS.prescrito} opacity={0.75} />}
               {showLabel && d.prescritos > 0 && (
                 <text x={xPre(i)} y={yV(d.prescritos) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#64748b">{d.prescritos}</text>
               )}
               {/* Feito */}
-              {d.feitos > 0 && <rect x={xFeit(i) - bW / 2} y={yV(d.feitos)} width={bW} height={bhFeit} rx={2} fill="#22c55e" />}
+              {d.feitos > 0 && <rect x={xFeit(i) - bW / 2} y={yV(d.feitos)} width={bW} height={bhFeit} rx={2} fill={EVOLUTION_COLORS.feito} />}
               {/* Extra empilhado no topo do "feito" */}
-              {d.extras > 0 && <rect x={xFeit(i) - bW / 2} y={yV(d.feitos + d.extras)} width={bW} height={bhExtra} rx={2} fill="#06b6d4" />}
+              {d.extras > 0 && <rect x={xFeit(i) - bW / 2} y={yV(d.feitos + d.extras)} width={bW} height={bhExtra} rx={2} fill={EVOLUTION_COLORS.extra} />}
               {showLabel && (d.feitos + d.extras) > 0 && (
                 <text x={xFeit(i)} y={yV(d.feitos + d.extras) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700}
-                  fill={d.extras > 0 ? '#06b6d4' : '#22c55e'}>
+                  fill={d.extras > 0 ? EVOLUTION_COLORS.extra : EVOLUTION_COLORS.feito}>
                   {d.feitos}{d.extras > 0 ? `+${d.extras}` : ''}
                 </text>
               )}
+              {/* Perdido */}
+              {d.perdidos > 0 && <rect x={xPerd(i) - bW / 2} y={yV(d.perdidos)} width={bW} height={bhPerd} rx={2} fill={EVOLUTION_COLORS.perdido} />}
+              {showLabel && d.perdidos > 0 && (
+                <text x={xPerd(i)} y={yV(d.perdidos) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill={EVOLUTION_COLORS.perdido}>{d.perdidos}</text>
+              )}
               {/* Sem registro */}
-              {d.semReg > 0 && <rect x={xSem(i) - bW / 2} y={yV(d.semReg)} width={bW} height={bhSem} rx={2} fill="#f59e0b" />}
+              {d.semReg > 0 && <rect x={xSem(i) - bW / 2} y={yV(d.semReg)} width={bW} height={bhSem} rx={2} fill={EVOLUTION_COLORS.semRegistro} />}
               {showLabel && d.semReg > 0 && (
                 <text x={xSem(i)} y={yV(d.semReg) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#d97706">{d.semReg}</text>
               )}
@@ -7571,14 +7706,15 @@ function LoadChartAderencia({ weeks, history }: {
 
       {/* Legenda */}
       <div style={{ display: 'flex', gap: 14, fontSize: 11, color: 'var(--muted)', marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-        {[
-          ['#94a3b8', 'Prescritos'],
-          ['#22c55e', 'Feitos'],
-          ['#f59e0b', 'Sem registro'],
-          ['#06b6d4', 'Extras (além do plano)'],
-        ].map(([c, l]) => (
+        {([
+          ['prescrito', 'Prescritos'],
+          ['feito', 'Feitos'],
+          ['perdido', 'Perdidos'],
+          ['semRegistro', 'Sem registro'],
+          ['extra', 'Extras (além do plano)'],
+        ] as [keyof typeof EVOLUTION_COLORS, string][]).map(([key, l]) => (
           <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: c }} />{l}
+            <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: EVOLUTION_COLORS[key] }} />{l}
           </span>
         ))}
       </div>

@@ -4976,7 +4976,10 @@ interface EvolutionOverviewMobile {
 }
 
 // 10/09: Gráfico de linhas interativo (sem área preenchida) para km por semana.
-// Suporta múltiplas séries: percorrido (azul), prescrito (cinza), extras (verde).
+// Suporta múltiplas séries: percorrido (verde), prescrito (cinza), extras (ciano).
+// 18/09: cores alinhadas com a mesma paleta usada no painel do treinador (Evolução) —
+// antes "percorrido" era azul e "extras" verde aqui, mas verde=Realizado e ciano=Extra
+// no admin; a mesma sessão aparecia com cores diferentes pro aluno e pro treinador.
 // Sem preenchimento de área (mais limpo conforme pedido). Scrollável horizontalmente.
 
 type KmSerie = { key: 'percorrido' | 'prescrito' | 'extras'; label: string; color: string; data: (number | null)[] };
@@ -4989,7 +4992,7 @@ function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: 
     activeSeries.push({
       key: 'percorrido',
       label: 'Percorrido',
-      color: '#0ea5e9',
+      color: '#22c55e',
       data: weeks.map((w) => {
         const total = (w.kmPercorridos ?? 0) + (w.kmExtras ?? 0);
         return total > 0 ? total : null;
@@ -5000,7 +5003,7 @@ function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: 
     activeSeries.push({ key: 'prescrito', label: 'Prescrito', color: '#94a3b8', data: weeks.map((w) => w.kmPrescritos) });
   }
   if (series.includes('extras')) {
-    activeSeries.push({ key: 'extras', label: 'Extras', color: '#22c55e', data: weeks.map((w) => w.kmExtras) });
+    activeSeries.push({ key: 'extras', label: 'Extras', color: '#06b6d4', data: weeks.map((w) => w.kmExtras) });
   }
 
   const allValues = activeSeries.flatMap((s) => s.data).filter((v): v is number => v != null && v > 0);
@@ -5231,6 +5234,11 @@ function Progress({ accessToken }: { accessToken: string }) {
               <Text style={{ fontSize: 10, color: '#4ade80', marginTop: 2 }}>
                 {adherence ? `${adherence.sessoesFeitas} feito${adherence.sessoesFeitas !== 1 ? 's' : ''} / ${adherence.sessoesFeitas + adherence.sessoesNaoFeitas} reg.` : ''}
               </Text>
+              {adherence && adherence.sessoesNaoFeitas > 0 ? (
+                <Text style={{ fontSize: 10, color: '#dc2626', marginTop: 1 }}>
+                  {adherence.sessoesNaoFeitas} perdido{adherence.sessoesNaoFeitas !== 1 ? 's' : ''}
+                </Text>
+              ) : null}
             </View>
             <View style={{ flex: 1, backgroundColor: '#eff6ff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#bfdbfe' }}>
               <Text style={{ fontSize: 11, color: '#2563eb', fontWeight: '600', marginBottom: 4 }}>SEQUÊNCIA</Text>
@@ -5348,9 +5356,9 @@ function Progress({ accessToken }: { accessToken: string }) {
             {/* Checkboxes de séries — abaixo do gráfico */}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
               {([
-                { key: 'percorrido' as const, label: 'Total percorrido', color: '#0ea5e9' },
+                { key: 'percorrido' as const, label: 'Total percorrido', color: '#22c55e' },
                 { key: 'prescrito' as const, label: 'Total prescrito', color: '#94a3b8' },
-                { key: 'extras' as const, label: 'Extras (pelo aluno)', color: '#22c55e' },
+                { key: 'extras' as const, label: 'Extras (pelo aluno)', color: '#06b6d4' },
               ]).map((serie) => {
                 const active = chartSeries.has(serie.key);
                 return (
@@ -7666,7 +7674,7 @@ function SessionBubble({ session }: { session: HistorySessionMobile }) {
       width: 34, height: 34, borderRadius: 17,
       backgroundColor: bgColor,
       alignItems: 'center', justifyContent: 'center',
-      ...(session.isExtra ? { borderWidth: 2, borderColor: '#0ea5e9' } : {}),
+      ...(session.isExtra ? { borderWidth: 2, borderColor: '#06b6d4' } : {}),
     }}>
       {label ? (
         <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>{label}</Text>
@@ -7702,7 +7710,7 @@ function DayCellMulti({ sessions, colIndex }: { sessions: HistorySessionMobile[]
           width: 34, height: 34, borderRadius: 17,
           backgroundColor: bgColor,
           alignItems: 'center', justifyContent: 'center',
-          ...(s.isExtra ? { borderWidth: 2, borderColor: '#0ea5e9' } : {}),
+          ...(s.isExtra ? { borderWidth: 2, borderColor: '#06b6d4' } : {}),
         }}>
           {label ? (
             <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>{label}</Text>
@@ -7737,7 +7745,7 @@ function DayCellMulti({ sessions, colIndex }: { sessions: HistorySessionMobile[]
         width: 38, height: 38, borderRadius: 19,
         backgroundColor: bgColor,
         alignItems: 'center', justifyContent: 'center',
-        ...(hasExtra ? { borderWidth: 2, borderColor: '#0ea5e9' } : {}),
+        ...(hasExtra ? { borderWidth: 2, borderColor: '#06b6d4' } : {}),
       }}>
         <Text style={{ color: '#fff', fontSize: kmLabel ? 11 : 12, fontWeight: '900' }}>
           {kmLabel ?? `×${sessions.length}`}
@@ -7796,7 +7804,7 @@ function HistoryCalendar({ accessToken, onNavigateToWeek }: { accessToken: strin
             </View>
           ))}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#22c55e', borderWidth: 2, borderColor: '#0ea5e9' }} />
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#22c55e', borderWidth: 2, borderColor: '#06b6d4' }} />
             <Text style={{ fontSize: 10, color: '#64748b' }}>Extra</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
