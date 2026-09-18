@@ -9036,23 +9036,31 @@ function CompletionForm({
       ) : (
         <>
           {/* 12/09: Salvar aparece sempre (formulario unico) — antes so aparecia no bloco 3 */}
+          {/* 18/09: botao desabilitado para novos registros incompletos — API rejeita campos v1 faltando */}
           {(draft.status === 'missed' || draft.status === 'done' || draft.status === 'adjusted') && (
             <>
-              <Pressable
-                style={[styles.saveCompletionButton, isSubmitting && styles.disabledButton]}
-                disabled={isSubmitting}
-                onPress={handleSave}
-              >
-                <Ionicons name="checkmark-circle" size={16} color={PRColors.mineral} />
-                <Text style={styles.saveCompletionText}>
-                  {isSubmitting ? 'Enviando...' : isSavedOnServer ? 'Atualizar feedback' : 'Confirmar treino e enviar feedback'}
-                </Text>
-              </Pressable>
-              {!isSavedOnServer && draft.status !== 'missed' && !allSectionsComplete && (
-                <Text style={[styles.formHint, { textAlign: 'center', marginTop: 4 }]}>
-                  Responda todas as perguntas acima para completar o feedback (opcional para salvar).
-                </Text>
-              )}
+              {(() => {
+                const newIncomplete = !isSavedOnServer && draft.status !== 'missed' && !allSectionsComplete;
+                return (
+                  <>
+                    <Pressable
+                      style={[styles.saveCompletionButton, (isSubmitting || newIncomplete) && styles.disabledButton]}
+                      disabled={isSubmitting || newIncomplete}
+                      onPress={handleSave}
+                    >
+                      <Ionicons name="checkmark-circle" size={16} color={PRColors.mineral} />
+                      <Text style={styles.saveCompletionText}>
+                        {isSubmitting ? 'Enviando...' : isSavedOnServer ? 'Atualizar feedback' : 'Confirmar treino e enviar feedback'}
+                      </Text>
+                    </Pressable>
+                    {newIncomplete && (
+                      <Text style={[styles.formHint, { textAlign: 'center', marginTop: 4 }]}>
+                        Complete todas as perguntas acima para confirmar o treino.
+                      </Text>
+                    )}
+                  </>
+                );
+              })()}
             </>
           )}
           {isSavedOnServer && !isSubmitting && (

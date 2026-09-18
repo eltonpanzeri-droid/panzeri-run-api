@@ -1113,6 +1113,20 @@ export class CoachService {
                   ? (session.completion.details as Record<string, unknown>).walkingReasons as string[]
                   : null)
                 : null,
+              // Feedback v1 — bloco 1: estado pre-treino
+              preSleepQuality: session.completion?.preSleepQuality ?? null,
+              prePhysicalFatigue: session.completion?.prePhysicalFatigue ?? null,
+              preStressLevel: session.completion?.preStressLevel ?? null,
+              preMotivation: session.completion?.preMotivation ?? null,
+              // Feedback v1 — bloco 2: experiencia
+              postWorkoutFeeling: session.completion?.postWorkoutFeeling ?? null,
+              postWorkoutMood: session.completion?.details != null && typeof session.completion.details === 'object'
+                ? (Number((session.completion.details as Record<string, unknown>).postWorkoutMood) || null)
+                : null,
+              // Feedback v1 — bloco 3: dor
+              painFlag: session.completion?.painFlag ?? null,
+              painTiming: session.completion?.painTiming ?? null,
+              feedbackVersion: session.completion?.feedbackVersion ?? null,
               // Campo unico de texto explicativo — "recommendations" foi removido em 07/08 (dois
               // campos so confundiam e gastavam token da IA a toa); sessoes antigas que ainda tem
               // algo la aparecem juntas aqui, num so texto.

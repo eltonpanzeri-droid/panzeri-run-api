@@ -257,6 +257,18 @@ interface StudentDetail {
       stravaActivity?: StravaActivity | null;
       // Motivos de caminhada/parada, multi-select (14/09/2026)
       walkingReasons?: string[] | null;
+      // Feedback v1 — bloco 1: estado pre-treino
+      preSleepQuality?: number | null;
+      prePhysicalFatigue?: number | null;
+      preStressLevel?: number | null;
+      preMotivation?: number | null;
+      // Feedback v1 — bloco 2: experiencia
+      postWorkoutFeeling?: number | null;
+      postWorkoutMood?: number | null;
+      // Feedback v1 — bloco 3: dor
+      painFlag?: string | null;
+      painTiming?: string | null;
+      feedbackVersion?: number | null;
     }>;
   } | null;
   unmatchedStravaActivities?: StravaActivity[];
@@ -3460,15 +3472,33 @@ function EditableSession({
               {session.completedDistanceKm ? ` | ${session.completedDistanceKm} km` : ''}
               {session.completedPaceSecondsKm ? ` | ${paceLabel(session.completedPaceSecondsKm)}` : ''}
             </span>
+            {/* Bloco pre-treino (v1) — so aparece quando preenchido */}
+            {(session.preSleepQuality || session.prePhysicalFatigue || session.preStressLevel || session.preMotivation) && (
+              <span style={{ borderTop: '1px solid #e5e7eb', paddingTop: 4, marginTop: 2 }}>
+                <strong>Como chegou:</strong> sono {scale5Label(session.preSleepQuality, 'Muito ruim', 'Excelente')} · cansaco {scale5Label(session.prePhysicalFatigue, 'Muito baixo', 'Muito alto')} · estresse {scale5Label(session.preStressLevel, 'Muito baixo', 'Muito alto')} · motivacao {scale5Label(session.preMotivation, 'Muito baixa', 'Muito alta')}
+              </span>
+            )}
+            {/* Esforco e satisfacoes */}
             <span>{session.perceivedEffort ? `PSE ${session.perceivedEffort}/10` : 'PSE nao informada'}</span>
-            <span>{session.satisfactionElaboracao ? `Elaboracao do treino: ${satisfactionLabel(session.satisfactionElaboracao)}` : 'Satisfacao com a elaboracao nao informada'}</span>
-            <span>{session.satisfaction ? `Fazer o treino: ${satisfactionLabel(session.satisfaction)}` : 'Satisfacao em fazer o treino nao informada'}</span>
-            <span>{session.satisfactionCapacidade ? `Como conseguiu fazer: ${satisfactionLabel(session.satisfactionCapacidade)}` : 'Satisfacao com como conseguiu fazer nao informada'}</span>
-            <span>{session.satisfactionCarga ? `Carga: ${cargaLabel(session.satisfactionCarga)}` : 'Carga nao informada'}</span>
+            {session.satisfactionElaboracao && <span>Elaboracao do treino: {satisfactionLabel(session.satisfactionElaboracao)}</span>}
+            {session.satisfactionCapacidade && <span>Como se saiu: {satisfactionLabel(session.satisfactionCapacidade)}</span>}
+            {/* Campos historicos — so mostrar se preenchidos (clientes pre-v1) */}
+            {session.satisfaction && <span>Fazer o treino: {satisfactionLabel(session.satisfaction)}</span>}
+            {session.satisfactionCarga && <span>Carga: {cargaLabel(session.satisfactionCarga)}</span>}
+            {/* Caminhada/parada */}
             {session.walkingReasons && session.walkingReasons.length > 0 && (
               <span>Caminhada/parada: {session.walkingReasons.join(' · ')}</span>
             )}
-            <span>{session.feedback || 'Sem comentario'}</span>
+            {/* Bloco pos-treino (v1) */}
+            {session.postWorkoutFeeling && <span>Corpo ao terminar: {scale5Label(session.postWorkoutFeeling, 'Exausto / no limite', 'Cheio de energia')}</span>}
+            {session.postWorkoutMood && <span>Emocional ao terminar: {scale5Label(session.postWorkoutMood, 'Frustrado / chateado', 'Orgulhoso / muito feliz')}</span>}
+            {/* Dor */}
+            {session.painFlag === 'none' && <span>Sem dor ou desconforto</span>}
+            {session.painFlag && session.painFlag !== 'none' && (
+              <span>Dor {painFlagLabel(session.painFlag)}{session.painTiming ? ` — ${painTimingLabel(session.painTiming)}` : ''}</span>
+            )}
+            {/* Comentario */}
+            {session.feedback && <span>"{session.feedback}"</span>}
           </>
         )}
       </div>
@@ -4332,6 +4362,29 @@ function satisfactionLabel(value: string) {
     detestei: 'Detestei',
   };
   return labels[value] ?? value;
+}
+
+function painFlagLabel(value: string) {
+  const labels: Record<string, string> = { none: 'Sem dor', leve: 'Leve', moderado: 'Moderado', forte: 'Forte' };
+  return labels[value] ?? value;
+}
+
+function painTimingLabel(value: string) {
+  const labels: Record<string, string> = {
+    ja_comecei_sentindo: 'ja comecei sentindo',
+    comeco_passou: 'comecou e passou',
+    comeco_continuou: 'comecou e continuou',
+    durante_passou: 'apareceu durante e passou',
+    durante_continuou: 'apareceu durante e continuou',
+    so_depois: 'so percebi depois',
+  };
+  return labels[value] ?? value;
+}
+
+function scale5Label(n: number | null | undefined, low: string, high: string) {
+  if (!n) return '—';
+  const mid = ['', low, '', '', '', high][n] ?? '';
+  return `${n}/5${mid ? ` (${mid})` : ''}`;
 }
 
 function cargaLabel(value: string) {
