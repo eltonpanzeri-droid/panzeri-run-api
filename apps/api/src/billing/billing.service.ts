@@ -836,7 +836,22 @@ export class BillingService {
   // quem assina pela loja em vez do site. O app_user_id enviado pelo RevenueCat E o nosso userId
   // (o app mobile configura o SDK assim no login, ver App.tsx) — nao existe tabela de mapeamento
   // separada.
-  async processRevenueCatWebhook(authHeader: string | undefined, payload: { event?: { type?: string; app_user_id?: string; product_id?: string } }) {
+  async processRevenueCatWebhook(
+    authHeader: string | undefined,
+    payload: {
+      event?: {
+        type?: string;
+        app_user_id?: string;
+        product_id?: string;
+        // 18/09 (CI-001, Fase 0 Data Layer): campos que o RevenueCat de fato envia no webhook,
+        // usados so para marcar firstPaidAt/firstPaidPaymentId na primeira compra — nao existiam
+        // no tipo antes porque nada aqui usava esses dados.
+        transaction_id?: string;
+        original_transaction_id?: string;
+        purchased_at_ms?: number;
+      };
+    },
+  ) {
     const expectedSecret = this.config.get<string>('REVENUECAT_WEBHOOK_SECRET');
     const providedSecret = authHeader?.replace(/^Bearer\s+/i, '');
     if (!expectedSecret || providedSecret !== expectedSecret) {
@@ -911,6 +926,57 @@ export class BillingService {
           content: `Ola ${user.name},\n\nSeu pagamento foi confirmado! Agora abra o aplicativo — vamos te guiar por uma entrevista completa para montar seu programa personalizado.\n\nPanzeri Run`,
         });
       }
+    }
+
+    // 18/09 (CI-001, Fase 0 Data Layer): registra firstPaidAt/provider na PRIMEIRA compra real via
+    // loja. Roda so' em INITIAL_PURCHASE (nao em RENEWAL/PRODUCT_CHANGE/etc — esses nao sao "primeira
+    // compra"), independente de statusActuallyChanged: mesmo que o status do usuario ja estivesse
+    // 'active' por outro motivo, isso e' sobre quando o PRIMEIRO pagamento de verdade aconteceu.
+    // Idempotente por natureza — o guard "firstPaidAt: null" no updateMany garante que um mesmo
+    // webhook reenviado (ou um INITIAL_PURCHASE tardio depois de outro provider ja ter marcado
+    // firstPaidAt primeiro) nunca sobrescreve o que ja foi gravado. NAO cria BillingEvent nem
+    // qualquer valor de receita — o RevenueCat nao fornece aqui um valor financeiro confiavel
+    // equivalente ao que o Asaas manda, e misturar isso inventaria receita (proibido pela
+    // especificacao). purchases (contagem) pode refletir RevenueCat; revenue (R$) continua so' Asaas.
+    if (event?.type === 'INITIAL_PURCHASE') {
+      const purchasedAt = event.purchased_at_ms ? new Date(event.purchased_at_ms) : new Date();
+      // Identificador real de transacao da loja, nunca o userId (nao e' um pagamento). Se o
+      // RevenueCat nao mandar nenhum dos dois campos (nao deveria acontecer na pratica), fica null
+      // — a deduplicacao de firstPaidAt nao depende deste campo, so' do guard firstPaidAt:null acima.
+      const paymentId = event.transaction_id
+        ? `revenuecat:${event.transaction_id}`
+        : event.original_transaction_id
+        ? `revenuecat:${event.original_transaction_id}`
+        : null;
+
+      const existingBilling = await this.prisma.billingSubscription.findUnique({
+        where: { userId },
+        select: { id: true, firstPaidAt: true },
+      });
+
+      if (!existingBilling) {
+        // Ainda nao existe BillingSubscription pra esta aluna (fluxo Asaas cria uma so' ao gerar
+        // checkout/aplicar cupom) — cria com provider='revenuecat' por ser a origem do 1o pagamento.
+        await this.prisma.billingSubscription
+          .create({
+            data: { userId, provider: 'revenuecat', providerStatus: 'active', firstPaidAt: purchasedAt, firstPaidPaymentId: paymentId },
+          })
+          .catch((error) => {
+            // Corrida rara (2 webhooks quase simultaneos) pode fazer o create colidir com outro
+            // create/linha ja existente — nao e' um erro real, so' significa que a outra escrita
+            // ja resolveu o mesmo resultado (firstPaidAt vai ficar setado de qualquer forma).
+            this.logger.warn(`Corrida ao criar BillingSubscription via RevenueCat para ${userId}: ${(error as Error).message}`);
+          });
+      } else if (!existingBilling.firstPaidAt) {
+        // Ja existia uma BillingSubscription (ex: tentativa de checkout Asaas nunca paga) — marca
+        // firstPaidAt/provider so' se ainda ninguem tiver marcado (1a compra de verdade, qualquer
+        // provider, tem precedencia cronologica).
+        await this.prisma.billingSubscription.updateMany({
+          where: { id: existingBilling.id, firstPaidAt: null },
+          data: { provider: 'revenuecat', firstPaidAt: purchasedAt, firstPaidPaymentId: paymentId },
+        });
+      }
+      // Se existingBilling.firstPaidAt ja estava preenchido, nao mexe em nada — idempotente.
     }
 
     return { received: true };
