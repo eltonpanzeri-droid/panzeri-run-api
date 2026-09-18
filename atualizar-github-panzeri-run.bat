@@ -289,10 +289,15 @@ if not exist "%DESTINO%\apps\api\src\funnel" mkdir "%DESTINO%\apps\api\src\funne
 copy /Y "%ORIGEM%apps\api\src\funnel\funnel.controller.ts" "%DESTINO%\apps\api\src\funnel\funnel.controller.ts"
 copy /Y "%ORIGEM%apps\api\src\funnel\funnel.module.ts" "%DESTINO%\apps\api\src\funnel\funnel.module.ts"
 copy /Y "%ORIGEM%apps\api\src\funnel\funnel.service.ts" "%DESTINO%\apps\api\src\funnel\funnel.service.ts"
+if not exist "%DESTINO%\apps\api\src\leo" mkdir "%DESTINO%\apps\api\src\leo"
+copy /Y "%ORIGEM%apps\api\src\leo\leo.controller.ts" "%DESTINO%\apps\api\src\leo\leo.controller.ts"
+copy /Y "%ORIGEM%apps\api\src\leo\leo.module.ts" "%DESTINO%\apps\api\src\leo\leo.module.ts"
+copy /Y "%ORIGEM%apps\api\src\leo\leo.service.ts" "%DESTINO%\apps\api\src\leo\leo.service.ts"
 if not exist "%DESTINO%\apps\api\src\meta" mkdir "%DESTINO%\apps\api\src\meta"
 copy /Y "%ORIGEM%apps\api\src\meta\meta-capi.service.ts" "%DESTINO%\apps\api\src\meta\meta-capi.service.ts"
 copy /Y "%ORIGEM%apps\mobile\.easignore" "%DESTINO%\apps\mobile\.easignore"
 copy /Y "%ORIGEM%apps\mobile\metro.config.js" "%DESTINO%\apps\mobile\metro.config.js"
+xcopy /E /I /Y "%ORIGEM%erros persistentes" "%DESTINO%\erros persistentes" 1>nul
 echo.
 echo Atualizacao copiada para o GitHub Desktop.
 echo O GitHub Desktop sera aberto agora.

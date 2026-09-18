@@ -763,6 +763,23 @@ export class BillingService {
             customData: { value: payload.payment.value, currency: 'BRL' },
             eventSourceUrl: 'https://panzerirun.eltonpanzeripersonal.com.br',
           });
+          // Fase 0 Data Layer: log imutável de cada pagamento + marca firstPaidAt na primeira vez.
+          await this.prisma.$transaction([
+            this.prisma.billingEvent.create({
+              data: {
+                userId: billing.userId,
+                event: 'payment_confirmed',
+                prevStatus: user.subscriptionStatus,
+                nextStatus: 'active',
+                value: payload.payment.value,
+                externalRef: paymentId,
+              },
+            }),
+            this.prisma.billingSubscription.updateMany({
+              where: { id: billing.id, firstPaidAt: null },
+              data: { firstPaidAt: new Date(), firstPaidPaymentId: paymentId },
+            }),
+          ]);
         }
       }
     }

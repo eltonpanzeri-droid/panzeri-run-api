@@ -23,6 +23,7 @@ import { ObservationsModule } from './observations/observations.module';
 import { FunnelModule } from './funnel/funnel.module';
 import { EvolutionModule } from './evolution/evolution.module';
 import { MenstrualCycleModule } from './menstrual-cycle/menstrual-cycle.module';
+import { LeoModule } from './leo/leo.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -54,6 +55,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     FunnelModule,
     EvolutionModule,
     MenstrualCycleModule,
+    LeoModule,
   ],
   controllers: [AppController],
   providers: [
