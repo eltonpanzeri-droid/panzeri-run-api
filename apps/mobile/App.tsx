@@ -196,8 +196,16 @@ interface WeekPlanSession {
     satisfactionCapacidade?: string | null;
     satisfactionCarga?: string | null;
     painFlag?: string | null;
+    painTiming?: string | null;
     notes?: string | null;
-    details?: { loadsText?: string; pacingMode?: string; missedReasons?: string[]; missedComment?: string; exerciseFeedback?: Array<{ name: string; loadKg: string; satisfaction: string }> } | null;
+    details?: { loadsText?: string; pacingMode?: string; missedReasons?: string[]; missedComment?: string; exerciseFeedback?: Array<{ name: string; loadKg: string; satisfaction: string }>; postWorkoutMood?: number } | null;
+    // Feedback v1 — bug real 18/09: faltavam na resposta da API (training-plans.service.ts
+    // presentPlan()), fazendo o formulario reabrir sempre em branco mesmo com dados salvos.
+    preSleepQuality?: number | null;
+    prePhysicalFatigue?: number | null;
+    preStressLevel?: number | null;
+    preMotivation?: number | null;
+    postWorkoutFeeling?: number | null;
   } | null;
 }
 

@@ -2169,9 +2169,21 @@ export class TrainingPlansService {
         avgPaceSecondsKm: number | null;
         perceivedEffort: number | null;
         satisfaction: string | null;
+        satisfactionElaboracao: string | null;
+        satisfactionCapacidade: string | null;
+        satisfactionCarga: string | null;
         painFlag: string | null;
+        painTiming: string | null;
         notes: string | null;
         details: unknown;
+        // Feedback v1 — faltavam nesta resposta (bug real 18/09: aluno reabria feedback ja
+        // enviado e via os campos abaixo sempre em branco, mesmo tendo respondido, porque o
+        // app le exatamente estes campos do completion recebido aqui e nunca chegavam.
+        preSleepQuality: number | null;
+        prePhysicalFatigue: number | null;
+        preStressLevel: number | null;
+        preMotivation: number | null;
+        postWorkoutFeeling: number | null;
       } | null;
     }>;
   }, unlocked = true, hasTest = true) {
@@ -2235,9 +2247,18 @@ export class TrainingPlansService {
               avgPaceSecondsKm: session.completion.avgPaceSecondsKm,
               perceivedEffort: session.completion.perceivedEffort,
               satisfaction: session.completion.satisfaction,
+              satisfactionElaboracao: session.completion.satisfactionElaboracao,
+              satisfactionCapacidade: session.completion.satisfactionCapacidade,
+              satisfactionCarga: session.completion.satisfactionCarga,
               painFlag: session.completion.painFlag,
+              painTiming: session.completion.painTiming,
               notes: session.completion.notes,
               details: session.completion.details,
+              preSleepQuality: session.completion.preSleepQuality,
+              prePhysicalFatigue: session.completion.prePhysicalFatigue,
+              preStressLevel: session.completion.preStressLevel,
+              preMotivation: session.completion.preMotivation,
+              postWorkoutFeeling: session.completion.postWorkoutFeeling,
             }
           : null,
       })),
