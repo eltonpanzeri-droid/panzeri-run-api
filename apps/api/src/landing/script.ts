@@ -6,11 +6,19 @@ const trackEvent=(event,params={})=>window.dataLayer.push({event,...params});
 const keys=['utm_source','utm_medium','utm_campaign','utm_content','utm_term','fbclid','gclid'];
 let attribution={};try{const saved=JSON.parse(sessionStorage.getItem('panzeri_attribution')||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))attribution=saved}catch{}
 const params=new URLSearchParams(location.search);keys.forEach(key=>{const value=params.get(key);if(value)attribution[key]=value});
+if(!attribution.referrer&&document.referrer){try{if(new URL(document.referrer).origin!==location.origin)attribution.referrer=document.referrer.slice(0,1000)}catch{}}
 try{sessionStorage.setItem('panzeri_attribution',JSON.stringify(attribution))}catch{}
-const checkout=new URL(config.checkoutUrl,location.origin);Object.entries(attribution).forEach(([key,value])=>{if(keys.includes(key))checkout.searchParams.set(key,String(value))});
+const uuid=()=>{try{return crypto.randomUUID()}catch{return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&3|8)).toString(16)})}};
+const stableId=(kind,key)=>{try{const store=window[kind];let value=store.getItem(key);if(!value){value=uuid();store.setItem(key,value)}return value}catch{return uuid()}};
+const journeyId=stableId('localStorage','panzeri_journey_id');
+const sessionId=stableId('sessionStorage','panzeri_session_id');
+const originFields={utm_source:'source',utm_medium:'medium',utm_campaign:'campaign',utm_content:'content',utm_term:'term',fbclid:'fbclid',gclid:'gclid',referrer:'referrer'};
+const originMetadata=()=>{const meta={};Object.entries(originFields).forEach(([from,to])=>{if(attribution[from])meta[to]=String(attribution[from]).slice(0,to==='referrer'?1000:300)});return meta};
+const internal=(event,key,extra)=>{try{fetch('/analytics/event',{method:'POST',headers:{'Content-Type':'application/json'},keepalive:true,body:JSON.stringify({sessionId,journeyId,event,metadata:{...originMetadata(),...(extra||{})},dedupeKey:sessionId+':'+event+(key?':'+key:'')})}).catch(()=>{})}catch{}};
+const checkout=new URL(config.checkoutUrl,location.origin);Object.entries(attribution).forEach(([key,value])=>{if(keys.includes(key))checkout.searchParams.set(key,String(value))});checkout.searchParams.set('journey_id',journeyId);
 const getCookie=(name)=>{const m=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]*)');return m?decodeURIComponent(m[2]):null};
-document.querySelectorAll('[data-checkout]').forEach(link=>{link.href=checkout.href;link.addEventListener('click',()=>{trackEvent(link.dataset.track);trackEvent('checkout_start',{destination:'student_app'});const fbp=getCookie('_fbp');const fbc=attribution.fbclid?'fb.1.'+Date.now()+'.'+attribution.fbclid:null;const url=new URL(link.href);if(fbp)url.searchParams.set('_fbp',fbp);if(fbc)url.searchParams.set('_fbc',fbc);link.href=url.href})});
-trackEvent('landing_view');
+document.querySelectorAll('[data-checkout]').forEach(link=>{link.href=checkout.href;link.addEventListener('click',()=>{trackEvent(link.dataset.track);trackEvent('checkout_start',{destination:'student_app'});internal('landing_cta_click',link.dataset.track,{cta:link.dataset.track});const fbp=getCookie('_fbp');const fbc=attribution.fbclid?'fb.1.'+Date.now()+'.'+attribution.fbclid:null;const url=new URL(link.href);if(fbp)url.searchParams.set('_fbp',fbp);if(fbc)url.searchParams.set('_fbc',fbc);link.href=url.href})});
+trackEvent('landing_view');internal('landing_view');
 const header=document.getElementById('siteHeader');const updateHeader=()=>header.classList.toggle('is-scrolled',scrollY>12);updateHeader();addEventListener('scroll',updateHeader,{passive:true});
 const menu=document.getElementById('mobileMenu'),toggle=document.getElementById('menuToggle');
 const closeMenu=()=>{menu.hidden=true;toggle.setAttribute('aria-expanded','false')};

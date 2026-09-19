@@ -245,7 +245,12 @@ export class CoachService {
       });
     }
 
-    return this.prisma.user.update({
+    // 19/09: mudanca manual de status tambem entra no historico comercial (BillingEvent status_changed).
+    const previousStatus = dto.subscriptionStatus
+      ? (await this.prisma.user.findUnique({ where: { id: studentId }, select: { subscriptionStatus: true } }))?.subscriptionStatus
+      : undefined;
+
+    const updated = await this.prisma.user.update({
       where: { id: studentId },
       data,
       select: {
@@ -258,6 +263,10 @@ export class CoachService {
         updatedAt: true,
       },
     });
+    if (dto.subscriptionStatus) {
+      await this.billing.recordStatusTransition(studentId, previousStatus, dto.subscriptionStatus, 'coach:manual');
+    }
+    return updated;
   }
 
   async resetStudentPassword(studentId: string, dto: ResetStudentPasswordDto) {
@@ -1462,6 +1471,9 @@ export class CoachService {
       this.prisma.user.groupBy({ by: ['subscriptionStatus'], where: { role: 'student' }, _count: true }),
       this.prisma.billingSubscription.count({ where: { firstPaidAt: { not: null } } }),
       prisma.billingEvent.findMany({
+        // baseline_snapshot (foto do status no dia da instrumentacao, 1 por aluno) e' ancora tecnica
+        // do estado comercial temporal — nao e' um "evento recente" e poluiria esta lista.
+        where: { event: { not: 'baseline_snapshot' } },
         orderBy: { timestamp: 'desc' },
         take: 20,
         select: { id: true, userId: true, event: true, prevStatus: true, nextStatus: true, value: true, timestamp: true },

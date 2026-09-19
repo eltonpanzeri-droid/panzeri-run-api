@@ -1304,6 +1304,29 @@ Reformulação completa do formulário de registro de treino no app mobile. O fe
 
 ---
 
+**2026-09-19 — Fundação longitudinal de rastreamento (identidade + tempo + origem + estado comercial).**
+Contrato completo, endpoints `/leo/*`, limitações e o incidente abaixo: `RUNBOOKS/2026-09-19-FUNDACAO-LONGITUDINAL.md`.
+- **Incidente descoberto:** o commit `617788a` ("f", 16/09 17:23) sobrescreveu o espelho e apagou trabalho já entregue por
+  outra linha (rota `/links`, validação do DTO do funil com `journeyId`/`dedupeKey`, coorte, GA4/Clarity). Efeito medido:
+  o DTO de `/analytics/event` em produção rejeitava **100% dos eventos** do funil (HTTP 400) — o funil interno ficou mudo
+  desde então. Restaurado: `/links` (byte a byte) e o DTO validado. NÃO restaurado (decisão a confirmar): GA4, Clarity,
+  segunda implementação de Meta, eventos de ativação. Causa: duas linhas editando os mesmos arquivos + `.bat` que copia por cima.
+- `journeyId` (longitudinal, anônimo) ≠ `sessionId` (uma sessão). Landing persiste `landing_view`/`landing_cta_click` e leva
+  `journey_id` na URL do CTA; o PWA adota, limpa o parâmetro da URL **antes do Pixel** e vincula jornada↔usuário por
+  `POST /analytics/link-journey` (userId vem do JWT; `/auth/*` intocado por causa do `forbidNonWhitelisted`).
+- Estado comercial temporal (`prospect/active/ex_subscriber/reactivated/unknown` + `basis`): `BillingEvent` `status_changed`
+  gravado em todos os 7 pontos que alteram `subscriptionStatus` + `baseline_snapshot`; regras testadas em `leo/commercial-state.ts`.
+- Correções de dados: primeira compra só na transição real de quem nunca teve acesso (evita "primeira compra" falsa para
+  assinantes antigos); `payment_confirmed` agora inclui renovações e é idempotente **no banco** (índice único parcial);
+  provider da 1ª compra vem do `firstPaidPaymentId` (imutável) — `BillingSubscription.provider` é sobrescrito por
+  `createCheckout`/cupom (correção de uma afirmação anterior de que era write-once).
+- Migration única (sem coluna nova): `20260919120000_billing_history_baseline_and_payment_unique`.
+- Gates: typecheck api+mobile limpo; 80 testes passam (suítes novas: commercial-state, journey-foundation, journey-pwa,
+  billing-commercial-history, leo-foundation + funnel/links restaurados); landing e PWA validados em navegador real (Expo web
+  atrás de proxy simulado, sem tocar produção). 3 suítes antigas seguem falhando por motivo alheio (exports/aridade antigos).
+
+---
+
 ## Onde as coisas estão agora (2026-09-11) — leitura rápida pra quem chega de fora
 
 **Produto em produção, sendo usado por alunas reais**: a versão web/PWA, em

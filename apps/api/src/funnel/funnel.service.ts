@@ -17,6 +17,14 @@ const KNOWN_EVENTS = new Set([
   'interview_completed',
   'payment_started',
   'payment_completed',
+  // Landing (19/09, fundacao longitudinal). Semantica exata, nunca intercambiaveis com pagamento:
+  //  landing_view      = a pagina da Landing foi carregada (1 por sessao de navegacao)
+  //  landing_cta_click = a pessoa clicou na Landing para entrar no Panzeri Run (NAO e' checkout,
+  //                      NAO e' payment_started — so' a decisao de sair da Landing rumo ao app)
+  'landing_view',
+  'landing_cta_click',
+  // Vinculo journeyId <-> userId (gravado pelo servidor a partir do JWT — ver linkJourney).
+  'journey_linked',
 ]);
 
 // Ordem do funil para exibicao no painel.
@@ -40,12 +48,22 @@ export class FunnelService {
 
   // Endpoint publico — sem autenticacao. sessionId vem do cliente (UUID gerado no AsyncStorage).
   // Eventos invalidos sao ignorados silenciosamente pra nunca bloquear o fluxo do usuario.
+  //
+  // Modelo de identidade (19/09):
+  //  journeyId = jornada longitudinal anonima (sobrevive entre sessoes/visitas do mesmo navegador)
+  //  sessionId = uma sessao especifica (na Landing: uma visita; no PWA: a instancia do app)
+  //  userId    = a pessoa, depois de se identificar
+  // journeyId e sessionId NUNCA sao sinonimos. Nada aqui reescreve eventos antigos: cada linha
+  // guarda a identidade disponivel NAQUELE instante; o vinculo journeyId <-> userId e' registrado
+  // no cadastro (User.acquisitionAttribution.journeyId) e nos eventos posteriores que trazem os dois.
   async record(params: {
     sessionId: string;
     event: string;
     userId?: string | null;
     questionId?: string | null;
     metadata?: Record<string, unknown> | null;
+    journeyId?: string | null;
+    dedupeKey?: string | null;
   }): Promise<void> {
     if (!params.sessionId || !params.event) return;
     const event = params.event.toLowerCase().replace(/[^a-z_]/g, '');
@@ -54,14 +72,33 @@ export class FunnelService {
     await this.prisma.funnelEvent.create({
       data: {
         sessionId: params.sessionId.slice(0, 64),
+        journeyId: params.journeyId?.slice(0, 64) ?? null,
         userId: params.userId ?? null,
         event,
         questionId: params.questionId?.slice(0, 64) ?? null,
         metadata: params.metadata ? (params.metadata as Prisma.InputJsonValue) : undefined,
+        dedupeKey: params.dedupeKey?.slice(0, 160) ?? null,
       },
     }).catch((err) => {
-      // Nunca propaga erro — dado de analytics nao pode derrubar o fluxo principal.
+      // dedupeKey e' unique: reenvio do mesmo marco (recarga, retry de rede) cai aqui e e' esperado
+      // — idempotencia, nao erro. Qualquer outra falha e' so' logada: analytics nunca derruba o fluxo.
+      if ((err as { code?: string })?.code === 'P2002') return;
       this.logger.warn(`FunnelEvent: falha ao gravar ${event}: ${String(err)}`);
+    });
+  }
+
+  // Vinculo journeyId <-> userId. Guarda-se como um FunnelEvent 'journey_linked' (fonte canonica
+  // unica de jornada; nenhuma tabela paralela): o createdAt e' o instante real em que a jornada
+  // passou a ser associada a pessoa, e os eventos anonimos anteriores permanecem intactos, com
+  // userId nulo (nunca sao reescritos). via='signup' = jornada que originou a conta.
+  async linkJourney(userId: string, journeyId: string, sessionId: string | undefined, via: 'signup' | 'login'): Promise<void> {
+    await this.record({
+      sessionId: sessionId || `backend:${userId}`,
+      journeyId,
+      userId,
+      event: 'journey_linked',
+      metadata: { via },
+      dedupeKey: `journey_linked:${userId}:${journeyId}`,
     });
   }
 

@@ -7,6 +7,7 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { parseJourneyFromSearch, resolveJourney } from './src/journey';
 import { BrandMark } from './theme/BrandMark';
 import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
@@ -653,13 +654,87 @@ async function getFunnelSessionId(): Promise<string> {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// journeyId — identidade LONGITUDINAL anonima (19/09). Diferente do sessionId acima:
+//  - sessionId (funnelSessionId) identifica esta instancia do app;
+//  - journeyId acompanha a pessoa entre origem -> Landing -> PWA -> cadastro, e sobrevive entre
+//    visitas enquanto o armazenamento do navegador existir.
+// A regra de continuidade (deterministica, nunca probabilistica) vive em ./src/journey.ts (testada):
+// journey_id da URL (clique na Landing) > jornada ja guardada > nova. Se a URL trouxer uma jornada
+// DIFERENTE da guardada, adota a da URL e registra a anterior em metadata.linkedFromJourneyId do
+// app_opened (o mesmo dispositivo viu as duas: elo comprovado).
+const JOURNEY_KEY = 'panzeri-run-journey-id';
+// journey_id vindo da URL e' lido E REMOVIDO da barra de enderecos de forma SINCRONA no carregamento do
+// modulo — antes de qualquer script de terceiros (o Meta Pixel abaixo dispara PageView ao carregar e leria
+// location.href, vazando nosso identificador interno para a Meta) e antes de um link copiado do PWA
+// carregar a jornada desta pessoa para outra. As UTMs continuam intactas na URL.
+let urlJourneyAtBoot: string | null = null;
+if (Platform.OS === 'web') {
+  try {
+    const browser = globalThis as unknown as {
+      location?: { search?: string; href?: string };
+      history?: { replaceState?: (data: unknown, unused: string, url?: string) => void };
+    };
+    urlJourneyAtBoot = parseJourneyFromSearch(browser.location?.search);
+    if (urlJourneyAtBoot && browser.location?.href && browser.history?.replaceState) {
+      const clean = new URL(browser.location.href);
+      clean.searchParams.delete('journey_id');
+      browser.history.replaceState(null, '', clean.pathname + clean.search + clean.hash);
+    }
+  } catch { /* sem history/URL API — segue sem limpar */ }
+}
+let journeyPromise: Promise<string> | null = null;
+let journeyAliasFrom: string | null = null;
+// 'signup' so' quando a conta acabou de ser criada neste dispositivo; qualquer outra entrada = 'login'.
+let journeyLinkVia: 'signup' | 'login' = 'login';
+
+function newUuid(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+async function resolveJourneyId(): Promise<string> {
+  try {
+    const resolution = await resolveJourney(AsyncStorage, JOURNEY_KEY, urlJourneyAtBoot, newUuid);
+    journeyAliasFrom = resolution.aliasFrom;
+    return resolution.journeyId;
+  } catch {
+    return newUuid();
+  }
+}
+
+// Memoizado por promessa: chamadas concorrentes no boot recebem exatamente o mesmo id.
+function getJourneyId(): Promise<string> {
+  if (!journeyPromise) journeyPromise = resolveJourneyId();
+  return journeyPromise;
+}
+
+// Associa a jornada deste dispositivo a pessoa autenticada. O servidor usa o userId do JWT (nao do
+// corpo) e e' idempotente por (userId, journeyId): chamar em todo login/abertura e' seguro.
+// Fire-and-forget; servidor antigo responde 404 e nada acontece.
+async function linkJourneyToUser(accessToken: string, via: 'signup' | 'login') {
+  try {
+    const [journeyId, sessionId] = await Promise.all([getJourneyId(), getFunnelSessionId()]);
+    await fetch(`${API_URL}/analytics/link-journey`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ journeyId, sessionId, via }),
+    });
+  } catch { /* analytics nunca quebra o fluxo */ }
+}
+
 // Fire-and-forget — nunca bloqueia o fluxo do usuario, nunca propaga erro.
-function trackFunnel(event: string, extra?: { questionId?: string; userId?: string; metadata?: Record<string, unknown> }) {
-  getFunnelSessionId().then((sessionId) => {
+function trackFunnel(event: string, extra?: { questionId?: string; userId?: string; metadata?: Record<string, unknown>; dedupeKey?: string }) {
+  Promise.all([getFunnelSessionId(), getJourneyId()]).then(([sessionId, journeyId]) => {
+    const metadata = event === 'app_opened' && journeyAliasFrom
+      ? { ...(extra?.metadata ?? {}), linkedFromJourneyId: journeyAliasFrom }
+      : extra?.metadata;
     fetch(`${API_URL}/analytics/event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, event, ...(extra ?? {}) }),
+      body: JSON.stringify({ sessionId, journeyId, event, ...(extra ?? {}), ...(metadata ? { metadata } : {}) }),
     }).catch(() => undefined);
   }).catch(() => undefined);
 }
@@ -1273,6 +1348,8 @@ function AppInner() {
 
   useEffect(() => {
     registerWebApp();
+    // Adota a jornada que veio da Landing (journey_id na URL) ja no boot — antes de qualquer evento.
+    void getJourneyId();
     // Captura UTMs/referrer da URL a cada carregamento — idempotente via AsyncStorage first-touch.
     // Chamada FORA do guard de sessao: se o mesmo tab receber UTMs numa navegacao subsequente
     // antes do cadastro, a captura ainda acontece (desde que AsyncStorage nao tenha valor anterior).
@@ -1298,6 +1375,16 @@ function AppInner() {
 
   useEffect(() => {
     if (accessToken) void registerPushTokenIfNeeded(accessToken);
+  }, [accessToken]);
+
+  // Vincula a jornada anonima deste dispositivo a pessoa autenticada (cadastro, login ou sessao
+  // restaurada). O servidor e' idempotente por (userId, journeyId) — a 1a associacao preserva o
+  // instante real e nada do historico anonimo anterior e' reescrito.
+  useEffect(() => {
+    if (!accessToken) return;
+    const via = journeyLinkVia;
+    journeyLinkVia = 'login';
+    void linkJourneyToUser(accessToken, via);
   }, [accessToken]);
 
   // 09/09: reseta o modulo de correcao sempre que o usuario navegar para fora de fixAnswers
@@ -2049,7 +2136,11 @@ function Login({
 
       setStatus('Conta criada com sucesso.');
       // Vincula a sessao anonima ao userId recem-criado — a partir daqui o funil tem identidade.
-      trackFunnel('signup_completed', { userId: data.user?.id });
+      // dedupeKey: 1 signup_completed por usuario (retry/duplo envio nao duplica o marco).
+      trackFunnel('signup_completed', { userId: data.user?.id, dedupeKey: `signup_completed:${data.user?.id ?? 'unknown'}` });
+      // O vinculo autoritativo journeyId<->userId (userId vindo do JWT) e' feito pelo efeito de
+      // accessToken; aqui so' marca que esta entrada e' um CADASTRO novo (via='signup').
+      journeyLinkVia = 'signup';
       // Browser Pixel CompleteRegistration — deduplicado com CAPI via registrationEventId.
       firePixel('CompleteRegistration', { value: 0, currency: 'BRL' }, data.registrationEventId);
       const refreshToken = data.tokens?.refreshToken;

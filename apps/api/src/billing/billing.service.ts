@@ -165,6 +165,17 @@ function resolveAppStatusFromEvent(event?: string): 'active' | 'overdue' | 'canc
   if (CANCELED_EVENTS.has(event)) return 'canceled';
   return null;
 }
+// 19/09: "primeira compra" = transicao REAL para ativo de quem ainda nao tinha acesso pago:
+//  - studentCode null: nunca teve acesso (o codigo so' e' atribuido na 1a ativacao — pagamento, cupom
+//    ou cortesia), ou
+//  - vinha de 'manual_active': testador/cortesia que passou a pagar de verdade.
+// Reativacao (cancelado/atrasado/pendente COM studentCode) NAO e' primeira compra, e uma renovacao
+// (status ja 'active', sem transicao) tambem nao. Isso impede que assinantes antigos (anteriores a
+// instrumentacao, firstPaidAt null) ganhem uma "primeira compra" falsa na 1a renovacao pos-deploy.
+function isFirstPurchaseTransition(prevStatus: string | null | undefined, studentCode: number | null | undefined): boolean {
+  return studentCode == null || prevStatus === 'manual_active';
+}
+
 const PLAN_PRICE = 19.9;
 const PLAN_DESCRIPTION = 'Panzeri Run - Plano mensal';
 // 26/08: assinatura comprada dentro do app nativo (Apple IAP / Google Play Billing), sempre
@@ -524,6 +535,13 @@ export class BillingService {
       }),
     ]);
 
+    await this.recordStatusTransition(
+      userId,
+      user.subscriptionStatus,
+      ['active', 'manual_active', 'grace'].includes(user.subscriptionStatus) ? user.subscriptionStatus : 'pending',
+      'asaas:checkout',
+    );
+
     if (isGenuinelyNewSubscription) {
       const title = isReactivation ? 'Assinatura reativada no Panzeri Run' : 'Nova assinatura gerada no Panzeri Run';
       await this.telegram.notifyCoach(`${title}\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nStatus: aguardando pagamento (R$ 19,90/mes)`);
@@ -590,6 +608,7 @@ export class BillingService {
   }
 
   private async activateCouponAccess(userId: string, normalized: string) {
+    const before = await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } });
     await this.prisma.$transaction([
       this.prisma.billingSubscription.upsert({
         where: { userId },
@@ -613,6 +632,7 @@ export class BillingService {
         data: { subscriptionStatus: 'manual_active', subscriptionUpdatedAt: new Date() },
       }),
     ]);
+    await this.recordStatusTransition(userId, before?.subscriptionStatus, 'manual_active', `coupon:${normalized}`);
     await this.assignStudentCodeIfNeeded(userId);
     this.triggerFirstWeekGeneration(userId);
   }
@@ -628,6 +648,7 @@ export class BillingService {
       ...(wouldReturn ? { cancelWouldReturn: wouldReturn } : {}),
     };
     if (!billing?.externalSubscriptionId) {
+      const before = await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } });
       await this.prisma.$transaction([
         billing
           ? this.prisma.billingSubscription.update({ where: { userId }, data: { providerStatus: 'cancel_requested' } })
@@ -637,6 +658,7 @@ export class BillingService {
           data: { subscriptionStatus: 'canceled', subscriptionUpdatedAt: new Date(), subscriptionCancelRequestedAt: new Date(), ...surveyData },
         }),
       ]);
+      await this.recordStatusTransition(userId, before?.subscriptionStatus, 'canceled', 'student:cancel');
       // Notifica o treinador com o motivo de cancelamento
       this.sendCancelSurveyToTelegram(userId, reason, feedbackText, wouldReturn).catch(() => {});
       return { status: 'canceled', message: 'Solicitacao de cancelamento registrada.' };
@@ -718,6 +740,19 @@ export class BillingService {
     const statusActuallyChanged = userUpdateResult.count > 0;
     const paymentId = payload.payment?.id;
 
+    if (statusActuallyChanged) {
+      await this.recordStatusTransition(billing.userId, user.subscriptionStatus, appStatus, `asaas:webhook:${payload.event ?? ''}${paymentId ? `:${paymentId}` : ''}`);
+    }
+    // 19/09: TODO pagamento confirmado vira um BillingEvent (idempotente por paymentId) — inclusive as
+    // renovacoes mensais, em que o status ja era 'active' e nao houve transicao. Antes, so' o pagamento
+    // que MUDAVA o status era registrado, entao a receita do Panzeri Intelligence ignorava renovacoes.
+    if (appStatus === 'active' && paymentId && payload.payment?.value != null) {
+      await this.recordConfirmedPayment(
+        billing.id, billing.userId, paymentId, payload.payment.value, new Date(),
+        statusActuallyChanged && isFirstPurchaseTransition(user.subscriptionStatus, user.studentCode),
+      );
+    }
+
     if (appStatus === 'active') {
       // 05/09: limpa overdueInvoiceUrl quando status volta para active (pagamento confirmado)
       if (statusActuallyChanged) {
@@ -763,23 +798,6 @@ export class BillingService {
             customData: { value: payload.payment.value, currency: 'BRL' },
             eventSourceUrl: 'https://panzerirun.eltonpanzeripersonal.com.br',
           });
-          // Fase 0 Data Layer: log imutável de cada pagamento + marca firstPaidAt na primeira vez.
-          await this.prisma.$transaction([
-            this.prisma.billingEvent.create({
-              data: {
-                userId: billing.userId,
-                event: 'payment_confirmed',
-                prevStatus: user.subscriptionStatus,
-                nextStatus: 'active',
-                value: payload.payment.value,
-                externalRef: paymentId,
-              },
-            }),
-            this.prisma.billingSubscription.updateMany({
-              where: { id: billing.id, firstPaidAt: null },
-              data: { firstPaidAt: new Date(), firstPaidPaymentId: paymentId },
-            }),
-          ]);
         }
       }
     }
@@ -912,6 +930,9 @@ export class BillingService {
       data: { subscriptionStatus: appStatus, subscriptionProvider: 'revenuecat', subscriptionUpdatedAt: new Date() },
     });
     const statusActuallyChanged = updateResult.count > 0;
+    if (statusActuallyChanged) {
+      await this.recordStatusTransition(userId, user.subscriptionStatus, appStatus, `revenuecat:${event?.type ?? ''}${event?.transaction_id ? `:${event.transaction_id}` : ''}`);
+    }
 
     if (appStatus === 'active') {
       await this.createWelcomeNotificationOnce(userId);
@@ -930,15 +951,16 @@ export class BillingService {
 
     // 18/09 (CI-001, Fase 0 Data Layer): registra firstPaidAt/provider na PRIMEIRA compra real via
     // loja. Roda so' em INITIAL_PURCHASE (nao em RENEWAL/PRODUCT_CHANGE/etc — esses nao sao "primeira
-    // compra"), independente de statusActuallyChanged: mesmo que o status do usuario ja estivesse
-    // 'active' por outro motivo, isso e' sobre quando o PRIMEIRO pagamento de verdade aconteceu.
-    // Idempotente por natureza — o guard "firstPaidAt: null" no updateMany garante que um mesmo
-    // webhook reenviado (ou um INITIAL_PURCHASE tardio depois de outro provider ja ter marcado
-    // firstPaidAt primeiro) nunca sobrescreve o que ja foi gravado. NAO cria BillingEvent nem
-    // qualquer valor de receita — o RevenueCat nao fornece aqui um valor financeiro confiavel
-    // equivalente ao que o Asaas manda, e misturar isso inventaria receita (proibido pela
-    // especificacao). purchases (contagem) pode refletir RevenueCat; revenue (R$) continua so' Asaas.
-    if (event?.type === 'INITIAL_PURCHASE') {
+    // compra"). 19/09: alem do tipo do evento, exige a transicao REAL de quem nao tinha acesso pago
+    // (isFirstPurchaseTransition) — sem isso, um assinante Asaas antigo (firstPaidAt null, anterior a
+    // instrumentacao) que migrasse para a loja ganharia uma "primeira compra" falsa.
+    // Idempotente: webhook reenviado nao muda o status de novo (statusActuallyChanged=false), e o guard
+    // "firstPaidAt: null" no updateMany nunca sobrescreve o que ja foi gravado. NAO cria BillingEvent
+    // payment_confirmed nem qualquer valor de receita — o RevenueCat nao fornece aqui um valor
+    // financeiro confiavel equivalente ao do Asaas (proibido inventar). purchases (contagem) pode
+    // refletir RevenueCat; revenue (R$) continua so' Asaas. A TRANSICAO de status (status_changed) e'
+    // registrada normalmente acima — e' fato de estado, nao de receita.
+    if (event?.type === 'INITIAL_PURCHASE' && statusActuallyChanged && isFirstPurchaseTransition(user.subscriptionStatus, user.studentCode)) {
       const purchasedAt = event.purchased_at_ms ? new Date(event.purchased_at_ms) : new Date();
       // Identificador real de transacao da loja, nunca o userId (nao e' um pagamento). Se o
       // RevenueCat nao mandar nenhum dos dois campos (nao deveria acontecer na pratica), fica null
@@ -1121,6 +1143,19 @@ export class BillingService {
       }),
     ]);
     const statusActuallyChanged = userUpdateResult.count > 0;
+    if (statusActuallyChanged) {
+      await this.recordStatusTransition(userId, user.subscriptionStatus, appStatus, 'asaas:sync');
+      // Pagamento que o webhook pode ter perdido: so' quando ESTE sync detectou a ativacao (o ultimo
+      // pagamento confirmado e' o que a causou). Nao reconstroi pagamentos antigos (limitacao conhecida).
+      if (appStatus === 'active' && latestPayment && latestPaymentStatus && ACTIVE_STATUSES.has(latestPaymentStatus) && latestPayment.id && latestPayment.value != null) {
+        const paidOn = latestPayment.paymentDate ?? latestPayment.confirmedDate ?? latestPayment.clientPaymentDate;
+        const paidAt = paidOn ? new Date(`${paidOn.slice(0, 10)}T12:00:00.000Z`) : new Date();
+        await this.recordConfirmedPayment(
+          billingId, userId, latestPayment.id, latestPayment.value, Number.isNaN(paidAt.getTime()) ? new Date() : paidAt,
+          isFirstPurchaseTransition(user.subscriptionStatus, user.studentCode),
+        );
+      }
+    }
 
     if (appStatus === 'active') {
       await this.createWelcomeNotificationOnce(userId);
@@ -1177,6 +1212,61 @@ export class BillingService {
     return { providerStatus: latestPaymentStatus ?? providerStatus, appStatus, nextChargeAt };
   }
 
+  // ---- Estado comercial temporal (19/09, fundacao longitudinal) ----------------------------------
+  // Toda mudanca REAL de User.subscriptionStatus deixa uma linha imutavel em BillingEvent:
+  //   event='status_changed', prevStatus -> nextStatus,
+  //   timestamp = instante em que o Panzeri Run OBSERVOU a mudanca (nao o instante bancario/da loja),
+  //   externalRef = origem "<provider>:<contexto>" (asaas:webhook:..., asaas:sync, revenuecat:..., coupon:...,
+  //   student:cancel, coach:manual, asaas:checkout).
+  // E' a fonte canonica para responder "qual era a relacao comercial desta pessoa no instante T?"
+  // (ver leo/commercial-state.ts) sem usar o subscriptionStatus de HOJE para reescrever o passado.
+  // Best-effort: NUNCA lanca — registro de historico nao pode derrubar cobranca, webhook ou cancelamento.
+  async recordStatusTransition(userId: string, prevStatus: string | null | undefined, nextStatus: string, ref: string): Promise<void> {
+    if (!prevStatus || prevStatus === nextStatus) return;
+    try {
+      await this.prisma.billingEvent.create({
+        data: { userId, event: 'status_changed', prevStatus, nextStatus, externalRef: ref.slice(0, 190) },
+      });
+    } catch (error) {
+      this.logger.warn(`Falha ao registrar transicao de status (${prevStatus} -> ${nextStatus}) de ${userId}: ${(error as Error).message}`);
+    }
+  }
+
+  // Pagamento confirmado no Asaas: 1 linha 'payment_confirmed' por paymentId (o Asaas manda
+  // PAYMENT_CONFIRMED e depois PAYMENT_RECEIVED para o mesmo pagamento — a checagem por paymentId
+  // impede contar duas vezes) e marca a PRIMEIRA compra (firstPaidAt/firstPaidPaymentId, guard
+  // firstPaidAt:null — nunca sobrescreve). Best-effort, nunca lanca.
+  // markFirstPurchase so' e' true na transicao REAL para ativo de quem nunca tinha acesso pago (ver
+  // isFirstPurchaseTransition). Marcar em qualquer pagamento falsificaria a "primeira compra" de
+  // assinantes anteriores a esta instrumentacao na primeira renovacao depois do deploy.
+  private async recordConfirmedPayment(billingId: string, userId: string, paymentId: string, value: number, at: Date, markFirstPurchase: boolean): Promise<void> {
+    try {
+      const alreadyRecorded = await this.prisma.billingEvent.findFirst({
+        where: { event: 'payment_confirmed', externalRef: paymentId },
+        select: { id: true },
+      });
+      if (!alreadyRecorded) {
+        try {
+          await this.prisma.billingEvent.create({
+            data: { userId, event: 'payment_confirmed', nextStatus: 'active', value, externalRef: paymentId, timestamp: at },
+          });
+        } catch (error) {
+          // Indice unico parcial BillingEvent_payment_confirmed_externalRef_key: a entrega concorrente do
+          // MESMO pagamento (PAYMENT_CONFIRMED + PAYMENT_RECEIVED) ja gravou — idempotencia, nao erro.
+          if ((error as { code?: string })?.code !== 'P2002') throw error;
+        }
+      }
+      if (markFirstPurchase) {
+        await this.prisma.billingSubscription.updateMany({
+          where: { id: billingId, firstPaidAt: null },
+          data: { firstPaidAt: at, firstPaidPaymentId: paymentId },
+        });
+      }
+    } catch (error) {
+      this.logger.warn(`Falha ao registrar pagamento confirmado ${paymentId} de ${userId}: ${(error as Error).message}`);
+    }
+  }
+
   private async createWelcomeNotificationOnce(userId: string) {
     const existing = await this.prisma.userNotification.findFirst({
       where: { userId, type: WELCOME_NOTIFICATION_TYPE },
@@ -1192,10 +1282,12 @@ export class BillingService {
   }
 
   private async updateStatus(userId: string, providerStatus: string, appStatus: string) {
+    const before = await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } });
     await this.prisma.$transaction([
       this.prisma.billingSubscription.update({ where: { userId }, data: { providerStatus } }),
       this.prisma.user.update({ where: { id: userId }, data: { subscriptionStatus: appStatus, subscriptionUpdatedAt: new Date() } }),
     ]);
+    await this.recordStatusTransition(userId, before?.subscriptionStatus, appStatus, 'student:cancel');
   }
 
   private async ensureCustomer(userId: string, name: string, email: string, cpf: string) {
