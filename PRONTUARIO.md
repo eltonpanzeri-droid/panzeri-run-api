@@ -1327,6 +1327,19 @@ Contrato completo, endpoints `/leo/*`, limitações e o incidente abaixo: `RUNBO
 
 ---
 
+**2026-09-20 — Bug "gerei o treino e não aparece; diz 'Sua semana está liberada'" (domingo à noite).**
+Causa raiz (provada, no app — o servidor estava certo): `planStartsInFuture()` (App.tsx) comparava a data do plano com
+"amanhã" calculado em data LOCAL do aparelho e convertido com `toISOString()` (UTC). De domingo 21:00 a 23:59 (BRT) o UTC
+já é segunda: "amanhã" pulava um dia e o plano recém-gerado (início 21/09) era tratado como "não futuro" — o override de
+domingo-à-tarde (`isSundayAfterNoon`) escondia o plano e mostrava o botão de gerar, embora o treino existisse e aparecesse no
+admin. Só acontecia nas 3 últimas horas do domingo (horário comum para gerar a semana). Correção: `apps/mobile/src/weekWindow.ts`
+(sempre fuso de São Paulo) + teste de regressão `test/week-window.spec.ts` (18 casos em 3 fusos; a regra antiga falha às 21:00,
+21:31 e 23:59). Efeito colateral a checar: quem tocou "Gerar treino da semana" de novo nessa janela pode ter gasto tentativas
+(limite 2/semana) — liberar manualmente se pedirem. Achado adjacente NÃO corrigido: `App.tsx` (tela de provas-alvo) usa
+`new Date().toISOString().slice(0,10)` — mesma classe, impacto menor.
+
+---
+
 ## Onde as coisas estão agora (2026-09-11) — leitura rápida pra quem chega de fora
 
 **Produto em produção, sendo usado por alunas reais**: a versão web/PWA, em

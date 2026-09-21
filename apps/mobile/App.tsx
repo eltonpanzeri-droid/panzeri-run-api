@@ -8,6 +8,7 @@ import Constants from 'expo-constants';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { parseJourneyFromSearch, resolveJourney } from './src/journey';
+import { planStartsInFuture } from './src/weekWindow';
 import { BrandMark } from './theme/BrandMark';
 import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
@@ -9525,16 +9526,9 @@ function isSundayAfterNoon() {
   return weekday === 'Sun' && hour >= 12;
 }
 
-// Distingue o plano antigo (que ainda cobre o proprio domingo) do plano novo ja gerado pelo
-// botao nesta mesma sessao — sem isso, o override de domingo-a-tarde esconderia o plano recem
-// gerado tambem, ja que ele nao olha o conteudo de "plan", so o horario. Um plano cuja data de
-// inicio ja e no futuro (amanha em diante) e sempre o novo, gerado pelo toque no botao.
-function planStartsInFuture(plan: { startDate?: string } | null) {
-  if (!plan?.startDate) return false;
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return plan.startDate.slice(0, 10) >= tomorrow.toISOString().slice(0, 10);
-}
+// planStartsInFuture (distingue o plano antigo, que ainda cobre o proprio domingo, do plano novo ja
+// gerado pelo botao) foi movido para ./src/weekWindow.ts em 20/09: a versao anterior misturava data
+// local com UTC e, de domingo 21:00 a 23:59 (BRT), escondia o plano recem-gerado.
 
 // Texto exibido no override de domingo-a-tarde (offset 0 ainda nao tem dados de verdade pra
 // mostrar, ja que a semana seguinte so existe depois do toque no botao) — so pra dar uma nocao

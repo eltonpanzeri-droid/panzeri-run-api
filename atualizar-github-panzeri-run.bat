@@ -306,6 +306,8 @@ copy /Y "%ORIGEM%apps\api\src\landing\data.ts" "%DESTINO%\apps\api\src\landing\d
 copy /Y "%ORIGEM%apps\api\src\landing\styles.ts" "%DESTINO%\apps\api\src\landing\styles.ts"
 if not exist "%DESTINO%\apps\mobile\src" mkdir "%DESTINO%\apps\mobile\src"
 copy /Y "%ORIGEM%apps\mobile\src\journey.ts" "%DESTINO%\apps\mobile\src\journey.ts"
+copy /Y "%ORIGEM%apps\mobile\src\weekWindow.ts" "%DESTINO%\apps\mobile\src\weekWindow.ts"
+copy /Y "%ORIGEM%apps\api\test\week-window.spec.ts" "%DESTINO%\apps\api\test\week-window.spec.ts"
 copy /Y "%ORIGEM%apps\api\jest.config.ts" "%DESTINO%\apps\api\jest.config.ts"
 copy /Y "%ORIGEM%apps\api\test\links-page.spec.ts" "%DESTINO%\apps\api\test\links-page.spec.ts"
 copy /Y "%ORIGEM%apps\api\test\funnel.spec.ts" "%DESTINO%\apps\api\test\funnel.spec.ts"
