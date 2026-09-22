@@ -825,7 +825,8 @@ model FunnelEvent {
   user       User?    @relation(fields: [userId], references: [id])
   // Tipo do evento: app_opened | signup_started | signup_error | signup_completed |
   // interview_started | question_answered | question_error | interview_completed |
-  // payment_started | payment_completed
+  // payment_started | payment_completed | landing_view | landing_cta_click | journey_linked |
+  // routine_configured | first_plan_generated (22/09: fecha o funil pos-pagamento pro Leo/Intelligence)
   event      String
   // Qual pergunta da entrevista (key da pergunta, ex: 'personal_weight') — so em question_*
   questionId String?

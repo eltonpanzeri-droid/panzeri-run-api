@@ -2803,6 +2803,9 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
           return;
         }
         setRoutineFirstTime(Boolean(data?.firstTime));
+        // Rastreamento de funil (22/09): aluno confirmou a rotina semanal (dias/horarios de treino).
+        // Fora do guard de "aborted" acima de proposito — so' chega aqui quando a rotina foi salva de verdade.
+        trackFunnel('routine_configured');
       }
       if (mode === 'onboarding') trackFunnel('interview_completed');
       setFinished(true);

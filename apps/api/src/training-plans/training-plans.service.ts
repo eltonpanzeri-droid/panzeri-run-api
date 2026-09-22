@@ -426,6 +426,16 @@ export class TrainingPlansService {
     if (!availability.length) return;
 
     await this.generateWeek(userId);
+    // Rastreamento de funil (22/09, pedido do Leo/Intelligence): fecha o funil pos-pagamento. Disparado
+    // aqui (servidor) e nao pelo cliente porque este metodo e' o unico gate real de "primeira semana" —
+    // roda em varios gatilhos diferentes (pagamento confirmado, rotina configurada, anamnese) e so'
+    // chega neste ponto quando generateWeek() realmente teve sucesso pela primeira vez. dedupeKey
+    // protege contra o raro caso de dois gatilhos concorrentes chegarem aqui quase juntos.
+    // sessionId/journeyId nao existem neste contexto (chamada server-side, sem requisicao HTTP do
+    // cliente) — identidade e resolvida direto por userId em /leo/journey-events, sem precisar deles.
+    await this.prisma.funnelEvent.create({
+      data: { sessionId: `backend:${userId}`, userId, event: 'first_plan_generated', dedupeKey: `first_plan_generated:${userId}` },
+    }).catch(() => undefined);
   }
 
   async generateWeek(

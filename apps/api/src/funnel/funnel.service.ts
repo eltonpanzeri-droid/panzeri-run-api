@@ -25,6 +25,12 @@ const KNOWN_EVENTS = new Set([
   'landing_cta_click',
   // Vinculo journeyId <-> userId (gravado pelo servidor a partir do JWT — ver linkJourney).
   'journey_linked',
+  // Onboarding pos-pagamento (22/09, fecha o funil completo pro Leo/Intelligence):
+  //  routine_configured   = aluno confirmou a rotina semanal (dias/horarios de treino)
+  //  first_plan_generated = a primeira semana de treinos foi gerada com sucesso (servidor,
+  //                         dentro do gate generateFirstWeekIfNeeded — nunca dispara de novo)
+  'routine_configured',
+  'first_plan_generated',
 ]);
 
 // Ordem do funil para exibicao no painel.

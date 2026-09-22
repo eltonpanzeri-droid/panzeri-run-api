@@ -1,4 +1,4 @@
-import { LeoService } from '../src/leo/leo.service';
+import { LEO_JOURNEY_EVENTS, LeoService } from '../src/leo/leo.service';
 
 type Dict = Record<string, jest.Mock>;
 const d = (iso: string) => new Date(iso);
@@ -6,6 +6,12 @@ const d = (iso: string) => new Date(iso);
 function service(prisma: Record<string, unknown>) {
   return new LeoService(prisma as never);
 }
+
+describe('/leo/journey-events — allowlist do funil pos-pagamento (22/09)', () => {
+  it('inclui interview_completed, routine_configured e first_plan_generated', () => {
+    expect(LEO_JOURNEY_EVENTS).toEqual(expect.arrayContaining(['interview_completed', 'routine_configured', 'first_plan_generated']));
+  });
+});
 
 describe('/leo/daily-summary — contrato preservado + breakdown por provider', () => {
   it('mantem os 7 campos originais e acrescenta purchasesAsaas/purchasesRevenueCat; revenue nao ganha valor de RevenueCat', async () => {

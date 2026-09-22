@@ -61,6 +61,13 @@ Datas `YYYY-MM-DD`, fronteiras no dia de **Brasília (UTC-3)**.
     dados pessoais individualizados"). Só vem preenchido quando `identity==='identified'`; em
     `anonymous`/`ambiguous` fica `null` (nunca um palpite sobre qual pessoa). `fbclid`/`gclid`/`_fbp`/`_fbc`
     continuam nunca expostos — a mudança foi específica para o nome, não uma reversão geral de privacidade.
+  - **22/09: allowlist ampliada com `interview_completed` (já existia como FunnelEvent, só não estava
+    listado aqui), `routine_configured` (novo, disparado pelo app no mesmo ponto que `interview_completed`)
+    e `first_plan_generated` (novo, disparado pelo **servidor** dentro de `generateFirstWeekIfNeeded()` —
+    o único gate real de "primeira semana", chamado a partir de múltiplos gatilhos [pagamento, rotina,
+    anamnese]; dispara só quando `generateWeek()` teve sucesso pela primeira vez, com `dedupeKey` contra
+    corrida entre gatilhos concorrentes). Fecha o funil pós-pagamento: clicou na landing → app → cadastrou
+    → pagou → respondeu entrevista → configurou rotina → gerou 1ª semana.
 - `GET /leo/commercial-events?from&to&limit&after&includeBaseline` — `status_changed`/`payment_confirmed` com `value` (só Asaas), `origin`, `isFirstPurchase`, `stateAfter`, `journeyIds`; mais `firstPurchases` (Asaas **e** RevenueCat).
 - `GET /leo/landing-summary?from&to` — visitas/jornadas/sessões, por origem+conteúdo, e **coorte** de jornadas novas (1ª `landing_view` de sempre no período) com `landingViewed, ctaClicked, appOpened, signedUp, firstPurchase` (jornadas distintas, vinculadas por `journeyId`). **Nenhuma taxa é calculada.**
 

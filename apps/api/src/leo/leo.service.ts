@@ -15,6 +15,12 @@ export const LEO_JOURNEY_EVENTS = [
   'journey_linked',
   'payment_started',
   'payment_completed',
+  // 22/09: fecha o funil pos-pagamento — entrevista, rotina e primeira semana gerada.
+  // interview_completed ja existia como FunnelEvent (disparado pelo app desde antes desta fundacao),
+  // so' nao estava nesta allowlist — nada mudou em como/quando ele e' gravado.
+  'interview_completed',
+  'routine_configured',
+  'first_plan_generated',
 ] as const;
 
 // Somente estes campos de origem saem do metadata. fbclid/gclid/_fbp/_fbc/sessionId sao identificadores
