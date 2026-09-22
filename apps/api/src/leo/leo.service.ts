@@ -38,7 +38,7 @@ function chunk<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-type CommercialContext = { facts: CommercialUserFacts; events: BillingLogEvent[]; firstPaidPaymentId: string | null };
+type CommercialContext = { facts: CommercialUserFacts; events: BillingLogEvent[]; firstPaidPaymentId: string | null; name: string };
 
 // Brasil = UTC-3, sem horário de verão. Dia local começa às 03:00 UTC.
 const BRT_OFFSET_MS = 3 * 60 * 60 * 1000;
@@ -216,6 +216,7 @@ export class LeoService {
           where: { id: { in: ids } },
           select: {
             id: true,
+            name: true,
             createdAt: true,
             subscriptionStatus: true,
             subscriptionUpdatedAt: true,
@@ -246,6 +247,7 @@ export class LeoService {
           },
           events: eventsByUser.get(u.id) ?? [],
           firstPaidPaymentId: u.billingSubscription?.firstPaidPaymentId ?? null,
+          name: u.name,
         });
       }
     }
@@ -305,9 +307,10 @@ export class LeoService {
       // mais de uma pessoa usou este navegador/jornada (nao chutamos qual).
       const identity = people.length === 0 ? 'anonymous' : people.length === 1 ? 'identified' : 'ambiguous';
       let commercial: CommercialStateResult | null = null;
+      let personContext: CommercialContext | undefined;
       if (identity === 'identified') {
-        const ctx = contexts.get(people[0]);
-        if (ctx) commercial = deriveCommercialState(ctx.events, ctx.facts, r.createdAt, logStart);
+        personContext = contexts.get(people[0]);
+        if (personContext) commercial = deriveCommercialState(personContext.events, personContext.facts, r.createdAt, logStart);
       }
       const meta = (r.metadata && typeof r.metadata === 'object' && !Array.isArray(r.metadata) ? r.metadata : {}) as Record<string, unknown>;
       return {
@@ -319,6 +322,10 @@ export class LeoService {
         userId: r.userId,
         identity,
         personId: identity === 'identified' ? people[0] : null,
+        // 22/09: nome do aluno, pedido explicito confirmado com o treinador — reverte a regra original
+        // de "so agregado, sem PII" deste endpoint. So preenchido quando identity==='identified' (nunca
+        // um palpite sobre qual pessoa, em jornada ambigua).
+        name: personContext?.name ?? null,
         ...originOf(r.metadata),
         // Elo deterministico entre dois navegadores/jornadas (URL da Landing trouxe outra jornada).
         linkedFromJourneyId: typeof meta.linkedFromJourneyId === 'string' ? meta.linkedFromJourneyId : null,

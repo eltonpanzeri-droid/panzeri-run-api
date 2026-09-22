@@ -55,7 +55,12 @@ Datas `YYYY-MM-DD`, fronteiras no dia de **Brasília (UTC-3)**.
 
 - `GET /leo/daily-summary?date=` — inalterado + `purchasesAsaas`, `purchasesRevenueCat` (provider da 1ª compra vem do `firstPaidPaymentId`, imutável; `provider` é sobrescrito por checkout/cupom).
 - `GET /leo/attribution?from&to` — agregado por `source/medium/campaign` de quem se cadastrou no período; `withAttribution + withoutAttribution = totalStudents`. "Com atribuição" = ao menos um sinal de origem (não conta `sessionId`/`_fbp`).
-- `GET /leo/journey-events?from&to&event&limit(≤2000)&after` — eventos de jornada em ordem cronológica. Por evento: `journeyId, sessionId, userId (registrado), identity (anonymous|identified|ambiguous), personId, source, medium, campaign, content, term, referrer, linkedFromJourneyId, via, commercialState, subscriptionStatus, commercialBasis`. Allowlist de eventos; **não** expõe interview/perguntas/erros, `fbclid`, `gclid`, `_fbp`, `_fbc`.
+- `GET /leo/journey-events?from&to&event&limit(≤2000)&after` — eventos de jornada em ordem cronológica. Por evento: `journeyId, sessionId, userId (registrado), identity (anonymous|identified|ambiguous), personId, name, source, medium, campaign, content, term, referrer, linkedFromJourneyId, via, commercialState, subscriptionStatus, commercialBasis`. Allowlist de eventos; **não** expõe interview/perguntas/erros, `fbclid`, `gclid`, `_fbp`, `_fbc`.
+  - **22/09: `name` (User.name) adicionado por pedido explícito, confirmado com o treinador — reverte a
+    regra original de "só agregado, sem PII" deste endpoint (§CI-002 original: "não precisamos expor
+    dados pessoais individualizados"). Só vem preenchido quando `identity==='identified'`; em
+    `anonymous`/`ambiguous` fica `null` (nunca um palpite sobre qual pessoa). `fbclid`/`gclid`/`_fbp`/`_fbc`
+    continuam nunca expostos — a mudança foi específica para o nome, não uma reversão geral de privacidade.
 - `GET /leo/commercial-events?from&to&limit&after&includeBaseline` — `status_changed`/`payment_confirmed` com `value` (só Asaas), `origin`, `isFirstPurchase`, `stateAfter`, `journeyIds`; mais `firstPurchases` (Asaas **e** RevenueCat).
 - `GET /leo/landing-summary?from&to` — visitas/jornadas/sessões, por origem+conteúdo, e **coorte** de jornadas novas (1ª `landing_view` de sempre no período) com `landingViewed, ctaClicked, appOpened, signedUp, firstPurchase` (jornadas distintas, vinculadas por `journeyId`). **Nenhuma taxa é calculada.**
 

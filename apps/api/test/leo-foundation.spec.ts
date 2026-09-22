@@ -103,7 +103,7 @@ describe('/leo/journey-events — identidade, tempo e estado comercial historico
         .mockResolvedValueOnce(events)                                             // pagina de eventos
         .mockResolvedValueOnce([{ journeyId: 'J1', userId: 'U1' }]),               // vinculos
     },
-    user: { findMany: jest.fn().mockResolvedValue([{ id: 'U1', createdAt: T('2026-09-20'), subscriptionStatus: 'active', subscriptionUpdatedAt: T('2026-09-25'), studentCode: 1, billingSubscription: { firstPaidAt: T('2026-09-25'), firstPaidPaymentId: 'pay_1' } }]) },
+    user: { findMany: jest.fn().mockResolvedValue([{ id: 'U1', name: 'Ana Aluna', createdAt: T('2026-09-20'), subscriptionStatus: 'active', subscriptionUpdatedAt: T('2026-09-25'), studentCode: 1, billingSubscription: { firstPaidAt: T('2026-09-25'), firstPaidPaymentId: 'pay_1' } }]) },
     billingEvent: {
       findMany: jest.fn().mockResolvedValue([
         { userId: 'U1', event: 'baseline_snapshot', prevStatus: null, nextStatus: 'pending', timestamp: T('2026-09-19'), externalRef: 'baseline:no_access' },
@@ -137,6 +137,15 @@ describe('/leo/journey-events — identidade, tempo e estado comercial historico
     const json = JSON.stringify(r);
     expect(json).not.toMatch(/SEGREDO|fbclid|_fbp|"P"/);
     expect(r.events[0]).toMatchObject({ source: 'instagram', medium: 'story', campaign: 'c', content: 'x', term: null, referrer: null });
+  });
+
+  // 22/09: pedido explicito e confirmado com o treinador — reverte a regra original de "so agregado,
+  // sem PII" so' para o campo name. fbclid/_fbp continuam nunca expostos (teste acima).
+  it('name: preenchido quando a pessoa e identificada, null quando anonima/ambigua — nunca um palpite', async () => {
+    const r = await service(prismaFor()).getJourneyEvents({});
+    const byId = Object.fromEntries(r.events.map((e) => [e.id, e]));
+    expect(byId.e1.name).toBe('Ana Aluna');   // identified (U1, via vinculo de jornada)
+    expect(byId.e5.name).toBeNull();          // anonymous (jornada J2 nunca vinculada)
   });
 
   it('O — origem ausente permanece null (nada inventado)', async () => {
