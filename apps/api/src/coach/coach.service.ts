@@ -536,13 +536,17 @@ export class CoachService {
     return { message: 'Entrevista liberada para revisao.' };
   }
 
-  async dashboard(input: { search: string; page: number; pageSize: number; includeArchived?: boolean }) {
+  async dashboard(input: { search: string; page: number; pageSize: number; includeArchived?: boolean; paymentGroup?: string; trainingStatus?: string }) {
     // Reparo de emergencia (03/08) do incidente de planos "agendados" presos — ver comentario
     // detalhado em fixAllStuckScheduledPlans. So troca status no banco, nao chama IA.
     await this.trainingPlans.fixAllStuckScheduledPlans().catch((error) => {
       this.logger.warn(`fixAllStuckScheduledPlans falhou (nao bloqueante): ${(error as Error).message}`);
     });
-    const studentWhere: Prisma.UserWhereInput = {
+    // baseStudentWhere: populacao usada pro breakdown de pagamento (paymentConfirmed/courtesyAccess/
+    // etc, exibidos sempre juntos independente de qual grupo esta selecionado no filtro) e pro grand
+    // total. studentWhere: a MESMA coisa + o grupo de pagamento escolhido, usada pra decidir quem
+    // realmente entra na Lista operacional agora.
+    const baseStudentWhere: Prisma.UserWhereInput = {
       role: 'student',
       // 18/08: quem nunca pagou (nem recebeu cortesia) e' prospecto, nao aluno — fica de fora da
       // lista operacional principal. Ver CoachService.prospects() pra essas pessoas, com nivel de
@@ -568,15 +572,32 @@ export class CoachService {
         ],
       } : {}),
     };
+    // 23/09: 'manual_active' (cortesia/liberacao manual) e' um grupo PROPRIO, separado de
+    // 'active'/'grace' (pagamento de verdade via Asaas/RevenueCat) — ver mesma correcao no filtro
+    // do admin (page.tsx paymentGroupOf). 'pending'/'canceled' nunca aparecem aqui (baseStudentWhere
+    // ja os exclui), entao nao tem grupo pra eles neste endpoint.
+    const paymentGroupWhere: Prisma.UserWhereInput =
+      input.paymentGroup === 'confirmed' ? { subscriptionStatus: { in: ['active', 'grace'] } }
+      : input.paymentGroup === 'courtesy' ? { subscriptionStatus: 'manual_active' }
+      : input.paymentGroup === 'overdue' ? { subscriptionStatus: 'overdue' }
+      : {};
+    const studentWhere: Prisma.UserWhereInput = { ...baseStudentWhere, ...paymentGroupWhere };
     const weekStart = coachWeekStart(new Date());
     const weekEnd = addDays(weekStart, 6);
     weekEnd.setUTCHours(23, 59, 59, 999);
-    const [students, filteredCount, totalStudents, activePlanUsers, prescribedSessions, eligibleSessions, completedSessions, differentSessions, paymentConfirmed, courtesyAccess, paymentOverdue, paymentPending, plansCreatedThisWeekUsers] = await Promise.all([
+    const [allMatching, totalStudents, activePlanUsers, prescribedSessions, eligibleSessions, completedSessions, differentSessions, paymentConfirmed, courtesyAccess, paymentOverdue, paymentPending, plansCreatedThisWeekUsers] = await Promise.all([
+      // 23/09: SEM skip/take — antes a lista vinha paginada direto do banco (25 por vez) e os
+      // filtros de Treino/Pagamento eram aplicados so' em cima dessa pagina no cliente, entao a
+      // contagem exibida (e ate' quem aparecia) ficava restrita a quem coube na pagina, nao ao
+      // total real daquela divisao (bug real relatado 23/09: "Treino gerado" mostrava 16 numa
+      // pagina e 10 na outra, mas o cabecalho nunca somava). Agora busca TODOS os que batem com
+      // studentWhere (pagamento ja filtrado + busca por nome/email), calcula o status de treino de
+      // cada um (precisa do plano/sessoes, por isso o include abaixo), e so' DEPOIS filtra por
+      // trainingStatus e pagina em memoria. Custo aceitavel no tamanho atual da operacao (dezenas de
+      // alunas, nao milhares) — revisitar se a base crescer muito (ver auditoria de escala).
       this.prisma.user.findMany({
       where: studentWhere,
       orderBy: { createdAt: 'desc' },
-      skip: (input.page - 1) * input.pageSize,
-      take: input.pageSize,
       include: {
         preferences: true,
         tests: {
@@ -601,27 +622,26 @@ export class CoachService {
         _count: { select: { plans: true } },
       },
       }),
-      this.prisma.user.count({ where: studentWhere }),
       this.prisma.user.count({ where: { role: 'student', subscriptionStatus: { notIn: ['pending', 'canceled'] }, ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }) } }),
       this.prisma.trainingPlan.findMany({ where: { status: 'active' }, distinct: ['userId'], select: { userId: true } }),
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: weekEnd }, plan: { status: 'active' } } }),
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } }),
       this.prisma.workoutCompletion.count({ where: { status: { in: ['done', 'adjusted'] }, session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } } }),
       this.prisma.workoutCompletion.count({ where: { status: 'adjusted', session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } } }),
-      this.prisma.user.count({ where: { ...studentWhere, subscriptionStatus: { in: ['active', 'grace'] } } }),
-      this.prisma.user.count({ where: { ...studentWhere, subscriptionStatus: 'manual_active' } }),
-      this.prisma.user.count({ where: { ...studentWhere, subscriptionStatus: 'overdue' } }),
-      this.prisma.user.count({ where: { ...studentWhere, subscriptionStatus: 'pending' } }),
+      this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: { in: ['active', 'grace'] } } }),
+      this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: 'manual_active' } }),
+      this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: 'overdue' } }),
+      this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: 'pending' } }),
       this.prisma.trainingPlan.findMany({ where: { status: 'active', createdAt: { gte: weekStart } }, distinct: ['userId'], select: { userId: true } }),
     ]);
 
     const stravaConnections = await this.prisma.stravaConnection.findMany({
-      where: { userId: { in: students.map((student) => student.id) } },
+      where: { userId: { in: allMatching.map((student) => student.id) } },
       select: { userId: true, updatedAt: true },
     });
     const stravaConnectionByUserId = new Map(stravaConnections.map((connection) => [connection.userId, connection]));
 
-    const rows = students.map((student) => {
+    const allRows = allMatching.map((student) => {
       const plan = student.plans[0] ?? null;
       const summary = plan ? summarizeSessions(plan.sessions) : emptySummary();
       const stravaConnection = stravaConnectionByUserId.get(student.id);
@@ -653,6 +673,13 @@ export class CoachService {
       };
     });
 
+    // trainingStatus so' existe calculado (statusFromSummary), entao o filtro por ele so' pode
+    // acontecer depois de montar allRows — nao da pra empurrar pro Prisma como o pagamento.
+    const filteredRows = input.trainingStatus
+      ? allRows.filter((row) => row.status === input.trainingStatus)
+      : allRows;
+    const pageRows = filteredRows.slice((input.page - 1) * input.pageSize, input.page * input.pageSize);
+
     return {
       totals: {
         students: totalStudents,
@@ -668,12 +695,14 @@ export class CoachService {
         paymentPending,
         plansCreatedThisWeek: plansCreatedThisWeekUsers.length,
       },
-      students: rows,
+      students: pageRows,
       pagination: {
         page: input.page,
         pageSize: input.pageSize,
-        totalItems: filteredCount,
-        totalPages: Math.max(Math.ceil(filteredCount / input.pageSize), 1),
+        // 23/09: total real da divisao filtrada (Treino + Pagamento juntos), nao mais so' quem
+        // coube na pagina. Ver comentario grande la em cima, no findMany sem skip/take.
+        totalItems: filteredRows.length,
+        totalPages: Math.max(Math.ceil(filteredRows.length / input.pageSize), 1),
       },
     };
   }

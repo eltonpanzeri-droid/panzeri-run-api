@@ -107,8 +107,10 @@ export class CoachController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('includeArchived') includeArchived?: string,
+    @Query('paymentGroup') paymentGroup?: string,
+    @Query('trainingStatus') trainingStatus?: string,
   ) {
-    return this.coachService.dashboard(parseDashboardQuery({ search, page, pageSize, includeArchived }));
+    return this.coachService.dashboard(parseDashboardQuery({ search, page, pageSize, includeArchived, paymentGroup, trainingStatus }));
   }
 
   @Post('students')

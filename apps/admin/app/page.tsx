@@ -556,7 +556,7 @@ export default function AdminHome() {
     if (!token) return;
     const timer = window.setTimeout(() => void loadDashboard(token, page, query), 350);
     return () => window.clearTimeout(timer);
-  }, [query, page, token, showArchived]);
+  }, [query, page, token, showArchived, paymentFilter, trainingFilter]);
 
   async function login() {
     setStatus('Entrando...');
@@ -609,9 +609,11 @@ export default function AdminHome() {
         const health = (await healthResponse.json()) as { version?: string };
         setApiVersion(health.version ?? 'API antiga');
       }
-      const params = new URLSearchParams({ page: String(requestedPage), pageSize: '25' });
+      const params = new URLSearchParams({ page: String(requestedPage), pageSize: '20' });
       if (search.trim()) params.set('search', search.trim());
       if (showArchived) params.set('includeArchived', '1');
+      if (paymentFilter !== 'all') params.set('paymentGroup', paymentFilter);
+      if (trainingFilter !== 'all') params.set('trainingStatus', trainingFilter);
       const response = await fetch(`${API_URL}/coach/dashboard?${params.toString()}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -1140,37 +1142,10 @@ export default function AdminHome() {
     );
   }
 
-  // 23/09: 'manual_active' (cortesia/liberacao manual) estava caindo no mesmo grupo de
-  // 'active'/'grace' (pagamento de verdade via Asaas/RevenueCat) — sao coisas diferentes, o
-  // dashboard.totals ja separa isso (paymentConfirmed vs courtesyAccess) mas o filtro nao.
-  const paymentGroupOf = (subscriptionStatus?: string) => {
-    if (subscriptionStatus === 'active' || subscriptionStatus === 'grace') return 'confirmed';
-    if (subscriptionStatus === 'manual_active') return 'courtesy';
-    if (subscriptionStatus === 'overdue') return 'overdue';
-    // 'pending'/'canceled' nunca aparecem aqui de verdade — a Lista operacional ja exclui os dois
-    // (viram Prospectos e Ex-alunos, respectivamente). Mantido so' por seguranca de tipo.
-    if (subscriptionStatus === 'canceled') return 'canceled';
-    return 'pending';
-  };
-  const filteredStudents = (dashboard?.students ?? []).filter((student) => {
-    const trainingOk = trainingFilter === 'all' || student.status === trainingFilter;
-    const paymentOk = paymentFilter === 'all' || paymentGroupOf(student.subscriptionStatus) === paymentFilter;
-    return trainingOk && paymentOk;
-  });
-  // Contagem exibida no cabecalho da lista. dashboard.totals ja e' calculado sobre TODOS os alunos
-  // que batem com o filtro de pagamento (nao so' a pagina atual carregada) — usar isso em vez de
-  // filteredStudents.length sempre que so' o filtro de Pagamento estiver ativo, senao o numero fica
-  // preso a quantos couberam na pagina (25 por vez) em vez do total real daquela divisao.
-  // Quando o filtro de Treino tambem esta ativo, nao existe um total pre-calculado por status de
-  // treino ainda — cai pro numero da pagina atual (melhor que o total geral fixo de antes, mas nao
-  // conta paginas seguintes; avisar se isso incomodar na pratica).
-  const paymentFilterTotal = paymentFilter === 'confirmed' ? dashboard?.totals.paymentConfirmed
-    : paymentFilter === 'courtesy' ? dashboard?.totals.courtesyAccess
-    : paymentFilter === 'overdue' ? dashboard?.totals.paymentOverdue
-    : null;
-  const listCount = trainingFilter !== 'all'
-    ? filteredStudents.length
-    : paymentFilterTotal ?? dashboard?.totals.students;
+  // 23/09: filtro de Treino/Pagamento agora e' aplicado no backend (dashboard.students ja vem
+  // filtrado + paginado corretamente) — ver coach.service.ts. dashboard.pagination.totalItems e' o
+  // total real da divisao inteira (todas as paginas), nao so' quem coube na pagina atual.
+  const listCount = dashboard?.pagination.totalItems ?? dashboard?.totals.students;
   const listCountIsFiltered = trainingFilter !== 'all' || paymentFilter !== 'all';
 
   return (
@@ -1371,12 +1346,12 @@ export default function AdminHome() {
                 <h2>Lista operacional{dashboard ? ` · ${listCount}${listCountIsFiltered ? ' encontrado(s)' : ' no total'}` : ''}</h2>
               </div>
               <button className="secondaryButton" type="button" onClick={() => setStudentListCollapsed((collapsed) => !collapsed)}>
-                {studentListCollapsed ? `Mostrar lista (${filteredStudents.length})` : 'Recolher lista'}
+                {studentListCollapsed ? `Mostrar lista (${dashboard?.students.length ?? 0})` : 'Recolher lista'}
               </button>
             </div>
             <div className="studentFilters">
               <label>Treino
-                <select value={trainingFilter} onChange={(event) => setTrainingFilter(event.target.value)}>
+                <select value={trainingFilter} onChange={(event) => { setTrainingFilter(event.target.value); setPage(1); }}>
                   <option value="all">Todos</option>
                   <option value="Nunca gerou treino">Nunca gerou treino</option>
                   <option value="Aguardando aluna gerar treino">Aguardando aluna gerar treino</option>
@@ -1389,7 +1364,7 @@ export default function AdminHome() {
                 {/* 23/09: "Pendente"/"Cancelado" removidos daqui de proposito — a Lista operacional
                     ja exclui quem esta pending (vira Prospecto) ou canceled (vira Ex-aluno), entao
                     esses dois nunca teriam nenhum resultado nesta tela especifica. */}
-                <select value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)}>
+                <select value={paymentFilter} onChange={(event) => { setPaymentFilter(event.target.value); setPage(1); }}>
                   <option value="all">Todos</option>
                   <option value="confirmed">Confirmado</option>
                   <option value="courtesy">Cortesia / liberacao manual</option>
@@ -1438,7 +1413,7 @@ export default function AdminHome() {
                 <span>Assinatura</span>
                 <span></span>
               </div>
-              {filteredStudents.map((student) => (
+              {(dashboard?.students ?? []).map((student) => (
                 <div className={`row rowButton ${selectedStudentId === student.id ? 'selected' : ''}`} key={student.id} onClick={() => goToStudent(student.id)}>
                   <span>
                     <strong>{student.name} <small className="studentCodeTag">Cod. {student.studentCode}</small></strong>
