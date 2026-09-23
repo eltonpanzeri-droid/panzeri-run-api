@@ -9,6 +9,38 @@ function monthKey(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+// 24/09: resolve a lista de "fim de mes" (UTC) a percorrer. Com from/to (formato 'YYYY-MM',
+// personalizado), usa exatamente esse intervalo; sem eles, cai no atalho de "ultimos N meses ate
+// hoje". Span sempre limitado a 36 meses (3 anos) — protecao simples contra um intervalo digitado
+// errado gerar milhares de iteracoes.
+function resolveMonthRange(params: { months?: number; from?: string; to?: string }): Date[] {
+  if (params.from && MONTH_RE.test(params.from)) {
+    const [fromYear, fromMonth] = params.from.split('-').map(Number);
+    const toStr = params.to && MONTH_RE.test(params.to) ? params.to : monthKey(new Date());
+    const [toYear, toMonth] = toStr.split('-').map(Number);
+    // fromMonth/toMonth sao 1-12; totalMonthIndex conta meses corridos desde o ano 0 pra iterar sem
+    // reconstruir Date a cada passo (evita misturar construtor local com Date.UTC).
+    const startIndex = fromYear * 12 + (fromMonth - 1);
+    const endIndex = toYear * 12 + (toMonth - 1);
+    const months: Date[] = [];
+    for (let index = startIndex; index <= endIndex && months.length < 36; index++) {
+      const year = Math.floor(index / 12);
+      const monthZeroBased = index % 12;
+      months.push(new Date(Date.UTC(year, monthZeroBased + 1, 0, 23, 59, 59, 999)));
+    }
+    return months;
+  }
+  const clampedMonths = Math.min(Math.max(Math.trunc(params.months ?? 12) || 12, 1), 24);
+  const now = new Date();
+  const monthEnds: Date[] = [];
+  for (let i = clampedMonths - 1; i >= 0; i--) {
+    monthEnds.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i + 1, 0, 23, 59, 59, 999)));
+  }
+  return monthEnds;
+}
+
 function weekKey(d: Date): string {
   // Segunda-feira da semana (UTC), mesmo criterio de coachWeekStart usado no resto do sistema.
   const day = d.getUTCDay();
@@ -75,11 +107,17 @@ export class BusinessIntelligenceService {
 
   // Evolucao mensal: quantos alunos em cada grupo de pagamento no FIM de cada mes + receita recebida
   // naquele mes (soma de BillingEvent.payment_confirmed.value, so' Asaas — RevenueCat nao tem valor
-  // confiavel, nunca inventado). Meses anteriores ao inicio do log de eventos (baseline_snapshot) que
-  // nao puderem ser resolvidos com seguranca aparecem com coverage 'partial'/'insufficient' em vez de
-  // um numero fabricado — "sem dado" precisa continuar significando "sem dado", nao zero.
-  async getMonthlyEvolution(months: number) {
-    const clampedMonths = Math.min(Math.max(Math.trunc(months) || 12, 1), 24);
+  // confiavel, nunca inventado) + novos prospectos (cadastros novos naquele mes, independente do que
+  // viraram depois — todo mundo entra como prospecto no signup). Meses anteriores ao inicio do log de
+  // eventos (baseline_snapshot) que nao puderem ser resolvidos com seguranca aparecem com coverage
+  // 'partial'/'insufficient' em vez de um numero fabricado — "sem dado" precisa continuar
+  // significando "sem dado", nao zero.
+  //
+  // 24/09: periodo agora aceita from/to (formato 'YYYY-MM', personalizado) alem do atalho `months`
+  // (ultimos N meses ate hoje) — pedido explicito: "sempre que tiver periodo, deve ter forma de
+  // personalizar".
+  async getMonthlyEvolution(params: { months?: number; from?: string; to?: string }) {
+    const monthEnds = resolveMonthRange(params);
     const [contexts, logStart, paymentEvents] = await Promise.all([
       this.loadContexts(),
       this.logStartedAt(),
@@ -88,12 +126,6 @@ export class BusinessIntelligenceService {
         select: { timestamp: true, value: true },
       }),
     ]);
-
-    const now = new Date();
-    const monthEnds: Date[] = [];
-    for (let i = clampedMonths - 1; i >= 0; i--) {
-      monthEnds.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i + 1, 0, 23, 59, 59, 999)));
-    }
 
     const revenueByMonth = new Map<string, number>();
     for (const p of paymentEvents) {
@@ -108,12 +140,15 @@ export class BusinessIntelligenceService {
 
     return monthEnds.map((monthEnd) => {
       const key = monthKey(monthEnd);
+      const monthStart = new Date(Date.UTC(monthEnd.getUTCFullYear(), monthEnd.getUTCMonth(), 1, 0, 0, 0, 0));
       const groups = emptyGroups();
       let resolvedCount = 0;
       let totalCount = 0;
+      let newProspects = 0;
       for (const ctx of contexts.values()) {
         if (ctx.facts.createdAt.getTime() > monthEnd.getTime()) continue; // aluno ainda nao existia neste mes
         totalCount += 1;
+        if (ctx.facts.createdAt.getTime() >= monthStart.getTime()) newProspects += 1;
         const result = deriveCommercialState(ctx.events, ctx.facts, monthEnd, logStart);
         const group = result.basis === 'insufficient_history' ? 'desconhecido' : paymentGroupOf(result.subscriptionStatus);
         groups[group] += 1;
@@ -125,6 +160,7 @@ export class BusinessIntelligenceService {
         totalStudentsThatExisted: totalCount,
         coverage,
         groups,
+        newProspects,
         revenueReceivedCents: Math.round((revenueByMonth.get(key) ?? 0) * 100),
       };
     });
@@ -144,14 +180,24 @@ export class BusinessIntelligenceService {
   //     archived quando ela TEM completion (foi de fato registrada em algum momento).
   // "Nao realizado" so' conta sessao cuja data ja passou — sessao futura nao e' "perdida", ainda nao
   // chegou.
-  async getTrainingEvolution(weeks: number) {
-    const clampedWeeks = Math.min(Math.max(Math.trunc(weeks) || 12, 1), 26);
-    const since = new Date();
-    since.setUTCDate(since.getUTCDate() - clampedWeeks * 7);
-    const now = new Date();
+  // 24/09: aceita from/to (datas 'YYYY-MM-DD', personalizado) alem do atalho `weeks` (ultimas N
+  // semanas ate hoje) — mesmo principio aplicado em getMonthlyEvolution.
+  async getTrainingEvolution(params: { weeks?: number; from?: string; to?: string }) {
+    const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    let since: Date;
+    let until: Date;
+    if (params.from && DATE_RE.test(params.from)) {
+      since = new Date(`${params.from}T00:00:00.000Z`);
+      until = params.to && DATE_RE.test(params.to) ? new Date(`${params.to}T23:59:59.999Z`) : new Date();
+    } else {
+      const clampedWeeks = Math.min(Math.max(Math.trunc(params.weeks ?? 12) || 12, 1), 26);
+      since = new Date();
+      since.setUTCDate(since.getUTCDate() - clampedWeeks * 7);
+      until = new Date();
+    }
 
     const rawSessions = await this.prisma.trainingSession.findMany({
-      where: { scheduledDate: { gte: since } },
+      where: { scheduledDate: { gte: since, lte: until } },
       select: {
         id: true,
         scheduledDate: true,
@@ -183,7 +229,7 @@ export class BusinessIntelligenceService {
         continue;
       }
       bucket.prescribed += 1;
-      const isPast = session.scheduledDate.getTime() <= now.getTime();
+      const isPast = session.scheduledDate.getTime() <= until.getTime();
       if (isPast) bucket.eligible += 1;
       if (session.completion?.status === 'done') bucket.completed += 1;
       else if (session.completion?.status === 'adjusted') { bucket.completed += 1; bucket.adjusted += 1; }

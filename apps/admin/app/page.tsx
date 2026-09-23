@@ -376,6 +376,7 @@ interface MonthlyEvolutionPoint {
   totalStudentsThatExisted: number;
   coverage: 'empty' | 'full' | 'partial' | 'insufficient';
   groups: { confirmed: number; courtesy: number; overdue: number; pending: number; canceled: number; desconhecido: number };
+  newProspects: number;
   revenueReceivedCents: number;
 }
 interface WeeklyTrainingEvolutionPoint {
@@ -455,7 +456,10 @@ export default function AdminHome() {
   const [finance, setFinance] = useState<FinanceResponse | null>(null);
   const [monthlyEvolution, setMonthlyEvolution] = useState<MonthlyEvolutionPoint[] | null>(null);
   const [trainingEvolution, setTrainingEvolution] = useState<WeeklyTrainingEvolutionPoint[] | null>(null);
-  const [evolutionMonths, setEvolutionMonths] = useState(6);
+  // 24/09: periodo agora suporta atalho (N meses/semanas ate hoje) OU intervalo personalizado
+  // (from/to) — pedido explicito: "sempre que tiver periodo, deve ter forma de personalizar".
+  const [businessPeriod, setBusinessPeriod] = useState<{ months: number } | { from: string; to: string }>({ months: 6 });
+  const [trainingPeriod, setTrainingPeriod] = useState<{ weeks: number } | { from: string; to: string }>({ weeks: 12 });
   const [prospects, setProspects] = useState<{ totals: { total: number; quente: number; morno: number; frio: number }; prospects: ProspectRow[] } | null>(null);
   const [exStudents, setExStudents] = useState<{ total: number; exStudents: ExStudentRow[] } | null>(null);
   // 04/09: lista de testadores gratuitos (Play Store) que o proprio treinador gerencia aqui, sem
@@ -722,16 +726,18 @@ export default function AdminHome() {
     else if (!loggedOut) setStatus('Nao consegui carregar o financeiro.');
   }
 
-  async function loadBusinessEvolution(accessToken = token, months = evolutionMonths) {
+  async function loadBusinessEvolution(accessToken = token, period = businessPeriod) {
     if (!accessToken) return;
-    const { data, loggedOut } = await authorizedGet<MonthlyEvolutionPoint[]>(`/coach/data/business/evolution?months=${months}`, accessToken);
+    const params = 'from' in period ? `from=${period.from}&to=${period.to}` : `months=${period.months}`;
+    const { data, loggedOut } = await authorizedGet<MonthlyEvolutionPoint[]>(`/coach/data/business/evolution?${params}`, accessToken);
     if (data) setMonthlyEvolution(data);
     else if (!loggedOut) setStatus('Nao consegui carregar a evolucao mensal.');
   }
 
-  async function loadTrainingEvolution(accessToken = token) {
+  async function loadTrainingEvolution(accessToken = token, period = trainingPeriod) {
     if (!accessToken) return;
-    const { data, loggedOut } = await authorizedGet<WeeklyTrainingEvolutionPoint[]>('/coach/data/training/evolution?weeks=12', accessToken);
+    const params = 'from' in period ? `from=${period.from}&to=${period.to}` : `weeks=${period.weeks}`;
+    const { data, loggedOut } = await authorizedGet<WeeklyTrainingEvolutionPoint[]>(`/coach/data/training/evolution?${params}`, accessToken);
     if (data) setTrainingEvolution(data);
     else if (!loggedOut) setStatus('Nao consegui carregar a evolucao de treino.');
   }
@@ -1306,14 +1312,27 @@ export default function AdminHome() {
 
         {activeView === 'dashboard' ? <section className="stats">
           <Stat label="Alunos" value={String(dashboard?.totals.students ?? 0)} detail={`${dashboard?.totals.activePlans ?? 0} com programa ativo`} onClick={() => { setPaymentFilter('all'); setTrainingFilter('all'); setPage(1); changeView('students'); }} />
-          <Stat label="Treinos propostos" value={String(dashboard?.totals.prescribedSessions ?? 0)} detail="semana atual" />
+          <Stat
+            label="Treinos propostos"
+            value={String(dashboard?.totals.prescribedSessions ?? 0)}
+            detail="sessões da semana atual"
+            info="Conta SESSÕES de treino (cada corrida, força etc.) prescritas para a semana atual, somando todos os alunos com programa ativo. Diferente de 'Semanas geradas': aqui é sessão individual, lá é aluno."
+          />
           <Stat label="Treinos feitos" value={String(dashboard?.totals.completedSessions ?? 0)} detail={`${dashboard?.totals.differentSessions ?? 0} diferentes`} />
           <Stat label="Aderencia media" value={`${dashboard?.totals.adherencePercent ?? 0}%`} detail="treinos propostos" />
           <Stat label="Pagamento em dia" value={String(dashboard?.totals.paymentConfirmed ?? 0)} detail="pagantes reais" onClick={() => goToStudentsFilteredByPayment('confirmed')} />
           <Stat label="Cortesia / liberacao manual" value={String(dashboard?.totals.courtesyAccess ?? 0)} detail="nao e pagamento" onClick={() => goToStudentsFilteredByPayment('courtesy')} />
           <Stat label="Pagamento atrasado" value={String(dashboard?.totals.paymentOverdue ?? 0)} detail="alunos" onClick={() => goToStudentsFilteredByPayment('overdue')} />
-          <Stat label="Pagamento pendente" value={String(dashboard?.totals.paymentPending ?? 0)} detail="ver em Prospectos" onClick={() => changeView('prospects')} />
-          <Stat label="Treinos criados" value={String(dashboard?.totals.plansCreatedThisWeek ?? 0)} detail="nesta semana" />
+          {/* 24/09: renomeado de "Pagamento pendente" pra "Prospectos" — pedido explicito do Elton.
+              Quem esta' pending nunca teve compromisso de pagamento (nao e' aluno ainda), entao nao
+              faz sentido misturar com atrasado/confirmado como se fosse um problema de cobranca. */}
+          <Stat label="Prospectos" value={String(dashboard?.totals.paymentPending ?? 0)} detail="ainda nao pagaram, sem compromisso" onClick={() => changeView('prospects')} />
+          <Stat
+            label="Semanas geradas"
+            value={String(dashboard?.totals.plansCreatedThisWeek ?? 0)}
+            detail="alunos com semana nova, nesta semana"
+            info="Conta ALUNOS (não sessões) que tiveram uma semana nova de treino gerada nos últimos dias. Diferente de 'Treinos propostos': aqui é aluno, lá é sessão individual — um aluno gera 1 semana, que pode ter 4, 5 ou 6 sessões dentro."
+          />
         </section> : null}
 
         {activeView === 'dashboard' ? (
@@ -1323,13 +1342,16 @@ export default function AdminHome() {
                 Evolução de alunos
                 <InfoIcon text="Reconstrói o estado comercial real de cada aluno no fim de cada mês, a partir do histórico de mudanças de status (nunca usa o status de hoje para reescrever o passado). Meses sem cobertura suficiente de dados aparecem marcados como parcial/sem dado, nunca como zero." />
               </h3>
-              <div className="chartPeriodPicker">
-                {[3, 6, 12, 24].map((m) => (
-                  <button key={m} type="button" className={evolutionMonths === m ? 'active' : ''} onClick={() => { setEvolutionMonths(m); void loadBusinessEvolution(token, m); }}>
-                    {m}m
-                  </button>
-                ))}
-              </div>
+              <PeriodPicker
+                presets={[{ value: 3, label: '3m' }, { value: 6, label: '6m' }, { value: 12, label: '12m' }, { value: 24, label: '24m' }]}
+                isCustom={'from' in businessPeriod}
+                activePreset={'months' in businessPeriod ? businessPeriod.months : null}
+                customFrom={monthInputDefault(6)}
+                customTo={monthInputDefault(0)}
+                inputType="month"
+                onPreset={(months) => { setBusinessPeriod({ months }); void loadBusinessEvolution(token, { months }); }}
+                onApplyCustom={(from, to) => { const period = { from, to }; setBusinessPeriod(period); void loadBusinessEvolution(token, period); }}
+              />
             </div>
             <p className="chartDesc">Confirmado, cortesia, atrasado, pendente e cancelado ao fim de cada mês. Clique numa barra para investigar.</p>
             {monthlyEvolution && monthlyEvolution.length ? (
@@ -1365,6 +1387,27 @@ export default function AdminHome() {
         {activeView === 'dashboard' ? (
           <section className="chartCard">
             <h3>
+              Novos prospectos por período
+              <InfoIcon text="Quantas contas novas foram criadas em cada mês (role: aluno). Todo cadastro entra como prospecto — este número não considera se a pessoa pagou depois ou não, só quando ela chegou." />
+            </h3>
+            <p className="chartDesc">Usa o mesmo período selecionado no gráfico de Evolução de alunos acima.</p>
+            {monthlyEvolution && monthlyEvolution.length ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <ComposedChart data={monthlyEvolution.map((m) => ({ month: m.month, novosProspectos: m.newProspects }))}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="month" fontSize={12} />
+                  <YAxis fontSize={12} allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="novosProspectos" name="Novos prospectos" fill="#7aa8ff" />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : <p className="formHintText">Carregando novos prospectos...</p>}
+          </section>
+        ) : null}
+
+        {activeView === 'dashboard' ? (
+          <section className="chartCard">
+            <h3>
               Receita recebida por mês
               <InfoIcon text="Soma real de pagamentos confirmados (Asaas) recebidos naquele mês, vindo do log de BillingEvent. Não é projeção — RevenueCat (compra pela loja) não entra aqui porque não temos o valor exato repassado pela Apple/Google." />
             </h3>
@@ -1384,10 +1427,22 @@ export default function AdminHome() {
 
         {activeView === 'dashboard' ? (
           <section className="chartCard">
-            <h3>
-              Evolução de treino (últimas 12 semanas)
-              <InfoIcon text="Prescrito = sessões planejadas. Realizado = feito + ajustado. Ajustado = feito mas fora do combinado. Não realizado = data já passou e não tem registro. Extra = sessão que a própria aluna criou, fora da prescrição da IA. Aderência = realizado ÷ elegível (sessões cuja data já passou)." />
-            </h3>
+            <div className="chartHeaderRow">
+              <h3>
+                Evolução de treino
+                <InfoIcon text="Prescrito = sessões planejadas. Realizado = feito + ajustado. Ajustado = feito mas fora do combinado. Não realizado = data já passou e não tem registro. Extra = sessão que a própria aluna criou, fora da prescrição da IA. Aderência = realizado ÷ elegível (sessões cuja data já passou)." />
+              </h3>
+              <PeriodPicker
+                presets={[{ value: 4, label: '4sem' }, { value: 12, label: '12sem' }, { value: 26, label: '26sem' }]}
+                isCustom={'from' in trainingPeriod}
+                activePreset={'weeks' in trainingPeriod ? trainingPeriod.weeks : null}
+                customFrom={dateInputDefault(84)}
+                customTo={dateInputDefault(0)}
+                inputType="date"
+                onPreset={(weeks) => { setTrainingPeriod({ weeks }); void loadTrainingEvolution(token, { weeks }); }}
+                onApplyCustom={(from, to) => { const period = { from, to }; setTrainingPeriod(period); void loadTrainingEvolution(token, period); }}
+              />
+            </div>
             {trainingEvolution && trainingEvolution.length ? (
               <ResponsiveContainer width="100%" height={280}>
                 <ComposedChart data={trainingEvolution}>
@@ -1593,7 +1648,7 @@ export default function AdminHome() {
                       onClick={(event) => event.stopPropagation()}
                       onChange={(event) => updateStudentField(student.id, 'subscriptionStatus', event.target.value)}
                     >
-                      <option value="pending">Pagamento pendente</option>
+                      <option value="pending">Pendente (prospecto, ainda nao pagou)</option>
                       <option value="manual_active">Cortesia / liberacao manual</option>
                       <option value="active">Pagamento confirmado</option>
                       <option value="grace">Prazo de tolerancia</option>
@@ -2120,7 +2175,9 @@ function FinanceView({ finance, evolution, onRefresh }: { finance: FinanceRespon
         </p>
       ) : null}
       <div className="financeGrid">
-        <Detail icon={<AlertTriangle size={18} />} label="Pendentes" value={String(finance?.pendingPlans ?? 0)} />
+        {/* 24/09: renomeado — "pendente" nunca teve compromisso de pagamento, e' Prospecto (ver
+            GLOSSARIO_METRICAS.md), nao um problema de cobranca como Atrasado/Cancelado ao lado. */}
+        <Detail icon={<Flame size={18} />} label="Prospectos" value={String(finance?.pendingPlans ?? 0)} />
         <Detail icon={<AlertTriangle size={18} />} label="Atrasados" value={String(finance?.overduePlans ?? 0)} />
         <Detail icon={<X size={18} />} label="Cancelados" value={String(finance?.canceledPlans ?? 0)} />
         <Detail icon={<Ticket size={18} />} label="Cupons criados" value={String(finance?.coupons.length ?? 0)} />
@@ -2152,6 +2209,20 @@ function FinanceView({ finance, evolution, onRefresh }: { finance: FinanceRespon
   );
 }
 
+// Valores iniciais sugeridos ao abrir o seletor "Personalizado" — so' um ponto de partida editavel,
+// nao limitam o que o treinador pode escolher.
+function monthInputDefault(monthsAgo: number): string {
+  const d = new Date();
+  d.setUTCMonth(d.getUTCMonth() - monthsAgo);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function dateInputDefault(daysAgo: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - daysAgo);
+  return d.toISOString().slice(0, 10);
+}
+
 function formatMoney(cents: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100);
 }
@@ -2175,10 +2246,60 @@ function InfoIcon({ text }: { text: string }) {
   );
 }
 
-function Stat({ label, value, detail, onClick }: { label: string; value: string; detail: string; onClick?: () => void }) {
+// 24/09: seletor de periodo reutilizavel — atalhos (chips) + opcao "Personalizado" com intervalo
+// de/ate. Pedido explicito: qualquer periodo no painel precisa poder ser personalizado, nao so' os
+// atalhos fixos.
+function PeriodPicker({
+  presets,
+  isCustom,
+  activePreset,
+  customFrom,
+  customTo,
+  inputType,
+  onPreset,
+  onApplyCustom,
+}: {
+  presets: Array<{ value: number; label: string }>;
+  isCustom: boolean;
+  activePreset: number | null;
+  customFrom: string;
+  customTo: string;
+  inputType: 'month' | 'date';
+  onPreset: (value: number) => void;
+  onApplyCustom: (from: string, to: string) => void;
+}) {
+  const [showCustom, setShowCustom] = useState(isCustom);
+  const [from, setFrom] = useState(customFrom);
+  const [to, setTo] = useState(customTo);
+  return (
+    <div className="chartPeriodPicker">
+      {presets.map((p) => (
+        <button key={p.value} type="button" className={!isCustom && activePreset === p.value ? 'active' : ''} onClick={() => { setShowCustom(false); onPreset(p.value); }}>
+          {p.label}
+        </button>
+      ))}
+      <button type="button" className={isCustom ? 'active' : ''} onClick={() => setShowCustom((current) => !current)}>
+        Personalizado
+      </button>
+      {showCustom ? (
+        <span className="customPeriodInputs">
+          <input type={inputType} value={from} onChange={(event) => setFrom(event.target.value)} />
+          <span>até</span>
+          <input type={inputType} value={to} onChange={(event) => setTo(event.target.value)} />
+          <button type="button" disabled={!from || !to} onClick={() => onApplyCustom(from, to)}>Aplicar</button>
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function Stat({ label, value, detail, onClick, info }: { label: string; value: string; detail: string; onClick?: () => void; info?: string }) {
   return (
     <article className={`stat${onClick ? ' statClickable' : ''}`} onClick={onClick} role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}>
-      <span>{label}</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        {label}
+        {info ? <InfoIcon text={info} /> : null}
+      </span>
       <strong>{value}</strong>
       <small>{detail}</small>
     </article>
@@ -2808,7 +2929,7 @@ function StudentPanel({
         </select>
         <label className="adminFieldLabel">Assinatura
           <select value={subscriptionStatus} onChange={(event) => setSubscriptionStatus(event.target.value)}>
-            <option value="pending">Pagamento pendente</option>
+            <option value="pending">Pendente (prospecto, ainda nao pagou)</option>
             <option value="manual_active">Cortesia / liberacao manual</option>
             <option value="active">Pagamento confirmado</option>
             <option value="grace">Prazo de tolerancia</option>

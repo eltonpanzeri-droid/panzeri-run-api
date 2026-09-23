@@ -583,6 +583,14 @@ export class CoachService {
       : input.paymentGroup === 'overdue' ? { subscriptionStatus: OVERDUE_STATUS }
       : {};
     const studentWhere: Prisma.UserWhereInput = { ...baseStudentWhere, ...paymentGroupWhere };
+    // allStudentsWhere: a MESMA populacao de baseStudentWhere, mas sem o filtro de busca — usada nos
+    // totais gerais que nunca devem mudar so' porque o treinador digitou algo na busca (totalStudents,
+    // e os planos ativos/criados-nesta-semana abaixo).
+    const allStudentsWhere: Prisma.UserWhereInput = {
+      role: 'student',
+      subscriptionStatus: { notIn: ['pending', 'canceled'] },
+      ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }),
+    };
     const weekStart = coachWeekStart(new Date());
     const weekEnd = addDays(weekStart, 6);
     weekEnd.setUTCHours(23, 59, 59, 999);
@@ -623,8 +631,13 @@ export class CoachService {
         _count: { select: { plans: true } },
       },
       }),
-      this.prisma.user.count({ where: { role: 'student', subscriptionStatus: { notIn: ['pending', 'canceled'] }, ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }) } }),
-      this.prisma.trainingPlan.findMany({ where: { status: 'active' }, distinct: ['userId'], select: { userId: true } }),
+      this.prisma.user.count({ where: allStudentsWhere }),
+      // 24/09: BUG REAL corrigido — "43 programas ativos" com so' 40 alunos. Esta query nao tinha
+      // NENHUM filtro ligando o TrainingPlan a' mesma populacao de "aluno" usada no resto do
+      // dashboard: contava TrainingPlan com status active de QUALQUER usuario (inclusive
+      // arquivado/cancelado/pendente, ou ate' um plano orfao de conta removida). Agora exige que o
+      // dono do plano esteja na mesma populacao de allStudentsWhere.
+      this.prisma.trainingPlan.findMany({ where: { status: 'active', user: allStudentsWhere }, distinct: ['userId'], select: { userId: true } }),
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: weekEnd }, plan: { status: 'active' } } }),
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } }),
       this.prisma.workoutCompletion.count({ where: { status: { in: ['done', 'adjusted'] }, session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } } }),
@@ -633,7 +646,7 @@ export class CoachService {
       this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: COURTESY_STATUS } }),
       this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: OVERDUE_STATUS } }),
       this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: PENDING_STATUS } }),
-      this.prisma.trainingPlan.findMany({ where: { status: 'active', createdAt: { gte: weekStart } }, distinct: ['userId'], select: { userId: true } }),
+      this.prisma.trainingPlan.findMany({ where: { status: 'active', createdAt: { gte: weekStart }, user: allStudentsWhere }, distinct: ['userId'], select: { userId: true } }),
     ]);
 
     const stravaConnections = await this.prisma.stravaConnection.findMany({

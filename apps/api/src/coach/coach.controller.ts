@@ -287,17 +287,19 @@ export class CoachController {
     return this.coachService.dataBusinessSummary();
   }
 
-  // 23/09: evolucao mensal de alunos por grupo de pagamento + receita recebida, pro grafico de
-  // "Visao geral"/"Financeiro" do painel. months clampado 1-24 dentro do service.
+  // 23/09: evolucao mensal de alunos por grupo de pagamento + receita recebida + novos prospectos,
+  // pro grafico de "Visao geral"/"Financeiro" do painel. months clampado 1-24 dentro do service.
+  // 24/09: from/to (formato 'YYYY-MM') permitem periodo personalizado em vez do atalho `months`.
   @Get('data/business/evolution')
-  dataBusinessEvolution(@Query('months') months?: string) {
-    return this.businessIntelligence.getMonthlyEvolution(months ? parseInt(months, 10) : 12);
+  dataBusinessEvolution(@Query('months') months?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.businessIntelligence.getMonthlyEvolution({ months: months ? parseInt(months, 10) : undefined, from, to });
   }
 
   // 23/09: evolucao semanal de treino (prescrito/realizado/ajustado/extra/nao-realizado + aderencia).
+  // 24/09: from/to (formato 'YYYY-MM-DD') permitem periodo personalizado em vez do atalho `weeks`.
   @Get('data/training/evolution')
-  dataTrainingEvolution(@Query('weeks') weeks?: string) {
-    return this.businessIntelligence.getTrainingEvolution(weeks ? parseInt(weeks, 10) : 12);
+  dataTrainingEvolution(@Query('weeks') weeks?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.businessIntelligence.getTrainingEvolution({ weeks: weeks ? parseInt(weeks, 10) : undefined, from, to });
   }
 
   @Get('data/training/student/:id/timeline')
