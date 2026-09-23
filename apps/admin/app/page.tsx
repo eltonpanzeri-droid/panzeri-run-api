@@ -449,9 +449,18 @@ export default function AdminHome() {
     if (savedToken) {
       setToken(savedToken);
       loadDashboard(savedToken);
+      // 23/09: contagens de Prospectos/Ex-alunos no menu lateral nao podiam depender de o
+      // treinador ja ter visitado aquela aba nesta sessao (antes so' carregavam via useEffect do
+      // `view`) — carrega junto do dashboard, sempre, pra o numero nunca sumir do menu.
+      void loadProspects(savedToken);
+      void loadExStudents(savedToken);
     } else if (savedRefreshToken) {
       refreshAdminSession(savedRefreshToken).then((accessToken) => {
-        if (accessToken) loadDashboard(accessToken);
+        if (accessToken) {
+          loadDashboard(accessToken);
+          void loadProspects(accessToken);
+          void loadExStudents(accessToken);
+        }
       });
     }
   }, []);
@@ -571,6 +580,8 @@ export default function AdminHome() {
       window.localStorage.setItem('panzeri_admin_refresh_token', refreshToken);
       setToken(accessToken);
       await loadDashboard(accessToken);
+      void loadProspects(accessToken);
+      void loadExStudents(accessToken);
     } catch {
       setStatus('Nao consegui conectar com a API.');
     }
@@ -1169,9 +1180,9 @@ export default function AdminHome() {
         {menuOpen ? (
           <nav className="compactMenu">
             <button className={activeView === 'dashboard' ? 'active' : ''} type="button" onClick={() => changeView('dashboard')}><LayoutDashboard size={19} />Dashboard</button>
-            <button className={activeView === 'students' ? 'active' : ''} type="button" onClick={() => changeView('students')}><Users size={19} />Alunos</button>
-            <button className={activeView === 'prospects' ? 'active' : ''} type="button" onClick={() => changeView('prospects')}><Flame size={19} />Prospectos{prospects?.totals.total ? ` (${prospects.totals.total})` : ''}</button>
-            <button className={activeView === 'exStudents' ? 'active' : ''} type="button" onClick={() => changeView('exStudents')}><UserX size={19} />Ex-alunos{exStudents?.total ? ` (${exStudents.total})` : ''}</button>
+            <button className={activeView === 'students' ? 'active' : ''} type="button" onClick={() => changeView('students')}><Users size={19} />Alunos{dashboard?.totals.students != null ? ` (${dashboard.totals.students})` : ''}</button>
+            <button className={activeView === 'prospects' ? 'active' : ''} type="button" onClick={() => changeView('prospects')}><Flame size={19} />Prospectos{prospects?.totals.total != null ? ` (${prospects.totals.total})` : ''}</button>
+            <button className={activeView === 'exStudents' ? 'active' : ''} type="button" onClick={() => changeView('exStudents')}><UserX size={19} />Ex-alunos{exStudents?.total != null ? ` (${exStudents.total})` : ''}</button>
             <button className={activeView === 'weeks' ? 'active' : ''} type="button" onClick={() => changeView('weeks')}><CalendarDays size={19} />Semanas</button>
             <button className={activeView === 'coupons' ? 'active' : ''} type="button" onClick={() => changeView('coupons')}><Ticket size={19} />Cupons</button>
             <button className={activeView === 'finance' ? 'active' : ''} type="button" onClick={() => changeView('finance')}><CreditCard size={19} />Financeiro</button>
