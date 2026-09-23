@@ -58,3 +58,102 @@ describe('internal funnel analytics', () => {
     });
   });
 });
+
+// 23/09: regressao do caso real "Mariana" — aluna que ja tinha terminado a entrevista e pago, mas
+// continuava aparecendo em "pessoas paradas na entrevista" porque o evento interview_completed nunca
+// foi gravado no FunnelEvent (so' o historico de eventos era consultado). getReport() agora reconcilia
+// contra o estado real (OnboardingInterview.completedAt / subscriptionStatus) antes de decidir quem
+// esta' realmente parada.
+describe('FunnelService.getReport — reconciliacao de sessoes paradas contra o estado real', () => {
+  function buildPrismaMock(overrides: {
+    signedUpSessions: Array<{ sessionId: string; userId: string | null; createdAt: Date }>;
+    completedInterviewSessionIds: string[];
+    usersRealState: Array<{ id: string; subscriptionStatus: string; subscriptionManualOverride: boolean; onboardingInterview: { completedAt: Date | null } | null }>;
+  }) {
+    const funnelEventFindMany = jest.fn().mockImplementation(({ where }: any) => {
+      if (where.event === 'signup_completed') return Promise.resolve(overrides.signedUpSessions);
+      if (where.event === 'interview_completed') {
+        return Promise.resolve(
+          overrides.completedInterviewSessionIds
+            .filter((id) => where.sessionId.in.includes(id))
+            .map((sessionId) => ({ sessionId })),
+        );
+      }
+      return Promise.resolve([]);
+    });
+    const prisma = {
+      funnelEvent: {
+        groupBy: jest.fn().mockResolvedValue([]),
+        findMany: funnelEventFindMany,
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+      user: {
+        findMany: jest.fn().mockResolvedValue(overrides.usersRealState),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+    };
+    return prisma;
+  }
+
+  it('nao lista uma aluna que ja terminou a entrevista de verdade, mesmo sem o evento interview_completed', async () => {
+    const marianaId = 'user-mariana';
+    const prisma = buildPrismaMock({
+      signedUpSessions: [{ sessionId: 'session-mariana', userId: marianaId, createdAt: new Date() }],
+      completedInterviewSessionIds: [], // o evento nunca foi gravado — exatamente o bug relatado
+      usersRealState: [
+        { id: marianaId, subscriptionStatus: 'active', subscriptionManualOverride: false, onboardingInterview: { completedAt: new Date('2026-09-01') } },
+      ],
+    });
+    const service = new FunnelService(prisma as never, {} as never);
+
+    const report = await service.getReport(30);
+
+    expect(report.stalledSessions.map((s) => s.sessionId)).not.toContain('session-mariana');
+  });
+
+  it('nao lista quem ja tem acesso pago mesmo sem completedAt registrado na entrevista', async () => {
+    const userId = 'user-pagante-sem-completedat';
+    const prisma = buildPrismaMock({
+      signedUpSessions: [{ sessionId: 'session-x', userId, createdAt: new Date() }],
+      completedInterviewSessionIds: [],
+      usersRealState: [
+        { id: userId, subscriptionStatus: 'active', subscriptionManualOverride: false, onboardingInterview: null },
+      ],
+    });
+    const service = new FunnelService(prisma as never, {} as never);
+
+    const report = await service.getReport(30);
+
+    expect(report.stalledSessions.map((s) => s.sessionId)).not.toContain('session-x');
+  });
+
+  it('continua listando quem realmente nao terminou a entrevista nem pagou', async () => {
+    const userId = 'user-realmente-parado';
+    const prisma = buildPrismaMock({
+      signedUpSessions: [{ sessionId: 'session-real', userId, createdAt: new Date() }],
+      completedInterviewSessionIds: [],
+      usersRealState: [
+        { id: userId, subscriptionStatus: 'pending', subscriptionManualOverride: false, onboardingInterview: null },
+      ],
+    });
+    const service = new FunnelService(prisma as never, {} as never);
+
+    const report = await service.getReport(30);
+
+    expect(report.stalledSessions.map((s) => s.sessionId)).toContain('session-real');
+  });
+
+  it('mantem sessao anonima (sem userId vinculado) na lista, sem tentar reconciliar', async () => {
+    const prisma = buildPrismaMock({
+      signedUpSessions: [{ sessionId: 'session-anon', userId: null, createdAt: new Date() }],
+      completedInterviewSessionIds: [],
+      usersRealState: [],
+    });
+    const service = new FunnelService(prisma as never, {} as never);
+
+    const report = await service.getReport(30);
+
+    expect(report.stalledSessions.map((s) => s.sessionId)).toContain('session-anon');
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
+  });
+});

@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService } from '../billing/telegram.service';
+import { hasSubscriptionAccess } from '../training-plans/training-plans.service';
 
 // Eventos reconhecidos — usados so para validacao de entrada; nao e' enum pra nao quebrar
 // se o cliente mandar evento novo antes do servidor ser atualizado.
@@ -147,7 +148,35 @@ export class FunnelService {
       })).map((e) => e.sessionId),
     );
 
-    const stalledSessions = signedUpSessions.filter((s) => !completedSessions.has(s.sessionId));
+    const stalledByEvents = signedUpSessions.filter((s) => !completedSessions.has(s.sessionId));
+
+    // 23/09: BUG REAL confirmado (caso relatado: aluna Mariana ja pagou mas aparecia presa aqui).
+    // stalledByEvents e' calculado 100% a partir do HISTORICO de FunnelEvent — se o evento
+    // interview_completed nunca chegou a ser gravado (app antigo sem esse evento, sessionId trocou
+    // por reinstalacao, falha de rede no exato momento do disparo), a pessoa fica presa nesta lista
+    // PARA SEMPRE mesmo tendo terminado a entrevista e pago de verdade depois. Eventos representam
+    // o que aconteceu; NUNCA o estado atual. Por isso, pra quem tem userId vinculado, reconciliamos
+    // contra a fonte de verdade (OnboardingInterview.completedAt / subscriptionStatus) antes de
+    // considerar "parada agora" — quem ja avancou de verdade sai da lista, mesmo com o evento
+    // faltando no historico. Sessoes anonimas (sem userId ainda) nao tem como ser reconciliadas —
+    // continuam confiando so' no evento, unico dado disponivel pra elas.
+    const linkedUserIds = stalledByEvents.map((s) => s.userId).filter((id): id is string => Boolean(id));
+    const realStateByUserId = new Map(
+      linkedUserIds.length
+        ? (await this.prisma.user.findMany({
+            where: { id: { in: linkedUserIds } },
+            select: { id: true, subscriptionStatus: true, subscriptionManualOverride: true, onboardingInterview: { select: { completedAt: true } } },
+          })).map((u) => [u.id, u])
+        : [],
+    );
+    const stalledSessions = stalledByEvents.filter((s) => {
+      if (!s.userId) return true; // anonimo: nada pra reconciliar, mantem
+      const real = realStateByUserId.get(s.userId);
+      if (!real) return true; // usuario nao encontrado (conta removida?) — mantem por seguranca
+      const reallyCompletedInterview = Boolean(real.onboardingInterview?.completedAt);
+      const reallyHasAccess = hasSubscriptionAccess(real.subscriptionStatus) || real.subscriptionManualOverride;
+      return !reallyCompletedInterview && !reallyHasAccess;
+    });
 
     // Para cada sessao parada, pega o ultimo evento e o ultimo erro de pergunta.
     const stalledDetails = await Promise.all(

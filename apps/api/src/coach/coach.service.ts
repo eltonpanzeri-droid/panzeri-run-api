@@ -28,6 +28,7 @@ import { NotificationTriggersService } from '../messaging/notification-triggers.
 import { computeProspectLevel } from '../messaging/prospect-level';
 import { ProspectNurtureService } from '../messaging/prospect-nurture.service';
 import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.service';
+import { CONFIRMED_STATUSES, COURTESY_STATUS, OVERDUE_STATUS, PENDING_STATUS, PRICE_PER_STUDENT_CENTS, estimatedMrrCents } from './subscription-groups.util';
 
 @Injectable()
 export class CoachService {
@@ -577,9 +578,9 @@ export class CoachService {
     // do admin (page.tsx paymentGroupOf). 'pending'/'canceled' nunca aparecem aqui (baseStudentWhere
     // ja os exclui), entao nao tem grupo pra eles neste endpoint.
     const paymentGroupWhere: Prisma.UserWhereInput =
-      input.paymentGroup === 'confirmed' ? { subscriptionStatus: { in: ['active', 'grace'] } }
-      : input.paymentGroup === 'courtesy' ? { subscriptionStatus: 'manual_active' }
-      : input.paymentGroup === 'overdue' ? { subscriptionStatus: 'overdue' }
+      input.paymentGroup === 'confirmed' ? { subscriptionStatus: { in: [...CONFIRMED_STATUSES] } }
+      : input.paymentGroup === 'courtesy' ? { subscriptionStatus: COURTESY_STATUS }
+      : input.paymentGroup === 'overdue' ? { subscriptionStatus: OVERDUE_STATUS }
       : {};
     const studentWhere: Prisma.UserWhereInput = { ...baseStudentWhere, ...paymentGroupWhere };
     const weekStart = coachWeekStart(new Date());
@@ -628,10 +629,10 @@ export class CoachService {
       this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } }),
       this.prisma.workoutCompletion.count({ where: { status: { in: ['done', 'adjusted'] }, session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } } }),
       this.prisma.workoutCompletion.count({ where: { status: 'adjusted', session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } } }),
-      this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: { in: ['active', 'grace'] } } }),
-      this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: 'manual_active' } }),
-      this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: 'overdue' } }),
-      this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: 'pending' } }),
+      this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: { in: [...CONFIRMED_STATUSES] } } }),
+      this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: COURTESY_STATUS } }),
+      this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: OVERDUE_STATUS } }),
+      this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: PENDING_STATUS } }),
       this.prisma.trainingPlan.findMany({ where: { status: 'active', createdAt: { gte: weekStart } }, distinct: ['userId'], select: { userId: true } }),
     ]);
 
@@ -1296,19 +1297,22 @@ export class CoachService {
       (this.prisma as any).coupon.findMany({ include: { redemptions: true } }),
     ]);
     const countByStatus = Object.fromEntries(students.map((item) => [item.subscriptionStatus, item._count]));
-    const active = Number(countByStatus.active ?? 0) + Number(countByStatus.manual_active ?? 0) + Number(countByStatus.grace ?? 0);
-    const courtesy = Number(countByStatus.manual_active ?? 0);
-    const paying = Number(countByStatus.active ?? 0) + Number(countByStatus.grace ?? 0);
+    // Fonte canonica unica destes agrupamentos: subscription-groups.util.ts. Antes esta soma
+    // (active+grace = "pagando") era reimplementada de forma independente aqui, em dashboard() e em
+    // dataBusinessSummary() — risco real de as tres divergirem silenciosamente.
+    const paying = CONFIRMED_STATUSES.reduce((total, status) => total + Number(countByStatus[status] ?? 0), 0);
+    const courtesy = Number(countByStatus[COURTESY_STATUS] ?? 0);
+    const active = paying + courtesy;
     return {
-      priceCents: 1990,
+      priceCents: PRICE_PER_STUDENT_CENTS,
       priceLabel: 'R$ 19,90',
       activePlans: active,
       payingPlans: paying,
       courtesyPlans: courtesy,
-      pendingPlans: Number(countByStatus.pending ?? 0),
-      overduePlans: Number(countByStatus.overdue ?? 0),
+      pendingPlans: Number(countByStatus[PENDING_STATUS] ?? 0),
+      overduePlans: Number(countByStatus[OVERDUE_STATUS] ?? 0),
       canceledPlans: Number(countByStatus.canceled ?? 0),
-      estimatedMonthlyRevenueCents: paying * 1990,
+      estimatedMonthlyRevenueCents: estimatedMrrCents(paying),
       subscriptions: subscriptions.map((item) => ({
         id: item.id,
         provider: item.provider,
@@ -1509,19 +1513,21 @@ export class CoachService {
       }),
     ]);
     const cs = Object.fromEntries((byStatus as any[]).map((r) => [r.subscriptionStatus, Number(r._count)]));
-    const paying = (cs.active ?? 0) + (cs.grace ?? 0);
-    const active = paying + (cs.manual_active ?? 0);
+    const paying = CONFIRMED_STATUSES.reduce((total, status) => total + Number(cs[status] ?? 0), 0);
+    const courtesy = Number(cs[COURTESY_STATUS] ?? 0);
+    const active = paying + courtesy;
+    const mrrCents = estimatedMrrCents(paying);
     return {
       subscribers: {
         active,
         paying,
-        courtesy: cs.manual_active ?? 0,
-        pending: cs.pending ?? 0,
-        overdue: cs.overdue ?? 0,
-        canceled: cs.canceled ?? 0,
+        courtesy,
+        pending: Number(cs[PENDING_STATUS] ?? 0),
+        overdue: Number(cs[OVERDUE_STATUS] ?? 0),
+        canceled: Number(cs.canceled ?? 0),
       },
       // estimatedMRR = payingSubscribers × R$19,90 (não é receita efetivamente recebida — é projeção baseada no status atual)
-      estimatedMRR: { payingSubscribers: paying, pricePerStudentBrl: 19.9, totalBrl: paying * 19.9, totalCents: paying * 1990 },
+      estimatedMRR: { payingSubscribers: paying, pricePerStudentBrl: PRICE_PER_STUDENT_CENTS / 100, totalBrl: mrrCents / 100, totalCents: mrrCents },
       cohort: { studentsWithFirstPaidAt: firstPaidCount },
       recentBillingEvents: recentBillingEvents.length > 0
         ? recentBillingEvents

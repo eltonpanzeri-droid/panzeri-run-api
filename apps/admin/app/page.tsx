@@ -3,6 +3,7 @@
 import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flag, Flame, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
+import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
 const STUDENT_APP_URL = 'https://agenteselton-panzeri-run-app.hbljgk.easypanel.host';
@@ -368,6 +369,26 @@ interface FinanceResponse {
   coupons: Array<{ id: string; code: string; discountPercent: number; active: boolean; usageCount: number; redemptions: number }>;
 }
 
+// 23/09: Business Intelligence — evolucao mensal (grupo de pagamento + receita) e evolucao semanal
+// de treino. Tipos espelham exatamente o retorno de BusinessIntelligenceService (apps/api).
+interface MonthlyEvolutionPoint {
+  month: string;
+  totalStudentsThatExisted: number;
+  coverage: 'empty' | 'full' | 'partial' | 'insufficient';
+  groups: { confirmed: number; courtesy: number; overdue: number; pending: number; canceled: number; desconhecido: number };
+  revenueReceivedCents: number;
+}
+interface WeeklyTrainingEvolutionPoint {
+  week: string;
+  prescribed: number;
+  completed: number;
+  adjusted: number;
+  extra: number;
+  missed: number;
+  eligible: number;
+  adherencePercent: number | null;
+}
+
 interface CoachNotification {
   id: string;
   title: string;
@@ -432,6 +453,9 @@ export default function AdminHome() {
   const [page, setPage] = useState(1);
   const [coupons, setCoupons] = useState<CouponRow[]>([]);
   const [finance, setFinance] = useState<FinanceResponse | null>(null);
+  const [monthlyEvolution, setMonthlyEvolution] = useState<MonthlyEvolutionPoint[] | null>(null);
+  const [trainingEvolution, setTrainingEvolution] = useState<WeeklyTrainingEvolutionPoint[] | null>(null);
+  const [evolutionMonths, setEvolutionMonths] = useState(6);
   const [prospects, setProspects] = useState<{ totals: { total: number; quente: number; morno: number; frio: number }; prospects: ProspectRow[] } | null>(null);
   const [exStudents, setExStudents] = useState<{ total: number; exStudents: ExStudentRow[] } | null>(null);
   // 04/09: lista de testadores gratuitos (Play Store) que o proprio treinador gerencia aqui, sem
@@ -460,15 +484,21 @@ export default function AdminHome() {
       loadDashboard(savedToken);
       // 23/09: contagens de Prospectos/Ex-alunos no menu lateral nao podiam depender de o
       // treinador ja ter visitado aquela aba nesta sessao (antes so' carregavam via useEffect do
-      // `view`) — carrega junto do dashboard, sempre, pra o numero nunca sumir do menu.
+      // `view`) — carrega junto do dashboard, sempre, pra o numero nunca sumir do menu. Evolucao
+      // mensal/semanal segue o mesmo raciocinio: a Visao Geral (view padrao) precisa dos graficos
+      // prontos assim que a sessao restaura, sem esperar o treinador clicar em "Dashboard".
       void loadProspects(savedToken);
       void loadExStudents(savedToken);
+      void loadBusinessEvolution(savedToken);
+      void loadTrainingEvolution(savedToken);
     } else if (savedRefreshToken) {
       refreshAdminSession(savedRefreshToken).then((accessToken) => {
         if (accessToken) {
           loadDashboard(accessToken);
           void loadProspects(accessToken);
           void loadExStudents(accessToken);
+          void loadBusinessEvolution(accessToken);
+          void loadTrainingEvolution(accessToken);
         }
       });
     }
@@ -591,6 +621,8 @@ export default function AdminHome() {
       await loadDashboard(accessToken);
       void loadProspects(accessToken);
       void loadExStudents(accessToken);
+      void loadBusinessEvolution(accessToken);
+      void loadTrainingEvolution(accessToken);
     } catch {
       setStatus('Nao consegui conectar com a API.');
     }
@@ -688,6 +720,20 @@ export default function AdminHome() {
     const { data, loggedOut } = await authorizedGet<FinanceResponse>('/coach/finance', accessToken);
     if (data) setFinance(data);
     else if (!loggedOut) setStatus('Nao consegui carregar o financeiro.');
+  }
+
+  async function loadBusinessEvolution(accessToken = token, months = evolutionMonths) {
+    if (!accessToken) return;
+    const { data, loggedOut } = await authorizedGet<MonthlyEvolutionPoint[]>(`/coach/data/business/evolution?months=${months}`, accessToken);
+    if (data) setMonthlyEvolution(data);
+    else if (!loggedOut) setStatus('Nao consegui carregar a evolucao mensal.');
+  }
+
+  async function loadTrainingEvolution(accessToken = token) {
+    if (!accessToken) return;
+    const { data, loggedOut } = await authorizedGet<WeeklyTrainingEvolutionPoint[]>('/coach/data/training/evolution?weeks=12', accessToken);
+    if (data) setTrainingEvolution(data);
+    else if (!loggedOut) setStatus('Nao consegui carregar a evolucao de treino.');
   }
 
   async function loadFunnel(accessToken = token) {
@@ -802,11 +848,23 @@ export default function AdminHome() {
     await loadCoupons();
     await loadFinance();
   }
+  // 23/09: drill-down agregado -> lista (pedido explicito: "quero partir do agregado e chegar no
+  // aluno"). Usado pelos cards clicaveis da Visao Geral — pendente fica de fora de proposito, porque
+  // quem esta 'pending' nao aparece na Lista operacional (e' Prospecto, ver studentWhere em
+  // coach.service.ts dashboard()).
+  function goToStudentsFilteredByPayment(group: 'confirmed' | 'courtesy' | 'overdue') {
+    setPaymentFilter(group);
+    setTrainingFilter('all');
+    setPage(1);
+    changeView('students');
+  }
+
   function changeView(view: AdminView) {
     setActiveView(view);
     setMenuOpen(false);
     if (view === 'coupons') void loadCoupons();
-    if (view === 'finance') void loadFinance();
+    if (view === 'finance') { void loadFinance(); void loadBusinessEvolution(); }
+    if (view === 'dashboard') { void loadBusinessEvolution(); void loadTrainingEvolution(); }
     if (view === 'prospects') { void loadProspects(); void loadFreeTesterEmails(); }
     if (view === 'exStudents') void loadExStudents();
     if (view === 'funnel') void loadFunnel();
@@ -1247,16 +1305,108 @@ export default function AdminHome() {
         ) : null}
 
         {activeView === 'dashboard' ? <section className="stats">
-          <Stat label="Alunos" value={String(dashboard?.totals.students ?? 0)} detail={`${dashboard?.totals.activePlans ?? 0} com programa ativo`} />
+          <Stat label="Alunos" value={String(dashboard?.totals.students ?? 0)} detail={`${dashboard?.totals.activePlans ?? 0} com programa ativo`} onClick={() => { setPaymentFilter('all'); setTrainingFilter('all'); setPage(1); changeView('students'); }} />
           <Stat label="Treinos propostos" value={String(dashboard?.totals.prescribedSessions ?? 0)} detail="semana atual" />
           <Stat label="Treinos feitos" value={String(dashboard?.totals.completedSessions ?? 0)} detail={`${dashboard?.totals.differentSessions ?? 0} diferentes`} />
           <Stat label="Aderencia media" value={`${dashboard?.totals.adherencePercent ?? 0}%`} detail="treinos propostos" />
-          <Stat label="Pagamento em dia" value={String(dashboard?.totals.paymentConfirmed ?? 0)} detail="pagantes reais" />
-          <Stat label="Cortesia / liberacao manual" value={String(dashboard?.totals.courtesyAccess ?? 0)} detail="nao e pagamento" />
-          <Stat label="Pagamento atrasado" value={String(dashboard?.totals.paymentOverdue ?? 0)} detail="alunos" />
-          <Stat label="Pagamento pendente" value={String(dashboard?.totals.paymentPending ?? 0)} detail="alunos" />
+          <Stat label="Pagamento em dia" value={String(dashboard?.totals.paymentConfirmed ?? 0)} detail="pagantes reais" onClick={() => goToStudentsFilteredByPayment('confirmed')} />
+          <Stat label="Cortesia / liberacao manual" value={String(dashboard?.totals.courtesyAccess ?? 0)} detail="nao e pagamento" onClick={() => goToStudentsFilteredByPayment('courtesy')} />
+          <Stat label="Pagamento atrasado" value={String(dashboard?.totals.paymentOverdue ?? 0)} detail="alunos" onClick={() => goToStudentsFilteredByPayment('overdue')} />
+          <Stat label="Pagamento pendente" value={String(dashboard?.totals.paymentPending ?? 0)} detail="ver em Prospectos" onClick={() => changeView('prospects')} />
           <Stat label="Treinos criados" value={String(dashboard?.totals.plansCreatedThisWeek ?? 0)} detail="nesta semana" />
         </section> : null}
+
+        {activeView === 'dashboard' ? (
+          <section className="chartCard">
+            <div className="chartHeaderRow">
+              <h3>
+                Evolução de alunos
+                <InfoIcon text="Reconstrói o estado comercial real de cada aluno no fim de cada mês, a partir do histórico de mudanças de status (nunca usa o status de hoje para reescrever o passado). Meses sem cobertura suficiente de dados aparecem marcados como parcial/sem dado, nunca como zero." />
+              </h3>
+              <div className="chartPeriodPicker">
+                {[3, 6, 12, 24].map((m) => (
+                  <button key={m} type="button" className={evolutionMonths === m ? 'active' : ''} onClick={() => { setEvolutionMonths(m); void loadBusinessEvolution(token, m); }}>
+                    {m}m
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="chartDesc">Confirmado, cortesia, atrasado, pendente e cancelado ao fim de cada mês. Clique numa barra para investigar.</p>
+            {monthlyEvolution && monthlyEvolution.length ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <ComposedChart data={monthlyEvolution.map((m) => ({
+                  month: m.month,
+                  Confirmado: m.groups.confirmed,
+                  Cortesia: m.groups.courtesy,
+                  Atrasado: m.groups.overdue,
+                  Pendente: m.groups.pending,
+                  Cancelado: m.groups.canceled,
+                  coverage: m.coverage,
+                }))}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="month" fontSize={12} />
+                  <YAxis fontSize={12} allowDecimals={false} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="Confirmado" stackId="a" fill="#1a7f5a" />
+                  <Bar dataKey="Cortesia" stackId="a" fill="#7aa8ff" />
+                  <Bar dataKey="Atrasado" stackId="a" fill="#e0a72d" />
+                  <Bar dataKey="Pendente" stackId="a" fill="#c9c9c9" />
+                  <Bar dataKey="Cancelado" stackId="a" fill="#d9534f" />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : <p className="formHintText">Carregando evolução mensal...</p>}
+            {monthlyEvolution?.some((m) => m.coverage === 'partial' || m.coverage === 'insufficient') ? (
+              <p className="formHintText">Meses marcados com cobertura parcial: o histórico de eventos de pagamento começou em 16/09/2026 — dados anteriores a essa data para alunas sem baseline confiável ficam registrados como parciais, nunca inventados.</p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {activeView === 'dashboard' ? (
+          <section className="chartCard">
+            <h3>
+              Receita recebida por mês
+              <InfoIcon text="Soma real de pagamentos confirmados (Asaas) recebidos naquele mês, vindo do log de BillingEvent. Não é projeção — RevenueCat (compra pela loja) não entra aqui porque não temos o valor exato repassado pela Apple/Google." />
+            </h3>
+            {monthlyEvolution && monthlyEvolution.length ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={monthlyEvolution.map((m) => ({ month: m.month, receita: m.revenueReceivedCents / 100 }))}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="month" fontSize={12} />
+                  <YAxis fontSize={12} tickFormatter={(v) => `R$${v}`} />
+                  <Tooltip formatter={(value: unknown) => `R$ ${Number(value).toFixed(2)}`} />
+                  <Area type="monotone" dataKey="receita" stroke="#1a7f5a" fill="#1a7f5a" fillOpacity={0.25} name="Receita recebida" />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : <p className="formHintText">Carregando receita mensal...</p>}
+          </section>
+        ) : null}
+
+        {activeView === 'dashboard' ? (
+          <section className="chartCard">
+            <h3>
+              Evolução de treino (últimas 12 semanas)
+              <InfoIcon text="Prescrito = sessões planejadas. Realizado = feito + ajustado. Ajustado = feito mas fora do combinado. Não realizado = data já passou e não tem registro. Extra = sessão que a própria aluna criou, fora da prescrição da IA. Aderência = realizado ÷ elegível (sessões cuja data já passou)." />
+            </h3>
+            {trainingEvolution && trainingEvolution.length ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <ComposedChart data={trainingEvolution}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="week" fontSize={11} />
+                  <YAxis yAxisId="left" fontSize={12} allowDecimals={false} />
+                  <YAxis yAxisId="right" orientation="right" fontSize={12} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar yAxisId="left" dataKey="prescribed" name="Prescrito" fill="#c9c9c9" />
+                  <Bar yAxisId="left" dataKey="completed" name="Realizado" fill="#1a7f5a" />
+                  <Bar yAxisId="left" dataKey="missed" name="Não realizado" fill="#d9534f" />
+                  <Bar yAxisId="left" dataKey="extra" name="Extra" fill="#7aa8ff" />
+                  <Line yAxisId="right" type="monotone" dataKey="adherencePercent" name="Aderência %" stroke="#e0a72d" strokeWidth={2} dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : <p className="formHintText">Carregando evolução de treino...</p>}
+          </section>
+        ) : null}
 
         {activeView === 'dashboard' ? (
           <section className="miniSection">
@@ -1642,7 +1792,7 @@ export default function AdminHome() {
           />
         ) : null}
 
-        {activeView === 'finance' ? <FinanceView finance={finance} onRefresh={() => loadFinance()} /> : null}
+        {activeView === 'finance' ? <FinanceView finance={finance} evolution={monthlyEvolution} onRefresh={() => loadFinance()} /> : null}
 
         {activeView === 'funnel' ? <FunnelView report={funnelReport} loading={loadingFunnel} onRefresh={() => loadFunnel()} /> : null}
 
@@ -1765,10 +1915,15 @@ function FunnelView({ report, loading, onRefresh }: { report: FunnelReport | nul
             </div>
           ) : null}
 
-          {/* Sessões travadas */}
+          {/* Sessões travadas — 23/09: agora reconciliado contra o estado REAL (entrevista/pagamento
+              no banco), nao so' o historico de eventos. Quem ja avancou de verdade (mesmo que o
+              evento de entrevista concluida tenha se perdido no caminho) nao aparece mais aqui. */}
           {report.stalledSessions.length > 0 ? (
             <div style={{ padding: '0 24px 24px' }}>
-              <h3 style={{ fontSize: 14, marginBottom: 8 }}>Pessoas paradas na entrevista ({report.stalledSessions.length})</h3>
+              <h3 style={{ fontSize: 14, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                Precisam de atenção agora ({report.stalledSessions.length})
+                <InfoIcon text="Pessoas com cadastro criado que, pelo histórico de eventos, não terminaram a entrevista. Antes de aparecer aqui, cada uma é conferida contra o estado real (entrevista concluída / pagamento) — quem já avançou de verdade não aparece, mesmo que o evento correspondente tenha se perdido." />
+              </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {report.stalledSessions.map((s) => (
                   <div key={s.sessionId} className={`funnelStalled${s.hasError ? ' funnelStalledError' : ''}`}>
@@ -1943,7 +2098,8 @@ function RaceCalendarView({ races, loading, onRefresh }: { races: RaceCalendarEn
   );
 }
 
-function FinanceView({ finance, onRefresh }: { finance: FinanceResponse | null; onRefresh: () => void }) {
+function FinanceView({ finance, evolution, onRefresh }: { finance: FinanceResponse | null; evolution: MonthlyEvolutionPoint[] | null; onRefresh: () => void }) {
+  const currentMonthRevenueCents = evolution && evolution.length ? evolution[evolution.length - 1].revenueReceivedCents : null;
   return (
     <section className="panel fullPanel">
       <div className="panelHeader"><div><p className="eyebrow">Financeiro</p><h2>Resumo de assinaturas</h2></div><button className="secondaryButton" type="button" onClick={onRefresh}>Atualizar</button></div>
@@ -1951,14 +2107,41 @@ function FinanceView({ finance, onRefresh }: { finance: FinanceResponse | null; 
         <Stat label="Planos ativos" value={String(finance?.activePlans ?? 0)} detail="pagos + cortesias" />
         <Stat label="Pagantes" value={String(finance?.payingPlans ?? 0)} detail="assinaturas cobradas" />
         <Stat label="Cortesias" value={String(finance?.courtesyPlans ?? 0)} detail="cupons 100% ou manual" />
-        <Stat label="Receita estimada" value={formatMoney(finance?.estimatedMonthlyRevenueCents ?? 0)} detail="mensal recorrente" />
+        <Stat
+          label="Receita recorrente (MRR)"
+          value={formatMoney(finance?.estimatedMonthlyRevenueCents ?? 0)}
+          detail="projeção com base no status atual"
+        />
       </section>
+      {currentMonthRevenueCents != null ? (
+        <p className="formHintText" style={{ marginTop: -8, marginBottom: 16 }}>
+          <strong>Receita recebida este mês (real, já confirmada): {formatMoney(currentMonthRevenueCents)}.</strong>{' '}
+          Diferente da recorrente acima: recebida é dinheiro que já entrou (só Asaas); recorrente é uma projeção do valor mensal esperado com base em quem está pagando hoje — os dois números divergem quando há atraso, cancelamento no meio do mês ou compra pela loja (RevenueCat, sem valor exato disponível).
+        </p>
+      ) : null}
       <div className="financeGrid">
         <Detail icon={<AlertTriangle size={18} />} label="Pendentes" value={String(finance?.pendingPlans ?? 0)} />
         <Detail icon={<AlertTriangle size={18} />} label="Atrasados" value={String(finance?.overduePlans ?? 0)} />
         <Detail icon={<X size={18} />} label="Cancelados" value={String(finance?.canceledPlans ?? 0)} />
         <Detail icon={<Ticket size={18} />} label="Cupons criados" value={String(finance?.coupons.length ?? 0)} />
       </div>
+      <section className="chartCard">
+        <h3>
+          Receita recebida por mês
+          <InfoIcon text="Soma de pagamentos confirmados (Asaas) por mês, do log de eventos de cobrança. É dinheiro que já entrou, não projeção." />
+        </h3>
+        {evolution && evolution.length ? (
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={evolution.map((m) => ({ month: m.month, receita: m.revenueReceivedCents / 100 }))}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis dataKey="month" fontSize={12} />
+              <YAxis fontSize={12} tickFormatter={(v) => `R$${v}`} />
+              <Tooltip formatter={(value: unknown) => `R$ ${Number(value).toFixed(2)}`} />
+              <Area type="monotone" dataKey="receita" stroke="#1a7f5a" fill="#1a7f5a" fillOpacity={0.25} name="Receita recebida" />
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : <p className="formHintText">Carregando evolução de receita...</p>}
+      </section>
       <section className="miniSection">
         <h3>Cupons com uso</h3>
         {finance?.coupons.length ? finance.coupons.map((coupon) => (
@@ -1972,9 +2155,29 @@ function FinanceView({ finance, onRefresh }: { finance: FinanceResponse | null; 
 function formatMoney(cents: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100);
 }
-function Stat({ label, value, detail }: { label: string; value: string; detail: string }) {
+// 23/09: icone de ajuda pequeno ao lado de metricas que podem gerar duvida (pedido explicito:
+// "pequenos icones que se eu passar o mouse vai abrir uma explicacao"). Desktop usa o `title` nativo
+// (hover); em touch/mobile (sem hover), o clique/toque abre o mesmo texto num balao — sem isso o
+// tooltip nativo nunca aparece em celular/tablet.
+function InfoIcon({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
   return (
-    <article className="stat">
+    <span className="infoIconWrap">
+      <span
+        className="infoIcon"
+        title={text}
+        onClick={(event) => { event.stopPropagation(); setOpen((current) => !current); }}
+      >
+        i
+      </span>
+      {open ? <span className="infoTooltip" onClick={(event) => event.stopPropagation()}>{text}</span> : null}
+    </span>
+  );
+}
+
+function Stat({ label, value, detail, onClick }: { label: string; value: string; detail: string; onClick?: () => void }) {
+  return (
+    <article className={`stat${onClick ? ' statClickable' : ''}`} onClick={onClick} role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}>
       <span>{label}</span>
       <strong>{value}</strong>
       <small>{detail}</small>

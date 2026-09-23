@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CoachController } from './coach.controller';
 import { CoachToolingController } from './coach-tooling.controller';
 import { CoachService } from './coach.service';
+import { BusinessIntelligenceService } from './business-intelligence.service';
 import { TrainingPlansModule } from '../training-plans/training-plans.module';
 import { StravaModule } from '../strava/strava.module';
 import { MessagingModule } from '../messaging/messaging.module';
@@ -13,6 +14,6 @@ import { MenstrualCycleModule } from '../menstrual-cycle/menstrual-cycle.module'
 @Module({
   imports: [TrainingPlansModule, StravaModule, MessagingModule, BackupModule, MeModule, BillingModule, MenstrualCycleModule],
   controllers: [CoachController, CoachToolingController],
-  providers: [CoachService],
+  providers: [CoachService, BusinessIntelligenceService],
 })
 export class CoachModule {}

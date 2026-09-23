@@ -3,6 +3,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { CoachService } from './coach.service';
+import { BusinessIntelligenceService } from './business-intelligence.service';
 import { parseDashboardQuery } from './dashboard-query.util';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { MergeStudentDto } from './dto/merge-student.dto';
@@ -17,7 +18,10 @@ import { UpdateStudentAvailabilityDto } from './dto/update-student-availability.
 @Roles('coach', 'admin')
 @Controller('coach')
 export class CoachController {
-  constructor(private readonly coachService: CoachService) {}
+  constructor(
+    private readonly coachService: CoachService,
+    private readonly businessIntelligence: BusinessIntelligenceService,
+  ) {}
   @Get('finance')
   finance() {
     return this.coachService.finance();
@@ -281,6 +285,19 @@ export class CoachController {
   @Get('data/business/summary')
   dataBusinessSummary() {
     return this.coachService.dataBusinessSummary();
+  }
+
+  // 23/09: evolucao mensal de alunos por grupo de pagamento + receita recebida, pro grafico de
+  // "Visao geral"/"Financeiro" do painel. months clampado 1-24 dentro do service.
+  @Get('data/business/evolution')
+  dataBusinessEvolution(@Query('months') months?: string) {
+    return this.businessIntelligence.getMonthlyEvolution(months ? parseInt(months, 10) : 12);
+  }
+
+  // 23/09: evolucao semanal de treino (prescrito/realizado/ajustado/extra/nao-realizado + aderencia).
+  @Get('data/training/evolution')
+  dataTrainingEvolution(@Query('weeks') weeks?: string) {
+    return this.businessIntelligence.getTrainingEvolution(weeks ? parseInt(weeks, 10) : 12);
   }
 
   @Get('data/training/student/:id/timeline')
