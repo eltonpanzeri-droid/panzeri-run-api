@@ -1140,9 +1140,15 @@ export default function AdminHome() {
     );
   }
 
+  // 23/09: 'manual_active' (cortesia/liberacao manual) estava caindo no mesmo grupo de
+  // 'active'/'grace' (pagamento de verdade via Asaas/RevenueCat) — sao coisas diferentes, o
+  // dashboard.totals ja separa isso (paymentConfirmed vs courtesyAccess) mas o filtro nao.
   const paymentGroupOf = (subscriptionStatus?: string) => {
-    if (subscriptionStatus === 'active' || subscriptionStatus === 'manual_active' || subscriptionStatus === 'grace') return 'confirmed';
+    if (subscriptionStatus === 'active' || subscriptionStatus === 'grace') return 'confirmed';
+    if (subscriptionStatus === 'manual_active') return 'courtesy';
     if (subscriptionStatus === 'overdue') return 'overdue';
+    // 'pending'/'canceled' nunca aparecem aqui de verdade — a Lista operacional ja exclui os dois
+    // (viram Prospectos e Ex-alunos, respectivamente). Mantido so' por seguranca de tipo.
     if (subscriptionStatus === 'canceled') return 'canceled';
     return 'pending';
   };
@@ -1151,6 +1157,21 @@ export default function AdminHome() {
     const paymentOk = paymentFilter === 'all' || paymentGroupOf(student.subscriptionStatus) === paymentFilter;
     return trainingOk && paymentOk;
   });
+  // Contagem exibida no cabecalho da lista. dashboard.totals ja e' calculado sobre TODOS os alunos
+  // que batem com o filtro de pagamento (nao so' a pagina atual carregada) — usar isso em vez de
+  // filteredStudents.length sempre que so' o filtro de Pagamento estiver ativo, senao o numero fica
+  // preso a quantos couberam na pagina (25 por vez) em vez do total real daquela divisao.
+  // Quando o filtro de Treino tambem esta ativo, nao existe um total pre-calculado por status de
+  // treino ainda — cai pro numero da pagina atual (melhor que o total geral fixo de antes, mas nao
+  // conta paginas seguintes; avisar se isso incomodar na pratica).
+  const paymentFilterTotal = paymentFilter === 'confirmed' ? dashboard?.totals.paymentConfirmed
+    : paymentFilter === 'courtesy' ? dashboard?.totals.courtesyAccess
+    : paymentFilter === 'overdue' ? dashboard?.totals.paymentOverdue
+    : null;
+  const listCount = trainingFilter !== 'all'
+    ? filteredStudents.length
+    : paymentFilterTotal ?? dashboard?.totals.students;
+  const listCountIsFiltered = trainingFilter !== 'all' || paymentFilter !== 'all';
 
   return (
     <main className="shell">
@@ -1347,7 +1368,7 @@ export default function AdminHome() {
             <div className="panelHeader">
               <div>
                 <p className="eyebrow">Alunos</p>
-                <h2>Lista operacional{dashboard ? ` · ${dashboard.totals.students} no total` : ''}</h2>
+                <h2>Lista operacional{dashboard ? ` · ${listCount}${listCountIsFiltered ? ' encontrado(s)' : ' no total'}` : ''}</h2>
               </div>
               <button className="secondaryButton" type="button" onClick={() => setStudentListCollapsed((collapsed) => !collapsed)}>
                 {studentListCollapsed ? `Mostrar lista (${filteredStudents.length})` : 'Recolher lista'}
@@ -1365,12 +1386,14 @@ export default function AdminHome() {
                 </select>
               </label>
               <label>Pagamento
+                {/* 23/09: "Pendente"/"Cancelado" removidos daqui de proposito — a Lista operacional
+                    ja exclui quem esta pending (vira Prospecto) ou canceled (vira Ex-aluno), entao
+                    esses dois nunca teriam nenhum resultado nesta tela especifica. */}
                 <select value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)}>
                   <option value="all">Todos</option>
                   <option value="confirmed">Confirmado</option>
-                  <option value="pending">Pendente</option>
+                  <option value="courtesy">Cortesia / liberacao manual</option>
                   <option value="overdue">Atrasado</option>
-                  <option value="canceled">Cancelado</option>
                 </select>
               </label>
             </div>
