@@ -656,8 +656,38 @@ model WeeklyCheckIn {
   nextWeekConfidence           Int?
   expectedScheduleFeasibility  Int?
   expectedPhysicalState        Int?
+  // preferredNextWeekTraining: reaproveitada pela v3 (24/09/2026) com um universo de valores NOVO
+  // e disjunto do antigo (10 opcoes v2 -> 5 opcoes v3) — checkinVersion diz qual conjunto vale pra
+  // aquela linha. Nunca colidem: nenhum id v3 repete um id v2 (ver PREFERRED_TRAINING_OPTIONS_V3
+  // no mobile e a lista correspondente em weekly-checkin.service.ts).
   preferredNextWeekTraining    String?
-  // Meta: versao do formulario (1=3 perguntas, 2=15 perguntas) e flag de skip explicito
+
+  // V3 (24/09/2026) — check-in semanal reduzido a 9 perguntas: o feedback de cada sessao
+  // individual (feedbackVersion v2) agora ja cobre sono/cansaco fisico/cansaco mental/estresse/
+  // vontade de treinar/RPE por treino, entao o semanal deixou de repetir isso e passou a focar em
+  // percepcao AGREGADA da semana + expectativa pra proxima. MESMA REGRA CANONICA das escalas do
+  // feedback individual: 5 = maior intensidade/quantidade da variavel perguntada, nunca invertida
+  // pra "5 = sempre bom".
+  //
+  // Pergunta 4 (bloco 1): exigencia da semana comparada ao normal do proprio aluno. 5 = muito mais
+  // exigente. Variavel nova, sem equivalente anterior — futuramente cruzada com carga
+  // prescrita/executada, volume, RPE das sessoes e baseline individual.
+  weekDemandVsNormal           Int?
+  // Pergunta 7 (bloco 3): interferencia ESPERADA da rotina/compromissos na PROXIMA semana
+  // (prospectivo). 5 = interferencia muito alta. NAO e' a mesma variavel de routineInterference
+  // (acima, v2) nem de expectedScheduleFeasibility (acima, v2) — routineInterference era
+  // retrospectivo (olhava pra semana que passou) e tinha a escala invertida (5=nao atrapalhou);
+  // expectedScheduleFeasibility perguntava sobre espaco na agenda com escala tambem invertida
+  // (5=semana livre). Reaproveitar qualquer uma delas teria misturado silenciosamente semanticas e
+  // direcoes de escala diferentes — por isso e' coluna nova.
+  expectedRoutineInterference  Int?
+  // Pergunta 9 (bloco 4): observacao livre e opcional sobre a semana ou a proxima. Substitui
+  // qualquer necessidade de inferir isso das perguntas estruturadas.
+  freeTextObservation          String?
+
+  // Meta: versao do formulario (1=3 perguntas, 2=15 perguntas, 3=9 perguntas) e flag de skip
+  // explicito. Ver tabela completa mantida/adaptada/substituida/retirada/nova em
+  // GLOSSARIO_METRICAS.md.
   checkinVersion               Int     @default(1)
   checkinSkipped               Boolean @default(false)
   createdAt                    DateTime @default(now())

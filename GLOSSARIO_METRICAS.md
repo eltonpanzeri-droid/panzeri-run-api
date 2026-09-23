@@ -196,6 +196,52 @@ exibe todas as 16 variáveis individualmente, mas o índice composto `computeRea
 inversão introduzida nesta mudança; fica registrado aqui para revisão quando a Evolução for
 atacada de verdade.
 
+## Check-in semanal v3 (24/09/2026) — 9 perguntas
+
+Reestruturação do check-in obrigatório antes de gerar a próxima semana
+(`WeeklyCheckIn.checkinVersion = 3`). Fonte: `apps/api/prisma/schema.prisma`,
+`apps/api/src/training-plans/weekly-checkin.service.ts`,
+`apps/api/src/training-plans/prescription-agent.service.ts`.
+
+**Motivo da redução**: o feedback individual de cada sessão (v2, seção acima) já coleta sono,
+cansaço físico/mental, estresse, vontade de treinar e RPE por treino — o check-in semanal parou de
+repetir essas variáveis e passou a focar em percepção **agregada da semana** e expectativa para a
+próxima. A etapa inicial de confirmação ("você já registrou tudo?") foi mantida sem alteração.
+
+**Achado importante da auditoria**: diferente do feedback individual (que só chega à IA via texto
+narrativo), o check-in semanal **é passado à IA em formato estruturado** (JSON), no campo
+`autoavaliacaoDaSemanaPeloAluno` de `prescription-agent.service.ts`. Por isso o branch novo
+(`checkinVersion === 3`) precisou ser inserido **antes** do branch v2 no código — um registro v3
+também preenche colunas que o branch v2 usa como sinal de detecção (`prescriptionLiking`), então a
+ordem de verificação importa para não classificar um registro v3 como v2 por engano.
+
+| # | Pergunta | Status | Coluna (WeeklyCheckIn) |
+|---|---|---|---|
+| 1 | Avaliação dos treinos propostos na semana | adaptada (mesma coluna, redação aprofundada) | `prescriptionLiking` |
+| 2 | Adequação percebida da semana ao momento do aluno | adaptada | `prescriptionSuitability` |
+| 3 | Satisfação com a própria execução da semana | mantida/adaptada | `executionSatisfaction` |
+| 4 | Exigência da semana comparada ao normal do aluno | nova | `weekDemandVsNormal` |
+| 5 | Resposta do corpo comparada ao habitual | mantida/adaptada | `bodyResponseVsNormal` |
+| 6 | Vontade de continuar treinando agora | adaptada (substitui a antiga "motivação ao final da semana") | `postWeekMotivation` |
+| 7 | Interferência **esperada** da rotina na próxima semana | **nova** — não reaproveita `routineInterference` (retrospectivo, escala invertida: 5=não atrapalhou) nem `expectedScheduleFeasibility` (também invertida: 5=agenda livre); direção nova é 5=interferência muito alta | `expectedRoutineInterference` |
+| 8 | Preferência/expectativa para a próxima semana | substituída — mesma coluna, universo de valores reduzido de 10 para 5 opções, ids novos e disjuntos dos antigos | `preferredNextWeekTraining` |
+| 9 | Observação livre (opcional) | nova | `freeTextObservation` |
+
+**Saíram do questionário** (perguntas v2 retiradas, colunas preservadas só para histórico):
+"O quanto você conseguiu executar os treinos como planejado?" (execução deve vir dos registros de
+cada treino, não de autoavaliação agregada), qualidade do sono na semana, sensação física atual,
+nível de estresse na semana, interferência retrospectiva da rotina, motivação para a próxima semana
+(redundante com a P6 nova), confiança de execução da próxima semana, viabilidade de agenda, estado
+físico esperado no início da próxima semana.
+
+**Compatibilidade histórica**: nenhuma coluna v1/v2 foi removida. Registros antigos continuam lidos
+corretamente (o branch de leitura pro prontuário da IA escolhe v3/v2/v1 pela mesma lógica de
+detecção usada na escrita).
+
+**Pendente, deliberadamente fora desta rodada** (confirmado com Elton): reavaliação de 15 semanas,
+índices de Sono/Prontidão, Athlete State Snapshot, e qualquer mudança na arquitetura do agente
+prescritor além de mapear o novo formato de entrada.
+
 ## O que ainda NÃO está implementado (pendente, fora desta rodada)
 
 - Coortes por mês/origem de entrada.

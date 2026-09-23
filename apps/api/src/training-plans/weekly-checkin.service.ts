@@ -85,10 +85,15 @@ export class WeeklyCheckInService {
     // aparelho) no meio do tempo entre abrir a tela e responder as perguntas. Mesma logica de
     // "dado limpo pra analise" pedida pelo treinador exige que o numero registrado seja o mesmo que
     // o aluno de fato confirmou, nao um recalculo silencioso.
-    // 11/09: detecta versao pelo campo checkinVersion ou pela presenca de campos v2. V1 envia
-    // elaborationSatisfaction/adherenceSatisfaction; v2 envia prescriptionLiking etc.
-    const isV2 = (dto.checkinVersion === 2) || (dto.prescriptionLiking !== undefined);
-    const version = isV2 ? 2 : 1;
+    // 11/09: detecta versao pelo campo checkinVersion ou pela presenca de campos exclusivos de
+    // cada versao. V1 envia elaborationSatisfaction/adherenceSatisfaction; v2 envia
+    // prescriptionLiking (e mais 14 campos); v3 (24/09/2026) envia weekDemandVsNormal e/ou
+    // expectedRoutineInterference, que so existem na v3 — checado ANTES do v2 porque v3 tambem
+    // preenche prescriptionLiking/prescriptionSuitability/executionSatisfaction/
+    // bodyResponseVsNormal/postWeekMotivation/preferredNextWeekTraining (colunas reaproveitadas).
+    const isV3 = (dto.checkinVersion === 3) || dto.weekDemandVsNormal !== undefined || dto.expectedRoutineInterference !== undefined || dto.freeTextObservation !== undefined;
+    const isV2 = !isV3 && ((dto.checkinVersion === 2) || (dto.prescriptionLiking !== undefined));
+    const version = isV3 ? 3 : isV2 ? 2 : 1;
 
     try {
       return await this.prisma.weeklyCheckIn.create({
@@ -101,28 +106,34 @@ export class WeeklyCheckInService {
           differentSessions: dto.differentSessions,
           missedSessions: dto.missedSessions,
           checkinVersion: version,
-          // V1 campos (null em v2)
-          elaborationSatisfaction: isV2 ? null : (dto.elaborationSatisfaction ?? null),
-          adherenceSatisfaction: isV2 ? null : (dto.adherenceSatisfaction ?? null),
-          // nextWeekMotivation compartilhado v1 (P3) e v2 (P11)
-          nextWeekMotivation: dto.nextWeekMotivation ?? null,
-          // V2 Bloco 1
+          // V1 campos (null em v2/v3)
+          elaborationSatisfaction: isV2 || isV3 ? null : (dto.elaborationSatisfaction ?? null),
+          adherenceSatisfaction: isV2 || isV3 ? null : (dto.adherenceSatisfaction ?? null),
+          // nextWeekMotivation: compartilhado v1 (P3) e v2 (P11). Retirada na v3 (redundante com
+          // postWeekMotivation/P6, "vontade de continuar treinando") — fica null em v3 de proposito.
+          nextWeekMotivation: isV3 ? null : (dto.nextWeekMotivation ?? null),
+          // Reaproveitadas pela v3 com semantica adaptada (ver comentarios no schema.prisma):
+          // prescriptionLiking (P1), prescriptionSuitability (P2), executionSatisfaction (P3),
+          // bodyResponseVsNormal (P5), postWeekMotivation (P6), preferredNextWeekTraining (P8).
           prescriptionLiking: dto.prescriptionLiking ?? null,
           prescriptionSuitability: dto.prescriptionSuitability ?? null,
-          perceivedExecution: dto.perceivedExecution ?? null,
           executionSatisfaction: dto.executionSatisfaction ?? null,
-          postWeekMotivation: dto.postWeekMotivation ?? null,
-          // V2 Bloco 2
-          weeklySleep: dto.weeklySleep ?? null,
-          currentPhysicalFatigue: dto.currentPhysicalFatigue ?? null,
-          weeklyStress: dto.weeklyStress ?? null,
-          routineInterference: dto.routineInterference ?? null,
           bodyResponseVsNormal: dto.bodyResponseVsNormal ?? null,
-          // V2 Bloco 3
-          nextWeekConfidence: dto.nextWeekConfidence ?? null,
-          expectedScheduleFeasibility: dto.expectedScheduleFeasibility ?? null,
-          expectedPhysicalState: dto.expectedPhysicalState ?? null,
+          postWeekMotivation: dto.postWeekMotivation ?? null,
           preferredNextWeekTraining: dto.preferredNextWeekTraining ?? null,
+          // Retiradas na v3 (nao mais coletadas; ficam null quando isV3, preservadas quando v2 as envia)
+          perceivedExecution: isV3 ? null : (dto.perceivedExecution ?? null),
+          weeklySleep: isV3 ? null : (dto.weeklySleep ?? null),
+          currentPhysicalFatigue: isV3 ? null : (dto.currentPhysicalFatigue ?? null),
+          weeklyStress: isV3 ? null : (dto.weeklyStress ?? null),
+          routineInterference: isV3 ? null : (dto.routineInterference ?? null),
+          nextWeekConfidence: isV3 ? null : (dto.nextWeekConfidence ?? null),
+          expectedScheduleFeasibility: isV3 ? null : (dto.expectedScheduleFeasibility ?? null),
+          expectedPhysicalState: isV3 ? null : (dto.expectedPhysicalState ?? null),
+          // V3 — colunas novas
+          weekDemandVsNormal: dto.weekDemandVsNormal ?? null,
+          expectedRoutineInterference: dto.expectedRoutineInterference ?? null,
+          freeTextObservation: dto.freeTextObservation?.trim() || null,
         },
       });
     } catch (error) {
@@ -140,9 +151,10 @@ export class WeeklyCheckInService {
 
   // 07/09: aluno optou por nao registrar o feedback — nao bloqueia a geracao, mas a IA recebe
   // contexto "sem dados, nao presuma execucao" em vez dos scores de satisfacao.
-  // 11/09: sentinel atualizado para v2: checkinSkipped=true (checkinVersion=2). Backward compat:
-  // registros v1 antigos ainda usam elaborationSatisfaction===0 como sentinel — ambos sao
-  // reconhecidos pelo prescription-agent (ver isSkipped ali).
+  // 11/09: sentinel atualizado para v2: checkinSkipped=true. Backward compat: registros v1 antigos
+  // ainda usam elaborationSatisfaction===0 como sentinel — ambos sao reconhecidos pelo
+  // prescription-agent (ver isSkipped ali). 24/09: checkinVersion carimbado agora e' 3 (versao do
+  // questionario vigente no momento do skip); todos os campos de pergunta ficam null de qualquer forma.
   async skip(userId: string) {
     const plan = await this.currentActivePlan(userId);
     if (!plan) return { skipped: true }; // sem plano ativo, nao ha o que registrar
@@ -160,9 +172,9 @@ export class WeeklyCheckInService {
           changedModalitySessions: 0,
           differentSessions: 0,
           missedSessions: 0,
-          checkinVersion: 2,
+          checkinVersion: 3,
           checkinSkipped: true,
-          // Todos os campos de perguntas ficam null no skip v2
+          // Todos os campos de perguntas ficam null no skip
           elaborationSatisfaction: null,
           adherenceSatisfaction: null,
           nextWeekMotivation: null,

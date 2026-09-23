@@ -779,6 +779,38 @@ export class PrescriptionAgentService {
               if (isSkipped) {
                 return { semDados: true, motivo: 'Aluno optou por nao registrar o feedback da semana. Nao ha informacao sobre o que foi ou nao foi feito. Nao presuma execucao nem ausencia. Siga a programacao proposta. Se houver diretriz que dependa de um treino ter sido feito e nao houver indicacao em outro lugar de que nao foi, considere-o feito.' };
               }
+              // V3 (24/09/2026): 9 perguntas, checado ANTES da v2 porque v3 tambem preenche
+              // prescriptionLiking/prescriptionSuitability/executionSatisfaction/
+              // bodyResponseVsNormal/postWeekMotivation/preferredNextWeekTraining (colunas
+              // reaproveitadas) — sem essa ordem, um registro v3 cairia no branch v2 abaixo.
+              // O feedback individual de cada sessao ja cobre sono/cansaco/estresse/RPE por
+              // treino; este check-in passou a focar em percepcao AGREGADA da semana e
+              // expectativa pra proxima, sem repetir o que o feedback diario ja mede.
+              if (ci.checkinVersion === 3) {
+                return {
+                  versao: 3,
+                  bloco1_comoFoiASemanaDeTreinos: {
+                    avaliacaoDaPropostaDeTreinos: ci.prescriptionLiking,
+                    adequacaoDaSemanaASituacaoAtual: ci.prescriptionSuitability,
+                    satisfacaoComAPropriaExecucao: ci.executionSatisfaction,
+                    exigenciaDaSemanaComparadaAoNormalDoAluno: ci.weekDemandVsNormal,
+                  },
+                  bloco2_comoEstaTerminandoASemana: {
+                    respostaDoCorpoVsHabitual: ci.bodyResponseVsNormal,
+                    vontadeDeContinuarTreinando: ci.postWeekMotivation,
+                  },
+                  bloco3_pensandoNaProximaSemana: {
+                    // Prospectivo: 5 = interferencia muito alta (NAO inverter).
+                    interferenciaEsperadaDaRotinaNaProximaSemana: ci.expectedRoutineInterference,
+                  },
+                  bloco4_expectativaDoAluno: {
+                    // Preferencia DECLARADA pelo aluno — nao e' comando de prescricao, e' informacao
+                    // de expectativa/percepcao a ser confrontada com estado real, historico e objetivo.
+                    preferenciaDeclaradaParaProximaSemana: ci.preferredNextWeekTraining,
+                    observacaoLivreDoAluno: ci.freeTextObservation,
+                  },
+                };
+              }
               // V2: 15 perguntas em 3 blocos
               if (ci.checkinVersion === 2 && ci.prescriptionLiking != null) {
                 return {

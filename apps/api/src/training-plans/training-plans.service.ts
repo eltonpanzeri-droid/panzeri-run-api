@@ -560,6 +560,8 @@ export class TrainingPlansService {
             nextWeekMotivation: true, nextWeekConfidence: true,
             expectedScheduleFeasibility: true, expectedPhysicalState: true,
             preferredNextWeekTraining: true,
+            // V3 (24/09/2026)
+            weekDemandVsNormal: true, expectedRoutineInterference: true, freeTextObservation: true,
             // Meta
             checkinVersion: true, checkinSkipped: true,
           },

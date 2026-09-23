@@ -261,7 +261,12 @@ export interface MethodologyInput {
     nextWeekConfidence: number | null;
     expectedScheduleFeasibility: number | null;
     expectedPhysicalState: number | null;
+    // Reaproveitada pela v3 (universo de valores novo, ver schema.prisma) além de v2
     preferredNextWeekTraining: string | null;
+    // V3 (24/09/2026) — colunas novas
+    weekDemandVsNormal: number | null;
+    expectedRoutineInterference: number | null;
+    freeTextObservation: string | null;
   } | null;
 }
 

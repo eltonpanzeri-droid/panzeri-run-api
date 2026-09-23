@@ -27,11 +27,12 @@ export class SubmitWeeklyCheckInDto {
   @Min(0)
   missedSessions!: number;
 
-  // Versao do formulario: 1 = 3 perguntas (legado), 2 = 15 perguntas. Opcional para backward compat.
+  // Versao do formulario: 1 = 3 perguntas (legado), 2 = 15 perguntas (legado), 3 = 9 perguntas
+  // (24/09/2026, atual). Opcional para backward compat com apps antigos ja publicados.
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(2)
+  @Max(3)
   checkinVersion?: number;
 
   // --- V1 (3 perguntas, 31/08) — opcionais, enviados por versoes antigas do app ---
@@ -150,8 +151,33 @@ export class SubmitWeeklyCheckInDto {
   @Max(5)
   expectedPhysicalState?: number;
 
-  // P15: "O que voce prefere para a proxima semana?" — identificador semantico estaveis (nao texto livre)
+  // P15 (v2) / P8 (v3): "O que voce prefere para a proxima semana?" — identificador semantico
+  // estavel (nao texto livre). v3 reduziu de 10 pra 5 opcoes, com ids NOVOS e disjuntos dos
+  // antigos (ver PREFERRED_TRAINING_OPTIONS_V3 no mobile) — checkinVersion diz qual conjunto vale.
   @IsOptional()
   @IsString()
   preferredNextWeekTraining?: string;
+
+  // --- V3 (9 perguntas, 24/09/2026) — check-in semanal reduzido, complementar ao feedback
+  // individual de cada treino (que agora ja cobre sono/cansaco/estresse/RPE por sessao). Mesma
+  // regra canonica das escalas: 5 = maior intensidade da variavel perguntada.
+
+  // P4 (bloco 1): "Comparando com uma semana normal sua, quao exigente esta semana pareceu?"
+  // (1=Muito menos exigente, 5=Muito mais exigente). Variavel nova.
+  @IsOptional()
+  @IsInt() @Min(1) @Max(5)
+  weekDemandVsNormal?: number;
+
+  // P7 (bloco 3): "Pensando na proxima semana, quanto seus compromissos podem atrapalhar a
+  // execucao dos treinos?" (1=Nao devem atrapalhar, 5=Devem atrapalhar muito). Prospectivo — NAO
+  // e' a mesma variavel de routineInterference (retrospectivo, escala invertida) nem de
+  // expectedScheduleFeasibility (tambem invertida). Coluna propria de proposito.
+  @IsOptional()
+  @IsInt() @Min(1) @Max(5)
+  expectedRoutineInterference?: number;
+
+  // P9 (bloco 4): observacao livre e opcional. Nunca recebe score.
+  @IsOptional()
+  @IsString()
+  freeTextObservation?: string;
 }
