@@ -8,6 +8,9 @@ import { BillingLogEvent, CommercialStateResult, CommercialUserFacts, deriveComm
 export const LEO_JOURNEY_EVENTS = [
   'landing_view',
   'landing_cta_click',
+  'how_it_works_cta_click',
+  'final_cta_click',
+  'mobile_sticky_cta_click',
   'app_opened',
   'signup_form_viewed',
   'signup_started',
