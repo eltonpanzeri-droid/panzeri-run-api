@@ -56,6 +56,13 @@ PRESCREVER → EXECUTAR → OBSERVAR → ATUALIZAR O ESTADO → PRESCREVER
   para o mesmo conceito, regras conflitantes e implementações sobrepostas.
 - **Training Intelligence e Customer Intelligence são diferentes** — podem usar os mesmos eventos,
   mas interpretação técnica do atleta e interpretação comercial devem permanecer separadas.
+- **A infraestrutura longitudinal nasce completa. A força das conclusões cresce com os dados.**
+  (Elton, 25/09/2026) A tubulação — schema, baseline por indivíduo, médias móveis, metadados de
+  confiança — é construída inteira desde o primeiro aluno, correta tanto para `n=3` quanto para
+  `n=300`. Nada é relativo ao calendário do produto (não existe "dia 1998 do app"); tudo é relativo
+  ao histórico próprio de cada atleta — um aluno que entra hoje começa no dia 1 dele. O que muda com
+  o tempo não é a arquitetura, é a confiança exibida: baixa com poucos dados, alta quando o histórico
+  crescer, sempre calculada automaticamente pelo próprio `n`, nunca hardcoded por fase do produto.
 
 ## 3. Arquitetura mental do produto: o Explorer
 
