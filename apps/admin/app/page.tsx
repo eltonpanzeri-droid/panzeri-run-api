@@ -266,6 +266,17 @@ interface StudentDetail {
       // Feedback v1 — bloco 2: experiencia
       postWorkoutFeeling?: number | null;
       postWorkoutMood?: number | null;
+      // Feedback v2 (24/09/2026) — 16 perguntas reestruturadas
+      sleepDurationCategory?: string | null;
+      sleepScheduleIrregularity?: number | null;
+      sleepInterruption?: number | null;
+      sleepDifficulty?: number | null;
+      preMentalFatigue?: number | null;
+      executionVsPrescribed?: number | null;
+      postPhysicalFatigue?: number | null;
+      postMentalFatigue?: number | null;
+      emotionalExperienceDuring?: number | null;
+      mentalStateChangePrePost?: number | null;
       // Feedback v1 — bloco 3: dor
       painFlag?: string | null;
       painTiming?: string | null;
@@ -317,6 +328,17 @@ interface StudentDetail {
       // Feedback v1 — bloco 2
       postWorkoutFeeling?: number | null;
       postWorkoutMood?: number | null;
+      // Feedback v2 (24/09/2026)
+      sleepDurationCategory?: string | null;
+      sleepScheduleIrregularity?: number | null;
+      sleepInterruption?: number | null;
+      sleepDifficulty?: number | null;
+      preMentalFatigue?: number | null;
+      executionVsPrescribed?: number | null;
+      postPhysicalFatigue?: number | null;
+      postMentalFatigue?: number | null;
+      emotionalExperienceDuring?: number | null;
+      mentalStateChangePrePost?: number | null;
       // Feedback v1 — bloco 3
       painFlag?: string | null;
       painTiming?: string | null;
@@ -3819,16 +3841,31 @@ function EditableSession({
               {session.completedDistanceKm ? ` | ${session.completedDistanceKm} km` : ''}
               {session.completedPaceSecondsKm ? ` | ${paceLabel(session.completedPaceSecondsKm)}` : ''}
             </span>
-            {/* Bloco pre-treino (v1) — so aparece quando preenchido */}
-            {(session.preSleepQuality || session.prePhysicalFatigue || session.preStressLevel || session.preMotivation) && (
+            {/* Bloco SONO — pergunta 1 (v1/v2) + perguntas 2-5 (v2, 24/09/2026) */}
+            {(session.preSleepQuality || session.sleepDurationCategory || session.sleepScheduleIrregularity || session.sleepInterruption || session.sleepDifficulty) && (
               <span style={{ borderTop: '1px solid #e5e7eb', paddingTop: 4, marginTop: 2 }}>
-                <strong>Como chegou:</strong> sono {scale5Label(session.preSleepQuality, 'Muito ruim', 'Excelente')} · cansaco {scale5Label(session.prePhysicalFatigue, 'Muito baixo', 'Muito alto')} · estresse {scale5Label(session.preStressLevel, 'Muito baixo', 'Muito alto')} · motivacao {scale5Label(session.preMotivation, 'Muito baixa', 'Muito alta')}
+                <strong>Sono:</strong> qualidade {scale5Label(session.preSleepQuality, 'Muito ruim', 'Excelente')}
+                {session.sleepDurationCategory ? ` · duracao ${sleepDurationCategoryLabel(session.sleepDurationCategory)}` : ''}
+                {session.sleepScheduleIrregularity ? ` · irregularidade ${session.sleepScheduleIrregularity}/5` : ''}
+                {session.sleepInterruption ? ` · interrompido ${session.sleepInterruption}/5` : ''}
+                {session.sleepDifficulty ? ` · dificuldade p/dormir ${session.sleepDifficulty}/5` : ''}
+              </span>
+            )}
+            {/* Bloco ESTADO ANTES DO TREINO — cansaco fisico (v1/v2) + mental (v2) + estresse/motivacao */}
+            {(session.prePhysicalFatigue || session.preMentalFatigue || session.preStressLevel || session.preMotivation) && (
+              <span>
+                <strong>Antes do treino:</strong> cansaco fisico {scale5Label(session.prePhysicalFatigue, 'Muito baixo', 'Muito alto')}
+                {session.preMentalFatigue ? ` · cansaco mental ${session.preMentalFatigue}/5` : ''}
+                {' · estresse '}{scale5Label(session.preStressLevel, 'Muito baixo', 'Muito alto')}
+                {' · vontade de treinar '}{scale5Label(session.preMotivation, 'Muito baixa', 'Muito alta')}
               </span>
             )}
             {/* Esforco e satisfacoes */}
             <span>{session.perceivedEffort ? `PSE ${session.perceivedEffort}/10` : 'PSE nao informada'}</span>
             {session.satisfactionElaboracao && <span>Elaboracao do treino: {satisfactionLabel(session.satisfactionElaboracao)}</span>}
-            {session.satisfactionCapacidade && <span>Como se saiu: {satisfactionLabel(session.satisfactionCapacidade)}</span>}
+            {/* executionVsPrescribed (v2) substitui satisfactionCapacidade (v1) — nunca ambos preenchidos */}
+            {session.executionVsPrescribed ? <span>Execucao vs. prescrito: {executionVsPrescribedLabel(session.executionVsPrescribed)}</span>
+              : session.satisfactionCapacidade ? <span>Como se saiu: {satisfactionLabel(session.satisfactionCapacidade)}</span> : null}
             {/* Campos historicos — so mostrar se preenchidos (clientes pre-v1) */}
             {session.satisfaction && <span>Fazer o treino: {satisfactionLabel(session.satisfaction)}</span>}
             {session.satisfactionCarga && <span>Carga: {cargaLabel(session.satisfactionCarga)}</span>}
@@ -3836,9 +3873,14 @@ function EditableSession({
             {session.walkingReasons && session.walkingReasons.length > 0 && (
               <span>Caminhada/parada: {session.walkingReasons.join(' · ')}</span>
             )}
-            {/* Bloco pos-treino (v1) */}
-            {session.postWorkoutFeeling && <span>Corpo ao terminar: {scale5Label(session.postWorkoutFeeling, 'Exausto / no limite', 'Cheio de energia')}</span>}
-            {session.postWorkoutMood && <span>Emocional ao terminar: {scale5Label(session.postWorkoutMood, 'Frustrado / chateado', 'Orgulhoso / muito feliz')}</span>}
+            {/* Bloco RESPOSTA AO TREINO — pos-treino v2 substitui v1 (postPhysicalFatigue no lugar
+                de postWorkoutFeeling; emotionalExperienceDuring no lugar de postWorkoutMood) */}
+            {session.postPhysicalFatigue ? <span>Cansaco fisico provocado: {session.postPhysicalFatigue}/5</span>
+              : session.postWorkoutFeeling ? <span>Corpo ao terminar: {scale5Label(session.postWorkoutFeeling, 'Exausto / no limite', 'Cheio de energia')}</span> : null}
+            {session.postMentalFatigue && <span>Cansaco mental provocado: {session.postMentalFatigue}/5</span>}
+            {session.emotionalExperienceDuring ? <span>Experiencia emocional durante: {session.emotionalExperienceDuring}/5</span>
+              : session.postWorkoutMood ? <span>Emocional ao terminar: {scale5Label(session.postWorkoutMood, 'Frustrado / chateado', 'Orgulhoso / muito feliz')}</span> : null}
+            {session.mentalStateChangePrePost && <span>Mudanca mental pre→pos: {session.mentalStateChangePrePost}/5</span>}
             {/* Dor */}
             {session.painFlag === 'none' && <span>Sem dor ou desconforto</span>}
             {session.painFlag && session.painFlag !== 'none' && (
@@ -4745,6 +4787,20 @@ function cargaLabel(value: string) {
   return labels[value] ?? value;
 }
 
+// Feedback v2 (24/09/2026) — categoria de duracao do sono (pergunta 2), categorica, nao e' escala
+// de intensidade.
+function sleepDurationCategoryLabel(value: string) {
+  const labels: Record<string, string> = {
+    menos_5h: 'Menos de 5h',
+    '5_a_6h': '5-6h',
+    '6_a_7h': '6-7h',
+    '7_a_8h': '7-8h',
+    '8_a_9h': '8-9h',
+    mais_9h: 'Mais de 9h',
+  };
+  return labels[value] ?? value;
+}
+
 // 19/08: satisfacao virou 4 perguntas separadas (elaboracao/fazer/capacidade/carga) em vez de uma
 // so vaga — resume as que tiverem resposta numa unica linha compacta pro historico de semana.
 function satisfactionDimensionsLine(session: {
@@ -4752,13 +4808,29 @@ function satisfactionDimensionsLine(session: {
   satisfaction?: string | null;
   satisfactionCapacidade?: string | null;
   satisfactionCarga?: string | null;
+  executionVsPrescribed?: number | null;
 }) {
   const parts: string[] = [];
   if (session.satisfactionElaboracao) parts.push(`Elaboracao: ${satisfactionLabel(session.satisfactionElaboracao)}`);
   if (session.satisfaction) parts.push(`Fazer: ${satisfactionLabel(session.satisfaction)}`);
-  if (session.satisfactionCapacidade) parts.push(`Como conseguiu: ${satisfactionLabel(session.satisfactionCapacidade)}`);
+  // executionVsPrescribed (v2) substitui satisfactionCapacidade (v1) — nunca ambos na mesma sessao.
+  if (session.executionVsPrescribed) parts.push(`Execucao vs. prescrito: ${executionVsPrescribedLabel(session.executionVsPrescribed)}`);
+  else if (session.satisfactionCapacidade) parts.push(`Como conseguiu: ${satisfactionLabel(session.satisfactionCapacidade)}`);
   if (session.satisfactionCarga) parts.push(`Carga: ${cargaLabel(session.satisfactionCarga)}`);
   return parts.length ? ` | ${parts.join(' | ')}` : '';
+}
+
+// executionVsPrescribed: 3 = fez como prescrito (referencia, nao "neutro"). Nunca interpretar 5
+// como "melhor execucao" — e' so' mais que o prescrito.
+function executionVsPrescribedLabel(value: number) {
+  const labels: Record<number, string> = {
+    1: 'Fez bem menos que o prescrito',
+    2: 'Fez um pouco menos que o prescrito',
+    3: 'Fez como prescrito',
+    4: 'Fez um pouco mais que o prescrito',
+    5: 'Fez bem mais que o prescrito',
+  };
+  return labels[value] ?? String(value);
 }
 
 function methodologySummaryLine(methodology: {
@@ -6397,21 +6469,38 @@ function TimelineIntegradaSection({ history }: {
                     {isMissed ? 'Não fez' : s.completionStatus === 'adjusted' ? 'Ajustado' : 'Feito'}
                   </span>
                 </div>
-                {/* Linha 2: bloco 1 — estado pré */}
-                {(s.preSleepQuality != null || s.prePhysicalFatigue != null || s.preStressLevel != null || s.preMotivation != null) && (
+                {/* Linha 2: bloco Sono */}
+                {(s.preSleepQuality != null || s.sleepDurationCategory != null || s.sleepScheduleIrregularity != null || s.sleepInterruption != null || s.sleepDifficulty != null) && (
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 3 }}>
                     {s.preSleepQuality != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Sono <span style={{ color: scale5Color(s.preSleepQuality), fontWeight: 700 }}>{s.preSleepQuality}/5</span></span>}
-                    {s.prePhysicalFatigue != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Cansaço <span style={{ color: scale5Color(s.prePhysicalFatigue), fontWeight: 700 }}>{s.prePhysicalFatigue}/5</span></span>}
-                    {s.preStressLevel != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Estresse <span style={{ fontWeight: 700 }}>{s.preStressLevel}/5</span></span>}
-                    {s.preMotivation != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Motivação <span style={{ color: scale5Color(s.preMotivation), fontWeight: 700 }}>{s.preMotivation}/5</span></span>}
+                    {s.sleepDurationCategory != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Duração <strong>{sleepDurationCategoryLabel(s.sleepDurationCategory)}</strong></span>}
+                    {s.sleepScheduleIrregularity != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Irregularidade <strong>{s.sleepScheduleIrregularity}/5</strong></span>}
+                    {s.sleepInterruption != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Interrompido <strong>{s.sleepInterruption}/5</strong></span>}
+                    {s.sleepDifficulty != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Dificuldade p/dormir <strong>{s.sleepDifficulty}/5</strong></span>}
                   </div>
                 )}
-                {/* Linha 3: bloco 2 — treino */}
+                {/* Linha 2b: bloco Estado antes do treino */}
+                {(s.prePhysicalFatigue != null || s.preMentalFatigue != null || s.preStressLevel != null || s.preMotivation != null) && (
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 3 }}>
+                    {s.prePhysicalFatigue != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Cansaço físico <span style={{ color: scale5Color(s.prePhysicalFatigue), fontWeight: 700 }}>{s.prePhysicalFatigue}/5</span></span>}
+                    {s.preMentalFatigue != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Cansaço mental <strong>{s.preMentalFatigue}/5</strong></span>}
+                    {s.preStressLevel != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Estresse <span style={{ fontWeight: 700 }}>{s.preStressLevel}/5</span></span>}
+                    {s.preMotivation != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Vontade de treinar <span style={{ color: scale5Color(s.preMotivation), fontWeight: 700 }}>{s.preMotivation}/5</span></span>}
+                  </div>
+                )}
+                {/* Linha 3: bloco Resposta ao treino */}
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 3 }}>
                   {s.perceivedEffort != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>RPE <strong style={{ color: 'var(--fg)' }}>{s.perceivedEffort}/10</strong></span>}
                   {s.satisfactionElaboracao != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Elaboração <strong>{s.satisfactionElaboracao}</strong></span>}
-                  {s.satisfactionCapacidade != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Execução <strong>{s.satisfactionCapacidade}</strong></span>}
-                  {s.postWorkoutFeeling != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Sensação final <span style={{ color: scale5Color(s.postWorkoutFeeling), fontWeight: 700 }}>{s.postWorkoutFeeling}/5</span></span>}
+                  {s.executionVsPrescribed != null
+                    ? <span style={{ fontSize: 10, color: 'var(--muted)' }}>Execução vs. prescrito <strong>{executionVsPrescribedLabel(s.executionVsPrescribed)}</strong></span>
+                    : s.satisfactionCapacidade != null ? <span style={{ fontSize: 10, color: 'var(--muted)' }}>Execução <strong>{s.satisfactionCapacidade}</strong></span> : null}
+                  {s.postPhysicalFatigue != null
+                    ? <span style={{ fontSize: 10, color: 'var(--muted)' }}>Cansaço físico provocado <strong>{s.postPhysicalFatigue}/5</strong></span>
+                    : s.postWorkoutFeeling != null ? <span style={{ fontSize: 10, color: 'var(--muted)' }}>Sensação final <span style={{ color: scale5Color(s.postWorkoutFeeling), fontWeight: 700 }}>{s.postWorkoutFeeling}/5</span></span> : null}
+                  {s.postMentalFatigue != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Cansaço mental provocado <strong>{s.postMentalFatigue}/5</strong></span>}
+                  {s.emotionalExperienceDuring != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Experiência emocional <strong>{s.emotionalExperienceDuring}/5</strong></span>}
+                  {s.mentalStateChangePrePost != null && <span style={{ fontSize: 10, color: 'var(--muted)' }}>Mudança mental pré→pós <strong>{s.mentalStateChangePrePost}/5</strong></span>}
                 </div>
                 {/* Dor */}
                 {s.painFlag && s.painFlag !== 'none' && (
@@ -6968,6 +7057,12 @@ function flatFeedbackSessions(history: StudentDetail['history']) {
     preSleepQuality: number | null; prePhysicalFatigue: number | null;
     preStressLevel: number | null; preMotivation: number | null;
     postWorkoutFeeling: number | null; postWorkoutMood: number | null;
+    // Feedback v2 (24/09/2026)
+    sleepDurationCategory: string | null; sleepScheduleIrregularity: number | null;
+    sleepInterruption: number | null; sleepDifficulty: number | null;
+    preMentalFatigue: number | null; executionVsPrescribed: number | null;
+    postPhysicalFatigue: number | null; postMentalFatigue: number | null;
+    emotionalExperienceDuring: number | null; mentalStateChangePrePost: number | null;
     painFlag: string | null; painTiming: string | null;
     feedbackVersion: number | null;
     // Separação explícita prescrito/feito/extra/perdido/sem registro (18/09/2026)
@@ -7004,6 +7099,16 @@ function flatFeedbackSessions(history: StudentDetail['history']) {
         preMotivation: session.preMotivation ?? null,
         postWorkoutFeeling: session.postWorkoutFeeling ?? null,
         postWorkoutMood: session.postWorkoutMood ?? null,
+        sleepDurationCategory: session.sleepDurationCategory ?? null,
+        sleepScheduleIrregularity: session.sleepScheduleIrregularity ?? null,
+        sleepInterruption: session.sleepInterruption ?? null,
+        sleepDifficulty: session.sleepDifficulty ?? null,
+        preMentalFatigue: session.preMentalFatigue ?? null,
+        executionVsPrescribed: session.executionVsPrescribed ?? null,
+        postPhysicalFatigue: session.postPhysicalFatigue ?? null,
+        postMentalFatigue: session.postMentalFatigue ?? null,
+        emotionalExperienceDuring: session.emotionalExperienceDuring ?? null,
+        mentalStateChangePrePost: session.mentalStateChangePrePost ?? null,
         painFlag: session.painFlag ?? null,
         painTiming: session.painTiming ?? null,
         feedbackVersion: session.feedbackVersion ?? null,

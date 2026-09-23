@@ -32,6 +32,23 @@ export class WorkoutCompletionsService {
       throw new BadRequestException('Informe o esforco percebido de 1 a 10.');
     }
 
+    // 24/09: feedback v2 — 16 perguntas reestruturadas (blocos Sono/Estado antes/Resposta ao
+    // treino), pedido explicito do treinador. Mesmo padrao de deteccao por presenca de campo usado
+    // desde a v1 (ver isV1Client abaixo): um cliente v2 e' reconhecido por mandar qualquer um dos
+    // campos que so existem na v2. Clientes v1 (app ainda nao atualizado) continuam funcionando
+    // exatamente como antes — nada aqui muda o comportamento pra eles.
+    const isV2Client =
+      dto.sleepDurationCategory !== undefined ||
+      dto.sleepScheduleIrregularity !== undefined ||
+      dto.sleepInterruption !== undefined ||
+      dto.sleepDifficulty !== undefined ||
+      dto.preMentalFatigue !== undefined ||
+      dto.executionVsPrescribed !== undefined ||
+      dto.postPhysicalFatigue !== undefined ||
+      dto.postMentalFatigue !== undefined ||
+      dto.emotionalExperienceDuring !== undefined ||
+      dto.mentalStateChangePrePost !== undefined;
+
     // Feedback v1: bloco 1 obrigatorio para done e adjusted.
     // Compatibilidade retroativa (12/09): clientes antigos (Play Store pre-v1) nao enviam nenhum
     // campo de pre-treino. So' aplicamos a validacao completa quando ao menos um deles veio —
@@ -45,9 +62,25 @@ export class WorkoutCompletionsService {
         (!dto.preSleepQuality || !dto.prePhysicalFatigue || !dto.preStressLevel || !dto.preMotivation)) {
       throw new BadRequestException('Preencha todas as perguntas do bloco "Como voce chegou".');
     }
-    // postWorkoutFeeling tambem e' campo v1 — so exigido quando cliente e' v1.
+    if (isV2Client && (dto.status === 'done' || dto.status === 'adjusted')) {
+      if (!dto.sleepDurationCategory || !dto.sleepScheduleIrregularity || !dto.sleepInterruption || !dto.sleepDifficulty) {
+        throw new BadRequestException('Preencha todas as perguntas do bloco "Sono".');
+      }
+      if (!dto.preMentalFatigue) {
+        throw new BadRequestException('Preencha todas as perguntas do bloco "Estado antes do treino".');
+      }
+      if (!dto.executionVsPrescribed || !dto.postPhysicalFatigue || !dto.postMentalFatigue ||
+          !dto.emotionalExperienceDuring || !dto.mentalStateChangePrePost) {
+        throw new BadRequestException('Preencha todas as perguntas do bloco "Resposta ao treino".');
+      }
+    }
+    // satisfactionElaboracao (pergunta 11) e' obrigatoria em v1 E v2 — mantida sem mudanca.
+    // satisfactionCapacidade (pergunta antiga "execucao") deixou de ser coletada a partir da v2,
+    // substituida por executionVsPrescribed (validado acima) — so' exigida em clientes v1/pre-v1.
+    // postWorkoutFeeling (pergunta antiga "corpo ao terminar") idem: so' exigida quando NAO e' v2
+    // (na v2 quem cobre isso e' postPhysicalFatigue, ja validado acima).
     if ((dto.status === 'done' || dto.status === 'adjusted') &&
-        (!dto.satisfactionElaboracao || !dto.satisfactionCapacidade || (isV1Client && !dto.postWorkoutFeeling))) {
+        (!dto.satisfactionElaboracao || (!isV2Client && !dto.satisfactionCapacidade) || (isV1Client && !isV2Client && !dto.postWorkoutFeeling))) {
       throw new BadRequestException('Preencha todas as perguntas do bloco "Como foi o treino".');
     }
     if ((dto.status === 'done' || dto.status === 'adjusted') && !dto.painFlag) {
@@ -83,7 +116,18 @@ export class WorkoutCompletionsService {
         preMotivation: dto.preMotivation,
         postWorkoutFeeling: dto.postWorkoutFeeling,
         painTiming: dto.painTiming,
-        feedbackVersion: 1,
+        sleepDurationCategory: dto.sleepDurationCategory,
+        sleepDurationHoursEstimate: sleepDurationHoursEstimate(dto.sleepDurationCategory),
+        sleepScheduleIrregularity: dto.sleepScheduleIrregularity,
+        sleepInterruption: dto.sleepInterruption,
+        sleepDifficulty: dto.sleepDifficulty,
+        preMentalFatigue: dto.preMentalFatigue,
+        executionVsPrescribed: dto.executionVsPrescribed,
+        postPhysicalFatigue: dto.postPhysicalFatigue,
+        postMentalFatigue: dto.postMentalFatigue,
+        emotionalExperienceDuring: dto.emotionalExperienceDuring,
+        mentalStateChangePrePost: dto.mentalStateChangePrePost,
+        feedbackVersion: isV2Client ? 2 : 1,
         notes: dto.notes,
         details,
         source: 'manual',
@@ -108,6 +152,20 @@ export class WorkoutCompletionsService {
         preMotivation: dto.preMotivation,
         postWorkoutFeeling: dto.postWorkoutFeeling,
         painTiming: dto.painTiming,
+        sleepDurationCategory: dto.sleepDurationCategory,
+        sleepDurationHoursEstimate: sleepDurationHoursEstimate(dto.sleepDurationCategory),
+        sleepScheduleIrregularity: dto.sleepScheduleIrregularity,
+        sleepInterruption: dto.sleepInterruption,
+        sleepDifficulty: dto.sleepDifficulty,
+        preMentalFatigue: dto.preMentalFatigue,
+        executionVsPrescribed: dto.executionVsPrescribed,
+        postPhysicalFatigue: dto.postPhysicalFatigue,
+        postMentalFatigue: dto.postMentalFatigue,
+        emotionalExperienceDuring: dto.emotionalExperienceDuring,
+        mentalStateChangePrePost: dto.mentalStateChangePrePost,
+        // Se o reenvio (edicao de feedback ja enviado) agora trouxer campos v2, promove a versao —
+        // nunca rebaixa uma sessao que ja era v2 de volta pra 1 so' porque o campo veio undefined.
+        ...(isV2Client ? { feedbackVersion: 2 } : {}),
         notes: dto.notes,
         details,
         source: 'manual',
@@ -147,20 +205,32 @@ export class WorkoutCompletionsService {
       if (dto.distanceKm) execParts.push(`${dto.distanceKm}km`);
       if (dto.avgPaceSecondsKm) execParts.push(`${Math.floor(dto.avgPaceSecondsKm / 60)}:${String(dto.avgPaceSecondsKm % 60).padStart(2, '0')}/km`);
 
-      // Bloco pre-treino
+      // Bloco pre-treino (Sono + Estado antes). Nas sessoes v2 (executionVsPrescribed presente ou
+      // qualquer campo v2) usa os novos rotulos de intensidade; sessoes v1 mantem a leitura antiga
+      // dos mesmos campos preSleepQuality/prePhysicalFatigue/preStressLevel/preMotivation.
       const preLines: string[] = [];
-      if (dto.preSleepQuality) preLines.push(`😴 Sono: ${dto.preSleepQuality}/5`);
-      if (dto.prePhysicalFatigue) preLines.push(`🦵 Cansaco fisico: ${dto.prePhysicalFatigue}/5`);
-      if (dto.preStressLevel) preLines.push(`😰 Estresse: ${dto.preStressLevel}/5`);
-      if (dto.preMotivation) preLines.push(`🔥 Motivacao: ${dto.preMotivation}/5`);
+      if (dto.preSleepQuality) preLines.push(`😴 Qualidade do sono: ${dto.preSleepQuality}/5`);
+      if (dto.sleepDurationCategory) preLines.push(`⏰ Duracao do sono: ${sleepDurationCategoryLabel(dto.sleepDurationCategory)}`);
+      if (dto.sleepScheduleIrregularity) preLines.push(`📆 Irregularidade do horario: ${dto.sleepScheduleIrregularity}/5`);
+      if (dto.sleepInterruption) preLines.push(`🌙 Sono interrompido: ${dto.sleepInterruption}/5`);
+      if (dto.sleepDifficulty) preLines.push(`😵 Dificuldade pra dormir: ${dto.sleepDifficulty}/5`);
+      if (dto.prePhysicalFatigue) preLines.push(`🦵 Cansaco fisico pre: ${dto.prePhysicalFatigue}/5`);
+      if (dto.preMentalFatigue) preLines.push(`🧠 Cansaco mental pre: ${dto.preMentalFatigue}/5`);
+      if (dto.preStressLevel) preLines.push(`😰 Estresse (ultimo dia): ${dto.preStressLevel}/5`);
+      if (dto.preMotivation) preLines.push(`🔥 Vontade de treinar: ${dto.preMotivation}/5`);
 
-      // Bloco durante/pos
+      // Bloco durante/pos (Resposta ao treino)
       const posLines: string[] = [];
       if (dto.perceivedEffort) posLines.push(`💪 RPE: ${dto.perceivedEffort}/10`);
       if (dto.satisfactionElaboracao) posLines.push(`📋 Elaboracao do treino: ${satisfactionLabel(dto.satisfactionElaboracao)}`);
-      if (dto.satisfactionCapacidade) posLines.push(`🏃 Como se saiu na execucao: ${satisfactionLabel(dto.satisfactionCapacidade)}`);
-      if (dto.postWorkoutFeeling) posLines.push(`😊 Corpo ao terminar: ${dto.postWorkoutFeeling}/5`);
-      if (postWorkoutMood !== null) posLines.push(`❤️ Emocao ao terminar: ${postWorkoutMood}/5`);
+      if (dto.executionVsPrescribed) posLines.push(`🎯 Execucao vs. prescrito: ${executionVsPrescribedLabel(dto.executionVsPrescribed)}`);
+      else if (dto.satisfactionCapacidade) posLines.push(`🏃 Como se saiu na execucao: ${satisfactionLabel(dto.satisfactionCapacidade)}`);
+      if (dto.postPhysicalFatigue) posLines.push(`🦵 Cansaco fisico provocado: ${dto.postPhysicalFatigue}/5`);
+      else if (dto.postWorkoutFeeling) posLines.push(`😊 Corpo ao terminar: ${dto.postWorkoutFeeling}/5`);
+      if (dto.postMentalFatigue) posLines.push(`🧠 Cansaco mental provocado: ${dto.postMentalFatigue}/5`);
+      if (dto.emotionalExperienceDuring) posLines.push(`❤️ Experiencia emocional durante: ${dto.emotionalExperienceDuring}/5`);
+      else if (postWorkoutMood !== null) posLines.push(`❤️ Emocao ao terminar: ${postWorkoutMood}/5`);
+      if (dto.mentalStateChangePrePost) posLines.push(`🔄 Mudanca mental pre→pos: ${dto.mentalStateChangePrePost}/5`);
 
       // Caminhou/parou
       if (pacingMode && pacingMode !== 'correu_tudo') {
@@ -229,16 +299,29 @@ export class WorkoutCompletionsService {
       `Aluno ${statusLabelForProfile} o treino "${session.title}".`,
       dto.distanceKm ? `Distancia: ${dto.distanceKm}km.` : '',
       dto.avgPaceSecondsKm ? `Pace medio: ${Math.floor(dto.avgPaceSecondsKm / 60)}:${String(dto.avgPaceSecondsKm % 60).padStart(2, '0')}/km.` : '',
-      // Estado pre-treino (v1)
-      dto.preSleepQuality ? `Sono noite anterior: ${dto.preSleepQuality}/5.` : '',
-      dto.prePhysicalFatigue ? `Cansaco fisico pre-treino: ${dto.prePhysicalFatigue}/5.` : '',
-      dto.preStressLevel ? `Estresse pre-treino: ${dto.preStressLevel}/5.` : '',
-      dto.preMotivation ? `Motivacao pre-treino: ${dto.preMotivation}/5.` : '',
-      // Execucao
+      // Bloco Sono (v2). "5" nestas variaveis sempre significa MAIS da coisa perguntada — 5 em
+      // irregularidade/interrupcao/dificuldade e' RUIM (mais problema), nao inverter a leitura.
+      dto.preSleepQuality ? `Qualidade do sono na noite anterior: ${dto.preSleepQuality}/5 (1=muito ruim, 5=excelente).` : '',
+      dto.sleepDurationCategory ? `Duracao do sono: ${sleepDurationCategoryLabel(dto.sleepDurationCategory)}.` : '',
+      dto.sleepScheduleIrregularity ? `Irregularidade do horario de dormir vs. habitual: ${dto.sleepScheduleIrregularity}/5 (5=mais irregular).` : '',
+      dto.sleepInterruption ? `Sono interrompido durante a noite: ${dto.sleepInterruption}/5 (5=mais interrompido).` : '',
+      dto.sleepDifficulty ? `Dificuldade para pegar no sono: ${dto.sleepDifficulty}/5 (5=mais dificuldade).` : '',
+      // Bloco Estado antes do treino. preStressLevel a partir da v2 mede o ultimo dia, nao o
+      // instante antes de comecar (mesma coluna, janela temporal diferente — ver schema.prisma).
+      dto.prePhysicalFatigue ? `Cansaco fisico antes do treino: ${dto.prePhysicalFatigue}/5 (5=muito alto).` : '',
+      dto.preMentalFatigue ? `Cansaco mental antes do treino: ${dto.preMentalFatigue}/5 (5=muito alto).` : '',
+      dto.preStressLevel ? `Nivel de estresse${dto.sleepDurationCategory || dto.preMentalFatigue ? ' (ultimo dia)' : ' antes do treino'}: ${dto.preStressLevel}/5 (5=muito alto).` : '',
+      dto.preMotivation ? `Vontade de fazer o treino antes de comecar: ${dto.preMotivation}/5 (5=muito alta).` : '',
+      // Bloco Resposta ao treino
       dto.perceivedEffort ? `Esforco percebido (RPE): ${dto.perceivedEffort}/10.` : '',
-      dto.satisfactionElaboracao ? `Satisfacao com a elaboracao do treino: ${satisfactionLabel(dto.satisfactionElaboracao)}.` : '',
-      dto.satisfactionCapacidade ? `Satisfacao com como conseguiu executar: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
-      dto.postWorkoutFeeling ? `Sensacao ao terminar: ${dto.postWorkoutFeeling}/5.` : '',
+      dto.satisfactionElaboracao ? `Avaliacao da elaboracao do treino: ${satisfactionLabel(dto.satisfactionElaboracao)}.` : '',
+      dto.executionVsPrescribed ? `Execucao em relacao ao prescrito: ${executionVsPrescribedLabel(dto.executionVsPrescribed)} (3=fez exatamente como prescrito, nao e' escala de qualidade).` : '',
+      dto.satisfactionCapacidade && !dto.executionVsPrescribed ? `Satisfacao com como conseguiu executar: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
+      dto.postPhysicalFatigue ? `Cansaco fisico provocado por este treino: ${dto.postPhysicalFatigue}/5 (5=extremamente cansado).` : '',
+      dto.postMentalFatigue ? `Cansaco mental provocado por este treino: ${dto.postMentalFatigue}/5 (5=extremamente cansado).` : '',
+      dto.postWorkoutFeeling && !dto.postPhysicalFatigue ? `Sensacao ao terminar: ${dto.postWorkoutFeeling}/5.` : '',
+      dto.emotionalExperienceDuring ? `Experiencia emocional durante o treino: ${dto.emotionalExperienceDuring}/5 (5=muito bem).` : '',
+      dto.mentalStateChangePrePost ? `Mudanca no estado mental (comparando antes e depois do treino): ${dto.mentalStateChangePrePost}/5 (5=muito melhor que antes).` : '',
       // Dor
       dto.painFlag && dto.painFlag !== 'none' ? `Dor/desconforto: ${painFlagLabel(dto.painFlag)}.` : '',
       dto.painTiming ? `Timing da dor: ${painTimingLabel(dto.painTiming)}.` : '',
@@ -262,12 +345,14 @@ export class WorkoutCompletionsService {
       const statusLabel = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'registrou com ajustes' : 'marcou como nao feito';
       const details = [
         dto.preSleepQuality ? `Sono: ${dto.preSleepQuality}/5.` : '',
-        dto.prePhysicalFatigue ? `Cansaco pre: ${dto.prePhysicalFatigue}/5.` : '',
-        dto.preMotivation ? `Motivacao pre: ${dto.preMotivation}/5.` : '',
+        dto.sleepDifficulty ? `Dificuldade pra dormir: ${dto.sleepDifficulty}/5.` : '',
+        dto.prePhysicalFatigue ? `Cansaco fisico pre: ${dto.prePhysicalFatigue}/5.` : '',
+        dto.preMentalFatigue ? `Cansaco mental pre: ${dto.preMentalFatigue}/5.` : '',
+        dto.preMotivation ? `Vontade de treinar: ${dto.preMotivation}/5.` : '',
         dto.perceivedEffort ? `RPE: ${dto.perceivedEffort}/10.` : '',
         dto.satisfactionElaboracao ? `Elaboracao: ${satisfactionLabel(dto.satisfactionElaboracao)}.` : '',
-        dto.satisfactionCapacidade ? `Execucao: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
-        dto.postWorkoutFeeling ? `Sensacao final: ${dto.postWorkoutFeeling}/5.` : '',
+        dto.executionVsPrescribed ? `Execucao vs. prescrito: ${executionVsPrescribedLabel(dto.executionVsPrescribed)}.` : dto.satisfactionCapacidade ? `Execucao: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
+        dto.postPhysicalFatigue ? `Cansaco fisico provocado: ${dto.postPhysicalFatigue}/5.` : dto.postWorkoutFeeling ? `Sensacao final: ${dto.postWorkoutFeeling}/5.` : '',
         dto.painFlag && dto.painFlag !== 'none' ? `Dor: ${painFlagLabel(dto.painFlag)}${dto.painTiming ? ` (${painTimingLabel(dto.painTiming)})` : ''}.` : '',
         missedReasons.length ? `Motivo(s) da falta: ${missedReasons.map(missedReasonLabel).join(', ')}.` : '',
         missedComment.trim() ? `Comentario do aluno: ${missedComment.trim()}` : '',
@@ -385,6 +470,46 @@ export function painFlagLabel(value: string) {
     forte: 'Forte',
   };
   return labels[value] ?? value;
+}
+
+// Feedback v2 (24/09/2026) — transcricao numerica direta da categoria de duracao do sono (ponto
+// medio da faixa escolhida). NAO e' uma formula/indice, e' so' a mesma informacao em outra unidade,
+// gravada pra facilitar calculo futuro sem reinterpretar a resposta do aluno.
+export function sleepDurationHoursEstimate(category: string | undefined): number | undefined {
+  const midpoints: Record<string, number> = {
+    menos_5h: 4.5,
+    '5_a_6h': 5.5,
+    '6_a_7h': 6.5,
+    '7_a_8h': 7.5,
+    '8_a_9h': 8.5,
+    mais_9h: 9.5,
+  };
+  return category ? midpoints[category] : undefined;
+}
+
+export function sleepDurationCategoryLabel(value: string) {
+  const labels: Record<string, string> = {
+    menos_5h: 'Menos de 5 horas',
+    '5_a_6h': 'Entre 5 e 6 horas',
+    '6_a_7h': 'Entre 6 e 7 horas',
+    '7_a_8h': 'Entre 7 e 8 horas',
+    '8_a_9h': 'Entre 8 e 9 horas',
+    mais_9h: 'Mais de 9 horas',
+  };
+  return labels[value] ?? value;
+}
+
+// executionVsPrescribed: 3 e' o ponto de referencia (fez como prescrito) — a escala representa
+// DIRECAO do desvio, nao uma intensidade positiva/negativa. Nunca interpretar 5 como "melhor".
+export function executionVsPrescribedLabel(value: number) {
+  const labels: Record<number, string> = {
+    1: 'Fez bem menos que o prescrito',
+    2: 'Fez um pouco menos que o prescrito',
+    3: 'Fez como prescrito',
+    4: 'Fez um pouco mais que o prescrito',
+    5: 'Fez bem mais que o prescrito',
+  };
+  return labels[value] ?? String(value);
 }
 
 export function painTimingLabel(value: string) {

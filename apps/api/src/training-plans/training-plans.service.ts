@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { sleepDurationHoursEstimate } from '../workout-completions/workout-completions.service';
 import { runnerStrengthExercises } from './runner-strength-library';
 import { gymExerciseLibrary } from './gym-exercise-library';
 import {
@@ -1770,6 +1771,17 @@ export class TrainingPlansService {
       postWorkoutMood?: number | null;
       painFlag?: string | null;
       painTiming?: string | null;
+      // Feedback v2 (24/09/2026)
+      sleepDurationCategory?: string | null;
+      sleepScheduleIrregularity?: number | null;
+      sleepInterruption?: number | null;
+      sleepDifficulty?: number | null;
+      preMentalFatigue?: number | null;
+      executionVsPrescribed?: number | null;
+      postPhysicalFatigue?: number | null;
+      postMentalFatigue?: number | null;
+      emotionalExperienceDuring?: number | null;
+      mentalStateChangePrePost?: number | null;
     },
   ): Promise<{ sessionId: string; weekOffset: number }> {
     const [year, month, day] = input.date.split('-').map(Number);
@@ -1834,8 +1846,19 @@ export class TrainingPlansService {
         postWorkoutFeeling: input.postWorkoutFeeling ?? null,
         painFlag: input.painFlag ?? null,
         painTiming: input.painTiming ?? null,
+        sleepDurationCategory: input.sleepDurationCategory ?? null,
+        sleepDurationHoursEstimate: sleepDurationHoursEstimate(input.sleepDurationCategory ?? undefined) ?? null,
+        sleepScheduleIrregularity: input.sleepScheduleIrregularity ?? null,
+        sleepInterruption: input.sleepInterruption ?? null,
+        sleepDifficulty: input.sleepDifficulty ?? null,
+        preMentalFatigue: input.preMentalFatigue ?? null,
+        executionVsPrescribed: input.executionVsPrescribed ?? null,
+        postPhysicalFatigue: input.postPhysicalFatigue ?? null,
+        postMentalFatigue: input.postMentalFatigue ?? null,
+        emotionalExperienceDuring: input.emotionalExperienceDuring ?? null,
+        mentalStateChangePrePost: input.mentalStateChangePrePost ?? null,
         details: input.postWorkoutMood != null ? { postWorkoutMood: input.postWorkoutMood } : undefined,
-        feedbackVersion: 1,
+        feedbackVersion: isExtraSessionV2(input) ? 2 : 1,
         source: 'student_extra',
       },
     });
@@ -2194,6 +2217,19 @@ export class TrainingPlansService {
         preStressLevel: number | null;
         preMotivation: number | null;
         postWorkoutFeeling: number | null;
+        // Feedback v2 (24/09/2026) — mesmo motivo do comentario acima: sem incluir aqui, reabrir
+        // um feedback v2 ja enviado mostraria essas perguntas sempre em branco.
+        sleepDurationCategory: string | null;
+        sleepScheduleIrregularity: number | null;
+        sleepInterruption: number | null;
+        sleepDifficulty: number | null;
+        preMentalFatigue: number | null;
+        executionVsPrescribed: number | null;
+        postPhysicalFatigue: number | null;
+        postMentalFatigue: number | null;
+        emotionalExperienceDuring: number | null;
+        mentalStateChangePrePost: number | null;
+        feedbackVersion: number;
       } | null;
     }>;
   }, unlocked = true, hasTest = true) {
@@ -2269,6 +2305,17 @@ export class TrainingPlansService {
               preStressLevel: session.completion.preStressLevel,
               preMotivation: session.completion.preMotivation,
               postWorkoutFeeling: session.completion.postWorkoutFeeling,
+              sleepDurationCategory: session.completion.sleepDurationCategory,
+              sleepScheduleIrregularity: session.completion.sleepScheduleIrregularity,
+              sleepInterruption: session.completion.sleepInterruption,
+              sleepDifficulty: session.completion.sleepDifficulty,
+              preMentalFatigue: session.completion.preMentalFatigue,
+              executionVsPrescribed: session.completion.executionVsPrescribed,
+              postPhysicalFatigue: session.completion.postPhysicalFatigue,
+              postMentalFatigue: session.completion.postMentalFatigue,
+              emotionalExperienceDuring: session.completion.emotionalExperienceDuring,
+              mentalStateChangePrePost: session.completion.mentalStateChangePrePost,
+              feedbackVersion: session.completion.feedbackVersion,
             }
           : null,
       })),
@@ -2278,6 +2325,34 @@ export class TrainingPlansService {
 
 export function hasSubscriptionAccess(status: string) {
   return status === 'active' || status === 'manual_active' || status === 'grace';
+}
+
+// 24/09: mesmo criterio de deteccao de cliente v2 usado em workout-completions.service.ts
+// (isV2Client) — reconhece pela presenca de qualquer campo que so existe no questionario novo.
+function isExtraSessionV2(input: {
+  sleepDurationCategory?: string | null;
+  sleepScheduleIrregularity?: number | null;
+  sleepInterruption?: number | null;
+  sleepDifficulty?: number | null;
+  preMentalFatigue?: number | null;
+  executionVsPrescribed?: number | null;
+  postPhysicalFatigue?: number | null;
+  postMentalFatigue?: number | null;
+  emotionalExperienceDuring?: number | null;
+  mentalStateChangePrePost?: number | null;
+}): boolean {
+  return (
+    input.sleepDurationCategory != null ||
+    input.sleepScheduleIrregularity != null ||
+    input.sleepInterruption != null ||
+    input.sleepDifficulty != null ||
+    input.preMentalFatigue != null ||
+    input.executionVsPrescribed != null ||
+    input.postPhysicalFatigue != null ||
+    input.postMentalFatigue != null ||
+    input.emotionalExperienceDuring != null ||
+    input.mentalStateChangePrePost != null
+  );
 }
 
 // hasSubscriptionAccess precisa ser passado explicitamente por quem chama (nao calculado aqui)

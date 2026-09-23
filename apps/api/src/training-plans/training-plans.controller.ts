@@ -91,6 +91,18 @@ export class TrainingPlansController {
       postWorkoutMood?: number | null;
       painFlag?: string | null;
       painTiming?: string | null;
+      // Feedback v2 (24/09/2026) — mesmo questionario reestruturado usado no feedback de sessao
+      // normal (ver upsert-workout-completion.dto.ts pra semantica completa de cada campo).
+      sleepDurationCategory?: string | null;
+      sleepScheduleIrregularity?: number | null;
+      sleepInterruption?: number | null;
+      sleepDifficulty?: number | null;
+      preMentalFatigue?: number | null;
+      executionVsPrescribed?: number | null;
+      postPhysicalFatigue?: number | null;
+      postMentalFatigue?: number | null;
+      emotionalExperienceDuring?: number | null;
+      mentalStateChangePrePost?: number | null;
     },
   ) {
     return this.trainingPlansService.addStudentExtraSession(user.sub, dto);

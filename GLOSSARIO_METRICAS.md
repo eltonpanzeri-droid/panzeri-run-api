@@ -140,6 +140,62 @@ continuar significando "sem dado".
 
 ---
 
+## Feedback individual de treino v2 (24/09/2026) — 16 perguntas
+
+Reestruturação completa do questionário respondido pelo aluno em cada sessão de treino
+(`WorkoutCompletion.feedbackVersion = 2`). Fonte: `apps/api/prisma/schema.prisma` (comentários
+completos por campo) e `apps/api/src/workout-completions/workout-completions.service.ts`.
+
+**Regra canônica de todas as escalas 1-5**: 5 = maior intensidade/quantidade/presença da variável
+perguntada. Nunca invertida para "5 = sempre bom" — cansaço 5 é muito cansado, estresse 5 é muito
+estresse, sono 5 é excelente (aqui a própria intensidade perguntada já é "bom").
+
+| # | Pergunta | Status | Coluna (WorkoutCompletion) |
+|---|---|---|---|
+| 1 | Qualidade do sono | mantida | `preSleepQuality` |
+| 2 | Duração do sono | nova (categórica, não é escala 1-5) | `sleepDurationCategory` + `sleepDurationHoursEstimate` |
+| 3 | Irregularidade do horário de dormir | nova | `sleepScheduleIrregularity` |
+| 4 | Interrupção do sono | nova | `sleepInterruption` |
+| 5 | Dificuldade para dormir | nova | `sleepDifficulty` |
+| 6 | Cansaço físico pré-treino | mantida | `prePhysicalFatigue` |
+| 7 | Cansaço mental pré-treino | nova | `preMentalFatigue` |
+| 8 | Nível de estresse | adaptada — mesma coluna, janela temporal mudou de "antes de começar" para "último dia" | `preStressLevel` |
+| 9 | Vontade de treinar hoje | adaptada — mesma coluna, redação mais concreta | `preMotivation` |
+| 10 | RPE (esforço percebido) | mantida (escala 1-10 preservada, nunca convertida para 1-5) | `perceivedEffort` |
+| 11 | Avaliação da elaboração do treino | mantida (persistência igual; só o rótulo exibido mudou para "Péssima..Excelente") | `satisfactionElaboracao` |
+| 12 | Execução em relação ao prescrito | substituída — escala nova mede direção do desvio (3 = como prescrito, referência, não "neutro"); incompatível com a antiga | `executionVsPrescribed` (nova coluna; `satisfactionCapacidade` preservada só para histórico v1) |
+| 13 | Cansaço físico provocado pelo treino | substituída — escala antiga (`postWorkoutFeeling`) tinha direção oposta (5=cheio de energia); não reaproveitada para não inverter significado silenciosamente | `postPhysicalFatigue` (nova coluna; `postWorkoutFeeling` preservada só para histórico v1) |
+| 14 | Cansaço mental provocado pelo treino | nova | `postMentalFatigue` |
+| 15 | Experiência emocional durante o treino | substituída — antes vivia em `details.postWorkoutMood` (JSON, sem coluna própria); promovida a coluna real | `emotionalExperienceDuring` (nova coluna; `details.postWorkoutMood` preservado só para histórico v1) |
+| 16 | Mudança mental pré→pós treino | nova | `mentalStateChangePrePost` |
+| — | Dor/desconforto | mantida integralmente, sem mudança | sem mudança |
+| — | Observação livre | mantida | sem mudança |
+
+**Saíram como perguntas independentes** (substituídas pelas acima): "Como foi seu sono?" (virou
+perguntas 1-5), "Estresse antes de começar" (virou pergunta 8), "Motivação para treinar" (virou
+pergunta 9), "Execução do treino" (virou pergunta 12), "Corpo ao terminar" (virou pergunta 13),
+"Terminou emocionalmente" (virou perguntas 15+16).
+
+**Compatibilidade histórica**: nenhuma coluna v1 foi removida ou teve seu tipo alterado. Sessões
+antigas (`feedbackVersion = 1`) continuam lidas corretamente em todo lugar (admin, mobile ao reabrir
+feedback, prontuário da IA) — a leitura sempre prioriza o campo v2 quando presente e cai para o
+campo v1 equivalente quando não.
+
+**Onde a IA recebe essas respostas**: nunca em formato estruturado. O prompt de prescrição
+(`prescription-agent.service.ts`) só recebe `historicoSemanal` (estatísticas agregadas por semana)
+e `prontuarioDoAluno` (texto narrativo). As respostas individuais chegam à IA só via frase em texto
+livre (`profileParts`, em `workout-completions.service.ts`), sempre com a direção da escala
+explicitada por extenso para não exigir que a IA infira o sentido do número.
+
+**Pendente, deliberadamente fora desta rodada**: índice dinâmico de Sono e de Prontidão (Elton
+pediu explicitamente para não inventar fórmula agora — só garantir coleta correta e histórico), e
+seções dedicadas de Sono/Prontidão na Evolução do aluno. O painel Admin (`page.tsx`, per-sessão) já
+exibe todas as 16 variáveis individualmente, mas o índice composto `computeReadiness` existente
+**não foi estendido** com as variáveis novas — e continua com uma inversão de escala pré-existente
+(inverte cansaço/estresse pra compor o índice) que contraria a regra canônica acima. Não é uma
+inversão introduzida nesta mudança; fica registrado aqui para revisão quando a Evolução for
+atacada de verdade.
+
 ## O que ainda NÃO está implementado (pendente, fora desta rodada)
 
 - Coortes por mês/origem de entrada.

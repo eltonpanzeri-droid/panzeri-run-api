@@ -1175,6 +1175,18 @@ export class CoachService {
               postWorkoutMood: session.completion?.details != null && typeof session.completion.details === 'object'
                 ? (Number((session.completion.details as Record<string, unknown>).postWorkoutMood) || null)
                 : null,
+              // Feedback v2 (24/09/2026) — 16 perguntas reestruturadas. Sessoes feedbackVersion 1
+              // continuam vindo com estes campos null (nunca foram perguntadas nelas).
+              sleepDurationCategory: session.completion?.sleepDurationCategory ?? null,
+              sleepScheduleIrregularity: session.completion?.sleepScheduleIrregularity ?? null,
+              sleepInterruption: session.completion?.sleepInterruption ?? null,
+              sleepDifficulty: session.completion?.sleepDifficulty ?? null,
+              preMentalFatigue: session.completion?.preMentalFatigue ?? null,
+              executionVsPrescribed: session.completion?.executionVsPrescribed ?? null,
+              postPhysicalFatigue: session.completion?.postPhysicalFatigue ?? null,
+              postMentalFatigue: session.completion?.postMentalFatigue ?? null,
+              emotionalExperienceDuring: session.completion?.emotionalExperienceDuring ?? null,
+              mentalStateChangePrePost: session.completion?.mentalStateChangePrePost ?? null,
               // Feedback v1 — bloco 3: dor
               painFlag: session.completion?.painFlag ?? null,
               painTiming: session.completion?.painTiming ?? null,
@@ -1238,6 +1250,17 @@ export class CoachService {
           postWorkoutMood: session.completion?.details != null && typeof session.completion.details === 'object'
             ? (Number((session.completion.details as Record<string, unknown>).postWorkoutMood) || null)
             : null,
+          // Feedback v2 (24/09/2026)
+          sleepDurationCategory: session.completion?.sleepDurationCategory ?? null,
+          sleepScheduleIrregularity: session.completion?.sleepScheduleIrregularity ?? null,
+          sleepInterruption: session.completion?.sleepInterruption ?? null,
+          sleepDifficulty: session.completion?.sleepDifficulty ?? null,
+          preMentalFatigue: session.completion?.preMentalFatigue ?? null,
+          executionVsPrescribed: session.completion?.executionVsPrescribed ?? null,
+          postPhysicalFatigue: session.completion?.postPhysicalFatigue ?? null,
+          postMentalFatigue: session.completion?.postMentalFatigue ?? null,
+          emotionalExperienceDuring: session.completion?.emotionalExperienceDuring ?? null,
+          mentalStateChangePrePost: session.completion?.mentalStateChangePrePost ?? null,
           // walkingReasons: motivos de caminhada/parada, multi-select (14/09/2026)
           walkingReasons: session.completion?.details != null && typeof session.completion.details === 'object'
             ? (Array.isArray((session.completion.details as Record<string, unknown>).walkingReasons)
@@ -1565,7 +1588,11 @@ export class CoachService {
             status: true, completedAt: true, durationMin: true, distanceKm: true,
             avgPaceSecondsKm: true, perceivedEffort: true, postWorkoutFeeling: true,
             preSleepQuality: true, prePhysicalFatigue: true, preStressLevel: true, preMotivation: true,
-            painFlag: true, painTiming: true,
+            painFlag: true, painTiming: true, feedbackVersion: true,
+            // Feedback v2 (24/09/2026)
+            sleepDurationCategory: true, sleepScheduleIrregularity: true, sleepInterruption: true, sleepDifficulty: true,
+            preMentalFatigue: true, executionVsPrescribed: true, postPhysicalFatigue: true, postMentalFatigue: true,
+            emotionalExperienceDuring: true, mentalStateChangePrePost: true,
           },
         },
       },
@@ -1588,8 +1615,25 @@ export class CoachService {
           avgPaceSecondsKm: s.completion.avgPaceSecondsKm,
           perceivedEffort: s.completion.perceivedEffort,
           postWorkoutFeeling: s.completion.postWorkoutFeeling,
-          preState: { sleepQuality: s.completion.preSleepQuality, physicalFatigue: s.completion.prePhysicalFatigue,
-            stressLevel: s.completion.preStressLevel, motivation: s.completion.preMotivation },
+          feedbackVersion: s.completion.feedbackVersion,
+          preState: {
+            sleepQuality: s.completion.preSleepQuality,
+            sleepDurationCategory: s.completion.sleepDurationCategory,
+            sleepScheduleIrregularity: s.completion.sleepScheduleIrregularity,
+            sleepInterruption: s.completion.sleepInterruption,
+            sleepDifficulty: s.completion.sleepDifficulty,
+            physicalFatigue: s.completion.prePhysicalFatigue,
+            mentalFatigue: s.completion.preMentalFatigue,
+            stressLevel: s.completion.preStressLevel,
+            motivation: s.completion.preMotivation,
+          },
+          postState: {
+            executionVsPrescribed: s.completion.executionVsPrescribed,
+            physicalFatigue: s.completion.postPhysicalFatigue,
+            mentalFatigue: s.completion.postMentalFatigue,
+            emotionalExperienceDuring: s.completion.emotionalExperienceDuring,
+            mentalStateChangePrePost: s.completion.mentalStateChangePrePost,
+          },
           pain: { flag: s.completion.painFlag, timing: s.completion.painTiming },
         } : null,
       })),

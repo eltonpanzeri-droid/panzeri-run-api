@@ -477,8 +477,76 @@ model WorkoutCompletion {
                      // ja_comecei_sentindo | comeco_passou | comeco_continuou |
                      // durante_passou | durante_continuou | so_depois
 
+  // Feedback v2 (24/09/2026) — reestruturacao do feedback individual do treino, pedido explicito
+  // do treinador. REGRA CANONICA DAS ESCALAS 1-5 a partir daqui (e retroativamente documentada
+  // pras que ja existiam): 5 = MAIOR intensidade/quantidade/presenca da variavel perguntada.
+  // NUNCA inverter pra "5 = sempre bom" — cansaco 5 = muito cansado, estresse 5 = muito estressado,
+  // sono 5 = excelente (aqui sim "bom" e' a propria intensidade perguntada). Isso e' proposital:
+  // nos graficos futuros a altura da linha representa "quanto daquela variavel existe", nao uma
+  // escala universal de bom/ruim. Ver GLOSSARIO_METRICAS.md e memoria feedback_v2_scale_convention.
+
+  // Bloco SONO (5 variaveis, cada uma preservada individualmente — nunca so' um score agregado).
+  // preSleepQuality (acima) e' a pergunta 1 (qualidade), mantida sem mudanca de coluna/semantica.
+  // sleepDurationCategory: pergunta 2 — CATEGORICA, nao e' escala de intensidade 1-5 e nunca deve
+  // ser interpretada como "quanto maior, melhor" (dormir demais nao e' "melhor" que a faixa ideal).
+  // Valores: menos_5h | 5_a_6h | 6_a_7h | 7_a_8h | 8_a_9h | mais_9h.
+  sleepDurationCategory String?
+  // Representacao numerica auxiliar da categoria acima (ponto medio da faixa em horas, ex: "6_a_7h"
+  // -> 6.5), gravada so' pra facilitar calculo futuro — NAO e' uma escala de intensidade, e' so' a
+  // transcricao numerica direta da categoria escolhida (sem formula, sem interpretacao).
+  sleepDurationHoursEstimate Float?
+  // Pergunta 3 — irregularidade do horario de dormir vs habitual. 5 = mais irregular.
+  sleepScheduleIrregularity Int?
+  // Pergunta 4 — o quanto o sono foi interrompido durante a noite. 5 = mais interrompido.
+  sleepInterruption Int?
+  // Pergunta 5 — dificuldade para pegar no sono. 5 = mais dificuldade.
+  sleepDifficulty Int?
+
+  // Bloco ESTADO ANTES DO TREINO. prePhysicalFatigue (acima) = pergunta 6, mantida sem mudanca.
+  // preStressLevel (acima) = pergunta 8: ADAPTADA a partir do feedbackVersion 2 — deixou de medir
+  // "no instante antes de comecar" e passou a medir "no ultimo dia" (mesma coluna, janela temporal
+  // diferente; direcao inalterada, 5 = mais estresse). preMotivation (acima) = pergunta 9: ADAPTADA,
+  // redacao mais concreta ("vontade de fazer o treino de hoje"), mesma coluna e direcao (5 = mais
+  // vontade) — conceitualmente e' a mesma variavel de motivacao que ja existia.
+  // Pergunta 7, NOVA — cansaco mental antes de comecar. 5 = mais cansaco mental.
+  preMentalFatigue Int?
+
+  // Bloco RESPOSTA AO TREINO. perceivedEffort (RPE, acima) = pergunta 10, mantido (escala 1-10,
+  // nunca convertida pra 1-5). satisfactionElaboracao (acima) = pergunta 11, mantido (mesma coluna
+  // e mesma escala amei..detestei ja convertida 1-5 via SATISFACTION_SCORE) — so' o rotulo exibido
+  // ao aluno muda pra "Pessima..Excelente".
+  //
+  // Pergunta 12, SUBSTITUI satisfactionCapacidade pra sessoes feedbackVersion>=2 — a antiga media
+  // "quao satisfeito com a execucao" (bom/ruim), a nova mede DIRECAO DO DESVIO em relacao ao
+  // prescrito, escala com significado proprio: 1=fiz bem menos, 2=um pouco menos, 3=como prescrito
+  // (ponto de referencia, NAO "neutro"), 4=um pouco mais, 5=bem mais. Nao interpretar 5 como
+  // "melhor execucao" — e' so' "mais que o prescrito". satisfactionCapacidade continua existindo e
+  // sendo lida em sessoes feedbackVersion 1 (historico), nao e' mais coletada a partir da v2.
+  executionVsPrescribed Int?
+
+  // Pergunta 13, SUBSTITUI postWorkoutFeeling pra sessoes feedbackVersion>=2 — NAO reaproveita a
+  // coluna antiga porque a direcao da escala e' OPOSTA: postWorkoutFeeling era 1=muito mal,
+  // 5=muito bem (positivo=bom); a pergunta nova mede cansaco fisico provocado pelo treino,
+  // 1=muito pouco, 5=extremamente (positivo=mais cansaco). Reaproveitar a mesma coluna teria
+  // corrompido silenciosamente qualquer media historica misturando v1 e v2. postWorkoutFeeling
+  // continua existindo e sendo lida em sessoes feedbackVersion 1.
+  postPhysicalFatigue Int?
+  // Pergunta 14, NOVA — cansaco mental provocado pelo treino. 5 = mais cansaco mental.
+  postMentalFatigue Int?
+  // Pergunta 15, SUBSTITUI o campo "postWorkoutMood" que vivia em details (JSON, sem coluna
+  // propria, 12/09/2026) — promovido a coluna real. Experiencia emocional DURANTE o treino.
+  // 1=muito mal, 5=muito bem. Leitura de sessoes antigas (feedbackVersion 1) deve continuar
+  // buscando o valor em details.postWorkoutMood — nunca reescrito, so' lido de outro lugar.
+  emotionalExperienceDuring Int?
+  // Pergunta 16, NOVA — mudanca percebida no estado mental comparando antes x depois do treino.
+  // Nao e' redundante com a 15 (que mede a experiencia DURANTE, nao a mudanca). 1=muito pior,
+  // 5=muito melhor (aqui "melhor" e' o proprio sentido da pergunta, nao inversao de intensidade).
+  mentalStateChangePrePost Int?
+
   // Versionamento: incrementar so quando o significado de uma variavel mudar de verdade.
   // v1 = estrutura de 11/09/2026 (blocos 1-2-3, 8 perguntas obrigatorias + dor).
+  // v2 = estrutura de 24/09/2026 (16 perguntas, blocos Sono/Estado antes/Resposta ao treino) —
+  // ver tabela mantida/adaptada/substituida/nova completa em GLOSSARIO_METRICAS.md.
   feedbackVersion Int @default(1)
 
   notes            String?
