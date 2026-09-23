@@ -402,6 +402,15 @@ export default function AdminHome() {
   const [paymentFilter, setPaymentFilter] = useState('all');
   const [studentListCollapsed, setStudentListCollapsed] = useState(false);
   const [status, setStatus] = useState('');
+  // 23/09: o aviso flutuante (panelToast, ex: "Painel atualizado.") ficava preso na tela ate a
+  // proxima acao sobrescrever `status` ou o treinador recarregar a pagina. So' some sozinho DEPOIS
+  // do login — o mesmo `status` tambem serve pro erro de "Login nao autorizado." na propria tela
+  // de login, e esse precisa continuar visivel ate o treinador tentar de novo, nao sumir em 3s.
+  useEffect(() => {
+    if (!token || !status) return;
+    const timer = window.setTimeout(() => setStatus(''), 3000);
+    return () => window.clearTimeout(timer);
+  }, [token, status]);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotStatus, setForgotStatus] = useState('');
