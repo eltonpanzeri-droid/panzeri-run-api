@@ -1,5 +1,6 @@
 import { TrainingIntelligenceQueryService } from '../src/training-intelligence/training-intelligence-query.service';
 import { MathLayerService } from '../src/training-intelligence/math-layer.service';
+import { LongitudinalDynamicsService } from '../src/training-intelligence/longitudinal-dynamics.service';
 import { Observation } from '../src/training-intelligence/observation-reader.service';
 
 // 24/09/2026 — fundacao da Camada Matematica Longitudinal (auditoria aprovada). Valida o endpoint
@@ -21,7 +22,8 @@ function observation(overrides: Partial<Observation>): Observation {
 
 function buildService(observations: Observation[]) {
   const reader = { getObservations: jest.fn().mockResolvedValue(observations) };
-  const service = new TrainingIntelligenceQueryService(reader as never, new MathLayerService());
+  const mathLayer = new MathLayerService();
+  const service = new TrainingIntelligenceQueryService(reader as never, mathLayer, new LongitudinalDynamicsService(mathLayer));
   return { service, reader };
 }
 
@@ -53,6 +55,15 @@ describe('TrainingIntelligenceQueryService', () => {
     expect(result.observations).toHaveLength(3);
     expect(result.observations[0].context.sessionId).toBe('s1');
     expect(result.observations.map((o) => o.value)).toEqual([3, 4, 5]);
+
+    // Dinamica longitudinal (segundo bloco, 24/09/2026).
+    expect(result.variability).toHaveProperty('short_21d');
+    expect(result.variability).toHaveProperty('medium_60d');
+    expect(result.variability).toHaveProperty('long_200d');
+    expect(result.habitualRange?.method).toBe('empirical_percentile_linear_interpolation');
+    expect(result.variabilityChange?.direction).toBeDefined();
+    expect(result.persistence).not.toBeNull();
+    expect(result.excursions).not.toBeNull();
   });
 
   it('serie vazia: mathApplicable true mas todos os resultados numericos vem null/zerados', async () => {
@@ -73,6 +84,9 @@ describe('TrainingIntelligenceQueryService', () => {
     expect(result.movingAverages).toBeNull();
     // Mesmo sem matematica aplicavel, a rastreabilidade continua disponivel.
     expect(result.observations).toHaveLength(1);
+    expect(result.variability).toBeNull();
+    expect(result.habitualRange).toBeNull();
+    expect(result.excursions).toBeNull();
   });
 
   it('emite comparabilityWarning quando a serie mistura versoes nao-comparaveis (preStressLevel v1+v2)', async () => {
@@ -91,5 +105,17 @@ describe('TrainingIntelligenceQueryService', () => {
     const { service } = buildService(observations);
     const result = await service.getVariableSnapshot('aluno-1', 'workout.preStressLevel');
     expect(result.evidence.comparabilityWarning).toBeNull();
+  });
+
+  it('comparabilityWarning nao suprime o calculo de variabilidade/faixa habitual (aviso, nao exclusao)', async () => {
+    const observations = [
+      observation({ variableId: 'workout.preStressLevel', instrumentVersion: 1, value: 2, timestamp: new Date('2026-08-01T00:00:00.000Z') }),
+      observation({ variableId: 'workout.preStressLevel', instrumentVersion: 2, value: 4, timestamp: new Date('2026-09-01T00:00:00.000Z') }),
+    ];
+    const { service } = buildService(observations);
+    const result = await service.getVariableSnapshot('aluno-1', 'workout.preStressLevel');
+    expect(result.evidence.comparabilityWarning).not.toBeNull();
+    expect(result.variability?.long_200d.n).toBe(2);
+    expect(result.habitualRange?.n).toBe(2);
   });
 });

@@ -538,6 +538,19 @@ export function getVariableDefinition(variableId: string): VariableDefinition | 
   return VARIABLE_REGISTRY[variableId];
 }
 
+export type VariabilityStrategy = 'robust_distributional' | 'not_applicable';
+
+/**
+ * Estrategia de variabilidade permitida pra uma variavel, derivada de allowedMathStrategy — nao
+ * duplica a informacao numa segunda propriedade por variavel. 'robust_distributional' (mediana/IQR/
+ * MAD) e' a unica estrategia real desta rodada; a funcao existe pra que a ESCOLHA continue vindo do
+ * registry (nunca hardcoded no MathLayer/LongitudinalDynamics) mesmo quando uma segunda estrategia
+ * for adicionada no futuro.
+ */
+export function getVariabilityStrategy(definition: VariableDefinition): VariabilityStrategy {
+  return definition.allowedMathStrategy === 'ordinal_or_continuous_stats' ? 'robust_distributional' : 'not_applicable';
+}
+
 export function listVariableIds(): string[] {
   return Object.keys(VARIABLE_REGISTRY);
 }

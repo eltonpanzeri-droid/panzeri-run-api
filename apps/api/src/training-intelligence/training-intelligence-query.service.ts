@@ -9,6 +9,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ObservationReaderService, Observation } from './observation-reader.service';
 import { MathLayerService, SeriesPoint, WindowSpec } from './math-layer.service';
+import {
+  LongitudinalDynamicsService,
+  DispersionResult,
+  HabitualRangeResult,
+  VariabilityChangeResult,
+  PersistenceResult,
+  Excursion,
+} from './longitudinal-dynamics.service';
 import { getVariableDefinition, VariableDefinition } from './variable-registry';
 
 export interface VariableSnapshotResponse {
@@ -28,6 +36,16 @@ export interface VariableSnapshotResponse {
   baseline: ReturnType<MathLayerService['baseline']> | null;
   deviation: ReturnType<MathLayerService['deviation']> | null;
   trend: Record<string, ReturnType<MathLayerService['trend']>> | null;
+  /**
+   * Segundo bloco da Camada Matematica Longitudinal (24/09/2026) — dinamica longitudinal: quanto a
+   * variavel oscila, se isso mudou, se ela saiu da faixa habitual e como se comportou ao retornar.
+   * Tudo null quando variabilityStrategy da variavel e' 'not_applicable' (variaveis categoricas).
+   */
+  variability: Record<string, DispersionResult> | null;
+  habitualRange: HabitualRangeResult | null;
+  variabilityChange: VariabilityChangeResult | null;
+  persistence: PersistenceResult | null;
+  excursions: Excursion[] | null;
   /**
    * Rastro ate o registro original (ver auditoria, item 10: "preserve a possibilidade de chegar
    * ao registro original"). Cada entrada e' a observacao bruta usada nos calculos acima, com o
@@ -68,6 +86,7 @@ export class TrainingIntelligenceQueryService {
   constructor(
     private readonly observationReader: ObservationReaderService,
     private readonly mathLayer: MathLayerService,
+    private readonly longitudinalDynamics: LongitudinalDynamicsService,
   ) {}
 
   async getVariableSnapshot(athleteId: string, variableId: string): Promise<VariableSnapshotResponse> {
@@ -93,6 +112,11 @@ export class TrainingIntelligenceQueryService {
         baseline: null,
         deviation: null,
         trend: null,
+        variability: null,
+        habitualRange: null,
+        variabilityChange: null,
+        persistence: null,
+        excursions: null,
         observations: traceable,
         evidence,
       };
@@ -118,6 +142,25 @@ export class TrainingIntelligenceQueryService {
       trend[label] = this.mathLayer.trend(series, window);
     }
 
+    // Dinamica longitudinal (variabilidade/faixa habitual/persistencia/excursao/retorno). So
+    // chegamos neste ramo quando allowedMathStrategy === 'ordinal_or_continuous_stats', que e'
+    // exatamente a condicao que getVariabilityStrategy() (variable-registry.ts) mapeia pra
+    // 'robust_distributional' — por isso a estrategia esta implicitamente garantida aqui.
+    const variability: VariableSnapshotResponse['variability'] = {};
+    for (const [label, window] of Object.entries(DEFAULT_MOVING_AVERAGE_WINDOWS)) {
+      variability[label] = this.longitudinalDynamics.dispersionForWindow(series, window);
+    }
+
+    const habitualRangeResult = this.longitudinalDynamics.habitualRange(series, BASELINE_WINDOW);
+    const variabilityChangeResult = this.longitudinalDynamics.variabilityChange(
+      series,
+      DEFAULT_MOVING_AVERAGE_WINDOWS.short_21d,
+      BASELINE_WINDOW,
+    );
+    const bounds = { lower: habitualRangeResult.lower, upper: habitualRangeResult.upper };
+    const persistenceResult = this.longitudinalDynamics.persistence(series, bounds);
+    const excursionsResult = this.longitudinalDynamics.excursions(series, bounds);
+
     return {
       variable: this.describeVariable(definition),
       mathApplicable: true,
@@ -127,6 +170,11 @@ export class TrainingIntelligenceQueryService {
       baseline: baselineResult,
       deviation: deviationResult,
       trend,
+      variability,
+      habitualRange: habitualRangeResult,
+      variabilityChange: variabilityChangeResult,
+      persistence: persistenceResult,
+      excursions: excursionsResult,
       observations: traceable,
       evidence,
     };
