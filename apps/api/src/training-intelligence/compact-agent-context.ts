@@ -1,5 +1,6 @@
-// CompactAgentContext — Passo 2/6 (25/09/2026, auditoria aprovada): representacao derivada do
-// Athlete State Snapshot especificamente para consumo pelo prescription-agent.
+// CompactAgentContext — Passo 2/6 (25/09/2026, auditoria aprovada) + CORRECAO DE FECHAMENTO
+// (25/09/2026, correcao 1): representacao derivada do Athlete State Snapshot especificamente para
+// consumo pelo prescription-agent.
 //
 // Fluxo: RAW DATA -> OBSERVATIONS -> MATH LAYER -> LONGITUDINAL DYNAMICS -> ATHLETE STATE SNAPSHOT
 //        -> COMPACT AGENT CONTEXT -> PRESCRIPTION AGENT.
@@ -14,19 +15,31 @@
 // - preserva as dimensoes SEPARADAS (sono, fadiga fisica, fadiga mental, estresse, motivacao,
 //   resposta ao treino, dor... nunca combinadas);
 // - preserva o par (nivel atual, trajetoria) por variavel, nao so o valor atual — o mesmo valor
-//   atual pode ser uma excursao aguda ou o padrao habitual dependendo da trajetoria (ver
-//   ATHLETE_STATE_MODEL.md e a instrucao original: "fadiga=4" nao significa a mesma coisa pra dois
-//   atletas com baselines diferentes, nem pro mesmo atleta em dois momentos diferentes);
+//   atual pode ser uma excursao aguda ou o padrao habitual dependendo da trajetoria;
 // - preserva a semantica original de cada variavel (constructLabel/direction/scale do
 //   VariableRegistry — nunca inverte escala pra "5=bom");
 // - preserva os componentes objetivos de evidencia (n, span, recencia, versao, janela parcial,
-//   incompatibilidade) sem colapsar em um "confidence score" unico — a forca da evidencia fica
-//   visivel, a decisao de quanto pesar isso e' do agente, nao de uma regra fixa daqui.
+//   incompatibilidade) sem colapsar em um "confidence score" unico.
 //
-// O que este arquivo NAO faz (deliberadamente): nao envia a lista bruta de observacoes (isso e'
-// nivel 3, ja acessivel via endpoint /coach/students/:id/observations/:variableId quando alguem —
-// nao o LLM — precisar auditar o registro original); nao envia todas as excursoes historicas de
-// uma variavel, so' a mais recente + uma contagem (mais um sinal do que uma investigacao).
+// CORRECAO 1 (compressao estrutural, 25/09/2026) — o Compact Agent Context real media 27-30KB por
+// aluno. Auditoria encontrou DUAS redundancias estruturais reais (nao de conteudo, de FORMA):
+// (a) semantica (constructLabel/scale/direction) repetida em CADA aparicao da variavel — como
+//     algumas variaveis aparecem em 2 dominios (ex: postPhysicalFatigue em physicalState E
+//     trainingResponse, ver athlete-state-snapshot.service.ts), essa semantica estatica era
+//     serializada duas vezes. Corrigido: extraida pra `variableLegend`, uma entrada por variableId,
+//     nunca repetida — os dominios agora so' referenciam `variableIds: string[]`.
+// (b) o objeto inteiro da variavel (trend/baseline/deviation/variability/habitualRange/excursion)
+//     era JSON-serializado duas vezes pela mesma razao de overlap entre dominios (JSON nao tem
+//     referencia/ponteiro — a MESMA referencia de objeto em JS vira dois blocos de texto identicos
+//     no JSON). Corrigido: pool unico `variables: Record<variableId, CompactVariableState>` no topo,
+//     cada variavel calculada e serializada uma unica vez, dominios so' guardam os ids.
+// (c) variaveis sem NENHUMA observacao (n=0) carregavam uma dezena de campos explicitamente null
+//     (trend/baseline/deviation/variability/habitualRange/excursion) — informacao zero, so' ruido.
+//     Corrigido: quando evidence.n===0, a entrada fica so' `{ evidence }` (omite os demais campos
+//     via undefined, que JSON.stringify remove) — nenhuma informacao e' perdida porque null-em-tudo
+//     e ausencia-de-dado sao exatamente a mesma coisa; so' deixamos de escrever isso por extenso.
+// Nenhuma variavel foi removida do envio, nenhuma selecao "clinica" de relevancia foi feita — a
+// compressao e' inteiramente estrutural/sintatica.
 
 import type {
   AthleteStateSnapshotV1,
@@ -54,21 +67,22 @@ export interface CompactExcursionSummary {
   overshootOccurred: boolean | null;
 }
 
+/**
+ * Estado compacto de UMA variavel. Quando evidence.n===0, so' `evidence` e' preenchido — os demais
+ * campos ficam ausentes (nao "null" escrito por extenso) porque nao ha absolutamente nada a
+ * descrever sobre nivel/trajetoria/variabilidade de uma variavel sem nenhuma observacao.
+ */
 export interface CompactVariableState {
-  /** O que especificamente "mais" significa nesta variavel — nunca presuma "5=bom" sem checar aqui. */
-  constructLabel?: string;
-  scale?: { min: number; max: number; unit?: string };
-  direction: string;
-  current: number | null;
-  trend: { recent: string; mediumTerm: string };
-  baseline: number | null;
-  deviationFromBaseline: { absolute: number | null; relative: number | null };
-  variability: { recent: number | null; habitual: number | null; change: string };
-  habitualRange: { lower: number | null; upper: number | null } | null;
-  currentlyOutsideHabitualRange: boolean | null;
-  /** Excursao mais recente (em curso ou ja concluida) — nao a lista inteira, ver nota no topo do arquivo. */
-  mostRecentExcursion: CompactExcursionSummary | null;
-  totalExcursionsObserved: number;
+  current?: number | null;
+  trend?: { recent: string; mediumTerm: string };
+  baseline?: number | null;
+  deviationFromBaseline?: { absolute: number | null; relative: number | null };
+  variability?: { recent: number | null; habitual: number | null; change: string };
+  habitualRange?: { lower: number | null; upper: number | null } | null;
+  currentlyOutsideHabitualRange?: boolean | null;
+  /** Excursao mais recente (em curso ou ja concluida) — nao a lista inteira. */
+  mostRecentExcursion?: CompactExcursionSummary | null;
+  totalExcursionsObserved?: number;
   evidence: {
     n: number;
     observedSpan: { from: string | null; to: string | null };
@@ -79,22 +93,33 @@ export interface CompactVariableState {
   };
 }
 
-export interface CompactVariableDomain {
+/** Semantica ESTATICA da variavel (nunca muda por observacao) — uma entrada por variableId, nunca repetida por dominio. */
+export interface VariableLegendEntry {
+  constructLabel?: string;
+  scale?: { min: number; max: number; unit?: string };
+  direction: string;
+}
+
+export interface CompactVariableDomainRef {
   availability: DomainAvailability;
-  variables: Record<string, CompactVariableState>;
+  variableIds: string[];
 }
 
 export interface CompactAgentContext {
   athleteId: string;
   generatedAt: string;
+  /** Semantica de cada variavel citada em qualquer dominio abaixo — consulte por variableId. */
+  variableLegend: Record<string, VariableLegendEntry>;
+  /** Estado calculado de cada variavel, uma unica vez — os dominios abaixo so' referenciam o id. */
+  variables: Record<string, CompactVariableState>;
   training: TrainingDomainState;
-  sleepRecovery: CompactVariableDomain;
-  physicalState: CompactVariableDomain;
-  psychologicalState: CompactVariableDomain;
-  trainingResponse: CompactVariableDomain;
+  sleepRecovery: CompactVariableDomainRef;
+  physicalState: CompactVariableDomainRef;
+  psychologicalState: CompactVariableDomainRef;
+  trainingResponse: CompactVariableDomainRef;
   painHealth: PainHealthDomainState;
   performanceCapacity: PerformanceCapacityDomainState;
-  behavior: Omit<BehaviorDomainState, 'variables'> & { variables: Record<string, CompactVariableState> };
+  behavior: Omit<BehaviorDomainState, 'variables'> & CompactVariableDomainRef;
   lifeContext: LifeContextDomainState;
   systemDynamics: SystemDynamicsDomainState;
   evidenceQuality: {
@@ -106,6 +131,22 @@ export interface CompactAgentContext {
 }
 
 function compactVariable(entry: VariableStateEntry): CompactVariableState {
+  if (entry.evidence.n === 0) {
+    // Sem nenhuma observacao: nivel/trajetoria/variabilidade/excursao nao existem pra descrever —
+    // manter os campos ausentes (em vez de "null" repetido) preserva a MESMA informacao (ausencia)
+    // com muito menos texto.
+    return {
+      evidence: {
+        n: 0,
+        observedSpan: entry.evidence.observedSpan,
+        lastObservationAt: entry.evidence.lastObservationAt,
+        instrumentVersions: entry.evidence.instrumentVersions,
+        comparabilityWarning: entry.evidence.comparabilityWarning,
+        isPartialWindow: true,
+      },
+    };
+  }
+
   const excursions = entry.excursions ?? [];
   const last = excursions[excursions.length - 1] ?? null;
   const mostRecentExcursion: CompactExcursionSummary | null = last
@@ -128,9 +169,6 @@ function compactVariable(entry: VariableStateEntry): CompactVariableState {
   );
 
   return {
-    constructLabel: entry.variable.constructLabel,
-    scale: entry.variable.scale,
-    direction: entry.variable.direction,
     current: entry.current,
     trend: {
       recent: entry.trend?.short_21d?.direction ?? 'insufficient_data',
@@ -161,11 +199,32 @@ function compactVariable(entry: VariableStateEntry): CompactVariableState {
   };
 }
 
-function compactVariableDomain(domain: VariableBasedDomainState): CompactVariableDomain {
-  return {
-    availability: domain.availability,
-    variables: Object.fromEntries(Object.entries(domain.variables).map(([id, entry]) => [id, compactVariable(entry)])),
-  };
+/**
+ * Registra (id->estado, id->legenda) no pool compartilhado SE ainda nao estiver la — garante que
+ * cada variavel e' calculada/serializada uma unica vez mesmo citada por varios dominios.
+ */
+function registerVariable(
+  pool: Record<string, CompactVariableState>,
+  legend: Record<string, VariableLegendEntry>,
+  id: string,
+  entry: VariableStateEntry,
+): void {
+  if (!(id in pool)) {
+    pool[id] = compactVariable(entry);
+    legend[id] = { constructLabel: entry.variable.constructLabel, scale: entry.variable.scale, direction: entry.variable.direction };
+  }
+}
+
+function domainRef(
+  pool: Record<string, CompactVariableState>,
+  legend: Record<string, VariableLegendEntry>,
+  domain: VariableBasedDomainState,
+): CompactVariableDomainRef {
+  const variableIds = Object.keys(domain.variables);
+  for (const id of variableIds) {
+    registerVariable(pool, legend, id, domain.variables[id]);
+  }
+  return { availability: domain.availability, variableIds };
 }
 
 /**
@@ -174,23 +233,37 @@ function compactVariableDomain(domain: VariableBasedDomainState): CompactVariabl
  * responsavel por buscar o Snapshot e tratar falha (nunca deve quebrar a geracao semanal).
  */
 export function buildCompactAgentContext(snapshot: AthleteStateSnapshotV1): CompactAgentContext {
+  const variables: Record<string, CompactVariableState> = {};
+  const variableLegend: Record<string, VariableLegendEntry> = {};
+
+  const sleepRecovery = domainRef(variables, variableLegend, snapshot.domains.sleepRecovery);
+  const physicalState = domainRef(variables, variableLegend, snapshot.domains.physicalState);
+  const psychologicalState = domainRef(variables, variableLegend, snapshot.domains.psychologicalState);
+  const trainingResponse = domainRef(variables, variableLegend, snapshot.domains.trainingResponse);
+  const behaviorRef = domainRef(variables, variableLegend, {
+    availability: snapshot.domains.behavior.availability,
+    variables: snapshot.domains.behavior.variables,
+  });
+
   return {
     athleteId: snapshot.athleteId,
     generatedAt: snapshot.generatedAt,
+    variableLegend,
+    variables,
     training: snapshot.domains.training,
-    sleepRecovery: compactVariableDomain(snapshot.domains.sleepRecovery),
-    physicalState: compactVariableDomain(snapshot.domains.physicalState),
-    psychologicalState: compactVariableDomain(snapshot.domains.psychologicalState),
-    trainingResponse: compactVariableDomain(snapshot.domains.trainingResponse),
+    sleepRecovery,
+    physicalState,
+    psychologicalState,
+    trainingResponse,
     painHealth: snapshot.domains.painHealth,
     performanceCapacity: snapshot.domains.performanceCapacity,
     behavior: {
-      availability: snapshot.domains.behavior.availability,
+      availability: behaviorRef.availability,
+      variableIds: behaviorRef.variableIds,
       adherence: snapshot.domains.behavior.adherence,
       consistency: snapshot.domains.behavior.consistency,
       checkinsSubmittedAllTime: snapshot.domains.behavior.checkinsSubmittedAllTime,
       checkinsSkippedAllTime: snapshot.domains.behavior.checkinsSkippedAllTime,
-      variables: Object.fromEntries(Object.entries(snapshot.domains.behavior.variables).map(([id, entry]) => [id, compactVariable(entry)])),
     },
     lifeContext: snapshot.domains.lifeContext,
     systemDynamics: snapshot.domains.systemDynamics,

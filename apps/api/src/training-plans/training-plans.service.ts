@@ -636,6 +636,16 @@ export class TrainingPlansService {
     // 2 sessoes para Dom que apareceram no app como treinos indevidos.
     const trainingWeekdays = new Set(availableDays.map((d) => d.weekday));
 
+    // RISCO CONHECIDO, NAO CORRIGIDO NESTA RODADA (auditoria de fechamento do Passo 2, 25/09/2026):
+    // previousPlans (query acima) NAO filtra plano arquivado sem completion (sessao-fantasma) —
+    // diferente da regra ja estabelecida em evolution-metric.service.ts
+    // (plan.status==='active' || completion!==null), reutilizada pelo Athlete State Snapshot. Isso
+    // significa que prescribedSessions/completedSessions abaixo podem estar inflados por sessoes de
+    // planos regenerados que o aluno nunca chegou a ver. Nao foi corrigido agora porque
+    // historicoSemanal alimenta varias regras finas do prompt (weekStartDate/longestRunDate/
+    // unregisteredSessions) e trocar a fonte exige validacao propria, fora do escopo desta correcao
+    // (que era: comprimir contexto, eliminar duplicidade do check-in, e nomear/reconciliar conceitos
+    // de aderencia). Ver relatorio de auditoria da Correcao 3 para o comparativo completo.
     const methodologyHistory = previousPlans.map((historyPlan) => {
       const runSessions = historyPlan.sessions.filter((session) => isRunningModality(session.modality));
       const completedRuns = runSessions.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted');
