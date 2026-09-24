@@ -14,6 +14,7 @@
 
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
 import { SATISFACTION_SCORE } from '../workout-completions/workout-completions.service';
 import { getVariableDefinition, InstrumentVersionSpec, VariableDefinition } from './variable-registry';
 
@@ -91,8 +92,11 @@ export class ObservationReaderService {
   // -----------------------------------------------------------------------------------------
 
   private async readWorkoutVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
+    // Corte de historico contaminado por teste (25/09/2026, fechamento do Passo 2) — mesma fonte
+    // que EvolutionMetricService usa (training-history-policy.ts), nunca uma segunda data
+    // definida so' aqui. Nao apaga nada do banco, so' nao alimenta Training Intelligence.
     const sessions = await this.prisma.trainingSession.findMany({
-      where: { userId: athleteId },
+      where: { userId: athleteId, scheduledDate: { gte: TRAINING_INTELLIGENCE_DATA_CUTOFF } },
       include: { completion: true, plan: { select: { status: true } } },
       orderBy: { scheduledDate: 'asc' },
     });

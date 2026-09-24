@@ -606,7 +606,7 @@ export class TrainingPlansService {
     // dias/modalidades que de fato serao gerados logo abaixo — nao faz sentido a IA decidir uma
     // corrida para um dia que sera descartado, nem deixar de decidir os exercicios de um dia que
     // so virou forca por causa dessa troca.
-    const availableDays = remapAvailabilityForPainSafety(rawAvailableDays, painSafety.tier === 'remove_running');
+    let availableDays = remapAvailabilityForPainSafety(rawAvailableDays, painSafety.tier === 'remove_running');
 
     const today = todayInSaoPaulo();
     // BUG REAL CORRIGIDO (09/08 — Roberta, "semana atual continua aparecendo a antiga mesmo apos
@@ -629,6 +629,10 @@ export class TrainingPlansService {
     const pastWeeklyRelease = todayWeekday === 0 && todayHour >= WEEKLY_RELEASE_HOUR;
     const shouldRollToNextWeek = !hasFutureDayThisWeek && !options?.referenceDate && (!activePlanBeforeAdjustment || pastWeeklyRelease);
     const weekStart = shouldRollToNextWeek ? addDays(initialWeekStart, 7) : initialWeekStart;
+    // Injeta o dia da prova (secao 5 do fechamento do Passo 2) — precisa vir DEPOIS do weekStart
+    // final (inclusive do rollover acima) e ANTES de qualquer uso de availableDays dai pra frente
+    // (trainingWeekdays, methodologyInput.availability, geracao das sessoes).
+    availableDays = injectTargetRaceDays(availableDays, targetRaces, weekStart);
     // Conjunto de weekdays que o aluno realmente treina (noTraining=false vem filtrado do banco).
     // Usado para (1) enviar a IA somente os dias que fazem parte da rotina do aluno e (2) descartar
     // como erro qualquer sessao extra que a IA prescreva para um dia fora dessa rotina.
@@ -977,6 +981,9 @@ export class TrainingPlansService {
           routineMismatchNote: activeDirectives.length === 0
             ? methodology.sessionMismatches?.[mismatchKeyFor(day.weekday, modality)] ?? null
             : null,
+          // Correcao definitiva do ciclo de vida da prescricao (25/09/2026) — origem real desta
+          // sessao, sempre 'agent' aqui (gerada pelo prescription-agent).
+          origin: 'agent',
         }];
       });
     });
@@ -1029,10 +1036,27 @@ export class TrainingPlansService {
           routineMismatchNote: activeDirectives.length === 0
             ? (methodology.sessionMismatches?.[mismatchKeyFor(weekday, 'corrida')] ?? 'Este treino foi gerado a mais, alem do combinado na sua rotina para este dia.')
             : null,
+          origin: 'agent',
         };
       });
     });
     sessions.push(...extraRunSessions);
+
+    // Correcao definitiva do ciclo de vida da prescricao (25/09/2026, fechamento do Passo 2) —
+    // "hoje ja executado" protege aquela MODALIDADE especifica mesmo com allowToday=true (regra
+    // explicita: execucao registrada nunca e' perguntada, so' protegida — allowToday so' decide se
+    // as modalidades de HOJE AINDA NAO executadas entram na regeneracao). O bloco mais abaixo que
+    // realoca sessoes passadas/de hoje do plano antigo pro plano novo (ja existente antes desta
+    // correcao) e' ajustado pra respeitar essa mesma regra — ver comentario la.
+    const todaySessionsOnActivePlan = activePlanBeforeAdjustment
+      ? await this.prisma.trainingSession.findMany({
+          where: { planId: activePlanBeforeAdjustment.id, scheduledDate: today },
+          include: { completion: { select: { id: true } } },
+        })
+      : [];
+    const todayModalitiesWithCompletion = new Set(
+      todaySessionsOnActivePlan.filter((s) => s.completion !== null).map((s) => s.modality),
+    );
 
     if (archiveCurrentActive) {
       await this.prisma.trainingPlan.updateMany({
@@ -1075,10 +1099,16 @@ export class TrainingPlansService {
       return true;
     });
 
-    const sessionsToCreate = sessionsAfterDailyCap.filter((session) =>
-      session.scheduledDate.getTime() > today.getTime() ||
-      (Boolean(options?.allowToday) && session.scheduledDate.getTime() === today.getTime()),
-    );
+    const sessionsToCreate = sessionsAfterDailyCap.filter((session) => {
+      if (session.scheduledDate.getTime() > today.getTime()) return true;
+      if (session.scheduledDate.getTime() === today.getTime()) {
+        // Execucao ja registrada hoje pra essa modalidade protege o dia mesmo com allowToday=true
+        // (regra explicita: nunca reescreve um treino que o aluno ja fez, sem excecao).
+        if (todayModalitiesWithCompletion.has(session.modality)) return false;
+        return Boolean(options?.allowToday);
+      }
+      return false;
+    });
     const plan = await this.prisma.trainingPlan.create({
       data: {
         userId,
@@ -1207,11 +1237,24 @@ export class TrainingPlansService {
       // o que o aluno ja fez (ou nao fez) fica registrado no plano anterior, so migramos essas
       // sessoes (com seus registros de execucao) para o plano novo para que continuem
       // aparecendo normalmente na semana atual.
+      // CORRECAO (25/09/2026): quando allowToday=true, a sessao de HOJE sem completion NAO e'
+      // migrada — ela e' deliberadamente substituida pela nova sessao que sessionsToCreate ja
+      // gerou pra esse dia (ver filtro acima), senao as duas coexistiriam na mesma modalidade/dia.
+      // Hoje COM completion continua sempre migrada, mesmo com allowToday=true (execucao real
+      // nunca e' descartada).
       await this.prisma.trainingSession.updateMany({
-        where: {
-          planId: activePlanBeforeAdjustment.id,
-          scheduledDate: { gte: weekStart, lte: today },
-        },
+        where: options?.allowToday
+          ? {
+              planId: activePlanBeforeAdjustment.id,
+              OR: [
+                { scheduledDate: { gte: weekStart, lt: today } },
+                { scheduledDate: today, completion: { isNot: null } },
+              ],
+            }
+          : {
+              planId: activePlanBeforeAdjustment.id,
+              scheduledDate: { gte: weekStart, lte: today },
+            },
         data: { planId: plan.id },
       });
       const adjustedPlan = await this.prisma.trainingPlan.findUniqueOrThrow({
@@ -1574,9 +1617,23 @@ export class TrainingPlansService {
   }
 
   async regenerateSession(userId: string, sessionId: string, options?: { allowToday?: boolean }) {
-    const session = await this.prisma.trainingSession.findFirst({ where: { id: sessionId, userId } });
+    const session = await this.prisma.trainingSession.findFirst({
+      where: { id: sessionId, userId },
+      include: { completion: { select: { id: true } } },
+    });
     if (!session) {
       throw new BadRequestException('Treino nao encontrado para este aluno.');
+    }
+    // Correcao definitiva do ciclo de vida da prescricao (25/09/2026): treino ja executado nunca e'
+    // elegivel para regeneracao, independente da data — execucao registrada e' o fato mais forte
+    // que existe, nenhuma regeneracao (nem com allowToday) pode sobrescrever a prescricao por tras
+    // dela silenciosamente. Isso fecha a lacuna que o diagnostico do Passo 2 encontrou (este metodo
+    // nao verificava completion nenhuma).
+    if (session.completion) {
+      throw new BadRequestException({
+        message: 'Esse treino ja foi registrado pelo aluno — nao e possivel gerar um novo treino no lugar dele. Se precisar corrigir algo, edite o registro em vez de regenerar.',
+        code: 'session_already_completed',
+      });
     }
     const today = todayInSaoPaulo();
     // Dia que ja passou nunca pode ser reescrito, sem excecao. O dia de hoje e diferente: o
@@ -1697,6 +1754,7 @@ export class TrainingPlansService {
           : null,
         structure: prescription as unknown as Prisma.InputJsonObject,
         ...(strengthNotesUpdate ? { notes: strengthNotesUpdate } : {}),
+        origin: 'agent',
       },
     });
   }
@@ -1753,6 +1811,9 @@ export class TrainingPlansService {
         title,
         locationSuggestion: 'Livre',
         structure,
+        // Correcao definitiva do ciclo de vida da prescricao (25/09/2026) — origem real: criada
+        // diretamente pelo treinador, sem passar pelo agente de prescricao.
+        origin: 'coach_manual',
       },
     });
 
@@ -1848,6 +1909,10 @@ export class TrainingPlansService {
         title,
         locationSuggestion: 'Livre',
         structure,
+        // Correcao definitiva do ciclo de vida da prescricao (25/09/2026) — origem real: treino
+        // extra registrado pelo proprio aluno (ja existia via structure.source/type; agora tambem
+        // marcado na coluna estruturada da propria sessao).
+        origin: 'student_extra',
       },
     });
 
@@ -2528,6 +2593,31 @@ function weekdayOffsetFromMonday(weekday: number) {
 // semana seguinte em vez de gerar a atual (ex: domingo, quando nenhum dia desta semana resta).
 function anyAvailableDayIsFuture(availableDays: Array<{ weekday: number }>, weekStart: Date, today: Date): boolean {
   return availableDays.some((day) => addDays(weekStart, weekdayOffsetFromMonday(day.weekday)).getTime() > today.getTime());
+}
+
+// Correcao definitiva do ciclo de vida da prescricao (25/09/2026, secao 5 do fechamento do Passo
+// 2): prova/evento cadastrado e' uma excecao explicita a indisponibilidade habitual daquele dia —
+// "Elton nao treina domingo, mas se tem prova cadastrada nesse domingo especifico, o dia precisa
+// ficar disponivel pra IA prescrever a sessao da prova". So' injeta o weekday quando ele NAO ja
+// esta na rotina (rotina normal sempre tem prioridade sobre esta injecao); nunca remove nem
+// modifica um dia que ja existia. So' vale pra semana que contem a data da prova — na semana
+// seguinte, sem prova, o dia volta a nao ser elegivel automaticamente (nada fica "lembrado").
+export function injectTargetRaceDays<T extends { weekday: number; modalities: string[]; availableMin?: number | null; noTraining?: boolean }>(
+  availableDays: T[],
+  targetRaces: Array<{ raceDate: Date }>,
+  weekStart: Date,
+): T[] {
+  const existingWeekdays = new Set(availableDays.map((d) => d.weekday));
+  const weekEnd = addDays(weekStart, 6);
+  const injected: T[] = [];
+  for (const race of targetRaces) {
+    const weekday = race.raceDate.getUTCDay();
+    if (existingWeekdays.has(weekday)) continue; // rotina ja cobre esse dia — nada a injetar
+    if (race.raceDate.getTime() < weekStart.getTime() || race.raceDate.getTime() > weekEnd.getTime()) continue;
+    existingWeekdays.add(weekday); // evita duplicar se 2 provas caissem no mesmo weekday (raro)
+    injected.push({ weekday, modalities: ['corrida'], availableMin: 180, noTraining: false } as T);
+  }
+  return injected.length ? [...availableDays, ...injected] : availableDays;
 }
 
 const WEEKDAY_LABELS = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];

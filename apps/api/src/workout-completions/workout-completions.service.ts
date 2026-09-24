@@ -131,6 +131,9 @@ export class WorkoutCompletionsService {
         notes: dto.notes,
         details,
         source: 'manual',
+        adjustmentReasons: dto.adjustmentReasons ?? [],
+        adjustmentComment: dto.adjustmentComment,
+        adjustmentPreferredActivity: dto.adjustmentPreferredActivity,
       },
       update: {
         status: dto.status,
@@ -169,6 +172,9 @@ export class WorkoutCompletionsService {
         notes: dto.notes,
         details,
         source: 'manual',
+        adjustmentReasons: dto.adjustmentReasons ?? [],
+        adjustmentComment: dto.adjustmentComment,
+        adjustmentPreferredActivity: dto.adjustmentPreferredActivity,
       },
     });
 

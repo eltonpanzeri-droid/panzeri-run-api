@@ -419,6 +419,12 @@ interface CompletionDraft {
   // comentario livre opcional — ver MISSED_REASON_OPTIONS.
   missedReasons: string[];
   missedComment: string;
+  // So relevante quando status === 'adjusted' ("Fiz, mas mudei o treino", 25/09/2026). Selecao
+  // multipla de motivos + observacao opcional — ver ADJUSTMENT_REASON_OPTIONS. adjustmentPreferredActivity
+  // so' preenchido quando adjustmentReasons incluir 'preferred_different_workout'.
+  adjustmentReasons: string[];
+  adjustmentComment: string;
+  adjustmentPreferredActivity: string;
   // Por exercicio, so para treinos de forca (musculacao e fortalecimento). Cada item guarda
   // o nome do exercicio, a carga usada (string vazia = nao informado) e a percepcao de
   // dificuldade/satisfacao. Guardado dentro de details{} no servidor — sem migration.
@@ -4207,6 +4213,13 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       distanceKm: Number(draft.distanceKm.replace(',', '.')) || undefined,
       avgPaceSecondsKm: paceInputToSeconds(draft.avgPace) ?? undefined,
       notes: draft.notes || undefined,
+      // "Fiz, mas mudei o treino" (25/09/2026) — colunas dedicadas (nao details), so' enviadas
+      // quando status==='adjusted'. Prescricao original (TrainingSession) nunca e' alterada aqui.
+      adjustmentReasons: draft.status === 'adjusted' && draft.adjustmentReasons.length ? draft.adjustmentReasons : undefined,
+      adjustmentComment: draft.status === 'adjusted' && draft.adjustmentComment.trim() ? draft.adjustmentComment.trim() : undefined,
+      adjustmentPreferredActivity: draft.status === 'adjusted' && draft.adjustmentReasons.includes('preferred_different_workout') && draft.adjustmentPreferredActivity.trim()
+        ? draft.adjustmentPreferredActivity.trim()
+        : undefined,
       details: {
         loadsText: draft.loadsText,
         pacingMode: draft.pacingMode || undefined,
@@ -8861,6 +8874,24 @@ const MISSED_REASON_OPTIONS = [
   { label: 'Esqueci / perdi o horário', value: 'esqueci' },
 ];
 
+// Correcao definitiva do ciclo de vida da prescricao (25/09/2026) — "Fiz, mas mudei o treino"
+// (status continua 'adjusted', so o rotulo mudou). Ids IGUAIS aos de ADJUSTMENT_REASON_IDS em
+// upsert-workout-completion.dto.ts — nunca reordenar/remover depois de existir resposta real.
+const ADJUSTMENT_REASON_OPTIONS = [
+  { label: 'Corri/treinei com outra pessoa e acompanhei o ritmo dela', value: 'trained_with_someone_else' },
+  { label: 'Estava com pouco tempo ou com pressa', value: 'short_on_time' },
+  { label: 'Estava me sentindo muito bem e fiz mais', value: 'felt_great_did_more' },
+  { label: 'Estava cansado e reduzi o treino', value: 'tired_reduced' },
+  { label: 'Senti dor ou desconforto', value: 'pain_or_discomfort' },
+  { label: 'O treino pareceu difícil demais naquele momento', value: 'felt_too_hard' },
+  { label: 'O treino pareceu fácil e resolvi aumentar', value: 'felt_too_easy_increased' },
+  { label: 'O clima atrapalhou', value: 'weather' },
+  { label: 'O local ou percurso não permitiu fazer como planejado', value: 'location_route_issue' },
+  { label: 'Tive um imprevisto durante o treino', value: 'unexpected_event' },
+  { label: 'Preferi fazer outro treino', value: 'preferred_different_workout' },
+  { label: 'Outro motivo', value: 'other' },
+];
+
 const SATISFACTION_OPTIONS = [
   { label: 'Amei', value: 'amei' },
   { label: 'Gostei', value: 'gostei' },
@@ -9115,7 +9146,7 @@ function CompletionForm({
         <View style={styles.completionRegisteredBanner}>
           <Ionicons name="checkmark-circle" size={15} color="#187A55" />
           <Text style={styles.completionRegisteredText}>
-            {draft.status === 'done' ? 'Feito' : draft.status === 'adjusted' ? 'Ajustado' : 'Nao feito'}
+            {draft.status === 'done' ? 'Feito como planejado' : draft.status === 'adjusted' ? 'Fiz, mas mudei o treino' : 'Nao feito'}
             {draft.completedDate ? ` em ${draft.completedDate}` : ''} — treinador pode acompanhar.
           </Text>
         </View>
@@ -9125,9 +9156,9 @@ function CompletionForm({
         {/* Seletor de status — sempre visivel */}
         <View style={styles.completionStatusRow}>
           {[
-            { label: 'Feito', value: 'done' },
-            { label: 'Nao feito', value: 'missed' },
-            { label: 'Ajustado', value: 'adjusted' },
+            { label: 'Fiz como estava planejado', value: 'done' },
+            { label: 'Fiz, mas mudei o treino', value: 'adjusted' },
+            { label: 'Nao fiz', value: 'missed' },
           ].map((opt) => (
             <Pressable
               key={opt.value}
@@ -9356,6 +9387,41 @@ function CompletionForm({
                 placeholder="Observacoes opcionais: clima, terreno, alimentacao, sensacoes diferentes..."
               />
             </View>
+
+            {/* Correcao definitiva do ciclo de vida da prescricao (25/09/2026) — so aparece quando
+                o aluno escolheu "Fiz, mas mudei o treino". A prescricao original (o que estava
+                planejado) NUNCA e alterada por essas respostas — isso so descreve o PORQUE a
+                execucao foi diferente. */}
+            {draft.status === 'adjusted' && (
+              <View>
+                <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 16 }} />
+                {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Por que voce mudou o treino?</Text>}
+                <Text style={styles.formHint}>Pode marcar mais de um motivo</Text>
+                <View style={styles.completionStatusRow}>
+                  {ADJUSTMENT_REASON_OPTIONS.map((opt) => {
+                    const active = draft.adjustmentReasons.includes(opt.value);
+                    return (
+                      <Pressable key={opt.value} disabled={locked} style={[styles.completionChip, active && styles.completionChipActive]}
+                        onPress={() => onChange({ adjustmentReasons: active ? draft.adjustmentReasons.filter((v) => v !== opt.value) : [...draft.adjustmentReasons, opt.value] })}>
+                        <Text style={[styles.completionChipText, active && styles.completionChipTextActive]}>{opt.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                {draft.adjustmentReasons.includes('preferred_different_workout') && (
+                  <View style={styles.completionFieldGroup}>
+                    <Text style={styles.inputLabel}>O que voce preferiu fazer?</Text>
+                    <TextInput style={styles.compactInput} value={draft.adjustmentPreferredActivity}
+                      onChangeText={(v) => onChange({ adjustmentPreferredActivity: v })} placeholder="Ex: musculacao, caminhada leve... (opcional)" editable={!locked} />
+                  </View>
+                )}
+                <View style={styles.completionFieldGroup}>
+                  <Text style={styles.inputLabel}>Quer contar melhor o que aconteceu?</Text>
+                  <TextInput style={[styles.compactInput, styles.multilineInput]} value={draft.adjustmentComment}
+                    onChangeText={(v) => onChange({ adjustmentComment: v })} multiline placeholder="Conte com suas palavras, se quiser (opcional)" editable={!locked} />
+                </View>
+              </View>
+            )}
           </View>
         )}
       </View>
@@ -9887,6 +9953,9 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     walkingReasons: [],
     missedReasons: [],
     missedComment: '',
+    adjustmentReasons: [],
+    adjustmentComment: '',
+    adjustmentPreferredActivity: '',
     exerciseFeedback: [],
   };
 }
@@ -9930,6 +9999,9 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     walkingReasons: Array.isArray((completion.details as Record<string, unknown> | undefined)?.walkingReasons) ? (completion.details as Record<string, unknown>).walkingReasons as string[] : [],
     missedReasons: completion.details?.missedReasons ?? [],
     missedComment: completion.details?.missedComment ?? '',
+    adjustmentReasons: (completion as Record<string, unknown>).adjustmentReasons as string[] ?? [],
+    adjustmentComment: ((completion as Record<string, unknown>).adjustmentComment as string) ?? '',
+    adjustmentPreferredActivity: ((completion as Record<string, unknown>).adjustmentPreferredActivity as string) ?? '',
     exerciseFeedback: completion.details?.exerciseFeedback ?? [],
   };
 }

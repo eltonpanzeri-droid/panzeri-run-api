@@ -1,4 +1,22 @@
-import { IsDateString, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsDateString, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+
+// Correcao definitiva do ciclo de vida da prescricao (25/09/2026) — "Fiz, mas mudei o treino"
+// (status continua sendo 'adjusted', so o rotulo mudou). Ids curtos, nunca reordenados/removidos
+// depois de existirem respostas reais gravadas com eles.
+export const ADJUSTMENT_REASON_IDS = [
+  'trained_with_someone_else',
+  'short_on_time',
+  'felt_great_did_more',
+  'tired_reduced',
+  'pain_or_discomfort',
+  'felt_too_hard',
+  'felt_too_easy_increased',
+  'weather',
+  'location_route_issue',
+  'unexpected_event',
+  'preferred_different_workout',
+  'other',
+] as const;
 
 export class UpsertWorkoutCompletionDto {
   @IsString()
@@ -161,4 +179,24 @@ export class UpsertWorkoutCompletionDto {
   @IsOptional()
   @IsObject()
   details?: Record<string, unknown>;
+
+  // "Fiz, mas mudei o treino" (status='adjusted') — motivos de multipla escolha + observacao
+  // opcional. So' fazem sentido quando status==='adjusted'; o service nao exige, so' persiste
+  // quando vierem (nunca altera TrainingSession, so' descreve o completion).
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(ADJUSTMENT_REASON_IDS.length)
+  @IsIn(ADJUSTMENT_REASON_IDS, { each: true })
+  adjustmentReasons?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  adjustmentComment?: string;
+
+  // So' preenchido quando adjustmentReasons incluir 'preferred_different_workout'.
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  adjustmentPreferredActivity?: string;
 }

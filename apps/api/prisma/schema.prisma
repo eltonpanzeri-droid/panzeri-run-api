@@ -428,6 +428,22 @@ model TrainingSession {
   // maioria). Nao bloqueia nada, so marca — ver [[training_plans.service.ts generateWeek]].
   routineMismatchNote String?
   createdAt          DateTime           @default(now())
+  // Correcao definitiva do ciclo de vida da prescricao (25/09/2026, Passo 2 fechado). Origem real
+  // desta sessao — 'agent' (gerada/regenerada pelo prescription-agent), 'coach_manual' (treinador
+  // criou direto, sem passar pelo agente) ou 'student_extra' (aluno registrou treino extra por
+  // conta propria). Nullable de proposito: registros criados ANTES desta coluna existir ficam
+  // null (desconhecido) — nunca inventamos origem retroativa pra dado legado. Novas sessoes
+  // sempre recebem um valor real nos 3 pontos de criacao (generateWeek/regenerateSession,
+  // createManualSession, addStudentExtraSession).
+  origin             String?
+  // Quando um treinador edita manualmente (updateTrainingSession) uma sessao que JA tem
+  // completion, guardamos aqui um snapshot append-only do que a prescricao era ANTES da edicao —
+  // nunca sobrescrevemos silenciosamente a prescricao associada a uma execucao ja registrada (ver
+  // secao 18 do fechamento do Passo 2). Array de objetos {editedAt, modality, durationMin,
+  // distanceKm, paceMinSec, structure}. Null/vazio quando a sessao nunca foi editada apos ter
+  // completion. NAO e' um sistema de auditoria generico — so' existe pra esse caso especifico.
+  prescriptionHistory Json?
+  updatedAt          DateTime           @updatedAt
   completion         WorkoutCompletion?
 
   // 09/09 — indice para queries de evolucao do atleta (busca por usuario + ordem cronologica).
@@ -552,6 +568,16 @@ model WorkoutCompletion {
   notes            String?
   details          Json?
   source           String           @default("manual")
+
+  // Correcao definitiva do ciclo de vida da prescricao (25/09/2026) — "Fiz, mas mudei o treino"
+  // (status continua sendo o valor legado 'adjusted', so o ROTULO exibido mudou, sem migration
+  // destrutiva). Motivos de multipla escolha (ids curtos, ver ADJUSTMENT_REASON_OPTIONS no
+  // mobile), so' preenchido quando status='adjusted'. NAO altera TrainingSession — a prescricao
+  // original permanece intacta; isso so' descreve o PORQUE da execucao ter sido diferente.
+  adjustmentReasons String[]
+  adjustmentComment String?
+  // So' preenchido quando um dos adjustmentReasons for "preferi fazer outro treino".
+  adjustmentPreferredActivity String?
 }
 
 model TargetRace {

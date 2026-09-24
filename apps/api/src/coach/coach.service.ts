@@ -288,13 +288,16 @@ export class CoachService {
     await this.assertStudent(studentId);
     const session = await this.prisma.trainingSession.findFirst({
       where: { id: sessionId, userId: studentId },
-      select: { id: true },
+      select: {
+        id: true, modality: true, durationMin: true, distanceKm: true, structure: true, prescriptionHistory: true,
+        completion: { select: { id: true } },
+      },
     });
     if (!session) {
       throw new BadRequestException('Treino nao encontrado para este aluno.');
     }
 
-    const data = {
+    const data: Prisma.TrainingSessionUpdateInput = {
       ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
       ...(dto.modality !== undefined ? { modality: dto.modality.trim() } : {}),
       ...(dto.durationMin !== undefined ? { durationMin: dto.durationMin || null } : {}),
@@ -305,6 +308,31 @@ export class CoachService {
     };
     if (!Object.keys(data).length) {
       throw new BadRequestException('Nenhuma alteracao informada.');
+    }
+
+    // Correcao definitiva do ciclo de vida da prescricao (25/09/2026, secao 18 do fechamento do
+    // Passo 2): edicao manual do treinador continua permitida mesmo com completion ja registrada
+    // (intervencao manual e' diferente de regeneracao automatica — treinador tem autoridade pra
+    // editar o passado). O que NAO pode acontecer e' perder silenciosamente qual prescricao estava
+    // associada aquela execucao. Se a edicao muda um campo MATERIAL (modalidade/duracao/distancia/
+    // estrutura) numa sessao que ja tem completion, guarda um snapshot append-only do que a
+    // prescricao era antes, em vez de so' sobrescrever. So' pra esse caso especifico — nao e' um
+    // sistema de auditoria generico, e nunca dispara pra sessao sem completion.
+    const materialFieldsChanged =
+      (dto.modality !== undefined && dto.modality.trim() !== session.modality) ||
+      (dto.durationMin !== undefined && (dto.durationMin || null) !== session.durationMin) ||
+      (dto.distanceKm !== undefined && (dto.distanceKm || null) !== session.distanceKm) ||
+      dto.structure !== undefined;
+    if (session.completion && materialFieldsChanged) {
+      const priorSnapshot = {
+        editedAt: new Date().toISOString(),
+        modality: session.modality,
+        durationMin: session.durationMin,
+        distanceKm: session.distanceKm,
+        structure: session.structure,
+      };
+      const historyArray = Array.isArray(session.prescriptionHistory) ? (session.prescriptionHistory as Prisma.JsonArray) : [];
+      data.prescriptionHistory = [...historyArray, priorSnapshot] as unknown as Prisma.InputJsonValue;
     }
 
     return this.prisma.trainingSession.update({ where: { id: sessionId }, data });

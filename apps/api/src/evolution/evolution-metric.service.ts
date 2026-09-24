@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
 import type {
   AdherencePeriod,
   AdherenceSummary,
@@ -69,14 +70,13 @@ export class EvolutionMetricService {
   // -------------------------------------------------------------------------
 
   private async fetchRawSessions(userId: string): Promise<RawSessionData[]> {
-    // Corte de data: sessoes antes de 01/08/2026 sao de periodo de testes
-    // (multiplas chamadas a generateWeek geraram sessoes fantasma sem completion).
-    const DATA_CUTOFF = new Date('2026-08-01T00:00:00Z');
-
+    // Corte de data centralizado em training-history-policy.ts (25/09/2026) — antes ficava so'
+    // aqui; agora ObservationReaderService usa a MESMA constante, pra nunca discordar sobre o que
+    // conta como historico esportivo real.
     const sessions = await this.prisma.trainingSession.findMany({
       where: {
         userId,
-        scheduledDate: { gte: DATA_CUTOFF },
+        scheduledDate: { gte: TRAINING_INTELLIGENCE_DATA_CUTOFF },
       },
       include: {
         completion: true,
