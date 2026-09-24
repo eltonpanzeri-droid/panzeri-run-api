@@ -5,6 +5,7 @@ import { RolesGuard } from '../common/roles.guard';
 import { CoachService } from './coach.service';
 import { BusinessIntelligenceService } from './business-intelligence.service';
 import { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
+import { AthleteStateSnapshotService } from '../training-intelligence/athlete-state-snapshot.service';
 import { parseDashboardQuery } from './dashboard-query.util';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { MergeStudentDto } from './dto/merge-student.dto';
@@ -23,6 +24,7 @@ export class CoachController {
     private readonly coachService: CoachService,
     private readonly businessIntelligence: BusinessIntelligenceService,
     private readonly trainingIntelligenceQuery: TrainingIntelligenceQueryService,
+    private readonly athleteStateSnapshot: AthleteStateSnapshotService,
   ) {}
 
   // 24/09: endpoint isolado de validacao ponta a ponta da fundacao de Training Intelligence
@@ -31,6 +33,13 @@ export class CoachController {
   @Get('students/:id/observations/:variableId')
   getStudentObservationSnapshot(@Param('id') id: string, @Param('variableId') variableId: string) {
     return this.trainingIntelligenceQuery.getVariableSnapshot(id, variableId);
+  }
+
+  // 24/09: Athlete State Snapshot V1 — endpoint isolado, so' de validacao (pedido explicito: NAO
+  // conectar ao prescription-agent nesta rodada). Orquestra a fundacao ja existente, nao recalcula nada.
+  @Get('students/:id/athlete-state')
+  getStudentAthleteState(@Param('id') id: string) {
+    return this.athleteStateSnapshot.getSnapshot(id);
   }
   @Get('finance')
   finance() {
