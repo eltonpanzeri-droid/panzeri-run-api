@@ -47,6 +47,12 @@ describe('TrainingIntelligenceQueryService', () => {
     expect(result.evidence.n).toBe(3);
     expect(result.evidence.instrumentVersions).toEqual([2]);
     expect(result.evidence.comparabilityWarning).toBeNull();
+
+    // Rastreabilidade ate o registro original (auditoria, item 10): cada observacao usada nos
+    // calculos precisa carregar o sessionId que permite voltar ao registro bruto.
+    expect(result.observations).toHaveLength(3);
+    expect(result.observations[0].context.sessionId).toBe('s1');
+    expect(result.observations.map((o) => o.value)).toEqual([3, 4, 5]);
   });
 
   it('serie vazia: mathApplicable true mas todos os resultados numericos vem null/zerados', async () => {
@@ -65,6 +71,8 @@ describe('TrainingIntelligenceQueryService', () => {
     expect(result.mathSkippedReason).toBeDefined();
     expect(result.current).toBeNull();
     expect(result.movingAverages).toBeNull();
+    // Mesmo sem matematica aplicavel, a rastreabilidade continua disponivel.
+    expect(result.observations).toHaveLength(1);
   });
 
   it('emite comparabilityWarning quando a serie mistura versoes nao-comparaveis (preStressLevel v1+v2)', async () => {

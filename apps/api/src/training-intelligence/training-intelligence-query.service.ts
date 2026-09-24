@@ -28,6 +28,18 @@ export interface VariableSnapshotResponse {
   baseline: ReturnType<MathLayerService['baseline']> | null;
   deviation: ReturnType<MathLayerService['deviation']> | null;
   trend: Record<string, ReturnType<MathLayerService['trend']>> | null;
+  /**
+   * Rastro ate o registro original (ver auditoria, item 10: "preserve a possibilidade de chegar
+   * ao registro original"). Cada entrada e' a observacao bruta usada nos calculos acima, com o
+   * mesmo context (sessionId/workoutCompletionId/checkinId) que ObservationReaderService anexou —
+   * nada aqui e' recalculado, e' o mesmo dado que entrou no MathLayer.
+   */
+  observations: Array<{
+    timestamp: string;
+    value: number;
+    instrumentVersion: number;
+    context: Observation['context'];
+  }>;
   evidence: {
     n: number;
     observedSpan: { from: string | null; to: string | null };
@@ -66,6 +78,7 @@ export class TrainingIntelligenceQueryService {
 
     const observations = await this.observationReader.getObservations(athleteId, variableId);
     const evidence = this.buildEvidence(observations, definition);
+    const traceable = this.describeObservations(observations);
 
     if (definition.allowedMathStrategy !== 'ordinal_or_continuous_stats') {
       return {
@@ -80,6 +93,7 @@ export class TrainingIntelligenceQueryService {
         baseline: null,
         deviation: null,
         trend: null,
+        observations: traceable,
         evidence,
       };
     }
@@ -113,8 +127,20 @@ export class TrainingIntelligenceQueryService {
       baseline: baselineResult,
       deviation: deviationResult,
       trend,
+      observations: traceable,
       evidence,
     };
+  }
+
+  private describeObservations(observations: Observation[]): VariableSnapshotResponse['observations'] {
+    return [...observations]
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+      .map((o) => ({
+        timestamp: o.timestamp.toISOString(),
+        value: o.value,
+        instrumentVersion: o.instrumentVersion,
+        context: o.context,
+      }));
   }
 
   private describeVariable(definition: VariableDefinition): VariableSnapshotResponse['variable'] {
