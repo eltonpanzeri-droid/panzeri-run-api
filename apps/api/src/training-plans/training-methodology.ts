@@ -275,6 +275,20 @@ export interface MethodologyInput {
   // integracao para o que e' redundante vs complementar. Optional/nullable: falha ao buscar o
   // Snapshot NUNCA pode bloquear a geracao semanal (ver training-plans.service.ts).
   athleteStateContext?: import('../training-intelligence/compact-agent-context').CompactAgentContext | null;
+  // Passo 3 (25/09/2026): trajetoria de MESES do aluno (INITIAL -> R1 -> R2 -> R3...), persistida
+  // uma vez por reavaliacao concluida (ReassessmentService.complete()) e nunca recalculada aqui —
+  // este campo so' LE o ultimo relatorio valido. Complementar a athleteStateContext (que descreve
+  // "agora"): este descreve "como o aluno vem se transformando ao longo do tempo". Null quando o
+  // aluno ainda nao tem nenhum Evolution Report valido (nunca fez reavaliacao, ou a ultima foi
+  // reaberta e ainda nao reconcluida). Nunca contem score/nota geral — so' texto interpretativo por
+  // dominio, sem nenhuma regra determinística de prescricao associada.
+  evolutionReport?: {
+    generatedAt: string;
+    summary: string;
+    wins: string[];
+    concerns: string[];
+    domainObservations: Record<string, string> | null;
+  } | null;
 }
 
 // Um treino de corrida e descrito como uma SEQUENCIA ORDENADA de partes (nunca mais uma escolha

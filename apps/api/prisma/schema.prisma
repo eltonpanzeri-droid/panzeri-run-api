@@ -103,6 +103,7 @@ model User {
   notifications       UserNotification[]
   messageLogs         MessageLog[]
   reassessments       Reassessment[]
+  evolutionReports    EvolutionReport[]
   billingEvents       BillingEvent[]
   onboardingInterview OnboardingInterview?
   billingSubscription BillingSubscription?
@@ -173,6 +174,11 @@ model OnboardingInterview {
   // de entrevista incompleta, funil) passa a olhar pra esse campo, nao mais pro completedAt.
   quickIntakeCompletedAt DateTime?
   completedAt DateTime?
+  // 25/09 (Passo 3, correcao de comparabilidade longitudinal): versao do instrumento que produziu
+  // este conjunto de respostas. Nulo = entrevista concluida antes deste versionamento existir
+  // (legado, versao indeterminada por definicao — nunca inferida retroativamente). Preenchido a
+  // partir de agora com ONBOARDING_INTERVIEW_VERSION (me.service.ts) no momento da conclusao.
+  interviewVersion Int?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 }
@@ -187,8 +193,43 @@ model Reassessment {
   evolutionSummary  String?
   evolutionWins     Json?
   evolutionConcerns Json?
+  // 25/09 (Passo 3): versao do instrumento de reavaliacao que produziu "answers". Nulo = reavaliacao
+  // concluida com o instrumento antigo de 10 perguntas rasas (antes deste versionamento existir) —
+  // legado, nunca reclassificado retroativamente. REASSESSMENT_INSTRUMENT_VERSION (reassessment-
+  // trajectory.ts) e' gravado aqui a cada complete()/reopen()+complete() a partir de agora. So' com
+  // esta versao a reavaliacao reaplica os 17 ratings, objetivo e dor com as MESMAS chaves canonicas
+  // da entrevista inicial — versoes antigas nao tem esses campos, e isso e' tratado como ausencia
+  // real (missing), nunca como zero.
+  reassessmentVersion Int?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
+
+  evolutionReport   EvolutionReport?
+
+  @@index([userId, createdAt])
+}
+
+// 25/09 (Passo 3): relatorio de evolucao PERSISTIDO, gerado uma vez por reavaliacao concluida.
+// Existe para nao pagar uma chamada de IA toda vez que o agente de prescricao precisar da
+// trajetoria de meses do aluno — ele consulta este registro, nunca chama o EvolutionAgentService
+// de novo. "trajectorySnapshot" e' a camada deterministica (RAW DATA -> MATEMATICA) que ALIMENTOU
+// a interpretacao da IA — guardada para auditoria e para o proprio agente de prescricao consumir
+// sem recalcular. "invalidatedAt" marca quando a Reassessment de origem foi reaberta (reopen) e
+// ainda nao foi reconcluida — enquanto nao-nulo, este relatorio NAO deve ser tratado como
+// interpretacao valida do estado atual (ver ReassessmentService.reopen/complete).
+model EvolutionReport {
+  id                 String       @id @default(uuid())
+  userId             String
+  user               User         @relation(fields: [userId], references: [id])
+  reassessmentId     String       @unique
+  reassessment       Reassessment @relation(fields: [reassessmentId], references: [id])
+  trajectorySnapshot Json
+  summary            String
+  wins               Json
+  concerns           Json
+  domainObservations Json?
+  invalidatedAt      DateTime?
+  createdAt          DateTime     @default(now())
 
   @@index([userId, createdAt])
 }

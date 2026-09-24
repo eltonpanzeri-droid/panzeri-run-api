@@ -3,9 +3,11 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MessagingService } from './messaging.service';
+import { REASSESSMENT_DUE_AFTER_DAYS, REASSESSMENT_WARNING_AFTER_DAYS } from '../reassessment/reassessment.service';
 
 const REMINDER_COOLDOWN_DAYS = 3;
-const REASSESSMENT_DUE_AFTER_DAYS = 90;
+// 25/09/2026 (Passo 3): fonte unica do ciclo de 105 dias e' ReassessmentService — NAO redefinir
+// aqui de novo (era um valor local duplicado ate esta correcao, risco real de divergencia).
 
 @Injectable()
 export class NotificationTriggersService {
@@ -35,6 +37,7 @@ export class NotificationTriggersService {
       try {
         await this.checkPaymentPending(student);
         await this.checkInterviewIncomplete(student);
+        await this.checkReassessmentWarning(student);
         await this.checkReassessmentDue(student);
       } catch (error) {
         this.logger.warn(`Falha ao checar avisos automaticos para ${student.id}: ${(error as Error).message}`);
@@ -117,6 +120,43 @@ export class NotificationTriggersService {
   // que o e-mail funciona de verdade, cobrar um aluno por algo que sumiu do app confundiria e
   // desrespeitaria quem recebesse.
 
+  // 25/09/2026 (Passo 3, secao 4): aviso antecipado na semana 14 do ciclo de 15 semanas (98-104
+  // dias desde a ancora). Nao bloqueia nada — so' avisa que a reavaliacao esta chegando. Cooldown
+  // de 7 dias e' suficiente pra disparar uma unica vez dentro da janela de 7 dias entre o aviso e
+  // o "due" de verdade (98 a 104), sem repetir todo dia.
+  private async checkReassessmentWarning(student: {
+    id: string;
+    name: string;
+    subscriptionStatus: string;
+    onboardingInterview?: { completedAt: Date | null } | null;
+    reassessments: Array<{ completedAt: Date | null }>;
+  }) {
+    if (!student.onboardingInterview?.completedAt) return;
+    if (student.subscriptionStatus === 'pending') return;
+
+    const referenceDate = student.reassessments[0]?.completedAt ?? student.onboardingInterview.completedAt;
+    const daysSinceReference = (Date.now() - referenceDate.getTime()) / 86400000;
+    if (daysSinceReference < REASSESSMENT_WARNING_AFTER_DAYS || daysSinceReference >= REASSESSMENT_DUE_AFTER_DAYS) return;
+    if (await this.messaging.hasRecentTriggerMessage(student.id, 'reassessment_warning', REMINDER_COOLDOWN_DAYS * 2 + 1)) return;
+
+    await this.notifications.notifyUserIfNotRecent(
+      student.id,
+      {
+        title: 'Sua reavaliacao esta chegando',
+        message: 'Em breve sera necessario atualizar sua avaliacao para que seus proximos treinos considerem sua evolucao.',
+        type: 'reassessment_warning',
+        action: 'reassessment_open',
+      },
+      (REMINDER_COOLDOWN_DAYS * 2 + 1) * 24,
+    ).catch(() => undefined);
+
+    await this.messaging.sendEmail(student.id, {
+      trigger: 'reassessment_warning',
+      subject: 'Sua reavaliacao esta chegando - Panzeri Run',
+      content: `Ola ${student.name},\n\nSeu ciclo de 15 semanas esta perto de terminar. Em breve sera necessario responder a reavaliacao periodica no aplicativo para que seus proximos treinos considerem sua evolucao.\n\nPanzeri Run`,
+    });
+  }
+
   private async checkReassessmentDue(student: {
     id: string;
     name: string;
@@ -135,7 +175,7 @@ export class NotificationTriggersService {
     await this.messaging.sendEmail(student.id, {
       trigger: 'reassessment_due',
       subject: 'Hora da sua reavaliacao periodica - Panzeri Run',
-      content: `Ola ${student.name},\n\nJa faz mais de 3 meses desde sua ultima avaliacao. Responda a reavaliacao rapida no aplicativo para atualizarmos seu treino e acompanharmos sua evolucao.\n\nPanzeri Run`,
+      content: `Ola ${student.name},\n\nJa se passaram 15 semanas desde sua ultima avaliacao. Responda a reavaliacao no aplicativo para atualizarmos seu treino e continuarmos gerando seus proximos treinos.\n\nPanzeri Run`,
     });
   }
 }

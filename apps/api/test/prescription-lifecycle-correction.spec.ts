@@ -15,7 +15,7 @@ function noop() {
 
 function buildTrainingPlansService(prisma: Record<string, unknown>) {
   return new TrainingPlansService(
-    prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
+    prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
   );
 }
 

@@ -28,6 +28,7 @@ import { WeeklyCheckInService } from './weekly-checkin.service';
 import { StudentProfileService, ProfileEventCode } from './student-profile.service';
 import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.service';
 import { AthleteStateSnapshotService } from '../training-intelligence/athlete-state-snapshot.service';
+import { ReassessmentService } from '../reassessment/reassessment.service';
 import { buildCompactAgentContext } from '../training-intelligence/compact-agent-context';
 
 interface SessionTemplate {
@@ -141,6 +142,7 @@ export class TrainingPlansService {
     private readonly weeklyCheckIn: WeeklyCheckInService,
     private readonly menstrualCycle: MenstrualCycleService,
     private readonly athleteStateSnapshot: AthleteStateSnapshotService,
+    private readonly reassessmentService: ReassessmentService,
   ) {}
 
   // REGRA DURA (2026-07-28): current() e SO LEITURA — nunca chama generateWeek() nem mexe no
@@ -451,6 +453,18 @@ export class TrainingPlansService {
     const planStatus = options?.planStatus ?? 'active';
     const archiveCurrentActive = options?.archiveCurrentActive ?? true;
 
+    // Passo 3 (25/09/2026, secao 5): ciclo de 15 semanas completo -> reavaliacao passa a ser
+    // necessaria antes da CONTINUIDADE da geracao. Isso nunca apaga, bloqueia visualizacao ou
+    // altera sessoes ja existentes (o aluno continua vendo o plano/semana atual normalmente) — so
+    // impede que uma PROXIMA semana seja gerada antes da reavaliacao ser concluida. Nunca dispara
+    // na primeira geracao (referenceDate da ancora e' onboarding.completedAt, recem-setado).
+    if (await this.reassessmentService.isReassessmentDue(userId)) {
+      throw new BadRequestException({
+        message: 'Este aluno completou o ciclo de 15 semanas desde a ultima avaliacao valida. E necessario concluir uma nova reavaliacao antes de gerar o proximo treino. Os treinos ja existentes continuam disponiveis normalmente.',
+        code: 'reassessment_required',
+      });
+    }
+
     // Disjuntor: current() (chamado so por ABRIR a pagina do aluno, painel ou app) cai aqui
     // sempre que o plano nao bate com a disponibilidade/teste atual — se a ultima tentativa
     // falhou ha pouco tempo, nao tenta de novo automaticamente (custaria uma chamada cara ao
@@ -538,6 +552,11 @@ export class TrainingPlansService {
         select: { scheduledDate: true, completion: { select: { distanceKm: true, satisfaction: true, details: true } } },
       }),
     ]);
+
+    // Passo 3 (25/09/2026): ultimo Evolution Report VALIDO do aluno (nunca recalculado aqui — so'
+    // le o que ReassessmentService.complete() ja persistiu). Null quando o aluno nunca fez
+    // reavaliacao ou a ultima foi reaberta e ainda nao reconcluida.
+    const latestEvolutionReport = await this.reassessmentService.getLatestValidEvolutionReport(userId);
 
     // 31/08: buscado DEPOIS do Promise.all (nao dentro), pra poder filtrar pelo id exato do plano
     // que esta encerrando (activePlanBeforeAdjustment) — achado por auto-revisao: sem esse filtro,
@@ -762,6 +781,13 @@ export class TrainingPlansService {
         evolutionSummary: latestReassessment.evolutionSummary,
         evolutionWins: Array.isArray(latestReassessment.evolutionWins) ? latestReassessment.evolutionWins as string[] : [],
         evolutionConcerns: Array.isArray(latestReassessment.evolutionConcerns) ? latestReassessment.evolutionConcerns as string[] : [],
+      } : null,
+      evolutionReport: latestEvolutionReport ? {
+        generatedAt: latestEvolutionReport.createdAt.toISOString(),
+        summary: latestEvolutionReport.summary,
+        wins: Array.isArray(latestEvolutionReport.wins) ? latestEvolutionReport.wins as string[] : [],
+        concerns: Array.isArray(latestEvolutionReport.concerns) ? latestEvolutionReport.concerns as string[] : [],
+        domainObservations: latestEvolutionReport.domainObservations as Record<string, string> | null,
       } : null,
       painTier: painSafety.tier,
       painReason: painSafety.reason,
@@ -1362,6 +1388,13 @@ export class TrainingPlansService {
     });
     if (existingPlanForWeek) return { generated: false, reason: 'ja_gerado' };
 
+    // Passo 3 (25/09/2026): mesmo gate de generateWeek(), verificado aqui tambem pra devolver a
+    // resposta no mesmo formato {generated,reason} que o app ja trata (em vez de bolha de excecao),
+    // consistente com "checkin_pendente"/"tentativas_esgotadas" logo abaixo.
+    if (await this.reassessmentService.isReassessmentDue(userId)) {
+      return { generated: false, reason: 'reavaliacao_necessaria' };
+    }
+
     // 31/08: check-in obrigatorio antes de gerar (pedido explicito do treinador) — confirmacao de
     // registro da semana que esta terminando + 3 perguntas em escala. Checado ANTES de consumir
     // uma tentativa de proposito: um check-in pendente nao e' uma tentativa de geracao falhando,
@@ -1650,6 +1683,8 @@ export class TrainingPlansService {
       });
     }
 
+    const latestEvolutionReport = await this.reassessmentService.getLatestValidEvolutionReport(userId);
+
     const [user, latestTest, onboarding, activeDirectives, activeObservations, latestReassessment] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { preferences: true } }),
       this.prisma.fitnessTest.findFirst({ where: { userId, testType: '3km' }, orderBy: { createdAt: 'desc' } }),
@@ -1699,6 +1734,13 @@ export class TrainingPlansService {
           evolutionSummary: latestReassessment.evolutionSummary,
           evolutionWins: Array.isArray(latestReassessment.evolutionWins) ? latestReassessment.evolutionWins as string[] : [],
           evolutionConcerns: Array.isArray(latestReassessment.evolutionConcerns) ? latestReassessment.evolutionConcerns as string[] : [],
+        } : null,
+        evolutionReport: latestEvolutionReport ? {
+          generatedAt: latestEvolutionReport.createdAt.toISOString(),
+          summary: latestEvolutionReport.summary,
+          wins: Array.isArray(latestEvolutionReport.wins) ? latestEvolutionReport.wins as string[] : [],
+          concerns: Array.isArray(latestEvolutionReport.concerns) ? latestEvolutionReport.concerns as string[] : [],
+          domainObservations: latestEvolutionReport.domainObservations as Record<string, string> | null,
         } : null,
         painTier: painSafety.tier,
         painReason: painSafety.reason,

@@ -11,6 +11,7 @@ import { normalizeCpf } from '../billing/billing.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { TrainingPlansService, hasSubscriptionAccess } from '../training-plans/training-plans.service';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
+import { ONBOARDING_INTERVIEW_VERSION } from '../reassessment/reassessment-trajectory';
 
 // ATE 03/08 existia um limite de 1 alteracao de rotina a cada 30 dias, porque cada mudanca
 // disparava uma geracao de IA na hora (custo real por alteracao). Ordem explicita do treinador
@@ -265,7 +266,7 @@ export class MeService {
         // WeeklyAvailability e' a tela de Rotina (completeRoutineFromInterview) e as telas de
         // edicao direta (updateAvailability, painel do treinador) — completeOnboarding agora nao
         // mexe mais nisso. Ver PRONTUARIO.md 08/09 para o diagnostico completo.
-        await tx.onboardingInterview.update({ where: { userId }, data: { answers, completedAt } });
+        await tx.onboardingInterview.update({ where: { userId }, data: { answers, completedAt, interviewVersion: ONBOARDING_INTERVIEW_VERSION } });
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {

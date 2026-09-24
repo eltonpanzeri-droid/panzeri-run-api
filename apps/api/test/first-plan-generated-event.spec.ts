@@ -29,7 +29,7 @@ function buildService(overrides: {
 
   const noop = {} as never;
   const service = new TrainingPlansService(
-    prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop,
+    prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop,
   );
   return { service, prisma, funnelEventCreate };
 }

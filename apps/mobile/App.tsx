@@ -1325,16 +1325,48 @@ function buildQuickIntakeSummary(name: string, answers: InterviewAnswers): strin
   return text;
 }
 
+// 25/09/2026 (Passo 3 — correcao de comparabilidade longitudinal): a reavaliacao passou a
+// REAPLICAR, com as MESMAS chaves/textos/escalas/opcoes da entrevista inicial, os construtos que a
+// auditoria classificou como INVARIANTES ou ja comparaveis (17 ratings 1-10, objetivo, dor
+// atual/regioes, km semanal, peso). Isso produz series longitudinais de verdade
+// (INITIAL -> R1 -> R2 -> R3...) em vez de perguntas parecidas mas incomparaveis. As perguntas
+// exclusivas da reavaliacao (percepcao de evolucao, satisfacao, mudanca de rotina, observacao
+// livre) NAO medem o mesmo construto que os ratings — continuam existindo em paralelo, nunca no
+// lugar deles (ver reassessment-trajectory.ts no backend).
+//
+// 'reassessment_goal_change'/'reassessment_goal_new'/'reassessment_new_pain'/
+// 'reassessment_new_pain_detail'/'reassessment_weekly_km_now' (number livre) eram o instrumento
+// ANTERIOR (v1, ate 25/09/2026) — removidos desta lista ativa, mas as respostas antigas continuam
+// intactas no banco (legado, nunca reescrito nem migrado automaticamente).
 const reassessmentQuestions: InterviewQuestion[] = [
-  { key: 'reassessment_goal_change', module: 'Reavaliacao', prompt: 'Seu objetivo com a corrida continua o mesmo de antes?', type: 'single', options: [option('Sim, continua o mesmo', 'same'), option('Mudou', 'changed')] },
-  { key: 'reassessment_goal_new', module: 'Reavaliacao', prompt: 'Qual e o seu objetivo agora?', type: 'text', condition: (a) => a.reassessment_goal_change === 'changed' },
-  { key: 'reassessment_routine_change', module: 'Reavaliacao', prompt: 'Sua rotina (trabalho, tempo disponivel, dias livres) mudou desde a ultima avaliacao?', type: 'single', options: [option('Nao mudou', 'no'), option('Mudou um pouco', 'a_little'), option('Mudou bastante', 'a_lot')] },
-  { key: 'reassessment_weekly_km_now', module: 'Reavaliacao', prompt: 'Em media, quantos quilometros voce corre por semana atualmente?', type: 'number', help: 'Some aproximadamente todos os treinos de corrida de uma semana normal recente.' },
+  { key: 'objective', module: 'Objetivo', prompt: 'Qual e o seu objetivo atual com a corrida?', type: 'dropdown_single', options: [
+    option('Comecar a correr'), option('Completar 5 km'), option('Melhorar meu tempo nos 5 km'), option('Completar 10 km'),
+    option('Melhorar meu tempo nos 10 km'), option('Completar 21 km'), option('Melhorar meu tempo nos 21 km'),
+    option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'),
+  ] },
+  { key: 'weekly_running_km', module: 'Rotina', prompt: 'Em media, somando todos os treinos de corrida da semana, quantos quilometros voce corre por semana atualmente?', type: 'wheel_number', wheelDigits: 3, wheelMin: 0, wheelMax: 300, wheelUnit: 'km', help: 'Soma aproximada de uma semana normal recente. Se for menos de 1km, escolha 0.' },
+  { key: 'reassessment_routine_change', module: 'Rotina', prompt: 'Sua rotina (trabalho, tempo disponivel, dias livres) mudou desde a ultima avaliacao?', type: 'single', options: [option('Nao mudou', 'no'), option('Mudou um pouco', 'a_little'), option('Mudou bastante', 'a_lot')] },
+  { key: 'rating_intro', module: 'Autoavaliacao', prompt: 'Nas proximas perguntas, de uma nota de 1 a 10.\n\n1 representa uma condicao muito ruim.\n10 representa uma condicao excelente.', type: 'notice' },
+  ...ratingPrompts.map(([key, prompt]) => ({ key, module: 'Autoavaliacao', prompt, type: 'scale' as const })),
+  { key: 'current_pain', module: 'Saude', prompt: 'Voce sente alguma dor atualmente?', type: 'dropdown_single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
+  { key: 'pain_regions', module: 'Saude', prompt: 'Em quais regioes voce sente dor? Pode marcar mais de uma.', type: 'multi', condition: (a) => a.current_pain === 'yes', options: [
+    'Joelho direito', 'Joelho esquerdo', 'Tornozelo direito', 'Tornozelo esquerdo', 'Pe direito', 'Pe esquerdo',
+    'Canela direita', 'Canela esquerda', 'Panturrilha direita', 'Panturrilha esquerda', 'Coxa direita', 'Coxa esquerda',
+    'Quadril direito', 'Quadril esquerdo', 'Gluteo direito', 'Gluteo esquerdo', 'Lombar/coluna', 'Nao sei responder',
+  ].map((v) => option(v)) },
+  { key: 'pain_detail_knee', module: 'Saude', prompt: 'Sobre a dor no joelho: em qual parte especificamente?', type: 'multi', optional: true, condition: (a) => Array.isArray(a.pain_regions) && (a.pain_regions.includes('Joelho direito') || a.pain_regions.includes('Joelho esquerdo')), options: ['Lado externo', 'Lado interno', 'Abaixo da patela (tendao patelar)', 'Na frente da patela', 'Atras do joelho', 'Nao sei especificar'].map((v) => option(v)) },
+  { key: 'pain_detail_ankle', module: 'Saude', prompt: 'Sobre a dor no tornozelo: em qual parte especificamente?', type: 'multi', optional: true, condition: (a) => Array.isArray(a.pain_regions) && (a.pain_regions.includes('Tornozelo direito') || a.pain_regions.includes('Tornozelo esquerdo')), options: ['Lado externo', 'Lado interno', 'Atras (tendao de Aquiles)', 'Na frente', 'Nao sei especificar'].map((v) => option(v)) },
+  { key: 'pain_detail_foot', module: 'Saude', prompt: 'Sobre a dor no pe: em qual parte especificamente?', type: 'multi', optional: true, condition: (a) => Array.isArray(a.pain_regions) && (a.pain_regions.includes('Pe direito') || a.pain_regions.includes('Pe esquerdo')), options: ['Sola - meio do pe (arco)', 'Sola - perto do calcanhar', 'Lado externo do pe', 'Lado interno do pe', 'Dedos', 'Parte de cima do pe', 'Nao sei especificar'].map((v) => option(v)) },
+  { key: 'pain_detail_shin', module: 'Saude', prompt: 'Sobre a dor na canela: em qual parte especificamente?', type: 'multi', optional: true, condition: (a) => Array.isArray(a.pain_regions) && (a.pain_regions.includes('Canela direita') || a.pain_regions.includes('Canela esquerda')), options: ['Parte interna da canela', 'Parte da frente da canela', 'Ao longo de toda a canela', 'Nao sei especificar'].map((v) => option(v)) },
+  { key: 'pain_detail_calf', module: 'Saude', prompt: 'Sobre a dor na panturrilha: em qual parte especificamente?', type: 'multi', optional: true, condition: (a) => Array.isArray(a.pain_regions) && (a.pain_regions.includes('Panturrilha direita') || a.pain_regions.includes('Panturrilha esquerda')), options: ['Parte de cima', 'Parte de baixo (perto do tendao)', 'Lado interno', 'Lado externo', 'Nao sei especificar'].map((v) => option(v)) },
+  { key: 'pain_detail_thigh', module: 'Saude', prompt: 'Sobre a dor na coxa: em qual parte especificamente?', type: 'multi', optional: true, condition: (a) => Array.isArray(a.pain_regions) && (a.pain_regions.includes('Coxa direita') || a.pain_regions.includes('Coxa esquerda')), options: ['Frente da coxa (quadriceps)', 'Atras da coxa (posterior)', 'Lado externo (banda iliotibial)', 'Lado interno (adutores)', 'Nao sei especificar'].map((v) => option(v)) },
+  { key: 'pain_detail_hip', module: 'Saude', prompt: 'Sobre a dor no quadril: em qual parte especificamente?', type: 'multi', optional: true, condition: (a) => Array.isArray(a.pain_regions) && (a.pain_regions.includes('Quadril direito') || a.pain_regions.includes('Quadril esquerdo')), options: ['Lado externo do quadril', 'Virilha', 'Na frente do quadril', 'Nao sei especificar'].map((v) => option(v)) },
+  { key: 'pain_detail_glute', module: 'Saude', prompt: 'Sobre a dor no gluteo: em qual parte especificamente?', type: 'multi', optional: true, condition: (a) => Array.isArray(a.pain_regions) && (a.pain_regions.includes('Gluteo direito') || a.pain_regions.includes('Gluteo esquerdo')), options: ['Fundo do gluteo', 'Lateral do gluteo', 'Perto do osso do quadril', 'Nao sei especificar'].map((v) => option(v)) },
+  { key: 'pain_detail_lower_back', module: 'Saude', prompt: 'Sobre a dor lombar: em qual parte especificamente?', type: 'multi', optional: true, condition: (a) => Array.isArray(a.pain_regions) && a.pain_regions.includes('Lombar/coluna'), options: ['Lado direito', 'Lado esquerdo', 'Centro', 'Irradia para a perna', 'Nao sei especificar'].map((v) => option(v)) },
+  { key: 'pain_other_location', module: 'Saude', prompt: 'Sente dor em algum outro local que nao esta na lista acima?', type: 'text', optional: true, condition: (a) => a.current_pain === 'yes' },
+  { key: 'reassessment_weight', module: 'Avaliacao fisica', prompt: 'Qual e o seu peso atual em quilogramas? Use virgula para decimais. Exemplo: 82,5.', type: 'number', optional: true },
   { key: 'reassessment_perceived_evolution', module: 'Reavaliacao', prompt: 'Comparando com a ultima avaliacao, como voce sente sua evolucao na corrida?', type: 'single', options: [option('Piorou', 'piorou'), option('Continua igual', 'igual'), option('Melhorou um pouco', 'melhorou_pouco'), option('Melhorou bastante', 'melhorou_muito')] },
   { key: 'reassessment_satisfaction', module: 'Reavaliacao', prompt: 'Como voce avalia sua satisfacao com os treinos neste periodo?', type: 'single', options: [option('Muito insatisfeito', 'muito_insatisfeito'), option('Insatisfeito', 'insatisfeito'), option('Neutro', 'neutro'), option('Satisfeito', 'satisfeito'), option('Muito satisfeito', 'muito_satisfeito')] },
-  { key: 'reassessment_new_pain', module: 'Reavaliacao', prompt: 'Voce sentiu alguma dor ou teve alguma lesao nova desde a ultima avaliacao?', type: 'single', options: [option('Nao', 'no'), option('Sim', 'yes')] },
-  { key: 'reassessment_new_pain_detail', module: 'Reavaliacao', prompt: 'Descreva a dor ou limitacao que voce sentiu.', type: 'text', condition: (a) => a.reassessment_new_pain === 'yes' },
-  { key: 'reassessment_weight', module: 'Reavaliacao', prompt: 'Qual e o seu peso atual em quilogramas? Use virgula para decimais. Exemplo: 82,5.', type: 'number', optional: true },
   { key: 'reassessment_notes', module: 'Reavaliacao', prompt: 'Quer contar mais alguma coisa para o seu treinador?', type: 'text', optional: true },
 ];
 
@@ -4007,6 +4039,8 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
             setStatus('Estamos com dificuldades para gerar seu treino. Fale com seu treinador.');
           } else if (data.reason === 'antes_do_horario_de_liberacao') {
             setStatus('A semana seguinte libera a partir de domingo ao meio-dia.');
+          } else if (data.reason === 'reavaliacao_necessaria') {
+            setStatus('Chegou a hora da sua reavaliacao periodica. Conclua-a para que seus proximos treinos considerem sua evolucao.');
           } else if (data.reason === 'checkin_pendente') {
             // 31/08: so' acontece se a consulta de status (generateCurrentWeekNow) falhou por rede
             // e seguiu direto pra geracao sem mostrar a tela de check-in — o servidor recusa aqui
