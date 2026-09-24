@@ -10,9 +10,10 @@ import { BackupModule } from '../backup/backup.module';
 import { MeModule } from '../me/me.module';
 import { BillingModule } from '../billing/billing.module';
 import { MenstrualCycleModule } from '../menstrual-cycle/menstrual-cycle.module';
+import { TrainingIntelligenceModule } from '../training-intelligence/training-intelligence.module';
 
 @Module({
-  imports: [TrainingPlansModule, StravaModule, MessagingModule, BackupModule, MeModule, BillingModule, MenstrualCycleModule],
+  imports: [TrainingPlansModule, StravaModule, MessagingModule, BackupModule, MeModule, BillingModule, MenstrualCycleModule, TrainingIntelligenceModule],
   controllers: [CoachController, CoachToolingController],
   providers: [CoachService, BusinessIntelligenceService],
 })

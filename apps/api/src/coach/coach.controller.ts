@@ -4,6 +4,7 @@ import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { CoachService } from './coach.service';
 import { BusinessIntelligenceService } from './business-intelligence.service';
+import { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
 import { parseDashboardQuery } from './dashboard-query.util';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { MergeStudentDto } from './dto/merge-student.dto';
@@ -21,7 +22,16 @@ export class CoachController {
   constructor(
     private readonly coachService: CoachService,
     private readonly businessIntelligence: BusinessIntelligenceService,
+    private readonly trainingIntelligenceQuery: TrainingIntelligenceQueryService,
   ) {}
+
+  // 24/09: endpoint isolado de validacao ponta a ponta da fundacao de Training Intelligence
+  // (Prisma -> ObservationReader -> MathLayer -> resposta estruturada). Ver auditoria aprovada:
+  // nao redesenha Admin nem altera agente, so expoe a camada nova pra validacao manual.
+  @Get('students/:id/observations/:variableId')
+  getStudentObservationSnapshot(@Param('id') id: string, @Param('variableId') variableId: string) {
+    return this.trainingIntelligenceQuery.getVariableSnapshot(id, variableId);
+  }
   @Get('finance')
   finance() {
     return this.coachService.finance();
