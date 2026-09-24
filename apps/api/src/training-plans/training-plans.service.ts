@@ -27,6 +27,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { WeeklyCheckInService } from './weekly-checkin.service';
 import { StudentProfileService, ProfileEventCode } from './student-profile.service';
 import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.service';
+import { AthleteStateSnapshotService } from '../training-intelligence/athlete-state-snapshot.service';
+import { buildCompactAgentContext } from '../training-intelligence/compact-agent-context';
 
 interface SessionTemplate {
   title: string;
@@ -138,6 +140,7 @@ export class TrainingPlansService {
     private readonly notifications: NotificationsService,
     private readonly weeklyCheckIn: WeeklyCheckInService,
     private readonly menstrualCycle: MenstrualCycleService,
+    private readonly athleteStateSnapshot: AthleteStateSnapshotService,
   ) {}
 
   // REGRA DURA (2026-07-28): current() e SO LEITURA — nunca chama generateWeek() nem mexe no
@@ -687,6 +690,17 @@ export class TrainingPlansService {
           select: { scheduledDate: true, completion: { select: { distanceKm: true, details: true } } },
         })
       : [];
+    // Passo 2/6 da integracao Training Intelligence (25/09/2026, auditoria aprovada): Snapshot ->
+    // Compact Agent Context -> prompt. REGRA DURA: falha aqui NUNCA pode bloquear a geracao semanal
+    // (mesmo padrao ja usado pra studentProfileSummary logo acima) — o campo so fica null e o resto
+    // do fluxo segue normalmente, exatamente como funcionava antes desta integracao existir.
+    const athleteStateContext = await this.athleteStateSnapshot
+      .getSnapshot(userId)
+      .then((snapshot) => buildCompactAgentContext(snapshot))
+      .catch((error) => {
+        this.logger.warn(`Falha ao gerar Athlete State Snapshot para ${userId}, seguindo sem ele: ${error instanceof Error ? error.message : error}`);
+        return null;
+      });
     const methodologyInput: MethodologyInput = {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
       experience: user.preferences?.experienceLevel ?? '',
@@ -714,6 +728,7 @@ export class TrainingPlansService {
       studentProfileSummary,
       weeklyCheckIn: latestWeeklyCheckIn,
       menstrualContext,
+      athleteStateContext,
       todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
       // options.generateFrom: definido quando o aluno escolheu "Nao, a partir de amanha" no app
       // (doGenerateCurrentWeekOnDemand calcula e repassa via options) — instrui a IA a nao

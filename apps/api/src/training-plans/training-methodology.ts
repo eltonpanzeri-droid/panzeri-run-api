@@ -268,6 +268,13 @@ export interface MethodologyInput {
     expectedRoutineInterference: number | null;
     freeTextObservation: string | null;
   } | null;
+  // Passo 2/6 da integracao Training Intelligence (25/09/2026, auditoria aprovada): derivado do
+  // Athlete State Snapshot via buildCompactAgentContext() — NAO recalcula nada, so' seleciona o que
+  // ja foi calculado por MathLayerService/LongitudinalDynamicsService. Complementar aos campos
+  // acima (historico/execucao/check-in continuam existindo) — ver relatorio de mapeamento da
+  // integracao para o que e' redundante vs complementar. Optional/nullable: falha ao buscar o
+  // Snapshot NUNCA pode bloquear a geracao semanal (ver training-plans.service.ts).
+  athleteStateContext?: import('../training-intelligence/compact-agent-context').CompactAgentContext | null;
 }
 
 // Um treino de corrida e descrito como uma SEQUENCIA ORDENADA de partes (nunca mais uma escolha
