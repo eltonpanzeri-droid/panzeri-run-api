@@ -8979,10 +8979,17 @@ function CompletionForm({
   // 12/09: formulario unico — validacao conjunta de todos os campos para habilitar o botao Salvar.
   // 17/09: allSectionsComplete so bloqueia primeira vez (isSavedOnServer=false); atualizacao de
   // registro antigo (campos v1 vazios) nao pode ficar presa — update passa sempre.
+  // 24/09: atualizado para os campos da v2 (16 perguntas) — os campos antigos postWorkoutFeeling/
+  // postWorkoutMood/satisfactionCapacidade nao sao mais preenchidos pela tela v2, entao exigi-los
+  // aqui travava o botao pra sempre em qualquer feedback novo (bug real: alunos sem conseguir
+  // confirmar). Lista abaixo espelha exatamente o que workout-completions.service.ts exige quando
+  // isV2Client=true, pra nunca bloquear no cliente algo que o servidor aceitaria.
   const allSectionsComplete =
     isSavedOnServer ||
-    (!!(draft.preSleepQuality && draft.prePhysicalFatigue && draft.preStressLevel && draft.preMotivation) &&
-    !!(draft.perceivedEffort && draft.satisfactionElaboracao && draft.satisfactionCapacidade && draft.postWorkoutFeeling && draft.postWorkoutMood) &&
+    (!!(draft.preSleepQuality && draft.sleepDurationCategory && draft.sleepScheduleIrregularity && draft.sleepInterruption && draft.sleepDifficulty) &&
+    !!(draft.prePhysicalFatigue && draft.preMentalFatigue && draft.preStressLevel && draft.preMotivation) &&
+    (draft.status !== 'done' || !!draft.perceivedEffort) &&
+    !!(draft.satisfactionElaboracao && draft.executionVsPrescribed && draft.postPhysicalFatigue && draft.postMentalFatigue && draft.emotionalExperienceDuring && draft.mentalStateChangePrePost) &&
     !!(draft.painFlag && (draft.painFlag === 'none' || draft.painTiming)));
 
   // Metricas de execucao (data, tempo, distancia, pace, modo de corrida) — compartilhado entre blocos
