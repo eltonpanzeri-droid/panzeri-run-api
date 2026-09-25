@@ -3,7 +3,7 @@
 import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flag, Flame, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
-import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
 const STUDENT_APP_URL = 'https://agenteselton-panzeri-run-app.hbljgk.easypanel.host';
@@ -1876,7 +1876,13 @@ export default function AdminHome() {
 
         {activeView === 'raceCalendar' ? <RaceCalendarView races={raceCalendar} loading={loadingRaceCalendar} onRefresh={() => loadRaceCalendar()} /> : null}
 
-        {activeView === 'trainingIntelligence' ? <TrainingIntelligenceOverview accessToken={token} onOpenStudent={async (id) => { changeView('students'); await goToStudent(id); }} /> : null}
+        {activeView === 'trainingIntelligence' ? (
+          <TrainingIntelligenceRoot
+            accessToken={token}
+            dashboardStudents={(dashboard?.students ?? []).map((s) => ({ id: s.id, name: s.name, studentCode: s.studentCode }))}
+            onOpenStudent={async (id) => { changeView('students'); await goToStudent(id); }}
+          />
+        ) : null}
       </section>
     </main>
   );
@@ -2383,7 +2389,7 @@ function StudentPanel({
   // 01/09: o painel virou abas em vez de uma pagina so' com tudo empilhado (pedido do treinador —
   // ver studentViewMode no componente pai pro contexto completo dessa mudanca). "Treinos" e' a aba
   // padrao por ser a mais usada no dia a dia.
-  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto'>('treinos');
+  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline'>('treinos');
   // 11/09: período universal da aba Evolução — compartilhado por todos os gráficos e seções.
   // Padrão 12 semanas (~3 meses). Opções: 4/8/12/24/52/999(Tudo).
   const [evolPeriod, setEvolPeriod] = useState<4 | 8 | 12 | 24 | 52 | 999>(12);
@@ -2898,6 +2904,7 @@ function StudentPanel({
         <button type="button" className={detailTab === 'semanas' ? 'active' : ''} onClick={() => setDetailTab('semanas')}>Semanas anteriores</button>
         <button type="button" className={detailTab === 'evolucao' ? 'active' : ''} onClick={() => setDetailTab('evolucao')}>Evolucao</button>
         <button type="button" className={detailTab === 'contexto' ? 'active' : ''} onClick={() => setDetailTab('contexto')}>Contexto</button>
+        <button type="button" className={detailTab === 'timeline' ? 'active' : ''} onClick={() => setDetailTab('timeline')}>Timeline</button>
         {student?.interview?.answers?.personal_sex === 'Feminino' && (
           <button type="button" className={detailTab === 'ciclo' ? 'active' : ''} onClick={() => setDetailTab('ciclo')}>Ciclo</button>
         )}
@@ -3269,6 +3276,11 @@ function StudentPanel({
               <ReassessmentTrajectoryPanel studentId={student.id} accessToken={token} />
             </EvoSection>
 
+            <EvoSection icon="🏃" title="Trajetória de FitnessTest" badge={undefined}
+              desc="Histórico completo de testes de 3km — nunca reduzido ao último. Protocolos diferentes (se existirem no futuro) não são conectados como a mesma série.">
+              <FitnessTestTrajectoryPanel studentId={student.id} accessToken={token} />
+            </EvoSection>
+
             <EvoSection icon="🏁" title="Provas alvo" badge={student.targetRaces?.length ?? 0}
               desc="Provas cadastradas como meta do aluno. Usadas pela IA para periodização e geração das semanas de pico e polimento.">
               {student.targetRaces?.length ? (
@@ -3552,6 +3564,10 @@ function StudentPanel({
         <ContextoTab studentId={student.id} accessToken={token} onStatus={onStatus} />
       ) : null}
 
+      {detailTab === 'timeline' ? (
+        <TimelineTab student={student} accessToken={token} />
+      ) : null}
+
       </section>
   );
 }
@@ -3589,7 +3605,84 @@ interface TrainingIntelligenceOverviewResponse {
   studentsWithRecentPain: Array<{ id: string; name: string; studentCode: number | null; intensity: number; reportedAt: string }>;
 }
 
-function TrainingIntelligenceOverview({ accessToken, onOpenStudent }: { accessToken: string; onOpenStudent: (studentId: string) => void }) {
+// Passo 5 (continuação, 25/09/2026) — os 5 domínios que o VariableRegistry cobre com matemática
+// longitudinal de verdade (sono/estado físico/estado psicológico/resposta ao treino/dor). Os outros
+// domínios do pedido (Aderência/Performance/Evolução/Contexto/Treinamento-prescrito) NÃO são
+// variáveis do registry — vivem em fontes próprias já com tela dedicada (Resultados do Método,
+// FitnessTest, aba Evolução/Contexto do aluno) e são acessados por ali, não pelo picker de variável.
+const VARIABLE_DOMAIN_LABELS: Record<string, string> = {
+  sleep: 'Sono', physical_state: 'Estado físico', psychological_state: 'Estado psicológico',
+  training_response: 'Resposta ao treino', pain_health: 'Dor/Saúde',
+};
+
+interface VariableLegendEntry {
+  id: string; domain: string; dataType: string; constructLabel?: string;
+  scale?: { min: number; max: number; unit?: string }; direction: string; allowedMathStrategy: string;
+}
+interface StudentLight { id: string; name: string; studentCode: number | string | null }
+
+// Estrutura compartilhada entre População/Explorador/Relações pra navegação preservar contexto
+// (seção 11) sem duplicar estado em cada componente.
+interface TiSelection { studentId: string | null; variableId: string | null; domain: string | null }
+
+function TrainingIntelligenceRoot({ accessToken, dashboardStudents, onOpenStudent }: {
+  accessToken: string; dashboardStudents: StudentLight[]; onOpenStudent: (studentId: string) => void;
+}) {
+  const [subView, setSubView] = React.useState<'geral' | 'populacao' | 'explorador' | 'relacoes' | 'metodo'>('geral');
+  const [selection, setSelection] = React.useState<TiSelection>({ studentId: null, variableId: null, domain: null });
+  const [legend, setLegend] = React.useState<VariableLegendEntry[] | null>(null);
+  const [allStudents, setAllStudents] = React.useState<StudentLight[] | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [legendRes, studentsRes] = await Promise.all([
+          fetch(`${API_URL}/coach/data/training-intelligence/variable-legend`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+          fetch(`${API_URL}/coach/data/training-intelligence/students-list`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+        ]);
+        if (cancelled) return;
+        if (legendRes.ok) setLegend((await legendRes.json()) as VariableLegendEntry[]);
+        if (studentsRes.ok) setAllStudents((await studentsRes.json()) as StudentLight[]);
+      } catch { /* silencioso */ }
+    })();
+    return () => { cancelled = true; };
+  }, [accessToken]);
+
+  const students = allStudents ?? dashboardStudents;
+
+  function goToExplorer(studentId: string, variableId: string, domain: string) {
+    setSelection({ studentId, variableId, domain });
+    setSubView('explorador');
+  }
+
+  return (
+    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <h2 style={{ margin: 0 }}>Training Intelligence</h2>
+      <div className="detailTabs">
+        <button type="button" className={subView === 'geral' ? 'active' : ''} onClick={() => setSubView('geral')}>Visão Geral</button>
+        <button type="button" className={subView === 'populacao' ? 'active' : ''} onClick={() => setSubView('populacao')}>População</button>
+        <button type="button" className={subView === 'explorador' ? 'active' : ''} onClick={() => setSubView('explorador')}>Explorador</button>
+        <button type="button" className={subView === 'relacoes' ? 'active' : ''} onClick={() => setSubView('relacoes')}>Relações</button>
+        <button type="button" className={subView === 'metodo' ? 'active' : ''} onClick={() => setSubView('metodo')}>Resultados do Método</button>
+      </div>
+
+      {subView === 'geral' && <VisaoGeralView accessToken={accessToken} onOpenStudent={onOpenStudent} />}
+      {subView === 'populacao' && legend && (
+        <PopulacaoView accessToken={accessToken} legend={legend} onOpenExplorer={goToExplorer} onOpenStudent={onOpenStudent} />
+      )}
+      {subView === 'explorador' && legend && (
+        <ExploradorView accessToken={accessToken} legend={legend} students={students} selection={selection} onSelectionChange={setSelection} mode="explorer" />
+      )}
+      {subView === 'relacoes' && legend && (
+        <ExploradorView accessToken={accessToken} legend={legend} students={students} selection={selection} onSelectionChange={setSelection} mode="relations" />
+      )}
+      {subView === 'metodo' && <ResultadosMetodoView accessToken={accessToken} onOpenStudent={onOpenStudent} />}
+    </div>
+  );
+}
+
+function VisaoGeralView({ accessToken, onOpenStudent }: { accessToken: string; onOpenStudent: (studentId: string) => void }) {
   const [data, setData] = React.useState<TrainingIntelligenceOverviewResponse | null>(null);
 
   React.useEffect(() => {
@@ -3604,7 +3697,7 @@ function TrainingIntelligenceOverview({ accessToken, onOpenStudent }: { accessTo
     return () => { cancelled = true; };
   }, [accessToken]);
 
-  if (!data) return <p style={{ color: 'var(--muted)', fontSize: 13, padding: 16 }}>Carregando...</p>;
+  if (!data) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Carregando...</p>;
 
   const cards: Array<{ title: string; items: Array<{ id: string; name: string; studentCode: number | null; detail: string }> }> = [
     { title: 'Em lacuna (≥14 dias sem execução observada)', items: data.studentsInGap.map((s) => ({ id: s.id, name: s.name, studentCode: s.studentCode, detail: `${s.daysSinceLastObserved} dias` })) },
@@ -3614,8 +3707,7 @@ function TrainingIntelligenceOverview({ accessToken, onOpenStudent }: { accessTo
   ];
 
   return (
-    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <h2 style={{ margin: 0 }}>Training Intelligence — Visão Geral</h2>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>{data.totalStudents} alunos ativos · gerado às {new Date(data.generatedAt).toLocaleTimeString('pt-BR')}. Cada card é uma lista real de alunos, nunca um score agregado — clique num nome para abrir.</p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
         {cards.map((card) => (
@@ -3640,10 +3732,366 @@ function TrainingIntelligenceOverview({ accessToken, onOpenStudent }: { accessTo
           </div>
         ))}
       </div>
-      <p style={{ fontSize: 11, color: 'var(--muted)' }}>
-        Explorador de dados por variável, seção de Relações e Resultados do Método ainda não têm interface própria aqui — os endpoints de observação por variável já existem
-        (usados pela tela individual do aluno) e podem alimentar essas telas num próximo passo.
+    </div>
+  );
+}
+
+interface VariablePopulationResponse {
+  variableId: string; generatedAt: string;
+  studentsWithData: Array<{ id: string; name: string; studentCode: number | null; current: number | null; n: number; trendShort: { direction: string } | null; comparabilityWarning: string | null }>;
+  studentsWithoutData: Array<{ id: string; name: string; studentCode: number | null }>;
+}
+
+// Passo 5 (continuação) — POPULAÇÃO: dominio -> variavel -> lista real de alunos com dado, cada um
+// com o valor atual/tendencia ja calculados pelo backend (getVariableSnapshot por aluno). So'
+// computa quando o treinador escolhe a variavel (nunca ao entrar na tela — secao 13).
+function PopulacaoView({ accessToken, legend, onOpenExplorer, onOpenStudent }: {
+  accessToken: string; legend: VariableLegendEntry[];
+  onOpenExplorer: (studentId: string, variableId: string, domain: string) => void;
+  onOpenStudent: (studentId: string) => void;
+}) {
+  const [domain, setDomain] = React.useState<string>('physical_state');
+  const [variableId, setVariableId] = React.useState<string>('');
+  const [data, setData] = React.useState<VariablePopulationResponse | null>(null);
+  const [loading, setLoading] = React.useState(false);
+
+  const domainVariables = legend.filter((v) => v.domain === domain);
+
+  React.useEffect(() => {
+    if (!variableId && domainVariables.length > 0) setVariableId(domainVariables[0].id);
+  }, [domain]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadPopulation(id: string) {
+    setLoading(true);
+    setData(null);
+    try {
+      const response = await fetch(`${API_URL}/coach/data/training-intelligence/population/${id}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (response.ok) setData((await response.json()) as VariablePopulationResponse);
+    } catch { /* silencioso */ } finally { setLoading(false); }
+  }
+
+  const currentDef = legend.find((v) => v.id === variableId);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <label>Domínio
+          <select value={domain} onChange={(e) => { setDomain(e.target.value); setVariableId(''); setData(null); }}>
+            {Object.entries(VARIABLE_DOMAIN_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+        </label>
+        <label>Variável
+          <select value={variableId} onChange={(e) => setVariableId(e.target.value)}>
+            <option value="">Selecione...</option>
+            {domainVariables.map((v) => <option key={v.id} value={v.id}>{v.constructLabel ?? v.id}</option>)}
+          </select>
+        </label>
+        <button type="button" className="primaryButton" disabled={!variableId || loading} onClick={() => loadPopulation(variableId)}>
+          {loading ? 'Carregando...' : 'Explorar população'}
+        </button>
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
+        Aderência, Performance, Evolução e Contexto não são variáveis deste registry — veja em Resultados do Método, na aba Evolução/Contexto de cada aluno, ou no FitnessTest.
       </p>
+
+      {data && currentDef && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+            {currentDef.constructLabel} — escala {currentDef.scale ? `${currentDef.scale.min}-${currentDef.scale.max}` : '—'}, direção: {currentDef.direction === 'higher_is_more_of_construct' ? `maior número = mais ${currentDef.constructLabel?.toLowerCase()}` : 'não direcional'}. {data.studentsWithData.length} aluno(s) com dado, {data.studentsWithoutData.length} sem dado ainda (ausência real, não é zero).
+          </p>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ fontSize: 12, borderCollapse: 'collapse', width: '100%' }}>
+              <thead><tr>
+                <th style={{ textAlign: 'left', padding: '4px 8px' }}>Aluno</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px' }}>Valor atual</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px' }}>Tendência (21d)</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px' }}>n</th>
+                <th></th>
+              </tr></thead>
+              <tbody>
+                {data.studentsWithData
+                  .sort((a, b) => (a.current ?? 0) - (b.current ?? 0))
+                  .map((s) => (
+                    <tr key={s.id} style={{ borderTop: '1px solid var(--line)' }}>
+                      <td style={{ padding: '4px 8px' }}>{s.name}</td>
+                      <td style={{ padding: '4px 8px' }}>{s.current ?? '—'}</td>
+                      <td style={{ padding: '4px 8px' }}>{(s.trendShort as { direction?: string } | null)?.direction ?? '—'}{s.comparabilityWarning ? ' ⚠' : ''}</td>
+                      <td style={{ padding: '4px 8px' }}>{s.n}</td>
+                      <td style={{ padding: '4px 8px' }}>
+                        <button type="button" className="secondaryOutlineButton" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => onOpenExplorer(s.id, variableId, domain)}>Ver série</button>
+                        <button type="button" className="secondaryOutlineButton" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 4 }} onClick={() => onOpenStudent(s.id)}>Abrir aluno</button>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          {data.studentsWithoutData.length > 0 && (
+            <p style={{ fontSize: 11, color: 'var(--muted)' }}>Sem dado: {data.studentsWithoutData.map((s) => s.name).join(', ')}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type ExplorerPeriod = { kind: 'days'; value: number } | { kind: 'all' } | { kind: 'lastN'; value: number };
+const EXPLORER_PERIOD_OPTIONS: Array<{ id: string; label: string; period: ExplorerPeriod }> = [
+  { id: '7d', label: '7 dias', period: { kind: 'days', value: 7 } },
+  { id: '4w', label: '4 semanas', period: { kind: 'days', value: 28 } },
+  { id: '3m', label: '3 meses', period: { kind: 'days', value: 90 } },
+  { id: '6m', label: '6 meses', period: { kind: 'days', value: 180 } },
+  { id: '1y', label: '1 ano', period: { kind: 'days', value: 365 } },
+  { id: 'all', label: 'Tudo', period: { kind: 'all' } },
+  { id: 'last5', label: 'Últimas 5 observações', period: { kind: 'lastN', value: 5 } },
+  { id: 'last10', label: 'Últimas 10 observações', period: { kind: 'lastN', value: 10 } },
+  { id: 'last20', label: 'Últimas 20 observações', period: { kind: 'lastN', value: 20 } },
+];
+
+interface ObservationRow { timestamp: string; value: number; instrumentVersion: number; context: Record<string, unknown> }
+interface VariableSnapshotLoose {
+  variable: { id: string; domain: string; dataType: string; constructLabel?: string; scale?: { min: number; max: number; unit?: string }; direction: string };
+  mathApplicable: boolean; mathSkippedReason?: string;
+  current: number | null;
+  mean: { value: number | null; n: number } | null;
+  movingAverages: Record<string, { value: number | null; n: number; isPartialWindow?: boolean }> | null;
+  baseline: { value: number | null; n: number } | null;
+  deviation: unknown;
+  trend: Record<string, { direction?: string; slopePerDay?: number | null }> | null;
+  variability: Record<string, unknown> | null;
+  habitualRange: { lower: number | null; upper: number | null } | null;
+  variabilityChange: unknown;
+  persistence: { currentlyOutsideHabitualRange?: boolean; direction?: string | null; durationDays?: number | null } | null;
+  excursions: Array<{ ongoing?: boolean; direction?: string; startTimestamp?: string; durationDays?: number }> | null;
+  observations: ObservationRow[];
+  evidence: { n: number; observedSpan: { from: string | null; to: string | null }; lastObservationAt: string | null; instrumentVersions: number[]; comparabilityWarning: string | null };
+}
+
+function filterObservationsByPeriod(obs: ObservationRow[], period: ExplorerPeriod): ObservationRow[] {
+  if (period.kind === 'all') return obs;
+  if (period.kind === 'lastN') return obs.slice(-period.value);
+  const cutoff = Date.now() - period.value * 86400000;
+  return obs.filter((o) => new Date(o.timestamp).getTime() >= cutoff);
+}
+
+// Passo 5 (continuação) — EXPLORADOR (e, com mode="relations", a seção RELAÇÕES reaproveitando o
+// mesmo mecanismo). Consome exclusivamente GET /coach/students/:id/observations/:variableId —
+// NUNCA recalcula MA/baseline/trend/variability/persistence/excursions, so' exibe o que já veio
+// pronto do backend. "Período" aqui filtra so' quais pontos BRUTOS aparecem no gráfico — o painel
+// de estatísticas (MA/baseline/trend/etc.) sempre reflete o histórico COMPLETO calculado pelo
+// backend, nunca é recortado pelo período visual (seção 9: nunca cortar a MA por causa da tela).
+function ExploradorView({ accessToken, legend, students, selection, onSelectionChange, mode }: {
+  accessToken: string; legend: VariableLegendEntry[]; students: StudentLight[];
+  selection: TiSelection; onSelectionChange: (s: TiSelection) => void; mode: 'explorer' | 'relations';
+}) {
+  const [variableBId, setVariableBId] = React.useState<string>('');
+  const [periodId, setPeriodId] = React.useState('3m');
+  const [snapshotA, setSnapshotA] = React.useState<VariableSnapshotLoose | null>(null);
+  const [snapshotB, setSnapshotB] = React.useState<VariableSnapshotLoose | null>(null);
+  const [loading, setLoading] = React.useState(false);
+
+  const period = EXPLORER_PERIOD_OPTIONS.find((p) => p.id === periodId)!.period;
+
+  async function load() {
+    if (!selection.studentId || !selection.variableId) return;
+    setLoading(true);
+    try {
+      const urls = [`${API_URL}/coach/students/${selection.studentId}/observations/${selection.variableId}`];
+      if (mode === 'relations' || variableBId) urls.push(`${API_URL}/coach/students/${selection.studentId}/observations/${variableBId || selection.variableId}`);
+      const responses = await Promise.all(urls.map((u) => fetch(u, { headers: { Authorization: `Bearer ${accessToken}` } })));
+      const [aRes, bRes] = responses;
+      setSnapshotA(aRes.ok ? await aRes.json() : null);
+      setSnapshotB(bRes && bRes.ok ? await bRes.json() : null);
+    } catch { /* silencioso */ } finally { setLoading(false); }
+  }
+
+  React.useEffect(() => { void load(); }, [selection.studentId, selection.variableId, variableBId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const domains = Object.keys(VARIABLE_DOMAIN_LABELS);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <label>Aluno
+          <select value={selection.studentId ?? ''} onChange={(e) => onSelectionChange({ ...selection, studentId: e.target.value })}>
+            <option value="">Selecione...</option>
+            {students.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </label>
+        <label>Domínio
+          <select value={selection.domain ?? domains[0]} onChange={(e) => onSelectionChange({ ...selection, domain: e.target.value, variableId: null })}>
+            {domains.map((d) => <option key={d} value={d}>{VARIABLE_DOMAIN_LABELS[d]}</option>)}
+          </select>
+        </label>
+        <label>Variável {mode === 'relations' ? 'A' : ''}
+          <select value={selection.variableId ?? ''} onChange={(e) => onSelectionChange({ ...selection, variableId: e.target.value })}>
+            <option value="">Selecione...</option>
+            {legend.filter((v) => v.domain === (selection.domain ?? domains[0])).map((v) => <option key={v.id} value={v.id}>{v.constructLabel ?? v.id}</option>)}
+          </select>
+        </label>
+        <label>{mode === 'relations' ? 'Variável B' : 'Comparar com (opcional)'}
+          <select value={variableBId} onChange={(e) => setVariableBId(e.target.value)}>
+            <option value="">{mode === 'relations' ? 'Selecione...' : 'Nenhuma'}</option>
+            {legend.map((v) => <option key={v.id} value={v.id}>{VARIABLE_DOMAIN_LABELS[v.domain]} · {v.constructLabel ?? v.id}</option>)}
+          </select>
+        </label>
+        <label>Período
+          <select value={periodId} onChange={(e) => setPeriodId(e.target.value)}>
+            {EXPLORER_PERIOD_OPTIONS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select>
+        </label>
+      </div>
+
+      {mode === 'relations' && (
+        <p style={{ fontSize: 12, background: 'var(--surface)', padding: 8, borderRadius: 6, margin: 0 }}>
+          <strong>Relação estatística entre as duas variáveis: não disponível.</strong> O backend ainda não calcula correlação/associação entre variáveis — mostrando as duas trajetórias lado a lado, sem inferir relação nenhuma entre elas.
+        </p>
+      )}
+
+      {loading && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando...</p>}
+      {!loading && !selection.studentId && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Selecione um aluno e uma variável.</p>}
+
+      {snapshotA && <VariableSnapshotPanel label="Variável A" snapshot={snapshotA} period={period} />}
+      {snapshotB && (variableBId || mode === 'relations') && <VariableSnapshotPanel label="Variável B" snapshot={snapshotB} period={period} />}
+    </div>
+  );
+}
+
+function VariableSnapshotPanel({ label, snapshot, period }: { label: string; snapshot: VariableSnapshotLoose; period: ExplorerPeriod }) {
+  const filtered = filterObservationsByPeriod(snapshot.observations, period);
+  const chartData = filtered.map((o) => ({ date: new Date(o.timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }), value: o.value }));
+
+  return (
+    <div className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <strong style={{ fontSize: 13 }}>{label}: {snapshot.variable.constructLabel ?? snapshot.variable.id}</strong>
+      <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
+        Escala {snapshot.variable.scale ? `${snapshot.variable.scale.min}-${snapshot.variable.scale.max}` : '—'} · direção: {snapshot.variable.direction === 'higher_is_more_of_construct' ? `maior = mais ${snapshot.variable.constructLabel?.toLowerCase()}` : 'não direcional'} (nunca "maior = melhor" universalmente).
+      </p>
+
+      {!snapshot.mathApplicable ? (
+        <p style={{ fontSize: 12, color: 'var(--muted)' }}>{snapshot.mathSkippedReason}</p>
+      ) : filtered.length === 0 ? (
+        <p style={{ fontSize: 12, color: 'var(--muted)' }}>Nenhuma observação nesse período (ausência de dado — nunca é zero).</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={160}>
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+            <XAxis dataKey="date" fontSize={10} />
+            <YAxis fontSize={10} domain={snapshot.variable.scale ? [snapshot.variable.scale.min, snapshot.variable.scale.max] : ['auto', 'auto']} />
+            <Tooltip />
+            <Line type="monotone" dataKey="value" stroke="#0ea5e9" dot={{ r: 3 }} connectNulls={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+
+      {snapshot.mathApplicable && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, fontSize: 12 }}>
+          <div><strong>Atual:</strong> {snapshot.current ?? '—'}</div>
+          <div><strong>Média período:</strong> {snapshot.mean?.value ?? '—'} (n={snapshot.mean?.n ?? 0})</div>
+          <div><strong>MA 21d:</strong> {snapshot.movingAverages?.short_21d?.value ?? '—'}{snapshot.movingAverages?.short_21d?.isPartialWindow ? ' (parcial)' : ''}</div>
+          <div><strong>MA 60d:</strong> {snapshot.movingAverages?.medium_60d?.value ?? '—'}{snapshot.movingAverages?.medium_60d?.isPartialWindow ? ' (parcial)' : ''}</div>
+          <div><strong>MA 200d:</strong> {snapshot.movingAverages?.long_200d?.value ?? '—'}{snapshot.movingAverages?.long_200d?.isPartialWindow ? ' (parcial)' : ''}</div>
+          <div><strong>Baseline (200d):</strong> {snapshot.baseline?.value ?? '—'} (n={snapshot.baseline?.n ?? 0})</div>
+          <div><strong>Tendência 21d:</strong> {snapshot.trend?.short_21d?.direction ?? '—'}</div>
+          <div><strong>Tendência 60d:</strong> {snapshot.trend?.medium_60d?.direction ?? '—'}</div>
+          <div><strong>Faixa habitual:</strong> {snapshot.habitualRange ? `${snapshot.habitualRange.lower ?? '—'} a ${snapshot.habitualRange.upper ?? '—'}` : '—'}</div>
+          <div><strong>Fora da faixa agora:</strong> {snapshot.persistence?.currentlyOutsideHabitualRange ? `sim (${snapshot.persistence.durationDays ?? '?'}d)` : 'não'}</div>
+          <div><strong>Excursões:</strong> {snapshot.excursions?.length ?? 0}</div>
+        </div>
+      )}
+
+      <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
+        n={snapshot.evidence.n} · período observado: {snapshot.evidence.observedSpan.from ? new Date(snapshot.evidence.observedSpan.from).toLocaleDateString('pt-BR') : '—'} a {snapshot.evidence.observedSpan.to ? new Date(snapshot.evidence.observedSpan.to).toLocaleDateString('pt-BR') : '—'} · versões: {snapshot.evidence.instrumentVersions.join(', ') || '—'}
+        {snapshot.evidence.comparabilityWarning && <span style={{ color: '#f59e0b' }}> · ⚠ {snapshot.evidence.comparabilityWarning}</span>}
+      </p>
+
+      <details>
+        <summary style={{ fontSize: 12, cursor: 'pointer' }}>Observações originais no período ({filtered.length}) — drilldown</summary>
+        <div style={{ overflowX: 'auto', marginTop: 6 }}>
+          <table style={{ fontSize: 11, borderCollapse: 'collapse', width: '100%' }}>
+            <thead><tr>
+              <th style={{ textAlign: 'left', padding: '2px 6px' }}>Data</th>
+              <th style={{ textAlign: 'left', padding: '2px 6px' }}>Valor</th>
+              <th style={{ textAlign: 'left', padding: '2px 6px' }}>Versão</th>
+              <th style={{ textAlign: 'left', padding: '2px 6px' }}>Origem</th>
+            </tr></thead>
+            <tbody>
+              {[...filtered].reverse().map((o, i) => (
+                <tr key={i} style={{ borderTop: '1px solid var(--line)' }}>
+                  <td style={{ padding: '2px 6px' }}>{new Date(o.timestamp).toLocaleString('pt-BR')}</td>
+                  <td style={{ padding: '2px 6px' }}>{o.value}</td>
+                  <td style={{ padding: '2px 6px' }}>v{o.instrumentVersion}</td>
+                  <td style={{ padding: '2px 6px' }}>{JSON.stringify(o.context)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+interface MethodResultsResponse {
+  generatedAt: string; totalStudents: number; avgAdherencePercentAllTime: number | null;
+  studentsWithCompletedReassessment: Array<{ id: string; name: string; studentCode: number | null; count: number }>;
+  studentsWithMoreWinsThanConcerns: Array<{ id: string; name: string; studentCode: number | null }>;
+}
+
+// Passo 5 (continuação) — RESULTADOS DO MÉTODO: agregado real, linguagem de "evolução observada
+// durante o acompanhamento" — nunca "o método causou X". Sem score global.
+function ResultadosMetodoView({ accessToken, onOpenStudent }: { accessToken: string; onOpenStudent: (studentId: string) => void }) {
+  const [data, setData] = React.useState<MethodResultsResponse | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_URL}/coach/data/training-intelligence/method-results`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!response.ok || cancelled) return;
+        setData((await response.json()) as MethodResultsResponse);
+      } catch { /* silencioso */ }
+    })();
+    return () => { cancelled = true; };
+  }, [accessToken]);
+
+  if (!data) return <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando...</p>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+        Evolução observada durante o acompanhamento — {data.totalStudents} alunos ativos. Isto NÃO afirma causalidade do método; descreve o que foi observado.
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+        <div className="card" style={{ padding: 14 }}>
+          <strong style={{ fontSize: 20 }}>{data.avgAdherencePercentAllTime != null ? `${data.avgAdherencePercentAllTime}%` : '—'}</strong>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Aderência média (histórico completo, todos os alunos com dado)</div>
+        </div>
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <strong style={{ fontSize: 13 }}>Com reavaliação concluída</strong>
+            <span style={{ color: 'var(--muted)', fontSize: 12 }}>{data.studentsWithCompletedReassessment.length}</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+            {data.studentsWithCompletedReassessment.map((s) => (
+              <button key={s.id} type="button" onClick={() => onOpenStudent(s.id)} style={{ background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', fontSize: 12, padding: '2px 0' }}>{s.name} ({s.count})</button>
+            ))}
+            {data.studentsWithCompletedReassessment.length === 0 && <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>Nenhum ainda — ciclo de 105 dias não completou pra ninguém.</p>}
+          </div>
+        </div>
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <strong style={{ fontSize: 13 }}>Mais avanços que pontos de atenção (Evolution Report)</strong>
+            <span style={{ color: 'var(--muted)', fontSize: 12 }}>{data.studentsWithMoreWinsThanConcerns.length}</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+            {data.studentsWithMoreWinsThanConcerns.map((s) => (
+              <button key={s.id} type="button" onClick={() => onOpenStudent(s.id)} style={{ background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', fontSize: 12, padding: '2px 0' }}>{s.name}</button>
+            ))}
+            {data.studentsWithMoreWinsThanConcerns.length === 0 && <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>Nenhum Evolution Report com esse padrão ainda.</p>}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3745,6 +4193,168 @@ function ReassessmentTrajectoryPanel({ studentId, accessToken }: { studentId: st
       ) : (
         <p style={{ fontSize: 13, color: 'var(--muted)' }}>Nenhum Evolution Report válido disponível ainda.</p>
       )}
+    </div>
+  );
+}
+
+interface FitnessTestRow { id: string; testType: string; totalSeconds: number; paceSecondsPerKm: number; vo2maxEstimated: number; environment: string; createdAt: string }
+
+// Passo 5 (continuação) — trajetória de FitnessTest: histórico COMPLETO (nunca só o último — seção
+// 7/21), preservando protocolo/tipo. Não conecta protocolos diferentes como se fossem a mesma série
+// (aqui só existe '3km' hoje; o filtro por testType já garante isso se um segundo protocolo surgir).
+function FitnessTestTrajectoryPanel({ studentId, accessToken }: { studentId: string; accessToken: string }) {
+  const [tests, setTests] = React.useState<FitnessTestRow[] | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_URL}/coach/students/${studentId}/fitness-tests`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!response.ok || cancelled) return;
+        setTests((await response.json()) as FitnessTestRow[]);
+      } catch { /* silencioso */ }
+    })();
+    return () => { cancelled = true; };
+  }, [studentId, accessToken]);
+
+  if (!tests) return <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando...</p>;
+  if (tests.length === 0) return <p style={{ fontSize: 13, color: 'var(--muted)' }}>Nenhum teste de 3km registrado ainda.</p>;
+
+  const byProtocol = tests.reduce<Record<string, FitnessTestRow[]>>((acc, t) => {
+    (acc[t.testType] ??= []).push(t);
+    return acc;
+  }, {});
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {Object.entries(byProtocol).map(([protocol, rows]) => (
+        <div key={protocol}>
+          <strong style={{ fontSize: 12 }}>Protocolo: {protocol} ({rows.length} teste{rows.length > 1 ? 's' : ''})</strong>
+          <div style={{ overflowX: 'auto', marginTop: 4 }}>
+            <table style={{ fontSize: 12, borderCollapse: 'collapse', width: '100%' }}>
+              <thead><tr>
+                <th style={{ textAlign: 'left', padding: '4px 8px' }}>Data</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px' }}>Tempo</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px' }}>Pace</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px' }}>VO2max estimado</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px' }}>Ambiente</th>
+              </tr></thead>
+              <tbody>
+                {rows.map((t) => (
+                  <tr key={t.id} style={{ borderTop: '1px solid var(--line)' }}>
+                    <td style={{ padding: '4px 8px' }}>{dateLabel(t.createdAt)}</td>
+                    <td style={{ padding: '4px 8px' }}>{Math.floor(t.totalSeconds / 60)}:{String(t.totalSeconds % 60).padStart(2, '0')}</td>
+                    <td style={{ padding: '4px 8px' }}>{Math.floor(t.paceSecondsPerKm / 60)}:{String(t.paceSecondsPerKm % 60).padStart(2, '0')}/km</td>
+                    <td style={{ padding: '4px 8px' }}>{t.vo2maxEstimated.toFixed(1)}</td>
+                    <td style={{ padding: '4px 8px' }}>{t.environment}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type TimelineEventType = 'sessao' | 'daily_feedback' | 'contexto' | 'reavaliacao' | 'evolution_report' | 'fitness_test' | 'prova';
+interface TimelineEvent { date: string; type: TimelineEventType; label: string; detail: string }
+const TIMELINE_TYPE_LABELS: Record<TimelineEventType, string> = {
+  sessao: 'Sessão (prescrição/execução)', daily_feedback: 'Daily Feedback', contexto: 'ContextEvent',
+  reavaliacao: 'Reavaliação', evolution_report: 'Evolution Report', fitness_test: 'FitnessTest', prova: 'Prova',
+};
+
+// Passo 5 (continuação) — TIMELINE INTEGRADA: unifica cronologicamente fontes que já existem
+// (sessões do plano/histórico, ContextEvents, Reassessment/Evolution Report, FitnessTest, provas)
+// SOMENTE por merge/ordenação no cliente — nenhum cálculo novo, nenhuma causalidade atribuída.
+// ContextEvent continua contexto relatado/registrado, nunca causa comprovada de mudança.
+function TimelineTab({ student, accessToken }: { student: StudentDetail; accessToken: string }) {
+  const [contextEvents, setContextEvents] = React.useState<ContextEventRow[] | null>(null);
+  const [trajectoryData, setTrajectoryData] = React.useState<ReassessmentTrajectoryResponse | null>(null);
+  const [fitnessTests, setFitnessTests] = React.useState<FitnessTestRow[] | null>(null);
+  const [activeTypes, setActiveTypes] = React.useState<Set<TimelineEventType>>(new Set(Object.keys(TIMELINE_TYPE_LABELS) as TimelineEventType[]));
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [ctxRes, trajRes, testsRes] = await Promise.all([
+        fetch(`${API_URL}/coach/students/${student.id}/context-events`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+        fetch(`${API_URL}/coach/students/${student.id}/reassessment-trajectory`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+        fetch(`${API_URL}/coach/students/${student.id}/fitness-tests`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+      ]);
+      if (cancelled) return;
+      if (ctxRes.ok) setContextEvents(await ctxRes.json());
+      if (trajRes.ok) setTrajectoryData(await trajRes.json());
+      if (testsRes.ok) setFitnessTests(await testsRes.json());
+    })();
+    return () => { cancelled = true; };
+  }, [student.id, accessToken]);
+
+  if (contextEvents === null || trajectoryData === null || fitnessTests === null) {
+    return <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando...</p>;
+  }
+
+  const allSessions = [
+    ...(student.plan?.sessions ?? []),
+    ...(student.history?.flatMap((h) => h.sessions ?? []) ?? []),
+  ];
+
+  const events: TimelineEvent[] = [
+    ...allSessions.map((s): TimelineEvent => ({
+      date: s.completedAt ?? s.date, type: s.completionStatus === 'done' || s.completionStatus === 'adjusted' ? 'daily_feedback' : 'sessao',
+      label: `${s.title} (${s.modality})`,
+      detail: s.completionStatus === 'done' ? 'Feito como planejado' : s.completionStatus === 'adjusted' ? `Fiz, mas mudei — RPE ${s.perceivedEffort ?? '—'}` : s.completionStatus === 'missed' ? 'Não feito' : `Prescrito para ${dateLabel(s.date)}`,
+    })),
+    ...contextEvents.map((e): TimelineEvent => ({
+      date: e.startedAt ?? e.reportedAt, type: 'contexto',
+      label: `${CONTEXT_EVENT_TYPE_LABELS[e.type] ?? e.type}${e.gapAnchorDate ? ' (retorno após lacuna)' : ''}`,
+      detail: `${CONTEXT_EVENT_SOURCE_LABELS[e.source] ?? e.source} · ${e.status === 'ongoing' ? 'em curso' : `até ${e.endedAt ? dateLabel(e.endedAt) : '?'}`}`,
+    })),
+    ...trajectoryData.reassessments.filter((r) => r.completedAt).map((r): TimelineEvent => ({
+      date: r.completedAt!, type: 'reavaliacao', label: `Reavaliação (v${r.reassessmentVersion ?? 'legado'})`, detail: r.evolutionSummary ?? 'Sem análise gerada.',
+    })),
+    ...trajectoryData.evolutionReports.map((r): TimelineEvent => ({
+      date: r.createdAt, type: 'evolution_report', label: `Evolution Report${r.invalidatedAt ? ' (invalidado)' : ''}`, detail: r.summary,
+    })),
+    ...fitnessTests.map((t): TimelineEvent => ({
+      date: t.createdAt, type: 'fitness_test', label: `Teste ${t.testType}`, detail: `${Math.floor(t.totalSeconds / 60)}:${String(t.totalSeconds % 60).padStart(2, '0')} · VO2max ${t.vo2maxEstimated.toFixed(1)}`,
+    })),
+    ...(student.targetRaces ?? []).map((r): TimelineEvent => ({
+      date: r.raceDate, type: 'prova', label: `Prova: ${r.name}`, detail: `${r.distanceKm}km · ${r.status}`,
+    })),
+  ]
+    .filter((e) => activeTypes.has(e.type))
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {(Object.keys(TIMELINE_TYPE_LABELS) as TimelineEventType[]).map((type) => (
+          <button key={type} type="button"
+            onClick={() => setActiveTypes((prev) => { const next = new Set(prev); if (next.has(type)) next.delete(type); else next.add(type); return next; })}
+            style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, cursor: 'pointer',
+              background: activeTypes.has(type) ? '#0ea5e922' : 'var(--surface)',
+              border: `1.5px solid ${activeTypes.has(type) ? '#0ea5e9' : 'var(--line)'}`,
+              color: activeTypes.has(type) ? '#0ea5e9' : 'var(--muted)' }}>
+            {TIMELINE_TYPE_LABELS[type]}
+          </button>
+        ))}
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>ContextEvent é contexto relatado/registrado — nunca causa comprovada de uma mudança fisiológica próxima. {events.length} evento(s) no filtro atual.</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 600, overflowY: 'auto' }}>
+        {events.map((e, i) => (
+          <div key={i} style={{ borderLeft: '3px solid var(--line)', paddingLeft: 10, fontSize: 12 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <strong>{dateLabel(e.date)}</strong>
+              <span style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase' }}>{TIMELINE_TYPE_LABELS[e.type]}</span>
+            </div>
+            <div>{e.label}</div>
+            <div style={{ color: 'var(--muted)' }}>{e.detail}</div>
+          </div>
+        ))}
+        {events.length === 0 && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Nenhum evento para os filtros selecionados.</p>}
+      </div>
     </div>
   );
 }

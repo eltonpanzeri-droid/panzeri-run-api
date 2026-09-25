@@ -31,6 +31,8 @@ import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.servic
 import { CONFIRMED_STATUSES, COURTESY_STATUS, OVERDUE_STATUS, PENDING_STATUS, PRICE_PER_STUDENT_CENTS, estimatedMrrCents } from './subscription-groups.util';
 import { ContextEventsService } from '../context-events/context-events.service';
 import { ReassessmentService } from '../reassessment/reassessment.service';
+import { EvolutionMetricService } from '../evolution/evolution-metric.service';
+import type { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
 
 @Injectable()
 export class CoachService {
@@ -50,7 +52,105 @@ export class CoachService {
     private readonly menstrualCycle: MenstrualCycleService,
     private readonly contextEvents: ContextEventsService,
     private readonly reassessmentService: ReassessmentService,
+    private readonly evolutionMetric: EvolutionMetricService,
   ) {}
+
+  // Passo 5 (continuacao) — lista leve de TODOS os alunos ativos (id/nome/codigo), sem paginacao —
+  // usada pelos seletores de aluno do Explorador/Relacoes/Populacao (o dashboard principal pagina
+  // em 20, insuficiente pra um picker que precisa ver todo mundo).
+  async allActiveStudentsLight() {
+    return this.prisma.user.findMany({
+      where: { role: 'student', accountStatus: { not: 'archived' } },
+      select: { id: true, name: true, studentCode: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  // Passo 5 (continuacao, 25/09/2026) — todos os testes de 3km do aluno, sem o take:3 que o
+  // student() principal usa (esse existe pra nao pesar a tela padrao do aluno). Preserva o
+  // historico inteiro pra trajetoria de FitnessTest e pra Timeline.
+  async allFitnessTests(studentId: string) {
+    return this.prisma.fitnessTest.findMany({
+      where: { userId: studentId, testType: '3km' },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, testType: true, totalSeconds: true, paceSecondsPerKm: true, vo2maxEstimated: true, environment: true, createdAt: true },
+    });
+  }
+
+  // Passo 5 (continuacao) — "Populacao por variavel": mesma matematica do individual
+  // (TrainingIntelligenceQueryService.getVariableSnapshot), aplicada a cada aluno ativo. So'
+  // computado quando o treinador pede uma variavel especifica (nunca ao abrir a tela — secao 13).
+  // Nao inventa media populacional como descricao do individuo: devolve a lista real, nomeada.
+  async variablePopulation(variableId: string, trainingIntelligenceQuery: TrainingIntelligenceQueryService) {
+    const students = await this.prisma.user.findMany({
+      where: { role: 'student', accountStatus: { not: 'archived' } },
+      select: { id: true, name: true, studentCode: true },
+    });
+
+    const rows = await Promise.all(students.map(async (student) => {
+      try {
+        const snapshot = await trainingIntelligenceQuery.getVariableSnapshot(student.id, variableId);
+        return {
+          id: student.id, name: student.name, studentCode: student.studentCode,
+          current: snapshot.current, n: snapshot.evidence.n,
+          trendShort: snapshot.trend?.short_21d ?? null,
+          comparabilityWarning: snapshot.evidence.comparabilityWarning,
+        };
+      } catch {
+        return { id: student.id, name: student.name, studentCode: student.studentCode, current: null, n: 0, trendShort: null, comparabilityWarning: null };
+      }
+    }));
+
+    return {
+      variableId,
+      generatedAt: new Date().toISOString(),
+      studentsWithData: rows.filter((r) => r.n > 0),
+      studentsWithoutData: rows.filter((r) => r.n === 0).map((r) => ({ id: r.id, name: r.name, studentCode: r.studentCode })),
+    };
+  }
+
+  // Passo 5 (continuacao) — "Resultados do Metodo": agregado real (media de aderencia allTime
+  // ja calculada pelo EvolutionMetricService por aluno, apenas MEDIADA aqui — nao e' uma formula
+  // nova) + contagem de alunos com reavaliacao concluida + contagem com Evolution Report recente
+  // tendo mais avancos (wins) que pontos de atencao (concerns) — leitura direta do texto ja
+  // categorizado pelo Evolution Agent, nunca um score numerico novo. Linguagem: "evolucao
+  // observada durante o acompanhamento", nunca "o metodo causou".
+  async methodResults() {
+    const students = await this.prisma.user.findMany({
+      where: { role: 'student', accountStatus: { not: 'archived' } },
+      select: { id: true, name: true, studentCode: true },
+    });
+
+    const rows = await Promise.all(students.map(async (student) => {
+      const [overview, reassessments, latestReport] = await Promise.all([
+        this.evolutionMetric.getOverview(student.id).catch(() => null),
+        this.prisma.reassessment.count({ where: { userId: student.id, completedAt: { not: null } } }),
+        this.reassessmentService.getLatestValidEvolutionReport(student.id),
+      ]);
+      return {
+        id: student.id, name: student.name, studentCode: student.studentCode,
+        adherencePercent: overview?.adherence.allTime.adherencePercent ?? null,
+        reassessmentsCompleted: reassessments,
+        winsCount: latestReport ? (Array.isArray(latestReport.wins) ? latestReport.wins.length : 0) : null,
+        concernsCount: latestReport ? (Array.isArray(latestReport.concerns) ? latestReport.concerns.length : 0) : null,
+      };
+    }));
+
+    const withAdherence = rows.filter((r) => r.adherencePercent != null);
+    const avgAdherence = withAdherence.length > 0
+      ? Math.round(withAdherence.reduce((sum, r) => sum + (r.adherencePercent ?? 0), 0) / withAdherence.length)
+      : null;
+    const withReports = rows.filter((r) => r.winsCount != null && r.concernsCount != null);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      totalStudents: rows.length,
+      avgAdherencePercentAllTime: avgAdherence,
+      studentsWithCompletedReassessment: rows.filter((r) => r.reassessmentsCompleted > 0).map((r) => ({ id: r.id, name: r.name, studentCode: r.studentCode, count: r.reassessmentsCompleted })),
+      studentsWithMoreWinsThanConcerns: withReports.filter((r) => (r.winsCount ?? 0) > (r.concernsCount ?? 0)).map((r) => ({ id: r.id, name: r.name, studentCode: r.studentCode })),
+      perStudent: rows,
+    };
+  }
 
   // Passo 5 (25/09/2026) — "Visao Geral" da Training Intelligence no Admin: AGREGADO primeiro,
   // detalhe sob demanda (secao 30). Reusa exclusivamente o que ja existe (ContextEventsService.

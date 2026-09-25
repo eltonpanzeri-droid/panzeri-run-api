@@ -39,7 +39,7 @@ describe('CoachService.dashboard — activePlans usa a mesma populacao de totals
     const service = new CoachService(
       prisma as never, trainingPlans as never, {} as never, {} as never, {} as never,
       {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
-      {} as never, {} as never,
+      {} as never, {} as never, {} as never,
     );
 
     await service.dashboard({ search: '', page: 1, pageSize: 20 });

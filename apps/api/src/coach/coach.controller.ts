@@ -18,6 +18,7 @@ import { UpdateStudentAvailabilityDto } from './dto/update-student-availability.
 import { ContextEventsService } from '../context-events/context-events.service';
 import { CreateContextEventDto } from '../context-events/dto/create-context-event.dto';
 import { ReassessmentService } from '../reassessment/reassessment.service';
+import { listVariableIds, getVariableDefinition } from '../training-intelligence/variable-registry';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('coach', 'admin')
@@ -57,6 +58,55 @@ export class CoachController {
   @Get('data/training-intelligence/overview')
   getTrainingIntelligenceOverview() {
     return this.coachService.trainingIntelligenceOverview();
+  }
+
+  // Passo 5 (continuacao, 25/09/2026) — legenda de todas as variaveis do VariableRegistry, pro
+  // Admin montar os seletores do Explorador/Populacao agrupados por dominio SEM duplicar a
+  // semantica em texto proprio (reusa constructLabel/scale/direction/domain, unica fonte real).
+  @Get('data/training-intelligence/students-list')
+  getAllActiveStudentsLight() {
+    return this.coachService.allActiveStudentsLight();
+  }
+
+  @Get('data/training-intelligence/variable-legend')
+  getVariableLegend() {
+    return listVariableIds().map((id) => {
+      const def = getVariableDefinition(id)!;
+      return {
+        id: def.variableId,
+        domain: def.domain,
+        dataType: def.dataType,
+        constructLabel: def.constructLabel,
+        scale: def.scale,
+        direction: def.direction,
+        allowedMathStrategy: def.allowedMathStrategy,
+      };
+    });
+  }
+
+  // Passo 5 (continuacao) — Populacao por variavel: "quais alunos tem dado/tendencia relevante
+  // nesta variavel agora". So' computado sob demanda (quando o treinador escolhe a variavel no
+  // Explorador/Populacao) — nunca ao abrir a tela, pra nao buscar a serie de todo mundo de uma vez
+  // (secao 13). Reusa TrainingIntelligenceQueryService.getVariableSnapshot por aluno — mesma
+  // matematica do individual, nenhuma formula nova, so' um loop de agregacao.
+  @Get('data/training-intelligence/population/:variableId')
+  async getVariablePopulation(@Param('variableId') variableId: string) {
+    return this.coachService.variablePopulation(variableId, this.trainingIntelligenceQuery);
+  }
+
+  // Passo 5 (continuacao) — todos os testes de 3km do aluno (a listagem padrao do StudentDetail
+  // limita a 3 pra nao pesar a tela principal). Usado pela trajetoria de FitnessTest e pela
+  // Timeline integrada — preserva o historico inteiro (secao 7: "nao reduzir ao ultimo teste").
+  @Get('students/:studentId/fitness-tests')
+  getAllFitnessTests(@Param('studentId') studentId: string) {
+    return this.coachService.allFitnessTests(studentId);
+  }
+
+  // Passo 5 (continuacao) — "Resultados do Metodo" (ver CoachService.methodResults). Agregado
+  // real, nunca causalidade — linguagem de "evolucao observada durante o acompanhamento".
+  @Get('data/training-intelligence/method-results')
+  getMethodResults() {
+    return this.coachService.methodResults();
   }
 
   // 24/09: endpoint isolado de validacao ponta a ponta da fundacao de Training Intelligence

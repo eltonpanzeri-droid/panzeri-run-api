@@ -33,7 +33,7 @@ describe('CoachService.trainingIntelligenceOverview — agregado sem recalcular 
     };
     const service = new CoachService(
       prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
-      contextEvents as never, reassessmentService as never,
+      contextEvents as never, reassessmentService as never, noop(),
     );
 
     const overview = await service.trainingIntelligenceOverview();
@@ -88,5 +88,61 @@ describe('ContextEventsService.listForStudent — historico completo pro Admin (
     const result = await service.listForStudent('u1');
     expect(result).toEqual([{ id: 'e2' }, { id: 'e1' }]);
     expect(findMany).toHaveBeenCalledWith({ where: { userId: 'u1' }, orderBy: { createdAt: 'desc' } });
+  });
+});
+
+describe('CoachService.variablePopulation — Populacao por variavel (secoes 1, 13, teste O)', () => {
+  it('reusa getVariableSnapshot por aluno (mesma matematica do individual), sem calcular media populacional como descricao do individuo', async () => {
+    const prisma = {
+      user: { findMany: jest.fn().mockResolvedValue([
+        { id: 'u1', name: 'Aluno Um', studentCode: 1 },
+        { id: 'u2', name: 'Aluno Dois', studentCode: 2 },
+      ]) },
+    };
+    const trainingIntelligenceQuery = {
+      getVariableSnapshot: jest.fn()
+        .mockResolvedValueOnce({ current: 4, evidence: { n: 10, comparabilityWarning: null }, trend: { short_21d: { direction: 'rising' } } })
+        .mockResolvedValueOnce({ current: null, evidence: { n: 0, comparabilityWarning: null }, trend: null }),
+    };
+    const service = new CoachService(
+      prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
+    );
+    const result = await service.variablePopulation('workout.prePhysicalFatigue', trainingIntelligenceQuery as never);
+
+    expect(trainingIntelligenceQuery.getVariableSnapshot).toHaveBeenCalledTimes(2); // uma vez por aluno, nao uma formula agregada
+    expect(result.studentsWithData).toEqual([{ id: 'u1', name: 'Aluno Um', studentCode: 1, current: 4, n: 10, trendShort: { direction: 'rising' }, comparabilityWarning: null }]);
+    expect(result.studentsWithoutData).toEqual([{ id: 'u2', name: 'Aluno Dois', studentCode: 2 }]); // missing continua separado, nunca vira 0 na lista "com dado"
+  });
+});
+
+describe('CoachService.allFitnessTests — trajetoria completa, nunca so o ultimo (secao 7)', () => {
+  it('busca todos os testes de 3km sem limite, ordenados do mais antigo pro mais recente', async () => {
+    const findMany = jest.fn().mockResolvedValue([{ id: 't1' }, { id: 't2' }, { id: 't3' }]);
+    const service = new CoachService(
+      { fitnessTest: { findMany } } as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
+    );
+    const result = await service.allFitnessTests('u1');
+    expect(result).toHaveLength(3);
+    expect(findMany.mock.calls[0][0]).not.toHaveProperty('take');
+    expect(findMany.mock.calls[0][0].orderBy).toEqual({ createdAt: 'asc' });
+  });
+});
+
+describe('CoachService.methodResults — agregado real, sem causalidade fabricada (secao 8)', () => {
+  it('agrega aderencia/reavaliacoes/wins-concerns por aluno, sem inventar score ou "o metodo causou"', async () => {
+    const prisma = {
+      user: { findMany: jest.fn().mockResolvedValue([{ id: 'u1', name: 'Aluno Um', studentCode: 1 }]) },
+      reassessment: { count: jest.fn().mockResolvedValue(2) },
+    };
+    const evolutionMetric = { getOverview: jest.fn().mockResolvedValue({ adherence: { allTime: { adherencePercent: 80 } } }) };
+    const reassessmentService = { getLatestValidEvolutionReport: jest.fn().mockResolvedValue({ wins: ['a', 'b'], concerns: ['c'] }) };
+    const service = new CoachService(
+      prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
+      noop(), reassessmentService as never, evolutionMetric as never,
+    );
+    const result = await service.methodResults();
+    expect(result.avgAdherencePercentAllTime).toBe(80);
+    expect(result.studentsWithCompletedReassessment).toEqual([{ id: 'u1', name: 'Aluno Um', studentCode: 1, count: 2 }]);
+    expect(result.studentsWithMoreWinsThanConcerns).toEqual([{ id: 'u1', name: 'Aluno Um', studentCode: 1 }]);
   });
 });

@@ -13,9 +13,10 @@ import { MenstrualCycleModule } from '../menstrual-cycle/menstrual-cycle.module'
 import { TrainingIntelligenceModule } from '../training-intelligence/training-intelligence.module';
 import { ContextEventsModule } from '../context-events/context-events.module';
 import { ReassessmentModule } from '../reassessment/reassessment.module';
+import { EvolutionModule } from '../evolution/evolution.module';
 
 @Module({
-  imports: [TrainingPlansModule, StravaModule, MessagingModule, BackupModule, MeModule, BillingModule, MenstrualCycleModule, TrainingIntelligenceModule, ContextEventsModule, ReassessmentModule],
+  imports: [TrainingPlansModule, StravaModule, MessagingModule, BackupModule, MeModule, BillingModule, MenstrualCycleModule, TrainingIntelligenceModule, ContextEventsModule, ReassessmentModule, EvolutionModule],
   controllers: [CoachController, CoachToolingController],
   providers: [CoachService, BusinessIntelligenceService],
 })
