@@ -59,7 +59,12 @@ function emptyCompactContext(overrides: Partial<CompactAgentContext> = {}): Comp
     painHealth: { availability: 'unavailable', mostRecent: null, reportCountAllTime: 0, reportCountLast90Days: 0, recurrenceObserved: false },
     performanceCapacity: { availability: 'unavailable', latestFitnessTest: null, fitnessTestHistoryCount: 0, upcomingTargetRaces: [], reassessmentsRecorded: 0, reassessmentContentAvailability: 'unavailable_narrative_only' },
     behavior: { availability: 'unavailable', variableIds: [], adherence: null, consistency: null, checkinsSubmittedAllTime: 0, checkinsSkippedAllTime: 0 },
-    lifeContext: { availability: 'unavailable', narrativeSourcesWithContent: [] },
+    lifeContext: {
+      availability: 'unavailable', narrativeSourcesWithContent: [],
+      activeEvents: [], recentEvents: [],
+      currentGapStatus: { inGap: false, daysSinceLastObserved: null, thresholdDays: 14 },
+      latestReturnContext: null,
+    },
     systemDynamics: { availability: 'unavailable', variablesCurrentlyOutsideHabitualRange: [], ongoingExcursions: [], recentlyRecoveredExcursions: [], variablesWithChangedVariability: [] },
     evidenceQuality: { variablesWithData: 0, variablesWithoutData: 0, mostRecentObservationAt: null, variablesWithComparabilityWarning: [] },
     ...overrides,

@@ -15,6 +15,8 @@ import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
 import { CreateManualSessionDto } from './dto/create-manual-session.dto';
 import { UpdateStudentAvailabilityDto } from './dto/update-student-availability.dto';
+import { ContextEventsService } from '../context-events/context-events.service';
+import { CreateContextEventDto } from '../context-events/dto/create-context-event.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('coach', 'admin')
@@ -25,7 +27,15 @@ export class CoachController {
     private readonly businessIntelligence: BusinessIntelligenceService,
     private readonly trainingIntelligenceQuery: TrainingIntelligenceQueryService,
     private readonly athleteStateSnapshot: AthleteStateSnapshotService,
+    private readonly contextEvents: ContextEventsService,
   ) {}
+
+  // Passo 4 (25/09/2026) — caminho manual do treinador pra registrar um ContextEvent (viagem,
+  // mudanca de trabalho, doenca, etc). Sem tela grande no admin ainda (Passo 5); endpoint pronto.
+  @Post('students/:studentId/context-events')
+  createContextEvent(@Param('studentId') studentId: string, @Body() dto: CreateContextEventDto) {
+    return this.contextEvents.createManual(studentId, dto);
+  }
 
   // 24/09: endpoint isolado de validacao ponta a ponta da fundacao de Training Intelligence
   // (Prisma -> ObservationReader -> MathLayer -> resposta estruturada). Ver auditoria aprovada:

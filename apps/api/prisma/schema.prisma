@@ -104,6 +104,7 @@ model User {
   messageLogs         MessageLog[]
   reassessments       Reassessment[]
   evolutionReports    EvolutionReport[]
+  contextEvents       ContextEvent[]
   billingEvents       BillingEvent[]
   onboardingInterview OnboardingInterview?
   billingSubscription BillingSubscription?
@@ -619,6 +620,74 @@ model WorkoutCompletion {
   adjustmentComment String?
   // So' preenchido quando um dos adjustmentReasons for "preferi fazer outro treino".
   adjustmentPreferredActivity String?
+
+  // 25/09/2026 (Passo 4 — contexto longitudinal): quando esta e' a PRIMEIRA execucao valida
+  // registrada depois de um retorno-apos-lacuna (ver ContextEvent), fica marcada aqui — metadado
+  // puro, nao altera nenhum campo semantico existente de WorkoutCompletion. Preenchido por
+  // ContextEventsService.linkFirstObservationIfPending, nunca pelo proprio fluxo de salvar feedback.
+  firstObservationAfterGapEvent   ContextEvent? @relation(fields: [firstObservationAfterGapEventId], references: [id])
+  firstObservationAfterGapEventId String?
+
+  @@index([firstObservationAfterGapEventId])
+}
+
+// 25/09/2026 (Passo 4) — representacao estruturada de eventos de contexto externos a trajetoria de
+// treino (trabalho, viagem, familia, saude, dor/lesao, sono, mudanca de rotina) e, como primeira
+// aplicacao concreta, do questionario de RETORNO APOS LACUNA (ver GAP_RETURN_THRESHOLD_DAYS em
+// context-event-types.ts). Especificacao alinhada a ATHLETE_STATE_MODEL.md secoes 12-15 (ja escrita
+// por Elton antes desta implementacao): guarda o RELATO estruturado, nunca a causa inferida.
+model ContextEvent {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  // work | routine_change | travel | family_personal | health | illness | pain_injury | sleep | other
+  type    String
+  subtype String?
+
+  // Intervalo do evento em si (ex: data de inicio da viagem/afastamento). endedAt null = evento
+  // ainda ativo (nunca forcamos uma data final quando ela nao existe). Para eventos de retorno-
+  // apos-lacuna, startedAt/endedAt descrevem a LACUNA (dia seguinte a ultima execucao valida ate a
+  // data do relato de retorno) — ver gapAnchorDate abaixo pra' o ponto exato de deduplicacao.
+  startedAt  DateTime?
+  endedAt    DateTime?
+  reportedAt DateTime  @default(now())
+  // ongoing | ended
+  status String @default("ongoing")
+
+  // student_reported | coach_reported | reassessment | return_after_gap | system_detected
+  // (system_detected reservado para deteccao futura de mudanca-sem-causa-conhecida — nao escrito
+  // por nenhum codigo desta implementacao, ver secao 30 do Passo 4).
+  source String
+
+  // Texto original do relato (aluno/treinador) — nunca perdido, mesmo quando type/subtype
+  // estruturam a mesma informacao. Ver ATHLETE_STATE_MODEL.md secao 13.
+  originalText String?
+
+  // Campos exclusivos do questionario de RETORNO APOS LACUNA (source='student_reported' com
+  // gapAnchorDate preenchido). Null para ContextEvent manual/generico. Nao vira uma tabela
+  // separada de proposito (secao 13 do Passo 4: "evite estruturas duplicadas").
+  // Ancora de deduplicacao: a data da ultima execucao valida ANTES da lacuna que gerou este evento
+  // — impede perguntar de novo pela mesma lacuna (ver ContextEventsService.getReturnQuestionnaireState).
+  gapAnchorDate                    DateTime?
+  // none | very_little | some_outside | normal_outside (ver TRAINING_DURING_GAP_OPTIONS)
+  trainingDuringGapReported        String?
+  // 1 (muito pior) a 5 (muito melhor), autorrelato, nunca calculado
+  physicalStateComparedToBefore    Int?
+  // 1 (muito menor) a 5 (muito maior), autorrelato, nunca calculado
+  mentalReadinessComparedToBefore  Int?
+  // true assim que uma WorkoutCompletion real for vinculada como "primeira observacao apos a
+  // lacuna" (ver WorkoutCompletion.firstObservationAfterGapEventId) — evita vincular mais de uma.
+  firstObservationLinkedAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firstObservationCompletions WorkoutCompletion[]
+
+  @@index([userId, createdAt])
+  @@index([userId, status])
+  @@index([userId, gapAnchorDate])
 }
 
 model TargetRace {

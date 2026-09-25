@@ -102,8 +102,15 @@ function buildDeps(overrides: {
 
   const trainingIntelligenceQuery = { getVariableSnapshot };
   const evolutionMetric = { getOverview };
+  const contextEvents = {
+    getLifeContextData: jest.fn().mockResolvedValue({
+      activeEvents: [], recentEvents: [],
+      currentGapStatus: { inGap: false, daysSinceLastObserved: null, thresholdDays: 14 },
+      latestReturnContext: null,
+    }),
+  };
 
-  const service = new AthleteStateSnapshotService(prisma as never, trainingIntelligenceQuery as never, evolutionMetric as never);
+  const service = new AthleteStateSnapshotService(prisma as never, trainingIntelligenceQuery as never, evolutionMetric as never, contextEvents as never);
   return { service, getVariableSnapshot, getOverview, prisma };
 }
 

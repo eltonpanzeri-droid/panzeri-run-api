@@ -2590,7 +2590,7 @@ function startOfWeek(date: Date) {
   return start;
 }
 
-function todayInSaoPaulo() {
+export function todayInSaoPaulo() {
   const parts = saoPauloDateParts(new Date());
   return new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
 }

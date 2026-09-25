@@ -15,6 +15,7 @@ import { WorkoutCompletionsModule } from './workout-completions/workout-completi
 import { BillingModule } from './billing/billing.module';
 import { MessagingModule } from './messaging/messaging.module';
 import { ReassessmentModule } from './reassessment/reassessment.module';
+import { ContextEventsModule } from './context-events/context-events.module';
 import { BackupModule } from './backup/backup.module';
 import { TechnicalManagerModule } from './technical-manager/technical-manager.module';
 import { TargetRacesModule } from './target-races/target-races.module';
@@ -47,6 +48,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     BillingModule,
     MessagingModule,
     ReassessmentModule,
+    ContextEventsModule,
     BackupModule,
     TechnicalManagerModule,
     TargetRacesModule,

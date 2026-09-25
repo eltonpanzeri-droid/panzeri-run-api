@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { UpsertWorkoutCompletionDto } from './dto/upsert-workout-completion.dto';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
+import { ContextEventsService } from '../context-events/context-events.service';
 
 @Injectable()
 export class WorkoutCompletionsService {
@@ -13,6 +14,7 @@ export class WorkoutCompletionsService {
     private readonly config: ConfigService,
     private readonly studentProfile: StudentProfileService,
     private readonly telegram: TelegramService,
+    private readonly contextEvents: ContextEventsService,
   ) {}
 
   async upsert(userId: string, dto: UpsertWorkoutCompletionDto) {
@@ -180,6 +182,13 @@ export class WorkoutCompletionsService {
 
     if (dto.status === 'done' || dto.status === 'adjusted') {
       void this.maybeRecordFirstCompleted(userId, session.id);
+    }
+
+    // Passo 4 (25/09/2026): so' na CRIACAO (nunca num reenvio/edicao de feedback ja existente) de
+    // uma execucao real, tenta vincular como "primeira observacao apos a lacuna" — ver
+    // ContextEventsService.linkFirstObservationIfPending. Nunca bloqueia o salvamento do feedback.
+    if (!previous && (dto.status === 'done' || dto.status === 'adjusted')) {
+      void this.contextEvents.linkFirstObservationIfPending(userId, completion.id, completion.completedAt).catch(() => undefined);
     }
 
     // Data formatada usada tanto no Telegram de mismatch quanto na notificacao de painel do treinador.

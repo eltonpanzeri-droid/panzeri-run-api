@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { TrainingPlansService, injectTargetRaceDays } from '../src/training-plans/training-plans.service';
+import { TrainingPlansService, injectTargetRaceDays, todayInSaoPaulo } from '../src/training-plans/training-plans.service';
 import { CoachService } from '../src/coach/coach.service';
 import { isWithinValidTrainingHistory, TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../src/common/training-history-policy';
 
@@ -80,8 +80,10 @@ describe('regenerateSession — regra temporal e protecao de execucao (secoes 1,
   });
 
   it('hoje sem execucao exige allowToday explicito', async () => {
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    // Usa a MESMA nocao de "hoje" que o codigo (fuso America/Sao_Paulo) — construir com
+    // setUTCHours(0,0,0,0) e' incorreto entre 00:00-03:00 UTC (ainda e' "ontem" em SP), o que
+    // fazia este teste falhar de forma intermitente dependendo da hora em que rodasse.
+    const today = todayInSaoPaulo();
     const prisma = buildPrisma({ id: 's1', scheduledDate: today, completion: null });
     const service = buildTrainingPlansService(prisma);
     await expect(service.regenerateSession('u1', 's1')).rejects.toMatchObject({

@@ -25,6 +25,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EvolutionMetricService } from '../evolution/evolution-metric.service';
 import type { AdherenceSummary, ConsistencyStreak, ModalityBreakdown, WeeklyVolume } from '../evolution/evolution.types';
 import { TrainingIntelligenceQueryService, VariableSnapshotResponse } from './training-intelligence-query.service';
+import { ContextEventsService } from '../context-events/context-events.service';
 
 export type DomainAvailability = 'available' | 'partial' | 'unavailable';
 
@@ -101,9 +102,25 @@ export interface BehaviorDomainState extends VariableBasedDomainState {
 }
 
 export interface LifeContextDomainState extends BaseDomainState {
-  /** Nomes das fontes que TEM conteudo (nao o conteudo em si) — ver ATHLETE_STATE_MODEL.md: texto
-   * livre nao vira evento estruturado nesta rodada (isso e' o trabalho futuro do ContextEvent). */
+  /** Nomes das fontes que TEM conteudo (nao o conteudo em si) — StudentObservation/StudentDirective
+   * continuam texto livre, nao estruturado (ver ATHLETE_STATE_MODEL.md). */
   narrativeSourcesWithContent: string[];
+  // Passo 4 (25/09/2026) — ContextEvent estruturado. activeEvents/recentEvents nunca despejam o
+  // historico inteiro (so' ongoing + ultimos ~60 dias, no maximo 5). currentGapStatus descreve se
+  // ha uma lacuna de execucao em curso (>= GAP_RETURN_THRESHOLD_DAYS sem execucao valida observada)
+  // — isso e' OBSERVACAO, nunca causa. latestReturnContext e' o ultimo questionario de retorno
+  // respondido pelo proprio aluno, se houver.
+  activeEvents: Array<{ type: string; subtype: string | null; startedAt: string | null; source: string }>;
+  recentEvents: Array<{ type: string; subtype: string | null; startedAt: string | null; endedAt: string | null; source: string }>;
+  currentGapStatus: { inGap: boolean; daysSinceLastObserved: number | null; thresholdDays: number };
+  latestReturnContext: {
+    gapDurationDays: number | null;
+    reasonType: string;
+    reasonSubtype: string | null;
+    trainingDuringGapReported: string | null;
+    physicalStateComparedToBefore: number | null;
+    mentalReadinessComparedToBefore: number | null;
+  } | null;
 }
 
 export interface VariableDynamicsFlag {
@@ -221,6 +238,7 @@ export class AthleteStateSnapshotService {
     private readonly prisma: PrismaService,
     private readonly trainingIntelligenceQuery: TrainingIntelligenceQueryService,
     private readonly evolutionMetric: EvolutionMetricService,
+    private readonly contextEvents: ContextEventsService,
   ) {}
 
   async getSnapshot(athleteId: string): Promise<AthleteStateSnapshotV1> {
@@ -439,27 +457,38 @@ export class AthleteStateSnapshotService {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Contexto de vida — nao cria ContextEvent nesta rodada. So' informa QUAIS fontes narrativas
-  // tem conteudo, nunca extrai/estrutura o texto.
+  // Contexto de vida — Passo 4 (25/09/2026): ContextEvent estruturado somado as fontes narrativas
+  // que ja existiam (StudentObservation/StudentDirective continuam so' contadas, texto livre nunca
+  // estruturado). "Existe contexto ativo/recente relevante pra entender o estado atual?"
   // ---------------------------------------------------------------------------------------------
 
   private async buildLifeContextDomain(athleteId: string): Promise<LifeContextDomainState> {
-    const [observations, directives] = await Promise.all([
+    const [observations, directives, lifeContext] = await Promise.all([
       this.prisma.studentObservation.count({ where: { userId: athleteId, active: true } }),
       this.prisma.studentDirective.count({ where: { userId: athleteId, active: true } }),
+      this.contextEvents.getLifeContextData(athleteId),
     ]);
 
     const sources: string[] = [];
     if (observations > 0) sources.push('StudentObservation');
     if (directives > 0) sources.push('StudentDirective');
 
+    const hasStructuredContext = lifeContext.activeEvents.length > 0 || lifeContext.recentEvents.length > 0 || lifeContext.latestReturnContext !== null;
+    const hasAnyContext = sources.length > 0 || hasStructuredContext || lifeContext.currentGapStatus.inGap;
+
     return {
-      availability: sources.length > 0 ? 'partial' : 'unavailable', // 'partial': existe fonte, mas so' como texto livre, nunca estruturada nesta V1
+      availability: hasStructuredContext ? 'partial' : sources.length > 0 ? 'partial' : 'unavailable',
       notes:
         sources.length > 0
-          ? 'Existem fontes narrativas (texto livre) sobre contexto de vida, mas esta V1 nao as transforma em evento estruturado — ver ATHLETE_STATE_MODEL.md (ContextEvent fica pra rodada futura).'
-          : 'Nenhuma fonte de contexto de vida registrada.',
+          ? 'Existem fontes narrativas (texto livre) sobre contexto de vida (StudentObservation/StudentDirective) alem dos ContextEvents estruturados abaixo, quando houver.'
+          : hasAnyContext
+            ? 'Contexto estruturado (ContextEvent) disponivel abaixo.'
+            : 'Nenhuma fonte de contexto de vida registrada.',
       narrativeSourcesWithContent: sources,
+      activeEvents: lifeContext.activeEvents,
+      recentEvents: lifeContext.recentEvents,
+      currentGapStatus: lifeContext.currentGapStatus,
+      latestReturnContext: lifeContext.latestReturnContext,
     };
   }
 

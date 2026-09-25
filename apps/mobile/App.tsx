@@ -3427,6 +3427,150 @@ const PREFERRED_TRAINING_OPTIONS_V3: { id: string; label: string }[] = [
   { id: 'evento_proximo_considerar', label: 'Tenho uma prova ou evento se aproximando e gostaria que isso fosse considerado' },
 ];
 
+// 25/09/2026 (Passo 4 — contexto longitudinal): questionário de retorno após lacuna de treino. Ids
+// idênticos aos do backend (context-event-types.ts) — TRAINING_DURING_GAP_OPTIONS e
+// RETURN_REASON_OPTIONS. Nunca reformular sem atualizar os dois lugares.
+const TRAINING_DURING_GAP_OPTIONS: { id: string; label: string }[] = [
+  { id: 'none', label: 'Não treinei.' },
+  { id: 'very_little', label: 'Treinei muito pouco.' },
+  { id: 'some_outside', label: 'Fiz alguns treinos fora do Panzeri Run.' },
+  { id: 'normal_outside', label: 'Continuei treinando normalmente fora do Panzeri Run.' },
+];
+const RETURN_REASON_OPTIONS: { id: string; label: string }[] = [
+  { id: 'travel', label: 'Viagem.' },
+  { id: 'routine_or_work_change', label: 'Mudança de rotina ou trabalho.' },
+  { id: 'health_illness', label: 'Saúde/doença.' },
+  { id: 'pain_injury', label: 'Dor ou lesão.' },
+  { id: 'family_personal', label: 'Questões familiares ou pessoais.' },
+  { id: 'demotivation', label: 'Desmotivação.' },
+  { id: 'trained_but_not_registered', label: 'Eu treinei, mas não registrei.' },
+  { id: 'other', label: 'Outro.' },
+];
+const PHYSICAL_STATE_VS_BEFORE_OPTIONS = ['Muito pior', 'Pior', 'Parecida', 'Melhor', 'Muito melhor'];
+const MENTAL_READINESS_VS_BEFORE_OPTIONS = ['Muito menor', 'Menor', 'Parecida', 'Maior', 'Muito maior'];
+
+function ReturnAfterGapModal({
+  visible,
+  daysSinceLastObserved,
+  submitting,
+  onSubmit,
+  onDismiss,
+}: {
+  visible: boolean;
+  daysSinceLastObserved: number | null;
+  submitting: boolean;
+  onSubmit: (answers: {
+    trainingDuringGap: string;
+    reason: string;
+    reasonOtherDescription?: string;
+    physicalStateComparedToBefore: number;
+    mentalReadinessComparedToBefore: number;
+    note?: string;
+  }) => void;
+  onDismiss: () => void;
+}) {
+  const [trainingDuringGap, setTrainingDuringGap] = useState<string | null>(null);
+  const [reason, setReason] = useState<string | null>(null);
+  const [reasonOtherDescription, setReasonOtherDescription] = useState('');
+  const [physicalState, setPhysicalState] = useState<number | null>(null);
+  const [mentalReadiness, setMentalReadiness] = useState<number | null>(null);
+  const [note, setNote] = useState('');
+
+  useEffect(() => {
+    if (!visible) {
+      setTrainingDuringGap(null); setReason(null); setReasonOtherDescription('');
+      setPhysicalState(null); setMentalReadiness(null); setNote('');
+    }
+  }, [visible]);
+
+  const canSubmit = trainingDuringGap !== null && reason !== null && physicalState !== null && mentalReadiness !== null;
+
+  function handleSubmit() {
+    if (!canSubmit) return;
+    onSubmit({
+      trainingDuringGap: trainingDuringGap!,
+      reason: reason!,
+      reasonOtherDescription: reason === 'other' ? reasonOtherDescription.trim() : undefined,
+      physicalStateComparedToBefore: physicalState!,
+      mentalReadinessComparedToBefore: mentalReadiness!,
+      note: note.trim() || undefined,
+    });
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={styles.appMenuOverlay}>
+        <View style={styles.appMenuSheet}>
+          <ScrollView contentContainerStyle={styles.appMenuContent}>
+            <Text style={styles.formSectionTitle}>Que bom te ver de volta! 👋</Text>
+            <Text style={styles.copyTight}>
+              {daysSinceLastObserved != null
+                ? `Faz ${daysSinceLastObserved} dias que não recebemos nenhum registro seu. Antes de continuar, conte rapidamente o que aconteceu — isso ajuda a calibrar seus próximos treinos.`
+                : 'Antes de continuar, conte rapidamente o que aconteceu nesse período — isso ajuda a calibrar seus próximos treinos.'}
+            </Text>
+
+            <Text style={styles.formSectionTitle}>Durante esse período, você treinou?</Text>
+            {TRAINING_DURING_GAP_OPTIONS.map((opt) => (
+              <Pressable
+                key={opt.id}
+                style={[styles.completionChip, trainingDuringGap === opt.id && styles.completionChipActive]}
+                onPress={() => setTrainingDuringGap(opt.id)}
+              >
+                <Text style={[styles.completionChipText, trainingDuringGap === opt.id && styles.completionChipTextActive]}>{opt.label}</Text>
+              </Pressable>
+            ))}
+
+            <Text style={styles.formSectionTitle}>Qual foi o principal motivo desse período sem registros?</Text>
+            {RETURN_REASON_OPTIONS.map((opt) => (
+              <Pressable
+                key={opt.id}
+                style={[styles.completionChip, reason === opt.id && styles.completionChipActive]}
+                onPress={() => setReason(opt.id)}
+              >
+                <Text style={[styles.completionChipText, reason === opt.id && styles.completionChipTextActive]}>{opt.label}</Text>
+              </Pressable>
+            ))}
+            {reason === 'other' ? (
+              <TextInput
+                style={styles.input}
+                placeholder="Conte em poucas palavras (opcional)"
+                value={reasonOtherDescription}
+                onChangeText={setReasonOtherDescription}
+              />
+            ) : null}
+
+            <Text style={styles.formSectionTitle}>Comparado a antes desse período, como você sente sua condição física agora?</Text>
+            <LabeledScale value={physicalState != null ? String(physicalState) : ''} onChange={(v) => setPhysicalState(Number(v))} options={PHYSICAL_STATE_VS_BEFORE_OPTIONS} />
+
+            <Text style={styles.formSectionTitle}>Comparado a antes desse período, como está sua disposição mental para voltar a treinar?</Text>
+            <LabeledScale value={mentalReadiness != null ? String(mentalReadiness) : ''} onChange={(v) => setMentalReadiness(Number(v))} options={MENTAL_READINESS_VS_BEFORE_OPTIONS} />
+
+            <Text style={styles.formSectionTitle}>Aconteceu algo importante nesse período que você acha que devemos considerar nos próximos treinos? (opcional)</Text>
+            <TextInput
+              style={[styles.input, { minHeight: 60 }]}
+              placeholder="Se quiser, conte mais aqui"
+              value={note}
+              onChangeText={setNote}
+              multiline
+            />
+
+            <Pressable
+              style={[styles.primaryButton, (!canSubmit || submitting) && styles.disabledButton]}
+              disabled={!canSubmit || submitting}
+              onPress={handleSubmit}
+            >
+              <Text style={styles.primaryButtonText}>{submitting ? 'Enviando...' : 'Continuar'}</Text>
+            </Pressable>
+            <Pressable style={styles.checkInSkipButton} onPress={onDismiss} disabled={submitting}>
+              <Text style={styles.checkInSkipButtonText}>Responder mais tarde</Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function WeeklyCheckInModal({
   visible,
   step,
@@ -3721,6 +3865,12 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
   // true quando o backend confirmou que hoje tem treino na rotina do aluno — guia o dialogo
   // "Incluir treino de hoje?" (so exibido de segunda a sabado; nunca no domingo).
   const [generationTodayHasRoutine, setGenerationTodayHasRoutine] = useState(false);
+  // 25/09/2026 (Passo 4): questionário de retorno após lacuna — checado uma vez por sessão do app
+  // (não a cada render/troca de semana). Não bloqueia nenhum outro fluxo; "responder mais tarde"
+  // só esconde o modal até a próxima abertura do app (returnGapDismissed não persiste).
+  const [returnGapState, setReturnGapState] = useState<{ pending: boolean; daysSinceLastObserved: number | null } | null>(null);
+  const [returnGapDismissed, setReturnGapDismissed] = useState(false);
+  const [returnGapSubmitting, setReturnGapSubmitting] = useState(false);
 
   useEffect(() => {
     if (accessToken) {
@@ -3728,6 +3878,47 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       else loadWeekForOffset(weekOffset);
     }
   }, [accessToken, weekOffset]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    (async () => {
+      try {
+        const response = await fetch(`${API_URL}/me/context-events/return-check`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!response.ok) return;
+        const data = (await response.json()) as { pending: boolean; gap: { daysSinceLastObserved: number | null } };
+        if (data.pending) setReturnGapState({ pending: true, daysSinceLastObserved: data.gap.daysSinceLastObserved });
+      } catch {
+        // Falha de rede aqui nunca deve travar o app — so' nao mostra o questionario nesta sessao.
+      }
+    })();
+  }, [accessToken]);
+
+  async function submitReturnGapQuestionnaire(answers: {
+    trainingDuringGap: string;
+    reason: string;
+    reasonOtherDescription?: string;
+    physicalStateComparedToBefore: number;
+    mentalReadinessComparedToBefore: number;
+    note?: string;
+  }) {
+    setReturnGapSubmitting(true);
+    try {
+      const response = await fetch(`${API_URL}/me/context-events/return`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(answers),
+      });
+      if (response.ok) {
+        setReturnGapState(null);
+      } else {
+        setReturnGapDismissed(true);
+      }
+    } catch {
+      setReturnGapDismissed(true);
+    } finally {
+      setReturnGapSubmitting(false);
+    }
+  }
 
 
   async function loadWeekForOffset(offset: number) {
@@ -4586,6 +4777,13 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
           onSkip={skipCheckInAndGenerate}
           onSubmit={submitCheckInAndGenerate}
         />
+        <ReturnAfterGapModal
+          visible={returnGapState?.pending === true && !returnGapDismissed}
+          daysSinceLastObserved={returnGapState?.daysSinceLastObserved ?? null}
+          submitting={returnGapSubmitting}
+          onSubmit={submitReturnGapQuestionnaire}
+          onDismiss={() => setReturnGapDismissed(true)}
+        />
       </View>
     );
   }
@@ -4655,6 +4853,13 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
           onConfirmYes={() => setCheckInGate((current) => (current ? { ...current, step: 'questions' } : current))}
           onSkip={skipCheckInAndGenerate}
           onSubmit={submitCheckInAndGenerate}
+        />
+        <ReturnAfterGapModal
+          visible={returnGapState?.pending === true && !returnGapDismissed}
+          daysSinceLastObserved={returnGapState?.daysSinceLastObserved ?? null}
+          submitting={returnGapSubmitting}
+          onSubmit={submitReturnGapQuestionnaire}
+          onDismiss={() => setReturnGapDismissed(true)}
         />
       </View>
     );
