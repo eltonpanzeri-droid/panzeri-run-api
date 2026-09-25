@@ -4621,6 +4621,32 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
     </View>
   );
 
+  // 25/09/2026 (Passo 4, correcao de lacuna do fluxo): a exibicao do questionario de retorno
+  // apos lacuna depende SO do estado canonico de gap ja calculado pelo backend
+  // (returnGapState.pending, vindo de GET /me/context-events/return-check — a UNICA definicao de
+  // "gap" que existe; o frontend nunca recalcula isso), nunca de qual branch da tela seria
+  // renderizado. Checado ANTES de qualquer branch abaixo (plano existe, nao existe, carregando,
+  // erro, bloqueado, etc.) — cobre TODOS os casos com um unico ponto de decisao, em vez de
+  // depender de cada branch individualmente lembrar de renderizar o modal (era exatamente esse o
+  // bug: so' os branches "sem plano" tinham o modal cabeado). Dedupe por gapAnchorDate ja vem
+  // pronto do backend (getReturnQuestionnaireState) — responder uma vez marca a lacuna como
+  // contextualizada e este bloco para de disparar sozinho, sem nenhum estado extra aqui. Nao
+  // bloqueia nada: assim que returnGapState deixa de ter pending=true (respondido ou nunca esteve
+  // pendente), a funcao segue direto pros branches normais abaixo, no mesmo render seguinte.
+  if (returnGapState?.pending === true && !returnGapDismissed) {
+    return (
+      <View style={styles.section}>
+        <ReturnAfterGapModal
+          visible
+          daysSinceLastObserved={returnGapState.daysSinceLastObserved}
+          submitting={returnGapSubmitting}
+          onSubmit={submitReturnGapQuestionnaire}
+          onDismiss={() => setReturnGapDismissed(true)}
+        />
+      </View>
+    );
+  }
+
   // Bug real corrigido 12/09 (Juliana, Lucelane): "!plan && !notGeneratedRange" tambem e verdadeiro
   // durante o carregamento inicial e apos falha de API — sem as guards abaixo, qualquer dessas
   // situacoes mostrava "Seu acesso esta quase pronto" para alunos com status manual_active (cortesia).
@@ -4777,13 +4803,6 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
           onSkip={skipCheckInAndGenerate}
           onSubmit={submitCheckInAndGenerate}
         />
-        <ReturnAfterGapModal
-          visible={returnGapState?.pending === true && !returnGapDismissed}
-          daysSinceLastObserved={returnGapState?.daysSinceLastObserved ?? null}
-          submitting={returnGapSubmitting}
-          onSubmit={submitReturnGapQuestionnaire}
-          onDismiss={() => setReturnGapDismissed(true)}
-        />
       </View>
     );
   }
@@ -4853,13 +4872,6 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
           onConfirmYes={() => setCheckInGate((current) => (current ? { ...current, step: 'questions' } : current))}
           onSkip={skipCheckInAndGenerate}
           onSubmit={submitCheckInAndGenerate}
-        />
-        <ReturnAfterGapModal
-          visible={returnGapState?.pending === true && !returnGapDismissed}
-          daysSinceLastObserved={returnGapState?.daysSinceLastObserved ?? null}
-          submitting={returnGapSubmitting}
-          onSubmit={submitReturnGapQuestionnaire}
-          onDismiss={() => setReturnGapDismissed(true)}
         />
       </View>
     );

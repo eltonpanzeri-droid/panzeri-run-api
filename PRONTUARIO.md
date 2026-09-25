@@ -2010,3 +2010,37 @@ Tempo/Distância, data "16/09" sendo 17/09 o dia real, e mensagens (Avisos) trav
 - Estatísticas de período computadas em `Progress` a partir de `data.recentWeeks` filtrado pelo `chartPeriod` corrente.
 - **Arquivo alterado**: `apps/mobile/App.tsx`.
 - **Gates**: typecheck limpo (mobile e admin).
+
+**2026-09-24/25 — Training Intelligence: Passos 1 a 4 (fundação longitudinal, ciclo de vida da prescrição, reavaliação de 15 semanas, contexto/lacunas)**
+
+Retomada tardia do Diário — este bloco cobre 4 rodadas grandes de trabalho aprovadas por Elton e implementadas em sequência, cada uma encerrada com "PARE, não avance sem minha ordem" antes da próxima. Registrado aqui de uma vez porque não foi anotado no momento (falha de processo — corrigir daqui pra frente: anotar a cada Passo fechado, não só no fim).
+
+**Passo 1/2 — Fundação de Training Intelligence + Athlete State Snapshot + correção do ciclo de vida da prescrição.**
+- `VariableRegistry` + `ObservationReaderService` + `MathLayerService` + `LongitudinalDynamicsService`: camada determinística que lê WorkoutCompletion/WeeklyCheckIn e calcula média/tendência/baseline/desvio/variabilidade/excursões/persistência/retorno por variável, sempre preservando `evidence.n`/`observedSpan`/missing≠zero.
+- `AthleteStateSnapshotService` (`/coach/students/:id/athlete-state`): orquestra tudo isso em domínios (training/sleepRecovery/physicalState/psychologicalState/trainingResponse/painHealth/performanceCapacity/behavior/lifeContext/systemDynamics/evidenceQuality) — não é score, não decide treino.
+- `CompactAgentContext`: comprime o Snapshot pro prompt do agente de prescrição sem duplicar dado.
+- **Correção do ciclo de vida da prescrição** (schema): `TrainingSession.origin` ('agent'/'coach_manual'/'student_extra'/null=legado), `TrainingSession.prescriptionHistory` (snapshot append-only quando edição manual sobrescreve sessão já executada), `TrainingSession.updatedAt`. `regenerateSession()` passou a bloquear sessão já executada (`code: 'session_already_completed'`) e respeitar a regra temporal (passado nunca regenera; hoje só com `allowToday` explícito). Prova cadastrada virou exceção explícita de rotina (`injectTargetRaceDays`). "Ajustado" virou "Fiz, mas mudei o treino" na UI (`WorkoutCompletion.adjustmentReasons/adjustmentComment/adjustmentPreferredActivity`, valor interno `'adjusted'` preservado). `TRAINING_INTELLIGENCE_DATA_CUTOFF` (01/08/2026) centralizado em `common/training-history-policy.ts`.
+- **Arquivos-chave**: `apps/api/src/training-intelligence/*`, `training-plans.service.ts` (generateWeek/regenerateSession), `coach.service.ts` (updateTrainingSession), `prescription-agent.service.ts`.
+
+**Passo 3 — Reavaliação de 15 semanas + trajetória longitudinal + Evolution Report.**
+- Ciclo oficial mudou de 90 para **105 dias** (`ReassessmentService.REASSESSMENT_DUE_AFTER_DAYS`), âncora = última reavaliação concluída ou `OnboardingInterview.completedAt`. Aviso na semana 14 (`REASSESSMENT_WARNING_AFTER_DAYS=98`) via cron diário (push+e-mail). Ao completar 105 dias, `generateWeek()` bloqueia a próxima geração (`code: 'reassessment_required'`) sem tocar treinos já existentes.
+- Reavaliação passou a reaplicar, com as MESMAS chaves da entrevista inicial, os 17 ratings 1-10, objetivo (9 opções canônicas), dor estruturada por região e km semanal — produzindo série real INITIAL→R1→R2→R3 (`reassessment-trajectory.ts`, `buildReassessmentTrajectories`), com comparabilidade DIRECT/PARTIAL declarada por variável e missing nunca virando zero.
+- Versionamento novo: `OnboardingInterview.interviewVersion`/`Reassessment.reassessmentVersion` (null=legado, nunca reclassificado retroativamente).
+- `EvolutionReport` (tabela nova): gerado uma vez por reavaliação concluída (`ReassessmentService.complete()`), persistido, reutilizado pelo agente de prescrição sem re-chamar a IA. Reopen de uma reavaliação invalida (`invalidatedAt`) o relatório associado. `EvolutionAgentService` reescrito pra receber a trajetória COMPLETA (não só "últimas 5") + Athlete State Snapshot, sem nunca gerar score/nota geral.
+- **Arquivos-chave**: `apps/api/src/reassessment/*`, `apps/mobile/App.tsx` (reassessmentQuestions).
+
+**Passo 4 — ContextEvent (contexto longitudinal) + retorno após lacuna de treino.**
+- `ContextEvent` (tabela nova, spec já estava escrita em `ATHLETE_STATE_MODEL.md` seções 12-15): type/subtype/startedAt/endedAt/status(ongoing|ended)/source(student_reported|coach_reported|reassessment|return_after_gap|system_detected)/originalText. Nunca infere causa — observação, relato e associação temporal ficam sempre separados.
+- Detecção de gap: 14 dias sem execução válida (`GAP_RETURN_THRESHOLD_DAYS`, centralizado em `context-events/context-event-types.ts`) dispara questionário de retorno no app (5 perguntas: treinou?/motivo/condição física 1-5/disposição mental 1-5/nota livre) — tudo autorrelato, nunca vira WorkoutCompletion/RPE/volume inventado.
+- `WorkoutCompletion.firstObservationAfterGapEventId`: metadado que marca a primeira execução real após um retorno respondido (pra Training Intelligence estudar antes→gap→retorno→recuperação depois).
+- `AthleteStateSnapshotService.lifeContext` ganhou `activeEvents`/`recentEvents`/`currentGapStatus`/`latestReturnContext` (além da contagem de StudentObservation/StudentDirective que já existia).
+- Caminho manual do treinador pronto (`POST /coach/students/:id/context-events`), sem tela no admin ainda (fica pro Passo 5).
+- **Arquivos-chave**: `apps/api/src/context-events/*` (módulo novo), `workout-completions.service.ts`, `athlete-state-snapshot.service.ts`.
+
+**Validação real (Elton/Juliana/Lucelane) em todos os 4 Passos**: só leitura em produção, nenhum dado fabricado. Nenhum dos três estava em gap ao final do Passo 4 (todos treinaram no dia). Nenhum dos três tinha reavaliação concluída ainda ao final do Passo 3 (ciclo de 105 dias ainda não se completou pra nenhum). Cutoff de 01/08 confirmado ativo em produção (ex: `perceivedEffort` de Elton caiu de n=63/from=02/07 pra n=54/from=02/08 após o Passo 2).
+
+**Gates**: cada Passo fechado com typecheck limpo (api+mobile) e suíte de testes verde antes de sincronizar (208→258→276 testes ao longo dos 4 Passos). 3 suítes pré-existentes (`training-methodology.spec.ts`, `exercise-libraries.spec.ts`, `auth.service.spec.ts`) seguem quebradas por motivo não relacionado a este trabalho (referenciam código de outra feature em andamento) — não foram tocadas.
+
+**Commits no espelho**: `6764a9a` (Passo 2), `ca5ff84` (Passo 3), `db6f2cf` (Passo 4). Todos com push+deploy confirmados por Elton antes da validação real de cada Passo.
+
+**Pendência explícita**: Passo 5 (dashboard/telas de contexto, tela do treinador pra ContextEvent manual, Evolution Report na UI) só começa com ordem explícita de Elton — não implementado ainda.

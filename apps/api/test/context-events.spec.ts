@@ -183,6 +183,88 @@ describe('ContextEventsService — primeira observacao apos o gap (secoes 14; te
   });
 });
 
+// 25/09/2026 (correcao de fluxo, Passo 4 fechamento definitivo) — o ReturnAfterGapModal no mobile
+// foi recentrado pra depender EXCLUSIVAMENTE de GET /me/context-events/return-check (o mesmo
+// getReturnQuestionnaireState testado acima), nunca de existir ou nao existir TrainingPlan. Estes
+// testes provam a propriedade que sustenta essa correcao: o estado canonico de gap NUNCA consulta
+// TrainingPlan/TrainingSession — so' WorkoutCompletion (execucao) e ContextEvent (dedup). Isso
+// garante, por construcao, que os cenarios B/C/D do pedido (com ou sem plano, com ou sem sessoes
+// antigas visiveis) produzem o MESMO resultado — o service e' cego a essa dimensao.
+describe('ContextEventsService — estado canonico de gap e independente de existir TrainingPlan (correcao A-H)', () => {
+  function buildService(prisma: Record<string, unknown>) {
+    return new ContextEventsService(prisma as never);
+  }
+
+  it('A. gap < 14 dias -> pending=false, independente de outros dados', async () => {
+    const prisma = {
+      workoutCompletion: { findFirst: jest.fn().mockResolvedValue({ completedAt: daysAgo(5) }) },
+      contextEvent: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+    const state = await buildService(prisma).getReturnQuestionnaireState('u1');
+    expect(state.pending).toBe(false);
+  });
+
+  it('B/C/D. gap >= 14 dias -> pending=true; o service nunca consulta trainingPlan/trainingSession (prova estrutural de independencia do plano)', async () => {
+    const findFirst = jest.fn().mockResolvedValue({ completedAt: daysAgo(20) });
+    const contextEventFindFirst = jest.fn().mockResolvedValue(null);
+    const prisma = {
+      workoutCompletion: { findFirst },
+      contextEvent: { findFirst: contextEventFindFirst },
+      // Deliberadamente SEM trainingPlan/trainingSession no mock — se o service tentasse consultar
+      // qualquer um dos dois (para decidir com base em "existe plano?"), o teste quebraria com
+      // "Cannot read properties of undefined", provando que a decisao NAO depende disso.
+    };
+    const state = await buildService(prisma).getReturnQuestionnaireState('u1');
+    expect(state.pending).toBe(true);
+    expect(state.gap.daysSinceLastObserved).toBe(20);
+  });
+
+  it('E. gap ja contextualizado (respondido) -> pending=false', async () => {
+    const prisma = {
+      workoutCompletion: { findFirst: jest.fn().mockResolvedValue({ completedAt: daysAgo(20) }) },
+      contextEvent: { findFirst: jest.fn().mockResolvedValue({ id: 'evt-respondido' }) },
+    };
+    const state = await buildService(prisma).getReturnQuestionnaireState('u1');
+    expect(state.pending).toBe(false);
+  });
+
+  it('F/G. apos responder, a MESMA lacuna (gapAnchorDate igual) nunca volta a ficar pending — dedup natural, sem estado extra no frontend', async () => {
+    const lastObserved = daysAgo(20);
+    const create = jest.fn().mockImplementation(({ data }: { data: unknown }) => Promise.resolve({ id: 'evt-1', ...(data as object) }));
+    let answered: { id: string } | null = null;
+    const prisma = {
+      workoutCompletion: { findFirst: jest.fn().mockResolvedValue({ completedAt: lastObserved }) },
+      contextEvent: { findFirst: jest.fn().mockImplementation(() => Promise.resolve(answered)), create },
+    };
+    const service = buildService(prisma);
+
+    const before = await service.getReturnQuestionnaireState('u1');
+    expect(before.pending).toBe(true);
+
+    await service.submitReturnQuestionnaire('u1', {
+      trainingDuringGap: 'none', reason: 'travel', physicalStateComparedToBefore: 3, mentalReadinessComparedToBefore: 3,
+    });
+    answered = { id: 'evt-1' }; // simula a linha agora existente com gapAnchorDate = lastObserved
+
+    const after = await service.getReturnQuestionnaireState('u1');
+    expect(after.pending).toBe(false);
+  });
+
+  it('H. uma NOVA lacuna futura (execucao nova, depois uma lacuna diferente) volta a ficar pending — gapAnchorDate muda', async () => {
+    // Aluno respondeu a lacuna antiga (ancorada em daysAgo(40)), treinou de novo, e agora esta
+    // numa lacuna NOVA ancorada em daysAgo(15) — gapAnchorDate diferente, contextEvent.findFirst
+    // pra essa nova ancora nao encontra nada (so' a lacuna antiga foi respondida).
+    const prisma = {
+      workoutCompletion: { findFirst: jest.fn().mockResolvedValue({ completedAt: daysAgo(15) }) },
+      contextEvent: { findFirst: jest.fn().mockImplementation(({ where }: { where: { gapAnchorDate: Date } }) => {
+        return Promise.resolve(where.gapAnchorDate.getTime() === daysAgo(40).getTime() ? { id: 'evt-antigo' } : null);
+      }) },
+    };
+    const state = await buildService(prisma).getReturnQuestionnaireState('u1');
+    expect(state.pending).toBe(true);
+  });
+});
+
 describe('ContextEventsService — lifeContext compacto (secoes 18, AC; testes V, AC)', () => {
   it('V. traz activeEvents/recentEvents/currentGapStatus/latestReturnContext sem despejar historico inteiro', async () => {
     const prisma = {
