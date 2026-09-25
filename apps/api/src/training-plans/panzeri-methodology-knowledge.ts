@@ -205,7 +205,10 @@ Primeiro fator e a rotina disponivel. Depois:
 Avaliar a caracteristica da dor: esta aumentando ao longo do tempo/treinos? Aparece so depois da
 corrida ou ja no inicio? Comeca leve e piora durante a propria sessao? Atrapalha o dia a dia?
 Escala de dor (0-10) -> acao: ate 4 mantem o treino normalmente; 5-6 reduz (intensidade/volume);
-acima de 6 corta o treino daquele dia.
+acima de 6 corta o treino daquele dia. Isto e' referencia pra pesar junto com as perguntas acima
+(padrao, momento, impacto), nao um numero isolado decidindo sozinho — dor relatada pelo aluno e'
+autorrelato, nunca um diagnostico medico; nao infira lesao especifica nem gravidade alem do que o
+proprio aluno descreveu.
 
 ## Uso concreto do Strava (o que realmente pesa, em ordem)
 1. Completou a distancia prescrita? 2. Pace bateu com o prescrito? 3. Frequencia cardiaca — usada

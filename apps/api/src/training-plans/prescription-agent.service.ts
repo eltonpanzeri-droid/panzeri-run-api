@@ -692,6 +692,11 @@ export class PrescriptionAgentService {
       // estruturados (viagem, mudanca de trabalho, saude, dor/lesao, etc) alem da contagem de
       // StudentObservation/StudentDirective que ja existia. NUNCA e' baseado em pool de variaveis
       // (nao confundir com os outros dominios).
+      // Passo 6 (25/09/2026, validacao integrada): faltava esta instrucao explicita — dor
+      // relatada (painFlag/painTiming no feedback, PainReport, ou ContextEvent type=pain_injury)
+      // e' sempre autorrelato do aluno, nunca um diagnostico medico. Nao infira lesao especifica,
+      // gravidade clinica ou prognostico alem do que foi literalmente relatado.
+      '- Dor relatada (painFlag/painTiming, PainReport, ou um ContextEvent do tipo pain_injury na lifeContext) e sempre autorrelato do proprio aluno, nunca um diagnostico medico. Nao infira lesao especifica, gravidade clinica ou prognostico alem do que foi literalmente descrito — trate como um sinal a mais no seu julgamento, nao uma classificacao clinica confirmada.',
       '- athleteStateContext.lifeContext (quando presente) traz: activeEvents (eventos em curso, sem data de fim), recentEvents (encerrados nos ultimos ~60 dias), currentGapStatus ({inGap, daysSinceLastObserved, thresholdDays} — inGap=true significa que o aluno passou o limiar operacional sem nenhuma execucao valida registrada; isso e OBSERVACAO, nunca diagnostico de causa), e latestReturnContext (quando o proprio aluno respondeu o questionario de retorno apos uma lacuna: motivo relatado, se treinou fora do app durante o periodo, e como ele compara sua condicao fisica/disposicao mental a antes da lacuna, numa escala 1-5 autorrelatada). REGRAS DURAS: (1) currentGapStatus.inGap=true NUNCA autoriza reduzir volume/intensidade automaticamente — a mesma lacuna pode significar coisas completamente diferentes pra alunos diferentes (um pode ter treinado normal fora do app numa viagem, outro pode ter ficado doente e parado — latestReturnContext e onde essa diferenca aparece, use-a). (2) Nunca trate associacao temporal entre um evento de contexto e uma mudanca observada em outra variavel como causalidade (ex: nao escreva "a viagem causou a queda de sono" — no maximo "a viagem coincide com o periodo de queda de sono"). (3) trainingDuringGapReported e um autorrelato categorico (nao treinou / muito pouco / alguns treinos fora / treinou normal fora) — nunca convertido em km, RPE ou volume real, porque esse dado nao existe. (4) Se latestReturnContext existir e for recente, isso e informacao real e relevante pra calibrar a primeira semana pos-retorno — use julgamento de treinador real, nunca uma formula fixa.',
       // Passo 3 (25/09/2026, ordem aprovada): relatorioDeEvolucao complementa athleteStateContext.
       // athleteStateContext descreve "como o aluno esta agora" (dias/semanas recentes);
@@ -831,21 +836,28 @@ export class PrescriptionAgentService {
               }
               // V2: 15 perguntas em 3 blocos
               if (ci.checkinVersion === 2 && ci.prescriptionLiking != null) {
+                // CORRECAO (Passo 6, validacao integrada, 25/09/2026): prescriptionLiking,
+                // prescriptionSuitability, executionSatisfaction, bodyResponseVsNormal e
+                // postWeekMotivation tem entrada de versao 2 E 3 no VariableRegistry (mesma coluna
+                // reaproveitada) — pra um aluno ainda em checkinVersion=2, esses 5 valores JA
+                // chegam pelo athleteStateContext.checkin.* (com trend/baseline/desvio, ver
+                // variable-registry.ts), exatamente como acontece na v3 (ver comentario logo
+                // acima). Antes desta correcao eles eram enviados aqui de novo, brutos — a mesma
+                // duplicacao que a v3 ja evitava. Os campos abaixo (perceivedExecution,
+                // weeklySleep, currentPhysicalFatigue, weeklyStress, routineInterference,
+                // nextWeekMotivation, nextWeekConfidence, expectedScheduleFeasibility,
+                // expectedPhysicalState) NAO tem entrada no VariableRegistry (retirados na v3,
+                // nunca migrados) — continuam so' aqui, e' o unico caminho deles ate o agente.
                 return {
                   versao: 2,
                   bloco1_comoFoiASemana: {
-                    avaliacaoDaPropostaDeTreinos: ci.prescriptionLiking,
-                    adequacaoDaSemanaASituacaoAtual: ci.prescriptionSuitability,
                     percepcaoDeExecucaoDosPlanos: ci.perceivedExecution,
-                    satisfacaoComAPropriaExecucao: ci.executionSatisfaction,
-                    motivacaoAoFinalDaSemana: ci.postWeekMotivation,
                   },
                   bloco2_comoEstaAgora: {
                     qualidadeDoSonoNaSemana: ci.weeklySleep,
                     sensacaoFisicaAtual: ci.currentPhysicalFatigue,
                     nivelDeEstresseNaSemana: ci.weeklyStress,
                     interferenciaDaRotinaNasTreinamentos: ci.routineInterference,
-                    respostaDoCorpoVsHabitual: ci.bodyResponseVsNormal,
                   },
                   bloco3_proximaSemana: {
                     motivacaoParaProximaSemana: ci.nextWeekMotivation,

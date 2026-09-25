@@ -256,4 +256,46 @@ describe('Integracao Athlete State Snapshot -> prompt do prescription-agent', ()
     expect(prompt.diretrizesEspecificasDoTreinadorParaEsteAluno).toEqual(['reduzir impacto']);
     expect(prompt.objetivo).toBe('Correr 10km');
   });
+
+  // Passo 6 (25/09/2026, validacao integrada) — CONFLITO REAL encontrado e corrigido: pra um aluno
+  // ainda em Weekly Check-in v2, 5 variaveis (prescriptionLiking/prescriptionSuitability/
+  // executionSatisfaction/bodyResponseVsNormal/postWeekMotivation) tem entrada dupla no
+  // VariableRegistry (versao 2 E 3, mesma coluna) — chegavam ao agente duas vezes: uma vez via
+  // athleteStateContext.variables['checkin.*'] e outra vez brutas em autoavaliacaoDaSemanaPeloAluno.
+  // O branch v3 ja evitava isso (so' manda bloco4); o branch v2 nao evitava. Corrigido pra so'
+  // mandar os campos v2-exclusivos (sem entrada no registry: perceivedExecution, weeklySleep,
+  // currentPhysicalFatigue, weeklyStress, routineInterference, nextWeekMotivation,
+  // nextWeekConfidence, expectedScheduleFeasibility, expectedPhysicalState, preferredNextWeekTraining).
+  it('18. Weekly Check-in v2 nao duplica mais os campos que ja tem entrada no VariableRegistry (checkin.*)', () => {
+    const service = buildService();
+    let context = emptyCompactContext();
+    context = withVariable(context, 'behavior', 'checkin.prescriptionLiking', fullVariable({ current: 4 }));
+    const prompt = callBuildUserPrompt(service, baseInput({
+      athleteStateContext: context,
+      weeklyCheckIn: {
+        checkinVersion: 2, checkinSkipped: false,
+        elaborationSatisfaction: null, adherenceSatisfaction: null, nextWeekMotivation: 3,
+        prescriptionLiking: 4, prescriptionSuitability: 5, perceivedExecution: 2, executionSatisfaction: 4, postWeekMotivation: 5,
+        weeklySleep: 3, currentPhysicalFatigue: 2, weeklyStress: 3, routineInterference: 1, bodyResponseVsNormal: 4,
+        nextWeekConfidence: 4, expectedScheduleFeasibility: 5, expectedPhysicalState: 3, preferredNextWeekTraining: 'seguir',
+        weekDemandVsNormal: null, expectedRoutineInterference: null, freeTextObservation: null,
+      },
+    }));
+    const bloco1 = prompt.autoavaliacaoDaSemanaPeloAluno.bloco1_comoFoiASemana;
+    const bloco2 = prompt.autoavaliacaoDaSemanaPeloAluno.bloco2_comoEstaAgora;
+    // Duplicados removidos:
+    expect(bloco1).not.toHaveProperty('avaliacaoDaPropostaDeTreinos');
+    expect(bloco1).not.toHaveProperty('adequacaoDaSemanaASituacaoAtual');
+    expect(bloco1).not.toHaveProperty('satisfacaoComAPropriaExecucao');
+    expect(bloco1).not.toHaveProperty('motivacaoAoFinalDaSemana');
+    expect(bloco2).not.toHaveProperty('respostaDoCorpoVsHabitual');
+    // V2-exclusivos preservados (unico caminho ate o agente):
+    expect(bloco1.percepcaoDeExecucaoDosPlanos).toBe(2);
+    expect(bloco2.qualidadeDoSonoNaSemana).toBe(3);
+    expect(bloco2.sensacaoFisicaAtual).toBe(2);
+    expect(bloco2.nivelDeEstresseNaSemana).toBe(3);
+    expect(bloco2.interferenciaDaRotinaNasTreinamentos).toBe(1);
+    // A fonte unica do dado duplicado continua chegando, so' que via Snapshot:
+    expect(prompt.athleteStateContext.variables['checkin.prescriptionLiking'].current).toBe(4);
+  });
 });

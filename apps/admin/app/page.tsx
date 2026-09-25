@@ -8624,7 +8624,7 @@ function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
           <span>
             <span style={{ display:'inline-block', width:12, height:12, background:'#22c55e', opacity:0.35, verticalAlign:'middle', marginRight:4, borderRadius:2 }} />
-            0.8 a 1.3 = zona segura
+            0.8 a 1.3 = faixa mais comumente observada como confortável
           </span>
           <span>
             <span style={{ display:'inline-block', width:12, height:12, background:'#ef4444', opacity:0.25, verticalAlign:'middle', marginRight:4, borderRadius:2 }} />
@@ -8633,7 +8633,7 @@ function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
           <span>Abaixo de 0.8 = estímulo possivelmente insuficiente</span>
         </div>
         <div style={{ fontSize: 10, fontStyle: 'italic', color: 'var(--muted)', marginTop: 2, borderTop: '1px solid var(--line)', paddingTop: 4 }}>
-          ⚠️ O ACWR é um indicador auxiliar — um valor fora da zona segura isoladamente não representa necessariamente risco.
+          ⚠️ O ACWR é um indicador auxiliar — um valor fora dessa faixa isoladamente não representa necessariamente risco.
           Interprete sempre em conjunto com RPE, sono, dor e contexto do atleta. Nunca altere a prescrição com base nesse número sozinho.
         </div>
       </div>
