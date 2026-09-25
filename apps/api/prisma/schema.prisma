@@ -38,7 +38,7 @@ model User {
   // com a IA e nao gerou nenhum plano novo — limpo (null) na proxima tentativa que tiver sucesso.
   // So existe pra dar visibilidade permanente no painel (coluna "Treino"); antes disso a falha so
   // aparecia no Telegram na hora e sumia — se o treinador nao visse na hora, nunca mais sabia.
-  lastPlanGenerationFailedAt        DateTime?
+  lastPlanGenerationFailedAt       DateTime?
   accountStatus                    String    @default("active")
   subscriptionStatus               String    @default("pending")
   subscriptionUpdatedAt            DateTime  @default(now())
@@ -60,7 +60,7 @@ model User {
   // Apple IAP ou Google Play Billing). Existe pra o cron diario do Asaas (billing-sync-scheduler)
   // nunca sobrescrever o status de quem assinou pela loja, e vice-versa — os dois sistemas nunca
   // devem decidir o status da mesma aluna ao mesmo tempo.
-  subscriptionProvider              String    @default("asaas")
+  subscriptionProvider             String    @default("asaas")
   acceptedTermsAt                  DateTime?
   acceptedPrivacyAt                DateTime?
   acceptedExerciseResponsibilityAt DateTime?
@@ -83,11 +83,11 @@ model User {
   // tentativas por semana; generationExtraAttempts e liberado manualmente pelo treinador no
   // painel quando o aluno esgota as duas (ex: pra pedir um teste). generationExhaustedAlertSent
   // evita mandar o mesmo alerta de Telegram repetido a cada nova tentativa bloqueada.
-  generationWeekStart               DateTime?
-  generationAttemptsUsed            Int       @default(0)
-  generationExtraAttempts           Int       @default(0)
-  lastGenerationAttemptAt           DateTime?
-  generationExhaustedAlertSent      Boolean   @default(false)
+  generationWeekStart              DateTime?
+  generationAttemptsUsed           Int       @default(0)
+  generationExtraAttempts          Int       @default(0)
+  lastGenerationAttemptAt          DateTime?
+  generationExhaustedAlertSent     Boolean   @default(false)
   createdAt                        DateTime  @default(now())
   updatedAt                        DateTime  @updatedAt
 
@@ -120,6 +120,7 @@ model User {
   funnelEvents        FunnelEvent[]
   menstrualProfile    MenstrualProfile?
   menstrualCycleLogs  MenstrualCycleLog[]
+  menstrualDailyLogs  MenstrualDailyLog[]
 
   // 04/09: achado numa revisao pensando em escala — nao existia indice nenhum pros filtros mais
   // usados (painel do treinador, prospectos, crons diarios), todos batem em (role,
@@ -163,37 +164,37 @@ model BillingSubscription {
 }
 
 model OnboardingInterview {
-  id          String    @id @default(uuid())
-  userId      String    @unique
-  user        User      @relation(fields: [userId], references: [id])
-  answers     Json      @default("{}")
-  currentStep Int       @default(0)
+  id                     String    @id @default(uuid())
+  userId                 String    @unique
+  user                   User      @relation(fields: [userId], references: [id])
+  answers                Json      @default("{}")
+  currentStep            Int       @default(0)
   // 18/08: "completedAt" continua significando a entrevista COMPLETA (detalhada, pos-pagamento).
   // quickIntakeCompletedAt marca a etapa nova, as 5 perguntas rapidas pre-pagamento (Bloco 2 da
   // reformulacao de onboarding) — mesma tabela/JSON de respostas, so um marco a mais. Todo lugar
   // que hoje decide "a pessoa ja terminou a entrevista ANTES de pagar" (nivel de prospecto, aviso
   // de entrevista incompleta, funil) passa a olhar pra esse campo, nao mais pro completedAt.
   quickIntakeCompletedAt DateTime?
-  completedAt DateTime?
+  completedAt            DateTime?
   // 25/09 (Passo 3, correcao de comparabilidade longitudinal): versao do instrumento que produziu
   // este conjunto de respostas. Nulo = entrevista concluida antes deste versionamento existir
   // (legado, versao indeterminada por definicao — nunca inferida retroativamente). Preenchido a
   // partir de agora com ONBOARDING_INTERVIEW_VERSION (me.service.ts) no momento da conclusao.
-  interviewVersion Int?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  interviewVersion       Int?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 }
 
 model Reassessment {
-  id                String    @id @default(uuid())
-  userId            String
-  user              User      @relation(fields: [userId], references: [id])
-  answers           Json      @default("{}")
-  currentStep       Int       @default(0)
-  completedAt       DateTime?
-  evolutionSummary  String?
-  evolutionWins     Json?
-  evolutionConcerns Json?
+  id                  String    @id @default(uuid())
+  userId              String
+  user                User      @relation(fields: [userId], references: [id])
+  answers             Json      @default("{}")
+  currentStep         Int       @default(0)
+  completedAt         DateTime?
+  evolutionSummary    String?
+  evolutionWins       Json?
+  evolutionConcerns   Json?
   // 25/09 (Passo 3): versao do instrumento de reavaliacao que produziu "answers". Nulo = reavaliacao
   // concluida com o instrumento antigo de 10 perguntas rasas (antes deste versionamento existir) —
   // legado, nunca reclassificado retroativamente. REASSESSMENT_INSTRUMENT_VERSION (reassessment-
@@ -202,10 +203,10 @@ model Reassessment {
   // da entrevista inicial — versoes antigas nao tem esses campos, e isso e' tratado como ausencia
   // real (missing), nunca como zero.
   reassessmentVersion Int?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  evolutionReport   EvolutionReport?
+  evolutionReport EvolutionReport?
 
   @@index([userId, createdAt])
 }
@@ -320,16 +321,16 @@ model UserNotification {
 }
 
 model MessageLog {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  channel     String
-  trigger     String
-  subject     String?
-  content     String
-  status      String   @default("sent")
-  errorDetail String?
-  createdAt   DateTime @default(now())
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+  channel           String
+  trigger           String
+  subject           String?
+  content           String
+  status            String    @default("sent")
+  errorDetail       String?
+  createdAt         DateTime  @default(now())
   // 27/08: id que a Resend devolve no envio — correlaciona esse registro com os eventos que
   // chegam depois pelo webhook (delivered/bounced/complained/opened). "status" acima so' reflete
   // se a Resend ACEITOU processar o envio, nao se realmente chegou na caixa de entrada — sem
@@ -445,31 +446,31 @@ model TrainingExecutionInsight {
 }
 
 model TrainingSession {
-  id                 String             @id @default(uuid())
-  planId             String
-  plan               TrainingPlan       @relation(fields: [planId], references: [id])
-  userId             String
-  scheduledDate      DateTime
-  weekday            Int
-  modality           String
-  title              String
-  sessionType        String?
-  locationSuggestion String?
-  durationMin        Int?
-  distanceKm         Float?
-  intensityZone      String?
-  paceMinSec         String?
-  structure          Json
-  notes              String?
-  recommendations    String?
-  videoRefs          String[]
+  id                  String             @id @default(uuid())
+  planId              String
+  plan                TrainingPlan       @relation(fields: [planId], references: [id])
+  userId              String
+  scheduledDate       DateTime
+  weekday             Int
+  modality            String
+  title               String
+  sessionType         String?
+  locationSuggestion  String?
+  durationMin         Int?
+  distanceKm          Float?
+  intensityZone       String?
+  paceMinSec          String?
+  structure           Json
+  notes               String?
+  recommendations     String?
+  videoRefs           String[]
   // Preenchido quando esta sessao especifica saiu da rotina/tempo que o aluno combinou (dia a
   // mais, ou duracao diferente) sem nenhuma diretriz do gerente tecnico explicando o motivo —
   // mostrado pro aluno como aviso na tela do treino, pedindo pra ele contar no feedback se deu
   // pra realizar e como se sentiu. Null quando a sessao segue a rotina normalmente (a grande
   // maioria). Nao bloqueia nada, so marca — ver [[training_plans.service.ts generateWeek]].
   routineMismatchNote String?
-  createdAt          DateTime           @default(now())
+  createdAt           DateTime           @default(now())
   // Correcao definitiva do ciclo de vida da prescricao (25/09/2026, Passo 2 fechado). Origem real
   // desta sessao — 'agent' (gerada/regenerada pelo prescription-agent), 'coach_manual' (treinador
   // criou direto, sem passar pelo agente) ou 'student_extra' (aluno registrou treino extra por
@@ -477,7 +478,7 @@ model TrainingSession {
   // null (desconhecido) — nunca inventamos origem retroativa pra dado legado. Novas sessoes
   // sempre recebem um valor real nos 3 pontos de criacao (generateWeek/regenerateSession,
   // createManualSession, addStudentExtraSession).
-  origin             String?
+  origin              String?
   // Quando um treinador edita manualmente (updateTrainingSession) uma sessao que JA tem
   // completion, guardamos aqui um snapshot append-only do que a prescricao era ANTES da edicao —
   // nunca sobrescrevemos silenciosamente a prescricao associada a uma execucao ja registrada (ver
@@ -485,8 +486,8 @@ model TrainingSession {
   // distanceKm, paceMinSec, structure}. Null/vazio quando a sessao nunca foi editada apos ter
   // completion. NAO e' um sistema de auditoria generico — so' existe pra esse caso especifico.
   prescriptionHistory Json?
-  updatedAt          DateTime           @updatedAt
-  completion         WorkoutCompletion?
+  updatedAt           DateTime           @updatedAt
+  completion          WorkoutCompletion?
 
   // 09/09 — indice para queries de evolucao do atleta (busca por usuario + ordem cronologica).
   // Sem isso a query principal de evolucao faz full-scan em TrainingSession inteira.
@@ -494,31 +495,31 @@ model TrainingSession {
 }
 
 model WorkoutCompletion {
-  id               String           @id @default(uuid())
-  userId           String
-  user             User             @relation(fields: [userId], references: [id])
-  sessionId        String?          @unique
-  session          TrainingSession? @relation(fields: [sessionId], references: [id])
-  completedAt      DateTime         @default(now())
-  status           String
-  durationMin      Float?
-  distanceKm       Float?
-  avgPaceSecondsKm Int?
-  avgHeartRate     Int?
-  maxHeartRate     Int?
-  perceivedEffort  Int?
+  id                     String           @id @default(uuid())
+  userId                 String
+  user                   User             @relation(fields: [userId], references: [id])
+  sessionId              String?          @unique
+  session                TrainingSession? @relation(fields: [sessionId], references: [id])
+  completedAt            DateTime         @default(now())
+  status                 String
+  durationMin            Float?
+  distanceKm             Float?
+  avgPaceSecondsKm       Int?
+  avgHeartRate           Int?
+  maxHeartRate           Int?
+  perceivedEffort        Int?
   // "satisfaction" (original, 07/2026) passou a representar especificamente a satisfacao em FAZER
   // o treino (dimensao 2 de 4) — mantido sem renomear pra preservar historico. As outras 3
   // dimensoes (19/08, pedido do treinador: pergunta vaga = aluno perdido, igual comando vago pra
   // IA) sao colunas novas. Todas usam a mesma escala de 5 categorias (amei..detestei), exceto
   // satisfactionCarga que usa uma escala propria de adequacao (muito_leve..muito_pesada) — ver
   // SATISFACTION_SCORE/CARGA_SCORE em workout-completions.service.ts pra conversao numerica.
-  satisfaction         String? // dimensao 2 historica: satisfacao em FAZER o treino — coletada ate 10/09/2026; substituida por postWorkoutFeeling
+  satisfaction           String? // dimensao 2 historica: satisfacao em FAZER o treino — coletada ate 10/09/2026; substituida por postWorkoutFeeling
   satisfactionElaboracao String? // dimensao 1: satisfacao com a ELABORACAO do treino (v1: obrigatoria a partir de 11/09)
   satisfactionCapacidade String? // dimensao 3: satisfacao com COMO CONSEGUIU fazer (v1: obrigatoria a partir de 11/09)
   satisfactionCarga      String? // dimensao 4 historica: carga adequada? — coletada ate 10/09/2026; nao mais coletada na v1
 
-  painFlag         String?   // none | leve | moderado | forte ('moderado' adicionado na v1)
+  painFlag String? // none | leve | moderado | forte ('moderado' adicionado na v1)
 
   // Feedback v1 (11/09/2026) — bloco 1: estado pre-treino
   // 1=extremo negativo, 5=extremo positivo (ver labels em App.tsx/prescription-agent para cada variavel)
@@ -532,8 +533,8 @@ model WorkoutCompletion {
 
   // Feedback v1 (11/09/2026) — bloco 3: dor
   painTiming String? // condicional (so preenchido quando painFlag != 'none'):
-                     // ja_comecei_sentindo | comeco_passou | comeco_continuou |
-                     // durante_passou | durante_continuou | so_depois
+  // ja_comecei_sentindo | comeco_passou | comeco_continuou |
+  // durante_passou | durante_continuou | so_depois
 
   // Feedback v2 (24/09/2026) — reestruturacao do feedback individual do treino, pedido explicito
   // do treinador. REGRA CANONICA DAS ESCALAS 1-5 a partir daqui (e retroativamente documentada
@@ -548,17 +549,17 @@ model WorkoutCompletion {
   // sleepDurationCategory: pergunta 2 — CATEGORICA, nao e' escala de intensidade 1-5 e nunca deve
   // ser interpretada como "quanto maior, melhor" (dormir demais nao e' "melhor" que a faixa ideal).
   // Valores: menos_5h | 5_a_6h | 6_a_7h | 7_a_8h | 8_a_9h | mais_9h.
-  sleepDurationCategory String?
+  sleepDurationCategory      String?
   // Representacao numerica auxiliar da categoria acima (ponto medio da faixa em horas, ex: "6_a_7h"
   // -> 6.5), gravada so' pra facilitar calculo futuro — NAO e' uma escala de intensidade, e' so' a
   // transcricao numerica direta da categoria escolhida (sem formula, sem interpretacao).
   sleepDurationHoursEstimate Float?
   // Pergunta 3 — irregularidade do horario de dormir vs habitual. 5 = mais irregular.
-  sleepScheduleIrregularity Int?
+  sleepScheduleIrregularity  Int?
   // Pergunta 4 — o quanto o sono foi interrompido durante a noite. 5 = mais interrompido.
-  sleepInterruption Int?
+  sleepInterruption          Int?
   // Pergunta 5 — dificuldade para pegar no sono. 5 = mais dificuldade.
-  sleepDifficulty Int?
+  sleepDifficulty            Int?
 
   // Bloco ESTADO ANTES DO TREINO. prePhysicalFatigue (acima) = pergunta 6, mantida sem mudanca.
   // preStressLevel (acima) = pergunta 8: ADAPTADA a partir do feedbackVersion 2 — deixou de medir
@@ -588,9 +589,9 @@ model WorkoutCompletion {
   // 1=muito pouco, 5=extremamente (positivo=mais cansaco). Reaproveitar a mesma coluna teria
   // corrompido silenciosamente qualquer media historica misturando v1 e v2. postWorkoutFeeling
   // continua existindo e sendo lida em sessoes feedbackVersion 1.
-  postPhysicalFatigue Int?
+  postPhysicalFatigue       Int?
   // Pergunta 14, NOVA — cansaco mental provocado pelo treino. 5 = mais cansaco mental.
-  postMentalFatigue Int?
+  postMentalFatigue         Int?
   // Pergunta 15, SUBSTITUI o campo "postWorkoutMood" que vivia em details (JSON, sem coluna
   // propria, 12/09/2026) — promovido a coluna real. Experiencia emocional DURANTE o treino.
   // 1=muito mal, 5=muito bem. Leitura de sessoes antigas (feedbackVersion 1) deve continuar
@@ -599,7 +600,7 @@ model WorkoutCompletion {
   // Pergunta 16, NOVA — mudanca percebida no estado mental comparando antes x depois do treino.
   // Nao e' redundante com a 15 (que mede a experiencia DURANTE, nao a mudanca). 1=muito pior,
   // 5=muito melhor (aqui "melhor" e' o proprio sentido da pergunta, nao inversao de intensidade).
-  mentalStateChangePrePost Int?
+  mentalStateChangePrePost  Int?
 
   // Versionamento: incrementar so quando o significado de uma variavel mudar de verdade.
   // v1 = estrutura de 11/09/2026 (blocos 1-2-3, 8 perguntas obrigatorias + dor).
@@ -607,17 +608,17 @@ model WorkoutCompletion {
   // ver tabela mantida/adaptada/substituida/nova completa em GLOSSARIO_METRICAS.md.
   feedbackVersion Int @default(1)
 
-  notes            String?
-  details          Json?
-  source           String           @default("manual")
+  notes   String?
+  details Json?
+  source  String  @default("manual")
 
   // Correcao definitiva do ciclo de vida da prescricao (25/09/2026) — "Fiz, mas mudei o treino"
   // (status continua sendo o valor legado 'adjusted', so o ROTULO exibido mudou, sem migration
   // destrutiva). Motivos de multipla escolha (ids curtos, ver ADJUSTMENT_REASON_OPTIONS no
   // mobile), so' preenchido quando status='adjusted'. NAO altera TrainingSession — a prescricao
   // original permanece intacta; isso so' descreve o PORQUE da execucao ter sido diferente.
-  adjustmentReasons String[]
-  adjustmentComment String?
+  adjustmentReasons           String[]
+  adjustmentComment           String?
   // So' preenchido quando um dos adjustmentReasons for "preferi fazer outro treino".
   adjustmentPreferredActivity String?
 
@@ -653,7 +654,7 @@ model ContextEvent {
   endedAt    DateTime?
   reportedAt DateTime  @default(now())
   // ongoing | ended
-  status String @default("ongoing")
+  status     String    @default("ongoing")
 
   // student_reported | coach_reported | reassessment | return_after_gap | system_detected
   // (system_detected reservado para deteccao futura de mudanca-sem-causa-conhecida — nao escrito
@@ -669,16 +670,16 @@ model ContextEvent {
   // separada de proposito (secao 13 do Passo 4: "evite estruturas duplicadas").
   // Ancora de deduplicacao: a data da ultima execucao valida ANTES da lacuna que gerou este evento
   // — impede perguntar de novo pela mesma lacuna (ver ContextEventsService.getReturnQuestionnaireState).
-  gapAnchorDate                    DateTime?
+  gapAnchorDate                   DateTime?
   // none | very_little | some_outside | normal_outside (ver TRAINING_DURING_GAP_OPTIONS)
-  trainingDuringGapReported        String?
+  trainingDuringGapReported       String?
   // 1 (muito pior) a 5 (muito melhor), autorrelato, nunca calculado
-  physicalStateComparedToBefore    Int?
+  physicalStateComparedToBefore   Int?
   // 1 (muito menor) a 5 (muito maior), autorrelato, nunca calculado
-  mentalReadinessComparedToBefore  Int?
+  mentalReadinessComparedToBefore Int?
   // true assim que uma WorkoutCompletion real for vinculada como "primeira observacao apos a
   // lacuna" (ver WorkoutCompletion.firstObservationAfterGapEventId) — evita vincular mais de uma.
-  firstObservationLinkedAt         DateTime?
+  firstObservationLinkedAt        DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -708,17 +709,17 @@ model TargetRace {
   // 10, tudo opcional (provas cadastradas antes disso ficam sem essas respostas ate serem
   // editadas). Existe pra IA calibrar TOM e o quanto vale empurrar alem do confortavel, nunca
   // como formula/trava — ver a regra correspondente em prescription-agent.service.ts.
-  performanceIntent      Int?
-  socialIntent           Int?
-  personalImportance     Int?
-  perceivedDifficulty    Int?
-  dedicationWillingness  Int?
+  performanceIntent       Int?
+  socialIntent            Int?
+  personalImportance      Int?
+  perceivedDifficulty     Int?
+  dedicationWillingness   Int?
   achievementSatisfaction Int?
-  confidenceLevel        Int?
+  confidenceLevel         Int?
   injuryConcern           Int?
   adjustmentOpenness      Int?
-  anxietyLevel             Int?
-  isFirstTimeAtDistance    Boolean?
+  anxietyLevel            Int?
+  isFirstTimeAtDistance   Boolean?
 
   @@index([userId, status])
 }
@@ -757,46 +758,46 @@ model PainReport {
 // originais ficam nullable para nao quebrar registros antigos (v1). Sentinel de "pulou" em v1:
 // elaborationSatisfaction===0; em v2: checkinSkipped=true. A IA recebe semDados em ambos os casos.
 model WeeklyCheckIn {
-  id                      String        @id @default(uuid())
-  userId                  String
-  user                    User          @relation(fields: [userId], references: [id])
-  planId                  String?
-  plan                    TrainingPlan? @relation(fields: [planId], references: [id])
-  weekStartDate           DateTime
+  id                          String        @id @default(uuid())
+  userId                      String
+  user                        User          @relation(fields: [userId], references: [id])
+  planId                      String?
+  plan                        TrainingPlan? @relation(fields: [planId], references: [id])
+  weekStartDate               DateTime
   // Numeros reais da semana, capturados no momento do check-in (nao recalculados depois) — mesma
   // fonte que StravaService.report() ja usa pra montar o relatorio de evolucao, reaproveitados
   // aqui em vez de duplicar a logica de comparacao previsto/feito.
-  asPrescribedSessions    Int
-  changedModalitySessions Int
-  differentSessions       Int
-  missedSessions          Int
+  asPrescribedSessions        Int
+  changedModalitySessions     Int
+  differentSessions           Int
+  missedSessions              Int
   // V1 (3 perguntas, 31/08). Nullable a partir de 11/09 para compat com v2.
   // elaborationSatisfaction===0 era o sentinel de "pulou" no v1 — preservado para leitura.
-  elaborationSatisfaction Int?
-  adherenceSatisfaction   Int?
+  elaborationSatisfaction     Int?
+  adherenceSatisfaction       Int?
   // nextWeekMotivation compartilhado entre v1 (pergunta 3) e v2 (pergunta 11, bloco 3).
-  nextWeekMotivation      Int?
+  nextWeekMotivation          Int?
   // V2 Bloco 1: Como foi sua semana (11/09)
-  prescriptionLiking           Int?
-  prescriptionSuitability      Int?
-  perceivedExecution           Int?
-  executionSatisfaction        Int?
-  postWeekMotivation           Int?
+  prescriptionLiking          Int?
+  prescriptionSuitability     Int?
+  perceivedExecution          Int?
+  executionSatisfaction       Int?
+  postWeekMotivation          Int?
   // V2 Bloco 2: Como voce esta
-  weeklySleep                  Int?
-  currentPhysicalFatigue       Int?
-  weeklyStress                 Int?
-  routineInterference          Int?
-  bodyResponseVsNormal         Int?
+  weeklySleep                 Int?
+  currentPhysicalFatigue      Int?
+  weeklyStress                Int?
+  routineInterference         Int?
+  bodyResponseVsNormal        Int?
   // V2 Bloco 3: Proxima semana (nextWeekMotivation acima + os 4 abaixo + preferencia textual)
-  nextWeekConfidence           Int?
-  expectedScheduleFeasibility  Int?
-  expectedPhysicalState        Int?
+  nextWeekConfidence          Int?
+  expectedScheduleFeasibility Int?
+  expectedPhysicalState       Int?
   // preferredNextWeekTraining: reaproveitada pela v3 (24/09/2026) com um universo de valores NOVO
   // e disjunto do antigo (10 opcoes v2 -> 5 opcoes v3) — checkinVersion diz qual conjunto vale pra
   // aquela linha. Nunca colidem: nenhum id v3 repete um id v2 (ver PREFERRED_TRAINING_OPTIONS_V3
   // no mobile e a lista correspondente em weekly-checkin.service.ts).
-  preferredNextWeekTraining    String?
+  preferredNextWeekTraining   String?
 
   // V3 (24/09/2026) — check-in semanal reduzido a 9 perguntas: o feedback de cada sessao
   // individual (feedbackVersion v2) agora ja cobre sono/cansaco fisico/cansaco mental/estresse/
@@ -808,7 +809,7 @@ model WeeklyCheckIn {
   // Pergunta 4 (bloco 1): exigencia da semana comparada ao normal do proprio aluno. 5 = muito mais
   // exigente. Variavel nova, sem equivalente anterior — futuramente cruzada com carga
   // prescrita/executada, volume, RPE das sessoes e baseline individual.
-  weekDemandVsNormal           Int?
+  weekDemandVsNormal          Int?
   // Pergunta 7 (bloco 3): interferencia ESPERADA da rotina/compromissos na PROXIMA semana
   // (prospectivo). 5 = interferencia muito alta. NAO e' a mesma variavel de routineInterference
   // (acima, v2) nem de expectedScheduleFeasibility (acima, v2) — routineInterference era
@@ -816,24 +817,24 @@ model WeeklyCheckIn {
   // expectedScheduleFeasibility perguntava sobre espaco na agenda com escala tambem invertida
   // (5=semana livre). Reaproveitar qualquer uma delas teria misturado silenciosamente semanticas e
   // direcoes de escala diferentes — por isso e' coluna nova.
-  expectedRoutineInterference  Int?
+  expectedRoutineInterference Int?
   // Pergunta 9 (bloco 4): observacao livre e opcional sobre a semana ou a proxima. Substitui
   // qualquer necessidade de inferir isso das perguntas estruturadas.
-  freeTextObservation          String?
+  freeTextObservation         String?
 
   // Meta: versao do formulario (1=3 perguntas, 2=15 perguntas, 3=9 perguntas) e flag de skip
   // explicito. Ver tabela completa mantida/adaptada/substituida/retirada/nova em
   // GLOSSARIO_METRICAS.md.
-  checkinVersion               Int     @default(1)
-  checkinSkipped               Boolean @default(false)
-  createdAt                    DateTime @default(now())
+  checkinVersion Int      @default(1)
+  checkinSkipped Boolean  @default(false)
+  createdAt      DateTime @default(now())
 
-  @@index([userId, createdAt])
   // Trava a mesma garantia de "um check-in por plano" que o codigo (WeeklyCheckInService.submit)
   // ja tentava manter so' com um findFirst antes do create — achado por auto-revisao: sem isso no
   // banco, duas chamadas quase simultaneas (duplo toque, dois aparelhos) podiam criar duas linhas
   // pro mesmo plano.
   @@unique([userId, planId])
+  @@index([userId, createdAt])
 }
 
 // 11/09: rastreamento de ciclo menstrual para correlacao com aderencia/dor/desempenho.
@@ -841,38 +842,77 @@ model WeeklyCheckIn {
 // O agente de treino recebe o contexto como dado geral, nao como regra de prescricao.
 // A futura camada de analise de padroes (agente de evolucao) cruzara esses dados com o historico.
 model MenstrualProfile {
-  id                        String    @id @default(uuid())
-  userId                    String    @unique
-  user                      User      @relation(fields: [userId], references: [id])
+  id                        String   @id @default(uuid())
+  userId                    String   @unique
+  user                      User     @relation(fields: [userId], references: [id])
   // Ciclo ativo: true = sim, false = nao/menopausa, null = preferiu nao informar
   hasActiveCycle            Boolean?
   // Uso de anticoncepcional hormonal (null = preferiu nao informar)
   usesHormonalContraceptive Boolean?
   // Tipo quando usa anticoncepcional — identificador semantico (ex: 'pilula_combinada', 'diu_hormonal')
   contraceptiveType         String?
-  // Duracao tipica do ciclo (dias do 1o ao proximo 1o dia) — null quando usa hormonal ou nao informou
-  // AVISO: quando usesHormonalContraceptive=true as fases estimadas NAO sao confiaveis
+  // Duracao tipica do ciclo (dias do 1o ao proximo 1o dia) — null quando usa hormonal ou nao informou.
+  // A partir de 25/09/2026 e' so' o valor DECLARADO pela aluna na configuracao inicial (chute dela);
+  // a duracao REAL observada vem de MenstrualCycleService.getCycleOverview(), derivada
+  // deterministicamente do historico de MenstrualCycleLog via MathLayer/LongitudinalDynamics —
+  // nunca assumindo 28 dias fixos. AVISO: quando usesHormonalContraceptive=true as fases estimadas NAO sao confiaveis
   cycleLengthDays           Int?
-  // Duracao tipica da menstruacao — null quando usa hormonal ou nao informou
+  // Duracao tipica da menstruacao — null quando usa hormonal ou nao informou (mesma ressalva acima)
   periodLengthDays          Int?
-  createdAt                 DateTime  @default(now())
-  updatedAt                 DateTime  @updatedAt
+  // 25/09/2026 (evolucao do acompanhamento menstrual) — campos opcionais adicionais da configuracao
+  // inicial. Todos null = "preferiu nao informar", igual ao padrao ja estabelecido acima.
+  cycleRegularity           String? // 'regular' | 'irregular' | 'unknown'
+  diuType                   String? // 'none' | 'hormonal' | 'non_hormonal'
+  menopauseStatus           String? // 'none' | 'perimenopause' | 'menopause'
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 }
 
-// Um registro por ciclo (aluna informa o 1o dia da menstruacao + sintomas opcionais)
+// Um registro por ciclo — agora com inicio E fim (25/09/2026), pra preservar duracao real do
+// sangramento e do ciclo. cycleEndDate null = sangramento em curso ou nao informado ainda.
+// Sintomas do dia 1 continuam aqui por compatibilidade; sintomas DIARIOS (qualquer dia, nao so o
+// dia 1) vivem em MenstrualDailyLog, uma tabela nova e separada — sao conceitos diferentes (evento
+// de fronteira do ciclo vs. observacao do dia).
 model MenstrualCycleLog {
-  id             String           @id @default(uuid())
+  id             String    @id @default(uuid())
   userId         String
-  user           User             @relation(fields: [userId], references: [id])
+  user           User      @relation(fields: [userId], references: [id])
   // Data do 1o dia — armazenado como DateTime mas representa so a data (horario zerado)
   cycleStartDate DateTime
+  // 25/09/2026 — data do ultimo dia do sangramento (mesma convencao: hora zerada). Null = ainda em
+  // curso ou nao informado. Permite calcular duracao real do sangramento por ciclo.
+  cycleEndDate   DateTime?
   // Sintomas no dia 1 (escala 1–5, opcionais — a aluna pode registrar so a data)
-  crampsLevel    Int?   // 1=sem cólicas, 5=muito intensa
-  energyLevel    Int?   // 1=muito baixa, 5=alta
-  moodLevel      Int?   // 1=muito instavel, 5=muito estavel
-  createdAt      DateTime @default(now())
+  crampsLevel    Int? // 1=sem cólicas, 5=muito intensa
+  energyLevel    Int? // 1=muito baixa, 5=alta
+  moodLevel      Int? // 1=muito instavel, 5=muito estavel
+  // 25/09/2026 — intensidade do fluxo no dia 1 (opcional). Categorico, nunca virou escala numerica
+  // artificial (mesma regra de "categoria nao vira escala continua" do restante do Registry).
+  flowIntensity  String? // 'leve' | 'moderado' | 'intenso'
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([userId, cycleStartDate])
+}
+
+// 25/09/2026 (evolucao do acompanhamento menstrual) — UM registro por dia (upsert por data), pra
+// sintomas poderem ser acompanhados em qualquer dia do ciclo, nao so no dia 1. Fonte canonica que
+// alimenta ObservationReaderService (novo VariableSource 'student_menstrual_daily_log') — mesma
+// arquitetura de Observation ja usada por WorkoutCompletion/WeeklyCheckIn, nao uma segunda.
+model MenstrualDailyLog {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  date          DateTime // dia (hora zerada)
+  crampsLevel   Int?
+  energyLevel   Int?
+  moodLevel     Int?
+  flowIntensity String? // 'leve' | 'moderado' | 'intenso' | null (fora do sangramento ou nao informado)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId, date])
 }
 
 model StravaConnection {
@@ -1077,16 +1117,16 @@ model FunnelEvent {
 }
 
 model BillingEvent {
-  id            String    @id @default(uuid())
-  userId        String
-  user          User      @relation(fields: [userId], references: [id], onDelete: Restrict)
-  event         String
-  prevStatus    String?
-  nextStatus    String?
-  value         Decimal?
-  timestamp     DateTime  @default(now())
-  externalRef   String?
-  createdAt     DateTime  @default(now())
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  event       String
+  prevStatus  String?
+  nextStatus  String?
+  value       Decimal?
+  timestamp   DateTime @default(now())
+  externalRef String?
+  createdAt   DateTime @default(now())
 
   @@index([userId])
   @@index([event])

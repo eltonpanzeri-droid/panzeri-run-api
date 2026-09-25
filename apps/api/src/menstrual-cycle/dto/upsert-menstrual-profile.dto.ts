@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class UpsertMenstrualProfileDto {
   // null = preferiu nao informar (chave ausente no payload = nao toca o campo)
@@ -27,4 +27,17 @@ export class UpsertMenstrualProfileDto {
   @Min(2)
   @Max(10)
   periodLengthDays?: number | null;
+
+  // 25/09/2026 — evolucao do acompanhamento menstrual (secao 10 do pedido).
+  @IsOptional()
+  @IsIn(['regular', 'irregular', 'unknown'])
+  cycleRegularity?: string | null;
+
+  @IsOptional()
+  @IsIn(['none', 'hormonal', 'non_hormonal'])
+  diuType?: string | null;
+
+  @IsOptional()
+  @IsIn(['none', 'perimenopause', 'menopause'])
+  menopauseStatus?: string | null;
 }

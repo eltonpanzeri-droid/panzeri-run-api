@@ -16,7 +16,11 @@ export class NotificationsService {
   // (nunca prisma.userNotification.create direto) em qualquer lugar que avisa um ALUNO — os
   // avisos que existem hoje pra COACH (ex: workout-completions.service.ts) continuam usando
   // prisma direto, o treinador nao tem token de push (usa o painel web + Telegram).
-  async notifyUser(userId: string, params: { title: string; message: string; type?: string; action?: string; externalRef?: string }) {
+  // pushTitle/pushMessage (25/09/2026, seção 30 — privacidade): quando o conteúdo completo é
+  // sensível (ciclo menstrual, medicação, saúde), o push mostrado na tela bloqueada pode usar um
+  // texto discreto diferente do que fica salvo/exibido dentro do app — nunca o contrário. Default
+  // (omitido) = mesmo texto pros dois, comportamento inalterado pra todo chamador existente.
+  async notifyUser(userId: string, params: { title: string; message: string; type?: string; action?: string; externalRef?: string; pushTitle?: string; pushMessage?: string }) {
     const [notification, user] = await Promise.all([
       this.prisma.userNotification.create({
         data: {
@@ -30,7 +34,7 @@ export class NotificationsService {
       }),
       this.prisma.user.findUnique({ where: { id: userId }, select: { expoPushToken: true } }),
     ]);
-    await this.push.send(user?.expoPushToken, params.title, params.message).catch(() => undefined);
+    await this.push.send(user?.expoPushToken, params.pushTitle ?? params.title, params.pushMessage ?? params.message, params.action ? { action: params.action } : undefined).catch(() => undefined);
     return notification;
   }
 
@@ -39,7 +43,7 @@ export class NotificationsService {
   // Retorna true se criou notificacao, false se suprimida por dedup.
   async notifyUserIfNotRecent(
     userId: string,
-    params: { title: string; message: string; type: string; action?: string; externalRef?: string },
+    params: { title: string; message: string; type: string; action?: string; externalRef?: string; pushTitle?: string; pushMessage?: string },
     windowHours: number,
   ): Promise<boolean> {
     // Nivel primario: mesmo evento nao gera duplicata, independente de janela de tempo

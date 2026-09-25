@@ -1586,13 +1586,16 @@ export class CoachService {
   // tambem retorna null graciosamente caso o perfil nao exista.
   async getStudentMenstrualData(studentId: string) {
     await this.assertStudent(studentId);
-    const [profile, logs, phase, correlations] = await Promise.all([
+    const [profile, logs, phase, correlations, overview] = await Promise.all([
       this.menstrualCycle.getProfile(studentId),
       this.menstrualCycle.getLogs(studentId),
       this.menstrualCycle.getEstimatedPhaseContext(studentId),
       this.menstrualCycle.getCorrelations(studentId),
+      // 25/09/2026 (evolucao do acompanhamento menstrual) — historico real com inicio/fim/duracao
+      // e janela prevista, derivados pela mesma Camada Matematica (nao recalculado aqui).
+      this.menstrualCycle.getCycleOverview(studentId),
     ]);
-    return { profile, logs, phase, correlations };
+    return { profile, logs, phase, correlations, overview };
   }
 
   private assertStudent(studentId: string) {

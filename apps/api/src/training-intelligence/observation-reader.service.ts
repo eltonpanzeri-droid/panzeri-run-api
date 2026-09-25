@@ -23,7 +23,7 @@ export interface Observation {
   variableId: string;
   value: number;
   timestamp: Date;
-  source: 'student_feedback_per_workout' | 'student_weekly_checkin';
+  source: 'student_feedback_per_workout' | 'student_weekly_checkin' | 'student_menstrual_daily_log';
   instrumentVersion: number;
   context: {
     sessionId?: string;
@@ -32,6 +32,7 @@ export interface Observation {
     modality?: string;
     scheduledDate?: string;
     isExtra?: boolean;
+    flowIntensity?: string;
   };
 }
 
@@ -83,6 +84,9 @@ export class ObservationReaderService {
 
     if (definition.source === 'student_feedback_per_workout') {
       return this.readWorkoutVariable(athleteId, definition);
+    }
+    if (definition.source === 'student_menstrual_daily_log') {
+      return this.readMenstrualDailyVariable(athleteId, definition);
     }
     return this.readCheckinVariable(athleteId, definition);
   }
@@ -144,6 +148,38 @@ export class ObservationReaderService {
       });
     }
 
+    return observations;
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // Ciclo menstrual — registro diario (MenstrualDailyLog), 25/09/2026. Sem dimensao de
+  // modalidade/sessao (nao vem de treino) — context so carrega flowIntensity, quando presente.
+  // -----------------------------------------------------------------------------------------
+
+  private async readMenstrualDailyVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
+    const logs = await this.prisma.menstrualDailyLog.findMany({
+      where: { userId: athleteId },
+      orderBy: { date: 'asc' },
+    });
+
+    const observations: Observation[] = [];
+    for (const log of logs) {
+      const spec = definition.versions.find((v) => v.version === 1);
+      if (!spec) continue;
+      const raw = extractRawValue(spec, log as unknown as Record<string, unknown>, {});
+      const value = toNumericValue(definition.variableId, raw);
+      if (value === undefined) continue; // ausencia — nunca vira zero
+
+      observations.push({
+        athleteId,
+        variableId: definition.variableId,
+        value,
+        timestamp: log.date,
+        source: 'student_menstrual_daily_log',
+        instrumentVersion: 1,
+        context: { flowIntensity: log.flowIntensity ?? undefined },
+      });
+    }
     return observations;
   }
 

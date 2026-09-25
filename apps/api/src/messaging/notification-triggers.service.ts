@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MessagingService } from './messaging.service';
 import { REASSESSMENT_DUE_AFTER_DAYS, REASSESSMENT_WARNING_AFTER_DAYS } from '../reassessment/reassessment.service';
+import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.service';
 
 const REMINDER_COOLDOWN_DAYS = 3;
 // 25/09/2026 (Passo 3): fonte unica do ciclo de 105 dias e' ReassessmentService — NAO redefinir
@@ -17,6 +18,7 @@ export class NotificationTriggersService {
     private readonly prisma: PrismaService,
     private readonly messaging: MessagingService,
     private readonly notifications: NotificationsService,
+    private readonly menstrualCycle: MenstrualCycleService,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_9AM)
@@ -41,6 +43,71 @@ export class NotificationTriggersService {
         await this.checkReassessmentDue(student);
       } catch (error) {
         this.logger.warn(`Falha ao checar avisos automaticos para ${student.id}: ${(error as Error).message}`);
+      }
+    }
+    await this.checkMenstrualCycleUpdates();
+  }
+
+  // 25/09/2026 (evolução do acompanhamento menstrual, seção 23) — a notificação existe pra AJUDAR
+  // a aluna a manter o calendário atualizado, nunca pra afirmar nada como fato ("pode ter
+  // terminado" / "já começou?", nunca "sua menstruação terminou"). Reaproveita getCycleOverview()
+  // já calculado (mesma fonte canônica que alimenta o calendário e o Admin) — nenhuma lógica nova
+  // de "quando perguntar" fora daqui. Dedup permanente por ciclo (externalRef = id do log): cada
+  // pergunta só é feita uma vez por ciclo, nunca insiste (seção 29).
+  private async checkMenstrualCycleUpdates() {
+    const students = await this.prisma.user.findMany({
+      where: { role: 'student', accountStatus: { not: 'archived' }, menstrualProfile: { hasActiveCycle: true } },
+      select: { id: true },
+    });
+
+    for (const student of students) {
+      try {
+        const overview = await this.menstrualCycle.getCycleOverview(student.id);
+        const lastCycle = overview.cycles[overview.cycles.length - 1];
+        if (!lastCycle) continue;
+
+        if (!lastCycle.endDate) {
+          const typicalPeriodLength = overview.periodLengthStats?.median ?? null;
+          if (
+            typicalPeriodLength != null &&
+            overview.currentDayOfCycle != null &&
+            overview.currentDayOfCycle >= typicalPeriodLength &&
+            overview.currentDayOfCycle <= typicalPeriodLength + 4
+          ) {
+            await this.notifications.notifyUserIfNotRecent(
+              student.id,
+              {
+                title: 'Atualize seu calendário',
+                message: 'Pelos seus registros, ontem pode ter sido o último dia da sua menstruação. Você confirma?',
+                type: 'menstrual_period_likely_ended',
+                action: 'open_ciclo',
+                externalRef: `menstrual_end_${lastCycle.id}`,
+                // Privacidade (seção 30): tela bloqueada nunca menciona menstruação — conteúdo completo só dentro do app.
+                pushTitle: 'Panzeri Run',
+                pushMessage: 'Você tem uma atualização de acompanhamento pendente.',
+              },
+              24,
+            ).catch(() => undefined);
+          }
+        }
+
+        if (overview.predictedNextPeriod && new Date(overview.predictedNextPeriod.windowEnd + 'T23:59:59Z') < new Date()) {
+          await this.notifications.notifyUserIfNotRecent(
+            student.id,
+            {
+              title: 'Seu período estava previsto',
+              message: 'Seu período estava estimado para começar nesta janela. Ele já começou?',
+              type: 'menstrual_period_expected_overdue',
+              action: 'open_ciclo',
+              externalRef: `menstrual_overdue_${lastCycle.id}`,
+              pushTitle: 'Panzeri Run',
+              pushMessage: 'Você tem uma atualização de acompanhamento pendente.',
+            },
+            24,
+          ).catch(() => undefined);
+        }
+      } catch (error) {
+        this.logger.warn(`Falha ao checar ciclo menstrual de ${student.id}: ${(error as Error).message}`);
       }
     }
   }

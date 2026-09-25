@@ -1442,6 +1442,21 @@ function AppInner() {
     if (accessToken) void registerPushTokenIfNeeded(accessToken);
   }, [accessToken]);
 
+  // 25/09/2026 (evolução do acompanhamento menstrual, seções 24-26) — gap real encontrado: o
+  // campo `action` de uma notificação sempre existiu, mas nada escutava o toque na notificação
+  // pra navegar. Arquitetura reutilizável (mapa action -> aba), não uma solução só pro ciclo —
+  // qualquer notificação futura com `action` reconhecido aqui passa a navegar direto, sem passar
+  // pela home. `data.action` vem no payload do Expo Push (ver NotificationsService.notifyUser).
+  useEffect(() => {
+    if (Platform.OS === 'web') return; // web usa o sino in-app, nao push nativo
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const action = response.notification.request.content.data?.action;
+      if (action === 'open_ciclo') setActiveTab('ciclo');
+      else if (action === 'billing_regularize') setActiveTab('billing');
+    });
+    return () => subscription.remove();
+  }, []);
+
   // Vincula a jornada anonima deste dispositivo a pessoa autenticada (cadastro, login ou sessao
   // restaurada). O servidor e' idempotente por (userId, journeyId) — a 1a associacao preserva o
   // instante real e nada do historico anonimo anterior e' reescrito.
@@ -7097,172 +7112,366 @@ function ObservationsScreen({ accessToken }: { accessToken: string }) {
   );
 }
 
-// ── Ciclo Menstrual ──────────────────────────────────────────────────────────────────────────────
-// Tela para a aluna registrar o inicio de cada ciclo + sintomas opcionais (cólicas, energia, humor).
-// Os dados são usados para correlação de fase x aderência/dor — nenhuma decisão de prescrição
-// depende deles diretamente. O agente de treino recebe apenas o contexto geral de fase atual.
-// Aviso embutido quando a estimativa de fase não é confiável (usa anticoncepcional hormonal).
+// ── Ciclo Menstrual (calendário longitudinal) ───────────────────────────────────────────────────
+// 25/09/2026 — evolução do acompanhamento menstrual: calendário mensal de verdade, nunca mais um
+// campo de texto AAAA-MM-DD. Observado (registrado pela aluna) e estimado (previsão calculada pelo
+// backend) são visualmente distintos — nunca a mesma aparência (seção 4/15 do pedido). Nenhum
+// cálculo aqui: tudo já vem pronto de GET /menstrual-cycle/overview (mesma Camada Matemática usada
+// pela Training Intelligence).
 
-interface CycleLog {
+interface CycleSummary {
   id: string;
-  cycleStartDate: string;
+  startDate: string;
+  endDate: string | null;
+  cycleDurationDays: number | null;
+  periodDurationDays: number | null;
   crampsLevel: number | null;
   energyLevel: number | null;
   moodLevel: number | null;
+  flowIntensity: string | null;
+}
+interface CycleOverviewResponse {
+  cycles: CycleSummary[];
+  currentDayOfCycle: number | null;
+  isCurrentlyMenstruating: boolean | null;
+  cycleLengthStats: { n: number; median: number | null; mad: number | null; habitualLower: number | null; habitualUpper: number | null; isPartialWindow: boolean } | null;
+  periodLengthStats: { n: number; median: number | null; mad: number | null; isPartialWindow: boolean } | null;
+  predictedNextPeriod: { windowStart: string; windowEnd: string; basedOnCycles: number } | null;
+  maturity: 'none' | 'low' | 'moderate' | 'established';
+  reliabilityCaveats: string[];
+}
+interface DailyLog {
+  id: string;
+  date: string;
+  crampsLevel: number | null;
+  energyLevel: number | null;
+  moodLevel: number | null;
+  flowIntensity: string | null;
 }
 
-interface PhaseContextResponse {
-  phase: 'menstruacao' | 'folicular' | 'ovulatoria' | 'lutea';
-  dayOfCycle: number;
-  isReliable: boolean;
+const WEEKDAY_LABELS = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'];
+const MONTH_LABELS = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const FLOW_OPTIONS = [{ value: 'leve', label: 'Leve' }, { value: 'moderado', label: 'Moderado' }, { value: 'intenso', label: 'Intenso' }];
+
+function isoDateLocal(d: Date): string {
+  const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function addDaysLocal(d: Date, n: number): Date { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function buildMonthGrid(year: number, month: number): Date[] {
+  const first = new Date(year, month, 1);
+  const firstWeekday = (first.getDay() + 6) % 7; // 0 = segunda
+  const gridStart = addDaysLocal(first, -firstWeekday);
+  return Array.from({ length: 42 }, (_, i) => addDaysLocal(gridStart, i));
+}
+/** OBSERVADO ≠ ESTIMADO — nunca a mesma aparência. Deriva do histórico já calculado, sem inventar dias. */
+function classifyDay(dateStr: string, overview: CycleOverviewResponse): 'observed' | 'predicted' | 'none' {
+  const lastCycle = overview.cycles[overview.cycles.length - 1];
+  const todayStr = isoDateLocal(new Date());
+  for (const c of overview.cycles) {
+    if (c.endDate) {
+      if (dateStr >= c.startDate && dateStr <= c.endDate) return 'observed';
+    } else if (c.id === lastCycle?.id && overview.isCurrentlyMenstruating) {
+      if (dateStr >= c.startDate && dateStr <= todayStr) return 'observed';
+    } else if (dateStr === c.startDate) {
+      return 'observed';
+    }
+  }
+  if (overview.predictedNextPeriod && dateStr >= overview.predictedNextPeriod.windowStart && dateStr <= overview.predictedNextPeriod.windowEnd) return 'predicted';
+  return 'none';
+}
+function dateLabelLong(dateStr: string): string {
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
+}
+function dateLabelShort(dateStr: string): string {
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 }
 
-const CYCLE_PHASE_LABELS: Record<string, string> = {
-  menstruacao: '🩸 Menstruação',
-  folicular: '🌱 Fase folicular',
-  ovulatoria: '🌸 Ovulação',
-  lutea: '🌕 Fase lútea',
-};
+function MonthCalendar({ overview, onDayPress }: { overview: CycleOverviewResponse; onDayPress: (dateStr: string) => void }) {
+  const [cursor, setCursor] = useState(() => { const n = new Date(); return { year: n.getFullYear(), month: n.getMonth() }; });
+  const grid = buildMonthGrid(cursor.year, cursor.month);
+  const todayStr = isoDateLocal(new Date());
+
+  return (
+    <View style={mcStyles.card}>
+      <View style={mcStyles.header}>
+        <Pressable onPress={() => setCursor((c) => (c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }))} style={mcStyles.navButton} hitSlop={8}>
+          <Ionicons name="chevron-back" size={20} color={PRColors.mineral} />
+        </Pressable>
+        <Text style={mcStyles.title}>{MONTH_LABELS[cursor.month]} {cursor.year}</Text>
+        <Pressable onPress={() => setCursor((c) => (c.month === 11 ? { year: c.year + 1, month: 0 } : { year: c.year, month: c.month + 1 }))} style={mcStyles.navButton} hitSlop={8}>
+          <Ionicons name="chevron-forward" size={20} color={PRColors.mineral} />
+        </Pressable>
+      </View>
+      <View style={mcStyles.weekdayRow}>
+        {WEEKDAY_LABELS.map((w) => <Text key={w} style={mcStyles.weekdayLabel}>{w}</Text>)}
+      </View>
+      <View style={mcStyles.grid}>
+        {grid.map((d, i) => {
+          const dateStr = isoDateLocal(d);
+          const inMonth = d.getMonth() === cursor.month;
+          const state = classifyDay(dateStr, overview);
+          const isToday = dateStr === todayStr;
+          return (
+            <Pressable key={i} onPress={() => onDayPress(dateStr)} style={mcStyles.dayCell}>
+              <View style={[mcStyles.dayCircle, state === 'observed' && mcStyles.dayObserved, state === 'predicted' && mcStyles.dayPredicted, isToday && mcStyles.dayToday]}>
+                <Text style={[mcStyles.dayNumber, !inMonth && mcStyles.dayNumberOutside, state === 'observed' && mcStyles.dayNumberObserved]}>{d.getDate()}</Text>
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+      <View style={mcStyles.legendRow}>
+        <View style={mcStyles.legendItem}><View style={[mcStyles.legendDot, mcStyles.dayObserved]} /><Text style={mcStyles.legendText}>Registrado</Text></View>
+        <View style={mcStyles.legendItem}><View style={[mcStyles.legendDot, mcStyles.dayPredicted]} /><Text style={mcStyles.legendText}>Estimado</Text></View>
+      </View>
+    </View>
+  );
+}
+
+function SymptomPicker({ label, hint, value, onChange }: { label: string; hint: string; value: number | null; onChange: (n: number | null) => void }) {
+  return (
+    <View style={{ marginBottom: 10 }}>
+      <Text style={styles.copyTight}>{label}</Text>
+      <Text style={[styles.copyTight, { fontSize: 10, color: '#94a3b8' }]}>{hint}</Text>
+      <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
+        {[1, 2, 3, 4, 5].map((n) => {
+          const isActive = value === n;
+          const color = SCALE_GRADIENT[n - 1];
+          return (
+            <Pressable key={n} style={[styles.scalePickerOption, { borderColor: color, backgroundColor: isActive ? color : '#EDE9E0', width: 34, height: 34 }]} onPress={() => onChange(value === n ? null : n)}>
+              <Text style={[styles.scalePickerOptionText, { color: isActive ? '#FFFFFF' : PRColors.graphite }]}>{n}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+/** Bottom sheet do dia — texto e ações mudam conforme o dia já tem registro, está em sangramento em curso, ou é uma data futura (estimada ou não). Seção 7 do pedido. */
+function DaySheet({ dateStr, overview, dailyLogs, accessToken, onClose, onChanged }: {
+  dateStr: string; overview: CycleOverviewResponse; dailyLogs: DailyLog[]; accessToken: string; onClose: () => void; onChanged: () => void;
+}) {
+  const todayStr = isoDateLocal(new Date());
+  const isFuture = dateStr > todayStr;
+  const cycleStartingHere = overview.cycles.find((c) => c.startDate === dateStr) ?? null;
+  const lastCycle = overview.cycles[overview.cycles.length - 1] ?? null;
+  const isOngoingBleedDay = !cycleStartingHere && !!lastCycle && !lastCycle.endDate && dateStr > lastCycle.startDate && dateStr <= todayStr && !!overview.isCurrentlyMenstruating;
+  const existingDailyLog = dailyLogs.find((l) => l.date.slice(0, 10) === dateStr) ?? null;
+
+  const [cramps, setCramps] = useState<number | null>(existingDailyLog?.crampsLevel ?? cycleStartingHere?.crampsLevel ?? null);
+  const [energy, setEnergy] = useState<number | null>(existingDailyLog?.energyLevel ?? cycleStartingHere?.energyLevel ?? null);
+  const [mood, setMood] = useState<number | null>(existingDailyLog?.moodLevel ?? cycleStartingHere?.moodLevel ?? null);
+  const [flow, setFlow] = useState<string | null>(existingDailyLog?.flowIntensity ?? cycleStartingHere?.flowIntensity ?? null);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  async function post(path: string, method: 'POST' | 'PATCH', body: unknown): Promise<boolean> {
+    setSaving(true); setMessage('');
+    try {
+      const res = await fetch(`${API_URL}/menstrual-cycle/${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { setMessage('Não foi possível salvar.'); return false; }
+      onChanged();
+      return true;
+    } catch { setMessage('Não foi possível salvar.'); return false; }
+    finally { setSaving(false); }
+  }
+
+  async function markStart() {
+    const ok = await post('start', 'POST', { date: dateStr, crampsLevel: cramps ?? undefined, energyLevel: energy ?? undefined, moodLevel: mood ?? undefined, flowIntensity: flow ?? undefined });
+    if (ok) onClose();
+  }
+  async function markEnd() {
+    if (!lastCycle) return;
+    const ok = await post(`${lastCycle.id}/end`, 'PATCH', { date: dateStr });
+    if (ok) onClose();
+  }
+  async function saveDailyLog() {
+    const ok = await post('daily-log', 'POST', { date: dateStr, crampsLevel: cramps ?? undefined, energyLevel: energy ?? undefined, moodLevel: mood ?? undefined, flowIntensity: flow ?? undefined });
+    if (ok) onClose();
+  }
+
+  function explainPrediction() {
+    Alert.alert(
+      'Como calculamos esta previsão',
+      overview.predictedNextPeriod
+        ? `Baseado em ${overview.predictedNextPeriod.basedOnCycles} ciclo(s) que você já registrou, calculamos o intervalo mais comum entre suas menstruações. A janela mostrada (${dateLabelShort(overview.predictedNextPeriod.windowStart)} a ${dateLabelShort(overview.predictedNextPeriod.windowEnd)}) reflete a variação real do seu histórico — não é uma data fixa, é uma estimativa que fica mais precisa quanto mais ciclos você registrar.`
+        : 'Ainda não há histórico suficiente pra estimar.',
+      [{ text: 'Entendi' }],
+    );
+  }
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.appMenuOverlay} onPress={onClose}>
+        <Pressable style={[styles.appMenuSheet, { maxHeight: '85%' }]} onPress={(e) => e.stopPropagation()}>
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 4 }}>
+            <Text style={styles.sectionLabel}>{dateLabelLong(dateStr)}</Text>
+
+            {isFuture ? (
+              overview.predictedNextPeriod && dateStr >= overview.predictedNextPeriod.windowStart && dateStr <= overview.predictedNextPeriod.windowEnd ? (
+                <View style={{ marginTop: 8 }}>
+                  <Text style={styles.copyTight}>Início da próxima menstruação estimado</Text>
+                  <Text style={[styles.copyTight, { color: '#94a3b8', marginTop: 4 }]}>
+                    Janela estimada: {dateLabelShort(overview.predictedNextPeriod.windowStart)} a {dateLabelShort(overview.predictedNextPeriod.windowEnd)} · baseado em {overview.predictedNextPeriod.basedOnCycles} ciclo(s)
+                  </Text>
+                  <Pressable onPress={explainPrediction} style={{ marginTop: 10 }}>
+                    <Text style={[styles.copyTight, { color: PRColors.ocean }]}>ⓘ Entenda esta previsão</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Text style={[styles.copyTight, { marginTop: 8, color: '#94a3b8' }]}>Sem informação estimada para esta data ainda.</Text>
+              )
+            ) : (
+              <>
+                {cycleStartingHere && (
+                  <Text style={[styles.copyTight, { marginTop: 4, color: PRColors.success }]}>Menstruação começou neste dia{cycleStartingHere.endDate ? ` · terminou em ${dateLabelShort(cycleStartingHere.endDate)}` : ''}</Text>
+                )}
+                {isOngoingBleedDay && <Text style={[styles.copyTight, { marginTop: 4, color: PRColors.success }]}>Dentro do período de sangramento em curso</Text>}
+
+                <View style={{ marginTop: 14 }}>
+                  <SymptomPicker label="🩸 Cólica" hint="1=sem • 5=intensa" value={cramps} onChange={setCramps} />
+                  <SymptomPicker label="⚡ Energia" hint="1=muito baixa • 5=alta" value={energy} onChange={setEnergy} />
+                  <SymptomPicker label="😊 Humor" hint="1=instável • 5=estável" value={mood} onChange={setMood} />
+                  <Text style={styles.copyTight}>Fluxo</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 4, marginBottom: 4 }}>
+                    {FLOW_OPTIONS.map((opt) => (
+                      <Pressable key={opt.value} style={[styles.completionChip, flow === opt.value && styles.completionChipActive]} onPress={() => setFlow(flow === opt.value ? null : opt.value)}>
+                        <Text style={[styles.completionChipText, flow === opt.value && styles.completionChipTextActive]}>{opt.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+
+                {!!message && <Text style={styles.statusMessage}>{message}</Text>}
+
+                <View style={{ gap: 10, marginTop: 14 }}>
+                  {!cycleStartingHere && (
+                    <Pressable style={[styles.primaryButton, saving && styles.disabledButton]} onPress={() => void markStart()} disabled={saving}>
+                      <Text style={styles.primaryButtonText}>Menstruação começou neste dia</Text>
+                    </Pressable>
+                  )}
+                  {(isOngoingBleedDay || (cycleStartingHere && !cycleStartingHere.endDate)) && (
+                    <Pressable style={[styles.primaryButton, saving && styles.disabledButton]} onPress={() => void markEnd()} disabled={saving}>
+                      <Text style={styles.primaryButtonText}>Menstruação terminou neste dia</Text>
+                    </Pressable>
+                  )}
+                  <Pressable style={[styles.secondaryButton, saving && styles.disabledButton]} onPress={() => void saveDailyLog()} disabled={saving}>
+                    <Text style={styles.secondaryButtonText}>{saving ? 'Salvando...' : 'Salvar registro do dia'}</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
 
 function MenstrualCycleScreen({ accessToken }: { accessToken: string }) {
-  const [phase, setPhase] = useState<PhaseContextResponse | null>(null);
-  const [logs, setLogs] = useState<CycleLog[]>([]);
-  const [dateInput, setDateInput] = useState('');
-  const [crampsLevel, setCrampsLevel] = useState<number | null>(null);
-  const [energyLevel, setEnergyLevel] = useState<number | null>(null);
-  const [moodLevel, setMoodLevel] = useState<number | null>(null);
-  const [message, setMessage] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [overview, setOverview] = useState<CycleOverviewResponse | null>(null);
+  const [dailyLogs, setDailyLogs] = useState<DailyLog[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   async function load() {
     try {
-      const [phaseRes, logsRes] = await Promise.all([
-        fetch(`${API_URL}/menstrual-cycle/status`, { headers: { Authorization: `Bearer ${accessToken}` } }),
-        fetch(`${API_URL}/menstrual-cycle/logs`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+      const [overviewRes, dailyRes] = await Promise.all([
+        fetch(`${API_URL}/menstrual-cycle/overview`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+        fetch(`${API_URL}/menstrual-cycle/daily-logs`, { headers: { Authorization: `Bearer ${accessToken}` } }),
       ]);
-      if (phaseRes.ok) setPhase(await phaseRes.json() as PhaseContextResponse | null);
-      if (logsRes.ok) setLogs(await logsRes.json() as CycleLog[]);
+      if (overviewRes.ok) setOverview(await overviewRes.json() as CycleOverviewResponse);
+      if (dailyRes.ok) setDailyLogs(await dailyRes.json() as DailyLog[]);
     } catch { /* silencioso — dados de contexto, nao criticos */ }
+    finally { setLoading(false); }
   }
 
   useEffect(() => { void load(); }, [accessToken]);
 
-  async function registerCycle() {
-    if (!dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      setMessage('Informe a data no formato AAAA-MM-DD (ex: 2026-09-01).');
-      return;
-    }
-    setSaving(true);
-    setMessage('');
-    try {
-      const body: Record<string, unknown> = { cycleStartDate: dateInput };
-      if (crampsLevel != null) body.crampsLevel = crampsLevel;
-      if (energyLevel != null) body.energyLevel = energyLevel;
-      if (moodLevel != null) body.moodLevel = moodLevel;
-      const response = await fetch(`${API_URL}/menstrual-cycle/log`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({} as { message?: string }));
-        setMessage(typeof data.message === 'string' ? data.message : 'Nao foi possivel registrar.');
-        return;
-      }
-      setDateInput('');
-      setCrampsLevel(null);
-      setEnergyLevel(null);
-      setMoodLevel(null);
-      setMessage('Ciclo registrado com sucesso!');
-      await load();
-    } catch { setMessage('Nao foi possivel registrar.'); }
-    finally { setSaving(false); }
-  }
+  const MATURITY_LABELS: Record<string, string> = { none: 'sem dado ainda', low: 'baixa', moderate: 'moderada', established: 'estabelecida' };
 
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Ciclo menstrual</Text>
-      <Text style={styles.titleSmall}>Registro de ciclos para acompanhamento</Text>
+      <Text style={styles.titleSmall}>Seu calendário de acompanhamento</Text>
       <Text style={styles.copyTight}>
-        Esses dados são usados para identificar padrões ao longo do tempo (por exemplo, se você tende a sentir mais cansaço ou faltar treinos em determinadas fases). Eles não alteram a prescrição de treino diretamente — são contexto de acompanhamento.
+        Toque em qualquer dia pra registrar ou corrigir. Isso não altera sua prescrição de treino diretamente — é contexto de acompanhamento.
       </Text>
 
-      {phase && (
-        <View style={[styles.coachBox, { marginTop: 16 }]}>
-          <Text style={styles.formSectionTitle}>Fase estimada hoje</Text>
-          <Text style={styles.reportText}>{CYCLE_PHASE_LABELS[phase.phase] ?? phase.phase} · dia {phase.dayOfCycle + 1} do ciclo</Text>
-          {!phase.isReliable && (
-            <Text style={[styles.copyTight, { color: '#f59e0b', marginTop: 6 }]}>
-              ⚠️ Você usa anticoncepcional hormonal — a estimativa de fase pode não refletir seu ciclo hormonal real.
-            </Text>
-          )}
-        </View>
-      )}
-
-      <View style={[styles.coachBox, { marginTop: 16 }]}>
-        <Text style={styles.formSectionTitle}>Registrar novo ciclo</Text>
-        <Text style={styles.copyTight}>Informe o 1º dia da menstruação (data de início do ciclo):</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="AAAA-MM-DD (ex: 2026-09-01)"
-          value={dateInput}
-          onChangeText={setDateInput}
-          keyboardType="numeric"
-        />
-        <Text style={[styles.formSectionTitle, { marginTop: 12 }]}>Sintomas no dia 1 (opcional, escala 1–5)</Text>
-        <View style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap', marginTop: 8 }}>
-          {[
-            { label: '🩸 Cólicas', value: crampsLevel, set: setCrampsLevel, hint: '1=sem • 5=intensa' },
-            { label: '⚡ Energia', value: energyLevel, set: setEnergyLevel, hint: '1=muito baixa • 5=alta' },
-            { label: '😊 Humor', value: moodLevel, set: setMoodLevel, hint: '1=instável • 5=estável' },
-          ].map(({ label, value, set, hint }) => (
-            <View key={label} style={{ flex: 1, minWidth: 90 }}>
-              <Text style={styles.copyTight}>{label}</Text>
-              <Text style={[styles.copyTight, { fontSize: 10, color: '#94a3b8' }]}>{hint}</Text>
-              <View style={{ flexDirection: 'row', gap: 4, marginTop: 4 }}>
-                {[1, 2, 3, 4, 5].map((n) => {
-                  const isActive = value === n;
-                  const color = SCALE_GRADIENT[n - 1];
-                  return (
-                    <Pressable
-                      key={n}
-                      style={[styles.scalePickerOption, { borderColor: color, backgroundColor: isActive ? color : '#EDE9E0', width: 30, height: 30 }]}
-                      onPress={() => set(value === n ? null : n)}
-                    >
-                      <Text style={[styles.scalePickerOptionText, { color: isActive ? '#FFFFFF' : PRColors.graphite }]}>{n}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          ))}
-        </View>
-        {!!message && <Text style={styles.statusMessage}>{message}</Text>}
-        <Pressable style={[styles.primaryButton, (saving || !dateInput) && styles.disabledButton, { marginTop: 16 }]} onPress={() => void registerCycle()} disabled={saving || !dateInput}>
-          <Text style={styles.primaryButtonText}>{saving ? 'Salvando...' : 'Registrar ciclo'}</Text>
-        </Pressable>
-      </View>
-
-      {logs.length > 0 && (
-        <View style={[styles.coachBox, { marginTop: 16 }]}>
-          <Text style={styles.formSectionTitle}>Histórico de ciclos</Text>
-          {logs.map((log) => (
-            <View key={log.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-              <Text style={styles.reportText}>📅 {log.cycleStartDate.slice(0, 10)}</Text>
-              {(log.crampsLevel || log.energyLevel || log.moodLevel) ? (
-                <Text style={styles.copyTight}>
-                  {log.crampsLevel ? `🩸 Cólicas: ${log.crampsLevel}/5  ` : ''}
-                  {log.energyLevel ? `⚡ Energia: ${log.energyLevel}/5  ` : ''}
-                  {log.moodLevel ? `😊 Humor: ${log.moodLevel}/5` : ''}
+      {loading ? (
+        <ActivityIndicator style={{ marginTop: 24 }} color={PRColors.ocean} />
+      ) : overview ? (
+        <>
+          {overview.cycles.length > 0 && (
+            <View style={[styles.coachBox, { marginTop: 16 }]}>
+              {overview.currentDayOfCycle != null && (
+                <Text style={styles.reportText}>Dia {overview.currentDayOfCycle + 1} do ciclo{overview.isCurrentlyMenstruating ? ' · menstruando' : ''}</Text>
+              )}
+              {overview.predictedNextPeriod && (
+                <Text style={[styles.copyTight, { marginTop: 4 }]}>
+                  Próxima menstruação estimada entre {dateLabelShort(overview.predictedNextPeriod.windowStart)} e {dateLabelShort(overview.predictedNextPeriod.windowEnd)}
                 </Text>
-              ) : null}
+              )}
+              <Text style={[styles.copyTight, { fontSize: 11, color: '#94a3b8', marginTop: 4 }]}>Maturidade da estimativa: {MATURITY_LABELS[overview.maturity]}</Text>
+              {overview.reliabilityCaveats.map((c, i) => (
+                <Text key={i} style={[styles.copyTight, { fontSize: 12, color: '#A35C00', marginTop: 4 }]}>⚠️ {c}</Text>
+              ))}
             </View>
-          ))}
-        </View>
+          )}
+
+          <View style={{ marginTop: 16 }}>
+            <MonthCalendar overview={overview} onDayPress={setSelectedDate} />
+          </View>
+
+          {overview.cycles.length === 0 && (
+            <View style={[styles.coachBox, { marginTop: 16 }]}>
+              <Text style={styles.copyTight}>Nenhum ciclo registrado ainda. Toque num dia no calendário pra começar.</Text>
+            </View>
+          )}
+        </>
+      ) : null}
+
+      {selectedDate && overview && (
+        <DaySheet
+          dateStr={selectedDate}
+          overview={overview}
+          dailyLogs={dailyLogs}
+          accessToken={accessToken}
+          onClose={() => setSelectedDate(null)}
+          onChanged={() => void load()}
+        />
       )}
     </View>
   );
 }
+
+const mcStyles = StyleSheet.create({
+  card: { backgroundColor: '#ffffff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#EDE9E0' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  navButton: { padding: 6 },
+  title: { fontSize: 15, fontWeight: '800', color: PRColors.mineral },
+  weekdayRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  weekdayLabel: { flex: 1, textAlign: 'center', fontSize: 10, fontWeight: '700', color: '#94a3b8' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap' },
+  dayCell: { width: `${100 / 7}%`, alignItems: 'center', paddingVertical: 3 },
+  dayCircle: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  dayObserved: { backgroundColor: PRColors.danger },
+  dayPredicted: { backgroundColor: '#F4C7C0' },
+  dayToday: { borderWidth: 2, borderColor: PRColors.ocean },
+  dayNumber: { fontSize: 13, color: PRColors.graphite, fontWeight: '600' },
+  dayNumberOutside: { color: '#D9D6CC' },
+  dayNumberObserved: { color: '#ffffff' },
+  legendRow: { flexDirection: 'row', gap: 16, marginTop: 12, justifyContent: 'center' },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendText: { fontSize: 11, color: '#94a3b8' },
+});
 
 function StravaSync({ accessToken }: { accessToken: string }) {
   const [connection, setConnection] = useState<StravaConnectionStatus | null>(null);

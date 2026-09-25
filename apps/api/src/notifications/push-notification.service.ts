@@ -8,7 +8,10 @@ import { Injectable, Logger } from '@nestjs/common';
 export class PushNotificationService {
   private readonly logger = new Logger(PushNotificationService.name);
 
-  async send(expoPushToken: string | null | undefined, title: string, body: string) {
+  // data (25/09/2026): o app escuta addNotificationResponseReceivedListener e le data.action pra
+  // navegar direto ao tocar na notificacao (ver App.tsx) — sem isso o campo `action` ja salvo no
+  // banco nunca chegava ao dispositivo pra disparar navegacao nenhuma.
+  async send(expoPushToken: string | null | undefined, title: string, body: string, data?: Record<string, unknown>) {
     if (!expoPushToken || !expoPushToken.startsWith('ExponentPushToken')) return;
 
     try {
@@ -21,6 +24,7 @@ export class PushNotificationService {
           body,
           sound: 'default',
           priority: 'high',
+          ...(data ? { data } : {}),
         }),
       });
       if (!response.ok) {

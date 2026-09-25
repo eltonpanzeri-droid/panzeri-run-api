@@ -16,6 +16,8 @@ function variableEntry(overrides: Partial<VariableStateEntry> = {}): VariableSta
       medium_60d: { window: { kind: 'calendar_days', size: 60 }, value: null, n: 0, isPartialWindow: true, windowStart: null, windowEnd: null },
       long_200d: { window: { kind: 'calendar_days', size: 200 }, value: null, n: 0, isPartialWindow: true, windowStart: null, windowEnd: null },
     },
+    movingAverageSeries: { short_21d: [], medium_60d: [], long_200d: [] },
+    availableModalities: [],
     baseline: { window: { kind: 'calendar_days', size: 200 }, value: null, n: 0, isPartialWindow: true, windowStart: null, windowEnd: null },
     deviation: { current: null, baseline: null, absoluteDeviation: null, relativeDeviation: null },
     trend: {

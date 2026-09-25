@@ -3609,14 +3609,15 @@ interface TrainingIntelligenceOverviewResponse {
   studentsWithRecentPain: Array<{ id: string; name: string; studentCode: number | null; intensity: number; reportedAt: string }>;
 }
 
-// Passo 5 (continuação, 25/09/2026) — os 5 domínios que o VariableRegistry cobre com matemática
-// longitudinal de verdade (sono/estado físico/estado psicológico/resposta ao treino/dor). Os outros
+// Passo 5 (continuação, 25/09/2026) — os domínios que o VariableRegistry cobre com matemática
+// longitudinal de verdade (sono/estado físico/estado psicológico/resposta ao treino/dor/ciclo
+// menstrual — este último desde a evolução do acompanhamento menstrual, 25/09/2026). Os outros
 // domínios do pedido (Aderência/Performance/Evolução/Contexto/Treinamento-prescrito) NÃO são
 // variáveis do registry — vivem em fontes próprias já com tela dedicada (Resultados do Método,
 // FitnessTest, aba Evolução/Contexto do aluno) e são acessados por ali, não pelo picker de variável.
 const VARIABLE_DOMAIN_LABELS: Record<string, string> = {
   sleep: 'Sono', physical_state: 'Estado físico', psychological_state: 'Estado psicológico',
-  training_response: 'Resposta ao treino', pain_health: 'Dor/Saúde',
+  training_response: 'Resposta ao treino', pain_health: 'Dor/Saúde', menstrual_cycle: 'Ciclo menstrual',
 };
 
 interface VariableLegendEntry {
@@ -5232,6 +5233,16 @@ function CicloTab({ studentId, accessToken }: { studentId: string; accessToken: 
       phaseStats: Array<{ phase: string; done: number; missed: number; noInteraction: number; adherencePercent: number | null }>;
       averageSymptoms: { crampsLevel: number | null; energyLevel: number | null; moodLevel: number | null };
     } | null;
+    overview: {
+      cycles: Array<{ id: string; startDate: string; endDate: string | null; cycleDurationDays: number | null; periodDurationDays: number | null; flowIntensity: string | null }>;
+      currentDayOfCycle: number | null;
+      isCurrentlyMenstruating: boolean | null;
+      cycleLengthStats: { n: number; median: number | null; mad: number | null; habitualLower: number | null; habitualUpper: number | null; isPartialWindow: boolean } | null;
+      periodLengthStats: { n: number; median: number | null; mad: number | null; isPartialWindow: boolean } | null;
+      predictedNextPeriod: { windowStart: string; windowEnd: string; basedOnCycles: number } | null;
+      maturity: 'none' | 'low' | 'moderate' | 'established';
+      reliabilityCaveats: string[];
+    } | null;
   } | null>(null);
   const [loading, setLoading] = React.useState(true);
 
@@ -5253,7 +5264,7 @@ function CicloTab({ studentId, accessToken }: { studentId: string; accessToken: 
   if (loading) return <section className="miniSection"><p>Carregando dados do ciclo...</p></section>;
   if (!data?.profile) return <section className="miniSection"><p>A aluna ainda não registrou informações de ciclo menstrual.</p></section>;
 
-  const { profile, logs, phase, correlations } = data;
+  const { profile, logs, phase, correlations, overview } = data;
 
   return (
     <section className="miniSection">
@@ -5264,10 +5275,54 @@ function CicloTab({ studentId, accessToken }: { studentId: string; accessToken: 
         {profile.hasActiveCycle && <>
           <p><strong>Anticoncepcional hormonal:</strong> {profile.usesHormonalContraceptive === true ? 'Sim' : profile.usesHormonalContraceptive === false ? 'Não' : 'Prefere não informar'}</p>
           {profile.usesHormonalContraceptive && <p><strong>Tipo:</strong> {profile.contraceptiveType ?? '—'}</p>}
-          {!profile.usesHormonalContraceptive && profile.cycleLengthDays && <p><strong>Duração do ciclo:</strong> {profile.cycleLengthDays} dias</p>}
-          {!profile.usesHormonalContraceptive && profile.periodLengthDays && <p><strong>Duração da menstruação:</strong> {profile.periodLengthDays} dias</p>}
+          {!profile.usesHormonalContraceptive && profile.cycleLengthDays && <p><strong>Duração do ciclo (declarada):</strong> {profile.cycleLengthDays} dias</p>}
+          {!profile.usesHormonalContraceptive && profile.periodLengthDays && <p><strong>Duração da menstruação (declarada):</strong> {profile.periodLengthDays} dias</p>}
         </>}
       </div>
+
+      {overview && overview.cycles.length > 0 && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <h4>Visão geral do calendário (real, calculada — nunca 28 dias fixos)</h4>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, fontSize: 13 }}>
+            <div><strong>Dia atual do ciclo</strong><div>{overview.currentDayOfCycle != null ? overview.currentDayOfCycle + 1 : '—'}</div></div>
+            <div><strong>Menstruando agora</strong><div>{overview.isCurrentlyMenstruating == null ? '—' : overview.isCurrentlyMenstruating ? 'Sim' : 'Não'}</div></div>
+            <div><strong>Duração do ciclo (real)</strong><div>{overview.cycleLengthStats?.median != null ? `~${overview.cycleLengthStats.median} dias` : '—'} {overview.cycleLengthStats ? `(n=${overview.cycleLengthStats.n})` : ''}</div></div>
+            <div><strong>Duração da menstruação (real)</strong><div>{overview.periodLengthStats?.median != null ? `~${overview.periodLengthStats.median} dias` : '—'} {overview.periodLengthStats ? `(n=${overview.periodLengthStats.n})` : ''}</div></div>
+            <div><strong>Maturidade da estimativa</strong><div>{{ none: 'sem dado', low: 'baixa', moderate: 'moderada', established: 'estabelecida' }[overview.maturity]}</div></div>
+          </div>
+          {overview.predictedNextPeriod && (
+            <p style={{ marginTop: 8, fontSize: 13 }}>
+              <strong>Próxima menstruação estimada:</strong> entre {dateLabel(overview.predictedNextPeriod.windowStart)} e {dateLabel(overview.predictedNextPeriod.windowEnd)} (baseado em {overview.predictedNextPeriod.basedOnCycles} ciclo(s))
+            </p>
+          )}
+          {overview.reliabilityCaveats.map((c, i) => (
+            <p key={i} style={{ marginTop: 4, fontSize: 12, color: '#d97706' }}>⚠️ {c}</p>
+          ))}
+          <details style={{ marginTop: 10 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Histórico completo de ciclos ({overview.cycles.length})</summary>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6 }}>
+              <thead><tr style={{ background: '#f1f5f9' }}>
+                <th style={{ padding: '6px 8px', textAlign: 'left' }}>Início</th>
+                <th style={{ padding: '6px 8px', textAlign: 'left' }}>Fim</th>
+                <th style={{ padding: '6px 8px' }}>Duração do ciclo</th>
+                <th style={{ padding: '6px 8px' }}>Duração do sangramento</th>
+                <th style={{ padding: '6px 8px' }}>Fluxo</th>
+              </tr></thead>
+              <tbody>
+                {[...overview.cycles].reverse().map((c) => (
+                  <tr key={c.id} style={{ borderTop: '1px solid #e2e8f0' }}>
+                    <td style={{ padding: '6px 8px' }}>{dateLabel(c.startDate)}</td>
+                    <td style={{ padding: '6px 8px' }}>{c.endDate ? dateLabel(c.endDate) : 'em curso / não informado'}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>{c.cycleDurationDays != null ? `${c.cycleDurationDays}d` : '—'}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>{c.periodDurationDays != null ? `${c.periodDurationDays}d` : '—'}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>{c.flowIntensity ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        </div>
+      )}
 
       {phase && (
         <div className="card" style={{ marginTop: 12 }}>

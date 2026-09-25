@@ -21,7 +21,8 @@ export type VariableDomain =
   | 'physical_state'
   | 'psychological_state'
   | 'training_response'
-  | 'pain_health';
+  | 'pain_health'
+  | 'menstrual_cycle';
 
 export type VariableDataType = 'ordinal_scale' | 'categorical' | 'numeric_continuous';
 
@@ -31,7 +32,7 @@ export type VariableDataType = 'ordinal_scale' | 'categorical' | 'numeric_contin
  */
 export type SemanticDirection = 'higher_is_more_of_construct' | 'not_directional';
 
-export type VariableSource = 'student_feedback_per_workout' | 'student_weekly_checkin';
+export type VariableSource = 'student_feedback_per_workout' | 'student_weekly_checkin' | 'student_menstrual_daily_log';
 
 export type MathStrategy = 'ordinal_or_continuous_stats' | 'categorical_frequency';
 
@@ -57,7 +58,7 @@ export interface VariableDefinition {
   scale?: { min: number; max: number; unit?: string };
   direction: SemanticDirection;
   source: VariableSource;
-  expectedFrequency: 'per_workout' | 'per_week';
+  expectedFrequency: 'per_workout' | 'per_week' | 'per_day';
   /** Estrategias matematicas permitidas — o MathLayer recusa aplicar uma estrategia fora desta lista. */
   allowedMathStrategy: MathStrategy;
   /**
@@ -531,6 +532,57 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     notes:
       'Coluna NOVA na v3 (nao reaproveita routineInterference nem expectedScheduleFeasibility da v2, ' +
       'que tinham escala invertida e janela temporal diferente — ver schema.prisma).',
+  },
+
+  // ---------------------------------------------------------------------------------------------
+  // Ciclo menstrual (MenstrualDailyLog) — evolucao do acompanhamento menstrual, 25/09/2026.
+  // Registro diario opcional (upsert por data) — nao tem dimensao de modalidade (nao e' por treino).
+  // ---------------------------------------------------------------------------------------------
+  'cycle.crampsLevel': {
+    variableId: 'cycle.crampsLevel',
+    domain: 'menstrual_cycle',
+    dataType: 'ordinal_scale',
+    constructLabel: 'intensidade de cólica',
+    scale: { min: 1, max: 5 },
+    direction: 'higher_is_more_of_construct',
+    source: 'student_menstrual_daily_log',
+    expectedFrequency: 'per_day',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, field: 'crampsLevel', storageLocation: 'column' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+  },
+  'cycle.energyLevel': {
+    variableId: 'cycle.energyLevel',
+    domain: 'menstrual_cycle',
+    dataType: 'ordinal_scale',
+    constructLabel: 'energia',
+    scale: { min: 1, max: 5 },
+    direction: 'higher_is_more_of_construct',
+    source: 'student_menstrual_daily_log',
+    expectedFrequency: 'per_day',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, field: 'energyLevel', storageLocation: 'column' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+  },
+  'cycle.moodLevel': {
+    variableId: 'cycle.moodLevel',
+    domain: 'menstrual_cycle',
+    dataType: 'ordinal_scale',
+    constructLabel: 'estabilidade de humor',
+    scale: { min: 1, max: 5 },
+    direction: 'higher_is_more_of_construct',
+    source: 'student_menstrual_daily_log',
+    expectedFrequency: 'per_day',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, field: 'moodLevel', storageLocation: 'column' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes: '1 = muito instável, 5 = muito estável (nunca "5 = feliz") — ver MenstrualDailyLog no schema.',
   },
 };
 
