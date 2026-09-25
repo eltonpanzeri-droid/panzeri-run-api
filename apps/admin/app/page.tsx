@@ -4115,6 +4115,8 @@ interface FullVariableSnapshot {
   persistence: { currentlyOutsideHabitualRange: boolean | null; direction: string | null; startTimestamp: string | null; durationDays: number | null; observationCount: number | null } | null;
   excursions: FullExcursion[] | null;
   observations: ObservationRow[];
+  /** Modalidades presentes no histórico COMPLETO (não filtrado) — vazio quando a variável não tem essa dimensão (ex: checkin.* semanal). */
+  availableModalities: string[];
   evidence: { n: number; observedSpan: { from: string | null; to: string | null }; lastObservationAt: string | null; instrumentVersions: number[]; comparabilityWarning: string | null };
 }
 
@@ -4344,8 +4346,9 @@ function DomainOverview({ domain, legend, snapshotCache, loadingIds, contextEven
   );
 }
 
-function VariableDeepDive({ snapshot, contextEvents, layers, onLayersChange, pinned, onTogglePin }: {
-  snapshot: FullVariableSnapshot; contextEvents: ContextEventRow[]; layers: LayerToggles; onLayersChange: (l: LayerToggles) => void;
+function VariableDeepDive({ snapshot, baseModalities, selectedModalities, onModalitiesChange, contextEvents, layers, onLayersChange, pinned, onTogglePin }: {
+  snapshot: FullVariableSnapshot; baseModalities: string[]; selectedModalities: string[]; onModalitiesChange: (m: string[]) => void;
+  contextEvents: ContextEventRow[]; layers: LayerToggles; onLayersChange: (l: LayerToggles) => void;
   pinned: boolean; onTogglePin: () => void;
 }) {
   return (
@@ -4361,6 +4364,20 @@ function VariableDeepDive({ snapshot, contextEvents, layers, onLayersChange, pin
           {pinned ? <Pin size={14} /> : <PinOff size={14} />} {pinned ? 'Fixado no Sistema' : 'Fixar no Sistema'}
         </button>
       </div>
+
+      {baseModalities.length > 0 && (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Modalidade</span>
+          {baseModalities.map((m) => (
+            <label key={m} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={selectedModalities.includes(m)}
+                onChange={(e) => onModalitiesChange(e.target.checked ? [...selectedModalities, m] : selectedModalities.filter((x) => x !== m))} />
+              {modalityLabel(m)}
+            </label>
+          ))}
+          {selectedModalities.length === 0 && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Nenhuma selecionada — mostrando todas as modalidades combinadas.</span>}
+        </div>
+      )}
 
       {!snapshot.mathApplicable ? (
         <p style={{ fontSize: 12, color: 'var(--muted)' }}>{snapshot.mathSkippedReason}</p>
@@ -4534,6 +4551,11 @@ function SistemaWorkspace({ legend, pinnedIds, onTogglePin, snapshotCache, conte
  * contexto/snapshots, não depende de estado da tela pai. "Fixar" é estado da sessão atual
  * (não persistido) — pedido explícito: não precisa virar configuração permanente nesta versão.
  */
+/** Chave do cache de snapshots: variável sozinha (sem filtro) ou variável+modalidades ordenadas. */
+function snapshotCacheKey(variableId: string, modalities?: string[]): string {
+  return modalities && modalities.length > 0 ? `${variableId}::${[...modalities].sort().join(',')}` : variableId;
+}
+
 function LongitudinalExplorer({ studentId, studentName, accessToken }: { studentId: string; studentName: string; accessToken: string }) {
   const [legend, setLegend] = React.useState<VariableLegendEntry[] | null>(null);
   const [contextEvents, setContextEvents] = React.useState<ContextEventRow[]>([]);
@@ -4543,6 +4565,10 @@ function LongitudinalExplorer({ studentId, studentName, accessToken }: { student
   const [pinnedIds, setPinnedIds] = React.useState<string[]>([]);
   const [layers, setLayers] = React.useState<LayerToggles>(DEFAULT_LAYERS);
   const [overlayIds, setOverlayIds] = React.useState<string[]>([]);
+  // Modalidade selecionada por variável (deep dive) — pedido do treinador (25/09/2026): RPE de
+  // corrida e de musculação não devem ser misturados numa única média/baseline. Default "corrida"
+  // quando existir no histórico da variável, senão a primeira modalidade observada.
+  const [modalitySelection, setModalitySelection] = React.useState<Record<string, string[]>>({});
 
   React.useEffect(() => {
     let cancelled = false;
@@ -4560,29 +4586,48 @@ function LongitudinalExplorer({ studentId, studentName, accessToken }: { student
     return () => { cancelled = true; };
   }, [studentId, accessToken]);
 
-  const fetchSnapshot = React.useCallback(async (variableId: string) => {
-    setLoadingIds((prev) => new Set(prev).add(variableId));
+  const fetchSnapshot = React.useCallback(async (variableId: string, modalities?: string[]) => {
+    const key = snapshotCacheKey(variableId, modalities);
+    setLoadingIds((prev) => new Set(prev).add(key));
     try {
-      const res = await fetch(`${API_URL}/coach/students/${studentId}/observations/${variableId}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const qs = modalities && modalities.length > 0 ? `?modalities=${encodeURIComponent(modalities.join(','))}` : '';
+      const res = await fetch(`${API_URL}/coach/students/${studentId}/observations/${variableId}${qs}`, { headers: { Authorization: `Bearer ${accessToken}` } });
       if (res.ok) {
         const data = (await res.json()) as FullVariableSnapshot;
-        setSnapshotCache((prev) => ({ ...prev, [variableId]: data }));
+        setSnapshotCache((prev) => ({ ...prev, [key]: data }));
+        if (!modalities) {
+          // Primeiro fetch (sem filtro) de uma variável com dimensão de modalidade: define o
+          // default ("corrida" se existir, senão a primeira observada) — só se o treinador ainda
+          // não tiver escolhido nada pra essa variável nesta sessão. availableModalities pode nao
+          // existir ainda se a API de producao nao tiver o deploy mais recente (compat defensiva).
+          const modalitiesFromApi = data.availableModalities ?? [];
+          setModalitySelection((prev) => {
+            if (prev[variableId] || modalitiesFromApi.length === 0) return prev;
+            const def = modalitiesFromApi.includes('corrida') ? ['corrida'] : [modalitiesFromApi[0]];
+            return { ...prev, [variableId]: def };
+          });
+        }
       }
     } catch { /* silencioso */ }
     finally {
-      setLoadingIds((prev) => { const next = new Set(prev); next.delete(variableId); return next; });
+      setLoadingIds((prev) => { const next = new Set(prev); next.delete(key); return next; });
     }
   }, [studentId, accessToken]);
 
   React.useEffect(() => {
-    const idsToLoad: string[] = [];
-    if (level.kind === 'domain' && legend) idsToLoad.push(...legend.filter((v) => v.domain === level.domain).map((v) => v.id));
-    if (level.kind === 'variable') idsToLoad.push(level.variableId);
-    if (level.kind === 'sistema') idsToLoad.push(...pinnedIds);
-    for (const id of idsToLoad) {
-      if (!snapshotCache[id] && !loadingIds.has(id)) void fetchSnapshot(id);
+    const toLoad: Array<{ id: string; modalities?: string[] }> = [];
+    if (level.kind === 'domain' && legend) legend.filter((v) => v.domain === level.domain).forEach((v) => toLoad.push({ id: v.id }));
+    if (level.kind === 'variable') {
+      toLoad.push({ id: level.variableId });
+      const sel = modalitySelection[level.variableId];
+      if (sel && sel.length > 0) toLoad.push({ id: level.variableId, modalities: sel });
     }
-  }, [level, legend, pinnedIds, snapshotCache, loadingIds, fetchSnapshot]);
+    if (level.kind === 'sistema') pinnedIds.forEach((id) => toLoad.push({ id }));
+    for (const item of toLoad) {
+      const key = snapshotCacheKey(item.id, item.modalities);
+      if (!snapshotCache[key] && !loadingIds.has(key)) void fetchSnapshot(item.id, item.modalities);
+    }
+  }, [level, legend, pinnedIds, modalitySelection, snapshotCache, loadingIds, fetchSnapshot]);
 
   if (!legend) return <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando...</p>;
 
@@ -4629,10 +4674,18 @@ function LongitudinalExplorer({ studentId, studentName, accessToken }: { student
           onOpenVariable={(variableId) => setLevel({ kind: 'variable', domain: level.domain, variableId })} />
       )}
 
-      {level.kind === 'variable' && (snapshotCache[level.variableId] ? (
-        <VariableDeepDive snapshot={snapshotCache[level.variableId]} contextEvents={contextEvents}
-          layers={layers} onLayersChange={setLayers} pinned={pinnedIds.includes(level.variableId)} onTogglePin={() => togglePin(level.variableId)} />
-      ) : <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando...</p>)}
+      {level.kind === 'variable' && (() => {
+        const baseSnapshot = snapshotCache[level.variableId];
+        const selectedModalities = modalitySelection[level.variableId] ?? [];
+        const activeSnapshot = selectedModalities.length > 0 ? snapshotCache[snapshotCacheKey(level.variableId, selectedModalities)] : baseSnapshot;
+        if (!activeSnapshot) return <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando...</p>;
+        return (
+          <VariableDeepDive snapshot={activeSnapshot} baseModalities={baseSnapshot?.availableModalities ?? []} selectedModalities={selectedModalities}
+            onModalitiesChange={(m) => setModalitySelection((prev) => ({ ...prev, [level.variableId]: m }))}
+            contextEvents={contextEvents} layers={layers} onLayersChange={setLayers}
+            pinned={pinnedIds.includes(level.variableId)} onTogglePin={() => togglePin(level.variableId)} />
+        );
+      })()}
 
       {level.kind === 'sistema' && (
         <SistemaWorkspace legend={legend} pinnedIds={pinnedIds} onTogglePin={togglePin} snapshotCache={snapshotCache}

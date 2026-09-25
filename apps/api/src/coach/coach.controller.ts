@@ -112,9 +112,12 @@ export class CoachController {
   // 24/09: endpoint isolado de validacao ponta a ponta da fundacao de Training Intelligence
   // (Prisma -> ObservationReader -> MathLayer -> resposta estruturada). Ver auditoria aprovada:
   // nao redesenha Admin nem altera agente, so expoe a camada nova pra validacao manual.
+  // modalities (25/09/2026, Exploracao Longitudinal): filtro opcional "?modalities=corrida,forca"
+  // — mesma pipeline de calculo, aplicada so' ao subconjunto escolhido pelo treinador.
   @Get('students/:id/observations/:variableId')
-  getStudentObservationSnapshot(@Param('id') id: string, @Param('variableId') variableId: string) {
-    return this.trainingIntelligenceQuery.getVariableSnapshot(id, variableId);
+  getStudentObservationSnapshot(@Param('id') id: string, @Param('variableId') variableId: string, @Query('modalities') modalities?: string) {
+    const modalityList = modalities ? modalities.split(',').map((m) => m.trim()).filter(Boolean) : undefined;
+    return this.trainingIntelligenceQuery.getVariableSnapshot(id, variableId, modalityList);
   }
 
   // 24/09: Athlete State Snapshot V1 — endpoint isolado, so' de validacao (pedido explicito: NAO

@@ -89,6 +89,39 @@ describe('TrainingIntelligenceQueryService', () => {
     expect(series[2].timestamp).toBe('2026-09-01T00:00:00.000Z');
   });
 
+  // 25/09/2026 (Exploracao Longitudinal) — pedido do treinador: RPE de corrida e RPE de musculacao
+  // sao coisas distintas, misturar as duas numa unica media/baseline seria uma composicao
+  // silenciosa. O filtro de modalidade precisa recalcular TUDO (mean/baseline/evidence) so' sobre
+  // o subconjunto escolhido, nunca so' filtrar pontos do grafico em cima de estatisticas mistas.
+  it('filtro de modalidade recalcula mean/baseline/evidence so sobre o subconjunto escolhido, preservando availableModalities do historico completo', async () => {
+    const observations = [
+      observation({ value: 8, timestamp: new Date('2026-08-01T00:00:00.000Z'), context: { modality: 'corrida' } }),
+      observation({ value: 4, timestamp: new Date('2026-08-15T00:00:00.000Z'), context: { modality: 'forca' } }),
+      observation({ value: 6, timestamp: new Date('2026-09-01T00:00:00.000Z'), context: { modality: 'corrida' } }),
+    ];
+    const { service } = buildService(observations);
+
+    const all = await service.getVariableSnapshot('aluno-1', 'workout.preSleepQuality');
+    expect(all.availableModalities).toEqual(['corrida', 'forca']);
+    expect(all.evidence.n).toBe(3);
+    expect(all.mean?.value).toBe(6); // (8+4+6)/3
+
+    const soCorrida = await service.getVariableSnapshot('aluno-1', 'workout.preSleepQuality', ['corrida']);
+    expect(soCorrida.evidence.n).toBe(2);
+    expect(soCorrida.mean?.value).toBe(7); // (8+6)/2 — forca excluida do calculo, nao so do grafico
+    expect(soCorrida.observations.every((o) => o.context.modality === 'corrida')).toBe(true);
+    // availableModalities sempre reflete o historico INTEIRO, pra o seletor nao perder opcoes ja usadas antes.
+    expect(soCorrida.availableModalities).toEqual(['corrida', 'forca']);
+  });
+
+  it('variavel sem dimensao de modalidade (checkin.* semanal) ignora o filtro sem quebrar', async () => {
+    const observations = [observation({ variableId: 'checkin.prescriptionLiking', source: 'student_weekly_checkin', instrumentVersion: 2, context: { checkinId: 'c1' } })];
+    const { service } = buildService(observations);
+    const result = await service.getVariableSnapshot('aluno-1', 'checkin.prescriptionLiking', ['corrida']);
+    expect(result.availableModalities).toEqual([]);
+    expect(result.evidence.n).toBe(1);
+  });
+
   it('serie vazia: mathApplicable true mas todos os resultados numericos vem null/zerados', async () => {
     const { service } = buildService([]);
     const result = await service.getVariableSnapshot('aluno-1', 'workout.preSleepQuality');

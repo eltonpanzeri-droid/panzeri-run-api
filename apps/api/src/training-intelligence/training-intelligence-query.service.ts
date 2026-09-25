@@ -65,6 +65,8 @@ export interface VariableSnapshotResponse {
     instrumentVersion: number;
     context: Observation['context'];
   }>;
+  /** Modalidades presentes no historico COMPLETO (nao filtrado) desta variavel — pra montar o seletor. Vazio quando a variavel nao tem dimensao de modalidade (ex: checkin.* semanal). */
+  availableModalities: string[];
   evidence: {
     n: number;
     observedSpan: { from: string | null; to: string | null };
@@ -96,13 +98,28 @@ export class TrainingIntelligenceQueryService {
     private readonly longitudinalDynamics: LongitudinalDynamicsService,
   ) {}
 
-  async getVariableSnapshot(athleteId: string, variableId: string): Promise<VariableSnapshotResponse> {
+  /**
+   * `modalities` (25/09/2026, Exploração Longitudinal) — filtro opcional por modalidade de sessão
+   * (corrida/forca/fortalecimento_corredores/...), aplicado ANTES de qualquer calculo. Nao e' uma
+   * segunda matematica: e' a MESMA pipeline (mean/movingAverage/baseline/trend/dispersion/
+   * habitualRange/excursions), so' que sobre um subconjunto das observacoes escolhido pelo
+   * treinador — pedido explicito (RPE de corrida e RPE de musculacao sao coisas distintas, misturar
+   * os dois numa unica media/baseline seria uma composicao silenciosa). Variaveis sem dimensao de
+   * modalidade (ex: checkin.* semanal, sem context.modality) ignoram o filtro.
+   */
+  async getVariableSnapshot(athleteId: string, variableId: string, modalities?: string[]): Promise<VariableSnapshotResponse> {
     const definition = getVariableDefinition(variableId);
     if (!definition) {
       throw new NotFoundException(`Variavel desconhecida no VariableRegistry: ${variableId}`);
     }
 
-    const observations = await this.observationReader.getObservations(athleteId, variableId);
+    const allObservations = await this.observationReader.getObservations(athleteId, variableId);
+    const hasModalityDimension = allObservations.some((o) => o.context.modality != null);
+    const observations =
+      modalities && modalities.length > 0 && hasModalityDimension
+        ? allObservations.filter((o) => o.context.modality != null && modalities.includes(o.context.modality))
+        : allObservations;
+    const availableModalities = [...new Set(allObservations.map((o) => o.context.modality).filter((m): m is string => m != null))].sort();
     const evidence = this.buildEvidence(observations, definition);
     const traceable = this.describeObservations(observations);
 
@@ -126,6 +143,7 @@ export class TrainingIntelligenceQueryService {
         persistence: null,
         excursions: null,
         observations: traceable,
+        availableModalities,
         evidence,
       };
     }
@@ -190,6 +208,7 @@ export class TrainingIntelligenceQueryService {
       persistence: persistenceResult,
       excursions: excursionsResult,
       observations: traceable,
+      availableModalities,
       evidence,
     };
   }
