@@ -3759,7 +3759,7 @@ function PopulacaoView({ accessToken, legend, onOpenExplorer, onOpenStudent }: {
 
   React.useEffect(() => {
     if (!variableId && domainVariables.length > 0) setVariableId(domainVariables[0].id);
-  }, [domain]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [domain]);
 
   async function loadPopulation(id: string) {
     setLoading(true);
@@ -3905,7 +3905,7 @@ function ExploradorView({ accessToken, legend, students, selection, onSelectionC
     } catch { /* silencioso */ } finally { setLoading(false); }
   }
 
-  React.useEffect(() => { void load(); }, [selection.studentId, selection.variableId, variableBId]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { void load(); }, [selection.studentId, selection.variableId, variableBId]);
 
   const domains = Object.keys(VARIABLE_DOMAIN_LABELS);
 
