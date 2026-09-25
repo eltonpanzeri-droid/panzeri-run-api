@@ -1,11 +1,16 @@
-﻿node_modules/
-.pnpm-store/
+node_modules/
+.tools/
+.expo/
 .next/
+# distDir customizado do admin (output: 'export' em next.config.mjs) — pega tambem o cache
+# de `next dev` local, que escreve no mesmo diretorio do build de producao.
+.next-build/
 dist/
-out/
-*.log
+coverage/
 .env
 .env.local
 # 26/08: chaves privadas (Apple .p8, credenciais de service account do Google, etc.) — nunca vao
 # pro git nem pro .bat de sincronizacao, ficam so nesta maquina.
 secrets/
+tmp/
+*.log
