@@ -52,7 +52,7 @@ interface FunnelReport {
   }>;
 }
 
-type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel' | 'raceCalendar';
+type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel' | 'raceCalendar' | 'trainingIntelligence';
 
 // 10/09: calendário global de provas alvo — retornado por GET /coach/races/calendar.
 interface RaceCalendarEntry {
@@ -1280,6 +1280,7 @@ export default function AdminHome() {
             <button className={activeView === 'notifications' ? 'active' : ''} type="button" onClick={() => changeView('notifications')}><Bell size={19} />Notificacoes{notifications.length ? ` (${notifications.length})` : ''}</button>
             <button className={activeView === 'funnel' ? 'active' : ''} type="button" onClick={() => changeView('funnel')}><TrendingUp size={19} />Funil</button>
             <button className={activeView === 'raceCalendar' ? 'active' : ''} type="button" onClick={() => changeView('raceCalendar')}><Flag size={19} />Provas</button>
+            <button className={activeView === 'trainingIntelligence' ? 'active' : ''} type="button" onClick={() => changeView('trainingIntelligence')}><Activity size={19} />Training Intelligence</button>
           </nav>
         ) : null}
 
@@ -1874,6 +1875,8 @@ export default function AdminHome() {
         {activeView === 'funnel' ? <FunnelView report={funnelReport} loading={loadingFunnel} onRefresh={() => loadFunnel()} /> : null}
 
         {activeView === 'raceCalendar' ? <RaceCalendarView races={raceCalendar} loading={loadingRaceCalendar} onRefresh={() => loadRaceCalendar()} /> : null}
+
+        {activeView === 'trainingIntelligence' ? <TrainingIntelligenceOverview accessToken={token} onOpenStudent={async (id) => { changeView('students'); await goToStudent(id); }} /> : null}
       </section>
     </main>
   );
@@ -2380,7 +2383,7 @@ function StudentPanel({
   // 01/09: o painel virou abas em vez de uma pagina so' com tudo empilhado (pedido do treinador —
   // ver studentViewMode no componente pai pro contexto completo dessa mudanca). "Treinos" e' a aba
   // padrao por ser a mais usada no dia a dia.
-  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo'>('treinos');
+  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto'>('treinos');
   // 11/09: período universal da aba Evolução — compartilhado por todos os gráficos e seções.
   // Padrão 12 semanas (~3 meses). Opções: 4/8/12/24/52/999(Tudo).
   const [evolPeriod, setEvolPeriod] = useState<4 | 8 | 12 | 24 | 52 | 999>(12);
@@ -2894,6 +2897,7 @@ function StudentPanel({
         <button type="button" className={detailTab === 'diretrizes' ? 'active' : ''} onClick={() => setDetailTab('diretrizes')}>Diretrizes</button>
         <button type="button" className={detailTab === 'semanas' ? 'active' : ''} onClick={() => setDetailTab('semanas')}>Semanas anteriores</button>
         <button type="button" className={detailTab === 'evolucao' ? 'active' : ''} onClick={() => setDetailTab('evolucao')}>Evolucao</button>
+        <button type="button" className={detailTab === 'contexto' ? 'active' : ''} onClick={() => setDetailTab('contexto')}>Contexto</button>
         {student?.interview?.answers?.personal_sex === 'Feminino' && (
           <button type="button" className={detailTab === 'ciclo' ? 'active' : ''} onClick={() => setDetailTab('ciclo')}>Ciclo</button>
         )}
@@ -3190,7 +3194,7 @@ function StudentPanel({
           </EvoSection>
 
           <EvoSection icon="📈" title="Análise de carga (ACWR)" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
-            desc="Carga Semanal + ACWR (Aguda:Crônica). Zona verde 0.8–1.3 = seguro. Acima de 1.5 = risco de overtraining.">
+            desc="Carga Semanal + ACWR (Aguda:Crônica) — indicador auxiliar de magnitude de variação de carga, não um diagnóstico de segurança. Zona 0.8–1.3 é a faixa mais comumente observada como confortável; valores fora dela merecem contexto (histórico do aluno, objetivo, fase do treinamento), não uma leitura automática de risco.">
             <LoadAnalysisSection weeks={filteredWeeks} />
           </EvoSection>
 
@@ -3212,11 +3216,6 @@ function StudentPanel({
             <ExperienciaTreinoSection history={hist} period={evolPeriod} onDayClick={handleCalendarDayClick} />
           </EvoSection>
 
-          <EvoSection icon="🔁" title="Arco do treino (pré → pós)"
-            badge={(() => { const n = flatFeedbackSessions(hist).filter((s) => (s.completionStatus === 'done' || s.completionStatus === 'adjusted') && (s.preSleepQuality != null || s.preMotivation != null) && (s.postWorkoutFeeling != null || s.postWorkoutMood != null || s.satisfactionCapacidade != null)).length; return n > 0 ? `${n} sessões` : undefined; })()}
-            desc="Como o aluno chegou (prontidão) vs como saiu (sensação + humor + execução). RPE alto com satisfação boa = sofrimento bom 💪. Dor aplica penalidade no delta. Série de deltas negativos por 3+ semanas = sinal de overtraining.">
-            <ArcoTreinoSection history={hist} />
-          </EvoSection>
 
           <EvoSection icon="🩹" title="Dor ao longo do tempo" badge={sessionsWithV1Pain.length > 0 ? sessionsWithV1Pain.filter((s) => s.painFlag !== 'none').length : undefined}
             desc="Intensidade de dor por sessão (0 = sem dor, 1 = leve, 2 = moderada, 3 = forte). Episódios detalhados com quando a dor apareceu. Círculo maior = dor mais intensa. Dados de v1 (a partir de 11/09/2026) + observações antigas.">
@@ -3263,6 +3262,11 @@ function StudentPanel({
                   </div>
                 ))
               ) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma reavaliacao concluida ainda.</p>}
+            </EvoSection>
+
+            <EvoSection icon="📈" title="Trajetória longitudinal (INITIAL → R1 → R2...)" badge={undefined}
+              desc="Direto do backend (reassessment-trajectory.ts) — nunca recalculado aqui. DIRECT = comparável ponto a ponto; PARTIAL = existe relação mas com limitação real; ausência = dado não coletado nessa reavaliação, nunca zero.">
+              <ReassessmentTrajectoryPanel studentId={student.id} accessToken={token} />
             </EvoSection>
 
             <EvoSection icon="🏁" title="Provas alvo" badge={student.targetRaces?.length ?? 0}
@@ -3544,7 +3548,304 @@ function StudentPanel({
         <CicloTab studentId={student.id} accessToken={token} />
       ) : null}
 
+      {detailTab === 'contexto' ? (
+        <ContextoTab studentId={student.id} accessToken={token} onStatus={onStatus} />
+      ) : null}
+
       </section>
+  );
+}
+
+// Passo 5 (25/09/2026) — Training Intelligence no Admin: aba "Contexto" do aluno individual.
+// So' LEITURA da lista de ContextEvents (GET, ja existente desde o Passo 4) + formulario simples
+// pra registro manual pelo treinador (POST, endpoint tambem ja existente). Nenhum calculo aqui —
+// so' apresenta o que o backend ja armazena, incluindo o gap/retorno quando existir (gapAnchorDate/
+// trainingDuringGapReported/physicalStateComparedToBefore/mentalReadinessComparedToBefore).
+const CONTEXT_EVENT_TYPE_LABELS: Record<string, string> = {
+  work: 'Trabalho', routine_change: 'Mudanca de rotina', travel: 'Viagem', family_personal: 'Familia/pessoal',
+  health: 'Saude', illness: 'Doenca', pain_injury: 'Dor/lesao', sleep: 'Sono', other: 'Outro',
+};
+const CONTEXT_EVENT_SOURCE_LABELS: Record<string, string> = {
+  student_reported: 'Relatado pelo aluno', coach_reported: 'Registrado pelo treinador',
+  reassessment: 'Reavaliacao', return_after_gap: 'Retorno apos lacuna', system_detected: 'Detectado pelo sistema',
+};
+
+interface ContextEventRow {
+  id: string; type: string; subtype: string | null; startedAt: string | null; endedAt: string | null;
+  reportedAt: string; status: string; source: string; originalText: string | null;
+  gapAnchorDate: string | null; trainingDuringGapReported: string | null;
+  physicalStateComparedToBefore: number | null; mentalReadinessComparedToBefore: number | null;
+}
+
+// Passo 5 (25/09/2026) — "Visao Geral" da Training Intelligence: AGREGADO primeiro (GET /coach/
+// data/training-intelligence/overview, ja calculado no backend reusando ContextEventsService/
+// ReassessmentService — nada recalculado aqui), clicavel pra abrir o aluno especifico (drilldown
+// AGREGADO -> ALUNO). Nao e' um score geral — cada card e' uma lista real e nomeada de alunos.
+interface TrainingIntelligenceOverviewResponse {
+  generatedAt: string; totalStudents: number;
+  studentsInGap: Array<{ id: string; name: string; studentCode: number | null; daysSinceLastObserved: number | null }>;
+  studentsReassessmentDue: Array<{ id: string; name: string; studentCode: number | null; daysSinceLast: number | null }>;
+  studentsReassessmentWarning: Array<{ id: string; name: string; studentCode: number | null; daysSinceLast: number | null }>;
+  studentsWithRecentPain: Array<{ id: string; name: string; studentCode: number | null; intensity: number; reportedAt: string }>;
+}
+
+function TrainingIntelligenceOverview({ accessToken, onOpenStudent }: { accessToken: string; onOpenStudent: (studentId: string) => void }) {
+  const [data, setData] = React.useState<TrainingIntelligenceOverviewResponse | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_URL}/coach/data/training-intelligence/overview`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!response.ok || cancelled) return;
+        setData((await response.json()) as TrainingIntelligenceOverviewResponse);
+      } catch { /* silencioso */ }
+    })();
+    return () => { cancelled = true; };
+  }, [accessToken]);
+
+  if (!data) return <p style={{ color: 'var(--muted)', fontSize: 13, padding: 16 }}>Carregando...</p>;
+
+  const cards: Array<{ title: string; items: Array<{ id: string; name: string; studentCode: number | null; detail: string }> }> = [
+    { title: 'Em lacuna (≥14 dias sem execução observada)', items: data.studentsInGap.map((s) => ({ id: s.id, name: s.name, studentCode: s.studentCode, detail: `${s.daysSinceLastObserved} dias` })) },
+    { title: 'Reavaliação vencida (≥105 dias)', items: data.studentsReassessmentDue.map((s) => ({ id: s.id, name: s.name, studentCode: s.studentCode, detail: `${s.daysSinceLast} dias desde a última` })) },
+    { title: 'Reavaliação próxima (semana 14)', items: data.studentsReassessmentWarning.map((s) => ({ id: s.id, name: s.name, studentCode: s.studentCode, detail: `${s.daysSinceLast} dias desde a última` })) },
+    { title: 'Dor relatada nos últimos 30 dias', items: data.studentsWithRecentPain.map((s) => ({ id: s.id, name: s.name, studentCode: s.studentCode, detail: `intensidade ${s.intensity}` })) },
+  ];
+
+  return (
+    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <h2 style={{ margin: 0 }}>Training Intelligence — Visão Geral</h2>
+      <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>{data.totalStudents} alunos ativos · gerado às {new Date(data.generatedAt).toLocaleTimeString('pt-BR')}. Cada card é uma lista real de alunos, nunca um score agregado — clique num nome para abrir.</p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+        {cards.map((card) => (
+          <div key={card.title} className="card" style={{ padding: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <strong style={{ fontSize: 13 }}>{card.title}</strong>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{card.items.length}</span>
+            </div>
+            {card.items.length === 0 ? (
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>Nenhum aluno nesta condição agora.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {card.items.map((item) => (
+                  <button key={item.id} type="button" onClick={() => onOpenStudent(item.id)}
+                    style={{ display: 'flex', justifyContent: 'space-between', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: '4px 0', fontSize: 13, color: 'var(--fg)' }}>
+                    <span>{item.name}{item.studentCode ? ` (#${String(item.studentCode).padStart(7, '0')})` : ''}</span>
+                    <span style={{ color: 'var(--muted)', fontSize: 12 }}>{item.detail}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--muted)' }}>
+        Explorador de dados por variável, seção de Relações e Resultados do Método ainda não têm interface própria aqui — os endpoints de observação por variável já existem
+        (usados pela tela individual do aluno) e podem alimentar essas telas num próximo passo.
+      </p>
+    </div>
+  );
+}
+
+interface TrajectoryPoint { source: string; reassessmentId: string | null; completedAt: string; instrumentVersion: number | null; value: number | string | string[] | null; normalized?: boolean }
+interface VariableTrajectoryRow { variableId: string; label: string; domain: string; kind: string; comparability: string; unit: string | null; points: TrajectoryPoint[]; n: number }
+interface EvolutionReportRow {
+  id: string; summary: string; wins: string[]; concerns: string[];
+  domainObservations: Record<string, string> | null; invalidatedAt: string | null; createdAt: string;
+}
+interface ReassessmentTrajectoryResponse {
+  onboarding: { completedAt: string | null; interviewVersion: number | null } | null;
+  reassessments: Array<{ id: string; completedAt: string | null; reassessmentVersion: number | null; evolutionSummary: string | null }>;
+  evolutionReports: EvolutionReportRow[];
+  trajectories: VariableTrajectoryRow[];
+}
+
+// Passo 5 (25/09/2026) — le GET /coach/students/:id/reassessment-trajectory (Passo 5, so' leitura
+// do que ReassessmentService ja calculou/persistiu no Passo 3). Mostra a trajetoria INITIAL->R1->R2
+// por variavel e o Evolution Report mais recente (summary/wins/concerns/domainObservations) como
+// interpretacao — nunca como verdade absoluta.
+function ReassessmentTrajectoryPanel({ studentId, accessToken }: { studentId: string; accessToken: string }) {
+  const [data, setData] = React.useState<ReassessmentTrajectoryResponse | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_URL}/coach/students/${studentId}/reassessment-trajectory`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!response.ok || cancelled) return;
+        setData((await response.json()) as ReassessmentTrajectoryResponse);
+      } catch { /* silencioso — painel secundario */ }
+    })();
+    return () => { cancelled = true; };
+  }, [studentId, accessToken]);
+
+  if (!data) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Carregando...</p>;
+
+  const latestReport = data.evolutionReports.find((r) => !r.invalidatedAt) ?? null;
+  const comparableTrajectories = data.trajectories.filter((t) => t.n > 1); // pelo menos 1 ponto além do INITIAL
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {data.reassessments.length === 0 ? (
+        <p style={{ fontSize: 13, color: 'var(--muted)' }}>Nenhuma reavaliação concluída ainda — só existe o ponto INITIAL (entrevista inicial{data.onboarding?.completedAt ? `, ${dateLabel(data.onboarding.completedAt)}` : ''}).</p>
+      ) : (
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+          {data.reassessments.length} reavaliação(ões) concluída(s): {data.reassessments.map((r) => `${r.completedAt ? dateLabel(r.completedAt) : '?'} (v${r.reassessmentVersion ?? 'legado'})`).join(' · ')}
+        </div>
+      )}
+
+      {comparableTrajectories.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ fontSize: 12, borderCollapse: 'collapse', width: '100%' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: '4px 8px' }}>Variável</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px' }}>Comparabilidade</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px' }}>INITIAL → R1 → R2...</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comparableTrajectories.map((t) => (
+                <tr key={t.variableId} style={{ borderTop: '1px solid var(--line)' }}>
+                  <td style={{ padding: '4px 8px' }}>{t.label}</td>
+                  <td style={{ padding: '4px 8px' }}>
+                    <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: t.comparability === 'DIRECT' ? '#22c55e22' : '#f59e0b22', color: t.comparability === 'DIRECT' ? '#22c55e' : '#f59e0b' }}>{t.comparability}</span>
+                  </td>
+                  <td style={{ padding: '4px 8px' }}>
+                    {t.points.map((p, i) => (
+                      <span key={i}>
+                        {i > 0 ? ' → ' : ''}
+                        {p.value == null ? <em style={{ color: 'var(--muted)' }}>ausente</em> : Array.isArray(p.value) ? p.value.join('/') : String(p.value)}
+                      </span>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {latestReport ? (
+        <div style={{ borderLeft: '3px solid var(--accent)', paddingLeft: 12 }}>
+          <strong style={{ fontSize: 13 }}>Evolution Report mais recente ({dateLabel(latestReport.createdAt)})</strong>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 6px' }}>Interpretação longitudinal baseada na trajetória disponível — não é um veredito definitivo.</p>
+          <p style={{ fontSize: 13 }}>{latestReport.summary}</p>
+          {latestReport.wins.length > 0 && <p style={{ fontSize: 12, color: '#22c55e' }}>✓ {latestReport.wins.join(' · ')}</p>}
+          {latestReport.concerns.length > 0 && <p style={{ fontSize: 12, color: '#f59e0b' }}>⚠ {latestReport.concerns.join(' · ')}</p>}
+          {latestReport.domainObservations && Object.keys(latestReport.domainObservations).length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 6 }}>
+              {Object.entries(latestReport.domainObservations).map(([domain, text]) => (
+                <p key={domain} style={{ fontSize: 12, margin: 0 }}><strong>{domain}:</strong> {text}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <p style={{ fontSize: 13, color: 'var(--muted)' }}>Nenhum Evolution Report válido disponível ainda.</p>
+      )}
+    </div>
+  );
+}
+
+function ContextoTab({ studentId, accessToken, onStatus }: { studentId: string; accessToken: string; onStatus: (message: string) => void }) {
+  const [events, setEvents] = React.useState<ContextEventRow[] | null>(null);
+  const [showForm, setShowForm] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [form, setForm] = React.useState({ type: 'travel', subtype: '', startedAt: '', endedAt: '', originalText: '' });
+
+  const load = React.useCallback(async () => {
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/context-events`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) { setEvents([]); return; }
+      setEvents((await response.json()) as ContextEventRow[]);
+    } catch { setEvents([]); }
+  }, [studentId, accessToken]);
+
+  React.useEffect(() => { void load(); }, [load]);
+
+  async function submitEvent() {
+    setSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/context-events`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: form.type,
+          subtype: form.subtype.trim() || undefined,
+          startedAt: form.startedAt || undefined,
+          endedAt: form.endedAt || undefined,
+          originalText: form.originalText.trim() || undefined,
+        }),
+      });
+      if (!response.ok) { onStatus('Nao consegui registrar o evento de contexto.'); return; }
+      setForm({ type: 'travel', subtype: '', startedAt: '', endedAt: '', originalText: '' });
+      setShowForm(false);
+      await load();
+    } catch {
+      onStatus('Nao consegui conectar com a API.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (events === null) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Carregando...</p>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h3 style={{ margin: 0 }}>Contexto (eventos longitudinais)</h3>
+        <button type="button" className="secondaryOutlineButton" onClick={() => setShowForm((v) => !v)}>
+          {showForm ? 'Cancelar' : '+ Registrar evento'}
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="editDialog" style={{ position: 'static', maxWidth: 480 }}>
+          <label>Tipo
+            <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}>
+              {Object.entries(CONTEXT_EVENT_TYPE_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </label>
+          <label>Subtipo (opcional)<input value={form.subtype} onChange={(e) => setForm((f) => ({ ...f, subtype: e.target.value }))} placeholder="ex: mudanca de turno" /></label>
+          <label>Data de início<input type="date" value={form.startedAt} onChange={(e) => setForm((f) => ({ ...f, startedAt: e.target.value }))} /></label>
+          <label>Data final (deixe vazio se o evento ainda está ativo)<input type="date" value={form.endedAt} onChange={(e) => setForm((f) => ({ ...f, endedAt: e.target.value }))} /></label>
+          <label>Descrição<textarea value={form.originalText} onChange={(e) => setForm((f) => ({ ...f, originalText: e.target.value }))} rows={2} /></label>
+          <button type="button" className="primaryButton" disabled={saving} onClick={submitEvent}>{saving ? 'Salvando...' : 'Salvar'}</button>
+        </div>
+      )}
+
+      {events.length === 0 ? (
+        <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum evento de contexto registrado para este aluno.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {events.map((ev) => (
+            <div key={ev.id} className="card" style={{ padding: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                <strong>{CONTEXT_EVENT_TYPE_LABELS[ev.type] ?? ev.type}{ev.subtype && !ev.gapAnchorDate ? ` — ${ev.subtype}` : ''}</strong>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                  {CONTEXT_EVENT_SOURCE_LABELS[ev.source] ?? ev.source} · {ev.status === 'ongoing' ? 'Em curso' : 'Encerrado'}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                {ev.startedAt ? new Date(ev.startedAt).toLocaleDateString('pt-BR') : '?'} → {ev.endedAt ? new Date(ev.endedAt).toLocaleDateString('pt-BR') : (ev.status === 'ongoing' ? 'em curso' : '?')}
+              </div>
+              {ev.gapAnchorDate && (
+                <div style={{ fontSize: 12, marginTop: 6, background: 'var(--surface)', padding: 8, borderRadius: 6 }}>
+                  <div><strong>Retorno após lacuna</strong> — treinou durante o período: {
+                    { none: 'não treinou', very_little: 'muito pouco', some_outside: 'alguns treinos fora do app', normal_outside: 'normalmente, fora do app' }[ev.trainingDuringGapReported ?? ''] ?? 'não informado'
+                  }</div>
+                  <div>Condição física vs. antes: {ev.physicalStateComparedToBefore ?? '—'}/5 · Disposição mental vs. antes: {ev.mentalReadinessComparedToBefore ?? '—'}/5</div>
+                </div>
+              )}
+              {ev.originalText && <p style={{ fontSize: 13, marginTop: 6, marginBottom: 0 }}>{ev.originalText}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+      <p style={{ fontSize: 11, color: 'var(--muted)' }}>Eventos relatados pelo aluno, registrados pelo treinador, ou vinculados a uma reavaliação/retorno — nunca uma causa comprovada de mudança fisiológica, apenas contexto relatado com sua origem preservada.</p>
+    </div>
   );
 }
 
@@ -5557,21 +5858,17 @@ const PRE_SERIES: Array<{ key: PreWorkoutSeries; label: string; color: string; f
   { key: 'motivacao', label: 'Motivação',  color: '#22c55e', field: 'preMotivation' },
 ];
 
-// Índice de Prontidão: média das 4 variáveis, invertendo cansaço e estresse
-// (alto cansaço/estresse = ruim → inverte para escala positiva)
-// Resultado fica na escala 1-5 como as séries individuais.
-function computeReadiness(s: { preSleepQuality: number | null; prePhysicalFatigue: number | null; preStressLevel: number | null; preMotivation: number | null }): number | null {
-  const vals: number[] = [];
-  if (s.preSleepQuality != null)    vals.push(s.preSleepQuality);
-  if (s.prePhysicalFatigue != null) vals.push(6 - s.prePhysicalFatigue); // invertido
-  if (s.preStressLevel != null)     vals.push(6 - s.preStressLevel);     // invertido
-  if (s.preMotivation != null)      vals.push(s.preMotivation);
-  return vals.length >= 2 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-}
-
+// Passo 5 (25/09/2026) — REMOVIDO: `computeReadiness` (indice de "prontidao" calculado no frontend
+// como media(sono, motivacao, 6-cansaco, 6-estresse)). Essa formula invertia cansaco/estresse pra
+// forcar "5 = bom" e tratava o resultado como um score canonico de estado do aluno — exatamente o
+// tipo de calculo que a Training Intelligence do backend proibe (ver [[no_math_rules_for_workout_calc]]
+// e a convencao das escalas: o numero representa magnitude/intensidade da propria variavel, nunca
+// "bom"/"ruim" universal). Nao existe hoje nenhum equivalente canonico desse indice combinado no
+// backend — as 4 variaveis continuam disponiveis individualmente (linhas abaixo), cada uma com sua
+// direcao real preservada. Um indice combinado, se algum dia fizer sentido, precisa nascer no
+// backend (Athlete State Snapshot), nao ser recriado aqui.
 function PreWorkoutStateSection({ history }: { history: StudentDetail['history']; period?: number }) {
   const [active, setActive] = useState<Set<PreWorkoutSeries>>(new Set(['sono', 'cansaco', 'estresse', 'motivacao']));
-  const [showReadiness, setShowReadiness] = useState(true);
   const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('sessao');
 
   const allSessions = flatFeedbackSessions(history)
@@ -5581,14 +5878,13 @@ function PreWorkoutStateSection({ history }: { history: StudentDetail['history']
   if (allSessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum dado de estado pré-treino disponível ainda (coleta começou em 11/09/2026).</p>;
 
   // Agregar por período se necessário
-  type DataPoint = { label: string; values: Partial<Record<PreWorkoutSeries, number | null>>; n: number; readiness: number | null };
+  type DataPoint = { label: string; values: Partial<Record<PreWorkoutSeries, number | null>>; n: number };
   let points: DataPoint[] = [];
 
   if (aggBy === 'sessao') {
     points = allSessions.map((s) => ({
       label: s.date.slice(5).replace('-', '/'),
       n: 1,
-      readiness: computeReadiness(s),
       values: {
         sono: s.preSleepQuality,
         cansaco: s.prePhysicalFatigue,
@@ -5613,7 +5909,6 @@ function PreWorkoutStateSection({ history }: { history: StudentDetail['history']
         label: aggBy === 'semana' ? key.slice(5).replace('-', '/') : key.slice(0, 7),
         n: b.n,
         values: avgVals,
-        readiness: computeReadiness({ preSleepQuality: avgVals.sono ?? null, prePhysicalFatigue: avgVals.cansaco ?? null, preStressLevel: avgVals.estresse ?? null, preMotivation: avgVals.motivacao ?? null }),
       };
     });
   }
@@ -5687,41 +5982,12 @@ function PreWorkoutStateSection({ history }: { history: StudentDetail['history']
             </g>
           );
         })}
-        {/* Linha de Prontidão (readiness index — média ponderada invertendo cansaço e estresse) */}
-        {showReadiness && (() => {
-          const pts = points.map((p, i) => ({ x: PL + i * xStep, y: p.readiness != null ? yScale(p.readiness) : null }));
-          const segs: string[] = []; let seg = '';
-          for (const { x, y } of pts) {
-            if (y == null) { if (seg) segs.push(seg); seg = ''; }
-            else seg += seg ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
-          }
-          if (seg) segs.push(seg);
-          return (
-            <g>
-              {segs.map((d, i) => <path key={i} d={d} fill="none" stroke="#0ea5e9" strokeWidth={2.5} strokeLinejoin="round" strokeDasharray="5,3" />)}
-              {pts.map((pt, i) => pt.y != null ? <circle key={i} cx={pt.x} cy={pt.y} r={3.5} fill="#0ea5e9" fillOpacity={0.85} /> : null)}
-            </g>
-          );
-        })()}
         {/* Eixo X */}
         {xLabels.map(({ i, label }) => (
           <text key={i} x={PL + i * xStep} y={H - 4} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
         ))}
       </svg>
-      {/* Legenda de prontidão */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6, flexWrap: 'wrap' }}>
-        <button type="button" onClick={() => setShowReadiness((v) => !v)}
-          style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '3px 10px', borderRadius: 20, cursor: 'pointer',
-            background: showReadiness ? '#0ea5e922' : 'var(--surface)',
-            border: `1.5px solid ${showReadiness ? '#0ea5e9' : 'var(--line)'}`,
-            color: showReadiness ? '#0ea5e9' : 'var(--muted)', fontWeight: showReadiness ? 700 : 400 }}>
-          {showReadiness ? '✓ ' : ''}Prontidão (índice)
-        </button>
-        <span style={{ fontSize: 10, color: 'var(--muted)' }}>
-          Prontidão = média(sono, motivação, 6−cansaço, 6−estresse) — escala 1–5. Abaixo de 2.5 merece atenção.
-        </span>
-      </div>
-      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Escala 1–5. Ausência = dado não coletado (sessões anteriores a 11/09/2026).</p>
+      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Escala 1–5 — cada linha mostra a intensidade/presença da própria variável (5 = mais daquilo especificamente; nunca "5 = bom" de forma universal). Ausência = dado não coletado (sessões anteriores a 11/09/2026).</p>
     </div>
   );
 }
@@ -5940,249 +6206,16 @@ function ExperienciaTreinoSection({ history, onDayClick }: { history: StudentDet
   );
 }
 
-// ── ARCO DO TREINO ────────────────────────────────────────────────────────
-// Compara "como chegou" (prontidão pré-treino) vs "como saiu" (sensação+humor pós-treino).
-// ── HELPERS PARA ARCO DO TREINO ───────────────────────────────────────────
-/** satisfactionCapacidade (string categórica) → escala 1-5 */
-function satCapScore(v: string | null | undefined): number | null {
-  if (!v) return null;
-  const m: Record<string, number> = { amei: 5, gostei: 4, ok: 3, neutro: 3, nao_gostei: 2, detestei: 1 };
-  return m[v] ?? null;
-}
-/** Penalidade de dor sobre o delta final: none/null = neutro (não penaliza) */
-function painPenalty(flag: string | null | undefined): number {
-  if (!flag || flag === 'none') return 0;
-  if (flag === 'leve') return -0.5;
-  if (flag === 'moderado') return -1.0;
-  return -2.0; // forte
-}
-/** RPE (1–10) + satisfação de execução → contexto do esforço percebido */
-function rpeContext(rpe: number | null | undefined, satCap: string | null | undefined): 'bom' | 'ruim' | 'ambiguo' | 'leve' | null {
-  if (rpe == null) return null;
-  if (rpe >= 7) {
-    if (satCap === 'amei' || satCap === 'gostei') return 'bom';        // sofrimento bom 💪
-    if (satCap === 'nao_gostei' || satCap === 'detestei') return 'ruim'; // sofrimento ruim
-    return 'ambiguo'; // RPE alto, satisfação desconhecida/neutra
-  }
-  return 'leve';
-}
-
-// Delta verde = treino energizou ou manteve o estado. Delta vermelho = treino drenou.
-// Série de deltas negativos = sinal de overtraining ou acúmulo de fadiga.
-function ArcoTreinoSection({ history }: { history: StudentDetail['history'] }) {
-  const sessions = flatFeedbackSessions(history)
-    .filter((s) => (s.completionStatus === 'done' || s.completionStatus === 'adjusted'))
-    .filter((s) => {
-      const hasPre = s.preSleepQuality != null || s.prePhysicalFatigue != null || s.preStressLevel != null || s.preMotivation != null;
-      const hasPost = s.postWorkoutFeeling != null || s.postWorkoutMood != null || s.satisfactionCapacidade != null;
-      return hasPre && hasPost;
-    })
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  if (sessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Dados insuficientes — é necessário ter pelo menos uma sessão com campos pré E pós preenchidos (a partir de 11/09/2026).</p>;
-
-  // Pré: índice de prontidão (1-5)
-  // Pós: média(sensação corporal, humor, execução) ajustada por penalidade de dor
-  const points = sessions.map((s, i) => {
-    const pre = computeReadiness(s) ?? 0;
-    const satScore = satCapScore(s.satisfactionCapacidade);
-    const postVals = [s.postWorkoutFeeling, s.postWorkoutMood, satScore].filter((v): v is number => v != null);
-    const postRaw = postVals.length > 0 ? postVals.reduce((a, b) => a + b, 0) / postVals.length : null;
-    // Penalidade de dor — none/null é neutro
-    const penalty = painPenalty(s.painFlag);
-    const post = postRaw != null ? Math.max(1, Math.min(5, postRaw + penalty)) : null;
-    const delta = post != null ? post - pre : null;
-    const rpeCtx = rpeContext(s.perceivedEffort, s.satisfactionCapacidade);
-    return {
-      i, label: s.date.slice(5).replace('-', '/'),
-      pre, post, delta,
-      rpe: s.perceivedEffort,
-      rpeCtx,
-      hasPain: !!(s.painFlag && s.painFlag !== 'none'),
-      penalty,
-    };
-  });
-
-  const W = 560; const H = 160; const PL = 32; const PR = 8; const PT = 12; const PB = 28;
-  const gW = W - PL - PR; const gH = H - PT - PB;
-  const n = points.length;
-  const xStep = n > 1 ? gW / (n - 1) : gW;
-  const yScale5 = (v: number) => PT + gH - ((v - 1) / 4) * gH;
-
-  // Delta chart
-  const DH = 48; const midY = 12 + DH / 2;
-  const barH = (d: number) => Math.abs(d) / 4 * (DH / 2);
-  const barY = (d: number) => d >= 0 ? midY - barH(d) : midY;
-
-  const xLabels = n <= 8 ? points.map((p) => ({ i: p.i, label: p.label }))
-    : [0, Math.floor(n/4), Math.floor(n/2), Math.floor(3*n/4), n-1].map((i) => ({ i, label: points[i].label }));
-
-  const barW = Math.max(2, Math.min(12, gW / n - 2));
-
-  const RPE_H = 36;
-  const RPE_COLOR: Record<string, string> = { bom: '#22c55e', ruim: '#ef4444', ambiguo: '#f59e0b', leve: '#94a3b8' };
-
-  const hasRpe = points.some((p) => p.rpe != null);
-
-  return (
-    <div>
-      {/* KPIs de resumo */}
-      {(() => {
-        const withDelta = points.filter((p) => p.delta != null);
-        if (withDelta.length === 0) return null;
-        const avg = withDelta.reduce((a, p) => a + p.delta!, 0) / withDelta.length;
-        const pos = withDelta.filter((p) => p.delta! > 0.2).length;
-        const neg = withDelta.filter((p) => p.delta! < -0.2).length;
-        const softBom = points.filter((p) => p.rpeCtx === 'bom').length;
-        return (
-          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: avg >= 0 ? '#22c55e' : '#ef4444' }}>{avg >= 0 ? '+' : ''}{avg.toFixed(1)}</div>
-              <div style={{ fontSize: 10, color: 'var(--muted)' }}>delta médio</div>
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#22c55e' }}>{pos}</div>
-              <div style={{ fontSize: 10, color: 'var(--muted)' }}>treinos que energizaram</div>
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#ef4444' }}>{neg}</div>
-              <div style={{ fontSize: 10, color: 'var(--muted)' }}>treinos que drenaram</div>
-            </div>
-            {softBom > 0 && (
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 20, fontWeight: 800, color: '#22c55e' }}>{softBom}</div>
-                <div style={{ fontSize: 10, color: 'var(--muted)' }}>sofrimento bom 💪</div>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* Gráfico de linhas pré vs pós */}
-      <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Prontidão pré × Sensação pós (escala 1–5)</p>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
-        {/* Bandas */}
-        <rect x={PL} y={yScale5(5)} width={gW} height={yScale5(3.5) - yScale5(5)} fill="#22c55e10" />
-        <rect x={PL} y={yScale5(3.5)} width={gW} height={yScale5(2) - yScale5(3.5)} fill="#f59e0b10" />
-        <rect x={PL} y={yScale5(2)} width={gW} height={PT + gH - yScale5(2)} fill="#ef444410" />
-        {/* Grid */}
-        {[1,2,3,4,5].map((v) => { const y = yScale5(v); return (
-          <g key={v}>
-            <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="var(--line)" strokeWidth={0.4} />
-            <text x={PL-4} y={y+4} fontSize={8} fill="var(--muted)" textAnchor="end">{v}</text>
-          </g>
-        ); })}
-        {/* Linha pré (prontidão) — tracejada cinza */}
-        {(() => {
-          const segs: string[] = []; let seg = '';
-          for (const p of points) {
-            const x = PL + p.i * xStep; const y = yScale5(p.pre);
-            seg += seg ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
-          }
-          if (seg) segs.push(seg);
-          return segs.map((d, i) => <path key={i} d={d} fill="none" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4,3" strokeLinejoin="round" />);
-        })()}
-        {/* Linha pós (sensação + humor + execução) — sólida azul */}
-        {(() => {
-          const segs: string[] = []; let seg = '';
-          for (const p of points) {
-            if (p.post == null) { if (seg) segs.push(seg); seg = ''; continue; }
-            const x = PL + p.i * xStep; const y = yScale5(p.post);
-            seg += seg ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
-          }
-          if (seg) segs.push(seg);
-          return (<g>
-            {segs.map((d, i) => <path key={i} d={d} fill="none" stroke="#0ea5e9" strokeWidth={2} strokeLinejoin="round" />)}
-            {points.map((p) => p.post != null ? (
-              <circle key={p.i} cx={PL + p.i * xStep} cy={yScale5(p.post)} r={3}
-                fill={p.hasPain ? '#f59e0b' : '#0ea5e9'}
-                stroke={p.hasPain ? '#0ea5e9' : 'none'} strokeWidth={1.5} />
-            ) : null)}
-          </g>);
-        })()}
-        {/* Círculos pré */}
-        {points.map((p) => <circle key={p.i} cx={PL + p.i * xStep} cy={yScale5(p.pre)} r={2.5} fill="#94a3b8" />)}
-        {/* Eixo X */}
-        {xLabels.map(({ i, label }) => (
-          <text key={i} x={PL + i * xStep} y={H-4} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
-        ))}
-      </svg>
-
-      {/* Gráfico de delta (barras) */}
-      <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 12, marginBottom: 2 }}>Delta pós−pré por sessão</p>
-      <svg viewBox={`0 0 ${W} ${DH + 24}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
-        <line x1={PL} y1={midY} x2={W-PR} y2={midY} stroke="var(--line)" strokeWidth={1} />
-        <text x={PL-4} y={midY+4} fontSize={7} fill="var(--muted)" textAnchor="end">0</text>
-        {points.map((p) => {
-          if (p.delta == null) return null;
-          const color = p.delta > 0.2 ? '#22c55e' : p.delta < -0.2 ? '#ef4444' : '#94a3b8';
-          const bh = barH(p.delta);
-          const by = barY(p.delta);
-          const x = PL + p.i * xStep - barW / 2;
-          return (
-            <g key={p.i}>
-              <rect x={x} y={by} width={barW} height={Math.max(1, bh)} fill={color} fillOpacity={0.8} rx={1} />
-              {/* Marcador laranja quando há penalidade de dor */}
-              {p.hasPain && (
-                <text x={PL + p.i * xStep} y={p.delta >= 0 ? by - 2 : by + bh + 8} fontSize={7} textAnchor="middle" fill="#f59e0b">▲</text>
-              )}
-            </g>
-          );
-        })}
-        {xLabels.map(({ i, label }) => (
-          <text key={i} x={PL + i * xStep} y={DH + 20} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
-        ))}
-      </svg>
-
-      {/* Faixa de RPE — sofrimento bom vs ruim */}
-      {hasRpe && (
-        <>
-          <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 10, marginBottom: 2 }}>Esforço percebido — RPE (1–10)</p>
-          <svg viewBox={`0 0 ${W} ${RPE_H + 20}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
-            <line x1={PL} y1={RPE_H / 2 + 4} x2={W-PR} y2={RPE_H / 2 + 4} stroke="var(--line)" strokeWidth={0.5} strokeDasharray="3,3" />
-            <text x={PL-4} y={8} fontSize={7} fill="var(--muted)" textAnchor="end">10</text>
-            <text x={PL-4} y={RPE_H + 4} fontSize={7} fill="var(--muted)" textAnchor="end">1</text>
-            {points.map((p) => {
-              if (p.rpe == null) return null;
-              const cx = PL + p.i * xStep;
-              const cy = 4 + RPE_H - ((p.rpe - 1) / 9) * RPE_H;
-              const r = 3 + (p.rpe / 10) * 5; // raio escala com RPE
-              const color = p.rpeCtx ? RPE_COLOR[p.rpeCtx] : '#94a3b8';
-              return (
-                <g key={p.i}>
-                  <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={0.75} />
-                  <text x={cx} y={cy + 3.5} fontSize={6} textAnchor="middle" fill="white" fontWeight="bold">{p.rpe}</text>
-                </g>
-              );
-            })}
-            {xLabels.map(({ i, label }) => (
-              <text key={i} x={PL + i * xStep} y={RPE_H + 20} fontSize={8} fill="var(--muted)" textAnchor="middle">{label}</text>
-            ))}
-          </svg>
-        </>
-      )}
-
-      {/* Legenda */}
-      <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap', fontSize: 11, color: 'var(--muted)' }}>
-        <span><span style={{ display: 'inline-block', width: 20, height: 2, background: '#94a3b8', verticalAlign: 'middle', marginRight: 4 }} />Prontidão pré</span>
-        <span><span style={{ display: 'inline-block', width: 20, height: 2, background: '#0ea5e9', verticalAlign: 'middle', marginRight: 4 }} />Sensação pós (sensação + humor + execução)</span>
-        <span><span style={{ color: '#f59e0b', marginRight: 2 }}>●</span>Pós c/ dor (penalidade no delta)</span>
-        <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#22c55e', borderRadius: 1, verticalAlign: 'middle', marginRight: 4 }} />Energizou</span>
-        <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#ef4444', borderRadius: 1, verticalAlign: 'middle', marginRight: 4 }} />Drenou</span>
-        <span><span style={{ color: '#f59e0b', marginRight: 2 }}>▲</span>Dor (delta ajustado)</span>
-      </div>
-      {hasRpe && (
-        <div style={{ display: 'flex', gap: 12, marginTop: 4, flexWrap: 'wrap', fontSize: 11, color: 'var(--muted)' }}>
-          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#22c55e', verticalAlign: 'middle', marginRight: 4 }} />RPE alto + gostou (sofrimento bom 💪)</span>
-          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#ef4444', verticalAlign: 'middle', marginRight: 4 }} />RPE alto + não gostou</span>
-          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#f59e0b', verticalAlign: 'middle', marginRight: 4 }} />RPE alto (execução não informada)</span>
-          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#94a3b8', verticalAlign: 'middle', marginRight: 4 }} />RPE leve (&lt;7)</span>
-        </div>
-      )}
-      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Pós = média(sensação, humor, execução) com penalidade de dor (leve −0,5 / moderado −1,0 / forte −2,0). RPE alto + verde = sofrimento bom. Série de deltas negativos por 3+ semanas = sinal de overtraining.</p>
-    </div>
-  );
-}
+// Passo 5 (25/09/2026) — REMOVIDO: "Arco do treino" comparava um indice de "prontidao" pre-treino
+// (ver computeReadiness, removido acima) contra um score POS composto (media de sensacao+humor+
+// execucao, com uma "penalidade de dor" arbitraria de -0,5/-1,0/-2,0 inventada no frontend),
+// calculava um "delta" e interpretava series de deltas negativos como "sinal de overtraining" —
+// nenhuma dessas 3 coisas existe na Training Intelligence canonica do backend. Nao apagamos nenhum
+// dado historico: os campos brutos (postWorkoutFeeling, postWorkoutMood, satisfactionCapacidade,
+// painFlag, perceivedEffort) continuam intactos no banco. RPE por sessao/semana/mes ja tem secao
+// propria e legitima (EffortSection, "Esforco percebido (RPE)" acima); dor tem a sua
+// (DorLongitudinalSection abaixo) — nao recriamos uma terceira visualizacao de RPE aqui so' pra
+// preservar a secao antiga.
 
 // ── DOR LONGITUDINAL ───────────────────────────────────────────────────────
 function DorLongitudinalSection({ history }: { history: StudentDetail['history'] }) {

@@ -211,6 +211,45 @@ export class ReassessmentService {
       orderBy: { createdAt: 'desc' },
     });
   }
+
+  /**
+   * Passo 5 (25/09/2026) — dados pro Admin exibir a trajetoria INITIAL->R1->R2->R3, o historico de
+   * reavaliacoes com versao/data, e todos os Evolution Reports (incluindo os invalidados por
+   * reopen, marcados como tal — o Admin decide como exibir, nunca escondido silenciosamente).
+   * Quando ja existe um Evolution Report valido, reaproveita o "trajectorySnapshot" persistido
+   * (nunca recalcula). So' quando NENHUM report existe ainda (ex: reavaliacao concluida mas a
+   * chamada de IA falhou) chama buildReassessmentTrajectories() diretamente — a MESMA funcao pura
+   * ja usada em complete(), nao uma segunda logica.
+   */
+  async getTrajectoryForAdmin(userId: string) {
+    const [onboarding, completedReassessments, evolutionReports, latestValid] = await Promise.all([
+      this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true, completedAt: true, interviewVersion: true } }),
+      this.prisma.reassessment.findMany({
+        where: { userId, completedAt: { not: null } },
+        orderBy: { completedAt: 'asc' },
+        select: { id: true, completedAt: true, reassessmentVersion: true, evolutionSummary: true, answers: true },
+      }),
+      this.prisma.evolutionReport.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.getLatestValidEvolutionReport(userId),
+    ]);
+
+    const trajectories = latestValid
+      ? (latestValid.trajectorySnapshot as unknown as ReturnType<typeof buildReassessmentTrajectories>)
+      : buildReassessmentTrajectories(
+          onboarding ? { answers: asAnswerObject(onboarding.answers), completedAt: onboarding.completedAt, interviewVersion: onboarding.interviewVersion } : null,
+          completedReassessments.map((r) => ({ id: r.id, answers: asAnswerObject(r.answers), completedAt: r.completedAt, reassessmentVersion: r.reassessmentVersion })),
+        );
+
+    return {
+      onboarding: onboarding ? { completedAt: onboarding.completedAt, interviewVersion: onboarding.interviewVersion } : null,
+      reassessments: completedReassessments.map((r) => ({ id: r.id, completedAt: r.completedAt, reassessmentVersion: r.reassessmentVersion, evolutionSummary: r.evolutionSummary })),
+      evolutionReports,
+      trajectories,
+    };
+  }
 }
 
 function asAnswerObject(value: unknown): Record<string, Prisma.InputJsonValue> {

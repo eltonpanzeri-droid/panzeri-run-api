@@ -29,6 +29,8 @@ import { computeProspectLevel } from '../messaging/prospect-level';
 import { ProspectNurtureService } from '../messaging/prospect-nurture.service';
 import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.service';
 import { CONFIRMED_STATUSES, COURTESY_STATUS, OVERDUE_STATUS, PENDING_STATUS, PRICE_PER_STUDENT_CENTS, estimatedMrrCents } from './subscription-groups.util';
+import { ContextEventsService } from '../context-events/context-events.service';
+import { ReassessmentService } from '../reassessment/reassessment.service';
 
 @Injectable()
 export class CoachService {
@@ -46,7 +48,50 @@ export class CoachService {
     private readonly notificationTriggers: NotificationTriggersService,
     private readonly prospectNurture: ProspectNurtureService,
     private readonly menstrualCycle: MenstrualCycleService,
+    private readonly contextEvents: ContextEventsService,
+    private readonly reassessmentService: ReassessmentService,
   ) {}
+
+  // Passo 5 (25/09/2026) — "Visao Geral" da Training Intelligence no Admin: AGREGADO primeiro,
+  // detalhe sob demanda (secao 30). Reusa exclusivamente o que ja existe (ContextEventsService.
+  // getGapStatus, ReassessmentService.state, contagem simples de PainReport) — nenhuma matematica
+  // nova, nenhum score. So' roda pra alunos ativos (volume real e' pequeno; se crescer muito,
+  // revisar pra paginacao/paralelismo limitado).
+  async trainingIntelligenceOverview() {
+    const students = await this.prisma.user.findMany({
+      where: { role: 'student', accountStatus: { not: 'archived' } },
+      select: { id: true, name: true, studentCode: true, subscriptionStatus: true },
+    });
+
+    const rows = await Promise.all(students.map(async (student) => {
+      const [gap, reassessmentState, recentPain] = await Promise.all([
+        this.contextEvents.getGapStatus(student.id),
+        this.reassessmentService.state(student.id),
+        this.prisma.painReport.findFirst({
+          where: { userId: student.id, createdAt: { gte: new Date(Date.now() - 30 * 86400000) } },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, intensity: true, createdAt: true },
+        }),
+      ]);
+      return {
+        id: student.id,
+        name: student.name,
+        studentCode: student.studentCode,
+        gap: { inGap: gap.inGap, daysSinceLastObserved: gap.daysSinceLastObserved },
+        reassessment: { due: reassessmentState.due, warning: reassessmentState.warning, daysSinceLast: reassessmentState.daysSinceLast },
+        recentPain: recentPain ? { intensity: recentPain.intensity, createdAt: recentPain.createdAt } : null,
+      };
+    }));
+
+    return {
+      generatedAt: new Date().toISOString(),
+      totalStudents: rows.length,
+      studentsInGap: rows.filter((r) => r.gap.inGap).map((r) => ({ id: r.id, name: r.name, studentCode: r.studentCode, daysSinceLastObserved: r.gap.daysSinceLastObserved })),
+      studentsReassessmentDue: rows.filter((r) => r.reassessment.due).map((r) => ({ id: r.id, name: r.name, studentCode: r.studentCode, daysSinceLast: r.reassessment.daysSinceLast })),
+      studentsReassessmentWarning: rows.filter((r) => r.reassessment.warning).map((r) => ({ id: r.id, name: r.name, studentCode: r.studentCode, daysSinceLast: r.reassessment.daysSinceLast })),
+      studentsWithRecentPain: rows.filter((r) => r.recentPain).map((r) => ({ id: r.id, name: r.name, studentCode: r.studentCode, intensity: r.recentPain!.intensity, reportedAt: r.recentPain!.createdAt })),
+    };
+  }
 
   // Botao "Rodar verificacao de avisos agora" no painel admin — roda o MESMO codigo do cron
   // diario das 9h (pagamento pendente/atrasado, entrevista incompleta, reavaliacao vencida) sob

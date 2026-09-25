@@ -17,6 +17,7 @@ import { CreateManualSessionDto } from './dto/create-manual-session.dto';
 import { UpdateStudentAvailabilityDto } from './dto/update-student-availability.dto';
 import { ContextEventsService } from '../context-events/context-events.service';
 import { CreateContextEventDto } from '../context-events/dto/create-context-event.dto';
+import { ReassessmentService } from '../reassessment/reassessment.service';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('coach', 'admin')
@@ -28,6 +29,7 @@ export class CoachController {
     private readonly trainingIntelligenceQuery: TrainingIntelligenceQueryService,
     private readonly athleteStateSnapshot: AthleteStateSnapshotService,
     private readonly contextEvents: ContextEventsService,
+    private readonly reassessmentService: ReassessmentService,
   ) {}
 
   // Passo 4 (25/09/2026) — caminho manual do treinador pra registrar um ContextEvent (viagem,
@@ -35,6 +37,26 @@ export class CoachController {
   @Post('students/:studentId/context-events')
   createContextEvent(@Param('studentId') studentId: string, @Body() dto: CreateContextEventDto) {
     return this.contextEvents.createManual(studentId, dto);
+  }
+
+  // Passo 5 (25/09/2026) — lista pro Admin exibir na tela individual/timeline. So' leitura, nunca
+  // recalcula nada (ContextEventsService.listForStudent devolve as linhas como estao no banco).
+  @Get('students/:studentId/context-events')
+  listContextEvents(@Param('studentId') studentId: string) {
+    return this.contextEvents.listForStudent(studentId);
+  }
+
+  // Passo 5 (25/09/2026) — trajetoria INITIAL->R1->R2->R3 + historico de Evolution Reports pro
+  // Admin. So' leitura do que ja foi calculado/persistido (ReassessmentService.complete()).
+  @Get('students/:studentId/reassessment-trajectory')
+  getReassessmentTrajectory(@Param('studentId') studentId: string) {
+    return this.reassessmentService.getTrajectoryForAdmin(studentId);
+  }
+
+  // Passo 5 (25/09/2026) — Visao Geral da Training Intelligence (agregado, ver CoachService).
+  @Get('data/training-intelligence/overview')
+  getTrainingIntelligenceOverview() {
+    return this.coachService.trainingIntelligenceOverview();
   }
 
   // 24/09: endpoint isolado de validacao ponta a ponta da fundacao de Training Intelligence

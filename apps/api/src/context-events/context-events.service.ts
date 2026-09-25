@@ -110,6 +110,18 @@ export class ContextEventsService {
     });
   }
 
+  /**
+   * Lista completa (nao so' o compacto do Snapshot) — usada pelo Admin (Passo 5) pra mostrar o
+   * historico de ContextEvents de um aluno na tela individual e na timeline. Nunca filtra por
+   * "recente" — eventos antigos continuam recuperaveis (secao 28/AC do Passo 4).
+   */
+  async listForStudent(userId: string) {
+    return this.prisma.contextEvent.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   /** Caminho manual do treinador (secao 26) — sem interface grande no admin ainda (Passo 5). */
   async createManual(studentId: string, dto: CreateContextEventDto) {
     return this.prisma.contextEvent.create({

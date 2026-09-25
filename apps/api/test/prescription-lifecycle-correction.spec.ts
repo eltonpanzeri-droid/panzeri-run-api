@@ -108,7 +108,7 @@ describe('CoachService.updateTrainingSession — protecao PRESCRICAO -> EXECUCAO
       user: { findFirstOrThrow: jest.fn().mockResolvedValue({ id: 'student-1', role: 'student' }) },
     };
     const service = new CoachService(
-      prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
+      prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
     );
     return { service, prisma };
   }
