@@ -4346,45 +4346,30 @@ function DomainOverview({ domain, legend, snapshotCache, loadingIds, contextEven
   );
 }
 
-function VariableDeepDive({ snapshot, baseModalities, selectedModalities, onModalitiesChange, contextEvents, layers, onLayersChange, pinned, onTogglePin }: {
-  snapshot: FullVariableSnapshot; baseModalities: string[]; selectedModalities: string[]; onModalitiesChange: (m: string[]) => void;
-  contextEvents: ContextEventRow[]; layers: LayerToggles; onLayersChange: (l: LayerToggles) => void;
+/**
+ * Bloco completo de UMA série (variável, já filtrada por modalidade ou global) — gráfico, grade de
+ * estatísticas, excursões e observações originais. Extraído pra ser repetido, sem mistura, uma vez
+ * por série selecionada (Global/Corrida/Fortalecimento/Musculação) — pedido explícito (25/09/2026):
+ * "não quero que os pontos sejam simplesmente misturados numa série única".
+ */
+function VariableSeriesBlock({ snapshot, seriesLabel, contextEvents, layers, pinned, onTogglePin }: {
+  snapshot: FullVariableSnapshot; seriesLabel: string; contextEvents: ContextEventRow[]; layers: LayerToggles;
   pinned: boolean; onTogglePin: () => void;
 }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
-        <div>
-          <h3 style={{ margin: 0 }}>{snapshot.variable.constructLabel ?? snapshot.variable.id}</h3>
-          <p style={{ fontSize: 11, color: 'var(--muted)', margin: '2px 0 0' }}>
-            Escala {snapshot.variable.scale ? `${snapshot.variable.scale.min}-${snapshot.variable.scale.max}` : '—'} · direção: {snapshot.variable.direction === 'higher_is_more_of_construct' ? `maior = mais ${snapshot.variable.constructLabel?.toLowerCase()}` : 'não direcional'} (nunca "maior = melhor" universalmente).
-          </p>
-        </div>
-        <button type="button" className="secondaryOutlineButton" onClick={onTogglePin} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-          {pinned ? <Pin size={14} /> : <PinOff size={14} />} {pinned ? 'Fixado no Sistema' : 'Fixar no Sistema'}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, borderLeft: '3px solid var(--accent)', paddingLeft: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <strong style={{ fontSize: 13 }}>{seriesLabel}</strong>
+        <button type="button" onClick={onTogglePin} title={pinned ? 'Remover do Sistema' : 'Fixar esta série no Sistema'} style={{ background: 'none', border: 'none', cursor: 'pointer', color: pinned ? 'var(--accent)' : 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
+          {pinned ? <Pin size={14} /> : <PinOff size={14} />} {pinned ? 'Fixado' : 'Fixar'}
         </button>
       </div>
-
-      {baseModalities.length > 0 && (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Modalidade</span>
-          {baseModalities.map((m) => (
-            <label key={m} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-              <input type="checkbox" checked={selectedModalities.includes(m)}
-                onChange={(e) => onModalitiesChange(e.target.checked ? [...selectedModalities, m] : selectedModalities.filter((x) => x !== m))} />
-              {modalityLabel(m)}
-            </label>
-          ))}
-          {selectedModalities.length === 0 && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Nenhuma selecionada — mostrando todas as modalidades combinadas.</span>}
-        </div>
-      )}
 
       {!snapshot.mathApplicable ? (
         <p style={{ fontSize: 12, color: 'var(--muted)' }}>{snapshot.mathSkippedReason}</p>
       ) : (
         <>
-          <LayerToggleBar layers={layers} onChange={onLayersChange} hasExcursions={(snapshot.excursions?.length ?? 0) > 0} hasContextEvents={contextEvents.length > 0} />
-          <VariableChart snapshot={snapshot} layers={layers} contextEvents={contextEvents} height={260} />
+          <VariableChart snapshot={snapshot} layers={layers} contextEvents={contextEvents} height={220} />
           <VariableStatsGrid snapshot={snapshot} />
           {snapshot.habitualRange?.semanticCaution && (
             <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0, fontStyle: 'italic' }}>{snapshot.habitualRange.semanticCaution}</p>
@@ -4428,20 +4413,98 @@ function VariableDeepDive({ snapshot, baseModalities, selectedModalities, onModa
   );
 }
 
-/** Sobreposição de 2 variáveis num único gráfico, com 2 eixos Y (cada um na cor da própria série) — nunca 1 eixo comum enganoso. Escolha explícita do treinador, nunca automática. */
-function OverlayChart({ ids, legend, snapshotCache }: { ids: string[]; legend: VariableLegendEntry[]; snapshotCache: Record<string, FullVariableSnapshot> }) {
-  const [idA, idB] = ids;
-  const snapA = snapshotCache[idA]; const snapB = snapshotCache[idB];
+/** 'global' = histórico inteiro sem filtro (série própria, não "o que sobra"); demais entradas são modalidades reais do aluno. */
+const GLOBAL_SERIES_KEY = 'global';
+
+function VariableDeepDive({ baseSnapshot, seriesSnapshots, baseModalities, selectedSeries, onSeriesChange, contextEvents, layers, onLayersChange, pinnedKeys, onTogglePin, seriesKeyFor }: {
+  baseSnapshot: FullVariableSnapshot; seriesSnapshots: Record<string, FullVariableSnapshot | undefined>;
+  baseModalities: string[]; selectedSeries: string[]; onSeriesChange: (s: string[]) => void;
+  contextEvents: ContextEventRow[]; layers: LayerToggles; onLayersChange: (l: LayerToggles) => void;
+  pinnedKeys: string[]; onTogglePin: (key: string) => void; seriesKeyFor: (series: string) => string;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div>
+        <h3 style={{ margin: 0 }}>{baseSnapshot.variable.constructLabel ?? baseSnapshot.variable.id}</h3>
+        <p style={{ fontSize: 11, color: 'var(--muted)', margin: '2px 0 0' }}>
+          Escala {baseSnapshot.variable.scale ? `${baseSnapshot.variable.scale.min}-${baseSnapshot.variable.scale.max}` : '—'} · direção: {baseSnapshot.variable.direction === 'higher_is_more_of_construct' ? `maior = mais ${baseSnapshot.variable.constructLabel?.toLowerCase()}` : 'não direcional'} (nunca "maior = melhor" universalmente).
+        </p>
+      </div>
+
+      {baseModalities.length > 0 && (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Série</span>
+          {[GLOBAL_SERIES_KEY, ...baseModalities].map((s) => (
+            <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={selectedSeries.includes(s)}
+                onChange={(e) => onSeriesChange(e.target.checked ? [...selectedSeries, s] : selectedSeries.filter((x) => x !== s))} />
+              {s === GLOBAL_SERIES_KEY ? 'Global (todas as modalidades)' : modalityLabel(s)}
+            </label>
+          ))}
+        </div>
+      )}
+
+      <LayerToggleBar layers={layers} onChange={onLayersChange} hasExcursions={selectedSeries.some((s) => (seriesSnapshots[s]?.excursions?.length ?? 0) > 0)} hasContextEvents={contextEvents.length > 0} />
+
+      {selectedSeries.length === 0 && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Selecione ao menos uma série (Global ou uma modalidade) acima.</p>}
+
+      {selectedSeries.map((s) => {
+        const snap = seriesSnapshots[s];
+        const label = s === GLOBAL_SERIES_KEY ? 'Global (todas as modalidades)' : modalityLabel(s);
+        const key = seriesKeyFor(s);
+        return snap ? (
+          <VariableSeriesBlock key={s} snapshot={snap} seriesLabel={label} contextEvents={contextEvents} layers={layers}
+            pinned={pinnedKeys.includes(key)} onTogglePin={() => onTogglePin(key)} />
+        ) : <p key={s} style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando {label}...</p>;
+      })}
+    </div>
+  );
+}
+
+/**
+ * "Construtor de séries" (25/09/2026): uma série exibível = variável + contexto/modalidade (já
+ * embutido na chave de cache) + transformação + janela. A transformação escolhe QUAL curva, dentre
+ * as já calculadas pela fonte canônica, essa série representa — nenhum cálculo novo, só seleção.
+ */
+type SeriesTransform = 'raw' | 'mm21' | 'mm60' | 'mm200' | 'baseline';
+const TRANSFORM_LABELS: Record<SeriesTransform, string> = { raw: 'Bruto', mm21: 'MM21', mm60: 'MM60', mm200: 'MM200', baseline: 'Baseline' };
+
+function seriesPointsForTransform(snapshot: FullVariableSnapshot, transform: SeriesTransform): Array<{ date: string; value: number | null }> {
+  if (transform === 'raw') return snapshot.observations.map((o) => ({ date: o.timestamp.slice(0, 10), value: o.value }));
+  if (transform === 'mm21') return (snapshot.movingAverageSeries?.short_21d ?? []).map((p) => ({ date: p.timestamp.slice(0, 10), value: p.value }));
+  if (transform === 'mm60') return (snapshot.movingAverageSeries?.medium_60d ?? []).map((p) => ({ date: p.timestamp.slice(0, 10), value: p.value }));
+  if (transform === 'mm200') return (snapshot.movingAverageSeries?.long_200d ?? []).map((p) => ({ date: p.timestamp.slice(0, 10), value: p.value }));
+  // baseline: valor único (200d) repetido em cada data — linha de referência, não uma curva nova.
+  return snapshot.observations.map((o) => ({ date: o.timestamp.slice(0, 10), value: snapshot.baseline?.value ?? null }));
+}
+
+/** Rótulo de exibição de uma chave de série (variável, ou variável::modalidade) — sem inventar nome novo, só combina o que já existe no legend/modalityLabel. */
+function seriesDisplayLabel(key: string, legend: VariableLegendEntry[]): string {
+  const parsed = parseSeriesKey(key);
+  const base = legend.find((v) => v.id === parsed.variableId)?.constructLabel ?? parsed.variableId;
+  return parsed.modalities ? `${base} — ${modalityLabel(parsed.modalities[0])}` : base;
+}
+
+/** Sobreposição de 2 séries (variável+modalidade+transformação) num único gráfico, com 2 eixos Y (cada um na cor da própria série) — nunca 1 eixo comum enganoso. Escolha explícita do treinador. */
+function OverlayChart({ keys, transforms, legend, snapshotCache }: {
+  keys: string[]; transforms: Record<string, SeriesTransform>; legend: VariableLegendEntry[]; snapshotCache: Record<string, FullVariableSnapshot>;
+}) {
+  const [keyA, keyB] = keys;
+  const snapA = snapshotCache[keyA]; const snapB = snapshotCache[keyB];
   if (!snapA || !snapB) return <p style={{ fontSize: 12, color: 'var(--muted)' }}>Carregando...</p>;
-  const labelA = legend.find((v) => v.id === idA)?.constructLabel ?? idA;
-  const labelB = legend.find((v) => v.id === idB)?.constructLabel ?? idB;
+  const transformA = transforms[keyA] ?? 'raw';
+  const transformB = transforms[keyB] ?? 'raw';
+  const pointsA = seriesPointsForTransform(snapA, transformA);
+  const pointsB = seriesPointsForTransform(snapB, transformB);
+  const nameA = `${TRANSFORM_LABELS[transformA]} ${seriesDisplayLabel(keyA, legend)}`;
+  const nameB = `${TRANSFORM_LABELS[transformB]} ${seriesDisplayLabel(keyB, legend)}`;
 
   const dateSet = new Set<string>();
-  snapA.observations.forEach((o) => dateSet.add(o.timestamp.slice(0, 10)));
-  snapB.observations.forEach((o) => dateSet.add(o.timestamp.slice(0, 10)));
+  pointsA.forEach((p) => dateSet.add(p.date));
+  pointsB.forEach((p) => dateSet.add(p.date));
   const dates = [...dateSet].sort();
-  const aByDate = new Map(snapA.observations.map((o) => [o.timestamp.slice(0, 10), o.value]));
-  const bByDate = new Map(snapB.observations.map((o) => [o.timestamp.slice(0, 10), o.value]));
+  const aByDate = new Map(pointsA.map((p) => [p.date, p.value]));
+  const bByDate = new Map(pointsB.map((p) => [p.date, p.value]));
   const data = dates.map((d) => ({ dateLabel: fmtDay(d), a: aByDate.get(d) ?? null, b: bByDate.get(d) ?? null }));
 
   return (
@@ -4453,8 +4516,8 @@ function OverlayChart({ ids, legend, snapshotCache }: { ids: string[]; legend: V
         <YAxis yAxisId="right" orientation="right" fontSize={10} domain={snapB.variable.scale ? [snapB.variable.scale.min, snapB.variable.scale.max] : ['auto', 'auto']} stroke="#f59e0b" />
         <Tooltip />
         <Legend wrapperStyle={{ fontSize: 11 }} />
-        <Line yAxisId="left" type="monotone" dataKey="a" name={labelA} stroke="#0ea5e9" dot={{ r: 3 }} connectNulls={false} />
-        <Line yAxisId="right" type="monotone" dataKey="b" name={labelB} stroke="#f59e0b" dot={{ r: 3 }} connectNulls={false} />
+        <Line yAxisId="left" type="monotone" dataKey="a" name={nameA} stroke="#0ea5e9" dot={transformA === 'raw'} connectNulls={transformA !== 'raw'} />
+        <Line yAxisId="right" type="monotone" dataKey="b" name={nameB} stroke="#f59e0b" dot={transformB === 'raw'} connectNulls={transformB !== 'raw'} />
       </ComposedChart>
     </ResponsiveContainer>
   );
@@ -4468,6 +4531,9 @@ function SistemaWorkspace({ legend, pinnedIds, onTogglePin, snapshotCache, conte
 }) {
   const [showPicker, setShowPicker] = React.useState(false);
   const [pickerDomain, setPickerDomain] = React.useState(Object.keys(VARIABLE_DOMAIN_LABELS)[0]);
+  // Transformação escolhida por série fixada (default Bruto) — o "construtor de séries": variável +
+  // modalidade (já na chave) + esta transformação + janela é o que vai pra sobreposição.
+  const [transforms, setTransforms] = React.useState<Record<string, SeriesTransform>>({});
 
   function toggleOverlay(id: string) {
     onOverlayChange(overlayIds.includes(id) ? overlayIds.filter((x) => x !== id) : overlayIds.length >= 2 ? [overlayIds[1], id] : [...overlayIds, id]);
@@ -4476,13 +4542,13 @@ function SistemaWorkspace({ legend, pinnedIds, onTogglePin, snapshotCache, conte
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
-        Combine qualquer variável do registry, sincronizadas pela mesma linha do tempo. Correlação/associação estatística entre variáveis ainda não é calculada pelo backend — mostrando trajetórias lado a lado, sem inferir relação nenhuma.
+        Combine qualquer variável do registry (globais ou de uma modalidade específica — fixe a partir do domínio ou da variável aberta), sincronizadas pela mesma linha do tempo. Correlação/associação estatística entre séries ainda não é calculada pelo backend — mostrando trajetórias lado a lado, sem inferir relação nenhuma.
       </p>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <button type="button" className="secondaryOutlineButton" onClick={() => setShowPicker((v) => !v)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={14} /> Adicionar variável
+          <Plus size={14} /> Adicionar variável (série global)
         </button>
-        {overlayIds.length === 2 && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Sobrepondo {overlayIds.map((id) => legend.find((v) => v.id === id)?.constructLabel ?? id).join(' + ')} (2 no máximo).</span>}
+        {overlayIds.length === 2 && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Sobrepondo {overlayIds.map((id) => `${TRANSFORM_LABELS[transforms[id] ?? 'raw']} ${seriesDisplayLabel(id, legend)}`).join(' × ')} (2 no máximo).</span>}
       </div>
 
       {showPicker && (
@@ -4508,20 +4574,28 @@ function SistemaWorkspace({ legend, pinnedIds, onTogglePin, snapshotCache, conte
         </div>
       )}
 
-      {pinnedIds.length === 0 && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Nenhuma variável fixada ainda. Adicione pelo botão acima, ou fixe a partir de qualquer variável aberta num domínio.</p>}
+      {pinnedIds.length === 0 && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Nenhuma série fixada ainda. Adicione pelo botão acima (global), ou fixe uma modalidade específica a partir da variável aberta num domínio.</p>}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {pinnedIds.filter((id) => !overlayIds.includes(id)).map((id) => {
-          const v = legend.find((x) => x.id === id);
+          const parsed = parseSeriesKey(id);
+          const v = legend.find((x) => x.id === parsed.variableId);
           const snapshot = snapshotCache[id];
+          const transform = transforms[id] ?? 'raw';
           return (
             <div key={id} className="card" style={{ padding: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <button type="button" onClick={() => v && onOpenVariable(v.domain, id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13, padding: 0, color: 'var(--text)' }}>
-                  {v?.constructLabel ?? id} →
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexWrap: 'wrap', gap: 6 }}>
+                <button type="button" onClick={() => v && onOpenVariable(v.domain, parsed.variableId)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13, padding: 0, color: 'var(--text)' }}>
+                  {seriesDisplayLabel(id, legend)} →
                 </button>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <button type="button" onClick={() => toggleOverlay(id)} title="Sobrepor com outra variável fixada" style={{ fontSize: 11, background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', color: 'var(--muted)' }}>Sobrepor</button>
+                  <label style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    p/ sobreposição:
+                    <select value={transform} onChange={(e) => setTransforms((prev) => ({ ...prev, [id]: e.target.value as SeriesTransform }))} style={{ fontSize: 11 }}>
+                      {(Object.keys(TRANSFORM_LABELS) as SeriesTransform[]).map((t) => <option key={t} value={t}>{TRANSFORM_LABELS[t]}</option>)}
+                    </select>
+                  </label>
+                  <button type="button" onClick={() => toggleOverlay(id)} title="Sobrepor com outra série fixada" style={{ fontSize: 11, background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', color: 'var(--muted)' }}>Sobrepor</button>
                   <button type="button" onClick={() => onTogglePin(id)} title="Remover" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={14} /></button>
                 </div>
               </div>
@@ -4534,10 +4608,10 @@ function SistemaWorkspace({ legend, pinnedIds, onTogglePin, snapshotCache, conte
         {overlayIds.length === 2 && (
           <div className="card" style={{ padding: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <strong style={{ fontSize: 13 }}>{overlayIds.map((id) => legend.find((v) => v.id === id)?.constructLabel ?? id).join(' + ')} (sobreposto)</strong>
+              <strong style={{ fontSize: 13 }}>{overlayIds.map((id) => `${TRANSFORM_LABELS[transforms[id] ?? 'raw']} ${seriesDisplayLabel(id, legend)}`).join(' × ')} (sobreposto)</strong>
               <button type="button" onClick={() => onOverlayChange([])} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={14} /></button>
             </div>
-            <OverlayChart ids={overlayIds} legend={legend} snapshotCache={snapshotCache} />
+            <OverlayChart keys={overlayIds} transforms={transforms} legend={legend} snapshotCache={snapshotCache} />
           </div>
         )}
       </div>
@@ -4554,6 +4628,12 @@ function SistemaWorkspace({ legend, pinnedIds, onTogglePin, snapshotCache, conte
 /** Chave do cache de snapshots: variável sozinha (sem filtro) ou variável+modalidades ordenadas. */
 function snapshotCacheKey(variableId: string, modalities?: string[]): string {
   return modalities && modalities.length > 0 ? `${variableId}::${[...modalities].sort().join(',')}` : variableId;
+}
+/** Chave de pin/cache -> {variableId, modalities} — inverso de snapshotCacheKey, pra Sistema poder buscar/rotular séries específicas (ex: "RPE::corrida"). */
+function parseSeriesKey(key: string): { variableId: string; modalities?: string[] } {
+  const idx = key.indexOf('::');
+  if (idx === -1) return { variableId: key };
+  return { variableId: key.slice(0, idx), modalities: key.slice(idx + 2).split(',') };
 }
 
 function LongitudinalExplorer({ studentId, studentName, accessToken }: { studentId: string; studentName: string; accessToken: string }) {
@@ -4618,11 +4698,13 @@ function LongitudinalExplorer({ studentId, studentName, accessToken }: { student
     const toLoad: Array<{ id: string; modalities?: string[] }> = [];
     if (level.kind === 'domain' && legend) legend.filter((v) => v.domain === level.domain).forEach((v) => toLoad.push({ id: v.id }));
     if (level.kind === 'variable') {
-      toLoad.push({ id: level.variableId });
-      const sel = modalitySelection[level.variableId];
-      if (sel && sel.length > 0) toLoad.push({ id: level.variableId, modalities: sel });
+      toLoad.push({ id: level.variableId }); // sem filtro: descobre availableModalities e cobre o caso "sem dimensão de modalidade"
+      const sel = modalitySelection[level.variableId] ?? [];
+      for (const s of sel) {
+        if (s !== GLOBAL_SERIES_KEY) toLoad.push({ id: level.variableId, modalities: [s] }); // cada série selecionada, calculada de forma INDEPENDENTE — nunca uma união fundida
+      }
     }
-    if (level.kind === 'sistema') pinnedIds.forEach((id) => toLoad.push({ id }));
+    if (level.kind === 'sistema') pinnedIds.forEach((key) => { const parsed = parseSeriesKey(key); toLoad.push({ id: parsed.variableId, modalities: parsed.modalities }); });
     for (const item of toLoad) {
       const key = snapshotCacheKey(item.id, item.modalities);
       if (!snapshotCache[key] && !loadingIds.has(key)) void fetchSnapshot(item.id, item.modalities);
@@ -4676,14 +4758,20 @@ function LongitudinalExplorer({ studentId, studentName, accessToken }: { student
 
       {level.kind === 'variable' && (() => {
         const baseSnapshot = snapshotCache[level.variableId];
-        const selectedModalities = modalitySelection[level.variableId] ?? [];
-        const activeSnapshot = selectedModalities.length > 0 ? snapshotCache[snapshotCacheKey(level.variableId, selectedModalities)] : baseSnapshot;
-        if (!activeSnapshot) return <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando...</p>;
+        if (!baseSnapshot) return <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando...</p>;
+        const baseModalities = baseSnapshot.availableModalities ?? [];
+        // Sem dimensão de modalidade (ou ainda sem dado): só existe a série Global — nada pra selecionar.
+        const selected = baseModalities.length > 0 ? (modalitySelection[level.variableId] ?? []) : [GLOBAL_SERIES_KEY];
+        const seriesSnapshots: Record<string, FullVariableSnapshot | undefined> = {};
+        for (const s of selected) {
+          seriesSnapshots[s] = s === GLOBAL_SERIES_KEY ? baseSnapshot : snapshotCache[snapshotCacheKey(level.variableId, [s])];
+        }
+        const seriesKeyFor = (s: string) => s === GLOBAL_SERIES_KEY ? level.variableId : snapshotCacheKey(level.variableId, [s]);
         return (
-          <VariableDeepDive snapshot={activeSnapshot} baseModalities={baseSnapshot?.availableModalities ?? []} selectedModalities={selectedModalities}
-            onModalitiesChange={(m) => setModalitySelection((prev) => ({ ...prev, [level.variableId]: m }))}
+          <VariableDeepDive baseSnapshot={baseSnapshot} seriesSnapshots={seriesSnapshots} baseModalities={baseModalities}
+            selectedSeries={selected} onSeriesChange={(s) => setModalitySelection((prev) => ({ ...prev, [level.variableId]: s }))}
             contextEvents={contextEvents} layers={layers} onLayersChange={setLayers}
-            pinned={pinnedIds.includes(level.variableId)} onTogglePin={() => togglePin(level.variableId)} />
+            pinnedKeys={pinnedIds} onTogglePin={togglePin} seriesKeyFor={seriesKeyFor} />
         );
       })()}
 
