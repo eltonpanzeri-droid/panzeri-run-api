@@ -4295,10 +4295,20 @@ function TimelineTab({ student, accessToken }: { student: StudentDetail; accessT
     return <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando...</p>;
   }
 
+  // CORRECAO (Passo 6, validacao integrada, 25/09/2026): student.history inclui o proprio plano
+  // ativo (o backend so deduplica por semana, nao exclui o plano corrente) — concatenar
+  // student.plan.sessions com student.history.flatMap(sessions) duplicava toda sessao e feedback
+  // da semana atual. Dedup por session.id preserva o historico real sem depender de excluir o
+  // plano ativo por id (robusto mesmo se outro plano acabar repetindo uma semana no futuro).
+  const seenSessionIds = new Set<string>();
   const allSessions = [
     ...(student.plan?.sessions ?? []),
     ...(student.history?.flatMap((h) => h.sessions ?? []) ?? []),
-  ];
+  ].filter((s) => {
+    if (seenSessionIds.has(s.id)) return false;
+    seenSessionIds.add(s.id);
+    return true;
+  });
 
   const events: TimelineEvent[] = [
     ...allSessions.map((s): TimelineEvent => ({
