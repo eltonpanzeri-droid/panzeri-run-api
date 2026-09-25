@@ -1,9 +1,9 @@
 'use client';
 
-import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flag, Flame, Gauge, LayoutDashboard, LogIn, Menu, Plus, RefreshCw, Save, Search, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flag, Flame, Folder, Gauge, Info, LayoutDashboard, LogIn, Menu, Pin, PinOff, Plus, RefreshCw, Save, Search, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
-import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
 const STUDENT_APP_URL = 'https://agenteselton-panzeri-run-app.hbljgk.easypanel.host';
@@ -3248,6 +3248,10 @@ function StudentPanel({
             <TimelineIntegradaSection history={hist} />
           </EvoSection>
 
+          <EvoSection icon="🧬" title="Exploração Longitudinal" desc="Navegação pasta → variável → matemática → observação original, direto da Camada Matemática Longitudinal (Variable Registry + a mesma matemática usada pelo agente de prescrição). Nenhum cálculo novo aqui — só apresentação em profundidade.">
+            <LongitudinalExplorer studentId={student.id} studentName={student.name} accessToken={token} />
+          </EvoSection>
+
           {/* ── REGISTROS ─────────────────────────────────────────────────── */}
           <GroupLabel label="Registros e histórico" />
 
@@ -4028,6 +4032,613 @@ function VariableSnapshotPanel({ label, snapshot, period }: { label: string; sna
           </table>
         </div>
       </details>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// EXPLORAÇÃO LONGITUDINAL (25/09/2026, pós-Fundação Training Intelligence V1) — navegação
+// PASTA (domínio) → VARIÁVEL → MATEMÁTICA → COMPARAÇÃO → CONTEXTO → OBSERVAÇÃO ORIGINAL, por
+// aluno. Consome EXCLUSIVAMENTE GET /coach/students/:id/observations/:variableId
+// (TrainingIntelligenceQueryService.getVariableSnapshot) e a legenda do Variable Registry —
+// nenhuma matemática nova aqui, só apresentação. Ver CAMADA_MATEMATICA_LONGITUDINAL.md.
+// Treinamento/Performance/Evolução (volume, aderência, FitnessTest, reavaliações) NÃO são
+// variáveis do registry — continuam nas seções já existentes acima, não duplicadas aqui.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+// Glossário curto, parafraseado de CAMADA_MATEMATICA_LONGITUDINAL.md — evita definição
+// divergente espalhada pela UI (pedido explícito: "não criar definições conflitantes").
+const MATH_GLOSSARY = {
+  bruto: 'Cada observação individual, como foi registrada — nunca substituída pelo derivado.',
+  media: 'Média simples de todos os pontos do período selecionado.',
+  mm21: 'Média móvel dos últimos 21 dias corridos, recalculada a cada observação.',
+  mm60: 'Média móvel dos últimos 60 dias corridos.',
+  mm200: 'Média móvel dos últimos 200 dias corridos — janela também usada como baseline individual.',
+  baseline: 'O que é "normal" para este aluno especificamente — média móvel de 200 dias, nunca um padrão populacional.',
+  desvio: 'Diferença entre o valor atual e o baseline individual (absoluta e relativa).',
+  tendencia: 'Direção por regressão linear simples sobre a janela — "estável" quando a variação é pequena demais pra não ser ruído.',
+  faixaHabitual: 'Intervalo entre o percentil 10 e o percentil 90 do histórico do próprio aluno — nunca um valor populacional.',
+  variabilidade: 'Dispersão dos valores (desvio absoluto da mediana) — mede oscilação, nunca nível.',
+  mudancaVariabilidade: 'Compara a dispersão recente com a habitual: aumentou, diminuiu ou não mudou.',
+  persistencia: 'Se o valor atual está fora da faixa habitual agora, e há quanto tempo.',
+  excursao: 'Um trecho contínuo de observações fora da faixa habitual individual.',
+  retorno: 'Se e quando a variável voltou a ficar dentro da faixa habitual depois de uma excursão.',
+  velocidadeRetorno: 'Magnitude da excursão dividida pelos dias até o retorno — quão rápido foi.',
+  overshoot: 'Quando o "retorno" não passa pela faixa habitual e vai direto para o lado oposto.',
+  recuperacaoNivel: 'Se o nível pós-retorno voltou a ficar dentro da faixa habitual.',
+  recuperacaoVariabilidade: 'Se a oscilação pós-retorno voltou perto da habitual.',
+  evidencia: 'Quantidade de observações, período coberto, data mais recente e versões de instrumento envolvidas.',
+} as const;
+
+function InfoTip({ glossaryKey }: { glossaryKey: keyof typeof MATH_GLOSSARY }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 4 }}>
+      <button type="button" onClick={() => setOpen((v) => !v)} title="O que significa?"
+        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'inline-flex', color: 'var(--muted)' }}>
+        <Info size={12} />
+      </button>
+      {open && (
+        <span style={{ position: 'absolute', zIndex: 20, top: '130%', left: 0, width: 220, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8, padding: 8, fontSize: 11, fontWeight: 400, color: 'var(--text)', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }}>
+          {MATH_GLOSSARY[glossaryKey]}
+        </span>
+      )}
+    </span>
+  );
+}
+
+interface FullMAWindowPoint { timestamp: string; value: number | null; isPartialWindow: boolean }
+interface FullDispersionWindow { n: number; isPartialWindow: boolean; median: number | null; mad: number | null; iqr: number | null; range: number | null }
+interface FullExcursion {
+  direction: 'above' | 'below'; startTimestamp: string; endTimestamp: string; ongoing: boolean;
+  durationDays: number; observationCount: number; peak: { value: number; timestamp: string }; magnitude: number;
+  returnDynamics: null | {
+    returned: boolean; returnTimestamp: string | null; timeToReturnDays: number | null; observationsToReturn: number;
+    returnVelocity: number | null; overshoot: null | { occurred: boolean; direction?: string; magnitude?: number };
+    levelRecovery: { evaluated: boolean; recovered: boolean | null; postReturnLevel: number | null; habitualMedian: number | null };
+    variabilityRecovery: { evaluated: boolean; recovered: boolean | null; postReturnMad: number | null; habitualMad: number | null; ratio: number | null };
+  };
+}
+interface FullVariableSnapshot {
+  variable: { id: string; domain: string; dataType: string; constructLabel?: string; scale?: { min: number; max: number; unit?: string }; direction: string };
+  mathApplicable: boolean; mathSkippedReason?: string;
+  current: number | null;
+  mean: { value: number | null; n: number } | null;
+  movingAverages: Record<string, { value: number | null; n: number; isPartialWindow: boolean }> | null;
+  movingAverageSeries: Record<string, FullMAWindowPoint[]> | null;
+  baseline: { value: number | null; n: number; isPartialWindow: boolean } | null;
+  deviation: { current: number | null; baseline: number | null; absoluteDeviation: number | null; relativeDeviation: number | null } | null;
+  trend: Record<string, { direction: string; slopePerDay: number | null; n: number }> | null;
+  variability: Record<string, FullDispersionWindow> | null;
+  habitualRange: { lower: number | null; upper: number | null; median: number | null; q1: number | null; q3: number | null; n: number; isPartialWindow: boolean; semanticCaution: string } | null;
+  variabilityChange: { recent: FullDispersionWindow; habitual: FullDispersionWindow; madRatio: number | null; direction: string } | null;
+  persistence: { currentlyOutsideHabitualRange: boolean | null; direction: string | null; startTimestamp: string | null; durationDays: number | null; observationCount: number | null } | null;
+  excursions: FullExcursion[] | null;
+  observations: ObservationRow[];
+  evidence: { n: number; observedSpan: { from: string | null; to: string | null }; lastObservationAt: string | null; instrumentVersions: number[]; comparabilityWarning: string | null };
+}
+
+const MA_WINDOW_LABELS: Record<string, string> = { short_21d: 'MM21', medium_60d: 'MM60', long_200d: 'MM200' };
+const MA_WINDOW_GLOSSARY: Record<string, keyof typeof MATH_GLOSSARY> = { short_21d: 'mm21', medium_60d: 'mm60', long_200d: 'mm200' };
+
+interface LayerToggles { raw: boolean; mm21: boolean; mm60: boolean; mm200: boolean; baseline: boolean; habitual: boolean; contextEvents: boolean; excursions: boolean }
+const DEFAULT_LAYERS: LayerToggles = { raw: true, mm21: true, mm60: false, mm200: false, baseline: false, habitual: true, contextEvents: false, excursions: true };
+
+function fmtNum(v: number | null | undefined, digits = 1): string {
+  return v == null ? '—' : v.toFixed(digits);
+}
+function fmtDay(iso: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
+/** Gráfico de UMA variável — bruto + camadas opcionais, todas alinhadas pela mesma linha do tempo (syncId compartilhado entre todos os gráficos do Explorador, pra crosshair sincronizado). */
+function VariableChart({ snapshot, layers, contextEvents, height = 220 }: {
+  snapshot: FullVariableSnapshot; layers: LayerToggles; contextEvents?: ContextEventRow[]; height?: number;
+}) {
+  if (!snapshot.mathApplicable) return <p style={{ fontSize: 12, color: 'var(--muted)' }}>{snapshot.mathSkippedReason}</p>;
+  if (snapshot.observations.length === 0) return <p style={{ fontSize: 12, color: 'var(--muted)' }}>Nenhuma observação ainda (ausência de dado — nunca é zero).</p>;
+
+  const dateSet = new Set<string>();
+  snapshot.observations.forEach((o) => dateSet.add(o.timestamp.slice(0, 10)));
+  const dates = [...dateSet].sort();
+  const rawByDate = new Map(snapshot.observations.map((o) => [o.timestamp.slice(0, 10), o.value]));
+  const mm21ByDate = new Map((snapshot.movingAverageSeries?.short_21d ?? []).map((p) => [p.timestamp.slice(0, 10), p.value]));
+  const mm60ByDate = new Map((snapshot.movingAverageSeries?.medium_60d ?? []).map((p) => [p.timestamp.slice(0, 10), p.value]));
+  const mm200ByDate = new Map((snapshot.movingAverageSeries?.long_200d ?? []).map((p) => [p.timestamp.slice(0, 10), p.value]));
+
+  const data = dates.map((d) => ({
+    dateLabel: fmtDay(d),
+    raw: rawByDate.get(d) ?? null,
+    mm21: mm21ByDate.get(d) ?? null,
+    mm60: mm60ByDate.get(d) ?? null,
+    mm200: mm200ByDate.get(d) ?? null,
+  }));
+
+  const scaleDomain: [number, number] | ['auto', 'auto'] = snapshot.variable.scale ? [snapshot.variable.scale.min, snapshot.variable.scale.max] : ['auto', 'auto'];
+
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <ComposedChart data={data} syncId="ti-longitudinal-explorer">
+        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+        <XAxis dataKey="dateLabel" fontSize={10} />
+        <YAxis fontSize={10} domain={scaleDomain} />
+        <Tooltip />
+        {layers.habitual && snapshot.habitualRange?.lower != null && snapshot.habitualRange?.upper != null && (
+          <ReferenceArea y1={snapshot.habitualRange.lower} y2={snapshot.habitualRange.upper} fill="#0ea5e9" fillOpacity={0.08} strokeOpacity={0} />
+        )}
+        {layers.excursions && (snapshot.excursions ?? []).map((exc, i) => (
+          <ReferenceArea key={i} x1={fmtDay(exc.startTimestamp)} x2={fmtDay(exc.endTimestamp)}
+            fill={exc.direction === 'above' ? '#f59e0b' : '#8b5cf6'} fillOpacity={0.12} strokeOpacity={0} />
+        ))}
+        {layers.contextEvents && (contextEvents ?? []).filter((e) => e.startedAt).map((e) => (
+          <ReferenceLine key={e.id} x={fmtDay(e.startedAt!)} stroke="#94a3b8" strokeDasharray="3 3"
+            label={{ value: CONTEXT_EVENT_TYPE_LABELS[e.type] ?? e.type, fontSize: 9, position: 'insideTopRight' }} />
+        ))}
+        {layers.baseline && snapshot.baseline?.value != null && (
+          <ReferenceLine y={snapshot.baseline.value} stroke="#64748b" strokeDasharray="4 2" label={{ value: 'baseline', fontSize: 9, position: 'right' }} />
+        )}
+        {layers.raw && <Line type="monotone" dataKey="raw" name="Bruto" stroke="#0ea5e9" dot={{ r: 3 }} connectNulls={false} />}
+        {layers.mm21 && <Line type="monotone" dataKey="mm21" name="MM21" stroke="#22c55e" dot={false} strokeWidth={2} connectNulls />}
+        {layers.mm60 && <Line type="monotone" dataKey="mm60" name="MM60" stroke="#f59e0b" dot={false} strokeWidth={2} connectNulls />}
+        {layers.mm200 && <Line type="monotone" dataKey="mm200" name="MM200" stroke="#8b5cf6" dot={false} strokeWidth={2} connectNulls />}
+        <Legend wrapperStyle={{ fontSize: 11 }} />
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+function LayerToggleBar({ layers, onChange, hasExcursions, hasContextEvents }: {
+  layers: LayerToggles; onChange: (l: LayerToggles) => void; hasExcursions: boolean; hasContextEvents: boolean;
+}) {
+  const items: Array<[keyof LayerToggles, string, keyof typeof MATH_GLOSSARY | null]> = [
+    ['raw', 'Bruto', 'bruto'], ['mm21', 'MM21', 'mm21'], ['mm60', 'MM60', 'mm60'], ['mm200', 'MM200', 'mm200'],
+    ['baseline', 'Baseline', 'baseline'], ['habitual', 'Faixa habitual', 'faixaHabitual'],
+    ['excursions', 'Excursões', 'excursao'], ['contextEvents', 'Eventos de contexto', null],
+  ];
+  return (
+    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+      {items.map(([key, label, glossaryKey]) => {
+        if (key === 'excursions' && !hasExcursions) return null;
+        if (key === 'contextEvents' && !hasContextEvents) return null;
+        return (
+          <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 12, cursor: 'pointer' }}>
+            <input type="checkbox" checked={layers[key]} onChange={(e) => onChange({ ...layers, [key]: e.target.checked })} />
+            {label}
+            {glossaryKey && <InfoTip glossaryKey={glossaryKey} />}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function VariableStatsGrid({ snapshot }: { snapshot: FullVariableSnapshot }) {
+  if (!snapshot.mathApplicable) return null;
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, fontSize: 12 }}>
+      <div><strong>Atual</strong><div>{snapshot.current ?? '—'}</div></div>
+      <div><strong>Média período<InfoTip glossaryKey="media" /></strong><div>{fmtNum(snapshot.mean?.value)} (n={snapshot.mean?.n ?? 0})</div></div>
+      {Object.entries(MA_WINDOW_LABELS).map(([key, label]) => (
+        <div key={key}><strong>{label}<InfoTip glossaryKey={MA_WINDOW_GLOSSARY[key]} /></strong>
+          <div>{fmtNum(snapshot.movingAverages?.[key]?.value)}{snapshot.movingAverages?.[key]?.isPartialWindow ? ' (parcial)' : ''}</div>
+        </div>
+      ))}
+      <div><strong>Baseline (200d)<InfoTip glossaryKey="baseline" /></strong><div>{fmtNum(snapshot.baseline?.value)} (n={snapshot.baseline?.n ?? 0})</div></div>
+      <div><strong>Desvio do baseline<InfoTip glossaryKey="desvio" /></strong><div>{fmtNum(snapshot.deviation?.absoluteDeviation)}{snapshot.deviation?.relativeDeviation != null ? ` (${(snapshot.deviation.relativeDeviation * 100).toFixed(0)}%)` : ''}</div></div>
+      <div><strong>Tendência 21d<InfoTip glossaryKey="tendencia" /></strong><div>{snapshot.trend?.short_21d?.direction ?? '—'}</div></div>
+      <div><strong>Tendência 60d</strong><div>{snapshot.trend?.medium_60d?.direction ?? '—'}</div></div>
+      <div><strong>Faixa habitual<InfoTip glossaryKey="faixaHabitual" /></strong><div>{snapshot.habitualRange ? `${fmtNum(snapshot.habitualRange.lower)} a ${fmtNum(snapshot.habitualRange.upper)}` : '—'}</div></div>
+      <div><strong>Variabilidade recente<InfoTip glossaryKey="variabilidade" /></strong><div>MAD {fmtNum(snapshot.variability?.short_21d?.mad)}</div></div>
+      <div><strong>Mudança de variabilidade<InfoTip glossaryKey="mudancaVariabilidade" /></strong><div>{snapshot.variabilityChange?.direction ?? '—'}</div></div>
+      <div><strong>Fora da faixa agora<InfoTip glossaryKey="persistencia" /></strong>
+        <div>{snapshot.persistence?.currentlyOutsideHabitualRange ? `sim, ${snapshot.persistence.direction} (${snapshot.persistence.durationDays?.toFixed(0)}d)` : snapshot.persistence?.currentlyOutsideHabitualRange === false ? 'não' : '—'}</div>
+      </div>
+      <div><strong>Excursões observadas<InfoTip glossaryKey="excursao" /></strong><div>{snapshot.excursions?.length ?? 0}</div></div>
+    </div>
+  );
+}
+
+function ExcursionList({ excursions }: { excursions: FullExcursion[] }) {
+  if (excursions.length === 0) return <p style={{ fontSize: 12, color: 'var(--muted)' }}>Nenhuma excursão observada no histórico.</p>;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {[...excursions].reverse().map((exc, i) => (
+        <div key={i} className="card" style={{ padding: 10, fontSize: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+            <strong>{exc.direction === 'above' ? 'Acima' : 'Abaixo'} da faixa habitual{exc.ongoing ? ' (em curso)' : ''}</strong>
+            <span style={{ color: 'var(--muted)' }}>{new Date(exc.startTimestamp).toLocaleDateString('pt-BR')} → {exc.ongoing ? 'agora' : new Date(exc.endTimestamp).toLocaleDateString('pt-BR')}</span>
+          </div>
+          <div style={{ color: 'var(--muted)', marginTop: 4 }}>
+            {exc.durationDays.toFixed(0)} dias · {exc.observationCount} observações · pico {exc.peak.value} (magnitude {exc.magnitude.toFixed(1)})
+          </div>
+          {exc.returnDynamics && (
+            <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {exc.returnDynamics.returned ? (
+                <>
+                  <div>Retornou em {exc.returnDynamics.timeToReturnDays?.toFixed(1)} dias ({exc.returnDynamics.observationsToReturn} observações)<InfoTip glossaryKey="retorno" /></div>
+                  {exc.returnDynamics.returnVelocity != null && <div>Velocidade de retorno: {exc.returnDynamics.returnVelocity.toFixed(2)}/dia<InfoTip glossaryKey="velocidadeRetorno" /></div>}
+                  <div>Recuperação de nível: {exc.returnDynamics.levelRecovery.recovered == null ? '—' : exc.returnDynamics.levelRecovery.recovered ? 'sim' : 'não'}<InfoTip glossaryKey="recuperacaoNivel" /></div>
+                  <div>Recuperação de variabilidade: {exc.returnDynamics.variabilityRecovery.recovered == null ? '—' : exc.returnDynamics.variabilityRecovery.recovered ? 'sim' : 'não'}<InfoTip glossaryKey="recuperacaoVariabilidade" /></div>
+                </>
+              ) : (
+                <div>Não retornou pela faixa habitual{exc.returnDynamics.overshoot?.occurred ? ' — overshoot para o lado oposto' : ''}<InfoTip glossaryKey="overshoot" /></div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ExplorerBreadcrumb({ studentName, domain, variableLabel, sistema, onNavigate }: {
+  studentName: string; domain: string | null; variableLabel: string | null; sistema: boolean;
+  onNavigate: (level: 'root' | 'domain') => void;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
+      <button type="button" onClick={() => onNavigate('root')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: domain || sistema ? 'var(--accent)' : 'var(--text)', fontWeight: !domain && !sistema ? 700 : 400 }}>{studentName}</button>
+      {sistema && <><span>›</span><span style={{ color: 'var(--text)', fontWeight: 700 }}>Sistema</span></>}
+      {domain && (
+        <>
+          <span>›</span>
+          <button type="button" onClick={() => onNavigate('domain')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: variableLabel ? 'var(--accent)' : 'var(--text)', fontWeight: !variableLabel ? 700 : 400 }}>
+            {VARIABLE_DOMAIN_LABELS[domain]}
+          </button>
+        </>
+      )}
+      {variableLabel && <><span>›</span><span style={{ color: 'var(--text)', fontWeight: 700 }}>{variableLabel}</span></>}
+    </div>
+  );
+}
+
+type ExplorerLevel =
+  | { kind: 'root' }
+  | { kind: 'domain'; domain: string }
+  | { kind: 'variable'; domain: string; variableId: string }
+  | { kind: 'sistema' };
+
+/** Visão geral de UM domínio: variáveis comparáveis lado a lado, cada uma com sua própria escala (nunca normalizada/sobreposta automaticamente). */
+function DomainOverview({ domain, legend, snapshotCache, loadingIds, contextEvents, pinnedIds, onTogglePin, onOpenVariable }: {
+  domain: string; legend: VariableLegendEntry[]; snapshotCache: Record<string, FullVariableSnapshot>; loadingIds: Set<string>;
+  contextEvents: ContextEventRow[]; pinnedIds: string[]; onTogglePin: (id: string) => void; onOpenVariable: (variableId: string) => void;
+}) {
+  const variables = legend.filter((v) => v.domain === domain);
+  const [visibleIds, setVisibleIds] = React.useState<Set<string>>(() => new Set(variables.slice(0, 3).map((v) => v.id)));
+
+  React.useEffect(() => {
+    setVisibleIds(new Set(legend.filter((v) => v.domain === domain).slice(0, 3).map((v) => v.id)));
+  }, [domain, legend]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        {variables.map((v) => (
+          <label key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+            <input type="checkbox" checked={visibleIds.has(v.id)} onChange={(e) => setVisibleIds((prev) => { const next = new Set(prev); if (e.target.checked) next.add(v.id); else next.delete(v.id); return next; })} />
+            {v.constructLabel ?? v.id}
+          </label>
+        ))}
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>Cada componente preserva sua própria escala e semântica — sem normalizar ou inverter pra parecerem comparáveis.</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {variables.filter((v) => visibleIds.has(v.id)).map((v) => {
+          const snapshot = snapshotCache[v.id];
+          return (
+            <div key={v.id} className="card" style={{ padding: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <button type="button" onClick={() => onOpenVariable(v.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13, padding: 0, color: 'var(--text)' }}>
+                  {v.constructLabel ?? v.id} →
+                </button>
+                <button type="button" onClick={() => onTogglePin(v.id)} title={pinnedIds.includes(v.id) ? 'Remover do Sistema' : 'Fixar no Sistema'} style={{ background: 'none', border: 'none', cursor: 'pointer', color: pinnedIds.includes(v.id) ? 'var(--accent)' : 'var(--muted)' }}>
+                  {pinnedIds.includes(v.id) ? <Pin size={14} /> : <PinOff size={14} />}
+                </button>
+              </div>
+              {!snapshot ? <p style={{ fontSize: 12, color: 'var(--muted)' }}>{loadingIds.has(v.id) ? 'Carregando...' : '—'}</p> :
+                <VariableChart snapshot={snapshot} layers={{ ...DEFAULT_LAYERS, excursions: false }} contextEvents={contextEvents} height={140} />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function VariableDeepDive({ snapshot, contextEvents, layers, onLayersChange, pinned, onTogglePin }: {
+  snapshot: FullVariableSnapshot; contextEvents: ContextEventRow[]; layers: LayerToggles; onLayersChange: (l: LayerToggles) => void;
+  pinned: boolean; onTogglePin: () => void;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h3 style={{ margin: 0 }}>{snapshot.variable.constructLabel ?? snapshot.variable.id}</h3>
+          <p style={{ fontSize: 11, color: 'var(--muted)', margin: '2px 0 0' }}>
+            Escala {snapshot.variable.scale ? `${snapshot.variable.scale.min}-${snapshot.variable.scale.max}` : '—'} · direção: {snapshot.variable.direction === 'higher_is_more_of_construct' ? `maior = mais ${snapshot.variable.constructLabel?.toLowerCase()}` : 'não direcional'} (nunca "maior = melhor" universalmente).
+          </p>
+        </div>
+        <button type="button" className="secondaryOutlineButton" onClick={onTogglePin} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+          {pinned ? <Pin size={14} /> : <PinOff size={14} />} {pinned ? 'Fixado no Sistema' : 'Fixar no Sistema'}
+        </button>
+      </div>
+
+      {!snapshot.mathApplicable ? (
+        <p style={{ fontSize: 12, color: 'var(--muted)' }}>{snapshot.mathSkippedReason}</p>
+      ) : (
+        <>
+          <LayerToggleBar layers={layers} onChange={onLayersChange} hasExcursions={(snapshot.excursions?.length ?? 0) > 0} hasContextEvents={contextEvents.length > 0} />
+          <VariableChart snapshot={snapshot} layers={layers} contextEvents={contextEvents} height={260} />
+          <VariableStatsGrid snapshot={snapshot} />
+          {snapshot.habitualRange?.semanticCaution && (
+            <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0, fontStyle: 'italic' }}>{snapshot.habitualRange.semanticCaution}</p>
+          )}
+          <details>
+            <summary style={{ fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Excursões detalhadas ({snapshot.excursions?.length ?? 0})</summary>
+            <div style={{ marginTop: 8 }}><ExcursionList excursions={snapshot.excursions ?? []} /></div>
+          </details>
+        </>
+      )}
+
+      <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
+        n={snapshot.evidence.n} · período: {snapshot.evidence.observedSpan.from ? new Date(snapshot.evidence.observedSpan.from).toLocaleDateString('pt-BR') : '—'} a {snapshot.evidence.observedSpan.to ? new Date(snapshot.evidence.observedSpan.to).toLocaleDateString('pt-BR') : '—'} · versões: {snapshot.evidence.instrumentVersions.join(', ') || '—'}<InfoTip glossaryKey="evidencia" />
+        {snapshot.evidence.comparabilityWarning && <span style={{ color: '#f59e0b' }}> · ⚠ {snapshot.evidence.comparabilityWarning}</span>}
+      </p>
+
+      <details>
+        <summary style={{ fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Observações originais ({snapshot.observations.length}) — registro bruto</summary>
+        <div style={{ overflowX: 'auto', marginTop: 6 }}>
+          <table style={{ fontSize: 11, borderCollapse: 'collapse', width: '100%' }}>
+            <thead><tr>
+              <th style={{ textAlign: 'left', padding: '2px 6px' }}>Data</th>
+              <th style={{ textAlign: 'left', padding: '2px 6px' }}>Valor</th>
+              <th style={{ textAlign: 'left', padding: '2px 6px' }}>Versão</th>
+              <th style={{ textAlign: 'left', padding: '2px 6px' }}>Origem</th>
+            </tr></thead>
+            <tbody>
+              {[...snapshot.observations].reverse().map((o, i) => (
+                <tr key={i} style={{ borderTop: '1px solid var(--line)' }}>
+                  <td style={{ padding: '2px 6px' }}>{new Date(o.timestamp).toLocaleString('pt-BR')}</td>
+                  <td style={{ padding: '2px 6px' }}>{o.value}</td>
+                  <td style={{ padding: '2px 6px' }}>v{o.instrumentVersion}</td>
+                  <td style={{ padding: '2px 6px' }}>{JSON.stringify(o.context)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+/** Sobreposição de 2 variáveis num único gráfico, com 2 eixos Y (cada um na cor da própria série) — nunca 1 eixo comum enganoso. Escolha explícita do treinador, nunca automática. */
+function OverlayChart({ ids, legend, snapshotCache }: { ids: string[]; legend: VariableLegendEntry[]; snapshotCache: Record<string, FullVariableSnapshot> }) {
+  const [idA, idB] = ids;
+  const snapA = snapshotCache[idA]; const snapB = snapshotCache[idB];
+  if (!snapA || !snapB) return <p style={{ fontSize: 12, color: 'var(--muted)' }}>Carregando...</p>;
+  const labelA = legend.find((v) => v.id === idA)?.constructLabel ?? idA;
+  const labelB = legend.find((v) => v.id === idB)?.constructLabel ?? idB;
+
+  const dateSet = new Set<string>();
+  snapA.observations.forEach((o) => dateSet.add(o.timestamp.slice(0, 10)));
+  snapB.observations.forEach((o) => dateSet.add(o.timestamp.slice(0, 10)));
+  const dates = [...dateSet].sort();
+  const aByDate = new Map(snapA.observations.map((o) => [o.timestamp.slice(0, 10), o.value]));
+  const bByDate = new Map(snapB.observations.map((o) => [o.timestamp.slice(0, 10), o.value]));
+  const data = dates.map((d) => ({ dateLabel: fmtDay(d), a: aByDate.get(d) ?? null, b: bByDate.get(d) ?? null }));
+
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <ComposedChart data={data} syncId="ti-longitudinal-explorer">
+        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+        <XAxis dataKey="dateLabel" fontSize={10} />
+        <YAxis yAxisId="left" fontSize={10} domain={snapA.variable.scale ? [snapA.variable.scale.min, snapA.variable.scale.max] : ['auto', 'auto']} stroke="#0ea5e9" />
+        <YAxis yAxisId="right" orientation="right" fontSize={10} domain={snapB.variable.scale ? [snapB.variable.scale.min, snapB.variable.scale.max] : ['auto', 'auto']} stroke="#f59e0b" />
+        <Tooltip />
+        <Legend wrapperStyle={{ fontSize: 11 }} />
+        <Line yAxisId="left" type="monotone" dataKey="a" name={labelA} stroke="#0ea5e9" dot={{ r: 3 }} connectNulls={false} />
+        <Line yAxisId="right" type="monotone" dataKey="b" name={labelB} stroke="#f59e0b" dot={{ r: 3 }} connectNulls={false} />
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+/** SISTEMA: investigação integrada — qualquer combinação de variáveis, sincronizadas pela mesma linha do tempo (syncId). Correlação/lag/associação ainda não existem no backend — nunca fabricados aqui. */
+function SistemaWorkspace({ legend, pinnedIds, onTogglePin, snapshotCache, contextEvents, onOpenVariable, overlayIds, onOverlayChange }: {
+  legend: VariableLegendEntry[]; pinnedIds: string[]; onTogglePin: (id: string) => void; snapshotCache: Record<string, FullVariableSnapshot>;
+  contextEvents: ContextEventRow[]; onOpenVariable: (domain: string, variableId: string) => void;
+  overlayIds: string[]; onOverlayChange: (ids: string[]) => void;
+}) {
+  const [showPicker, setShowPicker] = React.useState(false);
+  const [pickerDomain, setPickerDomain] = React.useState(Object.keys(VARIABLE_DOMAIN_LABELS)[0]);
+
+  function toggleOverlay(id: string) {
+    onOverlayChange(overlayIds.includes(id) ? overlayIds.filter((x) => x !== id) : overlayIds.length >= 2 ? [overlayIds[1], id] : [...overlayIds, id]);
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+        Combine qualquer variável do registry, sincronizadas pela mesma linha do tempo. Correlação/associação estatística entre variáveis ainda não é calculada pelo backend — mostrando trajetórias lado a lado, sem inferir relação nenhuma.
+      </p>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button type="button" className="secondaryOutlineButton" onClick={() => setShowPicker((v) => !v)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Plus size={14} /> Adicionar variável
+        </button>
+        {overlayIds.length === 2 && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Sobrepondo {overlayIds.map((id) => legend.find((v) => v.id === id)?.constructLabel ?? id).join(' + ')} (2 no máximo).</span>}
+      </div>
+
+      {showPicker && (
+        <div className="card" style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {Object.entries(VARIABLE_DOMAIN_LABELS).map(([id, label]) => (
+              <button key={id} type="button" onClick={() => setPickerDomain(id)}
+                style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, cursor: 'pointer',
+                  background: pickerDomain === id ? '#0ea5e922' : 'var(--surface)', border: `1.5px solid ${pickerDomain === id ? '#0ea5e9' : 'var(--line)'}`, color: pickerDomain === id ? '#0ea5e9' : 'var(--muted)' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {legend.filter((v) => v.domain === pickerDomain).map((v) => (
+              <button key={v.id} type="button" onClick={() => onTogglePin(v.id)}
+                style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                  background: pinnedIds.includes(v.id) ? 'var(--accent)' : 'var(--surface)', color: pinnedIds.includes(v.id) ? '#fff' : 'var(--text)', border: '1px solid var(--line)' }}>
+                {pinnedIds.includes(v.id) ? '✓ ' : '+ '}{v.constructLabel ?? v.id}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {pinnedIds.length === 0 && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Nenhuma variável fixada ainda. Adicione pelo botão acima, ou fixe a partir de qualquer variável aberta num domínio.</p>}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {pinnedIds.filter((id) => !overlayIds.includes(id)).map((id) => {
+          const v = legend.find((x) => x.id === id);
+          const snapshot = snapshotCache[id];
+          return (
+            <div key={id} className="card" style={{ padding: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <button type="button" onClick={() => v && onOpenVariable(v.domain, id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13, padding: 0, color: 'var(--text)' }}>
+                  {v?.constructLabel ?? id} →
+                </button>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <button type="button" onClick={() => toggleOverlay(id)} title="Sobrepor com outra variável fixada" style={{ fontSize: 11, background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', color: 'var(--muted)' }}>Sobrepor</button>
+                  <button type="button" onClick={() => onTogglePin(id)} title="Remover" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={14} /></button>
+                </div>
+              </div>
+              {!snapshot ? <p style={{ fontSize: 12, color: 'var(--muted)' }}>Carregando...</p> :
+                <VariableChart snapshot={snapshot} layers={DEFAULT_LAYERS} contextEvents={contextEvents} height={160} />}
+            </div>
+          );
+        })}
+
+        {overlayIds.length === 2 && (
+          <div className="card" style={{ padding: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <strong style={{ fontSize: 13 }}>{overlayIds.map((id) => legend.find((v) => v.id === id)?.constructLabel ?? id).join(' + ')} (sobreposto)</strong>
+              <button type="button" onClick={() => onOverlayChange([])} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={14} /></button>
+            </div>
+            <OverlayChart ids={overlayIds} legend={legend} snapshotCache={snapshotCache} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Raiz da Exploração Longitudinal por aluno — PASTA (domínio) → VARIÁVEL → MATEMÁTICA, mais a
+ * pasta SISTEMA (investigação multi-variável). Self-contained: busca sua própria legenda/
+ * contexto/snapshots, não depende de estado da tela pai. "Fixar" é estado da sessão atual
+ * (não persistido) — pedido explícito: não precisa virar configuração permanente nesta versão.
+ */
+function LongitudinalExplorer({ studentId, studentName, accessToken }: { studentId: string; studentName: string; accessToken: string }) {
+  const [legend, setLegend] = React.useState<VariableLegendEntry[] | null>(null);
+  const [contextEvents, setContextEvents] = React.useState<ContextEventRow[]>([]);
+  const [level, setLevel] = React.useState<ExplorerLevel>({ kind: 'root' });
+  const [snapshotCache, setSnapshotCache] = React.useState<Record<string, FullVariableSnapshot>>({});
+  const [loadingIds, setLoadingIds] = React.useState<Set<string>>(new Set());
+  const [pinnedIds, setPinnedIds] = React.useState<string[]>([]);
+  const [layers, setLayers] = React.useState<LayerToggles>(DEFAULT_LAYERS);
+  const [overlayIds, setOverlayIds] = React.useState<string[]>([]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [legendRes, ctxRes] = await Promise.all([
+          fetch(`${API_URL}/coach/data/training-intelligence/variable-legend`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+          fetch(`${API_URL}/coach/students/${studentId}/context-events`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+        ]);
+        if (cancelled) return;
+        if (legendRes.ok) setLegend((await legendRes.json()) as VariableLegendEntry[]);
+        if (ctxRes.ok) setContextEvents((await ctxRes.json()) as ContextEventRow[]);
+      } catch { /* silencioso */ }
+    })();
+    return () => { cancelled = true; };
+  }, [studentId, accessToken]);
+
+  const fetchSnapshot = React.useCallback(async (variableId: string) => {
+    setLoadingIds((prev) => new Set(prev).add(variableId));
+    try {
+      const res = await fetch(`${API_URL}/coach/students/${studentId}/observations/${variableId}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (res.ok) {
+        const data = (await res.json()) as FullVariableSnapshot;
+        setSnapshotCache((prev) => ({ ...prev, [variableId]: data }));
+      }
+    } catch { /* silencioso */ }
+    finally {
+      setLoadingIds((prev) => { const next = new Set(prev); next.delete(variableId); return next; });
+    }
+  }, [studentId, accessToken]);
+
+  React.useEffect(() => {
+    const idsToLoad: string[] = [];
+    if (level.kind === 'domain' && legend) idsToLoad.push(...legend.filter((v) => v.domain === level.domain).map((v) => v.id));
+    if (level.kind === 'variable') idsToLoad.push(level.variableId);
+    if (level.kind === 'sistema') idsToLoad.push(...pinnedIds);
+    for (const id of idsToLoad) {
+      if (!snapshotCache[id] && !loadingIds.has(id)) void fetchSnapshot(id);
+    }
+  }, [level, legend, pinnedIds, snapshotCache, loadingIds, fetchSnapshot]);
+
+  if (!legend) return <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando...</p>;
+
+  const domains = Object.keys(VARIABLE_DOMAIN_LABELS);
+  const variableLabelFor = (id: string) => legend.find((v) => v.id === id)?.constructLabel ?? id;
+
+  function togglePin(variableId: string) {
+    setPinnedIds((prev) => prev.includes(variableId) ? prev.filter((id) => id !== variableId) : [...prev, variableId]);
+  }
+
+  const currentVariableLabel = level.kind === 'variable' ? variableLabelFor(level.variableId) : null;
+  const currentDomain = level.kind === 'domain' ? level.domain : level.kind === 'variable' ? level.domain : null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <ExplorerBreadcrumb studentName={studentName} domain={currentDomain} variableLabel={currentVariableLabel} sistema={level.kind === 'sistema'}
+        onNavigate={(l) => setLevel(l === 'root' ? { kind: 'root' } : { kind: 'domain', domain: currentDomain! })} />
+
+      {level.kind === 'root' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+          {domains.map((d) => (
+            <button key={d} type="button" onClick={() => setLevel({ kind: 'domain', domain: d })}
+              className="card" style={{ padding: 16, textAlign: 'left', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 6, border: '1px solid var(--line)' }}>
+              <Folder size={18} style={{ color: 'var(--accent)' }} />
+              <strong style={{ fontSize: 14 }}>{VARIABLE_DOMAIN_LABELS[d]}</strong>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{legend.filter((v) => v.domain === d).length} variável(is)</span>
+            </button>
+          ))}
+          <button type="button" onClick={() => setLevel({ kind: 'sistema' })}
+            className="card" style={{ padding: 16, textAlign: 'left', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 6, border: '1px solid var(--accent)' }}>
+            <Folder size={18} style={{ color: 'var(--accent)' }} />
+            <strong style={{ fontSize: 14 }}>Sistema</strong>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Investigação integrada, múltiplas variáveis{pinnedIds.length ? ` (${pinnedIds.length} fixada(s))` : ''}</span>
+          </button>
+          <p style={{ fontSize: 11, color: 'var(--muted)', gridColumn: '1 / -1', margin: 0 }}>
+            Treinamento (volume/aderência/ACWR), Performance (FitnessTest) e Evolução (reavaliações) têm fontes próprias, fora do Variable Registry — continuam nas seções já existentes acima, não duplicadas aqui.
+          </p>
+        </div>
+      )}
+
+      {level.kind === 'domain' && (
+        <DomainOverview domain={level.domain} legend={legend} snapshotCache={snapshotCache} loadingIds={loadingIds}
+          contextEvents={contextEvents} pinnedIds={pinnedIds} onTogglePin={togglePin}
+          onOpenVariable={(variableId) => setLevel({ kind: 'variable', domain: level.domain, variableId })} />
+      )}
+
+      {level.kind === 'variable' && (snapshotCache[level.variableId] ? (
+        <VariableDeepDive snapshot={snapshotCache[level.variableId]} contextEvents={contextEvents}
+          layers={layers} onLayersChange={setLayers} pinned={pinnedIds.includes(level.variableId)} onTogglePin={() => togglePin(level.variableId)} />
+      ) : <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando...</p>)}
+
+      {level.kind === 'sistema' && (
+        <SistemaWorkspace legend={legend} pinnedIds={pinnedIds} onTogglePin={togglePin} snapshotCache={snapshotCache}
+          contextEvents={contextEvents} onOpenVariable={(domain, variableId) => setLevel({ kind: 'variable', domain, variableId })}
+          overlayIds={overlayIds} onOverlayChange={setOverlayIds} />
+      )}
     </div>
   );
 }

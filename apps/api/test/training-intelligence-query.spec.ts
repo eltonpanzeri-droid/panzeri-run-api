@@ -66,6 +66,29 @@ describe('TrainingIntelligenceQueryService', () => {
     expect(result.excursions).not.toBeNull();
   });
 
+  // 25/09/2026 (Visualizacao Longitudinal) — movingAverageSeries e' a MESMA funcao movingAverage()
+  // reaplicada com asOf em cada observacao (nao uma formula nova). Um ponto por observacao, cada
+  // um refletindo so' o que era conhecido ATE aquela data (nunca "olhando pra frente").
+  it('movingAverageSeries reaplica movingAverage() em cada data de observacao (curva, nao so o valor atual)', async () => {
+    const observations = [
+      observation({ timestamp: new Date('2026-08-01T00:00:00.000Z'), value: 2 }),
+      observation({ timestamp: new Date('2026-08-15T00:00:00.000Z'), value: 4 }),
+      observation({ timestamp: new Date('2026-09-01T00:00:00.000Z'), value: 6 }),
+    ];
+    const { service } = buildService(observations);
+    const result = await service.getVariableSnapshot('aluno-1', 'workout.preSleepQuality');
+
+    expect(result.movingAverageSeries).toHaveProperty('short_21d');
+    const series = result.movingAverageSeries!.short_21d;
+    expect(series).toHaveLength(3);
+    // Na primeira observacao, a janela de 21 dias so conhece esse unico ponto -> media = o proprio valor.
+    expect(series[0].value).toBe(2);
+    expect(series[0].isPartialWindow).toBe(true);
+    // Na ultima observacao, o valor da serie bate com o "atual" de movingAverages (mesma janela, mesmo asOf).
+    expect(series[2].value).toBe(result.movingAverages!.short_21d.value);
+    expect(series[2].timestamp).toBe('2026-09-01T00:00:00.000Z');
+  });
+
   it('serie vazia: mathApplicable true mas todos os resultados numericos vem null/zerados', async () => {
     const { service } = buildService([]);
     const result = await service.getVariableSnapshot('aluno-1', 'workout.preSleepQuality');

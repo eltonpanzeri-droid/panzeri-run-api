@@ -33,6 +33,13 @@ export interface VariableSnapshotResponse {
   current: number | null;
   mean: { value: number | null; n: number } | null;
   movingAverages: Record<string, ReturnType<MathLayerService['movingAverage']>> | null;
+  /**
+   * Serie da media movel (25/09/2026, Visualizacao Longitudinal) — mesma funcao movingAverage(),
+   * reaplicada com asOf em cada data de observacao. `movingAverages` acima e' so' o valor ATUAL
+   * (asOf = ultima observacao); isto aqui e' a curva inteira, pra plotar MM21/60/200 como linha ao
+   * longo do tempo, nao so' um ponto. Nenhuma formula nova — mesma janela, mesmo calculo, reaplicado.
+   */
+  movingAverageSeries: Record<string, Array<{ timestamp: string; value: number | null; isPartialWindow: boolean }>> | null;
   baseline: ReturnType<MathLayerService['baseline']> | null;
   deviation: ReturnType<MathLayerService['deviation']> | null;
   trend: Record<string, ReturnType<MathLayerService['trend']>> | null;
@@ -109,6 +116,7 @@ export class TrainingIntelligenceQueryService {
         current: null,
         mean: null,
         movingAverages: null,
+        movingAverageSeries: null,
         baseline: null,
         deviation: null,
         trend: null,
@@ -130,8 +138,13 @@ export class TrainingIntelligenceQueryService {
     const mean = this.mathLayer.periodMean(series);
 
     const movingAverages: VariableSnapshotResponse['movingAverages'] = {};
+    const movingAverageSeries: VariableSnapshotResponse['movingAverageSeries'] = {};
     for (const [label, window] of Object.entries(DEFAULT_MOVING_AVERAGE_WINDOWS)) {
       movingAverages[label] = this.mathLayer.movingAverage(series, window);
+      movingAverageSeries[label] = series.map((point) => {
+        const atPoint = this.mathLayer.movingAverage(series, window, point.timestamp);
+        return { timestamp: point.timestamp.toISOString(), value: atPoint.value, isPartialWindow: atPoint.isPartialWindow };
+      });
     }
 
     const baselineResult = this.mathLayer.baseline(series, BASELINE_WINDOW);
@@ -167,6 +180,7 @@ export class TrainingIntelligenceQueryService {
       current,
       mean,
       movingAverages,
+      movingAverageSeries,
       baseline: baselineResult,
       deviation: deviationResult,
       trend,
