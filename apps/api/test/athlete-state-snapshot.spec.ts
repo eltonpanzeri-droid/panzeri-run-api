@@ -57,6 +57,8 @@ function emptyVariableSnapshot(variableId: string): VariableSnapshotResponse {
 
 function buildDeps(overrides: {
   variableSnapshots?: Record<string, Partial<VariableSnapshotResponse>>;
+  /** variableId -> modality -> overrides — so relevante quando variableSnapshots[variableId].availableModalities tem itens. */
+  modalitySnapshots?: Record<string, Record<string, Partial<VariableSnapshotResponse>>>;
   overview?: unknown;
   overviewThrows?: boolean;
   painReports?: unknown[];
@@ -67,10 +69,16 @@ function buildDeps(overrides: {
   studentObservations?: number;
   studentDirectives?: number;
 }) {
-  const getVariableSnapshot = jest.fn(async (_athleteId: string, variableId: string) => ({
-    ...emptyVariableSnapshot(variableId),
-    ...(overrides.variableSnapshots?.[variableId] ?? {}),
-  }));
+  const getVariableSnapshot = jest.fn(async (_athleteId: string, variableId: string, modalities?: string[]) => {
+    if (modalities && modalities.length === 1) {
+      const modalityOverride = overrides.modalitySnapshots?.[variableId]?.[modalities[0]];
+      return { ...emptyVariableSnapshot(variableId), ...(modalityOverride ?? {}) };
+    }
+    return {
+      ...emptyVariableSnapshot(variableId),
+      ...(overrides.variableSnapshots?.[variableId] ?? {}),
+    };
+  });
 
   const getOverview = overrides.overviewThrows
     ? jest.fn().mockRejectedValue(new Error('sem historico'))
@@ -315,5 +323,65 @@ describe('AthleteStateSnapshotService', () => {
     const { service } = buildDeps({ overviewThrows: true });
     const snapshot = await service.getSnapshot('aluno-1');
     expect(snapshot.domains.training.availability).toBe('unavailable');
+  });
+
+  // 25/09/2026 (fecha o gap Snapshot -> Compact Agent Context -> agente): FILTRAR -> CALCULAR ->
+  // gerar entrada — cada modalidade e' a MESMA chamada canonica (getVariableSnapshot), so' com
+  // filtro. Nunca "calcular global e filtrar depois".
+  it('byModality: busca cada modalidade presente com a MESMA chamada canonica, filtrada', async () => {
+    const { service, getVariableSnapshot } = buildDeps({
+      variableSnapshots: {
+        'workout.perceivedEffort': {
+          current: 6,
+          availableModalities: ['corrida', 'forca'],
+          evidence: { n: 12, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [2], comparabilityWarning: null },
+        },
+      },
+      modalitySnapshots: {
+        'workout.perceivedEffort': {
+          corrida: { current: 8, evidence: { n: 9, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [2], comparabilityWarning: null } },
+          forca: { current: 4, evidence: { n: 3, observedSpan: { from: 'c', to: 'd' }, lastObservationAt: 'd', instrumentVersions: [2], comparabilityWarning: null } },
+        },
+      },
+    });
+    const snapshot = await service.getSnapshot('aluno-1');
+    const entry = snapshot.domains.trainingResponse.variables['workout.perceivedEffort'];
+    expect(entry.byModality?.corrida?.current).toBe(8);
+    expect(entry.byModality?.corrida?.evidence.n).toBe(9);
+    expect(entry.byModality?.forca?.current).toBe(4);
+    // Cada modalidade veio de uma chamada PROPRIA e filtrada — nunca derivada do Global depois.
+    expect(getVariableSnapshot).toHaveBeenCalledWith('aluno-1', 'workout.perceivedEffort', ['corrida']);
+    expect(getVariableSnapshot).toHaveBeenCalledWith('aluno-1', 'workout.perceivedEffort', ['forca']);
+  });
+
+  it('byModality: modalidade sem evidencia real (n=0) nunca aparece como serie vazia', async () => {
+    const { service } = buildDeps({
+      variableSnapshots: {
+        'workout.perceivedEffort': {
+          availableModalities: ['corrida', 'fortalecimento_corredores'],
+          evidence: { n: 5, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [2], comparabilityWarning: null },
+        },
+      },
+      modalitySnapshots: {
+        'workout.perceivedEffort': {
+          corrida: { current: 7, evidence: { n: 5, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [2], comparabilityWarning: null } },
+          // fortalecimento_corredores nao tem override -> mock devolve emptyVariableSnapshot (n=0)
+        },
+      },
+    });
+    const snapshot = await service.getSnapshot('aluno-1');
+    const entry = snapshot.domains.trainingResponse.variables['workout.perceivedEffort'];
+    expect(entry.byModality).toHaveProperty('corrida');
+    expect(entry.byModality).not.toHaveProperty('fortalecimento_corredores');
+  });
+
+  it('byModality ausente quando a variavel nao tem dimensao de modalidade (availableModalities vazio)', async () => {
+    const { service } = buildDeps({
+      variableSnapshots: {
+        'workout.preSleepQuality': { current: 4, availableModalities: [], evidence: { n: 10, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [2], comparabilityWarning: null } },
+      },
+    });
+    const snapshot = await service.getSnapshot('aluno-1');
+    expect(snapshot.domains.sleepRecovery.variables['workout.preSleepQuality'].byModality).toBeUndefined();
   });
 });

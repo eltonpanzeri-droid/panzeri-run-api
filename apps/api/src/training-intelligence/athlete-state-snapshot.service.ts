@@ -31,6 +31,12 @@ export type DomainAvailability = 'available' | 'partial' | 'unavailable';
 
 export interface VariableStateEntry extends Omit<VariableSnapshotResponse, 'observations'> {
   traceRef: { variableId: string; endpoint: string };
+  /**
+   * Quebra por modalidade (25/09/2026) — presente só quando a variável depende de modalidade
+   * (availableModalities não-vazio) E existe evidência real (n>0) naquela modalidade específica.
+   * Cada entrada é o MESMO getVariableSnapshot canônico, só filtrado — nunca uma segunda matemática.
+   */
+  byModality?: Record<string, Omit<VariableSnapshotResponse, 'observations'>>;
 }
 
 interface BaseDomainState {
@@ -247,8 +253,26 @@ export class AthleteStateSnapshotService {
       const cached = variableCache.get(variableId);
       if (cached) return cached;
       const { observations: _observations, ...rest } = await this.trainingIntelligenceQuery.getVariableSnapshot(athleteId, variableId);
+
+      // Quebra por modalidade (25/09/2026, extensao da Exploracao Longitudinal ate o agente) —
+      // FILTRAR -> CALCULAR -> gerar entrada, nunca "calcular global e filtrar visualmente depois".
+      // Cada modalidade e' a MESMA chamada canonica (getVariableSnapshot), so' com o filtro — nenhuma
+      // segunda matematica. So' inclui modalidade com evidencia real (n>0); nunca uma serie vazia.
+      let byModality: Record<string, Omit<VariableSnapshotResponse, 'observations'>> | undefined;
+      if (rest.availableModalities.length > 0) {
+        const perModality = await Promise.all(
+          rest.availableModalities.map(async (modality) => {
+            const { observations: _obs, ...modRest } = await this.trainingIntelligenceQuery.getVariableSnapshot(athleteId, variableId, [modality]);
+            return [modality, modRest] as const;
+          }),
+        );
+        const withEvidence = perModality.filter(([, snap]) => snap.evidence.n > 0);
+        if (withEvidence.length > 0) byModality = Object.fromEntries(withEvidence);
+      }
+
       const entry: VariableStateEntry = {
         ...rest,
+        byModality,
         traceRef: { variableId, endpoint: `/coach/students/${athleteId}/observations/${variableId}` },
       };
       variableCache.set(variableId, entry);

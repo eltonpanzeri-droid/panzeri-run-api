@@ -72,6 +72,12 @@ function snapshot(overrides: Partial<AthleteStateSnapshotV1['domains']> = {}): A
   };
 }
 
+/** Snapshot de UMA modalidade (mesma forma de variableEntry, sem traceRef/byModality — modalidade não se subdivide de novo). */
+function modalitySnapshot(overrides: Record<string, unknown> = {}) {
+  const { traceRef: _traceRef, byModality: _byModality, ...base } = variableEntry();
+  return { ...base, ...overrides };
+}
+
 describe('buildCompactAgentContext', () => {
   it('nunca envia traceRef/observations — so o resumo compacto no pool de variaveis', () => {
     const snap = snapshot({ physicalState: { availability: 'available', variables: { 'workout.prePhysicalFatigue': variableEntry({ current: 3, evidence: { n: 5, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [2], comparabilityWarning: null } }) } } });
@@ -232,5 +238,34 @@ describe('buildCompactAgentContext', () => {
     const entry = variableEntry({ current: 3, evidence: { n: 5, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [2], comparabilityWarning: null } });
     const compact = buildCompactAgentContext(snapshot({ physicalState: { availability: 'available', variables: { 'workout.prePhysicalFatigue': entry } } }));
     expect(Object.keys(compact.variables)).toEqual(['workout.prePhysicalFatigue']);
+  });
+
+  // 25/09/2026 (fecha o gap Snapshot -> Compact Agent Context -> agente) — quebra por modalidade:
+  // FILTRAR -> CALCULAR -> comprimir, cada modalidade com a MESMA forma do Global, recursivamente
+  // pela mesma funcao (nenhuma segunda matematica/compressao).
+  it('byModality: cada modalidade com evidencia real chega comprimida, na mesma forma do Global', () => {
+    const entry = variableEntry({
+      current: 6,
+      evidence: { n: 12, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [2], comparabilityWarning: null },
+      byModality: {
+        corrida: modalitySnapshot({ current: 8, evidence: { n: 9, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [2], comparabilityWarning: null } }),
+        forca: modalitySnapshot({ current: 4, evidence: { n: 3, observedSpan: { from: 'c', to: 'd' }, lastObservationAt: 'd', instrumentVersions: [2], comparabilityWarning: null } }),
+      },
+    });
+    const compact = buildCompactAgentContext(snapshot({ trainingResponse: { availability: 'available', variables: { 'workout.perceivedEffort': entry } } }));
+    const v = compact.variables['workout.perceivedEffort'];
+    expect(v.current).toBe(6); // Global continua disponivel, independente da quebra por modalidade
+    expect(Object.keys(v.byModality!).sort()).toEqual(['corrida', 'forca']);
+    expect(v.byModality!.corrida.current).toBe(8);
+    expect(v.byModality!.corrida.evidence.n).toBe(9);
+    expect(v.byModality!.forca.current).toBe(4);
+    // Modalidade nao se subdivide de novo.
+    expect(v.byModality!.corrida).not.toHaveProperty('byModality');
+  });
+
+  it('byModality ausente quando a variavel nao depende de modalidade (checkin.* semanal) — Global sozinho, sem chave vazia', () => {
+    const entry = variableEntry({ current: 3, evidence: { n: 4, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [3], comparabilityWarning: null } });
+    const compact = buildCompactAgentContext(snapshot({ trainingResponse: { availability: 'available', variables: { 'checkin.prescriptionLiking': entry } } }));
+    expect(compact.variables['checkin.prescriptionLiking']).not.toHaveProperty('byModality');
   });
 });

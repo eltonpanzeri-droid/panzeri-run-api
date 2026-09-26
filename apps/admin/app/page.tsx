@@ -4069,6 +4069,7 @@ const MATH_GLOSSARY = {
   recuperacaoNivel: 'Se o nível pós-retorno voltou a ficar dentro da faixa habitual.',
   recuperacaoVariabilidade: 'Se a oscilação pós-retorno voltou perto da habitual.',
   evidencia: 'Quantidade de observações, período coberto, data mais recente e versões de instrumento envolvidas.',
+  global: 'Todas as observações desta variável juntas, independente de modalidade (ex: para RPE, soma corrida+musculação+fortalecimento na mesma série). É a definição literal — não significa "carga interna", nem qualquer outro conceito fisiológico. Cada modalidade abaixo é calculada separadamente, só com as observações dela.',
 } as const;
 
 function InfoTip({ glossaryKey }: { glossaryKey: keyof typeof MATH_GLOSSARY }) {
@@ -4423,6 +4424,15 @@ function VariableDeepDive({ baseSnapshot, seriesSnapshots, baseModalities, selec
   contextEvents: ContextEventRow[]; layers: LayerToggles; onLayersChange: (l: LayerToggles) => void;
   pinnedKeys: string[]; onTogglePin: (key: string) => void; seriesKeyFor: (series: string) => string;
 }) {
+  // COMPARAR MODALIDADES × APROFUNDAR (25/09/2026) — dois modos complementares, nunca um
+  // substituindo o outro. Reseta pra "aprofundar" quando a variável muda (mode é local, não precisa
+  // sobreviver entre variáveis diferentes).
+  const [mode, setMode] = React.useState<'aprofundar' | 'comparar'>('aprofundar');
+  const [compareTransform, setCompareTransform] = React.useState<SeriesTransform>('raw');
+  React.useEffect(() => { setMode('aprofundar'); setCompareTransform('raw'); }, [baseSnapshot.variable.id]);
+
+  const legendLabel = (s: string) => s === GLOBAL_SERIES_KEY ? 'Global' : modalityLabel(s);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div>
@@ -4433,31 +4443,66 @@ function VariableDeepDive({ baseSnapshot, seriesSnapshots, baseModalities, selec
       </div>
 
       {baseModalities.length > 0 && (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Série</span>
-          {[GLOBAL_SERIES_KEY, ...baseModalities].map((s) => (
-            <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-              <input type="checkbox" checked={selectedSeries.includes(s)}
-                onChange={(e) => onSeriesChange(e.target.checked ? [...selectedSeries, s] : selectedSeries.filter((x) => x !== s))} />
-              {s === GLOBAL_SERIES_KEY ? 'Global (todas as modalidades)' : modalityLabel(s)}
-            </label>
-          ))}
-        </div>
+        <>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Série</span>
+            {[GLOBAL_SERIES_KEY, ...baseModalities].map((s) => (
+              <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+                <input type="checkbox" checked={selectedSeries.includes(s)}
+                  onChange={(e) => onSeriesChange(e.target.checked ? [...selectedSeries, s] : selectedSeries.filter((x) => x !== s))} />
+                {s === GLOBAL_SERIES_KEY ? <>Global<InfoTip glossaryKey="global" /></> : modalityLabel(s)}
+              </label>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" onClick={() => setMode('comparar')}
+              style={{ fontSize: 12, padding: '5px 12px', borderRadius: 20, cursor: 'pointer', fontWeight: mode === 'comparar' ? 700 : 400,
+                background: mode === 'comparar' ? 'var(--accent)' : 'var(--surface)', color: mode === 'comparar' ? '#fff' : 'var(--text)', border: '1px solid var(--line)' }}>
+              Comparar modalidades
+            </button>
+            <button type="button" onClick={() => setMode('aprofundar')}
+              style={{ fontSize: 12, padding: '5px 12px', borderRadius: 20, cursor: 'pointer', fontWeight: mode === 'aprofundar' ? 700 : 400,
+                background: mode === 'aprofundar' ? 'var(--accent)' : 'var(--surface)', color: mode === 'aprofundar' ? '#fff' : 'var(--text)', border: '1px solid var(--line)' }}>
+              Aprofundar
+            </button>
+          </div>
+        </>
       )}
-
-      <LayerToggleBar layers={layers} onChange={onLayersChange} hasExcursions={selectedSeries.some((s) => (seriesSnapshots[s]?.excursions?.length ?? 0) > 0)} hasContextEvents={contextEvents.length > 0} />
 
       {selectedSeries.length === 0 && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Selecione ao menos uma série (Global ou uma modalidade) acima.</p>}
 
-      {selectedSeries.map((s) => {
-        const snap = seriesSnapshots[s];
-        const label = s === GLOBAL_SERIES_KEY ? 'Global (todas as modalidades)' : modalityLabel(s);
-        const key = seriesKeyFor(s);
-        return snap ? (
-          <VariableSeriesBlock key={s} snapshot={snap} seriesLabel={label} contextEvents={contextEvents} layers={layers}
-            pinned={pinnedKeys.includes(key)} onTogglePin={() => onTogglePin(key)} />
-        ) : <p key={s} style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando {label}...</p>;
-      })}
+      {selectedSeries.length > 0 && mode === 'comparar' && baseModalities.length > 0 ? (
+        <>
+          <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+            Transformação:
+            <select value={compareTransform} onChange={(e) => setCompareTransform(e.target.value as SeriesTransform)}>
+              {(Object.keys(TRANSFORM_LABELS) as SeriesTransform[]).map((t) => <option key={t} value={t}>{TRANSFORM_LABELS[t]}</option>)}
+            </select>
+          </label>
+          {selectedSeries.some((s) => !seriesSnapshots[s]) ? (
+            <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando...</p>
+          ) : (
+            <>
+              <CompareModalitiesChart seriesSnapshots={seriesSnapshots} selectedSeries={selectedSeries} transform={compareTransform} legendLabel={legendLabel} />
+              <SeriesDistributionSummary seriesSnapshots={seriesSnapshots} selectedSeries={selectedSeries} legendLabel={legendLabel} />
+              <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0, fontStyle: 'italic' }}>Distribuição observada — não conclua que uma modalidade é "mais difícil" sem considerar contexto, duração e tipo de sessão.</p>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <LayerToggleBar layers={layers} onChange={onLayersChange} hasExcursions={selectedSeries.some((s) => (seriesSnapshots[s]?.excursions?.length ?? 0) > 0)} hasContextEvents={contextEvents.length > 0} />
+          {selectedSeries.map((s) => {
+            const snap = seriesSnapshots[s];
+            const label = legendLabel(s);
+            const key = seriesKeyFor(s);
+            return snap ? (
+              <VariableSeriesBlock key={s} snapshot={snap} seriesLabel={label} contextEvents={contextEvents} layers={layers}
+                pinned={pinnedKeys.includes(key)} onTogglePin={() => onTogglePin(key)} />
+            ) : <p key={s} style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando {label}...</p>;
+          })}
+        </>
+      )}
     </div>
   );
 }
@@ -4477,6 +4522,75 @@ function seriesPointsForTransform(snapshot: FullVariableSnapshot, transform: Ser
   if (transform === 'mm200') return (snapshot.movingAverageSeries?.long_200d ?? []).map((p) => ({ date: p.timestamp.slice(0, 10), value: p.value }));
   // baseline: valor único (200d) repetido em cada data — linha de referência, não uma curva nova.
   return snapshot.observations.map((o) => ({ date: o.timestamp.slice(0, 10), value: snapshot.baseline?.value ?? null }));
+}
+
+const COMPARISON_COLORS = ['#0ea5e9', '#f59e0b', '#22c55e', '#8b5cf6', '#ec4899'];
+
+/**
+ * COMPARAR MODALIDADES (25/09/2026): um único gráfico, uma linha independente por série
+ * selecionada. FILTRAR → CALCULAR → GERAR SÉRIE → COMPARAR VISUALMENTE — cada linha já vem de um
+ * snapshot calculado separadamente (seriesSnapshots), nunca uma série "global depois filtrada".
+ * Ausência em uma data para uma série nunca vira zero: o ponto simplesmente não existe ali
+ * (connectNulls=false) e o tooltip do próprio recharts omite a linha sem dado naquele ponto.
+ */
+function CompareModalitiesChart({ seriesSnapshots, selectedSeries, transform, legendLabel }: {
+  seriesSnapshots: Record<string, FullVariableSnapshot | undefined>; selectedSeries: string[]; transform: SeriesTransform;
+  legendLabel: (s: string) => string;
+}) {
+  const dateSet = new Set<string>();
+  const pointsBySeries: Record<string, Map<string, number | null>> = {};
+  let scale: { min: number; max: number } | undefined;
+  for (const s of selectedSeries) {
+    const snap = seriesSnapshots[s];
+    if (!snap || !snap.mathApplicable) continue;
+    if (!scale && snap.variable.scale) scale = snap.variable.scale;
+    const points = seriesPointsForTransform(snap, transform);
+    pointsBySeries[s] = new Map(points.map((p) => [p.date, p.value]));
+    points.forEach((p) => dateSet.add(p.date));
+  }
+  const dates = [...dateSet].sort();
+  if (dates.length === 0) return <p style={{ fontSize: 12, color: 'var(--muted)' }}>Nenhuma observação ainda nas séries selecionadas.</p>;
+  const data = dates.map((d) => {
+    const row: Record<string, string | number | null> = { dateLabel: fmtDay(d) };
+    for (const s of selectedSeries) row[s] = pointsBySeries[s]?.get(d) ?? null;
+    return row;
+  });
+
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <ComposedChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+        <XAxis dataKey="dateLabel" fontSize={10} />
+        <YAxis fontSize={10} domain={scale ? [scale.min, scale.max] : ['auto', 'auto']} />
+        <Tooltip />
+        <Legend wrapperStyle={{ fontSize: 11 }} formatter={(value: string) => legendLabel(value)} />
+        {selectedSeries.map((s, i) => (
+          <Line key={s} type="monotone" dataKey={s} name={legendLabel(s)} stroke={COMPARISON_COLORS[i % COMPARISON_COLORS.length]} dot={{ r: 3 }} connectNulls={false} />
+        ))}
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+/** Distribuição observada por série (n/mediana/faixa) — descrição, nunca conclusão ("mais difícil" etc). */
+function SeriesDistributionSummary({ seriesSnapshots, selectedSeries, legendLabel }: {
+  seriesSnapshots: Record<string, FullVariableSnapshot | undefined>; selectedSeries: string[]; legendLabel: (s: string) => string;
+}) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, fontSize: 12 }}>
+      {selectedSeries.map((s) => {
+        const snap = seriesSnapshots[s];
+        if (!snap || !snap.mathApplicable) return null;
+        return (
+          <div key={s} className="card" style={{ padding: 10 }}>
+            <strong>{legendLabel(s)}</strong>
+            <div style={{ color: 'var(--muted)', marginTop: 4 }}>n={snap.evidence.n}</div>
+            <div>mediana {fmtNum(snap.variability?.long_200d?.median)} · faixa {fmtNum(snap.variability?.long_200d?.range)}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /** Rótulo de exibição de uma chave de série (variável, ou variável::modalidade) — sem inventar nome novo, só combina o que já existe no legend/modalityLabel. */

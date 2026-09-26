@@ -53,6 +53,7 @@ import type {
   SystemDynamicsDomainState,
   DomainAvailability,
 } from './athlete-state-snapshot.service';
+import type { VariableSnapshotResponse } from './training-intelligence-query.service';
 
 export interface CompactExcursionSummary {
   direction: 'above' | 'below';
@@ -91,6 +92,14 @@ export interface CompactVariableState {
     comparabilityWarning: string | null;
     isPartialWindow: boolean;
   };
+  /**
+   * Quebra por modalidade (25/09/2026) — so' presente quando a variavel depende de modalidade E
+   * existe evidencia real (n>0) especificamente naquela modalidade (nunca uma serie vazia so' pra
+   * "completar" a lista). Cada valor tem exatamente a MESMA forma deste objeto (recursivo), MENOS
+   * este proprio campo (modalidade nao se subdivide de novo) — filtrar->calcular->comprimir, uma
+   * unica vez por modalidade, nunca uma segunda matematica.
+   */
+  byModality?: Record<string, Omit<CompactVariableState, 'byModality'>>;
 }
 
 /** Semantica ESTATICA da variavel (nunca muda por observacao) — uma entrada por variableId, nunca repetida por dominio. */
@@ -130,7 +139,17 @@ export interface CompactAgentContext {
   };
 }
 
-function compactVariable(entry: VariableStateEntry): CompactVariableState {
+type CompactableSnapshot = Omit<VariableSnapshotResponse, 'observations'> & {
+  byModality?: Record<string, Omit<VariableSnapshotResponse, 'observations'>>;
+};
+
+function compactVariable(entry: CompactableSnapshot): CompactVariableState {
+  // Quebra por modalidade: cada uma passa pela MESMA funcao (recursivo), nunca uma segunda
+  // matematica ou compressao diferente. So' existe quando o Snapshot ja filtrou por evidencia real.
+  const byModality = entry.byModality
+    ? Object.fromEntries(Object.entries(entry.byModality).map(([modality, snap]) => [modality, compactVariable(snap)]))
+    : undefined;
+
   if (entry.evidence.n === 0) {
     // Sem nenhuma observacao: nivel/trajetoria/variabilidade/excursao nao existem pra descrever —
     // manter os campos ausentes (em vez de "null" repetido) preserva a MESMA informacao (ausencia)
@@ -144,6 +163,7 @@ function compactVariable(entry: VariableStateEntry): CompactVariableState {
         comparabilityWarning: entry.evidence.comparabilityWarning,
         isPartialWindow: true,
       },
+      ...(byModality ? { byModality } : {}),
     };
   }
 
@@ -196,6 +216,7 @@ function compactVariable(entry: VariableStateEntry): CompactVariableState {
       comparabilityWarning: entry.evidence.comparabilityWarning,
       isPartialWindow: anyPartialWindow,
     },
+    ...(byModality ? { byModality } : {}),
   };
 }
 

@@ -298,4 +298,27 @@ describe('Integracao Athlete State Snapshot -> prompt do prescription-agent', ()
     // A fonte unica do dado duplicado continua chegando, so' que via Snapshot:
     expect(prompt.athleteStateContext.variables['checkin.prescriptionLiking'].current).toBe(4);
   });
+
+  // 25/09/2026 (fecha o gap Snapshot -> Compact Agent Context -> agente) — byModality precisa
+  // chegar ATE o prompt final sem ser filtrado/achatado por buildUserPrompt (que so' embute
+  // athleteStateContext verbatim — nenhuma logica nova de serializacao deveria mexer nisso).
+  it('19. byModality (RPE por modalidade) chega intacto ate o prompt final, Global e modalidades preservados separadamente', () => {
+    const service = buildService();
+    let context = emptyCompactContext();
+    context = withVariable(context, 'trainingResponse', 'workout.perceivedEffort', fullVariable({
+      current: 6,
+      byModality: {
+        corrida: { current: 8, evidence: { n: 9, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [2], comparabilityWarning: null, isPartialWindow: false } },
+        forca: { current: 4, evidence: { n: 3, observedSpan: { from: 'c', to: 'd' }, lastObservationAt: 'd', instrumentVersions: [2], comparabilityWarning: null, isPartialWindow: false } },
+      },
+    }));
+    const prompt = callBuildUserPrompt(service, baseInput({ athleteStateContext: context }));
+    const v = prompt.athleteStateContext.variables['workout.perceivedEffort'];
+    expect(v.current).toBe(6); // Global preservado
+    expect(v.byModality.corrida.current).toBe(8);
+    expect(v.byModality.corrida.evidence.n).toBe(9);
+    expect(v.byModality.forca.current).toBe(4);
+    // Modalidade sem dado (ex: fortalecimento) simplesmente nao aparece — nunca vira zero/serie vazia.
+    expect(v.byModality.fortalecimento_corredores).toBeUndefined();
+  });
 });
