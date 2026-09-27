@@ -115,11 +115,23 @@ export class TrainingIntelligenceQueryService {
 
     const allObservations = await this.observationReader.getObservations(athleteId, variableId);
     const hasModalityDimension = allObservations.some((o) => o.context.modality != null);
+    // 27/09/2026 (bug real achado validando Volume/Aderência/ACWR): algumas variáveis (ver
+    // training_load em observation-reader.service.ts) precisam de um total GLOBAL genuinamente
+    // recombinado (ex: aderência da semana somando corrida+força juntas), que é DIFERENTE de
+    // qualquer modalidade isolada — não é só "não filtrar". Essas variáveis marcam essa entrada
+    // combinada com context.modality==='global' (uma modalidade reservada, nunca uma real).
+    // SEM filtro explícito de modalidade, essa é a série correta a usar (nunca a mistura de tudo).
+    // Variáveis que nunca usam essa convenção (ex: RPE, onde cada sessão já tem UMA modalidade real
+    // e "Global" = todas as sessões juntas sem filtro) continuam exatamente como antes — este branch
+    // só existe quando 'global' está de fato presente.
+    const hasExplicitGlobalTag = allObservations.some((o) => o.context.modality === 'global');
     const observations =
       modalities && modalities.length > 0 && hasModalityDimension
         ? allObservations.filter((o) => o.context.modality != null && modalities.includes(o.context.modality))
-        : allObservations;
-    const availableModalities = [...new Set(allObservations.map((o) => o.context.modality).filter((m): m is string => m != null))].sort();
+        : hasExplicitGlobalTag
+          ? allObservations.filter((o) => o.context.modality === 'global')
+          : allObservations;
+    const availableModalities = [...new Set(allObservations.map((o) => o.context.modality).filter((m): m is string => m != null && m !== 'global'))].sort();
     const evidence = this.buildEvidence(observations, definition);
     const traceable = this.describeObservations(observations);
 

@@ -4166,6 +4166,12 @@ function VariableChart({ snapshot, layers, contextEvents, menstrualRanges, heigh
   snapshot.observations.forEach((o) => dateSet.add(o.timestamp.slice(0, 10)));
   const dates = [...dateSet].sort();
   const rawByDate = new Map(snapshot.observations.map((o) => [o.timestamp.slice(0, 10), o.value]));
+  // Semana em andamento (item 1 do pedido de 27/09) — nunca deixar uma semana ainda incompleta
+  // parecer uma queda real por comparação silenciosa com semanas fechadas. Sempre visível, não é
+  // uma camada opcional — é uma condição factual sobre o próprio dado.
+  const partialWeekDates = new Set(
+    snapshot.observations.filter((o) => o.context.isPartialWeek === true).map((o) => o.timestamp.slice(0, 10)),
+  );
   const mm21ByDate = new Map((snapshot.movingAverageSeries?.short_21d ?? []).map((p) => [p.timestamp.slice(0, 10), p.value]));
   const mm60ByDate = new Map((snapshot.movingAverageSeries?.medium_60d ?? []).map((p) => [p.timestamp.slice(0, 10), p.value]));
   const mm200ByDate = new Map((snapshot.movingAverageSeries?.long_200d ?? []).map((p) => [p.timestamp.slice(0, 10), p.value]));
@@ -4203,6 +4209,10 @@ function VariableChart({ snapshot, layers, contextEvents, menstrualRanges, heigh
         {layers.contextEvents && (contextEvents ?? []).filter((e) => e.startedAt).map((e) => (
           <ReferenceLine key={e.id} x={fmtDay(e.startedAt!)} stroke="#94a3b8" strokeDasharray="3 3"
             label={{ value: CONTEXT_EVENT_TYPE_LABELS[e.type] ?? e.type, fontSize: 9, position: 'insideTopRight' }} />
+        ))}
+        {[...partialWeekDates].map((d) => (
+          <ReferenceLine key={`partial-${d}`} x={fmtDay(d)} stroke="#d97706" strokeDasharray="4 2"
+            label={{ value: 'Semana em andamento', fontSize: 9, position: 'insideBottomRight', fill: '#d97706' }} />
         ))}
         {layers.baseline && snapshot.baseline?.value != null && (
           <ReferenceLine y={snapshot.baseline.value} stroke="#64748b" strokeDasharray="4 2" label={{ value: 'baseline', fontSize: 9, position: 'right' }} />
@@ -4583,6 +4593,14 @@ function CompareModalitiesChart({ seriesSnapshots, selectedSeries, transform, le
     for (const s of selectedSeries) row[s] = pointsBySeries[s]?.get(d) ?? null;
     return row;
   });
+  // Semana em andamento (item 1 do pedido de 27/09) — mesma condição do VariableChart, olhando as
+  // observações BRUTAS de qualquer série selecionada (o transform não muda qual semana é a atual).
+  const partialWeekDates = new Set<string>();
+  for (const s of selectedSeries) {
+    const snap = seriesSnapshots[s];
+    if (!snap) continue;
+    snap.observations.filter((o) => o.context.isPartialWeek === true).forEach((o) => partialWeekDates.add(o.timestamp.slice(0, 10)));
+  }
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -4592,6 +4610,10 @@ function CompareModalitiesChart({ seriesSnapshots, selectedSeries, transform, le
         <YAxis fontSize={10} domain={scale ? [scale.min, scale.max] : ['auto', 'auto']} />
         <Tooltip />
         <Legend wrapperStyle={{ fontSize: 11 }} formatter={(value: string) => legendLabel(value)} />
+        {[...partialWeekDates].map((d) => (
+          <ReferenceLine key={`partial-${d}`} x={fmtDay(d)} stroke="#d97706" strokeDasharray="4 2"
+            label={{ value: 'Semana em andamento', fontSize: 9, position: 'insideBottomRight', fill: '#d97706' }} />
+        ))}
         {selectedSeries.map((s, i) => (
           <Line key={s} type="monotone" dataKey={s} name={legendLabel(s)} stroke={COMPARISON_COLORS[i % COMPARISON_COLORS.length]} dot={{ r: 3 }} connectNulls={false} />
         ))}
@@ -9379,8 +9401,8 @@ function LoadAnalysisSection({ weeks }: { weeks: WeekData[] }) {
 function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
   if (weeks.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados.</p>;
 
-  function barColor(_i: number): string {
-    return '#3b82f6';
+  function barColor(): string {
+  return '#3b82f6';
   }
 
   const maxKm = Math.max(...weeks.map((w) => Math.max(w.completedKm, w.prescribedKm)), 5);
@@ -9433,12 +9455,12 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
           return (
             <g key={i}>
               <rect x={x - barW / 2} y={y} width={barW} height={Math.max(1, PT + chartH - y)}
-                fill={barColor(i)} rx={2}>
+                fill={barColor()} rx={2}>
                 <title>{w.startDate}: {w.completedKm.toFixed(1)} km feito{weeks[i-1] ? ` (${((w.completedKm - weeks[i-1].completedKm) / (weeks[i-1].completedKm||1) * 100).toFixed(0)}% vs semana anterior)` : ''}</title>
               </rect>
               {/* Rótulo no topo da barra (se barra ≥ 14px) */}
               {barW >= 14 && w.completedKm > 0 && (
-                <text x={x} y={y - 3} textAnchor="middle" fontSize={7.5} fontWeight={600} fill={barColor(i)}>
+                <text x={x} y={y - 3} textAnchor="middle" fontSize={7.5} fontWeight={600} fill={barColor()}>
                   {w.completedKm % 1 === 0 ? w.completedKm : w.completedKm.toFixed(1)}
                 </text>
               )}

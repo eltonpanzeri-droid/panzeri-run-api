@@ -74,6 +74,13 @@ function extractRawValue(
 }
 
 /**
+ * Modalidade reservada pro total GLOBAL recombinado de training_load (27/09/2026 — ver
+ * training-intelligence-query.service.ts, hasExplicitGlobalTag). NUNCA usar como nome de modalidade
+ * real em nenhum outro lugar do sistema.
+ */
+const TRAINING_LOAD_GLOBAL_TAG = 'global';
+
+/**
  * Semana em andamento (item 27 do pedido de 26/09) — não comparar silenciosamente uma semana
  * completa com uma semana ainda no meio. weekStart é sempre segunda-feira (convenção já usada em
  * EvolutionMetricService); "em andamento" = hoje cai dentro dos 7 dias daquela semana.
@@ -297,8 +304,15 @@ export class ObservationReaderService {
     }
 
     const modalities = await this.evolutionMetric.getDistinctModalities(athleteId);
+    // Bug real achado em 27/09/2026 validando com aluna real: a entrada GLOBAL precisa ser um
+    // total genuinamente RECOMBINADO (ex: aderência de uma semana somando corrida+força juntas),
+    // diferente de qualquer modalidade isolada — não é "a mesma coisa sem filtro". Por isso ela é
+    // marcada com a modalidade reservada 'global' (ver TRAINING_LOAD_GLOBAL_TAG), nunca com
+    // modality ausente — do contrário training-intelligence-query.service.ts, ao NÃO filtrar por
+    // modalidade, devolveria a MISTURA de todas as variantes (global + cada modalidade) no mesmo
+    // pool, inflando n e podendo pegar o valor de uma modalidade errada como "atual" do Global.
     const variants: Array<{ modality?: string; series: EvolutionSeries }> = [
-      { modality: undefined, series: await this.evolutionMetric.getSeries(athleteId) },
+      { modality: TRAINING_LOAD_GLOBAL_TAG, series: await this.evolutionMetric.getSeries(athleteId) },
     ];
     for (const modality of modalities) {
       variants.push({ modality, series: await this.evolutionMetric.getSeriesByModality(athleteId, modality) });

@@ -174,4 +174,57 @@ describe('TrainingIntelligenceQueryService', () => {
     expect(result.variability?.long_200d.n).toBe(2);
     expect(result.habitualRange?.n).toBe(2);
   });
+
+  // 27/09/2026 — bug real achado validando Volume/Aderência/ACWR com aluna real: variáveis com
+  // total GLOBAL genuinamente RECOMBINADO (não apenas "sem filtro") marcam a entrada global com
+  // context.modality==='global' (ver TRAINING_LOAD_GLOBAL_TAG em observation-reader.service.ts).
+  // Sem filtro explícito, a resposta tem que usar SÓ essa entrada — nunca misturar com as entradas
+  // por modalidade real no mesmo pool (isso inflava n e podia fazer "current" pegar o valor de uma
+  // modalidade errada em vez do total combinado).
+  describe('modalidade "global" reservada (total recombinado, ex: aderência semanal)', () => {
+    it('sem filtro: usa SO a entrada global, nunca mistura com as entradas por modalidade', async () => {
+      const observations = [
+        observation({ context: { modality: 'global' }, timestamp: new Date('2026-09-01T00:00:00.000Z'), value: 80 }),
+        observation({ context: { modality: 'corrida' }, timestamp: new Date('2026-09-01T00:00:00.000Z'), value: 100 }),
+        observation({ context: { modality: 'forca' }, timestamp: new Date('2026-09-01T00:00:00.000Z'), value: 50 }),
+      ];
+      const { service } = buildService(observations);
+      const result = await service.getVariableSnapshot('aluno-1', 'workout.preSleepQuality');
+      expect(result.evidence.n).toBe(1); // nunca 3 — so a global conta quando nao ha filtro
+      expect(result.current).toBe(80); // nunca 100 (corrida) nem 50 (forca) por acaso de ordenacao
+    });
+
+    it('availableModalities nunca inclui a tag reservada "global" na lista de modalidades reais', async () => {
+      const observations = [
+        observation({ context: { modality: 'global' }, value: 80 }),
+        observation({ context: { modality: 'corrida' }, value: 100 }),
+      ];
+      const { service } = buildService(observations);
+      const result = await service.getVariableSnapshot('aluno-1', 'workout.preSleepQuality');
+      expect(result.availableModalities).toEqual(['corrida']);
+    });
+
+    it('filtro explicito por modalidade real continua funcionando normalmente (nao afetado pela tag global)', async () => {
+      const observations = [
+        observation({ context: { modality: 'global' }, value: 80 }),
+        observation({ context: { modality: 'corrida' }, value: 100 }),
+        observation({ context: { modality: 'forca' }, value: 50 }),
+      ];
+      const { service } = buildService(observations);
+      const result = await service.getVariableSnapshot('aluno-1', 'workout.preSleepQuality', ['corrida']);
+      expect(result.evidence.n).toBe(1);
+      expect(result.current).toBe(100);
+    });
+
+    it('variavel SEM a tag global (ex: RPE de verdade) continua com o comportamento antigo — sem filtro usa TODAS as observacoes', async () => {
+      const observations = [
+        observation({ context: { modality: 'corrida' }, timestamp: new Date('2026-08-01T00:00:00.000Z'), value: 5 }),
+        observation({ context: { modality: 'musculacao' }, timestamp: new Date('2026-09-01T00:00:00.000Z'), value: 3 }),
+      ];
+      const { service } = buildService(observations);
+      const result = await service.getVariableSnapshot('aluno-1', 'workout.preSleepQuality');
+      expect(result.evidence.n).toBe(2); // comportamento inalterado: Global = tudo, sem tag reservada
+      expect(result.current).toBe(3);
+    });
+  });
 });

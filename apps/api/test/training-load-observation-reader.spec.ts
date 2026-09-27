@@ -110,7 +110,7 @@ describe('ObservationReaderService — training.* (EvolutionMetricService, sem s
     const obs = await reader.getObservations('u1', 'training.volumeCompletedTotalKm');
     expect(evolutionMetric.getSeriesByModality).toHaveBeenCalledWith('u1', 'corrida');
     expect(evolutionMetric.getSeriesByModality).toHaveBeenCalledWith('u1', 'musculacao');
-    const global = obs.find((o) => o.context.modality === undefined);
+    const global = obs.find((o) => o.context.modality === 'global');
     const corrida = obs.find((o) => o.context.modality === 'corrida');
     expect(global?.value).toBe(30);
     expect(corrida?.value).toBe(25); // musculacao sem km nao gera observacao (unidade nao se aplica)
