@@ -732,9 +732,18 @@ export class BillingService {
         where: { id: billing.id },
         data: { providerStatus: current },
       }),
+      // subscriptionManualOverride: false (auditoria 27/09/2026, caso Tiago Souza Jesus — cortesia
+      // convertendo pra assinatura paga de verdade): um webhook real do Asaas mudando o status É a
+      // prova de que a cobrança de verdade agora existe pra esse usuário — a partir daqui o Asaas
+      // volta a ser a fonte de verdade, igual já acontece em refreshFromAsaas() quando o sync manual
+      // roda de verdade (ver comentário lá: "sempre que este sync realmente roda... limpa a trava
+      // manual"). SEM isso, um aluno de cortesia que vira pagante de verdade ficava com
+      // subscriptionManualOverride=true PRA SEMPRE — o cron diário (refreshAllPendingStudents) e o
+      // sync automático de getMine() pulam qualquer usuário com essa trava, então esse aluno nunca
+      // mais seria verificado automaticamente contra o Asaas, mesmo sendo agora um pagante real.
       this.prisma.user.updateMany({
         where: { id: billing.userId, subscriptionStatus: { not: appStatus } },
-        data: { subscriptionStatus: appStatus, subscriptionUpdatedAt: new Date() },
+        data: { subscriptionStatus: appStatus, subscriptionUpdatedAt: new Date(), subscriptionManualOverride: false },
       }),
     ]);
     const statusActuallyChanged = userUpdateResult.count > 0;

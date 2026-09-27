@@ -192,3 +192,41 @@ describe('Asaas — pagamento confirmado, primeira compra e transicoes', () => {
     expect(eventsCreated(h.billingEvent).some((e) => e.event === 'payment_confirmed')).toBe(false);
   });
 });
+
+// 27/09/2026 — Caso real Tiago Souza Jesus: aluno de cortesia (manual_active) indo pagar de
+// verdade pelo Asaas, mantendo EXATAMENTE a mesma conta. Regra a proteger: quando o webhook real
+// confirma pagamento, o mesmo userId e' atualizado (nunca criado um novo usuario) E a trava
+// subscriptionManualOverride e' liberada — senao o aluno vira pagante de verdade mas fica preso
+// pra sempre fora do cron/sync automatico do Asaas (bug encontrado nesta auditoria, corrigido
+// junto com este teste).
+describe('Cortesia -> assinatura paga real (mesmo usuario, sem duplicar, sem trava presa)', () => {
+  const billing = { id: 'bill-tiago', userId: 'user-tiago', externalSubscriptionId: 'sub_tiago' };
+
+  it('webhook de pagamento confirmado pra aluno em cortesia (manual_active) atualiza o MESMO userId e libera subscriptionManualOverride', async () => {
+    const h = build({ userStatus: 'manual_active', studentCode: 42, statusChanges: true });
+    h.billingSubscription.findUnique.mockResolvedValue(billing);
+
+    await h.service.processAsaasWebhook('asaas-token', { event: 'PAYMENT_CONFIRMED', payment: { id: 'pay_tiago', subscription: 'sub_tiago', status: 'RECEIVED', value: 19.9 } });
+
+    // mesma conta: o update mira exatamente billing.userId ('user-tiago'), nunca cria usuario novo
+    expect(h.user.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'user-tiago', subscriptionStatus: { not: 'active' } },
+      data: expect.objectContaining({ subscriptionStatus: 'active', subscriptionManualOverride: false }),
+    }));
+    expect((h.prisma.user as unknown as { create?: unknown }).create).toBeUndefined();
+
+    // e conta como primeira compra real (mesma regra ja existente pra testador virando pagante)
+    expect(h.billingSubscription.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'bill-tiago', firstPaidAt: null } }));
+  });
+
+  it('renovacao mensal comum (ja active, sem override travado) continua funcionando: data ainda inclui override:false sem quebrar nada', async () => {
+    const h = build({ userStatus: 'active', studentCode: 42, statusChanges: false });
+    h.billingSubscription.findUnique.mockResolvedValue(billing);
+
+    await h.service.processAsaasWebhook('asaas-token', { event: 'PAYMENT_RECEIVED', payment: { id: 'pay_renov', subscription: 'sub_tiago', status: 'RECEIVED', value: 19.9 } });
+
+    expect(h.user.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ subscriptionManualOverride: false }),
+    }));
+  });
+});
