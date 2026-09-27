@@ -2066,6 +2066,15 @@ function Login({
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [status, setStatus] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // 27/09/2026: recuperacao de senha 100% dentro do app — antes disso a mensagem de sucesso so
+  // mandava a aluna pedir um link pro treinador pelo WhatsApp (Resend/e-mail ainda sem dominio
+  // configurado em producao, entao nenhum e-mail de fato saia). O token devolvido por
+  // /auth/forgot-password agora e usado na hora, no proprio app, sem depender de e-mail nem do
+  // treinador gerar/mandar link manualmente.
+  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   async function forgotPassword() {
     const cleanEmail = email.trim().toLowerCase();
@@ -2087,9 +2096,47 @@ function Login({
         return;
       }
 
-      setStatus('Solicite ao treinador um link seguro para criar uma nova senha.');
+      const data = (await response.json()) as { token?: string };
+      if (data.token) {
+        setResetToken(data.token);
+        setStatus('Digite sua nova senha abaixo.');
+      } else {
+        // E-mail nao cadastrado: a API responde OK sem token de proposito, pra nao revelar quais
+        // e-mails existem na base.
+        setStatus('Se este e-mail estiver cadastrado, voce podera criar uma nova senha agora.');
+      }
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
+    }
+  }
+
+  async function submitResetPassword() {
+    if (!resetToken) return;
+    if (resetPassword.length < 8 || resetPassword !== resetPasswordConfirm) {
+      setStatus('Confira a nova senha e a confirmacao (minimo 8 caracteres).');
+      return;
+    }
+    setIsResetting(true);
+    try {
+      const response = await fetch(`${API_URL}/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: resetToken, password: resetPassword }),
+      });
+      if (!response.ok) {
+        setStatus('Nao consegui salvar a nova senha. Toque em "Esqueci minha senha" para tentar de novo.');
+        setResetToken(null);
+        return;
+      }
+      setResetToken(null);
+      setResetPassword('');
+      setResetPasswordConfirm('');
+      setPassword('');
+      setStatus('Senha criada. Entre com sua nova senha.');
+    } catch {
+      setStatus('Nao consegui conectar com a API agora.');
+    } finally {
+      setIsResetting(false);
     }
   }
 
@@ -2320,9 +2367,27 @@ function Login({
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
 
-      <Pressable style={styles.secondaryButton} onPress={forgotPassword}>
-        <Text style={styles.secondaryButtonText}>Esqueci minha senha</Text>
-      </Pressable>
+      {resetToken ? (
+        <View style={styles.earlyStudentNotice}>
+          <Text style={styles.earlyStudentNoticeTitle}>Criar nova senha</Text>
+          <SecureTextInput placeholder="Nova senha" value={resetPassword} onChangeText={setResetPassword} />
+          <SecureTextInput placeholder="Confirmar nova senha" value={resetPasswordConfirm} onChangeText={setResetPasswordConfirm} />
+          <Pressable
+            style={[styles.primaryButton, styles.authButton, isResetting && styles.disabledButton]}
+            disabled={isResetting}
+            onPress={submitResetPassword}
+          >
+            <Text style={styles.primaryButtonText}>{isResetting ? 'Salvando...' : 'Salvar nova senha'}</Text>
+          </Pressable>
+          <Pressable style={styles.secondaryButton} onPress={() => { setResetToken(null); setStatus(''); }}>
+            <Text style={styles.secondaryButtonText}>Cancelar</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable style={styles.secondaryButton} onPress={forgotPassword}>
+          <Text style={styles.secondaryButtonText}>Esqueci minha senha</Text>
+        </Pressable>
+      )}
     </ScrollView>
   );
 }

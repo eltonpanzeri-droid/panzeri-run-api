@@ -166,6 +166,11 @@ export class AuthService {
 
     return {
       email: user.email,
+      // 27/09/2026: token cru devolvido pra chamada de dentro do proprio app poder trocar a senha
+      // na hora, sem depender de e-mail (Resend sem dominio configurado ainda, ver
+      // pending_email_domain_setup) nem do treinador ter que gerar e mandar link manual pelo
+      // WhatsApp. resetLink continua existindo por compatibilidade (admin/link manual).
+      token,
       resetLink: `${this.publicAppUrl()}/reset-password?token=${token}`,
       message: 'Link de recuperacao gerado. Abra o link para criar uma nova senha.',
     };
