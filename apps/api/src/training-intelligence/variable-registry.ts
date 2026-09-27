@@ -32,7 +32,7 @@ export type VariableDataType = 'ordinal_scale' | 'categorical' | 'numeric_contin
  */
 export type SemanticDirection = 'higher_is_more_of_construct' | 'not_directional';
 
-export type VariableSource = 'student_feedback_per_workout' | 'student_weekly_checkin' | 'student_menstrual_daily_log';
+export type VariableSource = 'student_feedback_per_workout' | 'student_weekly_checkin' | 'student_menstrual_daily_log' | 'student_menstrual_cycle_log';
 
 export type MathStrategy = 'ordinal_or_continuous_stats' | 'categorical_frequency';
 
@@ -58,7 +58,7 @@ export interface VariableDefinition {
   scale?: { min: number; max: number; unit?: string };
   direction: SemanticDirection;
   source: VariableSource;
-  expectedFrequency: 'per_workout' | 'per_week' | 'per_day';
+  expectedFrequency: 'per_workout' | 'per_week' | 'per_day' | 'per_cycle';
   /** Estrategias matematicas permitidas — o MathLayer recusa aplicar uma estrategia fora desta lista. */
   allowedMathStrategy: MathStrategy;
   /**
@@ -583,6 +583,51 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
     notes: '1 = muito instável, 5 = muito estável (nunca "5 = feliz") — ver MenstrualDailyLog no schema.',
+  },
+
+  // ---------------------------------------------------------------------------------------------
+  // Ciclo menstrual (MenstrualCycleLog) — item 5 do pedido de 26/09 (domínio na Exploração
+  // Longitudinal do Admin). Uma "observação" aqui não é diária: cada uma representa um CICLO
+  // inteiro, disponível só quando o intervalo se torna conhecido (ver ObservationReader). Isso
+  // faz duração de ciclo/menstruação passarem pela MESMA matemática (tendência/baseline/faixa
+  // habitual/excursão) de qualquer outra variável, sem nenhuma tela nova no Admin — a Exploração
+  // Longitudinal já lista qualquer variável do domínio automaticamente.
+  // ---------------------------------------------------------------------------------------------
+  'cycle.cycleLengthDays': {
+    variableId: 'cycle.cycleLengthDays',
+    domain: 'menstrual_cycle',
+    dataType: 'numeric_continuous',
+    constructLabel: 'duração do ciclo em dias',
+    scale: { min: 15, max: 60, unit: 'dias' },
+    direction: 'not_directional',
+    source: 'student_menstrual_cycle_log',
+    expectedFrequency: 'per_cycle',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, field: 'cycleStartDate', storageLocation: 'column' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes:
+      'So existe UMA observação por INTERVALO entre dois inícios sucessivos (não por ciclo isolado) — ' +
+      'o último ciclo registrado nunca gera observação porque a duração dele só é conhecida quando o ' +
+      'PRÓXIMO começar (mesma regra de getCycleOverview em menstrual-cycle.service.ts, sem segunda ' +
+      'matemática). Timestamp = data de início do ciclo seguinte (quando o valor passou a ser sabido).',
+  },
+  'cycle.periodLengthDays': {
+    variableId: 'cycle.periodLengthDays',
+    domain: 'menstrual_cycle',
+    dataType: 'numeric_continuous',
+    constructLabel: 'duração da menstruação em dias',
+    scale: { min: 1, max: 15, unit: 'dias' },
+    direction: 'not_directional',
+    source: 'student_menstrual_cycle_log',
+    expectedFrequency: 'per_cycle',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, field: 'cycleEndDate', storageLocation: 'column' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes: 'So existe quando o FIM do sangramento foi informado — nunca inventa um fim. Timestamp = data de início daquele ciclo.',
   },
 };
 

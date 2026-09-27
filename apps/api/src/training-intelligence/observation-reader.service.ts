@@ -23,7 +23,7 @@ export interface Observation {
   variableId: string;
   value: number;
   timestamp: Date;
-  source: 'student_feedback_per_workout' | 'student_weekly_checkin' | 'student_menstrual_daily_log';
+  source: 'student_feedback_per_workout' | 'student_weekly_checkin' | 'student_menstrual_daily_log' | 'student_menstrual_cycle_log';
   instrumentVersion: number;
   context: {
     sessionId?: string;
@@ -87,6 +87,9 @@ export class ObservationReaderService {
     }
     if (definition.source === 'student_menstrual_daily_log') {
       return this.readMenstrualDailyVariable(athleteId, definition);
+    }
+    if (definition.source === 'student_menstrual_cycle_log') {
+      return this.readMenstrualCycleVariable(athleteId, definition);
     }
     return this.readCheckinVariable(athleteId, definition);
   }
@@ -180,6 +183,55 @@ export class ObservationReaderService {
         context: { flowIntensity: log.flowIntensity ?? undefined },
       });
     }
+    return observations;
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // Ciclo menstrual — duração de ciclo/menstruação (MenstrualCycleLog), 26/09/2026 (item 5 do
+  // pedido). Cada "observação" descreve um INTERVALO, não um registro isolado — mesma matemática
+  // simples já usada em MenstrualCycleService.getCycleOverview (uma subtração de datas), nunca uma
+  // segunda fórmula. Sem dimensão de modalidade (não é por treino).
+  // -----------------------------------------------------------------------------------------
+
+  private async readMenstrualCycleVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
+    const logs = await this.prisma.menstrualCycleLog.findMany({
+      where: { userId: athleteId },
+      orderBy: { cycleStartDate: 'asc' },
+    });
+
+    const observations: Observation[] = [];
+
+    if (definition.variableId === 'cycle.cycleLengthDays') {
+      // Duração de CADA ciclo = intervalo até o início do PRÓXIMO — o último ciclo da lista nunca
+      // gera observação porque essa duração ainda não é conhecida (mesma regra de getCycleOverview).
+      for (let i = 0; i < logs.length - 1; i++) {
+        const days = Math.round((logs[i + 1].cycleStartDate.getTime() - logs[i].cycleStartDate.getTime()) / 86400000);
+        observations.push({
+          athleteId,
+          variableId: definition.variableId,
+          value: days,
+          timestamp: logs[i + 1].cycleStartDate,
+          source: 'student_menstrual_cycle_log',
+          instrumentVersion: 1,
+          context: {},
+        });
+      }
+    } else if (definition.variableId === 'cycle.periodLengthDays') {
+      for (const log of logs) {
+        if (!log.cycleEndDate) continue; // fim nao informado — ausencia, nunca inventa
+        const days = Math.round((log.cycleEndDate.getTime() - log.cycleStartDate.getTime()) / 86400000) + 1;
+        observations.push({
+          athleteId,
+          variableId: definition.variableId,
+          value: days,
+          timestamp: log.cycleStartDate,
+          source: 'student_menstrual_cycle_log',
+          instrumentVersion: 1,
+          context: { flowIntensity: log.flowIntensity ?? undefined },
+        });
+      }
+    }
+
     return observations;
   }
 

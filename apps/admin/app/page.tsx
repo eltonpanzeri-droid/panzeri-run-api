@@ -4125,8 +4125,27 @@ interface FullVariableSnapshot {
 const MA_WINDOW_LABELS: Record<string, string> = { short_21d: 'MM21', medium_60d: 'MM60', long_200d: 'MM200' };
 const MA_WINDOW_GLOSSARY: Record<string, keyof typeof MATH_GLOSSARY> = { short_21d: 'mm21', medium_60d: 'mm60', long_200d: 'mm200' };
 
-interface LayerToggles { raw: boolean; mm21: boolean; mm60: boolean; mm200: boolean; baseline: boolean; habitual: boolean; contextEvents: boolean; excursions: boolean }
-const DEFAULT_LAYERS: LayerToggles = { raw: true, mm21: true, mm60: false, mm200: false, baseline: false, habitual: true, contextEvents: false, excursions: true };
+interface LayerToggles { raw: boolean; mm21: boolean; mm60: boolean; mm200: boolean; baseline: boolean; habitual: boolean; contextEvents: boolean; excursions: boolean; menstrualCycle: boolean }
+const DEFAULT_LAYERS: LayerToggles = { raw: true, mm21: true, mm60: false, mm200: false, baseline: false, habitual: true, contextEvents: false, excursions: true, menstrualCycle: false };
+
+/**
+ * Ciclo como camada temporal (item 6 do pedido de 26/09) — faixas de fundo discretas indicando
+ * período MENSTRUADO (observado, cor sólida) vs janela ESTIMADA da próxima menstruação (mais clara,
+ * borda tracejada) sobre QUALQUER gráfico do Explorer (RPE, sono, cansaço, dor, aderência...).
+ * Nunca sugere causalidade — é só uma referência visual pro treinador comparar visualmente, a
+ * mesma leitura que ele já faz manualmente cruzando duas telas.
+ */
+interface MenstrualRangeForChart { start: string; end: string; observed: boolean }
+function buildMenstrualRangesForChart(overview: { cycles: Array<{ startDate: string; endDate: string | null }>; predictedNextPeriod: { windowStart: string; windowEnd: string } | null } | null): MenstrualRangeForChart[] {
+  if (!overview) return [];
+  const ranges: MenstrualRangeForChart[] = overview.cycles
+    .filter((c) => c.endDate)
+    .map((c) => ({ start: c.startDate, end: c.endDate!, observed: true }));
+  if (overview.predictedNextPeriod) {
+    ranges.push({ start: overview.predictedNextPeriod.windowStart, end: overview.predictedNextPeriod.windowEnd, observed: false });
+  }
+  return ranges;
+}
 
 function fmtNum(v: number | null | undefined, digits = 1): string {
   return v == null ? '—' : v.toFixed(digits);
@@ -4136,8 +4155,8 @@ function fmtDay(iso: string): string {
 }
 
 /** Gráfico de UMA variável — bruto + camadas opcionais, todas alinhadas pela mesma linha do tempo (syncId compartilhado entre todos os gráficos do Explorador, pra crosshair sincronizado). */
-function VariableChart({ snapshot, layers, contextEvents, height = 220 }: {
-  snapshot: FullVariableSnapshot; layers: LayerToggles; contextEvents?: ContextEventRow[]; height?: number;
+function VariableChart({ snapshot, layers, contextEvents, menstrualRanges, height = 220 }: {
+  snapshot: FullVariableSnapshot; layers: LayerToggles; contextEvents?: ContextEventRow[]; menstrualRanges?: MenstrualRangeForChart[]; height?: number;
 }) {
   if (!snapshot.mathApplicable) return <p style={{ fontSize: 12, color: 'var(--muted)' }}>{snapshot.mathSkippedReason}</p>;
   if (snapshot.observations.length === 0) return <p style={{ fontSize: 12, color: 'var(--muted)' }}>Nenhuma observação ainda (ausência de dado — nunca é zero).</p>;
@@ -4174,6 +4193,12 @@ function VariableChart({ snapshot, layers, contextEvents, height = 220 }: {
           <ReferenceArea key={i} x1={fmtDay(exc.startTimestamp)} x2={fmtDay(exc.endTimestamp)}
             fill={exc.direction === 'above' ? '#f59e0b' : '#8b5cf6'} fillOpacity={0.12} strokeOpacity={0} />
         ))}
+        {layers.menstrualCycle && (menstrualRanges ?? []).map((r, i) => (
+          <ReferenceArea key={`mc-${i}`} x1={fmtDay(r.start)} x2={fmtDay(r.end)}
+            fill="#e11d48" fillOpacity={r.observed ? 0.1 : 0.04}
+            stroke={r.observed ? undefined : '#e11d48'} strokeOpacity={r.observed ? 0 : 0.3} strokeDasharray={r.observed ? undefined : '2 2'}
+            label={{ value: r.observed ? 'menstruação' : 'estimado', fontSize: 8, position: 'insideTop', fill: '#e11d48' }} />
+        ))}
         {layers.contextEvents && (contextEvents ?? []).filter((e) => e.startedAt).map((e) => (
           <ReferenceLine key={e.id} x={fmtDay(e.startedAt!)} stroke="#94a3b8" strokeDasharray="3 3"
             label={{ value: CONTEXT_EVENT_TYPE_LABELS[e.type] ?? e.type, fontSize: 9, position: 'insideTopRight' }} />
@@ -4191,19 +4216,21 @@ function VariableChart({ snapshot, layers, contextEvents, height = 220 }: {
   );
 }
 
-function LayerToggleBar({ layers, onChange, hasExcursions, hasContextEvents }: {
-  layers: LayerToggles; onChange: (l: LayerToggles) => void; hasExcursions: boolean; hasContextEvents: boolean;
+function LayerToggleBar({ layers, onChange, hasExcursions, hasContextEvents, hasMenstrualCycle }: {
+  layers: LayerToggles; onChange: (l: LayerToggles) => void; hasExcursions: boolean; hasContextEvents: boolean; hasMenstrualCycle?: boolean;
 }) {
   const items: Array<[keyof LayerToggles, string, keyof typeof MATH_GLOSSARY | null]> = [
     ['raw', 'Bruto', 'bruto'], ['mm21', 'MM21', 'mm21'], ['mm60', 'MM60', 'mm60'], ['mm200', 'MM200', 'mm200'],
     ['baseline', 'Baseline', 'baseline'], ['habitual', 'Faixa habitual', 'faixaHabitual'],
     ['excursions', 'Excursões', 'excursao'], ['contextEvents', 'Eventos de contexto', null],
+    ['menstrualCycle', 'Ciclo menstrual', null],
   ];
   return (
     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
       {items.map(([key, label, glossaryKey]) => {
         if (key === 'excursions' && !hasExcursions) return null;
         if (key === 'contextEvents' && !hasContextEvents) return null;
+        if (key === 'menstrualCycle' && !hasMenstrualCycle) return null;
         return (
           <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 12, cursor: 'pointer' }}>
             <input type="checkbox" checked={layers[key]} onChange={(e) => onChange({ ...layers, [key]: e.target.checked })} />
@@ -4303,9 +4330,9 @@ type ExplorerLevel =
   | { kind: 'sistema' };
 
 /** Visão geral de UM domínio: variáveis comparáveis lado a lado, cada uma com sua própria escala (nunca normalizada/sobreposta automaticamente). */
-function DomainOverview({ domain, legend, snapshotCache, loadingIds, contextEvents, pinnedIds, onTogglePin, onOpenVariable }: {
+function DomainOverview({ domain, legend, snapshotCache, loadingIds, contextEvents, menstrualRanges, pinnedIds, onTogglePin, onOpenVariable }: {
   domain: string; legend: VariableLegendEntry[]; snapshotCache: Record<string, FullVariableSnapshot>; loadingIds: Set<string>;
-  contextEvents: ContextEventRow[]; pinnedIds: string[]; onTogglePin: (id: string) => void; onOpenVariable: (variableId: string) => void;
+  contextEvents: ContextEventRow[]; menstrualRanges: MenstrualRangeForChart[]; pinnedIds: string[]; onTogglePin: (id: string) => void; onOpenVariable: (variableId: string) => void;
 }) {
   const variables = legend.filter((v) => v.domain === domain);
   const [visibleIds, setVisibleIds] = React.useState<Set<string>>(() => new Set(variables.slice(0, 3).map((v) => v.id)));
@@ -4339,7 +4366,7 @@ function DomainOverview({ domain, legend, snapshotCache, loadingIds, contextEven
                 </button>
               </div>
               {!snapshot ? <p style={{ fontSize: 12, color: 'var(--muted)' }}>{loadingIds.has(v.id) ? 'Carregando...' : '—'}</p> :
-                <VariableChart snapshot={snapshot} layers={{ ...DEFAULT_LAYERS, excursions: false }} contextEvents={contextEvents} height={140} />}
+                <VariableChart snapshot={snapshot} layers={{ ...DEFAULT_LAYERS, excursions: false }} contextEvents={contextEvents} menstrualRanges={menstrualRanges} height={140} />}
             </div>
           );
         })}
@@ -4354,8 +4381,8 @@ function DomainOverview({ domain, legend, snapshotCache, loadingIds, contextEven
  * por série selecionada (Global/Corrida/Fortalecimento/Musculação) — pedido explícito (25/09/2026):
  * "não quero que os pontos sejam simplesmente misturados numa série única".
  */
-function VariableSeriesBlock({ snapshot, seriesLabel, contextEvents, layers, pinned, onTogglePin }: {
-  snapshot: FullVariableSnapshot; seriesLabel: string; contextEvents: ContextEventRow[]; layers: LayerToggles;
+function VariableSeriesBlock({ snapshot, seriesLabel, contextEvents, menstrualRanges, layers, pinned, onTogglePin }: {
+  snapshot: FullVariableSnapshot; seriesLabel: string; contextEvents: ContextEventRow[]; menstrualRanges?: MenstrualRangeForChart[]; layers: LayerToggles;
   pinned: boolean; onTogglePin: () => void;
 }) {
   return (
@@ -4371,7 +4398,7 @@ function VariableSeriesBlock({ snapshot, seriesLabel, contextEvents, layers, pin
         <p style={{ fontSize: 12, color: 'var(--muted)' }}>{snapshot.mathSkippedReason}</p>
       ) : (
         <>
-          <VariableChart snapshot={snapshot} layers={layers} contextEvents={contextEvents} height={220} />
+          <VariableChart snapshot={snapshot} layers={layers} contextEvents={contextEvents} menstrualRanges={menstrualRanges} height={220} />
           <VariableStatsGrid snapshot={snapshot} />
           {snapshot.habitualRange?.semanticCaution && (
             <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0, fontStyle: 'italic' }}>{snapshot.habitualRange.semanticCaution}</p>
@@ -4418,10 +4445,10 @@ function VariableSeriesBlock({ snapshot, seriesLabel, contextEvents, layers, pin
 /** 'global' = histórico inteiro sem filtro (série própria, não "o que sobra"); demais entradas são modalidades reais do aluno. */
 const GLOBAL_SERIES_KEY = 'global';
 
-function VariableDeepDive({ baseSnapshot, seriesSnapshots, baseModalities, selectedSeries, onSeriesChange, contextEvents, layers, onLayersChange, pinnedKeys, onTogglePin, seriesKeyFor }: {
+function VariableDeepDive({ baseSnapshot, seriesSnapshots, baseModalities, selectedSeries, onSeriesChange, contextEvents, menstrualRanges, layers, onLayersChange, pinnedKeys, onTogglePin, seriesKeyFor }: {
   baseSnapshot: FullVariableSnapshot; seriesSnapshots: Record<string, FullVariableSnapshot | undefined>;
   baseModalities: string[]; selectedSeries: string[]; onSeriesChange: (s: string[]) => void;
-  contextEvents: ContextEventRow[]; layers: LayerToggles; onLayersChange: (l: LayerToggles) => void;
+  contextEvents: ContextEventRow[]; menstrualRanges: MenstrualRangeForChart[]; layers: LayerToggles; onLayersChange: (l: LayerToggles) => void;
   pinnedKeys: string[]; onTogglePin: (key: string) => void; seriesKeyFor: (series: string) => string;
 }) {
   // COMPARAR MODALIDADES × APROFUNDAR (25/09/2026) — dois modos complementares, nunca um
@@ -4491,13 +4518,13 @@ function VariableDeepDive({ baseSnapshot, seriesSnapshots, baseModalities, selec
         </>
       ) : (
         <>
-          <LayerToggleBar layers={layers} onChange={onLayersChange} hasExcursions={selectedSeries.some((s) => (seriesSnapshots[s]?.excursions?.length ?? 0) > 0)} hasContextEvents={contextEvents.length > 0} />
+          <LayerToggleBar layers={layers} onChange={onLayersChange} hasExcursions={selectedSeries.some((s) => (seriesSnapshots[s]?.excursions?.length ?? 0) > 0)} hasContextEvents={contextEvents.length > 0} hasMenstrualCycle={menstrualRanges.length > 0} />
           {selectedSeries.map((s) => {
             const snap = seriesSnapshots[s];
             const label = legendLabel(s);
             const key = seriesKeyFor(s);
             return snap ? (
-              <VariableSeriesBlock key={s} snapshot={snap} seriesLabel={label} contextEvents={contextEvents} layers={layers}
+              <VariableSeriesBlock key={s} snapshot={snap} seriesLabel={label} contextEvents={contextEvents} menstrualRanges={menstrualRanges} layers={layers}
                 pinned={pinnedKeys.includes(key)} onTogglePin={() => onTogglePin(key)} />
             ) : <p key={s} style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando {label}...</p>;
           })}
@@ -4754,6 +4781,7 @@ function parseSeriesKey(key: string): { variableId: string; modalities?: string[
 function LongitudinalExplorer({ studentId, studentName, accessToken }: { studentId: string; studentName: string; accessToken: string }) {
   const [legend, setLegend] = React.useState<VariableLegendEntry[] | null>(null);
   const [contextEvents, setContextEvents] = React.useState<ContextEventRow[]>([]);
+  const [menstrualRanges, setMenstrualRanges] = React.useState<MenstrualRangeForChart[]>([]);
   const [level, setLevel] = React.useState<ExplorerLevel>({ kind: 'root' });
   const [snapshotCache, setSnapshotCache] = React.useState<Record<string, FullVariableSnapshot>>({});
   const [loadingIds, setLoadingIds] = React.useState<Set<string>>(new Set());
@@ -4769,13 +4797,22 @@ function LongitudinalExplorer({ studentId, studentName, accessToken }: { student
     let cancelled = false;
     (async () => {
       try {
-        const [legendRes, ctxRes] = await Promise.all([
+        const [legendRes, ctxRes, mcRes] = await Promise.all([
           fetch(`${API_URL}/coach/data/training-intelligence/variable-legend`, { headers: { Authorization: `Bearer ${accessToken}` } }),
           fetch(`${API_URL}/coach/students/${studentId}/context-events`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+          // Ciclo como camada temporal (item 6, 26/09/2026) — mesmo endpoint que já alimenta a aba
+          // Ciclo dedicada; aqui só reaproveitamos overview.cycles/predictedNextPeriod pras faixas
+          // de fundo dos gráficos. Falha aqui nunca bloqueia o resto do Explorer (aluno pode nem ter
+          // ciclo ativo — 404/erro é esperado e silencioso).
+          fetch(`${API_URL}/coach/students/${studentId}/menstrual-cycle`, { headers: { Authorization: `Bearer ${accessToken}` } }).catch(() => null),
         ]);
         if (cancelled) return;
         if (legendRes.ok) setLegend((await legendRes.json()) as VariableLegendEntry[]);
         if (ctxRes.ok) setContextEvents((await ctxRes.json()) as ContextEventRow[]);
+        if (mcRes?.ok) {
+          const mc = await mcRes.json() as { overview?: { cycles: Array<{ startDate: string; endDate: string | null }>; predictedNextPeriod: { windowStart: string; windowEnd: string } | null } };
+          setMenstrualRanges(buildMenstrualRangesForChart(mc.overview ?? null));
+        }
       } catch { /* silencioso */ }
     })();
     return () => { cancelled = true; };
@@ -4867,7 +4904,7 @@ function LongitudinalExplorer({ studentId, studentName, accessToken }: { student
 
       {level.kind === 'domain' && (
         <DomainOverview domain={level.domain} legend={legend} snapshotCache={snapshotCache} loadingIds={loadingIds}
-          contextEvents={contextEvents} pinnedIds={pinnedIds} onTogglePin={togglePin}
+          contextEvents={contextEvents} menstrualRanges={menstrualRanges} pinnedIds={pinnedIds} onTogglePin={togglePin}
           onOpenVariable={(variableId) => setLevel({ kind: 'variable', domain: level.domain, variableId })} />
       )}
 
@@ -4885,7 +4922,7 @@ function LongitudinalExplorer({ studentId, studentName, accessToken }: { student
         return (
           <VariableDeepDive baseSnapshot={baseSnapshot} seriesSnapshots={seriesSnapshots} baseModalities={baseModalities}
             selectedSeries={selected} onSeriesChange={(s) => setModalitySelection((prev) => ({ ...prev, [level.variableId]: s }))}
-            contextEvents={contextEvents} layers={layers} onLayersChange={setLayers}
+            contextEvents={contextEvents} menstrualRanges={menstrualRanges} layers={layers} onLayersChange={setLayers}
             pinnedKeys={pinnedIds} onTogglePin={togglePin} seriesKeyFor={seriesKeyFor} />
         );
       })()}
