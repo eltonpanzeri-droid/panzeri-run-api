@@ -3191,7 +3191,7 @@ function StudentPanel({
           </EvoSection>
 
           <EvoSection icon="📋" title="Aderência aos treinos" badge={filteredWeeks.length > 0 ? `${filteredWeeks.length} sem` : undefined}
-            desc="% de treinos planejados que foram realizados por semana. As 5 categorias (prescrito/feito/perdido/sem registro/extra) são sempre mostradas separadas — nunca somadas escondendo o detalhe. Meta ideal: acima de 80%. Queda sustentada por 2+ semanas merece atenção ao contexto.">
+            desc="% de treinos planejados que foram realizados por semana. As 5 categorias (prescrito/feito/perdido/sem registro/extra) são sempre mostradas separadas — nunca somadas escondendo o detalhe. Não existe uma meta universal — compare com o histórico e o baseline individual deste aluno, não com um número fixo.">
             <LoadChartAderencia weeks={filteredWeeks} history={hist} />
           </EvoSection>
 
@@ -3200,8 +3200,8 @@ function StudentPanel({
             <SessionDetailTable sessions={filteredSessions} />
           </EvoSection>
 
-          <EvoSection icon="📈" title="Análise de carga (ACWR)" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
-            desc="Carga Semanal + ACWR (Aguda:Crônica) — indicador auxiliar de magnitude de variação de carga, não um diagnóstico de segurança. Zona 0.8–1.3 é a faixa mais comumente observada como confortável; valores fora dela merecem contexto (histórico do aluno, objetivo, fase do treinamento), não uma leitura automática de risco.">
+          <EvoSection icon="📈" title="Carga semanal e relação aguda:crônica" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
+            desc="Carga Semanal é a série de volume realizado por semana. ACWR (Aguda:Crônica) é uma RELAÇÃO derivada dela — quanto a carga recente representa frente à referência histórica do próprio aluno. Descreve magnitude de variação, não segurança, risco ou correção — não responde sozinho 'está treinando certo?' ou 'precisa reduzir?'. Interprete sempre junto com RPE, sono, dor e contexto real do aluno.">
             <LoadAnalysisSection weeks={filteredWeeks} />
           </EvoSection>
 
@@ -9373,20 +9373,13 @@ function LoadAnalysisSection({ weeks }: { weeks: WeekData[] }) {
   );
 }
 
-/** Barras coloridas por variação percentual + gridlines a cada 5km + linha de tendência. */
+/** Barras com gridlines a cada 5km + linha de tendência. Cor única (26/09/2026: removida a
+ * codificação por variação percentual "seguro/salto" — descreve carga, não risco). */
 function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
   if (weeks.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados.</p>;
 
-  function barColor(i: number): string {
-    // Busca a semana anterior com km > 0 para comparação
-    let prevIdx = i - 1;
-    while (prevIdx >= 0 && weeks[prevIdx].completedKm === 0) prevIdx--;
-    if (prevIdx < 0) return '#3b82f6'; // 1ª semana com km
-    const prev = weeks[prevIdx].completedKm;
-    const delta = (weeks[i].completedKm - prev) / prev;
-    if (delta <= 0.10) return '#22c55e';
-    if (delta <= 0.25) return '#f59e0b';
-    return '#ef4444';
+  function barColor(_i: number): string {
+    return '#3b82f6';
   }
 
   const maxKm = Math.max(...weeks.map((w) => Math.max(w.completedKm, w.prescribedKm)), 5);
@@ -9465,9 +9458,7 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
         ))}
       </svg>
       <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap', alignItems: 'center' }}>
-        {[['#22c55e','≤+10% (seguro)'],['#f59e0b','+10% a +25%'],['#ef4444','>+25% (salto)'],['#3b82f6','1ª semana']].map(([c, l]) => (
-          <span key={l}><span style={{ display:'inline-block', width:10, height:10, borderRadius:2, background:c, marginRight:4, verticalAlign:'middle' }} />{l}</span>
-        ))}
+        <span>Km realizados por semana (barra mostra a variação % vs. semana anterior ao passar o mouse)</span>
         {n >= 4 && <span style={{ marginLeft: 8 }}>
           <span style={{ display:'inline-block', width:16, height:2, background:'#6366f1', marginRight:4, verticalAlign:'middle', opacity:0.7 }} />Tendência
         </span>}
@@ -9476,9 +9467,12 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
   );
 }
 
-/** Razão Aguda:Crônica (ACWR) — Fadiga ÷ Fitness, com zonas de risco.
- *  Grade de quadriculado (H + V), escala Y de 0 a 3.0, labels X rotacionados,
- *  valores inline apenas nos pontos mais relevantes (primeiro, último, máx, mín).
+/**
+ * Razão Aguda:Crônica (ACWR) — quanto a carga RECENTE representa frente à referência histórica do
+ * próprio aluno (26/09/2026: removida a linguagem de "zona segura"/"zona de risco" — ACWR descreve
+ * magnitude de variação de carga, nunca segurança, risco ou correção de treino por si só).
+ * Grade de quadriculado (H + V), escala Y de 0 a 3.0, labels X rotacionados,
+ * valores inline apenas nos pontos mais relevantes (primeiro, último, máx, mín).
  */
 function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
   if (weeks.length < 2) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Mínimo 2 semanas de dados para calcular a razão.</p>;
@@ -9504,8 +9498,8 @@ function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
 
   const polyPts = acwr.map((r, i) => `${xFn(i)},${yFn(r)}`).join(' ');
 
-  // Ticks horizontais (grade H)
-  const hTicks = [0, 0.5, 1.0, 1.3, 1.5, 2.0, 2.5, 3.0];
+  // Ticks horizontais (grade H) — 1.0 é o único ponto com significado matemático direto (recente == referência histórica)
+  const hTicks = [0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0];
   // Ticks verticais (grade V) — um por ponto, mas exibimos linha apenas a cada slot controlado
   const vTickEvery = n <= 12 ? 1 : n <= 24 ? 2 : Math.ceil(n / 12);
 
@@ -9521,21 +9515,14 @@ function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block', overflow: 'visible' }}>
 
-        {/* ── Zonas de cor ────────────────────────────── */}
-        {/* Zona segura: 0.8–1.3 */}
-        <rect x={PL} y={yFn(1.3)} width={chartW} height={yFn(0.8) - yFn(1.3)} fill="#22c55e" opacity={0.13} />
-        {/* Zona de risco: >1.5 */}
-        <rect x={PL} y={PT} width={chartW} height={Math.max(0, yFn(1.5) - PT)} fill="#ef4444" opacity={0.09} />
-
-        {/* ── Grade H ─────────────────────────────────── */}
+        {/* ── Grade H — sem zonas de cor: 1.0 é o único valor com significado direto (carga recente == referência histórica) ── */}
         {hTicks.map((r) => {
-          const isRef = r === 0.8 || r === 1.0 || r === 1.3 || r === 1.5;
+          const isRef = r === 1.0;
           return (
             <g key={r}>
               <line x1={PL} x2={W - PR} y1={yFn(r)} y2={yFn(r)}
                 stroke="var(--line)"
-                strokeWidth={r === 1.0 ? 1.2 : 0.5}
-                strokeDasharray={isRef && r !== 1.0 ? '4,3' : '0'} />
+                strokeWidth={isRef ? 1.2 : 0.5} />
               <text x={PL - 5} y={yFn(r) + 4} textAnchor="end" fontSize={9}
                 fill={isRef ? 'var(--text)' : 'var(--muted)'} fontWeight={isRef ? 600 : 400}>
                 {r.toFixed(1)}
@@ -9553,12 +9540,9 @@ function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
         {/* ── Linha ACWR ──────────────────────────────── */}
         {n > 1 && <polyline points={polyPts} fill="none" stroke="#3b82f6" strokeWidth={2.2} strokeLinejoin="round" />}
 
-        {/* ── Pontos + labels seletivos ───────────────── */}
+        {/* ── Pontos + labels seletivos — cor uniforme, sem julgamento de "seguro/risco" ── */}
         {acwr.map((r, i) => {
           const cx = xFn(i); const cy = yFn(r);
-          const safe = r >= 0.8 && r <= 1.3;
-          const risky = r > 1.5;
-          const lColor = risky ? '#ef4444' : safe ? '#16a34a' : '#d97706';
           const showLbl = labelSet.has(i);
           // Pontos extremos ficam acima, outros abaixo para não colidir
           const lY = (i === maxIdx) ? cy - 9 : cy + 15;
@@ -9568,7 +9552,7 @@ function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
                 <title>{weeks[i].startDate}: {r.toFixed(2)}</title>
               </circle>
               {showLbl && (
-                <text x={cx} y={lY} textAnchor="middle" fontSize={9} fontWeight={700} fill={lColor}>
+                <text x={cx} y={lY} textAnchor="middle" fontSize={9} fontWeight={700} fill="#3b82f6">
                   {r.toFixed(2)}
                 </text>
               )}
@@ -9587,22 +9571,16 @@ function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
         ))}
       </svg>
 
-      {/* ── Legenda ─────────────────────────────────────── */}
+      {/* ── Legenda — descritiva, sem zona de "seguro"/"risco" (item 16 do pedido de 26/09) ── */}
       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span>
-            <span style={{ display:'inline-block', width:12, height:12, background:'#22c55e', opacity:0.35, verticalAlign:'middle', marginRight:4, borderRadius:2 }} />
-            0.8 a 1.3 = faixa mais comumente observada como confortável
-          </span>
-          <span>
-            <span style={{ display:'inline-block', width:12, height:12, background:'#ef4444', opacity:0.25, verticalAlign:'middle', marginRight:4, borderRadius:2 }} />
-            Acima de 1.5 = carga recente alta em relação à base
-          </span>
-          <span>Abaixo de 0.8 = estímulo possivelmente insuficiente</span>
+          <span>1.0 = carga recente igual à referência histórica deste aluno</span>
+          <span>Acima de 1.0 = carga recente maior que a referência</span>
+          <span>Abaixo de 1.0 = carga recente menor que a referência</span>
         </div>
         <div style={{ fontSize: 10, fontStyle: 'italic', color: 'var(--muted)', marginTop: 2, borderTop: '1px solid var(--line)', paddingTop: 4 }}>
-          ⚠️ O ACWR é um indicador auxiliar — um valor fora dessa faixa isoladamente não representa necessariamente risco.
-          Interprete sempre em conjunto com RPE, sono, dor e contexto do atleta. Nunca altere a prescrição com base nesse número sozinho.
+          ⚠️ ACWR descreve magnitude de variação de carga — não é diagnóstico de segurança, risco, correção nem suficiência de estímulo.
+          Interprete sempre em conjunto com RPE, sono, dor e contexto real do aluno. Nunca decida carga/volume só por este número.
         </div>
       </div>
     </div>
