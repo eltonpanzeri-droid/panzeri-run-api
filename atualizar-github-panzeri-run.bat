@@ -393,6 +393,7 @@ copy /Y "%ORIGEM%apps\api\test\menstrual-cycle-overview.spec.ts" "%DESTINO%\apps
 copy /Y "%ORIGEM%apps\api\test\menstrual-cycle-observation-reader.spec.ts" "%DESTINO%\apps\api\test\menstrual-cycle-observation-reader.spec.ts"
 copy /Y "%ORIGEM%apps\api\test\messaging-module-wiring.spec.ts" "%DESTINO%\apps\api\test\messaging-module-wiring.spec.ts"
 copy /Y "%ORIGEM%apps\api\test\training-intelligence-admin.spec.ts" "%DESTINO%\apps\api\test\training-intelligence-admin.spec.ts"
+copy /Y "%ORIGEM%apps\api\test\summarize-sessions-adherence.spec.ts" "%DESTINO%\apps\api\test\summarize-sessions-adherence.spec.ts"
 
 echo Atualizacao copiada para o GitHub Desktop.
 echo O GitHub Desktop sera aberto agora.
