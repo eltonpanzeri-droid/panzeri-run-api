@@ -483,54 +483,9 @@ export class CoachService {
     return this.prisma.trainingSession.update({ where: { id: sessionId }, data });
   }
 
-  // Reparo pontual e FINITO (27/09/2026): os 3 registros reais de producao que ficaram
-  // contaminados pelo bug de rollover de domingo ja corrigido em training-plans.service.ts
-  // (faltava o guard shouldMigrateTodaySessionsToNewPlan). Cada sessao de domingo ja executada
-  // tinha sido reparentada pro plano da semana SEGUINTE durante a migracao de "sessao de hoje";
-  // aqui devolve cada uma pro plano da semana em que ela realmente aconteceu. Auditado
-  // manualmente sessao por sessao (data, status, plano de origem e de destino, ausencia de
-  // colisao) antes de codificar esta lista — nao e' um endpoint generico de mover sessao entre
-  // planos, e' um reparo unico para estes 3 casos ja identificados. Idempotente: rodar de novo
-  // depois de corrigido nao faz nada (outcome 'already_fixed').
-  private readonly WEEK_ROLLOVER_CONTAMINATION_REPAIR_LIST: Array<{ student: string; sessionId: string; fromPlanId: string; toPlanId: string }> = [
-    { student: 'Roberta Kemp', sessionId: '59d7ecb3-c3d8-4813-bbff-b8333bad5ebf', fromPlanId: '4d50b191-9c1d-4529-a4ef-6a1f444c715a', toPlanId: 'cc4411d0-1915-4478-8ac2-5505bfc2e978' },
-    { student: 'Fernanda Zimerer', sessionId: 'fa3afe5e-07f0-4401-beba-818879443596', fromPlanId: 'a1b3f0fd-914f-43ea-bc90-afc7738a7915', toPlanId: 'd6e8a456-5678-474f-8390-773c0d0e5686' },
-    { student: 'Silvia Mendes Leal', sessionId: '39817d8c-89c2-4f29-a40a-51c0828d4c3e', fromPlanId: 'f712e6b3-d4a1-4827-88e4-4d2e603a9b2b', toPlanId: 'bc188abd-e6ac-4340-9b07-1e8c6688e179' },
-  ];
-
-  async repairWeekRolloverContamination() {
-    const results: Array<Record<string, unknown>> = [];
-    for (const item of this.WEEK_ROLLOVER_CONTAMINATION_REPAIR_LIST) {
-      const session = await this.prisma.trainingSession.findUnique({ where: { id: item.sessionId } });
-      if (!session) {
-        results.push({ ...item, outcome: 'session_not_found' });
-        continue;
-      }
-      if (session.planId === item.toPlanId) {
-        results.push({ ...item, outcome: 'already_fixed' });
-        continue;
-      }
-      if (session.planId !== item.fromPlanId) {
-        results.push({ ...item, outcome: 'unexpected_current_planId', currentPlanId: session.planId });
-        continue;
-      }
-      const targetPlan = await this.prisma.trainingPlan.findUnique({ where: { id: item.toPlanId } });
-      if (!targetPlan || targetPlan.userId !== session.userId) {
-        results.push({ ...item, outcome: 'target_plan_invalid' });
-        continue;
-      }
-      const collision = await this.prisma.trainingSession.findFirst({
-        where: { planId: item.toPlanId, scheduledDate: session.scheduledDate, modality: session.modality },
-      });
-      if (collision) {
-        results.push({ ...item, outcome: 'collision_abort', collisionSessionId: collision.id });
-        continue;
-      }
-      await this.prisma.trainingSession.update({ where: { id: item.sessionId }, data: { planId: item.toPlanId } });
-      results.push({ ...item, outcome: 'fixed' });
-    }
-    return { results };
-  }
+  // Reparo de rollover de domingo (Roberta/Fernanda/Silvia, 27/09/2026) executado e confirmado em
+  // producao — endpoint one-off removido de proposito apos o uso (nunca deixar reparo pontual de
+  // dado permanente no codigo). Ver PRONTUARIO.md pra historico.
 
   // Escape hatch manual do treinador pra limpar sessao duplicada/errada que a IA gerou (pedido
   // real 10/08 — Lucelane com 3 sessoes de fortalecimento empilhadas no mesmo dia, sem nenhum

@@ -3,7 +3,7 @@ import { AuthService } from '../src/auth/auth.service';
 
 describe('AuthService', () => {
   it('rejects registration without LGPD and terms acceptance', async () => {
-    const service = new AuthService({} as never, {} as never, {} as never);
+    const service = new AuthService({} as never, {} as never, {} as never, {} as never);
 
     await expect(
       service.register({
@@ -17,7 +17,7 @@ describe('AuthService', () => {
   });
 
   it('rejects registration without exercise responsibility acceptance', async () => {
-    const service = new AuthService({} as never, {} as never, {} as never);
+    const service = new AuthService({} as never, {} as never, {} as never, {} as never);
 
     await expect(
       service.register({

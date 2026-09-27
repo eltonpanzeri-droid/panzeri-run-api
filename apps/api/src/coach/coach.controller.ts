@@ -267,13 +267,6 @@ export class CoachController {
     return this.coachService.recoverStudentSessions(studentId);
   }
 
-  // Reparo unico e finito dos 3 registros reais contaminados pelo bug de rollover de domingo
-  // (auditoria Roberta Kemp, 27/09/2026) — ver comentario da lista fechada em coach.service.ts.
-  // Ignora :studentId de proposito: a lista de reparo ja tem os 3 alunos e sessoes especificos.
-  @Post('repair/week-rollover-contamination')
-  repairWeekRolloverContamination() {
-    return this.coachService.repairWeekRolloverContamination();
-  }
 
   // Pedido explicito do treinador 16/08 — aluno tem 2 tentativas base de "Gerar treino da
   // semana" por semana; esse botao libera mais uma, so quando esgotadas (ver AppMenu/painel).
