@@ -386,6 +386,8 @@ copy /Y "%ORIGEM%apps\api\src\context-events\context-events.controller.ts" "%DES
 copy /Y "%ORIGEM%apps\api\src\context-events\context-events.module.ts" "%DESTINO%\apps\api\src\context-events\context-events.module.ts"
 copy /Y "%ORIGEM%apps\api\src\context-events\dto\submit-return-questionnaire.dto.ts" "%DESTINO%\apps\api\src\context-events\dto\submit-return-questionnaire.dto.ts"
 copy /Y "%ORIGEM%apps\api\src\context-events\dto\create-context-event.dto.ts" "%DESTINO%\apps\api\src\context-events\dto\create-context-event.dto.ts"
+copy /Y "%ORIGEM%apps\api\src\context-events\dto\start-medication.dto.ts" "%DESTINO%\apps\api\src\context-events\dto\start-medication.dto.ts"
+copy /Y "%ORIGEM%apps\api\src\context-events\dto\end-medication.dto.ts" "%DESTINO%\apps\api\src\context-events\dto\end-medication.dto.ts"
 copy /Y "%ORIGEM%apps\api\test\context-events.spec.ts" "%DESTINO%\apps\api\test\context-events.spec.ts"
 copy /Y "%ORIGEM%apps\api\test\menstrual-cycle-overview.spec.ts" "%DESTINO%\apps\api\test\menstrual-cycle-overview.spec.ts"
 copy /Y "%ORIGEM%apps\api\test\menstrual-cycle-observation-reader.spec.ts" "%DESTINO%\apps\api\test\menstrual-cycle-observation-reader.spec.ts"

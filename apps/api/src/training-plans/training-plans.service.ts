@@ -592,9 +592,12 @@ export class TrainingPlansService {
       : null;
 
     // Contexto do ciclo menstrual — apenas para alunas com ciclo ativo registrado (11/09).
-    // getEstimatedPhaseContext retorna null para quem nao tem perfil menstrual ou nao tem log.
-    // Falha aqui nunca bloqueia a geracao — e dado de contexto, nao dado critico de prescricao.
-    const menstrualContext = await this.menstrualCycle.getEstimatedPhaseContext(userId).catch(() => null);
+    // 26/09/2026: trocado de getEstimatedPhaseContext (assumia 28 dias/ovulacao no dia 14 quando a
+    // aluna nao declarava duracao) para getAgentContext, baseado inteiramente no historico real via
+    // getCycleOverview (mesma Camada Matematica do resto da Training Intelligence). Retorna null
+    // pra quem nao tem ciclo ativo ou ainda nao tem nenhum ciclo registrado. Falha aqui nunca
+    // bloqueia a geracao — e dado de contexto, nao dado critico de prescricao.
+    const menstrualCycleContext = await this.menstrualCycle.getAgentContext(userId).catch(() => null);
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan(hasSubscriptionAccess(user.subscriptionStatus));
 
@@ -727,13 +730,18 @@ export class TrainingPlansService {
     // Compact Agent Context -> prompt. REGRA DURA: falha aqui NUNCA pode bloquear a geracao semanal
     // (mesmo padrao ja usado pra studentProfileSummary logo acima) — o campo so fica null e o resto
     // do fluxo segue normalmente, exatamente como funcionava antes desta integracao existir.
-    const athleteStateContext = await this.athleteStateSnapshot
+    const athleteStateContextBase = await this.athleteStateSnapshot
       .getSnapshot(userId)
       .then((snapshot) => buildCompactAgentContext(snapshot))
       .catch((error) => {
         this.logger.warn(`Falha ao gerar Athlete State Snapshot para ${userId}, seguindo sem ele: ${error instanceof Error ? error.message : error}`);
         return null;
       });
+    // menstrualCycleContext (calculado acima, ja com fallback null em falha) entra no MESMO objeto
+    // compacto que chega ao agente — nunca um campo solto separado (secao 7 do pedido de 26/09).
+    const athleteStateContext = athleteStateContextBase
+      ? { ...athleteStateContextBase, menstrualCycle: menstrualCycleContext ?? undefined }
+      : null;
     const methodologyInput: MethodologyInput = {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
       experience: user.preferences?.experienceLevel ?? '',
@@ -760,7 +768,6 @@ export class TrainingPlansService {
       activeObservations: activeObservations.map((observation) => observation.content),
       studentProfileSummary,
       weeklyCheckIn: latestWeeklyCheckIn,
-      menstrualContext,
       athleteStateContext,
       todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
       // options.generateFrom: definido quando o aluno escolheu "Nao, a partir de amanha" no app

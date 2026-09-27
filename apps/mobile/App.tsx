@@ -7164,8 +7164,15 @@ function buildMonthGrid(year: number, month: number): Date[] {
   const gridStart = addDaysLocal(first, -firstWeekday);
   return Array.from({ length: 42 }, (_, i) => addDaysLocal(gridStart, i));
 }
-/** OBSERVADO ≠ ESTIMADO — nunca a mesma aparência. Deriva do histórico já calculado, sem inventar dias. */
-function classifyDay(dateStr: string, overview: CycleOverviewResponse): 'observed' | 'predicted' | 'none' {
+/**
+ * OBSERVADO ≠ ESTIMADO ≠ INCERTO — nunca a mesma aparência (item 1 do pedido de 26/09). Deriva do
+ * histórico já calculado, sem inventar dias. A janela estimada em si já é mais larga quanto mais
+ * irregular o histórico (calculado no backend); aqui só decidimos a APARÊNCIA: com poucos ciclos
+ * (maturity='moderate', a única maturidade em que existe previsão mas com pouca base — 'low' nunca
+ * chega a ter predictedNextPeriod) o mesmo estado visual sinaliza "menos confiável", nunca disfarçado
+ * de estimativa firme.
+ */
+function classifyDay(dateStr: string, overview: CycleOverviewResponse): 'observed' | 'predicted' | 'predicted_uncertain' | 'none' {
   const lastCycle = overview.cycles[overview.cycles.length - 1];
   const todayStr = isoDateLocal(new Date());
   for (const c of overview.cycles) {
@@ -7177,7 +7184,9 @@ function classifyDay(dateStr: string, overview: CycleOverviewResponse): 'observe
       return 'observed';
     }
   }
-  if (overview.predictedNextPeriod && dateStr >= overview.predictedNextPeriod.windowStart && dateStr <= overview.predictedNextPeriod.windowEnd) return 'predicted';
+  if (overview.predictedNextPeriod && dateStr >= overview.predictedNextPeriod.windowStart && dateStr <= overview.predictedNextPeriod.windowEnd) {
+    return overview.maturity === 'established' ? 'predicted' : 'predicted_uncertain';
+  }
   return 'none';
 }
 function dateLabelLong(dateStr: string): string {
@@ -7214,7 +7223,13 @@ function MonthCalendar({ overview, onDayPress }: { overview: CycleOverviewRespon
           const isToday = dateStr === todayStr;
           return (
             <Pressable key={i} onPress={() => onDayPress(dateStr)} style={mcStyles.dayCell}>
-              <View style={[mcStyles.dayCircle, state === 'observed' && mcStyles.dayObserved, state === 'predicted' && mcStyles.dayPredicted, isToday && mcStyles.dayToday]}>
+              <View style={[
+                mcStyles.dayCircle,
+                state === 'observed' && mcStyles.dayObserved,
+                state === 'predicted' && mcStyles.dayPredicted,
+                state === 'predicted_uncertain' && mcStyles.dayPredictedUncertain,
+                isToday && mcStyles.dayToday,
+              ]}>
                 <Text style={[mcStyles.dayNumber, !inMonth && mcStyles.dayNumberOutside, state === 'observed' && mcStyles.dayNumberObserved]}>{d.getDate()}</Text>
               </View>
             </Pressable>
@@ -7224,7 +7239,11 @@ function MonthCalendar({ overview, onDayPress }: { overview: CycleOverviewRespon
       <View style={mcStyles.legendRow}>
         <View style={mcStyles.legendItem}><View style={[mcStyles.legendDot, mcStyles.dayObserved]} /><Text style={mcStyles.legendText}>Registrado</Text></View>
         <View style={mcStyles.legendItem}><View style={[mcStyles.legendDot, mcStyles.dayPredicted]} /><Text style={mcStyles.legendText}>Estimado</Text></View>
+        <View style={mcStyles.legendItem}><View style={[mcStyles.legendDot, mcStyles.dayPredictedUncertain]} /><Text style={mcStyles.legendText}>Pouco confiável</Text></View>
       </View>
+      {overview.maturity === 'moderate' && (
+        <Text style={mcStyles.maturityHint}>Ainda poucos ciclos registrados — a previsão vai ficar mais precisa conforme você registrar mais.</Text>
+      )}
     </View>
   );
 }
@@ -7320,6 +7339,9 @@ function DaySheet({ dateStr, overview, dailyLogs, accessToken, onClose, onChange
                   <Text style={[styles.copyTight, { color: '#94a3b8', marginTop: 4 }]}>
                     Janela estimada: {dateLabelShort(overview.predictedNextPeriod.windowStart)} a {dateLabelShort(overview.predictedNextPeriod.windowEnd)} · baseado em {overview.predictedNextPeriod.basedOnCycles} ciclo(s)
                   </Text>
+                  {overview.maturity !== 'established' && (
+                    <Text style={[styles.copyTight, { color: '#C97B6E', marginTop: 4, fontSize: 11 }]}>Estimativa ainda pouco confiável — poucos ciclos registrados até agora.</Text>
+                  )}
                   <Pressable onPress={explainPrediction} style={{ marginTop: 10 }}>
                     <Text style={[styles.copyTight, { color: PRColors.ocean }]}>ⓘ Entenda esta previsão</Text>
                   </Pressable>
@@ -7371,6 +7393,220 @@ function DaySheet({ dateStr, overview, dailyLogs, accessToken, onClose, onChange
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+interface MenstrualProfileResponse {
+  hasActiveCycle: boolean | null;
+  usesHormonalContraceptive: boolean | null;
+  contraceptiveType: string | null;
+  cycleRegularity: string | null;
+  diuType: string | null;
+  menopauseStatus: string | null;
+}
+
+const CONTRACEPTIVE_OPTIONS = [
+  { value: null, label: 'Não uso' },
+  { value: 'pilula_combinada', label: 'Pílula' },
+  { value: 'injecao', label: 'Injeção' },
+  { value: 'implante', label: 'Implante' },
+  { value: 'diu_hormonal', label: 'DIU hormonal' },
+  { value: 'outro', label: 'Outro' },
+];
+const DIU_OPTIONS = [
+  { value: 'none', label: 'Não uso DIU' },
+  { value: 'hormonal', label: 'DIU hormonal' },
+  { value: 'non_hormonal', label: 'DIU de cobre' },
+];
+const REGULARITY_OPTIONS = [
+  { value: 'regular', label: 'Regular' },
+  { value: 'irregular', label: 'Irregular' },
+  { value: 'unknown', label: 'Não sei' },
+];
+const MENOPAUSE_OPTIONS = [
+  { value: 'none', label: 'Não se aplica' },
+  { value: 'perimenopause', label: 'Perimenopausa' },
+  { value: 'menopause', label: 'Menopausa' },
+];
+
+/** Uma linha de chips — mesmo padrão visual em toda a tela, pra "progressive disclosure" real (item 3 do pedido de 26/09). */
+function ChipRow<T extends string | null>({ label, options, value, onChange }: {
+  label: string; options: Array<{ value: T; label: string }>; value: T; onChange: (v: T) => void;
+}) {
+  return (
+    <View style={{ marginBottom: 10 }}>
+      <Text style={[styles.copyTight, { marginBottom: 4 }]}>{label}</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {options.map((opt) => (
+          <Pressable key={String(opt.value)} style={[styles.completionChip, value === opt.value && styles.completionChipActive]} onPress={() => onChange(opt.value)}>
+            <Text style={[styles.completionChipText, value === opt.value && styles.completionChipTextActive]}>{opt.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Seção opcional, recolhida por padrão — item 3 do pedido de 26/09 ("progressive disclosure, não
+ * transformar num questionário enorme"). Reaproveita 100% o endpoint /menstrual-cycle/profile que
+ * já existia; só faltava esta interface. Uso de hormonal/DIU só revela regularidade quando faz
+ * sentido perguntar (ciclo natural), já que sob hormonal o padrão natural não se aplica.
+ */
+function MenstrualProfileSettings({ accessToken }: { accessToken: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [profile, setProfile] = useState<MenstrualProfileResponse | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!expanded || profile) return;
+    fetch(`${API_URL}/menstrual-cycle/profile`, { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => setProfile(p ?? {
+        hasActiveCycle: null, usesHormonalContraceptive: null, contraceptiveType: null, cycleRegularity: null, diuType: null, menopauseStatus: null,
+      }))
+      .catch(() => {});
+  }, [expanded, accessToken, profile]);
+
+  async function save(patch: Partial<MenstrualProfileResponse>) {
+    if (!profile) return;
+    const next = { ...profile, ...patch };
+    setProfile(next);
+    setSaving(true);
+    try {
+      await fetch(`${API_URL}/menstrual-cycle/profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(patch),
+      });
+    } catch { /* silencioso — configuracao complementar, nunca bloqueia o resto da tela */ }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <View style={[styles.coachBox, { marginTop: 16 }]}>
+      <Pressable onPress={() => setExpanded((e) => !e)} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={styles.titleSmall}>Mais sobre seu ciclo (opcional)</Text>
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={PRColors.mineral} />
+      </Pressable>
+      {expanded && (
+        profile ? (
+          <View style={{ marginTop: 12 }}>
+            <ChipRow label="Regularidade do ciclo" options={REGULARITY_OPTIONS} value={profile.cycleRegularity} onChange={(v) => void save({ cycleRegularity: v })} />
+            <ChipRow label="Contraceptivo hormonal" options={CONTRACEPTIVE_OPTIONS} value={profile.contraceptiveType} onChange={(v) => void save({ contraceptiveType: v, usesHormonalContraceptive: v !== null })} />
+            <ChipRow label="DIU" options={DIU_OPTIONS} value={profile.diuType ?? 'none'} onChange={(v) => void save({ diuType: v })} />
+            <ChipRow label="Fase de vida" options={MENOPAUSE_OPTIONS} value={profile.menopauseStatus ?? 'none'} onChange={(v) => void save({ menopauseStatus: v })} />
+            {saving && <Text style={[styles.copyTight, { fontSize: 11, color: '#94a3b8' }]}>Salvando...</Text>}
+          </View>
+        ) : (
+          <ActivityIndicator style={{ marginTop: 12 }} color={PRColors.ocean} />
+        )
+      )}
+    </View>
+  );
+}
+
+interface MedicationEvent {
+  id: string;
+  startedAt: string;
+  endedAt: string | null;
+  status: string;
+  originalText: string | null;
+}
+
+/**
+ * Medicamentos como contexto temporal (item 4 do pedido de 26/09) — reaproveita ContextEvent
+ * (type='medication') via /me/context-events/medications. Recolhida por padrão, mesma lógica de
+ * progressive disclosure da seção acima. Nunca infere efeito/causalidade aqui — só registra
+ * início/fim, a interpretação fica inteiramente com quem lê (treinador/agente, com as devidas
+ * regras de privacidade e anti-causalidade já no prompt).
+ */
+function MedicationsSection({ accessToken }: { accessToken: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [medications, setMedications] = useState<MedicationEvent[] | null>(null);
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    try {
+      const res = await fetch(`${API_URL}/me/context-events/medications`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (res.ok) setMedications(await res.json() as MedicationEvent[]);
+    } catch { /* silencioso */ }
+  }
+
+  useEffect(() => { if (expanded && medications === null) void load(); }, [expanded]);
+
+  async function startMedication() {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      await fetch(`${API_URL}/me/context-events/medications`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ name: name.trim(), startDate: isoDateLocal(new Date()) }),
+      });
+      setName('');
+      await load();
+    } catch { /* silencioso */ }
+    finally { setSaving(false); }
+  }
+
+  async function endMedication(id: string) {
+    setSaving(true);
+    try {
+      await fetch(`${API_URL}/me/context-events/medications/${id}/end`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ endDate: isoDateLocal(new Date()) }),
+      });
+      await load();
+    } catch { /* silencioso */ }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <View style={[styles.coachBox, { marginTop: 12 }]}>
+      <Pressable onPress={() => setExpanded((e) => !e)} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={styles.titleSmall}>Medicamentos (opcional)</Text>
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={PRColors.mineral} />
+      </Pressable>
+      {expanded && (
+        medications ? (
+          <View style={{ marginTop: 12 }}>
+            <Text style={[styles.copyTight, { fontSize: 11, color: '#94a3b8', marginBottom: 8 }]}>
+              Fica registrado como contexto — nunca usado pra decidir seu treino automaticamente, e nunca compartilhado como diagnóstico.
+            </Text>
+            {medications.filter((m) => m.status === 'ongoing').map((m) => (
+              <View key={m.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text style={styles.copyTight}>{m.originalText} · desde {dateLabelShort(m.startedAt.slice(0, 10))}</Text>
+                <Pressable onPress={() => void endMedication(m.id)} disabled={saving}>
+                  <Text style={[styles.copyTight, { color: PRColors.ocean, fontSize: 12 }]}>Marcar fim</Text>
+                </Pressable>
+              </View>
+            ))}
+            {medications.filter((m) => m.status === 'ended').slice(0, 5).map((m) => (
+              <Text key={m.id} style={[styles.copyTight, { fontSize: 12, color: '#94a3b8', marginBottom: 4 }]}>
+                {m.originalText} · {dateLabelShort(m.startedAt.slice(0, 10))} a {m.endedAt ? dateLabelShort(m.endedAt.slice(0, 10)) : ''}
+              </Text>
+            ))}
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="Nome do medicamento"
+                placeholderTextColor="#94a3b8"
+                value={name}
+                onChangeText={setName}
+              />
+              <Pressable style={[styles.secondaryButton, saving && styles.disabledButton]} onPress={() => void startMedication()} disabled={saving || !name.trim()}>
+                <Text style={styles.secondaryButtonText}>Adicionar</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <ActivityIndicator style={{ marginTop: 12 }} color={PRColors.ocean} />
+        )
+      )}
+    </View>
   );
 }
 
@@ -7434,6 +7670,9 @@ function MenstrualCycleScreen({ accessToken }: { accessToken: string }) {
               <Text style={styles.copyTight}>Nenhum ciclo registrado ainda. Toque num dia no calendário pra começar.</Text>
             </View>
           )}
+
+          <MenstrualProfileSettings accessToken={accessToken} />
+          <MedicationsSection accessToken={accessToken} />
         </>
       ) : null}
 
@@ -7463,6 +7702,10 @@ const mcStyles = StyleSheet.create({
   dayCircle: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   dayObserved: { backgroundColor: PRColors.danger },
   dayPredicted: { backgroundColor: '#F4C7C0' },
+  // Mesma família de cor do "Estimado", mas sem preenchimento sólido (só contorno tracejado-like via
+  // borda fina) — sinaliza visualmente "isto é uma estimativa MENOS confiável", nunca a mesma
+  // aparência de uma previsão com base sólida (item 1 do pedido de 26/09).
+  dayPredictedUncertain: { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: '#F4C7C0' },
   dayToday: { borderWidth: 2, borderColor: PRColors.ocean },
   dayNumber: { fontSize: 13, color: PRColors.graphite, fontWeight: '600' },
   dayNumberOutside: { color: '#D9D6CC' },
@@ -7471,6 +7714,7 @@ const mcStyles = StyleSheet.create({
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 10, height: 10, borderRadius: 5 },
   legendText: { fontSize: 11, color: '#94a3b8' },
+  maturityHint: { fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 8, fontStyle: 'italic' },
 });
 
 function StravaSync({ accessToken }: { accessToken: string }) {

@@ -123,3 +123,50 @@ describe('MenstrualCycleService.getCycleOverview', () => {
     expect(overview.reliabilityCaveats.some((c) => c.includes('Perimenopausa'))).toBe(true);
   });
 });
+
+// 26/09/2026 — fecha o gap Snapshot -> agente: getAgentContext() e' o que realmente chega no prompt
+// de prescricao agora (substitui getEstimatedPhaseContext, que assumia 28 dias/ovulacao dia 14).
+describe('MenstrualCycleService.getAgentContext', () => {
+  it('sem perfil de ciclo ativo: retorna null (nunca inventa contexto pra quem nao tem ciclo)', async () => {
+    const logs = [cycleLog({ id: 'a' }), cycleLog({ id: 'b', cycleStartDate: new Date('2026-08-29T12:00:00Z') })];
+    const { service } = buildService(logs, { hasActiveCycle: false });
+    expect(await service.getAgentContext('aluna-1')).toBeNull();
+  });
+
+  it('perfil ativo mas zero ciclos registrados (maturity none): retorna null, nao um objeto vazio', async () => {
+    const { service } = buildService([], { hasActiveCycle: true });
+    expect(await service.getAgentContext('aluna-1')).toBeNull();
+  });
+
+  it('um unico ciclo (maturity low): contexto presente, sem previsao, sem assumir 28 dias', async () => {
+    const logs = [cycleLog({ id: 'a', cycleStartDate: new Date('2026-08-01T12:00:00Z') })];
+    const { service } = buildService(logs, { hasActiveCycle: true, usesHormonalContraceptive: false });
+    const ctx = await service.getAgentContext('aluna-1');
+    expect(ctx).not.toBeNull();
+    expect(ctx!.maturity).toBe('low');
+    expect(ctx!.predictedNextPeriod).toBeNull();
+    expect(ctx!.cycleLengthMedianDays).toBeNull();
+    expect(ctx!.cycleLengthEvidenceN).toBe(0);
+  });
+
+  it('ciclo irregular (established): mediana real (nao 28), janela prevista baseada na variabilidade real, e nunca inclui a lista bruta de ciclos', async () => {
+    const starts = ['2026-01-01', '2026-01-28', '2026-02-28', '2026-03-29', '2026-05-03', '2026-05-31'];
+    const logs = starts.map((d, i) => cycleLog({ id: `c${i}`, cycleStartDate: new Date(d + 'T12:00:00Z') }));
+    const { service } = buildService(logs, { hasActiveCycle: true, usesHormonalContraceptive: false });
+    const ctx = await service.getAgentContext('aluna-1');
+    expect(ctx).not.toBeNull();
+    expect(ctx!.maturity).toBe('established');
+    expect(ctx!.cycleLengthMedianDays).toBe(29); // nunca 28 fixo
+    expect(ctx!.cycleLengthEvidenceN).toBe(5);
+    expect(ctx!.predictedNextPeriod?.basedOnCycles).toBe(5);
+    expect(ctx).not.toHaveProperty('cycles'); // nunca o calendario bruto
+  });
+
+  it('uso de anticoncepcional hormonal chega no contexto do agente (nunca omitido silenciosamente)', async () => {
+    const logs = [cycleLog({ id: 'a' }), cycleLog({ id: 'b', cycleStartDate: new Date('2026-08-29T12:00:00Z') })];
+    const { service } = buildService(logs, { hasActiveCycle: true, usesHormonalContraceptive: true });
+    const ctx = await service.getAgentContext('aluna-1');
+    expect(ctx!.usesHormonalContraceptive).toBe(true);
+    expect(ctx!.reliabilityCaveats.some((c) => c.includes('anticoncepcional'))).toBe(true);
+  });
+});

@@ -8,7 +8,7 @@
 export const GAP_RETURN_THRESHOLD_DAYS = 14;
 
 export const CONTEXT_EVENT_TYPES = [
-  'work', 'routine_change', 'travel', 'family_personal', 'health', 'illness', 'pain_injury', 'sleep', 'other',
+  'work', 'routine_change', 'travel', 'family_personal', 'health', 'illness', 'pain_injury', 'sleep', 'medication', 'other',
 ] as const;
 export type ContextEventType = (typeof CONTEXT_EVENT_TYPES)[number];
 

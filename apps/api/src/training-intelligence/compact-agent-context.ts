@@ -137,6 +137,14 @@ export interface CompactAgentContext {
     mostRecentObservationAt: string | null;
     variablesWithComparabilityWarning: string[];
   };
+  /**
+   * Ciclo menstrual (26/09/2026) — anexado por training-plans.service.ts a partir de
+   * MenstrualCycleService.getAgentContext(), NUNCA calculado aqui (evita dependencia circular entre
+   * training-intelligence e menstrual-cycle: este modulo ja importa training-intelligence pra
+   * matematica/dinamica longitudinal). Ausente quando a aluna nao tem ciclo ativo declarado ou ainda
+   * nao tem nenhum ciclo registrado — nunca um objeto com tudo null pra "completar o formato".
+   */
+  menstrualCycle?: import('../menstrual-cycle/menstrual-cycle.service').AgentMenstrualCycleContext;
 }
 
 type CompactableSnapshot = Omit<VariableSnapshotResponse, 'observations'> & {

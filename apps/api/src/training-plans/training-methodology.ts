@@ -223,15 +223,9 @@ export interface MethodologyInput {
     date: string;
     pacingMode: string | null;
   }>;
-  // Contexto do ciclo menstrual (11/09) — presente apenas para alunas com ciclo ativo registrado.
-  // Passado como INFORMACAO GERAL de contexto, nao como regra de prescricao. O agente pode usar
-  // isso para calibrar tom e expectativas, mas NAO para decidir treino/carga de forma deterministica.
-  // A correlacao sistematica de fase x aderencia/dor sera feita por um agente de analise futuro.
-  menstrualContext?: {
-    phase: 'menstruacao' | 'folicular' | 'ovulatoria' | 'lutea';
-    dayOfCycle: number;
-    isReliable: boolean; // false quando usa anticoncepcional hormonal
-  } | null;
+  // Contexto do ciclo menstrual: 26/09/2026 — removido daqui, agora chega dentro de
+  // athleteStateContext.menstrualCycle (baseado em evidencia real via getCycleOverview, nunca 28
+  // dias/ovulacao dia 14 fixos). Ver prescription-agent.service.ts.
   // Check-in obrigatorio que o aluno responde antes de gerar a proxima semana (31/08, pedido
   // explicito do treinador). Pode ser null pra quem ainda nao passou por essa tela (aluno novo,
   // ou plano sem sessoes ainda). 11/09: expandido para suportar v1 (3 perguntas) e v2 (15).

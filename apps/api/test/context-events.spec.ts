@@ -301,3 +301,48 @@ describe('ContextEventsService — lifeContext compacto (secoes 18, AC; testes V
     void oldEvent;
   });
 });
+
+// 26/09/2026 — Medicamentos como contexto longitudinal. Reaproveita 100% o ContextEvent (type=
+// 'medication'): nome vai em originalText (nunca despachado pro Snapshot/agente, ver
+// getLifeContextData acima — so' type/subtype/datas chegam la), inicio/fim/status ja sao os campos
+// existentes. Nenhuma tabela nova, nenhuma inferencia de efeito farmacologico automatica aqui.
+describe('ContextEventsService — medicamentos como contexto temporal (item 4 do pedido de 26/09)', () => {
+  it('startMedication cria um ContextEvent ongoing com o nome no originalText', async () => {
+    const create = jest.fn().mockImplementation(({ data }: { data: unknown }) => Promise.resolve({ id: 'med-1', ...(data as object) }));
+    const service = new ContextEventsService({ contextEvent: { create } } as never);
+    const event = await service.startMedication('aluna-1', { name: 'Ibuprofeno 600mg', startDate: '2026-09-20' });
+    expect(create.mock.calls[0][0].data).toMatchObject({
+      userId: 'aluna-1', type: 'medication', status: 'ongoing', source: 'student_reported', originalText: 'Ibuprofeno 600mg',
+    });
+    expect(event.startedAt!.toISOString().slice(0, 10)).toBe('2026-09-20');
+  });
+
+  it('startMedication com nota anexa a nota ao nome, nao substitui', async () => {
+    const create = jest.fn().mockImplementation(({ data }: { data: unknown }) => Promise.resolve({ id: 'med-2', ...(data as object) }));
+    const service = new ContextEventsService({ contextEvent: { create } } as never);
+    await service.startMedication('aluna-1', { name: 'Anticoncepcional', startDate: '2026-09-01', note: 'trocou de marca' });
+    expect(create.mock.calls[0][0].data.originalText).toBe('Anticoncepcional — trocou de marca');
+  });
+
+  it('endMedication so encerra um evento do proprio usuario e do tipo medication (nunca outro tipo/usuario)', async () => {
+    const findFirst = jest.fn().mockResolvedValue({ id: 'med-1', userId: 'aluna-1', type: 'medication' });
+    const update = jest.fn().mockResolvedValue({ id: 'med-1', status: 'ended' });
+    const service = new ContextEventsService({ contextEvent: { findFirst, update } } as never);
+    await service.endMedication('aluna-1', 'med-1', { endDate: '2026-09-25' });
+    expect(findFirst).toHaveBeenCalledWith({ where: { id: 'med-1', userId: 'aluna-1', type: 'medication' } });
+    expect(update.mock.calls[0][0].data.status).toBe('ended');
+  });
+
+  it('endMedication lanca erro quando o evento nao existe (nunca encerra silenciosamente algo que nao achou)', async () => {
+    const findFirst = jest.fn().mockResolvedValue(null);
+    const service = new ContextEventsService({ contextEvent: { findFirst, update: jest.fn() } } as never);
+    await expect(service.endMedication('aluna-1', 'inexistente', { endDate: '2026-09-25' })).rejects.toThrow('Medicamento nao encontrado.');
+  });
+
+  it('listMedications filtra estritamente por type=medication (nunca mistura com outros ContextEvents)', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const service = new ContextEventsService({ contextEvent: { findMany } } as never);
+    await service.listMedications('aluna-1');
+    expect(findMany).toHaveBeenCalledWith({ where: { userId: 'aluna-1', type: 'medication' }, orderBy: { startedAt: 'desc' } });
+  });
+});

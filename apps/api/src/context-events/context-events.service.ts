@@ -1,8 +1,10 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
 import { SubmitReturnQuestionnaireDto } from './dto/submit-return-questionnaire.dto';
 import { CreateContextEventDto } from './dto/create-context-event.dto';
+import { StartMedicationDto } from './dto/start-medication.dto';
+import { EndMedicationDto } from './dto/end-medication.dto';
 import { GAP_RETURN_THRESHOLD_DAYS, REASON_TO_CONTEXT_TYPE } from './context-event-types';
 
 export interface GapStatus {
@@ -119,6 +121,49 @@ export class ContextEventsService {
     return this.prisma.contextEvent.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // ── Medicamentos (26/09/2026) — contexto temporal, nunca causal ─────────────────────────────
+  // Reaproveita 100% o ContextEvent existente (type='medication'): inicio/termino/uso-atual ja sao
+  // exatamente startedAt/endedAt/status. Nome do medicamento vai em originalText — o mesmo campo que
+  // ja e' tratado como "nunca despachado pro agente" em getLifeContextData abaixo (so' type/subtype/
+  // datas chegam la), entao o nome nunca vira insumo pra inferencia farmacologica automatica do
+  // agente — so' o Admin/coach ve o nome real. Cada medicamento (mesmo repetido) e' sua propria
+  // linha, igual ao padrao ja estabelecido em MenstrualCycleLog — reinicio de um medicamento antigo
+  // e' um novo registro, historico anterior nunca sobrescrito.
+
+  /** Data-calendario informada pela aluna, sem virada de dia por fuso (mesma convencao do ciclo). */
+  private toCalendarDate(isoDate: string): Date {
+    return new Date(isoDate + 'T12:00:00Z');
+  }
+
+  async startMedication(userId: string, dto: StartMedicationDto) {
+    return this.prisma.contextEvent.create({
+      data: {
+        userId,
+        type: 'medication',
+        startedAt: this.toCalendarDate(dto.startDate),
+        status: 'ongoing',
+        source: 'student_reported',
+        originalText: dto.note?.trim() ? `${dto.name.trim()} — ${dto.note.trim()}` : dto.name.trim(),
+      },
+    });
+  }
+
+  async endMedication(userId: string, eventId: string, dto: EndMedicationDto) {
+    const event = await this.prisma.contextEvent.findFirst({ where: { id: eventId, userId, type: 'medication' } });
+    if (!event) throw new NotFoundException('Medicamento nao encontrado.');
+    return this.prisma.contextEvent.update({
+      where: { id: eventId },
+      data: { endedAt: this.toCalendarDate(dto.endDate), status: 'ended' },
+    });
+  }
+
+  async listMedications(userId: string) {
+    return this.prisma.contextEvent.findMany({
+      where: { userId, type: 'medication' },
+      orderBy: { startedAt: 'desc' },
     });
   }
 

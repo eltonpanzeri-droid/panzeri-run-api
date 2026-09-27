@@ -65,6 +65,20 @@ export interface CycleOverview {
   reliabilityCaveats: string[];
 }
 
+/** Ver getAgentContext() abaixo — o que realmente chega ao agente de prescricao. */
+export interface AgentMenstrualCycleContext {
+  currentDayOfCycle: number | null;
+  isCurrentlyMenstruating: boolean | null;
+  maturity: 'low' | 'moderate' | 'established';
+  usesHormonalContraceptive: boolean | null;
+  cycleLengthMedianDays: number | null;
+  cycleLengthEvidenceN: number;
+  periodLengthMedianDays: number | null;
+  periodLengthEvidenceN: number;
+  predictedNextPeriod: CycleOverview['predictedNextPeriod'];
+  reliabilityCaveats: string[];
+}
+
 @Injectable()
 export class MenstrualCycleService {
   constructor(
@@ -298,7 +312,37 @@ export class MenstrualCycleService {
     };
   }
 
-  // ── Fase atual estimada (legado — inalterado, consumido pelo agente de prescrição) ──────────
+  /**
+   * Contexto compacto e baseado em evidencia real pro agente de prescricao (26/09/2026 — fecha o
+   * gap identificado: o agente recebia so' `getEstimatedPhaseContext`, que ASSUME 28 dias fixos e
+   * ovulacao no dia 14 quando o perfil nao tem cycleLengthDays declarado — exatamente o tipo de
+   * formula fixa que a Training Intelligence existe pra evitar). Reaproveita 100% getCycleOverview
+   * (mesma matematica, nenhum calculo novo aqui) — so' seleciona/renomeia campos, igual ao padrao
+   * de compactVariable em compact-agent-context.ts. Nunca inclui a lista `cycles` inteira (isso e'
+   * o "calendario bruto" que o pedido diz explicitamente pra nao mandar pro agente).
+   * Retorna null quando nao ha nenhum ciclo registrado ainda (maturity='none') — nao ha nada real
+   * a descrever, mesma convencao de "n=0 -> campo ausente" usada no resto do Compact Agent Context.
+   */
+  async getAgentContext(userId: string): Promise<AgentMenstrualCycleContext | null> {
+    const [profile, overview] = await Promise.all([this.getProfile(userId), this.getCycleOverview(userId)]);
+    const maturity = overview.maturity;
+    if (!profile?.hasActiveCycle || maturity === 'none') return null;
+    return {
+      currentDayOfCycle: overview.currentDayOfCycle,
+      isCurrentlyMenstruating: overview.isCurrentlyMenstruating,
+      maturity,
+      usesHormonalContraceptive: profile.usesHormonalContraceptive,
+      cycleLengthMedianDays: overview.cycleLengthStats?.median ?? null,
+      cycleLengthEvidenceN: overview.cycleLengthStats?.n ?? 0,
+      periodLengthMedianDays: overview.periodLengthStats?.median ?? null,
+      periodLengthEvidenceN: overview.periodLengthStats?.n ?? 0,
+      predictedNextPeriod: overview.predictedNextPeriod,
+      reliabilityCaveats: overview.reliabilityCaveats,
+    };
+  }
+
+  // ── Fase atual estimada (legado — inalterado; consumido pelo painel do treinador/correlacoes,
+  // NAO mais pelo agente de prescricao desde 26/09/2026, ver getAgentContext acima) ──────────────
 
   async getEstimatedPhaseContext(userId: string): Promise<PhaseContext | null> {
     const profile = await this.getProfile(userId);
