@@ -16,6 +16,9 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
 import { SATISFACTION_SCORE } from '../workout-completions/workout-completions.service';
+import { EvolutionMetricService } from '../evolution/evolution-metric.service';
+import type { EvolutionSeries } from '../evolution/evolution.types';
+import { MathLayerService, SeriesPoint } from './math-layer.service';
 import { getVariableDefinition, InstrumentVersionSpec, VariableDefinition } from './variable-registry';
 
 export interface Observation {
@@ -23,7 +26,7 @@ export interface Observation {
   variableId: string;
   value: number;
   timestamp: Date;
-  source: 'student_feedback_per_workout' | 'student_weekly_checkin' | 'student_menstrual_daily_log' | 'student_menstrual_cycle_log';
+  source: 'student_feedback_per_workout' | 'student_weekly_checkin' | 'student_menstrual_daily_log' | 'student_menstrual_cycle_log' | 'weekly_training_load';
   instrumentVersion: number;
   context: {
     sessionId?: string;
@@ -33,6 +36,18 @@ export interface Observation {
     scheduledDate?: string;
     isExtra?: boolean;
     flowIntensity?: string;
+    // Volume/Aderência/ACWR (26/09/2026) — rastreabilidade de proporções e razões, nunca uma % ou
+    // razão sozinha escondendo o tamanho da amostra por trás (itens 9/18 do pedido).
+    numerator?: number;
+    denominator?: number;
+    coveragePercent?: number;
+    isPartialWeek?: boolean;
+    acuteValue?: number;
+    chronicValue?: number;
+    acuteWindowDays?: number;
+    chronicWindowDays?: number;
+    acuteWeeksUsed?: number;
+    chronicWeeksUsed?: number;
   };
 }
 
@@ -58,6 +73,28 @@ function extractRawValue(
   return undefined;
 }
 
+/**
+ * Semana em andamento (item 27 do pedido de 26/09) — não comparar silenciosamente uma semana
+ * completa com uma semana ainda no meio. weekStart é sempre segunda-feira (convenção já usada em
+ * EvolutionMetricService); "em andamento" = hoje cai dentro dos 7 dias daquela semana.
+ */
+function isCurrentPartialWeek(weekStartISO: string): boolean {
+  const start = new Date(weekStartISO + 'T00:00:00Z');
+  const end = new Date(start.getTime() + 7 * 86400000);
+  const now = new Date();
+  return now >= start && now < end;
+}
+
+function makeTrainingLoadObs(
+  athleteId: string,
+  variableId: string,
+  value: number,
+  timestamp: Date,
+  context: Observation['context'],
+): Observation {
+  return { athleteId, variableId, value, timestamp, source: 'weekly_training_load', instrumentVersion: 1, context };
+}
+
 /** Converte o valor bruto (numero ou categoria conhecida) num numero, ou undefined se nao aplicavel. */
 function toNumericValue(variableId: string, raw: unknown): number | undefined {
   if (raw == null) return undefined; // ausencia — nunca vira zero
@@ -74,7 +111,11 @@ function toNumericValue(variableId: string, raw: unknown): number | undefined {
 
 @Injectable()
 export class ObservationReaderService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly evolutionMetric: EvolutionMetricService,
+    private readonly mathLayer: MathLayerService,
+  ) {}
 
   async getObservations(athleteId: string, variableId: string): Promise<Observation[]> {
     const definition = getVariableDefinition(variableId);
@@ -90,6 +131,9 @@ export class ObservationReaderService {
     }
     if (definition.source === 'student_menstrual_cycle_log') {
       return this.readMenstrualCycleVariable(athleteId, definition);
+    }
+    if (definition.source === 'weekly_training_load') {
+      return this.readTrainingLoadVariable(athleteId, definition);
     }
     return this.readCheckinVariable(athleteId, definition);
   }
@@ -232,6 +276,103 @@ export class ObservationReaderService {
       }
     }
 
+    return observations;
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // Volume, aderência, carga semanal e ACWR (26/09/2026 — auditoria Volume/Aderência/ACWR).
+  // Fonte real: EvolutionMetricService (getSeries/getSeriesByModality/getDistinctModalities) —
+  // NENHUM cálculo de aderência/volume/km é refeito aqui, só selecionado e reformatado como
+  // Observation. GLOBAL (sem modalidade) + uma série por modalidade REALMENTE existente no
+  // histórico do aluno (nunca uma lista fixa hardcoded — ver getDistinctModalities). ACWR é
+  // deliberadamente só GLOBAL nesta rodada (carga recente/histórica combinando todas as
+  // modalidades é o que faz sentido pra essa razão especificamente).
+  // -----------------------------------------------------------------------------------------
+
+  private async readTrainingLoadVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
+    const id = definition.variableId;
+
+    if (id === 'training.acwr') {
+      return this.readAcwr(athleteId);
+    }
+
+    const modalities = await this.evolutionMetric.getDistinctModalities(athleteId);
+    const variants: Array<{ modality?: string; series: EvolutionSeries }> = [
+      { modality: undefined, series: await this.evolutionMetric.getSeries(athleteId) },
+    ];
+    for (const modality of modalities) {
+      variants.push({ modality, series: await this.evolutionMetric.getSeriesByModality(athleteId, modality) });
+    }
+
+    const observations: Observation[] = [];
+    for (const { modality, series } of variants) {
+      for (const w of series.weeks) {
+        const timestamp = new Date(w.weekStart + 'T12:00:00Z');
+        const isPartialWeek = isCurrentPartialWeek(w.weekStart);
+
+        if (id === 'training.volumePrescribedKm' && w.kmPrescritos != null) {
+          observations.push(makeTrainingLoadObs(athleteId, id, w.kmPrescritos, timestamp, { modality, isPartialWeek }));
+        } else if (id === 'training.volumeCompletedTotalKm' && w.kmPercorridos != null) {
+          observations.push(makeTrainingLoadObs(athleteId, id, w.kmPercorridos, timestamp, { modality, isPartialWeek }));
+        } else if (id === 'training.volumeExtraKm' && w.kmExtras != null) {
+          observations.push(makeTrainingLoadObs(athleteId, id, w.kmExtras, timestamp, { modality, isPartialWeek }));
+        } else if (id === 'training.volumeCompletedPrescribedOnlyKm' && w.kmPercorridos != null) {
+          observations.push(makeTrainingLoadObs(athleteId, id, w.kmPercorridos - (w.kmExtras ?? 0), timestamp, { modality, isPartialWeek }));
+        } else if (id === 'training.volumeDiffAbsoluteKm' && w.kmPercorridos != null && w.kmPrescritos != null) {
+          observations.push(makeTrainingLoadObs(athleteId, id, w.kmPercorridos - w.kmPrescritos, timestamp, { modality, isPartialWeek }));
+        } else if (id === 'training.volumeRatioCompletedPrescribed' && w.kmPercorridos != null && w.kmPrescritos != null && w.kmPrescritos > 0) {
+          observations.push(makeTrainingLoadObs(athleteId, id, w.kmPercorridos / w.kmPrescritos, timestamp, { modality, isPartialWeek }));
+        } else if (id === 'training.adherencePercent' && w.adherencePercent != null) {
+          observations.push(makeTrainingLoadObs(athleteId, id, w.adherencePercent, timestamp, {
+            modality, isPartialWeek,
+            numerator: w.sessoesFeitas,
+            denominator: w.sessoesFeitas + w.sessoesNaoFeitas,
+            coveragePercent: w.coveragePercent,
+          }));
+        }
+      }
+    }
+    return observations;
+  }
+
+  /**
+   * ACWR — média móvel de 28 dias (aguda) ÷ 42 dias (crônica) sobre a MESMA série de
+   * training.volumeCompletedTotalKm, usando MathLayerService.movingAverage com janela por
+   * calendar_days (nunca por índice de array — bug real do gráfico antigo do Admin, que deslizava
+   * a janela por posição na lista e quebrava se houvesse semana faltando no meio do histórico).
+   * Só GLOBAL nesta rodada.
+   */
+  private async readAcwr(athleteId: string): Promise<Observation[]> {
+    const series = await this.evolutionMetric.getSeries(athleteId);
+    const loadPoints: SeriesPoint[] = series.weeks
+      .filter((w) => w.kmPercorridos != null)
+      .map((w) => ({ value: w.kmPercorridos as number, timestamp: new Date(w.weekStart + 'T12:00:00Z') }));
+
+    const observations: Observation[] = [];
+    for (const w of series.weeks) {
+      if (w.kmPercorridos == null) continue;
+      const asOf = new Date(w.weekStart + 'T12:00:00Z');
+      const acute = this.mathLayer.movingAverage(loadPoints, { kind: 'calendar_days', size: 28 }, asOf);
+      const chronic = this.mathLayer.movingAverage(loadPoints, { kind: 'calendar_days', size: 42 }, asOf);
+      if (acute.value == null || chronic.value == null || chronic.value === 0) continue; // sem referencia historica ainda — nunca inventa uma razao
+      observations.push({
+        athleteId,
+        variableId: 'training.acwr',
+        value: acute.value / chronic.value,
+        timestamp: asOf,
+        source: 'weekly_training_load',
+        instrumentVersion: 1,
+        context: {
+          isPartialWeek: isCurrentPartialWeek(w.weekStart),
+          acuteValue: acute.value,
+          chronicValue: chronic.value,
+          acuteWindowDays: 28,
+          chronicWindowDays: 42,
+          acuteWeeksUsed: acute.n,
+          chronicWeeksUsed: chronic.n,
+        },
+      });
+    }
     return observations;
   }
 

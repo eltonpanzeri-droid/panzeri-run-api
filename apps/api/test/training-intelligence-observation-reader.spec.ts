@@ -11,7 +11,7 @@ function buildReader(sessions: unknown[], checkins: unknown[] = []) {
     trainingSession: { findMany: jest.fn().mockResolvedValue(sessions) },
     weeklyCheckIn: { findMany: jest.fn().mockResolvedValue(checkins) },
   };
-  return { reader: new ObservationReaderService(prisma as never), prisma };
+  return { reader: new ObservationReaderService(prisma as never, {} as never, {} as never), prisma };
 }
 
 function session(overrides: Record<string, unknown>) {

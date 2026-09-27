@@ -6,7 +6,7 @@ import { ObservationReaderService } from '../src/training-intelligence/observati
 
 function buildReader(dailyLogs: unknown[]) {
   const prisma = { menstrualDailyLog: { findMany: jest.fn().mockResolvedValue(dailyLogs) } };
-  return new ObservationReaderService(prisma as never);
+  return new ObservationReaderService(prisma as never, {} as never, {} as never);
 }
 
 function dailyLog(overrides: Record<string, unknown>) {
@@ -49,7 +49,7 @@ describe('ObservationReaderService — cycle.* (MenstrualDailyLog)', () => {
 // MenstrualCycleLog (nao MenstrualDailyLog), uma observacao por INTERVALO, nao por registro isolado.
 function buildCycleReader(cycleLogs: unknown[]) {
   const prisma = { menstrualCycleLog: { findMany: jest.fn().mockResolvedValue(cycleLogs) } };
-  return new ObservationReaderService(prisma as never);
+  return new ObservationReaderService(prisma as never, {} as never, {} as never);
 }
 function cycleLog(overrides: Record<string, unknown>) {
   return {

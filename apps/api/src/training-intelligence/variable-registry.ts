@@ -22,7 +22,8 @@ export type VariableDomain =
   | 'psychological_state'
   | 'training_response'
   | 'pain_health'
-  | 'menstrual_cycle';
+  | 'menstrual_cycle'
+  | 'training_load';
 
 export type VariableDataType = 'ordinal_scale' | 'categorical' | 'numeric_continuous';
 
@@ -32,7 +33,7 @@ export type VariableDataType = 'ordinal_scale' | 'categorical' | 'numeric_contin
  */
 export type SemanticDirection = 'higher_is_more_of_construct' | 'not_directional';
 
-export type VariableSource = 'student_feedback_per_workout' | 'student_weekly_checkin' | 'student_menstrual_daily_log' | 'student_menstrual_cycle_log';
+export type VariableSource = 'student_feedback_per_workout' | 'student_weekly_checkin' | 'student_menstrual_daily_log' | 'student_menstrual_cycle_log' | 'weekly_training_load';
 
 export type MathStrategy = 'ordinal_or_continuous_stats' | 'categorical_frequency';
 
@@ -628,6 +629,148 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
     notes: 'So existe quando o FIM do sangramento foi informado — nunca inventa um fim. Timestamp = data de início daquele ciclo.',
+  },
+
+  // ---------------------------------------------------------------------------------------------
+  // Volume, aderência e carga semanal (26/09/2026 — auditoria Volume/Aderência/ACWR). Fonte real:
+  // EvolutionMetricService (evolution-metric.service.ts), NUNCA recalculado aqui — este arquivo só
+  // registra a SEMÂNTICA de cada série já existente. Granularidade semanal real (expectedFrequency
+  // 'per_week') — MM21/MM60/MM200 continuam significando 21/60/200 DIAS de calendário (a Camada
+  // Matemática já trabalha por calendar_days, nunca por contagem de observações), então uma janela
+  // de "MM21" aqui cobre ~3 semanas de dados, não 21 semanas — a UI mostra n/coverage reais, nunca
+  // esconde a amostra pequena atrás de um rótulo enganoso.
+  // ---------------------------------------------------------------------------------------------
+  'training.volumePrescribedKm': {
+    variableId: 'training.volumePrescribedKm',
+    domain: 'training_load',
+    dataType: 'numeric_continuous',
+    constructLabel: 'volume prescrito',
+    scale: { min: 0, max: 200, unit: 'km' },
+    direction: 'not_directional',
+    source: 'weekly_training_load',
+    expectedFrequency: 'per_week',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, field: 'kmPrescritos', storageLocation: 'column' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes: 'Soma de km planejados (TrainingSession.distanceKm) na semana — inclui apenas sessões com distância planejada preenchida. Ausente (nunca zero) quando nenhuma sessão da semana tinha km planejado.',
+  },
+  'training.volumeCompletedTotalKm': {
+    variableId: 'training.volumeCompletedTotalKm',
+    domain: 'training_load',
+    dataType: 'numeric_continuous',
+    constructLabel: 'volume total realizado',
+    scale: { min: 0, max: 200, unit: 'km' },
+    direction: 'not_directional',
+    source: 'weekly_training_load',
+    expectedFrequency: 'per_week',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, field: 'kmPercorridos', storageLocation: 'column' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes: 'kmPercorridos de EvolutionMetricService — soma de km das sessões FEITAS (done/adjusted) na semana, JÁ INCLUINDO sessões extras (ver volumeCompletedPrescribedOnlyKm pra isolar só o prescrito). Esta é a série usada como "carga semanal" pro ACWR.',
+  },
+  'training.volumeCompletedPrescribedOnlyKm': {
+    variableId: 'training.volumeCompletedPrescribedOnlyKm',
+    domain: 'training_load',
+    dataType: 'numeric_continuous',
+    constructLabel: 'volume realizado (só sessões prescritas)',
+    scale: { min: 0, max: 200, unit: 'km' },
+    direction: 'not_directional',
+    source: 'weekly_training_load',
+    expectedFrequency: 'per_week',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, field: 'kmPercorridos', storageLocation: 'column' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: true,
+    notes: 'kmPercorridos MENOS kmExtras — isola o volume que veio da prescrição em si, sem o que o aluno fez por iniciativa própria. Item 2 do pedido: nunca fundir prescrito-executado com extra na mesma série.',
+  },
+  'training.volumeExtraKm': {
+    variableId: 'training.volumeExtraKm',
+    domain: 'training_load',
+    dataType: 'numeric_continuous',
+    constructLabel: 'volume extra (iniciativa própria)',
+    scale: { min: 0, max: 100, unit: 'km' },
+    direction: 'not_directional',
+    source: 'weekly_training_load',
+    expectedFrequency: 'per_week',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, field: 'kmExtras', storageLocation: 'column' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes: 'kmExtras de EvolutionMetricService — km de sessões criadas pelo próprio aluno (structure.source=student, type=extra). Ausente (nunca zero) na semana em que não houve nenhuma sessão extra.',
+  },
+  'training.volumeDiffAbsoluteKm': {
+    variableId: 'training.volumeDiffAbsoluteKm',
+    domain: 'training_load',
+    dataType: 'numeric_continuous',
+    constructLabel: 'diferença realizado menos prescrito',
+    scale: { min: -100, max: 100, unit: 'km' },
+    direction: 'not_directional',
+    source: 'weekly_training_load',
+    expectedFrequency: 'per_week',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, storageLocation: 'details_json', detailsKey: 'volumeDiffAbsoluteKm' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes: 'volumeCompletedTotalKm − volumePrescribedKm, calculado só quando AMBOS existem naquela semana (nunca inventa um dos dois pra completar a subtração — semana sem km prescrito não vira "diferença de -X").',
+  },
+  'training.volumeRatioCompletedPrescribed': {
+    variableId: 'training.volumeRatioCompletedPrescribed',
+    domain: 'training_load',
+    dataType: 'numeric_continuous',
+    constructLabel: 'razão realizado/prescrito',
+    scale: { min: 0, max: 3 },
+    direction: 'not_directional',
+    source: 'weekly_training_load',
+    expectedFrequency: 'per_week',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, storageLocation: 'details_json', detailsKey: 'volumeRatioCompletedPrescribed' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes: 'volumeCompletedTotalKm ÷ volumePrescribedKm — só existe quando prescrito > 0 (item 3 do pedido: semana sem prescrição NUNCA vira 0% nem 100%, simplesmente não gera observação nessa semana).',
+  },
+  'training.adherencePercent': {
+    variableId: 'training.adherencePercent',
+    domain: 'training_load',
+    dataType: 'numeric_continuous',
+    constructLabel: 'aderência semanal',
+    scale: { min: 0, max: 100, unit: '%' },
+    direction: 'higher_is_more_of_construct',
+    source: 'weekly_training_load',
+    expectedFrequency: 'per_week',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, field: 'adherencePercent', storageLocation: 'column' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes:
+      'feitas ÷ (feitas + não-feitas) — sem registro NUNCA entra no denominador (mesma fórmula canônica de EvolutionMetricService/coach.service.ts). Ausente (nunca 0%) na semana em que feitas+naoFeitas=0. ' +
+      'Numerador/denominador/coverage reais ficam no context de cada observação (context.numerator/denominator/coveragePercent) — a % nunca aparece sem o tamanho da amostra por trás.',
+  },
+  'training.acwr': {
+    variableId: 'training.acwr',
+    domain: 'training_load',
+    dataType: 'numeric_continuous',
+    constructLabel: 'relação carga aguda:crônica (ACWR)',
+    scale: { min: 0, max: 3 },
+    direction: 'not_directional',
+    source: 'weekly_training_load',
+    expectedFrequency: 'per_week',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, storageLocation: 'details_json', detailsKey: 'acwr' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes:
+      'Média móvel de 28 dias (aguda) ÷ média móvel de 42 dias (crônica) de training.volumeCompletedTotalKm, calculadas com a MESMA MathLayerService.movingAverage do resto da Training Intelligence (calendar_days, nunca por índice de array). ' +
+      'É uma RELAÇÃO descritiva — não representa segurança, risco, correção de treino nem suficiência de estímulo por si só. Composição completa (agudo/crônico/coverage) fica no context de cada observação.',
   },
 };
 

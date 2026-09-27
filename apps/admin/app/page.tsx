@@ -3180,7 +3180,7 @@ function StudentPanel({
           <GroupLabel label="Treinamento" />
 
           <EvoSection icon="📊" title="Volume semanal" badge={`${filteredWeeks.length} sem`}
-            desc="Km completados por semana (barra) vs prescritos (linha tracejada). Cor da barra = variação % vs semana anterior. Linha roxa = tendência de evolução.">
+            desc="Km completados por semana (barra) vs prescritos (linha tracejada). Linha roxa = tendência de evolução. Pra aprofundar (prescrito/realizado/extra separados, tendência, baseline, faixa habitual, comparar modalidades): Exploração Longitudinal → Volume, aderência e carga, mais abaixo.">
             <KmEvolutionChart weeks={filteredWeeks} period={999} />
             <EvolutionKeyNumbers weeks={allWeeks} period={evolPeriod} />
           </EvoSection>
@@ -3191,7 +3191,7 @@ function StudentPanel({
           </EvoSection>
 
           <EvoSection icon="📋" title="Aderência aos treinos" badge={filteredWeeks.length > 0 ? `${filteredWeeks.length} sem` : undefined}
-            desc="% de treinos planejados que foram realizados por semana. As 5 categorias (prescrito/feito/perdido/sem registro/extra) são sempre mostradas separadas — nunca somadas escondendo o detalhe. Não existe uma meta universal — compare com o histórico e o baseline individual deste aluno, não com um número fixo.">
+            desc="% de treinos planejados que foram realizados por semana. As 5 categorias (prescrito/feito/perdido/sem registro/extra) são sempre mostradas separadas — nunca somadas escondendo o detalhe. Não existe uma meta universal — compare com o histórico e o baseline individual deste aluno, não com um número fixo. Pra ver numerador/denominador/coverage de cada ponto e a tendência ao longo do tempo: Exploração Longitudinal → Volume, aderência e carga.">
             <LoadChartAderencia weeks={filteredWeeks} history={hist} />
           </EvoSection>
 
@@ -3201,7 +3201,7 @@ function StudentPanel({
           </EvoSection>
 
           <EvoSection icon="📈" title="Carga semanal e relação aguda:crônica" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
-            desc="Carga Semanal é a série de volume realizado por semana. ACWR (Aguda:Crônica) é uma RELAÇÃO derivada dela — quanto a carga recente representa frente à referência histórica do próprio aluno. Descreve magnitude de variação, não segurança, risco ou correção — não responde sozinho 'está treinando certo?' ou 'precisa reduzir?'. Interprete sempre junto com RPE, sono, dor e contexto real do aluno.">
+            desc="Carga Semanal é a série de volume realizado por semana. ACWR (Aguda:Crônica) é uma RELAÇÃO derivada dela — quanto a carga recente representa frente à referência histórica do próprio aluno. Descreve magnitude de variação, não segurança, risco ou correção — não responde sozinho 'está treinando certo?' ou 'precisa reduzir?'. Interprete sempre junto com RPE, sono, dor e contexto real do aluno. Composição completa (agudo/crônico/janelas/coverage) de cada ponto: Exploração Longitudinal → Volume, aderência e carga → relação carga aguda:crônica.">
             <LoadAnalysisSection weeks={filteredWeeks} />
           </EvoSection>
 
@@ -3618,6 +3618,7 @@ interface TrainingIntelligenceOverviewResponse {
 const VARIABLE_DOMAIN_LABELS: Record<string, string> = {
   sleep: 'Sono', physical_state: 'Estado físico', psychological_state: 'Estado psicológico',
   training_response: 'Resposta ao treino', pain_health: 'Dor/Saúde', menstrual_cycle: 'Ciclo menstrual',
+  training_load: 'Volume, aderência e carga',
 };
 
 interface VariableLegendEntry {

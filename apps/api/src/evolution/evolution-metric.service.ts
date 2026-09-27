@@ -69,7 +69,7 @@ export class EvolutionMetricService {
   // Busca de dados brutos
   // -------------------------------------------------------------------------
 
-  private async fetchRawSessions(userId: string): Promise<RawSessionData[]> {
+  private async fetchRawSessions(userId: string, modality?: string): Promise<RawSessionData[]> {
     // Corte de data centralizado em training-history-policy.ts (25/09/2026) — antes ficava so'
     // aqui; agora ObservationReaderService usa a MESMA constante, pra nunca discordar sobre o que
     // conta como historico esportivo real.
@@ -77,6 +77,7 @@ export class EvolutionMetricService {
       where: {
         userId,
         scheduledDate: { gte: TRAINING_INTELLIGENCE_DATA_CUTOFF },
+        ...(modality ? { modality } : {}),
       },
       include: {
         completion: true,
@@ -437,6 +438,37 @@ export class EvolutionMetricService {
   async getSeries(userId: string): Promise<EvolutionSeries> {
     const todayBR = getTodayBR();
     const sessions = await this.fetchRawSessions(userId);
+
+    return {
+      weeks: this.buildWeeklyVolumes(sessions, todayBR),
+      months: this.buildMonthlyAggregates(sessions, todayBR),
+      calculatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Modalidades distintas com sessão real no histórico válido deste aluno (26/09/2026) — usado pra
+   * descobrir quais séries por modalidade fazem sentido oferecer, sem hardcodar uma lista fixa que
+   * pode ficar desatualizada (ver caso real: 'forca' e 'musculacao' já coexistiram como valores).
+   */
+  async getDistinctModalities(userId: string): Promise<string[]> {
+    const rows = await this.prisma.trainingSession.findMany({
+      where: { userId, scheduledDate: { gte: TRAINING_INTELLIGENCE_DATA_CUTOFF } },
+      distinct: ['modality'],
+      select: { modality: true },
+    });
+    return rows.map((r) => r.modality).filter((m): m is string => Boolean(m));
+  }
+
+  /**
+   * Mesma série semanal, filtrada por UMA modalidade (26/09/2026 — auditoria Volume/Aderência/ACWR,
+   * item 6 do pedido). Reaproveita 100% a mesma agregação/classificação — FILTRAR as sessões antes,
+   * nunca uma segunda fórmula. Usado pela Training Intelligence pra oferecer Volume/Aderência por
+   * modalidade sem duplicar o cálculo de EvolutionMetricService.
+   */
+  async getSeriesByModality(userId: string, modality: string): Promise<EvolutionSeries> {
+    const todayBR = getTodayBR();
+    const sessions = await this.fetchRawSessions(userId, modality);
 
     return {
       weeks: this.buildWeeklyVolumes(sessions, todayBR),
