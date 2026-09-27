@@ -1961,7 +1961,7 @@ function buildEvolutionReportContent(detail: any) {
     sections: [
       {
         title: 'Execucao do programa',
-        text: `Aderencia atual: ${summary.adherencePercent}%. Foram concluidos ${summary.completedSessions} de ${summary.prescribedSessions} treino(s), com ${summary.completedKm}/${summary.prescribedKm} km registrados no app.`,
+        text: `Aderencia atual: ${summary.adherencePercent != null ? `${summary.adherencePercent}%` : 'sem dado suficiente ainda'}. Foram concluidos ${summary.completedSessions} de ${summary.prescribedSessions} treino(s), com ${summary.completedKm}/${summary.prescribedKm} km registrados no app.`,
       },
       {
         title: 'Feedback do aluno',
@@ -2055,7 +2055,7 @@ function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex');
 }
 
-function summarizeSessions(sessions: Array<{ scheduledDate: Date; durationMin: number | null; distanceKm: number | null; completion: { status: string; distanceKm: number | null } | null }>) {
+export function summarizeSessions(sessions: Array<{ scheduledDate: Date; durationMin: number | null; distanceKm: number | null; completion: { status: string; distanceKm: number | null } | null }>) {
   const today = new Date();
   today.setUTCHours(23, 59, 59, 999);
   const prescribedSessions = sessions.length;
@@ -2082,7 +2082,12 @@ function summarizeSessions(sessions: Array<{ scheduledDate: Date; durationMin: n
     differentSessions,
     prescribedKm,
     completedKm,
-    adherencePercent: adherenceDenominator ? Math.round((completedSessions / adherenceDenominator) * 100) : 0,
+    // 27/09/2026 (auditoria Volume/Aderência/ACWR, item 3/10 do pedido): sem nenhuma sessão
+    // feita/perdida ainda, não sabemos a aderência — null, nunca 0%. Antes retornava 0, que um
+    // aluno recém-chegado (ou uma semana ainda sem nenhum feedback) exibia como "0% de aderência"
+    // quando na verdade é "ainda sem dado". EvolutionMetricService (evolution-metric.service.ts)
+    // já fazia isso certo; esta função (usada pelo histórico de planos do Admin) não fazia.
+    adherencePercent: adherenceDenominator ? Math.round((completedSessions / adherenceDenominator) * 100) : null,
   };
 }
 
@@ -2096,7 +2101,7 @@ function emptySummary() {
     differentSessions: 0,
     prescribedKm: 0,
     completedKm: 0,
-    adherencePercent: 0,
+    adherencePercent: null as number | null,
   };
 }
 

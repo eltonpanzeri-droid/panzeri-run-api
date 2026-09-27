@@ -229,7 +229,7 @@ interface StudentDetail {
       differentSessions: number;
       prescribedKm: number;
       completedKm: number;
-      adherencePercent: number;
+      adherencePercent: number | null;
     };
     sessions: Array<{
       id: string;
@@ -294,7 +294,7 @@ interface StudentDetail {
     summary: {
       prescribedSessions: number;
       completedSessions: number;
-      adherencePercent: number;
+      adherencePercent: number | null;
       prescribedKm: number;
       completedKm: number;
     };
@@ -3441,7 +3441,7 @@ function StudentPanel({
       <>
       <div className="detailGrid">
         <Detail icon={<UserRound size={18} />} label="Objetivo" value={student.goal} />
-        <Detail icon={<Gauge size={18} />} label="Aderencia" value={`${student.plan?.summary.adherencePercent ?? 0}%`} />
+        <Detail icon={<Gauge size={18} />} label="Aderencia" value={student.plan?.summary.adherencePercent != null ? `${student.plan.summary.adherencePercent}%` : '— (sem dado ainda)'} />
         <Detail icon={<CheckCircle2 size={18} />} label="Feitos" value={`${student.plan?.summary.completedSessions ?? 0}/${student.plan?.summary.prescribedSessions ?? 0}`} />
         <Detail icon={<AlertTriangle size={18} />} label="Diferentes" value={String(student.plan?.summary.differentSessions ?? 0)} />
       </div>
@@ -3538,7 +3538,7 @@ function StudentPanel({
           student.history.map((plan) => (
             <div className="historyWeek" key={plan.id}>
               <button className="historyWeekButton" type="button" onClick={() => setExpandedHistoryId((current) => current === plan.id ? '' : plan.id)}>
-                <span><strong>{dateLabel(plan.startDate)} - {plan.name}</strong><small>{plan.summary.adherencePercent}% aderencia | {plan.summary.completedSessions}/{plan.summary.prescribedSessions} treinos | {plan.summary.completedKm}/{plan.summary.prescribedKm} km</small></span>
+                <span><strong>{dateLabel(plan.startDate)} - {plan.name}</strong><small>{plan.summary.adherencePercent != null ? `${plan.summary.adherencePercent}% aderencia` : 'sem dado de aderencia ainda'} | {plan.summary.completedSessions}/{plan.summary.prescribedSessions} treinos | {plan.summary.completedKm}/{plan.summary.prescribedKm} km</small></span>
                 <span>{expandedHistoryId === plan.id ? 'Recolher' : 'Abrir semana'}</span>
               </button>
               {expandedHistoryId === plan.id ? (
