@@ -170,3 +170,50 @@ describe('MenstrualCycleService.getAgentContext', () => {
     expect(ctx!.reliabilityCaveats.some((c) => c.includes('anticoncepcional'))).toBe(true);
   });
 });
+
+// 26/09/2026 — item 9/10: fonte UNICA das duas condicoes de "manter o calendario vivo", reaproveitada
+// pelo cron (push) E pelo endpoint que o app consulta ao abrir a tela (getPendingCheck).
+describe('MenstrualCycleService.getPendingCheck', () => {
+  it('sem nenhum ciclo: nada pendente', async () => {
+    const { service } = buildService([]);
+    expect(await service.getPendingCheck('aluna-1')).toBeNull();
+  });
+
+  it('ciclo em curso, ainda dentro da duracao tipica de sangramento: nada pendente ainda', async () => {
+    const logs = [
+      cycleLog({ id: 'a', cycleStartDate: new Date('2026-08-01T12:00:00Z'), cycleEndDate: new Date('2026-08-05T12:00:00Z') }), // periodo tipico = 5 dias
+      cycleLog({ id: 'b', cycleStartDate: new Date(Date.now() - 2 * 86400000) }), // comecou ha 2 dias, ainda dentro do esperado
+    ];
+    const { service } = buildService(logs);
+    expect(await service.getPendingCheck('aluna-1')).toBeNull();
+  });
+
+  it('ciclo em curso, dia atual dentro da janela pos-duracao-tipica: pergunta "provavelmente terminou"', async () => {
+    const logs = [
+      cycleLog({ id: 'a', cycleStartDate: new Date('2026-08-01T12:00:00Z'), cycleEndDate: new Date('2026-08-05T12:00:00Z') }), // periodo tipico = 5 dias
+      cycleLog({ id: 'b', cycleStartDate: new Date(Date.now() - 6 * 86400000) }), // comecou ha 6 dias, sem fim informado
+    ];
+    const { service } = buildService(logs);
+    const pending = await service.getPendingCheck('aluna-1');
+    expect(pending?.type).toBe('period_likely_ended');
+    expect(pending?.cycleId).toBe('b');
+  });
+
+  it('confirmar o fim (endDate preenchido) faz a pergunta desaparecer sozinha — nenhum estado extra guardado', async () => {
+    const logs = [
+      cycleLog({ id: 'a', cycleStartDate: new Date('2026-08-01T12:00:00Z'), cycleEndDate: new Date('2026-08-05T12:00:00Z') }),
+      cycleLog({ id: 'b', cycleStartDate: new Date(Date.now() - 6 * 86400000), cycleEndDate: new Date(Date.now() - 1 * 86400000) }),
+    ];
+    const { service } = buildService(logs);
+    expect(await service.getPendingCheck('aluna-1')).toBeNull();
+  });
+
+  it('janela prevista do proximo periodo ja passou: pergunta "atraso na prevista"', async () => {
+    const starts = ['2026-01-01', '2026-01-29', '2026-02-26'];
+    const logs = starts.map((d, i) => cycleLog({ id: `c${i}`, cycleStartDate: new Date(d + 'T12:00:00Z') }));
+    const { service } = buildService(logs);
+    const pending = await service.getPendingCheck('aluna-1');
+    // ciclo de ~28 dias a partir de 26/02/2026 -> janela prevista muito no passado frente a "hoje" (2026, data real do teste)
+    expect(pending?.type).toBe('period_expected_overdue');
+  });
+});

@@ -65,6 +65,14 @@ export interface CycleOverview {
   reliabilityCaveats: string[];
 }
 
+/** Ver getPendingCheck() abaixo — pergunta pendente pra manter o calendario vivo. */
+export interface PendingCycleCheck {
+  type: 'period_likely_ended' | 'period_expected_overdue';
+  cycleId: string;
+  suggestedDate: string;
+  message: string;
+}
+
 /** Ver getAgentContext() abaixo — o que realmente chega ao agente de prescricao. */
 export interface AgentMenstrualCycleContext {
   currentDayOfCycle: number | null;
@@ -339,6 +347,51 @@ export class MenstrualCycleService {
       predictedNextPeriod: overview.predictedNextPeriod,
       reliabilityCaveats: overview.reliabilityCaveats,
     };
+  }
+
+  /**
+   * Pergunta pendente pra manter o calendario vivo (item 9/10 do pedido de 26/09) — UNICA fonte de
+   * verdade pras DUAS condicoes ("provavelmente terminou" / "atraso na prevista"), reaproveitada
+   * tanto pelo cron diario (NotificationTriggersService, que dispara o push) quanto pelo endpoint
+   * que o app consulta ao abrir a tela de Ciclo (pra mostrar o banner mesmo sem ter recebido push,
+   * ou se ela abriu o app antes do cron rodar). "Nao criar varios ifs espalhados" — antes disso
+   * cada consumidor tinha sua propria copia da mesma condicao; agora e' uma so'.
+   * AUTO-RESOLVENTE por construcao: assim que a aluna confirma (fim do ciclo / novo ciclo comecado),
+   * a condicao que gerou a pergunta deixa de existir e getPendingCheck() naturalmente para de
+   * retornar nada — nenhum estado extra de "ja respondida" precisa ser guardado aqui.
+   */
+  async getPendingCheck(userId: string): Promise<PendingCycleCheck | null> {
+    const overview = await this.getCycleOverview(userId);
+    const lastCycle = overview.cycles[overview.cycles.length - 1];
+    if (!lastCycle) return null;
+
+    if (!lastCycle.endDate) {
+      const typicalPeriodLength = overview.periodLengthStats?.median ?? null;
+      if (
+        typicalPeriodLength != null &&
+        overview.currentDayOfCycle != null &&
+        overview.currentDayOfCycle >= typicalPeriodLength &&
+        overview.currentDayOfCycle <= typicalPeriodLength + 4
+      ) {
+        return {
+          type: 'period_likely_ended',
+          cycleId: lastCycle.id,
+          suggestedDate: toISODate(addDaysUTC(toCycleDate(lastCycle.startDate), Math.max(0, Math.round(typicalPeriodLength) - 1))),
+          message: 'Pelos seus registros, ontem pode ter sido o último dia da sua menstruação. Você confirma?',
+        };
+      }
+    }
+
+    if (overview.predictedNextPeriod && new Date(overview.predictedNextPeriod.windowEnd + 'T23:59:59Z') < new Date()) {
+      return {
+        type: 'period_expected_overdue',
+        cycleId: lastCycle.id,
+        suggestedDate: toISODate(todayAsCycleDate()),
+        message: 'Sua próxima menstruação estava estimada para este período. Ela começou?',
+      };
+    }
+
+    return null;
   }
 
   // ── Fase atual estimada (legado — inalterado; consumido pelo painel do treinador/correlacoes,

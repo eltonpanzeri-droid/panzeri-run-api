@@ -50,10 +50,15 @@ export class NotificationTriggersService {
 
   // 25/09/2026 (evolução do acompanhamento menstrual, seção 23) — a notificação existe pra AJUDAR
   // a aluna a manter o calendário atualizado, nunca pra afirmar nada como fato ("pode ter
-  // terminado" / "já começou?", nunca "sua menstruação terminou"). Reaproveita getCycleOverview()
-  // já calculado (mesma fonte canônica que alimenta o calendário e o Admin) — nenhuma lógica nova
-  // de "quando perguntar" fora daqui. Dedup permanente por ciclo (externalRef = id do log): cada
-  // pergunta só é feita uma vez por ciclo, nunca insiste (seção 29).
+  // terminado" / "já começou?", nunca "sua menstruação terminou").
+  // 26/09/2026 (item 10 do pedido — "não criar vários ifs espalhados"): as DUAS condições
+  // ("provavelmente terminou" / "atraso na prevista") saíram daqui e viraram
+  // MenstrualCycleService.getPendingCheck(), a MESMA fonte que o endpoint GET /menstrual-cycle/
+  // pending-check usa quando a aluna abre a tela de Ciclo (mesmo sem ter visto o push). Aqui só
+  // resta decidir SE dispara o push, com que texto e com que dedup — nunca recalcular a condição.
+  // Dedup permanente por ciclo (externalRef = id do log): cada pergunta só é enviada por PUSH uma
+  // vez por ciclo, nunca insiste — mas o banner no app continua aparecendo até ela resolver,
+  // porque getPendingCheck() é auto-resolvente (seção 29/30).
   private async checkMenstrualCycleUpdates() {
     const students = await this.prisma.user.findMany({
       where: { role: 'student', accountStatus: { not: 'archived' }, menstrualProfile: { hasActiveCycle: true } },
@@ -62,50 +67,23 @@ export class NotificationTriggersService {
 
     for (const student of students) {
       try {
-        const overview = await this.menstrualCycle.getCycleOverview(student.id);
-        const lastCycle = overview.cycles[overview.cycles.length - 1];
-        if (!lastCycle) continue;
+        const pending = await this.menstrualCycle.getPendingCheck(student.id);
+        if (!pending) continue;
 
-        if (!lastCycle.endDate) {
-          const typicalPeriodLength = overview.periodLengthStats?.median ?? null;
-          if (
-            typicalPeriodLength != null &&
-            overview.currentDayOfCycle != null &&
-            overview.currentDayOfCycle >= typicalPeriodLength &&
-            overview.currentDayOfCycle <= typicalPeriodLength + 4
-          ) {
-            await this.notifications.notifyUserIfNotRecent(
-              student.id,
-              {
-                title: 'Atualize seu calendário',
-                message: 'Pelos seus registros, ontem pode ter sido o último dia da sua menstruação. Você confirma?',
-                type: 'menstrual_period_likely_ended',
-                action: 'open_ciclo',
-                externalRef: `menstrual_end_${lastCycle.id}`,
-                // Privacidade (seção 30): tela bloqueada nunca menciona menstruação — conteúdo completo só dentro do app.
-                pushTitle: 'Panzeri Run',
-                pushMessage: 'Você tem uma atualização de acompanhamento pendente.',
-              },
-              24,
-            ).catch(() => undefined);
-          }
-        }
-
-        if (overview.predictedNextPeriod && new Date(overview.predictedNextPeriod.windowEnd + 'T23:59:59Z') < new Date()) {
-          await this.notifications.notifyUserIfNotRecent(
-            student.id,
-            {
-              title: 'Seu período estava previsto',
-              message: 'Seu período estava estimado para começar nesta janela. Ele já começou?',
-              type: 'menstrual_period_expected_overdue',
-              action: 'open_ciclo',
-              externalRef: `menstrual_overdue_${lastCycle.id}`,
-              pushTitle: 'Panzeri Run',
-              pushMessage: 'Você tem uma atualização de acompanhamento pendente.',
-            },
-            24,
-          ).catch(() => undefined);
-        }
+        await this.notifications.notifyUserIfNotRecent(
+          student.id,
+          {
+            title: 'Atualize seu calendário',
+            message: pending.message,
+            type: `menstrual_${pending.type}`,
+            action: 'open_ciclo',
+            externalRef: `menstrual_${pending.type}_${pending.cycleId}`,
+            // Privacidade (seção 11/30): tela bloqueada nunca menciona menstruação — conteúdo completo só dentro do app.
+            pushTitle: 'Panzeri Run',
+            pushMessage: 'Você tem uma atualização de acompanhamento pendente.',
+          },
+          24,
+        ).catch(() => undefined);
       } catch (error) {
         this.logger.warn(`Falha ao checar ciclo menstrual de ${student.id}: ${(error as Error).message}`);
       }

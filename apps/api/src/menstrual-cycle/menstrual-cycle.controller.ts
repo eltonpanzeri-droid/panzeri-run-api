@@ -73,4 +73,11 @@ export class MenstrualCycleController {
   getOverview(@CurrentUser() user: CurrentUserPayload) {
     return this.svc.getCycleOverview(user.sub);
   }
+
+  // Item 9/10 (26/09/2026) — o app consulta isso ao abrir a tela de Ciclo, pra mostrar o banner de
+  // confirmação mesmo se a aluna não tiver visto (ou não puder ver, notificações desativadas) o push.
+  @Get('pending-check')
+  getPendingCheck(@CurrentUser() user: CurrentUserPayload) {
+    return this.svc.getPendingCheck(user.sub);
+  }
 }

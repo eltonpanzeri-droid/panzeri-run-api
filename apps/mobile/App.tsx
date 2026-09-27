@@ -7610,20 +7610,82 @@ function MedicationsSection({ accessToken }: { accessToken: string }) {
   );
 }
 
+interface PendingCycleCheck {
+  type: 'period_likely_ended' | 'period_expected_overdue';
+  cycleId: string;
+  suggestedDate: string;
+  message: string;
+}
+
+/**
+ * Banner de confirmação (item 9/10 do pedido de 26/09) — observar -> detectar (backend) -> perguntar
+ * (aqui) -> responder -> registrar -> recalcular -> atualizar estado (load() no final). "Ainda não"
+ * não grava nada — a pergunta é auto-resolvente (some sozinha quando a condição deixa de existir),
+ * então ela simplesmente volta a aparecer depois se continuar valendo, sem estado extra aqui.
+ */
+function PendingCheckBanner({ pending, accessToken, onResolved, onOpenDay }: {
+  pending: PendingCycleCheck; accessToken: string; onResolved: () => void; onOpenDay: (dateStr: string) => void;
+}) {
+  const [dismissed, setDismissed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  if (dismissed) return null;
+
+  async function confirmYes() {
+    setSaving(true);
+    try {
+      if (pending.type === 'period_likely_ended') {
+        await fetch(`${API_URL}/menstrual-cycle/${pending.cycleId}/end`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ date: pending.suggestedDate }),
+        });
+      } else {
+        await fetch(`${API_URL}/menstrual-cycle/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ date: pending.suggestedDate }),
+        });
+      }
+      onResolved();
+    } catch { /* silencioso — ela pode corrigir manualmente pelo calendario */ }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <View style={[styles.coachBox, { marginTop: 16, borderColor: PRColors.ocean, borderWidth: 1 }]}>
+      <Text style={styles.copyTight}>{pending.message}</Text>
+      <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+        <Pressable style={[styles.primaryButton, saving && styles.disabledButton, { paddingHorizontal: 16 }]} onPress={() => void confirmYes()} disabled={saving}>
+          <Text style={styles.primaryButtonText}>Sim</Text>
+        </Pressable>
+        <Pressable style={[styles.secondaryButton, { paddingHorizontal: 16 }]} onPress={() => setDismissed(true)} disabled={saving}>
+          <Text style={styles.secondaryButtonText}>Ainda não</Text>
+        </Pressable>
+        <Pressable style={[styles.secondaryButton, { paddingHorizontal: 16 }]} onPress={() => onOpenDay(pending.suggestedDate)} disabled={saving}>
+          <Text style={styles.secondaryButtonText}>Atualizar calendário</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 function MenstrualCycleScreen({ accessToken }: { accessToken: string }) {
   const [overview, setOverview] = useState<CycleOverviewResponse | null>(null);
   const [dailyLogs, setDailyLogs] = useState<DailyLog[]>([]);
+  const [pendingCheck, setPendingCheck] = useState<PendingCycleCheck | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function load() {
     try {
-      const [overviewRes, dailyRes] = await Promise.all([
+      const [overviewRes, dailyRes, pendingRes] = await Promise.all([
         fetch(`${API_URL}/menstrual-cycle/overview`, { headers: { Authorization: `Bearer ${accessToken}` } }),
         fetch(`${API_URL}/menstrual-cycle/daily-logs`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+        fetch(`${API_URL}/menstrual-cycle/pending-check`, { headers: { Authorization: `Bearer ${accessToken}` } }),
       ]);
       if (overviewRes.ok) setOverview(await overviewRes.json() as CycleOverviewResponse);
       if (dailyRes.ok) setDailyLogs(await dailyRes.json() as DailyLog[]);
+      if (pendingRes.ok) setPendingCheck(await pendingRes.json() as PendingCycleCheck | null);
     } catch { /* silencioso — dados de contexto, nao criticos */ }
     finally { setLoading(false); }
   }
@@ -7639,6 +7701,15 @@ function MenstrualCycleScreen({ accessToken }: { accessToken: string }) {
       <Text style={styles.copyTight}>
         Toque em qualquer dia pra registrar ou corrigir. Isso não altera sua prescrição de treino diretamente — é contexto de acompanhamento.
       </Text>
+
+      {pendingCheck && (
+        <PendingCheckBanner
+          pending={pendingCheck}
+          accessToken={accessToken}
+          onResolved={() => void load()}
+          onOpenDay={(dateStr) => setSelectedDate(dateStr)}
+        />
+      )}
 
       {loading ? (
         <ActivityIndicator style={{ marginTop: 24 }} color={PRColors.ocean} />
