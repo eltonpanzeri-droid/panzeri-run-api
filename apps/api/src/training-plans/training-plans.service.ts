@@ -649,7 +649,12 @@ export class TrainingPlansService {
     const hasFutureDayThisWeek = anyAvailableDayIsFuture(availableDays, initialWeekStart, today);
     const { weekday: todayWeekday, hour: todayHour } = saoPauloWeekdayAndHour(new Date());
     const pastWeeklyRelease = todayWeekday === 0 && todayHour >= WEEKLY_RELEASE_HOUR;
-    const shouldRollToNextWeek = !hasFutureDayThisWeek && !options?.referenceDate && (!activePlanBeforeAdjustment || pastWeeklyRelease);
+    const shouldRollToNextWeek = computeShouldRollToNextWeek({
+      hasFutureDayThisWeek,
+      hasReferenceDateOverride: Boolean(options?.referenceDate),
+      hasActivePlan: Boolean(activePlanBeforeAdjustment),
+      isPastWeeklyRelease: pastWeeklyRelease,
+    });
     const weekStart = shouldRollToNextWeek ? addDays(initialWeekStart, 7) : initialWeekStart;
     // Injeta o dia da prova (secao 5 do fechamento do Passo 2) — precisa vir DEPOIS do weekStart
     // final (inclusive do rollover acima) e ANTES de qualquer uso de availableDays dai pra frente
@@ -1041,6 +1046,17 @@ export class TrainingPlansService {
         this.logger.warn(`IA prescreveu sessao de corrida extra para weekday ${weekday} que nao faz parte da rotina do aluno — descartado. (trainingWeekdays: [${[...trainingWeekdays].join(', ')}])`);
         return [];
       }
+      // Restricao objetiva da rotina (auditoria 27/09/2026, item 8 do pedido) — ate aqui o dia em
+      // si podia estar na rotina (ex: so' fortalecimento na segunda) mas CORRIDA especificamente
+      // nao estava disponivel naquele dia; sem diretriz individual explicando o motivo, isso e'
+      // exatamente o tipo de restricao objetiva que o sistema garante, nao o prompt da IA. Com
+      // diretriz ativa, a excecao e' explicita e rastreavel (o proprio texto da diretriz) —
+      // continua permitida, igual ja acontecia pra diretriz individual pedir dia fora da rotina.
+      const dayAllowsCorrida = isModalityAllowedOnWeekday(availableDays, weekday, 'corrida');
+      if (!dayAllowsCorrida && activeDirectives.length === 0) {
+        this.logger.warn(`IA prescreveu sessao de corrida extra para weekday ${weekday}, mas corrida nao esta disponivel nesse dia pela rotina vigente (sem diretriz explicando a excecao) — descartado.`);
+        return [];
+      }
       if (leftover.length > MAX_EXTRA_SESSIONS_PER_WEEKDAY) {
         this.logger.warn(`Cortado excesso de sessoes de corrida no weekday ${weekday}: IA devolveu ${leftover.length + 1} sessoes pra esse dia, mantendo so ${MAX_EXTRA_SESSIONS_PER_WEEKDAY + 1} (provavel erro de numeracao de dias da IA, nao diretriz de verdade).`);
         leftover = leftover.slice(0, MAX_EXTRA_SESSIONS_PER_WEEKDAY);
@@ -1265,7 +1281,21 @@ export class TrainingPlansService {
       ).catch(() => null);
     }
 
-    if (activePlanBeforeAdjustment) {
+    // BUG REAL CORRIGIDO (27/09/2026 — caso Roberta Kemp): a migracao abaixo assume que "hoje"
+    // (todayInSaoPaulo(), fixo pro dia de calendario real) esta DENTRO da semana sendo gerada.
+    // Isso e' falso exatamente quando shouldRollToNextWeek=true (domingo apos WEEKLY_RELEASE_HOUR,
+    // gerando a semana SEGUINTE por antecipacao) — nesse caso weekStart ja e' segunda-feira da
+    // PROXIMA semana, mas "hoje" continua sendo o proprio domingo da semana que esta terminando.
+    // A clausula OR do ramo allowToday (`{ scheduledDate: today, completion: { isNot: null } }`)
+    // nao tinha NENHUM limite inferior — bastava a sessao de "hoje" ter completion pra ser
+    // migrada pro plano novo, mesmo quando "hoje" e' o domingo da semana ANTERIOR. Resultado real:
+    // o domingo 27/09 (corrida ja executada, 13.09km) foi reparentado pro plano 28/09-04/10,
+    // contaminando prescribedSessions/completedKm/adherencePercent desse plano com uma execucao
+    // que nao pertence a ele (weekStart <= sessionDate <= weekEnd deixou de ser uma invariante).
+    // Correcao: a migracao de "sessoes de hoje/ja passadas" so faz sentido quando a semana sendo
+    // gerada e' a que CONTEM hoje — nunca numa antecipacao pra semana seguinte, onde nao existe
+    // nenhuma sessao "de hoje" pertencente a essa semana ainda (ela comeca no futuro).
+    if (activePlanBeforeAdjustment && shouldMigrateTodaySessionsToNewPlan({ hasActivePlan: true, shouldRollToNextWeek })) {
       // Hoje e os dias que ja passaram nunca podem ser reescritos ao gerar uma nova semana —
       // o que o aluno ja fez (ou nao fez) fica registrado no plano anterior, so migramos essas
       // sessoes (com seus registros de execucao) para o plano novo para que continuem
@@ -2588,7 +2618,7 @@ function pickModality(modalities: string[], fallback: string) {
   return modalities[0] ?? fallback;
 }
 
-function startOfWeek(date: Date) {
+export function startOfWeek(date: Date) {
   const parts = saoPauloDateParts(date);
   const start = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
   const day = start.getUTCDay();
@@ -2610,7 +2640,7 @@ function saoPauloDateParts(date: Date) {
   return { year: value('year'), month: value('month'), day: value('day') };
 }
 
-function saoPauloWeekdayAndHour(date: Date) {
+export function saoPauloWeekdayAndHour(date: Date) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', hour12: false,
   }).formatToParts(date);
@@ -2626,13 +2656,68 @@ function saoPauloDateTime(date: Date) {
   }).format(date);
 }
 
-function addDays(date: Date, days: number) {
+export function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
   return next;
 }
 
-function weekdayOffsetFromMonday(weekday: number) {
+/**
+ * Regra canonica do rollover de semana (auditoria 27/09/2026, caso Roberta Kemp). Sao 4 sinais
+ * independentes que decidem "a proxima geracao e' a semana QUE VEM, nao a atual":
+ * - hasFutureDayThisWeek: ainda sobra dia de rotina no futuro dentro da semana atual (se sim,
+ *   NUNCA rola — ainda faz sentido mexer nesta semana).
+ * - hasReferenceDateOverride: chamada explicita com uma semana-alvo especifica (cron de domingo
+ *   19h, "gerar semana seguinte") — nunca recalcula rollover, a semana ja foi escolhida por quem
+ *   chamou.
+ * - hasActivePlan: aluno sem nenhum plano ativo (primeira geracao) sempre rola pra frente quando
+ *   nao sobra dia futuro, independente do dia da semana.
+ * - isPastWeeklyRelease: domingo (weekday=0) as WEEKLY_RELEASE_HOUR (meio-dia) ou depois, no fuso
+ *   de Sao Paulo — o UNICO gatilho de rollover pra quem JA TEM plano ativo.
+ * Retorna true SOMENTE quando a semana sendo gerada e' a SEGUINTE a semana que contem "hoje" — a
+ * partir dai, weekStart = addDays(initialWeekStart, 7) e QUALQUER logica que dependa de "hoje"
+ * pertencer a essa semana (ex: migrar sessao de hoje ja executada) deixa de se aplicar.
+ */
+export function computeShouldRollToNextWeek(params: {
+  hasFutureDayThisWeek: boolean;
+  hasReferenceDateOverride: boolean;
+  hasActivePlan: boolean;
+  isPastWeeklyRelease: boolean;
+}): boolean {
+  return (
+    !params.hasFutureDayThisWeek &&
+    !params.hasReferenceDateOverride &&
+    (!params.hasActivePlan || params.isPastWeeklyRelease)
+  );
+}
+
+/**
+ * "Hoje pertence a semana que esta sendo gerada?" (auditoria 27/09/2026). Quando NAO pertence
+ * (rollover de antecipacao pra semana seguinte), nenhuma sessao "de hoje/ja passada" pode ser
+ * migrada do plano antigo pro novo — nao existe nenhuma sessao de hoje pertencente a uma semana
+ * que ainda nem comecou. BUG REAL CORRIGIDO aqui: a migracao de sessoes rodava mesmo durante o
+ * rollover, reparentando pro plano novo uma sessao (ex: domingo ja executado) que pertencia
+ * inteiramente a semana anterior — violando a invariante weekStart <= sessionDate <= weekEnd.
+ */
+export function shouldMigrateTodaySessionsToNewPlan(params: { hasActivePlan: boolean; shouldRollToNextWeek: boolean }): boolean {
+  return params.hasActivePlan && !params.shouldRollToNextWeek;
+}
+
+/**
+ * Restrição objetiva da rotina (auditoria 27/09/2026, item 8 do pedido): a modalidade dada está
+ * disponível NAQUELE dia específico, segundo a rotina vigente? A IA decide O QUE prescrever
+ * dentro do que é possível; esta função é o que garante a possibilidade em si, de forma
+ * determinística — nunca depende só do prompt lembrar da regra.
+ */
+export function isModalityAllowedOnWeekday(
+  availableDays: Array<{ weekday: number; modalities: string[] }>,
+  weekday: number,
+  modality: string,
+): boolean {
+  return availableDays.some((d) => d.weekday === weekday && d.modalities.includes(modality));
+}
+
+export function weekdayOffsetFromMonday(weekday: number) {
   return weekday === 0 ? 6 : weekday - 1;
 }
 
@@ -2640,7 +2725,7 @@ function weekdayOffsetFromMonday(weekday: number) {
 // por generateCurrentWeekOnDemand: verdadeiro se algum dia disponivel da semana (a partir de
 // weekStart) ainda esta no futuro em relacao a hoje. Quando falso, quem chama deve rolar pra
 // semana seguinte em vez de gerar a atual (ex: domingo, quando nenhum dia desta semana resta).
-function anyAvailableDayIsFuture(availableDays: Array<{ weekday: number }>, weekStart: Date, today: Date): boolean {
+export function anyAvailableDayIsFuture(availableDays: Array<{ weekday: number }>, weekStart: Date, today: Date): boolean {
   return availableDays.some((day) => addDays(weekStart, weekdayOffsetFromMonday(day.weekday)).getTime() > today.getTime());
 }
 
