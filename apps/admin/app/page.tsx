@@ -1013,6 +1013,32 @@ export default function AdminHome() {
     }
   }
 
+  // 27/09/2026: pedido do Elton — nao existia jeito de remover um prospecto da lista (ex: cadastro
+  // com e-mail digitado errado, lead que nunca vai converter). Reaproveita o mesmo mecanismo de
+  // archiveStudent (accountStatus='archived') — reversivel, mesma trava usada em toda parte do
+  // sistema pra excluir alguem das listas operacionais sem apagar dado nenhum.
+  async function archiveProspect(prospectId: string, name: string) {
+    if (!window.confirm(`Remover "${name}" de Prospectos? Fica fora das listas, mas os dados continuam guardados.`)) {
+      return;
+    }
+    setStatus('Removendo prospecto...');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${prospectId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountStatus: 'archived' }),
+      });
+      if (!response.ok) {
+        setStatus('Nao consegui remover o prospecto.');
+        return;
+      }
+      setStatus('Prospecto removido.');
+      await loadProspects();
+    } catch {
+      setStatus('Nao consegui conectar com a API.');
+    }
+  }
+
   async function updateStudentField(studentId: string, field: 'accountStatus' | 'subscriptionStatus', value: string) {
     setStatus('Atualizando aluno...');
     try {
@@ -1728,9 +1754,10 @@ export default function AdminHome() {
                   <span>E-mail</span>
                   <span>Cadastrado em</span>
                   <span>Nivel de interesse</span>
+                  <span></span>
                 </div>
                 {(prospects?.prospects ?? []).map((prospect) => (
-                  <div className="row" key={prospect.id}>
+                  <div className="row" key={prospect.id} style={{ cursor: 'default' }}>
                     <span><strong>{prospect.name}</strong></span>
                     <span>{prospect.email}</span>
                     <span>{dateLabel(prospect.createdAt)}</span>
@@ -1740,6 +1767,11 @@ export default function AdminHome() {
                       </span>
                       <br />
                       <small>{prospect.levelLabel}</small>
+                    </span>
+                    <span>
+                      <button className="secondaryButton" type="button" onClick={() => archiveProspect(prospect.id, prospect.name)}>
+                        Remover
+                      </button>
                     </span>
                   </div>
                 ))}
