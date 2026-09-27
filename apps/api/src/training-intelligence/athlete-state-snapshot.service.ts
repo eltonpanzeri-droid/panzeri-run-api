@@ -177,6 +177,7 @@ export interface AthleteStateSnapshotV1 {
   compact: Record<string, unknown>;
   domains: {
     training: TrainingDomainState;
+    trainingLoad: VariableBasedDomainState;
     sleepRecovery: VariableBasedDomainState;
     physicalState: VariableBasedDomainState;
     psychologicalState: VariableBasedDomainState;
@@ -225,6 +226,20 @@ const TRAINING_RESPONSE_VARIABLES = [
   'checkin.weekDemandVsNormal',
 ];
 const BEHAVIOR_VARIABLES = ['checkin.expectedRoutineInterference'];
+// Volume, aderência semanal e ACWR (26/09/2026 — auditoria Volume/Aderência/ACWR, item 22 do
+// pedido) — mesmo Variable Registry, mesma Camada Matemática, byModality automático (disponível
+// quando availableModalities existir). Substitui o antigo dump de recentWeeks/modalityBreakdown
+// brutos no CompactAgentContext (ver compact-agent-context.ts).
+const TRAINING_LOAD_VARIABLES = [
+  'training.volumePrescribedKm',
+  'training.volumeCompletedTotalKm',
+  'training.volumeCompletedPrescribedOnlyKm',
+  'training.volumeExtraKm',
+  'training.volumeDiffAbsoluteKm',
+  'training.volumeRatioCompletedPrescribed',
+  'training.adherencePercent',
+  'training.acwr',
+];
 
 const ALL_DOMAIN_VARIABLE_IDS = [
   ...new Set([
@@ -233,6 +248,7 @@ const ALL_DOMAIN_VARIABLE_IDS = [
     ...PSYCHOLOGICAL_STATE_VARIABLES,
     ...TRAINING_RESPONSE_VARIABLES,
     ...BEHAVIOR_VARIABLES,
+    ...TRAINING_LOAD_VARIABLES,
   ]),
 ];
 
@@ -282,6 +298,7 @@ export class AthleteStateSnapshotService {
     // Pre-busca todas as variaveis usadas em qualquer dominio, uma unica vez cada.
     await Promise.all(ALL_DOMAIN_VARIABLE_IDS.map((id) => getVariable(id)));
 
+    const trainingLoad = await this.buildVariableDomain(TRAINING_LOAD_VARIABLES, getVariable);
     const sleepRecovery = await this.buildVariableDomain(SLEEP_RECOVERY_VARIABLES, getVariable);
     const physicalState = await this.buildVariableDomain(PHYSICAL_STATE_VARIABLES, getVariable);
     const psychologicalState = await this.buildVariableDomain(PSYCHOLOGICAL_STATE_VARIABLES, getVariable);
@@ -308,6 +325,7 @@ export class AthleteStateSnapshotService {
 
     const domains: AthleteStateSnapshotV1['domains'] = {
       training,
+      trainingLoad,
       sleepRecovery,
       physicalState,
       psychologicalState,

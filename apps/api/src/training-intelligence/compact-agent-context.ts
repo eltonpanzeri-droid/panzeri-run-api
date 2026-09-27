@@ -121,7 +121,16 @@ export interface CompactAgentContext {
   variableLegend: Record<string, VariableLegendEntry>;
   /** Estado calculado de cada variavel, uma unica vez — os dominios abaixo so' referenciam o id. */
   variables: Record<string, CompactVariableState>;
-  training: TrainingDomainState;
+  /** Resumo leve (26/09/2026) — a trajetória detalhada de volume/aderência/ACWR está em trainingLoad. */
+  training: {
+    availability: DomainAvailability;
+    dataAvailableSince: string | null;
+    totalWeeksWithPlan: number;
+    adherence: TrainingDomainState['adherence'];
+    consistency: TrainingDomainState['consistency'];
+  };
+  /** Volume, aderência semanal e ACWR — domínio do Variable Registry (26/09/2026), mesma matemática/mesmo byModality de qualquer outra variável. */
+  trainingLoad: CompactVariableDomainRef;
   sleepRecovery: CompactVariableDomainRef;
   physicalState: CompactVariableDomainRef;
   psychologicalState: CompactVariableDomainRef;
@@ -273,13 +282,30 @@ export function buildCompactAgentContext(snapshot: AthleteStateSnapshotV1): Comp
     availability: snapshot.domains.behavior.availability,
     variables: snapshot.domains.behavior.variables,
   });
+  // 26/09/2026 (auditoria Volume/Aderência/ACWR, item 22 do pedido): trainingLoad é o novo domínio
+  // baseado no Variable Registry (volume prescrito/realizado/extra/diferença/razão, aderência,
+  // ACWR) — com trend/baseline/faixa habitual/excursão de verdade, calculado pela MESMA Camada
+  // Matemática de qualquer outra variável.
+  const trainingLoad = domainRef(variables, variableLegend, snapshot.domains.trainingLoad);
 
   return {
     athleteId: snapshot.athleteId,
     generatedAt: snapshot.generatedAt,
     variableLegend,
     variables,
-    training: snapshot.domains.training,
+    // Antes (achado da auditoria de 26/09/2026): este campo despejava snapshot.domains.training
+    // INTEIRO, incluindo recentWeeks (até 12 semanas de km/sessões brutos) e modalityBreakdown
+    // (all-time) — exatamente o "calendário bruto pro agente" que a arquitetura existe pra evitar.
+    // Agora só os resumos leves (adesão por período, streak de consistência) passam — a trajetória
+    // real de volume/aderência/ACWR vem do novo domínio trainingLoad acima, com matemática completa.
+    training: {
+      availability: snapshot.domains.training.availability,
+      dataAvailableSince: snapshot.domains.training.dataAvailableSince,
+      totalWeeksWithPlan: snapshot.domains.training.totalWeeksWithPlan,
+      adherence: snapshot.domains.training.adherence,
+      consistency: snapshot.domains.training.consistency,
+    },
+    trainingLoad,
     sleepRecovery,
     physicalState,
     psychologicalState,

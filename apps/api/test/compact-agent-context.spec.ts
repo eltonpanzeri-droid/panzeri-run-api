@@ -52,6 +52,7 @@ function snapshot(overrides: Partial<AthleteStateSnapshotV1['domains']> = {}): A
     compact: {},
     domains: {
       training: { availability: 'unavailable', dataAvailableSince: null, totalWeeksWithPlan: 0, adherence: null, consistency: null, modalityBreakdown: [], recentWeeks: [] },
+      trainingLoad: emptyVarDomain,
       sleepRecovery: emptyVarDomain,
       physicalState: emptyVarDomain,
       psychologicalState: emptyVarDomain,
@@ -261,6 +262,30 @@ describe('buildCompactAgentContext', () => {
     expect(v.byModality!.forca.current).toBe(4);
     // Modalidade nao se subdivide de novo.
     expect(v.byModality!.corrida).not.toHaveProperty('byModality');
+  });
+
+  it('26/09/2026 (auditoria Volume/Aderencia/ACWR, item 22): training NUNCA mais despeja recentWeeks/modalityBreakdown brutos — so resumo leve', () => {
+    const snap = snapshot({
+      training: { availability: 'available', dataAvailableSince: '2026-08-01', totalWeeksWithPlan: 8, adherence: { allTime: { period: 'all_time', sessoesPrescritas: 10, sessoesFeitas: 8, sessoesNaoFeitas: 2, sessoesSemRegistro: 0, adherencePercent: 80, coveragePercent: 100, lowCoverageWarning: false }, last4Weeks: { period: 'last_4_weeks', sessoesPrescritas: 4, sessoesFeitas: 3, sessoesNaoFeitas: 1, sessoesSemRegistro: 0, adherencePercent: 75, coveragePercent: 100, lowCoverageWarning: false }, last8Weeks: { period: 'last_8_weeks', sessoesPrescritas: 8, sessoesFeitas: 6, sessoesNaoFeitas: 2, sessoesSemRegistro: 0, adherencePercent: 75, coveragePercent: 100, lowCoverageWarning: false } }, consistency: { currentStreakWeeks: 3, longestStreakWeeks: 5, lastRegisteredDate: '2026-09-20', lastCompletedDate: '2026-09-20' }, modalityBreakdown: [{ modality: 'corrida', sessoesPrescritas: 10, sessoesFeitas: 8, adherencePercent: 80, coveragePercent: 100, percentOfTotalPrescribed: 100 }], recentWeeks: [{ weekStart: '2026-09-14', sessoesPrescritas: 4, sessoesFeitas: 3, sessoesNaoFeitas: 1, sessoesSemRegistro: 0, adherencePercent: 75, coveragePercent: 100, lowCoverageWarning: false, kmPercorridos: 20, kmPrescritos: 25, kmExtras: null }] },
+    });
+    const compact = buildCompactAgentContext(snap);
+    expect(compact.training).not.toHaveProperty('recentWeeks');
+    expect(compact.training).not.toHaveProperty('modalityBreakdown');
+    expect(compact.training.adherence?.allTime.adherencePercent).toBe(80);
+    expect(compact.training.consistency?.currentStreakWeeks).toBe(3);
+  });
+
+  it('26/09/2026: trainingLoad (volume/aderencia/ACWR) compacta pelo MESMO pool de variaveis, com trend/baseline reais', () => {
+    const snap = snapshot({
+      trainingLoad: {
+        availability: 'available',
+        variables: { 'training.acwr': variableEntry({ variable: { id: 'training.acwr', domain: 'training_load', dataType: 'numeric_continuous', constructLabel: 'relação carga aguda:crônica (ACWR)', direction: 'not_directional' }, current: 1.1, evidence: { n: 6, observedSpan: { from: '2026-08-01', to: '2026-09-20' }, lastObservationAt: '2026-09-20', instrumentVersions: [1], comparabilityWarning: null } }) },
+      },
+    });
+    const compact = buildCompactAgentContext(snap);
+    expect(compact.trainingLoad.variableIds).toEqual(['training.acwr']);
+    expect(compact.variables['training.acwr'].current).toBe(1.1);
+    expect(compact.variableLegend['training.acwr'].constructLabel).toBe('relação carga aguda:crônica (ACWR)');
   });
 
   it('byModality ausente quando a variavel nao depende de modalidade (checkin.* semanal) — Global sozinho, sem chave vazia', () => {
