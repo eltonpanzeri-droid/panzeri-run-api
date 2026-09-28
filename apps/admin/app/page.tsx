@@ -3997,7 +3997,7 @@ function ExploradorView({ accessToken, legend, students, selection, onSelectionC
 
 function VariableSnapshotPanel({ label, snapshot, period }: { label: string; snapshot: VariableSnapshotLoose; period: ExplorerPeriod }) {
   const filtered = filterObservationsByPeriod(snapshot.observations, period);
-  const chartData = filtered.map((o) => ({ date: new Date(o.timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }), value: o.value }));
+  const chartData = filtered.map((o) => ({ date: fmtDay(o.timestamp), value: o.value }));
 
   return (
     <div className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -4039,7 +4039,7 @@ function VariableSnapshotPanel({ label, snapshot, period }: { label: string; sna
       )}
 
       <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
-        n={snapshot.evidence.n} · período observado: {snapshot.evidence.observedSpan.from ? new Date(snapshot.evidence.observedSpan.from).toLocaleDateString('pt-BR') : '—'} a {snapshot.evidence.observedSpan.to ? new Date(snapshot.evidence.observedSpan.to).toLocaleDateString('pt-BR') : '—'} · versões: {snapshot.evidence.instrumentVersions.join(', ') || '—'}
+        n={snapshot.evidence.n} · período observado: {snapshot.evidence.observedSpan.from ? fmtDayFull(snapshot.evidence.observedSpan.from) : '—'} a {snapshot.evidence.observedSpan.to ? fmtDayFull(snapshot.evidence.observedSpan.to) : '—'} · versões: {snapshot.evidence.instrumentVersions.join(', ') || '—'}
         {snapshot.evidence.comparabilityWarning && <span style={{ color: '#f59e0b' }}> · ⚠ {snapshot.evidence.comparabilityWarning}</span>}
       </p>
 
@@ -4183,8 +4183,23 @@ function buildMenstrualRangesForChart(overview: { cycles: Array<{ startDate: str
 function fmtNum(v: number | null | undefined, digits = 1): string {
   return v == null ? '—' : v.toFixed(digits);
 }
+// 28/09/2026 — bug real reportado pelo treinador: toLocaleDateString formata no fuso do
+// NAVEGADOR (America/Sao_Paulo, UTC-3). Um timestamp que representa um DIA DE CALENDARIO (meia-
+// noite UTC — scheduledDate, weekStartDate, ou uma string so-data "YYYY-MM-DD" que o construtor
+// Date tambem interpreta como meia-noite UTC) vira 21h do dia ANTERIOR nesse fuso, exibindo o dia
+// errado (treino de 28/09 aparecendo como 27/09). getUTCDate/getUTCMonth le sempre o dia de
+// calendario exatamente como gravado, imune a fuso — mesmo padrao ja usado em dateLabel() (mais
+// abaixo) e em isoDateToInputValue() no app mobile.
 function fmtDay(iso: string): string {
-  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function fmtDayFull(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${date.getUTCFullYear()}`;
 }
 
 /** Gráfico de UMA variável — bruto + camadas opcionais, todas alinhadas pela mesma linha do tempo (syncId compartilhado entre todos os gráficos do Explorador, pra crosshair sincronizado). */
@@ -4320,7 +4335,7 @@ function ExcursionList({ excursions }: { excursions: FullExcursion[] }) {
         <div key={i} className="card" style={{ padding: 10, fontSize: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
             <strong>{exc.direction === 'above' ? 'Acima' : 'Abaixo'} da faixa habitual{exc.ongoing ? ' (em curso)' : ''}</strong>
-            <span style={{ color: 'var(--muted)' }}>{new Date(exc.startTimestamp).toLocaleDateString('pt-BR')} → {exc.ongoing ? 'agora' : new Date(exc.endTimestamp).toLocaleDateString('pt-BR')}</span>
+            <span style={{ color: 'var(--muted)' }}>{fmtDayFull(exc.startTimestamp)} → {exc.ongoing ? 'agora' : fmtDayFull(exc.endTimestamp)}</span>
           </div>
           <div style={{ color: 'var(--muted)', marginTop: 4 }}>
             {exc.durationDays.toFixed(0)} dias · {exc.observationCount} observações · pico {exc.peak.value} (magnitude {exc.magnitude.toFixed(1)})
@@ -4454,7 +4469,7 @@ function VariableSeriesBlock({ snapshot, seriesLabel, contextEvents, menstrualRa
       )}
 
       <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
-        n={snapshot.evidence.n} · período: {snapshot.evidence.observedSpan.from ? new Date(snapshot.evidence.observedSpan.from).toLocaleDateString('pt-BR') : '—'} a {snapshot.evidence.observedSpan.to ? new Date(snapshot.evidence.observedSpan.to).toLocaleDateString('pt-BR') : '—'} · versões: {snapshot.evidence.instrumentVersions.join(', ') || '—'}<InfoTip glossaryKey="evidencia" />
+        n={snapshot.evidence.n} · período: {snapshot.evidence.observedSpan.from ? fmtDayFull(snapshot.evidence.observedSpan.from) : '—'} a {snapshot.evidence.observedSpan.to ? fmtDayFull(snapshot.evidence.observedSpan.to) : '—'} · versões: {snapshot.evidence.instrumentVersions.join(', ') || '—'}<InfoTip glossaryKey="evidencia" />
         {snapshot.evidence.comparabilityWarning && <span style={{ color: '#f59e0b' }}> · ⚠ {snapshot.evidence.comparabilityWarning}</span>}
       </p>
 
@@ -5408,7 +5423,7 @@ function ContextoTab({ studentId, accessToken, onStatus }: { studentId: string; 
                 </span>
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                {ev.startedAt ? new Date(ev.startedAt).toLocaleDateString('pt-BR') : '?'} → {ev.endedAt ? new Date(ev.endedAt).toLocaleDateString('pt-BR') : (ev.status === 'ongoing' ? 'em curso' : '?')}
+                {ev.startedAt ? fmtDayFull(ev.startedAt) : '?'} → {ev.endedAt ? fmtDayFull(ev.endedAt) : (ev.status === 'ongoing' ? 'em curso' : '?')}
               </div>
               {ev.gapAnchorDate && (
                 <div style={{ fontSize: 12, marginTop: 6, background: 'var(--surface)', padding: 8, borderRadius: 6 }}>
