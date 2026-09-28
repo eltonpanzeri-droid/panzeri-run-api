@@ -73,6 +73,24 @@ describe('ObservationReaderService', () => {
     expect(obs[0].context.sessionId).toBe('real');
   });
 
+  // 28/09/2026 — bug real reportado pelo treinador: grafico mostrava RPE num dia sem nenhum treino.
+  // Causa: timestamp da observacao usava completion.completedAt (momento do envio do feedback) em
+  // vez do dia de calendario do treino. Aluno que treina num dia e envia o feedback so' depois
+  // (inclusive virando a noite) fazia o ponto aparecer no dia ERRADO no grafico.
+  it('timestamp da observacao e o dia do TREINO (scheduledDate), nunca o momento em que o feedback foi enviado', async () => {
+    const { reader } = buildReader([
+      session({
+        id: 's1',
+        scheduledDate: new Date('2026-09-27T00:00:00.000Z'),
+        // feedback enviado de madrugada do dia seguinte — completedAt cai em outro dia de calendario
+        completion: completion({ preSleepQuality: 4, completedAt: new Date('2026-09-28T02:30:00.000Z') }),
+      }),
+    ]);
+    const obs = await reader.getObservations('aluno-1', 'workout.preSleepQuality');
+    expect(obs).toHaveLength(1);
+    expect(obs[0].timestamp.toISOString().slice(0, 10)).toBe('2026-09-27');
+  });
+
   it('sessao de plano arquivado COM completion continua contando (nao e fantasma)', async () => {
     const { reader } = buildReader([
       session({ id: 'arquivada-mas-feita', plan: { status: 'archived' }, completion: completion({ preSleepQuality: 5 }) }),

@@ -189,7 +189,14 @@ export class ObservationReaderService {
         athleteId,
         variableId: definition.variableId,
         value,
-        timestamp: completion.completedAt,
+        // 28/09/2026: era completion.completedAt (o instante real do envio do feedback) — inconsistente
+        // com TODAS as outras fontes deste arquivo, que sempre ancoram timestamp no dia de calendario
+        // a que o dado se refere (weekStartDate, log.date, weekStart+T12:00Z), nunca no momento em que
+        // o formulario foi enviado. Aluno que treina num dia e so registra o feedback horas depois
+        // (ou virando a noite) fazia o grafico mostrar o ponto no dia ERRADO — bug real reportado pelo
+        // treinador (RPE aparecendo em 27/09 sem nenhum treino registrado naquele dia). scheduledDate
+        // e' sempre meia-noite UTC representando o dia do treino, imune a fuso horario.
+        timestamp: session.scheduledDate,
         source: 'student_feedback_per_workout',
         instrumentVersion: version,
         context: {
