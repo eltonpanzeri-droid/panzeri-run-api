@@ -9855,13 +9855,37 @@ function CompletionForm({
   // aqui travava o botao pra sempre em qualquer feedback novo (bug real: alunos sem conseguir
   // confirmar). Lista abaixo espelha exatamente o que workout-completions.service.ts exige quando
   // isV2Client=true, pra nunca bloquear no cliente algo que o servidor aceitaria.
-  const allSectionsComplete =
-    isSavedOnServer ||
-    (!!(draft.preSleepQuality && draft.sleepDurationCategory && draft.sleepScheduleIrregularity && draft.sleepInterruption && draft.sleepDifficulty) &&
-    !!(draft.prePhysicalFatigue && draft.preMentalFatigue && draft.preStressLevel && draft.preMotivation) &&
-    (draft.status !== 'done' || !!draft.perceivedEffort) &&
-    !!(draft.satisfactionElaboracao && draft.executionVsPrescribed && draft.postPhysicalFatigue && draft.postMentalFatigue && draft.emotionalExperienceDuring && draft.mentalStateChangePrePost) &&
-    !!(draft.painFlag && (draft.painFlag === 'none' || draft.painTiming)));
+  // 29/09/2026 — bug real reportado (caso Juliana Oliveira): a mensagem generica "Complete todas
+  // as perguntas acima" nunca dizia QUAL das 16 perguntas de escala faltava. Aluna relatou que o
+  // botao "trava" toda vez que preenche algo diferente (dor, treino trocado) — nao existe nenhum
+  // campo do formulario que bloqueie o botao por causa disso especificamente; a explicacao mais
+  // provavel e' que, num treino comum, ela toca rapido nas mesmas opcoes nas 16 perguntas (habito),
+  // e quando o treino tem algo diferente ela para pra rolar a tela e escrever texto livre — fica
+  // bem mais facil pular sem perceber uma das perguntas de escala em outro ponto do formulario, e
+  // a mensagem generica nunca revelava qual. Lista abaixo troca "complete tudo" por "falta X, Y" —
+  // resolve a queixa relatada independente de qual pergunta especifica esta sendo pulada.
+  const missingFieldLabels: string[] = [];
+  if (!isSavedOnServer) {
+    if (!draft.preSleepQuality) missingFieldLabels.push('qualidade do sono (pergunta 1)');
+    if (!draft.sleepDurationCategory) missingFieldLabels.push('tempo de sono (pergunta 2)');
+    if (!draft.sleepScheduleIrregularity) missingFieldLabels.push('horario de dormir diferente do habitual (pergunta 3)');
+    if (!draft.sleepInterruption) missingFieldLabels.push('sono interrompido (pergunta 4)');
+    if (!draft.sleepDifficulty) missingFieldLabels.push('dificuldade para dormir (pergunta 5)');
+    if (!draft.prePhysicalFatigue) missingFieldLabels.push('cansaco fisico antes do treino (pergunta 6)');
+    if (!draft.preMentalFatigue) missingFieldLabels.push('cansaco mental antes do treino (pergunta 7)');
+    if (!draft.preStressLevel) missingFieldLabels.push('nivel de estresse (pergunta 8)');
+    if (!draft.preMotivation) missingFieldLabels.push('vontade de treinar antes de comecar (pergunta 9)');
+    if (draft.status === 'done' && !draft.perceivedEffort) missingFieldLabels.push('esforco percebido - RPE (pergunta 10)');
+    if (!draft.satisfactionElaboracao) missingFieldLabels.push('avaliacao da elaboracao do treino (pergunta 11)');
+    if (!draft.executionVsPrescribed) missingFieldLabels.push('execucao em relacao ao prescrito (pergunta 12)');
+    if (!draft.postPhysicalFatigue) missingFieldLabels.push('cansaco fisico causado pelo treino (pergunta 13)');
+    if (!draft.postMentalFatigue) missingFieldLabels.push('cansaco mental causado pelo treino (pergunta 14)');
+    if (!draft.emotionalExperienceDuring) missingFieldLabels.push('experiencia emocional durante o treino (pergunta 15)');
+    if (!draft.mentalStateChangePrePost) missingFieldLabels.push('mudanca no estado mental (pergunta 16)');
+    if (!draft.painFlag) missingFieldLabels.push('se sentiu dor ou desconforto');
+    else if (draft.painFlag !== 'none' && !draft.painTiming) missingFieldLabels.push('quando a dor apareceu');
+  }
+  const allSectionsComplete = isSavedOnServer || missingFieldLabels.length === 0;
 
   // Metricas de execucao (data, tempo, distancia, pace, modo de corrida) — compartilhado entre blocos
   function ExecMetrics() {
@@ -10293,7 +10317,9 @@ function CompletionForm({
                     </Pressable>
                     {newIncomplete && (
                       <Text style={[styles.formHint, { textAlign: 'center', marginTop: 4 }]}>
-                        Complete todas as perguntas acima para confirmar o treino.
+                        {missingFieldLabels.length > 0
+                          ? `Falta responder: ${missingFieldLabels.join(', ')}.`
+                          : 'Complete todas as perguntas acima para confirmar o treino.'}
                       </Text>
                     )}
                   </>
