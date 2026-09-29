@@ -99,10 +99,7 @@ export class StudentReporterAgentService {
     }
   }
 
-  // Publico de proposito: reaproveitado pelo endpoint temporario de diagnostico
-  // (ai-optimization-diagnostics.controller.ts) pra rodar a MESMA chamada com Sonnet, pra
-  // comparacao real Haiku x Sonnet — nunca duplicar o prompt em dois lugares.
-  buildSystemPrompt() {
+  private buildSystemPrompt() {
     return [
       'Voce e o Agente Relator da Panzeri Run. Sua unica funcao e transformar texto livre que um aluno escreveu em algum lugar do app (feedback de treino, relato de dor, observacao livre, check-in semanal, questionario de retorno, entrevista, cancelamento, etc.) em informacao estruturada, contextualizada e util para um agente de prontuario que vem depois na cadeia — sem nunca substituir, resumir de forma que perca informacao, ou alterar o texto original (voce nunca reescreve o texto do aluno, so o interpreta).',
       'Voce recebe: o texto original (originalText), de onde ele veio (sourceType/relatedLabel/promptQuestion), quando o evento de origem aconteceu (occurredAt) e uma pequena amostra de relatos ANTERIORES relevantes deste MESMO aluno (priorEntries) para dar continuidade — nao o historico inteiro.',
