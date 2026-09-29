@@ -15,6 +15,8 @@ import {
 } from './training-methodology';
 import { PANZERI_METHODOLOGY_KNOWLEDGE } from './panzeri-methodology-knowledge';
 import { AiQueueService } from '../common/ai-queue.service';
+import { AI_MODELS } from '../common/ai-models.config';
+import { logAiUsage } from '../common/ai-usage-logger';
 import { gymExerciseLibrary } from './gym-exercise-library';
 import { runnerStrengthExercises } from './runner-strength-library';
 
@@ -276,10 +278,11 @@ export class PrescriptionAgentService {
     const client = this.client;
     if (!client) return null;
     const schema = z.object({ parts: AiSessionPartsSchema });
+    const startedAt = Date.now();
     try {
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
-          model: 'claude-sonnet-5',
+          model: AI_MODELS.SONNET_5,
           max_tokens: 2000,
           thinking: { type: 'adaptive' },
           output_config: { effort: 'medium', format: zodOutputFormat(schema) },
@@ -289,6 +292,7 @@ export class PrescriptionAgentService {
           messages: [{ role: 'user', content: this.buildRunSessionUserPrompt(params) }],
         }),
       );
+      logAiUsage(this.logger, { agent: 'treinador_dia_corrida', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
       const parsed = response.parsed_output;
       if (!parsed) return null;
       return parsed;
@@ -335,10 +339,11 @@ export class PrescriptionAgentService {
   private async attemptStrengthSessionDecision(input: MethodologyInput, slot: StrengthSlot): Promise<StrengthSessionDecision | null> {
     const client = this.client;
     if (!client) return null;
+    const startedAt = Date.now();
     try {
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
-          model: 'claude-sonnet-5',
+          model: AI_MODELS.SONNET_5,
           max_tokens: 3000,
           thinking: { type: 'adaptive' },
           output_config: {
@@ -349,6 +354,7 @@ export class PrescriptionAgentService {
           messages: [{ role: 'user', content: this.buildSingleStrengthUserPrompt(input, slot) }],
         }),
       );
+      logAiUsage(this.logger, { agent: 'treinador_dia_forca', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
       const parsed = response.parsed_output;
       if (!parsed) return null;
       // Chamada avulsa pra um slot ESPECIFICO (repo de dia faltante ou regenerar-1-dia do
@@ -381,6 +387,7 @@ export class PrescriptionAgentService {
     // Capturado durante o streaming pra ter dado real (stop_reason/usage/texto bruto) se o parse
     // do JSON estruturado falhar la embaixo — em vez de adivinhar a causa depois, ver catch.
     let lastSnapshot: Anthropic.Messages.Message | undefined;
+    const startedAt = Date.now();
     try {
       // Streaming (nao client.messages.parse, que e sempre nao-streaming): com max_tokens alto
       // (24000) + pensamento adaptativo, o proprio SDK recusa a chamada de antemao com "Streaming
@@ -390,7 +397,7 @@ export class PrescriptionAgentService {
       // parsed_output que .parse() devolvia, entao o resto do codigo abaixo nao muda.
       const response = await this.aiQueue.run(async () => {
         const stream = client.messages.stream({
-          model: 'claude-sonnet-5',
+          model: AI_MODELS.SONNET_5,
           // Aumentado de 8000 depois que strengthSessions foi adicionado a mesma resposta: um
           // aluno com varios dias de forca/fortalecimento (cada um com titulo/notes/exercicios)
           // soma bastante texto em cima do que a corrida ja usava, e o mesmo tipo de falha
@@ -435,12 +442,17 @@ export class PrescriptionAgentService {
       const parsed = response.parsed_output;
       if (!parsed) return null;
 
-      // Log de custo real (nao logado antes — so em falha). thinking tokens entram dentro de
-      // output_tokens (mesma linha de billing da resposta escrita) — sem isso nao da pra saber
-      // quanto do gasto e raciocinio vs. texto final, so estimar.
-      this.logger.log(
-        `Semana gerada com IA (effort=${effort}): input_tokens=${response.usage.input_tokens}, output_tokens=${response.usage.output_tokens}, cache_read_tokens=${response.usage.cache_read_input_tokens ?? 0}, cache_creation_tokens=${response.usage.cache_creation_input_tokens ?? 0}`,
-      );
+      // Log de custo real. thinking tokens entram dentro de output_tokens (mesma linha de billing
+      // da resposta escrita) — sem isso nao da pra saber quanto do gasto e raciocinio vs. texto
+      // final, so estimar.
+      logAiUsage(this.logger, {
+        agent: 'treinador_semana',
+        model: AI_MODELS.SONNET_5,
+        usage: response.usage,
+        durationMs: Date.now() - startedAt,
+        ttl: '5m (default)',
+        extra: `effort=${effort}`,
+      });
 
       // NAO existe mais rejeicao por pace lento (piso de 8:30/km): removido em 02/08 a pedido
       // explicito do treinador — pace lento e so uma recomendacao no prompt pra IA evitar, nunca

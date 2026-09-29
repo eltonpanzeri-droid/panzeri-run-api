@@ -4,12 +4,14 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
 import { AiQueueService } from '../common/ai-queue.service';
+import { AI_MODELS } from '../common/ai-models.config';
+import { logAiUsage } from '../common/ai-usage-logger';
 
 // Contrato de saida do Agente Relator (pedido 28/09/2026, itens 3.A-3.G). Listas de temas/percepcao
 // sao texto livre (nao enum fechado) de proposito — o pedido e explicito: "isso NAO e lista
 // fechada". temporality e relevance SAO enums fechados porque tem semantica operacional fixa que o
 // resto do sistema (futuro Agente de Prontuario) precisa poder direcionar de forma confiavel.
-const RelatorOutputSchema = z.object({
+export const RelatorOutputSchema = z.object({
   facts: z.string().min(1).max(500),
   perception: z.string().max(500).nullable(),
   themes: z.array(z.string().min(1).max(60)).max(8),
@@ -59,20 +61,37 @@ export class StudentReporterAgentService {
     if (!input.originalText.trim()) return null;
     const client = this.client;
 
+    const startedAt = Date.now();
     try {
+      // 28/09/2026 (otimizacao de custo): Haiku 4.5 nao suporta o parametro "effort" (isso e'
+      // exclusivo de Sonnet 5+/Opus 5+ com thinking habilitado) — thinking fica "disabled" (nao
+      // "adaptive"), sem effort nenhum no output_config, so' o formato estruturado. Ver relatorio
+      // da tarefa de otimizacao pra comparacao Haiku x Sonnet neste agente especifico.
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
-          model: 'claude-sonnet-5',
+          model: AI_MODELS.HAIKU_4_5,
           max_tokens: 2000,
           thinking: { type: 'disabled' },
           output_config: {
-            effort: 'low',
             format: zodOutputFormat(RelatorOutputSchema),
           },
+          // cache_control mantido por consistencia com os outros 3 agentes, mas o prompt estavel
+          // deste agente (~1600 tokens) fica ABAIXO do minimo de 4096 tokens que Haiku 4.5 exige
+          // pra' um breakpoint de cache realmente ser criado — a anotacao e' silenciosamente
+          // ignorada pela Anthropic nesse caso (nunca da erro, so' nao cacheia). Nao inflar o
+          // prompt artificialmente so' pra bater o minimo (instrucao explicita do treinador) —
+          // registrado como limitacao conhecida no relatorio da tarefa.
           system: [{ type: 'text', text: this.buildSystemPrompt(), cache_control: { type: 'ephemeral' } }],
           messages: [{ role: 'user', content: JSON.stringify(input, null, 2) }],
         }),
       );
+      logAiUsage(this.logger, {
+        agent: 'relator',
+        model: AI_MODELS.HAIKU_4_5,
+        usage: response.usage,
+        durationMs: Date.now() - startedAt,
+        ttl: '5m (default, abaixo do minimo de cache pra este modelo)',
+      });
       return response.parsed_output ?? null;
     } catch (error) {
       this.logger.warn(`Falha ao analisar relato do aluno (userId contexto perdido no log): ${(error as Error).message}`);
@@ -80,7 +99,10 @@ export class StudentReporterAgentService {
     }
   }
 
-  private buildSystemPrompt() {
+  // Publico de proposito: reaproveitado pelo endpoint temporario de diagnostico
+  // (ai-optimization-diagnostics.controller.ts) pra rodar a MESMA chamada com Sonnet, pra
+  // comparacao real Haiku x Sonnet — nunca duplicar o prompt em dois lugares.
+  buildSystemPrompt() {
     return [
       'Voce e o Agente Relator da Panzeri Run. Sua unica funcao e transformar texto livre que um aluno escreveu em algum lugar do app (feedback de treino, relato de dor, observacao livre, check-in semanal, questionario de retorno, entrevista, cancelamento, etc.) em informacao estruturada, contextualizada e util para um agente de prontuario que vem depois na cadeia — sem nunca substituir, resumir de forma que perca informacao, ou alterar o texto original (voce nunca reescreve o texto do aluno, so o interpreta).',
       'Voce recebe: o texto original (originalText), de onde ele veio (sourceType/relatedLabel/promptQuestion), quando o evento de origem aconteceu (occurredAt) e uma pequena amostra de relatos ANTERIORES relevantes deste MESMO aluno (priorEntries) para dar continuidade — nao o historico inteiro.',

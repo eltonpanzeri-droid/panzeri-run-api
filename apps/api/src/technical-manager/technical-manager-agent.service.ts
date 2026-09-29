@@ -7,6 +7,8 @@ import { AiQueueService } from '../common/ai-queue.service';
 import { TrainingPlansService } from '../training-plans/training-plans.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
+import { AI_MODELS } from '../common/ai-models.config';
+import { logAiUsage } from '../common/ai-usage-logger';
 
 const MAX_TOOL_ITERATIONS = 6;
 const HISTORY_LIMIT = 40;
@@ -122,8 +124,9 @@ export class TechnicalManagerAgentService {
     let messages = [...initialMessages];
 
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
+      const startedAt = Date.now();
       const response = await client.messages.create({
-        model: 'claude-sonnet-5',
+        model: AI_MODELS.SONNET_5,
         // Era 2000, depois 4096 — ainda insuficiente na pratica quando o treinador manda uma
         // mensagem longa descrevendo varios dias diferentes de uma vez, ou quando a conversa e o
         // contexto do aluno (get_student_context) ja acumularam bastante historico. O modelo
@@ -141,6 +144,14 @@ export class TechnicalManagerAgentService {
         ],
         tools: tools.map((tool) => tool.spec),
         messages,
+      });
+      logAiUsage(this.logger, {
+        agent: 'gerente_tecnico',
+        model: AI_MODELS.SONNET_5,
+        usage: response.usage,
+        durationMs: Date.now() - startedAt,
+        ttl: '5m (default)',
+        extra: `iteracao=${iteration}`,
       });
 
       const toolUseBlocks = response.content.filter((block): block is Anthropic.ToolUseBlock => block.type === 'tool_use');

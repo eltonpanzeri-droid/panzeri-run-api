@@ -4,6 +4,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
 import { AiQueueService } from '../common/ai-queue.service';
+import { AI_MODELS } from '../common/ai-models.config';
+import { logAiUsage } from '../common/ai-usage-logger';
 import { VariableTrajectory, FitnessTestPoint } from './reassessment-trajectory';
 
 const DomainObservationsSchema = z.object({
@@ -57,10 +59,11 @@ export class EvolutionAgentService {
     if (!this.client) return null;
     const client = this.client;
 
+    const startedAt = Date.now();
     try {
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
-          model: 'claude-sonnet-5',
+          model: AI_MODELS.SONNET_5,
           max_tokens: 4000,
           thinking: { type: 'adaptive' },
           output_config: {
@@ -71,6 +74,7 @@ export class EvolutionAgentService {
           messages: [{ role: 'user', content: JSON.stringify(input, null, 2) }],
         }),
       );
+      logAiUsage(this.logger, { agent: 'prontuario', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
 
       return response.parsed_output ?? null;
     } catch (error) {
