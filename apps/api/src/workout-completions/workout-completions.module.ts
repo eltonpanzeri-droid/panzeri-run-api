@@ -5,9 +5,10 @@ import { BillingModule } from '../billing/billing.module';
 import { WorkoutCompletionsController } from './workout-completions.controller';
 import { WorkoutCompletionsService } from './workout-completions.service';
 import { ContextEventsModule } from '../context-events/context-events.module';
+import { ReporterModule } from '../reporter/reporter.module';
 
 @Module({
-  imports: [PrismaModule, StudentProfileModule, BillingModule, ContextEventsModule],
+  imports: [PrismaModule, StudentProfileModule, BillingModule, ContextEventsModule, ReporterModule],
   controllers: [WorkoutCompletionsController],
   providers: [WorkoutCompletionsService],
 })

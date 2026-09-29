@@ -18,9 +18,10 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { MenstrualCycleModule } from '../menstrual-cycle/menstrual-cycle.module';
 import { TrainingIntelligenceModule } from '../training-intelligence/training-intelligence.module';
 import { ReassessmentModule } from '../reassessment/reassessment.module';
+import { ReporterModule } from '../reporter/reporter.module';
 
 @Module({
-  imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, StravaModule, forwardRef(() => BillingModule), StudentProfileModule, NotificationsModule, MenstrualCycleModule, TrainingIntelligenceModule, ReassessmentModule],
+  imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, StravaModule, forwardRef(() => BillingModule), StudentProfileModule, NotificationsModule, MenstrualCycleModule, TrainingIntelligenceModule, ReassessmentModule, ReporterModule],
   controllers: [TrainingPlansController],
   providers: [TrainingPlansService, PrescriptionAgentService, StravaAnalysisAgentService, WeeklyPlanSchedulerService, StravaAnalysisSchedulerService, DirectiveExpiryNotifierService, WeeklyCheckInService],
   exports: [TrainingPlansService, StudentProfileModule, WeeklyPlanSchedulerService],

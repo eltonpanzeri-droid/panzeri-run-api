@@ -37,7 +37,7 @@ function build(opts: { userStatus?: string; studentCode?: number | null; statusC
   const notifications = { notifyUserIfNotRecent: jest.fn().mockResolvedValue(undefined), notifyUser: jest.fn().mockResolvedValue(undefined) };
   const metaCapi = { sendEvent: jest.fn() };
 
-  const service = new BillingService(prisma as never, config as never, telegram as never, messaging as never, trainingPlans as never, notifications as never, metaCapi as never);
+  const service = new BillingService(prisma as never, config as never, telegram as never, messaging as never, trainingPlans as never, notifications as never, metaCapi as never, { record: jest.fn() } as never);
   // efeitos colaterais de codigo de aluno / boas-vindas ja sao cobertos em outro lugar; aqui isolam-se
   jest.spyOn(service as never, 'createWelcomeNotificationOnce' as never).mockResolvedValue(undefined as never);
   jest.spyOn(service as never, 'assignStudentCodeIfNeeded' as never).mockResolvedValue(undefined as never);

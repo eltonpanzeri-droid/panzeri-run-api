@@ -7,11 +7,12 @@ import { MessagingModule } from '../messaging/messaging.module';
 import { TrainingPlansModule } from '../training-plans/training-plans.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { MetaCapiService } from '../meta/meta-capi.service';
+import { ReporterModule } from '../reporter/reporter.module';
 
 @Module({
   // forwardRef: TrainingPlansModule tambem importa BillingModule (por causa do TelegramService) —
   // sem forwardRef dos dois lados, isso vira dependencia circular de modulo e o Nest recusa subir.
-  imports: [MessagingModule, forwardRef(() => TrainingPlansModule), NotificationsModule],
+  imports: [MessagingModule, forwardRef(() => TrainingPlansModule), NotificationsModule, ReporterModule],
   controllers: [BillingController],
   providers: [BillingService, TelegramService, BillingSyncSchedulerService, MetaCapiService],
   exports: [BillingService, TelegramService],

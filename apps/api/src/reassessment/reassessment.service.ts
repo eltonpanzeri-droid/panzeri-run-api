@@ -5,6 +5,8 @@ import { EvolutionAgentService } from './evolution-agent.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 import { AthleteStateSnapshotService } from '../training-intelligence/athlete-state-snapshot.service';
+import { ReportTimelineService } from '../reporter/report-timeline.service';
+import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 import {
   buildReassessmentTrajectories,
   buildFitnessTestTrajectory,
@@ -23,6 +25,7 @@ export class ReassessmentService {
     private readonly evolutionAgent: EvolutionAgentService,
     private readonly studentProfile: StudentProfileService,
     private readonly athleteStateSnapshot: AthleteStateSnapshotService,
+    private readonly reportTimeline: ReportTimelineService,
   ) {}
 
   async state(userId: string) {
@@ -97,6 +100,30 @@ export class ReassessmentService {
       where: { id: draft.id },
       data: { completedAt: new Date(), reassessmentVersion: REASSESSMENT_INSTRUMENT_VERSION },
     });
+
+    // Linha do Tempo de Relatos (28/09/2026) — mesmas chaves canonicas de texto livre da entrevista
+    // inicial (a reavaliacao reaplica as mesmas perguntas de saude, ver comentario em schema.prisma).
+    const reassessmentAnswers = asAnswerObject(completed.answers);
+    const healthFreeTextFields: Array<{ key: string; promptQuestion: string }> = [
+      { key: 'injury_description', promptQuestion: 'Descreva a lesao/cirurgia/limitacao' },
+      { key: 'health_conditions_other', promptQuestion: 'Outra condicao de saude (descreva)' },
+      { key: 'medical_recommendation', promptQuestion: 'Alguma recomendacao medica a considerar?' },
+      { key: 'continuous_medications', promptQuestion: 'Usa alguma medicacao continua?' },
+    ];
+    for (const field of healthFreeTextFields) {
+      const raw = reassessmentAnswers[field.key];
+      const text = typeof raw === 'string' ? raw.trim() : '';
+      if (!text) continue;
+      void this.reportTimeline.record({
+        userId,
+        sourceType: STUDENT_REPORT_SOURCE_TYPES.REASSESSMENT_HEALTH,
+        sourceId: completed.id,
+        promptQuestion: field.promptQuestion,
+        relatedLabel: 'Reavaliacao periodica - saude',
+        originalText: text,
+        occurredAt: completed.completedAt ?? new Date(),
+      });
+    }
 
     // Trajetoria completa INITIAL -> R1 -> R2 -> ... -> esta reavaliacao (nao apenas "ultima vs
     // atual", nao limitada a um numero arbitrario de reavaliacoes anteriores — secao 21/Passo 3).

@@ -20,7 +20,7 @@ describe('WeeklyCheckInService.submit/skip — versionamento v3', () => {
       },
     };
     const strava = { report: jest.fn().mockResolvedValue({ summary: null }) };
-    const service = new WeeklyCheckInService(prisma as never, strava as never);
+    const service = new WeeklyCheckInService(prisma as never, strava as never, { record: jest.fn() } as never);
     return { service, created };
   }
 

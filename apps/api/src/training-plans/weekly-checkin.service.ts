@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StravaService } from '../strava/strava.service';
 import { SubmitWeeklyCheckInDto } from './dto/submit-weekly-checkin.dto';
+import { ReportTimelineService } from '../reporter/report-timeline.service';
+import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 
 // 31/08: dia de calendario em America/Sao_Paulo, nao no fuso do servidor (achado por auto-revisao
 // — o servidor roda em UTC; entre 21h e 23h59 no horario de Brasilia, `new Date()` puro ja mostra
@@ -42,6 +44,7 @@ export class WeeklyCheckInService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly strava: StravaService,
+    private readonly reportTimeline: ReportTimelineService,
   ) {}
 
   async getStatus(userId: string) {
@@ -96,7 +99,7 @@ export class WeeklyCheckInService {
     const version = isV3 ? 3 : isV2 ? 2 : 1;
 
     try {
-      return await this.prisma.weeklyCheckIn.create({
+      const created = await this.prisma.weeklyCheckIn.create({
         data: {
           userId,
           planId: plan.id,
@@ -136,6 +139,16 @@ export class WeeklyCheckInService {
           freeTextObservation: dto.freeTextObservation?.trim() || null,
         },
       });
+      void this.reportTimeline.record({
+        userId,
+        sourceType: STUDENT_REPORT_SOURCE_TYPES.WEEKLY_CHECKIN_FREE_TEXT,
+        sourceId: created.id,
+        promptQuestion: 'Tem alguma coisa importante sobre sua semana ou sobre a proxima que nao perguntamos?',
+        relatedLabel: `Check-in semanal - ${plan.startDate.toISOString().slice(0, 10)}`,
+        originalText: dto.freeTextObservation,
+        occurredAt: created.createdAt,
+      });
+      return created;
     } catch (error) {
       // 31/08: cobre a corrida entre o findFirst acima e este create (duplo toque, dois
       // aparelhos) — a restricao @@unique([userId, planId]) no banco e' quem garante de verdade a

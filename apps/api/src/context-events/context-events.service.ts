@@ -6,6 +6,8 @@ import { CreateContextEventDto } from './dto/create-context-event.dto';
 import { StartMedicationDto } from './dto/start-medication.dto';
 import { EndMedicationDto } from './dto/end-medication.dto';
 import { GAP_RETURN_THRESHOLD_DAYS, REASON_TO_CONTEXT_TYPE } from './context-event-types';
+import { ReportTimelineService } from '../reporter/report-timeline.service';
+import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 
 export interface GapStatus {
   lastObservedExecutionAt: Date | null;
@@ -19,7 +21,13 @@ const RECENT_EVENTS_LIMIT = 5;
 
 @Injectable()
 export class ContextEventsService {
-  constructor(private readonly prisma: PrismaService) {}
+  // reportTimeline tem default pra nao quebrar as dezenas de testes existentes que instanciam este
+  // service diretamente com um so argumento (prisma) — Nest DI sempre resolve o valor real, o
+  // default so entra em jogo fora do container (testes que nao passam o segundo argumento).
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reportTimeline: ReportTimelineService = { record: async () => undefined } as unknown as ReportTimelineService,
+  ) {}
 
   /**
    * Ultima EXECUCAO VALIDA observada — definida como um WorkoutCompletion com status done/adjusted
@@ -94,7 +102,8 @@ export class ContextEventsService {
       dto.note?.trim() || null,
     ].filter((part): part is string => Boolean(part));
 
-    return this.prisma.contextEvent.create({
+    const originalText = originalTextParts.length ? originalTextParts.join(' — ') : null;
+    const event = await this.prisma.contextEvent.create({
       data: {
         userId,
         type: REASON_TO_CONTEXT_TYPE[dto.reason],
@@ -103,13 +112,25 @@ export class ContextEventsService {
         endedAt: new Date(),
         status: 'ended',
         source: 'student_reported',
-        originalText: originalTextParts.length ? originalTextParts.join(' — ') : null,
+        originalText,
         gapAnchorDate: gap.lastObservedExecutionAt,
         trainingDuringGapReported: dto.trainingDuringGap,
         physicalStateComparedToBefore: dto.physicalStateComparedToBefore,
         mentalReadinessComparedToBefore: dto.mentalReadinessComparedToBefore,
       },
     });
+
+    void this.reportTimeline.record({
+      userId,
+      sourceType: STUDENT_REPORT_SOURCE_TYPES.CONTEXT_EVENT,
+      sourceId: event.id,
+      promptQuestion: 'Aconteceu algo importante nesse periodo que voce acha que devemos considerar nos proximos treinos?',
+      relatedLabel: 'Questionario de retorno apos pausa',
+      originalText,
+      occurredAt: event.reportedAt,
+    });
+
+    return event;
   }
 
   /**

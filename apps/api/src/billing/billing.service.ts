@@ -6,6 +6,8 @@ import { MessagingService } from '../messaging/messaging.service';
 import { TrainingPlansService } from '../training-plans/training-plans.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MetaCapiService } from '../meta/meta-capi.service';
+import { ReportTimelineService } from '../reporter/report-timeline.service';
+import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 
 type AsaasCustomer = { id: string };
 type AsaasCustomerList = { data: AsaasCustomer[] };
@@ -251,6 +253,7 @@ export class BillingService {
     private readonly trainingPlans: TrainingPlansService,
     private readonly notifications: NotificationsService,
     private readonly metaCapi: MetaCapiService,
+    private readonly reportTimeline: ReportTimelineService,
   ) {}
 
   // Dispara a primeira geracao de treino assim que o pagamento e confirmado (generateFirstWeekIfNeeded
@@ -661,6 +664,7 @@ export class BillingService {
       await this.recordStatusTransition(userId, before?.subscriptionStatus, 'canceled', 'student:cancel');
       // Notifica o treinador com o motivo de cancelamento
       this.sendCancelSurveyToTelegram(userId, reason, feedbackText, wouldReturn).catch(() => {});
+      this.recordCancelFeedbackInTimeline(userId, feedbackText);
       return { status: 'canceled', message: 'Solicitacao de cancelamento registrada.' };
     }
 
@@ -668,7 +672,19 @@ export class BillingService {
     await this.updateStatus(userId, 'canceled', 'canceled');
     await this.prisma.user.update({ where: { id: userId }, data: { subscriptionCancelRequestedAt: new Date(), ...surveyData } });
     this.sendCancelSurveyToTelegram(userId, reason, feedbackText, wouldReturn).catch(() => {});
+    this.recordCancelFeedbackInTimeline(userId, feedbackText);
     return { status: 'canceled', message: 'Assinatura cancelada.' };
+  }
+
+  private recordCancelFeedbackInTimeline(userId: string, feedbackText?: string) {
+    void this.reportTimeline.record({
+      userId,
+      sourceType: STUDENT_REPORT_SOURCE_TYPES.SUBSCRIPTION_CANCEL_FEEDBACK,
+      promptQuestion: 'O que poderia ter sido diferente?',
+      relatedLabel: 'Cancelamento de assinatura',
+      originalText: feedbackText,
+      occurredAt: new Date(),
+    });
   }
 
   private async sendCancelSurveyToTelegram(userId: string, reason?: string, feedbackText?: string, wouldReturn?: string) {

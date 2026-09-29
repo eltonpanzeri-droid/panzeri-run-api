@@ -116,6 +116,7 @@ model User {
   painReports         PainReport[]
   profileEvents       StudentProfileEvent[]
   observations        StudentObservation[]
+  reportEntries       StudentReportEntry[]
   weeklyCheckIns      WeeklyCheckIn[]
   funnelEvents        FunnelEvent[]
   menstrualProfile    MenstrualProfile?
@@ -1079,6 +1080,59 @@ model StudentProfile {
   userId    String   @id
   summary   String   @default("")
   updatedAt DateTime @updatedAt
+}
+
+// Linha do Tempo de Relatos (28/09/2026) — toda vez que o aluno escreve texto livre em qualquer
+// lugar do app, uma linha e' criada aqui, preservando o texto ORIGINAL pra sempre (nunca alterado).
+// O Agente Relator (StudentReporterAgentService) preenche os campos de analise depois, de forma
+// assincrona e melhor-esforco (analyzedAt nulo = ainda nao analisado ou falhou — nunca bloqueia o
+// salvamento do dado original). sourceType e' string livre de proposito (nao um enum fechado do
+// Prisma) pra permitir novas fontes de texto no futuro sem migration. Este e' o INSUMO do futuro
+// Agente de Prontuario, mas ainda NAO esta conectado a ele (StudentProfileService) — essa integracao
+// e' proposital e explicitamente uma etapa futura, nao desta implementacao.
+model StudentReportEntry {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Identifica de onde veio o texto (ex: 'workout_feedback_notes', 'workout_missed_comment',
+  // 'workout_adjustment_comment', 'pain_report', 'weekly_checkin_free_text', 'student_observation',
+  // 'context_event', 'onboarding_interview_health', 'reassessment_health',
+  // 'subscription_cancel_feedback') — ver STUDENT_REPORT_SOURCE_TYPES em reporter/report-timeline.constants.ts.
+  sourceType     String
+  // Id da linha de origem (WorkoutCompletion/PainReport/ContextEvent/etc), quando existir — permite
+  // voltar ao registro original completo, alem do texto ja preservado abaixo.
+  sourceId       String?
+  // Pergunta/rotulo que originou a resposta, quando aplicavel (ex: "O que poderia ter sido
+  // diferente?"). Null quando o campo nao tem uma pergunta fixa associada.
+  promptQuestion String?
+  // Descricao curta e legivel do contexto relacionado (ex: "Treino de 28/09 - corrida"), pra exibir
+  // na timeline sem precisar buscar a linha de origem.
+  relatedLabel   String?
+
+  // Texto original do aluno — NUNCA alterado pela interpretacao da IA. Fonte historica.
+  originalText String
+  // Data/hora do evento de origem (quando o relato se refere), nao da criacao desta linha.
+  occurredAt   DateTime
+
+  // Saida estruturada do Agente Relator — tudo nulo/vazio ate ser processado.
+  analyzedAt       DateTime?
+  facts            String?
+  perception       String?
+  themes           String[]
+  temporality      String? // ATUAL | PASSADO | RECORRENTE | RESOLVIDO | EXPECTATIVA_FUTURA | INDETERMINADO
+  longitudinalNote String?
+  hypotheses       String[]
+  relevance        String? // PONTUAL | ACOMPANHAR | LONGITUDINAL | MUDANCA_IMPORTANTE
+  // Motivo da falha quando a analise nao completar (nunca trava o texto original) — best-effort,
+  // mesmo padrao ja usado pelos outros agentes desta arquitetura.
+  analysisError    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, sourceType])
+  @@index([userId, analyzedAt])
 }
 
 // Rastreamento de funil de onboarding (07/09): cada evento relevante do prospecto/aluno desde

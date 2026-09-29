@@ -30,6 +30,8 @@ import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.servic
 import { AthleteStateSnapshotService } from '../training-intelligence/athlete-state-snapshot.service';
 import { ReassessmentService } from '../reassessment/reassessment.service';
 import { buildCompactAgentContext } from '../training-intelligence/compact-agent-context';
+import { ReportTimelineService } from '../reporter/report-timeline.service';
+import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 
 interface SessionTemplate {
   title: string;
@@ -143,6 +145,7 @@ export class TrainingPlansService {
     private readonly menstrualCycle: MenstrualCycleService,
     private readonly athleteStateSnapshot: AthleteStateSnapshotService,
     private readonly reassessmentService: ReassessmentService,
+    private readonly reportTimeline: ReportTimelineService,
   ) {}
 
   // REGRA DURA (2026-07-28): current() e SO LEITURA — nunca chama generateWeek() nem mexe no
@@ -2032,6 +2035,16 @@ export class TrainingPlansService {
         feedbackVersion: isExtraSessionV2(input) ? 2 : 1,
         source: 'student_extra',
       },
+    });
+
+    void this.reportTimeline.record({
+      userId,
+      sourceType: STUDENT_REPORT_SOURCE_TYPES.WORKOUT_FEEDBACK_NOTES,
+      sourceId: session.id,
+      promptQuestion: 'Nota (opcional)',
+      relatedLabel: `${title} (extra) - ${input.date}`,
+      originalText: input.notes,
+      occurredAt: completedAtNoon,
     });
 
     // Calcula o weekOffset para o mobile saber para qual semana navegar

@@ -51,7 +51,7 @@ describe('CoachService.trainingIntelligenceOverview — agregado sem recalcular 
 
 describe('ReassessmentService.getTrajectoryForAdmin — nao recalcula quando ja existe snapshot persistido (secao 29)', () => {
   function buildService(prisma: Record<string, unknown>) {
-    return new ReassessmentService(prisma as never, noop(), noop(), noop());
+    return new ReassessmentService(prisma as never, noop(), noop(), noop(), noop());
   }
 
   it('reusa o trajectorySnapshot do Evolution Report valido mais recente, sem chamar buildReassessmentTrajectories de novo', async () => {

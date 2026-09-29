@@ -12,6 +12,8 @@ import { TelegramService, formatStudentCode } from '../billing/telegram.service'
 import { TrainingPlansService, hasSubscriptionAccess } from '../training-plans/training-plans.service';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 import { ONBOARDING_INTERVIEW_VERSION } from '../reassessment/reassessment-trajectory';
+import { ReportTimelineService } from '../reporter/report-timeline.service';
+import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 
 // ATE 03/08 existia um limite de 1 alteracao de rotina a cada 30 dias, porque cada mudanca
 // disparava uma geracao de IA na hora (custo real por alteracao). Ordem explicita do treinador
@@ -31,6 +33,7 @@ export class MeService {
     private readonly trainingPlans: TrainingPlansService,
     private readonly studentProfile: StudentProfileService,
     private readonly telegram: TelegramService,
+    private readonly reportTimeline: ReportTimelineService,
   ) {}
 
   acceptExerciseResponsibility(userId: string) {
@@ -307,6 +310,36 @@ export class MeService {
       ).catch((error) => {
         this.logger.warn(`recordEvent(STUDENT_OBSERVATION, rotina) falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
       });
+      void this.reportTimeline.record({
+        userId,
+        sourceType: STUDENT_REPORT_SOURCE_TYPES.ONBOARDING_INTERVIEW_ROUTINE_NOTE,
+        promptQuestion: 'Alguma observacao sobre sua rotina?',
+        relatedLabel: 'Entrevista inicial - rotina',
+        originalText: routineObservation,
+        occurredAt: completedAt,
+      });
+    }
+
+    // Linha do Tempo de Relatos (28/09/2026) — texto livre REAL dentro da entrevista (nunca os
+    // resumos compostos gravados em HealthProfile, que ja misturam varias respostas numa frase
+    // so e deixariam de ser o "texto original" do aluno).
+    const healthFreeTextFields: Array<{ key: string; promptQuestion: string }> = [
+      { key: 'injury_description', promptQuestion: 'Descreva a lesao/cirurgia/limitacao' },
+      { key: 'health_conditions_other', promptQuestion: 'Outra condicao de saude (descreva)' },
+      { key: 'medical_recommendation', promptQuestion: 'Alguma recomendacao medica a considerar?' },
+      { key: 'continuous_medications', promptQuestion: 'Usa alguma medicacao continua?' },
+    ];
+    for (const field of healthFreeTextFields) {
+      const text = stringValue(answers[field.key]).trim();
+      if (!text) continue;
+      void this.reportTimeline.record({
+        userId,
+        sourceType: STUDENT_REPORT_SOURCE_TYPES.ONBOARDING_INTERVIEW_HEALTH,
+        promptQuestion: field.promptQuestion,
+        relatedLabel: 'Entrevista inicial - saude',
+        originalText: text,
+        occurredAt: completedAt,
+      });
     }
 
     // Incidente real: prospectos respondiam a entrevista inteira, a IA gerava a semana de treino
@@ -470,12 +503,30 @@ export class MeService {
     });
   }
 
-  updateHealth(userId: string, dto: UpdateHealthDto) {
-    return this.prisma.healthProfile.upsert({
+  async updateHealth(userId: string, dto: UpdateHealthDto) {
+    const result = await this.prisma.healthProfile.upsert({
       where: { userId },
       create: { userId, ...dto },
       update: dto,
     });
+    const now = new Date();
+    const freeTextFields: Array<{ value: string | null | undefined; promptQuestion: string }> = [
+      { value: dto.previousSurgeries, promptQuestion: 'Cirurgias anteriores' },
+      { value: dto.previousInjuries, promptQuestion: 'Lesoes, cirurgias ou limitacoes' },
+      { value: dto.healthProblems, promptQuestion: 'Problemas de saude' },
+      { value: dto.medications, promptQuestion: 'Medicamentos de uso continuo' },
+    ];
+    for (const field of freeTextFields) {
+      void this.reportTimeline.record({
+        userId,
+        sourceType: STUDENT_REPORT_SOURCE_TYPES.ONBOARDING_INTERVIEW_HEALTH,
+        promptQuestion: field.promptQuestion,
+        relatedLabel: 'Edicao de dados de saude',
+        originalText: field.value,
+        occurredAt: now,
+      });
+    }
+    return result;
   }
 
   updatePreferences(userId: string, dto: UpdatePreferencesDto) {

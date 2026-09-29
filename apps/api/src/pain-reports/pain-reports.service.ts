@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePainReportDto } from './dto/create-pain-report.dto';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
+import { ReportTimelineService } from '../reporter/report-timeline.service';
+import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 
 const SEVERE_WINDOW_DAYS = 14;
 const REPORT_LOOKBACK_DAYS = 21;
@@ -18,6 +20,7 @@ export class PainReportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly studentProfile: StudentProfileService,
+    private readonly reportTimeline: ReportTimelineService,
   ) {}
 
   list(userId: string) {
@@ -61,6 +64,26 @@ export class PainReportsService {
       dto.comment?.trim() ? `Comentario do aluno: ${dto.comment.trim()}` : '',
     ].filter(Boolean).join(' ');
     void this.studentProfile.recordEvent(userId, ProfileEventCode.PAIN_REPORT, profileText).catch(() => undefined);
+
+    const relatedLabel = `Relato de dor - ${dto.regions.join(', ')} (${dto.intensity}/10)`;
+    void this.reportTimeline.record({
+      userId,
+      sourceType: STUDENT_REPORT_SOURCE_TYPES.PAIN_REPORT,
+      sourceId: report.id,
+      promptQuestion: 'Comentario (opcional)',
+      relatedLabel,
+      originalText: dto.comment,
+      occurredAt: report.createdAt,
+    });
+    void this.reportTimeline.record({
+      userId,
+      sourceType: STUDENT_REPORT_SOURCE_TYPES.PAIN_REPORT,
+      sourceId: report.id,
+      promptQuestion: 'Outra localizacao (descreva)',
+      relatedLabel,
+      originalText: dto.otherLocation,
+      occurredAt: report.createdAt,
+    });
 
     return report;
   }

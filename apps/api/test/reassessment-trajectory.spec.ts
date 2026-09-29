@@ -102,7 +102,7 @@ describe('reassessment-trajectory — comparabilidade longitudinal (secoes 6, 7,
 
 describe('ReassessmentService — ciclo de 105 dias e ancora (secoes 3, 4)', () => {
   function buildService(prisma: Record<string, unknown>) {
-    return new ReassessmentService(prisma as never, noop(), noop(), noop());
+    return new ReassessmentService(prisma as never, noop(), noop(), noop(), noop());
   }
 
   it('D. ciclo oficial e 105 dias (15 semanas), nao 90', () => {
@@ -171,7 +171,7 @@ describe('TrainingPlansService.generateWeek — gate de reavaliacao necessaria (
     const reassessmentService = { isReassessmentDue: jest.fn().mockResolvedValue(true) };
     const service = new TrainingPlansService(
       prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
-      reassessmentService as never,
+      reassessmentService as never, noop(),
     );
     await expect(service.generateWeek('u1')).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'reassessment_required' }),

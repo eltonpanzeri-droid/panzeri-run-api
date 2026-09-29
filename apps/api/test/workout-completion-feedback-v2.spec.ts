@@ -29,7 +29,7 @@ describe('WorkoutCompletionsService.upsert — validacao do feedback v2', () => 
     const studentProfile = { recordEvent: jest.fn().mockResolvedValue(undefined) };
     const telegram = { notifyCoach: jest.fn().mockResolvedValue(undefined) };
     const contextEvents = { linkFirstObservationIfPending: jest.fn().mockResolvedValue(undefined) };
-    const service = new WorkoutCompletionsService(prisma as never, config as never, studentProfile as never, telegram as never, contextEvents as never);
+    const service = new WorkoutCompletionsService(prisma as never, config as never, studentProfile as never, telegram as never, contextEvents as never, { record: jest.fn() } as never);
     return { service, prisma };
   }
 

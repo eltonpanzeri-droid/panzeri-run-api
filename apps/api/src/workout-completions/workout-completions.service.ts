@@ -6,6 +6,8 @@ import { UpsertWorkoutCompletionDto } from './dto/upsert-workout-completion.dto'
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { ContextEventsService } from '../context-events/context-events.service';
+import { ReportTimelineService } from '../reporter/report-timeline.service';
+import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 
 @Injectable()
 export class WorkoutCompletionsService {
@@ -15,6 +17,7 @@ export class WorkoutCompletionsService {
     private readonly studentProfile: StudentProfileService,
     private readonly telegram: TelegramService,
     private readonly contextEvents: ContextEventsService,
+    private readonly reportTimeline: ReportTimelineService,
   ) {}
 
   async upsert(userId: string, dto: UpsertWorkoutCompletionDto) {
@@ -389,6 +392,37 @@ export class WorkoutCompletionsService {
         })),
       });
     }
+
+    // Linha do Tempo de Relatos (28/09/2026) — fire-and-forget, nunca bloqueia o salvamento do
+    // feedback nem depende dele ter sucesso pra completar (o feedback ja foi salvo acima).
+    const relatedLabel = `${session.title} (${session.modality}) - ${weekdayAbrev} ${dataFormatada}`;
+    void this.reportTimeline.record({
+      userId,
+      sourceType: STUDENT_REPORT_SOURCE_TYPES.WORKOUT_FEEDBACK_NOTES,
+      sourceId: completion.id,
+      promptQuestion: 'Quer contar mais alguma coisa sobre o treino?',
+      relatedLabel,
+      originalText: dto.notes,
+      occurredAt: session.scheduledDate,
+    });
+    void this.reportTimeline.record({
+      userId,
+      sourceType: STUDENT_REPORT_SOURCE_TYPES.WORKOUT_MISSED_COMMENT,
+      sourceId: completion.id,
+      promptQuestion: 'Conte com suas palavras, se quiser (por que nao treinou)',
+      relatedLabel,
+      originalText: missedComment,
+      occurredAt: session.scheduledDate,
+    });
+    void this.reportTimeline.record({
+      userId,
+      sourceType: STUDENT_REPORT_SOURCE_TYPES.WORKOUT_ADJUSTMENT_COMMENT,
+      sourceId: completion.id,
+      promptQuestion: 'Conte com suas palavras, se quiser (o que foi diferente do prescrito)',
+      relatedLabel,
+      originalText: dto.adjustmentComment,
+      occurredAt: session.scheduledDate,
+    });
 
     return completion;
   }
