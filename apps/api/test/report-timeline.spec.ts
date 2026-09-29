@@ -26,8 +26,9 @@ function build(opts: { priorRows?: unknown[] } = {}) {
   const user = { findUnique: jest.fn().mockResolvedValue({ name: 'Ana' }) };
   const prisma = { studentReportEntry, user };
   const relatorAgent = { analyze: jest.fn() };
-  const service = new ReportTimelineService(prisma as never, relatorAgent as never);
-  return { service, studentReportEntry, relatorAgent, prisma };
+  const studentProfile = { recordEvent: jest.fn().mockResolvedValue(undefined) };
+  const service = new ReportTimelineService(prisma as never, relatorAgent as never, studentProfile as never);
+  return { service, studentReportEntry, relatorAgent, prisma, studentProfile };
 }
 
 describe('ReportTimelineService.record — preservacao do texto original', () => {

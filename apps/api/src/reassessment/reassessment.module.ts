@@ -5,13 +5,13 @@ import { StudentProfileModule } from '../training-plans/student-profile.module';
 import { TrainingIntelligenceModule } from '../training-intelligence/training-intelligence.module';
 import { ReassessmentController } from './reassessment.controller';
 import { ReassessmentService } from './reassessment.service';
-import { EvolutionAgentService } from './evolution-agent.service';
+import { EvolutionAgentModule } from './evolution-agent.module';
 import { ReporterModule } from '../reporter/reporter.module';
 
 @Module({
-  imports: [PrismaModule, AiQueueModule, StudentProfileModule, TrainingIntelligenceModule, ReporterModule],
+  imports: [PrismaModule, AiQueueModule, StudentProfileModule, TrainingIntelligenceModule, ReporterModule, EvolutionAgentModule],
   controllers: [ReassessmentController],
-  providers: [ReassessmentService, EvolutionAgentService],
+  providers: [ReassessmentService],
   exports: [ReassessmentService],
 })
 export class ReassessmentModule {}

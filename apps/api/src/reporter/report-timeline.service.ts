@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { StudentReporterAgentService, PriorReportEntryForContext } from './student-reporter-agent.service';
+import { StudentReporterAgentService, PriorReportEntryForContext, RelatorOutput } from './student-reporter-agent.service';
+import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 
 // Quantos relatos anteriores do MESMO aluno entram no contexto de "conexao longitudinal" (item 3.E
 // do pedido: "nao precisa reler indefinidamente todo o historico bruto"). Numero pequeno de
@@ -25,6 +26,7 @@ export class ReportTimelineService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly relatorAgent: StudentReporterAgentService,
+    private readonly studentProfile: StudentProfileService,
   ) {}
 
   // Chamado pelos pontos reais do sistema onde o aluno escreve texto livre, logo APOS o dado
@@ -111,5 +113,30 @@ export class ReportTimelineService {
         analysisError: null,
       },
     });
+
+    // Fecha o circuito Relator -> Prontuario (28/09/2026): so' relatos com relevancia real pro
+    // acompanhamento longitudinal viram evento de prontuario — PONTUAL fica apenas na Linha do
+    // Tempo, nunca infla o resumo condensado que o Agente Treinador le. O formato do conteudo
+    // preserva explicitamente a separacao FATO vs PERCEPCAO/HIPOTESE (nunca funde as duas) —
+    // ver instrucao correspondente no prompt de condensacao do prontuario.
+    if (result.relevance !== 'PONTUAL') {
+      void this.studentProfile
+        .recordEvent(entry.userId, ProfileEventCode.STUDENT_REPORT_ANALYZED, this.formatForProfile(entry, result))
+        .catch((error) => {
+          this.logger.warn(`Falha ao registrar relato ${entry.id} no prontuario: ${(error as Error).message}`);
+        });
+    }
+  }
+
+  private formatForProfile(entry: { relatedLabel: string | null; sourceType: string }, result: RelatorOutput): string {
+    const origin = entry.relatedLabel ?? entry.sourceType;
+    const parts = [
+      `Relato do aluno interpretado (${origin}, relevancia=${result.relevance}, temporalidade=${result.temporality}).`,
+      `FATO: ${result.facts}`,
+      result.perception ? `PERCEPCAO (interpretacao do Relator, nunca fato confirmado): ${result.perception}` : '',
+      result.longitudinalNote ? `PADRAO OBSERVADO: ${result.longitudinalNote}` : '',
+      result.hypotheses.length ? `HIPOTESES (nao confirmadas): ${result.hypotheses.join('; ')}` : '',
+    ];
+    return parts.filter(Boolean).join(' ');
   }
 }

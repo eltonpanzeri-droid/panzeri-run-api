@@ -42,6 +42,20 @@ export interface EvolutionReport {
   domainObservations?: z.infer<typeof DomainObservationsSchema>;
 }
 
+// Condensacao incremental do Prontuario (28/09/2026, fechamento Relator -> Prontuario -> Treinador).
+// Mesmo agente (EvolutionAgentService), segunda funcao: em vez de interpretar a trajetoria inteira
+// de reavaliacoes (analyze() acima), aqui ele condensa o resumo cumulativo — resumo atual + eventos
+// novos (incluindo relatos do aluno ja interpretados pelo Agente Relator) — numa versao atualizada.
+// Nao substitui o Evolution Report periodico; roda incrementalmente, muito mais barato e frequente.
+const ProfileCondensationSchema = z.object({
+  summary: z.string().min(1).max(6000),
+});
+
+export interface ProfileCondensationInput {
+  currentSummary: string;
+  newEvents: Array<{ code: string; content: string; createdAt: string }>;
+}
+
 @Injectable()
 export class EvolutionAgentService {
   private readonly logger = new Logger(EvolutionAgentService.name);
@@ -81,6 +95,72 @@ export class EvolutionAgentService {
       this.logger.warn(`Falha ao gerar relatorio de evolucao: ${(error as Error).message}`);
       return null;
     }
+  }
+
+  async condenseProfile(input: ProfileCondensationInput): Promise<string | null> {
+    if (!this.client) return null;
+    const client = this.client;
+
+    const startedAt = Date.now();
+    try {
+      const response = await this.aiQueue.run(() =>
+        client.messages.parse({
+          model: AI_MODELS.SONNET_5,
+          max_tokens: 1800,
+          thinking: { type: 'disabled' },
+          output_config: {
+            effort: 'medium',
+            format: zodOutputFormat(ProfileCondensationSchema),
+          },
+          system: [{ type: 'text', text: this.buildProfileCondensationSystemPrompt(), cache_control: { type: 'ephemeral' } }],
+          messages: [{ role: 'user', content: this.buildProfileCondensationUserPrompt(input) }],
+        }),
+      );
+      logAiUsage(this.logger, { agent: 'prontuario_condensacao', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
+
+      return response.parsed_output?.summary ?? null;
+    } catch (error) {
+      this.logger.warn(`Falha ao condensar prontuario: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  private buildProfileCondensationSystemPrompt() {
+    return [
+      'Voce mantem o prontuario de um aluno de corrida: um resumo curto e cumulativo que o Agente Treinador le em vez de reler o historico bruto inteiro toda vez que monta o treino da semana.',
+      'Sua tarefa e pegar o resumo atual (pode estar vazio, se for o primeiro uso) e as novas linhas de evento registradas desde a ultima atualizacao, e devolver um resumo atualizado — nunca um resumo do zero.',
+      'ESTRUTURA OBRIGATORIA — organize o resumo em 5 secoes, sempre nesta ordem, com esses titulos curtos (pode deixar uma secao com "sem informacao relevante ainda" quando nao houver nada real pra colocar nela, nunca invente conteudo pra preencher):',
+      '1) QUEM E — caracteristicas relevantes e estaveis deste aluno (perfil, nivel, forma como responde a treino).',
+      '2) DE ONDE VEIO — historico relevante, limitacoes, experiencias e antecedentes necessarios pra entender o presente (nunca apagar so porque e antigo — ver regra de compactacao por recencia abaixo).',
+      '3) TRAJETORIA/JORNADA — progressoes, regressoes, recorrencias, mudancas importantes, dificuldades e respostas ao longo do tempo (a linha do tempo de topicos recorrentes descrita abaixo vive principalmente aqui).',
+      '4) ESTADO ATUAL — o que caracteriza o aluno AGORA. Nunca mantenha aqui algo que ja foi resolvido — informacao resolvida se move pra TRAJETORIA (como historico), nao desaparece do prontuario, so deixa de representar o presente.',
+      '5) PARA ONDE ESTA INDO — objetivos atuais, prova/evento quando houver, prioridades e direcao da preparacao.',
+      'REGISTRO OBRIGATORIO — ao escrever qualquer frase, deixe claro (pelo proprio texto, sem precisar de tag formal) se aquilo e: um FATO objetivo (aconteceu, é verificavel — ex: completou X km, registrou Y), um RELATO DO ALUNO (o que ele mesmo disse, em suas palavras ou parafraseado, mesmo quando ainda nao confirmado por dado objetivo), um PADRAO OBSERVADO (algo que se repete em mais de uma ocasiao), uma INTERPRETACAO/HIPOTESE (leitura ou suposicao, nunca uma certeza — sempre com linguagem como "parece", "pode indicar", "aluno relata perceber"), ou uma DIRETIVA DO TREINADOR (ordem explicita, tratada como regra ativa, nunca como sugestao). NUNCA promova uma interpretacao/hipotese a fato so porque ela apareceu num evento processado pelo Agente Relator — ela continua sendo interpretacao no prontuario tambem.',
+      'EVENTOS DO CODIGO STUDENT_REPORT_ANALYZED vem ja interpretados pelo Agente Relator (outro agente, que le texto livre do aluno). O conteudo desses eventos ja separa FATO de PERCEPCAO/HIPOTESE explicitamente — preserve essa separacao ao incorporar no prontuario, nunca funda os dois numa frase so que pareca um fato unico. O campo de relevancia desses eventos (ACOMPANHAR/LONGITUDINAL/MUDANCA_IMPORTANTE — PONTUAL nunca chega ate aqui, fica so na Linha do Tempo) indica o quanto aquilo deve pesar: MUDANCA_IMPORTANTE normalmente afeta ESTADO ATUAL e/ou PARA ONDE ESTA INDO; LONGITUDINAL normalmente alimenta a linha do tempo em TRAJETORIA; ACOMPANHAR fica registrado mas com peso mais leve ate confirmar se vira padrao.',
+      'NUNCA transforme um relato interpretado (dor, desmotivacao, sono ruim, cansaco, mudanca de rotina, etc.) numa regra de treino ou numa recomendacao de ajuste — isso nao e papel do prontuario nem seu, e do Agente Treinador decidir o que fazer com a informacao. Voce so descreve o que e verdade sobre o aluno, nunca prescreve nem sugere reducao/aumento de nada.',
+      'REGRA MAIS IMPORTANTE (preservacao historica): nunca apague um fato so porque ele nao foi mencionado de novo. O resumo e cumulativo, nao substitutivo. Se o aluno relatou dor no pe uma vez e depois nao comentou mais nada sobre isso, o resumo continua dizendo que ele relatou dor no pe naquela ocasiao — so que agora sem relatos mais recentes sobre o assunto, e essa informacao migra de ESTADO ATUAL pra TRAJETORIA quando deixar de ser atual. NAO conclua que algo "acabou" nem que "continua" so pela ausencia de relato novo — ausencia de relato NAO e resolucao confirmada. Se precisar ser mais claro, use frases como "sem relatos recentes sobre isso desde [periodo]" em vez de apagar o assunto.',
+      'RASTREIE TOPICOS RECORRENTES (dor, satisfacao, aderencia, motivacao, rotina, e qualquer coisa que se repita) como uma linha do tempo curta dentro de TRAJETORIA, nao como itens soltos e desconectados: um segundo relato do mesmo assunto reforca que ele ainda esta presente na vida do aluno; relatos seguidos indicam algo persistente, mesmo que o aluno continue treinando normalmente; e se o aluno relatar melhora ou ausencia do que antes incomodava, isso vira uma CONTINUACAO da mesma linha, nao a substitui — ex: "relatou dificuldade de motivacao entre marco e maio, com melhora relatada desde entao", nunca so "sem problema de motivacao" (isso apagaria que o problema existiu e foi relevante).',
+      'Fora esse rastreamento de topicos recorrentes e a organizacao nas 5 secoes, nao pense demais: nao tente analisar profundamente nem tirar conclusoes elaboradas sobre o aluno alem do que os eventos realmente sustentam — sua funcao e condensar e organizar, nao interpretar como um treinador ou psicologo fariam.',
+      'Escreva em portugues, em prosa corrida ou topicos curtos por secao, o que for mais compacto. Mantenha o resumo enxuto no total.',
+      'Excecao importante: quando uma linha de evento vier de uma observacao do proprio aluno (codigo STUDENT_OBSERVATION), de uma diretriz do gerente tecnico (codigo DIRECTIVE_ADDED), ou de um relato do aluno com relevancia MUDANCA_IMPORTANTE (codigo STUDENT_REPORT_ANALYZED), preserve o conteudo quase literalmente no resumo, mesmo que isso deixe essa parte mais longa que o restante — essas fontes tem prioridade quase absoluta para o Agente Treinador, e parafrasear demais pode perder um detalhe que muda a prescricao.',
+      'Para feedback de treino (codigo WORKOUT_COMPLETED): se o feedback registrado for curto, mantenha como esta; se for longo, condense na frase que capture o essencial (ex: incomodo relatado, dificuldade, sensacao geral), sem preservar o texto inteiro.',
+      'PESO POR RECENCIA COM O TEMPO: conforme o resumo for crescendo ao longo de meses/anos, e normal que voce precise compactar trechos antigos pra manter o texto gerenciavel — mas so compacte topicos que ja estao claramente resolvidos/inativos ha bastante tempo, nunca os mais recentes (ultimos ~2 meses merecem mais detalhe). Compactar significa resumir em menos palavras, mantendo o fato central (ex: um paragrafo sobre "episodios de dor no joelho entre marco e maio de 2026, resolvidos desde entao" pode, um ano depois, virar so "teve episodio de dor no joelho em 2026, resolvido") — nunca apagar o fato por completo.',
+    ].join('\n\n');
+  }
+
+  private buildProfileCondensationUserPrompt(input: ProfileCondensationInput) {
+    return JSON.stringify(
+      {
+        resumoAtual: input.currentSummary || '(vazio — primeira atualizacao deste aluno)',
+        eventosNovos: input.newEvents.map((event) => ({
+          data: event.createdAt.slice(0, 10),
+          codigo: event.code,
+          conteudo: event.content,
+        })),
+      },
+      null,
+      2,
+    );
   }
 
   private buildSystemPrompt() {
