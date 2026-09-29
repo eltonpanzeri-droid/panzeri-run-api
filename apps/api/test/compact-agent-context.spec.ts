@@ -293,4 +293,51 @@ describe('buildCompactAgentContext', () => {
     const compact = buildCompactAgentContext(snapshot({ trainingResponse: { availability: 'available', variables: { 'checkin.prescriptionLiking': entry } } }));
     expect(compact.variables['checkin.prescriptionLiking']).not.toHaveProperty('byModality');
   });
+
+  // Auditoria Astra (29/09/2026), item 20 — CAUSA RAIZ: o prompt do Treinador ja instruia a IA a
+  // considerar isPartialWeek/numerator/denominator/coveragePercent da semana mais recente (ex:
+  // aderencia de uma semana com so 3 de 7 dias passados nao e comparavel a uma semana completa),
+  // mas esses campos nunca chegavam ao Compact Agent Context — so existiam no context de cada
+  // Observation, descartados antes de virar CompactVariableState.
+  describe('currentWeek — metadados de carga/aderencia (item 20 da auditoria)', () => {
+    it('preserva isPartialWeek/numerator/denominator/coveragePercent quando a variavel de training_load carrega esse context', () => {
+      const entry = variableEntry({
+        current: 0.6,
+        currentWeekContext: { isPartialWeek: true, numerator: 3, denominator: 5, coveragePercent: 60 },
+        evidence: { n: 4, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [1], comparabilityWarning: null },
+      });
+      const compact = buildCompactAgentContext(snapshot({ trainingLoad: { availability: 'available', variables: { 'training.adherencePercent': entry } } }));
+      expect(compact.variables['training.adherencePercent'].currentWeek).toEqual({
+        isPartialWeek: true, numerator: 3, denominator: 5, coveragePercent: 60,
+      });
+    });
+
+    it('ausente (undefined) pra variaveis que nunca carregam esse context (ex: RPE) — nunca um objeto com tudo null so pra "completar"', () => {
+      const entry = variableEntry({ current: 4, evidence: { n: 4, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [2], comparabilityWarning: null } });
+      const compact = buildCompactAgentContext(snapshot({ physicalState: { availability: 'available', variables: { 'workout.perceivedEffort': entry } } }));
+      expect(compact.variables['workout.perceivedEffort']).not.toHaveProperty('currentWeek');
+    });
+
+    it('e distinto de evidence.isPartialWindow: uma semana pode estar COMPLETA (isPartialWeek=false) dentro de uma JANELA historica parcial (isPartialWindow=true)', () => {
+      const entry = variableEntry({
+        current: 1,
+        currentWeekContext: { isPartialWeek: false, numerator: 5, denominator: 5, coveragePercent: 100 },
+        baseline: { window: { kind: 'calendar_days', size: 200 }, value: null, n: 1, isPartialWindow: true, windowStart: null, windowEnd: null },
+        evidence: { n: 1, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [1], comparabilityWarning: null },
+      });
+      const compact = buildCompactAgentContext(snapshot({ trainingLoad: { availability: 'available', variables: { 'training.adherencePercent': entry } } }));
+      const state = compact.variables['training.adherencePercent'];
+      expect(state.currentWeek?.isPartialWeek).toBe(false);
+      expect(state.evidence.isPartialWindow).toBe(true);
+    });
+
+    it('n===0 (sem nenhuma observacao): currentWeek nunca aparece, mesmo que o snapshot bruto carregasse o context (nada a descrever)', () => {
+      const entry = variableEntry({
+        currentWeekContext: { isPartialWeek: true, numerator: 0, denominator: 0, coveragePercent: 0 },
+        evidence: { n: 0, observedSpan: { from: null, to: null }, lastObservationAt: null, instrumentVersions: [], comparabilityWarning: null },
+      });
+      const compact = buildCompactAgentContext(snapshot({ trainingLoad: { availability: 'available', variables: { 'training.adherencePercent': entry } } }));
+      expect(compact.variables['training.adherencePercent']).not.toHaveProperty('currentWeek');
+    });
+  });
 });

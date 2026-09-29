@@ -348,8 +348,13 @@ export class WorkoutCompletionsService {
       dto.satisfactionCarga ? `Carga do treino: ${cargaLabel(dto.satisfactionCarga)}.` : '',
       exerciseFeedbackText ? `Feedback por exercicio: ${exerciseFeedbackText}.` : '',
       missedReasons.length ? `Motivo(s) de nao ter treinado: ${missedReasons.map(missedReasonLabel).join(', ')}.` : '',
-      missedComment.trim() ? `Comentario do aluno sobre a falta: ${missedComment.trim()}` : '',
-      dto.notes?.trim() ? `Feedback do aluno: ${dto.notes.trim()}` : '',
+      // Auditoria Astra (29/09/2026), item 10 — CAUSA RAIZ: missedComment e dto.notes sao texto livre
+      // que TAMBEM alimentam reportTimeline.record() logo abaixo (WORKOUT_MISSED_COMMENT/
+      // WORKOUT_FEEDBACK_NOTES, analisados pelo Agente Relator). Repeti-los aqui fazia o mesmo relato
+      // virar duas evidencias independentes no Prontuario quando o Relator classificava
+      // relevance != PONTUAL (uma crua aqui, outra interpretada via Relator). profileParts agora so
+      // carrega os campos ESTRUTURADOS (sono/fadiga/RPE/satisfacao/dor/motivos) — nunca produzidos
+      // pelo Relator — o texto livre passa a ter uma unica incorporacao narrativa.
     ].filter(Boolean).join(' ');
     void this.studentProfile.recordEvent(userId, ProfileEventCode.WORKOUT_COMPLETED, profileParts).catch(() => undefined);
 

@@ -31,6 +31,22 @@ export interface VariableSnapshotResponse {
   mathApplicable: boolean;
   mathSkippedReason?: string;
   current: number | null;
+  /**
+   * Auditoria Astra (29/09/2026), item 20 — metadados do context da observacao mais recente
+   * (numerator/denominator/coveragePercent/isPartialWeek), usados hoje so por variaveis de
+   * training_load (ver observation-reader.service.ts). Distinto de `isPartialWindow` (que descreve
+   * a JANELA HISTORICA usada pra media/tendencia, ex: media movel de 21 dias com so 10 dias de
+   * dado) — isto aqui descreve se a PROPRIA semana mais recente (o "current") ja terminou ou ainda
+   * esta em andamento. As duas coisas sao reais e independentes: uma semana pode estar completa
+   * (isPartialWeek=false) dentro de uma janela historica parcial (isPartialWindow=true), ou o
+   * contrario. Null quando a variavel nao carrega esse context (a imensa maioria).
+   */
+  currentWeekContext?: {
+    isPartialWeek: boolean;
+    numerator: number | null;
+    denominator: number | null;
+    coveragePercent: number | null;
+  } | null;
   mean: { value: number | null; n: number } | null;
   movingAverages: Record<string, ReturnType<MathLayerService['movingAverage']>> | null;
   /**
@@ -61,7 +77,9 @@ export interface VariableSnapshotResponse {
    */
   observations: Array<{
     timestamp: string;
-    value: number;
+    // Auditoria Astra (29/09/2026), item 17: categorica (ex: workout.painFlag) carrega a categoria
+    // como string aqui — nunca inventa numero pra ela (ver Observation.value).
+    value: number | string;
     instrumentVersion: number;
     context: Observation['context'];
   }>;
@@ -134,6 +152,7 @@ export class TrainingIntelligenceQueryService {
     const availableModalities = [...new Set(allObservations.map((o) => o.context.modality).filter((m): m is string => m != null && m !== 'global'))].sort();
     const evidence = this.buildEvidence(observations, definition);
     const traceable = this.describeObservations(observations);
+    const currentWeekContext = this.extractCurrentWeekContext(observations);
 
     if (definition.allowedMathStrategy !== 'ordinal_or_continuous_stats') {
       return {
@@ -143,6 +162,7 @@ export class TrainingIntelligenceQueryService {
           `Variavel categorica ('${definition.dataType}') — MathLayer desta rodada so cobre ` +
           'ordinal_scale/numeric_continuous (ver variable-registry.ts).',
         current: null,
+        currentWeekContext,
         mean: null,
         movingAverages: null,
         movingAverageSeries: null,
@@ -160,7 +180,11 @@ export class TrainingIntelligenceQueryService {
       };
     }
 
+    // Chegamos aqui so quando allowedMathStrategy === 'ordinal_or_continuous_stats' (o branch
+    // categorico ja retornou acima) — o.value e' sempre number nesse caso, nunca string. O filtro
+    // abaixo e' so uma guarda de tipo, nao uma decisao de negocio nova.
     const series: SeriesPoint[] = observations
+      .filter((o): o is Observation & { value: number } => typeof o.value === 'number')
       .map((o) => ({ value: o.value, timestamp: o.timestamp }))
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
@@ -208,6 +232,7 @@ export class TrainingIntelligenceQueryService {
       variable: this.describeVariable(definition),
       mathApplicable: true,
       current,
+      currentWeekContext,
       mean,
       movingAverages,
       movingAverageSeries,
@@ -222,6 +247,28 @@ export class TrainingIntelligenceQueryService {
       observations: traceable,
       availableModalities,
       evidence,
+    };
+  }
+
+  /**
+   * Auditoria Astra (29/09/2026), item 20 — extrai os metadados de numerator/denominator/
+   * coveragePercent/isPartialWeek da observacao MAIS RECENTE (a que corresponde a `current`).
+   * So' variaveis de training_load carregam esse context (ver observation-reader.service.ts);
+   * pra qualquer outra variavel isso e' sempre null, sem custo de calculo extra — e' so' leitura
+   * de um campo que ja existia no context da observacao.
+   */
+  private extractCurrentWeekContext(observations: Observation[]): VariableSnapshotResponse['currentWeekContext'] {
+    if (observations.length === 0) return null;
+    const mostRecent = [...observations].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()).at(-1)!;
+    const { isPartialWeek, numerator, denominator, coveragePercent } = mostRecent.context;
+    if (isPartialWeek === undefined && numerator === undefined && denominator === undefined && coveragePercent === undefined) {
+      return null;
+    }
+    return {
+      isPartialWeek: isPartialWeek ?? false,
+      numerator: numerator ?? null,
+      denominator: denominator ?? null,
+      coveragePercent: coveragePercent ?? null,
     };
   }
 

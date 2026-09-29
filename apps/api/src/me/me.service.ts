@@ -328,6 +328,12 @@ export class MeService {
       { key: 'health_conditions_other', promptQuestion: 'Outra condicao de saude (descreva)' },
       { key: 'medical_recommendation', promptQuestion: 'Alguma recomendacao medica a considerar?' },
       { key: 'continuous_medications', promptQuestion: 'Usa alguma medicacao continua?' },
+      // Auditoria Astra (29/09/2026), item 14 — mesmo miss real da reavaliacao (ver
+      // reassessment.service.ts): campo de texto livre da entrevista inicial (apps/mobile/App.tsx)
+      // que ficou de fora quando a Linha do Tempo de Relatos foi montada (28/09/2026). Ja era lido
+      // em outro lugar deste arquivo (painSummary, pra compor HealthProfile) mas nunca alimentava
+      // o Relator/Prontuario com o texto ORIGINAL do aluno.
+      { key: 'pain_other_location', promptQuestion: 'Sente dor em algum outro local que nao esta na lista acima?' },
     ];
     for (const field of healthFreeTextFields) {
       const text = stringValue(answers[field.key]).trim();

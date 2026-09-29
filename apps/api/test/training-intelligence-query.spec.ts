@@ -227,4 +227,60 @@ describe('TrainingIntelligenceQueryService', () => {
       expect(result.current).toBe(3);
     });
   });
+
+  // Auditoria Astra (29/09/2026), item 20 — currentWeekContext extrai numerator/denominator/
+  // coveragePercent/isPartialWeek da observacao MAIS RECENTE (a que vira `current`), pra variaveis
+  // de training_load. Ausente (null) pra qualquer variavel que nao carregue esse context.
+  describe('currentWeekContext (item 20 da auditoria)', () => {
+    it('extrai os metadados da observacao mais recente quando presentes (variavel de training_load)', async () => {
+      const observations = [
+        observation({
+          variableId: 'training.adherencePercent',
+          timestamp: new Date('2026-09-14T12:00:00.000Z'),
+          value: 0.8,
+          source: 'weekly_training_load',
+          context: { isPartialWeek: false, numerator: 4, denominator: 5, coveragePercent: 80 },
+        }),
+        observation({
+          variableId: 'training.adherencePercent',
+          timestamp: new Date('2026-09-21T12:00:00.000Z'), // mais recente -> este e' o `current`
+          value: 0.6,
+          source: 'weekly_training_load',
+          context: { isPartialWeek: true, numerator: 3, denominator: 5, coveragePercent: 60 },
+        }),
+      ];
+      const { service } = buildService(observations);
+      const result = await service.getVariableSnapshot('aluno-1', 'training.adherencePercent');
+      expect(result.current).toBe(0.6);
+      expect(result.currentWeekContext).toEqual({ isPartialWeek: true, numerator: 3, denominator: 5, coveragePercent: 60 });
+    });
+
+    it('null quando a variavel nao carrega esse context (ex: RPE comum)', async () => {
+      const observations = [observation({ value: 4 })];
+      const { service } = buildService(observations);
+      const result = await service.getVariableSnapshot('aluno-1', 'workout.preSleepQuality');
+      expect(result.currentWeekContext).toBeNull();
+    });
+
+    it('null quando nao ha nenhuma observacao', async () => {
+      const { service } = buildService([]);
+      const result = await service.getVariableSnapshot('aluno-1', 'workout.preSleepQuality');
+      expect(result.currentWeekContext).toBeNull();
+    });
+  });
+
+  // Auditoria Astra (29/09/2026), item 17 — variavel categorica (workout.painFlag) preserva o
+  // valor como STRING na resposta, nunca tenta converter pra numero nem quebra o mathApplicable=false.
+  describe('variavel categorica — item 17 da auditoria', () => {
+    it('mathApplicable=false e o valor da categoria chega intacto em observations (nunca descartado)', async () => {
+      const observations = [
+        observation({ variableId: 'workout.painFlag', value: 'moderado', source: 'student_feedback_per_workout' }),
+      ];
+      const { service } = buildService(observations);
+      const result = await service.getVariableSnapshot('aluno-1', 'workout.painFlag');
+      expect(result.mathApplicable).toBe(false);
+      expect(result.observations).toHaveLength(1);
+      expect(result.observations[0].value).toBe('moderado');
+    });
+  });
 });

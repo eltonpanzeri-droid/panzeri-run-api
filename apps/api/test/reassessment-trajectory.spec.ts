@@ -167,7 +167,19 @@ describe('ReassessmentService — ciclo de 105 dias e ancora (secoes 3, 4)', () 
 
 describe('TrainingPlansService.generateWeek — gate de reavaliacao necessaria (secao 5)', () => {
   it('I/J. reavaliacao due bloqueia geracao da proxima semana, sem tocar nenhuma sessao existente', async () => {
-    const prisma = { trainingSession: {}, trainingPlan: {} };
+    // Auditoria Astra (29/09/2026), itens 01+02: generateWeek() publico agora sempre passa pelo
+    // gate de assinatura (item 01) e pela trava de concorrencia no banco (item 02) ANTES de chegar
+    // no corpo real (generateWeekLocked, onde o gate de reavaliacao deste teste vive) — precisa
+    // desses 2 mocks minimos pra nao quebrar por um TypeError diferente do que este teste verifica.
+    const prisma = {
+      trainingSession: {},
+      trainingPlan: {},
+      user: { findUnique: jest.fn().mockResolvedValue({ subscriptionStatus: 'active' }) },
+      trainingPlanGenerationLock: {
+        create: jest.fn().mockResolvedValue({}),
+        delete: jest.fn().mockResolvedValue({}),
+      },
+    };
     const reassessmentService = { isReassessmentDue: jest.fn().mockResolvedValue(true) };
     const service = new TrainingPlansService(
       prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),

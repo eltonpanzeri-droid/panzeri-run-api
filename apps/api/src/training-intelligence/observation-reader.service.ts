@@ -24,7 +24,10 @@ import { getVariableDefinition, InstrumentVersionSpec, VariableDefinition } from
 export interface Observation {
   athleteId: string;
   variableId: string;
-  value: number;
+  // Auditoria Astra (29/09/2026), item 17: categorica (ex: workout.painFlag) preserva a categoria
+  // como string — nunca inventa um mapeamento categoria->numero. So variaveis ordinal_scale/
+  // numeric_continuous chegam aqui como number (ver toObservationValue).
+  value: number | string;
   timestamp: Date;
   source: 'student_feedback_per_workout' | 'student_weekly_checkin' | 'student_menstrual_daily_log' | 'student_menstrual_cycle_log' | 'weekly_training_load';
   instrumentVersion: number;
@@ -102,12 +105,34 @@ function makeTrainingLoadObs(
   return { athleteId, variableId, value, timestamp, source: 'weekly_training_load', instrumentVersion: 1, context };
 }
 
-/** Converte o valor bruto (numero ou categoria conhecida) num numero, ou undefined se nao aplicavel. */
-function toNumericValue(variableId: string, raw: unknown): number | undefined {
+/**
+ * Converte o valor bruto pro tipo de Observation.value — nao e' mais so "numerico": variavel
+ * categorica (ex: workout.painFlag, dataType==='categorical' no VariableRegistry) preserva a
+ * categoria como string, sem tentar Number(raw) nela.
+ *
+ * Auditoria Astra (29/09/2026), item 17 — CAUSA RAIZ do bug real: antes, toNumericValue() fazia
+ * Number(raw) pra QUALQUER string, sem olhar dataType. Number("moderado") = NaN, entao
+ * Number.isFinite(NaN) e' false e a funcao retornava undefined pra toda categoria de dor que nao
+ * fosse dirigida ao caminho de satisfactionElaboracao — o chamador (readWorkoutVariable) trata
+ * undefined como "ausencia" (`if (value === undefined) continue`) e simplesmente NAO CRIA a
+ * Observation. Resultado: nenhum relato de dor ("leve"/"moderado"/"forte") jamais chegava na
+ * Training Intelligence, silenciosamente, sem erro nenhum — nao era so um valor errado, era o
+ * dado inteiro desaparecendo antes de qualquer calculo ou contexto pro Treinador.
+ * Correcao: olhar definition.dataType ANTES de tentar converter. Categorica preserva a string
+ * (nunca vira 0/1/2/3 — isso seria inventar uma escala que o VariableRegistry explicitamente NAO
+ * declara pra esta variavel, violando o mesmo principio de "nao usar formula generica no lugar
+ * da semantica real do dado"). O consumidor (training-intelligence-query.service.ts) ja tratava
+ * categorica como mathApplicable=false e so' usa o valor pra exibicao/rastreabilidade — nunca
+ * pra MathLayer — entao string ali e' seguro.
+ */
+function toObservationValue(definition: VariableDefinition, raw: unknown): number | string | undefined {
   if (raw == null) return undefined; // ausencia — nunca vira zero
+  if (definition.dataType === 'categorical') {
+    return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
+  }
   if (typeof raw === 'number') return raw;
   if (typeof raw === 'string') {
-    if (variableId === 'workout.satisfactionElaboracao' && raw in SATISFACTION_SCORE) {
+    if (definition.variableId === 'workout.satisfactionElaboracao' && raw in SATISFACTION_SCORE) {
       return SATISFACTION_SCORE[raw];
     }
     const asNumber = Number(raw);
@@ -182,7 +207,7 @@ export class ObservationReaderService {
           : {};
 
       const raw = extractRawValue(spec, completion as unknown as Record<string, unknown>, detailsJson);
-      const value = toNumericValue(definition.variableId, raw);
+      const value = toObservationValue(definition, raw);
       if (value === undefined) continue; // ausencia — nunca vira zero
 
       observations.push({
@@ -228,7 +253,7 @@ export class ObservationReaderService {
       const spec = definition.versions.find((v) => v.version === 1);
       if (!spec) continue;
       const raw = extractRawValue(spec, log as unknown as Record<string, unknown>, {});
-      const value = toNumericValue(definition.variableId, raw);
+      const value = toObservationValue(definition, raw);
       if (value === undefined) continue; // ausencia — nunca vira zero
 
       observations.push({
@@ -415,7 +440,7 @@ export class ObservationReaderService {
       if (!spec) continue;
 
       const raw = extractRawValue(spec, checkin as unknown as Record<string, unknown>, {});
-      const value = toNumericValue(definition.variableId, raw);
+      const value = toObservationValue(definition, raw);
       if (value === undefined) continue;
 
       observations.push({

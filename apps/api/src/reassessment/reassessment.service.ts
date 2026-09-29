@@ -109,6 +109,13 @@ export class ReassessmentService {
       { key: 'health_conditions_other', promptQuestion: 'Outra condicao de saude (descreva)' },
       { key: 'medical_recommendation', promptQuestion: 'Alguma recomendacao medica a considerar?' },
       { key: 'continuous_medications', promptQuestion: 'Usa alguma medicacao continua?' },
+      // Auditoria Astra (29/09/2026), item 14 — CAUSA RAIZ: estes 2 campos de texto livre da
+      // reavaliacao (ver apps/mobile/App.tsx, questionario de reavaliacao) existiam desde a v2 do
+      // instrumento mas ficaram de fora quando a Linha do Tempo de Relatos foi montada (28/09/2026)
+      // — miss real, nao decisao deliberada. Sem isso, o que o aluno escreve aqui nunca chega no
+      // Agente Relator nem no Prontuario, so fica intacto em StudentReassessment.answers (JSON).
+      { key: 'reassessment_notes', promptQuestion: 'Quer contar mais alguma coisa para o seu treinador?' },
+      { key: 'pain_other_location', promptQuestion: 'Sente dor em algum outro local que nao esta na lista acima?' },
     ];
     for (const field of healthFreeTextFields) {
       const raw = reassessmentAnswers[field.key];

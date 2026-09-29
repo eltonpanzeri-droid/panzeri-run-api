@@ -184,4 +184,51 @@ describe('ObservationReaderService', () => {
       expect.objectContaining({ where: expect.objectContaining({ checkinSkipped: false }) }),
     );
   });
+
+  // Auditoria Astra (29/09/2026), item 17 — CAUSA RAIZ: toNumericValue() fazia Number(raw) pra
+  // QUALQUER string, sem olhar dataType. Number("moderado")=NaN, entao painFlag (dataType
+  // 'categorical' no VariableRegistry) era SEMPRE descartado como "ausencia", mesmo com dor
+  // relatada de verdade — nenhum registro de dor jamais chegava na Training Intelligence.
+  describe('workout.painFlag (categorica) — item 17 da auditoria', () => {
+    it('preserva a categoria de dor como STRING, nunca descarta nem inventa numero', async () => {
+      const { reader } = buildReader([
+        session({ id: 's1', completion: completion({ painFlag: 'moderado' }) }),
+      ]);
+      const obs = await reader.getObservations('aluno-1', 'workout.painFlag');
+      expect(obs).toHaveLength(1);
+      expect(obs[0].value).toBe('moderado');
+      expect(typeof obs[0].value).toBe('string');
+    });
+
+    it('cobre as 3 categorias reais (leve/moderado/forte) — nenhuma delas vira NaN/ausencia', async () => {
+      const { reader } = buildReader([
+        session({ id: 's1', completion: completion({ painFlag: 'leve' }) }),
+        session({ id: 's2', scheduledDate: new Date('2026-09-02T00:00:00.000Z'), completion: completion({ id: 'c2', painFlag: 'moderado' }) }),
+        session({ id: 's3', scheduledDate: new Date('2026-09-03T00:00:00.000Z'), completion: completion({ id: 'c3', painFlag: 'forte' }) }),
+      ]);
+      const obs = await reader.getObservations('aluno-1', 'workout.painFlag');
+      expect(obs.map((o) => o.value)).toEqual(['leve', 'moderado', 'forte']);
+    });
+
+    it('painFlag "none" tambem e preservado como categoria (nao e a mesma coisa que ausencia de registro)', async () => {
+      const { reader } = buildReader([session({ id: 's1', completion: completion({ painFlag: 'none' }) })]);
+      const obs = await reader.getObservations('aluno-1', 'workout.painFlag');
+      expect(obs).toHaveLength(1);
+      expect(obs[0].value).toBe('none');
+    });
+
+    it('ausencia de verdade (campo null, aluno nao respondeu) continua sem gerar observacao', async () => {
+      const { reader } = buildReader([session({ id: 's1', completion: completion({ painFlag: null }) })]);
+      const obs = await reader.getObservations('aluno-1', 'workout.painFlag');
+      expect(obs).toEqual([]);
+    });
+
+    it('variavel numerica comum (nao-categorica) continua funcionando exatamente como antes', async () => {
+      const { reader } = buildReader([session({ id: 's1', completion: completion({ preSleepQuality: 4 }) })]);
+      const obs = await reader.getObservations('aluno-1', 'workout.preSleepQuality');
+      expect(obs).toHaveLength(1);
+      expect(obs[0].value).toBe(4);
+      expect(typeof obs[0].value).toBe('number');
+    });
+  });
 });

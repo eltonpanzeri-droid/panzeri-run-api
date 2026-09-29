@@ -55,13 +55,20 @@ export class PainReportsService {
       },
     });
 
+    // Auditoria Astra (29/09/2026), item 10 — CAUSA RAIZ: dto.comment e dto.otherLocation sao texto
+    // livre do aluno que TAMBEM alimentam reportTimeline.record() logo abaixo (analisado pelo
+    // Agente Relator). Antes, esta linha estruturada repetia o texto original de ambos DENTRO do
+    // profileText, e o Relator (quando relevance != PONTUAL) gerava uma SEGUNDA incorporacao no
+    // Prontuario pro mesmo relato — a mesma ocorrencia virava duas evidencias independentes.
+    // Correcao: profileText mantem so os campos ESTRUTURADOS (regioes/intensidade/inicio/padrao/
+    // tendencia/impacto — nunca produzidos pelo Relator, entao nunca duplicados por ele); o texto
+    // livre passa a ter uma unica incorporacao narrativa, via Relator.
     const profileText = [
-      `Relato de dor: regioes ${dto.regions.join(', ')}${dto.otherLocation ? ` (${dto.otherLocation})` : ''}, intensidade ${dto.intensity}/10.`,
+      `Relato de dor: regioes ${dto.regions.join(', ')}, intensidade ${dto.intensity}/10.`,
       dto.onsetPattern ? `Inicio: ${dto.onsetPattern}.` : '',
       dto.persistencePattern ? `Padrao: ${dto.persistencePattern}.` : '',
       dto.worseningTrend ? `Tendencia: ${dto.worseningTrend}.` : '',
       dto.dailyLifeImpact ? `Atrapalha o dia a dia: ${dto.dailyLifeImpact}.` : '',
-      dto.comment?.trim() ? `Comentario do aluno: ${dto.comment.trim()}` : '',
     ].filter(Boolean).join(' ');
     void this.studentProfile.recordEvent(userId, ProfileEventCode.PAIN_REPORT, profileText).catch(() => undefined);
 

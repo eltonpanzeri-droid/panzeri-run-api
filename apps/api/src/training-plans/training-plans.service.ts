@@ -97,6 +97,10 @@ const STANDARD_WARMUP_COOLDOWN_MIN_LEADING_WALK_MIN = 5;
 // frequencia diferente pra um aluno especifico (StravaAnalysisCache.customFrequencyDays).
 const DEFAULT_STRAVA_ANALYSIS_FREQUENCY_DAYS = 30;
 const AI_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
+// Auditoria Astra (29/09/2026), item 02 — acima do teto real de uma geracao (TASK_TIMEOUT_MS em
+// ai-queue.service.ts, 10min) com folga, pra nunca reclamar uma trava de uma geracao ainda em
+// andamento de verdade.
+const GENERATION_LOCK_STALE_AFTER_MS = 15 * 60 * 1000;
 const PAIN_ALERT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 // Domingo a partir dessa hora (Sao Paulo): a semana seguinte fica "liberada" pro botao
 // "Gerar treino da semana" (generateCurrentWeekOnDemand) poder gerar a semana seguinte em vez
@@ -447,7 +451,46 @@ export class TrainingPlansService {
     }).catch(() => undefined);
   }
 
+  // Auditoria Astra (29/09/2026), itens 01+02. generateWeek() publico agora e' so' a trava de
+  // concorrencia (banco, nao memoria) + delegacao pro corpo real (generateWeekLocked) — TODO
+  // caminho que gera treino passa por aqui (rota on-demand, botao "Refazer" do treinador, scheduler
+  // de domingo, e a rota antiga POST /training-plans/week que o app ainda usa de verdade pra
+  // recalcular a semana depois de um teste de 3km — ver controller). Isso fecha o item 02 (duas
+  // geracoes do MESMO aluno nunca rodam ao mesmo tempo, em nenhum caminho) sem precisar duplicar o
+  // corpo gigante da funcao.
   async generateWeek(
+    userId: string,
+    weeklyOverride?: WeeklyAvailabilityInput[],
+    options?: { referenceDate?: Date; planStatus?: string; archiveCurrentActive?: boolean; allowToday?: boolean; generateFrom?: string | null },
+  ) {
+    await this.acquireGenerationLock(userId);
+    try {
+      return await this.generateWeekLocked(userId, weeklyOverride, options);
+    } finally {
+      await this.prisma.trainingPlanGenerationLock.delete({ where: { userId } }).catch(() => undefined);
+    }
+  }
+
+  // Trava presa havia mais tempo que o teto real de uma geracao (ver TASK_TIMEOUT_MS em
+  // ai-queue.service.ts, 10min) e' tratada como processo morto no meio — nunca bloqueia o aluno
+  // pra sempre so' porque uma tentativa anterior travou sem liberar (deploy no meio, crash, etc).
+  private async acquireGenerationLock(userId: string): Promise<void> {
+    try {
+      await this.prisma.trainingPlanGenerationLock.create({ data: { userId } });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+      const existing = await this.prisma.trainingPlanGenerationLock.findUnique({ where: { userId } });
+      const staleMs = existing ? Date.now() - existing.startedAt.getTime() : Infinity;
+      if (staleMs <= GENERATION_LOCK_STALE_AFTER_MS) {
+        throw new BadRequestException('Ja existe uma geracao de treino em andamento para este aluno. Aguarde ela terminar antes de tentar de novo.');
+      }
+      // Trava presa (processo anterior nao chegou a liberar) — reclama pra esta tentativa.
+      await this.prisma.trainingPlanGenerationLock.deleteMany({ where: { userId } });
+      await this.prisma.trainingPlanGenerationLock.create({ data: { userId } });
+    }
+  }
+
+  private async generateWeekLocked(
     userId: string,
     weeklyOverride?: WeeklyAvailabilityInput[],
     options?: { referenceDate?: Date; planStatus?: string; archiveCurrentActive?: boolean; allowToday?: boolean; generateFrom?: string | null },
@@ -455,6 +498,19 @@ export class TrainingPlansService {
     const referenceDate = options?.referenceDate ?? new Date();
     const planStatus = options?.planStatus ?? 'active';
     const archiveCurrentActive = options?.archiveCurrentActive ?? true;
+
+    // Auditoria Astra (29/09/2026), item 01: generateWeek() e' chamado por mais de um caminho —
+    // alem da geracao on-demand (que ja checa isso em doGenerateCurrentWeekOnDemand), a rota antiga
+    // POST /training-plans/week e' usada de verdade pelo app (recalculo apos salvar teste de 3km, e
+    // um fallback de primeiro carregamento) e o botao do treinador no Admin chama generateWeek()
+    // direto — nenhum dos dois passava pelo gate de assinatura. Sem essa checagem aqui, uma conta
+    // sem acesso pago podia gerar/substituir o plano ativo indefinidamente via chamada direta a
+    // API. generateFirstWeekIfNeeded ja faz essa mesma checagem antes de chamar generateWeek, entao
+    // repetir aqui e' seguro (idempotente) pra esse caminho.
+    const accessUser = await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } });
+    if (!accessUser || !hasSubscriptionAccess(accessUser.subscriptionStatus)) {
+      throw new BadRequestException('Este aluno nao tem acesso pago ativo no momento — nao e possivel gerar treino.');
+    }
 
     // Passo 3 (25/09/2026, secao 5): ciclo de 15 semanas completo -> reavaliacao passa a ser
     // necessaria antes da CONTINUIDADE da geracao. Isso nunca apaga, bloqueia visualizacao ou
@@ -493,7 +549,11 @@ export class TrainingPlansService {
     await this.stravaService.syncIfStale(userId).catch(() => null);
 
     const historyStart = addDays(startOfWeek(new Date()), -35);
-    const [user, latestTest, availability, onboarding, previousPlans, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRaces, latestReassessment, activeObservations, longestRunSession] = await Promise.all([
+    // Auditoria Astra (29/09/2026), item 06: previousPlans NAO pode mais vir daqui — precisa da
+    // semana-ALVO da geracao (weekStart, so' calculada mais abaixo depois do rollover de domingo),
+    // nunca da semana do relogio no momento da chamada. Movido pra logo apos weekStart existir
+    // (ver comentario la). Ver PRONTUARIO.md pra causa raiz completa.
+    const [user, latestTest, availability, onboarding, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRaces, latestReassessment, activeObservations, longestRunSession] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         include: {
@@ -510,12 +570,6 @@ export class TrainingPlansService {
         orderBy: { weekday: 'asc' },
       }),
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true, answers: true } }),
-      this.prisma.trainingPlan.findMany({
-        where: { userId, startDate: { lt: startOfWeek(new Date()) } },
-        orderBy: { startDate: 'desc' },
-        take: 4,
-        include: { sessions: { include: { completion: true } } },
-      }),
       this.prisma.stravaActivity.findMany({
         where: { userId, startDate: { gte: historyStart } },
         orderBy: { startDate: 'desc' },
@@ -659,6 +713,20 @@ export class TrainingPlansService {
       isPastWeeklyRelease: pastWeeklyRelease,
     });
     const weekStart = shouldRollToNextWeek ? addDays(initialWeekStart, 7) : initialWeekStart;
+    // Auditoria Astra (29/09/2026), item 06 — CAUSA RAIZ REAL: esta query vivia la em cima, ANTES
+    // do rollover de domingo ser decidido, usando startOfWeek(new Date()) (a semana do RELOGIO no
+    // momento da chamada) em vez da semana-ALVO (weekStart, so' definitiva agora). No domingo, ao
+    // gerar a semana seguinte por antecipacao, startOfWeek(new Date()) ainda e' a semana que esta
+    // TERMINANDO — o filtro "startDate < semana do relogio" excluia exatamente essa semana (ela
+    // teria startDate IGUAL a semana do relogio, nunca menor), fazendo historicoSemanal chegar na
+    // IA sem a semana que o aluno acabou de viver. Numa segunda-feira comum a mesma geracao teria
+    // outro historico — nao deveria depender do dia em que a chamada acontece.
+    const previousPlans = await this.prisma.trainingPlan.findMany({
+      where: { userId, startDate: { lt: weekStart } },
+      orderBy: { startDate: 'desc' },
+      take: 4,
+      include: { sessions: { include: { completion: true } } },
+    });
     // Injeta o dia da prova (secao 5 do fechamento do Passo 2) — precisa vir DEPOIS do weekStart
     // final (inclusive do rollover acima) e ANTES de qualquer uso de availableDays dai pra frente
     // (trainingWeekdays, methodologyInput.availability, geracao das sessoes).
@@ -1110,13 +1178,6 @@ export class TrainingPlansService {
       todaySessionsOnActivePlan.filter((s) => s.completion !== null).map((s) => s.modality),
     );
 
-    if (archiveCurrentActive) {
-      await this.prisma.trainingPlan.updateMany({
-        where: { userId, status: 'active' },
-        data: { status: 'archived' },
-      });
-    }
-
     // REGRA EXPLICITA DO TREINADOR: nunca criar sessao com data de hoje ou de um dia que ja
     // passou — nem ao regenerar a semana de um aluno em andamento, nem na primeira geracao de
     // um aluno novo que se cadastrou no meio da semana (ex: entrevista concluida numa
@@ -1161,65 +1222,129 @@ export class TrainingPlansService {
       }
       return false;
     });
-    const plan = await this.prisma.trainingPlan.create({
-      data: {
-        userId,
-        name: 'Programa semanal',
-        goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
-        status: planStatus,
-        startDate: weekStart,
-        endDate: addDays(weekStart, 6),
-        generatedBy: planEngineVersion,
-        aiRecommendation: composeRecommendation(paceSource, methodology.recommendation, painSafety.tier === 'remove_running'),
-        inputSnapshot: toInputJson({
-          user: {
-            heightCm: user.heightCm,
-            weightKg: user.weightKg,
-            sleep: user.healthProfile?.averageSleep,
-            stress: user.healthProfile?.stressLevel,
+    // Auditoria Astra (29/09/2026), item 02 — CAUSA RAIZ: arquivar o plano ativo, criar o novo (com
+    // as sessoes) e migrar as sessoes preservadas do plano antigo eram 3 operacoes de banco
+    // separadas. Uma falha entre elas (erro, restart do processo, timeout) podia deixar o aluno sem
+    // NENHUM plano ativo, ou uma sessao ja executada presa apontando pro plano recem-arquivado —
+    // mesma familia do bug real da Roberta (27/09), so' que por falha parcial em vez de janela de
+    // data errada. Agora as 3 sao atomicas numa unica transacao: ou tudo commita, ou nada muda.
+    // Chamadas de rede (Telegram/notificacoes) NUNCA entram aqui dentro — regra do projeto — foram
+    // movidas pra depois da transacao commitar (ver bloco logo abaixo).
+    const plan = await this.prisma.$transaction(async (tx) => {
+      if (archiveCurrentActive) {
+        await tx.trainingPlan.updateMany({
+          where: { userId, status: 'active' },
+          data: { status: 'archived' },
+        });
+      }
+      const createdPlan = await tx.trainingPlan.create({
+        data: {
+          userId,
+          name: 'Programa semanal',
+          goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
+          status: planStatus,
+          startDate: weekStart,
+          endDate: addDays(weekStart, 6),
+          generatedBy: planEngineVersion,
+          aiRecommendation: composeRecommendation(paceSource, methodology.recommendation, painSafety.tier === 'remove_running'),
+          inputSnapshot: toInputJson({
+            user: {
+              heightCm: user.heightCm,
+              weightKg: user.weightKg,
+              sleep: user.healthProfile?.averageSleep,
+              stress: user.healthProfile?.stressLevel,
+            },
+            latestTestId: latestTest?.id,
+            paceSource,
+            paceEvidence,
+            painTier: painSafety.tier,
+            painReason: painSafety.reason,
+            targetRaces: methodologyInput.targetRaces,
+            methodology: {
+              version: PANZERI_METHODOLOGY_VERSION,
+              principles: PANZERI_PRESCRIPTION_PRINCIPLES,
+              rationale: methodology.rationale,
+              safetyAdjustment: methodology.safetyAdjustment,
+              history: methodologyHistory,
+              stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
+              analysisAgent: latestExecutionInsight ? executionSummary : null,
+              stravaAnalysis,
+              studentDirectives: activeDirectives.map((directive) => directive.content),
+              decisionDateTime: saoPauloDateTime(new Date()),
+            },
+            weeklyOverrideUsed: adjustedAvailability.length > 0,
+            availabilityDays: availableDays.map((day) => ({
+              weekday: day.weekday,
+              modalities: day.modalities,
+              availableMin: day.availableMin,
+              modalityDurations: normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined),
+            })),
+          }),
+          sessions: {
+            create: sessionsToCreate,
           },
-          latestTestId: latestTest?.id,
-          paceSource,
-          paceEvidence,
-          painTier: painSafety.tier,
-          painReason: painSafety.reason,
-          targetRaces: methodologyInput.targetRaces,
-          methodology: {
-            version: PANZERI_METHODOLOGY_VERSION,
-            principles: PANZERI_PRESCRIPTION_PRINCIPLES,
-            rationale: methodology.rationale,
-            safetyAdjustment: methodology.safetyAdjustment,
-            history: methodologyHistory,
-            stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
-            analysisAgent: latestExecutionInsight ? executionSummary : null,
-            stravaAnalysis,
-            studentDirectives: activeDirectives.map((directive) => directive.content),
-            decisionDateTime: saoPauloDateTime(new Date()),
+        },
+        include: {
+          sessions: {
+            orderBy: { scheduledDate: 'asc' },
+            include: { completion: true },
           },
-          weeklyOverrideUsed: adjustedAvailability.length > 0,
-          availabilityDays: availableDays.map((day) => ({
-            weekday: day.weekday,
-            modalities: day.modalities,
-            availableMin: day.availableMin,
-            modalityDurations: normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined),
-          })),
-        }),
-        sessions: {
-          create: sessionsToCreate,
         },
-      },
-      include: {
-        sessions: {
-          orderBy: { scheduledDate: 'asc' },
-          include: { completion: true },
-        },
-      },
+      });
+
+      // BUG REAL CORRIGIDO (27/09/2026 — caso Roberta Kemp): a migracao abaixo assume que "hoje"
+      // (todayInSaoPaulo(), fixo pro dia de calendario real) esta DENTRO da semana sendo gerada.
+      // Isso e' falso exatamente quando shouldRollToNextWeek=true (domingo apos WEEKLY_RELEASE_HOUR,
+      // gerando a semana SEGUINTE por antecipacao) — nesse caso weekStart ja e' segunda-feira da
+      // PROXIMA semana, mas "hoje" continua sendo o proprio domingo da semana que esta terminando.
+      // A clausula OR do ramo allowToday (`{ scheduledDate: today, completion: { isNot: null } }`)
+      // nao tinha NENHUM limite inferior — bastava a sessao de "hoje" ter completion pra ser
+      // migrada pro plano novo, mesmo quando "hoje" e' o domingo da semana ANTERIOR. Resultado real:
+      // o domingo 27/09 (corrida ja executada, 13.09km) foi reparentado pro plano 28/09-04/10,
+      // contaminando prescribedSessions/completedKm/adherencePercent desse plano com uma execucao
+      // que nao pertence a ele (weekStart <= sessionDate <= weekEnd deixou de ser uma invariante).
+      // Correcao: a migracao de "sessoes de hoje/ja passadas" so faz sentido quando a semana sendo
+      // gerada e' a que CONTEM hoje — nunca numa antecipacao pra semana seguinte, onde nao existe
+      // nenhuma sessao "de hoje" pertencente a essa semana ainda (ela comeca no futuro).
+      if (activePlanBeforeAdjustment && shouldMigrateTodaySessionsToNewPlan({ hasActivePlan: true, shouldRollToNextWeek })) {
+        // Hoje e os dias que ja passaram nunca podem ser reescritos ao gerar uma nova semana —
+        // o que o aluno ja fez (ou nao fez) fica registrado no plano anterior, so migramos essas
+        // sessoes (com seus registros de execucao) para o plano novo para que continuem
+        // aparecendo normalmente na semana atual.
+        // CORRECAO (25/09/2026): quando allowToday=true, a sessao de HOJE sem completion NAO e'
+        // migrada — ela e' deliberadamente substituida pela nova sessao que sessionsToCreate ja
+        // gerou pra esse dia (ver filtro acima), senao as duas coexistiriam na mesma modalidade/dia.
+        // Hoje COM completion continua sempre migrada, mesmo com allowToday=true (execucao real
+        // nunca e' descartada).
+        await tx.trainingSession.updateMany({
+          where: options?.allowToday
+            ? {
+                planId: activePlanBeforeAdjustment.id,
+                OR: [
+                  { scheduledDate: { gte: weekStart, lt: today } },
+                  { scheduledDate: today, completion: { isNot: null } },
+                ],
+              }
+            : {
+                planId: activePlanBeforeAdjustment.id,
+                scheduledDate: { gte: weekStart, lte: today },
+              },
+          data: { planId: createdPlan.id },
+        });
+        return tx.trainingPlan.findUniqueOrThrow({
+          where: { id: createdPlan.id },
+          include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
+        });
+      }
+      return createdPlan;
     });
 
     // Copia em texto da prescricao numerica que acabou de ser decidida — puro codigo, sem custo
     // de IA (a criacao do texto em si nao chama nenhum modelo). Vira insumo pro agente do
-    // prontuario condensar antes da PROXIMA geracao de semana.
-    const weekSummaryForProfile = plan.sessions
+    // prontuario condensar antes da PROXIMA geracao de semana. Usa sessionsToCreate (a entrada, nao
+    // a linha do banco) de proposito — o conteudo e' o mesmo e assim nao depende de qual variante
+    // de plan (com ou sem migracao) saiu da transacao acima.
+    const weekSummaryForProfile = sessionsToCreate
       .map((session) => {
         const parts = [`${weekdayLabel(session.weekday)} ${session.modality}: ${session.title}`];
         if (session.distanceKm) parts.push(`${session.distanceKm}km`);
@@ -1282,52 +1407,6 @@ export class TrainingPlansService {
       await this.telegram.notifyCoach(
         `✅ Treino da semana gerado.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nSemana: ${weekStartFmt} a ${weekEndFmt}\n${sessionLines}`,
       ).catch(() => null);
-    }
-
-    // BUG REAL CORRIGIDO (27/09/2026 — caso Roberta Kemp): a migracao abaixo assume que "hoje"
-    // (todayInSaoPaulo(), fixo pro dia de calendario real) esta DENTRO da semana sendo gerada.
-    // Isso e' falso exatamente quando shouldRollToNextWeek=true (domingo apos WEEKLY_RELEASE_HOUR,
-    // gerando a semana SEGUINTE por antecipacao) — nesse caso weekStart ja e' segunda-feira da
-    // PROXIMA semana, mas "hoje" continua sendo o proprio domingo da semana que esta terminando.
-    // A clausula OR do ramo allowToday (`{ scheduledDate: today, completion: { isNot: null } }`)
-    // nao tinha NENHUM limite inferior — bastava a sessao de "hoje" ter completion pra ser
-    // migrada pro plano novo, mesmo quando "hoje" e' o domingo da semana ANTERIOR. Resultado real:
-    // o domingo 27/09 (corrida ja executada, 13.09km) foi reparentado pro plano 28/09-04/10,
-    // contaminando prescribedSessions/completedKm/adherencePercent desse plano com uma execucao
-    // que nao pertence a ele (weekStart <= sessionDate <= weekEnd deixou de ser uma invariante).
-    // Correcao: a migracao de "sessoes de hoje/ja passadas" so faz sentido quando a semana sendo
-    // gerada e' a que CONTEM hoje — nunca numa antecipacao pra semana seguinte, onde nao existe
-    // nenhuma sessao "de hoje" pertencente a essa semana ainda (ela comeca no futuro).
-    if (activePlanBeforeAdjustment && shouldMigrateTodaySessionsToNewPlan({ hasActivePlan: true, shouldRollToNextWeek })) {
-      // Hoje e os dias que ja passaram nunca podem ser reescritos ao gerar uma nova semana —
-      // o que o aluno ja fez (ou nao fez) fica registrado no plano anterior, so migramos essas
-      // sessoes (com seus registros de execucao) para o plano novo para que continuem
-      // aparecendo normalmente na semana atual.
-      // CORRECAO (25/09/2026): quando allowToday=true, a sessao de HOJE sem completion NAO e'
-      // migrada — ela e' deliberadamente substituida pela nova sessao que sessionsToCreate ja
-      // gerou pra esse dia (ver filtro acima), senao as duas coexistiriam na mesma modalidade/dia.
-      // Hoje COM completion continua sempre migrada, mesmo com allowToday=true (execucao real
-      // nunca e' descartada).
-      await this.prisma.trainingSession.updateMany({
-        where: options?.allowToday
-          ? {
-              planId: activePlanBeforeAdjustment.id,
-              OR: [
-                { scheduledDate: { gte: weekStart, lt: today } },
-                { scheduledDate: today, completion: { isNot: null } },
-              ],
-            }
-          : {
-              planId: activePlanBeforeAdjustment.id,
-              scheduledDate: { gte: weekStart, lte: today },
-            },
-        data: { planId: plan.id },
-      });
-      const adjustedPlan = await this.prisma.trainingPlan.findUniqueOrThrow({
-        where: { id: plan.id },
-        include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
-      });
-      return this.presentPlan(adjustedPlan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
     }
 
     return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));

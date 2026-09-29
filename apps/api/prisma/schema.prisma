@@ -434,6 +434,20 @@ model TrainingPlan {
   weeklyCheckIns   WeeklyCheckIn[]
 }
 
+// Trava de concorrencia no BANCO (29/09/2026, auditoria Astra item 02) — impede duas geracoes de
+// treino do MESMO aluno rodando ao mesmo tempo, seja pela rota on-demand, pelo botao "Refazer" do
+// treinador, ou por qualquer outro caminho que chame TrainingPlansService.generateWeek(). Substitui
+// o Map em memoria antigo (currentWeekGenerationInFlight), que so protegia uma unica instancia do
+// processo e um unico caminho de chamada. A unicidade de userId e' quem garante a exclusao mutua —
+// tentar criar uma segunda linha pro mesmo userId falha com violacao de unique constraint (P2002),
+// nunca corrida silenciosa. Uma trava "presa" (processo morreu no meio) e' liberada automaticamente
+// por idade (ver GENERATION_LOCK_STALE_AFTER_MS em training-plans.service.ts) — nunca fica travada
+// pra sempre.
+model TrainingPlanGenerationLock {
+  userId    String   @id
+  startedAt DateTime @default(now())
+}
+
 model TrainingExecutionInsight {
   id        String   @id @default(uuid())
   userId    String

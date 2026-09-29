@@ -941,18 +941,41 @@ export class BillingService {
     // rebaixados por eventos do RevenueCat (ex: EXPIRATION sobrescrevendo manual_active). O
     // treinador concede manual_active deliberadamente; um evento de expiracao de loja nao tem
     // autoridade para revogar isso. Se o treinador quiser revogar, faz pelo painel do admin.
+    //
+    // Auditoria Astra (29/09/2026), item 30 — CAUSA RAIZ: a guarda acima comparava so' o STATUS
+    // resultante (appStatus), nunca a INTENCAO do evento. INITIAL_PURCHASE (compra real, nova, de
+    // verdade) mapeia appStatus='active', que NAO esta em MANUAL_GRANT_STATUSES — entao a mesma
+    // condicao que bloqueia corretamente EXPIRATION/REFUND/BILLING_ISSUE tambem bloqueava uma
+    // COMPRA REAL de uma aluna cortesia/manual_active, prendendo ela pra sempre no status manual
+    // mesmo pagando de verdade pela loja. Mesma familia do bug real corrigido em processAsaasWebhook
+    // (caso Tiago Souza Jesus, 27/09/2026) — so' que do lado do RevenueCat.
+    // Correcao: so' bloquear quando o evento NAO for um dos que REVENUECAT_ACTIVE_EVENTS reconhece
+    // como intencao de compra/renovacao real (INITIAL_PURCHASE/RENEWAL/UNCANCELLATION/
+    // PRODUCT_CHANGE/NON_RENEWING_PURCHASE) — a protecao contra rebaixamento indevido (EXPIRATION/
+    // REFUND/BILLING_ISSUE) continua intacta.
     const MANUAL_GRANT_STATUSES: string[] = ['manual_active', 'grace'];
     const currentStatus = user.subscriptionStatus ?? '';
-    const wouldDowngradeManualGrant = MANUAL_GRANT_STATUSES.includes(currentStatus) && !MANUAL_GRANT_STATUSES.includes(appStatus);
+    const isGenuinePurchaseEvent = REVENUECAT_ACTIVE_EVENTS.has(event?.type ?? '');
+    const wouldDowngradeManualGrant =
+      MANUAL_GRANT_STATUSES.includes(currentStatus) && !MANUAL_GRANT_STATUSES.includes(appStatus) && !isGenuinePurchaseEvent;
     if (wouldDowngradeManualGrant) {
       this.logger.warn(
         `RevenueCat evento ${event?.type} tentou mudar status de "${currentStatus}" para "${appStatus}" — ignorado porque grants manuais têm precedência sobre eventos de loja. userId=${userId}`,
       );
       return { received: true };
     }
+    // Compra real convertendo aluna cortesia/manual em assinante paga de verdade — a partir daqui
+    // o acesso e' garantido pela loja, nao mais pela liberacao manual do treinador (mesmo padrao
+    // do fix do Asaas: subscriptionManualOverride:false, nunca fica true pra sempre).
+    const isRealConversionFromManualGrant = MANUAL_GRANT_STATUSES.includes(currentStatus) && isGenuinePurchaseEvent && appStatus === 'active';
     const updateResult = await this.prisma.user.updateMany({
       where: { id: userId, subscriptionStatus: { not: appStatus } },
-      data: { subscriptionStatus: appStatus, subscriptionProvider: 'revenuecat', subscriptionUpdatedAt: new Date() },
+      data: {
+        subscriptionStatus: appStatus,
+        subscriptionProvider: 'revenuecat',
+        subscriptionUpdatedAt: new Date(),
+        ...(isRealConversionFromManualGrant ? { subscriptionManualOverride: false } : {}),
+      },
     });
     const statusActuallyChanged = updateResult.count > 0;
     if (statusActuallyChanged) {

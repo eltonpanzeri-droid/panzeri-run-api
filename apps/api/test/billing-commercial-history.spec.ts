@@ -230,3 +230,60 @@ describe('Cortesia -> assinatura paga real (mesmo usuario, sem duplicar, sem tra
     }));
   });
 });
+
+// Auditoria Astra (29/09/2026), item 30 — mesma familia de bug do caso Tiago acima, so' que do
+// lado da loja (RevenueCat/Apple/Google) em vez do Asaas. CAUSA RAIZ: a guarda de precedencia
+// (grants manuais nao podem ser rebaixados por eventos de loja) comparava so' o STATUS resultante,
+// nao a INTENCAO do evento — bloqueava tanto um rebaixamento indevido (EXPIRATION) quanto uma
+// COMPRA REAL (INITIAL_PURCHASE), prendendo pra sempre uma aluna cortesia/manual_active que
+// resolveu pagar de verdade pela loja.
+describe('RevenueCat — item 30 (cortesia/manual_active convertendo em assinante real pela loja)', () => {
+  it('INITIAL_PURCHASE de uma aluna manual_active: converte pra active de verdade e libera subscriptionManualOverride (nao fica presa na cortesia)', async () => {
+    const { service, user } = build({ userStatus: 'manual_active', studentCode: 11 });
+    await service.processRevenueCatWebhook('Bearer rc-secret', rcEvent('INITIAL_PURCHASE'));
+
+    expect(user.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'user-1', subscriptionStatus: { not: 'active' } },
+      data: expect.objectContaining({ subscriptionStatus: 'active', subscriptionManualOverride: false }),
+    }));
+  });
+
+  it('RENEWAL de uma aluna grace (cortesia temporaria): tambem e reconhecida como compra real e converte pra active', async () => {
+    const { service, user } = build({ userStatus: 'grace', studentCode: 12 });
+    await service.processRevenueCatWebhook('Bearer rc-secret', rcEvent('RENEWAL'));
+
+    expect(user.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ subscriptionStatus: 'active', subscriptionManualOverride: false }),
+    }));
+  });
+
+  it('EXPIRATION numa aluna manual_active continua BLOQUEADO — protecao contra rebaixamento indevido intacta', async () => {
+    const { service, user } = build({ userStatus: 'manual_active', studentCode: 13 });
+    await service.processRevenueCatWebhook('Bearer rc-secret', rcEvent('EXPIRATION'));
+
+    expect(user.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('REFUND numa aluna grace continua BLOQUEADO — mesma protecao, outro evento de rebaixamento', async () => {
+    const { service, user } = build({ userStatus: 'grace', studentCode: 14 });
+    await service.processRevenueCatWebhook('Bearer rc-secret', rcEvent('REFUND'));
+
+    expect(user.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('BILLING_ISSUE (overdue) numa aluna manual_active continua BLOQUEADO — nao e evento de compra', async () => {
+    const { service, user } = build({ userStatus: 'manual_active', studentCode: 15 });
+    await service.processRevenueCatWebhook('Bearer rc-secret', rcEvent('BILLING_ISSUE'));
+
+    expect(user.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('INITIAL_PURCHASE numa aluna JA active (fluxo comum, sem cortesia envolvida): continua funcionando normalmente', async () => {
+    const { service, user } = build({ userStatus: 'active', studentCode: 16, statusChanges: false });
+    await service.processRevenueCatWebhook('Bearer rc-secret', rcEvent('RENEWAL'));
+
+    // ja estava active -> updateMany filtra "not active" e o mock retorna count:0 (statusChanges:false),
+    // mas a chamada em si nao pode ter sido bloqueada pela guarda de precedencia.
+    expect(user.updateMany).toHaveBeenCalled();
+  });
+});

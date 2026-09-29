@@ -84,6 +84,22 @@ export interface CompactVariableState {
   /** Excursao mais recente (em curso ou ja concluida) — nao a lista inteira. */
   mostRecentExcursion?: CompactExcursionSummary | null;
   totalExcursionsObserved?: number;
+  /**
+   * Auditoria Astra (29/09/2026), item 20 — CAUSA RAIZ: o prompt do Treinador ja instruia
+   * explicitamente a IA a considerar se a semana mais recente esta parcial (ex: aderencia de uma
+   * semana que so' tem 3 de 7 dias passados nao e' comparavel a uma semana completa), mas essa
+   * informacao nunca chegava ate aqui — so existia no context de cada Observation (numerator/
+   * denominator/coveragePercent/isPartialWeek), descartado antes de virar CompactVariableState.
+   * Presente so' pra variaveis de training_load (ver observation-reader.service.ts); ausente pra
+   * qualquer outra variavel. Distinto de evidence.isPartialWindow (JANELA HISTORICA de media/
+   * tendencia) — currentWeek descreve a propria semana mais recente, nao a janela de calculo.
+   */
+  currentWeek?: {
+    isPartialWeek: boolean;
+    numerator: number | null;
+    denominator: number | null;
+    coveragePercent: number | null;
+  } | null;
   evidence: {
     n: number;
     observedSpan: { from: string | null; to: string | null };
@@ -184,6 +200,8 @@ function compactVariable(entry: CompactableSnapshot): CompactVariableState {
     };
   }
 
+  const currentWeek = entry.currentWeekContext ?? undefined;
+
   const excursions = entry.excursions ?? [];
   const last = excursions[excursions.length - 1] ?? null;
   const mostRecentExcursion: CompactExcursionSummary | null = last
@@ -225,6 +243,7 @@ function compactVariable(entry: CompactableSnapshot): CompactVariableState {
     currentlyOutsideHabitualRange: entry.persistence?.currentlyOutsideHabitualRange ?? null,
     mostRecentExcursion,
     totalExcursionsObserved: excursions.length,
+    ...(currentWeek ? { currentWeek } : {}),
     evidence: {
       n: entry.evidence.n,
       observedSpan: entry.evidence.observedSpan,
