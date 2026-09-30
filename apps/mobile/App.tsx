@@ -1532,7 +1532,7 @@ function AppInner() {
     setUserName(session.name);
     setAccessToken(session.accessToken);
     setRefreshToken(session.refreshToken);
-    setActiveTab('week');
+    setActiveTab('home');
     setScreen('app');
     void AsyncStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
     void configureRevenueCatIfNeeded(getUserIdFromAccessToken(session.accessToken));

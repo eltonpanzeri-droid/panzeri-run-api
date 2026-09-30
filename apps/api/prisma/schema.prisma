@@ -946,6 +946,27 @@ model StravaConnection {
 // ou a frequencia customizada por aluno definida pelo treinador via chat), nunca mais junto da
 // geracao da semana. lastActivityId/analysis ficam nullable porque uma preferencia de frequencia
 // pode ser definida antes de qualquer analise real ter rodado para aquele aluno.
+// Tentativa OAuth de uso unico; o state nunca e persistido em texto puro.
+model PolarOAuthAttempt {
+  stateHash  String    @id
+  userId     String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// Apenas credencial de conexao. Dados do dispositivo nao sao importados nesta etapa.
+model PolarConnection {
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  polarUserId          String   @unique
+  accessTokenEncrypted String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
 model StravaAnalysisCache {
   userId              String   @id
   lastActivityId      String?
