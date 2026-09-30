@@ -31,6 +31,7 @@ function buildService(overrides: { answers?: Record<string, unknown> } = {}) {
     studentProfile as never,
     athleteStateSnapshot as never,
     reportTimeline as never,
+    { evaluateForUser: jest.fn().mockResolvedValue([]) } as never,
   );
   return { service, reportTimeline };
 }

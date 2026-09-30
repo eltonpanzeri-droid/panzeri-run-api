@@ -981,13 +981,39 @@ model StravaActivity {
   createdAt      DateTime @default(now())
 }
 
+// Sistema de Medalhas (30/09/2026, especificacao completa em SISTEMA_DE_MEDALHAS.md) — tabelas
+// Achievement/UserAchievement ja existiam no schema desde antes, mas nunca foram usadas por
+// nenhum codigo (achado da auditoria de dados feita antes de desenhar este sistema). Estendidas
+// aqui em vez de criar um sistema concorrente — nenhuma tabela de catalogo nova.
 model Achievement {
   id          String            @id @default(uuid())
   code        String            @unique
+  // constancia | aderencia | treinos_concluidos | volume_semanal | sustentacao_volume |
+  // volume_mensal | distancia_unica | acumulado | feedbacks | checkins | reavaliacoes | provas |
+  // retomada — ver MedalCategory em medals/medal-catalog.ts.
+  category    String            @default("")
   name        String
   description String
+  // bronze | prata | ouro | platina | diamante | lendaria — atributo visual/de dificuldade, nunca
+  // pontuacao fisiologica (ver SISTEMA_DE_MEDALHAS.md secao 15).
+  grau        String            @default("bronze")
+  // Limiar numerico do criterio (km, semanas, contagem, %...). Nullable pra medalhas cujo criterio
+  // nao e' um numero simples (nenhuma prevista ainda, mas evita forcar 0 como "sem limiar").
+  threshold   Float?
+  unit        String?           // "km" | "semanas" | "treinos" | "checkins" | "%" | null
+  ruleVersion Int               @default(1)
+  // Parametros estruturados extras: modalidade, numero de semanas consecutivas exigido, tipo de
+  // periodo (semana/mes/sessao/all-time), patamar-pai (familia de sustentacao de volume) etc —
+  // NUNCA logica, so' dado que o MedalEvaluationService le.
   criteria    Json
+  // Ordem dentro da familia (mesma categoria), usada pra progressao/"proxima conquista" — nunca
+  // pra decidir qual medalha mostrar sozinha (ver SISTEMA_DE_MEDALHAS.md secao 16).
+  sortOrder   Int               @default(0)
+  active      Boolean           @default(true)
+  createdAt   DateTime          @default(now())
   users       UserAchievement[]
+
+  @@index([category])
 }
 
 model UserAchievement {
@@ -997,6 +1023,31 @@ model UserAchievement {
   achievementId String
   achievement   Achievement @relation(fields: [achievementId], references: [id])
   unlockedAt    DateTime    @default(now())
+  // Valor EFETIVAMENTE OBSERVADO que gerou a conquista (execucao real — ver regra central em
+  // SISTEMA_DE_MEDALHAS.md). Nullable pra medalhas de participacao/processo sem valor numerico
+  // proprio (ex: "1o feedback enviado" pode usar value=1 mesmo assim, mas o campo fica opcional
+  // pra nao forcar um numero artificial onde nao faz sentido).
+  value               Float?
+  // Periodo correspondente (semana/mes/sessao) — null quando a medalha e' all-time (ex: acumulado).
+  periodStart         DateTime?
+  periodEnd           DateTime?
+  modality            String?   // corrida | esteira | null quando nao aplicavel
+  // Rastreabilidade: sessionIds/completionIds/weekStart/checkinIds/reassessmentId — nunca "confie,
+  // aconteceu". Usado tambem pra auditoria e pra futura inteligencia gerencial (secao 18).
+  evidence            Json
+  // Snapshot da versao da regra NO MOMENTO da conquista — sobrevive a mudancas futuras na definicao
+  // da medalha (uma conquista sob a regra v1 nunca e' reavaliada/revogada quando a regra vira v2).
+  ruleVersionAtUnlock Int       @default(1)
+  createdAt           DateTime  @default(now())
+
+  @@unique([userId, achievementId])
+  @@index([userId, unlockedAt])
+  // Etapa 8 (30/09/2026) — base pra inteligência gerencial futura (SISTEMA_DE_MEDALHAS.md seção
+  // 18): "quantos alunos já conquistaram a medalha X" é uma consulta POR achievementId sozinho,
+  // que o índice composto (userId, achievementId) acima não atende bem. Só o índice — nenhum
+  // endpoint/agregação implementado ainda, por pedido explícito (preparar a base, não construir
+  // o painel).
+  @@index([achievementId])
 }
 
 model Challenge {

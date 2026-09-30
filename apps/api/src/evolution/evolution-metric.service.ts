@@ -155,27 +155,38 @@ export class EvolutionMetricService {
       }
       const bucket = byWeek.get(ws)!;
       const status = this.classifySession(s, todayBR);
-      bucket.prescritas++;
 
-      // km planejado (TrainingSession.distanceKm) — conta para todas as sessões, não só as feitas
-      if (s.plannedDistanceKm != null) {
-        bucket.kmPrescritosTotal += s.plannedDistanceKm;
-        bucket.kmPrescritosCount++;
+      // Sistema de Medalhas (30/09/2026) — CORREÇÃO DE DIVERGÊNCIA CANÔNICA: sessão extra
+      // (`isExtra`) nunca entra em prescrito/elegível/aderência/cobertura — regra já documentada
+      // em GLOSSARIO_METRICAS.md ("Extra: não entra em prescrito/elegível/aderência"), mas o
+      // código incrementava `prescritas`/`feitas` pra QUALQUER sessão, extra ou não. Isso inflava
+      // aderência artificialmente: um aluno que cumpriu 3 de 4 prescritas (75%) e fez 1 extra
+      // aparecia com 4/5 = 80%. Extra continua contribuindo pro KM REALIZADO (`kmTotal`/
+      // `kmExtrasTotal`, abaixo, fora deste bloco) — só sai da contagem de sessões prescritas.
+      if (!s.isExtra) {
+        bucket.prescritas++;
+
+        // km planejado (TrainingSession.distanceKm) — conta para todas as prescritas, não só as feitas
+        if (s.plannedDistanceKm != null) {
+          bucket.kmPrescritosTotal += s.plannedDistanceKm;
+          bucket.kmPrescritosCount++;
+        }
+
+        if (status === 'feita') bucket.feitas++;
+        else if (status === 'nao_feita') bucket.naoFeitas++;
+        else if (status === 'sem_registro') bucket.semRegistro++;
+        // futuras não entram em nenhum bucket de execução
       }
 
-      if (status === 'feita') {
-        bucket.feitas++;
-        if (s.distanceKm != null) {
-          bucket.kmTotal += s.distanceKm;
-          bucket.kmCount++;
-          if (s.isExtra) {
-            bucket.kmExtrasTotal += s.distanceKm;
-            bucket.kmExtrasCount++;
-          }
+      // Volume realizado: soma TODA sessão feita, extra ou não (extra nunca deixou de contar aqui).
+      if (status === 'feita' && s.distanceKm != null) {
+        bucket.kmTotal += s.distanceKm;
+        bucket.kmCount++;
+        if (s.isExtra) {
+          bucket.kmExtrasTotal += s.distanceKm;
+          bucket.kmExtrasCount++;
         }
-      } else if (status === 'nao_feita') bucket.naoFeitas++;
-      else if (status === 'sem_registro') bucket.semRegistro++;
-      // futuras não entram em nenhum bucket de execução
+      }
     }
 
     return [...byWeek.entries()]
@@ -223,14 +234,17 @@ export class EvolutionMetricService {
     let naoFeitas = 0;
     let semRegistro = 0;
 
-    for (const s of filtered) {
+    // Sistema de Medalhas (30/09/2026) — mesma correção de divergência canônica de buildWeeklyVolumes:
+    // extra nunca entra em prescrito/elegível/aderência.
+    const eligible = filtered.filter((s) => !s.isExtra);
+    for (const s of eligible) {
       const status = this.classifySession(s, todayBR);
       if (status === 'feita') feitas++;
       else if (status === 'nao_feita') naoFeitas++;
       else semRegistro++; // sem_registro (futura já foi excluída acima)
     }
 
-    const prescritas = filtered.length;
+    const prescritas = eligible.length;
     const adherencePercent = calcAdherence(feitas, naoFeitas);
     const coveragePercent = calcCoverage(feitas, naoFeitas, prescritas);
 
@@ -313,9 +327,11 @@ export class EvolutionMetricService {
     todayBR: ISODate,
   ): ModalityBreakdown[] {
     const byModality = new Map<string, { prescritas: number; feitas: number; naoFeitas: number }>();
-    const totalPrescritas = sessions.length;
+    // Sistema de Medalhas (30/09/2026) — mesma correção: extra nunca entra em prescrito/aderência.
+    const eligibleSessions = sessions.filter((s) => !s.isExtra);
+    const totalPrescritas = eligibleSessions.length;
 
-    for (const s of sessions) {
+    for (const s of eligibleSessions) {
       if (!byModality.has(s.modality)) {
         byModality.set(s.modality, { prescritas: 0, feitas: 0, naoFeitas: 0 });
       }
@@ -357,15 +373,20 @@ export class EvolutionMetricService {
       if (!byMonth.has(month)) byMonth.set(month, { prescritas: 0, feitas: 0, naoFeitas: 0, semRegistro: 0, kmTotal: 0, kmCount: 0 });
       const bucket = byMonth.get(month)!;
       const status = this.classifySession(s, todayBR);
-      bucket.prescritas++;
-      if (status === 'feita') {
-        bucket.feitas++;
-        if (s.distanceKm != null) {
-          bucket.kmTotal += s.distanceKm;
-          bucket.kmCount++;
-        }
-      } else if (status === 'nao_feita') bucket.naoFeitas++;
-      else if (status === 'sem_registro') bucket.semRegistro++;
+
+      // Sistema de Medalhas (30/09/2026) — mesma correção: extra nunca entra em prescrito/aderência,
+      // mas continua contribuindo pro km realizado do mês (ver bloco de kmTotal, fora do if abaixo).
+      if (!s.isExtra) {
+        bucket.prescritas++;
+        if (status === 'feita') bucket.feitas++;
+        else if (status === 'nao_feita') bucket.naoFeitas++;
+        else if (status === 'sem_registro') bucket.semRegistro++;
+      }
+
+      if (status === 'feita' && s.distanceKm != null) {
+        bucket.kmTotal += s.distanceKm;
+        bucket.kmCount++;
+      }
     }
 
     return [...byMonth.entries()]

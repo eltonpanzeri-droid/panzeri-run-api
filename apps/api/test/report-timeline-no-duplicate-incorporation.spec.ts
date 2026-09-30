@@ -102,7 +102,7 @@ describe('WorkoutCompletionsService.upsert — item 10', () => {
     const telegram = { notifyCoach: jest.fn().mockResolvedValue(undefined) };
     const contextEvents = { linkFirstObservationIfPending: jest.fn().mockResolvedValue(undefined) };
     const reportTimeline = { record: jest.fn() };
-    const service = new WorkoutCompletionsService(prisma as never, config as never, studentProfile as never, telegram as never, contextEvents as never, reportTimeline as never);
+    const service = new WorkoutCompletionsService(prisma as never, config as never, studentProfile as never, telegram as never, contextEvents as never, reportTimeline as never, { evaluateForUser: jest.fn().mockResolvedValue([]) } as never);
     return { service, studentProfile, reportTimeline };
   }
 

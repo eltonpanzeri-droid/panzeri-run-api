@@ -7,6 +7,7 @@ import { StudentProfileService, ProfileEventCode } from '../training-plans/stude
 import { AthleteStateSnapshotService } from '../training-intelligence/athlete-state-snapshot.service';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
+import { MedalEvaluationService } from '../medals/medal-evaluation.service';
 import {
   buildReassessmentTrajectories,
   buildFitnessTestTrajectory,
@@ -26,6 +27,7 @@ export class ReassessmentService {
     private readonly studentProfile: StudentProfileService,
     private readonly athleteStateSnapshot: AthleteStateSnapshotService,
     private readonly reportTimeline: ReportTimelineService,
+    private readonly medalEvaluation: MedalEvaluationService,
   ) {}
 
   async state(userId: string) {
@@ -100,6 +102,11 @@ export class ReassessmentService {
       where: { id: draft.id },
       data: { completedAt: new Date(), reassessmentVersion: REASSESSMENT_INSTRUMENT_VERSION },
     });
+
+    // Sistema de Medalhas (30/09/2026) — fire-and-forget, aqui e não depois do relatório de
+    // evolução: a reavaliação em si já está concluída neste ponto (a medalha é sobre a
+    // reavaliação ter sido feita, nunca sobre o relatório de IA que vem depois ter tido sucesso).
+    void this.medalEvaluation?.evaluateForUser(userId, 'reassessment_completed').catch(() => undefined);
 
     // Linha do Tempo de Relatos (28/09/2026) — mesmas chaves canonicas de texto livre da entrevista
     // inicial (a reavaliacao reaplica as mesmas perguntas de saude, ver comentario em schema.prisma).

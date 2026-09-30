@@ -7,9 +7,10 @@ import { ReassessmentController } from './reassessment.controller';
 import { ReassessmentService } from './reassessment.service';
 import { EvolutionAgentModule } from './evolution-agent.module';
 import { ReporterModule } from '../reporter/reporter.module';
+import { MedalsModule } from '../medals/medals.module';
 
 @Module({
-  imports: [PrismaModule, AiQueueModule, StudentProfileModule, TrainingIntelligenceModule, ReporterModule, EvolutionAgentModule],
+  imports: [PrismaModule, AiQueueModule, StudentProfileModule, TrainingIntelligenceModule, ReporterModule, EvolutionAgentModule, MedalsModule],
   controllers: [ReassessmentController],
   providers: [ReassessmentService],
   exports: [ReassessmentService],

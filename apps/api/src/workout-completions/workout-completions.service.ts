@@ -8,6 +8,7 @@ import { TelegramService, formatStudentCode } from '../billing/telegram.service'
 import { ContextEventsService } from '../context-events/context-events.service';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
+import { MedalEvaluationService } from '../medals/medal-evaluation.service';
 
 @Injectable()
 export class WorkoutCompletionsService {
@@ -18,6 +19,7 @@ export class WorkoutCompletionsService {
     private readonly telegram: TelegramService,
     private readonly contextEvents: ContextEventsService,
     private readonly reportTimeline: ReportTimelineService,
+    private readonly medalEvaluation: MedalEvaluationService,
   ) {}
 
   async upsert(userId: string, dto: UpsertWorkoutCompletionDto) {
@@ -428,6 +430,14 @@ export class WorkoutCompletionsService {
       originalText: dto.adjustmentComment,
       occurredAt: session.scheduledDate,
     });
+
+    // Sistema de Medalhas (30/09/2026) — fire-and-forget, nunca pode bloquear nem falhar o
+    // salvamento do feedback (que já aconteceu acima). Avalia tanto as categorias ligadas a esta
+    // ação (treinos concluídos/distância/acumulado/feedbacks/retomada) quanto as de fechamento
+    // semanal (constância/volume/sustentação) — não existe cron dedicado pra isso, então o
+    // registro de um treino é o ponto natural mais frequente pra pegar semanas que já fecharam.
+    void this.medalEvaluation?.evaluateForUser(userId, 'workout_completed').catch(() => undefined);
+    void this.medalEvaluation?.evaluateForUser(userId, 'week_closed').catch(() => undefined);
 
     return completion;
   }

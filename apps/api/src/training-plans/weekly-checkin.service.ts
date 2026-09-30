@@ -5,6 +5,7 @@ import { StravaService } from '../strava/strava.service';
 import { SubmitWeeklyCheckInDto } from './dto/submit-weekly-checkin.dto';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
+import { MedalEvaluationService } from '../medals/medal-evaluation.service';
 
 // 31/08: dia de calendario em America/Sao_Paulo, nao no fuso do servidor (achado por auto-revisao
 // — o servidor roda em UTC; entre 21h e 23h59 no horario de Brasilia, `new Date()` puro ja mostra
@@ -45,6 +46,7 @@ export class WeeklyCheckInService {
     private readonly prisma: PrismaService,
     private readonly strava: StravaService,
     private readonly reportTimeline: ReportTimelineService,
+    private readonly medalEvaluation: MedalEvaluationService,
   ) {}
 
   async getStatus(userId: string) {
@@ -148,6 +150,10 @@ export class WeeklyCheckInService {
         originalText: dto.freeTextObservation,
         occurredAt: created.createdAt,
       });
+      // Sistema de Medalhas (30/09/2026) — fire-and-forget. O avaliador já sabe distinguir
+      // check-in pulado de check-in real (v1: elaborationSatisfaction===0; v2/v3: checkinSkipped),
+      // então chamar aqui incondicionalmente é seguro mesmo pra um check-in pulado.
+      void this.medalEvaluation?.evaluateForUser(userId, 'weekly_checkin_submitted').catch(() => undefined);
       return created;
     } catch (error) {
       // 31/08: cobre a corrida entre o findFirst acima e este create (duplo toque, dois

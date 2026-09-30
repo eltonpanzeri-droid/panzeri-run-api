@@ -6,9 +6,10 @@ import { WorkoutCompletionsController } from './workout-completions.controller';
 import { WorkoutCompletionsService } from './workout-completions.service';
 import { ContextEventsModule } from '../context-events/context-events.module';
 import { ReporterModule } from '../reporter/reporter.module';
+import { MedalsModule } from '../medals/medals.module';
 
 @Module({
-  imports: [PrismaModule, StudentProfileModule, BillingModule, ContextEventsModule, ReporterModule],
+  imports: [PrismaModule, StudentProfileModule, BillingModule, ContextEventsModule, ReporterModule, MedalsModule],
   controllers: [WorkoutCompletionsController],
   providers: [WorkoutCompletionsService],
 })
