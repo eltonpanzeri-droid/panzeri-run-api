@@ -1,6 +1,6 @@
 import { BadGatewayException, BadRequestException, ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createCipheriv, createHash, randomBytes } from 'crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 
 const AUTHORIZATION_URL = 'https://flow.polar.com/oauth2/authorization';
@@ -98,6 +98,13 @@ export class PolarService {
     return 'connected';
   }
 
+  // Usado pela ingestao (PolarActivityIngestionService) para obter o token em texto plano na hora
+  // de chamar a AccessLink — nunca persistido nem logado fora daqui.
+  decryptAccessToken(ciphertext: string): string {
+    const { key } = this.settings();
+    return this.decrypt(ciphertext, key);
+  }
+
   private settings() {
     const clientId = this.config.get<string>('POLAR_CLIENT_ID')?.trim();
     const clientSecret = this.config.get<string>('POLAR_CLIENT_SECRET')?.trim();
@@ -152,5 +159,19 @@ export class PolarService {
     const cipher = createCipheriv('aes-256-gcm', key, iv);
     const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
     return `v1:${iv.toString('base64url')}:${cipher.getAuthTag().toString('base64url')}:${encrypted.toString('base64url')}`;
+  }
+
+  private decrypt(ciphertext: string, key: Buffer): string {
+    const parts = ciphertext.split(':');
+    if (parts.length !== 4 || parts[0] !== 'v1') {
+      throw new BadGatewayException('Credencial Polar armazenada em formato invalido.');
+    }
+    const [, ivPart, tagPart, dataPart] = parts;
+    const iv = Buffer.from(ivPart, 'base64url');
+    const authTag = Buffer.from(tagPart, 'base64url');
+    const data = Buffer.from(dataPart, 'base64url');
+    const decipher = createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+    return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
   }
 }

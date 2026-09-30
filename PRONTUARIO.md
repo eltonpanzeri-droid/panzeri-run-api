@@ -2367,3 +2367,51 @@ treino/aderência/medalha refeito no frontend.
   intervenção — registrado como pendência real, não escondido.
 - Typecheck limpo (mobile + api), lint limpo nos arquivos novos/alterados (erros restantes no
   `App.tsx` são todos pré-existentes, não relacionados a esta mudança).
+
+**2026-10-01** — Camada de ingestão de exercícios Polar AccessLink (dado bruto → canônico),
+continuação do OAuth Polar que tinha sido implementado no commit anterior (30/09, "Apenas
+credencial de conexão. Dados do dispositivo não são importados nesta etapa") sem passar por aqui:
+- **Decisão arquitetural**: em vez de clonar o padrão `StravaActivity` (tabela 100% dedicada a um
+  provedor) para o Polar, foi criada uma camada canônica nova e agnóstica de provedor:
+  `RawExternalActivity` (payload bruto preservado por inteiro, dedupe por `provider+userId+
+  externalId`) → `ActivityLog` (atividade física observada, sem nenhum campo nomeado `polar*`,
+  pensada para no futuro receber também `Strava → RawExternalActivity → ActivityLog` sem mudar de
+  significado). `StravaActivity`/`WorkoutCompletion`/`TrainingSession` não foram tocados nesta
+  tarefa — migração do Strava para a camada nova fica para depois, fora de escopo.
+  Motivo: evitar acumular `PolarActivity`, `GarminActivity`, `CorosActivity` etc. e só depois
+  construir a fronteira canônica em cima de N estruturas diferentes — a fronteira nasceu agora,
+  no primeiro momento em que um segundo provedor de atividade se tornou real.
+  `pace` deliberadamente NÃO é persistido (sempre derivável de distância/duração — evita
+  divergência entre valor observado e calculado); `training-load` da Polar (métrica já
+  interpretada pelo algoritmo deles) também não virou campo canônico, só fica preservado no raw.
+- **Registro AccessLink**: achado que faltava no OAuth original — a Polar exige um
+  `POST /v3/users` explícito depois do OAuth, antes de aceitar qualquer leitura de exercício
+  (OAuth concluído ≠ usuário registrado no AccessLink). `PolarConnection.registeredAt` marca isso;
+  409 (já registrado) é tratado como sucesso idempotente.
+- **Sincronização por transaction, não por data**: diferente do Strava (polling `after=timestamp`),
+  a AccessLink usa um modelo de transação (abrir → listar exercícios pendentes → buscar cada um →
+  só então confirmar/commit). Só se comita depois que TODOS os exercícios da transação foram
+  persistidos localmente com sucesso; falha parcial deixa a transação aberta
+  (`PolarConnection.openTransactionId`) e o próximo sync retoma a MESMA transação em vez de abrir
+  outra (a Polar recusa uma 2ª transação aberta com 409) — upserts idempotentes garantem que a
+  retomada não duplica o que já foi salvo.
+- **Sem token de refresh confirmado** no fluxo atual (a troca de código não devolveu
+  `refresh_token`) — pendência a confirmar quando a primeira conta Polar real conectar.
+- Vários campos do resumo de exercício da Polar (cadência, potência, elevação real, rota GPS)
+  dependem de endpoints de samples/GPX/TCX/FIT não implementados nesta etapa — ficam `null` no
+  schema (não zero), com `detailFetchedAt` reservado para distinguir "nunca buscamos" de "buscamos
+  e não veio".
+- **DESCONHECIDO registrado, não assumido**: não foi possível confirmar pela documentação pública
+  se o `id` de exercício da Polar é globalmente único ou só único dentro da conta do usuário. A
+  chave de dedupe usa `provider+userId+externalId` (composta) justamente para ser correta nos dois
+  cenários, sem depender de confirmar isso agora.
+- Migration `20261001000000_add_polar_activity_ingestion`: aditiva (2 tabelas novas +
+  4 colunas nullable em `PolarConnection`), sem alteração destrutiva. 19 testes novos/existentes
+  passando (`polar-activity-ingestion.spec.ts` + `polar-oauth.spec.ts`), typecheck e lint limpos.
+  Suíte completa da API rodada: única falha é `analytics-instrumentation.spec.ts`, pré-existente e
+  sem relação com esta mudança (`isFirstPaidAcquisition`/`buildCohortSteps` ausentes em arquivos
+  não tocados aqui).
+- **Fora de escopo desta etapa, deliberadamente**: matching atividade↔sessão prescrita, webhook
+  Polar, cron automático, samples/FIT/TCX/GPX, sono/HRV/PPI/Nightly Recharge, Training
+  Intelligence. Sem commit/push/deploy — aguardando aprovação e, para validar de fato, a primeira
+  conexão Polar real do treinador.

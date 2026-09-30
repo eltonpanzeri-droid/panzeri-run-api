@@ -91,37 +91,39 @@ model User {
   createdAt                        DateTime  @default(now())
   updatedAt                        DateTime  @updatedAt
 
-  healthProfile       HealthProfile?
-  preferences         UserPreferences?
-  availability        WeeklyAvailability[]
-  tests               FitnessTest[]
-  plans               TrainingPlan[]
-  workouts            WorkoutCompletion[]
-  achievements        UserAchievement[]
-  passwordResetTokens PasswordResetToken[]
-  loginLinkTokens     LoginLinkToken[]
-  notifications       UserNotification[]
-  messageLogs         MessageLog[]
-  reassessments       Reassessment[]
-  evolutionReports    EvolutionReport[]
-  contextEvents       ContextEvent[]
-  billingEvents       BillingEvent[]
-  onboardingInterview OnboardingInterview?
-  billingSubscription BillingSubscription?
-  couponRedemptions   CouponRedemption[]
-  coachReports        CoachReport[]
-  studentDirectives   StudentDirective[]
-  coachChatMessages   CoachChatMessage[]
-  targetRaces         TargetRace[]
-  painReports         PainReport[]
-  profileEvents       StudentProfileEvent[]
-  observations        StudentObservation[]
-  reportEntries       StudentReportEntry[]
-  weeklyCheckIns      WeeklyCheckIn[]
-  funnelEvents        FunnelEvent[]
-  menstrualProfile    MenstrualProfile?
-  menstrualCycleLogs  MenstrualCycleLog[]
-  menstrualDailyLogs  MenstrualDailyLog[]
+  healthProfile         HealthProfile?
+  preferences           UserPreferences?
+  availability          WeeklyAvailability[]
+  tests                 FitnessTest[]
+  plans                 TrainingPlan[]
+  workouts              WorkoutCompletion[]
+  achievements          UserAchievement[]
+  passwordResetTokens   PasswordResetToken[]
+  loginLinkTokens       LoginLinkToken[]
+  notifications         UserNotification[]
+  messageLogs           MessageLog[]
+  reassessments         Reassessment[]
+  evolutionReports      EvolutionReport[]
+  contextEvents         ContextEvent[]
+  billingEvents         BillingEvent[]
+  onboardingInterview   OnboardingInterview?
+  billingSubscription   BillingSubscription?
+  couponRedemptions     CouponRedemption[]
+  coachReports          CoachReport[]
+  studentDirectives     StudentDirective[]
+  coachChatMessages     CoachChatMessage[]
+  targetRaces           TargetRace[]
+  painReports           PainReport[]
+  profileEvents         StudentProfileEvent[]
+  observations          StudentObservation[]
+  reportEntries         StudentReportEntry[]
+  weeklyCheckIns        WeeklyCheckIn[]
+  funnelEvents          FunnelEvent[]
+  menstrualProfile      MenstrualProfile?
+  menstrualCycleLogs    MenstrualCycleLog[]
+  menstrualDailyLogs    MenstrualDailyLog[]
+  rawExternalActivities RawExternalActivity[]
+  activityLogs          ActivityLog[]
 
   // 04/09: achado numa revisao pensando em escala — nao existia indice nenhum pros filtros mais
   // usados (painel do treinador, prospectos, crons diarios), todos batem em (role,
@@ -941,11 +943,6 @@ model StravaConnection {
   updatedAt    DateTime @updatedAt
 }
 
-// Cache da analise do agente de IA sobre o historico do Strava (StravaAnalysisAgentService).
-// Desacoplada de generateWeek() — a analise roda pela sua propria cadencia (mensal por padrao,
-// ou a frequencia customizada por aluno definida pelo treinador via chat), nunca mais junto da
-// geracao da semana. lastActivityId/analysis ficam nullable porque uma preferencia de frequencia
-// pode ser definida antes de qualquer analise real ter rodado para aquele aluno.
 // Tentativa OAuth de uso unico; o state nunca e persistido em texto puro.
 model PolarOAuthAttempt {
   stateHash  String    @id
@@ -958,15 +955,126 @@ model PolarOAuthAttempt {
   @@index([expiresAt])
 }
 
-// Apenas credencial de conexao. Dados do dispositivo nao sao importados nesta etapa.
+// Credencial de conexao + estado da ingestao Polar AccessLink (30/09-01/10/2026).
+// OAuth concluido (esta linha existir) e usuario registrado no AccessLink (registeredAt) sao
+// dois estados DIFERENTES: a AccessLink exige um POST /v3/users explicito apos o OAuth antes de
+// aceitar qualquer leitura de exercicio — sem isso, exercise-transactions falha mesmo com token
+// valido. registeredAt null = ainda nao registrado (proximo sync deve registrar antes de abrir
+// transaction); 409 do registro (membro ja registrado) tambem seta registeredAt, e' idempotente.
+// openTransactionId/openTransactionOpenedAt existem para retomada segura: a Polar so permite UMA
+// exercise-transaction aberta por vez (abrir outra sem commitar da 409). Se um sync cair no meio
+// (ex.: 3 de 5 exercicios persistidos e falhou), o proximo sync REUTILIZA a mesma transaction em
+// vez de abrir outra — ver PolarActivityIngestionService.sync(). So commitamos na Polar depois que
+// TODOS os exercicios da transaction foram persistidos localmente com sucesso (raw + ActivityLog).
 model PolarConnection {
-  id                   String   @id @default(uuid())
-  userId               String   @unique
-  polarUserId          String   @unique
-  accessTokenEncrypted String
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id                      String    @id @default(uuid())
+  userId                  String    @unique
+  polarUserId             String    @unique
+  accessTokenEncrypted    String
+  registeredAt            DateTime?
+  openTransactionId       String?
+  openTransactionOpenedAt DateTime?
+  lastSyncCompletedAt     DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 }
+
+// Registro externo preservado tal como recebido do provedor, antes de qualquer normalizacao.
+// Generico por design: "provider" e "externalId" identificam a fonte (hoje so 'polar' grava aqui;
+// Strava continua em StravaActivity, sem migracao nesta etapa — ver ActivityLog abaixo para o
+// motivo). "payload" e o corpo bruto retornado pelo provedor, sem nenhum campo descartado —
+// mesmo o que ainda nao sabemos usar fica preservado aqui para reprocessamento futuro.
+// "ingestionMeta" guarda contexto DA NOSSA ingestao (ex.: id da transaction Polar, endpoint
+// exato, timestamp da chamada) — deliberadamente fora de "payload" para nao misturar o que o
+// provedor mandou com o que nos registramos sobre a coleta.
+//
+// Unicidade: o dedup e por (provider, userId, externalId), nao so (provider, externalId).
+// Motivo (DESCONHECIDO explicito, nao GARANTIDO pela documentacao publica da Polar): nao foi
+// possivel confirmar com certeza se o "id" de exercicio da AccessLink e globalmente unico entre
+// TODAS as contas Polar ou apenas unico dentro da conta do proprio usuario. Incluir userId na
+// chave e correto nos dois cenarios (se for global, userId fica redundante mas inofensivo; se for
+// só por conta, userId e o que evita colisao entre duas alunas diferentes). Reavaliar se a Polar
+// confirmar formalmente unicidade global.
+model RawExternalActivity {
+  id                   String    @id @default(uuid())
+  userId               String
+  user                 User      @relation(fields: [userId], references: [id])
+  provider             String
+  externalId           String
+  payload              Json
+  payloadSchemaVersion String?
+  ingestionMeta        Json?
+  sourceUpdatedAt      DateTime?
+  receivedAt           DateTime  @default(now())
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  activityLog ActivityLog?
+
+  @@unique([provider, userId, externalId])
+  @@index([userId])
+}
+
+// Atividade fisica observada, representacao CANONICA e agnostica de provedor — nao deve conter
+// nenhum conceito nomeado 'polar*' nem depender semanticamente do formato da AccessLink. Motivo:
+// evitar repetir o padrao StravaActivity (tabela 100% dedicada a um provedor) agora que um SEGUNDO
+// provedor de atividade esta sendo integrado — esta e a fronteira arquitetural entre "adaptador de
+// entrada" (Polar, e futuramente Strava/Garmin/COROS/etc, cada um com seu proprio mapeamento raw
+// -> aqui) e "dominio Panzeri Run". StravaActivity NAO foi migrada para ca nesta tarefa (fora de
+// escopo, ver ADR/tarefa de ingestao Polar de 01/10/2026), mas o desenho deste model foi pensado
+// para que uma migracao futura (Strava -> RawExternalActivity -> ActivityLog) seja possivel sem
+// mudar o significado dos campos abaixo.
+//
+// Deliberadamente NAO modelado aqui (fica so no raw, ou fica pendente):
+// - pace: e sempre derivavel de distanceMeters/durationSec: persistir os tres criaria risco de
+//   divergencia entre valor observado e valor calculado. Calcular sob demanda na leitura.
+// - training-load (Polar): metrica proprietaria JA INTERPRETADA pelo algoritmo da Polar, nao uma
+//   observacao bruta — modela-la aqui misturaria "dado observado" com "conclusao de terceiro",
+//   o que top-fere o principio de nao deixar o canonico depender de interpretacao de provedor.
+// - detailed-sport-info, club-id/name, percentuais de macronutriente, device/device-id: metadados
+//   especificos sem equivalente canonico claro ainda — preservados so no raw.
+// - cadencia/potencia/elevacao real e rota GPS: no resumo da Polar (o unico endpoint chamado nesta
+//   etapa) esses dados NAO vem — dependem de endpoints separados de samples/GPX/TCX/FIT, fora do
+//   escopo desta tarefa. Os campos abaixo existem no schema (para nao exigir migration quando
+//   isso for implementado) mas ficam null ate la; "detailFetchedAt" existe exatamente para
+//   distinguir "nunca tentamos buscar" (null) de "buscamos e o provedor nao tinha o dado" (campo
+//   ainda null, mas detailFetchedAt preenchido) — null nunca deve ser lido como zero.
+model ActivityLog {
+  id            String              @id @default(uuid())
+  userId        String
+  user          User                @relation(fields: [userId], references: [id])
+  provider      String
+  externalId    String
+  rawActivityId String              @unique
+  rawActivity   RawExternalActivity @relation(fields: [rawActivityId], references: [id])
+
+  startedAt        DateTime
+  utcOffsetMinutes Int?
+  durationSec      Int?
+  distanceMeters   Float?
+  sport            String?
+
+  caloriesKcal        Int?
+  avgHeartRateBpm     Int?
+  maxHeartRateBpm     Int?
+  cadenceAvg          Int?
+  powerAvgWatts       Int?
+  elevationGainMeters Float?
+  hasRoute            Boolean?
+  detailFetchedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, userId, externalId])
+  @@index([userId, startedAt])
+}
+
+// Cache da analise do agente de IA sobre o historico do Strava (StravaAnalysisAgentService).
+// Desacoplada de generateWeek() — a analise roda pela sua propria cadencia (mensal por padrao,
+// ou a frequencia customizada por aluno definida pelo treinador via chat), nunca mais junto da
+// geracao da semana. lastActivityId/analysis ficam nullable porque uma preferencia de frequencia
+// pode ser definida antes de qualquer analise real ter rodado para aquele aluno.
 model StravaAnalysisCache {
   userId              String   @id
   lastActivityId      String?
@@ -1021,7 +1129,7 @@ model Achievement {
   // Limiar numerico do criterio (km, semanas, contagem, %...). Nullable pra medalhas cujo criterio
   // nao e' um numero simples (nenhuma prevista ainda, mas evita forcar 0 como "sem limiar").
   threshold   Float?
-  unit        String?           // "km" | "semanas" | "treinos" | "checkins" | "%" | null
+  unit        String? // "km" | "semanas" | "treinos" | "checkins" | "%" | null
   ruleVersion Int               @default(1)
   // Parametros estruturados extras: modalidade, numero de semanas consecutivas exigido, tipo de
   // periodo (semana/mes/sessao/all-time), patamar-pai (familia de sustentacao de volume) etc —
@@ -1038,12 +1146,12 @@ model Achievement {
 }
 
 model UserAchievement {
-  id            String      @id @default(uuid())
-  userId        String
-  user          User        @relation(fields: [userId], references: [id])
-  achievementId String
-  achievement   Achievement @relation(fields: [achievementId], references: [id])
-  unlockedAt    DateTime    @default(now())
+  id                  String      @id @default(uuid())
+  userId              String
+  user                User        @relation(fields: [userId], references: [id])
+  achievementId       String
+  achievement         Achievement @relation(fields: [achievementId], references: [id])
+  unlockedAt          DateTime    @default(now())
   // Valor EFETIVAMENTE OBSERVADO que gerou a conquista (execucao real — ver regra central em
   // SISTEMA_DE_MEDALHAS.md). Nullable pra medalhas de participacao/processo sem valor numerico
   // proprio (ex: "1o feedback enviado" pode usar value=1 mesmo assim, mas o campo fica opcional
@@ -1052,14 +1160,14 @@ model UserAchievement {
   // Periodo correspondente (semana/mes/sessao) — null quando a medalha e' all-time (ex: acumulado).
   periodStart         DateTime?
   periodEnd           DateTime?
-  modality            String?   // corrida | esteira | null quando nao aplicavel
+  modality            String? // corrida | esteira | null quando nao aplicavel
   // Rastreabilidade: sessionIds/completionIds/weekStart/checkinIds/reassessmentId — nunca "confie,
   // aconteceu". Usado tambem pra auditoria e pra futura inteligencia gerencial (secao 18).
   evidence            Json
   // Snapshot da versao da regra NO MOMENTO da conquista — sobrevive a mudancas futuras na definicao
   // da medalha (uma conquista sob a regra v1 nunca e' reavaliada/revogada quando a regra vira v2).
-  ruleVersionAtUnlock Int       @default(1)
-  createdAt           DateTime  @default(now())
+  ruleVersionAtUnlock Int         @default(1)
+  createdAt           DateTime    @default(now())
 
   @@unique([userId, achievementId])
   @@index([userId, unlockedAt])

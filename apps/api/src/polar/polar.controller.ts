@@ -1,7 +1,8 @@
-import { Controller, Get, HttpException, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpException, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { PolarService } from './polar.service';
+import { PolarActivityIngestionService } from './polar-activity-ingestion.service';
 
 interface HtmlResponse {
   status: (code: number) => HtmlResponse;
@@ -12,12 +13,24 @@ interface HtmlResponse {
 
 @Controller('polar')
 export class PolarController {
-  constructor(private readonly polarService: PolarService) {}
+  constructor(
+    private readonly polarService: PolarService,
+    private readonly ingestionService: PolarActivityIngestionService,
+  ) {}
 
   @UseGuards(AuthGuard('jwt'))
   @Get('connect-url')
   connectUrl(@CurrentUser() user: CurrentUserPayload) {
     return this.polarService.connectUrl(user.sub);
+  }
+
+  // Sincronizacao controlada, disparada manualmente pelo proprio usuario autenticado. Sem cron
+  // nem webhook nesta etapa (ver limitacoes reportadas) — so prova que uma atividade chega
+  // integra e sem duplicar quando chamado mais de uma vez.
+  @UseGuards(AuthGuard('jwt'))
+  @Post('sync')
+  sync(@CurrentUser() user: CurrentUserPayload) {
+    return this.ingestionService.sync(user.sub);
   }
 
   // A Polar redireciona o navegador diretamente para esta rota HTTPS publica.
