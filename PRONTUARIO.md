@@ -2258,3 +2258,23 @@ Pedido explícito de Elton: transformar todo texto livre do aluno em informaçã
   medalhas permanentes.
 - Mapeamento completo `medalha → fonte canônica → calculável hoje / dependência / dúvida`
   devolvido a Elton para validação antes de qualquer implementação.
+
+**Continuação no mesmo dia (2026-09-30) — regra canônica de execução real + desenho técnico**
+
+- Elton validou o levantamento e acrescentou uma regra central antes do desenho: medalhas de
+  **realização** (constância, treinos, volume, distância, acumulado) sempre usam o **executado**,
+  nunca o prescrito — prescrito 20km/executado 10km conta 10km; executado acima do prescrito conta
+  o valor real, sem virar recomendação de aumentar carga. Medalhas de **aderência** continuam
+  comparando realizado com prescrito pela fórmula canônica (extra não entra). Medalhas de
+  **participação/processo** (feedback/check-in/reavaliação) contam pela ação efetivamente
+  concluída, nunca pela disponibilidade dela.
+- Documento atualizado com essa regra central + anotação explícita em cada seção afetada, e com um
+  **desenho técnico completo** (ainda não implementado): schema estendendo as tabelas dormentes
+  `Achievement`/`UserAchievement` (campos novos: categoria, grau, versão da regra, valor observado,
+  período, modalidade, evidência), arquitetura de `MedalEvaluationService` (nunca recalcula
+  matemática, só lê fontes canônicas já existentes), pontos de disparo reaproveitando crons/eventos
+  já existentes (sem cron novo e solto), e ordem recomendada de implementação — começando pela
+  correção da divergência de aderência (extras no denominador) como pré-requisito.
+- Prova (família 12) documentada mas com avaliação automática **desligada** por enquanto —
+  `TargetRace.status='concluida'` é autodeclarado sem verificação cruzada contra treino real.
+- Ver [SISTEMA_DE_MEDALHAS.md](SISTEMA_DE_MEDALHAS.md) para o documento completo e atualizado.
