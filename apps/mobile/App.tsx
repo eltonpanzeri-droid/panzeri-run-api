@@ -12,6 +12,9 @@ import { planStartsInFuture } from './src/weekWindow';
 import { BrandMark } from './theme/BrandMark';
 import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
+import { HomeScreen } from './home/HomeScreen';
+import { MedalsScreen } from './home/MedalsScreen';
+import { BottomNav, BottomNavTab } from './home/BottomNav';
 import { useFonts, BigShouldersDisplay_800ExtraBold } from '@expo-google-fonts/big-shoulders-display';
 // Public Sans e JetBrains Mono (identidade-visual-panzeri-run) entram aqui quando alguma tela
 // realmente passar a usar PRFonts.bodyRegular/bodyMedium/bodyBold/bodyExtraBold/data — ver
@@ -38,7 +41,7 @@ import {
 // mirar Android 16) liga "edge-to-edge" obrigatorio no Android, e essa reserva automatica some — o
 // cabecalho fixo do app passaria a renderizar por baixo da barra de status/navegacao sem esse
 // import vir daqui (que funciona de verdade nos dois sistemas, via SafeAreaProvider abaixo).
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Sem isso, notificacao chegando com o app ABERTO fica muda (comportamento padrao do SDK) — a
 // aluna so veria se o app estivesse em segundo plano/fechado. Queremos o alerta em qualquer caso.
@@ -57,7 +60,7 @@ Notifications.setNotificationHandler({
 });
 
 type Screen = 'login' | 'app';
-type Tab = 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'meusDados' | 'notifications' | 'history' | 'ciclo';
+type Tab = 'home' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'meusDados' | 'notifications' | 'history' | 'ciclo' | 'medals';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -1376,7 +1379,8 @@ function AppInner() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedExerciseResponsibility, setAcceptedExerciseResponsibility] = useState(false);
   const [exerciseResponsibilityRequired, setExerciseResponsibilityRequired] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>('week');
+  const [activeTab, setActiveTab] = useState<Tab>('home');
+  const safeAreaInsets = useSafeAreaInsets();
   // weekTabOffset: quando o calendario historico navega para uma semana especifica,
   // este valor e' passado como initialWeekOffset para o componente Week ao montar.
   const [weekTabOffset, setWeekTabOffset] = useState(0);
@@ -1655,7 +1659,7 @@ function AppInner() {
               setMenuOpen(false);
             }}
           />
-          <ScrollView contentContainerStyle={styles.appContent}>
+          <ScrollView contentContainerStyle={[styles.appContent, { paddingBottom: 96 + safeAreaInsets.bottom }]}>
             {exerciseResponsibilityRequired ? (
               <ExerciseResponsibility
                 accessToken={accessToken}
@@ -1663,6 +1667,19 @@ function AppInner() {
               />
             ) : (
               <>
+            {activeTab === 'home' && (
+              <HomeScreen
+                accessToken={accessToken}
+                userName={userName}
+                onOpenWeek={() => setActiveTab('week')}
+                onOpenProgress={() => setActiveTab('progress')}
+                onOpenMedalsAll={() => setActiveTab('medals')}
+                onOpenTargetRace={() => setActiveTab('targetRace')}
+              />
+            )}
+            {activeTab === 'medals' && (
+              <MedalsScreen accessToken={accessToken} onBack={() => setActiveTab('home')} />
+            )}
             {activeTab === 'interview' && (
               <GuidedInterview
                 accessToken={accessToken}
@@ -1840,6 +1857,16 @@ function AppInner() {
               </>
             )}
           </ScrollView>
+          {!exerciseResponsibilityRequired &&
+            !['interview', 'quickIntake', 'test', 'reassessment'].includes(activeTab) &&
+            !(activeTab === 'routine' && routineSetupMode) &&
+            !(activeTab === 'fixAnswers' && fixAnswersModule) && (
+              <BottomNav
+                activeTab={activeTab as BottomNavTab}
+                bottomInset={safeAreaInsets.bottom}
+                onChange={(tab) => setActiveTab(tab)}
+              />
+            )}
         </View>
       )}
     </SafeAreaView>

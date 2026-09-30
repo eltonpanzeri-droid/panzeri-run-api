@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { UpdateAvailabilityDto } from './dto/update-availability.dto';
@@ -7,11 +7,24 @@ import { UpdateHealthDto } from './dto/update-health.dto';
 import { UpdatePreferencesDto } from './dto/update-preferences.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { MeService } from './me.service';
+import { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('me')
 export class MeController {
-  constructor(private readonly meService: MeService) {}
+  constructor(
+    private readonly meService: MeService,
+    private readonly trainingIntelligenceQuery: TrainingIntelligenceQueryService,
+  ) {}
+
+  // Nova Home do aluno (30/09/2026) — mesma leitura canônica já usada pelo painel do treinador
+  // (`CoachController` → `TrainingIntelligenceQueryService.getVariableSnapshot`), agora também
+  // exposta ao próprio dono do dado. Nenhum cálculo novo: é a MESMA função, só com athleteId=o
+  // próprio usuário autenticado (nunca outro aluno — não repassa nenhum id da URL).
+  @Get('observations/:variableId')
+  getObservation(@CurrentUser() user: CurrentUserPayload, @Param('variableId') variableId: string) {
+    return this.trainingIntelligenceQuery.getVariableSnapshot(user.sub, variableId);
+  }
 
   @Put('profile')
   updateProfile(@CurrentUser() user: CurrentUserPayload, @Body() dto: UpdateProfileDto) {

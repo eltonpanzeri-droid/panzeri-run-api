@@ -2328,3 +2328,42 @@ persistencia e API de consulta`.
 
 **Pendência explícita**: nenhuma UI — a experiência visual das medalhas entra junto da reformulação
 maior da Home do aluno, ainda não iniciada.
+
+**2026-09-30 — Nova Home do aluno (ordem fechada, reconstrução completa da tela inicial)**
+
+Elton mandou uma especificação fechada e muito detalhada pra reconstruir a Home do app mobile
+(App.tsx), pra deixar de ser "onde vejo meu treino" e virar uma tela vertical com 8 seções (Hoje,
+Sua semana, Seu progresso, Como você está, Seu acompanhamento, Conquistas, Sua trajetória, Seu
+próximo passo), consumindo 100% de fontes canônicas já existentes — nenhum cálculo de
+treino/aderência/medalha refeito no frontend.
+
+- **Backend**: só 1 endpoint novo, `GET /me/observations/:variableId` (`me.controller.ts`) —
+  reaproveita exatamente a mesma `TrainingIntelligenceQueryService.getVariableSnapshot()` já usada
+  pelo painel do treinador, agora também exposta ao próprio dono do dado (sono/fadiga/motivação/RPE
+  nunca tinham chegado ao aluno antes, só o treinador via). Nenhuma migration, nenhum cálculo novo.
+- **Frontend novo** (`apps/mobile/home/`): `homeTheme.ts` (paleta clara própria desta intervenção,
+  hex exatos definidos por Elton — distinta da paleta de marca em `theme/tokens.ts`), `homeLogic.ts`
+  (funções puras: sessão de hoje, células da semana, timeline de trajetória — sem nenhum cálculo de
+  negócio, só seleção/formatação do que a API manda), `HomeScreen.tsx` (as 8 seções, gráfico
+  barra+linha em SVG puro reaproveitando o padrão já usado em `KmLineChart`), `MedalsScreen.tsx`
+  (única tela secundária nova autorizada, "Todas as conquistas"), `BottomNav.tsx` (o app NUNCA teve
+  bottom nav até agora — navegação era só o menu hambúrguer; agora tem os 5 destinos primários
+  Início/Treinos/Evolução/Conquistas/Perfil, sem apagar o menu antigo pros itens que não cabem).
+- **Wiring em App.tsx**: `Tab` ganhou `'home'` (novo tab padrão, substituindo `'week'`) e `'medals'`;
+  bottom nav fixo abaixo do ScrollView, escondido durante fluxos guiados (entrevista/teste/
+  reavaliação/setup de rotina).
+- **Validação visual real**: harness temporário (`?mock=1` na URL, mockando `fetch` com dados
+  fixos, nunca login nem rede real) usado pra ver a Home logada de verdade — removido por completo
+  antes de finalizar. Testado em 375×812, 390×844, 430×932 e tablet 768×1024, cenário com dados
+  reais e cenário "aluno novo" (sem plano/evolução/medalhas) — nenhum gráfico vazio gigante, estados
+  vazios com texto real, nenhum crash.
+- **Achado real corrigido durante a validação**: singular/plural na dica de progresso da medalha
+  ("Falta 1 km" vs "Faltam 3,6 km").
+- **Gate não satisfeito, registrado honestamente**: `apps/mobile` não tem NENHUMA infraestrutura de
+  teste automatizado (nem jest, nem RN Testing Library — `"test": "echo pending"` no
+  `package.json`). As funções puras de `homeLogic.ts` foram verificadas por leitura cuidadosa +
+  validação visual (os estados que elas produzem são visíveis na tela renderizada), mas não têm
+  teste automatizado real. Montar essa infraestrutura do zero ficou fora do escopo desta
+  intervenção — registrado como pendência real, não escondido.
+- Typecheck limpo (mobile + api), lint limpo nos arquivos novos/alterados (erros restantes no
+  `App.tsx` são todos pré-existentes, não relacionados a esta mudança).
