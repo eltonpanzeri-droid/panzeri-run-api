@@ -2174,3 +2174,87 @@ Pedido explícito de Elton: transformar todo texto livre do aluno em informaçã
 - **Teste de ponta a ponta com o exemplo literal do pedido** ("Estou ficando desanimada... trabalho muito puxado..."): confirmado texto original preservado, Relator interpretando sem virar fato, prontuário recebendo o evento correto, condensação delegando pro Evolution Agent, e nenhuma regra automática de treino criada a partir do relato. `PONTUAL` confirmado que nunca infla o prontuário.
 - **Gates**: 6 testes novos de ponta a ponta + suíte completa 395/395.
 - **Commit no espelho**: `Fecha o circuito Relator -> Prontuario -> Treinador`.
+
+**2026-09-29 — Auditoria "Astra" (independente): revisão técnica de 36 achados + correção do bloco prioritário (8 itens)**
+
+- Elton colou uma auditoria de 36 itens feita por outra IA ("Astra") sobre todo o fluxo
+  Relator→Prontuário→Treinador + áreas adjacentes (prescrição, billing, ciclo menstrual, funil, fila
+  de IA). Pedido: classificar cada item como CONFIRMADO/JÁ RESOLVIDO/INTENCIONAL/PLANEJADO/NÃO
+  PROCEDE contra o código real, sem implementar nada ainda. Os 2 itens marcados CRÍTICOS pela Astra
+  foram confirmados exatamente: (01) rota `POST /training-plans/week` pulava os gates oficiais; (02)
+  arquivar+criar+migrar plano eram 3 escritas soltas no banco, sem trava real de concorrência entre
+  processos. Também confirmados 2 bugs próprios não detectados antes: (10) duplicação de
+  incorporação narrativa Relator→Prontuário; (20) `compact-agent-context.ts` descartava metadados de
+  semana parcial/cobertura que o prompt do Treinador já instruía a IA a considerar.
+- Elton autorizou corrigir o "bloco prioritário" — 8 itens, nesta ordem: 02→01→17→10→20→30→14→06.
+  Todos corrigidos na mesma sessão:
+  - **02 (substituição de plano)**: archive+create+migrate viraram uma única `$transaction`;
+    notificações movidas pra depois do commit (regra do projeto: nunca IA/rede em transação); nova
+    trava `TrainingPlanGenerationLock` no banco (unique constraint em userId, staleness de 15min)
+    substitui o `Map` em memória antigo.
+  - **01 (rota alternativa)**: gate de assinatura movido pra dentro de `generateWeekLocked()`,
+    compartilhado por todo caminho — corrigida minha própria avaliação anterior (a rota tem 2 usos
+    reais no app mobile: fallback de carregamento e recálculo pós-teste de 3km).
+  - **17 (workout.painFlag)**: `toNumericValue()` fazia `Number("moderado")=NaN` e descartava todo
+    relato de dor silenciosamente; nova `toObservationValue()` preserva categoria como string.
+  - **10 (duplicação Relator→Prontuário)**: removido texto livre repetido nos `recordEvent()`
+    diretos de observations/pain-reports/workout-completions — mantidos só os campos estruturados,
+    texto livre com incorporação única via Relator.
+  - **20 (metadados de carga)**: `currentWeekContext`/`currentWeek` (isPartialWeek/numerator/
+    denominator/coveragePercent) propagados da Observation mais recente até o Compact Agent Context.
+  - **30 (RevenueCat + cortesia)**: guarda de precedência bloqueava também compras reais
+    (INITIAL_PURCHASE/RENEWAL) de aluna manual_active/grace — agora distingue por tipo de evento.
+  - **14 (campos livres)**: `reassessment_notes`/`pain_other_location` (reavaliação) e
+    `pain_other_location` (entrevista inicial) adicionados à Linha do Tempo — miss real de 28/09.
+  - **06 (geração de domingo)**: query de `previousPlans` usava a semana do relógio em vez da
+    semana-alvo, excluindo do histórico a semana que acabou de terminar quando gerada no domingo.
+- 8 arquivos de teste novos/estendidos, suíte completa 437/437.
+- **Commit no espelho**: `Corrige bloco prioritario da auditoria: substituicao atomica de plano,
+  gate de assinatura, dor categorica, deduplicacao Relator-Prontuario, metadados de carga,
+  RevenueCat e campos livres de reavaliacao`.
+- Demais 28 itens da auditoria ficam para decisão de próximo bloco — nenhuma nova auditoria geral
+  foi feita nesta etapa, por instrução explícita.
+
+**2026-09-30 — Bug real: mensagem genérica no formulário de feedback de treino (caso Juliana Oliveira)**
+
+- Aluna relatou (via WhatsApp, repassado por Elton) que o botão "Confirmar treino e enviar
+  feedback" parecia travar toda vez que ela preenchia algo diferente (dor, treino trocado).
+  Investigação: não existe nenhum código que bloqueie o botão especificamente por dor ou exercício
+  extra — o formulário exige 16 perguntas de escala preenchidas (sono, estado antes do treino,
+  resposta ao treino, + timing da dor quando há dor), e a mensagem de erro era sempre genérica
+  ("Complete todas as perguntas acima"), sem dizer qual estava faltando.
+- Hipótese mais provável (não uma causa determinística confirmada): num treino comum a aluna toca
+  rápido nas mesmas opções nas 16 perguntas por hábito; quando o treino tem algo diferente ela para
+  pra rolar a tela e escrever texto livre, ficando mais fácil pular sem perceber uma pergunta de
+  escala em outro ponto do formulário.
+- Correção: a mensagem agora lista exatamente o que falta (ex: "Falta responder: cansaço mental
+  causado pelo treino, mudança no estado mental."), em vez do texto genérico — resolve a queixa
+  relatada independente de qual pergunta específica estava sendo pulada.
+- **Commit no espelho**: `Mostra qual pergunta falta responder no feedback de treino, em vez de
+  mensagem generica`.
+
+**2026-09-30 — Especificação registrada: Sistema de Medalhas do Panzeri Run**
+
+- Elton enviou a especificação funcional completa do futuro Sistema de Medalhas/Conquistas (13
+  famílias: constância, aderência, treinos concluídos, volume semanal/mensal/sustentado, distância
+  única, acumulado, feedbacks, check-ins, reavaliações, provas, retomada — mais graus de
+  raridade, "próximas conquistas" e inteligência gerencial). Pedido explícito: só registrar e
+  checar contra o modelo de dados atual — **nada implementado, nenhuma tabela/migration criada**.
+- Documento completo em [SISTEMA_DE_MEDALHAS.md](SISTEMA_DE_MEDALHAS.md) (repo-root).
+- Checagem contra o código real (não só suposição): aderência/cobertura semanal, volume semanal e
+  mensal, maior distância em corrida única, limiar de 14 dias de lacuna, contagem de reavaliações e
+  de check-ins não pulados já existem de forma canônica e são diretamente reaproveitáveis.
+- **Achado importante, fora do escopo do sistema de medalhas mas bloqueador pra família 2
+  (Aderência)**: `EvolutionMetricService` hoje **inclui** sessões extras no denominador de
+  aderência/cobertura (`bucket.prescritas++` roda pra toda sessão, extra ou não) — isso contradiz a
+  regra já documentada em `GLOSSARIO_METRICAS.md` ("Extra não entra em prescrito/elegível/
+  aderência"). Divergência doc↔código pré-existente, precisa de decisão antes de implementar
+  "semana perfeita"/aderência ≥90%.
+- Existem tabelas `Achievement`/`UserAchievement` no schema, criadas em algum momento anterior mas
+  **nunca usadas por nenhum código** — formato genérico (`id/code/name/description/criteria Json`)
+  insuficiente pra tudo que a especificação exige (grau, valor, período, modalidade, evidência,
+  versão da regra), mas serve de ponto de partida em vez de criar do zero. `Challenge`/
+  `ChallengeProgress` (também dormentes) parecem modelar outra ideia (desafios semanais), não
+  medalhas permanentes.
+- Mapeamento completo `medalha → fonte canônica → calculável hoje / dependência / dúvida`
+  devolvido a Elton para validação antes de qualquer implementação.
