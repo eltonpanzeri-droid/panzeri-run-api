@@ -166,6 +166,39 @@ describe('PolarActivityIngestionService', () => {
     expect(calls).toEqual(['POST https://www.polaraccesslink.com/v3/users/999/exercise-transactions']);
   });
 
+  it('registro (POST /v3/users) com 401: falha com UnauthorizedException, registeredAt permanece null e nenhuma transaction e aberta', async () => {
+    const { service, getConnection } = fixture(baseConnection({ registeredAt: null }));
+    const { fn, calls } = queueFetch([jsonResponse(401, { error: 'invalid_token' })]);
+    global.fetch = fn as unknown as typeof fetch;
+
+    await expect(service.sync('user-a')).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(getConnection()?.registeredAt).toBeNull();
+    expect(calls).toEqual(['POST https://www.polaraccesslink.com/v3/users']);
+  });
+
+  it('registro (POST /v3/users) com 500: falha com BadGatewayException, registeredAt permanece null e nenhuma transaction e aberta', async () => {
+    const { service, getConnection } = fixture(baseConnection({ registeredAt: null }));
+    const { fn, calls } = queueFetch([jsonResponse(500, { error: 'internal' })]);
+    global.fetch = fn as unknown as typeof fetch;
+
+    await expect(service.sync('user-a')).rejects.toBeInstanceOf(BadGatewayException);
+    expect(getConnection()?.registeredAt).toBeNull();
+    expect(calls).toEqual(['POST https://www.polaraccesslink.com/v3/users']);
+  });
+
+  it('registro (POST /v3/users) com falha de rede: falha de forma controlada, registeredAt permanece null e nenhuma transaction e aberta', async () => {
+    const { service, getConnection } = fixture(baseConnection({ registeredAt: null }));
+    const calls: string[] = [];
+    global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      throw new Error('network unreachable');
+    }) as unknown as typeof fetch;
+
+    await expect(service.sync('user-a')).rejects.toBeInstanceOf(BadGatewayException);
+    expect(getConnection()?.registeredAt).toBeNull();
+    expect(calls).toEqual(['POST https://www.polaraccesslink.com/v3/users']);
+  });
+
   it('mesma atividade Polar recebida duas vezes nao duplica nem perde dado', async () => {
     const summary = {
       id: 'ex-42',
