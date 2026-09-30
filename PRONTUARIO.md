@@ -2278,3 +2278,53 @@ Pedido explícito de Elton: transformar todo texto livre do aluno em informaçã
 - Prova (família 12) documentada mas com avaliação automática **desligada** por enquanto —
   `TargetRace.status='concluida'` é autodeclarado sem verificação cruzada contra treino real.
 - Ver [SISTEMA_DE_MEDALHAS.md](SISTEMA_DE_MEDALHAS.md) para o documento completo e atualizado.
+
+**Continuação no mesmo dia (2026-09-30) — Sistema de Medalhas: backend implementado (sem UI)**
+
+Elton aprovou o desenho técnico e autorizou a implementação completa do backend, em 8 etapas:
+
+1. **Correção da divergência de aderência** — `EvolutionMetricService` agora exclui sessão extra
+   de `prescritas`/`feitas`/`naoFeitas` (aderência/cobertura/modalidade/mensal), mantendo extra
+   somado só em `kmTotal`/`kmExtrasTotal` (volume realizado). Antes, um aluno com 3/4 prescritas
+   (75%) + 1 extra aparecia com 80% — bug real confirmado com teste específico do cenário
+   prescrito+concluído+não-realizado+extra.
+2. **Schema**: `Achievement`/`UserAchievement` (existiam no banco desde antes, nunca usadas por
+   nenhum código) estendidas com categoria, grau, threshold, unit, ruleVersion, criteria, sortOrder
+   — e `UserAchievement` com value/periodStart/periodEnd/modality/evidence/ruleVersionAtUnlock.
+   Nenhuma tabela nova de catálogo.
+3. **Catálogo** (`apps/api/src/medals/medal-catalog.ts`): 124 medalhas determinísticas cobrindo as
+   13 famílias aprovadas (provas com `active:false`, avaliação desligada de propósito).
+   `MedalCatalogSyncService` sincroniza (upsert por `code`) toda vez que a API sobe — nunca escrevo
+   direto em produção, é o próprio boot que faz isso, igual qualquer outro provider do Nest.
+4. **`MedalEvaluationService`**: nunca recalcula matemática existente — lê `EvolutionMetricService`
+   (volume/aderência) + queries mínimas novas (distância por sessão, acumulado, streak de
+   constância/retomada). REGRA CENTRAL preservada em cada família: realização usa executado (nunca
+   o prescrito, mesmo quando o aluno executa mais ou menos que o planejado), aderência compara
+   executado×prescrito pela fórmula canônica, participação conta a ação em si. Gatilhos reaproveitam
+   pontos que já existem (upsert de treino, submit de check-in, conclusão de reavaliação) — sem
+   cron novo; categorias de fechamento semanal (constância/aderência/volume/sustentação) são
+   avaliadas tanto no registro de um treino quanto na leitura do `GET /me/medals` (não existe mais
+   nenhum cron semanal rodando pra todos os alunos desde 06/08, então esses são os pontos naturais
+   mais frequentes pra pegar uma semana recém-fechada).
+5. **API** (`GET /me/medals`, `/unlocked`, `/progress`): conquistas + progresso pras próximas,
+   com filtro de segurança (item 15/seção 16) — medalha muito acima da prescrição atual do aluno
+   existe no catálogo mas não é sugerida como "próximo objetivo" (margem de 1,5x a prescrição atual;
+   sem prescrição ativa pra comparar, nunca filtra).
+6. **Aderência + semana perfeita**: ativadas no gatilho de fechamento semanal, reaproveitando a
+   mesma função de streak de constância/sustentação.
+7. **Provas**: confirmado desligado (`active:false` no catálogo) — `TargetRace.status='concluida'`
+   é autodeclarado, sem verificação cruzada.
+8. **Base pra inteligência gerencial**: índice `@@index([achievementId])` em `UserAchievement`
+   (consultas futuras tipo "quantos alunos já conquistaram a medalha X") — sem endpoint/agregação
+   ainda, só a base.
+
+Testes específicos em cada etapa (funções puras de streak/calendário isoladas e testadas sem mockar
+Prisma, motor de avaliação com Prisma mockado, catálogo com testes de integridade estrutural) +
+suíte completa: **508/508 verdes** (50 suítes, 7 arquivos de teste novos pro sistema de medalhas +
+1 pra correção de aderência).
+
+**Commit no espelho**: `Implementa backend do Sistema de Medalhas: catalogo, motor de avaliacao,
+persistencia e API de consulta`.
+
+**Pendência explícita**: nenhuma UI — a experiência visual das medalhas entra junto da reformulação
+maior da Home do aluno, ainda não iniciada.

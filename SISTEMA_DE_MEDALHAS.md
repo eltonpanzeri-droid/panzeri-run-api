@@ -1,8 +1,11 @@
 # Sistema de Medalhas do Panzeri Run — Especificação Funcional
 
-> Status: **especificação registrada, NÃO implementada**. Nenhuma tabela, migration ou código
-> criado nesta etapa. Este documento é a fonte de verdade da definição funcional até a
-> implementação começar — qualquer mudança de regra deve ser editada aqui primeiro.
+> Status (30/09/2026): **backend implementado e testado** — catálogo, motor de avaliação,
+> persistência (`Achievement`/`UserAchievement`) e API de consulta (`GET /me/medals`) prontos.
+> **Sem UI** de propósito (pedido explícito: a experiência visual entra na reformulação futura da
+> Home do aluno). Este documento continua sendo a fonte de verdade da definição funcional —
+> qualquer mudança de regra deve ser editada aqui primeiro, e o catálogo real vive em
+> `apps/api/src/medals/medal-catalog.ts`, que precisa espelhar exatamente o que está descrito aqui.
 >
 > Origem: pedido de Elton em 30/09/2026, consolidando decisões já tomadas sobre o sistema de
 > medalhas/conquistas do Panzeri Run.
