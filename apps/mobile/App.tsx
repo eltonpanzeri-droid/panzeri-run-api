@@ -368,6 +368,23 @@ interface InterviewQuestion {
   ackIntro?: string;
 }
 
+// 01/10/2026 — espelham GET /workout-completions/sleep-night e /stress-recent (ver
+// NightlySleepLog/StressCheckin na API). null em qualquer campo e' ausencia real, nunca zero.
+interface SleepNightRecord {
+  id: string;
+  sleepQuality: number | null;
+  sleepDurationCategory: string | null;
+  bedtimeShiftDirection: string | null;
+  wakeTimeShiftDirection: string | null;
+  sleepInterruption: number | null;
+  sleepDifficulty: number | null;
+}
+interface StressCheckinRecord {
+  id: string;
+  stressLevel: number | null;
+  stressEventFrequency: number | null;
+}
+
 interface CompletionDraft {
   status: 'done' | 'missed' | 'adjusted';
   completedDate: string;
@@ -391,12 +408,18 @@ interface CompletionDraft {
   // Feedback v2 (24/09/2026) — reestruturacao do questionario individual do treino (16 perguntas).
   // Bloco SONO (perguntas 2-5; pergunta 1 e' preSleepQuality, acima, mantida sem mudanca).
   sleepDurationCategory: string; // categorica, nao e' escala 1-5 (ver SLEEP_DURATION_OPTIONS)
-  sleepScheduleIrregularity: string;
+  // 01/10/2026: substituem sleepScheduleIrregularity (perdia a direcao do desvio). Pertencem a
+  // NOITE (nao a sessao) — ver autoload via GET /workout-completions/sleep-night.
+  bedtimeShiftDirection: string;
+  wakeTimeShiftDirection: string;
   sleepInterruption: string;
   sleepDifficulty: string;
   // Bloco ESTADO ANTES DO TREINO (pergunta 7; preStressLevel/preMotivation acima sao as perguntas
   // 8/9, mesma coluna, redacao adaptada — ver GLOSSARIO_METRICAS.md).
   preMentalFatigue: string;
+  // 01/10/2026, NOVA — pertence a janela movel de 24h (nao a sessao) — ver autoload via
+  // GET /workout-completions/stress-recent.
+  stressEventFrequency: string;
   // Bloco RESPOSTA AO TREINO (perguntas 12-16). satisfactionCapacidade/postWorkoutFeeling/
   // postWorkoutMood (acima) deixam de ser coletados a partir da v2, mas continuam no tipo pra
   // exibir corretamente feedback antigo (feedbackVersion 1) quando reaberto.
@@ -3510,8 +3533,24 @@ const SLEEP_DURATION_OPTIONS: { value: string; label: string }[] = [
   { value: '8_a_9h', label: 'Entre 8 e 9 horas' },
   { value: 'mais_9h', label: 'Mais de 9 horas' },
 ];
+// Mantida so para o formulario de treino extra (addStudentExtraSession, endpoint/DTO proprio e
+// separado, nao alterado nesta tarefa). No feedback normal foi substituida por SLEEP_SHIFT_OPTIONS.
 const SLEEP_IRREGULARITY_OPTIONS = ['Nada diferente', 'Pouco diferente', 'Moderadamente diferente', 'Muito diferente', 'Extremamente diferente'];
+// 01/10/2026: substituem a antiga escala 1-5 de "irregularidade" no feedback normal — direcao +
+// magnitude, nao intensidade. Mesmas 7 categorias/valores do backend (ver SLEEP_SHIFT_DIRECTIONS em
+// upsert-workout-completion.dto.ts) para dormir E acordar.
+const SLEEP_SHIFT_OPTIONS: { value: string; label: string }[] = [
+  { value: 'much_earlier', label: 'Mais de 1h mais cedo' },
+  { value: 'moderately_earlier', label: '30-60min mais cedo' },
+  { value: 'slightly_earlier', label: 'Até 30min mais cedo' },
+  { value: 'on_time', label: 'Próximo do horário habitual' },
+  { value: 'slightly_later', label: 'Até 30min mais tarde' },
+  { value: 'moderately_later', label: '30-60min mais tarde' },
+  { value: 'much_later', label: 'Mais de 1h mais tarde' },
+];
 const SLEEP_INTERRUPTION_OPTIONS = ['Nada ou quase nada', 'Pouco', 'Moderadamente', 'Muito', 'Extremamente'];
+// 01/10/2026, NOVA — "com que frequencia voce passou por momentos que aumentaram claramente seu estresse?"
+const STRESS_FREQUENCY_OPTIONS = ['Nenhuma vez', 'Uma vez', 'Algumas vezes', 'Muitas vezes', 'Quase continuamente'];
 const SLEEP_DIFFICULTY_OPTIONS = ['Nenhuma dificuldade', 'Pouca dificuldade', 'Dificuldade moderada', 'Muita dificuldade', 'Extrema dificuldade'];
 const INTENSITY_LOW_HIGH_OPTIONS = ['Muito baixo', 'Baixo', 'Moderado', 'Alto', 'Muito alto'];
 const MOTIVATION_INTENSITY_OPTIONS = ['Muito baixa', 'Baixa', 'Moderada', 'Alta', 'Muito alta'];
@@ -3960,10 +3999,72 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
   const [recommendationOpen, setRecommendationOpen] = useState(false);
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
   const [weekOffset, setWeekOffset] = useState(initialWeekOffset ?? 0);
+  // 01/10/2026 — autoload de sono (por noite/dia) e estresse (janela movel de 24h). Cache por
+  // data evita reconsultar a mesma noite ao expandir uma segunda sessao do mesmo dia; `undefined`
+  // = ainda nao buscado, `null` = buscado e nao existe registro ainda.
+  const [sleepNightByDate, setSleepNightByDate] = useState<Record<string, SleepNightRecord | null>>({});
+  const [recentStressCheckin, setRecentStressCheckin] = useState<StressCheckinRecord | null | undefined>(undefined);
+
+  async function loadSleepNightForDate(isoDate: string) {
+    if (!isoDate || sleepNightByDate[isoDate] !== undefined) return;
+    try {
+      const response = await fetch(`${API_URL}/workout-completions/sleep-night?date=${isoDate}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = response.ok ? ((await response.json()) as SleepNightRecord | null) : null;
+      setSleepNightByDate((current) => ({ ...current, [isoDate]: data }));
+    } catch {
+      // Autoload e' so conveniencia — falha aqui nunca impede o aluno de responder manualmente.
+    }
+  }
+
+  async function loadRecentStressCheckin() {
+    if (recentStressCheckin !== undefined) return;
+    try {
+      const response = await fetch(`${API_URL}/workout-completions/stress-recent`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = response.ok ? ((await response.json()) as StressCheckinRecord | null) : null;
+      setRecentStressCheckin(data);
+    } catch {
+      // Autoload e' so conveniencia — falha aqui nunca impede o aluno de responder manualmente.
+    }
+  }
+
+  // Mescla o autoload (quando existir) num draft recem-criado, SO nos campos que ainda estao
+  // vazios — nunca sobrescreve uma resposta que esta propria sessao ja tem (feedback ja enviado
+  // antes desta migration, ou edicao em andamento). Isso e' o que faz "segundo treino do mesmo
+  // dia -> sono ja preenchido" funcionar sem duplicar nem forcar nova resposta.
+  function applyAutoload(draft: CompletionDraft, isoDate: string): CompletionDraft {
+    const night = sleepNightByDate[isoDate];
+    const stress = recentStressCheckin;
+    if (!night && !stress) return draft;
+    return {
+      ...draft,
+      preSleepQuality: draft.preSleepQuality || (night?.sleepQuality != null ? String(night.sleepQuality) : draft.preSleepQuality),
+      sleepDurationCategory: draft.sleepDurationCategory || night?.sleepDurationCategory || draft.sleepDurationCategory,
+      bedtimeShiftDirection: draft.bedtimeShiftDirection || night?.bedtimeShiftDirection || draft.bedtimeShiftDirection,
+      wakeTimeShiftDirection: draft.wakeTimeShiftDirection || night?.wakeTimeShiftDirection || draft.wakeTimeShiftDirection,
+      sleepInterruption: draft.sleepInterruption || (night?.sleepInterruption != null ? String(night.sleepInterruption) : draft.sleepInterruption),
+      sleepDifficulty: draft.sleepDifficulty || (night?.sleepDifficulty != null ? String(night.sleepDifficulty) : draft.sleepDifficulty),
+      preStressLevel: draft.preStressLevel || (stress?.stressLevel != null ? String(stress.stressLevel) : draft.preStressLevel),
+      stressEventFrequency: draft.stressEventFrequency || (stress?.stressEventFrequency != null ? String(stress.stressEventFrequency) : draft.stressEventFrequency),
+    };
+  }
+
+  function getSessionDraft(session: WeekPlanSession): CompletionDraft {
+    const existing = completionDrafts[session.id];
+    const base = existing ?? completionDraftFromSession(session);
+    return applyAutoload(base, session.isoDate ?? '');
+  }
   // Estado do modal de treino extra
   const [showExtraModal, setShowExtraModal] = useState(false);
   const EXTRA_FORM_DEFAULTS = {
     modality: 'corrida', date: '', reason: '', distanceKm: '', durationMin: '', notes: '', perceivedEffort: '',
+    // Nota (01/10/2026): o formulario de treino extra usa um endpoint/DTO proprio e SEPARADO
+    // (addStudentExtraSession, training-plans.controller.ts) que nao foi alterado nesta tarefa —
+    // continua aceitando sleepScheduleIrregularity/preStressLevel no formato antigo de proposito,
+    // sem bedtimeShiftDirection/wakeTimeShiftDirection/stressEventFrequency.
     preSleepQuality: '', sleepDurationCategory: '', sleepScheduleIrregularity: '', sleepInterruption: '', sleepDifficulty: '',
     prePhysicalFatigue: '', preMentalFatigue: '', preStressLevel: '', preMotivation: '',
     satisfactionElaboracao: '', executionVsPrescribed: '', postPhysicalFatigue: '', postMentalFatigue: '',
@@ -4509,8 +4610,11 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
   function updateCompletionDraft(session: WeekPlanSession, patch: Partial<CompletionDraft>) {
     setCompletionDrafts((current) => ({
       ...current,
+      // Base com autoload (sono/estresse) aplicado quando ainda nao ha edicao local propria —
+      // primeira vez que o aluno toca em QUALQUER campo desta sessao ja parte do sono/estresse
+      // ja carregados, em vez de um formulario vazio por cima do que foi autoload.
       [session.id]: {
-        ...defaultCompletionDraft(session),
+        ...getSessionDraft(session),
         ...current[session.id],
         ...patch,
       },
@@ -4518,7 +4622,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
   }
 
   async function saveCompletion(session: WeekPlanSession) {
-    const draft = completionDrafts[session.id] ?? defaultCompletionDraft(session);
+    const draft = getSessionDraft(session);
     const body = {
       sessionId: session.id,
       status: draft.status,
@@ -4526,7 +4630,8 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       // Feedback v2 (24/09/2026) — bloco Sono. preSleepQuality mantida (pergunta 1).
       preSleepQuality: Number(draft.preSleepQuality) || undefined,
       sleepDurationCategory: draft.sleepDurationCategory || undefined,
-      sleepScheduleIrregularity: Number(draft.sleepScheduleIrregularity) || undefined,
+      bedtimeShiftDirection: draft.bedtimeShiftDirection || undefined,
+      wakeTimeShiftDirection: draft.wakeTimeShiftDirection || undefined,
       sleepInterruption: Number(draft.sleepInterruption) || undefined,
       sleepDifficulty: Number(draft.sleepDifficulty) || undefined,
       // Bloco Estado antes do treino. preStressLevel/preMotivation mantidas (mesma coluna,
@@ -4534,6 +4639,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       prePhysicalFatigue: Number(draft.prePhysicalFatigue) || undefined,
       preMentalFatigue: Number(draft.preMentalFatigue) || undefined,
       preStressLevel: Number(draft.preStressLevel) || undefined,
+      stressEventFrequency: Number(draft.stressEventFrequency) || undefined,
       preMotivation: Number(draft.preMotivation) || undefined,
       // Bloco Resposta ao treino
       perceivedEffort: Number(draft.perceivedEffort) || undefined,
@@ -5072,7 +5178,15 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                   <View style={[styles.weekSessionCard, cardStatusStyle]} key={session.id}>
                     <Pressable
                       style={styles.collapseHeader}
-                      onPress={() => setExpandedDays((current) => ({ ...current, [session.id]: !current[session.id] }))}
+                      onPress={() => {
+                        setExpandedDays((current) => ({ ...current, [session.id]: !current[session.id] }));
+                        // Autoload (01/10/2026): busca sono/estresse so ao abrir, nao pra semana
+                        // inteira de uma vez — mesmo padrao de "so o que o aluno esta olhando agora".
+                        if (!expandedDays[session.id]) {
+                          void loadSleepNightForDate(session.isoDate ?? '');
+                          void loadRecentStressCheckin();
+                        }
+                      }}
                     >
                       <View style={styles.weekSessionTitleBlock}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -5120,7 +5234,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                           sessionNotes={'notes' in session && session.notes ? session.notes : undefined}
                           exerciseFeedback={completionDrafts[session.id]?.exerciseFeedback}
                           onExerciseFeedbackChange={(name, patch) => {
-                            const draft = completionDrafts[session.id] ?? defaultCompletionDraft(session);
+                            const draft = getSessionDraft(session);
                             const existing = draft.exerciseFeedback.find((item) => item.name === name) ?? { name, loadKg: '', satisfaction: '' };
                             const merged = { ...existing, ...patch };
                             const updated = draft.exerciseFeedback.filter((item) => item.name !== name);
@@ -5132,12 +5246,14 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                         />
                         <CompletionForm
                           session={session}
-                          draft={completionDrafts[session.id] ?? defaultCompletionDraft(session)}
+                          draft={getSessionDraft(session)}
                           onChange={(patch) => updateCompletionDraft(session, patch)}
                           onSave={() => saveCompletion(session)}
                           message={completionMessages[session.id]}
                           onOpenPainReport={onOpenPainReport}
                           onCollapse={() => setExpandedDays((cur) => ({ ...cur, [session.id]: false }))}
+                          sleepAlreadyRegistered={!completionDrafts[session.id] && Boolean(sleepNightByDate[session.isoDate ?? ''])}
+                          stressAlreadyRegistered={!completionDrafts[session.id] && Boolean(recentStressCheckin)}
                         />
                         <RescheduleControl session={session} planStartDate={plan?.startDate} onReschedule={rescheduleSession} />
                       </View>
@@ -9968,6 +10084,8 @@ function CompletionForm({
   message,
   onOpenPainReport,
   onCollapse,
+  sleepAlreadyRegistered,
+  stressAlreadyRegistered,
 }: {
   session: WeekPlanSession;
   draft: CompletionDraft;
@@ -9976,6 +10094,11 @@ function CompletionForm({
   message?: string;
   onOpenPainReport?: () => void;
   onCollapse?: () => void;
+  // 01/10/2026 — true quando o sono/estresse exibidos vieram de autoload (outra sessao do mesmo
+  // dia/janela ja respondeu), nao desta sessao especifica. So' informativo; o aluno sempre pode
+  // alterar normalmente pelos campos abaixo.
+  sleepAlreadyRegistered?: boolean;
+  stressAlreadyRegistered?: boolean;
 }) {
   const isSavedOnServer = !!session.completion;
   const [isEditing, setIsEditing] = useState(!isSavedOnServer);
@@ -10025,7 +10148,8 @@ function CompletionForm({
   if (!isSavedOnServer) {
     if (!draft.preSleepQuality) missingFieldLabels.push('qualidade do sono (pergunta 1)');
     if (!draft.sleepDurationCategory) missingFieldLabels.push('tempo de sono (pergunta 2)');
-    if (!draft.sleepScheduleIrregularity) missingFieldLabels.push('horario de dormir diferente do habitual (pergunta 3)');
+    if (!draft.bedtimeShiftDirection) missingFieldLabels.push('horario de dormir vs. habitual (pergunta 3)');
+    if (!draft.wakeTimeShiftDirection) missingFieldLabels.push('horario de acordar vs. habitual (pergunta 3b)');
     if (!draft.sleepInterruption) missingFieldLabels.push('sono interrompido (pergunta 4)');
     if (!draft.sleepDifficulty) missingFieldLabels.push('dificuldade para dormir (pergunta 5)');
     if (!draft.prePhysicalFatigue) missingFieldLabels.push('cansaco fisico antes do treino (pergunta 6)');
@@ -10265,9 +10389,17 @@ function CompletionForm({
                 onSelect={locked ? () => {} : (v) => onChange({ sleepDurationCategory: v })}
               />
 
+              {sleepAlreadyRegistered ? (
+                <View style={{ backgroundColor: '#eef2ff', borderRadius: 10, padding: 10, marginBottom: 10 }}>
+                  <Text style={{ fontSize: 13, color: '#3730a3', fontWeight: '600' }}>😴 Sono desta noite ja registrado — pode alterar abaixo se quiser.</Text>
+                </View>
+              ) : null}
               <QuestionLabel n={3} total={16} />
-              <Text style={styles.formHint}>O quanto seu horario de dormir foi diferente do seu horario habitual?</Text>
-              <LabeledScale value={draft.sleepScheduleIrregularity} onChange={(v) => onChange({ sleepScheduleIrregularity: v })} options={SLEEP_IRREGULARITY_OPTIONS} locked={locked} />
+              <Text style={styles.formHint}>Em relacao ao seu horario habitual, hoje voce foi dormir:</Text>
+              <OptionChips options={SLEEP_SHIFT_OPTIONS} selected={draft.bedtimeShiftDirection} onSelect={locked ? () => {} : (v) => onChange({ bedtimeShiftDirection: v })} />
+
+              <Text style={styles.formHint}>Em relacao ao seu horario habitual, hoje voce acordou:</Text>
+              <OptionChips options={SLEEP_SHIFT_OPTIONS} selected={draft.wakeTimeShiftDirection} onSelect={locked ? () => {} : (v) => onChange({ wakeTimeShiftDirection: v })} />
 
               <QuestionLabel n={4} total={16} />
               <Text style={styles.formHint}>Quanto seu sono foi interrompido durante a noite?</Text>
@@ -10293,9 +10425,17 @@ function CompletionForm({
               <Text style={styles.formHint}>Como estava seu cansaco mental antes de comecar o treino?</Text>
               <LabeledScale value={draft.preMentalFatigue} onChange={(v) => onChange({ preMentalFatigue: v })} options={INTENSITY_LOW_HIGH_OPTIONS} locked={locked} />
 
+              {stressAlreadyRegistered ? (
+                <View style={{ backgroundColor: '#eef2ff', borderRadius: 10, padding: 10, marginBottom: 10 }}>
+                  <Text style={{ fontSize: 13, color: '#3730a3', fontWeight: '600' }}>😰 Voce ja respondeu sobre estresse nas ultimas 24h — pode manter ou atualizar abaixo.</Text>
+                </View>
+              ) : null}
               <QuestionLabel n={8} total={16} />
-              <Text style={styles.formHint}>Como foi seu nivel de estresse no ultimo dia?</Text>
+              <Text style={styles.formHint}>Nas ultimas 24 horas, qual foi o seu nivel geral de estresse?</Text>
               <LabeledScale value={draft.preStressLevel} onChange={(v) => onChange({ preStressLevel: v })} options={INTENSITY_LOW_HIGH_OPTIONS} locked={locked} />
+
+              <Text style={styles.formHint}>Nas ultimas 24 horas, com que frequencia voce passou por momentos que aumentaram claramente seu estresse?</Text>
+              <LabeledScale value={draft.stressEventFrequency} onChange={(v) => onChange({ stressEventFrequency: v })} options={STRESS_FREQUENCY_OPTIONS} locked={locked} />
 
               <QuestionLabel n={9} total={16} />
               <Text style={styles.formHint}>Qual era a sua vontade de fazer o treino de hoje antes de comecar?</Text>
@@ -10946,6 +11086,7 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     preSleepQuality: '',
     prePhysicalFatigue: '',
     preStressLevel: '',
+    stressEventFrequency: '',
     preMotivation: '',
     perceivedEffort: '',
     satisfactionElaboracao: '',
@@ -10957,7 +11098,8 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     satisfaction: '',
     satisfactionCarga: '',
     sleepDurationCategory: '',
-    sleepScheduleIrregularity: '',
+    bedtimeShiftDirection: '',
+    wakeTimeShiftDirection: '',
     sleepInterruption: '',
     sleepDifficulty: '',
     preMentalFatigue: '',
@@ -10992,6 +11134,9 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     preSleepQuality: (completion as Record<string, unknown>).preSleepQuality != null ? String((completion as Record<string, unknown>).preSleepQuality) : '',
     prePhysicalFatigue: (completion as Record<string, unknown>).prePhysicalFatigue != null ? String((completion as Record<string, unknown>).prePhysicalFatigue) : '',
     preStressLevel: (completion as Record<string, unknown>).preStressLevel != null ? String((completion as Record<string, unknown>).preStressLevel) : '',
+    // stressEventFrequency nunca veio de completion (so existe em StressCheckin, 01/10/2026) —
+    // sempre vazio aqui; preenchido via autoload (GET /workout-completions/stress-recent).
+    stressEventFrequency: '',
     preMotivation: (completion as Record<string, unknown>).preMotivation != null ? String((completion as Record<string, unknown>).preMotivation) : '',
     perceivedEffort: completion.perceivedEffort ? String(completion.perceivedEffort) : '',
     satisfactionElaboracao: completion.satisfactionElaboracao ?? '',
@@ -11003,7 +11148,11 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     satisfaction: completion.satisfaction ?? '',
     satisfactionCarga: completion.satisfactionCarga ?? '',
     sleepDurationCategory: completion.sleepDurationCategory ?? '',
-    sleepScheduleIrregularity: completion.sleepScheduleIrregularity != null ? String(completion.sleepScheduleIrregularity) : '',
+    // bedtimeShiftDirection/wakeTimeShiftDirection nunca vieram de completion (so existem em
+    // NightlySleepLog, 01/10/2026) — sempre vazios aqui; preenchidos via autoload (GET
+    // /workout-completions/sleep-night).
+    bedtimeShiftDirection: '',
+    wakeTimeShiftDirection: '',
     sleepInterruption: completion.sleepInterruption != null ? String(completion.sleepInterruption) : '',
     sleepDifficulty: completion.sleepDifficulty != null ? String(completion.sleepDifficulty) : '',
     preMentalFatigue: completion.preMentalFatigue != null ? String(completion.preMentalFatigue) : '',

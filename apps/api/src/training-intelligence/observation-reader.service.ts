@@ -19,7 +19,7 @@ import { SATISFACTION_SCORE } from '../workout-completions/workout-completions.s
 import { EvolutionMetricService } from '../evolution/evolution-metric.service';
 import type { EvolutionSeries } from '../evolution/evolution.types';
 import { MathLayerService, SeriesPoint } from './math-layer.service';
-import { getVariableDefinition, InstrumentVersionSpec, VariableDefinition } from './variable-registry';
+import { getVariableDefinition, InstrumentVersionSpec, VariableDefinition, VariableSource } from './variable-registry';
 
 export interface Observation {
   athleteId: string;
@@ -29,12 +29,16 @@ export interface Observation {
   // numeric_continuous chegam aqui como number (ver toObservationValue).
   value: number | string;
   timestamp: Date;
-  source: 'student_feedback_per_workout' | 'student_weekly_checkin' | 'student_menstrual_daily_log' | 'student_menstrual_cycle_log' | 'weekly_training_load';
+  source: VariableSource;
   instrumentVersion: number;
   context: {
     sessionId?: string;
     workoutCompletionId?: string;
     checkinId?: string;
+    // 01/10/2026 — presentes quando a observacao vem de um registro compartilhado entre sessoes
+    // (ver VariableDefinition.relatedTable), nao de uma sessao/completion especifica.
+    nightlySleepLogId?: string;
+    stressCheckinId?: string;
     modality?: string;
     scheduledDate?: string;
     isExtra?: boolean;
@@ -53,6 +57,12 @@ export interface Observation {
     chronicWeeksUsed?: number;
   };
 }
+
+// 01/10/2026 — versao de instrumento reportada para observacoes lidas de um registro compartilhado
+// (NightlySleepLog/StressCheckin), nunca de completion.feedbackVersion (que nao existe nesse
+// caminho). Deliberadamente distinta de 1/2 — e' um modelo de coleta diferente (por noite/janela,
+// nao por sessao), nao so' uma redacao nova da mesma pergunta.
+const SHARED_RECORD_INSTRUMENT_VERSION = 3;
 
 type StructureShape = { source?: unknown; type?: unknown };
 
@@ -155,7 +165,9 @@ export class ObservationReaderService {
       throw new NotFoundException(`Variavel desconhecida no VariableRegistry: ${variableId}`);
     }
 
-    if (definition.source === 'student_feedback_per_workout') {
+    // student_feedback_shared_record (01/10/2026): sono/estresse, que agora podem viver num registro
+    // compartilhado entre sessoes — readWorkoutVariable() trata os dois casos (ver relatedTable).
+    if (definition.source === 'student_feedback_per_workout' || definition.source === 'student_feedback_shared_record') {
       return this.readWorkoutVariable(athleteId, definition);
     }
     if (definition.source === 'student_menstrual_daily_log') {
@@ -174,7 +186,55 @@ export class ObservationReaderService {
   // Feedback por treino (WorkoutCompletion)
   // -----------------------------------------------------------------------------------------
 
+  // 01/10/2026: sono (nightly_sleep_log) e estresse (stress_checkin) deixaram de ser "por sessao" —
+  // ver VariableDefinition.relatedTable. Quando a variavel tem relatedTable, a fonte de verdade e'
+  // essa tabela compartilhada (uma linha = uma observacao, por construcao — nunca duplica entre
+  // sessoes do mesmo dia/janela); so' entram observacoes LEGADAS (completions anteriores a essa
+  // migration, sem vinculo com a tabela nova) complementando o historico, nunca os dois pra o MESMO
+  // completion. Variaveis sem relatedTable continuam 100% no caminho antigo, inalterado.
   private async readWorkoutVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
+    const observations: Observation[] = [];
+
+    if (definition.relatedTable?.table === 'nightly_sleep_log') {
+      const nights = await this.prisma.nightlySleepLog.findMany({
+        where: { userId: athleteId },
+        orderBy: { nightDate: 'asc' },
+      });
+      for (const night of nights) {
+        const raw = (night as unknown as Record<string, unknown>)[definition.relatedTable.field];
+        const value = toObservationValue(definition, raw);
+        if (value === undefined) continue;
+        observations.push({
+          athleteId,
+          variableId: definition.variableId,
+          value,
+          timestamp: night.nightDate,
+          source: definition.source,
+          instrumentVersion: SHARED_RECORD_INSTRUMENT_VERSION,
+          context: { scheduledDate: night.nightDate.toISOString().slice(0, 10), nightlySleepLogId: night.id },
+        });
+      }
+    } else if (definition.relatedTable?.table === 'stress_checkin') {
+      const checkins = await this.prisma.stressCheckin.findMany({
+        where: { userId: athleteId },
+        orderBy: { respondedAt: 'asc' },
+      });
+      for (const checkin of checkins) {
+        const raw = (checkin as unknown as Record<string, unknown>)[definition.relatedTable.field];
+        const value = toObservationValue(definition, raw);
+        if (value === undefined) continue;
+        observations.push({
+          athleteId,
+          variableId: definition.variableId,
+          value,
+          timestamp: checkin.respondedAt,
+          source: definition.source,
+          instrumentVersion: SHARED_RECORD_INSTRUMENT_VERSION,
+          context: { stressCheckinId: checkin.id },
+        });
+      }
+    }
+
     // Corte de historico contaminado por teste (25/09/2026, fechamento do Passo 2) — mesma fonte
     // que EvolutionMetricService usa (training-history-policy.ts), nunca uma segunda data
     // definida so' aqui. Nao apaga nada do banco, so' nao alimenta Training Intelligence.
@@ -188,18 +248,22 @@ export class ObservationReaderService {
     // ativo, OU qualquer sessao (mesmo de plano ja arquivado) que tenha completion de verdade.
     const relevant = sessions.filter((s) => s.plan?.status === 'active' || s.completion !== null);
 
-    const observations: Observation[] = [];
-
     for (const session of relevant) {
       const completion = session.completion;
       if (!completion) continue; // sem feedback registrado — ausencia, nao observacao
+
+      // Este completion ja esta vinculado a um registro compartilhado (sono/estresse) — a
+      // observacao de verdade ja foi emitida acima, uma por noite/checkin. Ler a coluna legada do
+      // completion aqui duplicaria a MESMA noite/janela.
+      if (definition.relatedTable?.table === 'nightly_sleep_log' && completion.nightlySleepLogId) continue;
+      if (definition.relatedTable?.table === 'stress_checkin' && completion.stressCheckinId) continue;
 
       const extra = isExtraSession(session.structure);
       if (definition.excludeExtraSessions && extra) continue;
 
       const version = completion.feedbackVersion;
       const spec = definition.versions.find((v) => v.version === version);
-      if (!spec) continue; // esta variavel nao e' coletada nesta versao de instrumento
+      if (!spec) continue; // esta variavel nao e' coletada nesta versao de instrumento (ou nao tem equivalente legado)
 
       const detailsJson =
         typeof completion.details === 'object' && completion.details !== null
@@ -234,7 +298,7 @@ export class ObservationReaderService {
       });
     }
 
-    return observations;
+    return observations.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   }
 
   // -----------------------------------------------------------------------------------------

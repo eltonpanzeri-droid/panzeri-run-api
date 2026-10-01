@@ -6,10 +6,16 @@ import { ObservationReaderService } from '../src/training-intelligence/observati
 // exige (executionVsPrescribed), missing != zero, versoes diferentes de instrumento preservadas
 // (nunca misturadas silenciosamente), variavel desconhecida.
 
-function buildReader(sessions: unknown[], checkins: unknown[] = []) {
+// 01/10/2026: nightlySleepLog/stressCheckin vazios por padrao — fixtures existentes usam
+// completions SEM nightlySleepLogId/stressCheckinId (undefined), entao continuam 100% pelo
+// caminho legado (versions), exatamente como sempre foi lido. Testes especificos do registro
+// compartilhado passam `nights`/`stressCheckins` explicitamente.
+function buildReader(sessions: unknown[], checkins: unknown[] = [], nights: unknown[] = [], stressCheckins: unknown[] = []) {
   const prisma = {
     trainingSession: { findMany: jest.fn().mockResolvedValue(sessions) },
     weeklyCheckIn: { findMany: jest.fn().mockResolvedValue(checkins) },
+    nightlySleepLog: { findMany: jest.fn().mockResolvedValue(nights) },
+    stressCheckin: { findMany: jest.fn().mockResolvedValue(stressCheckins) },
   };
   return { reader: new ObservationReaderService(prisma as never, {} as never, {} as never), prisma };
 }
