@@ -24,6 +24,14 @@ export class PolarController {
     return this.polarService.connectUrl(user.sub);
   }
 
+  // So leitura — usado pela tela de Perfil pra exibir "Polar conectado" apos o retorno do
+  // /polar/callback (que e uma pagina publica fora do app, sem como avisar o app diretamente).
+  @UseGuards(AuthGuard('jwt'))
+  @Get('status')
+  status(@CurrentUser() user: CurrentUserPayload) {
+    return this.polarService.status(user.sub);
+  }
+
   // Sincronizacao controlada, disparada manualmente pelo proprio usuario autenticado. Sem cron
   // nem webhook nesta etapa (ver limitacoes reportadas) — so prova que uma atividade chega
   // integra e sem duplicar quando chamado mais de uma vez.

@@ -487,6 +487,11 @@ interface StravaConnectionStatus {
   lastActivityName?: string | null;
 }
 
+interface PolarConnectionStatus {
+  connected: boolean;
+  connectedAt?: string | null;
+}
+
 interface SavedAvailabilityDay {
   weekday: number;
   noTraining: boolean;
@@ -1843,16 +1848,19 @@ function AppInner() {
             {activeTab === 'strava' && <StravaSync accessToken={accessToken} />}
             {activeTab === 'billing' && <Billing accessToken={accessToken} />}
             {activeTab === 'profile' && (
-              <Anamnese
-                accessToken={accessToken}
-                userEmail={userEmail}
-                userName={userName}
-                savedMe={savedMe}
-                onSavedMeChange={setSavedMe}
-                onNameChange={setUserName}
-                routineDays={anamneseRoutine}
-                onRoutineChange={setAnamneseRoutine}
-              />
+              <>
+                <PolarConnect accessToken={accessToken} />
+                <Anamnese
+                  accessToken={accessToken}
+                  userEmail={userEmail}
+                  userName={userName}
+                  savedMe={savedMe}
+                  onSavedMeChange={setSavedMe}
+                  onNameChange={setUserName}
+                  routineDays={anamneseRoutine}
+                  onRoutineChange={setAnamneseRoutine}
+                />
+              </>
             )}
               </>
             )}
@@ -8003,6 +8011,85 @@ function StravaSync({ accessToken }: { accessToken: string }) {
 
 function formatConnectionDate(value: string) {
   return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
+}
+
+// Interface minima para o primeiro teste real da integracao Polar: so conectar e mostrar o
+// estado. Sem botao de sincronizar/verificar agora (o POST /polar/sync existe no backend mas
+// nao e exposto aqui ainda — fora do escopo desta tarefa). O /polar/callback e uma pagina HTML
+// publica fora da navegacao do app, entao a unica forma de saber se a autorizacao deu certo
+// depois do aluno voltar e consultar o /polar/status.
+function PolarConnect({ accessToken }: { accessToken: string }) {
+  const [connection, setConnection] = useState<PolarConnectionStatus | null>(null);
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
+
+  async function loadStatus() {
+    try {
+      const response = await fetch(`${API_URL}/polar/status`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (response.ok) setConnection((await response.json()) as PolarConnectionStatus);
+    } catch {
+      setMessage('Nao consegui consultar a conexao agora.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadStatus();
+    // Verifica de novo ao voltar pro app depois da autorizacao (callback acontece fora da
+    // navegacao do app, no navegador/webview do sistema) — mesmo intervalo usado pelo Strava.
+    const timer = setInterval(() => void loadStatus(), 5000);
+    return () => clearInterval(timer);
+  }, [accessToken]);
+
+  async function connectPolar() {
+    if (connecting) return;
+    setConnecting(true);
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/polar/connect-url`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) {
+        setMessage('Nao consegui iniciar a autorizacao da Polar.');
+        return;
+      }
+      const data = (await response.json()) as { url: string };
+      navigateTopLevel(data.url);
+    } catch {
+      setMessage('Nao consegui abrir a autorizacao da Polar.');
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Integracao</Text>
+      <Text style={styles.titleSmall}>Conectar Polar</Text>
+      <Text style={styles.formHint}>Autorize sua conta Polar para o Panzeri Run comecar a receber seus treinos.</Text>
+
+      <View style={styles.formSection}>
+        <View style={styles.reportRow}>
+          <Text style={styles.reportTitle}>{loading ? 'Consultando conexao...' : connection?.connected ? 'Polar conectado' : 'Polar nao conectado'}</Text>
+          {connection?.connected && connection.connectedAt ? (
+            <Text style={styles.reportText}>Conectado em {formatConnectionDate(connection.connectedAt)}</Text>
+          ) : null}
+        </View>
+
+        {!connection?.connected ? (
+          <Pressable style={[styles.primaryButton, connecting && styles.disabledButton]} disabled={connecting} onPress={connectPolar}>
+            <Text style={styles.primaryButtonText}>{connecting ? 'Abrindo autorizacao...' : 'Conectar Polar'}</Text>
+            <Ionicons name="link" size={18} color={PRColors.mineral} />
+          </Pressable>
+        ) : null}
+        {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
+      </View>
+    </View>
+  );
 }
 
 function Anamnese({

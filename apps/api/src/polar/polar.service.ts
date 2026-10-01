@@ -105,6 +105,15 @@ export class PolarService {
     return this.decrypt(ciphertext, key);
   }
 
+  // Leitura pura, sem nenhum efeito colateral — usada pela tela de Perfil para saber se mostra
+  // "Conectar Polar" ou "Polar conectado" apos o aluno voltar do /polar/callback (pagina publica
+  // fora da navegacao do app, entao o app nao tem outro jeito de saber o resultado).
+  async status(userId: string) {
+    const connection = await this.prisma.polarConnection.findUnique({ where: { userId } });
+    if (!connection) return { connected: false, connectedAt: null };
+    return { connected: true, connectedAt: connection.createdAt };
+  }
+
   private settings() {
     const clientId = this.config.get<string>('POLAR_CLIENT_ID')?.trim();
     const clientSecret = this.config.get<string>('POLAR_CLIENT_SECRET')?.trim();

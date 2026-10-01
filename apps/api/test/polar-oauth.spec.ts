@@ -30,7 +30,7 @@ function fixture() {
     },
     polarConnection: {
       findUnique: jest.fn(async () => null),
-      upsert: jest.fn(async (_input: unknown) => ({})),
+      upsert: jest.fn(async (input: { create: { userId: string } }) => input),
     },
   };
   const config = { get: jest.fn((name: string) => settings[name]) };
@@ -109,5 +109,17 @@ describe('Polar OAuth foundation', () => {
     const stateB = stateFrom((await service.connectUrl('user-b')).url);
     await service.callback({ state: stateB, code: 'code-b' });
     expect((prisma.polarConnection.upsert.mock.calls[0][0] as { create: { userId: string } }).create.userId).toBe('user-b');
+  });
+
+  it('status() reports not connected when there is no PolarConnection row', async () => {
+    const { service } = fixture();
+    await expect(service.status('user-a')).resolves.toEqual({ connected: false, connectedAt: null });
+  });
+
+  it('status() reports connected with connectedAt when a PolarConnection row exists', async () => {
+    const { service, prisma } = fixture();
+    const connectedAt = new Date('2026-10-01T12:00:00Z');
+    prisma.polarConnection.findUnique = jest.fn(async () => ({ createdAt: connectedAt })) as unknown as typeof prisma.polarConnection.findUnique;
+    await expect(service.status('user-a')).resolves.toEqual({ connected: true, connectedAt });
   });
 });
