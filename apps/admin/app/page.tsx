@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, Che
 import type { ReactNode } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
 import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import TrainingIntelligenceStudio from './ti/studio';
 
 const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
 const STUDENT_APP_URL = 'https://agenteselton-panzeri-run-app.hbljgk.easypanel.host';
@@ -472,6 +473,7 @@ export default function AdminHome() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [apiVersion, setApiVersion] = useState('verificando');
   const [activeView, setActiveView] = useState<AdminView>('dashboard');
+  const [tiMode, setTiMode] = useState<'individual' | 'aggregate'>('individual');
   const [menuOpen, setMenuOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [coupons, setCoupons] = useState<CouponRow[]>([]);
@@ -903,7 +905,7 @@ export default function AdminHome() {
     // porque nao faz mais sentido com lista e detalhe sendo dois modos separados. A view 'weeks'
     // ainda usa esse auto-carregamento (o seletor dela sempre espera alguem selecionado).
     if (view === 'students') setStudentViewMode('list');
-    if (view !== 'dashboard' && view !== 'students' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && view !== 'prospects' && view !== 'exStudents' && !selectedStudentId && dashboard?.students[0]) {
+    if (view !== 'dashboard' && view !== 'students' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && view !== 'prospects' && view !== 'exStudents' && view !== 'trainingIntelligence' && !selectedStudentId && dashboard?.students[0]) {
       void loadStudent(dashboard.students[0].id);
     }
   }
@@ -1270,12 +1272,12 @@ export default function AdminHome() {
             </button>
             <div>
               <p className="eyebrow">Painel do treinador</p>
-              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : 'Financeiro'}</h1>
+              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : activeView === 'trainingIntelligence' ? 'Training Intelligence' : 'Financeiro'}</h1>
               <small className="apiVersion">API {apiVersion}</small>
             </div>
           </div>
           <div className="topActions">
-            {activeView !== 'dashboard' && activeView !== 'notifications' ? <label className="searchBox">
+            {activeView !== 'dashboard' && activeView !== 'notifications' && activeView !== 'trainingIntelligence' ? <label className="searchBox">
               <Search size={18} />
               <input placeholder="Buscar por nome ou e-mail" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
             </label> : null}
@@ -1285,9 +1287,9 @@ export default function AdminHome() {
                 Mostrar arquivados
               </label>
             ) : null}
-            <button className="iconButton" type="button" onClick={() => loadDashboard()}>
+            {activeView !== 'trainingIntelligence' && <button className="iconButton" type="button" onClick={() => loadDashboard()}>
               <RefreshCw size={18} />
-            </button>
+            </button>}
             <button className="ghostButton" type="button" onClick={logout}>
               Sair
             </button>
@@ -1909,11 +1911,21 @@ export default function AdminHome() {
         {activeView === 'raceCalendar' ? <RaceCalendarView races={raceCalendar} loading={loadingRaceCalendar} onRefresh={() => loadRaceCalendar()} /> : null}
 
         {activeView === 'trainingIntelligence' ? (
-          <TrainingIntelligenceRoot
-            accessToken={token}
-            dashboardStudents={(dashboard?.students ?? []).map((s) => ({ id: s.id, name: s.name, studentCode: s.studentCode }))}
-            onOpenStudent={async (id) => { changeView('students'); await goToStudent(id); }}
-          />
+          <section aria-label="Training Intelligence no Admin">
+            <div className="detailTabs" aria-label="Modo de investigação">
+              <button type="button" className={tiMode === 'individual' ? 'active' : ''} onClick={() => setTiMode('individual')}>Investigação individual</button>
+              <button type="button" className={tiMode === 'aggregate' ? 'active' : ''} onClick={() => setTiMode('aggregate')}>Visão agregada</button>
+            </div>
+            {tiMode === 'individual' ? (
+              <TrainingIntelligenceStudio accessToken={token} initialStudentId={selectedStudentId} onStudentChange={setSelectedStudentId} />
+            ) : (
+              <TrainingIntelligenceRoot
+                accessToken={token}
+                dashboardStudents={(dashboard?.students ?? []).map((student) => ({ id: student.id, name: student.name, studentCode: student.studentCode }))}
+                onOpenStudent={async (id) => { changeView('students'); await goToStudent(id); }}
+              />
+            )}
+          </section>
         ) : null}
       </section>
     </main>
@@ -9827,9 +9839,5 @@ function LoadChartAderencia({ weeks, history }: {
     </div>
   );
 }
-
-
-
-
 
 
