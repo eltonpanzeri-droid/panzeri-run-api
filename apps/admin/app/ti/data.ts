@@ -17,7 +17,7 @@ export type Snapshot = {
   evidence: { n: number; observedSpan: { from: string | null; to: string | null }; lastObservationAt: string | null; instrumentVersions: number[]; comparabilityWarning: string | null };
 };
 export type ContextEvent = { id: string; type: string; subtype: string | null; startedAt: string | null; endedAt: string | null; reportedAt: string; status: string; source: string; originalText: string | null };
-export type Layers = { raw: boolean; mm21: boolean; mm60: boolean; mm200: boolean; baseline: boolean; habitual: boolean; trend: boolean; events: boolean };
+export type Layers = { raw: boolean; mm21: boolean; mm60: boolean; mm200: boolean; baseline: boolean; habitual: boolean; trend: boolean; events: boolean; prescribed: boolean; completed: boolean };
 export type ChartView = 'line' | 'bars' | 'mixed' | 'points';
 export type ChartLabels = 'off' | 'raw' | 'average' | 'both';
 export type ChartConfig = { view: ChartView; labels: ChartLabels; layers: Layers; expanded: boolean };
@@ -28,7 +28,7 @@ export const DOMAINS: Record<string, string> = { sleep: 'Sono', physical_state: 
 export const EVENT_TYPES: Record<string, string> = { work: 'Trabalho', routine_change: 'Mudança de rotina', travel: 'Viagem', family_personal: 'Família e vida pessoal', health: 'Saúde', illness: 'Doença', pain_injury: 'Dor / lesão', sleep: 'Sono', other: 'Outro contexto' };
 export const SOURCES: Record<string, string> = { student_reported: 'Relato do aluno', coach_reported: 'Registro do treinador', reassessment: 'Reavaliação', return_after_gap: 'Retorno após lacuna', system_detected: 'Detectado pelo sistema' };
 export const MODALITIES: Record<string, string> = { corrida: 'Corrida', forca: 'Musculação', fortalecimento_corredores: 'Fortalecimento', global: 'Todas (canônico)' };
-export const DEFAULT_LAYERS: Layers = { raw: true, mm21: true, mm60: false, mm200: false, baseline: false, habitual: true, trend: true, events: true };
+export const DEFAULT_LAYERS: Layers = { raw: true, mm21: true, mm60: false, mm200: false, baseline: false, habitual: true, trend: true, events: true, prescribed: false, completed: false };
 export const PERIODS = [{ id: '30', label: '30 dias', days: 30 }, { id: '90', label: '90 dias', days: 90 }, { id: '183', label: '6 meses', days: 183 }, { id: '365', label: '1 ano', days: 365 }, { id: 'all', label: 'Tudo', days: 0 }];
 export const fmt = (v: number | null | undefined) => v == null || !Number.isFinite(v) ? '—' : v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 export const dateKey = (value: string) => value.slice(0, 10);
