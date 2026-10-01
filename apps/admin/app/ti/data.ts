@@ -20,7 +20,7 @@ export type ContextEvent = { id: string; type: string; subtype: string | null; s
 export type Layers = { raw: boolean; mm21: boolean; mm60: boolean; mm200: boolean; baseline: boolean; habitual: boolean; trend: boolean; events: boolean; prescribed: boolean; completed: boolean };
 export type ChartView = 'line' | 'bars' | 'mixed' | 'points';
 export type ChartLabels = 'off' | 'raw' | 'average' | 'both';
-export type ChartConfig = { view: ChartView; labels: ChartLabels; layers: Layers; expanded: boolean };
+export type ChartConfig = { view: ChartView; labels: ChartLabels; layers: Layers; expanded: boolean; overlayIds: string[] };
 export type Series = { key: string; variableId: string; modality: string; visible: boolean };
 export const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
 export const COLORS = ['#1683ff', '#935be8', '#e7862f', '#0c9e9a', '#de5371', '#6972c3'];
@@ -77,13 +77,19 @@ export function compatibleAxes(a: Variable, b: Variable) {
   // Equal numeric ranges alone do not make different constructs comparable.
   return a.id === b.id || Boolean(a.scale?.unit && a.scale.unit === b.scale?.unit && a.dataType === b.dataType);
 }
+export function selectableOverlayAxes(a: Variable, b: Variable) {
+  // Equal ordinal instruments can share their original axis when the coach
+  // explicitly chooses to compare them. No observations are transformed.
+  return compatibleAxes(a, b) || Boolean(a.dataType === 'ordinal_scale' && b.dataType === 'ordinal_scale'
+    && a.scale && b.scale && a.scale.min === b.scale.min && a.scale.max === b.scale.max);
+}
 export function chartViews(variable: Variable): ChartView[] {
   if (variable.domain === 'training_load' && variable.scale?.unit === 'km') return ['mixed', 'bars', 'line', 'points'];
   return ['line', 'points'];
 }
 export function defaultChartConfig(variable: Variable): ChartConfig {
   const volume = chartViews(variable).includes('mixed');
-  return { view: volume ? 'mixed' : 'line', labels: volume ? 'raw' : 'off', layers: { ...DEFAULT_LAYERS }, expanded: false };
+  return { view: volume ? 'mixed' : 'line', labels: volume ? 'raw' : 'off', layers: { ...DEFAULT_LAYERS }, expanded: false, overlayIds: [] };
 }
 export type CustomPeriod =
   | { mode: 'dates'; start: string; end: string }
