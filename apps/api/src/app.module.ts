@@ -26,6 +26,7 @@ import { FunnelModule } from './funnel/funnel.module';
 import { EvolutionModule } from './evolution/evolution.module';
 import { MenstrualCycleModule } from './menstrual-cycle/menstrual-cycle.module';
 import { LeoModule } from './leo/leo.module';
+import { ActivityExecutionModule } from './activity-execution/activity-execution.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -45,6 +46,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     FitnessTestsModule,
     StravaModule,
     PolarModule,
+    ActivityExecutionModule,
     TrainingPlansModule,
     WorkoutCompletionsModule,
     BillingModule,

@@ -492,11 +492,14 @@ model TrainingSession {
   createdAt           DateTime           @default(now())
   // Correcao definitiva do ciclo de vida da prescricao (25/09/2026, Passo 2 fechado). Origem real
   // desta sessao — 'agent' (gerada/regenerada pelo prescription-agent), 'coach_manual' (treinador
-  // criou direto, sem passar pelo agente) ou 'student_extra' (aluno registrou treino extra por
-  // conta propria). Nullable de proposito: registros criados ANTES desta coluna existir ficam
+  // criou direto, sem passar pelo agente), 'student_extra' (aluno registrou treino extra por conta
+  // propria, manualmente) ou 'device_extra' (01/10/2026 — sessao sintetica criada automaticamente
+  // a partir de um ActivityLog classificado como extra pelo SessionExecutionLinkService; mesma
+  // ideia de 'student_extra', so' que a origem do dado e' um dispositivo/provedor em vez do
+  // formulario manual). Nullable de proposito: registros criados ANTES desta coluna existir ficam
   // null (desconhecido) — nunca inventamos origem retroativa pra dado legado. Novas sessoes
-  // sempre recebem um valor real nos 3 pontos de criacao (generateWeek/regenerateSession,
-  // createManualSession, addStudentExtraSession).
+  // sempre recebem um valor real nos pontos de criacao (generateWeek/regenerateSession,
+  // createManualSession, addStudentExtraSession, SessionExecutionLinkService.materializeExtra).
   origin              String?
   // Quando um treinador edita manualmente (updateTrainingSession) uma sessao que JA tem
   // completion, guardamos aqui um snapshot append-only do que a prescricao era ANTES da edicao —
@@ -507,6 +510,10 @@ model TrainingSession {
   prescriptionHistory Json?
   updatedAt           DateTime           @updatedAt
   completion          WorkoutCompletion?
+
+  // Fundacao Prescricao x Execucao (01/10/2026) — ver SessionExecutionLink. 0..N atividades
+  // executadas (ActivityLog, qualquer provedor) podem corresponder a esta sessao.
+  executionLinks SessionExecutionLink[]
 
   // 09/09 — indice para queries de evolucao do atleta (busca por usuario + ordem cronologica).
   // Sem isso a query principal de evolucao faz full-scan em TrainingSession inteira.
@@ -1183,11 +1190,91 @@ model ActivityLog {
   detailFetchedAt     DateTime?
   providerMetrics     Json?
 
+  // Fundacao Prescricao x Execucao (01/10/2026) — ver SessionExecutionLink abaixo. Denormalizado
+  // aqui (em vez de so' derivar de "existe link ativo?") porque "extra" e "ainda nao processado"
+  // sao estados DIFERENTES e nenhum dos dois tem uma linha de link: sem este campo nao daria pra
+  // distinguir "ja' decidimos que e' extra" de "ninguem olhou pra isso ainda". Mantido consistente
+  // pelo SessionExecutionLinkService, nunca escrito direto por outro lugar.
+  // Valores: null (nao processado ainda) | 'linked' (tem SessionExecutionLink ativo) |
+  // 'extra' (decidido que nao corresponde a nenhuma prescricao) | 'ambiguous' (candidato(s)
+  // existem mas sem evidencia inequivoca — aguarda resolucao, nunca vira 'linked' sozinho).
+  executionClassification String?
+  executionClassifiedAt   DateTime?
+  // Quem/o que tomou a decisao ATUAL de classificacao (nao apenas de um link — 'extra' tambem e'
+  // uma decisao com proveniencia, mesmo sem linha de SessionExecutionLink). 'automatic' | 'student'
+  // | 'coach'. Historico de decisoes anteriores fica nas linhas revogadas de SessionExecutionLink
+  // quando existirem; para uma 'extra' que nunca teve link, esta coluna e' a unica proveniencia.
+  executionClassifiedBy   String?
+
+  executionLinks SessionExecutionLink[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([provider, userId, externalId])
   @@index([userId, startedAt])
+}
+
+// Fundacao Prescricao x Execucao (01/10/2026). Vinculo PROVIDER-AGNOSTICO entre uma prescricao
+// (TrainingSession — prescrita de verdade OU sintetica/extra, ver origin em TrainingSession) e uma
+// atividade executada observada (ActivityLog, de qualquer provedor). Nunca conhece Polar/Garmin/
+// Strava — so' trabalha com os dois lados ja' canonicos.
+//
+// Por que uma tabela nova em vez de reaproveitar WorkoutCompletion.sessionId: WorkoutCompletion e'
+// 1:1 com TrainingSession (sessionId e' @unique) e representa principalmente o RELATO/feedback do
+// aluno. A relacao prescricao<->atividade-executada aqui e' N:N, pode ficar ambigua por um tempo,
+// precisa de proveniencia (quem/o que decidiu) e precisa ser corrigivel SEM apagar a decisao
+// anterior — nada disso cabe numa FK unica. As duas tabelas coexistem: um WorkoutCompletion e um
+// SessionExecutionLink podem existir para a mesma sessao, cada um preservando sua propria fonte
+// (relogio mostra uma coisa, aluno relata outra — nenhum dos dois reescreve o outro).
+//
+// Nunca deletar uma linha: revogar = status='revoked' + revokedAt preenchido, e (quando ha'
+// substituicao, nao so' remocao) supersededByLinkId aponta pra' linha nova. Isso preserva a cadeia
+// "classificacao automatica -> corrigida pelo aluno -> vinculo atual" so' consultando o historico.
+//
+// Multiplicidade deliberadamente NAO travada em 1:1 no schema (nem por trainingSessionId nem por
+// activityLogId): uma sessao pode ter 0..N atividades vinculadas (situacao real: duas atividades
+// candidatas a' mesma prescricao antes de resolver qual e' a certa, ou futuramente a MESMA execucao
+// chegando por dois providers — Polar e Garmin, por exemplo — sem duplicar "carga", ja' que contar
+// execucao e' uma checagem de EXISTENCIA de link ativo, nao soma de linhas). O service e' quem
+// evita, por padrao, duas linhas ATIVAS simultaneas pro MESMO par (trainingSessionId,
+// activityLogId) — ver indice parcial na migration.
+model SessionExecutionLink {
+  id String @id @default(uuid())
+
+  userId String
+
+  trainingSessionId String
+  trainingSession   TrainingSession @relation(fields: [trainingSessionId], references: [id])
+
+  activityLogId String
+  activityLog   ActivityLog @relation(fields: [activityLogId], references: [id])
+
+  status String // 'active' | 'revoked'
+
+  // Quem/o que criou ESTA linha especifica — nunca sobrescrito; uma correcao cria uma linha nova
+  // com seu proprio origin, preservando a proveniencia de cada decisao na cadeia.
+  origin String // 'automatic' | 'student' | 'coach'
+
+  // Qualitativo e opcional de proposito — NUNCA um score numerico fabricado quando nao existe
+  // calculo real por tras (ver principio "nao transformar probabilidade em fato"). Ex.:
+  // 'same_day_modality_match' (classificacao automatica conservadora desta etapa), 'manual'.
+  confidence String?
+  note       String?
+
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  // Auto-relacao: a linha revogada aponta pra' linha que a substituiu (quando a correcao CRIA um
+  // vinculo novo, em vez de so' remover). supersededByLinkId fica null quando a revogacao nao gerou
+  // substituicao (ex.: virou 'extra', sem vinculo nenhum).
+  supersededByLinkId String?               @unique
+  supersededByLink   SessionExecutionLink? @relation("LinkSupersession", fields: [supersededByLinkId], references: [id])
+  supersedes         SessionExecutionLink? @relation("LinkSupersession")
+
+  @@index([trainingSessionId])
+  @@index([activityLogId])
+  @@index([userId])
 }
 
 // Cache da analise do agente de IA sobre o historico do Strava (StravaAnalysisAgentService).
