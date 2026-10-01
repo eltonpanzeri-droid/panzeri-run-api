@@ -46,7 +46,8 @@ export class WorkoutCompletionsService {
     // exatamente como antes — nada aqui muda o comportamento pra eles.
     const isV2Client =
       dto.sleepDurationCategory !== undefined ||
-      dto.sleepScheduleIrregularity !== undefined ||
+      dto.bedtimeShiftDirection !== undefined ||
+      dto.wakeTimeShiftDirection !== undefined ||
       dto.sleepInterruption !== undefined ||
       dto.sleepDifficulty !== undefined ||
       dto.preMentalFatigue !== undefined ||
@@ -70,7 +71,7 @@ export class WorkoutCompletionsService {
       throw new BadRequestException('Preencha todas as perguntas do bloco "Como voce chegou".');
     }
     if (isV2Client && (dto.status === 'done' || dto.status === 'adjusted')) {
-      if (!dto.sleepDurationCategory || !dto.sleepScheduleIrregularity || !dto.sleepInterruption || !dto.sleepDifficulty) {
+      if (!dto.sleepDurationCategory || !dto.bedtimeShiftDirection || !dto.wakeTimeShiftDirection || !dto.sleepInterruption || !dto.sleepDifficulty) {
         throw new BadRequestException('Preencha todas as perguntas do bloco "Sono".');
       }
       if (!dto.preMentalFatigue) {
@@ -98,6 +99,16 @@ export class WorkoutCompletionsService {
     }
 
     const previous = await this.prisma.workoutCompletion.findUnique({ where: { sessionId: dto.sessionId } });
+
+    // 01/10/2026: sono pertence a NOITE (userId+dia do treino), estresse pertence a uma JANELA
+    // MOVEL de 24h com timestamp real — nenhum dos dois e mais "por sessao". Resolvidos ANTES do
+    // completion em si pra podermos gravar o vinculo (nightlySleepLogId/stressCheckinId) no mesmo
+    // upsert. As colunas proprias do completion (preSleepQuality etc.) continuam gravadas logo
+    // abaixo, como copia desnormalizada — Admin/Telegram/prontuario nao mudam; so' a Training
+        // Intelligence passa a ler exclusivamente da tabela compartilhada (ver observation-reader).
+    const nightlySleepLogId = await this.resolveNightlySleepLog(userId, session.scheduledDate, dto);
+    const stressCheckinId = await this.resolveStressCheckin(userId, dto, previous?.stressCheckinId ?? null);
+
     const completedAt = dto.completedAt ? new Date(dto.completedAt) : undefined;
     const completion = await this.prisma.workoutCompletion.upsert({
       where: { sessionId: dto.sessionId },
@@ -125,9 +136,10 @@ export class WorkoutCompletionsService {
         painTiming: dto.painTiming,
         sleepDurationCategory: dto.sleepDurationCategory,
         sleepDurationHoursEstimate: sleepDurationHoursEstimate(dto.sleepDurationCategory),
-        sleepScheduleIrregularity: dto.sleepScheduleIrregularity,
         sleepInterruption: dto.sleepInterruption,
         sleepDifficulty: dto.sleepDifficulty,
+        nightlySleepLogId,
+        stressCheckinId,
         preMentalFatigue: dto.preMentalFatigue,
         executionVsPrescribed: dto.executionVsPrescribed,
         postPhysicalFatigue: dto.postPhysicalFatigue,
@@ -164,9 +176,10 @@ export class WorkoutCompletionsService {
         painTiming: dto.painTiming,
         sleepDurationCategory: dto.sleepDurationCategory,
         sleepDurationHoursEstimate: sleepDurationHoursEstimate(dto.sleepDurationCategory),
-        sleepScheduleIrregularity: dto.sleepScheduleIrregularity,
         sleepInterruption: dto.sleepInterruption,
         sleepDifficulty: dto.sleepDifficulty,
+        nightlySleepLogId,
+        stressCheckinId,
         preMentalFatigue: dto.preMentalFatigue,
         executionVsPrescribed: dto.executionVsPrescribed,
         postPhysicalFatigue: dto.postPhysicalFatigue,
@@ -231,12 +244,14 @@ export class WorkoutCompletionsService {
       const preLines: string[] = [];
       if (dto.preSleepQuality) preLines.push(`😴 Qualidade do sono: ${dto.preSleepQuality}/5`);
       if (dto.sleepDurationCategory) preLines.push(`⏰ Duracao do sono: ${sleepDurationCategoryLabel(dto.sleepDurationCategory)}`);
-      if (dto.sleepScheduleIrregularity) preLines.push(`📆 Irregularidade do horario: ${dto.sleepScheduleIrregularity}/5`);
+      if (dto.bedtimeShiftDirection) preLines.push(`📆 Horario de dormir: ${sleepShiftLabel(dto.bedtimeShiftDirection)}`);
+      if (dto.wakeTimeShiftDirection) preLines.push(`⏰ Horario de acordar: ${sleepShiftLabel(dto.wakeTimeShiftDirection)}`);
+      if (dto.stressEventFrequency) preLines.push(`😰 Frequencia de estresse (24h): ${dto.stressEventFrequency}/5`);
       if (dto.sleepInterruption) preLines.push(`🌙 Sono interrompido: ${dto.sleepInterruption}/5`);
       if (dto.sleepDifficulty) preLines.push(`😵 Dificuldade pra dormir: ${dto.sleepDifficulty}/5`);
       if (dto.prePhysicalFatigue) preLines.push(`🦵 Cansaco fisico pre: ${dto.prePhysicalFatigue}/5`);
       if (dto.preMentalFatigue) preLines.push(`🧠 Cansaco mental pre: ${dto.preMentalFatigue}/5`);
-      if (dto.preStressLevel) preLines.push(`😰 Estresse (ultimo dia): ${dto.preStressLevel}/5`);
+      if (dto.preStressLevel) preLines.push(`😰 Estresse (ultimas 24h): ${dto.preStressLevel}/5`);
       if (dto.preMotivation) preLines.push(`🔥 Vontade de treinar: ${dto.preMotivation}/5`);
 
       // Bloco durante/pos (Resposta ao treino)
@@ -323,14 +338,16 @@ export class WorkoutCompletionsService {
       // irregularidade/interrupcao/dificuldade e' RUIM (mais problema), nao inverter a leitura.
       dto.preSleepQuality ? `Qualidade do sono na noite anterior: ${dto.preSleepQuality}/5 (1=muito ruim, 5=excelente).` : '',
       dto.sleepDurationCategory ? `Duracao do sono: ${sleepDurationCategoryLabel(dto.sleepDurationCategory)}.` : '',
-      dto.sleepScheduleIrregularity ? `Irregularidade do horario de dormir vs. habitual: ${dto.sleepScheduleIrregularity}/5 (5=mais irregular).` : '',
+      dto.bedtimeShiftDirection ? `Horario de dormir vs. habitual: ${sleepShiftLabel(dto.bedtimeShiftDirection)}.` : '',
+      dto.wakeTimeShiftDirection ? `Horario de acordar vs. habitual: ${sleepShiftLabel(dto.wakeTimeShiftDirection)}.` : '',
       dto.sleepInterruption ? `Sono interrompido durante a noite: ${dto.sleepInterruption}/5 (5=mais interrompido).` : '',
       dto.sleepDifficulty ? `Dificuldade para pegar no sono: ${dto.sleepDifficulty}/5 (5=mais dificuldade).` : '',
-      // Bloco Estado antes do treino. preStressLevel a partir da v2 mede o ultimo dia, nao o
+      // Bloco Estado antes do treino. preStressLevel a partir da v2 mede as ultimas 24h, nao o
       // instante antes de comecar (mesma coluna, janela temporal diferente — ver schema.prisma).
       dto.prePhysicalFatigue ? `Cansaco fisico antes do treino: ${dto.prePhysicalFatigue}/5 (5=muito alto).` : '',
       dto.preMentalFatigue ? `Cansaco mental antes do treino: ${dto.preMentalFatigue}/5 (5=muito alto).` : '',
-      dto.preStressLevel ? `Nivel de estresse${dto.sleepDurationCategory || dto.preMentalFatigue ? ' (ultimo dia)' : ' antes do treino'}: ${dto.preStressLevel}/5 (5=muito alto).` : '',
+      dto.preStressLevel ? `Nivel de estresse${dto.sleepDurationCategory || dto.preMentalFatigue ? ' (ultimas 24h)' : ' antes do treino'}: ${dto.preStressLevel}/5 (5=muito alto).` : '',
+      dto.stressEventFrequency ? `Frequencia de momentos de estresse (ultimas 24h): ${dto.stressEventFrequency}/5 (5=quase continuamente).` : '',
       dto.preMotivation ? `Vontade de fazer o treino antes de comecar: ${dto.preMotivation}/5 (5=muito alta).` : '',
       // Bloco Resposta ao treino
       dto.perceivedEffort ? `Esforco percebido (RPE): ${dto.perceivedEffort}/10.` : '',
@@ -480,6 +497,109 @@ export class WorkoutCompletionsService {
       // Idempotencia ou indisponibilidade de analytics nunca afeta o registro do treino.
     }
   }
+
+  // 01/10/2026 — sono pertence a UMA NOITE (userId+dia do treino), nao a sessao. Upsert por
+  // (userId, nightDate): duas (ou tres) sessoes no mesmo dia convergem pro MESMO registro — nunca
+  // cria um segundo. So mexe nos campos que vieram no payload (demais ficam como estavam), pra uma
+  // sessao que so' confirma dados ja carregados nao apagar nada por engano. Sono nao depende de
+  // status da sessao (done/adjusted/missed) — roda sempre que algum campo de sono vier preenchido.
+  private async resolveNightlySleepLog(
+    userId: string,
+    nightDate: Date,
+    dto: UpsertWorkoutCompletionDto,
+  ): Promise<string | null> {
+    const hasSleepData = [
+      dto.preSleepQuality,
+      dto.sleepDurationCategory,
+      dto.bedtimeShiftDirection,
+      dto.wakeTimeShiftDirection,
+      dto.sleepInterruption,
+      dto.sleepDifficulty,
+    ].some((value) => value !== undefined);
+    if (!hasSleepData) return null;
+
+    const night = await this.prisma.nightlySleepLog.upsert({
+      where: { userId_nightDate: { userId, nightDate } },
+      create: {
+        userId,
+        nightDate,
+        sleepQuality: dto.preSleepQuality,
+        sleepDurationCategory: dto.sleepDurationCategory,
+        sleepDurationHoursEstimate: sleepDurationHoursEstimate(dto.sleepDurationCategory),
+        bedtimeShiftDirection: dto.bedtimeShiftDirection,
+        wakeTimeShiftDirection: dto.wakeTimeShiftDirection,
+        sleepInterruption: dto.sleepInterruption,
+        sleepDifficulty: dto.sleepDifficulty,
+      },
+      update: {
+        ...(dto.preSleepQuality !== undefined ? { sleepQuality: dto.preSleepQuality } : {}),
+        ...(dto.sleepDurationCategory !== undefined
+          ? { sleepDurationCategory: dto.sleepDurationCategory, sleepDurationHoursEstimate: sleepDurationHoursEstimate(dto.sleepDurationCategory) }
+          : {}),
+        ...(dto.bedtimeShiftDirection !== undefined ? { bedtimeShiftDirection: dto.bedtimeShiftDirection } : {}),
+        ...(dto.wakeTimeShiftDirection !== undefined ? { wakeTimeShiftDirection: dto.wakeTimeShiftDirection } : {}),
+        ...(dto.sleepInterruption !== undefined ? { sleepInterruption: dto.sleepInterruption } : {}),
+        ...(dto.sleepDifficulty !== undefined ? { sleepDifficulty: dto.sleepDifficulty } : {}),
+      },
+    });
+    return night.id;
+  }
+
+  // 01/10/2026 — estresse tem timestamp REAL (respondedAt) e janela movel de 24h, nunca uma noite.
+  // Se o completion que esta sendo editado ja apontava pra um StressCheckin, reutiliza o MESMO
+  // (evita que reeditar um feedback antigo acabe atualizando um checkin mais recente de outra
+  // sessao por coincidencia de janela). So' caindo nesse caso cria um novo, procura o mais recente
+  // dentro de 24h; sem nenhum candidato, cria um novo com respondedAt = agora. Atualizar NUNCA
+  // altera respondedAt — preserva a temporalidade real da primeira resposta daquela janela.
+  private async resolveStressCheckin(
+    userId: string,
+    dto: UpsertWorkoutCompletionDto,
+    previousStressCheckinId: string | null,
+  ): Promise<string | null> {
+    const hasStressData = dto.preStressLevel !== undefined || dto.stressEventFrequency !== undefined;
+    if (!hasStressData) return previousStressCheckinId;
+
+    let targetId = previousStressCheckinId;
+    if (!targetId) {
+      const recent = await this.prisma.stressCheckin.findFirst({
+        where: { userId, respondedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+        orderBy: { respondedAt: 'desc' },
+        select: { id: true },
+      });
+      targetId = recent?.id ?? null;
+    }
+
+    if (targetId) {
+      const updated = await this.prisma.stressCheckin.update({
+        where: { id: targetId },
+        data: {
+          ...(dto.preStressLevel !== undefined ? { stressLevel: dto.preStressLevel } : {}),
+          ...(dto.stressEventFrequency !== undefined ? { stressEventFrequency: dto.stressEventFrequency } : {}),
+        },
+      });
+      return updated.id;
+    }
+
+    const created = await this.prisma.stressCheckin.create({
+      data: { userId, stressLevel: dto.preStressLevel, stressEventFrequency: dto.stressEventFrequency },
+    });
+    return created.id;
+  }
+
+  // Autoload (01/10/2026): o mobile consulta isto ANTES de abrir o formulario de uma segunda sessao
+  // do mesmo dia, pra pre-preencher o bloco Sono em vez de perguntar de novo. Nunca cria nada.
+  async getNightlySleepLog(userId: string, nightDate: Date) {
+    return this.prisma.nightlySleepLog.findUnique({ where: { userId_nightDate: { userId, nightDate } } });
+  }
+
+  // Autoload (01/10/2026): mesma ideia para estresse — o mobile mostra a resposta recente (se
+  // existir dentro de 24h) e deixa o aluno manter ou atualizar, em vez de perguntar sem necessidade.
+  async getRecentStressCheckin(userId: string) {
+    return this.prisma.stressCheckin.findFirst({
+      where: { userId, respondedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      orderBy: { respondedAt: 'desc' },
+    });
+  }
 }
 
 export function satisfactionLabel(value: string) {
@@ -549,6 +669,20 @@ export function sleepDurationHoursEstimate(category: string | undefined): number
     mais_9h: 9.5,
   };
   return category ? midpoints[category] : undefined;
+}
+
+// Direcao + magnitude do desvio de horario (dormir/acordar) vs. habitual (01/10/2026).
+export function sleepShiftLabel(value: string) {
+  const labels: Record<string, string> = {
+    much_earlier: 'mais de 1h mais cedo',
+    moderately_earlier: '30-60min mais cedo',
+    slightly_earlier: 'ate 30min mais cedo',
+    on_time: 'proximo do horario habitual',
+    slightly_later: 'ate 30min mais tarde',
+    moderately_later: '30-60min mais tarde',
+    much_later: 'mais de 1h mais tarde',
+  };
+  return labels[value] ?? value;
 }
 
 export function sleepDurationCategoryLabel(value: string) {

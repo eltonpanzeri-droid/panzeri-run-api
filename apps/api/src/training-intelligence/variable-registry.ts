@@ -33,7 +33,16 @@ export type VariableDataType = 'ordinal_scale' | 'categorical' | 'numeric_contin
  */
 export type SemanticDirection = 'higher_is_more_of_construct' | 'not_directional';
 
-export type VariableSource = 'student_feedback_per_workout' | 'student_weekly_checkin' | 'student_menstrual_daily_log' | 'student_menstrual_cycle_log' | 'weekly_training_load';
+export type VariableSource =
+  | 'student_feedback_per_workout'
+  // 01/10/2026 — variavel coletada no formulario de feedback do treino, mas pertence a um registro
+  // COMPARTILHADO entre sessoes (sono = uma noite, NightlySleepLog; estresse = janela movel de 24h,
+  // StressCheckin), nunca a uma sessao especifica. Ver VariableDefinition.relatedTable.
+  | 'student_feedback_shared_record'
+  | 'student_weekly_checkin'
+  | 'student_menstrual_daily_log'
+  | 'student_menstrual_cycle_log'
+  | 'weekly_training_load';
 
 export type MathStrategy = 'ordinal_or_continuous_stats' | 'categorical_frequency';
 
@@ -59,7 +68,9 @@ export interface VariableDefinition {
   scale?: { min: number; max: number; unit?: string };
   direction: SemanticDirection;
   source: VariableSource;
-  expectedFrequency: 'per_workout' | 'per_week' | 'per_day' | 'per_cycle';
+  // 'per_night' (01/10/2026): uma observacao por noite de sono, nao por sessao/treino — distinto de
+  // 'per_day', que aqui descreve estresse (janela movel de 24h, nao uma noite fixa).
+  expectedFrequency: 'per_workout' | 'per_week' | 'per_day' | 'per_night' | 'per_cycle';
   /** Estrategias matematicas permitidas — o MathLayer recusa aplicar uma estrategia fora desta lista. */
   allowedMathStrategy: MathStrategy;
   /**
@@ -83,6 +94,16 @@ export interface VariableDefinition {
    * evolution-metric.service.ts, nao cria uma segunda interpretacao do conceito.
    */
   excludeExtraSessions: boolean;
+  /**
+   * 01/10/2026 — quando a variavel passou a viver num registro COMPARTILHADO entre sessoes
+   * (NightlySleepLog/StressCheckin), aponta pro campo que a alimenta a partir de agora: uma linha
+   * da tabela relacionada = uma observacao, por construcao (nunca duplica entre sessoes do mesmo
+   * dia/janela). `versions` acima continua existindo SO para o historico legado (completions
+   * anteriores a esta migration, sem vinculo com a tabela nova) — ver observation-reader.service.ts,
+   * readWorkoutVariable(). Variaveis sem equivalente legado (ex: as perguntas novas de horario de
+   * dormir/acordar) tem `versions: []`.
+   */
+  relatedTable?: { table: 'nightly_sleep_log' | 'stress_checkin'; field: string };
   notes?: string;
 }
 
@@ -97,17 +118,21 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     constructLabel: 'qualidade do sono',
     scale: { min: 1, max: 5 },
     direction: 'higher_is_more_of_construct',
-    source: 'student_feedback_per_workout',
-    expectedFrequency: 'per_workout',
+    source: 'student_feedback_shared_record',
+    expectedFrequency: 'per_night',
     allowedMathStrategy: 'ordinal_or_continuous_stats',
     missingPolicy: 'never_impute',
+    relatedTable: { table: 'nightly_sleep_log', field: 'sleepQuality' },
     versions: [
       { version: 1, field: 'preSleepQuality', storageLocation: 'column' },
       { version: 2, field: 'preSleepQuality', storageLocation: 'column' },
     ],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
-    notes: 'Pergunta 1 (v2) / bloco 1 (v1) — mesma coluna, mesma semantica, sem mudanca.',
+    notes:
+      'Pergunta 1 (v2) / bloco 1 (v1) — mesma semantica, sem mudanca de escala. A partir de ' +
+      '01/10/2026 pertence a UMA NOITE (NightlySleepLog), nao mais a cada sessao — versions acima ' +
+      'so cobre completions anteriores a essa data (sem nightlySleepLogId vinculado).',
   },
   'workout.sleepDurationHoursEstimate': {
     variableId: 'workout.sleepDurationHoursEstimate',
@@ -116,17 +141,22 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     constructLabel: 'horas de sono estimadas',
     scale: { min: 0, max: 12, unit: 'horas' },
     direction: 'higher_is_more_of_construct',
-    source: 'student_feedback_per_workout',
-    expectedFrequency: 'per_workout',
+    source: 'student_feedback_shared_record',
+    expectedFrequency: 'per_night',
     allowedMathStrategy: 'ordinal_or_continuous_stats',
     missingPolicy: 'never_impute',
+    relatedTable: { table: 'nightly_sleep_log', field: 'sleepDurationHoursEstimate' },
     versions: [{ version: 2, field: 'sleepDurationHoursEstimate', storageLocation: 'column' }],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
     notes:
       'Transcricao numerica direta da categoria escolhida (ponto medio da faixa), sem formula nova ' +
-      '— ver sleepDurationHoursEstimate() em workout-completions.service.ts. So existe a partir da v2.',
+      '— ver sleepDurationHoursEstimate() em workout-completions.service.ts. So existe a partir da v2. ' +
+      'A partir de 01/10/2026 pertence a UMA NOITE (NightlySleepLog), ver nota em workout.preSleepQuality.',
   },
+  // 01/10/2026: sleepScheduleIrregularity (pergunta 3, "irregularidade do horario") foi SUBSTITUIDA
+  // por bedtimeShiftDirection (ver abaixo) — perdia a direcao do desvio. Esta variavel NAO tem
+  // relatedTable: fica congelada lendo so o historico legado (versions), nunca mais ganha dado novo.
   'workout.sleepScheduleIrregularity': {
     variableId: 'workout.sleepScheduleIrregularity',
     domain: 'sleep',
@@ -141,6 +171,40 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versions: [{ version: 2, field: 'sleepScheduleIrregularity', storageLocation: 'column' }],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
+    notes: 'Substituida por workout.bedtimeShiftDirection em 01/10/2026 — historico preservado, sem dado novo a partir desta data.',
+  },
+  // 01/10/2026, NOVA — substitui workout.sleepScheduleIrregularity. Direcao+magnitude, nao escala
+  // de intensidade: categorica por design (ver nota da proibicao de escala artificial no pedido).
+  'workout.bedtimeShiftDirection': {
+    variableId: 'workout.bedtimeShiftDirection',
+    domain: 'sleep',
+    dataType: 'categorical',
+    direction: 'not_directional',
+    source: 'student_feedback_shared_record',
+    expectedFrequency: 'per_night',
+    allowedMathStrategy: 'categorical_frequency',
+    missingPolicy: 'never_impute',
+    relatedTable: { table: 'nightly_sleep_log', field: 'bedtimeShiftDirection' },
+    versions: [],
+    versionComparability: 'not_comparable_across_versions',
+    excludeExtraSessions: false,
+    notes: 'Categorica com 7 niveis (much_earlier..much_later) — nunca forcar numa escala 1-5 artificial.',
+  },
+  // 01/10/2026, NOVA — mesma logica/categorias de bedtimeShiftDirection, para o horario de acordar.
+  'workout.wakeTimeShiftDirection': {
+    variableId: 'workout.wakeTimeShiftDirection',
+    domain: 'sleep',
+    dataType: 'categorical',
+    direction: 'not_directional',
+    source: 'student_feedback_shared_record',
+    expectedFrequency: 'per_night',
+    allowedMathStrategy: 'categorical_frequency',
+    missingPolicy: 'never_impute',
+    relatedTable: { table: 'nightly_sleep_log', field: 'wakeTimeShiftDirection' },
+    versions: [],
+    versionComparability: 'not_comparable_across_versions',
+    excludeExtraSessions: false,
+    notes: 'Categorica com 7 niveis (much_earlier..much_later) — nunca forcar numa escala 1-5 artificial.',
   },
   'workout.sleepInterruption': {
     variableId: 'workout.sleepInterruption',
@@ -149,13 +213,15 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     constructLabel: 'interrupcao do sono durante a noite',
     scale: { min: 1, max: 5 },
     direction: 'higher_is_more_of_construct',
-    source: 'student_feedback_per_workout',
-    expectedFrequency: 'per_workout',
+    source: 'student_feedback_shared_record',
+    expectedFrequency: 'per_night',
     allowedMathStrategy: 'ordinal_or_continuous_stats',
     missingPolicy: 'never_impute',
+    relatedTable: { table: 'nightly_sleep_log', field: 'sleepInterruption' },
     versions: [{ version: 2, field: 'sleepInterruption', storageLocation: 'column' }],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
+    notes: 'A partir de 01/10/2026 pertence a UMA NOITE (NightlySleepLog), ver nota em workout.preSleepQuality.',
   },
   'workout.sleepDifficulty': {
     variableId: 'workout.sleepDifficulty',
@@ -164,13 +230,15 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     constructLabel: 'dificuldade para pegar no sono',
     scale: { min: 1, max: 5 },
     direction: 'higher_is_more_of_construct',
-    source: 'student_feedback_per_workout',
-    expectedFrequency: 'per_workout',
+    source: 'student_feedback_shared_record',
+    expectedFrequency: 'per_night',
     allowedMathStrategy: 'ordinal_or_continuous_stats',
     missingPolicy: 'never_impute',
+    relatedTable: { table: 'nightly_sleep_log', field: 'sleepDifficulty' },
     versions: [{ version: 2, field: 'sleepDifficulty', storageLocation: 'column' }],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
+    notes: 'A partir de 01/10/2026 pertence a UMA NOITE (NightlySleepLog), ver nota em workout.preSleepQuality.',
   },
 
   // ---------------------------------------------------------------------------------------------
@@ -217,10 +285,11 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     constructLabel: 'nivel de estresse',
     scale: { min: 1, max: 5 },
     direction: 'higher_is_more_of_construct',
-    source: 'student_feedback_per_workout',
-    expectedFrequency: 'per_workout',
+    source: 'student_feedback_shared_record',
+    expectedFrequency: 'per_day',
     allowedMathStrategy: 'ordinal_or_continuous_stats',
     missingPolicy: 'never_impute',
+    relatedTable: { table: 'stress_checkin', field: 'stressLevel' },
     versions: [
       { version: 1, field: 'preStressLevel', storageLocation: 'column' },
       { version: 2, field: 'preStressLevel', storageLocation: 'column' },
@@ -228,9 +297,29 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versionComparability: 'not_comparable_across_versions',
     excludeExtraSessions: false,
     notes:
-      'MESMA coluna, janela temporal DIFERENTE: v1 media "no instante antes de comecar", v2 media ' +
-      '"no ultimo dia". Direcao inalterada, mas nao e correto tratar como uma serie continua sem ' +
-      'aviso — ver GLOSSARIO_METRICAS.md.',
+      'MESMA coluna/escala, janela temporal mudou duas vezes: v1 media "no instante antes de ' +
+      'comecar", v2 "no ultimo dia" (ainda por sessao). A partir de 01/10/2026 (StressCheckin) vira ' +
+      '"ultimas 24h" com timestamp REAL da resposta (respondedAt), reaproveitado entre sessoes na ' +
+      'mesma janela — nao e correto tratar como serie continua entre essas janelas sem aviso.',
+  },
+  // 01/10/2026, NOVA — "Nas ultimas 24 horas, com que frequencia voce passou por momentos que
+  // aumentaram claramente seu estresse?" Distinta de preStressLevel (intensidade geral); mede
+  // frequencia de eventos. Sem equivalente legado — versions: [].
+  'workout.stressEventFrequency': {
+    variableId: 'workout.stressEventFrequency',
+    domain: 'psychological_state',
+    dataType: 'ordinal_scale',
+    constructLabel: 'frequencia de momentos de estresse nas ultimas 24h',
+    scale: { min: 1, max: 5 },
+    direction: 'higher_is_more_of_construct',
+    source: 'student_feedback_shared_record',
+    expectedFrequency: 'per_day',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    relatedTable: { table: 'stress_checkin', field: 'stressEventFrequency' },
+    versions: [],
+    versionComparability: 'not_comparable_across_versions',
+    excludeExtraSessions: false,
   },
   'workout.preMotivation': {
     variableId: 'workout.preMotivation',

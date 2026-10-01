@@ -124,6 +124,8 @@ model User {
   menstrualDailyLogs    MenstrualDailyLog[]
   rawExternalActivities RawExternalActivity[]
   activityLogs          ActivityLog[]
+  nightlySleepLogs      NightlySleepLog[]
+  stressCheckins        StressCheckin[]
 
   // 04/09: achado numa revisao pensando em escala — nao existia indice nenhum pros filtros mais
   // usados (painel do treinador, prospectos, crons diarios), todos batem em (role,
@@ -571,12 +573,35 @@ model WorkoutCompletion {
   // -> 6.5), gravada so' pra facilitar calculo futuro — NAO e' uma escala de intensidade, e' so' a
   // transcricao numerica direta da categoria escolhida (sem formula, sem interpretacao).
   sleepDurationHoursEstimate Float?
-  // Pergunta 3 — irregularidade do horario de dormir vs habitual. 5 = mais irregular.
+  // Pergunta 3 (01/10/2026: SUBSTITUIDA por bedtimeShiftDirection em NightlySleepLog — perdia a
+  // direcao do desvio, so' media "o quanto mudou"). Coluna preservada SO para historico; nunca mais
+  // escrita a partir desta data. Sessoes antigas continuam legiveis por aqui.
   sleepScheduleIrregularity  Int?
   // Pergunta 4 — o quanto o sono foi interrompido durante a noite. 5 = mais interrompido.
   sleepInterruption          Int?
   // Pergunta 5 — dificuldade para pegar no sono. 5 = mais dificuldade.
   sleepDifficulty            Int?
+
+  // 01/10/2026: a partir desta data, sono (perguntas 1-5 + as novas de horario de dormir/acordar)
+  // passa a pertencer a UMA NOITE por aluno, nao a uma sessao — reutilizada entre todas as sessoes
+  // daquele dia (ver NightlySleepLog). As colunas preSleepQuality/sleepDurationCategory/
+  // sleepInterruption/sleepDifficulty ACIMA continuam sendo gravadas em todo completion novo (copia
+  // desnormalizada do valor da noite, mantem Admin/Telegram/prontuario funcionando sem alteracao) —
+  // mas a Training Intelligence (ver observation-reader.service.ts) passou a ler sono EXCLUSIVAMENTE
+  // de NightlySleepLog quando nightlySleepLogId estiver preenchido, nunca das colunas acima, pra nao
+  // contar a mesma noite duas vezes quando ha mais de uma sessao no dia. Completions anteriores a
+  // esta data (nightlySleepLogId null) continuam lidos pelas colunas, exatamente como sempre foram —
+  // nao ha reinterpretacao retroativa do historico.
+  nightlySleepLog   NightlySleepLog? @relation(fields: [nightlySleepLogId], references: [id])
+  nightlySleepLogId String?
+
+  // 01/10/2026: estresse (pergunta 8 + a nova de frequencia) passa a ter timestamp real proprio e
+  // pode ser reaproveitado/atualizado dentro de uma janela movel de 24h entre sessoes, em vez de
+  // ser reperguntado sem necessidade — NAO e' "uma noite" (ver StressCheckin), e' uma janela movel
+  // ancorada no instante real da resposta. preStressLevel acima continua gravado por completion
+  // (mesma logica de copia desnormalizada acima); a TI le de StressCheckin quando presente.
+  stressCheckin   StressCheckin? @relation(fields: [stressCheckinId], references: [id])
+  stressCheckinId String?
 
   // Bloco ESTADO ANTES DO TREINO. prePhysicalFatigue (acima) = pergunta 6, mantida sem mudanca.
   // preStressLevel (acima) = pergunta 8: ADAPTADA a partir do feedbackVersion 2 — deixou de medir
@@ -647,6 +672,70 @@ model WorkoutCompletion {
   firstObservationAfterGapEventId String?
 
   @@index([firstObservationAfterGapEventId])
+}
+
+// 01/10/2026 — uma noite de sono por aluno, reutilizada por todas as sessoes/completions daquele
+// dia (ver comentario em WorkoutCompletion.nightlySleepLogId). "nightDate" usa a MESMA convencao de
+// TrainingSession.scheduledDate (meia-noite UTC representando o dia a que o dado se refere, imune a
+// fuso horario) — nao e' um timestamp de quando a resposta foi enviada. Ausencia de dado em
+// qualquer campo e' null, nunca zero/categoria default. Nao existe score de sono aqui, so' as
+// variaveis individuais preservadas (mesmo principio do WorkoutCompletion original).
+model NightlySleepLog {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  nightDate DateTime
+
+  // Pergunta 1 — qualidade percebida do sono. Mantida sem mudanca de escala/direcao (5=excelente).
+  sleepQuality               Int?
+  // Pergunta 2 — categorica, nao e' escala de intensidade. Valores: menos_5h|5_a_6h|6_a_7h|7_a_8h|8_a_9h|mais_9h.
+  sleepDurationCategory      String?
+  // Transcricao numerica direta da categoria (ponto medio da faixa) — mesma funcao
+  // sleepDurationHoursEstimate() de workout-completions.service.ts, sem formula nova.
+  sleepDurationHoursEstimate Float?
+  // Pergunta 3 NOVA (substitui sleepScheduleIrregularity) — direcao + magnitude do horario de
+  // DORMIR em relacao ao habitual. Categorica por design (nunca forcar numa escala 1-5 artificial):
+  // much_earlier | moderately_earlier | slightly_earlier | on_time | slightly_later |
+  // moderately_later | much_later.
+  bedtimeShiftDirection      String?
+  // Pergunta NOVA — mesma logica/categorias acima, para o horario de ACORDAR.
+  wakeTimeShiftDirection     String?
+  // Pergunta 4 — sono interrompido durante a noite. Mantida (5=mais interrompido).
+  sleepInterruption          Int?
+  // Pergunta 5 — dificuldade para pegar no sono. Mantida (5=mais dificuldade).
+  sleepDifficulty            Int?
+
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  completions WorkoutCompletion[]
+
+  @@unique([userId, nightDate])
+}
+
+// 01/10/2026 — estresse das ultimas 24h. Timestamp REAL da resposta (respondedAt), NUNCA um dia de
+// calendario — "ultimas 24h" e' uma janela movel ancorada nesse instante, conceitualmente diferente
+// de NightlySleepLog (que representa uma noite fixa). Uma resposta recente (dentro de 24h) pode ser
+// atualizada no lugar (mesma linha, mesmo respondedAt original) em vez de criar uma observacao nova
+// — ver resolveStressCheckin() em workout-completions.service.ts. Sem score de estresse.
+model StressCheckin {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  respondedAt DateTime @default(now())
+
+  // "Nas ultimas 24 horas, qual foi o seu nivel geral de estresse?" 1=muito baixo, 5=muito alto.
+  stressLevel          Int?
+  // NOVA — "Nas ultimas 24 horas, com que frequencia voce passou por momentos que aumentaram
+  // claramente seu estresse?" 1=nenhuma vez, 5=quase continuamente.
+  stressEventFrequency Int?
+
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  completions WorkoutCompletion[]
+
+  @@index([userId, respondedAt])
 }
 
 // 25/09/2026 (Passo 4) — representacao estruturada de eventos de contexto externos a trajetoria de
