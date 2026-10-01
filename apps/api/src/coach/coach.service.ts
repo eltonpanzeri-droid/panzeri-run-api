@@ -1,4 +1,4 @@
-﻿import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+﻿import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
@@ -63,6 +63,68 @@ export class CoachService {
       where: { role: 'student', accountStatus: { not: 'archived' } },
       select: { id: true, name: true, studentCode: true },
       orderBy: { name: 'asc' },
+    });
+  }
+
+  // Diagnostico Admin-only, somente leitura (01/10/2026) — observabilidade da camada de integracao
+  // de atividade externa (Polar hoje, Strava/Garmin/COROS no futuro). So' expoe o que ja esta
+  // gravado em ActivityLog/RawExternalActivity, sem criar vinculo com TrainingSession, sem
+  // transformar/recalcular nada. Substitui a necessidade de rodar SQL manual em producao pra
+  // investigar uma atividade importada.
+  async listExternalActivities(studentId: string) {
+    const logs = await this.prisma.activityLog.findMany({
+      where: { userId: studentId },
+      orderBy: { startedAt: 'desc' },
+      select: {
+        id: true,
+        provider: true,
+        externalId: true,
+        startedAt: true,
+        utcOffsetMinutes: true,
+        sport: true,
+        durationSec: true,
+        distanceMeters: true,
+        caloriesKcal: true,
+        avgHeartRateBpm: true,
+        maxHeartRateBpm: true,
+        cadenceAvg: true,
+        powerAvgWatts: true,
+        elevationGainMeters: true,
+        hasRoute: true,
+        detailFetchedAt: true,
+        rawActivity: { select: { receivedAt: true, sourceUpdatedAt: true } },
+      },
+    });
+    return logs.map(({ rawActivity, ...log }) => ({
+      ...log,
+      receivedAt: rawActivity.receivedAt,
+      sourceUpdatedAt: rawActivity.sourceUpdatedAt,
+    }));
+  }
+
+  // Par do metodo acima: abre o RawExternalActivity de UMA atividade especifica, pro treinador
+  // inspecionar o payload bruto do provedor. userId checado na query (nao so' no rawActivityId)
+  // pra nunca deixar um studentId abrir a atividade externa de outro aluno.
+  async getExternalActivityRaw(studentId: string, activityLogId: string) {
+    const log = await this.prisma.activityLog.findFirst({
+      where: { id: activityLogId, userId: studentId },
+      select: { rawActivityId: true },
+    });
+    if (!log) {
+      throw new NotFoundException('Atividade externa nao encontrada para este aluno.');
+    }
+    return this.prisma.rawExternalActivity.findUnique({
+      where: { id: log.rawActivityId },
+      select: {
+        id: true,
+        provider: true,
+        externalId: true,
+        payload: true,
+        payloadSchemaVersion: true,
+        ingestionMeta: true,
+        sourceUpdatedAt: true,
+        receivedAt: true,
+      },
     });
   }
 
