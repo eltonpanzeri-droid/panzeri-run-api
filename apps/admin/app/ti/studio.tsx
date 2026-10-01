@@ -2,8 +2,8 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { Activity, ArrowLeft, BarChart3, CalendarDays, Check, Clock3, Layers3, Plus, RefreshCw, Search, X } from 'lucide-react';
-import { LongitudinalChart } from './longitudinal-chart';
-import { API_URL, COLORS, ChartConfig, ContextEvent, CustomPeriod, DEFAULT_LAYERS, DOMAINS, EVENT_TYPES, Layers, MODALITIES, PERIODS, SOURCES, Series, Snapshot, Student, Variable, compatibleAxes, clampWindow, customPeriodRange, dateKey, dateLabel, defaultChartConfig, eventOverlaps, fmt, matchingStudents, observationsAt, seriesKey, seriesName, snapshotIsValid, time, windowFor } from './data';
+import { LongitudinalChart, type Comparison } from './longitudinal-chart';
+import { API_URL, COLORS, ChartConfig, ContextEvent, CustomPeriod, DEFAULT_LAYERS, DOMAINS, EVENT_TYPES, Layers, MODALITIES, PERIODS, SOURCES, Series, Snapshot, Student, Variable, compatibleAxes, selectableOverlayAxes, clampWindow, customPeriodRange, dateKey, dateLabel, defaultChartConfig, eventOverlaps, fmt, matchingStudents, observationsAt, seriesKey, seriesName, snapshotIsValid, time, windowFor } from './data';
 import './studio.css';
 
 type Tab = 'Visão geral' | 'Explorar' | 'Comparar' | 'Timeline' | 'Histórico';
@@ -92,7 +92,9 @@ export default function TrainingIntelligenceStudio({ accessToken, initialStudent
   // They are fetched for chart layers without becoming additional main panels.
   const requestKey = [...new Set(series.flatMap((s) => {
     const companion = s.variableId === VOLUME_COMPLETED ? VOLUME_PRESCRIBED : s.variableId === VOLUME_PRESCRIBED ? VOLUME_COMPLETED : null;
-    return companion && legend.some((v) => v.id === companion) ? [s.key, seriesKey(companion, s.modality)] : [s.key];
+    const primary = legend.find((v) => v.id === s.variableId);
+    const chosen = (chartConfigs[s.key]?.overlayIds ?? []).filter((id) => primary && legend.some((v) => v.id === id && selectableOverlayAxes(primary, v)));
+    return [s.key, ...(companion && legend.some((v) => v.id === companion) ? [seriesKey(companion, s.modality)] : []), ...chosen.map((id) => seriesKey(id, s.modality))];
   }))].join('|');
   React.useEffect(() => {
     if (!token || !studentId) return;
@@ -180,19 +182,34 @@ export default function TrainingIntelligenceStudio({ accessToken, initialStudent
   }
   function chartConfigFor(s: Series) { return chartConfigs[s.key] ?? { ...defaultChartConfig(snapshots[s.key].variable), layers }; }
   function updateChartConfig(key: string, next: ChartConfig) { setChartConfigs((current) => ({ ...current, [key]: next })); }
-  function toggleOverlay() {
-    if (!overlay) {
-      setChartConfigs((current) => {
-        const next = { ...current };
-        for (const s of displayed) {
-          const companion = s.variableId === VOLUME_COMPLETED ? VOLUME_PRESCRIBED : s.variableId === VOLUME_PRESCRIBED ? VOLUME_COMPLETED : null;
-          if (!companion || !displayed.some((other) => other.variableId === companion && other.modality === s.modality)) continue;
-          const config = current[s.key] ?? chartConfigFor(s);
-          next[s.key] = { ...config, layers: { ...config.layers, [companion === VOLUME_PRESCRIBED ? 'prescribed' : 'completed']: true } };
-        }
-        return next;
-      });
+  function overlayCandidatesFor(s: Series) {
+    const primary = snapshots[s.key].variable;
+    const companion = s.variableId === VOLUME_COMPLETED ? VOLUME_PRESCRIBED : s.variableId === VOLUME_PRESCRIBED ? VOLUME_COMPLETED : null;
+    return legend.filter((variable) => variable.id !== primary.id && variable.id !== companion && selectableOverlayAxes(primary, variable));
+  }
+  function comparisonsFor(s: Series): Comparison[] {
+    const primary = snapshots[s.key].variable;
+    const result: Comparison[] = [];
+    const seen = new Set<string>();
+    const add = (key: string, title: string, color: string, layer?: Comparison['layer']) => {
+      const snapshot = snapshots[key];
+      if (!snapshot || seen.has(key)) return;
+      seen.add(key);
+      result.push({ snapshot, title, color, layer });
+    };
+    if (overlay) for (const other of displayed) {
+      if (other.key === s.key || !compatibleAxes(primary, snapshots[other.key].variable)) continue;
+      add(other.key, seriesName(other, legend), COLORS[series.findIndex((item) => item.key === other.key) % COLORS.length]);
     }
+    chartConfigFor(s).overlayIds.forEach((id, index) => {
+      const candidate = legend.find((variable) => variable.id === id);
+      if (candidate && overlayCandidatesFor(s).some((variable) => variable.id === id)) add(seriesKey(id, s.modality), candidate.constructLabel ?? id, COLORS[(series.findIndex((item) => item.key === s.key) + index + 1) % COLORS.length]);
+    });
+    const companion = s.variableId === VOLUME_COMPLETED ? VOLUME_PRESCRIBED : s.variableId === VOLUME_PRESCRIBED ? VOLUME_COMPLETED : null;
+    if (companion) add(seriesKey(companion, s.modality), legend.find((variable) => variable.id === companion)?.constructLabel ?? companion, companion === VOLUME_PRESCRIBED ? '#e68a35' : '#1683ff', companion === VOLUME_PRESCRIBED ? 'prescribed' : 'completed');
+    return result;
+  }
+  function toggleOverlay() {
     setOverlay((value) => !value);
   }
   const currentEvents = cursor ? filteredEvents.filter((e) => eventOverlaps(e, [time(cursor), time(cursor)])) : filteredEvents;
@@ -217,13 +234,10 @@ export default function TrainingIntelligenceStudio({ accessToken, initialStudent
         {tab === 'Visão geral' && <section className="ti-metric-strip">{loaded.slice(0, 4).map((s) => { const snap = snapshots[s.key]; return <button key={s.key} onClick={() => { setTab('Explorar'); document.getElementById('ti-charts')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }}><span>{seriesName(s, legend)}</span><strong>{fmt(snap.current)}<small>{snap.variable.scale?.unit ?? ''}</small></strong><small>{snap.currentWeekContext?.isPartialWeek ? 'Semana em andamento' : snap.evidence.lastObservationAt ? `Último registro · ${dateLabel(snap.evidence.lastObservationAt)}` : 'Ainda sem registro'}{snap.baseline?.value != null ? ` · baseline ${fmt(snap.baseline.value)}` : ''}</small></button>; })}</section>}
         <div className="ti-layout"><div className="ti-content">
           <section className="ti-card ti-chart-stack" id="ti-charts"><div className="ti-section-head"><div><h3>{tab === 'Comparar' ? 'Painéis sincronizados por data' : 'Evolução recente'}</h3><p>{dateLabel(range[0], true)} — {dateLabel(range[1], true)} · escalas originais</p></div></div>
-            <div className="ti-workbench-toolbar"><button className={overlay ? 'on' : ''} aria-pressed={overlay} onClick={toggleOverlay}>Sobrepor compatíveis</button><button className={focusData ? 'on' : ''} aria-pressed={focusData} onClick={() => { setFocusData((v) => !v); setZoom(null); }}>Focar dados</button><button onClick={() => setPicker('indicator')}><Plus size={14}/>Indicador</button><button onClick={() => setPicker('event')}><Plus size={14}/>Evento</button><details><summary>Camadas em todos</summary><div>{LAYER_LABELS.map(([key, label]) => <button key={key} aria-pressed={layers[key]} className={layers[key] ? 'on' : ''} onClick={() => toggleLayer(key)}>{label}</button>)}</div></details></div>
+            <div className="ti-workbench-toolbar"><button className={overlay ? 'on' : ''} aria-pressed={overlay} onClick={toggleOverlay}>Sobrepor todos compatíveis</button><button className={focusData ? 'on' : ''} aria-pressed={focusData} onClick={() => { setFocusData((v) => !v); setZoom(null); }}>Focar dados</button><button onClick={() => setPicker('indicator')}><Plus size={14}/>Indicador</button><button onClick={() => setPicker('event')}><Plus size={14}/>Evento</button><details><summary>Camadas em todos</summary><div>{LAYER_LABELS.map(([key, label]) => <button key={key} aria-pressed={layers[key]} className={layers[key] ? 'on' : ''} onClick={() => toggleLayer(key)}>{label}</button>)}</div></details></div>
             {!series.length && <div className="ti-empty"><BarChart3 size={35}/><h3>Por onde começar a investigação?</h3><p>Adicione sono, volume, RPE ou outro indicador disponível.</p><button className="ti-primary" onClick={() => setPicker('indicator')}><Plus size={16}/> Indicador</button></div>}
             {loading && <p role="status" className="ti-loading">Carregando séries do aluno…</p>}
-            {groups.map((s, i) => snapshots[s.key] ? <React.Fragment key={s.key}><div className="ti-modality-controls">{(snapshots[s.key].availableModalities?.length ?? 0) > 0 && <><label>Modalidade<select aria-label={`Modalidade de ${seriesName(s, legend)}`} value={s.modality} onChange={(e) => changeModality(s.key, e.target.value)}><option value="">Todas (API)</option>{snapshots[s.key].availableModalities!.map((m) => <option key={m} value={m}>{MODALITIES[m] ?? m}</option>)}</select></label><label>Comparar com<select aria-label={`Comparar modalidade de ${seriesName(s, legend)}`} value="" disabled={series.length >= MAX_SERIES} onChange={(e) => { if (e.target.value) changeModality(s.key, e.target.value, true); }}><option value="">+ Modalidade</option>{snapshots[s.key].availableModalities!.filter((m) => m !== s.modality).map((m) => <option key={m} value={m}>{MODALITIES[m] ?? m}</option>)}</select></label></>}</div><ChartBoundary><LongitudinalChart comparisons={[
-              ...(overlay ? displayed.filter((other) => other.key !== s.key && compatibleAxes(snapshots[s.key].variable, snapshots[other.key].variable) && !(other.modality === s.modality && ((s.variableId === VOLUME_COMPLETED && other.variableId === VOLUME_PRESCRIBED) || (s.variableId === VOLUME_PRESCRIBED && other.variableId === VOLUME_COMPLETED)))).map((other) => ({ snapshot: snapshots[other.key], title: seriesName(other, legend), color: COLORS[series.findIndex((v) => v.key === other.key) % COLORS.length] })) : []),
-              ...([s.variableId === VOLUME_COMPLETED ? VOLUME_PRESCRIBED : s.variableId === VOLUME_PRESCRIBED ? VOLUME_COMPLETED : ''].filter(Boolean).map((id) => snapshots[seriesKey(id, s.modality)] ? ({ snapshot: snapshots[seriesKey(id, s.modality)], title: legend.find((v) => v.id === id)?.constructLabel ?? id, color: id === VOLUME_PRESCRIBED ? '#e68a35' : '#1683ff', layer: id === VOLUME_PRESCRIBED ? 'prescribed' as const : 'completed' as const }) : null).filter((value): value is NonNullable<typeof value> => value !== null)),
-            ]} snapshot={snapshots[s.key]} title={seriesName(s, legend)} color={COLORS[series.findIndex((v) => v.key === s.key) % COLORS.length]} layers={chartConfigFor(s).layers} config={chartConfigFor(s)} onConfig={(next) => updateChartConfig(s.key, next)} onReset={() => setChartConfigs((current) => ({ ...current, [s.key]: defaultChartConfig(snapshots[s.key].variable) }))} onRemove={() => setSeries((current) => current.filter((v) => v.key !== s.key))} range={range} cursor={cursor} onCursor={onCursor} events={filteredEvents} onEvent={(event) => { setDrawer(event); setCursor(dateKey(event.startedAt ?? event.reportedAt)); }} compact={i > 0}/></ChartBoundary></React.Fragment> : null)}
+            {groups.map((s, i) => snapshots[s.key] ? <React.Fragment key={s.key}><div className="ti-modality-controls">{(snapshots[s.key].availableModalities?.length ?? 0) > 0 && <><label>Modalidade<select aria-label={`Modalidade de ${seriesName(s, legend)}`} value={s.modality} onChange={(e) => changeModality(s.key, e.target.value)}><option value="">Todas (API)</option>{snapshots[s.key].availableModalities!.map((m) => <option key={m} value={m}>{MODALITIES[m] ?? m}</option>)}</select></label><label>Comparar com<select aria-label={`Comparar modalidade de ${seriesName(s, legend)}`} value="" disabled={series.length >= MAX_SERIES} onChange={(e) => { if (e.target.value) changeModality(s.key, e.target.value, true); }}><option value="">+ Modalidade</option>{snapshots[s.key].availableModalities!.filter((m) => m !== s.modality).map((m) => <option key={m} value={m}>{MODALITIES[m] ?? m}</option>)}</select></label></>}</div><ChartBoundary><LongitudinalChart comparisons={comparisonsFor(s)} overlayCandidates={overlayCandidatesFor(s)} loading={loading} snapshot={snapshots[s.key]} title={seriesName(s, legend)} color={COLORS[series.findIndex((v) => v.key === s.key) % COLORS.length]} layers={chartConfigFor(s).layers} config={chartConfigFor(s)} onConfig={(next) => updateChartConfig(s.key, next)} onReset={() => setChartConfigs((current) => ({ ...current, [s.key]: defaultChartConfig(snapshots[s.key].variable) }))} onRemove={() => setSeries((current) => current.filter((v) => v.key !== s.key))} range={range} cursor={cursor} onCursor={onCursor} events={filteredEvents} onEvent={(event) => { setDrawer(event); setCursor(dateKey(event.startedAt ?? event.reportedAt)); }} compact={i > 0}/></ChartBoundary></React.Fragment> : null)}
             {loaded.length > 0 && <div className="ti-zoom"><div><span>Janela compartilhada</span><button onClick={() => setZoom(null)} disabled={!zoom}>Restaurar período</button></div><label>Início<input aria-label="Início da janela" type="range" min={fullRange[0]} max={fullRange[1]} step={86400000} value={range[0]} onChange={(e) => setZoom([Math.min(Number(e.target.value), range[1] - 86400000), range[1]])}/></label><label>Fim<input aria-label="Fim da janela" type="range" min={fullRange[0]} max={fullRange[1]} step={86400000} value={range[1]} onChange={(e) => setZoom([range[0], Math.max(Number(e.target.value), range[0] + 86400000)])}/></label></div>}
           </section>
           <section className="ti-card ti-timeline"><div className="ti-section-head"><div><h3>{tab === 'Histórico' ? 'Contexto longitudinal disponível' : 'Acontecimentos no período'}</h3><p>Relatos e registros, com origem e datas preservadas.</p></div><button className="ti-outline" onClick={() => setPicker('event')}><Plus size={14}/>Evento</button></div>{eventLoading ? <p role="status" className="ti-loading">Carregando eventos…</p> : eventError ? <p role="alert" className="ti-error">{eventError}</p> : filteredEvents.length ? <div className={tab === 'Timeline' || tab === 'Histórico' ? 'ti-events-list' : 'ti-events-ribbon'}>{filteredEvents.map((event) => <button key={event.id} className="ti-timeline-item" onClick={() => { setDrawer(event); setCursor(dateKey(event.startedAt ?? event.reportedAt)); }}><span className="ti-event-dot"/><time>{dateLabel(event.startedAt ?? event.reportedAt, true)}</time><b>{EVENT_TYPES[event.type] ?? event.type}</b><small>{SOURCES[event.source] ?? event.source}</small>{event.originalText && <p>{event.originalText}</p>}</button>)}</div> : <p className="ti-empty-small">Nenhum evento contextual neste recorte. Use + Evento para revisar os filtros.</p>}</section>
