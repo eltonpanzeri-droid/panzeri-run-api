@@ -38,11 +38,12 @@ assert.equal(data.customPeriodRange({ mode: 'weeks', count: 8 }, Date.UTC(2026, 
 assert.deepEqual(data.clampWindow([10, 20], [1, 5]), [10, 20], 'Removing a series must not invert the visible date range');
 assert.deepEqual(data.clampWindow([10, 20], [15, 25]), [15, 20]);
 const people = [{ id: 'fixture-empty', name: 'Aluno sem dados · TESTE', studentCode: 26 }, { id: 'fixture-athlete', name: 'Atleta de teste · DADOS SINTÉTICOS', studentCode: 3 }];
-assert.equal(data.matchingStudents(people, people[0].id, 'atleta').length, 2, 'Search must keep the actual selection in the native select');
+assert.deepEqual(data.matchingStudents(people, 'atleta').map((person) => person.id), ['fixture-athlete'], 'Search shows only matching students');
 const today = data.time(new Date().toISOString());
 const date = (offset) => new Date(today - offset * 86400000).toISOString();
 const definitions = [
   { id: 'training.volumeCompletedTotalKm', domain: 'training_load', constructLabel: 'Volume realizado', dataType: 'numeric_continuous', scale: { min: 0, max: 100, unit: 'km' } },
+  { id: 'training.volumeCompletedPrescribedOnlyKm', domain: 'training_load', constructLabel: 'Volume realizado (só sessões prescritas)', dataType: 'numeric_continuous', scale: { min: 0, max: 100, unit: 'km' } },
   { id: 'training.volumePrescribedKm', domain: 'training_load', constructLabel: 'Volume prescrito', dataType: 'numeric_continuous', scale: { min: 0, max: 100, unit: 'km' } },
   { id: 'training.adherencePercent', domain: 'training_load', constructLabel: 'Aderência semanal', dataType: 'numeric_continuous', scale: { min: 0, max: 100, unit: '%' } },
   { id: 'training.acwr', domain: 'training_load', constructLabel: 'ACWR', dataType: 'numeric_continuous', scale: { min: 0, max: 3 } },
@@ -118,12 +119,12 @@ let browser;
   await page.addInitScript(() => localStorage.setItem('panzeri_admin_token', 'OFFLINE-FIXTURE-NOT-A-REAL-TOKEN'));
   const base = 'http://127.0.0.1:3187/ti';
   for (let i = 0; i < 60; i++) { try { if ((await fetch(base)).ok) break; } catch {} await new Promise((resolve) => setTimeout(resolve, 500)); }
-  await page.goto(base);
-  await page.getByRole('heading', { name: people[0].name, exact: true }).waitFor();
+  await page.goto(base, { waitUntil: 'load', timeout: 90000 });
+  await page.getByRole('heading', { name: people[0].name, exact: true }).waitFor({ timeout: 60000 });
   await page.getByLabel('Buscar aluno', { exact: true }).fill('atleta');
-  assert.equal(await page.getByLabel('Aluno', { exact: true }).inputValue(), 'fixture-empty');
-  await page.getByLabel('Aluno', { exact: true }).selectOption('fixture-athlete');
   await page.getByRole('heading', { name: people[1].name, exact: true }).waitFor();
+  assert.equal(await page.getByLabel('Aluno', { exact: true }).inputValue(), 'fixture-athlete');
+  assert.equal(await page.getByLabel('Aluno', { exact: true }).locator('option').count(), 1);
   await page.locator('[data-variable="workout.preSleepQuality"] [data-observation]').first().waitFor();
   assert.equal(await page.locator('[data-variable="workout.preSleepQuality"] [data-observation]').count(), 25);
   assert((await page.locator('[data-variable="workout.preSleepQuality"]').innerText()).includes('1,5'));
@@ -273,6 +274,25 @@ let browser;
     await page.screenshot({ path: path.join(artifacts, `width-${width}.png`), fullPage: true });
   }
   console.log('PASS five themes, local persistence, system preference and desktop/mobile widths');
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole('button', { name: 'Remover Volume realizado', exact: true }).click();
+  for (const [query, name] of [
+    ['só sessões prescritas', 'Volume realizado (só sessões prescritas)'],
+    ['Volume realizado', 'Volume realizado'],
+    ['Volume prescrito', 'Volume prescrito'],
+  ]) {
+    await page.getByRole('button', { name: 'Indicador', exact: true }).first().click();
+    await page.getByLabel('Buscar indicador', { exact: true }).fill(query);
+    await page.locator('.ti-picker-list button').filter({ has: page.locator('b').getByText(name, { exact: true }) }).click();
+    await page.getByRole('button', { name: 'Investigar', exact: true }).click();
+  }
+  await page.locator('[data-variable="training.volumeCompletedPrescribedOnlyKm"] [data-observation]').first().waitFor();
+  await page.getByRole('button', { name: 'Sobrepor compatíveis', exact: true }).click();
+  const prescribedOnlyPanel = page.locator('[data-variable="training.volumeCompletedPrescribedOnlyKm"]');
+  await prescribedOnlyPanel.locator('[data-comparison="training.volumeCompletedTotalKm"]').waitFor();
+  await prescribedOnlyPanel.locator('[data-comparison="training.volumePrescribedKm"]').waitFor();
+  assert((await prescribedOnlyPanel.locator('.ti-chart-legend').innerText()).includes('Volume prescrito'));
+  console.log('PASS all compatible volume indicators overlay when the first panel is prescribed-session volume');
   eventFails = true;
   await page.getByRole('button', { name: 'Atualizar dados', exact: true }).click();
   await page.getByText('Eventos indisponíveis (503).', { exact: true }).first().waitFor();

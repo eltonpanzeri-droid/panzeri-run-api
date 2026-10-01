@@ -31,7 +31,7 @@ export function LongitudinalChart({ snapshot, color, layers, config, onConfig, o
   const visible = snapshot.observations.filter((o) => inWindow(o.timestamp, range));
   const numeric = visible.filter((o): o is typeof o & { value: number } => typeof o.value === 'number');
   const derived = WINDOWS.filter((w) => layers[w.toggle]).flatMap((w) => (snapshot.movingAverageSeries?.[w.key] ?? []).filter((p) => inWindow(p.timestamp, range) && p.value != null).map((p) => p.value!));
-  const activeComparisons = comparisons.filter((c) => c.layer ? layers[c.layer] : layers.raw);
+  const activeComparisons = comparisons.filter((c) => c.layer ? layers[c.layer] : true);
   const extra = activeComparisons.flatMap((c) => c.snapshot.observations.filter((o) => inWindow(o.timestamp, range) && typeof o.value === 'number').map((o) => ({ ...o, value: o.value as number, color: c.color, title: c.title })));
   const values = [...(layers.raw ? numeric.map((o) => o.value) : []), ...derived, ...extra.map((o) => o.value)];
   if (layers.baseline && snapshot.baseline?.value != null) values.push(snapshot.baseline.value);

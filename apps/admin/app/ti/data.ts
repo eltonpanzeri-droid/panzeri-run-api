@@ -42,8 +42,9 @@ export function seriesKey(id: string, modality = '') { return `${id}::${modality
 export function seriesName(series: Series, legend: Variable[]) {
   return `${legend.find((v) => v.id === series.variableId)?.constructLabel ?? series.variableId}${series.modality ? ` · ${MODALITIES[series.modality] ?? series.modality}` : ''}`;
 }
-export function matchingStudents(students: Student[], selected: string, query: string) {
-  return students.filter((s) => s.id === selected || s.name.toLocaleLowerCase('pt-BR').includes(query.toLocaleLowerCase('pt-BR')));
+export function matchingStudents(students: Student[], query: string) {
+  const search = query.trim().toLocaleLowerCase('pt-BR');
+  return search ? students.filter((s) => s.name.toLocaleLowerCase('pt-BR').includes(search)) : students;
 }
 export function inWindow(timestamp: string, range: [number, number]) { const at = time(timestamp); return at >= range[0] && at <= range[1]; }
 // Axis layout only: registry bounds describe the instrument, not an appropriate
