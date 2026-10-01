@@ -8023,6 +8023,8 @@ function PolarConnect({ accessToken }: { accessToken: string }) {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function loadStatus() {
     try {
@@ -8066,6 +8068,39 @@ function PolarConnect({ accessToken }: { accessToken: string }) {
     }
   }
 
+  // Interface minima para a primeira sincronizacao real (01/10/2026): so chama o POST
+  // /polar/sync ja implementado e mostra o retorno exato na tela — nao decide nada, nao
+  // interpreta o resultado, so exibe. Mesma autenticacao normal do usuario logado (accessToken),
+  // nenhum JWT manual.
+  async function syncNow() {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const response = await fetch(`${API_URL}/polar/sync`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      let body: unknown = null;
+      try { body = await response.json(); } catch { /* resposta sem corpo JSON */ }
+      if (response.ok) {
+        const data = body as { status?: string; imported?: number; resumedTransaction?: boolean } | null;
+        const imported = data?.imported ?? 0;
+        const detail = data?.status === 'no_new_data' ? ' (nenhum exercicio novo pendente na Polar)' : data?.resumedTransaction ? ' (retomando sincronizacao anterior)' : '';
+        setSyncResult({ ok: true, text: `Sincronizacao concluida: ${imported} exercicio(s) importado(s)${detail}.` });
+      } else {
+        const data = body as { message?: string | string[] } | null;
+        const apiMessage = Array.isArray(data?.message) ? data.message.join(' ') : data?.message;
+        setSyncResult({ ok: false, text: apiMessage || `A sincronizacao falhou (status ${response.status}).` });
+      }
+    } catch {
+      setSyncResult({ ok: false, text: 'Nao consegui conectar com o servidor para sincronizar.' });
+    } finally {
+      setSyncing(false);
+      void loadStatus();
+    }
+  }
+
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Integracao</Text>
@@ -8085,8 +8120,16 @@ function PolarConnect({ accessToken }: { accessToken: string }) {
             <Text style={styles.primaryButtonText}>{connecting ? 'Abrindo autorizacao...' : 'Conectar Polar'}</Text>
             <Ionicons name="link" size={18} color={PRColors.mineral} />
           </Pressable>
-        ) : null}
+        ) : (
+          <Pressable style={[styles.secondaryOutlineButton, syncing && styles.disabledButton]} disabled={syncing} onPress={syncNow}>
+            <Text style={styles.secondaryOutlineButtonText}>{syncing ? 'Sincronizando...' : 'Sincronizar agora'}</Text>
+            <Ionicons name="sync" size={18} color={PRColors.ocean} />
+          </Pressable>
+        )}
         {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
+        {syncResult ? (
+          <Text style={[styles.statusMessage, syncResult.ok ? null : { color: '#b91c1c' }]}>{syncResult.text}</Text>
+        ) : null}
       </View>
     </View>
   );
