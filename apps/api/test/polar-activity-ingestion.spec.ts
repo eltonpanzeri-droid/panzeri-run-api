@@ -145,7 +145,7 @@ describe('PolarActivityIngestionService', () => {
     expect(log).toMatchObject({
       distanceMeters: 5230.5,
       durationSec: 31 * 60 + 15,
-      sport: 'RUNNING',
+      sport: 'corrida', // modalidade canonica (sport=RUNNING normalizado), nunca o enum bruto
       caloriesKcal: 320,
       avgHeartRateBpm: 152,
       maxHeartRateBpm: 178,
@@ -281,7 +281,7 @@ describe('PolarActivityIngestionService', () => {
     expect(log?.maxHeartRateBpm).toBeNull();
   });
 
-  it('campos opcionais ausentes (distancia, duracao, calorias, esporte) ficam null, nunca zero/undefined silencioso', async () => {
+  it('campos opcionais ausentes (distancia, duracao, calorias) ficam null, nunca zero/undefined silencioso; modalidade sem sport reconhecido cai em "outra" (nunca null, nunca o enum bruto)', async () => {
     const { service, activityStore } = fixture(baseConnection({ registeredAt: new Date() }));
     const summary = { id: 'bare-minimum', 'start-time': '2026-09-30T07:00:00Z' };
     const { fn } = queueFetch([
@@ -294,7 +294,7 @@ describe('PolarActivityIngestionService', () => {
     await service.sync('user-a');
     const log = activityStore.get('polar|user-a|bare-minimum');
     expect(log).toMatchObject({
-      distanceMeters: null, durationSec: null, caloriesKcal: null, sport: null,
+      distanceMeters: null, durationSec: null, caloriesKcal: null, sport: 'outra',
       avgHeartRateBpm: null, maxHeartRateBpm: null, hasRoute: null,
     });
   });
@@ -398,8 +398,14 @@ describe('PolarActivityIngestionService', () => {
 
     expect(rawStore.get('polar|user-a|rich-payload')?.payload).toEqual(summary);
     const log = activityStore.get('polar|user-a|rich-payload')!;
+    // Nenhum campo Polar vira coluna canonica solta no ActivityLog (nem trainingLoad, nem
+    // detailedSportInfo) — o que e' estruturavel vai para dentro de providerMetrics, identificavel
+    // pela coluna "provider" da propria linha; "training-load" (nao confundir com
+    // "training-load-pro") nem isso tem, fica so no raw por falta de justificativa semantica clara.
     expect(log).not.toHaveProperty('trainingLoad');
     expect(log).not.toHaveProperty('detailedSportInfo');
+    expect(log.sport).toBe('outra'); // sem "sport" no payload, nao da pra classificar -> fallback honesto
+    expect(log.providerMetrics).toEqual({ device: 'Polar Pacer Pro', detailedSportInfo: 'RUNNING_TRACK' });
   });
 
   it('chave de dedup nao colide entre providers diferentes com o mesmo externalId', async () => {
@@ -417,6 +423,72 @@ describe('PolarActivityIngestionService', () => {
     expect(rawStore.size).toBe(2);
     expect(rawStore.get('polar|user-a|shared-id')?.payload).toEqual({ source: 'polar' });
     expect(rawStore.get('strava|user-a|shared-id')?.payload).toEqual({ source: 'strava' });
+  });
+
+  it('representa corretamente os 3 casos reais de producao (1 corrida + 2 treinos de forca) de ponta a ponta', async () => {
+    const { service, activityStore } = fixture(baseConnection({ registeredAt: new Date() }));
+    const corrida = {
+      id: 'real-corrida',
+      sport: 'RUNNING',
+      duration: 'PT45M0S',
+      distance: 8000,
+      calories: 520,
+      'start-time': '2026-10-01T10:00:00Z',
+      'heart-rate': { average: 148, maximum: 171 },
+      'training-load-pro': { ['muscle-load']: 1086.25, ['muscle-load-interpretation']: 'MEDIUM' },
+    };
+    const forca1 = {
+      id: 'real-forca-1',
+      sport: 'OTHER',
+      ['detailed-sport-info']: 'STRENGTH_TRAINING',
+      duration: 'PT50M0S',
+      'start-time': '2026-10-01T18:00:00Z',
+      ['training-load-pro']: { ['muscle-load']: -1, ['muscle-load-interpretation']: 'NOT_AVAILABLE' },
+      ['perceived-load']: 0,
+      ['perceived-load-interpretation']: 'NOT_AVAILABLE',
+      ['user-rpe']: 'UNKNOWN',
+    };
+    const forca2 = {
+      id: 'real-forca-2',
+      sport: 'OTHER',
+      ['detailed-sport-info']: 'STRENGTH_TRAINING',
+      duration: 'PT40M0S',
+      'start-time': '2026-10-01T19:00:00Z',
+      ['training-load-pro']: { ['muscle-load']: -1, ['muscle-load-interpretation']: 'NOT_AVAILABLE' },
+      ['perceived-load']: 0,
+      ['perceived-load-interpretation']: 'NOT_AVAILABLE',
+      ['user-rpe']: 'UNKNOWN',
+    };
+    const url2 = 'https://www.polaraccesslink.com/v3/users/999/exercise-transactions/txn-real/exercises/real-forca-1';
+    const url3 = 'https://www.polaraccesslink.com/v3/users/999/exercise-transactions/txn-real/exercises/real-forca-2';
+    const { fn } = queueFetch([
+      jsonResponse(201, { 'transaction-id': 'txn-real' }),
+      jsonResponse(200, { exercises: [EXERCISE_URL, url2, url3] }),
+      jsonResponse(200, corrida),
+      jsonResponse(200, forca1),
+      jsonResponse(200, forca2),
+      jsonResponse(200, {}),
+    ]);
+    global.fetch = fn as unknown as typeof fetch;
+
+    const result = await service.sync('user-a');
+    expect(result).toEqual({ status: 'synced', imported: 3, resumedTransaction: false });
+
+    const logCorrida = activityStore.get('polar|user-a|real-corrida')!;
+    expect(logCorrida.sport).toBe('corrida');
+    expect(logCorrida.providerMetrics).toEqual({ muscleLoad: { value: 1086.25, interpretation: 'MEDIUM' } });
+
+    for (const id of ['real-forca-1', 'real-forca-2']) {
+      const log = activityStore.get(`polar|user-a|${id}`)!;
+      expect(log.sport).toBe('forca'); // nunca "OTHER" bruto
+      expect(log.providerMetrics).toEqual({
+        detailedSportInfo: 'STRENGTH_TRAINING',
+        muscleLoad: { value: null, interpretation: 'NOT_AVAILABLE' }, // nunca -1
+        perceivedLoad: { value: null, interpretation: 'NOT_AVAILABLE' }, // nunca 0
+        // userRpe ausente: 'UNKNOWN' nunca vira RPE zero nem qualquer numero
+      });
+      expect(log.providerMetrics).not.toHaveProperty('userRpe');
+    }
   });
 
   it('nao importa nem depende de nada do modulo Strava', () => {

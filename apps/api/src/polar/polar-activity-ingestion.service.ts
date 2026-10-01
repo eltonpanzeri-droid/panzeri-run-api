@@ -6,8 +6,10 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PolarService } from './polar.service';
+import { extractPolarProviderMetrics, normalizePolarModality, PolarNormalizerInput } from './polar-activity-normalizer';
 
 const ACCESSLINK_BASE = 'https://www.polaraccesslink.com';
 
@@ -18,13 +20,13 @@ export interface PolarSyncResult {
 }
 
 // Campos do resumo de exercicio da AccessLink (GET .../exercises/{id}) confirmados por
-// documentacao/fontes cruzadas em 01/10/2026. Chaves com hifen -> acesso via indice, nao dot.
-// Qualquer campo nao listado aqui (training-load, detailed-sport-info, club-id/name, device,
-// percentuais de macronutriente etc.) NAO e descartado: continua preservado inteiro em
-// RawExternalActivity.payload, so nao vira coluna canonica (ver justificativa no schema.prisma).
-interface PolarExerciseSummary {
+// documentacao/fontes cruzadas em 01/10/2026, incluindo os campos de modalidade/metricas
+// proprietarias adicionados na normalizacao Polar -> canonico (ver polar-activity-normalizer.ts).
+// Chaves com hifen -> acesso via indice, nao dot. Qualquer campo nao listado aqui (club-id/name
+// etc.) NAO e descartado: continua preservado inteiro em RawExternalActivity.payload, so nao vira
+// coluna canonica nem providerMetrics (ver justificativa no schema.prisma).
+interface PolarExerciseSummary extends PolarNormalizerInput {
   id?: unknown;
-  sport?: unknown;
   duration?: unknown;
   distance?: unknown;
   calories?: unknown;
@@ -244,11 +246,17 @@ export class PolarActivityIngestionService {
       utcOffsetMinutes: this.asInt(summary['start-time-utc-offset']),
       durationSec: this.parseIsoDurationSeconds(summary.duration),
       distanceMeters: this.asFloat(summary.distance),
-      sport: typeof summary.sport === 'string' ? summary.sport : null,
+      // Modalidade CANONICA do Panzeri Run (nunca o enum bruto da Polar) — ver
+      // polar-activity-normalizer.ts. sport=OTHER + detailed-sport-info=STRENGTH_TRAINING
+      // confirmado em producao como treino de forca; sport sozinho nao e suficiente.
+      sport: normalizePolarModality(summary),
       caloriesKcal: this.asInt(summary.calories),
       avgHeartRateBpm: this.asInt(this.heartRateField(summary, 'average')),
       maxHeartRateBpm: this.asInt(this.heartRateField(summary, 'maximum')),
       hasRoute: typeof summary['has-route'] === 'boolean' ? summary['has-route'] : null,
+      // Metricas proprietarias da Polar, estruturadas mas identificaveis pela coluna "provider"
+      // desta mesma linha — nunca viram variavel canonica (ver schema.prisma e normalizer).
+      providerMetrics: (extractPolarProviderMetrics(summary) ?? Prisma.JsonNull) as Prisma.InputJsonValue,
     };
   }
 

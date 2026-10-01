@@ -1122,14 +1122,36 @@ model RawExternalActivity {
 // para que uma migracao futura (Strava -> RawExternalActivity -> ActivityLog) seja possivel sem
 // mudar o significado dos campos abaixo.
 //
-// Deliberadamente NAO modelado aqui (fica so no raw, ou fica pendente):
+// Tres niveis (normalizacao Polar -> canonico, 01/10/2026 — ver PolarActivityNormalizer):
+//   RAW          = RawExternalActivity.payload (fidelidade total ao provedor, nunca tocado aqui).
+//   CANONICO     = colunas desta tabela: universais o suficiente pra qualquer provedor, SEM
+//                  depender de enum/nomenclatura de um fabricante especifico. "sport" em particular
+//                  e SEMPRE a modalidade canonica do Panzeri Run (mesmo vocabulario de
+//                  TrainingSession.modality: 'corrida' | 'esteira' | 'forca' |
+//                  'fortalecimento_corredores' | 'bike' | 'outra') — NUNCA o enum bruto do
+//                  provedor (ex.: Polar manda sport=RUNNING/OTHER + detailed-sport-info=
+//                  STRENGTH_TRAINING; quem traduz isso pra 'corrida'/'forca' e' o adapter do
+//                  provedor, nao o dominio). Um adapter Garmin/COROS/Apple futuro tera' sua propria
+//                  nomenclatura de origem e devera' convergir pra este MESMO vocabulario.
+//   PROVIDER-SPECIFIC = providerMetrics (Json?): metricas proprietarias ou cuja semantica depende
+//                  do fabricante (Polar: runningIndex, cardioLoad/muscleLoad do Training Load Pro,
+//                  perceivedLoad, userRpe, device, detailedSportInfo, percentuais de
+//                  macronutriente). Ficam estruturadas (nao e' so' um blob opaco) mas a proveniencia
+//                  e' sempre a coluna "provider" desta mesma linha — nunca viram variavel
+//                  universal por acidente (ex.: "Polar Muscle Load" nao e' "carga muscular real do
+//                  treino": e' uma metrica interpretada pelo algoritmo da Polar, documentado assim
+//                  de proposito pra nao ser confundida com uma metrica equivalente de outro
+//                  provedor ou calculada pelo proprio Panzeri Run).
+//   Sentinelas de "indisponivel" do provedor (ex.: Polar manda muscle-load=-1 com
+//   muscle-load-interpretation=NOT_AVAILABLE, ou perceived-load=0 com interpretation=
+//   NOT_AVAILABLE, ou user-rpe=UNKNOWN) NUNCA viram valor numerico zero/negativo aqui nem em
+//   providerMetrics — o adapter resolve pra null (ausencia de observacao), preservando o valor
+//   bruto original apenas em RawExternalActivity.payload.
+//
+// Deliberadamente NAO modelado como coluna canonica (fica so no raw, ou vira providerMetrics):
 // - pace: e sempre derivavel de distanceMeters/durationSec: persistir os tres criaria risco de
 //   divergencia entre valor observado e valor calculado. Calcular sob demanda na leitura.
-// - training-load (Polar): metrica proprietaria JA INTERPRETADA pelo algoritmo da Polar, nao uma
-//   observacao bruta — modela-la aqui misturaria "dado observado" com "conclusao de terceiro",
-//   o que top-fere o principio de nao deixar o canonico depender de interpretacao de provedor.
-// - detailed-sport-info, club-id/name, percentuais de macronutriente, device/device-id: metadados
-//   especificos sem equivalente canonico claro ainda — preservados so no raw.
+// - club-id/name: metadado sem equivalente canonico claro ainda — preservado so no raw.
 // - cadencia/potencia/elevacao real e rota GPS: no resumo da Polar (o unico endpoint chamado nesta
 //   etapa) esses dados NAO vem — dependem de endpoints separados de samples/GPX/TCX/FIT, fora do
 //   escopo desta tarefa. Os campos abaixo existem no schema (para nao exigir migration quando
@@ -1159,6 +1181,7 @@ model ActivityLog {
   elevationGainMeters Float?
   hasRoute            Boolean?
   detailFetchedAt     DateTime?
+  providerMetrics     Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
