@@ -57,6 +57,11 @@ export class WorkoutCompletionsService {
       dto.emotionalExperienceDuring !== undefined ||
       dto.mentalStateChangePrePost !== undefined;
 
+    // 01/10/2026 (2): feedback v3 — executionBehavior substitui executionVsPrescribed (pergunta
+    // comportamental/categorica, nao mais escala ordinal de desvio quantitativo). Mesmo padrao de
+    // deteccao por presenca de campo. Nunca reaproveita a coluna antiga: ver nota em schema.prisma.
+    const isV3Client = dto.executionBehavior !== undefined;
+
     // Feedback v1: bloco 1 obrigatorio para done e adjusted.
     // Compatibilidade retroativa (12/09): clientes antigos (Play Store pre-v1) nao enviam nenhum
     // campo de pre-treino. So' aplicamos a validacao completa quando ao menos um deles veio —
@@ -77,7 +82,12 @@ export class WorkoutCompletionsService {
       if (!dto.preMentalFatigue) {
         throw new BadRequestException('Preencha todas as perguntas do bloco "Estado antes do treino".');
       }
-      if (!dto.executionVsPrescribed || !dto.postPhysicalFatigue || !dto.postMentalFatigue ||
+      // executionBehavior (v3) substitui executionVsPrescribed (v2) — exige um ou outro conforme
+      // o cliente, nunca os dois; nunca aceita os dois faltando.
+      if (isV3Client ? !dto.executionBehavior : !dto.executionVsPrescribed) {
+        throw new BadRequestException('Informe como foi sua execucao em relacao ao prescrito.');
+      }
+      if (!dto.postPhysicalFatigue || !dto.postMentalFatigue ||
           !dto.emotionalExperienceDuring || !dto.mentalStateChangePrePost) {
         throw new BadRequestException('Preencha todas as perguntas do bloco "Resposta ao treino".');
       }
@@ -142,11 +152,12 @@ export class WorkoutCompletionsService {
         stressCheckinId,
         preMentalFatigue: dto.preMentalFatigue,
         executionVsPrescribed: dto.executionVsPrescribed,
+        executionBehavior: dto.executionBehavior,
         postPhysicalFatigue: dto.postPhysicalFatigue,
         postMentalFatigue: dto.postMentalFatigue,
         emotionalExperienceDuring: dto.emotionalExperienceDuring,
         mentalStateChangePrePost: dto.mentalStateChangePrePost,
-        feedbackVersion: isV2Client ? 2 : 1,
+        feedbackVersion: isV3Client ? 3 : isV2Client ? 2 : 1,
         notes: dto.notes,
         details,
         source: 'manual',
@@ -182,13 +193,15 @@ export class WorkoutCompletionsService {
         stressCheckinId,
         preMentalFatigue: dto.preMentalFatigue,
         executionVsPrescribed: dto.executionVsPrescribed,
+        executionBehavior: dto.executionBehavior,
         postPhysicalFatigue: dto.postPhysicalFatigue,
         postMentalFatigue: dto.postMentalFatigue,
         emotionalExperienceDuring: dto.emotionalExperienceDuring,
         mentalStateChangePrePost: dto.mentalStateChangePrePost,
-        // Se o reenvio (edicao de feedback ja enviado) agora trouxer campos v2, promove a versao —
-        // nunca rebaixa uma sessao que ja era v2 de volta pra 1 so' porque o campo veio undefined.
-        ...(isV2Client ? { feedbackVersion: 2 } : {}),
+        // Se o reenvio (edicao de feedback ja enviado) agora trouxer campos v2/v3, promove a
+        // versao — nunca rebaixa uma sessao que ja era v2/v3 de volta so' porque o campo veio
+        // undefined (ex.: reenvio parcial de um campo isolado).
+        ...(isV3Client ? { feedbackVersion: 3 } : isV2Client ? { feedbackVersion: 2 } : {}),
         notes: dto.notes,
         details,
         source: 'manual',
@@ -258,7 +271,8 @@ export class WorkoutCompletionsService {
       const posLines: string[] = [];
       if (dto.perceivedEffort) posLines.push(`💪 RPE: ${dto.perceivedEffort}/10`);
       if (dto.satisfactionElaboracao) posLines.push(`📋 Elaboracao do treino: ${satisfactionLabel(dto.satisfactionElaboracao)}`);
-      if (dto.executionVsPrescribed) posLines.push(`🎯 Execucao vs. prescrito: ${executionVsPrescribedLabel(dto.executionVsPrescribed)}`);
+      if (dto.executionBehavior) posLines.push(`🎯 Execucao em relacao ao prescrito: ${executionBehaviorLabel(dto.executionBehavior)}`);
+      else if (dto.executionVsPrescribed) posLines.push(`🎯 Execucao vs. prescrito: ${executionVsPrescribedLabel(dto.executionVsPrescribed)}`);
       else if (dto.satisfactionCapacidade) posLines.push(`🏃 Como se saiu na execucao: ${satisfactionLabel(dto.satisfactionCapacidade)}`);
       if (dto.postPhysicalFatigue) posLines.push(`🦵 Cansaco fisico provocado: ${dto.postPhysicalFatigue}/5`);
       else if (dto.postWorkoutFeeling) posLines.push(`😊 Corpo ao terminar: ${dto.postWorkoutFeeling}/5`);
@@ -352,7 +366,8 @@ export class WorkoutCompletionsService {
       // Bloco Resposta ao treino
       dto.perceivedEffort ? `Esforco percebido (RPE): ${dto.perceivedEffort}/10.` : '',
       dto.satisfactionElaboracao ? `Avaliacao da elaboracao do treino: ${satisfactionLabel(dto.satisfactionElaboracao)}.` : '',
-      dto.executionVsPrescribed ? `Execucao em relacao ao prescrito: ${executionVsPrescribedLabel(dto.executionVsPrescribed)} (3=fez exatamente como prescrito, nao e' escala de qualidade).` : '',
+      dto.executionBehavior ? `Execucao em relacao ao prescrito (categoria comportamental, nao escala): ${executionBehaviorLabel(dto.executionBehavior)}.` : '',
+      !dto.executionBehavior && dto.executionVsPrescribed ? `Execucao em relacao ao prescrito: ${executionVsPrescribedLabel(dto.executionVsPrescribed)} (3=fez exatamente como prescrito, nao e' escala de qualidade).` : '',
       dto.satisfactionCapacidade && !dto.executionVsPrescribed ? `Satisfacao com como conseguiu executar: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
       dto.postPhysicalFatigue ? `Cansaco fisico provocado por este treino: ${dto.postPhysicalFatigue}/5 (5=extremamente cansado).` : '',
       dto.postMentalFatigue ? `Cansaco mental provocado por este treino: ${dto.postMentalFatigue}/5 (5=extremamente cansado).` : '',
@@ -393,7 +408,9 @@ export class WorkoutCompletionsService {
         dto.preMotivation ? `Vontade de treinar: ${dto.preMotivation}/5.` : '',
         dto.perceivedEffort ? `RPE: ${dto.perceivedEffort}/10.` : '',
         dto.satisfactionElaboracao ? `Elaboracao: ${satisfactionLabel(dto.satisfactionElaboracao)}.` : '',
-        dto.executionVsPrescribed ? `Execucao vs. prescrito: ${executionVsPrescribedLabel(dto.executionVsPrescribed)}.` : dto.satisfactionCapacidade ? `Execucao: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
+        dto.executionBehavior ? `Execucao vs. prescrito: ${executionBehaviorLabel(dto.executionBehavior)}.` :
+          dto.executionVsPrescribed ? `Execucao vs. prescrito: ${executionVsPrescribedLabel(dto.executionVsPrescribed)}.` :
+          dto.satisfactionCapacidade ? `Execucao: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
         dto.postPhysicalFatigue ? `Cansaco fisico provocado: ${dto.postPhysicalFatigue}/5.` : dto.postWorkoutFeeling ? `Sensacao final: ${dto.postWorkoutFeeling}/5.` : '',
         dto.painFlag && dto.painFlag !== 'none' ? `Dor: ${painFlagLabel(dto.painFlag)}${dto.painTiming ? ` (${painTimingLabel(dto.painTiming)})` : ''}.` : '',
         missedReasons.length ? `Motivo(s) da falta: ${missedReasons.map(missedReasonLabel).join(', ')}.` : '',
@@ -699,6 +716,7 @@ export function sleepDurationCategoryLabel(value: string) {
 
 // executionVsPrescribed: 3 e' o ponto de referencia (fez como prescrito) — a escala representa
 // DIRECAO do desvio, nao uma intensidade positiva/negativa. Nunca interpretar 5 como "melhor".
+// CONGELADA (01/10/2026) — so' para completions antigos (feedbackVersion 2, sem executionBehavior).
 export function executionVsPrescribedLabel(value: number) {
   const labels: Record<number, string> = {
     1: 'Fez bem menos que o prescrito',
@@ -708,6 +726,20 @@ export function executionVsPrescribedLabel(value: number) {
     5: 'Fez bem mais que o prescrito',
   };
   return labels[value] ?? String(value);
+}
+
+// 01/10/2026 — substitui executionVsPrescribedLabel a partir do feedbackVersion 3. Categorias
+// comportamentais SEM ordem/intensidade entre si — a ordem abaixo e so' a ordem de exibicao no
+// formulario, nunca "1=pior, 5=melhor" nem qualquer outra leitura ordinal.
+export function executionBehaviorLabel(value: string) {
+  const labels: Record<string, string> = {
+    as_planned: 'Seguiu o treino como estava planejado',
+    minor_adaptations: 'Fez algumas adaptacoes durante o treino',
+    major_changes: 'Mudou bastante o treino durante a execucao',
+    different_workout: 'Decidiu fazer um treino diferente',
+    stopped_early: 'Interrompeu o treino antes de terminar',
+  };
+  return labels[value] ?? value;
 }
 
 export function painTimingLabel(value: string) {

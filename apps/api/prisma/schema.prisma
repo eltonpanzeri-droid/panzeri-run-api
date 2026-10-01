@@ -617,13 +617,21 @@ model WorkoutCompletion {
   // e mesma escala amei..detestei ja convertida 1-5 via SATISFACTION_SCORE) — so' o rotulo exibido
   // ao aluno muda pra "Pessima..Excelente".
   //
-  // Pergunta 12, SUBSTITUI satisfactionCapacidade pra sessoes feedbackVersion>=2 — a antiga media
-  // "quao satisfeito com a execucao" (bom/ruim), a nova mede DIRECAO DO DESVIO em relacao ao
-  // prescrito, escala com significado proprio: 1=fiz bem menos, 2=um pouco menos, 3=como prescrito
-  // (ponto de referencia, NAO "neutro"), 4=um pouco mais, 5=bem mais. Nao interpretar 5 como
-  // "melhor execucao" — e' so' "mais que o prescrito". satisfactionCapacidade continua existindo e
-  // sendo lida em sessoes feedbackVersion 1 (historico), nao e' mais coletada a partir da v2.
+  // Pergunta 12 (feedbackVersion 2), SUBSTITUIDA em 01/10/2026 por executionBehavior abaixo —
+  // CONGELADA, preservada so para historico, nunca mais escrita. Media/baseline/tendencia sobre
+  // este campo continuam validas SO para registros desta epoca (ver versionComparability em
+  // variable-registry.ts) — era mesmo uma escala ordinal quantitativa (1=fiz bem menos..5=bem
+  // mais), diferente da nova pergunta (comportamental/categorica, ver executionBehavior).
   executionVsPrescribed Int?
+
+  // Pergunta 12 (feedbackVersion 3, 01/10/2026) — SUBSTITUI executionVsPrescribed. Mede o
+  // COMPORTAMENTO do aluno diante da prescricao (nao distancia/duracao/intensidade/ritmo/volume —
+  // isso fica a cargo do dado objetivo de execucao, incl. integracoes de relogio). Categorica, NAO
+  // ordinal — nunca calcular media/baseline/tendencia nem interpretar uma categoria como "mais"
+  // que outra. Valores: as_planned | minor_adaptations | major_changes | different_workout |
+  // stopped_early. "Nao fiz o treino" nao e uma destas categorias — tem fluxo proprio (status
+  // 'missed'); esta pergunta so se aplica quando houve inicio/execucao real do treino.
+  executionBehavior String?
 
   // Pergunta 13, SUBSTITUI postWorkoutFeeling pra sessoes feedbackVersion>=2 — NAO reaproveita a
   // coluna antiga porque a direcao da escala e' OPOSTA: postWorkoutFeeling era 1=muito mal,

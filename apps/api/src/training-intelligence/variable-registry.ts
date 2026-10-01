@@ -401,7 +401,34 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     notes:
       'Substitui satisfactionCapacidade a partir da v2, mas NAO e comparavel a ela (escala com ' +
       'significado diferente — ver schema.prisma). Excluida em sessoes extra: nao ha "prescrito" ' +
-      'de referencia numa sessao que o proprio aluno criou.',
+      'de referencia numa sessao que o proprio aluno criou. CONGELADA em 01/10/2026: substituida ' +
+      'por workout.executionBehavior (categorica/comportamental, nao ordinal) — esta variavel so ' +
+      'ganha novas observacoes de completions antigos (feedbackVersion 2 sem executionBehavior); ' +
+      'as duas NUNCA devem ser combinadas na mesma serie/media/baseline, sao semanticas diferentes.',
+  },
+  // 01/10/2026 — substitui workout.executionVsPrescribed. Mede o COMPORTAMENTO do aluno diante da
+  // prescricao (seguiu / adaptou / mudou muito / trocou de treino / interrompeu), nunca
+  // distancia/duracao/intensidade/ritmo/volume (isso fica com o dado objetivo de execucao,
+  // incluindo integracoes de relogio). Categorica por design: as 5 alternativas NAO tem ordem nem
+  // intensidade entre si — nunca calcular media/baseline/tendencia nem interpretar uma categoria
+  // como "mais" ou "melhor" que outra. "Nao fiz o treino" nao e uma destas categorias (tem fluxo
+  // proprio, status 'missed') — so se aplica quando houve inicio/execucao real.
+  'workout.executionBehavior': {
+    variableId: 'workout.executionBehavior',
+    domain: 'training_response',
+    dataType: 'categorical',
+    direction: 'not_directional',
+    source: 'student_feedback_per_workout',
+    expectedFrequency: 'per_workout',
+    allowedMathStrategy: 'categorical_frequency',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 3, field: 'executionBehavior', storageLocation: 'column' }],
+    versionComparability: 'not_comparable_across_versions',
+    excludeExtraSessions: true,
+    notes:
+      'Substitui workout.executionVsPrescribed (01/10/2026) — serie SEPARADA e NAO comparavel ' +
+      '(semantica quantitativa antiga vs. categorica/comportamental nova). Historico antigo ' +
+      'preservado intacto em workout.executionVsPrescribed, nunca migrado nem reinterpretado.',
   },
   'workout.postPhysicalFatigue': {
     variableId: 'workout.postPhysicalFatigue',

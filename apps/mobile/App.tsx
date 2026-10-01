@@ -218,6 +218,7 @@ interface WeekPlanSession {
     sleepDifficulty?: number | null;
     preMentalFatigue?: number | null;
     executionVsPrescribed?: number | null;
+    executionBehavior?: string | null;
     postPhysicalFatigue?: number | null;
     postMentalFatigue?: number | null;
     emotionalExperienceDuring?: number | null;
@@ -420,10 +421,14 @@ interface CompletionDraft {
   // 01/10/2026, NOVA — pertence a janela movel de 24h (nao a sessao) — ver autoload via
   // GET /workout-completions/stress-recent.
   stressEventFrequency: string;
-  // Bloco RESPOSTA AO TREINO (perguntas 12-16). satisfactionCapacidade/postWorkoutFeeling/
+  // Bloco RESPOSTA AO TREINO (perguntas 12-17). satisfactionCapacidade/postWorkoutFeeling/
   // postWorkoutMood (acima) deixam de ser coletados a partir da v2, mas continuam no tipo pra
   // exibir corretamente feedback antigo (feedbackVersion 1) quando reaberto.
+  // executionVsPrescribed: CONGELADA (01/10/2026) — so' pra exibir feedback antigo (feedbackVersion
+  // 2) ao reabrir; nunca mais enviada por este formulario. Substituida por executionBehavior.
   executionVsPrescribed: string; // 3 = fez como prescrito (referencia, nao "neutro")
+  // 01/10/2026 — substitui executionVsPrescribed. Categorica/comportamental, NAO escala ordinal.
+  executionBehavior: string;
   postPhysicalFatigue: string;
   postMentalFatigue: string;
   emotionalExperienceDuring: string;
@@ -3522,6 +3527,41 @@ function LabeledScale({ value, onChange: onChangeFn, options, locked }: { value:
   );
 }
 
+// 01/10/2026 — mesmo padrao visual de LabeledScale (largura, altura, borda, espacamento,
+// tipografia, estado selecionado), mas para alternativas CATEGORICAS sem ordem/intensidade entre
+// si (nao e' escala 1-5): usado nas perguntas de horario de dormir/acordar e na pergunta de
+// execucao comportamental. Deliberadamente SEM o numero de posicao que LabeledScale mostra — aqui
+// o numero sugeriria "mais/menos", o que seria falso pra estas variaveis.
+function OptionRows({ value, onChange: onChangeFn, options, locked }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; locked?: boolean }) {
+  return (
+    <View style={{ marginBottom: 12 }}>
+      {options.map((opt) => {
+        const isActive = value === opt.value;
+        return (
+          <Pressable
+            key={opt.value}
+            disabled={locked}
+            onPress={() => onChangeFn(opt.value)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingVertical: 9,
+              paddingHorizontal: 12,
+              borderRadius: 8,
+              borderWidth: 1.5,
+              marginBottom: 6,
+              borderColor: isActive ? PRColors.ocean : locked ? '#D9DCE1' : '#E2DDD5',
+              backgroundColor: isActive ? PRColors.ocean : locked ? '#F2F0EC' : '#FFFFFF',
+            }}
+          >
+            <Text style={{ flex: 1, color: isActive ? '#FFFFFF' : locked ? '#9CA3AF' : PRColors.graphite }}>{opt.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 // Rotulos das perguntas de escala v2 (24/09/2026). REGRA CANONICA: 5 = maior intensidade/quantidade
 // da variavel perguntada — nunca inverter pra "5 = sempre bom" (ver GLOSSARIO_METRICAS.md).
 const SLEEP_QUALITY_OPTIONS = ['Muito ruim', 'Ruim', 'Razoável', 'Boa', 'Excelente'];
@@ -3555,12 +3595,23 @@ const SLEEP_DIFFICULTY_OPTIONS = ['Nenhuma dificuldade', 'Pouca dificuldade', 'D
 const INTENSITY_LOW_HIGH_OPTIONS = ['Muito baixo', 'Baixo', 'Moderado', 'Alto', 'Muito alto'];
 const MOTIVATION_INTENSITY_OPTIONS = ['Muito baixa', 'Baixa', 'Moderada', 'Alta', 'Muito alta'];
 const ELABORATION_OPTIONS = ['Péssima', 'Ruim', 'Razoável', 'Boa', 'Excelente'];
+// Mantida so para o formulario de treino extra (endpoint/DTO proprio, nao alterado nesta tarefa).
 const EXECUTION_VS_PRESCRIBED_OPTIONS = [
   'Fiz bem menos que o prescrito',
   'Fiz um pouco menos que o prescrito',
   'Fiz como prescrito',
   'Fiz um pouco mais que o prescrito',
   'Fiz bem mais que o prescrito',
+];
+// 01/10/2026 — substitui EXECUTION_VS_PRESCRIBED_OPTIONS no feedback normal. Categorias
+// COMPORTAMENTAIS, sem ordem/intensidade entre si — nao e' escala 1-5 (ver OptionRows, usado
+// abaixo em vez de LabeledScale, e executionBehavior em upsert-workout-completion.dto.ts).
+const EXECUTION_BEHAVIOR_OPTIONS: { value: string; label: string }[] = [
+  { value: 'as_planned', label: 'Segui o treino como estava planejado' },
+  { value: 'minor_adaptations', label: 'Fiz algumas adaptações durante o treino' },
+  { value: 'major_changes', label: 'Mudei bastante o treino durante a execução' },
+  { value: 'different_workout', label: 'Decidi fazer um treino diferente' },
+  { value: 'stopped_early', label: 'Interrompi o treino antes de terminar' },
 ];
 const FATIGUE_AMOUNT_OPTIONS = ['Muito pouco', 'Pouco', 'Moderadamente', 'Muito', 'Extremamente'];
 const EMOTIONAL_EXPERIENCE_OPTIONS = ['Muito mal', 'Mal', 'Neutro', 'Bem', 'Muito bem'];
@@ -4644,7 +4695,9 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       // Bloco Resposta ao treino
       perceivedEffort: Number(draft.perceivedEffort) || undefined,
       satisfactionElaboracao: draft.satisfactionElaboracao || undefined,
-      executionVsPrescribed: Number(draft.executionVsPrescribed) || undefined,
+      // executionVsPrescribed nao e mais enviada por este formulario (substituida por
+      // executionBehavior, 01/10/2026) — mantida no tipo so' pra exibir feedback antigo reaberto.
+      executionBehavior: draft.executionBehavior || undefined,
       postPhysicalFatigue: Number(draft.postPhysicalFatigue) || undefined,
       postMentalFatigue: Number(draft.postMentalFatigue) || undefined,
       emotionalExperienceDuring: Number(draft.emotionalExperienceDuring) || undefined,
@@ -10146,23 +10199,25 @@ function CompletionForm({
   // resolve a queixa relatada independente de qual pergunta especifica esta sendo pulada.
   const missingFieldLabels: string[] = [];
   if (!isSavedOnServer) {
+    // 01/10/2026 (2): "hoje voce acordou" formalizada como pergunta 4 da sequencia (antes ficava
+    // sem numero) — total do questionario passou de 16 para 17; tudo a partir daqui renumerado.
     if (!draft.preSleepQuality) missingFieldLabels.push('qualidade do sono (pergunta 1)');
     if (!draft.sleepDurationCategory) missingFieldLabels.push('tempo de sono (pergunta 2)');
     if (!draft.bedtimeShiftDirection) missingFieldLabels.push('horario de dormir vs. habitual (pergunta 3)');
-    if (!draft.wakeTimeShiftDirection) missingFieldLabels.push('horario de acordar vs. habitual (pergunta 3b)');
-    if (!draft.sleepInterruption) missingFieldLabels.push('sono interrompido (pergunta 4)');
-    if (!draft.sleepDifficulty) missingFieldLabels.push('dificuldade para dormir (pergunta 5)');
-    if (!draft.prePhysicalFatigue) missingFieldLabels.push('cansaco fisico antes do treino (pergunta 6)');
-    if (!draft.preMentalFatigue) missingFieldLabels.push('cansaco mental antes do treino (pergunta 7)');
-    if (!draft.preStressLevel) missingFieldLabels.push('nivel de estresse (pergunta 8)');
-    if (!draft.preMotivation) missingFieldLabels.push('vontade de treinar antes de comecar (pergunta 9)');
-    if (draft.status === 'done' && !draft.perceivedEffort) missingFieldLabels.push('esforco percebido - RPE (pergunta 10)');
-    if (!draft.satisfactionElaboracao) missingFieldLabels.push('avaliacao da elaboracao do treino (pergunta 11)');
-    if (!draft.executionVsPrescribed) missingFieldLabels.push('execucao em relacao ao prescrito (pergunta 12)');
-    if (!draft.postPhysicalFatigue) missingFieldLabels.push('cansaco fisico causado pelo treino (pergunta 13)');
-    if (!draft.postMentalFatigue) missingFieldLabels.push('cansaco mental causado pelo treino (pergunta 14)');
-    if (!draft.emotionalExperienceDuring) missingFieldLabels.push('experiencia emocional durante o treino (pergunta 15)');
-    if (!draft.mentalStateChangePrePost) missingFieldLabels.push('mudanca no estado mental (pergunta 16)');
+    if (!draft.wakeTimeShiftDirection) missingFieldLabels.push('horario de acordar vs. habitual (pergunta 4)');
+    if (!draft.sleepInterruption) missingFieldLabels.push('sono interrompido (pergunta 5)');
+    if (!draft.sleepDifficulty) missingFieldLabels.push('dificuldade para dormir (pergunta 6)');
+    if (!draft.prePhysicalFatigue) missingFieldLabels.push('cansaco fisico antes do treino (pergunta 7)');
+    if (!draft.preMentalFatigue) missingFieldLabels.push('cansaco mental antes do treino (pergunta 8)');
+    if (!draft.preStressLevel) missingFieldLabels.push('nivel de estresse (pergunta 9)');
+    if (!draft.preMotivation) missingFieldLabels.push('vontade de treinar antes de comecar (pergunta 10)');
+    if (draft.status === 'done' && !draft.perceivedEffort) missingFieldLabels.push('esforco percebido - RPE (pergunta 11)');
+    if (!draft.satisfactionElaboracao) missingFieldLabels.push('avaliacao da elaboracao do treino (pergunta 12)');
+    if (!draft.executionBehavior) missingFieldLabels.push('execucao em relacao ao prescrito (pergunta 13)');
+    if (!draft.postPhysicalFatigue) missingFieldLabels.push('cansaco fisico causado pelo treino (pergunta 14)');
+    if (!draft.postMentalFatigue) missingFieldLabels.push('cansaco mental causado pelo treino (pergunta 15)');
+    if (!draft.emotionalExperienceDuring) missingFieldLabels.push('experiencia emocional durante o treino (pergunta 16)');
+    if (!draft.mentalStateChangePrePost) missingFieldLabels.push('mudanca no estado mental (pergunta 17)');
     if (!draft.painFlag) missingFieldLabels.push('se sentiu dor ou desconforto');
     else if (draft.painFlag !== 'none' && !draft.painTiming) missingFieldLabels.push('quando a dor apareceu');
   }
@@ -10377,11 +10432,11 @@ function CompletionForm({
                   )}
                 </View>
               )}
-              <QuestionLabel n={1} total={16} />
+              <QuestionLabel n={1} total={17} />
               <Text style={styles.formHint}>Como foi a qualidade do seu sono na ultima noite?</Text>
               <LabeledScale value={draft.preSleepQuality} onChange={(v) => onChange({ preSleepQuality: v })} options={SLEEP_QUALITY_OPTIONS} locked={locked} />
 
-              <QuestionLabel n={2} total={16} />
+              <QuestionLabel n={2} total={17} />
               <Text style={styles.formHint}>Quanto tempo voce dormiu aproximadamente?</Text>
               <OptionChips
                 options={SLEEP_DURATION_OPTIONS}
@@ -10394,18 +10449,19 @@ function CompletionForm({
                   <Text style={{ fontSize: 13, color: '#3730a3', fontWeight: '600' }}>😴 Sono desta noite ja registrado — pode alterar abaixo se quiser.</Text>
                 </View>
               ) : null}
-              <QuestionLabel n={3} total={16} />
+              <QuestionLabel n={3} total={17} />
               <Text style={styles.formHint}>Em relacao ao seu horario habitual, hoje voce foi dormir:</Text>
-              <OptionChips options={SLEEP_SHIFT_OPTIONS} selected={draft.bedtimeShiftDirection} onSelect={locked ? () => {} : (v) => onChange({ bedtimeShiftDirection: v })} />
+              <OptionRows value={draft.bedtimeShiftDirection} onChange={(v) => onChange({ bedtimeShiftDirection: v })} options={SLEEP_SHIFT_OPTIONS} locked={locked} />
 
+              <QuestionLabel n={4} total={17} />
               <Text style={styles.formHint}>Em relacao ao seu horario habitual, hoje voce acordou:</Text>
-              <OptionChips options={SLEEP_SHIFT_OPTIONS} selected={draft.wakeTimeShiftDirection} onSelect={locked ? () => {} : (v) => onChange({ wakeTimeShiftDirection: v })} />
+              <OptionRows value={draft.wakeTimeShiftDirection} onChange={(v) => onChange({ wakeTimeShiftDirection: v })} options={SLEEP_SHIFT_OPTIONS} locked={locked} />
 
-              <QuestionLabel n={4} total={16} />
+              <QuestionLabel n={5} total={17} />
               <Text style={styles.formHint}>Quanto seu sono foi interrompido durante a noite?</Text>
               <LabeledScale value={draft.sleepInterruption} onChange={(v) => onChange({ sleepInterruption: v })} options={SLEEP_INTERRUPTION_OPTIONS} locked={locked} />
 
-              <QuestionLabel n={5} total={16} />
+              <QuestionLabel n={6} total={17} />
               <Text style={styles.formHint}>Quanta dificuldade voce teve para pegar no sono?</Text>
               <LabeledScale value={draft.sleepDifficulty} onChange={(v) => onChange({ sleepDifficulty: v })} options={SLEEP_DIFFICULTY_OPTIONS} locked={locked} />
             </View>
@@ -10413,15 +10469,15 @@ function CompletionForm({
             {/* Divisor entre secoes */}
             <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 16 }} />
 
-            {/* BLOCO 2 — ESTADO ANTES DO TREINO (perguntas 6-9) */}
+            {/* BLOCO 2 — ESTADO ANTES DO TREINO (perguntas 7-10) */}
             <View>
               {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Estado antes do treino</Text>}
 
-              <QuestionLabel n={6} total={16} />
+              <QuestionLabel n={7} total={17} />
               <Text style={styles.formHint}>Como estava seu cansaco fisico antes de comecar o treino?</Text>
               <LabeledScale value={draft.prePhysicalFatigue} onChange={(v) => onChange({ prePhysicalFatigue: v })} options={INTENSITY_LOW_HIGH_OPTIONS} locked={locked} />
 
-              <QuestionLabel n={7} total={16} />
+              <QuestionLabel n={8} total={17} />
               <Text style={styles.formHint}>Como estava seu cansaco mental antes de comecar o treino?</Text>
               <LabeledScale value={draft.preMentalFatigue} onChange={(v) => onChange({ preMentalFatigue: v })} options={INTENSITY_LOW_HIGH_OPTIONS} locked={locked} />
 
@@ -10430,14 +10486,14 @@ function CompletionForm({
                   <Text style={{ fontSize: 13, color: '#3730a3', fontWeight: '600' }}>😰 Voce ja respondeu sobre estresse nas ultimas 24h — pode manter ou atualizar abaixo.</Text>
                 </View>
               ) : null}
-              <QuestionLabel n={8} total={16} />
+              <QuestionLabel n={9} total={17} />
               <Text style={styles.formHint}>Nas ultimas 24 horas, qual foi o seu nivel geral de estresse?</Text>
               <LabeledScale value={draft.preStressLevel} onChange={(v) => onChange({ preStressLevel: v })} options={INTENSITY_LOW_HIGH_OPTIONS} locked={locked} />
 
               <Text style={styles.formHint}>Nas ultimas 24 horas, com que frequencia voce passou por momentos que aumentaram claramente seu estresse?</Text>
               <LabeledScale value={draft.stressEventFrequency} onChange={(v) => onChange({ stressEventFrequency: v })} options={STRESS_FREQUENCY_OPTIONS} locked={locked} />
 
-              <QuestionLabel n={9} total={16} />
+              <QuestionLabel n={10} total={17} />
               <Text style={styles.formHint}>Qual era a sua vontade de fazer o treino de hoje antes de comecar?</Text>
               <LabeledScale value={draft.preMotivation} onChange={(v) => onChange({ preMotivation: v })} options={MOTIVATION_INTENSITY_OPTIONS} locked={locked} />
             </View>
@@ -10445,12 +10501,12 @@ function CompletionForm({
             {/* Divisor entre secoes */}
             <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 16 }} />
 
-            {/* BLOCO 3 — RESPOSTA AO TREINO (perguntas 10-16) */}
+            {/* BLOCO 3 — RESPOSTA AO TREINO (perguntas 11-17) */}
             <View>
               {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Resposta ao treino</Text>}
 
               {/* RPE 1–10 com gradiente de cor — mantido sem converter pra escala 1-5 */}
-              <QuestionLabel n={10} total={16} />
+              <QuestionLabel n={11} total={17} />
               <Text style={styles.formHint}>Qual foi sua percepcao geral de esforco neste treino (RPE)?</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
                 {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
@@ -10478,7 +10534,7 @@ function CompletionForm({
                 <Text style={[styles.formHint, { marginBottom: 0 }]}>10 · Maximo</Text>
               </View>
 
-              <QuestionLabel n={11} total={16} />
+              <QuestionLabel n={12} total={17} />
               <Text style={styles.formHint}>Como voce avalia a forma como este treino foi elaborado para voce?</Text>
               <LabeledScale
                 value={String(satisfactionToNum(draft.satisfactionElaboracao) ?? '')}
@@ -10487,23 +10543,25 @@ function CompletionForm({
                 locked={locked}
               />
 
-              <QuestionLabel n={12} total={16} />
-              <Text style={styles.formHint}>Em relacao ao que estava prescrito, como voce realizou o treino?</Text>
-              <LabeledScale value={draft.executionVsPrescribed} onChange={(v) => onChange({ executionVsPrescribed: v })} options={EXECUTION_VS_PRESCRIBED_OPTIONS} locked={locked} />
+              {/* 01/10/2026 (2): substitui a pergunta quantitativa antiga (executionVsPrescribed) —
+                  categorias comportamentais, NAO escala ordinal. Ver OptionRows/EXECUTION_BEHAVIOR_OPTIONS. */}
+              <QuestionLabel n={13} total={17} />
+              <Text style={styles.formHint}>Em relacao ao treino prescrito, como foi sua execucao?</Text>
+              <OptionRows value={draft.executionBehavior} onChange={(v) => onChange({ executionBehavior: v })} options={EXECUTION_BEHAVIOR_OPTIONS} locked={locked} />
 
-              <QuestionLabel n={13} total={16} />
+              <QuestionLabel n={14} total={17} />
               <Text style={styles.formHint}>Quanto este treino te cansou fisicamente?</Text>
               <LabeledScale value={draft.postPhysicalFatigue} onChange={(v) => onChange({ postPhysicalFatigue: v })} options={FATIGUE_AMOUNT_OPTIONS} locked={locked} />
 
-              <QuestionLabel n={14} total={16} />
+              <QuestionLabel n={15} total={17} />
               <Text style={styles.formHint}>Quanto este treino te cansou mentalmente?</Text>
               <LabeledScale value={draft.postMentalFatigue} onChange={(v) => onChange({ postMentalFatigue: v })} options={FATIGUE_AMOUNT_OPTIONS} locked={locked} />
 
-              <QuestionLabel n={15} total={16} />
+              <QuestionLabel n={16} total={17} />
               <Text style={styles.formHint}>Como voce se sentiu emocionalmente durante este treino?</Text>
               <LabeledScale value={draft.emotionalExperienceDuring} onChange={(v) => onChange({ emotionalExperienceDuring: v })} options={EMOTIONAL_EXPERIENCE_OPTIONS} locked={locked} />
 
-              <QuestionLabel n={16} total={16} />
+              <QuestionLabel n={17} total={17} />
               <Text style={styles.formHint}>Comparando com antes do treino, como voce esta se sentindo mentalmente agora?</Text>
               <LabeledScale value={draft.mentalStateChangePrePost} onChange={(v) => onChange({ mentalStateChangePrePost: v })} options={MENTAL_STATE_CHANGE_OPTIONS} locked={locked} />
             </View>
@@ -11104,6 +11162,7 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     sleepDifficulty: '',
     preMentalFatigue: '',
     executionVsPrescribed: '',
+    executionBehavior: '',
     postPhysicalFatigue: '',
     postMentalFatigue: '',
     emotionalExperienceDuring: '',
@@ -11157,6 +11216,7 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     sleepDifficulty: completion.sleepDifficulty != null ? String(completion.sleepDifficulty) : '',
     preMentalFatigue: completion.preMentalFatigue != null ? String(completion.preMentalFatigue) : '',
     executionVsPrescribed: completion.executionVsPrescribed != null ? String(completion.executionVsPrescribed) : '',
+    executionBehavior: completion.executionBehavior ?? '',
     postPhysicalFatigue: completion.postPhysicalFatigue != null ? String(completion.postPhysicalFatigue) : '',
     postMentalFatigue: completion.postMentalFatigue != null ? String(completion.postMentalFatigue) : '',
     emotionalExperienceDuring: completion.emotionalExperienceDuring != null ? String(completion.emotionalExperienceDuring) : '',

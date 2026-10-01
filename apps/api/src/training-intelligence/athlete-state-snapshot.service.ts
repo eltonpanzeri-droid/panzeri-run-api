@@ -220,7 +220,10 @@ const PSYCHOLOGICAL_STATE_VARIABLES = [
 ];
 const TRAINING_RESPONSE_VARIABLES = [
   'workout.perceivedEffort',
+  // 01/10/2026: executionVsPrescribed congelada (historico); executionBehavior e a nova pergunta
+  // (categorica/comportamental, nao comparavel a ela — ver variable-registry.ts).
   'workout.executionVsPrescribed',
+  'workout.executionBehavior',
   'workout.satisfactionElaboracao',
   'workout.postPhysicalFatigue',
   'workout.postMentalFatigue',

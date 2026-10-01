@@ -182,11 +182,18 @@ export class UpsertWorkoutCompletionDto {
   preMentalFatigue?: number;
 
   // Feedback v2 — bloco RESPOSTA AO TREINO.
-  // executionVsPrescribed: 1=fiz bem menos, 2=um pouco menos, 3=como prescrito, 4=um pouco mais,
-  // 5=fiz bem mais. 3 e' o ponto de referencia, NAO "neutro" — nao interpretar 5 como "melhor".
+  // executionVsPrescribed: CONGELADA (01/10/2026) — so para clientes antigos/historico. Nunca mais
+  // escrita por um cliente novo (ver isV3Client/executionBehavior em workout-completions.service.ts).
+  // 1=fiz bem menos, 2=um pouco menos, 3=como prescrito, 4=um pouco mais, 5=fiz bem mais.
   @IsOptional()
   @IsInt() @Min(1) @Max(5)
   executionVsPrescribed?: number;
+
+  // Feedback v3 (01/10/2026) — substitui executionVsPrescribed. Categorica/comportamental, NAO
+  // ordinal: nenhuma das 5 categorias e "mais" ou "menos" que outra, nao ha media/baseline.
+  @IsOptional()
+  @IsIn(['as_planned', 'minor_adaptations', 'major_changes', 'different_workout', 'stopped_early'])
+  executionBehavior?: string;
 
   @IsOptional()
   @IsInt() @Min(1) @Max(5)
