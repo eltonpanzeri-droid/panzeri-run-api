@@ -653,6 +653,19 @@ export class SessionExecutionLinkService {
     return { session, completion };
   }
 
+  // Wrapper exposto via HTTP (controller) pro ALUNO pedir pra' registrar feedback sobre uma
+  // atividade 'alternative' — mesmo padrao de confirmCandidateAsStudent: checa posse ANTES de
+  // delegar, porque materializeExtraActivity() sozinho nao valida dono nenhum. NotFoundException
+  // tanto pra "nao existe" quanto pra "nao e' sua" — nunca revela a um aluno que uma ActivityLog
+  // de outra pessoa existe.
+  async materializeExtraActivityAsStudent(userId: string, activityLogId: string) {
+    const activity = await this.prisma.activityLog.findUnique({ where: { id: activityLogId } });
+    if (!activity || activity.userId !== userId) {
+      throw new NotFoundException('Atividade nao encontrada.');
+    }
+    return this.materializeExtraActivity(activityLogId);
+  }
+
   private async findMaterializedSession(userId: string, activityLogId: string) {
     const candidates = await this.prisma.trainingSession.findMany({
       where: { userId, origin: 'device_extra' },

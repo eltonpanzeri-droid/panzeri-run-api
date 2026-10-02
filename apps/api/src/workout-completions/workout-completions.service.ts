@@ -35,6 +35,15 @@ export class WorkoutCompletionsService {
       throw new NotFoundException('Treino nao encontrado.');
     }
 
+    // Feedback de Atividade Alternativa (02/10/2026) — a sessao e' sintetica (materializada por
+    // SessionExecutionLinkService.materializeExtraActivity a partir de uma ActivityLog
+    // 'alternative'), NUNCA uma prescricao real do treinador. "Em relacao ao prescrito, como foi
+    // sua execucao?" nao faz sentido aqui — nao ha' prescricao nenhuma pra comparar. Mesmo
+    // mecanismo de upsert/validacao do Feedback V3 pra tudo mais (esforco, fadiga, humor, dor,
+    // sono/estresse compartilhados) — nao e' um formulario novo, so' esta pergunta especifica fica
+    // de fora.
+    const isAlternativeSession = session.origin === 'device_extra';
+
     if (dto.status === 'done' && !dto.perceivedEffort) {
       throw new BadRequestException('Informe o esforco percebido de 1 a 10.');
     }
@@ -83,8 +92,10 @@ export class WorkoutCompletionsService {
         throw new BadRequestException('Preencha todas as perguntas do bloco "Estado antes do treino".');
       }
       // executionBehavior (v3) substitui executionVsPrescribed (v2) — exige um ou outro conforme
-      // o cliente, nunca os dois; nunca aceita os dois faltando.
-      if (isV3Client ? !dto.executionBehavior : !dto.executionVsPrescribed) {
+      // o cliente, nunca os dois; nunca aceita os dois faltando. Atividade alternativa e' a UNICA
+      // excecao: nao ha' prescricao pra comparar, entao a pergunta simplesmente nao se aplica
+      // (nunca preenchida automaticamente — ver forcamento pra null mais abaixo, no upsert em si).
+      if (!isAlternativeSession && (isV3Client ? !dto.executionBehavior : !dto.executionVsPrescribed)) {
         throw new BadRequestException('Informe como foi sua execucao em relacao ao prescrito.');
       }
       if (!dto.postPhysicalFatigue || !dto.postMentalFatigue ||
@@ -96,9 +107,11 @@ export class WorkoutCompletionsService {
     // satisfactionCapacidade (pergunta antiga "execucao") deixou de ser coletada a partir da v2,
     // substituida por executionVsPrescribed (validado acima) — so' exigida em clientes v1/pre-v1.
     // postWorkoutFeeling (pergunta antiga "corpo ao terminar") idem: so' exigida quando NAO e' v2
-    // (na v2 quem cobre isso e' postPhysicalFatigue, ja validado acima).
+    // (na v2 quem cobre isso e' postPhysicalFatigue, ja validado acima). Atividade alternativa
+    // tambem fica de fora de satisfactionElaboracao — "elaboracao do treino" se refere a' qualidade
+    // da prescricao do treinador, que nao existe aqui.
     if ((dto.status === 'done' || dto.status === 'adjusted') &&
-        (!dto.satisfactionElaboracao || (!isV2Client && !dto.satisfactionCapacidade) || (isV1Client && !isV2Client && !dto.postWorkoutFeeling))) {
+        ((!isAlternativeSession && !dto.satisfactionElaboracao) || (!isV2Client && !dto.satisfactionCapacidade) || (isV1Client && !isV2Client && !dto.postWorkoutFeeling))) {
       throw new BadRequestException('Preencha todas as perguntas do bloco "Como foi o treino".');
     }
     if ((dto.status === 'done' || dto.status === 'adjusted') && !dto.painFlag) {
@@ -134,7 +147,11 @@ export class WorkoutCompletionsService {
         maxHeartRate: dto.maxHeartRate,
         perceivedEffort: dto.perceivedEffort,
         satisfaction: dto.satisfaction,
-        satisfactionElaboracao: dto.satisfactionElaboracao,
+        // Atividade alternativa nunca grava elaboracao/execucao-vs-prescrito — nao ha' prescricao
+        // pra' essas perguntas se referirem. Forcado aqui (nao so' na validacao) pra' garantir que
+        // nenhum cliente consiga gravar valor nessas colunas pra uma sessao sintetica, mesmo que
+        // o dto venha com algo preenchido por engano.
+        satisfactionElaboracao: isAlternativeSession ? null : dto.satisfactionElaboracao,
         satisfactionCapacidade: dto.satisfactionCapacidade,
         satisfactionCarga: dto.satisfactionCarga,
         painFlag: dto.painFlag,
@@ -151,8 +168,8 @@ export class WorkoutCompletionsService {
         nightlySleepLogId,
         stressCheckinId,
         preMentalFatigue: dto.preMentalFatigue,
-        executionVsPrescribed: dto.executionVsPrescribed,
-        executionBehavior: dto.executionBehavior,
+        executionVsPrescribed: isAlternativeSession ? null : dto.executionVsPrescribed,
+        executionBehavior: isAlternativeSession ? null : dto.executionBehavior,
         postPhysicalFatigue: dto.postPhysicalFatigue,
         postMentalFatigue: dto.postMentalFatigue,
         emotionalExperienceDuring: dto.emotionalExperienceDuring,
@@ -175,7 +192,7 @@ export class WorkoutCompletionsService {
         maxHeartRate: dto.maxHeartRate,
         perceivedEffort: dto.perceivedEffort,
         satisfaction: dto.satisfaction,
-        satisfactionElaboracao: dto.satisfactionElaboracao,
+        satisfactionElaboracao: isAlternativeSession ? null : dto.satisfactionElaboracao,
         satisfactionCapacidade: dto.satisfactionCapacidade,
         satisfactionCarga: dto.satisfactionCarga,
         painFlag: dto.painFlag,
@@ -192,8 +209,8 @@ export class WorkoutCompletionsService {
         nightlySleepLogId,
         stressCheckinId,
         preMentalFatigue: dto.preMentalFatigue,
-        executionVsPrescribed: dto.executionVsPrescribed,
-        executionBehavior: dto.executionBehavior,
+        executionVsPrescribed: isAlternativeSession ? null : dto.executionVsPrescribed,
+        executionBehavior: isAlternativeSession ? null : dto.executionBehavior,
         postPhysicalFatigue: dto.postPhysicalFatigue,
         postMentalFatigue: dto.postMentalFatigue,
         emotionalExperienceDuring: dto.emotionalExperienceDuring,

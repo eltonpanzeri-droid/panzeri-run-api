@@ -124,6 +124,46 @@ const TODAY_INCLUSION_CUTOFF_HOUR = 22;
 const BASE_GENERATION_ATTEMPTS = 2;
 const GENERATION_ATTEMPT_COOLDOWN_MS = 600_000;
 
+// Shape bruto de WorkoutCompletion (tal como vem do Prisma, com include:{completion:true}) usado
+// tanto por `sessions[].completion` (prescricao normal) quanto, a partir do Feedback de Atividade
+// Alternativa (02/10/2026), por `alternativeActivities[].completion` (sessao sintetica
+// 'device_extra') — ver TrainingPlansService.mapCompletion.
+interface RawWorkoutCompletion {
+  status: string;
+  completedAt: Date;
+  durationMin: number | null;
+  distanceKm: number | null;
+  avgPaceSecondsKm: number | null;
+  perceivedEffort: number | null;
+  satisfaction: string | null;
+  satisfactionElaboracao: string | null;
+  satisfactionCapacidade: string | null;
+  satisfactionCarga: string | null;
+  painFlag: string | null;
+  painTiming: string | null;
+  notes: string | null;
+  details: unknown;
+  preSleepQuality: number | null;
+  prePhysicalFatigue: number | null;
+  preStressLevel: number | null;
+  preMotivation: number | null;
+  postWorkoutFeeling: number | null;
+  sleepDurationCategory: string | null;
+  sleepScheduleIrregularity: number | null;
+  sleepInterruption: number | null;
+  sleepDifficulty: number | null;
+  preMentalFatigue: number | null;
+  executionVsPrescribed: number | null;
+  executionBehavior: string | null;
+  postPhysicalFatigue: number | null;
+  postMentalFatigue: number | null;
+  emotionalExperienceDuring: number | null;
+  mentalStateChangePrePost: number | null;
+  feedbackVersion: number;
+  avgHeartRate: number | null;
+  maxHeartRate: number | null;
+}
+
 @Injectable()
 export class TrainingPlansService {
   private readonly logger = new Logger(TrainingPlansService.name);
@@ -2445,6 +2485,51 @@ export class TrainingPlansService {
         : ['exercise', 'sets', 'reps', 'load', 'rpe', 'completed', 'notes'],
     };
   }
+
+  // Serializacao do WorkoutCompletion reusada tanto por `sessions[].completion` (prescricao
+  // normal) quanto por `alternativeActivities[].completion` (sessao sintetica 'device_extra' —
+  // Feedback de Atividade Alternativa, 02/10/2026) — o MESMO formato, porque e' literalmente o
+  // mesmo model/fluxo, so' a TrainingSession por tras e' sintetica em vez de prescrita. Extraido
+  // pra nao duplicar os ~25 campos duas vezes.
+  private mapCompletion(completion: RawWorkoutCompletion | null | undefined) {
+    if (!completion) return null;
+    return {
+      status: completion.status,
+      completedAt: completion.completedAt,
+      durationMin: completion.durationMin,
+      distanceKm: completion.distanceKm,
+      avgPaceSecondsKm: completion.avgPaceSecondsKm,
+      perceivedEffort: completion.perceivedEffort,
+      satisfaction: completion.satisfaction,
+      satisfactionElaboracao: completion.satisfactionElaboracao,
+      satisfactionCapacidade: completion.satisfactionCapacidade,
+      satisfactionCarga: completion.satisfactionCarga,
+      painFlag: completion.painFlag,
+      painTiming: completion.painTiming,
+      notes: completion.notes,
+      details: completion.details,
+      preSleepQuality: completion.preSleepQuality,
+      prePhysicalFatigue: completion.prePhysicalFatigue,
+      preStressLevel: completion.preStressLevel,
+      preMotivation: completion.preMotivation,
+      postWorkoutFeeling: completion.postWorkoutFeeling,
+      sleepDurationCategory: completion.sleepDurationCategory,
+      sleepScheduleIrregularity: completion.sleepScheduleIrregularity,
+      sleepInterruption: completion.sleepInterruption,
+      sleepDifficulty: completion.sleepDifficulty,
+      preMentalFatigue: completion.preMentalFatigue,
+      executionVsPrescribed: completion.executionVsPrescribed,
+      executionBehavior: completion.executionBehavior,
+      postPhysicalFatigue: completion.postPhysicalFatigue,
+      postMentalFatigue: completion.postMentalFatigue,
+      emotionalExperienceDuring: completion.emotionalExperienceDuring,
+      mentalStateChangePrePost: completion.mentalStateChangePrePost,
+      feedbackVersion: completion.feedbackVersion,
+      avgHeartRate: completion.avgHeartRate,
+      maxHeartRate: completion.maxHeartRate,
+    };
+  }
+
   private presentPlan(plan: {
     id: string;
     planCode: number;
@@ -2469,47 +2554,7 @@ export class TrainingPlansService {
       recommendations: string | null;
       routineMismatchNote: string | null;
       origin: string | null;
-      completion?: {
-        status: string;
-        completedAt: Date;
-        durationMin: number | null;
-        distanceKm: number | null;
-        avgPaceSecondsKm: number | null;
-        perceivedEffort: number | null;
-        satisfaction: string | null;
-        satisfactionElaboracao: string | null;
-        satisfactionCapacidade: string | null;
-        satisfactionCarga: string | null;
-        painFlag: string | null;
-        painTiming: string | null;
-        notes: string | null;
-        details: unknown;
-        // Feedback v1 — faltavam nesta resposta (bug real 18/09: aluno reabria feedback ja
-        // enviado e via os campos abaixo sempre em branco, mesmo tendo respondido, porque o
-        // app le exatamente estes campos do completion recebido aqui e nunca chegavam.
-        preSleepQuality: number | null;
-        prePhysicalFatigue: number | null;
-        preStressLevel: number | null;
-        preMotivation: number | null;
-        postWorkoutFeeling: number | null;
-        // Feedback v2 (24/09/2026) — mesmo motivo do comentario acima: sem incluir aqui, reabrir
-        // um feedback v2 ja enviado mostraria essas perguntas sempre em branco.
-        sleepDurationCategory: string | null;
-        sleepScheduleIrregularity: number | null;
-        sleepInterruption: number | null;
-        sleepDifficulty: number | null;
-        preMentalFatigue: number | null;
-        executionVsPrescribed: number | null;
-        postPhysicalFatigue: number | null;
-        postMentalFatigue: number | null;
-        emotionalExperienceDuring: number | null;
-        mentalStateChangePrePost: number | null;
-        feedbackVersion: number;
-        // So' preenchidos pra completions sinteticas de atividade alternativa (origin
-        // 'device_extra' — ver materializeExtraActivity); null em completions normais/manuais.
-        avgHeartRate: number | null;
-        maxHeartRate: number | null;
-      } | null;
+      completion?: RawWorkoutCompletion | null;
     }>;
   }, unlocked = true, hasTest = true, reconciliation: WeekReconciliation = { activeLinkBySessionId: new Map(), alternativeActivities: [], pendingActivities: [] }) {
     if (!unlocked) {
@@ -2529,6 +2574,10 @@ export class TrainingPlansService {
         pendingActivities: [],
       };
     }
+    // Atividades ja' vinculadas (ATIVO) a uma prescricao real nesta janela — usado so' pra' excluir
+    // uma sessao sintetica 'device_extra' orfa da lista de alternativas quando a MESMA atividade
+    // foi corrigida/reconciliada como 'corresponding' em outro lugar (cenario K).
+    const linkedActivityIds = new Set([...reconciliation.activeLinkBySessionId.values()].map((l) => l.activityLog.id));
     return {
       id: plan.id,
       // Codigo de rastreio (pedido do treinador 16/08) — numero de controle sequencial pra
@@ -2593,40 +2642,7 @@ export class TrainingPlansService {
                   maxHeartRateBpm: linked.activityLog.maxHeartRateBpm,
                 }
               : null,
-            completion: session.completion
-              ? {
-                  status: session.completion.status,
-                  completedAt: session.completion.completedAt,
-                  durationMin: session.completion.durationMin,
-                  distanceKm: session.completion.distanceKm,
-                  avgPaceSecondsKm: session.completion.avgPaceSecondsKm,
-                  perceivedEffort: session.completion.perceivedEffort,
-                  satisfaction: session.completion.satisfaction,
-                  satisfactionElaboracao: session.completion.satisfactionElaboracao,
-                  satisfactionCapacidade: session.completion.satisfactionCapacidade,
-                  satisfactionCarga: session.completion.satisfactionCarga,
-                  painFlag: session.completion.painFlag,
-                  painTiming: session.completion.painTiming,
-                  notes: session.completion.notes,
-                  details: session.completion.details,
-                  preSleepQuality: session.completion.preSleepQuality,
-                  prePhysicalFatigue: session.completion.prePhysicalFatigue,
-                  preStressLevel: session.completion.preStressLevel,
-                  preMotivation: session.completion.preMotivation,
-                  postWorkoutFeeling: session.completion.postWorkoutFeeling,
-                  sleepDurationCategory: session.completion.sleepDurationCategory,
-                  sleepScheduleIrregularity: session.completion.sleepScheduleIrregularity,
-                  sleepInterruption: session.completion.sleepInterruption,
-                  sleepDifficulty: session.completion.sleepDifficulty,
-                  preMentalFatigue: session.completion.preMentalFatigue,
-                  executionVsPrescribed: session.completion.executionVsPrescribed,
-                  postPhysicalFatigue: session.completion.postPhysicalFatigue,
-                  postMentalFatigue: session.completion.postMentalFatigue,
-                  emotionalExperienceDuring: session.completion.emotionalExperienceDuring,
-                  mentalStateChangePrePost: session.completion.mentalStateChangePrePost,
-                  feedbackVersion: session.completion.feedbackVersion,
-                }
-              : null,
+            completion: this.mapCompletion(session.completion),
           };
         }),
       // Atividades 'alternative' (nao correspondem a nenhuma prescricao) — tanto as ja'
@@ -2634,9 +2650,28 @@ export class TrainingPlansService {
       // copiados pro completion na materializacao) quanto as ainda nao materializadas (lidas
       // direto do ActivityLog pelo motor de reconciliacao). Nunca desaparecem so' por nao terem
       // prescricao correspondente — aparecem como card independente.
+      //
+      // Feedback de Atividade Alternativa (02/10/2026): reusa INTEGRALMENTE o mesmo
+      // WorkoutCompletion/endpoint/formulario V3 das sessoes normais — a sessao sintetica
+      // 'device_extra' E' uma TrainingSession de verdade (so' nao e' prescricao real), entao seu
+      // `completion` sai no MESMO formato de `sessions[].completion` (ver mapCompletion). sessionId
+      // e' o que o mobile usa em POST /workout-completions pra salvar/reabrir o feedback;
+      // hasFeedback distingue "so' tem o completion-stub criado na materializacao" (perceivedEffort
+      // ainda null) de "aluno ja' respondeu de verdade".
       alternativeActivities: [
         ...plan.sessions
-          .filter((session) => session.origin === 'device_extra')
+          .filter((session) => {
+            if (session.origin !== 'device_extra') return false;
+            // Dedup (cenario K): se esta MESMA atividade foi posteriormente vinculada (ATIVA) a
+            // uma prescricao real, ela agora e' 'corresponding' em outro lugar — a sessao sintetica
+            // orfa nunca mais e' mostrada como alternativa (evita duas entradas contraditorias pra
+            // mesma ActivityLog). O dado/feedback em si NAO e' apagado nem migrado automaticamente
+            // aqui — fica preservado no banco, so' deixa de aparecer nesta lista. Migrar de fato
+            // pra' dentro da sessao corresponding exigiria mexer no Motor de Reconciliacao,
+            // deliberadamente fora do escopo desta tarefa.
+            const structureObj = session.structure as { activityLogId?: string } | null;
+            return !structureObj?.activityLogId || !linkedActivityIds.has(structureObj.activityLogId);
+          })
           .map((session) => {
             const structureObj = session.structure as { provider?: string; activityLogId?: string } | null;
             const distanceKm = session.completion?.distanceKm ?? null;
@@ -2653,6 +2688,9 @@ export class TrainingPlansService {
               avgPaceSecondsKm: session.completion?.avgPaceSecondsKm ?? (distanceKm && distanceKm > 0 && durationMin != null ? Math.round((durationMin * 60) / distanceKm) : null),
               avgHeartRateBpm: session.completion?.avgHeartRate ?? null,
               maxHeartRateBpm: session.completion?.maxHeartRate ?? null,
+              sessionId: session.id,
+              hasFeedback: session.completion?.perceivedEffort != null,
+              completion: this.mapCompletion(session.completion),
             };
           }),
         ...reconciliation.alternativeActivities.map((activity) => ({
@@ -2666,6 +2704,12 @@ export class TrainingPlansService {
           avgPaceSecondsKm: activity.avgPaceSecondsKm,
           avgHeartRateBpm: activity.avgHeartRateBpm,
           maxHeartRateBpm: activity.maxHeartRateBpm,
+          // Ainda nao materializada — nenhum WorkoutCompletion existe pra ela ainda. O mobile usa
+          // activityLogId pra chamar POST /me/activity-reconciliation/:activityLogId/materialize,
+          // que cria a sessao sintetica (idempotente) e so' entao ela passa a sair no branch acima.
+          sessionId: null,
+          hasFeedback: false,
+          completion: null,
         })),
       ],
       // Atividades 'ambiguous' com candidatos pendentes — motor ja' sabe quais prescricoes sao

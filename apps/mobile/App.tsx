@@ -189,48 +189,64 @@ interface WeekPlanSession {
   structure?: SessionStructure;
   notes?: string;
   routineMismatchNote?: string | null;
-  completion?: {
-    status: CompletionDraft['status'];
-    completedAt?: string | null;
-    durationMin?: number | null;
-    distanceKm?: number | null;
-    avgPaceSecondsKm?: number | null;
-    perceivedEffort?: number | null;
-    satisfaction?: string | null;
-    satisfactionElaboracao?: string | null;
-    satisfactionCapacidade?: string | null;
-    satisfactionCarga?: string | null;
-    painFlag?: string | null;
-    painTiming?: string | null;
-    notes?: string | null;
-    details?: { loadsText?: string; pacingMode?: string; missedReasons?: string[]; missedComment?: string; exerciseFeedback?: Array<{ name: string; loadKg: string; satisfaction: string }>; postWorkoutMood?: number } | null;
-    // Feedback v1 — bug real 18/09: faltavam na resposta da API (training-plans.service.ts
-    // presentPlan()), fazendo o formulario reabrir sempre em branco mesmo com dados salvos.
-    preSleepQuality?: number | null;
-    prePhysicalFatigue?: number | null;
-    preStressLevel?: number | null;
-    preMotivation?: number | null;
-    postWorkoutFeeling?: number | null;
-    // Feedback v2 (24/09/2026)
-    sleepDurationCategory?: string | null;
-    sleepScheduleIrregularity?: number | null;
-    sleepInterruption?: number | null;
-    sleepDifficulty?: number | null;
-    preMentalFatigue?: number | null;
-    executionVsPrescribed?: number | null;
-    executionBehavior?: string | null;
-    postPhysicalFatigue?: number | null;
-    postMentalFatigue?: number | null;
-    emotionalExperienceDuring?: number | null;
-    mentalStateChangePrePost?: number | null;
-    feedbackVersion?: number | null;
-  } | null;
+  completion?: WorkoutCompletionPayload | null;
   // Visualizacao Prescrito x Realizado (02/10/2026) — atividade objetiva (relogio/provedor) que o
   // Motor de Reconciliacao identificou como correspondente a esta prescricao. Null = ainda sem
   // correspondencia identificada; NUNCA interpretar como "nao realizou" (o aluno pode ter treinado
   // sem relogio, ou o relogio pode so sincronizar depois). Fonte separada de `completion`
   // (feedback subjetivo/manual) — as duas coexistem sem uma sobrescrever a outra.
   realized?: RealizedActivity | null;
+  // Feedback de Atividade Alternativa (02/10/2026) — marca, so' no cliente, uma sessao SINTETICA
+  // ('device_extra') sendo renderizada atraves do MESMO card/formulario de sessao normal (ver
+  // groupedSessions). Nunca vem da API dentro de `sessions` (o backend ja' filtra device_extra de
+  // la' — ver presentPlan) — so' existe quando o mobile monta esse objeto a partir de uma
+  // AlternativeActivity ja' materializada, pra reusar 100% do SessionPrescription/CompletionForm.
+  isAlternative?: boolean;
+  // So' presente quando isAlternative — rotulo discreto da origem do dado (ver ProviderLabel).
+  alternativeProvider?: string | null;
+}
+
+// Shape de WorkoutCompletion devolvido pela API — reusado tanto por WeekPlanSession.completion
+// (sessao prescrita normal) quanto por AlternativeActivity.completion (Feedback de Atividade
+// Alternativa, 02/10/2026): e' literalmente o mesmo WorkoutCompletion, so' que a TrainingSession
+// por tras pode ser sintetica.
+interface WorkoutCompletionPayload {
+  status: CompletionDraft['status'];
+  completedAt?: string | null;
+  durationMin?: number | null;
+  distanceKm?: number | null;
+  avgPaceSecondsKm?: number | null;
+  perceivedEffort?: number | null;
+  satisfaction?: string | null;
+  satisfactionElaboracao?: string | null;
+  satisfactionCapacidade?: string | null;
+  satisfactionCarga?: string | null;
+  painFlag?: string | null;
+  painTiming?: string | null;
+  notes?: string | null;
+  details?: { loadsText?: string; pacingMode?: string; missedReasons?: string[]; missedComment?: string; exerciseFeedback?: Array<{ name: string; loadKg: string; satisfaction: string }>; postWorkoutMood?: number } | null;
+  // Feedback v1 — bug real 18/09: faltavam na resposta da API (training-plans.service.ts
+  // presentPlan()), fazendo o formulario reabrir sempre em branco mesmo com dados salvos.
+  preSleepQuality?: number | null;
+  prePhysicalFatigue?: number | null;
+  preStressLevel?: number | null;
+  preMotivation?: number | null;
+  postWorkoutFeeling?: number | null;
+  // Feedback v2 (24/09/2026)
+  sleepDurationCategory?: string | null;
+  sleepScheduleIrregularity?: number | null;
+  sleepInterruption?: number | null;
+  sleepDifficulty?: number | null;
+  preMentalFatigue?: number | null;
+  executionVsPrescribed?: number | null;
+  executionBehavior?: string | null;
+  postPhysicalFatigue?: number | null;
+  postMentalFatigue?: number | null;
+  emotionalExperienceDuring?: number | null;
+  mentalStateChangePrePost?: number | null;
+  feedbackVersion?: number | null;
+  avgHeartRate?: number | null;
+  maxHeartRate?: number | null;
 }
 
 interface RealizedActivity {
@@ -259,6 +275,15 @@ interface AlternativeActivity {
   avgPaceSecondsKm: number | null;
   avgHeartRateBpm: number | null;
   maxHeartRateBpm: number | null;
+  // Feedback de Atividade Alternativa (02/10/2026). sessionId null = ainda nao materializada (o
+  // mobile precisa chamar POST /me/activity-reconciliation/:activityLogId/materialize antes de
+  // poder registrar feedback). hasFeedback distingue "so' existe o completion-stub da
+  // materializacao" (perceivedEffort ainda null) de "aluno ja' respondeu de verdade" — controla se
+  // o card mostra "Registrar feedback" ou "Feedback registrado". completion e' o MESMO formato de
+  // WeekPlanSession.completion (reusa 100% do formulario V3 existente).
+  sessionId: string | null;
+  hasFeedback: boolean;
+  completion: WorkoutCompletionPayload | null;
 }
 
 // Atividade 'ambiguous' — o motor identificou candidatos plausiveis mas nao tem evidencia
@@ -4931,11 +4956,47 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
     if (group) group.sessions.push(session);
     else dayGroups.push({ key, isoDate: session.isoDate ?? '', day: session.day, date: session.date, sessions: [session], alternatives: [], pending: [] });
   }
+  // Feedback de Atividade Alternativa (02/10/2026): uma atividade JA materializada (sessionId
+  // presente) e' uma TrainingSession sintetica de verdade — renderiza atraves do MESMO card/
+  // formulario de sessao normal (reusa 100% o SessionPrescription/CompletionForm existente, em vez
+  // de criar um formulario "especial"). So' as ainda NAO materializadas (sessionId null) usam o
+  // card leve AlternativeActivityCard com o botao "Registrar feedback" que materializa primeiro.
+  // completion vem null quando hasFeedback=false (so' existe o stub criado na materializacao, sem
+  // nenhuma resposta real ainda) — assim o formulario abre "em branco" em vez de aparentar que o
+  // aluno ja' respondeu algo que na verdade nunca foi perguntado.
+  function synthesizeAlternativeSession(activity: AlternativeActivity): WeekPlanSession {
+    return {
+      id: activity.sessionId!,
+      day: weekdayAbbrevFromIso(activity.isoDate),
+      date: dateLabelFromIso(activity.isoDate),
+      isoDate: activity.isoDate,
+      title: activity.modality ? modalityLabel(activity.modality) : 'Atividade',
+      detail: '',
+      modality: activity.modality ?? 'outra',
+      zone: '',
+      durationMin: activity.durationMin,
+      distanceKm: activity.distanceKm,
+      structure: { type: 'extra', source: 'device', modality: activity.modality ?? 'outra' } as never,
+      notes: undefined,
+      routineMismatchNote: null,
+      completion: activity.hasFeedback ? activity.completion : null,
+      realized: null,
+      isAlternative: true,
+      alternativeProvider: activity.provider,
+    };
+  }
+
   // Atividade alternativa/pendente cai no grupo do dia correspondente — mesmo quando esse dia NAO
   // tem nenhuma prescricao (nao esconder atividade so por faltar TrainingSession, ver pedido).
   for (const activity of alternativeActivities) {
     const key = dateLabelFromIso(activity.isoDate);
     const group = dayGroups.find((item) => item.key === key);
+    if (activity.sessionId) {
+      const synthetic = synthesizeAlternativeSession(activity);
+      if (group) group.sessions.push(synthetic);
+      else dayGroups.push({ key, isoDate: activity.isoDate, day: synthetic.day, date: key, sessions: [synthetic], alternatives: [], pending: [] });
+      continue;
+    }
     if (group) group.alternatives.push(activity);
     else dayGroups.push({ key, isoDate: activity.isoDate, day: weekdayAbbrevFromIso(activity.isoDate), date: key, sessions: [], alternatives: [activity], pending: [] });
   }
@@ -5301,15 +5362,19 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                 // sessao foi realizada, independente de feedback subjetivo (completion) ter sido
                 // preenchido. "Sem registro" nunca se aplica quando ja existe atividade correspondente.
                 const hasRealized = Boolean(session.realized);
-                const isPastUnregistered = !session.completion && !hasRealized && sessionIsoDate < todayBR && sessionIsoDate !== '';
-                const cardStatusStyle =
-                  sessionStatus === 'done' || sessionStatus === 'adjusted' || (hasRealized && sessionStatus !== 'missed')
-                    ? { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }
-                    : sessionStatus === 'missed'
-                    ? { backgroundColor: '#fef2f2', borderColor: '#fecaca' }
-                    : isPastUnregistered
-                    ? { backgroundColor: '#fefce8', borderColor: '#fde047' }
-                    : {};
+                const isPastUnregistered = !session.isAlternative && !session.completion && !hasRealized && sessionIsoDate < todayBR && sessionIsoDate !== '';
+                // Atividade alternativa (Feedback de Atividade Alternativa, 02/10/2026) usa cor
+                // neutra, NUNCA vermelho/amarelo de "erro"/"nao feito" — e' so' uma classificacao
+                // objetiva, nao um veredito sobre o aluno.
+                const cardStatusStyle = session.isAlternative
+                  ? { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }
+                  : sessionStatus === 'done' || sessionStatus === 'adjusted' || (hasRealized && sessionStatus !== 'missed')
+                  ? { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }
+                  : sessionStatus === 'missed'
+                  ? { backgroundColor: '#fef2f2', borderColor: '#fecaca' }
+                  : isPastUnregistered
+                  ? { backgroundColor: '#fefce8', borderColor: '#fde047' }
+                  : {};
                 return (
                   <View style={[styles.weekSessionCard, cardStatusStyle]} key={session.id}>
                     <Pressable
@@ -5345,7 +5410,17 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                           );
                         })() : null}
                         <Text style={styles.sessionDetail}>{sessionExpanded ? 'Toque para recolher' : 'Toque para ver o treino'}</Text>
-                        {sessionStatus === 'missed' ? (
+                        {session.isAlternative ? (
+                          <>
+                            <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Atividade alternativa</Text>
+                            {session.completion ? (
+                              <Text style={styles.sessionStatusDone}>✓ Feedback registrado</Text>
+                            ) : (
+                              <Text style={{ fontSize: 12, color: '#1769AA', fontWeight: '600' }}>Registrar feedback</Text>
+                            )}
+                            <ProviderLabel provider={session.alternativeProvider ?? null} />
+                          </>
+                        ) : sessionStatus === 'missed' ? (
                           <Text style={styles.sessionStatusMissed}>✗ Não feito</Text>
                         ) : sessionStatus === 'done' || sessionStatus === 'adjusted' || hasRealized ? (
                           <Text style={styles.sessionStatusDone}>✓ Realizado</Text>
@@ -5394,14 +5469,18 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                           sleepAlreadyRegistered={!completionDrafts[session.id] && Boolean(sleepNightByDate[session.isoDate ?? ''])}
                           stressAlreadyRegistered={!completionDrafts[session.id] && Boolean(recentStressCheckin)}
                         />
-                        <RescheduleControl session={session} planStartDate={plan?.startDate} onReschedule={rescheduleSession} />
+                        {/* Reagendar nao faz sentido pra uma atividade alternativa: ela ja aconteceu
+                            numa data real do relogio/provedor, nao e uma prescricao a mover. */}
+                        {!session.isAlternative ? (
+                          <RescheduleControl session={session} planStartDate={plan?.startDate} onReschedule={rescheduleSession} />
+                        ) : null}
                       </View>
                     ) : null}
                   </View>
                 );
               })}
               {group.alternatives.map((activity) => (
-                <AlternativeActivityCard activity={activity} key={activity.activityLogId ?? activity.startedAt} />
+                <AlternativeActivityCard activity={activity} accessToken={accessToken} onMaterialized={loadPlan} key={activity.activityLogId ?? activity.startedAt} />
               ))}
               {group.pending.map((activity) => (
                 <PendingActivityCard activity={activity} accessToken={accessToken} onConfirmed={loadPlan} key={activity.activityLogId} />
@@ -9815,9 +9894,33 @@ function RealizedComparisonCard({
 
 // Atividade 'alternative' — nao corresponde a nenhuma prescricao aplicavel. Card independente,
 // mesmo padrao visual do SessionPrescription mas sem nenhuma referencia a "substituicao"/"extra".
-function AlternativeActivityCard({ activity }: { activity: AlternativeActivity }) {
+// So' recebe atividades AINDA NAO materializadas (sessionId null) — uma vez materializada, ela
+// passa a renderizar atraves do card/formulario de sessao normal (ver synthesizeAlternativeSession
+// em groupedSessions), entao este componente nunca precisa saber de feedback ja existente.
+function AlternativeActivityCard({ activity, accessToken, onMaterialized }: { activity: AlternativeActivity; accessToken: string; onMaterialized: () => void }) {
   const distanceKm = activity.distanceKm != null ? roundKm(activity.distanceKm) : null;
   const durationMin = activity.durationMin != null ? Math.round(activity.durationMin) : null;
+  const [submitting, setSubmitting] = React.useState(false);
+  const [error, setError] = React.useState('');
+
+  async function registerFeedback() {
+    if (!activity.activityLogId) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const response = await fetch(`${API_URL}/me/activity-reconciliation/${activity.activityLogId}/materialize`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) throw new Error();
+      onMaterialized();
+    } catch {
+      setError('Nao foi possivel agora. Tente novamente em instantes.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <View style={[styles.weekSessionCard, { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }]}>
       <View style={{ padding: 14, gap: 4 }}>
@@ -9830,6 +9933,10 @@ function AlternativeActivityCard({ activity }: { activity: AlternativeActivity }
           {[durationMin ? `${durationMin} min` : null, distanceKm ? `${distanceKm} km` : null].filter(Boolean).join(' · ')}
         </Text>
         <ProviderLabel provider={activity.provider} />
+        <Pressable style={[styles.secondaryOutlineButton, { marginTop: 8 }, submitting && styles.disabledButton]} disabled={submitting} onPress={registerFeedback}>
+          <Text style={styles.secondaryOutlineButtonText}>{submitting ? 'Abrindo...' : 'Registrar feedback'}</Text>
+        </Pressable>
+        {error ? <Text style={{ fontSize: 12, color: '#b91c1c' }}>{error}</Text> : null}
       </View>
     </View>
   );
@@ -10442,8 +10549,14 @@ function CompletionForm({
     if (!draft.preStressLevel) missingFieldLabels.push('nivel de estresse (pergunta 9)');
     if (!draft.preMotivation) missingFieldLabels.push('vontade de treinar antes de comecar (pergunta 10)');
     if (draft.status === 'done' && !draft.perceivedEffort) missingFieldLabels.push('esforco percebido - RPE (pergunta 11)');
-    if (!draft.satisfactionElaboracao) missingFieldLabels.push('avaliacao da elaboracao do treino (pergunta 12)');
-    if (!draft.executionBehavior) missingFieldLabels.push('execucao em relacao ao prescrito (pergunta 13)');
+    // Feedback de Atividade Alternativa (02/10/2026): "elaboracao do treino" se refere a' qualidade
+    // da prescricao do treinador, e "execucao em relacao ao prescrito" pressupoe uma prescricao —
+    // nenhuma das duas se aplica aqui (nao ha' prescricao nenhuma pra' esta atividade). Omitir
+    // nunca vira zero/"treino diferente" — o backend tambem forca essas colunas pra null neste caso.
+    if (!session.isAlternative) {
+      if (!draft.satisfactionElaboracao) missingFieldLabels.push('avaliacao da elaboracao do treino (pergunta 12)');
+      if (!draft.executionBehavior) missingFieldLabels.push('execucao em relacao ao prescrito (pergunta 13)');
+    }
     if (!draft.postPhysicalFatigue) missingFieldLabels.push('cansaco fisico causado pelo treino (pergunta 14)');
     if (!draft.postMentalFatigue) missingFieldLabels.push('cansaco mental causado pelo treino (pergunta 15)');
     if (!draft.emotionalExperienceDuring) missingFieldLabels.push('experiencia emocional durante o treino (pergunta 16)');
@@ -10764,20 +10877,28 @@ function CompletionForm({
                 <Text style={[styles.formHint, { marginBottom: 0 }]}>10 · Maximo</Text>
               </View>
 
-              <QuestionLabel n={12} total={17} />
-              <Text style={styles.formHint}>Como voce avalia a forma como este treino foi elaborado para voce?</Text>
-              <LabeledScale
-                value={String(satisfactionToNum(draft.satisfactionElaboracao) ?? '')}
-                onChange={(v) => onChange({ satisfactionElaboracao: numToSatisfaction(Number(v)) })}
-                options={ELABORATION_OPTIONS}
-                locked={locked}
-              />
+              {/* Feedback de Atividade Alternativa (02/10/2026): "elaboracao do treino" e' sobre a
+                  prescricao do treinador, e "execucao em relacao ao prescrito" pressupoe que existe
+                  uma prescricao — nenhuma das duas se aplica a uma atividade alternativa. Nunca
+                  preenchidas automaticamente (ver validacao acima e forcamento a null no backend). */}
+              {!session.isAlternative ? (
+                <>
+                  <QuestionLabel n={12} total={17} />
+                  <Text style={styles.formHint}>Como voce avalia a forma como este treino foi elaborado para voce?</Text>
+                  <LabeledScale
+                    value={String(satisfactionToNum(draft.satisfactionElaboracao) ?? '')}
+                    onChange={(v) => onChange({ satisfactionElaboracao: numToSatisfaction(Number(v)) })}
+                    options={ELABORATION_OPTIONS}
+                    locked={locked}
+                  />
 
-              {/* 01/10/2026 (2): substitui a pergunta quantitativa antiga (executionVsPrescribed) —
-                  categorias comportamentais, NAO escala ordinal. Ver OptionRows/EXECUTION_BEHAVIOR_OPTIONS. */}
-              <QuestionLabel n={13} total={17} />
-              <Text style={styles.formHint}>Em relacao ao treino prescrito, como foi sua execucao?</Text>
-              <OptionRows value={draft.executionBehavior} onChange={(v) => onChange({ executionBehavior: v })} options={EXECUTION_BEHAVIOR_OPTIONS} locked={locked} />
+                  {/* 01/10/2026 (2): substitui a pergunta quantitativa antiga (executionVsPrescribed) —
+                      categorias comportamentais, NAO escala ordinal. Ver OptionRows/EXECUTION_BEHAVIOR_OPTIONS. */}
+                  <QuestionLabel n={13} total={17} />
+                  <Text style={styles.formHint}>Em relacao ao treino prescrito, como foi sua execucao?</Text>
+                  <OptionRows value={draft.executionBehavior} onChange={(v) => onChange({ executionBehavior: v })} options={EXECUTION_BEHAVIOR_OPTIONS} locked={locked} />
+                </>
+              ) : null}
 
               <QuestionLabel n={14} total={17} />
               <Text style={styles.formHint}>Quanto este treino te cansou fisicamente?</Text>
@@ -11417,23 +11538,28 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
 function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
   const completion = session.completion;
   if (!completion) return defaultCompletionDraft(session);
+  // Cast via unknown: WorkoutCompletionPayload tem campos obrigatorios (status), entao TS exige
+  // essa dupla conversao explicita pra acessar via indice generico os poucos campos
+  // (adjustmentReasons/adjustmentComment/adjustmentPreferredActivity) que ainda nao foram
+  // promovidos ao tipo nomeado — mesmo padrao usado em outros pontos do arquivo.
+  const completionAsRecord = completion as unknown as Record<string, unknown>;
   return {
     status: completion.status,
     completedDate: completion.completedAt ? isoDateToInputValue(completion.completedAt) : todayDateInputValue(),
-    preSleepQuality: (completion as Record<string, unknown>).preSleepQuality != null ? String((completion as Record<string, unknown>).preSleepQuality) : '',
-    prePhysicalFatigue: (completion as Record<string, unknown>).prePhysicalFatigue != null ? String((completion as Record<string, unknown>).prePhysicalFatigue) : '',
-    preStressLevel: (completion as Record<string, unknown>).preStressLevel != null ? String((completion as Record<string, unknown>).preStressLevel) : '',
+    preSleepQuality: completionAsRecord.preSleepQuality != null ? String(completionAsRecord.preSleepQuality) : '',
+    prePhysicalFatigue: completionAsRecord.prePhysicalFatigue != null ? String(completionAsRecord.prePhysicalFatigue) : '',
+    preStressLevel: completionAsRecord.preStressLevel != null ? String(completionAsRecord.preStressLevel) : '',
     // stressEventFrequency nunca veio de completion (so existe em StressCheckin, 01/10/2026) —
     // sempre vazio aqui; preenchido via autoload (GET /workout-completions/stress-recent).
     stressEventFrequency: '',
-    preMotivation: (completion as Record<string, unknown>).preMotivation != null ? String((completion as Record<string, unknown>).preMotivation) : '',
+    preMotivation: completionAsRecord.preMotivation != null ? String(completionAsRecord.preMotivation) : '',
     perceivedEffort: completion.perceivedEffort ? String(completion.perceivedEffort) : '',
     satisfactionElaboracao: completion.satisfactionElaboracao ?? '',
     satisfactionCapacidade: completion.satisfactionCapacidade ?? '',
-    postWorkoutFeeling: (completion as Record<string, unknown>).postWorkoutFeeling != null ? String((completion as Record<string, unknown>).postWorkoutFeeling) : '',
-    postWorkoutMood: (completion as Record<string, unknown>).details != null && (completion.details as Record<string, unknown>)?.postWorkoutMood != null ? String((completion.details as Record<string, unknown>).postWorkoutMood) : '',
+    postWorkoutFeeling: completionAsRecord.postWorkoutFeeling != null ? String(completionAsRecord.postWorkoutFeeling) : '',
+    postWorkoutMood: completionAsRecord.details != null && (completion.details as Record<string, unknown> | undefined)?.postWorkoutMood != null ? String((completion.details as Record<string, unknown>).postWorkoutMood) : '',
     painFlag: completion.painFlag ?? '',
-    painTiming: (completion as Record<string, unknown>).painTiming != null ? String((completion as Record<string, unknown>).painTiming) : '',
+    painTiming: completionAsRecord.painTiming != null ? String(completionAsRecord.painTiming) : '',
     satisfaction: completion.satisfaction ?? '',
     satisfactionCarga: completion.satisfactionCarga ?? '',
     sleepDurationCategory: completion.sleepDurationCategory ?? '',
@@ -11461,9 +11587,9 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     walkingReasons: Array.isArray((completion.details as Record<string, unknown> | undefined)?.walkingReasons) ? (completion.details as Record<string, unknown>).walkingReasons as string[] : [],
     missedReasons: completion.details?.missedReasons ?? [],
     missedComment: completion.details?.missedComment ?? '',
-    adjustmentReasons: (completion as Record<string, unknown>).adjustmentReasons as string[] ?? [],
-    adjustmentComment: ((completion as Record<string, unknown>).adjustmentComment as string) ?? '',
-    adjustmentPreferredActivity: ((completion as Record<string, unknown>).adjustmentPreferredActivity as string) ?? '',
+    adjustmentReasons: completionAsRecord.adjustmentReasons as string[] ?? [],
+    adjustmentComment: (completionAsRecord.adjustmentComment as string) ?? '',
+    adjustmentPreferredActivity: (completionAsRecord.adjustmentPreferredActivity as string) ?? '',
     exerciseFeedback: completion.details?.exerciseFeedback ?? [],
   };
 }

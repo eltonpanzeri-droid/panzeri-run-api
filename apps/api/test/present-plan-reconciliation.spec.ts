@@ -269,4 +269,258 @@ describe('TrainingPlansService.presentPlan — Prescrito x Realizado', () => {
     expect(result.pendingActivities[0].candidates).toHaveLength(2);
     expect(result.pendingActivities[0].candidates[0]).toMatchObject({ linkId: 'link-1', sessionTitle: 'Corrida X' });
   });
+
+  it('sessao com completion real traz executionBehavior de volta (bug corrigido 02/10/2026 — campo faltava na resposta)', () => {
+    const service = buildService();
+    const plan = basePlan([
+      baseSession({
+        id: 'session-1',
+        completion: {
+          status: 'done',
+          completedAt: new Date('2026-10-01T10:00:00Z'),
+          durationMin: 45,
+          distanceKm: 8,
+          avgPaceSecondsKm: 337,
+          perceivedEffort: 7,
+          satisfaction: null,
+          satisfactionElaboracao: 'otima',
+          satisfactionCapacidade: null,
+          satisfactionCarga: null,
+          painFlag: 'none',
+          painTiming: null,
+          notes: null,
+          details: null,
+          preSleepQuality: 4,
+          prePhysicalFatigue: 2,
+          preStressLevel: 2,
+          preMotivation: 4,
+          postWorkoutFeeling: null,
+          sleepDurationCategory: '7_a_8h',
+          sleepScheduleIrregularity: null,
+          sleepInterruption: 2,
+          sleepDifficulty: 1,
+          preMentalFatigue: 2,
+          executionVsPrescribed: null,
+          executionBehavior: 'as_planned',
+          postPhysicalFatigue: 2,
+          postMentalFatigue: 2,
+          emotionalExperienceDuring: 4,
+          mentalStateChangePrePost: 4,
+          feedbackVersion: 3,
+          avgHeartRate: null,
+          maxHeartRate: null,
+        },
+      }),
+    ]);
+
+    const result = service['presentPlan'](plan, true, true, emptyReconciliation());
+
+    expect(result.sessions[0].completion?.executionBehavior).toBe('as_planned');
+  });
+
+  it('Feedback de Atividade Alternativa: device_extra com feedback real (perceivedEffort preenchido) -> hasFeedback true, completion exposto', () => {
+    const service = buildService();
+    const deviceExtraSession = baseSession({
+      id: 'synthetic-1',
+      origin: 'device_extra',
+      modality: 'bike',
+      structure: { type: 'extra', source: 'device', provider: 'polar', modality: 'bike', activityLogId: 'activity-2' },
+      completion: {
+        status: 'done',
+        completedAt: new Date('2026-10-02T09:00:00Z'),
+        durationMin: 90,
+        distanceKm: 42,
+        avgPaceSecondsKm: null,
+        perceivedEffort: 8,
+        satisfaction: null,
+        satisfactionElaboracao: null,
+        satisfactionCapacidade: null,
+        satisfactionCarga: null,
+        painFlag: 'none',
+        painTiming: null,
+        notes: 'pedalei tranquilo',
+        details: null,
+        preSleepQuality: null,
+        prePhysicalFatigue: null,
+        preStressLevel: null,
+        preMotivation: null,
+        postWorkoutFeeling: null,
+        sleepDurationCategory: null,
+        sleepScheduleIrregularity: null,
+        sleepInterruption: null,
+        sleepDifficulty: null,
+        preMentalFatigue: null,
+        executionVsPrescribed: null,
+        executionBehavior: null,
+        postPhysicalFatigue: 2,
+        postMentalFatigue: 2,
+        emotionalExperienceDuring: 4,
+        mentalStateChangePrePost: 4,
+        feedbackVersion: 3,
+        avgHeartRate: 140,
+        maxHeartRate: 160,
+      },
+    });
+    const plan = basePlan([deviceExtraSession]);
+
+    const result = service['presentPlan'](plan, true, true, emptyReconciliation());
+
+    expect(result.alternativeActivities).toHaveLength(1);
+    expect(result.alternativeActivities[0]).toMatchObject({ sessionId: 'synthetic-1', hasFeedback: true });
+    expect((result.alternativeActivities[0] as any).completion).toMatchObject({ perceivedEffort: 8, notes: 'pedalei tranquilo', executionBehavior: null });
+  });
+
+  it('Feedback de Atividade Alternativa: device_extra SEM feedback real (so o stub da materializacao) -> hasFeedback false', () => {
+    const service = buildService();
+    const deviceExtraSession = baseSession({
+      id: 'synthetic-1',
+      origin: 'device_extra',
+      modality: 'bike',
+      structure: { type: 'extra', source: 'device', provider: 'polar', modality: 'bike', activityLogId: 'activity-2' },
+      completion: {
+        status: 'done',
+        completedAt: new Date('2026-10-02T09:00:00Z'),
+        durationMin: 90,
+        distanceKm: 42,
+        avgPaceSecondsKm: null,
+        perceivedEffort: null,
+        satisfaction: null,
+        satisfactionElaboracao: null,
+        satisfactionCapacidade: null,
+        satisfactionCarga: null,
+        painFlag: null,
+        painTiming: null,
+        notes: null,
+        details: null,
+        preSleepQuality: null,
+        prePhysicalFatigue: null,
+        preStressLevel: null,
+        preMotivation: null,
+        postWorkoutFeeling: null,
+        sleepDurationCategory: null,
+        sleepScheduleIrregularity: null,
+        sleepInterruption: null,
+        sleepDifficulty: null,
+        preMentalFatigue: null,
+        executionVsPrescribed: null,
+        executionBehavior: null,
+        postPhysicalFatigue: null,
+        postMentalFatigue: null,
+        emotionalExperienceDuring: null,
+        mentalStateChangePrePost: null,
+        feedbackVersion: 1,
+        avgHeartRate: 140,
+        maxHeartRate: 160,
+      },
+    });
+    const plan = basePlan([deviceExtraSession]);
+
+    const result = service['presentPlan'](plan, true, true, emptyReconciliation());
+
+    expect(result.alternativeActivities[0]).toMatchObject({ sessionId: 'synthetic-1', hasFeedback: false });
+  });
+
+  it('atividade ainda nao materializada: sessionId null, hasFeedback false, completion null (so pode registrar feedback depois de materializar)', () => {
+    const service = buildService();
+    const plan = basePlan([baseSession({ id: 'session-1' })]);
+    const reconciliation: WeekReconciliation = {
+      activeLinkBySessionId: new Map(),
+      alternativeActivities: [
+        {
+          id: 'activity-3',
+          provider: 'polar',
+          isoDate: '2026-10-03',
+          startedAt: new Date('2026-10-03T08:00:00Z'),
+          distanceMeters: null,
+          durationSec: 4800,
+          avgPaceSecondsKm: null,
+          avgHeartRateBpm: null,
+          maxHeartRateBpm: null,
+        },
+      ],
+      pendingActivities: [],
+    };
+
+    const result = service['presentPlan'](plan, true, true, reconciliation);
+
+    expect(result.alternativeActivities[0]).toMatchObject({ sessionId: null, hasFeedback: false, completion: null });
+  });
+
+  it('cenario K: atividade alternativa materializada que foi DEPOIS vinculada (active) a uma prescricao real nao aparece mais como alternativa orfa', () => {
+    const service = buildService();
+    const realSession = baseSession({ id: 'session-real', modality: 'corrida' });
+    const deviceExtraSession = baseSession({
+      id: 'synthetic-1',
+      origin: 'device_extra',
+      modality: 'corrida',
+      structure: { type: 'extra', source: 'device', provider: 'polar', modality: 'corrida', activityLogId: 'activity-corrigida' },
+      completion: {
+        status: 'done',
+        completedAt: new Date('2026-10-01T10:00:00Z'),
+        durationMin: 45,
+        distanceKm: 8,
+        avgPaceSecondsKm: null,
+        perceivedEffort: 7,
+        satisfaction: null,
+        satisfactionElaboracao: null,
+        satisfactionCapacidade: null,
+        satisfactionCarga: null,
+        painFlag: 'none',
+        painTiming: null,
+        notes: null,
+        details: null,
+        preSleepQuality: null,
+        prePhysicalFatigue: null,
+        preStressLevel: null,
+        preMotivation: null,
+        postWorkoutFeeling: null,
+        sleepDurationCategory: null,
+        sleepScheduleIrregularity: null,
+        sleepInterruption: null,
+        sleepDifficulty: null,
+        preMentalFatigue: null,
+        executionVsPrescribed: null,
+        executionBehavior: null,
+        postPhysicalFatigue: null,
+        postMentalFatigue: null,
+        emotionalExperienceDuring: null,
+        mentalStateChangePrePost: null,
+        feedbackVersion: 1,
+        avgHeartRate: null,
+        maxHeartRate: null,
+      },
+    });
+    const plan = basePlan([realSession, deviceExtraSession]);
+    // A mesma ActivityLog ('activity-corrigida') foi depois corrigida/vinculada a 'session-real'.
+    const reconciliation: WeekReconciliation = {
+      activeLinkBySessionId: new Map([
+        [
+          'session-real',
+          {
+            matchMethod: 'manual',
+            activityLog: {
+              id: 'activity-corrigida',
+              provider: 'polar',
+              startedAt: new Date('2026-10-01T10:00:00Z'),
+              isoDate: '2026-10-01',
+              distanceMeters: 8000,
+              durationSec: 2700,
+              avgPaceSecondsKm: 337,
+              avgHeartRateBpm: null,
+              maxHeartRateBpm: null,
+            },
+          },
+        ],
+      ]),
+      alternativeActivities: [],
+      pendingActivities: [],
+    };
+
+    const result = service['presentPlan'](plan, true, true, reconciliation);
+
+    expect(result.sessions.find((s: any) => s.id === 'session-real')?.realized?.activityLogId).toBe('activity-corrigida');
+    // A sessao sintetica orfa NAO aparece mais como alternativa (evita duplicidade/contradicao) —
+    // o feedback que ela guardava continua no banco, so nao e' mais exibido aqui.
+    expect(result.alternativeActivities.find((a: any) => a.sessionId === 'synthetic-1')).toBeUndefined();
+  });
 });

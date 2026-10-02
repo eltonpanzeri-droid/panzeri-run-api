@@ -177,7 +177,13 @@ function fixture() {
     return [...sessionExecutionLinks.values()].filter((l) => l.activityLogId === activityId && l.status === 'candidate');
   }
 
-  return { service, prisma, activityLogs, trainingSessions, sessionExecutionLinks, workoutCompletions, addActivity, addSession, addCompletion, candidatesFor };
+  function addPlan(overrides: Partial<any> = {}) {
+    const row = { id: nextId('plan'), userId: 'user-a', status: 'active', createdAt: new Date(), ...overrides };
+    trainingPlans.set(row.id, row);
+    return row;
+  }
+
+  return { service, prisma, activityLogs, trainingSessions, sessionExecutionLinks, workoutCompletions, addActivity, addSession, addCompletion, addPlan, candidatesFor };
 }
 
 function evidenceItem(evidence: EvidenceItem[] | null | undefined, criterion: EvidenceItem['criterion']) {
@@ -487,5 +493,29 @@ describe('Motor de Reconciliacao Prescricao x Execucao V1', () => {
     const chosen = candidatesFor(activity.id).find((c) => c.trainingSessionId === sessionA.id)!;
 
     await expect(service.confirmCandidateAsStudent('user-outro', chosen.id)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('materializeExtraActivityAsStudent (Feedback de Atividade Alternativa): materializa quando a atividade pertence ao proprio aluno', async () => {
+    const { service, addActivity, addPlan } = fixture();
+    addPlan();
+    const activity = addActivity({ sport: 'bike', userId: 'user-a', executionClassification: 'alternative' });
+
+    const result = await service.materializeExtraActivityAsStudent('user-a', activity.id);
+
+    expect(result).not.toBeNull();
+    expect(result!.session).toMatchObject({ origin: 'device_extra', modality: 'bike' });
+  });
+
+  it('materializeExtraActivityAsStudent rejeita (NotFoundException) quando a ActivityLog pertence a OUTRO aluno (protecao contra IDOR)', async () => {
+    const { service, addActivity, addPlan } = fixture();
+    addPlan();
+    const activity = addActivity({ sport: 'bike', userId: 'user-a', executionClassification: 'alternative' });
+
+    await expect(service.materializeExtraActivityAsStudent('user-outro', activity.id)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('materializeExtraActivityAsStudent lanca NotFoundException para activityLogId inexistente', async () => {
+    const { service } = fixture();
+    await expect(service.materializeExtraActivityAsStudent('user-a', 'nope')).rejects.toBeInstanceOf(NotFoundException);
   });
 });
