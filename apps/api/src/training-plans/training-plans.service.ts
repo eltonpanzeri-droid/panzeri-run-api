@@ -2168,7 +2168,14 @@ export class TrainingPlansService {
       const completionStatus = (s.completion?.status ?? null) as 'done' | 'adjusted' | 'missed' | null;
       const completedDistanceKm = s.completion?.distanceKm ?? null;
       const structureObj = s.structure as Record<string, unknown> | null;
-      const isExtra = structureObj?.['source'] === 'student' && structureObj?.['type'] === 'extra';
+      // isExtra = "nao e' prescricao normal do treinador" — cobre tanto 'student_extra'
+      // (structure.source='student', treino extra digitado pelo aluno) quanto 'device_extra'
+      // (structure.source='device', sessao sintetica materializada por
+      // SessionExecutionLinkService.materializeExtraActivity a partir de uma atividade
+      // 'alternative' do Motor de Reconciliacao). Corrigido 02/10/2026: antes so' reconhecia
+      // 'student', entao uma sessao 'device_extra' aparecia no calendario como se fosse prescricao
+      // real do treinador — mesma sessao que presentPlan() ja exclui corretamente de `sessions`.
+      const isExtra = structureObj?.['type'] === 'extra';
       if (completionStatus === 'done' || completionStatus === 'adjusted') {
         week.totalKmDone += completedDistanceKm ?? 0;
       }
