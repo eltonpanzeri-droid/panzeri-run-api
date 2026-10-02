@@ -171,7 +171,7 @@ describe('SessionExecutionLinkService', () => {
 
     const result = await service.classify(activity.id);
 
-    expect(result).toBe('linked');
+    expect(result).toBe('corresponding');
     expect(await service.hasActiveLink(session.id)).toBe(true);
     const link = [...sessionExecutionLinks.values()][0];
     expect(link).toMatchObject({ trainingSessionId: session.id, activityLogId: activity.id, status: 'active', origin: 'automatic' });
@@ -184,7 +184,7 @@ describe('SessionExecutionLinkService', () => {
 
     const result = await service.classify(ciclismo.id);
 
-    expect(result).toBe('extra');
+    expect(result).toBe('alternative');
     expect(await service.hasActiveLink(corridaSession.id)).toBe(false); // corrida continua sem execucao
   });
 
@@ -194,8 +194,8 @@ describe('SessionExecutionLinkService', () => {
     const corrida = addActivity({ sport: 'corrida' });
     const ciclismo = addActivity({ sport: 'bike' });
 
-    expect(await service.classify(corrida.id)).toBe('linked');
-    expect(await service.classify(ciclismo.id)).toBe('extra');
+    expect(await service.classify(corrida.id)).toBe('corresponding');
+    expect(await service.classify(ciclismo.id)).toBe('alternative');
     expect(await service.hasActiveLink(corridaSession.id)).toBe(true);
   });
 
@@ -223,7 +223,7 @@ describe('SessionExecutionLinkService', () => {
     addPlan();
     const activity = addActivity({ sport: 'bike', distanceMeters: 42000, durationSec: 5400 });
 
-    expect(await service.classify(activity.id)).toBe('extra');
+    expect(await service.classify(activity.id)).toBe('alternative');
     const materialized = await service.materializeExtraActivity(activity.id);
 
     expect(materialized).not.toBeNull();
@@ -255,7 +255,7 @@ describe('SessionExecutionLinkService', () => {
     // Nenhuma segunda TrainingSession foi criada pra acomodar o dado do relogio.
     expect(trainingSessions.size).toBe(1);
     const refreshedActivity = (await service['prisma'].activityLog.findUnique({ where: { id: deviceActivity.id } })) as any;
-    expect(refreshedActivity.executionClassification).toBe('linked');
+    expect(refreshedActivity.executionClassification).toBe('corresponding');
   });
 
   it('mesma atividade fisica chegando por dois providers (ex.: Polar + Garmin): ambas podem ficar vinculadas a mesma sessao sem contar duas execucoes', async () => {
@@ -303,7 +303,7 @@ describe('SessionExecutionLinkService', () => {
 
     expect(await service.hasActiveLink(session.id)).toBe(false);
     const refreshed = (await service['prisma'].activityLog.findUnique({ where: { id: activity.id } })) as any;
-    expect(refreshed.executionClassification).toBe('extra');
+    expect(refreshed.executionClassification).toBe('alternative');
     expect(refreshed.executionClassifiedBy).toBe('student');
   });
 
@@ -338,15 +338,15 @@ describe('SessionExecutionLinkService', () => {
     await expect(service.linkManually({ trainingSessionId: session.id, activityLogId: activity.id, origin: 'coach' })).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('materializeExtraActivity rejeita atividade que nao foi classificada como extra', async () => {
+  it('materializeExtraActivity rejeita atividade que nao foi classificada como alternative', async () => {
     const { service, addActivity } = fixture();
-    const activity = addActivity({ executionClassification: 'linked' });
+    const activity = addActivity({ executionClassification: 'corresponding' });
     await expect(service.materializeExtraActivity(activity.id)).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('materializeExtraActivity sem plano ativo retorna null (nao lanca, nao quebra a classificacao extra)', async () => {
+  it('materializeExtraActivity sem plano ativo retorna null (nao lanca, nao quebra a classificacao alternative)', async () => {
     const { service, addActivity } = fixture();
-    const activity = addActivity({ sport: 'bike', executionClassification: 'extra' });
+    const activity = addActivity({ sport: 'bike', executionClassification: 'alternative' });
     const result = await service.materializeExtraActivity(activity.id);
     expect(result).toBeNull();
   });

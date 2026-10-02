@@ -1271,19 +1271,23 @@ model ActivityLog {
   providerMetrics     Json?
 
   // Fundacao Prescricao x Execucao (01/10/2026) — ver SessionExecutionLink abaixo. Denormalizado
-  // aqui (em vez de so' derivar de "existe link ativo?") porque "extra" e "ainda nao processado"
-  // sao estados DIFERENTES e nenhum dos dois tem uma linha de link: sem este campo nao daria pra
-  // distinguir "ja' decidimos que e' extra" de "ninguem olhou pra isso ainda". Mantido consistente
-  // pelo SessionExecutionLinkService, nunca escrito direto por outro lugar.
-  // Valores: null (nao processado ainda) | 'linked' (tem SessionExecutionLink ativo) |
-  // 'extra' (decidido que nao corresponde a nenhuma prescricao) | 'ambiguous' (candidato(s)
-  // existem mas sem evidencia inequivoca — aguarda resolucao, nunca vira 'linked' sozinho).
+  // aqui (em vez de so' derivar de "existe link ativo?") porque "alternative" e "ainda nao
+  // processado" sao estados DIFERENTES e nenhum dos dois tem uma linha de link: sem este campo nao
+  // daria pra distinguir "ja' decidimos que e' alternative" de "ninguem olhou pra isso ainda".
+  // Mantido consistente pelo SessionExecutionLinkService, nunca escrito direto por outro lugar.
+  // Valores (correcao 02/10/2026 — ver cabecalho de session-execution-link.service.ts pro modelo
+  // mental completo): null (nao processado ainda) | 'corresponding' (atividade corresponde a uma
+  // prescricao, tem SessionExecutionLink ativo — NAO exige execucao perfeita) | 'alternative'
+  // (atividade realizada sem nenhuma prescricao aplicavel — classificacao objetiva, nunca
+  // "substituicao"/"erro"/"nao aderencia intencional") | 'ambiguous' (candidato(s) existem mas sem
+  // evidencia suficiente — aguarda resolucao, nunca vira 'corresponding' sozinho).
   executionClassification String?
   executionClassifiedAt   DateTime?
-  // Quem/o que tomou a decisao ATUAL de classificacao (nao apenas de um link — 'extra' tambem e'
-  // uma decisao com proveniencia, mesmo sem linha de SessionExecutionLink). 'automatic' | 'student'
-  // | 'coach'. Historico de decisoes anteriores fica nas linhas revogadas de SessionExecutionLink
-  // quando existirem; para uma 'extra' que nunca teve link, esta coluna e' a unica proveniencia.
+  // Quem/o que tomou a decisao ATUAL de classificacao (nao apenas de um link — 'alternative'
+  // tambem e' uma decisao com proveniencia, mesmo sem linha de SessionExecutionLink). 'automatic' |
+  // 'student' | 'coach'. Historico de decisoes anteriores fica nas linhas revogadas de
+  // SessionExecutionLink quando existirem; para uma 'alternative' que nunca teve link, esta coluna
+  // e' a unica proveniencia.
   executionClassifiedBy   String?
 
   executionLinks SessionExecutionLink[]
@@ -1349,13 +1353,17 @@ model SessionExecutionLink {
   confidence String?
   note       String?
 
-  // Motor de Reconciliacao V1 (02/10/2026) — explicabilidade da decisao. matchMethod identifica O
-  // ALGORITMO/CAMINHO que gerou esta linha (ex.: 'automatic_single_candidate',
-  // 'automatic_multi_candidate', 'automatic_single_candidate_weak_evidence', 'manual'); evidence e'
+  // Motor de Reconciliacao V1 (02/10/2026, corrigido no mesmo dia — ver cabecalho de
+  // session-execution-link.service.ts). matchMethod identifica O ALGORITMO/CAMINHO que gerou esta
+  // linha ('automatic_single_candidate', 'automatic_multi_candidate',
+  // 'automatic_multi_candidate_disambiguated', 'automatic_rival_activity', 'manual'); evidence e'
   // a LISTA de criterios canonicos avaliados e seu resultado (ex.: [{criterion:'same_athlete',
   // matched:true}, {criterion:'compatible_modality',matched:true}, {criterion:'distance_compatible',
   // matched:null}] — matched:null significa dado ausente, NUNCA incompatibilidade). Nunca um score
-  // numerico unico fabricado — a lista de criterios E' a explicacao, nao um resumo dela.
+  // numerico unico fabricado — a lista de criterios E' a explicacao, nao um resumo dela. IMPORTANTE:
+  // evidence explica a decisao, nunca a VETA — um vinculo 'active' pode perfeitamente ter
+  // distance_compatible/duration_compatible = false (treino executado diferente do prescrito,
+  // o que e' CARACTERISTICA DA EXECUCAO, nao motivo pra recusar a correspondencia).
   matchMethod String?
   evidence    Json?
 
@@ -1364,7 +1372,7 @@ model SessionExecutionLink {
 
   // Auto-relacao: a linha revogada aponta pra' linha que a substituiu (quando a correcao CRIA um
   // vinculo novo, em vez de so' remover). supersededByLinkId fica null quando a revogacao nao gerou
-  // substituicao (ex.: virou 'extra', sem vinculo nenhum).
+  // substituicao (ex.: virou 'alternative', sem vinculo nenhum).
   supersededByLinkId String?               @unique
   supersededByLink   SessionExecutionLink? @relation("LinkSupersession", fields: [supersededByLinkId], references: [id])
   supersedes         SessionExecutionLink? @relation("LinkSupersession")

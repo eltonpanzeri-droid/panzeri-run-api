@@ -185,40 +185,51 @@ function evidenceItem(evidence: EvidenceItem[] | null | undefined, criterion: Ev
 }
 
 describe('Motor de Reconciliacao Prescricao x Execucao V1', () => {
-  it('1. corrida prescrita + corrida claramente correspondente -> linked com evidencia explicita', async () => {
+  it('1. corrida prescrita + corrida claramente correspondente -> corresponding com evidencia explicita', async () => {
     const { service, addActivity, addSession, sessionExecutionLinks } = fixture();
     const session = addSession({ modality: 'corrida', distanceKm: 8, durationMin: 45 });
     const activity = addActivity({ sport: 'corrida', distanceMeters: 8000, durationSec: 2700 });
 
     const result = await service.classify(activity.id);
 
-    expect(result).toBe('linked');
+    expect(result).toBe('corresponding');
     const link = [...sessionExecutionLinks.values()].find((l) => l.status === 'active');
     expect(link.matchMethod).toBe('automatic_single_candidate');
     expect(evidenceItem(link.evidence, 'compatible_modality')?.matched).toBe(true);
     expect(evidenceItem(link.evidence, 'distance_compatible')?.matched).toBe(true);
   });
 
-  it('2. corrida prescrita + ciclismo: ciclismo vira extra-candidata, corrida nunca e marcada como substituida/executada', async () => {
+  it('5/7. corrida prescrita + ciclismo: ciclismo vira alternative, corrida permanece sem execucao correspondente identificada', async () => {
     const { service, addActivity, addSession } = fixture();
     const corridaSession = addSession({ modality: 'corrida' });
     const ciclismo = addActivity({ sport: 'bike' });
 
     const result = await service.classify(ciclismo.id);
 
-    expect(result).toBe('extra');
+    expect(result).toBe('alternative');
     expect(await service.hasActiveLink(corridaSession.id)).toBe(false);
   });
 
-  it('3. corrida prescrita + musculacao: incompativel, vira extra-candidata, corrida continua sem execucao', async () => {
+  it('corrida prescrita + musculacao: incompativel, vira alternative, corrida continua sem execucao', async () => {
     const { service, addActivity, addSession } = fixture();
     const corridaSession = addSession({ modality: 'corrida' });
     const musculacao = addActivity({ sport: 'forca' });
 
     const result = await service.classify(musculacao.id);
 
-    expect(result).toBe('extra');
+    expect(result).toBe('alternative');
     expect(await service.hasActiveLink(corridaSession.id)).toBe(false);
+  });
+
+  it('6/8. corrida prescrita + corrida correspondente + ciclismo: corrida corresponding, ciclismo alternative, nenhuma suposicao de substituicao', async () => {
+    const { service, addActivity, addSession } = fixture();
+    const corridaSession = addSession({ modality: 'corrida' });
+    const corrida = addActivity({ sport: 'corrida' });
+    const ciclismo = addActivity({ sport: 'bike' });
+
+    expect(await service.classify(corrida.id)).toBe('corresponding');
+    expect(await service.classify(ciclismo.id)).toBe('alternative');
+    expect(await service.hasActiveLink(corridaSession.id)).toBe(true);
   });
 
   it('4. corrida prescrita + duas corridas plausiveis no mesmo dia: nenhuma vinculada sozinha, candidata registrada pro par em disputa', async () => {
@@ -237,7 +248,7 @@ describe('Motor de Reconciliacao Prescricao x Execucao V1', () => {
     expect(candidatesA[0].trainingSessionId).toBe(session.id);
   });
 
-  it('5. duas corridas prescritas + uma atividade plausivel pra ambas: cria uma candidata por sessao plausivel', async () => {
+  it('7. duas corridas prescritas + uma corrida sem evidencia suficiente pra distinguir: ambiguous, candidata por sessao plausivel', async () => {
     const { service, addActivity, addSession, candidatesFor } = fixture();
     const sessionA = addSession({ modality: 'corrida' });
     const sessionB = addSession({ modality: 'corrida' });
@@ -254,76 +265,92 @@ describe('Motor de Reconciliacao Prescricao x Execucao V1', () => {
     expect(await service.hasActiveLink(sessionB.id)).toBe(false);
   });
 
-  it('6. atividade em dia sem nenhuma prescricao: extra, nenhuma candidata criada', async () => {
-    const { service, addActivity, candidatesFor } = fixture();
-    const activity = addActivity({ sport: 'corrida' });
+  it('8. duas prescricoes plausiveis + evidencia de execucao distingue uma delas: associa direto, sem pedir confirmacao', async () => {
+    const { service, addActivity, addSession, sessionExecutionLinks, candidatesFor } = fixture();
+    const sessionCompatible = addSession({ modality: 'corrida', distanceKm: 8, durationMin: 45 });
+    const sessionIncompatible = addSession({ modality: 'corrida', distanceKm: 3, durationMin: 15 });
+    // Distancia/duracao batem com sessionCompatible e destoam claramente de sessionIncompatible.
+    const activity = addActivity({ sport: 'corrida', distanceMeters: 8000, durationSec: 2700 });
 
-    expect(await service.classify(activity.id)).toBe('extra');
+    const result = await service.classify(activity.id);
+
+    expect(result).toBe('corresponding');
+    expect(await service.hasActiveLink(sessionCompatible.id)).toBe(true);
+    expect(await service.hasActiveLink(sessionIncompatible.id)).toBe(false);
+    const link = [...sessionExecutionLinks.values()].find((l) => l.status === 'active');
+    expect(link.matchMethod).toBe('automatic_multi_candidate_disambiguated');
     expect(candidatesFor(activity.id)).toHaveLength(0);
   });
 
-  it('7. atividade em horario diferente do previsto, mesmo dia: ainda vincula (motor compara DIA, nunca horario especifico)', async () => {
+  it('atividade em dia sem nenhuma prescricao: alternative, nenhuma candidata criada', async () => {
+    const { service, addActivity, candidatesFor } = fixture();
+    const activity = addActivity({ sport: 'corrida' });
+
+    expect(await service.classify(activity.id)).toBe('alternative');
+    expect(candidatesFor(activity.id)).toHaveLength(0);
+  });
+
+  it('atividade em horario diferente do previsto, mesmo dia: ainda corresponde (motor compara DIA, nunca horario especifico)', async () => {
     const { service, addActivity, addSession } = fixture();
     const session = addSession({ modality: 'corrida', scheduledDate: new Date('2026-10-01T00:00:00.000Z') });
     // Atividade registrada a noite (20h local, offset -180) no MESMO dia local da sessao.
     const activity = addActivity({ sport: 'corrida', startedAt: new Date('2026-10-01T23:00:00Z'), utcOffsetMinutes: -180 });
 
-    expect(await service.classify(activity.id)).toBe('linked');
+    expect(await service.classify(activity.id)).toBe('corresponding');
     expect(await service.hasActiveLink(session.id)).toBe(true);
   });
 
-  it('8. atividade realizada em outro dia proximo (dia seguinte): nao corresponde a sessao do dia anterior', async () => {
+  it('atividade realizada em outro dia proximo (dia seguinte): nao corresponde a sessao do dia anterior', async () => {
     const { service, addActivity, addSession } = fixture();
     const session = addSession({ modality: 'corrida', scheduledDate: new Date('2026-10-01T00:00:00.000Z') });
     const activity = addActivity({ sport: 'corrida', startedAt: new Date('2026-10-02T10:00:00Z'), utcOffsetMinutes: -180 });
 
-    expect(await service.classify(activity.id)).toBe('extra');
+    expect(await service.classify(activity.id)).toBe('alternative');
     expect(await service.hasActiveLink(session.id)).toBe(false);
   });
 
-  it('9. execucao parcial (duracao bem menor que a prescrita): unico candidato mas evidencia insuficiente -> ambiguous com candidata registrada', async () => {
-    const { service, addActivity, addSession, candidatesFor } = fixture();
+  it('9/11. execucao parcial (duracao bem menor que a prescrita): unico candidato -> corresponding; diferenca fica registrada so como evidencia, nunca veta', async () => {
+    const { service, addActivity, addSession, sessionExecutionLinks } = fixture();
     const session = addSession({ modality: 'corrida', distanceKm: 10, durationMin: 60 });
-    // 12 minutos reais vs 60 prescritos — fora de qualquer tolerancia razoavel.
+    // 12 minutos reais vs 60 prescritos (treino interrompido) — unico candidato do dia.
     const activity = addActivity({ sport: 'corrida', distanceMeters: 2000, durationSec: 720 });
 
     const result = await service.classify(activity.id);
 
-    expect(result).toBe('ambiguous');
-    expect(await service.hasActiveLink(session.id)).toBe(false);
-    const candidates = candidatesFor(activity.id);
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0].matchMethod).toBe('automatic_single_candidate_weak_evidence');
-    expect(evidenceItem(candidates[0].evidence, 'duration_compatible')?.matched).toBe(false);
-    expect(evidenceItem(candidates[0].evidence, 'distance_compatible')?.matched).toBe(false);
+    expect(result).toBe('corresponding');
+    expect(await service.hasActiveLink(session.id)).toBe(true);
+    const link = [...sessionExecutionLinks.values()].find((l) => l.status === 'active');
+    // A divergencia fica registrada como EVIDENCIA (explicacao), nao como motivo de recusa.
+    expect(evidenceItem(link.evidence, 'duration_compatible')?.matched).toBe(false);
+    expect(evidenceItem(link.evidence, 'distance_compatible')?.matched).toBe(false);
   });
 
-  it('10. distancia/duracao diferentes da prescricao (fora de tolerancia): mesmo comportamento do caso 9, nunca vincula com confianca automatica', async () => {
-    const { service, addActivity, addSession, candidatesFor } = fixture();
+  it('10. distancia/duracao diferentes da prescricao, unico candidato plausivel: diferenca isolada nao veta correspondencia', async () => {
+    const { service, addActivity, addSession, sessionExecutionLinks } = fixture();
     const session = addSession({ modality: 'corrida', distanceKm: 5, durationMin: 30 });
     // Distancia quase o dobro da prescrita.
     const activity = addActivity({ sport: 'corrida', distanceMeters: 9500, durationSec: 1800 });
 
     const result = await service.classify(activity.id);
 
-    expect(result).toBe('ambiguous');
-    const candidates = candidatesFor(activity.id);
-    expect(candidates).toHaveLength(1);
-    expect(evidenceItem(candidates[0].evidence, 'distance_compatible')?.matched).toBe(false);
+    expect(result).toBe('corresponding');
+    expect(await service.hasActiveLink(session.id)).toBe(true);
+    const link = [...sessionExecutionLinks.values()].find((l) => l.status === 'active');
+    expect(evidenceItem(link.evidence, 'distance_compatible')?.matched).toBe(false);
   });
 
-  it('11. atividade ja vinculada: classify() e idempotente, nao recria nem duplica vinculos', async () => {
+  it('atividade ja vinculada: classify() e idempotente, nao recria nem duplica vinculos', async () => {
     const { service, addActivity, addSession, sessionExecutionLinks } = fixture();
     addSession({ modality: 'corrida' });
     const activity = addActivity({ sport: 'corrida' });
 
-    expect(await service.classify(activity.id)).toBe('linked');
+    expect(await service.classify(activity.id)).toBe('corresponding');
     const countAfterFirst = sessionExecutionLinks.size;
-    expect(await service.classify(activity.id)).toBe('linked');
+    expect(await service.classify(activity.id)).toBe('corresponding');
     expect(sessionExecutionLinks.size).toBe(countAfterFirst);
   });
 
-  it('11b. sessao ja vinculada a OUTRA atividade: nova atividade compativel fica ambigua (possivel duplicata/continuacao), nunca extra automatico', async () => {
+  it('18. sessao ja vinculada a OUTRA atividade: nova atividade compativel fica ambigua (possivel duplicata/continuacao/fragmentacao), nunca decide sozinho', async () => {
     const { service, addActivity, addSession } = fixture();
     const session = addSession({ modality: 'corrida' });
     const first = addActivity({ sport: 'corrida', startedAt: new Date('2026-10-01T07:00:00Z') });
@@ -335,7 +362,7 @@ describe('Motor de Reconciliacao Prescricao x Execucao V1', () => {
     expect(await service.classify(second.id)).toBe('ambiguous');
   });
 
-  it('12. vinculo anteriormente corrigido/revogado pelo aluno: classify() nunca reexecuta nem ressuscita decisao', async () => {
+  it('16. vinculo anteriormente corrigido/revogado pelo aluno: classify() nunca reexecuta nem ressuscita decisao, historico preservado', async () => {
     const { service, addActivity, addSession } = fixture();
     const session = addSession({ modality: 'corrida' });
     const activity = addActivity({ sport: 'corrida' });
@@ -351,6 +378,16 @@ describe('Motor de Reconciliacao Prescricao x Execucao V1', () => {
     expect(await service.hasActiveLink(session.id)).toBe(false);
   });
 
+  it('12. ausencia de ActivityLog nunca e inferida como nao-aderencia: classify() so avalia quando ha atividade; sessao sem nenhuma atividade fica simplesmente sem decisao', async () => {
+    const { service, addSession } = fixture();
+    const session = addSession({ modality: 'corrida' });
+
+    // O motor nao tem nenhum metodo que "declara nao aderencia" por ausencia de ActivityLog — a
+    // unica forma de uma sessao ficar sem vinculo e' nunca ter sido chamada classify() pra ela
+    // (nao ha' job/trigger que marque proativamente "nao aderiu"). Confirma apenas a ausencia.
+    expect(await service.hasActiveLink(session.id)).toBe(false);
+  });
+
   it('13. WorkoutCompletion existente sem ActivityLog: motor nunca le nem escreve WorkoutCompletion nesse fluxo', async () => {
     const { service, addActivity, addSession, addCompletion, prisma } = fixture();
     const session = addSession({ modality: 'corrida' });
@@ -359,7 +396,7 @@ describe('Motor de Reconciliacao Prescricao x Execucao V1', () => {
     const activity = addActivity({ sport: 'corrida' });
     const result = await service.classify(activity.id);
 
-    expect(result).toBe('linked');
+    expect(result).toBe('corresponding');
     // Nenhuma chamada tocou workoutCompletion.update/create neste fluxo de classify()/linkManually.
     expect((prisma.workoutCompletion.update as jest.Mock).mock.calls.length).toBe(0);
     expect((prisma.workoutCompletion.create as jest.Mock).mock.calls.length).toBe(0);
@@ -371,27 +408,27 @@ describe('Motor de Reconciliacao Prescricao x Execucao V1', () => {
     const completion = addCompletion({ sessionId: session.id, status: 'done', perceivedEffort: 9, satisfactionElaboracao: 'otima' });
 
     const activity = addActivity({ sport: 'corrida', distanceMeters: 8000 });
-    expect(await service.classify(activity.id)).toBe('linked');
+    expect(await service.classify(activity.id)).toBe('corresponding');
 
     // Feedback subjetivo original intocado — nenhum campo veio da evidencia objetiva.
     const stillThere = workoutCompletions.get(completion.id);
     expect(stillThere).toMatchObject({ perceivedEffort: 9, satisfactionElaboracao: 'otima' });
   });
 
-  it('15. dados insuficientes (distancia/duracao prescritas null): ausencia nunca vira incompatibilidade, ainda vincula', async () => {
+  it('17. dados insuficientes (distancia/duracao prescritas null): ausencia nunca vira incompatibilidade, ainda corresponde', async () => {
     const { service, addActivity, addSession, sessionExecutionLinks } = fixture();
     addSession({ modality: 'corrida', distanceKm: null, durationMin: null });
     const activity = addActivity({ sport: 'corrida', distanceMeters: 8000, durationSec: 2700 });
 
     const result = await service.classify(activity.id);
 
-    expect(result).toBe('linked');
+    expect(result).toBe('corresponding');
     const link = [...sessionExecutionLinks.values()].find((l) => l.status === 'active');
     expect(evidenceItem(link.evidence, 'distance_compatible')?.matched).toBeNull();
     expect(evidenceItem(link.evidence, 'duration_compatible')?.matched).toBeNull();
   });
 
-  it('confirmCandidate promove uma candidata a vinculo ativo e descarta as candidatas irmas da mesma atividade', async () => {
+  it('15. confirmCandidate promove uma candidata a vinculo ativo, preservando proveniencia, e descarta as candidatas irmas da mesma atividade', async () => {
     const { service, addActivity, addSession, candidatesFor } = fixture();
     const sessionA = addSession({ modality: 'corrida' });
     const sessionB = addSession({ modality: 'corrida' });

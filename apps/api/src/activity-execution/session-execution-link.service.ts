@@ -20,13 +20,30 @@ import { PrismaService } from '../prisma/prisma.service';
 // nunca null tratado como false). Limiares (DISTANCE_TOLERANCE_RATIO/DURATION_TOLERANCE_RATIO) sao
 // constantes nomeadas e exportadas — nenhum numero magico escondido.
 //
-// Duas perguntas que este motor NAO responde (deliberadamente fora de V1): aderencia (quanto da
-// prescricao foi cumprido) e carga realizada (quanto o atleta de fato treinou). Isto so' decide
-// CORRESPONDENCIA entre uma prescricao e uma atividade observada — as metricas de aderencia/carga
-// ficam pra' uma camada posterior que consome esses vinculos.
+// Quatro perguntas DIFERENTES, nunca misturadas (correcao 02/10/2026 sobre o 959d166):
+//   1. Qual atividade prescrita corresponde a esta atividade realizada? -> isto e' reconciliacao/
+//      correspondencia, o que este arquivo resolve.
+//   2. O aluno realizou a atividade prescrita? -> aderencia. Se uma atividade realizada foi
+//      identificada como 'corresponding' a uma prescricao, HOUVE aderencia — mesmo que a execucao
+//      tenha sido diferente da prescrita (menos distancia, menos tempo, pace diferente, estrutura
+//      parcial). Correspondencia NUNCA exige execucao perfeita.
+//   3. Ele fez exatamente como estava prescrito? -> fidelidade/caracteristica da execucao
+//      (distancia/duracao/pace/estrutura observados vs prescritos). Isto e' dado para uma camada
+//      POSTERIOR (fora de V1) — aqui so' preservamos a evidencia (matchMethod/evidence) que
+//      permite calcular isso depois, nunca convertemos divergencia em recusa de correspondencia.
+//   4. Apareceu uma atividade que nao corresponde a NENHUMA prescricao aplicavel? -> e' uma
+//      atividade 'alternative' (nao e' "substituicao", "erro" nem "nao aderencia intencional" —
+//      e' so' uma classificacao objetiva; nunca se infere intencao do aluno).
+// Score de aderencia, percentual de aderencia e score de fidelidade sao DELIBERADAMENTE fora de
+// V1 — este arquivo so' decide CORRESPONDENCIA, nunca produz um numero resumindo o quanto foi
+// cumprido.
 
 export type ExecutionOrigin = 'automatic' | 'student' | 'coach';
-export type ExecutionClassification = 'linked' | 'extra' | 'ambiguous';
+// 'corresponding' = atividade correspondente a uma prescricao (aderencia confirmada,
+// independente de quao fiel foi a execucao). 'alternative' = atividade realizada que nao
+// corresponde a nenhuma prescricao aplicavel (nunca "extra"/"substituicao" — ver correcao acima).
+// 'ambiguous' = plausivel mas sem evidencia suficiente pra decidir sozinho.
+export type ExecutionClassification = 'corresponding' | 'alternative' | 'ambiguous';
 export type LinkStatus = 'active' | 'revoked' | 'candidate';
 
 // Evidencia nunca e' um score: e' a lista dos criterios canonicos avaliados e o resultado de cada
@@ -37,17 +54,24 @@ export interface EvidenceItem {
   matched: boolean | null;
 }
 
-// Tolerancia relativa pra' considerar distancia/duracao observadas compativeis com o prescrito.
-// Nomeadas e exportadas de proposito (ver pedido: "nenhum limiar arbitrario escondido") — ajustar
-// aqui e' a unica mudanca necessaria se a calibragem precisar mudar no futuro.
+// Tolerancia relativa pra' considerar distancia/duracao observadas "consistentes" com o prescrito.
+// Nomeadas e exportadas de proposito (ver pedido: "nenhum limiar arbitrario escondido").
+//
+// IMPORTANTE (correcao 02/10/2026): estas constantes NUNCA vetam uma correspondencia quando ha'
+// um UNICO candidato plausivel — correspondencia nao exige execucao perfeita (12km prescritos e
+// 10km realizados ainda E' o mesmo treino, a diferenca e' informacao de EXECUCAO, nao motivo pra
+// dizer "nao e' esta prescricao"). A UNICA funcao legitima destas constantes e' DESAMBIGUAR entre
+// 2+ prescricoes igualmente plausiveis em modalidade+dia (ver buildEvidence/classify): quando ha'
+// multiplos candidatos, distancia/duracao observadas ajudam a identificar qual delas e'
+// consistente com o que foi executado.
 export const DISTANCE_TOLERANCE_RATIO = 0.25;
 export const DURATION_TOLERANCE_RATIO = 0.3;
 
 // Grupos de modalidade considerados equivalentes pra fins de correspondencia prescricao x
 // execucao (mesmo vocabulario canonico usado em TrainingSession.modality/ActivityLog.sport — ver
 // strava.service.ts modalityFromActivity). 'outra' nunca e' compativel com nada: se a atividade
-// nao foi classificada numa modalidade reconhecida, tratamos como incerta por padrao (vira extra
-// por falta de candidato compativel, nunca por adivinhar compatibilidade).
+// nao foi classificada numa modalidade reconhecida, tratamos como incerta por padrao (vira
+// alternative por falta de candidato compativel, nunca por adivinhar compatibilidade).
 const MODALITY_COMPATIBILITY: Record<string, string[]> = {
   corrida: ['corrida', 'esteira'],
   esteira: ['corrida', 'esteira'],
@@ -86,11 +110,10 @@ function buildEvidence(session: { distanceKm: number | null; durationMin: number
   ];
 }
 
-// Confianca suficiente pra' vinculo automatico ATIVO (nao so' candidato): nenhum criterio AVALIADO
-// (matched != null) pode ter dado false. Criterios sem dado disponivel (null) sao ignorados — um
-// unico candidato sem distancia/duracao conhecidas ainda e' um vinculo automatico valido, contanto
-// que modalidade+dia batam (o que ja' e' garantido antes de chegar aqui).
-function evidenceSufficientForAutoLink(evidence: EvidenceItem[]): boolean {
+// Usado SOMENTE pra' desambiguar entre 2+ candidatos plausiveis (nunca pra' vetar um candidato
+// unico — ver comentario das constantes de tolerancia acima). "Consistente" = nenhum criterio
+// AVALIADO (matched != null) deu false; criterios sem dado disponivel (null) sao ignorados.
+function isFullyConsistent(evidence: EvidenceItem[]): boolean {
   return evidence.every((item) => item.matched !== false);
 }
 
@@ -124,13 +147,20 @@ export class SessionExecutionLinkService {
     return this.prisma.sessionExecutionLink.findFirst({ where: { activityLogId, status: 'active' } });
   }
 
-  // Motor de Reconciliacao V1. Decide entre 4 situacoes (ver pedido original):
-  //   A. correspondencia clara -> 'linked' (vinculo ATIVO criado)
-  //   B. incompatibilidade com uma prescricao especifica -> nunca marca aquela sessao como
-  //      executada (ela so' nao entra na lista de candidatos; nao ha' um "status B" proprio)
+  // Motor de Reconciliacao V1. Decide entre 4 situacoes (ver pedido original; PASSO A-F do
+  // modelo mental da correcao de 02/10/2026):
+  //   A. correspondencia clara -> 'corresponding' (vinculo ATIVO criado). NUNCA exige execucao
+  //      perfeita — um unico candidato plausivel (modalidade+dia) e' suficiente pra correspondencia,
+  //      mesmo com distancia/duracao/pace diferentes do prescrito (isso e' CARACTERISTICA DA
+  //      EXECUCAO, pergunta diferente de CORRESPONDENCIA — ver cabecalho do arquivo).
+  //   B. incompatibilidade de modalidade com uma prescricao especifica -> nunca marca aquela sessao
+  //      como executada (ela so' nao entra na lista de candidatos; nao ha' um "status B" proprio;
+  //      nunca se infere "substituicao").
   //   C. plausivel porem ambiguo -> 'ambiguous' (0 ou mais linhas 'candidate' registradas pra'
-  //      confirmacao humana futura, conforme o motivo da ambiguidade)
-  //   D. sem prescricao correspondente -> 'extra'
+  //      confirmacao humana futura, conforme o motivo da ambiguidade). So' acontece quando HA'
+  //      multiplos candidatos e a evidencia disponivel NAO consegue distinguir um deles.
+  //   D. sem prescricao correspondente -> 'alternative' (nunca "extra"/"substituicao"/"erro" —
+  //      classificacao puramente objetiva, sem inferir intencao do aluno).
   // Idempotente: se a atividade ja' foi classificada (por este metodo ou por uma decisao manual),
   // NAO reclassifica sozinho — corrigir uma classificacao existente e' sempre uma acao explicita
   // (linkManually/markExtra/confirmCandidate), nunca um efeito colateral de rodar classify() de novo.
@@ -165,17 +195,38 @@ export class SessionExecutionLinkService {
       }
       // Nenhuma sessao do dia tem modalidade compativel (ex.: corrida prescrita + ciclismo
       // observado) — a(s) sessao(oes) incompativel(is) continuam SEM execucao confirmada (nunca
-      // marcadas como cumpridas por esta atividade), e esta atividade vira candidata a extra.
-      await this.setClassification(activityLogId, 'extra', 'automatic');
-      return 'extra';
+      // marcadas como cumpridas por esta atividade; nunca se infere "substituicao"), e esta
+      // atividade e' uma 'alternative' (atividade realizada sem prescricao aplicavel).
+      await this.setClassification(activityLogId, 'alternative', 'automatic');
+      return 'alternative';
     }
 
     if (candidates.length > 1) {
-      // Multiplas prescricoes plausiveis — nao escolhe arbitrariamente. Registra uma linha
-      // 'candidate' POR sessao plausivel, cada uma com sua propria evidencia, pra' o aluno/
-      // treinador confirmarem depois qual e' a certa (ver confirmCandidate).
-      for (const candidate of candidates) {
-        await this.createCandidateLink(activity, candidate, 'automatic_multi_candidate', buildEvidence(candidate, activity));
+      // Multiplas prescricoes plausiveis (PASSO D) — tenta desambiguar com a evidencia disponivel
+      // (distancia/duracao observadas vs cada candidata) ANTES de desistir pra ambiguidade.
+      const perCandidateEvidence = candidates.map((candidate) => ({ candidate, evidence: buildEvidence(candidate, activity) }));
+      const consistent = perCandidateEvidence.filter((c) => isFullyConsistent(c.evidence));
+
+      if (consistent.length === 1) {
+        // Exatamente uma candidata ficou claramente identificavel pela evidencia (PASSO E) —
+        // associa direto, sem pedir confirmacao humana pra algo que ja' temos como distinguir.
+        const winner = consistent[0];
+        await this.linkManually({
+          trainingSessionId: winner.candidate.id,
+          activityLogId,
+          origin: 'automatic',
+          matchMethod: 'automatic_multi_candidate_disambiguated',
+          evidence: winner.evidence,
+        });
+        return 'corresponding';
+      }
+
+      // Nenhuma evidencia suficiente pra distinguir (0 consistentes) OU mais de uma candidata
+      // igualmente consistente — nao escolhe arbitrariamente. Registra uma linha 'candidate' POR
+      // sessao plausivel, cada uma com sua propria evidencia, pra' o aluno/treinador confirmarem
+      // depois qual e' a certa (ver confirmCandidate).
+      for (const { candidate, evidence } of perCandidateEvidence) {
+        await this.createCandidateLink(activity, candidate, 'automatic_multi_candidate', evidence);
       }
       await this.setClassification(activityLogId, 'ambiguous', 'automatic');
       return 'ambiguous';
@@ -183,13 +234,15 @@ export class SessionExecutionLinkService {
 
     // Exatamente 1 sessao candidata — ainda falta checar o lado da atividade: existe outra
     // atividade nao-resolvida do mesmo dia tambem compativel com essa mesma sessao? Se sim, nao
-    // da' pra saber qual das duas e' a execucao real (requisito 4).
+    // da' pra saber qual das duas e' a execucao real (PASSO F — pode ser atividade diferente,
+    // interrupcao/reinicio, fragmentacao ou duplicacao entre fontes; nao resolvemos aqui).
     const onlyCandidate = candidates[0];
     // Rival = outra atividade ainda NAO resolvida (null = nunca processada, ou 'ambiguous' =
     // processada mas ainda em aberto) disputando a mesma sessao. Deliberadamente NAO filtra so'
     // por "null" — isso faria o resultado depender da ORDEM em que classify() e' chamado pra cada
     // atividade (a primeira "consumiria" a ambiguidade e a segunda seria vinculada sozinha). Uma
-    // atividade ja' 'linked' (a outra sessao) ou 'extra' esta' de fato resolvida e nao compete mais.
+    // atividade ja' 'corresponding' (a outra sessao) ou 'alternative' esta' de fato resolvida e
+    // nao compete mais.
     const rivalActivities = await this.prisma.activityLog.findMany({
       where: {
         userId: activity.userId,
@@ -208,16 +261,12 @@ export class SessionExecutionLinkService {
       return 'ambiguous';
     }
 
+    // PASSO C: unica prescricao plausivel -> associa SEMPRE, independente de distancia/duracao/
+    // pace observados (correspondencia != fidelidade de execucao — ver cabecalho do arquivo). A
+    // evidencia e' calculada e preservada so' pra EXPLICAR a decisao (matchMethod/evidence),
+    // nunca pra veta-la: ratioCompatible pode voltar false aqui (ex.: treino interrompido, 10km
+    // realizados de 12km prescritos) e ainda assim o vinculo e' criado normalmente.
     const evidence = buildEvidence(onlyCandidate, activity);
-    if (!evidenceSufficientForAutoLink(evidence)) {
-      // Unico candidato, mas distancia/duracao observadas fogem da tolerancia do prescrito
-      // (requisitos 9/10 — execucao parcial, valores diferentes). Nao vincula automaticamente com
-      // confianca: fica candidato, com a evidencia registrada explicando exatamente o que destoou.
-      await this.createCandidateLink(activity, onlyCandidate, 'automatic_single_candidate_weak_evidence', evidence);
-      await this.setClassification(activityLogId, 'ambiguous', 'automatic');
-      return 'ambiguous';
-    }
-
     await this.linkManually({
       trainingSessionId: onlyCandidate.id,
       activityLogId,
@@ -225,7 +274,7 @@ export class SessionExecutionLinkService {
       matchMethod: 'automatic_single_candidate',
       evidence,
     });
-    return 'linked';
+    return 'corresponding';
   }
 
   // Cria uma linha 'candidate' (nunca 'active') — proposta de correspondencia ainda nao
@@ -325,7 +374,7 @@ export class SessionExecutionLinkService {
 
     await this.prisma.activityLog.update({
       where: { id: params.activityLogId },
-      data: { executionClassification: 'linked', executionClassifiedAt: new Date(), executionClassifiedBy: params.origin },
+      data: { executionClassification: 'corresponding', executionClassifiedAt: new Date(), executionClassifiedBy: params.origin },
     });
 
     return link;
@@ -350,12 +399,12 @@ export class SessionExecutionLinkService {
       });
     }
 
-    await this.setClassification(params.activityLogId, 'extra', params.origin);
+    await this.setClassification(params.activityLogId, 'alternative', params.origin);
   }
 
   // Revogacao "pura" (sem decidir o novo estado) — usada quando uma correcao so' remove um vinculo
   // errado sem ja' saber o que colocar no lugar. A atividade volta pra 'ambiguous' (incerta de
-  // novo), nunca silenciosamente pra 'extra' (isso exigiria uma decisao explicita via markExtra).
+  // novo), nunca silenciosamente pra 'alternative' (isso exigiria uma decisao explicita via markExtra).
   async revokeLink(linkId: string) {
     const link = await this.prisma.sessionExecutionLink.findUnique({ where: { id: linkId } });
     if (!link) throw new NotFoundException('Vinculo nao encontrado.');
@@ -389,18 +438,19 @@ export class SessionExecutionLinkService {
   }
 
   // Materializa uma TrainingSession + WorkoutCompletion sinteticas pra uma atividade ja'
-  // classificada como 'extra' — e' o que permite ao aluno dar feedback subjetivo sobre ela mais
-  // tarde (reusa o MESMO mecanismo de WorkoutCompletion.sessionId que addStudentExtraSession ja'
-  // usa pro registro manual de treino extra; origin='device_extra' em vez de 'student_extra' e'
-  // a unica diferenca de proveniencia). Idempotente: chamar duas vezes pra mesma atividade nao
-  // duplica a sessao sintetica. Sem plano ativo, nao materializa ainda (retorna null) — a
-  // atividade continua 'extra' no ActivityLog de qualquer forma, so' fica sem um lugar no
-  // calendario pra receber feedback ate' existir um plano.
+  // classificada como 'alternative' — e' o que permite ao aluno dar feedback subjetivo sobre ela
+  // mais tarde (reusa o MESMO mecanismo de WorkoutCompletion.sessionId que addStudentExtraSession
+  // ja' usa pro registro manual de treino extra — esse mecanismo e' LEGADO, anterior a este motor,
+  // e nao e' renomeado aqui; origin='device_extra' em vez de 'student_extra' e' a unica diferenca
+  // de proveniencia). Idempotente: chamar duas vezes pra mesma atividade nao duplica a sessao
+  // sintetica. Sem plano ativo, nao materializa ainda (retorna null) — a atividade continua
+  // 'alternative' no ActivityLog de qualquer forma, so' fica sem um lugar no calendario pra
+  // receber feedback ate' existir um plano.
   async materializeExtraActivity(activityLogId: string) {
     const activity = await this.prisma.activityLog.findUnique({ where: { id: activityLogId } });
     if (!activity) throw new NotFoundException('Atividade nao encontrada.');
-    if (activity.executionClassification !== 'extra') {
-      throw new BadRequestException('So e possivel materializar sessao sintetica para atividades classificadas como extra.');
+    if (activity.executionClassification !== 'alternative') {
+      throw new BadRequestException('So e possivel materializar sessao sintetica para atividades classificadas como alternative.');
     }
 
     const existing = await this.findMaterializedSession(activity.userId, activityLogId);
