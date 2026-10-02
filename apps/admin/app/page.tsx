@@ -5481,6 +5481,19 @@ type ExternalActivityRow = {
   sourceUpdatedAt: string | null;
 };
 
+type ExternalActivitySample = {
+  id: string;
+  provider: string;
+  sampleType: string;
+  payload: unknown;
+  providerMeta: unknown;
+  recordCount: number | null;
+  payloadSize: number;
+  fetchedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type ExternalActivityRaw = {
   id: string;
   provider: string;
@@ -5490,6 +5503,7 @@ type ExternalActivityRaw = {
   ingestionMeta: unknown;
   sourceUpdatedAt: string | null;
   receivedAt: string;
+  samples: ExternalActivitySample[];
 };
 
 // Diagnostico Admin-only, somente leitura (01/10/2026, pedido explicito do treinador apos o
@@ -5573,9 +5587,39 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
                   ) : rawById[row.id] === 'error' ? (
                     <p style={{ fontSize: 12, color: 'var(--muted)' }}>Não consegui carregar o payload bruto.</p>
                   ) : rawById[row.id] ? (
-                    <pre style={{ fontSize: 11, background: 'var(--surface)', padding: 10, borderRadius: 6, overflowX: 'auto', maxHeight: 400, overflowY: 'auto' }}>
-                      {JSON.stringify(rawById[row.id], null, 2)}
-                    </pre>
+                    <>
+                      <pre style={{ fontSize: 11, background: 'var(--surface)', padding: 10, borderRadius: 6, overflowX: 'auto', maxHeight: 400, overflowY: 'auto' }}>
+                        {JSON.stringify(rawById[row.id], null, 2)}
+                      </pre>
+                      {(() => {
+                        const raw = rawById[row.id];
+                        const samples = raw && typeof raw === 'object' ? (raw as ExternalActivityRaw).samples : undefined;
+                        if (!samples || samples.length === 0) {
+                          return <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Nenhum RawActivitySample persistido para esta atividade.</p>;
+                        }
+                        return (
+                          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <strong style={{ fontSize: 12 }}>Samples ({samples.length})</strong>
+                            {samples.map((sample) => (
+                              <div key={sample.id} className="card" style={{ padding: 8 }}>
+                                <div style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                                  <span><strong>{sample.sampleType}</strong> · {sample.provider}</span>
+                                  <span style={{ color: 'var(--muted)' }}>
+                                    {sample.recordCount != null ? `${sample.recordCount} registros · ` : ''}{sample.payloadSize} bytes (JSON)
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                                  buscado em {fmtDayFull(sample.fetchedAt)} · criado {fmtDayFull(sample.createdAt)} · atualizado {fmtDayFull(sample.updatedAt)}
+                                </div>
+                                <pre style={{ fontSize: 11, background: 'var(--surface)', padding: 8, borderRadius: 6, overflowX: 'auto', maxHeight: 240, overflowY: 'auto', marginTop: 6 }}>
+                                  {JSON.stringify({ payload: sample.payload, providerMeta: sample.providerMeta }, null, 2)}
+                                </pre>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </>
                   ) : null}
                 </div>
               ) : null}

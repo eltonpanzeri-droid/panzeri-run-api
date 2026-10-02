@@ -113,19 +113,54 @@ export class CoachService {
     if (!log) {
       throw new NotFoundException('Atividade externa nao encontrada para este aluno.');
     }
-    return this.prisma.rawExternalActivity.findUnique({
-      where: { id: log.rawActivityId },
+    const [rawActivity, samples] = await Promise.all([
+      this.prisma.rawExternalActivity.findUnique({
+        where: { id: log.rawActivityId },
+        select: {
+          id: true,
+          provider: true,
+          externalId: true,
+          payload: true,
+          payloadSchemaVersion: true,
+          ingestionMeta: true,
+          sourceUpdatedAt: true,
+          receivedAt: true,
+        },
+      }),
+      this.listActivitySamples(activityLogId),
+    ]);
+    if (!rawActivity) {
+      return rawActivity;
+    }
+    return { ...rawActivity, samples };
+  }
+
+  // Diagnostico Admin-only (02/10/2026) — mesmo espirito do metodo acima, mas pra RawActivitySample
+  // (series/samples do provedor, ingeridas separadamente do resumo). So' expoe o que ja esta
+  // persistido: nenhuma chamada nova ao provedor, nenhuma interpretacao/normalizacao do payload.
+  // "recordCount"/"payloadSize" sao indicadores brutos (tamanho de array/string serializada), nunca
+  // uma leitura do significado do conteudo.
+  private async listActivitySamples(activityLogId: string) {
+    const rows = await this.prisma.rawActivitySample.findMany({
+      where: { activityLogId },
+      orderBy: { sampleType: 'asc' },
       select: {
         id: true,
         provider: true,
-        externalId: true,
+        sampleType: true,
         payload: true,
-        payloadSchemaVersion: true,
-        ingestionMeta: true,
-        sourceUpdatedAt: true,
-        receivedAt: true,
+        providerMeta: true,
+        fetchedAt: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
+    return rows.map(({ payload, ...row }) => ({
+      ...row,
+      payload,
+      recordCount: Array.isArray(payload) ? payload.length : null,
+      payloadSize: JSON.stringify(payload).length,
+    }));
   }
 
   // Passo 5 (continuacao, 25/09/2026) — todos os testes de 3km do aluno, sem o take:3 que o
