@@ -198,11 +198,7 @@ export interface AthleteStateSnapshotV1 {
 const SLEEP_RECOVERY_VARIABLES = [
   'workout.preSleepQuality',
   'workout.sleepDurationHoursEstimate',
-  // 01/10/2026: sleepScheduleIrregularity congelada (historico legado) — substituida pelas duas
-  // abaixo, que passaram a viver em NightlySleepLog (ver variable-registry.ts).
   'workout.sleepScheduleIrregularity',
-  'workout.bedtimeShiftDirection',
-  'workout.wakeTimeShiftDirection',
   'workout.sleepInterruption',
   'workout.sleepDifficulty',
 ];
@@ -211,8 +207,6 @@ const PSYCHOLOGICAL_STATE_VARIABLES = [
   'workout.preMentalFatigue',
   'workout.postMentalFatigue',
   'workout.preStressLevel',
-  // 01/10/2026, NOVA — ver variable-registry.ts.
-  'workout.stressEventFrequency',
   'workout.preMotivation',
   'workout.emotionalExperienceDuring',
   'workout.mentalStateChangePrePost',
@@ -220,10 +214,7 @@ const PSYCHOLOGICAL_STATE_VARIABLES = [
 ];
 const TRAINING_RESPONSE_VARIABLES = [
   'workout.perceivedEffort',
-  // 01/10/2026: executionVsPrescribed congelada (historico); executionBehavior e a nova pergunta
-  // (categorica/comportamental, nao comparavel a ela — ver variable-registry.ts).
   'workout.executionVsPrescribed',
-  'workout.executionBehavior',
   'workout.satisfactionElaboracao',
   'workout.postPhysicalFatigue',
   'workout.postMentalFatigue',
