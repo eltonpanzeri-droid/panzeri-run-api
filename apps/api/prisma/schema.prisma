@@ -515,9 +515,75 @@ model TrainingSession {
   // executadas (ActivityLog, qualquer provedor) podem corresponder a esta sessao.
   executionLinks SessionExecutionLink[]
 
+  // Fundacao WorkoutDelivery (02/10/2026) — ver model abaixo. 0..N tentativas de entrega desta
+  // prescricao pra qualquer provider (Polar, e futuramente Garmin/COROS/Apple), independente de
+  // SessionExecutionLink/ActivityLog (entrega != execucao).
+  deliveries WorkoutDelivery[]
+
   // 09/09 — indice para queries de evolucao do atleta (busca por usuario + ordem cronologica).
   // Sem isso a query principal de evolucao faz full-scan em TrainingSession inteira.
   @@index([userId, scheduledDate])
+}
+
+// Fundacao WorkoutDelivery (02/10/2026). Tentativa/estado de entrega de uma representacao
+// CANONICA e exportavel de uma TrainingSession pra um provider externo (relogio/app de terceiro).
+// NAO representa execucao — isso e' responsabilidade exclusiva de ActivityLog/SessionExecutionLink,
+// que esta tabela nunca altera nem referencia. Uma entrega que falhou nao significa que o treino
+// nao foi feito (o aluno pode ter corrido sem o treino estruturado no relogio); uma entrega que
+// teve sucesso nao significa que o treino foi executado (o aluno pode ter ignorado o relogio).
+//
+// Por que nao existe uma tabela "Workout" canonica separada: TrainingSession.structure (parts[],
+// ver SessionPartDecision em training-methodology.ts) JA e' a representacao estruturada e
+// independente de fabricante da prescricao — reaproveitada aqui, nao duplicada. canonicalWorkout
+// e um SNAPSHOT (append-only, nunca reescrito) do que foi efetivamente traduzido e enviado nesta
+// tentativa especifica; existe separado de TrainingSession.structure porque a prescricao pode ser
+// editada depois do envio (ver TrainingSession.prescriptionHistory) e o snapshot da entrega precisa
+// continuar mostrando exatamente o que o provider recebeu naquele momento, nao o estado atual.
+//
+// Cada tentativa de entrega e' uma LINHA NOVA, nunca uma atualizacao que sobrescreve uma tentativa
+// anterior — isso preserva o historico completo de tentativas (inclusive falhas) sem nenhuma
+// delecao. O UNICO campo mutavel apos a criacao e' o proprio ciclo de vida desta mesma tentativa
+// (status/externalWorkoutId/timestamps/errorMessage), nunca o de outra linha.
+//
+// provider e String (nao enum) deliberadamente — mesmo padrao de ActivityLog.provider/
+// RawExternalActivity.provider, pra nao exigir migration a cada novo fabricante. Nenhuma logica
+// especifica de Polar/Garmin/COROS/Apple existe neste model: o adapter de cada provider traduz
+// o canonicalWorkout pro formato proprio ANTES de chamar o provider (provider adapter -> traduz
+// modelo canonico; nunca o inverso). Nenhum envio real (Polar ou outro) e' implementado nesta
+// fundacao.
+model WorkoutDelivery {
+  id String @id @default(uuid())
+
+  trainingSessionId String
+  trainingSession   TrainingSession @relation(fields: [trainingSessionId], references: [id])
+
+  provider String // 'polar' | outros futuros — nunca travado em enum
+
+  // Representacao canonica (agnostica de fabricante) do workout efetivamente traduzido/enviado
+  // nesta tentativa — snapshot, nao referencia viva a TrainingSession.structure atual.
+  canonicalWorkout Json
+
+  status String // 'pending' | 'sent' | 'failed' — ciclo de vida desta UNICA tentativa
+
+  // Nullable de proposito: nao existe ate o provider confirmar, e nem todo provider/cenario de
+  // falha chega a gerar um. Nunca assumir round-trip (nao ha garantia de conseguir reconsultar
+  // este id de volta no provider).
+  externalWorkoutId String?
+
+  requestedAt DateTime  @default(now())
+  sentAt      DateTime?
+  failedAt    DateTime?
+  errorMessage String?
+
+  // Metadata especifica do adapter/provider (ex.: endpoint usado, id de transaction da Polar) —
+  // isolada aqui de proposito, nunca promovida a coluna canonica do model.
+  providerMetadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([trainingSessionId])
+  @@index([provider, status])
 }
 
 model WorkoutCompletion {
