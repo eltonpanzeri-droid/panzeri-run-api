@@ -69,7 +69,13 @@ export class WorkoutCompletionsService {
     // 01/10/2026 (2): feedback v3 — executionBehavior substitui executionVsPrescribed (pergunta
     // comportamental/categorica, nao mais escala ordinal de desvio quantitativo). Mesmo padrao de
     // deteccao por presenca de campo. Nunca reaproveita a coluna antiga: ver nota em schema.prisma.
-    const isV3Client = dto.executionBehavior !== undefined;
+    // Correcao 02/10/2026: atividade alternativa TAMBEM usa o formulario/fluxo V3 (mesmo
+    // endpoint/DTO), mas executionBehavior fica deliberadamente null nela (nao ha prescricao pra
+    // comparar — ver isAlternativeSession acima). Detectar V3 SO pela presenca do campo faria uma
+    // atividade alternativa gravar feedbackVersion=2 por engano. isAlternativeSession entra como
+    // segundo sinal de V3, sem inventar nenhum valor artificial em executionBehavior pra isso —
+    // a coluna continua null, so a versao gravada reflete que o formulario usado foi o V3.
+    const isV3Client = dto.executionBehavior !== undefined || isAlternativeSession;
 
     // Feedback v1: bloco 1 obrigatorio para done e adjusted.
     // Compatibilidade retroativa (12/09): clientes antigos (Play Store pre-v1) nao enviam nenhum

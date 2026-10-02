@@ -83,6 +83,10 @@ describe('WorkoutCompletionsService.upsert — Feedback de Atividade Alternativa
     expect(result.perceivedEffort).toBe(7);
     expect(result.executionBehavior).toBeNull();
     expect(result.executionVsPrescribed).toBeNull();
+    // Correcao 02/10/2026: atividade alternativa usa o formulario/fluxo V3, mas a deteccao padrao
+    // (presenca de executionBehavior) nunca dispara aqui, ja que a coluna fica null de proposito —
+    // isAlternativeSession entra como segundo sinal de V3, sem inventar valor em executionBehavior.
+    expect(result.feedbackVersion).toBe(3);
   });
 
   it('nunca grava executionBehavior/executionVsPrescribed/satisfactionElaboracao mesmo se o dto enviar por engano (ausencia != zero != "treino diferente")', async () => {
