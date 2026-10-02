@@ -2433,7 +2433,7 @@ function StudentPanel({
   // 01/09: o painel virou abas em vez de uma pagina so' com tudo empilhado (pedido do treinador —
   // ver studentViewMode no componente pai pro contexto completo dessa mudanca). "Treinos" e' a aba
   // padrao por ser a mais usada no dia a dia.
-  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline'>('treinos');
+  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline' | 'atividadesExternas'>('treinos');
   // 11/09: período universal da aba Evolução — compartilhado por todos os gráficos e seções.
   // Padrão 12 semanas (~3 meses). Opções: 4/8/12/24/52/999(Tudo).
   const [evolPeriod, setEvolPeriod] = useState<4 | 8 | 12 | 24 | 52 | 999>(12);
@@ -2949,6 +2949,7 @@ function StudentPanel({
         <button type="button" className={detailTab === 'evolucao' ? 'active' : ''} onClick={() => setDetailTab('evolucao')}>Evolucao</button>
         <button type="button" className={detailTab === 'contexto' ? 'active' : ''} onClick={() => setDetailTab('contexto')}>Contexto</button>
         <button type="button" className={detailTab === 'timeline' ? 'active' : ''} onClick={() => setDetailTab('timeline')}>Timeline</button>
+        <button type="button" className={detailTab === 'atividadesExternas' ? 'active' : ''} onClick={() => setDetailTab('atividadesExternas')}>Atividades externas</button>
         {student?.interview?.answers?.personal_sex === 'Feminino' && (
           <button type="button" className={detailTab === 'ciclo' ? 'active' : ''} onClick={() => setDetailTab('ciclo')}>Ciclo</button>
         )}
@@ -3614,6 +3615,10 @@ function StudentPanel({
 
       {detailTab === 'timeline' ? (
         <TimelineTab student={student} accessToken={token} />
+      ) : null}
+
+      {detailTab === 'atividadesExternas' ? (
+        <AtividadesExternasTab studentId={student.id} accessToken={token} />
       ) : null}
 
       </section>
@@ -5451,6 +5456,133 @@ function ContextoTab({ studentId, accessToken, onStatus }: { studentId: string; 
         </div>
       )}
       <p style={{ fontSize: 11, color: 'var(--muted)' }}>Eventos relatados pelo aluno, registrados pelo treinador, ou vinculados a uma reavaliação/retorno — nunca uma causa comprovada de mudança fisiológica, apenas contexto relatado com sua origem preservada.</p>
+    </div>
+  );
+}
+
+type ExternalActivityRow = {
+  id: string;
+  provider: string;
+  externalId: string;
+  startedAt: string;
+  utcOffsetMinutes: number | null;
+  sport: string | null;
+  durationSec: number | null;
+  distanceMeters: number | null;
+  caloriesKcal: number | null;
+  avgHeartRateBpm: number | null;
+  maxHeartRateBpm: number | null;
+  cadenceAvg: number | null;
+  powerAvgWatts: number | null;
+  elevationGainMeters: number | null;
+  hasRoute: boolean | null;
+  detailFetchedAt: string | null;
+  receivedAt: string;
+  sourceUpdatedAt: string | null;
+};
+
+type ExternalActivityRaw = {
+  id: string;
+  provider: string;
+  externalId: string;
+  payload: unknown;
+  payloadSchemaVersion: string | null;
+  ingestionMeta: unknown;
+  sourceUpdatedAt: string | null;
+  receivedAt: string;
+};
+
+// Diagnostico Admin-only, somente leitura (01/10/2026, pedido explicito do treinador apos o
+// bloqueio legitimo de acesso direto ao Postgres de producao nesta sessao) — observabilidade da
+// camada de integracao de atividade externa (Polar hoje, Strava/Garmin/COROS no futuro). So'
+// apresenta o que o backend ja tem gravado em ActivityLog/RawExternalActivity (ver
+// CoachService.listExternalActivities/getExternalActivityRaw); nunca cria vinculo com
+// TrainingSession, nunca transforma o dado.
+function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; accessToken: string }) {
+  const [rows, setRows] = React.useState<ExternalActivityRow[] | null>(null);
+  const [openRawId, setOpenRawId] = React.useState<string>('');
+  const [rawById, setRawById] = React.useState<Record<string, ExternalActivityRaw | 'loading' | 'error'>>({});
+
+  const load = React.useCallback(async () => {
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/external-activities`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) { setRows([]); return; }
+      setRows((await response.json()) as ExternalActivityRow[]);
+    } catch { setRows([]); }
+  }, [studentId, accessToken]);
+
+  React.useEffect(() => { void load(); }, [load]);
+
+  async function toggleRaw(activityLogId: string) {
+    if (openRawId === activityLogId) { setOpenRawId(''); return; }
+    setOpenRawId(activityLogId);
+    if (rawById[activityLogId]) return;
+    setRawById((current) => ({ ...current, [activityLogId]: 'loading' }));
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/external-activities/${activityLogId}/raw`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) { setRawById((current) => ({ ...current, [activityLogId]: 'error' })); return; }
+      const data = (await response.json()) as ExternalActivityRaw;
+      setRawById((current) => ({ ...current, [activityLogId]: data }));
+    } catch {
+      setRawById((current) => ({ ...current, [activityLogId]: 'error' }));
+    }
+  }
+
+  if (rows === null) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Carregando...</p>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <h3 style={{ margin: 0 }}>Atividades externas (diagnóstico)</h3>
+      <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
+        Leitura direta de ActivityLog/RawExternalActivity — sem vínculo com os treinos prescritos, sem recálculo. Uso: investigação manual de sincronização (Polar hoje, outros provedores no futuro).
+      </p>
+
+      {rows.length === 0 ? (
+        <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma atividade externa importada para este aluno.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {rows.map((row) => (
+            <div key={row.id} className="card" style={{ padding: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                <strong>{row.provider} · {row.sport ?? 'modalidade não informada'}</strong>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>externalId: {row.externalId}</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                {fmtDayFull(row.startedAt)} · offset {row.utcOffsetMinutes ?? '—'} min · recebido {fmtDayFull(row.receivedAt)}
+                {row.sourceUpdatedAt ? ` · atualizado na origem ${fmtDayFull(row.sourceUpdatedAt)}` : ''}
+              </div>
+              <div style={{ fontSize: 13, marginTop: 8, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 6 }}>
+                <span>Duração: {row.durationSec != null ? `${Math.round(row.durationSec / 60)} min` : '—'}</span>
+                <span>Distância: {row.distanceMeters != null ? `${(row.distanceMeters / 1000).toFixed(2)} km` : '—'}</span>
+                <span>Calorias: {row.caloriesKcal ?? '—'}</span>
+                <span>FC média: {row.avgHeartRateBpm ?? '—'}</span>
+                <span>FC máxima: {row.maxHeartRateBpm ?? '—'}</span>
+                <span>Cadência média: {row.cadenceAvg ?? '—'}</span>
+                <span>Potência média: {row.powerAvgWatts != null ? `${row.powerAvgWatts} W` : '—'}</span>
+                <span>Ganho de elevação: {row.elevationGainMeters != null ? `${row.elevationGainMeters} m` : '—'}</span>
+                <span>Rota (hasRoute): {row.hasRoute == null ? '—' : row.hasRoute ? 'sim' : 'não'}</span>
+                <span>Detalhe buscado em: {row.detailFetchedAt ? fmtDayFull(row.detailFetchedAt) : '—'}</span>
+              </div>
+              <button type="button" className="secondaryOutlineButton" style={{ marginTop: 8 }} onClick={() => toggleRaw(row.id)}>
+                {openRawId === row.id ? 'Fechar payload bruto' : 'Ver payload bruto (raw)'}
+              </button>
+              {openRawId === row.id ? (
+                <div style={{ marginTop: 8 }}>
+                  {rawById[row.id] === 'loading' ? (
+                    <p style={{ fontSize: 12, color: 'var(--muted)' }}>Carregando raw...</p>
+                  ) : rawById[row.id] === 'error' ? (
+                    <p style={{ fontSize: 12, color: 'var(--muted)' }}>Não consegui carregar o payload bruto.</p>
+                  ) : rawById[row.id] ? (
+                    <pre style={{ fontSize: 11, background: 'var(--surface)', padding: 10, borderRadius: 6, overflowX: 'auto', maxHeight: 400, overflowY: 'auto' }}>
+                      {JSON.stringify(rawById[row.id], null, 2)}
+                    </pre>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

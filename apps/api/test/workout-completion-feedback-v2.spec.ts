@@ -24,6 +24,15 @@ describe('WorkoutCompletionsService.upsert — validacao do feedback v2', () => 
       },
       user: { findUnique: jest.fn().mockResolvedValue({ id: 'user-1', name: 'Aluna Teste', studentCode: 1 }), findMany: jest.fn().mockResolvedValue([]) },
       userNotification: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      // 01/10/2026: sono/estresse passaram a resolver um registro compartilhado antes do completion.
+      nightlySleepLog: {
+        upsert: jest.fn().mockImplementation(({ create }: any) => Promise.resolve({ id: 'night-1', ...create })),
+      },
+      stressCheckin: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 'stress-1', ...data })),
+        create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 'stress-1', ...data })),
+      },
     };
     const config = { get: jest.fn().mockReturnValue('') };
     const studentProfile = { recordEvent: jest.fn().mockResolvedValue(undefined) };
@@ -62,7 +71,8 @@ describe('WorkoutCompletionsService.upsert — validacao do feedback v2', () => 
       ...baseDto,
       preSleepQuality: 4,
       sleepDurationCategory: '7_a_8h',
-      sleepScheduleIrregularity: 2,
+      bedtimeShiftDirection: 'on_time' as const,
+      wakeTimeShiftDirection: 'on_time' as const,
       sleepInterruption: 2,
       sleepDifficulty: 1,
       prePhysicalFatigue: 2,
@@ -104,7 +114,8 @@ describe('WorkoutCompletionsService.upsert — validacao do feedback v2', () => 
       ...baseDto,
       preSleepQuality: 4,
       sleepDurationCategory: '7_a_8h',
-      sleepScheduleIrregularity: 2,
+      bedtimeShiftDirection: 'on_time' as const,
+      wakeTimeShiftDirection: 'on_time' as const,
       sleepInterruption: 2,
       sleepDifficulty: 1,
       prePhysicalFatigue: 2,

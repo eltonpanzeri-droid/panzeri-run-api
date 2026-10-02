@@ -18,6 +18,19 @@ export const ADJUSTMENT_REASON_IDS = [
   'other',
 ] as const;
 
+// Direcao + magnitude do desvio de horario (dormir/acordar) em relacao ao habitual (01/10/2026).
+// Substitui a antiga escala 1-5 de "irregularidade" (sleepScheduleIrregularity), que perdia a
+// direcao do desvio. Deliberadamente categorica, nunca forcada numa escala numerica artificial.
+export const SLEEP_SHIFT_DIRECTIONS = [
+  'much_earlier',
+  'moderately_earlier',
+  'slightly_earlier',
+  'on_time',
+  'slightly_later',
+  'moderately_later',
+  'much_later',
+] as const;
+
 export class UpsertWorkoutCompletionDto {
   @IsString()
   sessionId!: string;
@@ -102,11 +115,22 @@ export class UpsertWorkoutCompletionDto {
   @Max(5)
   prePhysicalFatigue?: number;
 
+  // 01/10/2026: redacao da pergunta mudou para "Nas ultimas 24 horas, qual foi o seu nivel geral
+  // de estresse?" — mesma coluna/escala/direcao (5=mais estresse), so' a janela de referencia e o
+  // texto exibido mudaram. Timestamp real preservado em StressCheckin.respondedAt, nao aqui.
   @IsOptional()
   @IsInt()
   @Min(1)
   @Max(5)
   preStressLevel?: number;
+
+  // 01/10/2026, NOVA — "Nas ultimas 24 horas, com que frequencia voce passou por momentos que
+  // aumentaram claramente seu estresse?" 1=nenhuma vez, 5=quase continuamente.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  stressEventFrequency?: number;
 
   @IsOptional()
   @IsInt()
@@ -132,9 +156,17 @@ export class UpsertWorkoutCompletionDto {
   @IsIn(['menos_5h', '5_a_6h', '6_a_7h', '7_a_8h', '8_a_9h', 'mais_9h'])
   sleepDurationCategory?: string;
 
+  // 01/10/2026: substitui sleepScheduleIrregularity (perdia a direcao do desvio). "Em relacao ao
+  // seu horario habitual, hoje voce foi dormir:".
   @IsOptional()
-  @IsInt() @Min(1) @Max(5)
-  sleepScheduleIrregularity?: number;
+  @IsIn(SLEEP_SHIFT_DIRECTIONS)
+  bedtimeShiftDirection?: (typeof SLEEP_SHIFT_DIRECTIONS)[number];
+
+  // 01/10/2026, NOVA — mesma logica de direcao+magnitude, para o horario de acordar. Pertence a
+  // noite de sono (NightlySleepLog), nao a sessao.
+  @IsOptional()
+  @IsIn(SLEEP_SHIFT_DIRECTIONS)
+  wakeTimeShiftDirection?: (typeof SLEEP_SHIFT_DIRECTIONS)[number];
 
   @IsOptional()
   @IsInt() @Min(1) @Max(5)
@@ -150,11 +182,18 @@ export class UpsertWorkoutCompletionDto {
   preMentalFatigue?: number;
 
   // Feedback v2 — bloco RESPOSTA AO TREINO.
-  // executionVsPrescribed: 1=fiz bem menos, 2=um pouco menos, 3=como prescrito, 4=um pouco mais,
-  // 5=fiz bem mais. 3 e' o ponto de referencia, NAO "neutro" — nao interpretar 5 como "melhor".
+  // executionVsPrescribed: CONGELADA (01/10/2026) — so para clientes antigos/historico. Nunca mais
+  // escrita por um cliente novo (ver isV3Client/executionBehavior em workout-completions.service.ts).
+  // 1=fiz bem menos, 2=um pouco menos, 3=como prescrito, 4=um pouco mais, 5=fiz bem mais.
   @IsOptional()
   @IsInt() @Min(1) @Max(5)
   executionVsPrescribed?: number;
+
+  // Feedback v3 (01/10/2026) — substitui executionVsPrescribed. Categorica/comportamental, NAO
+  // ordinal: nenhuma das 5 categorias e "mais" ou "menos" que outra, nao ha media/baseline.
+  @IsOptional()
+  @IsIn(['as_planned', 'minor_adaptations', 'major_changes', 'different_workout', 'stopped_early'])
+  executionBehavior?: string;
 
   @IsOptional()
   @IsInt() @Min(1) @Max(5)
