@@ -1291,12 +1291,55 @@ model ActivityLog {
   executionClassifiedBy   String?
 
   executionLinks SessionExecutionLink[]
+  samples        RawActivitySample[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([provider, userId, externalId])
   @@index([userId, startedAt])
+}
+
+// Ingestao de samples (02/10/2026) — serie temporal de uma atividade (FC, velocidade, distancia
+// acumulada, cadencia, potencia, altitude, GPS — o que o provider efetivamente oferecer pra' aquela
+// atividade especifica). Camada RAW, deliberadamente NAO canonica ainda: nao sabemos a estrutura
+// real da resposta da Polar pra samples (so' os docs publicos confirmam que os endpoints existem,
+// nao o formato exato) e nao conhecemos NENHUM outro provider ainda — fabricar um model canonico
+// de samples agora seria desenhar em cima de suposicao, exatamente o erro que este model evita.
+//
+// Por que NAO 'PolarHeartRatePoint'/'PolarCadencePoint' etc.: uma tabela por metrica por provider
+// nao escala (Garmin/COROS/Apple cada um com seu proprio vocabulario de tipos) e force a decidir
+// equivalencia entre providers antes de ter o segundo provider integrado. Este model e' generico:
+// UMA linha por (atividade, tipo de amostra), com a serie inteira preservada em `payload` tal como
+// o provider devolveu — nunca interpretada/transformada aqui.
+//
+// `sampleType` e' o identificador do tipo EXATAMENTE como o provider o expressa (ex.: o que a
+// resposta de "available samples" da Polar chamar aquele tipo — numero, slug, o que for) — nunca
+// traduzido/normalizado nesta etapa. Tipo desconhecido/inesperado ainda e' preservado normalmente
+// (sampleType vira o que veio, sem lista fechada de valores aceitos).
+//
+// Dedupe por (activityLogId, provider, sampleType): resincronizar a mesma atividade faz upsert,
+// nunca duplica. Falha ao buscar samples de uma atividade NUNCA deve impedir ou reverter a
+// ActivityLog/RawExternalActivity daquela atividade — essas duas continuam a fonte de verdade do
+// resumo mesmo se a serie temporal nunca tiver sido buscada (fetchedAt ausente pra esse tipo so'
+// significa "ainda nao tentamos", nunca "provider nao tem").
+model RawActivitySample {
+  id            String      @id @default(uuid())
+  activityLogId String
+  activityLog   ActivityLog @relation(fields: [activityLogId], references: [id])
+  provider      String
+  sampleType    String
+  payload       Json
+  // Contexto da propria busca (ex.: endpoint exato chamado, recording-rate se o provider informar)
+  // — deliberadamente separado de `payload` pro mesmo motivo de RawExternalActivity.ingestionMeta:
+  // nunca misturar o que o provider mandou com o que registramos sobre a coleta.
+  providerMeta Json?
+  fetchedAt    DateTime    @default(now())
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([activityLogId, provider, sampleType])
+  @@index([activityLogId])
 }
 
 // Fundacao Prescricao x Execucao (01/10/2026). Vinculo PROVIDER-AGNOSTICO entre uma prescricao

@@ -44,13 +44,19 @@ function queueFetch(responses: Response[]) {
 function fixture(connection: FakeConnection | null) {
   const rawStore = new Map<string, Record<string, unknown>>();
   const activityStore = new Map<string, Record<string, unknown>>();
+  const sampleStore = new Map<string, Record<string, unknown>>();
   let conn = connection;
   let rawSeq = 0;
   let logSeq = 0;
+  let sampleSeq = 0;
 
   const keyOf = (where: { provider_userId_externalId: { provider: string; userId: string; externalId: string } }) => {
     const k = where.provider_userId_externalId;
     return `${k.provider}|${k.userId}|${k.externalId}`;
+  };
+  const sampleKeyOf = (where: { activityLogId_provider_sampleType: { activityLogId: string; provider: string; sampleType: string } }) => {
+    const k = where.activityLogId_provider_sampleType;
+    return `${k.activityLogId}|${k.provider}|${k.sampleType}`;
   };
 
   const prisma = {
@@ -79,6 +85,15 @@ function fixture(connection: FakeConnection | null) {
         return row;
       }),
     },
+    rawActivitySample: {
+      upsert: jest.fn(async ({ where, create, update }: { where: Parameters<typeof sampleKeyOf>[0]; create: Record<string, unknown>; update: Record<string, unknown> }) => {
+        const key = sampleKeyOf(where);
+        const existing = sampleStore.get(key);
+        const row = existing ? { ...existing, ...update } : { id: `sample-${++sampleSeq}`, ...create };
+        sampleStore.set(key, row);
+        return row;
+      }),
+    },
   };
 
   const polarService = { decryptAccessToken: jest.fn(() => 'plain-access-token') };
@@ -87,8 +102,13 @@ function fixture(connection: FakeConnection | null) {
     polarService as unknown as PolarService,
   );
 
-  return { service, prisma, rawStore, activityStore, getConnection: () => conn };
+  return { service, prisma, rawStore, activityStore, sampleStore, getConnection: () => conn };
 }
+
+// Resposta padrao pra' "esta atividade nao tem samples disponiveis" — usada em todos os testes
+// que nao sao especificamente sobre samples, pra nao precisar simular um payload de samples em
+// cada um deles. 404 e' tratado pelo servico como ausencia de dado, nunca como erro.
+const NO_SAMPLES_RESPONSE = () => jsonResponse(404, {});
 
 const baseConnection = (overrides: Partial<FakeConnection> = {}): FakeConnection => ({
   userId: 'user-a',
@@ -126,6 +146,7 @@ describe('PolarActivityIngestionService', () => {
       jsonResponse(201, { 'transaction-id': 'txn-1' }), // abrir transaction
       jsonResponse(200, { exercises: [EXERCISE_URL] }), // listar
       jsonResponse(200, summary), // buscar exercicio
+      NO_SAMPLES_RESPONSE(), // listar samples (ausentes)
       jsonResponse(200, {}), // commit
     ]);
     global.fetch = fn as unknown as typeof fetch;
@@ -212,6 +233,7 @@ describe('PolarActivityIngestionService', () => {
         jsonResponse(201, { 'transaction-id': 'txn-x' }),
         jsonResponse(200, { exercises: [EXERCISE_URL] }),
         jsonResponse(200, summary),
+        NO_SAMPLES_RESPONSE(),
         jsonResponse(200, {}),
       ]);
       global.fetch = fn as unknown as typeof fetch;
@@ -239,7 +261,9 @@ describe('PolarActivityIngestionService', () => {
       jsonResponse(201, { 'transaction-id': 'txn-2' }),
       jsonResponse(200, { exercises: [EXERCISE_URL, EXERCISE_URL_2] }),
       jsonResponse(200, morning),
+      NO_SAMPLES_RESPONSE(),
       jsonResponse(200, evening),
+      NO_SAMPLES_RESPONSE(),
       jsonResponse(200, {}),
     ]);
     global.fetch = fn as unknown as typeof fetch;
@@ -258,6 +282,7 @@ describe('PolarActivityIngestionService', () => {
       jsonResponse(201, { 'transaction-id': 'txn-3' }),
       jsonResponse(200, { exercises: [EXERCISE_URL] }),
       jsonResponse(200, summary),
+      NO_SAMPLES_RESPONSE(),
       jsonResponse(200, {}),
     ]);
     global.fetch = fn as unknown as typeof fetch;
@@ -272,6 +297,7 @@ describe('PolarActivityIngestionService', () => {
       jsonResponse(201, { 'transaction-id': 'txn-4' }),
       jsonResponse(200, { exercises: [EXERCISE_URL] }),
       jsonResponse(200, summary),
+      NO_SAMPLES_RESPONSE(),
       jsonResponse(200, {}),
     ]);
     global.fetch = fn as unknown as typeof fetch;
@@ -288,6 +314,7 @@ describe('PolarActivityIngestionService', () => {
       jsonResponse(201, { 'transaction-id': 'txn-5' }),
       jsonResponse(200, { exercises: [EXERCISE_URL] }),
       jsonResponse(200, summary),
+      NO_SAMPLES_RESPONSE(),
       jsonResponse(200, {}),
     ]);
     global.fetch = fn as unknown as typeof fetch;
@@ -307,6 +334,7 @@ describe('PolarActivityIngestionService', () => {
       jsonResponse(201, { 'transaction-id': 'txn-6' }),
       jsonResponse(200, { exercises: [EXERCISE_URL] }),
       jsonResponse(200, summary),
+      NO_SAMPLES_RESPONSE(),
       jsonResponse(200, {}),
     ]);
     global.fetch = fn as unknown as typeof fetch;
@@ -338,6 +366,7 @@ describe('PolarActivityIngestionService', () => {
       jsonResponse(201, { 'transaction-id': 'txn-partial' }),
       jsonResponse(200, { exercises: [EXERCISE_URL, EXERCISE_URL_2] }),
       jsonResponse(200, ex1), // exercicio 1 ok
+      NO_SAMPLES_RESPONSE(), // samples do exercicio 1
       jsonResponse(500, { error: 'timeout' }), // exercicio 2 falha
     ]);
     global.fetch = fetchFail as unknown as typeof fetch;
@@ -357,7 +386,9 @@ describe('PolarActivityIngestionService', () => {
     const { fn: fetchRetry, calls } = queueFetch([
       jsonResponse(200, { exercises: [EXERCISE_URL, EXERCISE_URL_2] }), // lista de novo a MESMA transaction
       jsonResponse(200, ex1),
+      NO_SAMPLES_RESPONSE(),
       jsonResponse(200, ex2),
+      NO_SAMPLES_RESPONSE(),
       jsonResponse(200, {}), // commit
     ]);
     global.fetch = fetchRetry as unknown as typeof fetch;
@@ -365,8 +396,8 @@ describe('PolarActivityIngestionService', () => {
     const retryResult = await service.sync('user-a');
     expect(retryResult).toEqual({ status: 'synced', imported: 2, resumedTransaction: true });
     // Retomou a MESMA transaction: a 1a chamada do retry e a listagem (GET), nao uma abertura
-    // (POST) de nova transaction — confirmado tambem pelo fato de so 4 respostas terem sido
-    // enfileiradas (sem uma de abertura) e o sync ainda assim ter tido sucesso.
+    // (POST) de nova transaction — confirmado tambem pelo fato de nenhuma resposta de abertura
+    // ter sido enfileirada acima e o sync ainda assim ter tido sucesso.
     expect(calls[0]).toBe(`GET https://www.polaraccesslink.com/v3/users/999/exercise-transactions/txn-partial`);
 
     // Sem duplicata: ex-1 continua sendo UMA linha (a mesma, so atualizada), ex-2 e nova.
@@ -391,6 +422,7 @@ describe('PolarActivityIngestionService', () => {
       jsonResponse(201, { 'transaction-id': 'txn-7' }),
       jsonResponse(200, { exercises: [EXERCISE_URL] }),
       jsonResponse(200, summary),
+      NO_SAMPLES_RESPONSE(),
       jsonResponse(200, {}),
     ]);
     global.fetch = fn as unknown as typeof fetch;
@@ -465,8 +497,11 @@ describe('PolarActivityIngestionService', () => {
       jsonResponse(201, { 'transaction-id': 'txn-real' }),
       jsonResponse(200, { exercises: [EXERCISE_URL, url2, url3] }),
       jsonResponse(200, corrida),
+      NO_SAMPLES_RESPONSE(),
       jsonResponse(200, forca1),
+      NO_SAMPLES_RESPONSE(),
       jsonResponse(200, forca2),
+      NO_SAMPLES_RESPONSE(),
       jsonResponse(200, {}),
     ]);
     global.fetch = fn as unknown as typeof fetch;
@@ -499,5 +534,148 @@ describe('PolarActivityIngestionService', () => {
     const src = readFileSync(join(__dirname, '../src/polar/polar-activity-ingestion.service.ts'), 'utf8');
     const importLines = src.split('\n').filter((line) => line.trim().startsWith('import '));
     expect(importLines.some((line) => line.includes('/strava/'))).toBe(false);
+  });
+
+  // Ingestao de samples (02/10/2026) — serie temporal preservada como RawActivitySample, camada
+  // RAW (nunca interpretada aqui). A estrutura REAL da listagem de "available samples" da Polar
+  // nao esta confirmada por chamada real ainda (ver relatorio da investigacao) — os formatos de
+  // entrada usados aqui cobrem os dois formatos mais plausiveis pelos docs publicos (string=URL
+  // direta, objeto com sample-type+href), nao sao um contrato fixo da Polar.
+  describe('ingestao de samples', () => {
+    it('1. atividade com tipos de samples disponiveis: cada tipo listado e buscado e preservado', async () => {
+      const { service, sampleStore } = fixture(baseConnection({ registeredAt: new Date() }));
+      const summary = { id: 'with-samples', distance: 5000, duration: 'PT25M0S', 'start-time': '2026-09-30T07:00:00Z' };
+      const heartRateSeries = { ['heart-rate-samples']: [{ offsetMillis: 0, heartRate: 120 }, { offsetMillis: 1000, heartRate: 125 }] };
+      const speedSeries = [1.5, 1.6, 1.7]; // formato bruto desconhecido tambem e' preservado como veio
+      const { fn } = queueFetch([
+        jsonResponse(201, { 'transaction-id': 'txn-s1' }),
+        jsonResponse(200, { exercises: [EXERCISE_URL] }),
+        jsonResponse(200, summary),
+        // listagem de samples: um tipo via objeto (href a buscar depois), um via URL direta.
+        jsonResponse(200, {
+          samples: [
+            { ['sample-type']: 'heart-rate', href: `${EXERCISE_URL}/samples/heart-rate` },
+            `${EXERCISE_URL}/samples/speed`,
+          ],
+        }),
+        jsonResponse(200, heartRateSeries), // busca do tipo heart-rate
+        jsonResponse(200, speedSeries), // busca do tipo speed (via URL)
+        jsonResponse(200, {}), // commit
+      ]);
+      global.fetch = fn as unknown as typeof fetch;
+
+      const result = await service.sync('user-a');
+      expect(result).toEqual({ status: 'synced', imported: 1, resumedTransaction: false });
+
+      expect(sampleStore.size).toBe(2);
+      const hr = [...sampleStore.values()].find((s) => s.sampleType === 'heart-rate');
+      expect(hr?.payload).toEqual(heartRateSeries);
+      const speed = [...sampleStore.values()].find((s) => s.sampleType === 'speed');
+      expect(speed?.payload).toEqual(speedSeries);
+    });
+
+    it('2. atividade sem determinado tipo: so os tipos realmente listados sao buscados/preservados, nenhum fabricado', async () => {
+      const { service, sampleStore } = fixture(baseConnection({ registeredAt: new Date() }));
+      const summary = { id: 'partial-samples', distance: 3000, duration: 'PT15M0S', 'start-time': '2026-09-30T07:00:00Z' };
+      const { fn } = queueFetch([
+        jsonResponse(201, { 'transaction-id': 'txn-s2' }),
+        jsonResponse(200, { exercises: [EXERCISE_URL] }),
+        jsonResponse(200, summary),
+        // So' heart-rate disponivel pra esta atividade — sem cadencia, potencia, GPS etc.
+        jsonResponse(200, { samples: [{ ['sample-type']: 'heart-rate', href: `${EXERCISE_URL}/samples/heart-rate` }] }),
+        jsonResponse(200, { ['heart-rate-samples']: [{ offsetMillis: 0, heartRate: 140 }] }),
+        jsonResponse(200, {}),
+      ]);
+      global.fetch = fn as unknown as typeof fetch;
+
+      await service.sync('user-a');
+
+      expect(sampleStore.size).toBe(1);
+      expect([...sampleStore.values()][0].sampleType).toBe('heart-rate');
+      // Nenhuma entrada fabricada pra cadencia/potencia/altitude/gps so' porque a coluna existe.
+      expect([...sampleStore.values()].some((s) => s.sampleType === 'cadence')).toBe(false);
+    });
+
+    it('3. tipo de sample desconhecido/formato inesperado e preservado sem quebrar a ingestao', async () => {
+      const { service, sampleStore, activityStore } = fixture(baseConnection({ registeredAt: new Date() }));
+      const summary = { id: 'weird-sample-type', distance: 3000, duration: 'PT15M0S', 'start-time': '2026-09-30T07:00:00Z' };
+      const { fn } = queueFetch([
+        jsonResponse(201, { 'transaction-id': 'txn-s3' }),
+        jsonResponse(200, { exercises: [EXERCISE_URL] }),
+        jsonResponse(200, summary),
+        // Entrada sem nenhum campo reconhecivel de tipo (nem sample-type, nem type, nem string-URL).
+        jsonResponse(200, { samples: [{ ['algum-campo-novo-da-polar']: 'xyz', ['pontos']: [1, 2, 3] }] }),
+        jsonResponse(200, {}),
+      ]);
+      global.fetch = fn as unknown as typeof fetch;
+
+      const result = await service.sync('user-a');
+
+      // Ingestao do exercicio continua bem-sucedida apesar do tipo de sample nao reconhecido.
+      expect(result).toEqual({ status: 'synced', imported: 1, resumedTransaction: false });
+      expect(activityStore.get('polar|user-a|weird-sample-type')).toBeDefined();
+      expect(sampleStore.size).toBe(1);
+      expect([...sampleStore.values()][0].sampleType).toBe('unknown');
+    });
+
+    it('4. nova sincronizacao da mesma atividade nao duplica samples (upsert pela chave atividade+provider+tipo)', async () => {
+      const summary = { id: 'resync-samples', distance: 4000, duration: 'PT20M0S', 'start-time': '2026-09-30T07:00:00Z' };
+      const listResponse = () => jsonResponse(200, { samples: [{ ['sample-type']: 'heart-rate', href: `${EXERCISE_URL}/samples/heart-rate` }] });
+      const hrResponse = (avg: number) => jsonResponse(200, { ['heart-rate-samples']: [{ offsetMillis: 0, heartRate: avg }] });
+
+      const conn = baseConnection({ registeredAt: new Date() });
+      const { service, sampleStore } = fixture(conn);
+
+      const { fn: fn1 } = queueFetch([
+        jsonResponse(201, { 'transaction-id': 'txn-s4a' }),
+        jsonResponse(200, { exercises: [EXERCISE_URL] }),
+        jsonResponse(200, summary),
+        listResponse(),
+        hrResponse(130),
+        jsonResponse(200, {}),
+      ]);
+      global.fetch = fn1 as unknown as typeof fetch;
+      await service.sync('user-a');
+      expect(sampleStore.size).toBe(1);
+
+      // Resincronizacao da MESMA atividade (ex.: Polar reenviando, ou retry manual) — upsert deve
+      // atualizar a mesma linha, nunca criar uma segunda.
+      const { fn: fn2 } = queueFetch([
+        jsonResponse(201, { 'transaction-id': 'txn-s4b' }),
+        jsonResponse(200, { exercises: [EXERCISE_URL] }),
+        jsonResponse(200, summary),
+        listResponse(),
+        hrResponse(135), // valor atualizado
+        jsonResponse(200, {}),
+      ]);
+      global.fetch = fn2 as unknown as typeof fetch;
+      await service.sync('user-a');
+
+      expect(sampleStore.size).toBe(1);
+      const stored = [...sampleStore.values()][0];
+      expect((stored.payload as { ['heart-rate-samples']: Array<{ heartRate: number }> })['heart-rate-samples'][0].heartRate).toBe(135);
+    });
+
+    it('5. falha ao listar/buscar samples NAO destroi a ActivityLog cujo resumo ja foi importado com sucesso', async () => {
+      const { service, activityStore, rawStore, sampleStore, getConnection } = fixture(baseConnection({ registeredAt: new Date() }));
+      const summary = { id: 'samples-fail', distance: 6000, duration: 'PT30M0S', 'start-time': '2026-09-30T07:00:00Z' };
+      const { fn } = queueFetch([
+        jsonResponse(201, { 'transaction-id': 'txn-s5' }),
+        jsonResponse(200, { exercises: [EXERCISE_URL] }),
+        jsonResponse(200, summary),
+        jsonResponse(500, { error: 'internal' }), // listagem de samples falha
+        jsonResponse(200, {}), // commit — precisa acontecer normalmente mesmo assim
+      ]);
+      global.fetch = fn as unknown as typeof fetch;
+
+      const result = await service.sync('user-a');
+
+      // sync() inteiro teve SUCESSO — falha de samples nunca propaga como falha de exercicio.
+      expect(result).toEqual({ status: 'synced', imported: 1, resumedTransaction: false });
+      expect(activityStore.get('polar|user-a|samples-fail')).toBeDefined();
+      expect(rawStore.get('polar|user-a|samples-fail')).toBeDefined();
+      expect(sampleStore.size).toBe(0);
+      expect(getConnection()?.openTransactionId).toBeNull(); // transaction commitada normalmente
+    });
   });
 });
