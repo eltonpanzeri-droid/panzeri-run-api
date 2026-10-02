@@ -225,6 +225,53 @@ interface WeekPlanSession {
     mentalStateChangePrePost?: number | null;
     feedbackVersion?: number | null;
   } | null;
+  // Visualizacao Prescrito x Realizado (02/10/2026) — atividade objetiva (relogio/provedor) que o
+  // Motor de Reconciliacao identificou como correspondente a esta prescricao. Null = ainda sem
+  // correspondencia identificada; NUNCA interpretar como "nao realizou" (o aluno pode ter treinado
+  // sem relogio, ou o relogio pode so sincronizar depois). Fonte separada de `completion`
+  // (feedback subjetivo/manual) — as duas coexistem sem uma sobrescrever a outra.
+  realized?: RealizedActivity | null;
+}
+
+interface RealizedActivity {
+  activityLogId: string;
+  provider: string;
+  startedAt: string;
+  distanceKm: number | null;
+  durationMin: number | null;
+  avgPaceSecondsKm: number | null;
+  avgHeartRateBpm: number | null;
+  maxHeartRateBpm: number | null;
+}
+
+// Atividade 'alternative' — nao corresponde a nenhuma prescricao aplicavel (nunca "substituicao"
+// nem "erro do aluno", so uma classificacao objetiva). modality pode ser null quando a atividade
+// ainda nao foi materializada numa sessao sintetica (ver backend: ActivityLog.sport nao e exposto
+// aqui como modality ainda, so quando ja materializada).
+interface AlternativeActivity {
+  activityLogId: string | null;
+  provider: string | null;
+  modality: string | null;
+  isoDate: string; // 'YYYY-MM-DD', dia local ja calculado pelo backend — usar pra agrupar com a sessao do dia
+  startedAt: string;
+  distanceKm: number | null;
+  durationMin: number | null;
+  avgPaceSecondsKm: number | null;
+  avgHeartRateBpm: number | null;
+  maxHeartRateBpm: number | null;
+}
+
+// Atividade 'ambiguous' — o motor identificou candidatos plausiveis mas nao tem evidencia
+// suficiente pra escolher sozinho. "candidates" sao as prescricoes possiveis, fornecidas pelo
+// backend (o mobile NUNCA decide quais sao os candidatos).
+interface PendingActivity {
+  activityLogId: string;
+  provider: string;
+  isoDate: string;
+  startedAt: string;
+  distanceKm: number | null;
+  durationMin: number | null;
+  candidates: Array<{ linkId: string; trainingSessionId: string; sessionTitle: string; sessionModality: string; sessionDate: string }>;
 }
 
 type SessionStructure =
@@ -312,6 +359,10 @@ interface WeekPlan {
   hasSubscriptionAccess?: boolean;
   generatedAt?: string;
   sessions: WeekPlanSession[];
+  // Visualizacao Prescrito x Realizado (02/10/2026) — ver RealizedActivity/AlternativeActivity/
+  // PendingActivity. Default [] no backend quando vazio, nunca undefined.
+  alternativeActivities?: AlternativeActivity[];
+  pendingActivities?: PendingActivity[];
 }
 
 interface WeekByOffsetResponse extends Partial<WeekPlan> {
@@ -4863,13 +4914,40 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
   }
   const sessions = plan?.sessions.length ? plan.sessions : [];
   const weekRange = plan ? planWeekRange(plan) : currentWeekRange();
-  const groupedSessions = sessions.reduce<Array<{ key: string; day: string; date: string; sessions: WeekPlanSession[] }>>((groups, session) => {
+  const alternativeActivities = plan?.alternativeActivities ?? [];
+  const pendingActivities = plan?.pendingActivities ?? [];
+  // 'DD/MM' a partir de 'YYYY-MM-DD' — mesma convencao de exibicao que o backend ja usa pra
+  // session.date, pra atividade alternativa/pendente cair no MESMO grupo visual do dia da sessao.
+  const dateLabelFromIso = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+  const weekdayAbbrevFromIso = (iso: string) => {
+    const names = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+    return names[new Date(`${iso}T00:00:00.000Z`).getUTCDay()] ?? '';
+  };
+  type SessionDayGroup = { key: string; isoDate: string; day: string; date: string; sessions: WeekPlanSession[]; alternatives: AlternativeActivity[]; pending: PendingActivity[] };
+  const dayGroups: SessionDayGroup[] = [];
+  for (const session of sessions) {
     const key = session.date;
-    const group = groups.find((item) => item.key === key);
+    const group = dayGroups.find((item) => item.key === key);
     if (group) group.sessions.push(session);
-    else groups.push({ key, day: session.day, date: session.date, sessions: [session] });
-    return groups;
-  }, []).map((group) => ({ ...group, sessions: group.sessions.slice().sort((left, right) => modalityOrderRank(left.modality) - modalityOrderRank(right.modality)) }));
+    else dayGroups.push({ key, isoDate: session.isoDate ?? '', day: session.day, date: session.date, sessions: [session], alternatives: [], pending: [] });
+  }
+  // Atividade alternativa/pendente cai no grupo do dia correspondente — mesmo quando esse dia NAO
+  // tem nenhuma prescricao (nao esconder atividade so por faltar TrainingSession, ver pedido).
+  for (const activity of alternativeActivities) {
+    const key = dateLabelFromIso(activity.isoDate);
+    const group = dayGroups.find((item) => item.key === key);
+    if (group) group.alternatives.push(activity);
+    else dayGroups.push({ key, isoDate: activity.isoDate, day: weekdayAbbrevFromIso(activity.isoDate), date: key, sessions: [], alternatives: [activity], pending: [] });
+  }
+  for (const activity of pendingActivities) {
+    const key = dateLabelFromIso(activity.isoDate);
+    const group = dayGroups.find((item) => item.key === key);
+    if (group) group.pending.push(activity);
+    else dayGroups.push({ key, isoDate: activity.isoDate, day: weekdayAbbrevFromIso(activity.isoDate), date: key, sessions: [], alternatives: [], pending: [activity] });
+  }
+  const groupedSessions = dayGroups
+    .sort((left, right) => left.isoDate.localeCompare(right.isoDate))
+    .map((group) => ({ ...group, sessions: group.sessions.slice().sort((left, right) => modalityOrderRank(left.modality) - modalityOrderRank(right.modality)) }));
 
   const subscriptionOffer = (
     <View style={styles.formSection}>
@@ -5218,9 +5296,14 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                 // isoDate = 'YYYY-MM-DD' (campo adicionado na API); date = 'DD/MM' (so exibicao).
                 // A comparacao de strings so funciona corretamente com formato ISO.
                 const sessionIsoDate = session.isoDate ?? ''; // fallback vazio: nao aplica amarelo
-                const isPastUnregistered = !session.completion && sessionIsoDate < todayBR && sessionIsoDate !== '';
+                // Prescrito x Realizado (02/10/2026): session.realized vem do Motor de
+                // Reconciliacao (SessionExecutionLink ATIVO) — e' evidencia OBJETIVA de que a
+                // sessao foi realizada, independente de feedback subjetivo (completion) ter sido
+                // preenchido. "Sem registro" nunca se aplica quando ja existe atividade correspondente.
+                const hasRealized = Boolean(session.realized);
+                const isPastUnregistered = !session.completion && !hasRealized && sessionIsoDate < todayBR && sessionIsoDate !== '';
                 const cardStatusStyle =
-                  sessionStatus === 'done' || sessionStatus === 'adjusted'
+                  sessionStatus === 'done' || sessionStatus === 'adjusted' || (hasRealized && sessionStatus !== 'missed')
                     ? { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }
                     : sessionStatus === 'missed'
                     ? { backgroundColor: '#fef2f2', borderColor: '#fecaca' }
@@ -5250,20 +5333,22 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                             17/09: prefere valores realizados (completion) sobre prescrição —
                             essencial para sessões extras sem prescrição (durationMin=0/null). */}
                         {!sessionExpanded ? (() => {
-                          const dur = session.completion?.durationMin ?? session.durationMin;
-                          const dist = session.completion?.distanceKm ?? session.distanceKm;
+                          // Prescrito x Realizado: prefere o dado OBJETIVO (realized) sobre o
+                          // feedback manual (completion) sobre o prescrito, so pro resumo compacto.
+                          const dur = session.realized?.durationMin ?? session.completion?.durationMin ?? session.durationMin;
+                          const dist = session.realized?.distanceKm ?? session.completion?.distanceKm ?? session.distanceKm;
                           if (!dur && !dist) return null;
                           return (
                             <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                              {[dur ? `${Math.round(dur)} min` : null, dist ? `${dist} km` : null].filter(Boolean).join(' · ')}
+                              {[dur ? `${Math.round(dur)} min` : null, dist ? `${Math.round(dist * 100) / 100} km` : null].filter(Boolean).join(' · ')}
                             </Text>
                           );
                         })() : null}
                         <Text style={styles.sessionDetail}>{sessionExpanded ? 'Toque para recolher' : 'Toque para ver o treino'}</Text>
-                        {sessionStatus === 'done' || sessionStatus === 'adjusted' ? (
-                          <Text style={styles.sessionStatusDone}>✓ Feito</Text>
-                        ) : sessionStatus === 'missed' ? (
+                        {sessionStatus === 'missed' ? (
                           <Text style={styles.sessionStatusMissed}>✗ Não feito</Text>
+                        ) : sessionStatus === 'done' || sessionStatus === 'adjusted' || hasRealized ? (
+                          <Text style={styles.sessionStatusDone}>✓ Realizado</Text>
                         ) : isPastUnregistered ? (
                           <Text style={{ fontSize: 12, color: '#92400e', fontWeight: '600' }}>⚠ Sem registro</Text>
                         ) : null}
@@ -5282,6 +5367,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                             nao exibe mais pro aluno aqui. O campo continua salvo no banco. */}
                         {/* 12/09: session.notes (texto IA: aquecimento/resfriamento) agora aparece dentro
                             do colapsivel da SessionPrescription em vez de sempre visivel aqui */}
+                        <RealizedComparisonCard realized={session.realized} prescribedDistanceKm={session.distanceKm} prescribedDurationMin={session.durationMin} />
                         <SessionPrescription
                           session={session}
                           sessionNotes={'notes' in session && session.notes ? session.notes : undefined}
@@ -5314,6 +5400,12 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                   </View>
                 );
               })}
+              {group.alternatives.map((activity) => (
+                <AlternativeActivityCard activity={activity} key={activity.activityLogId ?? activity.startedAt} />
+              ))}
+              {group.pending.map((activity) => (
+                <PendingActivityCard activity={activity} accessToken={accessToken} onConfirmed={loadPlan} key={activity.activityLogId} />
+              ))}
             </View>
           </View>
         ))}
@@ -9653,6 +9745,144 @@ function SessionCard({
         <Text style={styles.sessionTitle}>{title}</Text>
         <Text style={styles.sessionDetail}>{detail}</Text>
         <Text style={styles.sessionNote}>{note}</Text>
+      </View>
+    </View>
+  );
+}
+
+// Nome discreto do provedor — nunca "tela Polar": so' um rotulo pequeno sobre a origem do dado,
+// o mesmo componente serve pra qualquer provedor futuro (Garmin/COROS/Apple) sem mudar nada aqui.
+function ProviderLabel({ provider }: { provider: string | null }) {
+  if (!provider) return null;
+  const label = provider.charAt(0).toUpperCase() + provider.slice(1);
+  return <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{label}</Text>;
+}
+
+function roundKm(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+// Prescrito x Realizado (02/10/2026): quando ha' atividade correspondente (SessionExecutionLink
+// ATIVO), mostra prescrito x realizado lado a lado — NUNCA como julgamento (vermelho/erro/
+// "incompleto"), so' os dados objetivos disponiveis. Linha so' aparece quando o dado existe (nunca
+// zero fabricado). Se o valor realizado bate exatamente com o prescrito, mostra so' uma linha (nao
+// repete a mesma informacao duas vezes).
+function RealizedComparisonCard({
+  realized,
+  prescribedDistanceKm,
+  prescribedDurationMin,
+}: {
+  realized?: RealizedActivity | null;
+  prescribedDistanceKm?: number | null;
+  prescribedDurationMin?: number | null;
+}) {
+  if (!realized) return null;
+  const realizedDistanceKm = realized.distanceKm != null ? roundKm(realized.distanceKm) : null;
+  const realizedDurationMin = realized.durationMin != null ? Math.round(realized.durationMin) : null;
+  const distanceDiffers = realizedDistanceKm != null && prescribedDistanceKm != null && realizedDistanceKm !== roundKm(prescribedDistanceKm);
+  const durationDiffers = realizedDurationMin != null && prescribedDurationMin != null && realizedDurationMin !== Math.round(prescribedDurationMin);
+
+  return (
+    <View style={{ backgroundColor: '#f0fdf4', borderRadius: 10, padding: 12, marginBottom: 12, gap: 4 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Ionicons name="checkmark-circle" size={16} color="#16a34a" />
+        <Text style={{ fontSize: 13, fontWeight: '700', color: '#166534' }}>Realizado</Text>
+      </View>
+      {realizedDistanceKm != null ? (
+        distanceDiffers ? (
+          <Text style={{ fontSize: 13, color: '#166534' }}>Prescrito: {roundKm(prescribedDistanceKm!)} km  ·  Realizado: {realizedDistanceKm} km</Text>
+        ) : (
+          <Text style={{ fontSize: 13, color: '#166534' }}>Distancia: {realizedDistanceKm} km</Text>
+        )
+      ) : null}
+      {realizedDurationMin != null ? (
+        durationDiffers ? (
+          <Text style={{ fontSize: 13, color: '#166534' }}>Duracao prescrita: {Math.round(prescribedDurationMin!)} min  ·  Realizada: {realizedDurationMin} min</Text>
+        ) : (
+          <Text style={{ fontSize: 13, color: '#166534' }}>Duracao: {realizedDurationMin} min</Text>
+        )
+      ) : null}
+      {realized.avgPaceSecondsKm ? (
+        <Text style={{ fontSize: 13, color: '#166534' }}>Ritmo medio: {paceSecondsToInput(realized.avgPaceSecondsKm)}/km</Text>
+      ) : null}
+      {realized.avgHeartRateBpm ? (
+        <Text style={{ fontSize: 13, color: '#166534' }}>FC media: {realized.avgHeartRateBpm} bpm{realized.maxHeartRateBpm ? ` (max ${realized.maxHeartRateBpm})` : ''}</Text>
+      ) : null}
+      <ProviderLabel provider={realized.provider} />
+    </View>
+  );
+}
+
+// Atividade 'alternative' — nao corresponde a nenhuma prescricao aplicavel. Card independente,
+// mesmo padrao visual do SessionPrescription mas sem nenhuma referencia a "substituicao"/"extra".
+function AlternativeActivityCard({ activity }: { activity: AlternativeActivity }) {
+  const distanceKm = activity.distanceKm != null ? roundKm(activity.distanceKm) : null;
+  const durationMin = activity.durationMin != null ? Math.round(activity.durationMin) : null;
+  return (
+    <View style={[styles.weekSessionCard, { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }]}>
+      <View style={{ padding: 14, gap: 4 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Ionicons name={iconForModality(activity.modality ?? 'outra')} size={18} color="#475569" />
+          <Text style={styles.sessionTitle}>{activity.modality ? modalityLabel(activity.modality) : 'Atividade'}</Text>
+        </View>
+        <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Atividade alternativa</Text>
+        <Text style={{ fontSize: 13, color: '#475569' }}>
+          {[durationMin ? `${durationMin} min` : null, distanceKm ? `${distanceKm} km` : null].filter(Boolean).join(' · ')}
+        </Text>
+        <ProviderLabel provider={activity.provider} />
+      </View>
+    </View>
+  );
+}
+
+// Atividade 'ambiguous'/'candidate' — motor ja' sabe quais prescricoes sao plausiveis, so' nao tem
+// evidencia suficiente pra decidir sozinho. O mobile NUNCA decide os candidatos — so' apresenta o
+// que o backend ja forneceu e manda a escolha de volta via confirmCandidateAsStudent.
+function PendingActivityCard({ activity, accessToken, onConfirmed }: { activity: PendingActivity; accessToken: string; onConfirmed: () => void }) {
+  const [confirming, setConfirming] = React.useState('');
+  const [error, setError] = React.useState('');
+
+  async function confirm(linkId: string) {
+    setConfirming(linkId);
+    setError('');
+    try {
+      const response = await fetch(`${API_URL}/me/activity-reconciliation/${linkId}/confirm`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) throw new Error();
+      onConfirmed();
+    } catch {
+      setError('Nao foi possivel confirmar agora. Tente novamente.');
+    } finally {
+      setConfirming('');
+    }
+  }
+
+  return (
+    <View style={[styles.weekSessionCard, { backgroundColor: '#fffbeb', borderColor: '#fde68a' }]}>
+      <View style={{ padding: 14, gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Ionicons name="help-circle-outline" size={18} color="#b45309" />
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#92400e' }}>Precisamos identificar esta atividade</Text>
+        </View>
+        <ProviderLabel provider={activity.provider} />
+        <View style={{ gap: 6, marginTop: 4 }}>
+          {activity.candidates.map((candidate) => (
+            <Pressable
+              key={candidate.linkId}
+              style={[styles.secondaryOutlineButton, confirming === candidate.linkId && styles.disabledButton]}
+              disabled={Boolean(confirming)}
+              onPress={() => confirm(candidate.linkId)}
+            >
+              <Text style={styles.secondaryOutlineButtonText}>
+                {confirming === candidate.linkId ? 'Confirmando...' : `Foi este: ${candidate.sessionTitle}`}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        {error ? <Text style={{ fontSize: 12, color: '#b91c1c' }}>{error}</Text> : null}
       </View>
     </View>
   );

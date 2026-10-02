@@ -462,4 +462,30 @@ describe('Motor de Reconciliacao Prescricao x Execucao V1', () => {
     const { service } = fixture();
     await expect(service.confirmCandidate('nope', 'student')).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it('confirmCandidateAsStudent (visualizacao Prescrito x Realizado): confirma quando o candidato pertence ao proprio aluno', async () => {
+    const { service, addActivity, addSession, candidatesFor } = fixture();
+    const sessionA = addSession({ modality: 'corrida' });
+    addSession({ modality: 'corrida' });
+    const activity = addActivity({ sport: 'corrida', userId: 'user-a' });
+
+    expect(await service.classify(activity.id)).toBe('ambiguous');
+    const chosen = candidatesFor(activity.id).find((c) => c.trainingSessionId === sessionA.id)!;
+
+    const confirmed = await service.confirmCandidateAsStudent('user-a', chosen.id);
+    expect(confirmed.status).toBe('active');
+    expect(confirmed.origin).toBe('student');
+  });
+
+  it('confirmCandidateAsStudent rejeita (NotFoundException) quando o linkId pertence a OUTRO aluno (protecao contra IDOR)', async () => {
+    const { service, addActivity, addSession, candidatesFor } = fixture();
+    const sessionA = addSession({ modality: 'corrida' });
+    addSession({ modality: 'corrida' });
+    const activity = addActivity({ sport: 'corrida', userId: 'user-a' });
+
+    expect(await service.classify(activity.id)).toBe('ambiguous');
+    const chosen = candidatesFor(activity.id).find((c) => c.trainingSessionId === sessionA.id)!;
+
+    await expect(service.confirmCandidateAsStudent('user-outro', chosen.id)).rejects.toBeInstanceOf(NotFoundException);
+  });
 });

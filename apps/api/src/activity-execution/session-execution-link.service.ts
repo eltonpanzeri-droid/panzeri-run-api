@@ -117,6 +117,73 @@ function isFullyConsistent(evidence: EvidenceItem[]): boolean {
   return evidence.every((item) => item.matched !== false);
 }
 
+// Read model de Prescrito x Realizado pro aluno (02/10/2026). Puramente agregacao de dados JA'
+// decididos por classify()/linkManually()/confirmCandidate() — nunca redecide correspondencia
+// aqui. Consumido pelo TrainingPlansService (presentPlan) pra montar a resposta das telas de
+// semana/historico do mobile sem duplicar a logica de reconciliacao no controller/mobile.
+export interface ReconciliationActivitySummary {
+  id: string;
+  provider: string;
+  startedAt: Date;
+  // Dia local do atleta (YYYY-MM-DD, mesma convencao de TrainingSession.scheduledDate/isoDate no
+  // mobile) — calculado aqui com utcOffsetMinutes pra nunca expor o chamador a bug de fuso horario
+  // (startedAt sozinho e' um instante UTC real, nao o "dia" que o aluno reconhece).
+  isoDate: string;
+  distanceMeters: number | null;
+  durationSec: number | null;
+  avgPaceSecondsKm: number | null;
+  avgHeartRateBpm: number | null;
+  maxHeartRateBpm: number | null;
+}
+
+export interface ReconciliationCandidateOption {
+  linkId: string;
+  trainingSessionId: string;
+  sessionTitle: string;
+  sessionModality: string;
+  sessionDate: string;
+}
+
+export interface WeekReconciliation {
+  // Sessoes prescritas com vinculo ATIVO ('corresponding') nesta janela — chave e' o
+  // trainingSessionId, pra' o chamador so' fazer .get(session.id) ao montar cada card.
+  activeLinkBySessionId: Map<string, { activityLog: ReconciliationActivitySummary; matchMethod: string | null }>;
+  // Atividades 'alternative' SEM TrainingSession sintetica materializada nesta janela — aparecem
+  // como card independente no read model (nunca escondidas so' por nao terem prescricao).
+  alternativeActivities: ReconciliationActivitySummary[];
+  // Atividades 'ambiguous' com candidatos pendentes de confirmacao humana nesta janela.
+  pendingActivities: Array<{ activityLog: ReconciliationActivitySummary; candidates: ReconciliationCandidateOption[] }>;
+}
+
+function toActivitySummary(activity: {
+  id: string;
+  provider: string;
+  startedAt: Date;
+  utcOffsetMinutes: number | null;
+  distanceMeters: number | null;
+  durationSec: number | null;
+  avgHeartRateBpm: number | null;
+  maxHeartRateBpm: number | null;
+}): ReconciliationActivitySummary {
+  // Mesma formula ja usada pro Strava (strava.service.ts) — pace nunca persistido, sempre
+  // derivado na leitura, pra nunca divergir do par distancia/duracao observado.
+  const avgPaceSecondsKm =
+    activity.distanceMeters && activity.distanceMeters > 0 && activity.durationSec != null
+      ? Math.round(activity.durationSec / (activity.distanceMeters / 1000))
+      : null;
+  return {
+    id: activity.id,
+    provider: activity.provider,
+    startedAt: activity.startedAt,
+    isoDate: localCalendarDate(activity.startedAt, activity.utcOffsetMinutes),
+    distanceMeters: activity.distanceMeters,
+    durationSec: activity.durationSec,
+    avgPaceSecondsKm,
+    avgHeartRateBpm: activity.avgHeartRateBpm,
+    maxHeartRateBpm: activity.maxHeartRateBpm,
+  };
+}
+
 // start-time-utc-offset da Polar (e equivalente de outros provedores) segue a convencao
 // "realUTC = localAsUtc - offsetMinutes" (ver parseStartedAt em polar-activity-ingestion.service.ts)
 // — logo local = realUTC + offsetMinutes. Sem offset conhecido, usamos o dia UTC puro (nunca
@@ -145,6 +212,83 @@ export class SessionExecutionLinkService {
 
   async getActiveLinkForActivity(activityLogId: string) {
     return this.prisma.sessionExecutionLink.findFirst({ where: { activityLogId, status: 'active' } });
+  }
+
+  // Agrega o estado de reconciliacao de um usuario numa janela de datas — pra' o mobile mostrar
+  // Prescrito x Realizado sem reproduzir a logica de classify()/linkManually() em outro lugar.
+  // rangeEndExclusive e' EXCLUSIVO (ver chamador — tipicamente addDays(weekStart, 7)).
+  async getWeekReconciliation(userId: string, rangeStart: Date, rangeEndExclusive: Date): Promise<WeekReconciliation> {
+    const activities = await this.prisma.activityLog.findMany({
+      where: { userId, startedAt: { gte: rangeStart, lt: rangeEndExclusive } },
+    });
+    if (activities.length === 0) {
+      return { activeLinkBySessionId: new Map(), alternativeActivities: [], pendingActivities: [] };
+    }
+
+    const activityIds = activities.map((a) => a.id);
+    const activityById = new Map(activities.map((a) => [a.id, a]));
+
+    const links = await this.prisma.sessionExecutionLink.findMany({
+      where: { activityLogId: { in: activityIds }, status: { in: ['active', 'candidate'] } },
+      include: { trainingSession: { select: { id: true, title: true, modality: true, scheduledDate: true } } },
+    });
+
+    const activeLinkBySessionId = new Map<string, { activityLog: ReconciliationActivitySummary; matchMethod: string | null }>();
+    const candidatesByActivityId = new Map<string, ReconciliationCandidateOption[]>();
+    const linkedActivityIds = new Set<string>();
+
+    for (const link of links) {
+      const activity = activityById.get(link.activityLogId);
+      if (!activity) continue;
+      if (link.status === 'active') {
+        linkedActivityIds.add(link.activityLogId);
+        activeLinkBySessionId.set(link.trainingSessionId, {
+          activityLog: toActivitySummary(activity),
+          matchMethod: link.matchMethod,
+        });
+      } else {
+        const list = candidatesByActivityId.get(link.activityLogId) ?? [];
+        list.push({
+          linkId: link.id,
+          trainingSessionId: link.trainingSessionId,
+          sessionTitle: link.trainingSession.title,
+          sessionModality: link.trainingSession.modality,
+          sessionDate: link.trainingSession.scheduledDate.toISOString().slice(0, 10),
+        });
+        candidatesByActivityId.set(link.activityLogId, list);
+      }
+    }
+
+    // Atividades ja' materializadas como TrainingSession sintetica 'device_extra' nesta janela —
+    // ja' aparecem no plano via essa sessao (o chamador as apresenta usando os dados da propria
+    // sessao/completion sintetica), entao NAO entram de novo aqui pra' evitar duplicidade.
+    const materializedSessions = await this.prisma.trainingSession.findMany({
+      where: { userId, origin: 'device_extra', scheduledDate: { gte: rangeStart, lt: rangeEndExclusive } },
+      select: { structure: true },
+    });
+    const materializedActivityIds = new Set(
+      materializedSessions
+        .map((s) => (s.structure as { activityLogId?: string } | null)?.activityLogId)
+        .filter((id): id is string => Boolean(id)),
+    );
+
+    const alternativeActivities = activities
+      .filter(
+        (a) =>
+          a.executionClassification === 'alternative' &&
+          !linkedActivityIds.has(a.id) &&
+          !materializedActivityIds.has(a.id),
+      )
+      .map(toActivitySummary);
+
+    const pendingActivities = [...candidatesByActivityId.entries()]
+      .filter(([activityId]) => !linkedActivityIds.has(activityId))
+      .map(([activityId, candidates]) => ({
+        activityLog: toActivitySummary(activityById.get(activityId)!),
+        candidates,
+      }));
+
+    return { activeLinkBySessionId, alternativeActivities, pendingActivities };
   }
 
   // Motor de Reconciliacao V1. Decide entre 4 situacoes (ver pedido original; PASSO A-F do
@@ -316,6 +460,19 @@ export class SessionExecutionLinkService {
       evidence: (candidate.evidence as EvidenceItem[] | null) ?? undefined,
       note: note ?? candidate.note,
     });
+  }
+
+  // Wrapper exposto via HTTP (controller) pro ALUNO confirmar uma candidata. Checa posse ANTES de
+  // confirmar — confirmCandidate() sozinho nao valida dono nenhum (uso interno/treinador ja'
+  // confiava no chamador); exposto ao aluno, precisa impedir que ele confirme um linkId de outro
+  // usuario so' adivinhando o id. NotFoundException tanto pra' "nao existe" quanto pra' "nao e'
+  // seu" — nunca revela a um aluno que um linkId de outra pessoa existe.
+  async confirmCandidateAsStudent(userId: string, linkId: string, note?: string | null) {
+    const candidate = await this.prisma.sessionExecutionLink.findUnique({ where: { id: linkId } });
+    if (!candidate || candidate.userId !== userId) {
+      throw new NotFoundException('Candidato de vinculo nao encontrado.');
+    }
+    return this.confirmCandidate(linkId, 'student', note);
   }
 
   // Vincula explicitamente uma atividade a uma sessao — usado tanto pela classificacao automatica

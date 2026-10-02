@@ -32,6 +32,7 @@ import { ReassessmentService } from '../reassessment/reassessment.service';
 import { buildCompactAgentContext } from '../training-intelligence/compact-agent-context';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
+import { SessionExecutionLinkService, WeekReconciliation } from '../activity-execution/session-execution-link.service';
 
 interface SessionTemplate {
   title: string;
@@ -150,6 +151,7 @@ export class TrainingPlansService {
     private readonly athleteStateSnapshot: AthleteStateSnapshotService,
     private readonly reassessmentService: ReassessmentService,
     private readonly reportTimeline: ReportTimelineService,
+    private readonly sessionExecutionLink: SessionExecutionLinkService,
   ) {}
 
   // REGRA DURA (2026-07-28): current() e SO LEITURA — nunca chama generateWeek() nem mexe no
@@ -228,7 +230,8 @@ export class TrainingPlansService {
       };
     }
 
-    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
+    const reconciliation = await this.sessionExecutionLink.getWeekReconciliation(userId, plan.startDate, addDays(plan.startDate, 7));
+    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest), reconciliation);
   }
 
   // REPARO DE EMERGENCIA (03/08, manha): na noite de 02/08 o botao "Gerar semana seguinte para
@@ -389,7 +392,8 @@ export class TrainingPlansService {
       };
     }
 
-    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
+    const reconciliation = await this.sessionExecutionLink.getWeekReconciliation(userId, plan.startDate, addDays(plan.startDate, 7));
+    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest), reconciliation);
   }
 
   // options.referenceDate/planStatus/archiveCurrentActive existem so para a pre-geracao da
@@ -2457,6 +2461,7 @@ export class TrainingPlansService {
       notes: string | null;
       recommendations: string | null;
       routineMismatchNote: string | null;
+      origin: string | null;
       completion?: {
         status: string;
         completedAt: Date;
@@ -2493,9 +2498,13 @@ export class TrainingPlansService {
         emotionalExperienceDuring: number | null;
         mentalStateChangePrePost: number | null;
         feedbackVersion: number;
+        // So' preenchidos pra completions sinteticas de atividade alternativa (origin
+        // 'device_extra' — ver materializeExtraActivity); null em completions normais/manuais.
+        avgHeartRate: number | null;
+        maxHeartRate: number | null;
       } | null;
     }>;
-  }, unlocked = true, hasTest = true) {
+  }, unlocked = true, hasTest = true, reconciliation: WeekReconciliation = { activeLinkBySessionId: new Map(), alternativeActivities: [], pendingActivities: [] }) {
     if (!unlocked) {
       return {
         id: plan.id,
@@ -2509,6 +2518,8 @@ export class TrainingPlansService {
         billingProvider: 'asaas',
         priceLabel: 'R$ 19,90 por mes',
         sessions: [],
+        alternativeActivities: [],
+        pendingActivities: [],
       };
     }
     return {
@@ -2528,59 +2539,145 @@ export class TrainingPlansService {
       // exibivel (isDetailedPlan=false)" de "aluno nao tem assinatura" — sem esse campo o
       // mobile nao tinha como saber o status de acesso quando o plano e retornado desbloqueado.
       hasSubscriptionAccess: unlocked,
-      sessions: plan.sessions.map((session) => ({
-        id: session.id,
-        day: dayNames[session.weekday] ?? 'Dia',
-        date: formatDate(session.scheduledDate),
-        isoDate: session.scheduledDate.toISOString().slice(0, 10),
-        title: session.title,
-        detail: [structureDurationLabel(session.structure, session.durationMin), session.intensityZone, session.paceMinSec]
-          .filter(Boolean)
-          .join(' - '),
-        modality: session.modality,
-        zone: session.intensityZone ?? '',
-        durationMin: session.durationMin,
-        distanceKm: session.distanceKm,
-        structure: session.structure,
-        // Campo unico de texto explicativo — antes existia "recommendations" separado, removido
-        // em 07/08. Sessoes antigas que ainda tem algo la (dado historico, nao apagado do banco)
-        // continuam aparecendo, so que juntas com notes num unico texto pro aluno.
-        notes: [session.notes, session.recommendations].filter(Boolean).join(' '),
-        routineMismatchNote: session.routineMismatchNote,
-        completion: session.completion
-          ? {
-              status: session.completion.status,
-              completedAt: session.completion.completedAt,
-              durationMin: session.completion.durationMin,
-              distanceKm: session.completion.distanceKm,
-              avgPaceSecondsKm: session.completion.avgPaceSecondsKm,
-              perceivedEffort: session.completion.perceivedEffort,
-              satisfaction: session.completion.satisfaction,
-              satisfactionElaboracao: session.completion.satisfactionElaboracao,
-              satisfactionCapacidade: session.completion.satisfactionCapacidade,
-              satisfactionCarga: session.completion.satisfactionCarga,
-              painFlag: session.completion.painFlag,
-              painTiming: session.completion.painTiming,
-              notes: session.completion.notes,
-              details: session.completion.details,
-              preSleepQuality: session.completion.preSleepQuality,
-              prePhysicalFatigue: session.completion.prePhysicalFatigue,
-              preStressLevel: session.completion.preStressLevel,
-              preMotivation: session.completion.preMotivation,
-              postWorkoutFeeling: session.completion.postWorkoutFeeling,
-              sleepDurationCategory: session.completion.sleepDurationCategory,
-              sleepScheduleIrregularity: session.completion.sleepScheduleIrregularity,
-              sleepInterruption: session.completion.sleepInterruption,
-              sleepDifficulty: session.completion.sleepDifficulty,
-              preMentalFatigue: session.completion.preMentalFatigue,
-              executionVsPrescribed: session.completion.executionVsPrescribed,
-              postPhysicalFatigue: session.completion.postPhysicalFatigue,
-              postMentalFatigue: session.completion.postMentalFatigue,
-              emotionalExperienceDuring: session.completion.emotionalExperienceDuring,
-              mentalStateChangePrePost: session.completion.mentalStateChangePrePost,
-              feedbackVersion: session.completion.feedbackVersion,
-            }
-          : null,
+      // 02/10/2026 — Prescrito x Realizado: uma TrainingSession 'device_extra' NAO e' uma
+      // prescricao real (e' a materializacao de uma atividade 'alternative' do motor de
+      // reconciliacao, criada so' pra' o aluno poder dar feedback subjetivo sobre ela — ver
+      // SessionExecutionLinkService.materializeExtraActivity). Ela NUNCA entra em `sessions`
+      // (nao e' algo que o treinador prescreveu); aparece em `alternativeActivities`, igual a
+      // qualquer outra atividade alternativa, pra' nao criar uma "prescricao falsa".
+      sessions: plan.sessions
+        .filter((session) => session.origin !== 'device_extra')
+        .map((session) => {
+          const linked = reconciliation.activeLinkBySessionId.get(session.id);
+          return {
+            id: session.id,
+            day: dayNames[session.weekday] ?? 'Dia',
+            date: formatDate(session.scheduledDate),
+            isoDate: session.scheduledDate.toISOString().slice(0, 10),
+            title: session.title,
+            detail: [structureDurationLabel(session.structure, session.durationMin), session.intensityZone, session.paceMinSec]
+              .filter(Boolean)
+              .join(' - '),
+            modality: session.modality,
+            zone: session.intensityZone ?? '',
+            durationMin: session.durationMin,
+            distanceKm: session.distanceKm,
+            structure: session.structure,
+            // Campo unico de texto explicativo — antes existia "recommendations" separado, removido
+            // em 07/08. Sessoes antigas que ainda tem algo la (dado historico, nao apagado do banco)
+            // continuam aparecendo, so que juntas com notes num unico texto pro aluno.
+            notes: [session.notes, session.recommendations].filter(Boolean).join(' '),
+            routineMismatchNote: session.routineMismatchNote,
+            // Atividade objetiva (ActivityLog, via SessionExecutionLink ATIVO) correspondente a
+            // esta prescricao — null quando ainda nao ha' correspondencia identificada. NUNCA
+            // confundir com `completion` (feedback subjetivo/manual, fonte separada por design —
+            // ver cabecalho de session-execution-link.service.ts). Correspondencia nao exige
+            // execucao perfeita: distancia/duracao podem diferir da prescricao sem que isso
+            // signifique "nao aderiu" — a UI deve mostrar prescrito x realizado, nunca um veredito.
+            realized: linked
+              ? {
+                  activityLogId: linked.activityLog.id,
+                  provider: linked.activityLog.provider,
+                  startedAt: linked.activityLog.startedAt,
+                  distanceKm: linked.activityLog.distanceMeters != null ? linked.activityLog.distanceMeters / 1000 : null,
+                  durationMin: linked.activityLog.durationSec != null ? linked.activityLog.durationSec / 60 : null,
+                  avgPaceSecondsKm: linked.activityLog.avgPaceSecondsKm,
+                  avgHeartRateBpm: linked.activityLog.avgHeartRateBpm,
+                  maxHeartRateBpm: linked.activityLog.maxHeartRateBpm,
+                }
+              : null,
+            completion: session.completion
+              ? {
+                  status: session.completion.status,
+                  completedAt: session.completion.completedAt,
+                  durationMin: session.completion.durationMin,
+                  distanceKm: session.completion.distanceKm,
+                  avgPaceSecondsKm: session.completion.avgPaceSecondsKm,
+                  perceivedEffort: session.completion.perceivedEffort,
+                  satisfaction: session.completion.satisfaction,
+                  satisfactionElaboracao: session.completion.satisfactionElaboracao,
+                  satisfactionCapacidade: session.completion.satisfactionCapacidade,
+                  satisfactionCarga: session.completion.satisfactionCarga,
+                  painFlag: session.completion.painFlag,
+                  painTiming: session.completion.painTiming,
+                  notes: session.completion.notes,
+                  details: session.completion.details,
+                  preSleepQuality: session.completion.preSleepQuality,
+                  prePhysicalFatigue: session.completion.prePhysicalFatigue,
+                  preStressLevel: session.completion.preStressLevel,
+                  preMotivation: session.completion.preMotivation,
+                  postWorkoutFeeling: session.completion.postWorkoutFeeling,
+                  sleepDurationCategory: session.completion.sleepDurationCategory,
+                  sleepScheduleIrregularity: session.completion.sleepScheduleIrregularity,
+                  sleepInterruption: session.completion.sleepInterruption,
+                  sleepDifficulty: session.completion.sleepDifficulty,
+                  preMentalFatigue: session.completion.preMentalFatigue,
+                  executionVsPrescribed: session.completion.executionVsPrescribed,
+                  postPhysicalFatigue: session.completion.postPhysicalFatigue,
+                  postMentalFatigue: session.completion.postMentalFatigue,
+                  emotionalExperienceDuring: session.completion.emotionalExperienceDuring,
+                  mentalStateChangePrePost: session.completion.mentalStateChangePrePost,
+                  feedbackVersion: session.completion.feedbackVersion,
+                }
+              : null,
+          };
+        }),
+      // Atividades 'alternative' (nao correspondem a nenhuma prescricao) — tanto as ja'
+      // materializadas como TrainingSession sintetica 'device_extra' (reaproveita os dados ja'
+      // copiados pro completion na materializacao) quanto as ainda nao materializadas (lidas
+      // direto do ActivityLog pelo motor de reconciliacao). Nunca desaparecem so' por nao terem
+      // prescricao correspondente — aparecem como card independente.
+      alternativeActivities: [
+        ...plan.sessions
+          .filter((session) => session.origin === 'device_extra')
+          .map((session) => {
+            const structureObj = session.structure as { provider?: string; activityLogId?: string } | null;
+            const distanceKm = session.completion?.distanceKm ?? null;
+            const durationMin = session.completion?.durationMin ?? null;
+            return {
+              activityLogId: structureObj?.activityLogId ?? null,
+              provider: structureObj?.provider ?? null,
+              modality: session.modality,
+              // scheduledDate ja' e' o dia local correto (startOfLocalDay na materializacao).
+              isoDate: session.scheduledDate.toISOString().slice(0, 10),
+              startedAt: session.completion?.completedAt ?? session.scheduledDate,
+              distanceKm,
+              durationMin,
+              avgPaceSecondsKm: session.completion?.avgPaceSecondsKm ?? (distanceKm && distanceKm > 0 && durationMin != null ? Math.round((durationMin * 60) / distanceKm) : null),
+              avgHeartRateBpm: session.completion?.avgHeartRate ?? null,
+              maxHeartRateBpm: session.completion?.maxHeartRate ?? null,
+            };
+          }),
+        ...reconciliation.alternativeActivities.map((activity) => ({
+          activityLogId: activity.id,
+          provider: activity.provider,
+          modality: null,
+          isoDate: activity.isoDate,
+          startedAt: activity.startedAt,
+          distanceKm: activity.distanceMeters != null ? activity.distanceMeters / 1000 : null,
+          durationMin: activity.durationSec != null ? activity.durationSec / 60 : null,
+          avgPaceSecondsKm: activity.avgPaceSecondsKm,
+          avgHeartRateBpm: activity.avgHeartRateBpm,
+          maxHeartRateBpm: activity.maxHeartRateBpm,
+        })),
+      ],
+      // Atividades 'ambiguous' com candidatos pendentes — motor ja' sabe quais prescricoes sao
+      // plausiveis, so' nao tem evidencia suficiente pra escolher sozinho (ver PASSO E/F do motor
+      // de reconciliacao). linkId e' o que o aluno usa em POST /me/activity-reconciliation/:linkId/confirm.
+      pendingActivities: reconciliation.pendingActivities.map(({ activityLog, candidates }) => ({
+        activityLogId: activityLog.id,
+        provider: activityLog.provider,
+        isoDate: activityLog.isoDate,
+        startedAt: activityLog.startedAt,
+        distanceKm: activityLog.distanceMeters != null ? activityLog.distanceMeters / 1000 : null,
+        durationMin: activityLog.durationSec != null ? activityLog.durationSec / 60 : null,
+        candidates: candidates.map((c) => ({
+          linkId: c.linkId,
+          trainingSessionId: c.trainingSessionId,
+          sessionTitle: c.sessionTitle,
+          sessionModality: c.sessionModality,
+          sessionDate: c.sessionDate,
+        })),
       })),
     };
   }

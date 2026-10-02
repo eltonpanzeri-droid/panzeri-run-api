@@ -183,7 +183,7 @@ describe('TrainingPlansService.generateWeek — gate de reavaliacao necessaria (
     const reassessmentService = { isReassessmentDue: jest.fn().mockResolvedValue(true) };
     const service = new TrainingPlansService(
       prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
-      reassessmentService as never, noop(),
+      reassessmentService as never, noop(), noop(),
     );
     await expect(service.generateWeek('u1')).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'reassessment_required' }),

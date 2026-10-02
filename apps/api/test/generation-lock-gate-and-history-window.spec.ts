@@ -100,6 +100,7 @@ function buildFullMocks(overrides: { activePlanStartDate?: Date | null } = {}) {
     athleteStateSnapshot as never,
     reassessmentService as never,
     noop(), // reportTimeline
+    noop(), // sessionExecutionLink
   );
 
   return { service, prisma, trainingPlanFindMany, trainingPlanGenerationLock };
