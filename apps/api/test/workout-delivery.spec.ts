@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { WorkoutDeliveryService } from '../src/workout-delivery/workout-delivery.service';
 
@@ -26,7 +26,9 @@ function fixture() {
           id: nextId('delivery'),
           requestedAt: new Date(),
           sentAt: null,
+          deliveredAt: null,
           failedAt: null,
+          canceledAt: null,
           externalWorkoutId: null,
           errorMessage: null,
           providerMetadata: null,
@@ -176,5 +178,54 @@ describe('WorkoutDeliveryService', () => {
 
     await expect(service.markSent('nao-existe')).rejects.toThrow(NotFoundException);
     await expect(service.markFailed('nao-existe', 'erro')).rejects.toThrow(NotFoundException);
+  });
+
+  it('delivered_to_device e um estado separado de sent, so setado explicitamente (nunca inferido)', async () => {
+    const { prisma, seedSession } = fixture();
+    seedSession('session-1');
+    const service = new WorkoutDeliveryService(prisma);
+
+    const delivery = await service.recordAttempt({ trainingSessionId: 'session-1', provider: 'polar', canonicalWorkout: { parts: [] } });
+    const sent = await service.markSent(delivery.id, { externalWorkoutId: 'ext-1' });
+    expect(sent.status).toBe('sent');
+    expect(sent.deliveredAt).toBeNull();
+
+    const delivered = await service.markDeliveredToDevice(delivery.id);
+    expect(delivered.status).toBe('delivered_to_device');
+    expect(delivered.deliveredAt).not.toBeNull();
+  });
+
+  it('markCanceled registra cancelamento deliberado, distinto de falha', async () => {
+    const { prisma, seedSession } = fixture();
+    seedSession('session-1');
+    const service = new WorkoutDeliveryService(prisma);
+
+    const delivery = await service.recordAttempt({ trainingSessionId: 'session-1', provider: 'polar', canonicalWorkout: { parts: [] } });
+    const canceled = await service.markCanceled(delivery.id);
+
+    expect(canceled.status).toBe('canceled');
+    expect(canceled.canceledAt).not.toBeNull();
+    expect(canceled.failedAt).toBeNull();
+    expect(canceled.errorMessage).toBeNull();
+  });
+
+  it('nunca sobrescreve um status terminal anterior (delivered_to_device, failed ou canceled sao finais)', async () => {
+    const { prisma, seedSession } = fixture();
+    seedSession('session-1');
+    const service = new WorkoutDeliveryService(prisma);
+
+    const delivered = await service.recordAttempt({ trainingSessionId: 'session-1', provider: 'polar', canonicalWorkout: { parts: [] } });
+    await service.markSent(delivered.id);
+    await service.markDeliveredToDevice(delivered.id);
+    await expect(service.markFailed(delivered.id, 'tarde demais')).rejects.toThrow(BadRequestException);
+    await expect(service.markCanceled(delivered.id)).rejects.toThrow(BadRequestException);
+
+    const failed = await service.recordAttempt({ trainingSessionId: 'session-1', provider: 'polar', canonicalWorkout: { parts: [] } });
+    await service.markFailed(failed.id, 'erro');
+    await expect(service.markSent(failed.id)).rejects.toThrow(BadRequestException);
+
+    const canceled = await service.recordAttempt({ trainingSessionId: 'session-1', provider: 'polar', canonicalWorkout: { parts: [] } });
+    await service.markCanceled(canceled.id);
+    await expect(service.markDeliveredToDevice(canceled.id)).rejects.toThrow(BadRequestException);
   });
 });

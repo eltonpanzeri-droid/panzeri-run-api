@@ -563,7 +563,16 @@ model WorkoutDelivery {
   // nesta tentativa — snapshot, nao referencia viva a TrainingSession.structure atual.
   canonicalWorkout Json
 
-  status String // 'pending' | 'sent' | 'failed' — ciclo de vida desta UNICA tentativa
+  // 'pending' | 'sent' | 'delivered_to_device' | 'failed' | 'canceled' — ciclo de vida desta
+  // UNICA tentativa. 'sent' = envio aceito/processado no caminho do provider (nao garante que
+  // chegou ao relogio). 'delivered_to_device' e' um estado SEPARADO e so' deve ser usado quando o
+  // provider oferecer uma confirmacao real de entrega ao dispositivo — nunca inferido/assumido a
+  // partir de 'sent'. Providers sem essa confirmacao simplesmente nunca atingem este estado (a
+  // tentativa fica 'sent' indefinidamente, o que e' honesto: sabemos que foi aceito, nao sabemos
+  // se chegou). 'canceled' e' uma tentativa retirada deliberadamente (ex.: prescricao mudou antes
+  // do provider processar) — distinto de 'failed' (erro) e nunca sobrescreve um status terminal
+  // anterior.
+  status String
 
   // Nullable de proposito: nao existe ate o provider confirmar, e nem todo provider/cenario de
   // falha chega a gerar um. Nunca assumir round-trip (nao ha garantia de conseguir reconsultar
@@ -572,8 +581,13 @@ model WorkoutDelivery {
 
   requestedAt DateTime  @default(now())
   sentAt      DateTime?
+  // Preenchido SO quando o provider confirma recebimento real no dispositivo — nunca copiado de
+  // sentAt nem preenchido por suposicao.
+  deliveredAt DateTime?
   failedAt    DateTime?
   errorMessage String?
+  // Cancelamento deliberado desta tentativa (nao e' falha nem sucesso).
+  canceledAt  DateTime?
 
   // Metadata especifica do adapter/provider (ex.: endpoint usado, id de transaction da Polar) —
   // isolada aqui de proposito, nunca promovida a coluna canonica do model.
