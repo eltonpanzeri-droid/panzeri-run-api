@@ -1330,7 +1330,14 @@ model SessionExecutionLink {
   activityLogId String
   activityLog   ActivityLog @relation(fields: [activityLogId], references: [id])
 
-  status String // 'active' | 'revoked'
+  // 'active' (vinculo confirmado, conta como execucao) | 'revoked' (substituido/corrigido,
+  // preservado por historico) | 'candidate' (02/10/2026, Motor de Reconciliacao V1 — proposta NAO
+  // confirmada: multiplas sessoes plausiveis, ou unico candidato com evidencia insuficiente pra
+  // confianca automatica, ou multiplas atividades disputando a mesma sessao. Nunca conta como
+  // execucao — so' 'active' conta. Existe pra' preservar a arquitetura de confirmacao humana
+  // futura: confirmar = promover a 'active' via linkManually(), que automaticamente revoga os
+  // candidatos irmaos da mesma atividade).
+  status String
 
   // Quem/o que criou ESTA linha especifica — nunca sobrescrito; uma correcao cria uma linha nova
   // com seu proprio origin, preservando a proveniencia de cada decisao na cadeia.
@@ -1341,6 +1348,16 @@ model SessionExecutionLink {
   // 'same_day_modality_match' (classificacao automatica conservadora desta etapa), 'manual'.
   confidence String?
   note       String?
+
+  // Motor de Reconciliacao V1 (02/10/2026) — explicabilidade da decisao. matchMethod identifica O
+  // ALGORITMO/CAMINHO que gerou esta linha (ex.: 'automatic_single_candidate',
+  // 'automatic_multi_candidate', 'automatic_single_candidate_weak_evidence', 'manual'); evidence e'
+  // a LISTA de criterios canonicos avaliados e seu resultado (ex.: [{criterion:'same_athlete',
+  // matched:true}, {criterion:'compatible_modality',matched:true}, {criterion:'distance_compatible',
+  // matched:null}] — matched:null significa dado ausente, NUNCA incompatibilidade). Nunca um score
+  // numerico unico fabricado — a lista de criterios E' a explicacao, nao um resumo dela.
+  matchMethod String?
+  evidence    Json?
 
   createdAt DateTime  @default(now())
   revokedAt DateTime?

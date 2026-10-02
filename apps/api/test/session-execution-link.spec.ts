@@ -72,14 +72,15 @@ function fixture() {
       findMany: jest.fn(async ({ where }: any) => {
         let rows = [...sessionExecutionLinks.values()].filter((l) => {
           if (where.activityLogId !== undefined && l.activityLogId !== where.activityLogId) return false;
-          if (where.status !== undefined && l.status !== where.status) return false;
+          if (where.status?.in !== undefined && !where.status.in.includes(l.status)) return false;
+          else if (where.status !== undefined && typeof where.status === 'string' && l.status !== where.status) return false;
           return true;
         });
         rows = rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
         return rows;
       }),
       create: jest.fn(async ({ data }: any) => {
-        const row = { id: nextId('link'), createdAt: new Date(), revokedAt: null, supersededByLinkId: null, ...data };
+        const row = { id: nextId('link'), createdAt: new Date(), revokedAt: null, supersededByLinkId: null, matchMethod: null, evidence: null, confidence: null, note: null, ...data };
         sessionExecutionLinks.set(row.id, row);
         return row;
       }),
@@ -145,6 +146,8 @@ function fixture() {
       structure: {},
       origin: 'agent',
       completion: null,
+      distanceKm: null,
+      durationMin: null,
       ...overrides,
     };
     trainingSessions.set(row.id, row);
