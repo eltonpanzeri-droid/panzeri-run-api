@@ -249,6 +249,12 @@ interface WorkoutCompletionPayload {
   maxHeartRate?: number | null;
 }
 
+// Alvo de deep link vindo de notificacao de sincronizacao (03/10/2026).
+interface WeekDeepLink {
+  kind: 'session' | 'alternative' | 'pending';
+  id: string;
+}
+
 interface RealizedActivity {
   activityLogId: string;
   provider: string;
@@ -1492,6 +1498,8 @@ function AppInner() {
   const [acceptedExerciseResponsibility, setAcceptedExerciseResponsibility] = useState(false);
   const [exerciseResponsibilityRequired, setExerciseResponsibilityRequired] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('home');
+  // 03/10/2026 — deep link de notificacao pra um objeto especifico da aba Treinos (sessao ou atividade).
+  const [weekDeepLink, setWeekDeepLink] = useState<WeekDeepLink | null>(null);
   const safeAreaInsets = useSafeAreaInsets();
   // weekTabOffset: quando o calendario historico navega para uma semana especifica,
   // este valor e' passado como initialWeekOffset para o componente Week ao montar.
@@ -1569,10 +1577,16 @@ function AppInner() {
       const action = response.notification.request.content.data?.action;
       if (action === 'open_ciclo') setActiveTab('ciclo');
       else if (action === 'billing_regularize') setActiveTab('billing');
-      // 03/10/2026 — sincronizacao automatica: training_feedback:<sessionId>, alternative_feedback:<id>
-      // e activity_resolve:<id> levam pra aba Treinos, onde o card da atividade (realizada, alternativa
-      // ou pendente de identificacao) esta' com a acao correspondente.
-      else if (typeof action === 'string' && /^(training_feedback|alternative_feedback|activity_resolve|training_view):/.test(action)) setActiveTab('week');
+      // 03/10/2026 — sincronizacao automatica: cada acao carrega a identidade do objeto (sessao ou
+      // atividade) e a aba Treinos o abre/destaca. Sem id (training_view) so' troca de aba.
+      else if (typeof action === 'string') {
+        const match = /^(training_feedback|alternative_feedback|activity_resolve):(.+)$/.exec(action);
+        if (match) {
+          const kind = match[1] === 'training_feedback' ? 'session' : match[1] === 'alternative_feedback' ? 'alternative' : 'pending';
+          setWeekDeepLink({ kind, id: match[2] });
+        }
+        if (action.startsWith('training_') || match) setActiveTab('week');
+      }
     });
     return () => subscription.remove();
   }, []);
@@ -1920,6 +1934,8 @@ function AppInner() {
             )}
             {activeTab === 'week' && (
               <Week
+                deepLink={weekDeepLink}
+                onDeepLinkHandled={() => setWeekDeepLink(null)}
                 accessToken={accessToken}
                 baseRoutineDays={anamneseRoutine}
                 metrics={metrics}
@@ -4102,8 +4118,30 @@ function WeeklyCheckInModal({
   );
 }
 
-function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpenInterview, onOpenTest, onOpenPainReport }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; initialWeekOffset?: number; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void }) {
+function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpenInterview, onOpenTest, onOpenPainReport, deepLink, onDeepLinkHandled }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; initialWeekOffset?: number; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void; deepLink?: WeekDeepLink | null; onDeepLinkHandled?: () => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
+  // Alvo destacado (atividade alternativa ou pendente) vindo de deep link de notificacao.
+  const [highlightActivityId, setHighlightActivityId] = useState<string | null>(null);
+
+  // Abre o objeto certo quando o plano da semana ja' carregou. Se o alvo ainda nao estiver nesta
+  // semana, nada acontece e o alvo e' descartado (a notificacao vale pra semana da atividade).
+  useEffect(() => {
+    if (!deepLink || !plan) return;
+    if (deepLink.kind === 'session') {
+      setExpandedDays((current) => ({ ...current, [deepLink.id]: true }));
+    } else {
+      const materialized = plan.sessions.find(
+        (s) => (s.structure as { activityLogId?: string } | null)?.activityLogId === deepLink.id,
+      );
+      if (deepLink.kind === 'alternative' && materialized) {
+        setExpandedDays((current) => ({ ...current, [materialized.id]: true }));
+      } else {
+        setHighlightActivityId(deepLink.id);
+      }
+    }
+    onDeepLinkHandled?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLink, plan]);
   const [billingMessage, setBillingMessage] = useState('');
   const [couponCode, setCouponCode] = useState('');
   const [cpf, setCpf] = useState('');
@@ -5516,10 +5554,10 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                 );
               })}
               {group.alternatives.map((activity) => (
-                <AlternativeActivityCard activity={activity} accessToken={accessToken} onMaterialized={loadPlan} key={activity.activityLogId ?? activity.startedAt} />
+                <AlternativeActivityCard activity={activity} accessToken={accessToken} onMaterialized={loadPlan} highlighted={highlightActivityId === activity.activityLogId} key={activity.activityLogId ?? activity.startedAt} />
               ))}
               {group.pending.map((activity) => (
-                <PendingActivityCard activity={activity} accessToken={accessToken} onConfirmed={loadPlan} key={activity.activityLogId} />
+                <PendingActivityCard activity={activity} accessToken={accessToken} onConfirmed={loadPlan} highlighted={highlightActivityId === activity.activityLogId} key={activity.activityLogId} />
               ))}
             </View>
           </View>
@@ -8461,6 +8499,10 @@ function PolarConnect({ accessToken }: { accessToken: string }) {
       try { body = await response.json(); } catch { /* resposta sem corpo JSON */ }
       if (response.ok) {
         const data = body as { status?: string; imported?: number; resumedTransaction?: boolean } | null;
+        if (data?.status === 'in_progress') {
+          setSyncResult({ ok: true, text: 'Já existe uma sincronização em andamento. Aguarde alguns instantes e tente de novo.' });
+          return;
+        }
         const imported = data?.imported ?? 0;
         const detail = data?.status === 'no_new_data' ? ' (nenhum exercicio novo pendente na Polar)' : data?.resumedTransaction ? ' (retomando sincronizacao anterior)' : '';
         setSyncResult({ ok: true, text: `Sincronizacao concluida: ${imported} exercicio(s) importado(s)${detail}.` });
@@ -9970,7 +10012,31 @@ function ActivityDetailButton({ activityLogId, accessToken }: { activityLogId: s
   );
 }
 
+// Grafico de barras simples sobre pontos reais. Pontos sem valor sao ignorados (nunca zero); se a
+// serie inteira estiver ausente, nao renderiza nada.
+function DetailBarChart({ title, values, format }: { title: string; values: number[]; format: (v: number) => string }) {
+  if (values.length === 0) return null;
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  const range = Math.max(max - min, 1e-9);
+  return (
+    <View style={{ gap: 6 }}>
+      <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>{title}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 80, gap: 1 }}>
+        {values.map((v, index) => (
+          <View key={index} style={{ flex: 1, height: 16 + ((v - min) / range) * 64, backgroundColor: '#1769AA', borderRadius: 1 }} />
+        ))}
+      </View>
+      <Text style={{ fontSize: 11, color: '#94a3b8' }}>min {format(min)} · máx {format(max)} · pontos reais, sem interpolação</Text>
+    </View>
+  );
+}
+
 function ActivityDetailBody({ detail }: { detail: ActivityDetail }) {
+  const paceValues = detail.chart
+    .map((p) => (p.speedKmh != null && p.speedKmh > 0 ? 3600 / p.speedKmh : null))
+    .filter((v): v is number => v != null);
+  const cadenceValues = detail.chart.map((p) => p.cadenceSpm).filter((v): v is number => v != null && v > 0);
   const s = detail.summary;
   const chartValues = detail.chart.map((p) => p.heartRateBpm).filter((v): v is number => v != null);
   const chartMax = chartValues.length ? Math.max(...chartValues) : 0;
@@ -10023,6 +10089,17 @@ function ActivityDetailBody({ detail }: { detail: ActivityDetail }) {
           <Text style={{ fontSize: 11, color: '#94a3b8' }}>Pontos reais da atividade, sem interpolação.</Text>
         </View>
       ) : null}
+
+      <DetailBarChart
+        title="RITMO AO LONGO DO TREINO (maior barra = mais lento)"
+        values={paceValues}
+        format={(v) => `${paceSecondsToInput(Math.round(v))}/km`}
+      />
+      <DetailBarChart
+        title="CADÊNCIA AO LONGO DO TREINO"
+        values={cadenceValues}
+        format={(v) => `${Math.round(v)} spm`}
+      />
     </>
   );
 }
@@ -10078,7 +10155,7 @@ function RealizedComparisonCard({
 // So' recebe atividades AINDA NAO materializadas (sessionId null) — uma vez materializada, ela
 // passa a renderizar atraves do card/formulario de sessao normal (ver synthesizeAlternativeSession
 // em groupedSessions), entao este componente nunca precisa saber de feedback ja existente.
-function AlternativeActivityCard({ activity, accessToken, onMaterialized }: { activity: AlternativeActivity; accessToken: string; onMaterialized: () => void }) {
+function AlternativeActivityCard({ activity, accessToken, onMaterialized, highlighted }: { activity: AlternativeActivity; accessToken: string; onMaterialized: () => void; highlighted?: boolean }) {
   const distanceKm = activity.distanceKm != null ? roundKm(activity.distanceKm) : null;
   const durationMin = activity.durationMin != null ? Math.round(activity.durationMin) : null;
   const [submitting, setSubmitting] = React.useState(false);
@@ -10103,7 +10180,7 @@ function AlternativeActivityCard({ activity, accessToken, onMaterialized }: { ac
   }
 
   return (
-    <View style={[styles.weekSessionCard, { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }]}>
+    <View style={[styles.weekSessionCard, { backgroundColor: '#f8fafc', borderColor: highlighted ? '#1769AA' : '#e2e8f0', borderWidth: highlighted ? 2 : 1 }]}>
       <View style={{ padding: 14, gap: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Ionicons name={iconForModality(activity.modality ?? 'outra')} size={18} color="#475569" />
@@ -10126,7 +10203,7 @@ function AlternativeActivityCard({ activity, accessToken, onMaterialized }: { ac
 // Atividade 'ambiguous'/'candidate' — motor ja' sabe quais prescricoes sao plausiveis, so' nao tem
 // evidencia suficiente pra decidir sozinho. O mobile NUNCA decide os candidatos — so' apresenta o
 // que o backend ja forneceu e manda a escolha de volta via confirmCandidateAsStudent.
-function PendingActivityCard({ activity, accessToken, onConfirmed }: { activity: PendingActivity; accessToken: string; onConfirmed: () => void }) {
+function PendingActivityCard({ activity, accessToken, onConfirmed, highlighted }: { activity: PendingActivity; accessToken: string; onConfirmed: () => void; highlighted?: boolean }) {
   const [confirming, setConfirming] = React.useState('');
   const [error, setError] = React.useState('');
 
@@ -10149,7 +10226,7 @@ function PendingActivityCard({ activity, accessToken, onConfirmed }: { activity:
   }
 
   return (
-    <View style={[styles.weekSessionCard, { backgroundColor: '#fffbeb', borderColor: '#fde68a' }]}>
+    <View style={[styles.weekSessionCard, { backgroundColor: '#fffbeb', borderColor: highlighted ? '#1769AA' : '#fde68a', borderWidth: highlighted ? 2 : 1 }]}>
       <View style={{ padding: 14, gap: 8 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Ionicons name="help-circle-outline" size={18} color="#b45309" />
