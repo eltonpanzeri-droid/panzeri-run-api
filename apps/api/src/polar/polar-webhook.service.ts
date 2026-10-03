@@ -5,6 +5,7 @@ import { PolarService } from './polar.service';
 import { PolarActivityIngestionService } from './polar-activity-ingestion.service';
 
 const ACCESSLINK_BASE = 'https://www.polaraccesslink.com';
+const WEBHOOK_RETRY_DELAY_MS = 60_000;
 
 // Webhook de notificacao Polar (03/10/2026). Contrato oficial usado: header
 // `Polar-Webhook-Signature` = HMAC-SHA256 em hex do CORPO BRUTO, chave = signature_secret_key
@@ -39,7 +40,15 @@ export class PolarWebhookService {
     if (!body || body.event !== 'EXERCISE' || body.user_id == null) return;
     const connection = await this.prisma.polarConnection.findUnique({ where: { polarUserId: String(body.user_id) } });
     if (!connection) return;
-    await this.ingestion.sync(connection.userId);
+    const result = await this.ingestion.sync(connection.userId);
+    // Sync manual/polling em andamento devolve in_progress e o evento seria perdido ate o fallback.
+    // Uma unica nova tentativa atrasada cobre a janela sem criar fila nem loop.
+    if (result.status === 'in_progress') {
+      setTimeout(() => {
+        this.ingestion.sync(connection.userId).catch((error: unknown) =>
+          this.logger.warn(`Retentativa de webhook Polar falhou: ${error instanceof Error ? error.message : String(error)}`));
+      }, WEBHOOK_RETRY_DELAY_MS);
+    }
   }
 
   // Registro na API oficial (POST /v3/webhooks). FRONTEIRA DE ATIVACAO: o token que deve autenticar

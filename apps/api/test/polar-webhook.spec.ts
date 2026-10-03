@@ -119,3 +119,34 @@ describe('PolarWebhookService.register (fronteira de ativacao)', () => {
     expect(prisma.polarWebhookSubscription.create).not.toHaveBeenCalled();
   });
 });
+
+describe('PolarWebhookService.handleEvent — sync em andamento (revisao 03/10/2026)', () => {
+  it('se o sync devolve in_progress, agenda UMA nova tentativa para o mesmo aluno', async () => {
+    jest.useFakeTimers();
+    try {
+      const { service, ingestion } = build({
+        syncImpl: async () => ({ status: 'in_progress', imported: 0, resumedTransaction: false }),
+      });
+      await service.handleEvent({ event: 'EXERCISE', user_id: 59393531 });
+      expect(ingestion.sync).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(60_000);
+      await Promise.resolve();
+      expect(ingestion.sync).toHaveBeenCalledTimes(2);
+      expect(ingestion.sync).toHaveBeenLastCalledWith('aluno-1');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('sync concluido nao agenda retentativa', async () => {
+    jest.useFakeTimers();
+    try {
+      const { service, ingestion } = build({});
+      await service.handleEvent({ event: 'EXERCISE', user_id: 59393531 });
+      jest.advanceTimersByTime(120_000);
+      expect(ingestion.sync).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
