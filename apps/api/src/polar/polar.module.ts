@@ -6,10 +6,11 @@ import { PolarController } from './polar.controller';
 import { PolarService } from './polar.service';
 import { PolarActivityIngestionService } from './polar-activity-ingestion.service';
 import { PolarSyncFallbackSchedulerService } from './polar-sync-fallback-scheduler.service';
+import { PolarWebhookService } from './polar-webhook.service';
 
 @Module({
   imports: [PrismaModule, ActivityTimeSeriesModule, ActivityExecutionModule],
   controllers: [PolarController],
-  providers: [PolarService, PolarActivityIngestionService, PolarSyncFallbackSchedulerService],
+  providers: [PolarService, PolarActivityIngestionService, PolarSyncFallbackSchedulerService, PolarWebhookService],
 })
 export class PolarModule {}

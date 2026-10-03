@@ -1,15 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Interval } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { PolarActivityIngestionService } from './polar-activity-ingestion.service';
 
-// Fallback de recuperacao (03/10/2026) — caminho principal de chegada de atividade sera' o webhook
-// da Polar; este cron so' cobre atividades que eventualmente nao entrarem por ele. Reaproveita o
-// mesmo sync() ja existente (idempotente: upsert por externalId, retomada de transaction) — nao cria
-// um segundo pipeline. Frequencia conservadora: a cada 6h, so' conexoes que nao sincronizaram nesse
-// intervalo, respeitando os limites oficiais (500 + usuarios*20 por 15min, 5000 + usuarios*100 por
-// 24h, ver RateLimit-* headers da AccessLink).
-const FALLBACK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+// Fallback de recuperacao (03/10/2026). Webhook e' o caminho principal; este intervalo cobre
+// atividades que nao entrarem pelo webhook e, enquanto o webhook nao estiver ativo em producao,
+// funciona como sincronizacao automatica temporaria. Reaproveita o sync() existente (idempotente).
+// Configuravel por POLAR_FALLBACK_INTERVAL_MINUTES: aumentar quando o webhook estiver ativo.
+// Padrao 60 min — conservador frente aos limites oficiais (500 + usuarios*20 por 15min, 5000 +
+// usuarios*100 por 24h, RateLimit-* headers da AccessLink).
+const DEFAULT_FALLBACK_INTERVAL_MINUTES = 60;
+const FALLBACK_INTERVAL_MINUTES = Number(process.env.POLAR_FALLBACK_INTERVAL_MINUTES) > 0
+  ? Number(process.env.POLAR_FALLBACK_INTERVAL_MINUTES)
+  : DEFAULT_FALLBACK_INTERVAL_MINUTES;
+const FALLBACK_INTERVAL_MS = FALLBACK_INTERVAL_MINUTES * 60_000;
 const MAX_CONNECTIONS_PER_RUN = 50;
 
 @Injectable()
@@ -24,7 +28,7 @@ export class PolarSyncFallbackSchedulerService {
     private readonly ingestion: PolarActivityIngestionService,
   ) {}
 
-  @Cron(CronExpression.EVERY_6_HOURS)
+  @Interval(FALLBACK_INTERVAL_MS)
   async syncStaleConnections(now: Date = new Date()) {
     if (this.isRunning) {
       this.logger.warn('Fallback de sincronizacao Polar ainda estava rodando — pulando esta execucao.');

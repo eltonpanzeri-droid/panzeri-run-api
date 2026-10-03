@@ -1,8 +1,11 @@
-import { Controller, Get, HttpException, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Headers, HttpCode, HttpException, Logger, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { PolarService } from './polar.service';
 import { PolarActivityIngestionService } from './polar-activity-ingestion.service';
+import { PolarWebhookService } from './polar-webhook.service';
+
+type RawBodyReq = { rawBody?: Buffer; body: unknown };
 
 interface HtmlResponse {
   status: (code: number) => HtmlResponse;
@@ -13,10 +16,24 @@ interface HtmlResponse {
 
 @Controller('polar')
 export class PolarController {
+  private readonly logger = new Logger(PolarController.name);
+
   constructor(
     private readonly polarService: PolarService,
     private readonly ingestionService: PolarActivityIngestionService,
+    private readonly webhookService: PolarWebhookService,
   ) {}
+
+  // Webhook oficial da Polar (03/10/2026). Sem JWT: autenticacao e' a assinatura HMAC do corpo bruto.
+  // Responde 200 logo apos validar — o processamento (sync) roda em background, nunca no request.
+  @Post('webhook')
+  @HttpCode(200)
+  async webhook(@Req() req: RawBodyReq, @Headers('polar-webhook-signature') signature?: string) {
+    await this.webhookService.verifySignature(req.rawBody, signature);
+    this.webhookService.handleEvent(req.body as { event?: unknown; user_id?: unknown })
+      .catch((error: unknown) => this.logger.warn(`Falha ao processar evento de webhook Polar: ${error instanceof Error ? error.message : String(error)}`));
+    return { ok: true };
+  }
 
   @UseGuards(AuthGuard('jwt'))
   @Get('connect-url')

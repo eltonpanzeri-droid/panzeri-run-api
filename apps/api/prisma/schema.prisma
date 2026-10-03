@@ -1163,6 +1163,19 @@ model PolarConnection {
   updatedAt               DateTime  @updatedAt
 }
 
+// Webhook de notificacao do provedor Polar (03/10/2026). Uma assinatura por aplicacao (nao por
+// aluno): a Polar devolve signature_secret_key UMA vez, na criacao — guardamos cifrado (mesma
+// chave de POLAR_TOKEN_ENCRYPTION_KEY dos tokens) pra verificar HMAC-SHA256 de cada evento
+// recebido. polarWebhookId vem da resposta de criacao (null enquanto nao registrado).
+model PolarWebhookSubscription {
+  id                      String    @id @default(uuid())
+  url                     String
+  polarWebhookId          String?
+  signatureSecretEncrypted String
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+}
+
 // Registro externo preservado tal como recebido do provedor, antes de qualquer normalizacao.
 // Generico por design: "provider" e "externalId" identificam a fonte (hoje so 'polar' grava aqui;
 // Strava continua em StravaActivity, sem migracao nesta etapa — ver ActivityLog abaixo para o

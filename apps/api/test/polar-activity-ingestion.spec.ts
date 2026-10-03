@@ -737,4 +737,40 @@ describe('PolarActivityIngestionService', () => {
       expect(failingSessionExecutionLink.classify).toHaveBeenCalled();
     });
   });
+
+  describe('trava por usuario entre gatilhos (webhook/polling/manual) — 03/10/2026', () => {
+    it('dois sync() simultaneos do mesmo aluno: o segundo nao abre/retoma transaction e informa in_progress', async () => {
+      const { service } = fixture(baseConnection({ registeredAt: new Date() }));
+      const summary = { id: 'inflight-1', distance: 5000, duration: 'PT25M0S', 'start-time': '2026-10-03T07:00:00Z' };
+      const { fn, calls } = queueFetch([
+        jsonResponse(201, { 'transaction-id': 'txn-f1' }),
+        jsonResponse(200, { exercises: [EXERCISE_URL] }),
+        jsonResponse(200, summary),
+        NO_SAMPLES_RESPONSE(),
+        jsonResponse(200, {}),
+      ]);
+      global.fetch = fn as unknown as typeof fetch;
+
+      const [first, second] = await Promise.all([service.sync('user-a'), service.sync('user-a')]);
+
+      expect(second).toEqual({ status: 'in_progress', imported: 0, resumedTransaction: false });
+      expect(first.status).toBe('synced');
+      expect(calls.filter((c) => c.startsWith('POST') && c.includes('exercise-transactions')).length).toBe(1);
+    });
+
+    it('apos a primeira sincronizacao terminar, uma nova chamada volta a funcionar normalmente (trava liberada)', async () => {
+      const { service } = fixture(baseConnection({ registeredAt: new Date() }));
+      const { fn } = queueFetch([
+        jsonResponse(204, {}), // nenhuma atividade nova
+        jsonResponse(204, {}),
+      ]);
+      global.fetch = fn as unknown as typeof fetch;
+
+      const first = await service.sync('user-a');
+      const second = await service.sync('user-a');
+
+      expect(first.status).toBe('no_new_data');
+      expect(second.status).toBe('no_new_data');
+    });
+  });
 });

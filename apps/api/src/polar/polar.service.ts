@@ -105,6 +105,15 @@ export class PolarService {
     return this.decrypt(ciphertext, key);
   }
 
+  // Mesma cifragem dos tokens — usada pra guardar a signature_secret_key do webhook (03/10/2026).
+  encryptSecret(value: string): string {
+    return this.encrypt(value, this.settings().key);
+  }
+
+  decryptSecret(ciphertext: string): string {
+    return this.decrypt(ciphertext, this.settings().key);
+  }
+
   // Leitura pura, sem nenhum efeito colateral — usada pela tela de Perfil para saber se mostra
   // "Conectar Polar" ou "Polar conectado" apos o aluno voltar do /polar/callback (pagina publica
   // fora da navegacao do app, entao o app nao tem outro jeito de saber o resultado).

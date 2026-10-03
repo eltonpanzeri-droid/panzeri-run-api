@@ -15,7 +15,7 @@ function build(connections: Array<{ userId: string }>, syncImpl?: (userId: strin
 }
 
 describe('PolarSyncFallbackSchedulerService', () => {
-  it('consulta so conexoes nunca sincronizadas ou sincronizadas antes do corte de 6h', async () => {
+  it('consulta so conexoes nunca sincronizadas ou sincronizadas antes do corte do intervalo (1h padrao)', async () => {
     const now = new Date('2026-10-03T12:00:00Z');
     const { service, findMany } = build([]);
 
@@ -24,7 +24,7 @@ describe('PolarSyncFallbackSchedulerService', () => {
     const where = findMany.mock.calls[0][0].where;
     expect(where.OR).toEqual([
       { lastSyncCompletedAt: null },
-      { lastSyncCompletedAt: { lt: new Date('2026-10-03T06:00:00Z') } },
+      { lastSyncCompletedAt: { lt: new Date('2026-10-03T11:00:00Z') } },
     ]);
   });
 

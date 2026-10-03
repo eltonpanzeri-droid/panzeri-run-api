@@ -16,7 +16,7 @@ import { extractPolarProviderMetrics, normalizePolarModality, PolarNormalizerInp
 const ACCESSLINK_BASE = 'https://www.polaraccesslink.com';
 
 export interface PolarSyncResult {
-  status: 'synced' | 'no_new_data';
+  status: 'synced' | 'no_new_data' | 'in_progress';
   imported: number;
   resumedTransaction: boolean;
 }
@@ -58,7 +58,24 @@ export class PolarActivityIngestionService {
     private readonly sessionExecutionLink: SessionExecutionLinkService,
   ) {}
 
+  // Trava por usuario (03/10/2026): webhook, polling e botao manual sao gatilhos do MESMO sync. Dois
+  // disparos simultaneos do mesmo aluno nao podem abrir/retomar a mesma transaction Polar ao mesmo
+  // tempo — o segundo apenas informa que ja' ha' sincronizacao em andamento.
+  private readonly syncsInFlight = new Set<string>();
+
   async sync(userId: string): Promise<PolarSyncResult> {
+    if (this.syncsInFlight.has(userId)) {
+      return { status: 'in_progress', imported: 0, resumedTransaction: false };
+    }
+    this.syncsInFlight.add(userId);
+    try {
+      return await this.runSync(userId);
+    } finally {
+      this.syncsInFlight.delete(userId);
+    }
+  }
+
+  private async runSync(userId: string): Promise<PolarSyncResult> {
     const connection = await this.prisma.polarConnection.findUnique({ where: { userId } });
     if (!connection) throw new NotFoundException('Conta Polar nao conectada para este usuario.');
 
