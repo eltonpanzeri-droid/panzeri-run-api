@@ -1,7 +1,8 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { SessionExecutionLinkService } from './session-execution-link.service';
+import { ActivityDetailService } from './activity-detail.service';
 
 // Visualizacao Prescrito x Realizado (02/10/2026) — endpoints do aluno sobre reconciliacao. Nunca
 // redecide classificacao/correspondencia aqui, so' delega pro service (ja testado) com checagem de
@@ -10,7 +11,17 @@ import { SessionExecutionLinkService } from './session-execution-link.service';
 @UseGuards(AuthGuard('jwt'))
 @Controller('me/activity-reconciliation')
 export class ActivityExecutionController {
-  constructor(private readonly sessionExecutionLinkService: SessionExecutionLinkService) {}
+  constructor(
+    private readonly sessionExecutionLinkService: SessionExecutionLinkService,
+    private readonly activityDetailService: ActivityDetailService,
+  ) {}
+
+  // "Ver treino completo" (03/10/2026): detalhe canonico da execucao — resumo, Prescrito x Realizado,
+  // parciais por km e serie amostrada pra grafico. Somente leitura, sempre com checagem de posse.
+  @Get(':activityLogId/detail')
+  detail(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string) {
+    return this.activityDetailService.getDetail(user.sub, activityLogId);
+  }
 
   @Post(':linkId/confirm')
   confirm(@CurrentUser() user: CurrentUserPayload, @Param('linkId') linkId: string, @Body('note') note?: string) {

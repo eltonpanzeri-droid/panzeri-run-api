@@ -5474,6 +5474,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                         {/* 12/09: session.notes (texto IA: aquecimento/resfriamento) agora aparece dentro
                             do colapsivel da SessionPrescription em vez de sempre visivel aqui */}
                         <RealizedComparisonCard realized={session.realized} prescribedDistanceKm={session.distanceKm} prescribedDurationMin={session.durationMin} />
+                        {session.realized ? <ActivityDetailButton activityLogId={session.realized.activityLogId} accessToken={accessToken} /> : null}
                         <SessionPrescription
                           session={session}
                           sessionNotes={'notes' in session && session.notes ? session.notes : undefined}
@@ -9877,6 +9878,151 @@ function roundKm(value: number) {
 // "incompleto"), so' os dados objetivos disponiveis. Linha so' aparece quando o dado existe (nunca
 // zero fabricado). Se o valor realizado bate exatamente com o prescrito, mostra so' uma linha (nao
 // repete a mesma informacao duas vezes).
+// 03/10/2026 — "Ver treino completo": detalhe canonico da execucao (GET /me/activity-reconciliation/:id/detail).
+// Provider aparece so' como origem. Null nunca vira zero: cada linha so' aparece quando o dado existe.
+interface ActivityDetailSplit {
+  kmIndex: number;
+  isPartial: boolean;
+  distanceKm: number;
+  durationSec: number;
+  paceSecondsKm: number | null;
+  avgHeartRateBpm: number | null;
+  avgCadenceSpm: number | null;
+}
+interface ActivityDetailChartPoint {
+  offsetSec: number;
+  heartRateBpm: number | null;
+  speedKmh: number | null;
+  cadenceSpm: number | null;
+}
+interface ActivityDetail {
+  activityLogId: string;
+  provider: string;
+  startedAt: string;
+  summary: {
+    distanceKm: number | null;
+    durationSec: number | null;
+    avgPaceSecondsKm: number | null;
+    avgHeartRateBpm: number | null;
+    maxHeartRateBpm: number | null;
+    cadenceAvg: number | null;
+    caloriesKcal: number | null;
+  };
+  prescribed: { title: string; distanceKm: number | null; durationMin: number | null } | null;
+  splits: ActivityDetailSplit[];
+  chart: ActivityDetailChartPoint[];
+}
+
+function formatDurationSec(seconds: number) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.round(seconds % 60);
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function ActivityDetailButton({ activityLogId, accessToken }: { activityLogId: string; accessToken: string }) {
+  const [open, setOpen] = useState(false);
+  const [detail, setDetail] = useState<ActivityDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function openDetail() {
+    setOpen(true);
+    if (detail) return;
+    setLoading(true);
+    setFailed(false);
+    try {
+      const response = await fetch(`${API_URL}/me/activity-reconciliation/${activityLogId}/detail`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) { setFailed(true); return; }
+      setDetail((await response.json()) as ActivityDetail);
+    } catch {
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <>
+      <Pressable onPress={openDetail} style={{ alignSelf: 'flex-start', marginTop: 8, paddingVertical: 6 }}>
+        <Text style={{ fontSize: 13, fontWeight: '700', color: '#1769AA' }}>Ver treino completo ›</Text>
+      </Pressable>
+      <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#fff' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
+            <Text style={{ fontSize: 17, fontWeight: '700' }}>Treino completo</Text>
+            <Pressable onPress={() => setOpen(false)}><Text style={{ fontSize: 15, color: '#1769AA', fontWeight: '600' }}>Fechar</Text></Pressable>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+            {loading ? <Text style={{ color: '#64748b' }}>Carregando...</Text> : null}
+            {failed ? <Text style={{ color: '#b91c1c' }}>Não consegui carregar o detalhe agora.</Text> : null}
+            {detail ? <ActivityDetailBody detail={detail} /> : null}
+          </ScrollView>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
+function ActivityDetailBody({ detail }: { detail: ActivityDetail }) {
+  const s = detail.summary;
+  const chartValues = detail.chart.map((p) => p.heartRateBpm).filter((v): v is number => v != null);
+  const chartMax = chartValues.length ? Math.max(...chartValues) : 0;
+  const chartMin = chartValues.length ? Math.min(...chartValues) : 0;
+  return (
+    <>
+      <View style={{ gap: 4 }}>
+        <Text style={{ fontSize: 13, color: '#64748b' }}>{new Date(detail.startedAt).toLocaleDateString('pt-BR')} · origem: {detail.provider}</Text>
+        {s.distanceKm != null ? <Text style={{ fontSize: 15 }}>Distância: {roundKm(s.distanceKm)} km</Text> : null}
+        {s.durationSec != null ? <Text style={{ fontSize: 15 }}>Duração: {formatDurationSec(s.durationSec)}</Text> : null}
+        {s.avgPaceSecondsKm != null ? <Text style={{ fontSize: 15 }}>Ritmo médio: {paceSecondsToInput(s.avgPaceSecondsKm)}/km</Text> : null}
+        {s.avgHeartRateBpm != null ? <Text style={{ fontSize: 15 }}>FC média: {s.avgHeartRateBpm} bpm{s.maxHeartRateBpm != null ? ` (máx ${s.maxHeartRateBpm})` : ''}</Text> : null}
+        {s.cadenceAvg != null ? <Text style={{ fontSize: 15 }}>Cadência média: {s.cadenceAvg} passos/min</Text> : null}
+        {s.caloriesKcal != null ? <Text style={{ fontSize: 15 }}>Calorias: {s.caloriesKcal} kcal</Text> : null}
+      </View>
+
+      {detail.prescribed ? (
+        <View style={{ gap: 4, padding: 12, borderRadius: 10, backgroundColor: '#f8fafc' }}>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>PRESCRITO × REALIZADO</Text>
+          <Text style={{ fontSize: 14 }}>Prescrito: {detail.prescribed.title}{detail.prescribed.distanceKm != null ? ` · ${detail.prescribed.distanceKm} km` : ''}</Text>
+          <Text style={{ fontSize: 14 }}>Realizado: {s.distanceKm != null ? `${roundKm(s.distanceKm)} km` : 'indisponível'}{s.durationSec != null ? ` · ${formatDurationSec(s.durationSec)}` : ''}</Text>
+          <Text style={{ fontSize: 12, color: '#64748b' }}>Diferença não é erro nem falta de aderência — é só o que aconteceu.</Text>
+        </View>
+      ) : null}
+
+      {detail.splits.length > 0 ? (
+        <View style={{ gap: 6 }}>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>PARCIAIS POR KM</Text>
+          {detail.splits.map((split) => (
+            <View key={split.kmIndex} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+              <Text style={{ fontSize: 14, flex: 1 }}>{split.isPartial ? `${split.distanceKm} km` : `km ${split.kmIndex}`}</Text>
+              <Text style={{ fontSize: 14, flex: 1, textAlign: 'center' }}>{formatDurationSec(split.durationSec)}</Text>
+              <Text style={{ fontSize: 14, flex: 1, textAlign: 'center' }}>{split.paceSecondsKm != null ? `${paceSecondsToInput(split.paceSecondsKm)}/km` : '—'}</Text>
+              <Text style={{ fontSize: 14, flex: 1, textAlign: 'right' }}>{split.avgHeartRateBpm != null ? `${split.avgHeartRateBpm} bpm` : '—'}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {chartValues.length > 0 ? (
+        <View style={{ gap: 6 }}>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>FREQUÊNCIA CARDÍACA AO LONGO DO TREINO</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 80, gap: 1 }}>
+            {detail.chart.filter((p) => p.heartRateBpm != null).map((p) => {
+              const range = Math.max(chartMax - chartMin, 1);
+              const ratio = ((p.heartRateBpm as number) - chartMin) / range;
+              return <View key={p.offsetSec} style={{ flex: 1, height: 16 + ratio * 64, backgroundColor: '#1769AA', borderRadius: 1 }} />;
+            })}
+          </View>
+          <Text style={{ fontSize: 11, color: '#94a3b8' }}>Pontos reais da atividade, sem interpolação.</Text>
+        </View>
+      ) : null}
+    </>
+  );
+}
+
 function RealizedComparisonCard({
   realized,
   prescribedDistanceKm,
