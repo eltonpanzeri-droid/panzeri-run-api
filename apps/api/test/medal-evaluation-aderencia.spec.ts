@@ -14,6 +14,7 @@ function trainingSession(overrides: Record<string, unknown> = {}) {
     structure: {},
     plan: { status: 'active' },
     completion: null,
+    executionLinks: [],
     ...overrides,
   };
 }
@@ -29,7 +30,7 @@ function buildService(sessions: unknown[], achievements: Array<{ id: string; cod
     achievement: { findMany: jest.fn().mockResolvedValue(achievements) },
     userAchievement: { findMany: jest.fn().mockResolvedValue([]), create: userAchievementCreate },
   };
-  const evolutionMetric = new EvolutionMetricService({ trainingSession: { findMany: jest.fn().mockResolvedValue(sessions) } } as never);
+  const evolutionMetric = new EvolutionMetricService({ trainingSession: { findMany: jest.fn().mockResolvedValue(sessions) }, activityLog: { findMany: jest.fn().mockResolvedValue([]) } } as never);
   const service = new MedalEvaluationService(prisma as never, evolutionMetric);
   return { service, userAchievementCreate };
 }

@@ -17,6 +17,7 @@ function session(overrides: Record<string, unknown> = {}) {
     structure: {},
     plan: { status: 'active' },
     completion: null,
+    executionLinks: [],
     ...overrides,
   };
 }
@@ -31,7 +32,7 @@ function extraSession(overrides: Record<string, unknown> = {}) {
 
 function buildService(sessions: unknown[]) {
   const findMany = jest.fn().mockResolvedValue(sessions);
-  const prisma = { trainingSession: { findMany } };
+  const prisma = { trainingSession: { findMany }, activityLog: { findMany: jest.fn().mockResolvedValue([]) } };
   return { service: new EvolutionMetricService(prisma as never), findMany };
 }
 

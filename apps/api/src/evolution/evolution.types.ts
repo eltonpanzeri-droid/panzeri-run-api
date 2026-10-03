@@ -248,6 +248,23 @@ export interface RawSessionData {
   plannedDistanceKm: number | null;
   /** true se a sessão foi criada pelo próprio aluno (structure.source === 'student', type === 'extra') */
   isExtra: boolean;
+  /** Prescrição elegível pra aderência: não é extra do aluno nem sessão sintética 'device_extra'
+   *  (atividade alternativa materializada — nunca foi prescrita pelo treinador). */
+  isPrescribed: boolean;
+  /** origin da TrainingSession ('device_extra' = sintética de atividade alternativa). */
+  origin: string | null;
+  /** true quando há SessionExecutionLink ATIVO: a execução objetiva corresponde à prescrição,
+   *  independente de feedback (03/10/2026). */
+  hasActiveLink: boolean;
+}
+
+/** Atividade realmente executada (ActivityLog) já classificada como corresponding ou alternative.
+ *  Fonte canônica do REALIZADO objetivo — não depende de WorkoutCompletion. */
+export interface RawRealizedActivity {
+  id: string;
+  isoDate: ISODate;
+  classification: 'corresponding' | 'alternative';
+  distanceKm: number | null;
 }
 
 /**

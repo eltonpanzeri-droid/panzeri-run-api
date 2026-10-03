@@ -14,12 +14,13 @@ function trainingSession(overrides: Record<string, unknown> = {}) {
     modality: 'corrida',
     structure: {},
     completion: null,
+    executionLinks: [],
     ...overrides,
   };
 }
 
 function buildEvolutionMetric(sessions: unknown[]) {
-  const prisma = { trainingSession: { findMany: jest.fn().mockResolvedValue(sessions) } };
+  const prisma = { trainingSession: { findMany: jest.fn().mockResolvedValue(sessions) }, activityLog: { findMany: jest.fn().mockResolvedValue([]) } };
   return new EvolutionMetricService(prisma as never);
 }
 

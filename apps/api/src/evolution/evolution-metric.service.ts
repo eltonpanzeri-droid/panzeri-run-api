@@ -10,6 +10,7 @@ import type {
   ISODate,
   ModalityBreakdown,
   MonthlyAggregate,
+  RawRealizedActivity,
   RawSessionData,
   WeeklyVolume,
 } from './evolution.types';
@@ -30,6 +31,11 @@ function getWeekStart(dateStr: ISODate): ISODate {
   const diff = day === 0 ? -6 : 1 - day; // ajuste para segunda-feira
   d.setUTCDate(d.getUTCDate() + diff);
   return d.toISOString().slice(0, 10);
+}
+
+/** Dia local do atleta de um instante UTC, pelo offset do provedor (mesma convencao do motor de reconciliacao) */
+function localIsoDate(startedAt: Date, utcOffsetMinutes: number | null): ISODate {
+  return new Date(startedAt.getTime() + (utcOffsetMinutes ?? 0) * 60_000).toISOString().slice(0, 10);
 }
 
 /** Retorna 'YYYY-MM' de uma data 'YYYY-MM-DD' */
@@ -82,6 +88,10 @@ export class EvolutionMetricService {
       include: {
         completion: true,
         plan: { select: { status: true } },
+        executionLinks: {
+          where: { status: 'active' },
+          select: { activityLog: { select: { distanceMeters: true } } },
+        },
       },
       orderBy: { scheduledDate: 'asc' },
     });
@@ -89,9 +99,13 @@ export class EvolutionMetricService {
     // Sessoes de planos arquivados sem completion sao fantasmas de regeneracao
     // (plano novo foi gerado, sessoes do plano antigo ficam no banco mas nao foram
     // mostradas ao aluno). So sao relevantes sessoes do plano ativo OU que o aluno
-    // efetivamente completou (mesmo que o plano tenha sido arquivado depois).
+    // efetivamente completou (mesmo que o plano tenha sido arquivado depois) OU que
+    // tem execucao objetiva correspondente (03/10/2026).
     const relevant = sessions.filter(
-      (s) => (s.plan as { status: string }).status === 'active' || s.completion !== null,
+      (s) =>
+        (s.plan as { status: string }).status === 'active' ||
+        s.completion !== null ||
+        s.executionLinks.length > 0,
     );
 
     return relevant.map((s) => {
@@ -99,6 +113,11 @@ export class EvolutionMetricService {
       // Não existe coluna dedicada no schema — é inferido do campo `structure` da sessão.
       const structureObj = typeof s.structure === 'object' && s.structure !== null ? s.structure as Record<string, unknown> : {};
       const isExtra = structureObj['source'] === 'student' && structureObj['type'] === 'extra';
+      const origin = s.origin ?? null;
+      // device_extra: sessão sintética de atividade alternativa — nunca foi prescrita pelo treinador.
+      // Não usa isExtra (que só cobre source 'student'); a atividade real dela conta pelo ActivityLog.
+      const isPrescribed = !isExtra && origin !== 'device_extra';
+      const linked = s.executionLinks[0];
 
       return {
         sessionId: s.id,
@@ -110,8 +129,32 @@ export class EvolutionMetricService {
         distanceKm: s.completion?.distanceKm ?? null,
         plannedDistanceKm: s.distanceKm ?? null,
         isExtra,
+        isPrescribed,
+        origin,
+        hasActiveLink: Boolean(linked),
       };
     });
+  }
+
+  // Atividades realmente executadas (ActivityLog) já classificadas como corresponding ou alternative
+  // (03/10/2026). Execução objetiva: entra no realizado independentemente de feedback. Atividades
+  // ainda não classificadas (null/ambiguous) ficam fora até a decisão — nunca contadas por palpite.
+  private async fetchRealizedActivities(userId: string, sport?: string): Promise<RawRealizedActivity[]> {
+    const rows = await this.prisma.activityLog.findMany({
+      where: {
+        userId,
+        executionClassification: { in: ['corresponding', 'alternative'] },
+        startedAt: { gte: TRAINING_INTELLIGENCE_DATA_CUTOFF },
+        ...(sport ? { sport } : {}),
+      },
+      select: { id: true, startedAt: true, utcOffsetMinutes: true, distanceMeters: true, executionClassification: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      isoDate: localIsoDate(r.startedAt, r.utcOffsetMinutes),
+      classification: r.executionClassification as RawRealizedActivity['classification'],
+      distanceKm: r.distanceMeters != null ? r.distanceMeters / 1000 : null,
+    }));
   }
 
   // -------------------------------------------------------------------------
@@ -122,6 +165,9 @@ export class EvolutionMetricService {
     s: RawSessionData,
     todayBR: ISODate,
   ): 'feita' | 'nao_feita' | 'sem_registro' | 'futura' {
+    // Execucao objetiva correspondente basta pra' 'feita' — feedback nao confirma nem nega a execucao
+    // (03/10/2026). O feedback 'missed' so' prevalece quando nao ha' atividade correspondente.
+    if (s.hasActiveLink) return 'feita';
     if (s.completionStatus === 'done' || s.completionStatus === 'adjusted') return 'feita';
     if (s.completionStatus === 'missed') return 'nao_feita';
     if (s.scheduledDate >= todayBR) return 'futura';
@@ -132,7 +178,7 @@ export class EvolutionMetricService {
   // Volume semanal
   // -------------------------------------------------------------------------
 
-  private buildWeeklyVolumes(sessions: RawSessionData[], todayBR: ISODate): WeeklyVolume[] {
+  private buildWeeklyVolumes(sessions: RawSessionData[], activities: RawRealizedActivity[], todayBR: ISODate): WeeklyVolume[] {
     const byWeek = new Map<
       ISODate,
       {
@@ -163,7 +209,7 @@ export class EvolutionMetricService {
       // aderência artificialmente: um aluno que cumpriu 3 de 4 prescritas (75%) e fez 1 extra
       // aparecia com 4/5 = 80%. Extra continua contribuindo pro KM REALIZADO (`kmTotal`/
       // `kmExtrasTotal`, abaixo, fora deste bloco) — só sai da contagem de sessões prescritas.
-      if (!s.isExtra) {
+      if (s.isPrescribed) {
         bucket.prescritas++;
 
         // km planejado (TrainingSession.distanceKm) — conta para todas as prescritas, não só as feitas
@@ -178,14 +224,37 @@ export class EvolutionMetricService {
         // futuras não entram em nenhum bucket de execução
       }
 
-      // Volume realizado: soma TODA sessão feita, extra ou não (extra nunca deixou de contar aqui).
-      if (status === 'feita' && s.distanceKm != null) {
+      // Volume realizado legado (feedback manual, sem atividade correspondente). Sessão com vínculo
+      // ativo e sessão device_extra contam pela ActivityLog (loop abaixo) — nunca duas vezes.
+      if (status === 'feita' && !s.hasActiveLink && s.origin !== 'device_extra' && s.distanceKm != null) {
         bucket.kmTotal += s.distanceKm;
         bucket.kmCount++;
         if (s.isExtra) {
           bucket.kmExtrasTotal += s.distanceKm;
           bucket.kmExtrasCount++;
         }
+      }
+    }
+
+    // Realizado objetivo (03/10/2026): toda atividade correspondente ou alternativa com distância,
+    // independentemente de feedback. Alternativa é realizado (km/extras), nunca cumprimento de prescrição.
+    for (const a of activities) {
+      if (a.distanceKm == null) continue;
+      const ws = getWeekStart(a.isoDate);
+      if (!byWeek.has(ws)) {
+        byWeek.set(ws, {
+          prescritas: 0, feitas: 0, naoFeitas: 0, semRegistro: 0,
+          kmTotal: 0, kmCount: 0,
+          kmExtrasTotal: 0, kmExtrasCount: 0,
+          kmPrescritosTotal: 0, kmPrescritosCount: 0,
+        });
+      }
+      const bucket = byWeek.get(ws)!;
+      bucket.kmTotal += a.distanceKm;
+      bucket.kmCount++;
+      if (a.classification === 'alternative') {
+        bucket.kmExtrasTotal += a.distanceKm;
+        bucket.kmExtrasCount++;
       }
     }
 
@@ -236,7 +305,7 @@ export class EvolutionMetricService {
 
     // Sistema de Medalhas (30/09/2026) — mesma correção de divergência canônica de buildWeeklyVolumes:
     // extra nunca entra em prescrito/elegível/aderência.
-    const eligible = filtered.filter((s) => !s.isExtra);
+    const eligible = filtered.filter((s) => s.isPrescribed);
     for (const s of eligible) {
       const status = this.classifySession(s, todayBR);
       if (status === 'feita') feitas++;
@@ -305,7 +374,7 @@ export class EvolutionMetricService {
 
     // Última sessão feita
     const withDone = sessions
-      .filter((s) => s.completionStatus === 'done' || s.completionStatus === 'adjusted')
+      .filter((s) => s.completionStatus === 'done' || s.completionStatus === 'adjusted' || s.hasActiveLink)
       .sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate));
 
     const lastCompletedDate = withDone[0]?.scheduledDate ?? null;
@@ -328,7 +397,7 @@ export class EvolutionMetricService {
   ): ModalityBreakdown[] {
     const byModality = new Map<string, { prescritas: number; feitas: number; naoFeitas: number }>();
     // Sistema de Medalhas (30/09/2026) — mesma correção: extra nunca entra em prescrito/aderência.
-    const eligibleSessions = sessions.filter((s) => !s.isExtra);
+    const eligibleSessions = sessions.filter((s) => s.isPrescribed);
     const totalPrescritas = eligibleSessions.length;
 
     for (const s of eligibleSessions) {
@@ -361,6 +430,7 @@ export class EvolutionMetricService {
 
   private buildMonthlyAggregates(
     sessions: RawSessionData[],
+    activities: RawRealizedActivity[],
     todayBR: ISODate,
   ): MonthlyAggregate[] {
     const byMonth = new Map<
@@ -376,17 +446,26 @@ export class EvolutionMetricService {
 
       // Sistema de Medalhas (30/09/2026) — mesma correção: extra nunca entra em prescrito/aderência,
       // mas continua contribuindo pro km realizado do mês (ver bloco de kmTotal, fora do if abaixo).
-      if (!s.isExtra) {
+      if (s.isPrescribed) {
         bucket.prescritas++;
         if (status === 'feita') bucket.feitas++;
         else if (status === 'nao_feita') bucket.naoFeitas++;
         else if (status === 'sem_registro') bucket.semRegistro++;
       }
 
-      if (status === 'feita' && s.distanceKm != null) {
+      if (status === 'feita' && !s.hasActiveLink && s.origin !== 'device_extra' && s.distanceKm != null) {
         bucket.kmTotal += s.distanceKm;
         bucket.kmCount++;
       }
+    }
+
+    for (const a of activities) {
+      if (a.distanceKm == null) continue;
+      const month = getMonth(a.isoDate);
+      if (!byMonth.has(month)) byMonth.set(month, { prescritas: 0, feitas: 0, naoFeitas: 0, semRegistro: 0, kmTotal: 0, kmCount: 0 });
+      const bucket = byMonth.get(month)!;
+      bucket.kmTotal += a.distanceKm;
+      bucket.kmCount++;
     }
 
     return [...byMonth.entries()]
@@ -411,8 +490,9 @@ export class EvolutionMetricService {
   async getOverview(userId: string, recentWeeks = 12): Promise<EvolutionOverview> {
     const todayBR = getTodayBR();
     const sessions = await this.fetchRawSessions(userId);
+    const activities = await this.fetchRealizedActivities(userId);
 
-    const weeklyVolumes = this.buildWeeklyVolumes(sessions, todayBR);
+    const weeklyVolumes = this.buildWeeklyVolumes(sessions, activities, todayBR);
 
     // Últimas N semanas para o gráfico
     const cutoffDate = subtractWeeks(todayBR, recentWeeks);
@@ -422,16 +502,19 @@ export class EvolutionMetricService {
       (s) => this.classifySession(s, todayBR) === 'sem_registro',
     ).length;
 
-    // Soma total de km: só sessões feitas com distanceKm preenchido
-    const totalKmPercorridos = Math.round(
-      sessions
-        .filter(
-          (s) =>
-            (s.completionStatus === 'done' || s.completionStatus === 'adjusted') &&
-            s.distanceKm != null,
-        )
-        .reduce((sum, s) => sum + (s.distanceKm ?? 0), 0) * 10,
-    ) / 10;
+    // Soma total de km realizado (03/10/2026): atividades objetivas correspondentes e alternativas
+    // (ActivityLog) + km legado de sessões feitas por feedback manual, sem vínculo, sem contar duas vezes.
+    const realizedFromActivities = activities.reduce((sum, a) => sum + (a.distanceKm ?? 0), 0);
+    const realizedFromLegacySessions = sessions
+      .filter(
+        (s) =>
+          (s.completionStatus === 'done' || s.completionStatus === 'adjusted') &&
+          !s.hasActiveLink &&
+          s.origin !== 'device_extra' &&
+          s.distanceKm != null,
+      )
+      .reduce((sum, s) => sum + (s.distanceKm ?? 0), 0);
+    const totalKmPercorridos = Math.round((realizedFromActivities + realizedFromLegacySessions) * 10) / 10;
 
     const dataAvailableSince =
       sessions.length > 0 ? sessions[0].scheduledDate : null;
@@ -459,10 +542,11 @@ export class EvolutionMetricService {
   async getSeries(userId: string): Promise<EvolutionSeries> {
     const todayBR = getTodayBR();
     const sessions = await this.fetchRawSessions(userId);
+    const activities = await this.fetchRealizedActivities(userId);
 
     return {
-      weeks: this.buildWeeklyVolumes(sessions, todayBR),
-      months: this.buildMonthlyAggregates(sessions, todayBR),
+      weeks: this.buildWeeklyVolumes(sessions, activities, todayBR),
+      months: this.buildMonthlyAggregates(sessions, activities, todayBR),
       calculatedAt: new Date().toISOString(),
     };
   }
@@ -490,10 +574,11 @@ export class EvolutionMetricService {
   async getSeriesByModality(userId: string, modality: string): Promise<EvolutionSeries> {
     const todayBR = getTodayBR();
     const sessions = await this.fetchRawSessions(userId, modality);
+    const activities = await this.fetchRealizedActivities(userId, modality);
 
     return {
-      weeks: this.buildWeeklyVolumes(sessions, todayBR),
-      months: this.buildMonthlyAggregates(sessions, todayBR),
+      weeks: this.buildWeeklyVolumes(sessions, activities, todayBR),
+      months: this.buildMonthlyAggregates(sessions, activities, todayBR),
       calculatedAt: new Date().toISOString(),
     };
   }

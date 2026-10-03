@@ -14,6 +14,7 @@ function trainingSession(overrides: Record<string, unknown> = {}) {
     distanceKm: 10,
     structure: {},
     plan: { status: 'active' },
+    executionLinks: [],
     completion: { status: 'done', completedAt: new Date('2026-08-03T00:00:00Z'), perceivedEffort: null, distanceKm: 10 },
     ...overrides,
   };
@@ -21,7 +22,7 @@ function trainingSession(overrides: Record<string, unknown> = {}) {
 
 function buildService(sessions: unknown[]) {
   const findMany = jest.fn().mockResolvedValue(sessions);
-  const prisma = { trainingSession: { findMany } };
+  const prisma = { trainingSession: { findMany }, activityLog: { findMany: jest.fn().mockResolvedValue([]) } };
   return { service: new EvolutionMetricService(prisma as never), findMany };
 }
 
@@ -53,7 +54,7 @@ describe('EvolutionMetricService.getSeriesByModality', () => {
 describe('EvolutionMetricService.getDistinctModalities', () => {
   it('descobre modalidades reais do histórico, nunca uma lista fixa hardcoded', async () => {
     const findMany = jest.fn().mockResolvedValue([{ modality: 'corrida' }, { modality: 'forca' }]);
-    const prisma = { trainingSession: { findMany } };
+    const prisma = { trainingSession: { findMany }, activityLog: { findMany: jest.fn().mockResolvedValue([]) } };
     const service = new EvolutionMetricService(prisma as never);
     const modalities = await service.getDistinctModalities('aluno-1');
     expect(modalities).toEqual(['corrida', 'forca']);
