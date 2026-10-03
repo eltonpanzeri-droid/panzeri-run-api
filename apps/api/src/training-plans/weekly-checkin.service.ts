@@ -51,22 +51,23 @@ export class WeeklyCheckInService {
 
   async getStatus(userId: string) {
     const plan = await this.currentActivePlan(userId);
-    if (!plan) return { needsCheckIn: false, summary: null, showExplanation: false, todayHasRoutine: false };
+    if (!plan) return { needsCheckIn: false, summary: null, showExplanation: false, todayHasRoutine: false, pendingFeedbacks: [] };
 
     // todayHasRoutine: informa o app se hoje (dia da geracao) tem treino na rotina do aluno.
     // Consultado junto com o check-in existente para nao adicionar uma viagem extra ao banco.
     // Usado pelo app para exibir o dialogo "incluir hoje?" antes de gerar — so aparece
     // de segunda a sabado E quando todayHasRoutine=true (ver generateCurrentWeekNow no app).
-    const [existing, todayRoutine] = await Promise.all([
+    const [existing, todayRoutine, pendingFeedbacks] = await Promise.all([
       this.prisma.weeklyCheckIn.findFirst({ where: { userId, planId: plan.id }, select: { id: true } }),
       this.prisma.weeklyAvailability.findFirst({
         where: { userId, weekday: todayInSaoPaulo().getUTCDay(), noTraining: false },
         select: { id: true },
       }),
+      this.pendingFeedbacksForPlan(userId, plan),
     ]);
     const todayHasRoutine = !!todayRoutine;
 
-    if (existing) return { needsCheckIn: false, summary: null, showExplanation: false, todayHasRoutine };
+    if (existing) return { needsCheckIn: false, summary: null, showExplanation: false, todayHasRoutine, pendingFeedbacks };
 
     const [summary, totalCheckIns] = await Promise.all([
       this.computeSummary(userId, plan.id, { skipCache: true }),
@@ -74,7 +75,27 @@ export class WeeklyCheckInService {
     ]);
     // Explicacao do "pra que serve" some depois das duas primeiras vezes (pedido do treinador —
     // ele espera que o aluno aprenda o padrao e nao precise mais de contexto repetido toda semana).
-    return { needsCheckIn: true, summary, showExplanation: totalCheckIns < 2, todayHasRoutine };
+    return { needsCheckIn: true, summary, showExplanation: totalCheckIns < 2, todayHasRoutine, pendingFeedbacks };
+  }
+
+  // Feedbacks pendentes da semana do plano ativo (03/10/2026): sessoes com execucao objetiva
+  // (vinculo ativo, ou atividade alternativa materializada) cujo feedback subjetivo ainda nao foi
+  // respondido (sem completion ou sem RPE). INFORMATIVO: nunca bloqueia a geracao — o aluno pode
+  // seguir sem completar tudo, como ja acontece com o check-in (pular / prosseguir).
+  private async pendingFeedbacksForPlan(userId: string, plan: { startDate: Date }) {
+    const weekEnd = new Date(plan.startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const sessions = await this.prisma.trainingSession.findMany({
+      where: {
+        userId,
+        scheduledDate: { gte: plan.startDate, lt: weekEnd },
+        OR: [{ executionLinks: { some: { status: 'active' } } }, { origin: 'device_extra' }],
+      },
+      select: { id: true, title: true, scheduledDate: true, completion: { select: { perceivedEffort: true } } },
+      orderBy: { scheduledDate: 'asc' },
+    });
+    return sessions
+      .filter((s) => !s.completion || s.completion.perceivedEffort == null)
+      .map((s) => ({ sessionId: s.id, title: s.title, isoDate: s.scheduledDate.toISOString().slice(0, 10) }));
   }
 
   async submit(userId: string, dto: SubmitWeeklyCheckInDto) {

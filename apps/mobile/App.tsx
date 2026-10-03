@@ -4478,16 +4478,28 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
   // (a logica que ja existia) so' e' chamada depois, seja direto (check-in ja feito) ou apos o
   // aluno responder (ver submitCheckInAndGenerate).
   async function generateCurrentWeekNow() {
+    await runGenerateCurrentWeekFlow(false);
+  }
+
+  async function runGenerateCurrentWeekFlow(skipFeedbackReminder: boolean) {
     setIsLoading(true);
     try {
       const response = await fetch(`${API_URL}/training-plans/weekly-checkin/status`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (response.ok) {
-        const data = (await response.json()) as { needsCheckIn: boolean; summary: WeeklyCheckInSummary; showExplanation: boolean; todayHasRoutine: boolean };
+        const data = (await response.json()) as { needsCheckIn: boolean; summary: WeeklyCheckInSummary; showExplanation: boolean; todayHasRoutine: boolean; pendingFeedbacks?: Array<{ sessionId: string }> };
         // Guarda agora: se o aluno precisar do check-in e so' voltar aqui depois de concluir, o
         // estado ja esta pronto — skipCheckInAndGenerate/submitCheckInAndGenerate consultam esse flag.
         setGenerationTodayHasRoutine(data.todayHasRoutine ?? false);
+        // 03/10/2026 — cobranca de feedbacks das atividades realizadas da semana antes de gerar a
+        // proxima. Nunca impossibilita: "Gerar mesmo assim" segue o fluxo normal.
+        const pendingCount = data.pendingFeedbacks?.length ?? 0;
+        if (!skipFeedbackReminder && pendingCount > 0) {
+          setIsLoading(false);
+          askCompletePendingFeedbacks(pendingCount);
+          return;
+        }
         if (data.needsCheckIn) {
           setIsLoading(false);
           setCheckInGate({ step: 'confirm', summary: data.summary, showExplanation: data.showExplanation });
@@ -4507,6 +4519,22 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       return;
     }
     await runGenerateCurrentWeek();
+  }
+
+  // 03/10/2026 — lembrete de feedbacks pendentes antes da geracao. "Completar antes" so' fecha o
+  // dialogo (o aluno segue na aba Treinos, onde os cards pendentes estao); "Gerar mesmo assim" segue.
+  function askCompletePendingFeedbacks(count: number) {
+    const title = 'Feedbacks pendentes';
+    const message = `Você tem ${count} treino(s) realizado(s) nesta semana sem feedback. Quer completar antes de gerar a próxima semana?`;
+    if (Platform.OS === 'web') {
+      const generateAnyway = window.confirm(`${title}\n\n${message}\n\nOK → Gerar mesmo assim\nCancelar → Completar antes`);
+      if (generateAnyway) void runGenerateCurrentWeekFlow(true);
+      return;
+    }
+    Alert.alert(title, message, [
+      { text: 'Completar antes', style: 'cancel' },
+      { text: 'Gerar mesmo assim', onPress: () => { void runGenerateCurrentWeekFlow(true); } },
+    ]);
   }
 
   // Dialogo "Incluir treino de hoje?" — aparece de segunda a sabado quando o aluno tem treino
