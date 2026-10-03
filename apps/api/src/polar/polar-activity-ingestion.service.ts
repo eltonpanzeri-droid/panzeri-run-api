@@ -91,7 +91,10 @@ export class PolarActivityIngestionService {
     const transactionId = connection.openTransactionId
       ?? (await this.openTransaction(userId, connection.polarUserId, accessToken));
 
+    // Tentativa concluida com sucesso sem nada novo (204 da Polar) conta como sincronizada: o
+    // lastSyncCompletedAt registra que a conexao foi conferida. Falhas nao chegam aqui (lancam antes).
     if (!transactionId) {
+      await this.prisma.polarConnection.update({ where: { userId }, data: { lastSyncCompletedAt: new Date() } });
       return { status: 'no_new_data', imported: 0, resumedTransaction: false };
     }
 

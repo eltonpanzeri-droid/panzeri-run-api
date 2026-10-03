@@ -778,3 +778,25 @@ describe('PolarActivityIngestionService', () => {
     });
   });
 });
+
+describe('lastSyncCompletedAt (03/10/2026)', () => {
+  it('sucesso sem exercicios novos (204 da Polar) registra lastSyncCompletedAt', async () => {
+    const { service, getConnection } = fixture(baseConnection({ registeredAt: new Date() }));
+    const { fn } = queueFetch([jsonResponse(204, {})]);
+    global.fetch = fn as unknown as typeof fetch;
+
+    const result = await service.sync('user-a');
+
+    expect(result.status).toBe('no_new_data');
+    expect(getConnection()?.lastSyncCompletedAt).toBeInstanceOf(Date);
+  });
+
+  it('falha ao abrir a transacao NAO registra lastSyncCompletedAt (falha nunca vira sucesso)', async () => {
+    const { service, getConnection } = fixture(baseConnection({ registeredAt: new Date() }));
+    const { fn } = queueFetch([jsonResponse(500, {})]);
+    global.fetch = fn as unknown as typeof fetch;
+
+    await expect(service.sync('user-a')).rejects.toBeInstanceOf(BadGatewayException);
+    expect(getConnection()?.lastSyncCompletedAt).toBeNull();
+  });
+});
