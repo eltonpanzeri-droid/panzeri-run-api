@@ -10,6 +10,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityTimeSeriesService } from '../activity-timeseries/activity-timeseries.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
+import { ActivityNotificationService } from '../activity-execution/activity-notification.service';
 import { PolarService } from './polar.service';
 import { extractPolarProviderMetrics, normalizePolarModality, PolarNormalizerInput } from './polar-activity-normalizer';
 
@@ -56,6 +57,7 @@ export class PolarActivityIngestionService {
     private readonly polar: PolarService,
     private readonly timeSeries: ActivityTimeSeriesService,
     private readonly sessionExecutionLink: SessionExecutionLinkService,
+    private readonly activityNotifications: ActivityNotificationService,
   ) {}
 
   // Trava por usuario (03/10/2026): webhook, polling e botao manual sao gatilhos do MESMO sync. Dois
@@ -264,10 +266,19 @@ export class PolarActivityIngestionService {
     // uma chamada ao metodo ja' existente — nenhuma logica de correspondencia nova foi criada aqui.
     // Idempotente (classify() nao reclassifica se ja' houver classificacao) e resiliente (falha
     // nunca derruba o resumo/raw/serie ja' persistidos).
+    let classification: string | null = null;
     try {
-      await this.sessionExecutionLink.classify(activityLog.id);
+      classification = await this.sessionExecutionLink.classify(activityLog.id);
     } catch (error) {
       this.logger.warn(`Falha ao classificar atividade ${activityLog.id} no Motor de Reconciliacao: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    // Notificacao pos-sincronizacao (03/10/2026): idempotente por activityLog+classificacao, entao
+    // resync/retry/webhook/manual nao repetem o aviso. Falha de notificacao nunca derruba a ingestao.
+    try {
+      await this.activityNotifications.notifyReconciliation(userId, activityLog.id, classification);
+    } catch (error) {
+      this.logger.warn(`Falha ao notificar sincronizacao da atividade ${activityLog.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

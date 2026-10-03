@@ -105,11 +105,14 @@ function fixture(connection: FakeConnection | null) {
   // dedicados em reconciliation-v1.spec.ts. Aqui so' precisamos confirmar que ele e' ACIONADO apos
   // a ingestao sem quebrar o fluxo — nao reimplementamos a logica de classificacao de novo aqui.
   const sessionExecutionLinkService = { classify: jest.fn(async () => 'corresponding') };
+  // Stub: a notificacao pos-sincronizacao tem testes proprios em activity-notification.spec.ts.
+  const activityNotifications = { notifyReconciliation: jest.fn(async () => true) };
   const service = new PolarActivityIngestionService(
     prisma as unknown as PrismaService,
     polarService as unknown as PolarService,
     timeSeriesService as unknown as import('../src/activity-timeseries/activity-timeseries.service').ActivityTimeSeriesService,
     sessionExecutionLinkService as unknown as import('../src/activity-execution/session-execution-link.service').SessionExecutionLinkService,
+    activityNotifications as never,
   );
 
   return { service, prisma, rawStore, activityStore, sampleStore, timeSeriesService, sessionExecutionLinkService, getConnection: () => conn };
@@ -728,6 +731,7 @@ describe('PolarActivityIngestionService', () => {
         polarService as unknown as PolarService,
         timeSeriesService as never,
         failingSessionExecutionLink as never,
+        { notifyReconciliation: jest.fn(async () => true) } as never,
       );
 
       const result = await serviceWithFailingClassify.sync('user-a');

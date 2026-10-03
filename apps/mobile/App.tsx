@@ -1569,6 +1569,10 @@ function AppInner() {
       const action = response.notification.request.content.data?.action;
       if (action === 'open_ciclo') setActiveTab('ciclo');
       else if (action === 'billing_regularize') setActiveTab('billing');
+      // 03/10/2026 — sincronizacao automatica: training_feedback:<sessionId>, alternative_feedback:<id>
+      // e activity_resolve:<id> levam pra aba Treinos, onde o card da atividade (realizada, alternativa
+      // ou pendente de identificacao) esta' com a acao correspondente.
+      else if (typeof action === 'string' && /^(training_feedback|alternative_feedback|activity_resolve|training_view):/.test(action)) setActiveTab('week');
     });
     return () => subscription.remove();
   }, []);
