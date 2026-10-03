@@ -15,7 +15,7 @@ function noop() {
 function buildService(prisma: Record<string, unknown>) {
   return new CoachService(
     prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
-    noop(), noop(), noop(),
+    noop(), noop(), noop(), noop(),
   );
 }
 

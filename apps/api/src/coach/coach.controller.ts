@@ -383,6 +383,14 @@ export class CoachController {
     return this.coachService.getExternalActivityRaw(studentId, activityLogId);
   }
 
+  // Reprocessamento manual MINIMO (03/10/2026) — pra' atividades que ja' existiam antes do gatilho
+  // automatico de classify() apos ingestao Polar. Reusa o classify() ja' existente, nenhuma logica
+  // nova de correspondencia. Ver CoachService.reclassifyExternalActivity.
+  @Post('students/:studentId/external-activities/:activityLogId/reclassify')
+  reclassifyExternalActivity(@Param('studentId') studentId: string, @Param('activityLogId') activityLogId: string) {
+    return this.coachService.reclassifyExternalActivity(studentId, activityLogId);
+  }
+
   // ─── Panzeri Data Layer — Fase 1 ────────────────────────────────────────────
 
   @Get('data/growth/funnel')

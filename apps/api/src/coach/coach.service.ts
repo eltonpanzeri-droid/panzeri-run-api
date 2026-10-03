@@ -33,6 +33,7 @@ import { ContextEventsService } from '../context-events/context-events.service';
 import { ReassessmentService } from '../reassessment/reassessment.service';
 import { EvolutionMetricService } from '../evolution/evolution-metric.service';
 import type { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
+import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 
 @Injectable()
 export class CoachService {
@@ -53,6 +54,7 @@ export class CoachService {
     private readonly contextEvents: ContextEventsService,
     private readonly reassessmentService: ReassessmentService,
     private readonly evolutionMetric: EvolutionMetricService,
+    private readonly sessionExecutionLink: SessionExecutionLinkService,
   ) {}
 
   // Passo 5 (continuacao) — lista leve de TODOS os alunos ativos (id/nome/codigo), sem paginacao —
@@ -161,6 +163,27 @@ export class CoachService {
       recordCount: Array.isArray(payload) ? payload.length : null,
       payloadSize: JSON.stringify(payload).length,
     }));
+  }
+
+  // Diagnostico Admin-only (03/10/2026) — reprocessamento manual MINIMO pra' atividades externas
+  // que ja' existiam em ActivityLog ANTES do gatilho automatico de classify() apos ingestao Polar
+  // (ver PolarActivityIngestionService.ingestExercise) ter sido criado. Nao reimplementa nenhuma
+  // logica de correspondencia nova — so' chama o classify() JA' EXISTENTE e testado em
+  // SessionExecutionLinkService, com a mesma checagem de posse (activityLogId pertence a esse
+  // studentId) ja' usada em getExternalActivityRaw. Idempotente (classify() nao reclassifica se ja'
+  // houver classificacao — ver cabecalho de session-execution-link.service.ts).
+  async reclassifyExternalActivity(studentId: string, activityLogId: string) {
+    const log = await this.prisma.activityLog.findFirst({ where: { id: activityLogId, userId: studentId } });
+    if (!log) {
+      throw new NotFoundException('Atividade externa nao encontrada para este aluno.');
+    }
+    const classification = await this.sessionExecutionLink.classify(activityLogId);
+    const activeLink = await this.sessionExecutionLink.getActiveLinkForActivity(activityLogId);
+    return {
+      activityLogId,
+      classification,
+      activeLinkTrainingSessionId: activeLink?.trainingSessionId ?? null,
+    };
   }
 
   // Passo 5 (continuacao, 25/09/2026) — todos os testes de 3km do aluno, sem o take:3 que o

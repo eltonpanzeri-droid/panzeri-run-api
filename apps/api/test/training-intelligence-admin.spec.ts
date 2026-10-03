@@ -33,7 +33,7 @@ describe('CoachService.trainingIntelligenceOverview — agregado sem recalcular 
     };
     const service = new CoachService(
       prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
-      contextEvents as never, reassessmentService as never, noop(),
+      contextEvents as never, reassessmentService as never, noop(), noop(),
     );
 
     const overview = await service.trainingIntelligenceOverview();
@@ -105,7 +105,7 @@ describe('CoachService.variablePopulation — Populacao por variavel (secoes 1, 
         .mockResolvedValueOnce({ current: null, evidence: { n: 0, comparabilityWarning: null }, trend: null }),
     };
     const service = new CoachService(
-      prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
+      prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
     );
     const result = await service.variablePopulation('workout.prePhysicalFatigue', trainingIntelligenceQuery as never);
 
@@ -119,7 +119,7 @@ describe('CoachService.allFitnessTests — trajetoria completa, nunca so o ultim
   it('busca todos os testes de 3km sem limite, ordenados do mais antigo pro mais recente', async () => {
     const findMany = jest.fn().mockResolvedValue([{ id: 't1' }, { id: 't2' }, { id: 't3' }]);
     const service = new CoachService(
-      { fitnessTest: { findMany } } as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
+      { fitnessTest: { findMany } } as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
     );
     const result = await service.allFitnessTests('u1');
     expect(result).toHaveLength(3);
@@ -138,7 +138,7 @@ describe('CoachService.methodResults — agregado real, sem causalidade fabricad
     const reassessmentService = { getLatestValidEvolutionReport: jest.fn().mockResolvedValue({ wins: ['a', 'b'], concerns: ['c'] }) };
     const service = new CoachService(
       prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
-      noop(), reassessmentService as never, evolutionMetric as never,
+      noop(), reassessmentService as never, evolutionMetric as never, noop(),
     );
     const result = await service.methodResults();
     expect(result.avgAdherencePercentAllTime).toBe(80);
