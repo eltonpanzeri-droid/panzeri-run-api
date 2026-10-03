@@ -5512,10 +5512,16 @@ type ExternalActivityRaw = {
 // apresenta o que o backend ja tem gravado em ActivityLog/RawExternalActivity (ver
 // CoachService.listExternalActivities/getExternalActivityRaw); nunca cria vinculo com
 // TrainingSession, nunca transforma o dado.
+type ExternalActivityReclassifyResult = { activityLogId: string; classification: string; activeLinkTrainingSessionId: string | null };
+
 function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; accessToken: string }) {
   const [rows, setRows] = React.useState<ExternalActivityRow[] | null>(null);
   const [openRawId, setOpenRawId] = React.useState<string>('');
   const [rawById, setRawById] = React.useState<Record<string, ExternalActivityRaw | 'loading' | 'error'>>({});
+  // Reprocessamento manual (03/10/2026) — pra' atividades ja' importadas ANTES do gatilho automatico
+  // de classify() apos ingestao Polar. So' chama o endpoint ja' existente
+  // (CoachService.reclassifyExternalActivity), nenhuma logica de reconciliacao nova aqui.
+  const [reclassifyById, setReclassifyById] = React.useState<Record<string, 'loading' | 'error' | ExternalActivityReclassifyResult>>({});
 
   const load = React.useCallback(async () => {
     try {
@@ -5526,6 +5532,22 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
   }, [studentId, accessToken]);
 
   React.useEffect(() => { void load(); }, [load]);
+
+  async function reclassify(activityLogId: string) {
+    setReclassifyById((current) => ({ ...current, [activityLogId]: 'loading' }));
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/external-activities/${activityLogId}/reclassify`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) { setReclassifyById((current) => ({ ...current, [activityLogId]: 'error' })); return; }
+      const data = (await response.json()) as ExternalActivityReclassifyResult;
+      setReclassifyById((current) => ({ ...current, [activityLogId]: data }));
+      await load();
+    } catch {
+      setReclassifyById((current) => ({ ...current, [activityLogId]: 'error' }));
+    }
+  }
 
   async function toggleRaw(activityLogId: string) {
     if (openRawId === activityLogId) { setOpenRawId(''); return; }
@@ -5577,9 +5599,28 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
                 <span>Rota (hasRoute): {row.hasRoute == null ? '—' : row.hasRoute ? 'sim' : 'não'}</span>
                 <span>Detalhe buscado em: {row.detailFetchedAt ? fmtDayFull(row.detailFetchedAt) : '—'}</span>
               </div>
-              <button type="button" className="secondaryOutlineButton" style={{ marginTop: 8 }} onClick={() => toggleRaw(row.id)}>
-                {openRawId === row.id ? 'Fechar payload bruto' : 'Ver payload bruto (raw)'}
-              </button>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+                <button type="button" className="secondaryOutlineButton" onClick={() => toggleRaw(row.id)}>
+                  {openRawId === row.id ? 'Fechar payload bruto' : 'Ver payload bruto (raw)'}
+                </button>
+                <button
+                  type="button"
+                  className="secondaryOutlineButton"
+                  disabled={reclassifyById[row.id] === 'loading'}
+                  onClick={() => reclassify(row.id)}
+                  title="Reprocessa a correspondencia desta atividade com o Motor de Reconciliacao ja existente (util pra atividades importadas antes do gatilho automatico)"
+                >
+                  {reclassifyById[row.id] === 'loading' ? 'Reclassificando...' : 'Reclassificar'}
+                </button>
+                {reclassifyById[row.id] === 'error' ? (
+                  <span style={{ fontSize: 11, color: '#b91c1c' }}>Falha ao reclassificar.</span>
+                ) : reclassifyById[row.id] && reclassifyById[row.id] !== 'loading' ? (
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    classification: <strong>{(reclassifyById[row.id] as ExternalActivityReclassifyResult).classification}</strong>
+                    {' · '}activeLinkTrainingSessionId: <strong>{(reclassifyById[row.id] as ExternalActivityReclassifyResult).activeLinkTrainingSessionId ?? 'null'}</strong>
+                  </span>
+                ) : null}
+              </div>
               {openRawId === row.id ? (
                 <div style={{ marginTop: 8 }}>
                   {rawById[row.id] === 'loading' ? (
