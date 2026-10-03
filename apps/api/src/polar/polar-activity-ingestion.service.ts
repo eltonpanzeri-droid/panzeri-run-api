@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ActivityTimeSeriesService } from '../activity-timeseries/activity-timeseries.service';
 import { PolarService } from './polar.service';
 import { extractPolarProviderMetrics, normalizePolarModality, PolarNormalizerInput } from './polar-activity-normalizer';
 
@@ -52,6 +53,7 @@ export class PolarActivityIngestionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly polar: PolarService,
+    private readonly timeSeries: ActivityTimeSeriesService,
   ) {}
 
   async sync(userId: string): Promise<PolarSyncResult> {
@@ -226,6 +228,15 @@ export class PolarActivityIngestionService {
     // esta' salva e correta, e uma falha de samples nao pode fazer sync() tratar este exercicio
     // inteiro como falho (o que reabriria a transaction Polar sem necessidade).
     await this.ingestSamples(activityLog.id, exerciseUrl, accessToken);
+
+    // Normalizacao canonica (03/10/2026) — le os RawActivitySample recem-persistidos e preenche
+    // ActivityTimeSeriesPoint. Mesma garantia de resiliencia que ingestSamples: nunca propaga falha
+    // pro sync() (o resumo ja esta salvo e correto independente desta etapa ter funcionado).
+    try {
+      await this.timeSeries.normalizeFromRawSamples(activityLog.id, 'polar');
+    } catch (error) {
+      this.logger.warn(`Falha ao normalizar serie temporal da atividade ${activityLog.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   // Busca os tipos de samples REALMENTE disponiveis pra esta atividade especifica (nunca assume

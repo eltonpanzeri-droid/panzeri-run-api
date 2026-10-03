@@ -1292,6 +1292,7 @@ model ActivityLog {
 
   executionLinks SessionExecutionLink[]
   samples        RawActivitySample[]
+  timeSeriesPoints ActivityTimeSeriesPoint[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1339,6 +1340,56 @@ model RawActivitySample {
   updatedAt    DateTime    @updatedAt
 
   @@unique([activityLogId, provider, sampleType])
+  @@index([activityLogId])
+}
+
+// Primeira camada canonica de serie temporal (03/10/2026) — provider-agnostica, derivada de
+// RawActivitySample (que continua intocado/imutavel; esta tabela e' recalculavel do zero a
+// qualquer momento a partir dele). UMA linha por (atividade, offset em segundos desde o inicio),
+// nao por metrica — colunas de metrica ficam null quando aquele instante nao teve leitura daquele
+// tipo. Isso e' deliberado: recording-rate pode diferir entre metricas (ex.: FC a cada 1s, cadencia
+// a cada 5s), e forcar todas as metricas num unico grid uniforme inventaria dados que o provider
+// nunca gravou. Nenhuma interpolacao acontece em nenhum campo.
+//
+// Nesta primeira versao so' sao normalizados os sampleType Polar com confirmacao empirica forte
+// (ver relatorio 03/10/2026): 0=FC, 1=velocidade, 2=cadencia (com transformacao, ver abaixo), 10=
+// distancia acumulada. Altitude/potencia/temperatura (3/4/9) ficam SOMENTE em RawActivitySample ate
+// termos confirmacao semantica suficiente — nenhuma linha desta tabela e' gerada a partir deles.
+//
+// Estritamente provider-agnostico (correcao 03/10/2026): nenhum campo aqui pode ter nome ou
+// significado especifico de um fabricante. O valor BRUTO de qualquer metrica (ex.: a cadencia por
+// perna que a Polar entrega) fica exclusivamente em RawActivitySample — nunca duplicado aqui. Se
+// uma metrica canonica exigiu alguma transformacao do bruto pra chegar neste formato (ex.: Polar
+// cadencia x2 pra virar passos/minuto), essa regra NAO vira uma coluna/flag nova — ela e' reconstruivel
+// auditando `provider` + `normalizationVersion` desta linha contra o codigo do normalizador
+// (ActivityTimeSeriesService) e o `RawActivitySample` original da mesma atividade. Evita criar uma
+// coluna "transform" generica cujo UNICO uso real seria guardar nomes de regra por fabricante — o
+// que seria a mesma especificidade de provider escondida atras de um nome diferente.
+//
+// `normalizationVersion` existe pra permitir mudar a logica de normalizacao no futuro sem apagar
+// nem reescrever silenciosamente o que ja foi calculado com a logica anterior — uma nova versao
+// convive com a antiga ate decisao explicita de descartar.
+//
+// Dedupe por (activityLogId, offsetSec, normalizationVersion): resincronizar a mesma atividade faz
+// upsert por offset, nunca duplica a serie.
+model ActivityTimeSeriesPoint {
+  id            String      @id @default(uuid())
+  activityLogId String
+  activityLog   ActivityLog @relation(fields: [activityLogId], references: [id])
+  provider      String
+  offsetSec     Float
+
+  heartRateBpm   Int?
+  speedKmh       Float?
+  distanceMeters Float?
+  cadenceSpm     Int?
+
+  normalizationVersion Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([activityLogId, offsetSec, normalizationVersion])
   @@index([activityLogId])
 }
 

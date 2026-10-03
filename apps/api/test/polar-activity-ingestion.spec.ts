@@ -97,12 +97,17 @@ function fixture(connection: FakeConnection | null) {
   };
 
   const polarService = { decryptAccessToken: jest.fn(() => 'plain-access-token') };
+  // Stub: a normalizacao canonica (ActivityTimeSeriesService) tem testes proprios e dedicados em
+  // activity-timeseries.service.spec.ts. Aqui so' precisamos confirmar que ela e' CHAMADA sem
+  // quebrar o fluxo de ingestao — nao reimplementamos sua logica de novo neste arquivo.
+  const timeSeriesService = { normalizeFromRawSamples: jest.fn(async () => undefined) };
   const service = new PolarActivityIngestionService(
     prisma as unknown as PrismaService,
     polarService as unknown as PolarService,
+    timeSeriesService as unknown as import('../src/activity-timeseries/activity-timeseries.service').ActivityTimeSeriesService,
   );
 
-  return { service, prisma, rawStore, activityStore, sampleStore, getConnection: () => conn };
+  return { service, prisma, rawStore, activityStore, sampleStore, timeSeriesService, getConnection: () => conn };
 }
 
 // Resposta padrao pra' "esta atividade nao tem samples disponiveis" — usada em todos os testes
