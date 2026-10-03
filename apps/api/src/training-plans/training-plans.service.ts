@@ -2640,6 +2640,7 @@ export class TrainingPlansService {
                   avgPaceSecondsKm: linked.activityLog.avgPaceSecondsKm,
                   avgHeartRateBpm: linked.activityLog.avgHeartRateBpm,
                   maxHeartRateBpm: linked.activityLog.maxHeartRateBpm,
+                  cadenceAvg: linked.activityLog.cadenceAvg,
                 }
               : null,
             completion: this.mapCompletion(session.completion),

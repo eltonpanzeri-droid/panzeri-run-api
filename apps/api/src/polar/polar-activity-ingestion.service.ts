@@ -9,6 +9,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityTimeSeriesService } from '../activity-timeseries/activity-timeseries.service';
+import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { PolarService } from './polar.service';
 import { extractPolarProviderMetrics, normalizePolarModality, PolarNormalizerInput } from './polar-activity-normalizer';
 
@@ -54,6 +55,7 @@ export class PolarActivityIngestionService {
     private readonly prisma: PrismaService,
     private readonly polar: PolarService,
     private readonly timeSeries: ActivityTimeSeriesService,
+    private readonly sessionExecutionLink: SessionExecutionLinkService,
   ) {}
 
   async sync(userId: string): Promise<PolarSyncResult> {
@@ -236,6 +238,19 @@ export class PolarActivityIngestionService {
       await this.timeSeries.normalizeFromRawSamples(activityLog.id, 'polar');
     } catch (error) {
       this.logger.warn(`Falha ao normalizar serie temporal da atividade ${activityLog.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    // Aciona o Motor de Reconciliacao ja' existente (03/10/2026) — antes desta linha, classify()
+    // nunca era chamado por nenhum adapter de provedor (ver cabecalho de
+    // session-execution-link.service.ts), entao uma ActivityLog Polar ficava para sempre sem
+    // executionClassification/SessionExecutionLink ate' alguem chamar classify() manualmente. So'
+    // uma chamada ao metodo ja' existente — nenhuma logica de correspondencia nova foi criada aqui.
+    // Idempotente (classify() nao reclassifica se ja' houver classificacao) e resiliente (falha
+    // nunca derruba o resumo/raw/serie ja' persistidos).
+    try {
+      await this.sessionExecutionLink.classify(activityLog.id);
+    } catch (error) {
+      this.logger.warn(`Falha ao classificar atividade ${activityLog.id} no Motor de Reconciliacao: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

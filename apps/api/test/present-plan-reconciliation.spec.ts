@@ -73,6 +73,7 @@ describe('TrainingPlansService.presentPlan — Prescrito x Realizado', () => {
               avgPaceSecondsKm: 305,
               avgHeartRateBpm: 150,
               maxHeartRateBpm: 172,
+              cadenceAvg: 162,
             },
           },
         ],
@@ -90,6 +91,7 @@ describe('TrainingPlansService.presentPlan — Prescrito x Realizado', () => {
       provider: 'polar',
       distanceKm: 10.02,
       avgPaceSecondsKm: 305,
+      cadenceAvg: 162,
     });
   });
 
@@ -177,6 +179,7 @@ describe('TrainingPlansService.presentPlan — Prescrito x Realizado', () => {
           avgPaceSecondsKm: null,
           avgHeartRateBpm: null,
           maxHeartRateBpm: null,
+          cadenceAvg: null,
         },
       ],
       pendingActivities: [],
@@ -208,6 +211,7 @@ describe('TrainingPlansService.presentPlan — Prescrito x Realizado', () => {
               avgPaceSecondsKm: 300,
               avgHeartRateBpm: 150,
               maxHeartRateBpm: 170,
+              cadenceAvg: null,
             },
           },
         ],
@@ -223,6 +227,7 @@ describe('TrainingPlansService.presentPlan — Prescrito x Realizado', () => {
           avgPaceSecondsKm: null,
           avgHeartRateBpm: 130,
           maxHeartRateBpm: 145,
+          cadenceAvg: null,
         },
       ],
       pendingActivities: [],
@@ -254,6 +259,7 @@ describe('TrainingPlansService.presentPlan — Prescrito x Realizado', () => {
             avgPaceSecondsKm: 337,
             avgHeartRateBpm: null,
             maxHeartRateBpm: null,
+            cadenceAvg: null,
           },
           candidates: [
             { linkId: 'link-1', trainingSessionId: 'session-x', sessionTitle: 'Corrida X', sessionModality: 'corrida', sessionDate: '2026-10-04' },
@@ -436,6 +442,7 @@ describe('TrainingPlansService.presentPlan — Prescrito x Realizado', () => {
           avgPaceSecondsKm: null,
           avgHeartRateBpm: null,
           maxHeartRateBpm: null,
+          cadenceAvg: null,
         },
       ],
       pendingActivities: [],
@@ -508,6 +515,7 @@ describe('TrainingPlansService.presentPlan — Prescrito x Realizado', () => {
               avgPaceSecondsKm: 337,
               avgHeartRateBpm: null,
               maxHeartRateBpm: null,
+              cadenceAvg: null,
             },
           },
         ],

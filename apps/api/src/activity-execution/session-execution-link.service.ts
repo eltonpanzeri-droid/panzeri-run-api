@@ -134,6 +134,9 @@ export interface ReconciliationActivitySummary {
   avgPaceSecondsKm: number | null;
   avgHeartRateBpm: number | null;
   maxHeartRateBpm: number | null;
+  // Media de cadencia ja' normalizada (ActivityTimeSeriesService, passos/minuto) — null quando a
+  // atividade nao tem serie temporal de cadencia processada ainda (nunca inventado como 0).
+  cadenceAvg: number | null;
 }
 
 export interface ReconciliationCandidateOption {
@@ -164,6 +167,7 @@ function toActivitySummary(activity: {
   durationSec: number | null;
   avgHeartRateBpm: number | null;
   maxHeartRateBpm: number | null;
+  cadenceAvg: number | null;
 }): ReconciliationActivitySummary {
   // Mesma formula ja usada pro Strava (strava.service.ts) — pace nunca persistido, sempre
   // derivado na leitura, pra nunca divergir do par distancia/duracao observado.
@@ -181,6 +185,7 @@ function toActivitySummary(activity: {
     avgPaceSecondsKm,
     avgHeartRateBpm: activity.avgHeartRateBpm,
     maxHeartRateBpm: activity.maxHeartRateBpm,
+    cadenceAvg: activity.cadenceAvg,
   };
 }
 

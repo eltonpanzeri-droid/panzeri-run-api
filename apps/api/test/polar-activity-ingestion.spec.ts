@@ -101,13 +101,18 @@ function fixture(connection: FakeConnection | null) {
   // activity-timeseries.service.spec.ts. Aqui so' precisamos confirmar que ela e' CHAMADA sem
   // quebrar o fluxo de ingestao — nao reimplementamos sua logica de novo neste arquivo.
   const timeSeriesService = { normalizeFromRawSamples: jest.fn(async () => undefined) };
+  // Stub: o Motor de Reconciliacao (SessionExecutionLinkService.classify) tem testes proprios e
+  // dedicados em reconciliation-v1.spec.ts. Aqui so' precisamos confirmar que ele e' ACIONADO apos
+  // a ingestao sem quebrar o fluxo — nao reimplementamos a logica de classificacao de novo aqui.
+  const sessionExecutionLinkService = { classify: jest.fn(async () => 'corresponding') };
   const service = new PolarActivityIngestionService(
     prisma as unknown as PrismaService,
     polarService as unknown as PolarService,
     timeSeriesService as unknown as import('../src/activity-timeseries/activity-timeseries.service').ActivityTimeSeriesService,
+    sessionExecutionLinkService as unknown as import('../src/activity-execution/session-execution-link.service').SessionExecutionLinkService,
   );
 
-  return { service, prisma, rawStore, activityStore, sampleStore, timeSeriesService, getConnection: () => conn };
+  return { service, prisma, rawStore, activityStore, sampleStore, timeSeriesService, sessionExecutionLinkService, getConnection: () => conn };
 }
 
 // Resposta padrao pra' "esta atividade nao tem samples disponiveis" — usada em todos os testes
@@ -681,6 +686,55 @@ describe('PolarActivityIngestionService', () => {
       expect(rawStore.get('polar|user-a|samples-fail')).toBeDefined();
       expect(sampleStore.size).toBe(0);
       expect(getConnection()?.openTransactionId).toBeNull(); // transaction commitada normalmente
+    });
+  });
+
+  describe('aciona o Motor de Reconciliacao apos ingestao (03/10/2026)', () => {
+    it('chama classify() com o id da ActivityLog recem-importada', async () => {
+      const { service, sessionExecutionLinkService, activityStore } = fixture(baseConnection({ registeredAt: new Date() }));
+      const summary = { id: 'reconcile-1', distance: 30076, duration: 'PT2H36M6.952S', 'start-time': '2026-10-03T04:58:04Z' };
+      const { fn } = queueFetch([
+        jsonResponse(201, { 'transaction-id': 'txn-r1' }),
+        jsonResponse(200, { exercises: [EXERCISE_URL] }),
+        jsonResponse(200, summary),
+        NO_SAMPLES_RESPONSE(),
+        jsonResponse(200, {}),
+      ]);
+      global.fetch = fn as unknown as typeof fetch;
+
+      await service.sync('user-a');
+
+      const activityLog = activityStore.get('polar|user-a|reconcile-1');
+      expect(sessionExecutionLinkService.classify).toHaveBeenCalledWith(activityLog?.id);
+    });
+
+    it('falha no Motor de Reconciliacao nunca derruba a sincronizacao (mesma resiliencia das samples/serie temporal)', async () => {
+      const { prisma, activityStore } = fixture(baseConnection({ registeredAt: new Date() }));
+      const summary = { id: 'reconcile-fail', distance: 5000, duration: 'PT25M0S', 'start-time': '2026-10-03T07:00:00Z' };
+      const { fn } = queueFetch([
+        jsonResponse(201, { 'transaction-id': 'txn-r2' }),
+        jsonResponse(200, { exercises: [EXERCISE_URL] }),
+        jsonResponse(200, summary),
+        NO_SAMPLES_RESPONSE(),
+        jsonResponse(200, {}),
+      ]);
+      global.fetch = fn as unknown as typeof fetch;
+
+      const polarService = { decryptAccessToken: jest.fn(() => 'plain-access-token') };
+      const timeSeriesService = { normalizeFromRawSamples: jest.fn(async () => undefined) };
+      const failingSessionExecutionLink = { classify: jest.fn(async () => { throw new Error('falha simulada no motor'); }) };
+      const serviceWithFailingClassify = new PolarActivityIngestionService(
+        prisma as unknown as PrismaService,
+        polarService as unknown as PolarService,
+        timeSeriesService as never,
+        failingSessionExecutionLink as never,
+      );
+
+      const result = await serviceWithFailingClassify.sync('user-a');
+
+      expect(result).toEqual({ status: 'synced', imported: 1, resumedTransaction: false });
+      expect(activityStore.get('polar|user-a|reconcile-fail')).toBeDefined();
+      expect(failingSessionExecutionLink.classify).toHaveBeenCalled();
     });
   });
 });

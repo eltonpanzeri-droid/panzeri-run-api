@@ -258,6 +258,9 @@ interface RealizedActivity {
   avgPaceSecondsKm: number | null;
   avgHeartRateBpm: number | null;
   maxHeartRateBpm: number | null;
+  // Media de passos/minuto (ja transformada — ver ActivityTimeSeriesService), 03/10/2026. null
+  // quando o provider/atividade nao tem cadencia normalizada ainda.
+  cadenceAvg: number | null;
 }
 
 // Atividade 'alternative' — nao corresponde a nenhuma prescricao aplicavel (nunca "substituicao"
@@ -10584,28 +10587,58 @@ function CompletionForm({
         </View>
         {(isRun || isAerobic) && (
           <View>
-            {/* Tempo e distancia lado a lado como displays tapaveis que abrem Modal com rodas */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'stretch', marginBottom: 12 }}>
-              <View style={{ alignItems: 'center', flex: 1, paddingHorizontal: 8 }}>
-                <Text style={[styles.inputLabel, { marginBottom: 6 }]}>Tempo</Text>
-                <DurationWheelField value={draft.durationMin} onChangeValue={(v) => onChange(isRun ? { durationMin: v, avgPace: computePaceFromInputs(v, draft.distanceKm) } : { durationMin: v })} />
-              </View>
-              {isRun && (
-                <>
-                  {/* Separador vertical */}
-                  <View style={{ width: 1, backgroundColor: '#E2DDD5', marginVertical: 4 }} />
-                  <View style={{ alignItems: 'center', flex: 1, paddingHorizontal: 8 }}>
-                    <Text style={[styles.inputLabel, { marginBottom: 6 }]}>Distancia</Text>
-                    <DistanceWheelField value={draft.distanceKm} onChangeValue={(v) => onChange({ distanceKm: v, avgPace: computePaceFromInputs(draft.durationMin, v) })} />
-                  </View>
-                </>
-              )}
-            </View>
-            {isRun && (
+            {/* Execucao objetiva (03/10/2026): quando ha' ActivityLog correspondente, tempo/
+                distancia/pace vem do relogio — mostrado so' leitura, nunca pedindo redigitacao.
+                draft.durationMin/distanceKm/avgPace ja' vem preenchidos com o dado objetivo (ver
+                realizedExecMetrics); aqui so' decidimos COMO exibir, nunca recalculamos o valor. */}
+            {session.realized ? (
               <View style={styles.completionFieldGroup}>
-                <Text style={styles.inputLabel}>Pace medio (calculado automaticamente ou edite)</Text>
-                <TextInput style={styles.compactInput} value={draft.avgPace} onChangeText={(v) => onChange({ avgPace: v })} placeholder="mm:ss" />
+                <Text style={styles.inputLabel}>Dados do relogio</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 4 }}>
+                  <Text style={{ fontSize: 13 }}>Tempo: {session.realized.durationMin != null ? `${Math.round(session.realized.durationMin)} min` : 'indisponivel'}</Text>
+                  {isRun ? (
+                    <Text style={{ fontSize: 13 }}>Distancia: {session.realized.distanceKm != null ? `${roundKm(session.realized.distanceKm)} km` : 'indisponivel'}</Text>
+                  ) : null}
+                  {isRun && session.realized.avgPaceSecondsKm != null ? (
+                    <Text style={{ fontSize: 13 }}>Pace medio: {paceSecondsToInput(session.realized.avgPaceSecondsKm)}/km</Text>
+                  ) : null}
+                  {session.realized.avgHeartRateBpm != null ? (
+                    <Text style={{ fontSize: 13 }}>
+                      FC media: {session.realized.avgHeartRateBpm} bpm{session.realized.maxHeartRateBpm != null ? ` (max ${session.realized.maxHeartRateBpm})` : ''}
+                    </Text>
+                  ) : null}
+                  {session.realized.cadenceAvg != null ? (
+                    <Text style={{ fontSize: 13 }}>Cadencia media: {session.realized.cadenceAvg} passos/min</Text>
+                  ) : null}
+                </View>
+                <Text style={[styles.formHint, { marginTop: 4 }]}>Dados do seu relogio/app conectado — nao precisa digitar de novo.</Text>
               </View>
+            ) : (
+              <>
+                {/* Tempo e distancia lado a lado como displays tapaveis que abrem Modal com rodas */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'stretch', marginBottom: 12 }}>
+                  <View style={{ alignItems: 'center', flex: 1, paddingHorizontal: 8 }}>
+                    <Text style={[styles.inputLabel, { marginBottom: 6 }]}>Tempo</Text>
+                    <DurationWheelField value={draft.durationMin} onChangeValue={(v) => onChange(isRun ? { durationMin: v, avgPace: computePaceFromInputs(v, draft.distanceKm) } : { durationMin: v })} />
+                  </View>
+                  {isRun && (
+                    <>
+                      {/* Separador vertical */}
+                      <View style={{ width: 1, backgroundColor: '#E2DDD5', marginVertical: 4 }} />
+                      <View style={{ alignItems: 'center', flex: 1, paddingHorizontal: 8 }}>
+                        <Text style={[styles.inputLabel, { marginBottom: 6 }]}>Distancia</Text>
+                        <DistanceWheelField value={draft.distanceKm} onChangeValue={(v) => onChange({ distanceKm: v, avgPace: computePaceFromInputs(draft.durationMin, v) })} />
+                      </View>
+                    </>
+                  )}
+                </View>
+                {isRun && (
+                  <View style={styles.completionFieldGroup}>
+                    <Text style={styles.inputLabel}>Pace medio (calculado automaticamente ou edite)</Text>
+                    <TextInput style={styles.compactInput} value={draft.avgPace} onChangeText={(v) => onChange({ avgPace: v })} placeholder="mm:ss" />
+                  </View>
+                )}
+              </>
             )}
           </View>
         )}
@@ -11488,7 +11521,23 @@ function dateInputValueToIso(value: string): string | null {
   return date.toISOString();
 }
 
+// Execucao objetiva dentro do treino prescrito (03/10/2026): quando ja existe ActivityLog
+// correspondente (session.realized), tempo/distancia/pace vem do dispositivo — nunca pede pro
+// aluno redigitar o que o relogio ja mediu. null em qualquer campo do realized vira string vazia
+// aqui (nunca um zero fabricado). Reutilizado tanto pro draft novo quanto pra reabertura de um
+// feedback ja salvo (ambos preferem o dado objetivo sobre qualquer coisa digitada antes).
+function realizedExecMetrics(session: WeekPlanSession): { durationMin: string; distanceKm: string; avgPace: string } | null {
+  const realized = session.realized;
+  if (!realized) return null;
+  return {
+    durationMin: realized.durationMin != null ? String(Math.round(realized.durationMin)) : '',
+    distanceKm: realized.distanceKm != null ? String(roundKm(realized.distanceKm)) : '',
+    avgPace: realized.avgPaceSecondsKm != null ? paceSecondsToInput(realized.avgPaceSecondsKm) : '',
+  };
+}
+
 function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
+  const realized = realizedExecMetrics(session);
   return {
     status: 'done',
     completedDate: todayDateInputValue(),
@@ -11519,9 +11568,9 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     emotionalExperienceDuring: '',
     mentalStateChangePrePost: '',
     feedbackVersion: 2,
-    durationMin: session.durationMin ? String(session.durationMin) : '',
-    distanceKm: session.distanceKm ? String(session.distanceKm) : '',
-    avgPace: '',
+    durationMin: realized ? realized.durationMin : session.durationMin ? String(session.durationMin) : '',
+    distanceKm: realized ? realized.distanceKm : session.distanceKm ? String(session.distanceKm) : '',
+    avgPace: realized ? realized.avgPace : '',
     notes: '',
     loadsText: '',
     pacingMode: '',
@@ -11538,6 +11587,7 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
 function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
   const completion = session.completion;
   if (!completion) return defaultCompletionDraft(session);
+  const realized = realizedExecMetrics(session);
   // Cast via unknown: WorkoutCompletionPayload tem campos obrigatorios (status), entao TS exige
   // essa dupla conversao explicita pra acessar via indice generico os poucos campos
   // (adjustmentReasons/adjustmentComment/adjustmentPreferredActivity) que ainda nao foram
@@ -11578,9 +11628,11 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     emotionalExperienceDuring: completion.emotionalExperienceDuring != null ? String(completion.emotionalExperienceDuring) : '',
     mentalStateChangePrePost: completion.mentalStateChangePrePost != null ? String(completion.mentalStateChangePrePost) : '',
     feedbackVersion: completion.feedbackVersion ?? 1,
-    durationMin: completion.durationMin ? String(completion.durationMin) : '',
-    distanceKm: completion.distanceKm ? String(completion.distanceKm) : '',
-    avgPace: completion.avgPaceSecondsKm ? paceSecondsToInput(completion.avgPaceSecondsKm) : '',
+    // Preferencia pelo dado OBJETIVO (realized) sobre o que foi digitado/salvo antes — mesma regra
+    // de defaultCompletionDraft, aplicada tambem ao reabrir um feedback ja existente (03/10/2026).
+    durationMin: realized ? realized.durationMin : completion.durationMin ? String(completion.durationMin) : '',
+    distanceKm: realized ? realized.distanceKm : completion.distanceKm ? String(completion.distanceKm) : '',
+    avgPace: realized ? realized.avgPace : completion.avgPaceSecondsKm ? paceSecondsToInput(completion.avgPaceSecondsKm) : '',
     notes: completion.notes ?? '',
     loadsText: completion.details?.loadsText ?? '',
     pacingMode: completion.details?.pacingMode ?? '',
