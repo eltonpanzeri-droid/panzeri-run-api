@@ -11137,6 +11137,28 @@ function ShoesScreen({ accessToken }: { accessToken: string }) {
   );
 }
 
+// Melhorias pos-Bloco 1/3/4 (04/10/2026) — reducao de carga visual do feedback pos-treino: agrupa
+// os blocos de perguntas (ja existentes, mesmas 17 perguntas, mesma semantica) atras de um
+// cabecalho recolhivel, mesmo padrao visual do toggle "Por que responder e importante" ja usado
+// nesta tela. Nao altera nenhuma pergunta, validacao, payload ou versionamento — so' a exibicao.
+function FeedbackSection({ title, defaultExpanded, children }: { title: string; defaultExpanded: boolean; children: React.ReactNode }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  return (
+    <View>
+      <Pressable
+        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 }}
+        onPress={() => setExpanded((v) => !v)}
+        accessibilityRole="button"
+        accessibilityLabel={title}
+      >
+        <Text style={[styles.completionTitle, { fontSize: 14 }]}>{title}</Text>
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={PRColors.ocean} />
+      </Pressable>
+      {expanded ? <View style={{ marginTop: 4 }}>{children}</View> : null}
+    </View>
+  );
+}
+
 function CompletionForm({
   session,
   draft,
@@ -11456,10 +11478,9 @@ function CompletionForm({
                 antes do treino / Resposta ao treino). Rolagem unica numerada (nao paginado). */}
 
             {/* BLOCO 1 — SONO (perguntas 1-5) */}
-            <View>
+            <FeedbackSection title="Sono" defaultExpanded={!locked}>
               {!locked && (
                 <View style={{ marginBottom: 8 }}>
-                  <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 6 }]}>Sono</Text>
                   <Pressable
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 }}
                     onPress={() => setWhyExpanded((v) => !v)}
@@ -11511,15 +11532,13 @@ function CompletionForm({
               <QuestionLabel n={6} total={17} />
               <Text style={styles.formHint}>Quanta dificuldade voce teve para pegar no sono?</Text>
               <LabeledScale value={draft.sleepDifficulty} onChange={(v) => onChange({ sleepDifficulty: v })} options={SLEEP_DIFFICULTY_OPTIONS} locked={locked} />
-            </View>
+            </FeedbackSection>
 
             {/* Divisor entre secoes */}
             <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 16 }} />
 
             {/* BLOCO 2 — ESTADO ANTES DO TREINO (perguntas 7-10) */}
-            <View>
-              {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Estado antes do treino</Text>}
-
+            <FeedbackSection title="Estado antes do treino" defaultExpanded={!locked}>
               <QuestionLabel n={7} total={17} />
               <Text style={styles.formHint}>Como estava seu cansaco fisico antes de comecar o treino?</Text>
               <LabeledScale value={draft.prePhysicalFatigue} onChange={(v) => onChange({ prePhysicalFatigue: v })} options={INTENSITY_LOW_HIGH_OPTIONS} locked={locked} />
@@ -11543,15 +11562,13 @@ function CompletionForm({
               <QuestionLabel n={10} total={17} />
               <Text style={styles.formHint}>Qual era a sua vontade de fazer o treino de hoje antes de comecar?</Text>
               <LabeledScale value={draft.preMotivation} onChange={(v) => onChange({ preMotivation: v })} options={MOTIVATION_INTENSITY_OPTIONS} locked={locked} />
-            </View>
+            </FeedbackSection>
 
             {/* Divisor entre secoes */}
             <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 16 }} />
 
             {/* BLOCO 3 — RESPOSTA AO TREINO (perguntas 11-17) */}
-            <View>
-              {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Resposta ao treino</Text>}
-
+            <FeedbackSection title="Resposta ao treino" defaultExpanded={!locked}>
               {/* RPE 1–10 com gradiente de cor — mantido sem converter pra escala 1-5 */}
               <QuestionLabel n={11} total={17} />
               <Text style={styles.formHint}>Qual foi sua percepcao geral de esforco neste treino (RPE)?</Text>
@@ -11619,7 +11636,7 @@ function CompletionForm({
               <QuestionLabel n={17} total={17} />
               <Text style={styles.formHint}>Comparando com antes do treino, como voce esta se sentindo mentalmente agora?</Text>
               <LabeledScale value={draft.mentalStateChangePrePost} onChange={(v) => onChange({ mentalStateChangePrePost: v })} options={MENTAL_STATE_CHANGE_OPTIONS} locked={locked} />
-            </View>
+            </FeedbackSection>
 
             {/* Divisor entre secoes */}
             <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 16 }} />
