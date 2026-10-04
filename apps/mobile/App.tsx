@@ -5705,7 +5705,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
 
               {/* Feedback v2 (24/09/2026) — mesmo questionario de 16 perguntas do feedback normal */}
               <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 12 }} />
-              <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 8 }]}>Sono</Text>
+              <FeedbackSection title="Sono" defaultExpanded>
               <QuestionLabel n={1} total={16} />
               <Text style={styles.formHint}>Como foi a qualidade do seu sono na ultima noite?</Text>
               <LabeledScale value={extraForm.preSleepQuality} onChange={(v) => setExtraForm((f) => ({ ...f, preSleepQuality: v }))} options={SLEEP_QUALITY_OPTIONS} />
@@ -5721,9 +5721,10 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
               <QuestionLabel n={5} total={16} />
               <Text style={styles.formHint}>Quanta dificuldade voce teve para pegar no sono?</Text>
               <LabeledScale value={extraForm.sleepDifficulty} onChange={(v) => setExtraForm((f) => ({ ...f, sleepDifficulty: v }))} options={SLEEP_DIFFICULTY_OPTIONS} />
+              </FeedbackSection>
 
               <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 12 }} />
-              <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 8 }]}>Estado antes do treino</Text>
+              <FeedbackSection title="Estado antes do treino" defaultExpanded={false}>
               <QuestionLabel n={6} total={16} />
               <Text style={styles.formHint}>Como estava seu cansaco fisico antes de comecar o treino?</Text>
               <LabeledScale value={extraForm.prePhysicalFatigue} onChange={(v) => setExtraForm((f) => ({ ...f, prePhysicalFatigue: v }))} options={INTENSITY_LOW_HIGH_OPTIONS} />
@@ -5736,9 +5737,10 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
               <QuestionLabel n={9} total={16} />
               <Text style={styles.formHint}>Qual era a sua vontade de fazer o treino de hoje antes de comecar?</Text>
               <LabeledScale value={extraForm.preMotivation} onChange={(v) => setExtraForm((f) => ({ ...f, preMotivation: v }))} options={MOTIVATION_INTENSITY_OPTIONS} />
+              </FeedbackSection>
 
               <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 12 }} />
-              <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Resposta ao treino</Text>
+              <FeedbackSection title="Resposta ao treino" defaultExpanded={false}>
               <QuestionLabel n={11} total={16} />
               <Text style={styles.formHint}>Como voce avalia a forma como este treino foi elaborado para voce?</Text>
               <LabeledScale
@@ -5761,6 +5763,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
               <QuestionLabel n={16} total={16} />
               <Text style={styles.formHint}>Comparando com antes do treino, como voce esta se sentindo mentalmente agora?</Text>
               <LabeledScale value={extraForm.mentalStateChangePrePost} onChange={(v) => setExtraForm((f) => ({ ...f, mentalStateChangePrePost: v }))} options={MENTAL_STATE_CHANGE_OPTIONS} />
+              </FeedbackSection>
 
               {/* Dor */}
               <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 12 }} />
@@ -11566,7 +11569,7 @@ function CompletionForm({
             <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 16 }} />
 
             {/* BLOCO 2 — ESTADO ANTES DO TREINO (perguntas 7-10) */}
-            <FeedbackSection title="Estado antes do treino" defaultExpanded={!locked}>
+            <FeedbackSection title="Estado antes do treino" defaultExpanded={false}>
               <QuestionLabel n={7} total={17} />
               <Text style={styles.formHint}>Como estava seu cansaco fisico antes de comecar o treino?</Text>
               <LabeledScale value={draft.prePhysicalFatigue} onChange={(v) => onChange({ prePhysicalFatigue: v })} options={INTENSITY_LOW_HIGH_OPTIONS} locked={locked} />
@@ -11596,7 +11599,7 @@ function CompletionForm({
             <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 16 }} />
 
             {/* BLOCO 3 — RESPOSTA AO TREINO (perguntas 11-17) */}
-            <FeedbackSection title="Resposta ao treino" defaultExpanded={!locked}>
+            <FeedbackSection title="Resposta ao treino" defaultExpanded={false}>
               {/* RPE 1–10 com gradiente de cor — mantido sem converter pra escala 1-5 */}
               <QuestionLabel n={11} total={17} />
               <Text style={styles.formHint}>Qual foi sua percepcao geral de esforco neste treino (RPE)?</Text>
