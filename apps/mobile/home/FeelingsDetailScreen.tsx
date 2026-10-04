@@ -113,7 +113,7 @@ export function FeelingsDetailScreen({ accessToken, domain, onBack }: { accessTo
         <>
           <View style={[styles.textCard]}>
             <Text style={styles.textCardTitle}>O que seus registros mostram</Text>
-            {sentences.length > 0 ? sentences.map((s) => <Text key={s} style={styles.sentence}>• {s}</Text>) : (
+            {sentences.length > 0 ? <Text style={styles.sentence}>{sentences.join(' ')}</Text> : (
               <Text style={styles.sentence}>Ainda não há registros suficientes para interpretar.</Text>
             )}
             <Text style={styles.disclaimer}>Descrição dos seus próprios registros, sem diagnóstico e sem relação de causa.</Text>

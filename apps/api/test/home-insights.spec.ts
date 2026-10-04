@@ -96,12 +96,6 @@ describe('dominios — escalas e semantica originais', () => {
     expect(FEELING_DOMAINS.readiness.variables.find((v) => v.id === 'workout.prePhysicalFatigue')?.scaleHint).toContain('5 = muito alto');
   });
 
-  it('frases do dominio usam so as variaveis do dominio e pulam as categoricas', () => {
-    const sentences = domainSentences('sleep', { 'workout.preSleepQuality': snap({ current: 5 }) });
-    expect(sentences.some((s) => s.startsWith('Qualidade do sono'))).toBe(true);
-    expect(sentences.some((s) => s.includes('Horário'))).toBe(false);
-  });
-
   it('observationPoints ignora categoricos e nao numericos (ausencia nunca vira zero)', () => {
     const s = snap({ observations: [
       { timestamp: '2026-10-01T12:00:00Z', value: 3 },

@@ -279,20 +279,218 @@ export function shiftLabel(value: string): string {
   return SHIFT_LABELS[value] ?? value;
 }
 
-/**
- * Frases do dominio inteiro: uma bateria de descricoes por variavel numerica (mesmas funcoes da
- * Home). RPE usa a escala 1-10; as demais, 1-5 — fmt apenas arredonda, nunca reescala.
- */
+// ---------------------------------------------------------------------------------------------
+// Narrativa dos quatro dominios (04/10/2026). Substitui a antiga "bateria de frases por variavel":
+// recebe as MESMAS saidas do motor (tendencia, veredito de faixa habitual, variabilidade, ultimo
+// valor) e monta um resumo curto, em portugues corrido. Nao calcula nada novo e nao decide
+// evidencia: variavel sem tendencia/veredito/variabilidade sustentados pelo motor simplesmente nao
+// entra na narrativa. n e limites exatos da faixa ficam nos graficos/detalhes, nao aqui.
+//
+// Prioridade (do mais relevante ao menos): 1) fora da faixa habitual, 2) tendencia/mudanca,
+// 3) variabilidade, 4) estado atual, 5) fecho de estabilidade/faixa, 6) abertura. Padroes
+// convergentes (varias variaveis na mesma direcao) viram UMA frase. Maximo de 4 frases: se passar,
+// descartam-se as de menor prioridade. Descricao, nunca julgamento: "aumentou" nao vira "piorou".
+// ---------------------------------------------------------------------------------------------
+
+interface NarrativeSubject {
+  /** Nucleo do sintagma, com artigo, ex.: "a qualidade". */
+  core: string;
+  /** Complemento comum que pode ser fatorado em grupo, ex.: " do sono". */
+  suffix: string;
+  plural?: boolean;
+}
+
+const NARRATIVE_SUBJECTS: Record<string, NarrativeSubject> = {
+  'workout.preSleepQuality': { core: 'a qualidade', suffix: ' do sono' },
+  'workout.sleepDurationHoursEstimate': { core: 'a duração', suffix: ' do sono' },
+  'workout.sleepInterruption': { core: 'as interrupções', suffix: ' do sono', plural: true },
+  'workout.sleepDifficulty': { core: 'a dificuldade para pegar no sono', suffix: '' },
+  'workout.prePhysicalFatigue': { core: 'o cansaço físico', suffix: ' antes do treino' },
+  'workout.preMentalFatigue': { core: 'o cansaço mental', suffix: ' antes do treino' },
+  'workout.preStressLevel': { core: 'o estresse', suffix: '' },
+  'workout.preMotivation': { core: 'a vontade de treinar', suffix: '' },
+  'workout.perceivedEffort': { core: 'o esforço percebido', suffix: '' },
+  'workout.postPhysicalFatigue': { core: 'o cansaço físico', suffix: ' provocado pelos treinos' },
+  'workout.postMentalFatigue': { core: 'o cansaço mental', suffix: ' provocado pelos treinos' },
+  'workout.emotionalExperienceDuring': { core: 'a experiência emocional', suffix: ' durante os treinos' },
+  'workout.mentalStateChangePrePost': { core: 'a mudança do estado mental', suffix: ' após o exercício' },
+};
+
+const DOMAIN_TEXT: Record<FeelingDomain, { intro: string; subject: string }> = {
+  sleep: { intro: 'Seu sono tem apresentado algumas mudanças nas últimas semanas.', subject: 'seu sono' },
+  readiness: { intro: 'Você tem chegado aos treinos com algumas mudanças nas últimas semanas.', subject: 'como você tem chegado aos treinos' },
+  effort: { intro: 'Seu esforço percebido tem apresentado mudanças nas últimas semanas.', subject: 'seu esforço percebido' },
+  response: { intro: 'Sua resposta aos treinos apresentou mudanças nas últimas semanas.', subject: 'sua resposta aos treinos' },
+};
+
+function joinList(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} e ${items[items.length - 1]}`;
+}
+
+function upperFirst(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Sintagma de um grupo: fatora o complemento comum ("a qualidade e a duração do sono"). */
+function groupPhrase(ids: string[]): string {
+  const subjects = ids.map((id) => NARRATIVE_SUBJECTS[id]);
+  const commonSuffix = subjects[0].suffix;
+  if (ids.length > 1 && commonSuffix && subjects.every((s) => s.suffix === commonSuffix)) {
+    return `${joinList(subjects.map((s) => s.core))}${commonSuffix}`;
+  }
+  return joinList(subjects.map((s) => `${s.core}${s.suffix}`));
+}
+
+function isPluralGroup(ids: string[]): boolean {
+  return ids.length > 1 || Boolean(NARRATIVE_SUBJECTS[ids[0]]?.plural);
+}
+
+function formatHours(hours: number): string {
+  const totalMinutes = Math.round(hours * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, '0')}`;
+}
+
+function formatScaleValue(id: string, snapshot: SnapshotLite): string | null {
+  if (snapshot.current == null) return null;
+  if (id === 'workout.sleepDurationHoursEstimate') return formatHours(snapshot.current);
+  const max = snapshot.variable.scale?.max;
+  const value = String(Math.round(snapshot.current * 10) / 10).replace('.', ',');
+  return max != null ? `${value}/${max}` : value;
+}
+
+/** Direcao de tendencia sustentada pelo motor (janela curta; media se a curta nao sustenta). */
+function engineTrendDirection(snapshot: SnapshotLite | null | undefined): 'increasing' | 'decreasing' | 'stable' | null {
+  if (!snapshot || !snapshot.mathApplicable || !snapshot.trend) return null;
+  for (const key of ['short_21d', 'medium_60d']) {
+    const t = snapshot.trend[key];
+    if (!t || t.direction === 'insufficient_data') continue;
+    if (t.direction === 'increasing' || t.direction === 'decreasing' || t.direction === 'stable') return t.direction;
+  }
+  return null;
+}
+
+interface NarrativeItem { priority: number; text: string }
+
 export function domainSentences(domain: FeelingDomain, snapshots: Record<string, SnapshotLite | null | undefined>): string[] {
   const cfg = FEELING_DOMAINS[domain];
-  const out: string[] = [];
-  for (const v of cfg.variables) {
-    if (v.categorical) continue;
-    const d: Descriptor = {
-      label: v.label,
-      fmt: (n) => `${(Math.round(n * 10) / 10).toString().replace('.', ',')}${v.unit ? ` ${v.unit}` : ''}`,
-    };
-    out.push(...describeVariable(snapshots[v.id], d));
+  const ids = cfg.variables.filter((v) => !v.categorical && NARRATIVE_SUBJECTS[v.id]).map((v) => v.id).filter((id) => (snapshots[id]?.evidence.n ?? 0) > 0);
+  if (ids.length === 0) return [];
+
+  const trend = new Map(ids.map((id) => [id, engineTrendDirection(snapshots[id])] as const));
+  const verdict = new Map(ids.map((id) => [id, engineRangeVerdict(snapshots[id])?.verdict ?? null] as const));
+  const variability = new Map(ids.map((id) => [id, snapshots[id]?.variabilityChange?.direction ?? null] as const));
+
+  const supported = ids.filter((id) => trend.get(id) != null || verdict.get(id) != null || variability.get(id) === 'increased' || variability.get(id) === 'decreased');
+  if (supported.length === 0) {
+    return [`Ainda não há registros suficientes para descrever como ${DOMAIN_TEXT[domain].subject} tem se comportado.`];
   }
-  return out;
+
+  const items: NarrativeItem[] = [];
+  const increasing = ids.filter((id) => trend.get(id) === 'increasing');
+  const decreasing = ids.filter((id) => trend.get(id) === 'decreasing');
+  const stable = ids.filter((id) => trend.get(id) === 'stable');
+  const above = ids.filter((id) => verdict.get(id) === 'above');
+  const below = ids.filter((id) => verdict.get(id) === 'below');
+  const within = ids.filter((id) => verdict.get(id) === 'within');
+  const hasChange = increasing.length + decreasing.length > 0;
+
+  // 1) Fora da faixa habitual
+  if (above.length + below.length > 0) {
+    const parts: string[] = [];
+    const withValue = (group: string[]) => {
+      const v = group.length === 1 ? formatScaleValue(group[0], snapshots[group[0]] as SnapshotLite) : null;
+      return v ? ` (${v})` : '';
+    };
+    if (above.length) parts.push(`${groupPhrase(above)} ${isPluralGroup(above) ? 'ficaram' : 'ficou'} acima do seu padrão habitual${withValue(above)}`);
+    if (below.length) parts.push(`${groupPhrase(below)} ${isPluralGroup(below) ? 'ficaram' : 'ficou'} abaixo do seu padrão habitual${withValue(below)}`);
+    const rest = within.length ? '; os demais valores recentes seguem dentro do padrão habitual' : '';
+    items.push({ priority: 1, text: `No último registro, ${parts.join(' e ')}${rest}.` });
+  }
+
+  // 2) Tendencia — padroes convergentes numa unica frase
+  const varIncreased = ids.filter((id) => variability.get(id) === 'increased');
+  const varDecreased = ids.filter((id) => variability.get(id) === 'decreased');
+  let variabilityMerged = false;
+  if (hasChange) {
+    const clauses: Array<{ ids: string[]; verb: (plural: boolean) => string }> = [];
+    const first = [...increasing, ...decreasing].sort((a, b) => ids.indexOf(a) - ids.indexOf(b))[0];
+    const groups = first && decreasing.includes(first) ? [decreasing, increasing] : [increasing, decreasing];
+    for (const g of groups) {
+      if (g.length === 0) continue;
+      const isInc = g === increasing;
+      clauses.push({ ids: g, verb: (p) => `${p ? 'vêm' : 'vem'} ${isInc ? 'aumentando' : 'diminuindo'}` });
+    }
+    const written = clauses.map((c) => `${groupPhrase(c.ids)} ${c.verb(isPluralGroup(c.ids))}`);
+    let sentence = upperFirst(written.join(', enquanto '));
+    if (stable.length) sentence += `; já ${groupPhrase(stable)} ${isPluralGroup(stable) ? 'permanecem estáveis' : 'permanece estável'}`;
+    items.push({ priority: 2, text: `${sentence}.` });
+    items.push({ priority: 6, text: DOMAIN_TEXT[domain].intro });
+  } else if (stable.length > 0) {
+    // Estabilidade predominante: tudo estavel. Variabilidade (se houver) vira ", mas ..." na mesma frase.
+    const plural = isPluralGroup(stable);
+    let sentence = `${upperFirst(groupPhrase(stable))} ${plural ? 'permanecem relativamente estáveis' : 'permanece relativamente estável'} nas últimas semanas`;
+    if (varIncreased.length > 0 && varIncreased.every((id) => stable.includes(id)) && varDecreased.length === 0) {
+      const sameSubject = varIncreased.length === stable.length;
+      sentence += `, mas ${sameSubject ? '' : `${groupPhrase(varIncreased)} `}${isPluralGroup(varIncreased) ? 'têm oscilado' : 'tem oscilado'} mais do que o habitual`;
+      variabilityMerged = true;
+    }
+    items.push({ priority: 2, text: `${sentence}.` });
+  }
+
+  // 3) Variabilidade
+  if (!variabilityMerged && (varIncreased.length > 0 || varDecreased.length > 0)) {
+    const parts: string[] = [];
+    if (varIncreased.length) parts.push(`${groupPhrase(varIncreased)} ${isPluralGroup(varIncreased) ? 'têm oscilado' : 'tem oscilado'} mais do que o habitual`);
+    if (varDecreased.length) parts.push(`${groupPhrase(varDecreased)} ${isPluralGroup(varDecreased) ? 'têm oscilado' : 'tem oscilado'} menos do que o habitual`);
+    items.push({ priority: 3, text: `${upperFirst(parts.join(', enquanto '))} recentemente.` });
+  }
+
+  // 4) Estado atual (valores mais recentes das variaveis relevantes)
+  let currentCoversVerdict = false;
+  if (domain === 'sleep') {
+    const dur = snapshots['workout.sleepDurationHoursEstimate'];
+    const qual = snapshots['workout.preSleepQuality'];
+    const durText = dur && dur.current != null ? `dormiu cerca de ${formatHours(dur.current)}` : null;
+    const qualText = qual && qual.current != null ? `avaliou a qualidade do sono em ${formatScaleValue('workout.preSleepQuality', qual)}` : null;
+    const parts = [durText, qualText].filter((p): p is string => p != null);
+    if (parts.length > 0) items.push({ priority: 4, text: `Na última noite registrada, você ${joinList(parts)}.` });
+  } else if (domain === 'effort') {
+    const snap = snapshots['workout.perceivedEffort'];
+    const value = snap ? formatScaleValue('workout.perceivedEffort', snap) : null;
+    if (value) {
+      const tail = verdict.get('workout.perceivedEffort') === 'within' ? ', dentro da faixa que costuma aparecer nos seus treinos' : '';
+      currentCoversVerdict = tail !== '';
+      items.push({ priority: 4, text: `Seu último registro foi ${value}${tail}.` });
+    }
+  } else {
+    const alreadyWithValue = [...above, ...below].length > 0 && [...above, ...below].length === 1 ? [...above, ...below] : [];
+    const relevant = [...above, ...below, ...increasing, ...decreasing].filter((id, i, arr) => arr.indexOf(id) === i && !alreadyWithValue.includes(id)).slice(0, 2);
+    const parts = relevant
+      .map((id) => {
+        const s = NARRATIVE_SUBJECTS[id];
+        const v = formatScaleValue(id, snapshots[id] as SnapshotLite);
+        return v ? `${s.core}${s.suffix} ${s.plural ? 'foram' : 'foi'} ${v}` : null;
+      })
+      .filter((p): p is string => p != null);
+    if (parts.length > 0) items.push({ priority: 4, text: `No último registro, ${joinList(parts)}.` });
+  }
+
+  // 5) Fecho: valores recentes dentro do padrao habitual (so' se TODOS os comparaveis estiverem dentro)
+  if (above.length + below.length === 0 && within.length > 0 && within.length === ids.filter((id) => verdict.get(id) != null).length && !currentCoversVerdict) {
+    items.push({
+      priority: 5,
+      text: hasChange ? 'Apesar dessas mudanças, os valores mais recentes continuam dentro do seu padrão habitual.' : 'Os valores mais recentes estão dentro do seu padrão habitual.',
+    });
+  }
+
+  // Limite de 4 frases: descarta as de menor prioridade (maior numero) primeiro; ordem final = prioridade,
+  // exceto a abertura (priority 6) que, quando sobrevive, vem antes da frase de tendencia.
+  const kept = [...items].sort((a, b) => a.priority - b.priority).slice(0, 4);
+  const intro = kept.find((i) => i.priority === 6);
+  const body = kept.filter((i) => i.priority !== 6);
+  const ordered = intro ? [...body.filter((i) => i.priority < 2), intro, ...body.filter((i) => i.priority >= 2)] : body;
+  return ordered.map((i) => i.text);
 }
