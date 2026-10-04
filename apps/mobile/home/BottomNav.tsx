@@ -7,17 +7,22 @@ import { HomeColors } from './homeTheme';
 // era só o menu hambúrguer, AppMenu em App.tsx). Reaproveita o MESMO mecanismo de navegação já
 // existente (state `activeTab` + `setActiveTab`) — nenhuma lib de navegação nova, nenhuma rota
 // nova fora do que já existe. O menu hambúrguer continua existindo pros itens que não cabem aqui
-// (histórico, Strava, prova-alvo, etc.) — nunca apagamos funcionalidade, só adicionamos os 5
+// (histórico, Strava, prova-alvo, etc.) — nunca apagamos funcionalidade, só adicionamos os
 // destinos primários visíveis por padrão.
+//
+// BLOCO 3 (04/10/2026) — Evolução e Conquistas saíram daqui: seu conteúdo já está incorporado na
+// Home ("Seu progresso"/"Conquistas", ver home/HomeScreen.tsx) com link "ver mais"/"ver todas" para
+// as telas completas (ainda existem, só não são mais destino de primeiro nível). Os 2 espaços
+// liberados viram Perfil (contexto esportivo atual) e Conta (identidade/assinatura/acesso) — a
+// separação pedida pelo Bloco 3. Nenhuma funcionalidade foi removida, só a redundância de navegação.
 
-export type BottomNavTab = 'home' | 'week' | 'progress' | 'medals' | 'profile';
+export type BottomNavTab = 'home' | 'week' | 'profile' | 'conta';
 
 const ITEMS: Array<{ tab: BottomNavTab; label: string; icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof typeof Ionicons.glyphMap }> = [
   { tab: 'home', label: 'Início', icon: 'home-outline', activeIcon: 'home' },
   { tab: 'week', label: 'Treinos', icon: 'calendar-outline', activeIcon: 'calendar' },
-  { tab: 'progress', label: 'Evolução', icon: 'stats-chart-outline', activeIcon: 'stats-chart' },
-  { tab: 'medals', label: 'Conquistas', icon: 'ribbon-outline', activeIcon: 'ribbon' },
   { tab: 'profile', label: 'Perfil', icon: 'person-outline', activeIcon: 'person' },
+  { tab: 'conta', label: 'Conta', icon: 'settings-outline', activeIcon: 'settings' },
 ];
 
 export function BottomNav({ activeTab, onChange, bottomInset }: { activeTab: string; onChange: (tab: BottomNavTab) => void; bottomInset: number }) {
