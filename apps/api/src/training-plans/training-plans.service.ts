@@ -32,7 +32,7 @@ import { ReassessmentService } from '../reassessment/reassessment.service';
 import { buildCompactAgentContext } from '../training-intelligence/compact-agent-context';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
-import { SessionExecutionLinkService, WeekReconciliation } from '../activity-execution/session-execution-link.service';
+import { SessionExecutionLinkService, WeekReconciliation, localCalendarDate } from '../activity-execution/session-execution-link.service';
 
 interface SessionTemplate {
   title: string;
@@ -2189,24 +2189,69 @@ export class TrainingPlansService {
       orderBy: { scheduledDate: 'desc' },
     });
 
+    // Execucao objetiva (Bloco 1, 04/10/2026): ActivityLog + SessionExecutionLink ATIVO prova que o
+    // treino aconteceu, com ou sem WorkoutCompletion (feedback). Antes, so' o feedback contava —
+    // corrida de 30 km vinculada, sem feedback, aparecia como "Sem registro" e fora do volume.
+    const activeLinks = await this.prisma.sessionExecutionLink.findMany({
+      where: { status: 'active', trainingSession: { userId } },
+      include: { activityLog: true },
+    });
+    const activityBySessionId = new Map(activeLinks.map((l) => [l.trainingSessionId, l.activityLog]));
+    const linkedActivityIds = new Set(activeLinks.map((l) => l.activityLogId));
+
+    // Atividades 'alternative' sem sessao sintetica: tambem foram realizadas e entram no historico
+    // (card proprio), mas nunca como cumprimento de uma prescricao. As ja materializadas aparecem
+    // pela propria sessao 'device_extra' (com completion sintetica) — nao entram de novo aqui.
+    const alternativeLogs = await this.prisma.activityLog.findMany({
+      where: { userId, executionClassification: 'alternative' },
+    });
+    const materializedActivityIds = new Set(
+      sessions
+        .filter((s) => s.origin === 'device_extra')
+        .map((s) => (s.structure as { activityLogId?: string } | null)?.activityLogId)
+        .filter((id): id is string => Boolean(id)),
+    );
+
     const relevant = sessions.filter(
-      (s) => (s.plan as { status: string }).status === 'active' || s.completion !== null,
+      (s) => (s.plan as { status: string }).status === 'active' || s.completion !== null || activityBySessionId.has(s.id),
     );
 
     const byWeek = new Map<string, HistoryWeek>();
+    const weekFor = (ws: string): HistoryWeek => {
+      if (!byWeek.has(ws)) byWeek.set(ws, { weekStart: ws, weekLabel: formatWeekLabel(ws), totalKmDone: 0, sessions: [] });
+      return byWeek.get(ws)!;
+    };
+
+    for (const log of alternativeLogs) {
+      if (linkedActivityIds.has(log.id) || materializedActivityIds.has(log.id)) continue;
+      const isoDate = localCalendarDate(log.startedAt, log.utcOffsetMinutes);
+      const day = new Date(`${isoDate}T00:00:00.000Z`);
+      const distanceKm = log.distanceMeters != null ? Math.round((log.distanceMeters / 1000) * 100) / 100 : null;
+      const week = weekFor(getWeekStartFromDate(day));
+      week.totalKmDone += distanceKm ?? 0;
+      week.sessions.push({
+        id: `activity:${log.id}`,
+        date: isoDate,
+        weekday: day.getUTCDay(),
+        modality: log.sport ?? 'outra',
+        title: `${log.sport ?? 'Atividade'} (${log.provider})`,
+        completionStatus: null,
+        completedDistanceKm: distanceKm,
+        isExtra: true,
+        executionStatus: 'realized',
+        feedbackPending: false,
+        isAlternativeActivity: true,
+      });
+    }
+
     for (const s of relevant) {
-      const ws = getWeekStartFromDate(s.scheduledDate);
-      if (!byWeek.has(ws)) {
-        byWeek.set(ws, {
-          weekStart: ws,
-          weekLabel: formatWeekLabel(ws),
-          totalKmDone: 0,
-          sessions: [],
-        });
-      }
-      const week = byWeek.get(ws)!;
+      const week = weekFor(getWeekStartFromDate(s.scheduledDate));
+      const linkedActivity = activityBySessionId.get(s.id) ?? null;
       const completionStatus = (s.completion?.status ?? null) as 'done' | 'adjusted' | 'missed' | null;
-      const completedDistanceKm = s.completion?.distanceKm ?? null;
+      // Execucao objetiva prevalece sobre o feedback para distancia; sem vinculo, comportamento legado.
+      const completedDistanceKm = linkedActivity?.distanceMeters != null
+        ? Math.round((linkedActivity.distanceMeters / 1000) * 100) / 100
+        : (s.completion?.distanceKm ?? null);
       const structureObj = s.structure as Record<string, unknown> | null;
       // isExtra = "nao e' prescricao normal do treinador" — cobre tanto 'student_extra'
       // (structure.source='student', treino extra digitado pelo aluno) quanto 'device_extra'
@@ -2216,7 +2261,10 @@ export class TrainingPlansService {
       // 'student', entao uma sessao 'device_extra' aparecia no calendario como se fosse prescricao
       // real do treinador — mesma sessao que presentPlan() ja exclui corretamente de `sessions`.
       const isExtra = structureObj?.['type'] === 'extra';
-      if (completionStatus === 'done' || completionStatus === 'adjusted') {
+      // Dois estados independentes: execucao (vinculo ativo = realizada) e feedback (completion
+      // sem esforco percebido = pendente). Feedback pendente nunca vira "nao realizado".
+      const executionRealized = linkedActivity != null;
+      if (executionRealized || completionStatus === 'done' || completionStatus === 'adjusted') {
         week.totalKmDone += completedDistanceKm ?? 0;
       }
       week.sessions.push({
@@ -2228,6 +2276,9 @@ export class TrainingPlansService {
         completionStatus,
         completedDistanceKm,
         isExtra,
+        executionStatus: executionRealized ? 'realized' : null,
+        feedbackPending: executionRealized && (s.completion == null || s.completion.perceivedEffort == null),
+        isAlternativeActivity: false,
       });
     }
 
@@ -3195,6 +3246,11 @@ export interface HistorySessionSummary {
   completionStatus: 'done' | 'adjusted' | 'missed' | null;
   completedDistanceKm: number | null;
   isExtra: boolean;
+  // Execucao objetiva (ActivityLog + vinculo ativo, ou atividade alternativa) — independe do feedback.
+  executionStatus: 'realized' | null;
+  feedbackPending: boolean;
+  // Atividade realizada sem prescricao correspondente: existe no historico, nao cumpre prescricao.
+  isAlternativeActivity: boolean;
 }
 
 export interface HistoryWeek {

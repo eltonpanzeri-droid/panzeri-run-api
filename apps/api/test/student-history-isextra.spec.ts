@@ -7,11 +7,13 @@ import { TrainingPlansService } from '../src/training-plans/training-plans.servi
 // no calendario, mesmo ja sendo corretamente excluida de `sessions` em presentPlan(). Cobre os 3
 // casos pedidos: prescricao normal, student_extra (comportamento preservado) e device_extra
 // (agora tambem reconhecida como isExtra).
-function buildService(sessions: unknown[]) {
+function buildService(sessions: unknown[], links: unknown[] = [], alternativeLogs: unknown[] = []) {
   const prisma = {
     trainingSession: {
       findMany: jest.fn().mockResolvedValue(sessions),
     },
+    sessionExecutionLink: { findMany: jest.fn().mockResolvedValue(links) },
+    activityLog: { findMany: jest.fn().mockResolvedValue(alternativeLogs) },
   };
   const noop = {} as never;
   const service = new TrainingPlansService(

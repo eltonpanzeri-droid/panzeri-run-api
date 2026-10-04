@@ -193,7 +193,7 @@ function toActivitySummary(activity: {
 // "realUTC = localAsUtc - offsetMinutes" (ver parseStartedAt em polar-activity-ingestion.service.ts)
 // — logo local = realUTC + offsetMinutes. Sem offset conhecido, usamos o dia UTC puro (nunca
 // adivinhamos fuso do aluno).
-function localCalendarDate(startedAt: Date, utcOffsetMinutes: number | null): string {
+export function localCalendarDate(startedAt: Date, utcOffsetMinutes: number | null): string {
   const offset = utcOffsetMinutes ?? 0;
   const local = new Date(startedAt.getTime() + offset * 60_000);
   return local.toISOString().slice(0, 10);
