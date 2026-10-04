@@ -61,7 +61,7 @@ Notifications.setNotificationHandler({
 });
 
 type Screen = 'login' | 'app';
-type Tab = 'home' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'meusDados' | 'notifications' | 'history' | 'ciclo' | 'medals';
+type Tab = 'home' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'meusDados' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -546,6 +546,8 @@ interface CompletionDraft {
   // o nome do exercicio, a carga usada (string vazia = nao informado) e a percepcao de
   // dificuldade/satisfacao. Guardado dentro de details{} no servidor — sem migration.
   exerciseFeedback: Array<{ name: string; loadKg: string; satisfaction: string }>;
+  // Meus Tenis (04/10/2026) — so' relevante pra corrida/esteira (ver isRun). '' = nao informado.
+  shoeId: string;
 }
 
 interface StravaReport {
@@ -1971,6 +1973,7 @@ function AppInner() {
             )}
             {activeTab === 'targetRace' && <TargetRaceScreen accessToken={accessToken} />}
             {activeTab === 'painReport' && <PainReportScreen accessToken={accessToken} />}
+            {activeTab === 'shoes' && <ShoesScreen accessToken={accessToken} />}
             {activeTab === 'observations' && <ObservationsScreen accessToken={accessToken} />}
             {activeTab === 'ciclo' && <MenstrualCycleScreen accessToken={accessToken} />}
             {activeTab === 'strava' && <StravaSync accessToken={accessToken} />}
@@ -4243,6 +4246,8 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
     satisfactionElaboracao: '', executionVsPrescribed: '', postPhysicalFatigue: '', postMentalFatigue: '',
     emotionalExperienceDuring: '', mentalStateChangePrePost: '',
     painFlag: '', painTiming: '',
+    // Meus Tenis (04/10/2026) — mesma regra do CompletionForm: so' relevante pra corrida/esteira.
+    shoeId: '',
   };
   const [extraForm, setExtraForm] = useState(EXTRA_FORM_DEFAULTS);
   const [extraSaving, setExtraSaving] = useState(false);
@@ -4396,6 +4401,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       if (extraForm.mentalStateChangePrePost) body.mentalStateChangePrePost = parseInt(extraForm.mentalStateChangePrePost, 10);
       if (extraForm.painFlag) body.painFlag = extraForm.painFlag;
       if (extraForm.painTiming) body.painTiming = extraForm.painTiming;
+      if (extraForm.shoeId) body.shoeId = extraForm.shoeId;
 
       const resp = await fetch(`${API_URL}/training-plans/extra-session`, {
         method: 'POST',
@@ -4877,6 +4883,12 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
         missedComment: draft.status === 'missed' && draft.missedComment.trim() ? draft.missedComment.trim() : undefined,
         exerciseFeedback: draft.exerciseFeedback.length ? draft.exerciseFeedback : undefined,
       },
+      // Meus Tenis — so' enviado pra corrida/esteira (isRun, mesma regra do CompletionForm). Nunca
+      // 'undefined' quando a pergunta se aplica: precisa poder LIMPAR uma selecao anterior ao
+      // reabrir o feedback e escolher "nao informar" (null explicito), nao so' adicionar uma nova.
+      shoeId: (session.structure?.type === 'run' || session.modality === 'corrida' || session.modality === 'esteira')
+        ? (draft.shoeId || null)
+        : undefined,
     };
 
     setStatus('');
@@ -5543,6 +5555,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                           onCollapse={() => setExpandedDays((cur) => ({ ...cur, [session.id]: false }))}
                           sleepAlreadyRegistered={!completionDrafts[session.id] && Boolean(sleepNightByDate[session.isoDate ?? ''])}
                           stressAlreadyRegistered={!completionDrafts[session.id] && Boolean(recentStressCheckin)}
+                          accessToken={accessToken}
                         />
                         {/* Reagendar nao faz sentido pra uma atividade alternativa: ela ja aconteceu
                             numa data real do relogio/provedor, nao e uma prescricao a mover. */}
@@ -5760,6 +5773,17 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                   <Text style={styles.formHint}>Quando essa dor ou desconforto apareceu?</Text>
                   <OptionChips options={PAIN_TIMING_OPTIONS} selected={extraForm.painTiming} onSelect={(v) => setExtraForm((f) => ({ ...f, painTiming: v }))} />
                 </View>
+              )}
+
+              {(extraForm.modality === 'corrida' || extraForm.modality === 'esteira') && (
+                <>
+                  <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 12 }} />
+                  <ShoePickerField
+                    accessToken={accessToken}
+                    value={extraForm.shoeId}
+                    onChange={(shoeId) => setExtraForm((f) => ({ ...f, shoeId }))}
+                  />
+                </>
               )}
 
               {extraMessage ? <Text style={styles.statusMessage}>{extraMessage}</Text> : null}
@@ -9600,6 +9624,7 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     { id: 'routine', label: 'Rotina de treinos', icon: 'time' },
     { id: 'reassessment', label: 'Reavaliacao periodica', icon: 'refresh-circle' },
     { id: 'meusDados', label: 'Meus dados', icon: 'person-circle-outline' },
+    { id: 'shoes', label: 'Meus tenis', icon: 'footsteps-outline' },
     { id: 'fixAnswers', label: 'Corrigir respostas anteriores', icon: 'create-outline' },
     { id: 'targetRace', label: 'Prova alvo', icon: 'trophy' },
     { id: 'painReport', label: 'Relatar dor', icon: 'medkit' },
@@ -10602,6 +10627,349 @@ function numToSatisfaction(n: number): string {
   return map[n] ?? '';
 }
 
+// Meus Tenis (04/10/2026). shoe summary ja' vem com os totais derivados calculados pelo backend
+// (ShoesService) — o mobile nunca recalcula km/treinos aqui.
+interface ShoeSummary {
+  id: string;
+  brand: string;
+  model: string;
+  nickname: string | null;
+  photoUrl: string | null;
+  status: 'active' | 'retired';
+  startedUsingAt: string;
+  retiredAt: string | null;
+  workoutsCount: number;
+  totalDistanceKm: number;
+  averageKmPerWorkout: number | null;
+  firstUsedAt: string | null;
+  lastUsedAt: string | null;
+}
+
+interface ShoeDetail extends ShoeSummary {
+  history: Array<{ completionId: string; completedAt: string; distanceKm: number | null }>;
+}
+
+function shoeDisplayName(shoe: Pick<ShoeSummary, 'brand' | 'model' | 'nickname'>) {
+  return shoe.nickname ? `${shoe.nickname} (${shoe.brand} ${shoe.model})` : `${shoe.brand} ${shoe.model}`;
+}
+
+// Seletor compacto "Qual tenis voce usou?" — usado dentro do CompletionForm, so' quando a
+// modalidade e' corrida/esteira (isRun). Busca a lista so' quando o formulario esta' sendo
+// editado, pra nao disparar N requisicoes quando varias sessoes aparecem na tela ao mesmo tempo.
+function ShoePickerField({ accessToken, value, onChange, locked }: { accessToken: string; value: string; onChange: (shoeId: string) => void; locked?: boolean }) {
+  const [shoes, setShoes] = useState<ShoeSummary[] | null>(null);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [quickBrand, setQuickBrand] = useState('');
+  const [quickModel, setQuickModel] = useState('');
+  const [quickSaving, setQuickSaving] = useState(false);
+  const [quickError, setQuickError] = useState('');
+
+  async function load() {
+    try {
+      const response = await fetch(`${API_URL}/me/shoes/picker`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (response.ok) setShoes((await response.json()) as ShoeSummary[]);
+      else setShoes([]);
+    } catch {
+      setShoes([]);
+    }
+  }
+
+  useEffect(() => { void load(); }, [accessToken]);
+
+  async function quickAddShoe() {
+    if (!quickBrand.trim() || !quickModel.trim()) { setQuickError('Informe marca e modelo.'); return; }
+    setQuickSaving(true);
+    setQuickError('');
+    try {
+      const response = await fetch(`${API_URL}/me/shoes`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand: quickBrand.trim(), model: quickModel.trim(), startedUsingAt: dateInputValueToIso(todayDateInputValue()) }),
+      });
+      if (!response.ok) { setQuickError('Nao consegui adicionar o tenis.'); return; }
+      const created = (await response.json()) as ShoeSummary;
+      setShoes((current) => [created, ...(current ?? [])]);
+      onChange(created.id);
+      setShowQuickAdd(false);
+      setQuickBrand('');
+      setQuickModel('');
+    } catch {
+      setQuickError('Sem conexao. Tente novamente.');
+    } finally {
+      setQuickSaving(false);
+    }
+  }
+
+  if (shoes === null) return null; // carregando — nunca bloqueia o resto do formulario
+
+  return (
+    <View style={{ marginBottom: 16 }}>
+      <Text style={styles.formHint}>Qual tenis voce usou? (opcional)</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <Pressable
+          disabled={locked}
+          onPress={() => onChange('')}
+          style={{
+            paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1.5,
+            borderColor: value === '' ? PRColors.ocean : '#E2DDD5',
+            backgroundColor: value === '' ? PRColors.ocean : '#FFFFFF',
+          }}
+        >
+          <Text style={{ color: value === '' ? '#FFFFFF' : PRColors.graphite, fontSize: 13 }}>Nao informar</Text>
+        </Pressable>
+        {shoes.map((shoe) => {
+          const active = value === shoe.id;
+          return (
+            <Pressable
+              key={shoe.id}
+              disabled={locked}
+              onPress={() => onChange(shoe.id)}
+              style={{
+                paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1.5, maxWidth: 220,
+                borderColor: active ? PRColors.ocean : '#E2DDD5',
+                backgroundColor: active ? PRColors.ocean : '#FFFFFF',
+              }}
+            >
+              <Text style={{ color: active ? '#FFFFFF' : PRColors.graphite, fontSize: 13, fontWeight: '600' }}>{shoeDisplayName(shoe)}</Text>
+              <Text style={{ color: active ? '#FFFFFFCC' : '#9A958A', fontSize: 11, marginTop: 2 }}>{shoe.totalDistanceKm} km · {shoe.workoutsCount} treinos</Text>
+            </Pressable>
+          );
+        })}
+        {!locked && !showQuickAdd ? (
+          <Pressable
+            onPress={() => setShowQuickAdd(true)}
+            style={{ paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#C9C3B6' }}
+          >
+            <Text style={{ color: PRColors.graphite, fontSize: 13 }}>+ Novo tenis</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      {showQuickAdd ? (
+        <View style={{ marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: '#F7F4EE' }}>
+          <TextInput style={styles.input} placeholder="Marca (ex: ASICS)" value={quickBrand} onChangeText={setQuickBrand} />
+          <TextInput style={[styles.input, { marginTop: 8 }]} placeholder="Modelo (ex: Novablast 5)" value={quickModel} onChangeText={setQuickModel} />
+          {quickError ? <Text style={[styles.statusMessage, { marginTop: 6 }]}>{quickError}</Text> : null}
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+            <Pressable style={styles.secondaryButton} onPress={() => { setShowQuickAdd(false); setQuickError(''); }}>
+              <Text style={styles.secondaryButtonText}>Cancelar</Text>
+            </Pressable>
+            <Pressable style={[styles.primaryButton, { flex: 1 }]} disabled={quickSaving} onPress={quickAddShoe}>
+              <Text style={styles.primaryButtonText}>{quickSaving ? 'Salvando...' : 'Adicionar'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+// Meus Tenis — area do perfil (04/10/2026). Cadastro/edicao/aposentadoria + detalhe do par. Sem
+// exclusao destrutiva (pedido explicito) — "aposentar" e' a unica forma de tirar de circulacao.
+function ShoesScreen({ accessToken }: { accessToken: string }) {
+  const [active, setActive] = useState<ShoeSummary[]>([]);
+  const [retired, setRetired] = useState<ShoeSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+  const [showRetired, setShowRetired] = useState(false);
+  const [mode, setMode] = useState<'list' | 'form' | 'detail'>('list');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<ShoeDetail | null>(null);
+
+  const [brand, setBrand] = useState('');
+  const [model, setModel] = useState('');
+  const [nickname, setNickname] = useState('');
+  const [startedUsingAt, setStartedUsingAt] = useState(todayDateInputValue());
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/me/shoes`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (response.ok) {
+        const data = (await response.json()) as { active: ShoeSummary[]; retired: ShoeSummary[] };
+        setActive(data.active);
+        setRetired(data.retired);
+      }
+    } catch {
+      setMessage('Nao consegui carregar seus tenis.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, [accessToken]);
+
+  function openNewForm() {
+    setEditingId(null);
+    setBrand('');
+    setModel('');
+    setNickname('');
+    setStartedUsingAt(todayDateInputValue());
+    setMode('form');
+  }
+
+  function openEditForm(shoe: ShoeSummary) {
+    setEditingId(shoe.id);
+    setBrand(shoe.brand);
+    setModel(shoe.model);
+    setNickname(shoe.nickname ?? '');
+    setStartedUsingAt(isoDateToInputValue(shoe.startedUsingAt));
+    setMode('form');
+  }
+
+  async function openDetail(shoeId: string) {
+    setMode('detail');
+    setDetail(null);
+    try {
+      const response = await fetch(`${API_URL}/me/shoes/${shoeId}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (response.ok) setDetail((await response.json()) as ShoeDetail);
+    } catch {
+      setMessage('Nao consegui carregar o detalhe deste tenis.');
+    }
+  }
+
+  async function saveShoe() {
+    if (!brand.trim() || !model.trim()) { setMessage('Informe marca e modelo.'); return; }
+    const isoDate = dateInputValueToIso(startedUsingAt);
+    if (!isoDate) { setMessage('Data de inicio de uso invalida.'); return; }
+    setSaving(true);
+    setMessage('');
+    try {
+      const url = editingId ? `${API_URL}/me/shoes/${editingId}` : `${API_URL}/me/shoes`;
+      const response = await fetch(url, {
+        method: editingId ? 'PATCH' : 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand: brand.trim(), model: model.trim(), nickname: nickname.trim() || undefined, startedUsingAt: isoDate }),
+      });
+      if (!response.ok) { setMessage('Nao consegui salvar o tenis.'); return; }
+      setMode('list');
+      await load();
+    } catch {
+      setMessage('Sem conexao. Tente novamente.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function retireShoe(shoeId: string) {
+    try {
+      const response = await fetch(`${API_URL}/me/shoes/${shoeId}/retire`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) { setMessage('Nao consegui aposentar este tenis.'); return; }
+      await load();
+      setMode('list');
+    } catch {
+      setMessage('Sem conexao. Tente novamente.');
+    }
+  }
+
+  function ShoeCard({ shoe }: { shoe: ShoeSummary }) {
+    return (
+      <Pressable style={[styles.card, { marginBottom: 10 }]} onPress={() => openDetail(shoe.id)}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontWeight: '700', fontSize: 15, color: PRColors.graphite }}>{shoeDisplayName(shoe)}</Text>
+            <Text style={{ color: '#9A958A', fontSize: 13, marginTop: 4 }}>{shoe.totalDistanceKm} km · {shoe.workoutsCount} {shoe.workoutsCount === 1 ? 'treino' : 'treinos'}</Text>
+          </View>
+          <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999, backgroundColor: shoe.status === 'active' ? '#E8F3EC' : '#EFEDE8' }}>
+            <Text style={{ fontSize: 11, fontWeight: '600', color: shoe.status === 'active' ? '#2E7D4F' : '#8A8578' }}>{shoe.status === 'active' ? 'Em uso' : 'Aposentado'}</Text>
+          </View>
+        </View>
+      </Pressable>
+    );
+  }
+
+  if (mode === 'form') {
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Meus tenis</Text>
+        <Text style={styles.titleSmall}>{editingId ? 'Editar tenis' : 'Novo tenis'}</Text>
+        <TextInput style={styles.input} placeholder="Marca (ex: ASICS)" value={brand} onChangeText={setBrand} />
+        <TextInput style={[styles.input, { marginTop: 10 }]} placeholder="Modelo (ex: Novablast 5)" value={model} onChangeText={setModel} />
+        <TextInput style={[styles.input, { marginTop: 10 }]} placeholder="Apelido (opcional)" value={nickname} onChangeText={setNickname} />
+        <Text style={[styles.formHint, { marginTop: 10 }]}>Comecei a usar em</Text>
+        <TextInput style={styles.input} placeholder="dd/mm/aaaa" value={startedUsingAt} onChangeText={setStartedUsingAt} />
+        {message ? <Text style={[styles.statusMessage, { marginTop: 8 }]}>{message}</Text> : null}
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+          <Pressable style={styles.secondaryButton} onPress={() => { setMode('list'); setMessage(''); }}>
+            <Text style={styles.secondaryButtonText}>Cancelar</Text>
+          </Pressable>
+          <Pressable style={[styles.primaryButton, { flex: 1 }]} disabled={saving} onPress={saveShoe}>
+            <Text style={styles.primaryButtonText}>{saving ? 'Salvando...' : 'Salvar'}</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  if (mode === 'detail') {
+    if (!detail) return <View style={styles.section}><Text style={styles.statusMessage}>Carregando...</Text></View>;
+    return (
+      <View style={styles.section}>
+        <Pressable onPress={() => setMode('list')}><Text style={styles.sectionLabel}>{'< Meus tenis'}</Text></Pressable>
+        <Text style={styles.titleSmall}>{shoeDisplayName(detail)}</Text>
+        <Text style={{ color: '#9A958A', fontSize: 13, marginBottom: 12 }}>{detail.status === 'active' ? 'Em uso' : 'Aposentado'}</Text>
+
+        <View style={[styles.card, { flexDirection: 'row', flexWrap: 'wrap', gap: 16 }]}>
+          <View><Text style={styles.formHint}>Km acumulados</Text><Text style={{ fontSize: 18, fontWeight: '700' }}>{detail.totalDistanceKm} km</Text></View>
+          <View><Text style={styles.formHint}>Treinos</Text><Text style={{ fontSize: 18, fontWeight: '700' }}>{detail.workoutsCount}</Text></View>
+          <View><Text style={styles.formHint}>Media por treino</Text><Text style={{ fontSize: 18, fontWeight: '700' }}>{detail.averageKmPerWorkout != null ? `${detail.averageKmPerWorkout} km` : '—'}</Text></View>
+          <View><Text style={styles.formHint}>Primeiro uso</Text><Text style={{ fontSize: 14 }}>{detail.firstUsedAt ? new Date(detail.firstUsedAt).toLocaleDateString('pt-BR') : '—'}</Text></View>
+          <View><Text style={styles.formHint}>Ultimo uso</Text><Text style={{ fontSize: 14 }}>{detail.lastUsedAt ? new Date(detail.lastUsedAt).toLocaleDateString('pt-BR') : '—'}</Text></View>
+        </View>
+
+        <Text style={[styles.sectionLabel, { marginTop: 16, marginBottom: 6 }]}>Historico recente</Text>
+        {detail.history.length === 0 ? (
+          <Text style={styles.copyTight}>Nenhum treino registrado com este tenis ainda.</Text>
+        ) : (
+          detail.history.map((item) => (
+            <View key={item.completionId} style={[styles.card, { marginBottom: 8, paddingVertical: 10 }]}>
+              <Text style={{ fontSize: 13 }}>{new Date(item.completedAt).toLocaleDateString('pt-BR')} · {item.distanceKm != null ? `${item.distanceKm} km` : 'distancia nao informada'}</Text>
+            </View>
+          ))
+        )}
+
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
+          <Pressable style={[styles.secondaryButton, { flex: 1 }]} onPress={() => openEditForm(detail)}>
+            <Text style={styles.secondaryButtonText}>Editar</Text>
+          </Pressable>
+          {detail.status === 'active' ? (
+            <Pressable style={[styles.secondaryButton, { flex: 1 }]} onPress={() => retireShoe(detail.id)}>
+              <Text style={styles.secondaryButtonText}>Aposentar</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Meus tenis</Text>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <Text style={styles.titleSmall}>Tenis cadastrados</Text>
+        <Pressable style={styles.primaryButton} onPress={openNewForm}>
+          <Text style={styles.primaryButtonText}>+ Novo</Text>
+        </Pressable>
+      </View>
+      {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
+      {loading ? <Text style={styles.statusMessage}>Carregando...</Text> : null}
+      {!loading && active.length === 0 ? (
+        <Text style={styles.copyTight}>Nenhum tenis cadastrado ainda. Toque em "+ Novo" para adicionar.</Text>
+      ) : null}
+      {active.map((shoe) => <ShoeCard key={shoe.id} shoe={shoe} />)}
+
+      {retired.length > 0 ? (
+        <View style={{ marginTop: 12 }}>
+          <Pressable onPress={() => setShowRetired((v) => !v)}>
+            <Text style={styles.sectionLabel}>{showRetired ? 'Ocultar' : 'Ver'} aposentados ({retired.length})</Text>
+          </Pressable>
+          {showRetired ? retired.map((shoe) => <ShoeCard key={shoe.id} shoe={shoe} />) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function CompletionForm({
   session,
   draft,
@@ -10612,6 +10980,7 @@ function CompletionForm({
   onCollapse,
   sleepAlreadyRegistered,
   stressAlreadyRegistered,
+  accessToken,
 }: {
   session: WeekPlanSession;
   draft: CompletionDraft;
@@ -10625,6 +10994,8 @@ function CompletionForm({
   // alterar normalmente pelos campos abaixo.
   sleepAlreadyRegistered?: boolean;
   stressAlreadyRegistered?: boolean;
+  // Meus Tenis (04/10/2026) — so' usado pra buscar/criar tenis no ShoePickerField, quando isRun.
+  accessToken: string;
 }) {
   const isSavedOnServer = !!session.completion;
   const [isEditing, setIsEditing] = useState(!isSavedOnServer);
@@ -11123,6 +11494,21 @@ function CompletionForm({
                 placeholder="Observacoes opcionais: clima, terreno, alimentacao, sensacoes diferentes..."
               />
             </View>
+
+            {/* Meus Tenis (04/10/2026) — so' faz sentido quando houve corrida de verdade (isRun).
+                Este bloco inteiro ja' esta' dentro da secao exibida so' pra status done/adjusted
+                (nunca 'missed' — "nao fiz o treino" nao tem tenis nenhum pra perguntar). */}
+            {isRun && (
+              <>
+                <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 16 }} />
+                <ShoePickerField
+                  accessToken={accessToken}
+                  value={draft.shoeId}
+                  onChange={(shoeId) => onChange({ shoeId })}
+                  locked={locked}
+                />
+              </>
+            )}
 
             {/* Correcao definitiva do ciclo de vida da prescricao (25/09/2026) — so aparece quando
                 o aluno escolheu "Fiz, mas mudei o treino". A prescricao original (o que estava
@@ -11714,6 +12100,7 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     adjustmentComment: '',
     adjustmentPreferredActivity: '',
     exerciseFeedback: [],
+    shoeId: '',
   };
 }
 
@@ -11776,6 +12163,7 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     adjustmentComment: (completionAsRecord.adjustmentComment as string) ?? '',
     adjustmentPreferredActivity: (completionAsRecord.adjustmentPreferredActivity as string) ?? '',
     exerciseFeedback: completion.details?.exerciseFeedback ?? [],
+    shoeId: (completionAsRecord.shoeId as string) ?? '',
   };
 }
 
@@ -12170,6 +12558,8 @@ function formatDateFromApi(value: string) {
 }
 
 const styles = StyleSheet.create({
+  // Meus Tenis (04/10/2026) — card generico reutilizavel (mesmo visual de mcStyles.card).
+  card: { backgroundColor: '#ffffff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#EDE9E0' },
   loadingState: {
     flex: 1,
     alignItems: 'center',
