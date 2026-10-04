@@ -126,6 +126,7 @@ model User {
   activityLogs          ActivityLog[]
   nightlySleepLogs      NightlySleepLog[]
   stressCheckins        StressCheckin[]
+  shoes                 Shoe[]
 
   // 04/09: achado numa revisao pensando em escala — nao existia indice nenhum pros filtros mais
   // usados (painel do treinador, prospectos, crons diarios), todos batem em (role,
@@ -765,6 +766,9 @@ model WorkoutCompletion {
   // ContextEventsService.linkFirstObservationIfPending, nunca pelo proprio fluxo de salvar feedback.
   firstObservationAfterGapEvent   ContextEvent? @relation(fields: [firstObservationAfterGapEventId], references: [id])
   firstObservationAfterGapEventId String?
+
+  // Meus Tenis (04/10/2026) — ver ShoeUsage.
+  shoeUsage ShoeUsage?
 
   @@index([firstObservationAfterGapEventId])
 }
@@ -1798,4 +1802,63 @@ model BillingEvent {
   @@index([userId])
   @@index([event])
   @@index([timestamp])
+}
+
+// Meus Tenis (04/10/2026). Cadastro do par — NUNCA armazena km/numero de treinos acumulados aqui:
+// esses sao sempre derivados em tempo de leitura a partir das ShoeUsage ligadas (ver
+// ShoesService), nunca uma segunda verdade cacheada. "status" controla so' se o par aparece como
+// OPCAO PRINCIPAL pra novos feedbacks — aposentar nunca apaga nem desvincula historico.
+model Shoe {
+  id       String @id @default(uuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id])
+  brand    String
+  model    String
+  nickname String?
+  // Nullable de proposito: nao existe infraestrutura de upload de imagem no projeto ainda (sem
+  // multer/S3/storage) — ver diagnostico do bloco "Meus Tenis". Campo existe pro dado ter onde
+  // morar quando essa infra existir, mas esta etapa nao constroi picker/upload nenhum.
+  photoUrl String?
+
+  startedUsingAt DateTime
+  // 'active' | 'retired'. Aposentar NAO exclui nem desvincula ShoeUsage — so' tira o par da lista
+  // de opcoes principais no formulario de feedback (ver ShoesController/mobile).
+  status         String    @default("active")
+  retiredAt      DateTime?
+
+  usages ShoeUsage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
+// Vinculo tenis <-> atividade realizada (04/10/2026). Chave pela WorkoutCompletion (nao
+// diretamente por TrainingSession/ActivityLog) porque e' ali, no formulario de feedback, que o
+// aluno informa qual par usou — e WorkoutCompletion ja' representa uniformemente "uma execucao
+// com contexto", seja ela prescrita, extra manual (student_extra) ou materializada a partir de
+// ActivityLog (device_extra/alternative). @unique em workoutCompletionId: no maximo UM tenis por
+// execucao, trocar = atualizar esta linha (nunca empilha historico de correcao aqui — ver
+// ShoesService.setUsage; a trilha de proveniencia fina pertence a SessionExecutionLink, nao a
+// este vinculo mais simples).
+//
+// Quilometragem: NUNCA lida direto de WorkoutCompletion.distanceKm quando a sessao tiver um
+// SessionExecutionLink ativo pra' uma ActivityLog — nesse caso a atividade canonica (ActivityLog.
+// distanceMeters) e' a fonte, por ser corrigivel/atualizavel independente do que o aluno digitou
+// no feedback (ver ShoesService.resolveDistanceKm). Sem link ativo (treino manual sem relogio),
+// WorkoutCompletion.distanceKm e' a unica fonte existente — nunca inventa distancia.
+model ShoeUsage {
+  id                  String            @id @default(uuid())
+  shoeId              String
+  shoe                Shoe              @relation(fields: [shoeId], references: [id])
+  workoutCompletionId String            @unique
+  workoutCompletion   WorkoutCompletion @relation(fields: [workoutCompletionId], references: [id])
+  userId              String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([shoeId])
+  @@index([userId])
 }
