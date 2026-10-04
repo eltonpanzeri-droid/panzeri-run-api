@@ -10810,8 +10810,16 @@ function shoeDisplayName(shoe: Pick<ShoeSummary, 'brand' | 'model' | 'nickname'>
 // Seletor compacto "Qual tenis voce usou?" — usado dentro do CompletionForm, so' quando a
 // modalidade e' corrida/esteira (isRun). Busca a lista so' quando o formulario esta' sendo
 // editado, pra nao disparar N requisicoes quando varias sessoes aparecem na tela ao mesmo tempo.
+// Melhorias pos-Bloco 4 (04/10/2026) — UX do seletor de tenis no feedback: virou um seletor
+// compacto de uma linha (nao mais uma fileira de chips sempre expandida), que abre um modal curto
+// ao tocar. "Nao informar" perdeu o destaque visual de opcao igual as demais (agora e' texto
+// simples, nao um botao do mesmo tamanho/cor de um tenis real) e o cadastro rapido (so'
+// marca+modelo, nunca o formulario completo de "Meus Tenis") passou a abrir dentro do mesmo modal
+// em vez de expandir inline no meio do formulario de feedback. Escolha continua 100% opcional.
+// Nenhuma mudanca na associacao ShoeUsage<->WorkoutCompletion (fica pra uma evolucao futura).
 function ShoePickerField({ accessToken, value, onChange, locked }: { accessToken: string; value: string; onChange: (shoeId: string) => void; locked?: boolean }) {
   const [shoes, setShoes] = useState<ShoeSummary[] | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [quickBrand, setQuickBrand] = useState('');
   const [quickModel, setQuickModel] = useState('');
@@ -10830,6 +10838,12 @@ function ShoePickerField({ accessToken, value, onChange, locked }: { accessToken
 
   useEffect(() => { void load(); }, [accessToken]);
 
+  function closePicker() {
+    setPickerOpen(false);
+    setShowQuickAdd(false);
+    setQuickError('');
+  }
+
   async function quickAddShoe() {
     if (!quickBrand.trim() || !quickModel.trim()) { setQuickError('Informe marca e modelo.'); return; }
     setQuickSaving(true);
@@ -10844,9 +10858,10 @@ function ShoePickerField({ accessToken, value, onChange, locked }: { accessToken
       const created = (await response.json()) as ShoeSummary;
       setShoes((current) => [created, ...(current ?? [])]);
       onChange(created.id);
-      setShowQuickAdd(false);
       setQuickBrand('');
       setQuickModel('');
+      // Ao salvar, volta direto pro feedback com o novo tenis ja selecionado — nao fica preso no modal.
+      closePicker();
     } catch {
       setQuickError('Sem conexao. Tente novamente.');
     } finally {
@@ -10856,63 +10871,89 @@ function ShoePickerField({ accessToken, value, onChange, locked }: { accessToken
 
   if (shoes === null) return null; // carregando — nunca bloqueia o resto do formulario
 
+  const selected = shoes.find((shoe) => shoe.id === value) ?? null;
+
   return (
     <View style={{ marginBottom: 16 }}>
       <Text style={styles.formHint}>Qual tenis voce usou? (opcional)</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <Pressable
-          disabled={locked}
-          onPress={() => onChange('')}
-          style={{
-            paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1.5,
-            borderColor: value === '' ? PRColors.ocean : '#E2DDD5',
-            backgroundColor: value === '' ? PRColors.ocean : '#FFFFFF',
-          }}
-        >
-          <Text style={{ color: value === '' ? '#FFFFFF' : PRColors.graphite, fontSize: 13 }}>Nao informar</Text>
-        </Pressable>
-        {shoes.map((shoe) => {
-          const active = value === shoe.id;
-          return (
-            <Pressable
-              key={shoe.id}
-              disabled={locked}
-              onPress={() => onChange(shoe.id)}
-              style={{
-                paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1.5, maxWidth: 220,
-                borderColor: active ? PRColors.ocean : '#E2DDD5',
-                backgroundColor: active ? PRColors.ocean : '#FFFFFF',
-              }}
-            >
-              <Text style={{ color: active ? '#FFFFFF' : PRColors.graphite, fontSize: 13, fontWeight: '600' }}>{shoeDisplayName(shoe)}</Text>
-              <Text style={{ color: active ? '#FFFFFFCC' : '#9A958A', fontSize: 11, marginTop: 2 }}>{shoe.totalDistanceKm} km · {shoe.workoutsCount} treinos</Text>
-            </Pressable>
-          );
-        })}
-        {!locked && !showQuickAdd ? (
-          <Pressable
-            onPress={() => setShowQuickAdd(true)}
-            style={{ paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#C9C3B6' }}
-          >
-            <Text style={{ color: PRColors.graphite, fontSize: 13 }}>+ Novo tenis</Text>
-          </Pressable>
-        ) : null}
-      </View>
-      {showQuickAdd ? (
-        <View style={{ marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: '#F7F4EE' }}>
-          <TextInput style={styles.input} placeholder="Marca (ex: ASICS)" value={quickBrand} onChangeText={setQuickBrand} />
-          <TextInput style={[styles.input, { marginTop: 8 }]} placeholder="Modelo (ex: Novablast 5)" value={quickModel} onChangeText={setQuickModel} />
-          {quickError ? <Text style={[styles.statusMessage, { marginTop: 6 }]}>{quickError}</Text> : null}
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-            <Pressable style={styles.secondaryButton} onPress={() => { setShowQuickAdd(false); setQuickError(''); }}>
-              <Text style={styles.secondaryButtonText}>Cancelar</Text>
-            </Pressable>
-            <Pressable style={[styles.primaryButton, { flex: 1 }]} disabled={quickSaving} onPress={quickAddShoe}>
-              <Text style={styles.primaryButtonText}>{quickSaving ? 'Salvando...' : 'Adicionar'}</Text>
-            </Pressable>
+      <Pressable
+        disabled={locked}
+        onPress={() => setPickerOpen(true)}
+        style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+          paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
+          borderColor: '#E2DDD5', backgroundColor: '#FFFFFF',
+        }}
+      >
+        {selected ? (
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: PRColors.graphite }}>{shoeDisplayName(selected)}</Text>
+            <Text style={{ fontSize: 11, color: '#9A958A', marginTop: 1 }}>{selected.totalDistanceKm} km · {selected.workoutsCount} treinos</Text>
           </View>
-        </View>
-      ) : null}
+        ) : (
+          // "Nao informar": texto simples e discreto, nunca um botao do mesmo peso visual de um tenis real.
+          <Text style={{ fontSize: 13, color: '#9A958A' }}>Nenhum tenis informado</Text>
+        )}
+        {!locked && <Ionicons name="chevron-forward" size={16} color="#9A958A" />}
+      </Pressable>
+
+      <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={closePicker}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' }} onPress={closePicker}>
+          <Pressable
+            style={{ backgroundColor: '#FFFFFF', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16, maxHeight: '75%' }}
+            onPress={() => {}}
+          >
+            {!showQuickAdd ? (
+              <ScrollView>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: PRColors.graphite, marginBottom: 8 }}>Qual tenis voce usou?</Text>
+                <Pressable onPress={() => { onChange(''); closePicker(); }} style={{ paddingVertical: 10 }}>
+                  <Text style={{ fontSize: 13, color: value === '' ? PRColors.ocean : '#9A958A', fontWeight: value === '' ? '700' : '400' }}>
+                    Nao informar
+                  </Text>
+                </Pressable>
+                <View style={{ height: 1, backgroundColor: '#EDE9E0', marginBottom: 6 }} />
+                {shoes.map((shoe) => {
+                  const active = value === shoe.id;
+                  return (
+                    <Pressable
+                      key={shoe.id}
+                      onPress={() => { onChange(shoe.id); closePicker(); }}
+                      style={{
+                        paddingVertical: 10, paddingHorizontal: 10, borderRadius: 10, marginTop: 6,
+                        backgroundColor: active ? PRColors.ocean : '#F7F4EE',
+                      }}
+                    >
+                      <Text style={{ color: active ? '#FFFFFF' : PRColors.graphite, fontSize: 13, fontWeight: '600' }}>{shoeDisplayName(shoe)}</Text>
+                      <Text style={{ color: active ? '#FFFFFFCC' : '#9A958A', fontSize: 11, marginTop: 2 }}>{shoe.totalDistanceKm} km · {shoe.workoutsCount} treinos</Text>
+                    </Pressable>
+                  );
+                })}
+                <Pressable
+                  onPress={() => setShowQuickAdd(true)}
+                  style={{ paddingVertical: 10, borderRadius: 10, marginTop: 10, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#C9C3B6', alignItems: 'center' }}
+                >
+                  <Text style={{ color: PRColors.graphite, fontSize: 13 }}>+ Adicionar tenis</Text>
+                </Pressable>
+              </ScrollView>
+            ) : (
+              <View>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: PRColors.graphite, marginBottom: 10 }}>Novo tenis</Text>
+                <TextInput style={styles.input} placeholder="Marca (ex: ASICS)" value={quickBrand} onChangeText={setQuickBrand} />
+                <TextInput style={[styles.input, { marginTop: 8 }]} placeholder="Modelo (ex: Novablast 5)" value={quickModel} onChangeText={setQuickModel} />
+                {quickError ? <Text style={[styles.statusMessage, { marginTop: 6 }]}>{quickError}</Text> : null}
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                  <Pressable style={styles.secondaryButton} onPress={() => { setShowQuickAdd(false); setQuickError(''); }}>
+                    <Text style={styles.secondaryButtonText}>Cancelar</Text>
+                  </Pressable>
+                  <Pressable style={[styles.primaryButton, { flex: 1 }]} disabled={quickSaving} onPress={quickAddShoe}>
+                    <Text style={styles.primaryButtonText}>{quickSaving ? 'Salvando...' : 'Adicionar'}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
