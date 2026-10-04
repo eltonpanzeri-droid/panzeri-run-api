@@ -49,6 +49,9 @@ export interface Observation {
     denominator?: number;
     coveragePercent?: number;
     isPartialWeek?: boolean;
+    // Metrica objetiva por atividade (04/10/2026) — rastro ate o ActivityLog de origem.
+    activityLogId?: string;
+    provider?: string;
     acuteValue?: number;
     chronicValue?: number;
     acuteWindowDays?: number;
@@ -178,6 +181,9 @@ export class ObservationReaderService {
     }
     if (definition.source === 'weekly_training_load') {
       return this.readTrainingLoadVariable(athleteId, definition);
+    }
+    if (definition.source === 'activity_objective') {
+      return this.readActivityObjectiveVariable(athleteId, definition);
     }
     return this.readCheckinVariable(athleteId, definition);
   }
@@ -391,6 +397,37 @@ export class ObservationReaderService {
   // deliberadamente só GLOBAL nesta rodada (carga recente/histórica combinando todas as
   // modalidades é o que faz sentido pra essa razão especificamente).
   // -----------------------------------------------------------------------------------------
+
+  // Metricas objetivas por atividade (04/10/2026). Fonte canonica: ActivityLog ja classificado como
+  // corresponding/alternative (ambiguous fica fora ate' decisao humana). Nunca depende de feedback.
+  private async readActivityObjectiveVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
+    const logs = await this.prisma.activityLog.findMany({
+      where: { userId: athleteId, sport: 'corrida', executionClassification: { in: ['corresponding', 'alternative'] } },
+      orderBy: { startedAt: 'asc' },
+    });
+    const observations: Observation[] = [];
+    for (const log of logs) {
+      let value: number | null = null;
+      if (definition.variableId === 'activity.avgPaceSecondsKm') {
+        if (log.distanceMeters != null && log.distanceMeters > 0 && log.durationSec != null && log.durationSec > 0) {
+          value = Math.round(log.durationSec / (log.distanceMeters / 1000));
+        }
+      } else if (definition.variableId === 'activity.cadenceAvg') {
+        if (log.cadenceAvg != null && log.cadenceAvg > 0) value = log.cadenceAvg;
+      }
+      if (value == null) continue; // ausencia — nunca vira zero
+      observations.push({
+        athleteId,
+        variableId: definition.variableId,
+        value,
+        timestamp: log.startedAt,
+        source: 'activity_objective',
+        instrumentVersion: 1,
+        context: { modality: log.sport ?? undefined, activityLogId: log.id, provider: log.provider },
+      });
+    }
+    return observations;
+  }
 
   private async readTrainingLoadVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
     const id = definition.variableId;

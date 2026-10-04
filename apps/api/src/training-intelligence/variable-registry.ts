@@ -42,7 +42,10 @@ export type VariableSource =
   | 'student_weekly_checkin'
   | 'student_menstrual_daily_log'
   | 'student_menstrual_cycle_log'
-  | 'weekly_training_load';
+  | 'weekly_training_load'
+  // 04/10/2026 — metrica OBJETIVA de uma atividade executada (ActivityLog, qualquer provedor). Nao
+  // depende de feedback; uma linha de ActivityLog = uma observacao.
+  | 'activity_objective';
 
 export type MathStrategy = 'ordinal_or_continuous_stats' | 'categorical_frequency';
 
@@ -888,6 +891,47 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
       'Média móvel de 28 dias (aguda) ÷ média móvel de 42 dias (crônica) de training.volumeCompletedTotalKm, calculadas com a MESMA MathLayerService.movingAverage do resto da Training Intelligence (calendar_days, nunca por índice de array). ' +
       'É uma RELAÇÃO descritiva — não representa segurança, risco, correção de treino nem suficiência de estímulo por si só. Composição completa (agudo/crônico/coverage) fica no context de cada observação.',
   },
+};
+
+// ---------------------------------------------------------------------------------------------
+// Metricas objetivas por atividade (04/10/2026, Evolucao objetiva). Fonte: ActivityLog (corrida
+// executada, classificada corresponding/alternative). Pace e' DERIVADO na leitura de duracao/
+// distancia (nunca persistido); cadencia e' a media ja normalizada pela serie canonica
+// (ActivityTimeSeriesService) — ausente (nunca zero) quando o dispositivo nao forneceu.
+// ---------------------------------------------------------------------------------------------
+VARIABLE_REGISTRY['activity.avgPaceSecondsKm'] = {
+  variableId: 'activity.avgPaceSecondsKm',
+  domain: 'training_load',
+  dataType: 'numeric_continuous',
+  constructLabel: 'ritmo medio da corrida (segundos por km — valor MAIOR = mais lento)',
+  scale: { min: 120, max: 1200, unit: 's/km' },
+  direction: 'not_directional',
+  source: 'activity_objective',
+  expectedFrequency: 'per_workout',
+  allowedMathStrategy: 'ordinal_or_continuous_stats',
+  missingPolicy: 'never_impute',
+  versions: [{ version: 1, storageLocation: 'column', field: 'durationSec/distanceMeters' }],
+  versionComparability: 'comparable_across_versions',
+  excludeExtraSessions: false,
+  notes:
+    'duracao ÷ distancia da atividade (so corrida com distancia > 0). Contextos diferentes (treino leve, intervalado, longao) NAO sao misturados em um julgamento: o pace medio so descreve o que aconteceu naquela atividade. Observacao tem context.modality = ActivityLog.sport.',
+};
+VARIABLE_REGISTRY['activity.cadenceAvg'] = {
+  variableId: 'activity.cadenceAvg',
+  domain: 'training_load',
+  dataType: 'numeric_continuous',
+  constructLabel: 'cadencia media da corrida (passos por minuto)',
+  scale: { min: 60, max: 260, unit: 'spm' },
+  direction: 'not_directional',
+  source: 'activity_objective',
+  expectedFrequency: 'per_workout',
+  allowedMathStrategy: 'ordinal_or_continuous_stats',
+  missingPolicy: 'never_impute',
+  versions: [{ version: 1, storageLocation: 'column', field: 'cadenceAvg' }],
+  versionComparability: 'comparable_across_versions',
+  excludeExtraSessions: false,
+  notes:
+    'ActivityLog.cadenceAvg (media da serie canonica, ignorando leituras 0 = sem sinal de movimento). So entram atividades de corrida com cadencia valida fornecida pelo dispositivo — sem cadencia, a atividade nao gera observacao.',
 };
 
 export function getVariableDefinition(variableId: string): VariableDefinition | undefined {
