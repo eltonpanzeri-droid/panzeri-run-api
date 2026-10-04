@@ -93,6 +93,33 @@ export interface ReturnDynamics {
   };
 }
 
+/**
+ * 'approaching' = a observacao mais recente do episodio esta mais perto da faixa habitual do que
+ * o pico; 'departing' = esta no pico ou mais longe ainda; 'stable' = empatada com o pico sem
+ * supera-lo, em ponto diferente; 'insufficient_data' = menos de 2 observacoes no episodio (uma
+ * unica observacao nao permite descrever direcao nenhuma).
+ */
+export type ExcursionTrend = 'approaching' | 'departing' | 'stable' | 'insufficient_data';
+
+/**
+ * Tri-estado explicito pedido pelo Bloco 2 (nao reduz a um booleano):
+ * 'complete' = voltou a entrar na faixa habitual (returnDynamics.returned=true);
+ * 'partial' = ainda fora da faixa, mas a tendencia mais recente e' de aproximacao (trend='approaching');
+ * 'absent' = ainda fora e sem sinal de aproximacao, OU terminou em overshoot sem nunca ter
+ * passado observavelmente pela faixa habitual.
+ */
+export type ReturnStatus = 'complete' | 'partial' | 'absent';
+
+export interface ExcursionEvidence {
+  boundary: number;
+  startValue: number;
+  peakValue: number;
+  /** Valor da observacao mais recente do episodio (ongoing: a ultima da serie; concluido: a ultima antes do retorno/overshoot). */
+  currentValue: number;
+  observationsConsidered: number;
+  method: string;
+}
+
 export interface Excursion {
   direction: 'above' | 'below';
   startTimestamp: string;
@@ -104,8 +131,30 @@ export interface Excursion {
   peak: { value: number; timestamp: string };
   /** distancia do pico ate o limite da faixa habitual mais proximo (upper se 'above', lower se 'below'). */
   magnitude: number;
+  /** distancia da observacao mais recente do episodio ate o mesmo limite — diferente de `magnitude` (que e' sempre o PICO). */
+  currentMagnitude: number;
+  trend: ExcursionTrend;
+  returnStatus: ReturnStatus;
+  evidence: ExcursionEvidence;
   /** null quando ongoing=true (ainda nao ha o que descrever sobre retorno). */
   returnDynamics: ReturnDynamics | null;
+}
+
+const MIN_RETURNED_EXCURSIONS_FOR_HISTORICAL_PATTERN = 2;
+
+export interface HistoricalReturnBehavior {
+  /** Numero total de episodios encontrados (concluidos ou nao) para esta variavel. */
+  totalExcursions: number;
+  excursionsWithObservedReturn: number;
+  /** Ainda em curso OU terminaram em overshoot sem nunca voltar a faixa habitual. */
+  excursionsWithoutObservedReturn: number;
+  /** Valores brutos, em ordem cronologica — nunca reduzidos a um unico numero sem antes declarar o metodo. */
+  timeToReturnDaysValues: number[];
+  observationsToReturnValues: number[];
+  /** null quando excursionsWithObservedReturn < 2 (nao ha "padrao" com 0 ou 1 ponto). Deliberadamente NAO e' um score de resiliencia — e' so a mediana de valores brutos, reconstruivel. */
+  medianTimeToReturnDays: number | null;
+  medianObservationsToReturn: number | null;
+  insufficientHistory: boolean;
 }
 
 interface HabitualBounds {
@@ -277,6 +326,25 @@ export class LongitudinalDynamicsService {
       const start = segment.points[0];
       const end = segment.points[segment.points.length - 1];
       const durationDays = (end.timestamp.getTime() - start.timestamp.getTime()) / (24 * 60 * 60 * 1000);
+      const peakMagnitude = Math.abs(peakPoint.value - boundary);
+      const currentMagnitude = Math.abs(end.value - boundary);
+
+      let trend: ExcursionTrend;
+      if (segment.points.length < 2) {
+        trend = 'insufficient_data';
+      } else if (end.timestamp.getTime() === peakPoint.timestamp.getTime()) {
+        // A observacao mais recente do episodio E' o pico (ou empata com ele na mesma marca de
+        // tempo) — ainda nao ha nenhum sinal observado de aproximacao.
+        trend = 'departing';
+      } else if (currentMagnitude < peakMagnitude) {
+        trend = 'approaching';
+      } else if (currentMagnitude > peakMagnitude) {
+        // Defensivo: nao deveria ocorrer (peakPoint e' definido como o maximo), mantido por clareza.
+        trend = 'departing';
+      } else {
+        trend = 'stable';
+      }
+
       return {
         direction: segment.side,
         startTimestamp: start.timestamp.toISOString(),
@@ -285,7 +353,21 @@ export class LongitudinalDynamicsService {
         durationDays,
         observationCount: segment.points.length,
         peak: { value: peakPoint.value, timestamp: peakPoint.timestamp.toISOString() },
-        magnitude: Math.abs(peakPoint.value - boundary),
+        magnitude: peakMagnitude,
+        currentMagnitude,
+        trend,
+        returnStatus: 'absent', // provisorio — recalculado abaixo, apos returnDynamics ser resolvido
+        evidence: {
+          boundary,
+          startValue: start.value,
+          peakValue: peakPoint.value,
+          currentValue: end.value,
+          observationsConsidered: segment.points.length,
+          method:
+            'trend compara a distancia (|valor - limite da faixa habitual|) da observacao mais ' +
+            'recente do episodio contra a distancia do pico; magnitude e sempre a distancia do ' +
+            'pico, currentMagnitude e a distancia da observacao mais recente.',
+        },
         returnDynamics: null,
       };
     });
@@ -389,7 +471,46 @@ export class LongitudinalDynamicsService {
       }
     }
 
+    // returnStatus depende de returnDynamics (ja resolvido no loop acima) — por isso so' e'
+    // calculado aqui, numa segunda passada, nunca antes.
+    for (const exc of excursionsRaw) {
+      if (exc.returnDynamics?.returned === true) {
+        exc.returnStatus = 'complete';
+      } else if (exc.ongoing) {
+        exc.returnStatus = exc.trend === 'approaching' ? 'partial' : 'absent';
+      } else {
+        // Terminou em overshoot (virou direto pro outro lado) — nunca passou observavelmente
+        // pela faixa habitual, entao nao houve retorno nem parcial nem completo.
+        exc.returnStatus = 'absent';
+      }
+    }
+
     return excursionsRaw;
+  }
+
+  /**
+   * Recupera deterministicamente o comportamento HISTORICO de retorno desta variavel, a partir dos
+   * episodios ja calculados por excursions() — nunca cria uma segunda fonte de verdade nem um score
+   * de resiliencia: apenas expoe os valores brutos (em ordem cronologica) e a mediana, com o metodo
+   * declarado. Quando houver menos de 2 retornos observados, nao ha "padrao" a reportar
+   * (insufficientHistory=true, medianas null).
+   */
+  historicalReturnBehavior(excursions: Excursion[]): HistoricalReturnBehavior {
+    const returned = excursions.filter((e) => e.returnDynamics?.returned === true);
+    const timeToReturnDaysValues = returned.map((e) => e.returnDynamics!.timeToReturnDays!);
+    const observationsToReturnValues = returned.map((e) => e.returnDynamics!.observationsToReturn);
+    const insufficientHistory = returned.length < MIN_RETURNED_EXCURSIONS_FOR_HISTORICAL_PATTERN;
+
+    return {
+      totalExcursions: excursions.length,
+      excursionsWithObservedReturn: returned.length,
+      excursionsWithoutObservedReturn: excursions.length - returned.length,
+      timeToReturnDaysValues,
+      observationsToReturnValues,
+      medianTimeToReturnDays: insufficientHistory ? null : median([...timeToReturnDaysValues].sort((a, b) => a - b)),
+      medianObservationsToReturn: insufficientHistory ? null : median([...observationsToReturnValues].sort((a, b) => a - b)),
+      insufficientHistory,
+    };
   }
 
   /** Estado ATUAL de afastamento da faixa habitual (derivado da ultima excursao, se estiver em curso). */

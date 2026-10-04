@@ -16,6 +16,7 @@ import {
   VariabilityChangeResult,
   PersistenceResult,
   Excursion,
+  HistoricalReturnBehavior,
 } from './longitudinal-dynamics.service';
 import { getVariableDefinition, VariableDefinition } from './variable-registry';
 
@@ -69,6 +70,12 @@ export interface VariableSnapshotResponse {
   variabilityChange: VariabilityChangeResult | null;
   persistence: PersistenceResult | null;
   excursions: Excursion[] | null;
+  /**
+   * Bloco 2 (04/10/2026) — comportamento HISTORICO de retorno desta variavel, derivado dos proprios
+   * `excursions` acima (nunca uma segunda fonte de verdade). Null exatamente quando `excursions` e
+   * null (variavel categorica).
+   */
+  excursionHistory: HistoricalReturnBehavior | null;
   /**
    * Rastro ate o registro original (ver auditoria, item 10: "preserve a possibilidade de chegar
    * ao registro original"). Cada entrada e' a observacao bruta usada nos calculos acima, com o
@@ -174,6 +181,7 @@ export class TrainingIntelligenceQueryService {
         variabilityChange: null,
         persistence: null,
         excursions: null,
+        excursionHistory: null,
         observations: traceable,
         availableModalities,
         evidence,
@@ -227,6 +235,7 @@ export class TrainingIntelligenceQueryService {
     const bounds = { lower: habitualRangeResult.lower, upper: habitualRangeResult.upper };
     const persistenceResult = this.longitudinalDynamics.persistence(series, bounds);
     const excursionsResult = this.longitudinalDynamics.excursions(series, bounds);
+    const excursionHistoryResult = this.longitudinalDynamics.historicalReturnBehavior(excursionsResult);
 
     return {
       variable: this.describeVariable(definition),
@@ -244,6 +253,7 @@ export class TrainingIntelligenceQueryService {
       variabilityChange: variabilityChangeResult,
       persistence: persistenceResult,
       excursions: excursionsResult,
+      excursionHistory: excursionHistoryResult,
       observations: traceable,
       availableModalities,
       evidence,
