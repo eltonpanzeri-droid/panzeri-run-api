@@ -9,6 +9,7 @@ import { ContextEventsService } from '../context-events/context-events.service';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 import { MedalEvaluationService } from '../medals/medal-evaluation.service';
+import { ShoesService, RUNNING_MODALITIES } from '../shoes/shoes.service';
 
 @Injectable()
 export class WorkoutCompletionsService {
@@ -20,6 +21,7 @@ export class WorkoutCompletionsService {
     private readonly contextEvents: ContextEventsService,
     private readonly reportTimeline: ReportTimelineService,
     private readonly medalEvaluation: MedalEvaluationService,
+    private readonly shoes: ShoesService,
   ) {}
 
   async upsert(userId: string, dto: UpsertWorkoutCompletionDto) {
@@ -43,6 +45,14 @@ export class WorkoutCompletionsService {
     // sono/estresse compartilhados) — nao e' um formulario novo, so' esta pergunta especifica fica
     // de fora.
     const isAlternativeSession = session.origin === 'device_extra';
+
+    // Meus Tenis (04/10/2026) — pergunta so' faz sentido pra corrida/esteira (mesmo agrupamento
+    // de RUNNING_MODALITIES em shoes.service.ts). Nunca aceita silenciosamente: se o cliente
+    // mandar shoeId pra' uma modalidade onde isso nao se aplica, e' erro de integracao, nao
+    // ignorado.
+    if (dto.shoeId !== undefined && dto.shoeId !== null && !RUNNING_MODALITIES.includes(session.modality)) {
+      throw new BadRequestException('Selecao de tenis so e valida para corrida.');
+    }
 
     if (dto.status === 'done' && !dto.perceivedEffort) {
       throw new BadRequestException('Informe o esforco percebido de 1 a 10.');
@@ -236,6 +246,13 @@ export class WorkoutCompletionsService {
 
     if (dto.status === 'done' || dto.status === 'adjusted') {
       void this.maybeRecordFirstCompleted(userId, session.id);
+    }
+
+    // Meus Tenis — so' mexe na associacao quando o campo veio no payload (undefined = nao enviado,
+    // preserva o que ja estava; null = aluno removeu a selecao). Nunca bloqueia o salvamento do
+    // feedback por causa disso.
+    if (dto.shoeId !== undefined) {
+      await this.shoes.setUsage(userId, completion.id, dto.shoeId);
     }
 
     // Passo 4 (25/09/2026): so' na CRIACAO (nunca num reenvio/edicao de feedback ja existente) de

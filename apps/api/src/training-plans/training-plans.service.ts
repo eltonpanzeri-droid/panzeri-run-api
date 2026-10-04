@@ -33,6 +33,7 @@ import { buildCompactAgentContext } from '../training-intelligence/compact-agent
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 import { SessionExecutionLinkService, WeekReconciliation, localCalendarDate } from '../activity-execution/session-execution-link.service';
+import { ShoesService } from '../shoes/shoes.service';
 
 interface SessionTemplate {
   title: string;
@@ -162,6 +163,8 @@ interface RawWorkoutCompletion {
   feedbackVersion: number;
   avgHeartRate: number | null;
   maxHeartRate: number | null;
+  // Meus Tenis (04/10/2026) — presente so' quando o include da query trouxe shoeUsage junto.
+  shoeUsage?: { shoeId: string } | null;
 }
 
 @Injectable()
@@ -192,6 +195,7 @@ export class TrainingPlansService {
     private readonly reassessmentService: ReassessmentService,
     private readonly reportTimeline: ReportTimelineService,
     private readonly sessionExecutionLink: SessionExecutionLinkService,
+    private readonly shoes: ShoesService,
   ) {}
 
   // REGRA DURA (2026-07-28): current() e SO LEITURA — nunca chama generateWeek() nem mexe no
@@ -233,7 +237,7 @@ export class TrainingPlansService {
         include: {
           sessions: {
             orderBy: { scheduledDate: 'asc' },
-            include: { completion: true },
+            include: { completion: { include: { shoeUsage: true } } },
           },
         },
       }),
@@ -413,7 +417,7 @@ export class TrainingPlansService {
       this.prisma.trainingPlan.findFirst({
         where: { userId, startDate: targetWeekStart, ...planStatusFilter },
         orderBy: { createdAt: 'desc' },
-        include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
+        include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: { include: { shoeUsage: true } } } } },
       }),
       this.prisma.fitnessTest.findFirst({ where: { userId, testType: '3km' }, orderBy: { createdAt: 'desc' }, select: { id: true } }),
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { subscriptionStatus: true } }),
@@ -769,7 +773,7 @@ export class TrainingPlansService {
       where: { userId, startDate: { lt: weekStart } },
       orderBy: { startDate: 'desc' },
       take: 4,
-      include: { sessions: { include: { completion: true } } },
+      include: { sessions: { include: { completion: { include: { shoeUsage: true } } } } },
     });
     // Injeta o dia da prova (secao 5 do fechamento do Passo 2) — precisa vir DEPOIS do weekStart
     // final (inclusive do rollover acima) e ANTES de qualquer uso de availableDays dai pra frente
@@ -1331,7 +1335,7 @@ export class TrainingPlansService {
         include: {
           sessions: {
             orderBy: { scheduledDate: 'asc' },
-            include: { completion: true },
+            include: { completion: { include: { shoeUsage: true } } },
           },
         },
       });
@@ -1377,7 +1381,7 @@ export class TrainingPlansService {
         });
         return tx.trainingPlan.findUniqueOrThrow({
           where: { id: createdPlan.id },
-          include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
+          include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: { include: { shoeUsage: true } } } } },
         });
       }
       return createdPlan;
@@ -1741,7 +1745,7 @@ export class TrainingPlansService {
         plan: { userId, status: 'archived' },
         scheduledDate: { gte: activePlan.startDate, lt: today },
       },
-      include: { completion: true },
+      include: { completion: { include: { shoeUsage: true } } },
     });
 
     // Teto por (data exata, modalidade) — cobre qualquer modalidade agora, nao so corrida.
@@ -2075,6 +2079,9 @@ export class TrainingPlansService {
       postMentalFatigue?: number | null;
       emotionalExperienceDuring?: number | null;
       mentalStateChangePrePost?: number | null;
+      // Meus Tenis (04/10/2026) — so' valido quando a modalidade for corrida/esteira (ver isRun
+      // abaixo), mesma regra do formulario principal.
+      shoeId?: string | null;
     },
   ): Promise<{ sessionId: string; weekOffset: number }> {
     const [year, month, day] = input.date.split('-').map(Number);
@@ -2099,6 +2106,9 @@ export class TrainingPlansService {
     }
 
     const isRun = input.modality === 'corrida' || input.modality === 'esteira';
+    if (input.shoeId && !isRun) {
+      throw new BadRequestException('Selecao de tenis so e valida para corrida.');
+    }
     const title = `${fixedModalityTitle(input.modality)} (extra)`;
     const structure = isRun
       ? { type: 'extra', source: 'student', modality: input.modality, reason: input.reason ?? null }
@@ -2124,7 +2134,7 @@ export class TrainingPlansService {
     // completedAt em UTC ao meio-dia para evitar deslocamento de fuso: meia-noite UTC = 21h BRT
     // do dia anterior, o que faria isoDateToInputValue() exibir a data errada no app.
     const completedAtNoon = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-    await this.prisma.workoutCompletion.create({
+    const extraCompletion = await this.prisma.workoutCompletion.create({
       data: {
         sessionId: session.id,
         userId,
@@ -2160,6 +2170,10 @@ export class TrainingPlansService {
       },
     });
 
+    if (input.shoeId) {
+      await this.shoes.setUsage(userId, extraCompletion.id, input.shoeId);
+    }
+
     void this.reportTimeline.record({
       userId,
       sourceType: STUDENT_REPORT_SOURCE_TYPES.WORKOUT_FEEDBACK_NOTES,
@@ -2183,7 +2197,7 @@ export class TrainingPlansService {
     const sessions = await this.prisma.trainingSession.findMany({
       where: { userId },
       include: {
-        completion: true,
+        completion: { include: { shoeUsage: true } },
         plan: { select: { status: true } },
       },
       orderBy: { scheduledDate: 'desc' },
@@ -2578,6 +2592,7 @@ export class TrainingPlansService {
       feedbackVersion: completion.feedbackVersion,
       avgHeartRate: completion.avgHeartRate,
       maxHeartRate: completion.maxHeartRate,
+      shoeId: completion.shoeUsage?.shoeId ?? null,
     };
   }
 

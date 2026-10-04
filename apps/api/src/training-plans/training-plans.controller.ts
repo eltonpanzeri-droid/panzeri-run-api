@@ -103,6 +103,7 @@ export class TrainingPlansController {
       postMentalFatigue?: number | null;
       emotionalExperienceDuring?: number | null;
       mentalStateChangePrePost?: number | null;
+      shoeId?: string | null;
     },
   ) {
     return this.trainingPlansService.addStudentExtraSession(user.sub, dto);

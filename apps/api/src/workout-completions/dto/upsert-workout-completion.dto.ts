@@ -35,6 +35,14 @@ export class UpsertWorkoutCompletionDto {
   @IsString()
   sessionId!: string;
 
+  // Meus Tenis (04/10/2026) — "qual tenis voce usou?", so' pra modalidades de corrida (mobile
+  // decide quando perguntar; validacao de modalidade acontece no service, nao aqui no DTO).
+  // undefined = nao enviado (nao mexe na associacao existente); null = aluno escolheu "nao
+  // informar"/removeu a selecao; string = id do tenis.
+  @IsOptional()
+  @IsString()
+  shoeId?: string | null;
+
   @IsIn(['done', 'missed', 'adjusted'])
   status!: string;
 
