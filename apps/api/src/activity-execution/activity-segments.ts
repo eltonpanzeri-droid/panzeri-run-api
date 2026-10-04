@@ -9,6 +9,12 @@ export interface SplitWithSegment extends SplitRow {
   // Indice do segmento prescrito que contem o INICIO desta parcial; null = fora de qualquer bloco
   // prescrito (ex.: os metros excedentes depois do fim da prescricao).
   segmentIndex: number | null;
+  // Melhorias pos-Bloco 1 (04/10/2026): pace prescrito explicito na propria parcial (nao so' no
+  // resumo por bloco) — evita o cliente ter que cruzar splits[i].segmentIndex com
+  // prescribedSegments[segmentIndex] so' pra mostrar "prescrito" ao lado do "realizado" de cada km.
+  // null quando segmentIndex e' null (fora de qualquer bloco prescrito).
+  prescribedPaceFastSecondsKm: number | null;
+  prescribedPaceSlowSecondsKm: number | null;
 }
 
 export interface SegmentRealized {
@@ -30,7 +36,13 @@ function mean(values: number[]): number | null {
 export function attachSegments(splits: SplitRow[]): SplitWithSegment[] {
   let startKm = 0;
   return splits.map((split) => {
-    const row: SplitWithSegment = { ...split, startKm: Math.round(startKm * 1000) / 1000, segmentIndex: null };
+    const row: SplitWithSegment = {
+      ...split,
+      startKm: Math.round(startKm * 1000) / 1000,
+      segmentIndex: null,
+      prescribedPaceFastSecondsKm: null,
+      prescribedPaceSlowSecondsKm: null,
+    };
     startKm += split.distanceKm;
     return row;
   });
@@ -44,31 +56,52 @@ export function assignSegments(splits: SplitRow[], segments: PrescribedSegment[]
   const EPS = 0.001;
   return withStart.map((row) => {
     const seg = segments.find((s) => row.startKm >= s.startKm - EPS && row.startKm < s.endKm - EPS);
-    return { ...row, segmentIndex: seg ? seg.index : null };
+    return {
+      ...row,
+      segmentIndex: seg ? seg.index : null,
+      prescribedPaceFastSecondsKm: seg?.paceFastSecondsKm ?? null,
+      prescribedPaceSlowSecondsKm: seg?.paceSlowSecondsKm ?? null,
+    };
   });
 }
 
+// Melhorias pos-Bloco 1 (04/10/2026): calculado DIRETO da serie temporal (points), nao mais a
+// partir de parciais de 1 km pre-agregadas — um bloco prescrito menor que 1 km (ex.: intervalado
+// 400 m / 200 m) nao se encaixa em baldes de km inteiro, e agregar por km ali misturava estimulo e
+// recuperacao no mesmo numero. Generico: funciona igual para blocos de 24 km ou de 0,4 km, sem
+// hardcode de distancia. Mesma politica de fechamento de buildSplits (primeiro sample >= alvo,
+// sem interpolacao) — nunca inventa posicao entre amostras.
 export function summarizeSegments(
-  splits: SplitWithSegment[],
   points: SeriesPoint[],
   segments: PrescribedSegment[] | null,
 ): SegmentSummary[] {
   if (!segments) return [];
+  const withDistance = points.filter((p) => p.distanceMeters != null).sort((a, b) => a.offsetSec - b.offsetSec);
+  if (withDistance.length === 0) return segments.map((s) => ({ ...s, realized: null }));
+
+  const sampleAtOrAfter = (targetMeters: number) => withDistance.find((p) => (p.distanceMeters as number) >= targetMeters) ?? null;
+
+  let cursorOffset = withDistance[0].offsetSec;
   return segments.map((segment) => {
-    const own = splits.filter((s) => s.segmentIndex === segment.index);
-    if (own.length === 0) return { ...segment, realized: null };
-    const distanceKm = own.reduce((sum, s) => sum + s.distanceKm, 0);
-    const durationSec = own.reduce((sum, s) => sum + s.durationSec, 0);
-    // FC/cadencia pela serie, na janela de tempo coberta pelas parciais do segmento.
-    const lastOffsetEnd = windowEnd(own, splits, points);
-    const firstOffsetStart = windowStart(own, splits, points);
-    const inWindow = points.filter((p) => p.offsetSec > firstOffsetStart && p.offsetSec <= lastOffsetEnd);
+    const endSample = sampleAtOrAfter(segment.endKm * 1000);
+    // Atividade terminou antes deste bloco (ou de um bloco anterior) ser alcancado — sem dados
+    // reais pra esse trecho, nunca inventa. Mantem cursorOffset parado: blocos seguintes tambem null.
+    if (!endSample || endSample.offsetSec <= cursorOffset) {
+      return { ...segment, realized: null };
+    }
+    const fromOffset = cursorOffset;
+    const toOffset = endSample.offsetSec;
+    const inWindow = points.filter((p) => p.offsetSec > fromOffset && p.offsetSec <= toOffset);
     const hr = inWindow.map((p) => p.heartRateBpm).filter((v): v is number => v != null);
     const cad = inWindow.map((p) => p.cadenceSpm).filter((v): v is number => v != null && v > 0);
+    const startDistance = (withDistance.find((p) => p.offsetSec === fromOffset)?.distanceMeters ?? segment.startKm * 1000) as number;
+    const distanceKm = Math.round(((endSample.distanceMeters as number) - startDistance) / 10) / 100;
+    const durationSec = toOffset - fromOffset;
+    cursorOffset = toOffset;
     return {
       ...segment,
       realized: {
-        distanceKm: Math.round(distanceKm * 100) / 100,
+        distanceKm,
         durationSec,
         paceSecondsKm: distanceKm > 0 ? Math.round(durationSec / distanceKm) : null,
         avgHeartRateBpm: mean(hr),
@@ -76,24 +109,4 @@ export function summarizeSegments(
       },
     };
   });
-}
-
-// Offsets absolutos reconstruidos somando duracoes das parciais (cada uma comeca onde a anterior fechou).
-function offsets(all: SplitWithSegment[], points: SeriesPoint[]): number[] {
-  const sorted = points.filter((p) => p.distanceMeters != null).sort((a, b) => a.offsetSec - b.offsetSec);
-  let t = sorted.length ? sorted[0].offsetSec : 0;
-  const out = [t];
-  for (const s of all) {
-    t += s.durationSec;
-    out.push(t);
-  }
-  return out;
-}
-
-function windowStart(own: SplitWithSegment[], all: SplitWithSegment[], points: SeriesPoint[]): number {
-  return offsets(all, points)[all.indexOf(own[0])];
-}
-
-function windowEnd(own: SplitWithSegment[], all: SplitWithSegment[], points: SeriesPoint[]): number {
-  return offsets(all, points)[all.indexOf(own[own.length - 1]) + 1];
 }

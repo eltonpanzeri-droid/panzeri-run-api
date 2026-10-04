@@ -17,6 +17,9 @@ export interface ActivityDetailSplit {
   avgCadenceSpm: number | null;
   startKm?: number;
   segmentIndex?: number | null;
+  // Melhorias pos-Bloco 1 (04/10/2026): pace prescrito explicito na propria parcial.
+  prescribedPaceFastSecondsKm?: number | null;
+  prescribedPaceSlowSecondsKm?: number | null;
 }
 export interface ActivityDetailChartPoint {
   offsetSec: number;
@@ -40,6 +43,33 @@ export interface ActivityDetailSegment {
     avgCadenceSpm: number | null;
   } | null;
 }
+// Melhorias pos-Blocos 1/3/4 (04/10/2026): resumo deterministico pos-treino, ja calculado pelo
+// backend (ExecutionSummary) — so diferencas numericas (prescrito - realizado), nunca nota/score.
+// Preparado para consumo futuro pelo contexto longitudinal/Training Intelligence; aqui so exibe.
+export interface ActivityExecutionSummary {
+  distance: { prescribedKm: number | null; realizedKm: number | null; deltaKm: number | null };
+  duration: { prescribedSec: number | null; realizedSec: number | null; deltaSec: number | null };
+  pace: {
+    prescribedFastSecondsKm: number | null;
+    prescribedSlowSecondsKm: number | null;
+    realizedSecondsKm: number | null;
+    deltaVsFastSecondsKm: number | null;
+    deltaVsSlowSecondsKm: number | null;
+  };
+  segments: Array<{
+    index: number;
+    label: string;
+    prescribedDistanceKm: number;
+    realizedDistanceKm: number | null;
+    deltaDistanceKm: number | null;
+    prescribedPaceFastSecondsKm: number | null;
+    prescribedPaceSlowSecondsKm: number | null;
+    realizedPaceSecondsKm: number | null;
+    deltaPaceVsFastSecondsKm: number | null;
+    deltaPaceVsSlowSecondsKm: number | null;
+  }>;
+}
+
 export interface ActivityDetail {
   activityLogId: string;
   provider: string;
@@ -55,6 +85,7 @@ export interface ActivityDetail {
   };
   prescribed: { title: string; distanceKm: number | null; durationMin: number | null } | null;
   prescribedSegments?: ActivityDetailSegment[];
+  executionSummary?: ActivityExecutionSummary | null;
   splits: ActivityDetailSplit[];
   chart: ActivityDetailChartPoint[];
   chartAxis?: 'distance' | 'time';
@@ -79,6 +110,17 @@ export function formatPace(secondsPerKm: number) {
 
 function roundKm(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+// Diferenca numerica simples ("+0,08 km" / "-0,12 km"), sem nenhuma palavra de julgamento.
+function formatDeltaKm(value: number) {
+  const rounded = roundKm(Math.abs(value));
+  return `${value >= 0 ? '+' : '-'}${String(rounded).replace('.', ',')} km`;
+}
+
+function formatDeltaSeconds(value: number) {
+  const rounded = Math.round(Math.abs(value));
+  return `${value >= 0 ? '+' : '-'}${rounded} s/km`;
 }
 
 function niceTicks(min: number, max: number, count: number): number[] {
@@ -238,7 +280,15 @@ function SplitsTable({ splits, segments }: { splits: ActivityDetailSplit[]; segm
     <View key={split.kmIndex} style={{ flexDirection: 'row', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
       <Text style={{ flex: 1, fontSize: 13 }}>{split.isPartial ? `${split.distanceKm} km` : split.kmIndex}</Text>
       <Text style={{ flex: 1, fontSize: 13, textAlign: 'center' }}>{formatDurationSec(split.durationSec)}</Text>
-      <Text style={{ flex: 1, fontSize: 13, textAlign: 'center' }}>{split.paceSecondsKm != null ? formatPace(split.paceSecondsKm) : '—'}</Text>
+      <View style={{ flex: 1, alignItems: 'center' }}>
+        <Text style={{ fontSize: 13 }}>{split.paceSecondsKm != null ? formatPace(split.paceSecondsKm) : '—'}</Text>
+        {/* Pos-Bloco 1: pace prescrito explicito na propria parcial, lado a lado com o realizado acima. */}
+        {split.prescribedPaceFastSecondsKm != null && split.prescribedPaceSlowSecondsKm != null ? (
+          <Text style={{ fontSize: 10, color: MUTED }}>
+            presc. {formatPace(split.prescribedPaceFastSecondsKm)}–{formatPace(split.prescribedPaceSlowSecondsKm)}
+          </Text>
+        ) : null}
+      </View>
       <Text style={{ flex: 1, fontSize: 13, textAlign: 'center' }}>{split.avgHeartRateBpm ?? '—'}</Text>
       <Text style={{ flex: 1, fontSize: 13, textAlign: 'center' }}>{split.avgCadenceSpm ?? '—'}</Text>
     </View>
@@ -322,22 +372,37 @@ export function ActivityDetailBody({ detail }: { detail: ActivityDetail }) {
           <Text style={sectionTitle}>PRESCRITO × REALIZADO</Text>
           <Text style={{ fontSize: 14 }}>Prescrito: {detail.prescribed.title}{detail.prescribed.distanceKm != null ? ` · ${detail.prescribed.distanceKm} km` : ''}</Text>
           <Text style={{ fontSize: 14 }}>Realizado: {s.distanceKm != null ? `${roundKm(s.distanceKm)} km` : 'indisponível'}{s.durationSec != null ? ` · ${formatDurationSec(s.durationSec)}` : ''}</Text>
-          {segments.map((seg) => (
-            <View key={seg.index} style={{ marginTop: 6 }}>
-              <Text style={{ fontSize: 13, fontWeight: '700' }}>{seg.label} · {seg.startKm}–{seg.endKm} km</Text>
-              {seg.paceFastSecondsKm != null && seg.paceSlowSecondsKm != null ? (
-                <Text style={{ fontSize: 13 }}>Prescrito: {formatPace(seg.paceFastSecondsKm)}–{formatPace(seg.paceSlowSecondsKm)}/km</Text>
-              ) : null}
-              {seg.realized ? (
-                <Text style={{ fontSize: 13 }}>
-                  Realizado: {seg.realized.paceSecondsKm != null ? `${formatPace(seg.realized.paceSecondsKm)}/km` : '—'}
-                  {seg.realized.avgHeartRateBpm != null ? ` · FC ${seg.realized.avgHeartRateBpm}` : ''}
-                  {seg.realized.avgCadenceSpm != null ? ` · cad. ${seg.realized.avgCadenceSpm}` : ''}
-                  {` · ${roundKm(seg.realized.distanceKm)} km`}
-                </Text>
-              ) : null}
-            </View>
-          ))}
+          {/* Resumo deterministico pos-treino (ExecutionSummary) — so diferencas numericas. */}
+          {detail.executionSummary?.distance.deltaKm != null ? (
+            <Text style={{ fontSize: 13, color: MUTED }}>Diferença de distância: {formatDeltaKm(detail.executionSummary.distance.deltaKm)}</Text>
+          ) : null}
+          {detail.executionSummary?.duration.deltaSec != null ? (
+            <Text style={{ fontSize: 13, color: MUTED }}>Diferença de duração: {detail.executionSummary.duration.deltaSec >= 0 ? '+' : '-'}{formatDurationSec(Math.abs(detail.executionSummary.duration.deltaSec))}</Text>
+          ) : null}
+          {segments.map((seg) => {
+            const deltaSeg = detail.executionSummary?.segments.find((d) => d.index === seg.index) ?? null;
+            return (
+              <View key={seg.index} style={{ marginTop: 6 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700' }}>{seg.label} · {seg.startKm}–{seg.endKm} km</Text>
+                {seg.paceFastSecondsKm != null && seg.paceSlowSecondsKm != null ? (
+                  <Text style={{ fontSize: 13 }}>Prescrito: {formatPace(seg.paceFastSecondsKm)}–{formatPace(seg.paceSlowSecondsKm)}/km</Text>
+                ) : null}
+                {seg.realized ? (
+                  <Text style={{ fontSize: 13 }}>
+                    Realizado: {seg.realized.paceSecondsKm != null ? `${formatPace(seg.realized.paceSecondsKm)}/km` : '—'}
+                    {seg.realized.avgHeartRateBpm != null ? ` · FC ${seg.realized.avgHeartRateBpm}` : ''}
+                    {seg.realized.avgCadenceSpm != null ? ` · cad. ${seg.realized.avgCadenceSpm}` : ''}
+                    {` · ${roundKm(seg.realized.distanceKm)} km`}
+                  </Text>
+                ) : null}
+                {deltaSeg?.deltaPaceVsFastSecondsKm != null ? (
+                  <Text style={{ fontSize: 12, color: MUTED }}>
+                    Diferença vs. limite rápido: {formatDeltaSeconds(deltaSeg.deltaPaceVsFastSecondsKm)} · vs. limite lento: {deltaSeg.deltaPaceVsSlowSecondsKm != null ? formatDeltaSeconds(deltaSeg.deltaPaceVsSlowSecondsKm) : '—'}
+                  </Text>
+                ) : null}
+              </View>
+            );
+          })}
           <Text style={{ fontSize: 12, color: MUTED }}>Diferença não é erro nem falta de aderência — é só o que aconteceu.</Text>
         </View>
       ) : null}

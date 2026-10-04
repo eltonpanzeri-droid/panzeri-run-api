@@ -5,6 +5,7 @@ import { buildSplits } from './activity-splits';
 import { buildChartSeries } from './activity-chart';
 import { extractPrescribedSegments } from './prescribed-segments';
 import { assignSegments, summarizeSegments } from './activity-segments';
+import { buildExecutionSummary } from './execution-summary';
 
 // "Ver treino completo" (03/10/2026): leitura de modelos canonicos apenas — ActivityLog, vinculo
 // ativo e ActivityTimeSeriesPoint. Provider aparece so' como origem. Pace e' derivado de
@@ -85,6 +86,21 @@ export class ActivityDetailService {
     const avgPaceSecondsKm =
       distanceKm && distanceKm > 0 && durationSec != null ? Math.round(durationSec / distanceKm) : null;
 
+    // Melhorias pos-Blocos 1/3/4 (04/10/2026): summarizeSegments agora le a serie diretamente
+    // (nao mais os splits de 1 km), entao funciona igual para blocos >=1 km e para intervalados
+    // sub-km (10x400m/200m etc.) sem hardcode de distancia.
+    const prescribedSegments = summarizeSegments(points, segments);
+    const executionSummary = link
+      ? buildExecutionSummary({
+          prescribedDistanceKm: link.trainingSession.distanceKm,
+          prescribedDurationMin: link.trainingSession.durationMin,
+          realizedDistanceKm: distanceKm,
+          realizedDurationSec: durationSec,
+          realizedPaceSecondsKm: avgPaceSecondsKm,
+          segments: prescribedSegments,
+        })
+      : null;
+
     return {
       activityLogId: log.id,
       provider: log.provider,
@@ -112,7 +128,8 @@ export class ActivityDetailService {
         : null,
       // Segmentos so' existem quando a prescricao tem estrutura por distancia (km); senao as
       // parciais saem sem agrupamento (segmentIndex null em todas).
-      prescribedSegments: summarizeSegments(splits, points, segments),
+      prescribedSegments,
+      executionSummary,
       splits,
       chart: chartSeries.points,
       chartAxis: chartSeries.xAxis,
