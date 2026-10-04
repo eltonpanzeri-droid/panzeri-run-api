@@ -38,6 +38,7 @@ function variableEntry(overrides: Partial<VariableStateEntry> = {}): VariableSta
     },
     persistence: { currentlyOutsideHabitualRange: null, direction: null, startTimestamp: null, durationDays: null, observationCount: null },
     excursions: [],
+    excursionHistory: { totalExcursions: 0, excursionsWithObservedReturn: 0, excursionsWithoutObservedReturn: 0, timeToReturnDaysValues: [], observationsToReturnValues: [], medianTimeToReturnDays: null, medianObservationsToReturn: null, insufficientHistory: true },
     traceRef: { variableId: 'workout.prePhysicalFatigue', endpoint: '/coach/students/x/observations/workout.prePhysicalFatigue' },
     evidence: { n: 0, observedSpan: { from: null, to: null }, lastObservationAt: null, instrumentVersions: [], comparabilityWarning: null },
     ...overrides,
@@ -190,7 +191,12 @@ describe('buildCompactAgentContext', () => {
       current: 4,
       evidence: commonEvidence,
       persistence: { currentlyOutsideHabitualRange: true, direction: 'above', startTimestamp: 'a', durationDays: 2, observationCount: 2 },
-      excursions: [{ direction: 'above', startTimestamp: 'a', endTimestamp: 'b', ongoing: true, durationDays: 2, observationCount: 2, peak: { value: 4, timestamp: 'b' }, magnitude: 1, returnDynamics: null }],
+      excursions: [{
+        direction: 'above', startTimestamp: 'a', endTimestamp: 'b', ongoing: true, durationDays: 2, observationCount: 2,
+        peak: { value: 4, timestamp: 'b' }, magnitude: 1, currentMagnitude: 1, trend: 'departing', returnStatus: 'absent',
+        evidence: { boundary: 3, startValue: 4, peakValue: 4, currentValue: 4, observationsConsidered: 2, method: 'teste' },
+        returnDynamics: null,
+      }],
     });
     const momentoHabitual = variableEntry({
       current: 4,

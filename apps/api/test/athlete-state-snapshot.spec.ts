@@ -50,6 +50,7 @@ function emptyVariableSnapshot(variableId: string): VariableSnapshotResponse {
     },
     persistence: { currentlyOutsideHabitualRange: null, direction: null, startTimestamp: null, durationDays: null, observationCount: null },
     excursions: [],
+    excursionHistory: { totalExcursions: 0, excursionsWithObservedReturn: 0, excursionsWithoutObservedReturn: 0, timeToReturnDaysValues: [], observationsToReturnValues: [], medianTimeToReturnDays: null, medianObservationsToReturn: null, insufficientHistory: true },
     observations: [],
     evidence: { n: 0, observedSpan: { from: null, to: null }, lastObservationAt: null, instrumentVersions: [], comparabilityWarning: null },
   };
@@ -239,7 +240,9 @@ describe('AthleteStateSnapshotService', () => {
             {
               direction: 'above', startTimestamp: '2026-09-20T12:00:00.000Z', endTimestamp: '2026-09-24T12:00:00.000Z',
               ongoing: true, durationDays: 4, observationCount: 4, peak: { value: 5, timestamp: '2026-09-24T12:00:00.000Z' },
-              magnitude: 2, returnDynamics: null,
+              magnitude: 2, currentMagnitude: 2, trend: 'departing', returnStatus: 'absent',
+              evidence: { boundary: 3, startValue: 4, peakValue: 5, currentValue: 5, observationsConsidered: 4, method: 'teste' },
+              returnDynamics: null,
             },
           ],
         },
@@ -259,6 +262,8 @@ describe('AthleteStateSnapshotService', () => {
             {
               direction: 'above', startTimestamp: '2026-09-10T12:00:00.000Z', endTimestamp: '2026-09-10T12:00:00.000Z',
               ongoing: false, durationDays: 1, observationCount: 1, peak: { value: 5, timestamp: '2026-09-10T12:00:00.000Z' }, magnitude: 1,
+              currentMagnitude: 1, trend: 'insufficient_data', returnStatus: 'complete',
+              evidence: { boundary: 4, startValue: 5, peakValue: 5, currentValue: 5, observationsConsidered: 1, method: 'teste' },
               returnDynamics: {
                 returned: true, returnTimestamp: '2026-09-11T12:00:00.000Z', timeToReturnDays: 1, observationsToReturn: 1, returnVelocity: 1,
                 overshoot: null,
