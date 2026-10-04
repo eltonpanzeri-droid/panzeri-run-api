@@ -1811,6 +1811,8 @@ function AppInner() {
                 accessToken={accessToken}
                 userName={userName}
                 onOpenWeek={() => setActiveTab('week')}
+                onOpenWeekTarget={(target) => { setWeekTabOffset(0); setWeekDeepLink(target); setActiveTab('week'); }}
+                onOpenHistory={() => setActiveTab('history')}
                 onOpenProgress={() => setActiveTab('progress')}
                 onOpenMedalsAll={() => setActiveTab('medals')}
                 onOpenTargetRace={() => setActiveTab('targetRace')}

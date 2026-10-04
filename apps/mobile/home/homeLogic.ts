@@ -13,6 +13,26 @@ export interface HomeSessionLite {
   durationMin: number | null;
   structure: unknown;
   completion: { status: string } | null;
+  // Execucao OBJETIVA (ActivityLog via SessionExecutionLink ativo) — mesma fonte que alimenta os
+  // agregados (7/8 treinos, km). Independe de feedback/WorkoutCompletion. Opcional: API antiga nao envia.
+  realized?: { activityLogId: string } | null;
+}
+
+/** Atividade alternativa (sem prescricao correspondente) — realizada, mas nunca cumpre uma sessao. */
+export interface HomeAlternativeLite {
+  activityLogId: string | null;
+  isoDate: string;
+}
+
+/**
+ * Estado de execucao de uma sessao prescrita. Execucao objetiva (vinculo ativo) prova que o treino
+ * aconteceu mesmo sem feedback; o feedback so' refina (ajustado). Sem vinculo, vale o feedback legado.
+ */
+export function sessionExecutionState(session: HomeSessionLite): 'done' | 'adjusted' | 'missed' | null {
+  const status = session.completion?.status ?? null;
+  if (session.realized) return status === 'adjusted' ? 'adjusted' : 'done';
+  if (status === 'done' || status === 'adjusted' || status === 'missed') return status;
+  return null;
 }
 
 export type TodaySessionState = 'not_done' | 'done_as_planned' | 'done_adjusted' | 'missed' | 'rest_day';
@@ -36,7 +56,7 @@ export function pickTodaySession(sessions: HomeSessionLite[], todayIso: string):
 
   if (!today) return { session: null, state: 'rest_day', nextSession };
 
-  const status = today.completion?.status ?? null;
+  const status = sessionExecutionState(today);
   let state: TodaySessionState;
   if (status === 'done') state = 'done_as_planned';
   else if (status === 'adjusted') state = 'done_adjusted';
@@ -46,45 +66,72 @@ export function pickTodaySession(sessions: HomeSessionLite[], todayIso: string):
   return { session: today, state, nextSession };
 }
 
+/** Alvo ao tocar a bolinha: o treino/atividade daquele dia (nunca o calendario completo). */
+export type WeekCellTarget = { kind: 'session' | 'alternative'; id: string } | null;
+
 export interface WeekDayCell {
   isoDate: string;
   weekdayLetter: string;
   state: 'done' | 'today_pending' | 'future' | 'missed' | 'adjusted' | 'extra' | 'rest';
+  // Sessoes + atividades alternativas no dia — >1 mostra indicador de multiplas sessoes.
+  count: number;
+  target: WeekCellTarget;
 }
 
 const WEEKDAY_LETTERS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']; // Dom..Sab, getUTCDay() index
 
 function isExtraSession(structure: unknown): boolean {
   const obj = typeof structure === 'object' && structure !== null ? (structure as Record<string, unknown>) : {};
-  return obj.source === 'student' && obj.type === 'extra';
+  return obj.type === 'extra' && (obj.source === 'student' || obj.source === 'device');
 }
 
 /**
- * Constrói os 7 dias da semana canônica (isoDates fornecidos, sempre segunda->domingo, já
- * calculados pelo backend) com o estado visual de cada um. Nunca depende só de cor (ver seção 9.1
- * da ordem) — o `state` aqui mapeia pra forma+ícone no componente, não só tonalidade.
+ * Constroi os 7 dias da semana canonica (isoDates fornecidos, sempre segunda->domingo, ja
+ * calculados pelo backend) com o estado visual de cada um. Nunca depende so de cor (ver secao 9.1
+ * da ordem) — o state aqui mapeia pra forma+icone no componente, nao so tonalidade.
+ *
+ * Execucao objetiva (sessao com realized) conta como realizada sem exigir feedback — mesma regra
+ * que alimenta os agregados da semana. Atividade alternativa marca o dia como 'extra' (realizado),
+ * mas nunca cumpre uma sessao prescrita: dia com prescricao nao realizada continua refletindo ela.
  */
-export function buildWeekDayCells(weekIsoDates: string[], sessions: HomeSessionLite[], todayIso: string): WeekDayCell[] {
+export function buildWeekDayCells(
+  weekIsoDates: string[],
+  sessions: HomeSessionLite[],
+  todayIso: string,
+  alternatives: HomeAlternativeLite[] = [],
+): WeekDayCell[] {
   const byDate = new Map<string, HomeSessionLite[]>();
   for (const s of sessions) {
     const list = byDate.get(s.isoDate) ?? [];
     list.push(s);
     byDate.set(s.isoDate, list);
   }
+  const altByDate = new Map<string, HomeAlternativeLite[]>();
+  for (const a of alternatives) {
+    const list = altByDate.get(a.isoDate) ?? [];
+    list.push(a);
+    altByDate.set(a.isoDate, list);
+  }
 
   return weekIsoDates.map((isoDate) => {
     const daySessions = byDate.get(isoDate) ?? [];
+    const dayAlternatives = altByDate.get(isoDate) ?? [];
     const weekday = new Date(isoDate + 'T12:00:00Z').getUTCDay();
     const weekdayLetter = WEEKDAY_LETTERS[weekday];
+    const count = daySessions.length + dayAlternatives.length;
+    const firstAlt = dayAlternatives[0] ?? null;
+    const altTarget: WeekCellTarget = firstAlt?.activityLogId ? { kind: 'alternative', id: firstAlt.activityLogId } : null;
 
     if (daySessions.length === 0) {
-      return { isoDate, weekdayLetter, state: isoDate > todayIso ? 'future' : 'rest' };
+      if (dayAlternatives.length > 0) return { isoDate, weekdayLetter, state: 'extra', count, target: altTarget };
+      return { isoDate, weekdayLetter, state: isoDate > todayIso ? 'future' : 'rest', count, target: null };
     }
 
-    const hasExtra = daySessions.some((s) => isExtraSession(s.structure));
+    const hasExtra = daySessions.some((s) => isExtraSession(s.structure)) || dayAlternatives.length > 0;
     const real = daySessions.filter((s) => !isExtraSession(s.structure));
     const primary = real[0] ?? daySessions[0];
-    const status = primary.completion?.status ?? null;
+    const status = sessionExecutionState(primary);
+    const target: WeekCellTarget = { kind: 'session', id: primary.id };
 
     let state: WeekDayCell['state'];
     if (status === 'done') state = hasExtra ? 'extra' : 'done';
@@ -92,9 +139,9 @@ export function buildWeekDayCells(weekIsoDates: string[], sessions: HomeSessionL
     else if (status === 'missed') state = 'missed';
     else if (isoDate === todayIso) state = 'today_pending';
     else if (isoDate > todayIso) state = 'future';
-    else state = 'rest'; // dia passado sem sessao prescrita nem completion -> descanso, nunca "missed" inventado
+    else state = 'rest'; // dia passado sem sessao prescrita nem execucao -> descanso, nunca "missed" inventado
 
-    return { isoDate, weekdayLetter, state };
+    return { isoDate, weekdayLetter, state, count, target };
   });
 }
 

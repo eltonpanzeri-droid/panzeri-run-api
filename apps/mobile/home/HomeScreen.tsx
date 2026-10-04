@@ -14,8 +14,10 @@ import {
   formatMetric,
 } from './homeTheme';
 import {
+  HomeAlternativeLite,
   HomeSessionLite,
   TodaySessionState,
+  WeekCellTarget,
   buildTrajectoryEvents,
   buildWeekDayCells,
   daysUntil,
@@ -40,6 +42,7 @@ interface PlanLite {
   hasSubscriptionAccess?: boolean;
   locked?: boolean;
   sessions: HomeSessionLite[];
+  alternativeActivities?: HomeAlternativeLite[];
 }
 
 interface WeeklyVolumeLite {
@@ -108,6 +111,8 @@ export function HomeScreen({
   accessToken,
   userName,
   onOpenWeek,
+  onOpenWeekTarget,
+  onOpenHistory,
   onOpenProgress,
   onOpenMedalsAll,
   onOpenTargetRace,
@@ -115,6 +120,10 @@ export function HomeScreen({
   accessToken: string;
   userName: string;
   onOpenWeek: () => void;
+  // Bolinha = treino/atividade especifica daquele dia (abre a semana ja' expandida nele).
+  onOpenWeekTarget: (target: NonNullable<WeekCellTarget>) => void;
+  // Calendario completo ja' existente (aba 'history') — nunca substituido pelo toque na bolinha.
+  onOpenHistory: () => void;
   onOpenProgress: () => void;
   onOpenMedalsAll: () => void;
   onOpenTargetRace: () => void;
@@ -214,7 +223,7 @@ export function HomeScreen({
     return Array.from({ length: 7 }, (_, i) => new Date(start.getTime() + i * 86400000).toISOString().slice(0, 10));
   }, [plan]);
 
-  const weekDayCells = useMemo(() => buildWeekDayCells(weekIsoDates, plan?.sessions ?? [], todayIso), [weekIsoDates, plan, todayIso]);
+  const weekDayCells = useMemo(() => buildWeekDayCells(weekIsoDates, plan?.sessions ?? [], todayIso, plan?.alternativeActivities ?? []), [weekIsoDates, plan, todayIso]);
 
   const greeting = useMemo(() => {
     const hour = Number(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hour12: false, timeZone: 'America/Sao_Paulo' }).format(new Date()));
@@ -252,6 +261,8 @@ export function HomeScreen({
         cells={weekDayCells}
         volume={currentWeekVolume}
         onOpenWeek={onOpenWeek}
+        onOpenWeekTarget={onOpenWeekTarget}
+        onOpenHistory={onOpenHistory}
       />
 
       {/* Bloco 3 — Seu progresso */}
@@ -386,12 +397,16 @@ function WeekSection({
   cells,
   volume,
   onOpenWeek,
+  onOpenWeekTarget,
+  onOpenHistory,
 }: {
   loading: boolean;
   error: boolean;
   cells: ReturnType<typeof buildWeekDayCells>;
   volume: WeeklyVolumeLite | null;
   onOpenWeek: () => void;
+  onOpenWeekTarget: (target: NonNullable<WeekCellTarget>) => void;
+  onOpenHistory: () => void;
 }) {
   if (loading) return <SkeletonBlock height={160} />;
   if (error) return null;
@@ -402,21 +417,31 @@ function WeekSection({
   const overPrescribed = kmPrescrito > 0 && km > kmPrescrito;
 
   return (
-    <Pressable onPress={onOpenWeek} style={[styles.card, HomeBorder.card]}>
+    <View style={[styles.card, HomeBorder.card]}>
       <Text style={styles.sectionTitle}>Sua semana</Text>
       <View style={styles.weekRow}>
         {cells.map((cell) => {
           const cellStyle = DAY_CELL_STYLE[cell.state];
           return (
-            <View key={cell.isoDate} style={styles.weekDayColumn}>
+            <Pressable
+              key={cell.isoDate}
+              style={styles.weekDayColumn}
+              disabled={!cell.target}
+              onPress={() => { if (cell.target) onOpenWeekTarget(cell.target); }}
+              accessibilityRole="button"
+              accessibilityLabel={`Abrir treino de ${formatShortDate(cell.isoDate)}`}
+            >
               <View style={[styles.weekDayCircle, { backgroundColor: cellStyle.bg }]}>
                 {cellStyle.icon ? (
                   <Ionicons name={cellStyle.icon} size={14} color={cellStyle.fg} />
                 ) : (
                   <Text style={[styles.weekDayLetter, { color: cellStyle.fg }]}>{cell.weekdayLetter}</Text>
                 )}
+                {cell.count > 1 ? (
+                  <View style={styles.weekDayBadge}><Text style={styles.weekDayBadgeText}>{cell.count}</Text></View>
+                ) : null}
               </View>
-            </View>
+            </Pressable>
           );
         })}
       </View>
@@ -440,7 +465,17 @@ function WeekSection({
           </View>
         </>
       )}
-    </Pressable>
+      <View style={styles.weekLinksRow}>
+        <Pressable onPress={onOpenWeek} style={styles.linkRow}>
+          <Text style={styles.linkText}>Ver semana</Text>
+          <Ionicons name="chevron-forward" size={14} color={HomeColors.panzeriInteraction} />
+        </Pressable>
+        <Pressable onPress={onOpenHistory} style={styles.linkRow}>
+          <Text style={styles.linkText}>Calendário completo</Text>
+          <Ionicons name="chevron-forward" size={14} color={HomeColors.panzeriInteraction} />
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -880,6 +915,9 @@ const styles = StyleSheet.create({
   weekDayColumn: { alignItems: 'center' },
   weekDayCircle: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   weekDayLetter: { fontSize: 13, fontWeight: '700' },
+  weekDayBadge: { position: 'absolute', top: -4, right: -4, minWidth: 14, height: 14, borderRadius: 7, backgroundColor: HomeColors.textPrimary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
+  weekDayBadgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '800' },
+  weekLinksRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: HomeSpace.small },
   weekSummaryRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: HomeSpace.small },
   weekSummaryItem: { ...HomeTypography.bodyMedium, color: HomeColors.textPrimary },
   weekSummaryDot: { color: HomeColors.textTertiary },
