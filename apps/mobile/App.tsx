@@ -9,6 +9,7 @@ import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { parseJourneyFromSearch, resolveJourney } from './src/journey';
 import { planStartsInFuture } from './src/weekWindow';
+import { ActivityDetailBody, type ActivityDetail } from './src/activityDetail';
 import { BrandMark } from './theme/BrandMark';
 import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
@@ -9326,6 +9327,10 @@ interface HistorySessionMobile {
   completionStatus: 'done' | 'adjusted' | 'missed' | null;
   completedDistanceKm: number | null;
   isExtra: boolean;
+  // Execucao objetiva (relogio) — independe do feedback. Opcionais: API antiga nao envia.
+  executionStatus?: 'realized' | null;
+  feedbackPending?: boolean;
+  isAlternativeActivity?: boolean;
 }
 interface HistoryWeekMobile {
   weekStart: string;
@@ -9355,9 +9360,13 @@ function computeWeekOffsetMobile(weekStart: string): number {
 }
 
 // 10/09: retorna a cor de fundo de uma sessão baseado em status + modalidade.
+function isHistorySessionDone(session: HistorySessionMobile): boolean {
+  return session.executionStatus === 'realized' || session.completionStatus === 'done' || session.completionStatus === 'adjusted';
+}
+
 function sessionBubbleColor(session: HistorySessionMobile, today: string): string {
   const isRun = session.modality === 'corrida' || session.modality === 'esteira';
-  if (session.completionStatus === 'done' || session.completionStatus === 'adjusted') {
+  if (isHistorySessionDone(session)) {
     return isRun ? '#22c55e' : '#6366f1';
   }
   if (session.completionStatus === 'missed') return '#ef4444';
@@ -9426,8 +9435,8 @@ function DayCellMulti({ sessions, colIndex }: { sessions: HistorySessionMobile[]
 
   // Múltiplas sessões: bola maior, cor dominante, km se tem corrida.
   const hasRun = sessions.some((s) => s.modality === 'corrida' || s.modality === 'esteira');
-  const allDone = sessions.every((s) => s.completionStatus === 'done' || s.completionStatus === 'adjusted');
-  const anyMissed = sessions.some((s) => s.completionStatus === 'missed');
+  const allDone = sessions.every(isHistorySessionDone);
+  const anyMissed = sessions.some((s) => s.completionStatus === 'missed' && !isHistorySessionDone(s));
   const isPast = sessions.some((s) => s.date < today);
   const hasExtra = sessions.some((s) => s.isExtra);
 
@@ -9926,46 +9935,7 @@ function roundKm(value: number) {
 // repete a mesma informacao duas vezes).
 // 03/10/2026 — "Ver treino completo": detalhe canonico da execucao (GET /me/activity-reconciliation/:id/detail).
 // Provider aparece so' como origem. Null nunca vira zero: cada linha so' aparece quando o dado existe.
-interface ActivityDetailSplit {
-  kmIndex: number;
-  isPartial: boolean;
-  distanceKm: number;
-  durationSec: number;
-  paceSecondsKm: number | null;
-  avgHeartRateBpm: number | null;
-  avgCadenceSpm: number | null;
-}
-interface ActivityDetailChartPoint {
-  offsetSec: number;
-  heartRateBpm: number | null;
-  speedKmh: number | null;
-  cadenceSpm: number | null;
-}
-interface ActivityDetail {
-  activityLogId: string;
-  provider: string;
-  startedAt: string;
-  summary: {
-    distanceKm: number | null;
-    durationSec: number | null;
-    avgPaceSecondsKm: number | null;
-    avgHeartRateBpm: number | null;
-    maxHeartRateBpm: number | null;
-    cadenceAvg: number | null;
-    caloriesKcal: number | null;
-  };
-  prescribed: { title: string; distanceKm: number | null; durationMin: number | null } | null;
-  splits: ActivityDetailSplit[];
-  chart: ActivityDetailChartPoint[];
-}
-
-function formatDurationSec(seconds: number) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.round(seconds % 60);
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
-}
-
+// Tipos e corpo do 'Treino completo' em src/activityDetail.tsx (Bloco 1, 04/10/2026).
 function ActivityDetailButton({ activityLogId, accessToken }: { activityLogId: string; accessToken: string }) {
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<ActivityDetail | null>(null);
@@ -10008,98 +9978,6 @@ function ActivityDetailButton({ activityLogId, accessToken }: { activityLogId: s
           </ScrollView>
         </View>
       </Modal>
-    </>
-  );
-}
-
-// Grafico de barras simples sobre pontos reais. Pontos sem valor sao ignorados (nunca zero); se a
-// serie inteira estiver ausente, nao renderiza nada.
-function DetailBarChart({ title, values, format }: { title: string; values: number[]; format: (v: number) => string }) {
-  if (values.length === 0) return null;
-  const max = Math.max(...values);
-  const min = Math.min(...values);
-  const range = Math.max(max - min, 1e-9);
-  return (
-    <View style={{ gap: 6 }}>
-      <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>{title}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 80, gap: 1 }}>
-        {values.map((v, index) => (
-          <View key={index} style={{ flex: 1, height: 16 + ((v - min) / range) * 64, backgroundColor: '#1769AA', borderRadius: 1 }} />
-        ))}
-      </View>
-      <Text style={{ fontSize: 11, color: '#94a3b8' }}>min {format(min)} · máx {format(max)} · pontos reais, sem interpolação</Text>
-    </View>
-  );
-}
-
-function ActivityDetailBody({ detail }: { detail: ActivityDetail }) {
-  const paceValues = detail.chart
-    .map((p) => (p.speedKmh != null && p.speedKmh > 0 ? 3600 / p.speedKmh : null))
-    .filter((v): v is number => v != null);
-  const cadenceValues = detail.chart.map((p) => p.cadenceSpm).filter((v): v is number => v != null && v > 0);
-  const s = detail.summary;
-  const chartValues = detail.chart.map((p) => p.heartRateBpm).filter((v): v is number => v != null);
-  const chartMax = chartValues.length ? Math.max(...chartValues) : 0;
-  const chartMin = chartValues.length ? Math.min(...chartValues) : 0;
-  return (
-    <>
-      <View style={{ gap: 4 }}>
-        <Text style={{ fontSize: 13, color: '#64748b' }}>{new Date(detail.startedAt).toLocaleDateString('pt-BR')} · origem: {detail.provider}</Text>
-        {s.distanceKm != null ? <Text style={{ fontSize: 15 }}>Distância: {roundKm(s.distanceKm)} km</Text> : null}
-        {s.durationSec != null ? <Text style={{ fontSize: 15 }}>Duração: {formatDurationSec(s.durationSec)}</Text> : null}
-        {s.avgPaceSecondsKm != null ? <Text style={{ fontSize: 15 }}>Ritmo médio: {paceSecondsToInput(s.avgPaceSecondsKm)}/km</Text> : null}
-        {s.avgHeartRateBpm != null ? <Text style={{ fontSize: 15 }}>FC média: {s.avgHeartRateBpm} bpm{s.maxHeartRateBpm != null ? ` (máx ${s.maxHeartRateBpm})` : ''}</Text> : null}
-        {s.cadenceAvg != null ? <Text style={{ fontSize: 15 }}>Cadência média: {s.cadenceAvg} passos/min</Text> : null}
-        {s.caloriesKcal != null ? <Text style={{ fontSize: 15 }}>Calorias: {s.caloriesKcal} kcal</Text> : null}
-      </View>
-
-      {detail.prescribed ? (
-        <View style={{ gap: 4, padding: 12, borderRadius: 10, backgroundColor: '#f8fafc' }}>
-          <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>PRESCRITO × REALIZADO</Text>
-          <Text style={{ fontSize: 14 }}>Prescrito: {detail.prescribed.title}{detail.prescribed.distanceKm != null ? ` · ${detail.prescribed.distanceKm} km` : ''}</Text>
-          <Text style={{ fontSize: 14 }}>Realizado: {s.distanceKm != null ? `${roundKm(s.distanceKm)} km` : 'indisponível'}{s.durationSec != null ? ` · ${formatDurationSec(s.durationSec)}` : ''}</Text>
-          <Text style={{ fontSize: 12, color: '#64748b' }}>Diferença não é erro nem falta de aderência — é só o que aconteceu.</Text>
-        </View>
-      ) : null}
-
-      {detail.splits.length > 0 ? (
-        <View style={{ gap: 6 }}>
-          <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>PARCIAIS POR KM</Text>
-          {detail.splits.map((split) => (
-            <View key={split.kmIndex} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-              <Text style={{ fontSize: 14, flex: 1 }}>{split.isPartial ? `${split.distanceKm} km` : `km ${split.kmIndex}`}</Text>
-              <Text style={{ fontSize: 14, flex: 1, textAlign: 'center' }}>{formatDurationSec(split.durationSec)}</Text>
-              <Text style={{ fontSize: 14, flex: 1, textAlign: 'center' }}>{split.paceSecondsKm != null ? `${paceSecondsToInput(split.paceSecondsKm)}/km` : '—'}</Text>
-              <Text style={{ fontSize: 14, flex: 1, textAlign: 'right' }}>{split.avgHeartRateBpm != null ? `${split.avgHeartRateBpm} bpm` : '—'}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
-
-      {chartValues.length > 0 ? (
-        <View style={{ gap: 6 }}>
-          <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>FREQUÊNCIA CARDÍACA AO LONGO DO TREINO</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 80, gap: 1 }}>
-            {detail.chart.filter((p) => p.heartRateBpm != null).map((p) => {
-              const range = Math.max(chartMax - chartMin, 1);
-              const ratio = ((p.heartRateBpm as number) - chartMin) / range;
-              return <View key={p.offsetSec} style={{ flex: 1, height: 16 + ratio * 64, backgroundColor: '#1769AA', borderRadius: 1 }} />;
-            })}
-          </View>
-          <Text style={{ fontSize: 11, color: '#94a3b8' }}>Pontos reais da atividade, sem interpolação.</Text>
-        </View>
-      ) : null}
-
-      <DetailBarChart
-        title="RITMO AO LONGO DO TREINO (maior barra = mais lento)"
-        values={paceValues}
-        format={(v) => `${paceSecondsToInput(Math.round(v))}/km`}
-      />
-      <DetailBarChart
-        title="CADÊNCIA AO LONGO DO TREINO"
-        values={cadenceValues}
-        format={(v) => `${Math.round(v)} spm`}
-      />
     </>
   );
 }
