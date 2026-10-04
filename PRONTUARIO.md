@@ -2415,3 +2415,28 @@ credencial de conexão. Dados do dispositivo não são importados nesta etapa") 
   Polar, cron automático, samples/FIT/TCX/GPX, sono/HRV/PPI/Nightly Recharge, Training
   Intelligence. Sem commit/push/deploy — aguardando aprovação e, para validar de fato, a primeira
   conexão Polar real do treinador.
+
+**2026-10-04** — Bloco 1 (execução e treino completo), 3 commits locais (064d949, 7ed7e7d, f70984b),
+sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, prescrito 30 km).
+- **Histórico/calendário** (`TrainingPlansService.getStudentHistory`): lia só `WorkoutCompletion`, então
+  corrida vinculada sem feedback aparecia como "Sem registro" e fora do volume. Agora `ActivityLog` +
+  `SessionExecutionLink` ativo = realizado (`executionStatus: 'realized'`, km vindo da execução), com
+  `feedbackPending` separado. Atividade `alternative` sem sessão sintética entra como card próprio
+  (`isAlternativeActivity`, conta no volume, nunca cumpre prescrição); as já materializadas (`device_extra`)
+  não são contadas duas vezes. Sem correção global de `isExtra`.
+- **Causa dos gráficos/parciais ausentes**: `ActivityTimeSeriesService.normalizeFromRawSamples` só era
+  chamado na ingestão de exercício NOVO. Atividade persistida antes da série canônica existir ficava com
+  raw e zero `ActivityTimeSeriesPoint`; o detalhe escondia gráficos/parciais por falta de dado (e
+  `cadenceAvg` ficava nulo). Correção: `ActivityDetailService.getDetail` reconstrói a série a partir do
+  `RawActivitySample` já salvo (idempotente, deduplicada por atividade, sem consultar a Polar) quando a
+  série está vazia e há raw.
+- **Treino completo**: payload ganhou `prescribedSegments` (lidos de `TrainingSession.structure.blocks`,
+  km acumulados + faixa de pace; sem hardcode; estrutura sem km ⇒ sem agrupamento), parciais com
+  `segmentIndex` (metros excedentes ficam fora do bloco), `chart` agregado em ≤300 baldes por distância
+  (média por balde — agregação, não interpolação) e `chartAxis`. UI nova em `apps/mobile/src/activityDetail.tsx`
+  (react-native-svg): Resumo, Prescrito × Realizado, Ritmo (faixa prescrita + limites das partes), FC,
+  Cadência, Parciais agrupadas. Eixos, unidade, grade, toque com tooltip; sem gráfico vazio.
+- **Potência (sample type 4)**: NÃO implementada — semântica/unidade não confirmadas em fonte oficial
+  acessível (apêndice "Exercise sample types" não retornou ao consultar). Raw preservado. Pendência.
+- Pendência: reprocessamento só ocorre ao abrir o detalhe; Histórico/Home não dependem da série.
+  `analytics-instrumentation.spec.ts` segue falhando (pré-existente, não relacionado).
