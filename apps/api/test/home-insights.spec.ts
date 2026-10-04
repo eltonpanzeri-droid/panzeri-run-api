@@ -3,6 +3,8 @@ import {
   SnapshotLite,
   describeVariable,
   domainSentences,
+  habitualBand,
+  habitualRangeSentence,
   formatPaceSeconds,
   rangeChip,
   recentVsLastSentences,
@@ -22,7 +24,8 @@ function snap(overrides: Partial<SnapshotLite> = {}): SnapshotLite {
     current: 4,
     movingAverages: { short_21d: { value: 3.5, n: 6 } },
     trend: { short_21d: { direction: 'increasing', n: 6 }, medium_60d: { direction: 'stable', n: 12 } },
-    habitualRange: { lower: 2, upper: 4, median: 3, n: 12 },
+    habitualRange: { lower: 2, upper: 4, median: 3, n: 12, isPartialWindow: true },
+    persistence: { currentlyOutsideHabitualRange: false, direction: null },
     variabilityChange: { direction: 'unchanged' },
     observations: [],
     evidence: { n: 12 },
@@ -41,7 +44,6 @@ describe('trendSentence / trendChip', () => {
 
   it('E: evidencia insuficiente nao inventa tendencia', () => {
     expect(trendSentence(snap({ trend: { short_21d: { direction: 'insufficient_data', n: 1 } } }), D)).toBeNull();
-    expect(trendSentence(snap({ trend: { short_21d: { direction: 'increasing', n: 2 } } }), D)).toBeNull();
     expect(trendChip(snap({ trend: null }))).toBeNull();
     expect(trendSentence(snap({ mathApplicable: false }), D)).toBeNull();
   });
@@ -52,18 +54,30 @@ describe('trendSentence / trendChip', () => {
   });
 });
 
-describe('faixa habitual', () => {
-  it('compara o ultimo valor com a faixa individual, sem julgar', () => {
-    expect(rangeChip(snap({ current: 5 }))).toBe('acima da faixa habitual');
-    expect(rangeChip(snap({ current: 1 }))).toBe('abaixo da faixa habitual');
+describe('faixa habitual — veredito do motor (persistence), sem limite proprio de n', () => {
+  const outside = (direction: 'above' | 'below') => ({ currentlyOutsideHabitualRange: true, direction });
+
+  it('apresenta o veredito calculado pelo motor, sem julgar', () => {
+    expect(rangeChip(snap({ current: 5, persistence: outside('above') }))).toBe('acima da faixa habitual');
+    expect(rangeChip(snap({ current: 1, persistence: outside('below') }))).toBe('abaixo da faixa habitual');
     expect(rangeChip(snap({ current: 3 }))).toBe('na faixa habitual');
-    expect(describeVariable(snap({ current: 5 }), D).join(' ')).toContain('acima da sua faixa habitual (2–4)');
+    expect(describeVariable(snap({ current: 5, persistence: outside('above') }), D).join(' ')).toContain('acima da sua faixa habitual (2–4, calculada com 12 registros, histórico ainda curto)');
   });
 
-  it('E: poucos registros nao geram frase de faixa; devolve linguagem de insuficiencia', () => {
-    const s = snap({ trend: null, habitualRange: { lower: 2, upper: 4, median: 3, n: 3 }, evidence: { n: 3 } });
+  it('a Home nao recompara current com os limites: o veredito vem so do motor', () => {
+    // current=5 esta fora de 2-4, mas o motor disse "dentro" => a Home nao contradiz o motor.
+    expect(rangeChip(snap({ current: 5, persistence: { currentlyOutsideHabitualRange: false, direction: null } }))).toBe('na faixa habitual');
+  });
+
+  it('E: motor sem faixa sustentada (persistence null) => sem frase de faixa; fala de insuficiencia', () => {
+    const s = snap({ trend: null, persistence: { currentlyOutsideHabitualRange: null, direction: null }, habitualRange: { lower: null, upper: null, median: null, n: 0 }, evidence: { n: 1 } });
     expect(rangeChip(s)).toBeNull();
-    expect(describeVariable(s, D)[0]).toContain('poucos registros');
+    expect(describeVariable(s, D)[0]).toContain('ainda não há evidência suficiente');
+  });
+
+  it('motor que sustenta a faixa com poucos registros: a Home mostra e informa o n (nao inventa um minimo)', () => {
+    const s = snap({ habitualRange: { lower: 3, upper: 3, median: 3, n: 1, isPartialWindow: true }, evidence: { n: 1 }, trend: null });
+    expect(habitualRangeSentence(s, D)).toContain('calculada com 1 registro, histórico ainda curto');
   });
 
   it('F: sem registros nao produz frase nenhuma (nunca zero)', () => {
@@ -124,6 +138,13 @@ describe('volumeSentences', () => {
   });
 });
 
+describe('faixa no grafico', () => {
+  it('habitualBand so existe quando o motor sustenta a faixa', () => {
+    expect(habitualBand(snap())).toEqual({ lower: 2, upper: 4, label: 'faixa habitual' });
+    expect(habitualBand(snap({ persistence: { currentlyOutsideHabitualRange: null, direction: null } }))).toBeUndefined();
+  });
+});
+
 describe('pace e cadencia', () => {
   it('formata pace em min:ss/km', () => {
     expect(formatPaceSeconds(311)).toBe('5:11/km');
@@ -133,13 +154,13 @@ describe('pace e cadencia', () => {
   it('compara a media das ultimas 3 semanas com o ultimo treino (cadencia 160 x 170 spm)', () => {
     const s = snap({ current: 170, movingAverages: { short_21d: { value: 160, n: 4 } } });
     const [line] = recentVsLastSentences(s, { noun: 'cadência', fmt: (v) => `${Math.round(v)} spm` });
-    expect(line).toBe('Sua cadência média nas últimas 3 semanas é 160 spm. No último treino registrado, foi 170 spm.');
+    expect(line).toBe('Sua cadência média nas últimas 3 semanas (4 treinos) é 160 spm. No último treino registrado, foi 170 spm.');
   });
 
-  it('I: sem media recente suficiente nao fabrica media', () => {
-    const s = snap({ current: 170, movingAverages: { short_21d: { value: 165, n: 1 } } });
+  it('I: media movel que o motor nao sustenta (value null) nao e fabricada', () => {
+    const s = snap({ current: 170, movingAverages: { short_21d: { value: null, n: 0 } } });
     const [line] = recentVsLastSentences(s, { noun: 'cadência', fmt: (v) => `${Math.round(v)} spm` });
-    expect(line).toContain('Ainda há poucos treinos recentes');
+    expect(line).toContain('Não há treinos suficientes nas últimas 3 semanas');
   });
 
   it('sem valor atual nao produz frase', () => {

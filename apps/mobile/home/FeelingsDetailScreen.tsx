@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { DetailChart } from '../src/activityDetail';
 import { HomeBorder, HomeColors, HomeRadius, HomeSpace, HomeTypography } from './homeTheme';
 import { fetchSnapshots } from './homeApi';
-import { FEELING_DOMAINS, FeelingDomain, SnapshotLite, DomainVariable, domainSentences, shiftLabel } from './insights';
+import { FEELING_DOMAINS, FeelingDomain, SnapshotLite, DomainVariable, domainSentences, habitualBand, shiftLabel } from './insights';
 import { formatDayLabel, formatDayLong, movingAveragePoints, observationPoints } from './chartData';
 
 // Telas de detalhe de "Como voce esta" (04/10/2026): Sono, Prontidao pre-treino, Percepcao de
@@ -50,8 +50,7 @@ function VariableBlock({ variable, snapshot }: { variable: DomainVariable; snaps
 
   const scale = snapshot.variable.scale;
   const fixedDomain = snapshot.variable.dataType === 'ordinal_scale' && scale ? { min: scale.min, max: scale.max } : undefined;
-  const range = snapshot.habitualRange;
-  const showBand = range && range.lower != null && range.upper != null && range.n >= 5 ? { lower: range.lower, upper: range.upper, label: 'faixa habitual' } : undefined;
+  const showBand = habitualBand(snapshot);
 
   return (
     <View style={[styles.block, HomeBorder.card]}>

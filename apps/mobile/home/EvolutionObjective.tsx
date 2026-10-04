@@ -7,6 +7,7 @@ import {
   WeekVolumeLite,
   describeVariable,
   formatPaceSeconds,
+  habitualBand,
   recentVsLastSentences,
   volumeSentences,
 } from './insights';
@@ -46,6 +47,7 @@ function MetricCard({
   caution,
   unit,
   formatY,
+  higherIsUp,
 }: {
   title: string;
   snapshot: SnapshotLite | null | undefined;
@@ -55,14 +57,15 @@ function MetricCard({
   caution?: string;
   unit: string;
   formatY: (v: number) => string;
+  // Pace: o MAIS RAPIDO (menor s/km) fica no alto — mesma convencao do Treino completo. So' representacao.
+  higherIsUp: boolean;
 }) {
   const points = useMemo(() => (snapshot ? observationPoints(snapshot) : []), [snapshot]);
   const mm = useMemo(() => (snapshot ? movingAveragePoints(snapshot, 'short_21d') : []), [snapshot]);
   if (!snapshot || snapshot.evidence.n === 0) {
     return <Card title={title}><Text style={styles.muted}>{emptyText}</Text></Card>;
   }
-  const range = snapshot.habitualRange;
-  const band = range && range.lower != null && range.upper != null && range.n >= 5 ? { lower: range.lower, upper: range.upper, label: 'faixa habitual' } : undefined;
+  const band = habitualBand(snapshot);
   const sentences = [...recentVsLastSentences(snapshot, { noun, fmt: descriptor.fmt }), ...describeVariable(snapshot, descriptor)];
   return (
     <Card title={title}>
@@ -74,7 +77,7 @@ function MetricCard({
           xLabel="data"
           formatX={formatDayLabel}
           formatY={formatY}
-          higherIsUp
+          higherIsUp={higherIsUp}
           secondary={mm.length > 1 ? { label: 'média das últimas 3 semanas', points: mm } : undefined}
           band={band}
           seriesLabel="cada treino"
@@ -113,8 +116,9 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
         snapshot={snapshots['activity.avgPaceSecondsKm']}
         descriptor={PACE}
         noun="ritmo"
-        unit="min/km (maior valor = mais lento)"
+        unit="min/km (mais rápido no alto)"
         formatY={(v) => formatPaceSeconds(v).replace('/km', '')}
+        higherIsUp={false}
         emptyText="Ainda não há corridas com distância e duração registradas pelo relógio."
         caution="Cada ponto é o ritmo médio de uma corrida; treinos leves, longões e intervalados têm intenções diferentes e aparecem juntos."
       />
@@ -125,6 +129,7 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
         noun="cadência"
         unit="passos por minuto"
         formatY={(v) => String(Math.round(v))}
+        higherIsUp
         emptyText="Ainda não há corridas com cadência fornecida pelo seu dispositivo."
       />
     </View>

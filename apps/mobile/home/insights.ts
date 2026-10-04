@@ -16,17 +16,20 @@ export interface SnapshotLite {
   baseline?: { value: number | null; n: number } | null;
   deviation?: { absoluteDeviation: number | null; relativeDeviation: number | null } | null;
   trend: Record<string, { direction: string; n?: number }> | null;
-  habitualRange?: { lower: number | null; upper: number | null; median: number | null; n: number } | null;
+  habitualRange?: { lower: number | null; upper: number | null; median: number | null; n: number; isPartialWindow?: boolean } | null;
   variabilityChange?: { direction: string } | null;
-  persistence?: { currentlyOutsideHabitualRange: boolean | null } | null;
+  persistence?: { currentlyOutsideHabitualRange: boolean | null; direction?: 'above' | 'below' | null } | null;
   observations: Array<{ timestamp: string; value: number | string; context?: { modality?: string; activityLogId?: string } | null }>;
   evidence: { n: number };
 }
 
-// Minimo de registros para uma frase sobre a "faixa habitual" ou comparacao — evita conclusao sobre
-// 2 ou 3 pontos. E' um limite de EVIDENCIA de apresentacao, nao um limiar clinico/de treino.
-export const MIN_EVIDENCE_FOR_RANGE = 5;
-export const MIN_EVIDENCE_FOR_TREND = 3;
+// SUFICIENCIA DE EVIDENCIA pertence ao motor longitudinal, nunca a este arquivo. Sinais canonicos
+// usados aqui (sem nenhum limite proprio de n):
+//   - trend.direction === 'insufficient_data'  -> motor nao sustenta tendencia;
+//   - persistence.currentlyOutsideHabitualRange === null -> motor nao sustenta faixa habitual
+//     (sem observacoes / sem limites);
+//   - variabilityChange.direction === 'insufficient_data' -> motor nao sustenta variabilidade.
+// n e isPartialWindow vem do motor e sao apenas COMUNICADOS (transparencia), nunca usados como porta.
 
 export interface Descriptor {
   /** Rotulo ja' capitalizado do que e' medido, ex.: "Qualidade do sono". */
@@ -46,7 +49,6 @@ export function trendSentence(snapshot: SnapshotLite | null | undefined, d: Desc
   for (const key of ['short_21d', 'medium_60d']) {
     const t = snapshot.trend[key];
     if (!t || t.direction === 'insufficient_data') continue;
-    if ((t.n ?? 0) < MIN_EVIDENCE_FOR_TREND) continue;
     const when = TREND_WINDOW_LABEL[key];
     if (t.direction === 'stable') return `${d.label} permaneceu estável ${when}.`;
     if (t.direction === 'increasing') return `${d.label} apresenta tendência de aumento ${when}.`;
@@ -55,14 +57,37 @@ export function trendSentence(snapshot: SnapshotLite | null | undefined, d: Desc
   return null;
 }
 
-/** Ultimo valor x faixa habitual individual (P10-P90 da janela longa, ja' calculada pelo motor). */
-export function habitualRangeSentence(snapshot: SnapshotLite | null | undefined, d: Descriptor): string | null {
+/**
+ * Veredito do MOTOR sobre o ultimo registro x faixa habitual individual. Quem decide se ha evidencia
+ * e' o motor (persistence.currentlyOutsideHabitualRange === null => sem faixa sustentada); aqui so'
+ * se le o resultado — nenhuma comparacao propria entre current e os limites.
+ */
+export function engineRangeVerdict(snapshot: SnapshotLite | null | undefined): { verdict: 'above' | 'below' | 'within'; lower: number; upper: number; n: number; isPartialWindow: boolean } | null {
   if (!snapshot || !snapshot.mathApplicable || snapshot.current == null) return null;
   const range = snapshot.habitualRange;
-  if (!range || range.lower == null || range.upper == null || range.n < MIN_EVIDENCE_FOR_RANGE) return null;
-  const faixa = `${d.fmt(range.lower)}–${d.fmt(range.upper)}`;
-  if (snapshot.current > range.upper) return `${d.label}: o último registro (${d.fmt(snapshot.current)}) ficou acima da sua faixa habitual (${faixa}).`;
-  if (snapshot.current < range.lower) return `${d.label}: o último registro (${d.fmt(snapshot.current)}) ficou abaixo da sua faixa habitual (${faixa}).`;
+  const persistence = snapshot.persistence;
+  if (!range || range.lower == null || range.upper == null || !persistence || persistence.currentlyOutsideHabitualRange == null) return null;
+  const verdict = persistence.currentlyOutsideHabitualRange ? (persistence.direction === 'below' ? 'below' : 'above') : 'within';
+  return { verdict, lower: range.lower, upper: range.upper, n: range.n, isPartialWindow: range.isPartialWindow === true };
+}
+
+/** Faixa habitual para desenhar no grafico — so' quando o motor a sustenta. */
+export function habitualBand(snapshot: SnapshotLite | null | undefined): { lower: number; upper: number; label: string } | undefined {
+  const v = engineRangeVerdict(snapshot);
+  return v ? { lower: v.lower, upper: v.upper, label: 'faixa habitual' } : undefined;
+}
+
+function basisNote(n: number, isPartialWindow: boolean): string {
+  return `calculada com ${n} registro${n === 1 ? '' : 's'}${isPartialWindow ? ', histórico ainda curto' : ''}`;
+}
+
+/** Ultimo valor x faixa habitual individual (P10-P90 da janela longa, calculada pelo motor). */
+export function habitualRangeSentence(snapshot: SnapshotLite | null | undefined, d: Descriptor): string | null {
+  const v = engineRangeVerdict(snapshot);
+  if (!v || !snapshot || snapshot.current == null) return null;
+  const faixa = `${d.fmt(v.lower)}–${d.fmt(v.upper)}, ${basisNote(v.n, v.isPartialWindow)}`;
+  if (v.verdict === 'above') return `${d.label}: o último registro (${d.fmt(snapshot.current)}) ficou acima da sua faixa habitual (${faixa}).`;
+  if (v.verdict === 'below') return `${d.label}: o último registro (${d.fmt(snapshot.current)}) ficou abaixo da sua faixa habitual (${faixa}).`;
   return `${d.label}: o último registro (${d.fmt(snapshot.current)}) está dentro da sua faixa habitual (${faixa}).`;
 }
 
@@ -71,7 +96,7 @@ export function trendChip(snapshot: SnapshotLite | null | undefined): string | n
   if (!snapshot || !snapshot.mathApplicable || !snapshot.trend) return null;
   for (const key of ['short_21d', 'medium_60d']) {
     const t = snapshot.trend[key];
-    if (!t || t.direction === 'insufficient_data' || (t.n ?? 0) < MIN_EVIDENCE_FOR_TREND) continue;
+    if (!t || t.direction === 'insufficient_data') continue;
     if (t.direction === 'stable') return 'estável';
     if (t.direction === 'increasing') return 'em aumento';
     if (t.direction === 'decreasing') return 'em queda';
@@ -80,12 +105,9 @@ export function trendChip(snapshot: SnapshotLite | null | undefined): string | n
 }
 
 export function rangeChip(snapshot: SnapshotLite | null | undefined): string | null {
-  if (!snapshot || !snapshot.mathApplicable || snapshot.current == null) return null;
-  const r = snapshot.habitualRange;
-  if (!r || r.lower == null || r.upper == null || r.n < MIN_EVIDENCE_FOR_RANGE) return null;
-  if (snapshot.current > r.upper) return 'acima da faixa habitual';
-  if (snapshot.current < r.lower) return 'abaixo da faixa habitual';
-  return 'na faixa habitual';
+  const v = engineRangeVerdict(snapshot);
+  if (!v) return null;
+  return v.verdict === 'above' ? 'acima da faixa habitual' : v.verdict === 'below' ? 'abaixo da faixa habitual' : 'na faixa habitual';
 }
 
 export function variabilitySentence(snapshot: SnapshotLite | null | undefined, d: Descriptor): string | null {
@@ -101,7 +123,7 @@ export function describeVariable(snapshot: SnapshotLite | null | undefined, d: D
   if (!snapshot.mathApplicable) return [];
   const out = [trendSentence(snapshot, d), habitualRangeSentence(snapshot, d), variabilitySentence(snapshot, d)].filter((s): s is string => s != null);
   if (out.length === 0) {
-    return [`${d.label}: ainda há poucos registros (${snapshot.evidence.n}) para interpretar tendência ou faixa habitual.`];
+    return [`${d.label}: ainda não há evidência suficiente (${snapshot.evidence.n} registro${snapshot.evidence.n === 1 ? '' : 's'}) para indicar tendência ou faixa habitual.`];
   }
   return out;
 }
@@ -128,9 +150,11 @@ function isCurrentWeek(weekStart: string, todayIso: string): boolean {
 export function volumeSentences(weeks: WeekVolumeLite[], todayIso: string, volumeSnapshot?: SnapshotLite | null): string[] {
   const out: string[] = [];
   const completed = weeks.filter((w) => !isCurrentWeek(w.weekStart, todayIso) && w.kmPercorridos != null).slice(-4);
-  if (completed.length >= 2) {
+  if (completed.length >= 1) {
     const avg = completed.reduce((s, w) => s + (w.kmPercorridos as number), 0) / completed.length;
-    out.push(`Nas últimas ${completed.length} semanas completas com registro, seu volume médio foi de ${fmtKm(avg)} por semana.`);
+    out.push(completed.length === 1
+      ? `Na última semana completa com registro, você realizou ${fmtKm(avg)}.`
+      : `Nas últimas ${completed.length} semanas completas com registro, seu volume médio foi de ${fmtKm(avg)} por semana.`);
   }
   const trend = trendSentence(volumeSnapshot, { label: 'O volume semanal realizado', fmt: fmtKm });
   if (trend) out.push(trend);
@@ -173,10 +197,11 @@ export function recentVsLastSentences(
   if (!snapshot || !snapshot.mathApplicable || snapshot.current == null) return [];
   const mm = snapshot.movingAverages?.short_21d;
   const out: string[] = [];
-  if (mm && mm.value != null && mm.n >= 2) {
-    out.push(`Sua ${d.noun} média nas últimas 3 semanas é ${d.fmt(mm.value)}. No último treino registrado, foi ${d.fmt(snapshot.current)}.`);
+  // A media movel de 21 dias e' do motor (value null = motor nao sustenta); n e' comunicado, nao usado como porta.
+  if (mm && mm.value != null) {
+    out.push(`Sua ${d.noun} média nas últimas 3 semanas (${mm.n} treino${mm.n === 1 ? '' : 's'}) é ${d.fmt(mm.value)}. No último treino registrado, foi ${d.fmt(snapshot.current)}.`);
   } else {
-    out.push(`No último treino registrado, sua ${d.noun} foi ${d.fmt(snapshot.current)}. Ainda há poucos treinos recentes para uma média.`);
+    out.push(`No último treino registrado, sua ${d.noun} foi ${d.fmt(snapshot.current)}. Não há treinos suficientes nas últimas 3 semanas para uma média.`);
   }
   return out;
 }
