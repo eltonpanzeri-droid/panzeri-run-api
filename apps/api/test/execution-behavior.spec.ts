@@ -33,7 +33,7 @@ describe('WorkoutCompletionsService.upsert — executionBehavior (feedback v3)',
     const studentProfile = { recordEvent: jest.fn().mockResolvedValue(undefined) };
     const telegram = { notifyCoach: jest.fn().mockResolvedValue(undefined) };
     const contextEvents = { linkFirstObservationIfPending: jest.fn().mockResolvedValue(undefined) };
-    const service = new WorkoutCompletionsService(prisma as never, config as never, studentProfile as never, telegram as never, contextEvents as never, { record: jest.fn() } as never, { evaluateForUser: jest.fn().mockResolvedValue([]) } as never);
+    const service = new WorkoutCompletionsService(prisma as never, config as never, studentProfile as never, telegram as never, contextEvents as never, { record: jest.fn() } as never, { evaluateForUser: jest.fn().mockResolvedValue([]) } as never, { setUsage: jest.fn() } as never);
     return { service, prisma };
   }
 

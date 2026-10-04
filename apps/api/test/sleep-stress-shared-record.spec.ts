@@ -102,6 +102,7 @@ function buildEnv(sessions: Session[]) {
     contextEvents as never,
     reportTimeline as never,
     medalEvaluation as never,
+    { setUsage: jest.fn() } as never,
   );
 
   return { service, prisma, nights, stressCheckins, completions };

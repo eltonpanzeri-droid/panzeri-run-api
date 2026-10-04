@@ -45,6 +45,7 @@ describe('WorkoutCompletionsService.upsert — Feedback de Atividade Alternativa
       contextEvents as never,
       { record: jest.fn() } as never,
       { evaluateForUser: jest.fn().mockResolvedValue([]) } as never,
+      { setUsage: jest.fn() } as never,
     );
     return { service, prisma };
   }
