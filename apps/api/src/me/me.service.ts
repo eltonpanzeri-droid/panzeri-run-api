@@ -77,11 +77,56 @@ export class MeService {
     const current = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
     const answers = asAnswerObject(current?.answers);
     answers[dto.key] = JSON.parse(JSON.stringify(dto.value)) as Prisma.InputJsonValue;
-    return this.prisma.onboardingInterview.upsert({
+    const result = await this.prisma.onboardingInterview.upsert({
       where: { userId },
       create: { userId, answers, currentStep: dto.currentStep },
       update: { answers, currentStep: dto.currentStep },
     });
+
+    // Correcao de divergencia (Melhorias pos-Bloco 3, 04/10/2026): esta funcao e' o unico caminho
+    // de correcao POS-onboarding pra telefone/CPF/escolaridade/endereco (modulo "Dados pessoais" do
+    // fixModule, acionado por "Conta" -> "Editar dados") — antes so' gravava neste JSON, nunca em
+    // User, que e' quem cobranca/Telegram/painel do treinador realmente leem. Resultado: a aluna
+    // via o dado "corrigido" na entrevista, mas o resto do sistema continuava com o valor antigo.
+    // Sincroniza so' o campo que acabou de ser editado (nunca recalcula os outros a partir do JSON
+    // inteiro, pra nao sobrescrever um campo correto com um valor antigo/ausente da entrevista).
+    // Nome/nascimento/sexo/altura/peso NAO entram aqui de proposito — esses tem fonte propria
+    // (PUT /me/profile via "Conta", PUT /me/anamnese via "Perfil"); sincronizar aqui tambem criaria
+    // uma terceira fonte de verdade pra eles.
+    await this.syncIdentityAnswerToUser(userId, dto.key, answers);
+
+    return result;
+  }
+
+  private async syncIdentityAnswerToUser(userId: string, key: string, answers: Record<string, Prisma.InputJsonValue>) {
+    if (key === 'personal_phone') {
+      const phone = stringValue(answers.personal_phone);
+      if (phone) await this.prisma.user.update({ where: { id: userId }, data: { phone } });
+      return;
+    }
+    if (key === 'personal_education') {
+      // Mesma convencao de completeOnboarding: resposta ausente/null vira null em User, nunca ''.
+      const education = answers.personal_education != null ? String(answers.personal_education) : null;
+      await this.prisma.user.update({ where: { id: userId }, data: { education } });
+      return;
+    }
+    if (key === 'personal_cpf') {
+      const normalizedCpf = normalizeCpf(String(answers.personal_cpf ?? ''));
+      if (!normalizedCpf) return;
+      try {
+        await this.prisma.user.update({ where: { id: userId }, data: { cpf: normalizedCpf } });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          throw new BadRequestException('Este CPF ja esta cadastrado em outra conta. Revise o campo de CPF na entrevista.');
+        }
+        throw error;
+      }
+      return;
+    }
+    if (ADDRESS_ANSWER_KEYS.has(key)) {
+      const address = interviewAddressSummary(answers);
+      if (address) await this.prisma.user.update({ where: { id: userId }, data: { address } });
+    }
   }
 
   // 18/08: Bloco 2 da reformulacao de onboarding — as "5 perguntas rapidas" que agora rodam ANTES
@@ -798,6 +843,13 @@ function painSummary(answers: Record<string, Prisma.InputJsonValue>) {
   if (other) parts.push(`outro local: ${other}`);
   return parts.join(' - ');
 }
+
+// Mesmas chaves lidas por interviewAddressSummary — uma unica lista, nunca duas listas que podem
+// divergir (ver syncIdentityAnswerToUser em MeService).
+const ADDRESS_ANSWER_KEYS = new Set([
+  'personal_address_street', 'personal_address_number', 'personal_address_complement',
+  'personal_address_neighborhood', 'personal_address_city', 'personal_address_state', 'personal_cep',
+]);
 
 function interviewAddressSummary(answers: Record<string, Prisma.InputJsonValue>): string | undefined {
   const street = stringValue(answers.personal_address_street);

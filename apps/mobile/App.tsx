@@ -61,7 +61,12 @@ Notifications.setNotificationHandler({
 });
 
 type Screen = 'login' | 'app';
-type Tab = 'home' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'meusDados' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes';
+// Melhorias pos-Bloco 3 (04/10/2026): 'anamnese' e 'meusDados' removidas — confirmado por busca
+// focada que nenhum fluxo (setActiveTab, deep link, notificacao) ainda as referenciava; eram
+// destinos orfaos desde que "Conta"/"Perfil" passaram a montar os mesmos componentes
+// (MeusDados/Anamnese) diretamente. 'billing' permanece: ainda e' destino de redirects reais do
+// funil de pagamento (quickIntake/billing_regularize).
+type Tab = 'home' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -1904,25 +1909,6 @@ function AppInner() {
                 onComplete={() => setFixAnswersModule(null)}
                 questions={mainInterviewQuestions.filter((q) => q.module === fixAnswersModule)}
                 mode="fixModule"
-              />
-            )}
-            {activeTab === 'meusDados' && (
-              <MeusDados
-                savedMe={savedMe}
-                onEditContactInfo={() => { setFixAnswersModule('Dados pessoais'); setActiveTab('fixAnswers'); }}
-                onBack={() => setActiveTab('week')}
-              />
-            )}
-            {activeTab === 'anamnese' && (
-              <Anamnese
-                accessToken={accessToken}
-                userEmail={userEmail}
-                userName={userName}
-                savedMe={savedMe}
-                onSavedMeChange={setSavedMe}
-                onNameChange={setUserName}
-                routineDays={anamneseRoutine}
-                onRoutineChange={setAnamneseRoutine}
               />
             )}
             {activeTab === 'test' && (
@@ -9798,8 +9784,9 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     { id: 'profile', label: 'Perfil', icon: 'person' },
     // BLOCO 3 (04/10/2026): "Meus dados" e "Plano e faturamento" deixaram de ser itens proprios do
     // menu — seu conteudo (mesmos componentes, reaproveitados sem alteracao) agora vive dentro de
-    // "Conta", pra nao ter duas portas pro mesmo lugar. As abas internas 'meusDados'/'billing'
-    // continuam existindo (redirects automaticos do funil de pagamento ainda usam 'billing').
+    // "Conta", pra nao ter duas portas pro mesmo lugar. A aba interna 'meusDados' foi removida
+    // (orfa, confirmado por busca); 'billing' continua existindo (redirects automaticos do funil
+    // de pagamento ainda usam 'billing').
     { id: 'conta', label: 'Conta', icon: 'settings-outline' },
     // Ciclo menstrual: so visivel para alunas (sex=Feminino) — 11/09
     ...(isFeminino ? [{ id: 'ciclo' as Tab, label: 'Registrar ciclo menstrual', icon: 'medical-outline' as keyof typeof Ionicons.glyphMap }] : []),
