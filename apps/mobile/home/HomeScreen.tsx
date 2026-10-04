@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { saoPauloDateString } from '../src/weekWindow';
+import { FeelingDomain, FEELING_DOMAINS, SnapshotLite, rangeChip, trendChip, trendSentence } from './insights';
 import {
   HomeBorder,
   HomeColors,
@@ -62,14 +63,8 @@ interface EvolutionOverviewLite {
   totalWeeksWithPlan: number;
 }
 
-interface VariableSnapshotLite {
-  variable: { constructLabel?: string; scale?: { min: number; max: number } };
-  mathApplicable: boolean;
-  current: number | null;
-  trend: Record<string, { direction: string }> | null;
-  observations: Array<{ timestamp: string; value: number | string }>;
-  evidence: { n: number };
-}
+// Mesmo shape do motor longitudinal (ver insights.ts) — um unico tipo para Home e telas de dominio.
+type VariableSnapshotLite = SnapshotLite;
 
 interface NextUpMedalLite {
   code: string;
@@ -114,6 +109,7 @@ export function HomeScreen({
   onOpenWeekTarget,
   onOpenHistory,
   onOpenProgress,
+  onOpenFeeling,
   onOpenMedalsAll,
   onOpenTargetRace,
 }: {
@@ -125,6 +121,8 @@ export function HomeScreen({
   // Calendario completo ja' existente (aba 'history') — nunca substituido pelo toque na bolinha.
   onOpenHistory: () => void;
   onOpenProgress: () => void;
+  // Tela de detalhe de cada dominio de "Como voce esta".
+  onOpenFeeling: (domain: FeelingDomain) => void;
   onOpenMedalsAll: () => void;
   onOpenTargetRace: () => void;
 }) {
@@ -174,7 +172,7 @@ export function HomeScreen({
 
   useEffect(() => {
     let alive = true;
-    const variables = ['workout.preSleepQuality', 'workout.prePhysicalFatigue', 'workout.preMotivation', 'workout.perceivedEffort'];
+    const variables = Object.values(FEELING_DOMAINS).map((d) => d.primary);
     (async () => {
       const results = await Promise.all(variables.map((v) => fetchJson<VariableSnapshotLite>(`${API_URL}/me/observations/${v}`, accessToken)));
       if (!alive) return;
@@ -274,7 +272,7 @@ export function HomeScreen({
       />
 
       {/* Bloco 4 — Como você está */}
-      <FeelingsSection loading={feelingsLoading} feelings={feelings} />
+      <FeelingsSection loading={feelingsLoading} feelings={feelings} onOpenFeeling={onOpenFeeling} />
 
       {/* Bloco 5 — Seu acompanhamento */}
       <AcompanhamentoSection
@@ -507,23 +505,33 @@ function ProgressSection({
     );
   }
 
+  // Grafico compacto (Bloco 3, 04/10/2026): barras = realizado, linha = prescrito, na MESMA unidade (km),
+  // eixo Y comecando em zero (escala real, nunca esticada), grade discreta, datas no eixo X e legenda.
+  // Toque em qualquer ponto da coluna da semana abre o tooltip (periodo, variavel, valor, unidade).
   const width = 320;
-  const height = 160;
-  const padding = { top: 24, right: 8, bottom: 20, left: 8 };
+  const height = 190;
+  const padding = { top: 14, right: 8, bottom: 26, left: 34 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const maxRaw = Math.max(...weeks.map((w) => Math.max(w.kmPercorridos ?? 0, w.kmPrescritos ?? 0)), 1);
-  const maxValue = maxRaw * 1.15; // folga de 10-15% acima, eixo Y sempre comeca em 0
-  const barWidth = plotWidth / weeks.length * 0.5;
+  const yStep = maxRaw <= 10 ? 2 : maxRaw <= 30 ? 5 : maxRaw <= 60 ? 10 : 20;
+  const maxValue = Math.ceil((maxRaw * 1.05) / yStep) * yStep;
+  const yTicks = Array.from({ length: Math.floor(maxValue / yStep) + 1 }, (_, i) => i * yStep);
   const step = plotWidth / weeks.length;
+  const barWidth = step * 0.5;
+  const yOf = (km: number) => padding.top + plotHeight - (km / maxValue) * plotHeight;
 
-  const linePoints = weeks.map((w, i) => {
-    const x = padding.left + step * i + step / 2;
-    const y = padding.top + plotHeight - ((w.kmPrescritos ?? 0) / maxValue) * plotHeight;
-    return { x, y };
-  });
-  const linePath = linePoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const linePoints = weeks.map((w, i) => ({ x: padding.left + step * i + step / 2, y: yOf(w.kmPrescritos ?? 0), has: w.kmPrescritos != null }));
+  // Semana sem km prescrito = sem ponto (ausencia nunca vira zero na linha).
+  let linePath = '';
+  let lineOpen = false;
+  for (const p of linePoints) {
+    if (!p.has) { lineOpen = false; continue; }
+    linePath += `${lineOpen ? 'L' : 'M'} ${p.x} ${p.y} `;
+    lineOpen = true;
+  }
   const selectedWeek = selected != null ? weeks[selected] : null;
+  const showEvery = weeks.length > 8 ? 2 : 1;
 
   return (
     <View style={[styles.card, HomeBorder.card]}>
@@ -536,41 +544,74 @@ function ProgressSection({
       <View style={styles.plotAreaWrap}>
         <Svg width={width} height={height}>
           <Rect x={0} y={0} width={width} height={height} rx={HomeRadius.plotArea} fill={HomeColors.plotArea} />
+          {yTicks.map((t) => (
+            <React.Fragment key={`y-${t}`}>
+              <Line x1={padding.left} x2={width - padding.right} y1={yOf(t)} y2={yOf(t)} stroke={HomeColors.divider} strokeWidth={1} />
+              <SvgText x={padding.left - 4} y={yOf(t) + 3} fontSize={9} fill={HomeColors.textTertiary} textAnchor="end">{t}</SvgText>
+            </React.Fragment>
+          ))}
+          <SvgText x={4} y={10} fontSize={9} fill={HomeColors.textTertiary}>km</SvgText>
           {weeks.map((w, i) => {
-            const barHeight = ((w.kmPercorridos ?? 0) / maxValue) * plotHeight;
+            const cx = padding.left + step * i + step / 2;
+            return (
+              <React.Fragment key={`x-${w.weekStart}`}>
+                <Line x1={cx} x2={cx} y1={padding.top} y2={padding.top + plotHeight} stroke={HomeColors.divider} strokeWidth={0.5} strokeDasharray="2,3" />
+                {i % showEvery === 0 ? (
+                  <SvgText x={cx} y={height - 9} fontSize={8.5} fill={HomeColors.textTertiary} textAnchor="middle">{formatShortDate(w.weekStart)}</SvgText>
+                ) : null}
+              </React.Fragment>
+            );
+          })}
+          {weeks.map((w, i) => {
+            if (w.kmPercorridos == null) return null; // sem dado de km: ausencia, nunca barra de zero
+            const km = w.kmPercorridos;
+            const barHeight = (km / maxValue) * plotHeight;
             const x = padding.left + step * i + (step - barWidth) / 2;
-            const y = padding.top + plotHeight - barHeight;
             const isSelected = selected === i;
             return (
               <Rect
                 key={w.weekStart}
                 x={x}
-                y={y}
+                y={padding.top + plotHeight - barHeight}
                 width={barWidth}
                 height={Math.max(barHeight, 1)}
                 rx={4}
                 fill={isSelected ? HomeColors.panzeriInteraction : HomeColors.panzeriAccent}
                 opacity={isSelected ? 1 : 0.85}
-                onPress={() => setSelected(i)}
               />
             );
           })}
-          <Path d={linePath} stroke={HomeColors.panzeriPrimary} strokeWidth={2} fill="none" />
-          {linePoints.map((p, i) => (
-            <Circle key={i} cx={p.x} cy={p.y} r={3} fill={HomeColors.panzeriPrimary} />
+          {linePath ? <Path d={linePath} stroke={HomeColors.panzeriPrimary} strokeWidth={2} fill="none" /> : null}
+          {linePoints.map((p, i) => (p.has ? <Circle key={i} cx={p.x} cy={p.y} r={3} fill={HomeColors.panzeriPrimary} /> : null))}
+          {/* Alvo de toque: coluna inteira de cada semana (nao so a barra, que pode ser minuscula). */}
+          {weeks.map((w, i) => (
+            <Rect
+              key={`hit-${w.weekStart}`}
+              x={padding.left + step * i}
+              y={padding.top}
+              width={step}
+              height={plotHeight}
+              fill="transparent"
+              onPress={() => setSelected(i)}
+            />
           ))}
         </Svg>
+      </View>
+      <View style={styles.legendRow}>
+        <View style={styles.legendItem}><View style={[styles.legendSwatch, { backgroundColor: HomeColors.panzeriAccent }]} /><Text style={styles.legendText}>Realizado (km)</Text></View>
+        <View style={styles.legendItem}><View style={[styles.legendLine, { backgroundColor: HomeColors.panzeriPrimary }]} /><Text style={styles.legendText}>Prescrito (km)</Text></View>
       </View>
       {selectedWeek ? (
         <View style={styles.tooltipPanel}>
           <Text style={styles.tooltipTitle}>Semana de {formatShortDate(selectedWeek.weekStart)}</Text>
           <Text style={styles.tooltipLine}>Prescrito: {formatMetric(selectedWeek.kmPrescritos)} km</Text>
           <Text style={styles.tooltipLine}>Realizado: {formatMetric(selectedWeek.kmPercorridos)} km</Text>
+          {selectedWeek.kmExtras != null && selectedWeek.kmExtras > 0 ? <Text style={styles.tooltipLine}>Extra (incluído no realizado): {formatMetric(selectedWeek.kmExtras)} km</Text> : null}
           {selectedWeek.adherencePercent != null && <Text style={styles.tooltipLine}>Aderência: {selectedWeek.adherencePercent}%</Text>}
           <Text style={styles.tooltipLine}>Treinos: {selectedWeek.sessoesFeitas}/{selectedWeek.sessoesPrescritas}</Text>
         </View>
       ) : (
-        <Text style={styles.chartHint}>Toque numa barra para ver os detalhes da semana.</Text>
+        <Text style={styles.chartHint}>Toque numa semana para ver os detalhes.</Text>
       )}
       <Pressable onPress={onOpenProgress} style={styles.linkRow}>
         <Text style={styles.linkText}>Ver evolução</Text>
@@ -584,19 +625,19 @@ function ProgressSection({
 // Bloco 4 — Como você está
 // -----------------------------------------------------------------------------------------
 
-const FEELING_LABELS: Record<string, string> = {
-  'workout.preSleepQuality': 'Sono',
-  'workout.prePhysicalFatigue': 'Fadiga física',
-  'workout.preMotivation': 'Motivação',
-  'workout.perceivedEffort': 'Esforço percebido',
-};
+// Quatro blocos tematicos (Sono, Prontidao pre-treino, Percepcao de esforco, Resposta pos-treino).
+// Cada card mostra o valor recente da variavel PRINCIPAL do dominio, contexto (tendencia/faixa
+// habitual — mesmas regras de evidencia das frases das telas de detalhe) e uma mini visualizacao
+// na ESCALA ORIGINAL da variavel (1-5 ou RPE 1-10), nunca esticada ao min/max dos dados. Toque abre o
+// detalhamento do dominio.
+const DOMAIN_ORDER: FeelingDomain[] = ['sleep', 'readiness', 'effort', 'response'];
 
-function Sparkline({ values }: { values: number[] }) {
+function Sparkline({ values, scale }: { values: number[]; scale?: { min: number; max: number } }) {
   if (values.length < 2) return <View style={{ height: 24 }} />;
   const width = 80;
   const height = 24;
-  const max = Math.max(...values);
-  const min = Math.min(...values);
+  const max = scale ? scale.max : Math.max(...values);
+  const min = scale ? scale.min : Math.min(...values);
   const range = max - min || 1;
   const step = width / (values.length - 1);
   const points = values.map((v, i) => ({ x: i * step, y: height - ((v - min) / range) * height }));
@@ -608,35 +649,37 @@ function Sparkline({ values }: { values: number[] }) {
   );
 }
 
-function FeelingCard({ variableId, snapshot }: { variableId: string; snapshot: VariableSnapshotLite | null | undefined }) {
-  const label = FEELING_LABELS[variableId];
+function FeelingCard({ domain, snapshot, onOpen }: { domain: FeelingDomain; snapshot: VariableSnapshotLite | null | undefined; onOpen: () => void }) {
+  const cfg = FEELING_DOMAINS[domain];
+  const primaryLabel = cfg.variables.find((v) => v.id === cfg.primary)?.label ?? cfg.title;
   if (!snapshot || snapshot.evidence.n === 0) {
     return (
-      <View style={[styles.feelingCard, HomeBorder.card]}>
-        <Text style={styles.feelingLabel}>{label}</Text>
+      <Pressable onPress={onOpen} style={[styles.feelingCard, HomeBorder.card]}>
+        <Text style={styles.feelingLabel}>{cfg.title}</Text>
         <Text style={styles.feelingEmpty}>Sem dados ainda</Text>
-      </View>
+      </Pressable>
     );
   }
-  const scaleMax = snapshot.variable.scale?.max ?? 5;
+  const scale = snapshot.variable.scale;
+  const scaleMax = scale?.max ?? 5;
   const values = snapshot.observations.slice(-7).map((o) => Number(o.value)).filter((v) => !Number.isNaN(v));
-  const trendDirection = snapshot.trend?.short_21d?.direction;
-  const trendLabel = trendDirection === 'increasing' ? 'aumentou' : trendDirection === 'decreasing' ? 'diminuiu' : trendDirection === 'stable' ? 'estável' : null;
+  const chips = [trendChip(snapshot), rangeChip(snapshot)].filter((c): c is string => c != null);
 
   return (
-    <View style={[styles.feelingCard, HomeBorder.card]}>
-      <Text style={styles.feelingLabel}>{label}</Text>
+    <Pressable onPress={onOpen} style={({ pressed }) => [styles.feelingCard, HomeBorder.card, pressed && styles.pressedScale]}>
+      <Text style={styles.feelingLabel}>{cfg.title}</Text>
       <Text style={styles.feelingValue}>{formatMetric(snapshot.current)} / {scaleMax}</Text>
-      {trendLabel && <Text style={styles.feelingTrend}>{trendLabel}</Text>}
-      <Sparkline values={values} />
-    </View>
+      <Text style={styles.feelingTrend}>{primaryLabel}</Text>
+      {chips.length > 0 ? <Text style={styles.feelingTrend}>{chips.join(' · ')}</Text> : null}
+      <Sparkline values={values} scale={scale ? { min: scale.min, max: scale.max } : undefined} />
+      <Text style={styles.feelingMore}>Ver detalhes ›</Text>
+    </Pressable>
   );
 }
 
-function FeelingsSection({ loading, feelings }: { loading: boolean; feelings: Record<string, VariableSnapshotLite | null> }) {
+function FeelingsSection({ loading, feelings, onOpenFeeling }: { loading: boolean; feelings: Record<string, VariableSnapshotLite | null>; onOpenFeeling: (domain: FeelingDomain) => void }) {
   if (loading) return <SkeletonBlock height={220} />;
-  const variableIds = Object.keys(FEELING_LABELS);
-  const anyData = variableIds.some((v) => feelings[v] && feelings[v]!.evidence.n > 0);
+  const anyData = DOMAIN_ORDER.some((d) => feelings[FEELING_DOMAINS[d].primary] && feelings[FEELING_DOMAINS[d].primary]!.evidence.n > 0);
 
   return (
     <View style={[styles.card, HomeBorder.card]}>
@@ -644,11 +687,13 @@ function FeelingsSection({ loading, feelings }: { loading: boolean; feelings: Re
       <Text style={styles.sectionSubtitle}>O que seus feedbacks vêm mostrando.</Text>
       {anyData ? (
         <View style={styles.feelingsGrid}>
-          {variableIds.map((v) => <FeelingCard key={v} variableId={v} snapshot={feelings[v]} />)}
+          {DOMAIN_ORDER.map((d) => (
+            <FeelingCard key={d} domain={d} snapshot={feelings[FEELING_DOMAINS[d].primary]} onOpen={() => onOpenFeeling(d)} />
+          ))}
         </View>
       ) : (
         <Text style={styles.emptyStateText}>
-          Conte como foi seu treino. Seus feedbacks ajudam a construir sua visão de sono, esforço, fadiga e motivação ao longo do tempo.
+          Conte como foi seu treino. Seus feedbacks ajudam a construir sua visão de sono, prontidão, esforço e resposta aos treinos ao longo do tempo.
         </Text>
       )}
     </View>
@@ -681,15 +726,11 @@ function AcompanhamentoSection({
   }
   const sleep = feelings['workout.preSleepQuality'];
   const fatigue = feelings['workout.prePhysicalFatigue'];
-  if (sleep && sleep.evidence.n > 0) {
-    const dir = sleep.trend?.short_21d?.direction;
-    if (dir === 'stable') parts.push('Seu sono ficou próximo do seu padrão recente.');
-    else if (dir === 'increasing' || dir === 'decreasing') parts.push(`Seu sono ${dir === 'increasing' ? 'aumentou' : 'diminuiu'} em relação ao seu padrão recente.`);
-  }
-  if (fatigue && fatigue.evidence.n > 0) {
-    const dir = fatigue.trend?.short_21d?.direction;
-    if (dir === 'increasing') parts.push('A fadiga física apareceu um pouco mais alta recentemente.');
-  }
+  // Mesmas frases das telas de detalhe (trendSentence): Home e dominios nunca se contradizem.
+  const sleepLine = trendSentence(sleep, { label: 'A qualidade do sono', fmt: (v) => String(v) });
+  if (sleepLine) parts.push(sleepLine);
+  const fatigueLine = trendSentence(fatigue, { label: 'O cansaço físico antes do treino', fmt: (v) => String(v) });
+  if (fatigueLine) parts.push(fatigueLine);
   if (parts.length === 0) {
     parts.push('Continue registrando seus feedbacks para que possamos acompanhar sua trajetória com você.');
   } else {
@@ -798,13 +839,14 @@ function ConquistasSection({
 
 function TrajectorySection({ loading, unlocked }: { loading: boolean; unlocked: UnlockedMedalLite[] }) {
   if (loading) return <SkeletonBlock height={140} />;
-  const events = buildTrajectoryEvents(unlocked, 5);
+  // Linha do tempo arrastavel na horizontal: mostra mais marcos (ate' 20), do mais recente ao mais antigo.
+  const events = buildTrajectoryEvents(unlocked, 20);
   if (events.length === 0) return null;
 
   return (
     <View style={[styles.card, HomeBorder.card]}>
       <Text style={styles.sectionTitle}>Sua trajetória</Text>
-      <View style={styles.timelineRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.timelineRow}>
         {events.map((e, i) => (
           <View key={e.code} style={styles.timelineItem}>
             <View style={styles.timelineDot} />
@@ -813,7 +855,8 @@ function TrajectorySection({ loading, unlocked }: { loading: boolean; unlocked: 
             {i < events.length - 1 && <View style={styles.timelineLine} />}
           </View>
         ))}
-      </View>
+      </ScrollView>
+      {events.length > 3 ? <Text style={styles.chartHint}>Arraste para o lado para ver mais da sua trajetória.</Text> : null}
     </View>
   );
 }
@@ -930,6 +973,11 @@ const styles = StyleSheet.create({
   tooltipPanel: { backgroundColor: HomeColors.surfaceSecondary, borderRadius: HomeRadius.small, padding: HomeSpace.related, marginBottom: HomeSpace.small },
   tooltipTitle: { ...HomeTypography.bodyMedium, color: HomeColors.textPrimary, marginBottom: 4 },
   tooltipLine: { ...HomeTypography.body, color: HomeColors.textSecondary },
+  legendRow: { flexDirection: 'row', gap: HomeSpace.component, justifyContent: 'center', marginBottom: HomeSpace.small },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendSwatch: { width: 10, height: 10, borderRadius: 2 },
+  legendLine: { width: 14, height: 3, borderRadius: 2 },
+  legendText: { ...HomeTypography.tertiary, color: HomeColors.textSecondary },
   linkRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: HomeSpace.small },
   linkText: { ...HomeTypography.bodyMedium, color: HomeColors.panzeriInteraction },
 
@@ -945,6 +993,7 @@ const styles = StyleSheet.create({
   feelingLabel: { ...HomeTypography.label, color: HomeColors.textSecondary },
   feelingValue: { ...HomeTypography.numberSecondary, color: HomeColors.textPrimary },
   feelingTrend: { ...HomeTypography.tertiary, color: HomeColors.textTertiary },
+  feelingMore: { ...HomeTypography.tertiary, color: HomeColors.panzeriInteraction, marginTop: 4 },
   feelingEmpty: { ...HomeTypography.tertiary, color: HomeColors.textTertiary, marginTop: 8 },
 
   // Acompanhamento

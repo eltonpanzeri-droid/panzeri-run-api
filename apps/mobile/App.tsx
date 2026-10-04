@@ -8,13 +8,16 @@ import Constants from 'expo-constants';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { parseJourneyFromSearch, resolveJourney } from './src/journey';
-import { planStartsInFuture } from './src/weekWindow';
+import { planStartsInFuture, saoPauloDateString } from './src/weekWindow';
 import { ActivityDetailBody, type ActivityDetail } from './src/activityDetail';
 import { BrandMark } from './theme/BrandMark';
 import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
 import { HomeScreen } from './home/HomeScreen';
 import { MedalsScreen } from './home/MedalsScreen';
+import { FeelingsDetailScreen } from './home/FeelingsDetailScreen';
+import { EvolutionObjectiveSections } from './home/EvolutionObjective';
+import type { FeelingDomain } from './home/insights';
 import { BottomNav, BottomNavTab } from './home/BottomNav';
 import { useFonts, BigShouldersDisplay_800ExtraBold } from '@expo-google-fonts/big-shoulders-display';
 // Public Sans e JetBrains Mono (identidade-visual-panzeri-run) entram aqui quando alguma tela
@@ -66,7 +69,7 @@ type Screen = 'login' | 'app';
 // destinos orfaos desde que "Conta"/"Perfil" passaram a montar os mesmos componentes
 // (MeusDados/Anamnese) diretamente. 'billing' permanece: ainda e' destino de redirects reais do
 // funil de pagamento (quickIntake/billing_regularize).
-type Tab = 'home' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes';
+type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -1513,6 +1516,7 @@ function AppInner() {
   // weekTabOffset: quando o calendario historico navega para uma semana especifica,
   // este valor e' passado como initialWeekOffset para o componente Week ao montar.
   const [weekTabOffset, setWeekTabOffset] = useState(0);
+  const [feelingDomain, setFeelingDomain] = useState<FeelingDomain>('sleep');
   const [menuOpen, setMenuOpen] = useState(false);
   const [restartInterviewFromStart, setRestartInterviewFromStart] = useState(false);
   // 09/09: modulo selecionado para correcao granular — quando nao-nulo, a aba fixAnswers mostra
@@ -1814,9 +1818,13 @@ function AppInner() {
                 onOpenWeekTarget={(target) => { setWeekTabOffset(0); setWeekDeepLink(target); setActiveTab('week'); }}
                 onOpenHistory={() => setActiveTab('history')}
                 onOpenProgress={() => setActiveTab('progress')}
+                onOpenFeeling={(domain) => { setFeelingDomain(domain); setActiveTab('feelings'); }}
                 onOpenMedalsAll={() => setActiveTab('medals')}
                 onOpenTargetRace={() => setActiveTab('targetRace')}
               />
+            )}
+            {activeTab === 'feelings' && (
+              <FeelingsDetailScreen accessToken={accessToken} domain={feelingDomain} onBack={() => setActiveTab('home')} />
             )}
             {activeTab === 'medals' && (
               <MedalsScreen accessToken={accessToken} onBack={() => setActiveTab('home')} />
@@ -6301,7 +6309,7 @@ function Progress({ accessToken }: { accessToken: string }) {
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }}>
       <Text style={styles.sectionLabel}>Evolução</Text>
-      <Text style={[styles.titleSmall, { marginBottom: 16 }]}>Seu histórico de treinos</Text>
+      <Text style={[styles.titleSmall, { marginBottom: 16 }]}>Evolução objetiva do treinamento</Text>
 
       {loading ? (
         <ActivityIndicator size="small" color={PRColors.ocean} />
@@ -6488,6 +6496,9 @@ function Progress({ accessToken }: { accessToken: string }) {
               })}
             </View>
           </View>
+
+          {/* Interpretação em texto + ritmo + cadência (motor longitudinal; Evolução objetiva, 04/10/2026) */}
+          <EvolutionObjectiveSections accessToken={accessToken} weeks={data.recentWeeks} todayIso={saoPauloDateString(new Date())} />
 
           {/* Distribuição de modalidades */}
           <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#e2e8f0' }}>

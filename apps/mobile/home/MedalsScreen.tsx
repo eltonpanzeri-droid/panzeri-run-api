@@ -110,6 +110,23 @@ export function MedalsScreen({ accessToken, onBack }: { accessToken: string; onB
         <Text style={styles.summaryItem}>{totalProgress} próximas</Text>
       </View>
 
+      {/* Explicacao simples (04/10/2026): o que sao, como funcionam e o que representam. */}
+      <View style={styles.explainCard}>
+        <Text style={styles.explainTitle}>Como as conquistas funcionam</Text>
+        <Text style={styles.explainText}>
+          <Text style={styles.explainStrong}>O que são: </Text>
+          marcos reais da sua trajetória, reconhecidos automaticamente a partir do que você registra — treinos, distância, constância, feedbacks, retomadas e provas.
+        </Text>
+        <Text style={styles.explainText}>
+          <Text style={styles.explainStrong}>Como funcionam: </Text>
+          cada conquista tem um grau (bronze, prata, ouro, platina, diamante e lendária) que indica a dificuldade. Ao alcançar, ela fica registrada com a data e o valor que a gerou. As "em progresso" mostram quanto falta.
+        </Text>
+        <Text style={styles.explainText}>
+          <Text style={styles.explainStrong}>O que representam: </Text>
+          um registro da sua própria história no Panzeri Run. Não são nota nem comparação com outras pessoas.
+        </Text>
+      </View>
+
       <View style={styles.filterRow}>
         {(['all', 'unlocked', 'progress'] as FilterMode[]).map((f) => (
           <Pressable key={f} onPress={() => setFilter(f)} style={[styles.filterPill, filter === f && styles.filterPillActive]}>
@@ -175,6 +192,10 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, marginBottom: HomeSpace.related },
   summaryItem: { ...HomeTypography.bodyMedium, color: HomeColors.textSecondary },
   summaryDot: { color: HomeColors.textTertiary },
+  explainCard: { backgroundColor: HomeColors.surfaceHighlight, borderRadius: HomeRadius.cardMedium, padding: HomeSpace.component, gap: 6, marginBottom: HomeSpace.component },
+  explainTitle: { ...HomeTypography.sectionTitle, color: HomeColors.textPrimary },
+  explainText: { ...HomeTypography.body, color: HomeColors.textPrimary, lineHeight: 21 },
+  explainStrong: { fontWeight: '700' },
   filterRow: { flexDirection: 'row', gap: HomeSpace.small, marginBottom: HomeSpace.component },
   filterPill: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: HomeRadius.pill, backgroundColor: HomeColors.surfaceSecondary },
   filterPillActive: { backgroundColor: HomeColors.panzeriPrimary },
