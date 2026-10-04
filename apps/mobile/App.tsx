@@ -61,7 +61,7 @@ Notifications.setNotificationHandler({
 });
 
 type Screen = 'login' | 'app';
-type Tab = 'home' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'meusDados' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes';
+type Tab = 'home' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'anamnese' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'meusDados' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -624,6 +624,7 @@ interface MeResponse {
   birthDate?: string | null;
   heightCm?: number | null;
   weightKg?: number | null;
+  address?: string | null;
   acceptedExerciseResponsibilityAt?: string | null;
   healthProfile?: {
     averageSleep?: string | null;
@@ -1991,7 +1992,28 @@ function AppInner() {
                   routineDays={anamneseRoutine}
                   onRoutineChange={setAnamneseRoutine}
                 />
+                {/* BLOCO 3 (04/10/2026): Perfil concentra o contexto esportivo atual — ciclo
+                    menstrual incluido quando aplicavel. Mesma tela/endpoint de sempre ('ciclo'),
+                    so um atalho a mais pra chegar la (continua tambem no menu). */}
+                {savedMe?.sex === 'Feminino' && (
+                  <Pressable style={[styles.secondaryButton, { marginTop: 8 }]} onPress={() => setActiveTab('ciclo')}>
+                    <Ionicons name="medical-outline" size={18} color={PRColors.mineral} />
+                    <Text style={styles.secondaryButtonText}>Registrar ciclo menstrual</Text>
+                  </Pressable>
+                )}
               </>
+            )}
+            {activeTab === 'conta' && (
+              <ContaScreen
+                accessToken={accessToken}
+                userEmail={userEmail}
+                userName={userName}
+                savedMe={savedMe}
+                onSavedMeChange={setSavedMe}
+                onNameChange={setUserName}
+                onEditContactInfo={() => { setFixAnswersModule('Dados pessoais'); setActiveTab('fixAnswers'); }}
+                onLogout={logout}
+              />
             )}
               </>
             )}
@@ -7084,7 +7106,7 @@ function RoutineOverviewScreen({
 
 // 09/09: tela "Meus dados" — exibe os dados de contato e permite editá-los via modulo
 // "Dados pessoais" da entrevista sem precisar reabrir a entrevista inteira.
-function MeusDados({ savedMe, onEditContactInfo, onBack }: { savedMe: MeResponse | null; onEditContactInfo: () => void; onBack: () => void }) {
+function MeusDados({ savedMe, onEditContactInfo, onBack }: { savedMe: MeResponse | null; onEditContactInfo: () => void; onBack?: () => void }) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Meus dados</Text>
@@ -7110,15 +7132,17 @@ function MeusDados({ savedMe, onEditContactInfo, onBack }: { savedMe: MeResponse
         ) : null}
       </View>
       <Text style={styles.copyTight}>
-        Para atualizar nome, telefone, data de nascimento, endereco ou outros dados pessoais, toque em "Editar dados" abaixo.
+        Para atualizar telefone, endereco ou outros dados pessoais, toque em "Editar dados" abaixo. Nome e data de nascimento sao editados aqui mesmo, em "Dados basicos".
       </Text>
       <Pressable style={styles.primaryButton} onPress={onEditContactInfo}>
         <Text style={styles.primaryButtonText}>Editar dados</Text>
         <Ionicons name="create-outline" size={18} color={PRColors.mineral} />
       </Pressable>
-      <Pressable style={[styles.secondaryButton, { marginTop: 8 }]} onPress={onBack}>
-        <Text style={styles.secondaryButtonText}>Voltar ao treino</Text>
-      </Pressable>
+      {onBack ? (
+        <Pressable style={[styles.secondaryButton, { marginTop: 8 }]} onPress={onBack}>
+          <Text style={styles.secondaryButtonText}>Voltar ao treino</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -8767,16 +8791,12 @@ function Anamnese({
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Anamnese</Text>
       <Text style={styles.titleSmall}>Suas informacoes</Text>
+      {/* BLOCO 3 (04/10/2026): nome/nascimento sairam deste formulario — agora sao editados em
+          "Conta" (PUT /me/profile). Continuam sendo enviados aqui (via savedMe, sem edicao), pois
+          PUT /me/anamnese exige profile.name/birthDate/sex no mesmo payload (DTO existente, nao
+          alterado) — nunca sao reescritos por este formulario. */}
 
       <View style={styles.formGrid}>
-        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Nome" />
-        <TextInput
-          style={styles.input}
-          value={birthDate}
-          onChangeText={(value) => setBirthDate(formatBrazilianDateInput(value))}
-          keyboardType="numeric"
-          placeholder="Nascimento: DD/MM/AAAA"
-        />
         <TextInput
           style={styles.input}
           value={heightCm}
@@ -9338,6 +9358,150 @@ function billingMonthLabel(isoDate: string | null) {
   const monthIndex = Number(month) - 1;
   return monthIndex >= 0 && monthIndex < 12 ? `${months[monthIndex]} ${year}` : isoDate;
 }
+
+// ---------------------------------------------------------------------------
+// ContaScreen — BLOCO 3 (04/10/2026): "Conta" responde "quais sao meus dados e qual e minha
+// relacao administrativa com o Panzeri Run" — identidade basica, assinatura, logout. Reaproveita
+// 100% dos componentes/endpoints existentes (MeusDados, Billing, PUT /me/profile): nenhum model,
+// endpoint ou fluxo financeiro novo foi criado. "Perfil do atleta" (contexto esportivo — altura,
+// peso, saude, objetivo, modalidades, rotina, ciclo menstrual) continua na aba 'profile'
+// (componente Anamnese + PolarConnect, ja existente), sem os campos de identidade abaixo.
+// ---------------------------------------------------------------------------
+function ContaScreen({
+  accessToken,
+  userEmail,
+  userName,
+  savedMe,
+  onSavedMeChange,
+  onNameChange,
+  onEditContactInfo,
+  onLogout,
+}: {
+  accessToken: string;
+  userEmail: string;
+  userName: string;
+  savedMe: MeResponse | null;
+  onSavedMeChange: (me: MeResponse | null) => void;
+  onNameChange: (name: string) => void;
+  onEditContactInfo: () => void;
+  onLogout: () => void;
+}) {
+  const [name, setName] = useState(userName);
+  const [birthDate, setBirthDate] = useState('');
+  const [status, setStatus] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!savedMe) return;
+    setName(savedMe.name ?? userName);
+    setBirthDate(savedMe.birthDate ? formatDateFromApi(savedMe.birthDate) : '');
+  }, [savedMe, userName]);
+
+  // Reusa PUT /me/profile (ja existente, nunca chamado pelo app ate agora) — fonte canonica de
+  // User.name/birthDate. Os demais campos exigidos pelo mesmo DTO (sex/heightCm/weightKg/email) sao
+  // enviados sem alteracao (passthrough de savedMe): este formulario so edita identidade, nunca
+  // dados fisicos/esportivos (isso continua em "Perfil", via PUT /me/anamnese).
+  async function saveBasicData() {
+    const cleanName = name.trim();
+    const apiBirthDate = parseBrazilianDate(birthDate);
+    setStatus('');
+
+    if (!accessToken) {
+      setStatus('Entre novamente na conta para salvar.');
+      return;
+    }
+    if (!cleanName || !apiBirthDate) {
+      setStatus('Preencha nome e nascimento em dia/mes/ano.');
+      return;
+    }
+    if (!savedMe?.heightCm || !savedMe?.weightKg) {
+      // DTO de /me/profile exige altura/peso ja preenchidos (ver Perfil) — nao inventa valor.
+      setStatus('Complete altura e peso em "Perfil" antes de editar seus dados pessoais aqui.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/me/profile`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: cleanName,
+          email: (savedMe?.email ?? userEmail).trim().toLowerCase(),
+          birthDate: apiBirthDate,
+          sex: savedMe?.sex ?? 'prefiro_nao_informar',
+          heightCm: savedMe.heightCm,
+          weightKg: savedMe.weightKg,
+          address: savedMe.address ?? undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const apiMessage = await readApiError(response);
+        setStatus(response.status === 401 ? 'Sua sessao expirou. Saia e entre novamente.' : `Nao consegui salvar: ${apiMessage}`);
+        return;
+      }
+
+      onNameChange(cleanName);
+      onSavedMeChange(await loadSavedMe(accessToken));
+      setStatus('Seus dados foram atualizados com sucesso.');
+    } catch {
+      setStatus('Nao consegui conectar com a API agora.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  // Mesmo padrao dual web/nativo ja usado em correctOnboarding() — Alert.alert nao tem garantia
+  // de aparecer no navegador (PWA). Confirmacao obrigatoria: logout nunca acontece por toque unico.
+  function confirmLogout() {
+    const message = 'Deseja realmente sair da sua conta?';
+    if (Platform.OS === 'web') {
+      if (window.confirm(message)) onLogout();
+      return;
+    }
+    Alert.alert('Sair da conta', message, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Sair', style: 'destructive', onPress: onLogout },
+    ]);
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Conta</Text>
+      <Text style={styles.copyTight}>Seus dados, sua assinatura e seu acesso ao Panzeri Run.</Text>
+
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>Dados basicos</Text>
+        <View style={styles.formGrid}>
+          <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Nome" />
+          <TextInput
+            style={styles.input}
+            value={birthDate}
+            onChangeText={(value) => setBirthDate(formatBrazilianDateInput(value))}
+            keyboardType="numeric"
+            placeholder="Nascimento: DD/MM/AAAA"
+          />
+        </View>
+        <Pressable style={[styles.primaryButton, isSaving && styles.disabledButton]} disabled={isSaving} onPress={saveBasicData}>
+          <Text style={styles.primaryButtonText}>{isSaving ? 'Salvando...' : 'Salvar'}</Text>
+          <Ionicons name="save" size={18} color={PRColors.mineral} />
+        </Pressable>
+        {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+      </View>
+
+      <MeusDados savedMe={savedMe} onEditContactInfo={onEditContactInfo} />
+
+      <Billing accessToken={accessToken} />
+
+      <Pressable style={[styles.secondaryButton, { marginTop: 8 }]} onPress={confirmLogout}>
+        <Ionicons name="log-out-outline" size={18} color={PRColors.mineral} />
+        <Text style={styles.secondaryButtonText}>Sair da conta</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // HistoryCalendar — calendario de todas as semanas estilo Strava (09/09/2026)
 // ---------------------------------------------------------------------------
@@ -9623,7 +9787,6 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     // { id: 'interview', label: 'Entrevista inicial', icon: 'chatbubbles' },
     { id: 'routine', label: 'Rotina de treinos', icon: 'time' },
     { id: 'reassessment', label: 'Reavaliacao periodica', icon: 'refresh-circle' },
-    { id: 'meusDados', label: 'Meus dados', icon: 'person-circle-outline' },
     { id: 'shoes', label: 'Meus tenis', icon: 'footsteps-outline' },
     { id: 'fixAnswers', label: 'Corrigir respostas anteriores', icon: 'create-outline' },
     { id: 'targetRace', label: 'Prova alvo', icon: 'trophy' },
@@ -9632,8 +9795,12 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     { id: 'progress', label: 'Evolucao', icon: 'stats-chart' },
     { id: 'history', label: 'Calendario de treinos', icon: 'calendar-outline' },
     { id: 'strava', label: 'Sincronizar com Strava', icon: 'sync' },
-    { id: 'billing', label: 'Plano e faturamento', icon: 'card' },
     { id: 'profile', label: 'Perfil', icon: 'person' },
+    // BLOCO 3 (04/10/2026): "Meus dados" e "Plano e faturamento" deixaram de ser itens proprios do
+    // menu — seu conteudo (mesmos componentes, reaproveitados sem alteracao) agora vive dentro de
+    // "Conta", pra nao ter duas portas pro mesmo lugar. As abas internas 'meusDados'/'billing'
+    // continuam existindo (redirects automaticos do funil de pagamento ainda usam 'billing').
+    { id: 'conta', label: 'Conta', icon: 'settings-outline' },
     // Ciclo menstrual: so visivel para alunas (sex=Feminino) — 11/09
     ...(isFeminino ? [{ id: 'ciclo' as Tab, label: 'Registrar ciclo menstrual', icon: 'medical-outline' as keyof typeof Ionicons.glyphMap }] : []),
   ];
