@@ -146,18 +146,29 @@ interface DetailChartProps {
   title: string;
   unit: string;
   points: Array<{ x: number; y: number | null }>;
-  xLabel: 'km' | 'min';
+  xLabel: string;
   formatY: (v: number) => string;
   // Pace: menor valor = mais rapido, fica em cima.
   higherIsUp: boolean;
   bands?: ChartBand[];
   boundaries?: number[];
+  // Extensoes (04/10/2026, Evolucao objetiva): reaproveitam este mesmo grafico nas series longitudinais.
+  // formatX: rotulo de eixo/tooltip (ex.: dia -> dd/mm). Sem ele, comportamento original (km/min).
+  formatX?: (x: number) => string;
+  // Dominio fixo do eixo Y (escalas originais 1-5/1-10: nunca reescalar pro min/max dos dados).
+  yDomain?: { min: number; max: number };
+  // Segunda serie (mesma unidade), ex.: media movel — nunca outra unidade no mesmo eixo.
+  secondary?: { label: string; points: Array<{ x: number; y: number | null }> };
+  // Faixa horizontal (ex.: faixa habitual individual) sobre toda a largura.
+  band?: { lower: number; upper: number; label: string };
+  // Rotulo da serie principal na legenda.
+  seriesLabel?: string;
 }
 
 const HEIGHT = 190;
 const M = { left: 46, right: 10, top: 12, bottom: 24 };
 
-function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, bands, boundaries }: DetailChartProps) {
+export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, bands, boundaries, formatX, yDomain, secondary, band, seriesLabel }: DetailChartProps) {
   const [width, setWidth] = useState(320);
   const [cursor, setCursor] = useState<number | null>(null);
 
@@ -173,14 +184,25 @@ function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, bands, 
         if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
       }
     }
-    if (!(hi > lo)) { lo -= 1; hi += 1; }
-    const pad = (hi - lo) * 0.08;
-    const yMin = lo - pad;
-    const yMax = hi + pad;
+    if (band) { lo = Math.min(lo, band.lower); hi = Math.max(hi, band.upper); }
+    for (const p of secondary?.points ?? []) {
+      if (p.y != null) { lo = Math.min(lo, p.y); hi = Math.max(hi, p.y); }
+    }
+    let yMin: number;
+    let yMax: number;
+    if (yDomain) {
+      yMin = yDomain.min;
+      yMax = yDomain.max;
+    } else {
+      if (!(hi > lo)) { lo -= 1; hi += 1; }
+      const pad = (hi - lo) * 0.08;
+      yMin = lo - pad;
+      yMax = hi + pad;
+    }
     const xMin = real[0].x;
     const xMax = real[real.length - 1].x;
     return { yMin, yMax, xMin, xMax: xMax > xMin ? xMax : xMin + 1 };
-  }, [real, bands]);
+  }, [real, bands, band, secondary, yDomain]);
 
   if (!geometry) return null;
   const { yMin, yMax, xMin, xMax } = geometry;
@@ -203,6 +225,14 @@ function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, bands, 
 
   const yTicks = niceTicks(yMin, yMax, 4);
   const xTicks = niceTicks(xMin, xMax, 5);
+  const fx = formatX ?? ((x: number) => String(roundKm(x)));
+  let secondaryPath = '';
+  let secondaryOpen = false;
+  for (const p of secondary?.points ?? []) {
+    if (p.y == null) { secondaryOpen = false; continue; }
+    secondaryPath += `${secondaryOpen ? 'L' : 'M'}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)} `;
+    secondaryOpen = true;
+  }
 
   const cursorPoint = cursor != null ? real.reduce((best, p) => (Math.abs(p.x - cursor) < Math.abs(best.x - cursor) ? p : best), real[0]) : null;
 
@@ -216,7 +246,7 @@ function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, bands, 
       <Text style={{ fontSize: 12, fontWeight: '700', color: MUTED }}>{title}</Text>
       <Text style={{ fontSize: 12, color: cursorPoint ? '#0f172a' : '#94a3b8', minHeight: 16 }}>
         {cursorPoint
-          ? `${xLabel === 'km' ? `km ${roundKm(cursorPoint.x)}` : `${Math.round(cursorPoint.x)} min`} · ${formatY(cursorPoint.y)} ${unit}`
+          ? `${formatX ? formatX(cursorPoint.x) : xLabel === 'km' ? `km ${roundKm(cursorPoint.x)}` : `${Math.round(cursorPoint.x)} min`} · ${formatY(cursorPoint.y)} ${unit}`
           : 'Toque no gráfico para ver o valor em cada ponto'}
       </Text>
       <View
@@ -227,6 +257,11 @@ function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, bands, 
         onResponderMove={(e) => onTouch(e.nativeEvent.locationX)}
       >
         <Svg width={width} height={HEIGHT}>
+          {band ? (
+            <>
+              <Rect x={M.left} y={Math.min(sy(band.lower), sy(band.upper))} width={plotW} height={Math.max(Math.abs(sy(band.lower) - sy(band.upper)), 2)} fill="#94a3b8" opacity={0.18} />
+            </>
+          ) : null}
           {(bands ?? []).map((b, i) => {
             if (b.yFast == null || b.ySlow == null) return null;
             const top = Math.min(sy(b.yFast), sy(b.ySlow));
@@ -247,14 +282,16 @@ function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, bands, 
           {xTicks.map((t) => (
             <React.Fragment key={`x-${t}`}>
               <Line x1={sx(t)} x2={sx(t)} y1={M.top} y2={M.top + plotH} stroke={GRID} strokeWidth={1} />
-              <SvgText x={sx(t)} y={HEIGHT - 8} fontSize={10} fill={MUTED} textAnchor="middle">{roundKm(t)}</SvgText>
+              <SvgText x={sx(t)} y={HEIGHT - 8} fontSize={10} fill={MUTED} textAnchor="middle">{fx(t)}</SvgText>
             </React.Fragment>
           ))}
-          <SvgText x={M.left + plotW} y={HEIGHT - 8} fontSize={9} fill={MUTED} textAnchor="end">{xLabel}</SvgText>
+          {formatX ? null : <SvgText x={M.left + plotW} y={HEIGHT - 8} fontSize={9} fill={MUTED} textAnchor="end">{xLabel}</SvgText>}
           {(boundaries ?? []).map((b) => (
             <Line key={`bd-${b}`} x1={sx(b)} x2={sx(b)} y1={M.top} y2={M.top + plotH} stroke="#92400e" strokeWidth={1} strokeDasharray="4,3" />
           ))}
+          {secondaryPath ? <Path d={secondaryPath} stroke="#94a3b8" strokeWidth={1.4} strokeDasharray="5,3" fill="none" /> : null}
           <Path d={path} stroke={BLUE} strokeWidth={1.6} fill="none" />
+          {real.length <= 40 ? real.map((p, i) => <Circle key={i} cx={sx(p.x)} cy={sy(p.y)} r={2.5} fill={BLUE} />) : null}
           {cursorPoint ? (
             <>
               <Line x1={sx(cursorPoint.x)} x2={sx(cursorPoint.x)} y1={M.top} y2={M.top + plotH} stroke="#0f172a" strokeWidth={1} opacity={0.5} />
@@ -263,7 +300,12 @@ function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, bands, 
           ) : null}
         </Svg>
       </View>
-      <Text style={{ fontSize: 11, color: '#94a3b8' }}>{unit}{bands && bands.length ? ' · faixa laranja = ritmo prescrito' : ''}</Text>
+      <Text style={{ fontSize: 11, color: '#94a3b8' }}>
+        {unit}{bands && bands.length ? ' · faixa laranja = ritmo prescrito' : ''}
+        {seriesLabel ? ` · linha azul: ${seriesLabel}` : ''}
+        {secondary ? ` · tracejado: ${secondary.label}` : ''}
+        {band ? ` · faixa cinza: ${band.label}` : ''}
+      </Text>
     </View>
   );
 }
