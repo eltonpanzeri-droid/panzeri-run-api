@@ -26,6 +26,35 @@ export function pgEnvFromUrl(databaseUrl: string): Record<string, string> {
   return env;
 }
 
+// Trava do restore: dois URLs apontam para o MESMO banco se coincidem hostname, porta efetiva (padrao 5432) e nome do
+// database. Usuario, senha, query (sslmode, ordem dos parametros...) NAO contam. Loopback (localhost, 127.0.0.1, ::1)
+// e' tratado como um so' host. Fail-closed: URL ilegivel ou com parametros que redefinem host/porta/banco na query
+// (host, hostaddr, port, dbname) nao pode ser comparado com seguranca e conta como "mesmo banco".
+const OVERRIDING_QUERY_PARAMS = ['host', 'hostaddr', 'port', 'dbname'];
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1']);
+
+function databaseIdentity(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (!/^postgres(ql)?:$/.test(url.protocol)) return null;
+    if (OVERRIDING_QUERY_PARAMS.some((name) => url.searchParams.has(name))) return null;
+    let host = decodeURIComponent(url.hostname).toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+    if (LOOPBACK.has(host)) host = 'loopback';
+    const port = url.port || '5432';
+    const database = decodeURIComponent(url.pathname.replace(/^\//, ''));
+    return host && database ? `${host}:${port}/${database}` : null;
+  } catch {
+    return null;
+  }
+}
+
+export function sameDatabaseTarget(a: string, b: string): boolean {
+  const left = databaseIdentity(a);
+  const right = databaseIdentity(b);
+  if (left === null || right === null) return true; // nao comparavel => bloqueia
+  return left === right;
+}
+
 // Segredos que podem aparecer em mensagens de erro, derivados dos valores reais de configuracao.
 export function secretsFromDatabaseUrl(databaseUrl: string | undefined): string[] {
   if (!databaseUrl) return [];

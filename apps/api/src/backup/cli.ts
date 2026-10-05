@@ -5,7 +5,7 @@ import { AccountDeletionService } from '../account-deletion/account-deletion.ser
 import { ProviderDataDeletionService } from '../activity-execution/provider-data-deletion.service';
 import { decryptFile, parseBackupKey } from './backup-crypto';
 import { applyTombstones, postRestoreSafeguard, restoreBackupFile } from './backup-restore';
-import { redactSecrets, secretsFromDatabaseUrl } from './backup-sanitize';
+import { redactSecrets, sameDatabaseTarget, secretsFromDatabaseUrl } from './backup-sanitize';
 import { BACKUP_PREFIX } from './backup.service';
 import { R2Client } from './r2-client';
 import { Tombstone, TombstoneLedger } from './tombstone-ledger';
@@ -96,7 +96,8 @@ async function main() {
     case 'post-restore': {
       if (!flag('yes')) throw new Error('Esta operacao ALTERA o banco de destino (TARGET_DATABASE_URL). Repita com --yes para confirmar.');
       const target = env('TARGET_DATABASE_URL');
-      if (process.env.DATABASE_URL && target === process.env.DATABASE_URL) {
+      // Comparacao semantica (host + porta efetiva + database), nao de strings: credenciais/query diferentes nao enganam a trava.
+      if (process.env.DATABASE_URL && sameDatabaseTarget(target, process.env.DATABASE_URL)) {
         throw new Error('TARGET_DATABASE_URL e igual a DATABASE_URL (provavelmente producao). Recusado.');
       }
       const prisma = new PrismaClient({ datasources: { db: { url: target } } });
