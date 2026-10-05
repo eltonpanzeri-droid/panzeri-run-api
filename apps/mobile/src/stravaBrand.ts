@@ -1,14 +1,9 @@
 import type { ImageSourcePropType } from 'react-native';
 
-// Marca Strava (05/10/2026). As Brand Guidelines do Strava exigem o botao OFICIAL "Connect with Strava" (laranja ou
-// branco, 48 px de altura a 1x / 96 px a 2x), sem qualquer alteracao, e o selo "Powered by Strava" ou "Compatible with
-// Strava" quando a integracao e' mencionada. Os arquivos oficiais NAO sao reproduzidos por nos: baixe-os no site de
-// desenvolvedores do Strava (developers.strava.com/guidelines), coloque em apps/mobile/assets/strava/ e aponte aqui:
-//
-//   export const STRAVA_CONNECT_BUTTON: ImageSourcePropType | null = require('../assets/strava/btn_strava_connectwith_orange.png');
-//   export const STRAVA_COMPATIBLE_LOGO: ImageSourcePropType | null = require('../assets/strava/api_logo_cptblWith_strava_horiz_orange.png');
-//
-// Enquanto forem null a tela usa um botao de texto PROVISORIO (nao conforme) — nao submeta ao review do Strava assim.
-export const STRAVA_CONNECT_BUTTON: ImageSourcePropType | null = null;
-export const STRAVA_COMPATIBLE_LOGO: ImageSourcePropType | null = null;
+// Marca Strava (05/10/2026). Botao OFICIAL "Connect with Strava" (laranja, arquivo @2x de 474x96 px, exibido a 237x48 px),
+// usado sem qualquer alteracao, conforme as Brand Guidelines do Strava. Arquivo versionado neste repositorio.
+export const STRAVA_CONNECT_BUTTON: ImageSourcePropType = require('../assets/Strava/btn_strava_connect_with_orange_x2.png');
+export const STRAVA_BUTTON_WIDTH = 237;
 export const STRAVA_BUTTON_HEIGHT = 48;
+// Selo "Compatible with Strava": arquivo oficial ainda nao adicionado ao repositorio. Quando for, aponte aqui (ver assets/Strava/).
+export const STRAVA_COMPATIBLE_LOGO: ImageSourcePropType | null = null;

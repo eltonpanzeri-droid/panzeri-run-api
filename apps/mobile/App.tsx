@@ -8,7 +8,7 @@ import Constants from 'expo-constants';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { parseJourneyFromSearch, resolveJourney } from './src/journey';
-import { STRAVA_BUTTON_HEIGHT, STRAVA_COMPATIBLE_LOGO, STRAVA_CONNECT_BUTTON } from './src/stravaBrand';
+import { STRAVA_BUTTON_HEIGHT, STRAVA_BUTTON_WIDTH, STRAVA_COMPATIBLE_LOGO, STRAVA_CONNECT_BUTTON } from './src/stravaBrand';
 import { planStartsInFuture, saoPauloDateString } from './src/weekWindow';
 import { ActivityDetailBody, type ActivityDetail } from './src/activityDetail';
 import { BrandMark } from './theme/BrandMark';
@@ -8489,17 +8489,10 @@ function StravaSync({ accessToken }: { accessToken: string }) {
               <Text style={styles.reportText}>Como usamos: os dados do Strava aparecem somente para voce, neste app. Eles nao sao mostrados ao treinador, nao sao enviados a inteligencia artificial e ficam guardados por ate 7 dias.</Text>
               <Text style={styles.reportText}>Como retirar a autorizacao: toque em "Desconectar" aqui (os dados sao apagados) ou, no Strava, em Configuracoes &gt; Meus aplicativos.</Text>
             </View>
-            {STRAVA_CONNECT_BUTTON ? (
-              // Botao OFICIAL do Strava, sem alteracao (ver src/stravaBrand.ts).
-              <Pressable accessibilityRole="button" accessibilityLabel="Connect with Strava" disabled={connecting} onPress={connectStrava} style={connecting ? styles.disabledButton : undefined}>
-                <Image source={STRAVA_CONNECT_BUTTON} resizeMode="contain" style={{ height: STRAVA_BUTTON_HEIGHT, width: 237 }} />
-              </Pressable>
-            ) : (
-              <Pressable style={[styles.primaryButton, connecting && styles.disabledButton]} disabled={connecting} onPress={connectStrava}>
-                <Text style={styles.primaryButtonText}>{connecting ? 'Abrindo autorizacao...' : 'Conectar com Strava'}</Text>
-                <Ionicons name="link" size={18} color={PRColors.mineral} />
-              </Pressable>
-            )}
+            {/* Botao OFICIAL Connect with Strava, sem alteracao (ver src/stravaBrand.ts). Inicia o OAuth existente. */}
+            <Pressable accessibilityRole="button" accessibilityLabel="Connect with Strava" disabled={connecting} onPress={connectStrava} style={connecting ? styles.disabledButton : undefined}>
+              <Image source={STRAVA_CONNECT_BUTTON} resizeMode="contain" style={{ height: STRAVA_BUTTON_HEIGHT, width: STRAVA_BUTTON_WIDTH }} />
+            </Pressable>
           </>
         ) : (
           <>
