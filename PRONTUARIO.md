@@ -2497,3 +2497,17 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
   Política descreve exatamente isso. Backup: política não menciona restauração de dados excluídos nem prazo.
 - **Pendências de decisão/verificação externa**: base legal e prazos 5/15 dias (texto pré-existente, mantido); advogado
   (ver pending_legal_review); confirmar Resend em produção; decidir se Meta CAPI continua no cadastro.
+
+### 2026-10-05 — Pré-Garmin 4: backup criptografado no R2, restauração fail-closed (tombstones pendentes)
+- **Antes:** `pg_dump` completo (sem criptografia) anexado a e-mail via Resend, sem retenção, sem procedimento de
+  restauração; erro do `pg_dump` ecoava a `DATABASE_URL` (comando) para log, Telegram e resposta HTTP.
+- **Agora:** `pg_dump` sem shell e com a conexão por variáveis `PG*` → AES-256-GCM (`BACKUP_ENCRYPTION_KEY`, chave própria) →
+  upload no Cloudflare R2 (cliente SigV4 próprio, sem dependência nova; vetor oficial AWS nos testes) → conferência
+  (tamanho + MD5/ETag) → temporário removido. Retenção de 14 dias aplicada pelo código (+ regra de ciclo de vida no bucket,
+  a configurar). `POST /coach/backup/run` virou admin-only. Resend voltou a ser só e-mail normal.
+- **Restauração:** `pnpm backup:cli list|download|decrypt|restore|post-restore` (runbook `RUNBOOKS/2026-10-05-BACKUP-RESTORE.md`).
+  `restore` = `pg_restore` + `postRestoreSafeguard` sempre (roda até se o pg_restore falhar): Polar ativa vira desconectada,
+  Strava perde as linhas de token, sem chamadas externas. Recusa `TARGET_DATABASE_URL` igual a `DATABASE_URL`.
+- **Pendente (aprovação):** ledger de tombstones fora do banco (conta/dados de provider excluídos depois do snapshot).
+  **Pendente (operacional, Elton):** criar bucket/token/regra no R2, variáveis no EasyPanel, `ADMIN_EMAILS`, ensaio de
+  restauração, limpeza manual dos backups antigos por e-mail, rotação da senha do Postgres. Strava com token em texto puro: bloco seguinte.

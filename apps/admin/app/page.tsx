@@ -1550,7 +1550,7 @@ export default function AdminHome() {
         {activeView === 'dashboard' ? (
           <section className="miniSection">
             <h3>Backup do banco de dados</h3>
-            <p>Um backup automatico e enviado por e-mail todos os dias as 4h. Voce tambem pode gerar um agora.</p>
+            <p>Um backup criptografado e enviado todos os dias as 4h para o armazenamento seguro (retencao de 14 dias). Gerar um agora exige acesso de administrador.</p>
             <button className="secondaryButton" type="button" disabled={isBackingUp} onClick={runBackupNow}>
               {isBackingUp ? 'Gerando backup...' : 'Gerar backup agora'}
             </button>

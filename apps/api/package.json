@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "nest start --watch",
     "start": "node dist/main.js",
+    "backup:cli": "node dist/backup/cli.js",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
     "build": "nest build",

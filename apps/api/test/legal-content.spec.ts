@@ -97,7 +97,7 @@ describe('conteudo fiel ao produto atual', () => {
   });
 
   it('terceiros efetivamente usados estao listados', () => {
-    for (const name of ['Anthropic', 'Resend', 'Asaas', 'RevenueCat', 'Expo', 'Telegram', 'Meta', 'Polar', 'Strava', 'hospedagem']) {
+    for (const name of ['Anthropic', 'Resend', 'Asaas', 'RevenueCat', 'Expo', 'Telegram', 'Meta', 'Polar', 'Strava', 'hospedagem', 'Cloudflare']) {
       expect(PRIVACY).toContain(name);
     }
   });

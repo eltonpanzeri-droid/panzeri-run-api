@@ -1,25 +1,44 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { mkdtemp, readFile, rm } from 'fs/promises';
+import { execFile } from 'child_process';
+import { randomBytes } from 'crypto';
+import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { EmailService } from '../messaging/email.service';
+import { promisify } from 'util';
 import { TelegramService } from '../billing/telegram.service';
+import { encryptFile, parseBackupKey } from './backup-crypto';
+import { pgEnvFromUrl, redactSecrets, secretsFromDatabaseUrl } from './backup-sanitize';
+import { R2Client, R2Config } from './r2-client';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
-// 04/09: achado numa revisao pensando em escala — o backup e enviado como ANEXO de e-mail (Resend),
-// que tem um limite real de tamanho (a maioria dos provedores fica entre 25-40MB). Conforme o banco
-// cresce com mais assinantes/mais historico, o dump pode ultrapassar isso um dia e o backup diario
-// comecaria a falhar silenciosamente — antes disso, uma falha so ficava num log de servidor que
-// ninguem olha. Nao mudei a forma de guardar o backup (mudar pra armazenamento em nuvem e' uma
-// decisao de infraestrutura maior, fora do escopo de uma correcao de codigo sozinha), mas agora
-// qualquer falha avisa o treinador no Telegram no mesmo dia, sem esperar precisar restaurar algo
-// pra descobrir que os backups pararam.
+// Backup do banco (reescrito em 05/10/2026 — Bloco pre-Garmin 4).
+// Fluxo: PostgreSQL -> pg_dump temporario -> AES-256-GCM (chave BACKUP_ENCRYPTION_KEY) -> upload no
+// Cloudflare R2 -> conferencia (tamanho + ETag/MD5) -> remocao do temporario. O dump em claro nunca sai do
+// servidor e NAO e mais enviado por e-mail (o Resend ficou so' com os e-mails normais do produto).
+// Seguranca do pg_dump: sem shell e sem URL em argumento — a DATABASE_URL vira variaveis PG* do processo
+// filho; toda mensagem de erro passa por redactSecrets antes de log/Telegram/HTTP.
+// Retencao: 14 dias, aplicada AQUI por exclusao dos objetos antigos apos cada backup bem-sucedido (prefixo
+// proprio, nunca toca em outros objetos). Recomenda-se TAMBEM uma Lifecycle Rule no bucket (ver runbook).
+
+export const BACKUP_PREFIX = 'panzeri-backups/db/';
+export const BACKUP_RETENTION_DAYS = 14;
 const BACKUP_SIZE_WARNING_BYTES = 20 * 1024 * 1024;
+
+export interface BackupResult {
+  ok: boolean;
+  error?: string;
+  sizeBytes?: number;
+  objectKey?: string;
+  prunedObjects?: number;
+}
+
+export function backupObjectKey(now: Date = new Date(), suffix: string = randomBytes(4).toString('hex')): string {
+  const stamp = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+  return `${BACKUP_PREFIX}${stamp}-${suffix}.dump.enc`;
+}
 
 @Injectable()
 export class BackupService {
@@ -27,7 +46,6 @@ export class BackupService {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly email: EmailService,
     private readonly telegram: TelegramService,
   ) {}
 
@@ -39,52 +57,91 @@ export class BackupService {
       this.logger.error(`Backup diario falhou: ${result.error}`);
       await this.telegram.notifyCoach(`Falha no backup diario do banco de dados!\n\nMotivo: ${result.error}\n\nIsso precisa de atencao — sem backup de hoje, um problema no banco perderia dados mais recentes.`).catch(() => undefined);
     } else if (result.sizeBytes && result.sizeBytes > BACKUP_SIZE_WARNING_BYTES) {
-      await this.telegram.notifyCoach(`Aviso: o backup diario de hoje ficou grande (${(result.sizeBytes / 1024 / 1024).toFixed(1)}MB). Se continuar crescendo, pode um dia passar do limite de anexo do e-mail e o backup comecar a falhar sem aviso — vale considerar mudar pra armazenamento em nuvem antes disso acontecer.`).catch(() => undefined);
+      await this.telegram.notifyCoach(`Aviso: o backup diario de hoje ficou grande (${(result.sizeBytes / 1024 / 1024).toFixed(1)}MB). Acompanhe o crescimento do banco e o custo do armazenamento.`).catch(() => undefined);
     }
   }
 
-  async runBackup(): Promise<{ ok: boolean; error?: string; sizeBytes?: number }> {
+  // Pontos de extensao (testes): nada de logica de negocio aqui.
+  protected createR2(config: R2Config): R2Client { return new R2Client(config); }
+
+  protected async runPgDump(env: Record<string, string>, dumpPath: string): Promise<void> {
+    // execFile = SEM shell; nenhum argumento contem a URL (conexao vem das variaveis PG* do ambiente).
+    await execFileAsync('pg_dump', ['--format=custom', '--file', dumpPath], {
+      env: { PATH: process.env.PATH ?? '', ...env },
+      maxBuffer: 1024 * 1024,
+    });
+  }
+
+  async runBackup(): Promise<BackupResult> {
     const databaseUrl = this.config.get<string>('DATABASE_URL');
-    const backupEmailTo = this.config.get<string>('BACKUP_EMAIL_TO');
+    const encryptionKeyRaw = this.config.get<string>('BACKUP_ENCRYPTION_KEY');
+    const r2 = {
+      accountId: this.config.get<string>('R2_ACCOUNT_ID'),
+      bucket: this.config.get<string>('R2_BUCKET'),
+      accessKeyId: this.config.get<string>('R2_ACCESS_KEY_ID'),
+      secretAccessKey: this.config.get<string>('R2_SECRET_ACCESS_KEY'),
+    };
+    const secrets = [...secretsFromDatabaseUrl(databaseUrl), encryptionKeyRaw, r2.secretAccessKey, r2.accessKeyId];
 
-    if (!databaseUrl) {
-      return { ok: false, error: 'DATABASE_URL nao configurado.' };
-    }
-    if (!backupEmailTo) {
-      return { ok: false, error: 'BACKUP_EMAIL_TO nao configurado.' };
-    }
+    // Lista so' os NOMES das variaveis que faltam, nunca valores.
+    const missing = [
+      ['DATABASE_URL', databaseUrl], ['BACKUP_ENCRYPTION_KEY', encryptionKeyRaw], ['R2_ACCOUNT_ID', r2.accountId],
+      ['R2_BUCKET', r2.bucket], ['R2_ACCESS_KEY_ID', r2.accessKeyId], ['R2_SECRET_ACCESS_KEY', r2.secretAccessKey],
+    ].filter(([, value]) => !value).map(([name]) => name);
+    if (missing.length > 0) return { ok: false, error: `Backup nao configurado. Variaveis ausentes: ${missing.join(', ')}.` };
 
-    const today = new Date().toISOString().slice(0, 10);
     let tempDir: string | null = null;
-
     try {
+      const key = parseBackupKey(encryptionKeyRaw);
+      const pgEnv = pgEnvFromUrl(databaseUrl as string);
       tempDir = await mkdtemp(join(tmpdir(), 'panzeri-backup-'));
-      const dumpPath = join(tempDir, `panzeri-run-${today}.dump`);
+      const dumpPath = join(tempDir, 'dump.pgcustom');
+      const encPath = join(tempDir, 'dump.enc');
 
-      await execAsync(`pg_dump "${databaseUrl}" --format=custom --file="${dumpPath}"`);
+      await this.runPgDump(pgEnv, dumpPath);
+      const info = await encryptFile(dumpPath, encPath, key);
+      // O dump em claro some assim que o cifrado existe — antes de qualquer envio.
+      await rm(dumpPath, { force: true });
 
-      const content = await readFile(dumpPath);
-      const result = await this.email.send(
-        backupEmailTo,
-        `Backup do banco Panzeri Run - ${today}`,
-        `Backup automatico do banco de dados gerado em ${today}.\n\nPara restaurar: pg_restore --clean --if-exists -d SEU_BANCO ${`panzeri-run-${today}.dump`}\n\nGuarde este e-mail em local seguro.`,
-        [{ filename: `panzeri-run-${today}.dump`, content }],
-      );
+      const objectKey = backupObjectKey();
+      const client = this.createR2(r2 as R2Config);
+      await client.putObjectFromFile(objectKey, encPath, info, { format: 'pzbk1', created: new Date().toISOString() });
 
-      if (!result.ok) {
-        return { ok: false, error: result.error };
+      // Confirmacao: o objeto existe com o tamanho e o MD5 esperados (ETag de PUT simples = MD5 do corpo).
+      const head = await client.headObject(objectKey);
+      if (!head || head.size !== info.size || (head.etag && head.etag.toLowerCase() !== info.md5)) {
+        await client.deleteObject(objectKey).catch(() => undefined);
+        return { ok: false, error: 'Falha ao confirmar o upload do backup no armazenamento (tamanho/ETag divergentes).' };
       }
 
-      this.logger.log(`Backup do banco enviado por e-mail (${content.length} bytes).`);
-      return { ok: true, sizeBytes: content.length };
+      const prunedObjects = await this.pruneOldBackups(client, objectKey, secrets);
+      this.logger.log(`Backup criptografado enviado ao R2 (${info.size} bytes; ${prunedObjects} antigo(s) removido(s) pela retencao de ${BACKUP_RETENTION_DAYS} dias).`);
+      return { ok: true, sizeBytes: info.size, objectKey, prunedObjects };
     } catch (error) {
-      const message = (error as Error).message;
+      const message = redactSecrets(error, secrets);
       this.logger.error(`Falha ao gerar backup do banco: ${message}`);
       return { ok: false, error: message };
     } finally {
-      if (tempDir) {
-        await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+      if (tempDir) await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  // Retencao de 14 dias: so' objetos com o nosso prefixo; nunca o objeto recem-enviado; falha aqui nao
+  // invalida o backup (so' avisa no log, ja sanitizado).
+  private async pruneOldBackups(client: R2Client, justUploaded: string, secrets: Array<string | undefined>): Promise<number> {
+    try {
+      const cutoff = Date.now() - BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+      const objects = await client.listObjects(BACKUP_PREFIX);
+      let removed = 0;
+      for (const object of objects) {
+        if (object.key === justUploaded || !object.key.startsWith(BACKUP_PREFIX) || object.lastModified.getTime() >= cutoff) continue;
+        await client.deleteObject(object.key);
+        removed++;
       }
+      return removed;
+    } catch (error) {
+      this.logger.warn(`Retencao de backups nao concluida: ${redactSecrets(error, secrets)}`);
+      return 0;
     }
   }
 }

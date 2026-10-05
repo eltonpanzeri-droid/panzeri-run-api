@@ -137,6 +137,8 @@ export class CoachController {
     return this.coachService.exerciseLibrary();
   }
 
+  // 05/10/2026: gerar/exportar um dump completo do banco e' capacidade de ADMIN (nao de coach comum).
+  @Roles('admin')
   @Post('backup/run')
   runDatabaseBackup() {
     return this.coachService.runDatabaseBackup();
