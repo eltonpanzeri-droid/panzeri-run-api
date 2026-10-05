@@ -149,6 +149,8 @@ export class AccountDeletionService {
             studentCode: null, accountStatus: 'deleted',
             cancelReason: null, cancelFeedbackText: null, cancelWouldReturn: null, subscriptionCancelRequestedAt: null,
             refreshTokenHash: null, expoPushToken: null, acquisitionAttribution: null,
+            // Aceite juridico (termos, privacidade, aptidao fisica): sem finalidade de retencao definida, nao e' preservado.
+            acceptedTermsAt: null, acceptedPrivacyAt: null, acceptedTermsVersion: null, acceptedPrivacyVersion: null, acceptedExerciseResponsibilityAt: null,
             lastRoutineChangeAt: null, lastPlanGenerationFailedAt: null, generationWeekStart: null, lastGenerationAttemptAt: null,
           },
         });

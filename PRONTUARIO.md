@@ -2537,5 +2537,5 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
   pagamento), `CouponRedemption`, `ProviderConnectionEvent`. Teste falha se surgir modelo com `userId` sem classificação.
 - Login/refresh/JWT recusam conta excluída (JwtStrategy consulta o status ≤ 1×/min por usuário). Restore reaplica a mesma exclusão (local, idempotente,
   sem novo tombstone). Política (seção 13) ajustada ao comportamento real; removida a frase sobre "prazo mínimo da legislação fiscal" (não implementado).
-- Julgamentos a confirmar: `CouponRedemption` (B por registrar o benefício concedido), eventos de funil apagados (reduz histórico de BI), aceite dos
-  termos mantido na linha anonimizada, retenção dos registros financeiros sem prazo de expurgo.
+- Julgamentos CONFIRMADOS por Elton: `CouponRedemption` em B; eventos de funil em A (perde parte do BI); registros financeiros em B (prazo de
+  retenção a definir com advogado). Aceite dos termos/privacidade/aptidão (datas e versões) é ZERADO na anonimização — sem finalidade de retenção definida.
