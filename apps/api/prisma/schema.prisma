@@ -63,6 +63,10 @@ model User {
   subscriptionProvider             String    @default("asaas")
   acceptedTermsAt                  DateTime?
   acceptedPrivacyAt                DateTime?
+  // Versao juridica (LEGAL_VERSION, legal/legal-content.ts) vigente no aceite. Null = aceite anterior ao
+  // versionamento (05/10/2026): nunca preenchida retroativamente nem usada para forcar novo aceite.
+  acceptedTermsVersion             String?
+  acceptedPrivacyVersion           String?
   acceptedExerciseResponsibilityAt DateTime?
   lastRoutineChangeAt              DateTime?
   refreshTokenHash                 String?

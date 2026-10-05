@@ -68,13 +68,13 @@ const THIRD_PARTIES = [
   '- Resend: envio de e-mails do serviço e das cópias de segurança descritas abaixo.',
   '- Expo: entrega de notificações no aplicativo.',
   '- Telegram: canal interno de avisos do treinador sobre o acompanhamento dos alunos.',
-  '- Meta: quando configurado, o cadastro pode enviar um evento de medição de campanhas com e-mail em formato criptografado (hash), endereço IP e navegador.',
+  '- Meta (Facebook): quando configurado, o servidor do Panzeri Run envia à Meta eventos de conversão para medir o resultado de campanhas de divulgação: um ao criar a conta e outro quando um pagamento é confirmado (com valor e moeda). Cada evento leva seu e-mail convertido em código (hash), os identificadores de navegador da Meta (quando existem) e um identificador do evento; o evento de cadastro leva também o endereço IP e o navegador usados. No fluxo atual, não são enviados à Meta dados de saúde, feedbacks, relatos nem conteúdo ou métricas de treino.',
   '- Infraestrutura de hospedagem do aplicativo e do banco de dados.',
 ];
 
 const BACKUP_PARAGRAPHS = [
   'Mantemos cópias de segurança periódicas do banco de dados para recuperação em caso de falha. Elas contêm os dados da conta existentes no momento de cada cópia e ficam guardadas fora do banco em operação.',
-  'Quando um dado é excluído do banco em operação, a exclusão não alcança imediatamente as cópias de segurança já feitas: elas permanecem até serem substituídas ou descartadas pela nossa rotina, e não prometemos um prazo exato. A restauração de uma cópia pode trazer de volta dados que tinham sido excluídos depois da data dela.',
+  'Quando um dado é excluído do banco em operação, a remoção das cópias de segurança pode não ocorrer imediatamente: elas permanecem até serem substituídas ou descartadas pela nossa rotina, e não prometemos um prazo exato.',
 ];
 
 const REQUEST_PARAGRAPHS = [

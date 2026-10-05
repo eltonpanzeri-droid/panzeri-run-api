@@ -89,7 +89,8 @@ describe('conteudo fiel ao produto atual', () => {
   });
 
   it('backup: sem exclusao instantanea de todas as copias e sem prazo inventado', () => {
-    expect(PRIVACY).toContain('não alcança imediatamente as cópias de segurança');
+    expect(PRIVACY).toContain('a remoção das cópias de segurança pode não ocorrer imediatamente');
+    for (const doc of [PRIVACY, SUMMARY]) expect(doc).not.toMatch(/restaura/i); // nao normaliza o retorno de dados excluidos
     expect(PRIVACY).toContain('não prometemos um prazo exato');
     expect(PRIVACY).not.toMatch(/exclusão (imediata|instantânea)/i);
     expect(PRIVACY).not.toMatch(/cópias de segurança[^.]*em até d+/i); // nenhum prazo de backup prometido

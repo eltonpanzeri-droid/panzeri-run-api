@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import { isStaffRole, resolveEffectiveRole } from '../common/staff-roles';
+import { LEGAL_VERSION } from '../legal/legal-content';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -49,6 +50,9 @@ export class AuthService {
           passwordHash,
           acceptedTermsAt: new Date(),
           acceptedPrivacyAt: new Date(),
+          // Versao dos documentos exibidos no momento do aceite (usuarios antigos ficam com null).
+          acceptedTermsVersion: LEGAL_VERSION,
+          acceptedPrivacyVersion: LEGAL_VERSION,
           acceptedExerciseResponsibilityAt: new Date(),
           // Atribuição de aquisição — somente quando o cliente envia pelo menos um campo preenchido.
           // Null quando o aluno chega diretamente (sem UTM/referrer). Nunca inventar origem.

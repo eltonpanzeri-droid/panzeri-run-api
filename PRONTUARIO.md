@@ -2489,8 +2489,11 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
 - **App**: item de menu permanente "Privacidade e dados" (`PrivacyDataScreen`): dados, integrações, IA, gerenciar
   (desconectar e excluir dados da Polar com confirmação, via `PolarConnect` variants `status`/`manage`), links,
   terceiros, solicitações. Nenhuma regra nova de backend.
-- **Consentimento**: `acceptedTerms` é booleano no DTO; grava `acceptedTermsAt`/`acceptedPrivacyAt`
-  (timestamps) sem VERSÃO. Versionamento depende de migration (`acceptedTermsVersion`/`acceptedPrivacyVersion`) — NÃO feita,
-  aguardando decisão. `LEGAL_VERSION` (2026-10-05) já existe nos documentos para uso futuro.
+- **Consentimento**: `acceptedTerms` é booleano no DTO; o cadastro grava `acceptedTermsAt`/`acceptedPrivacyAt` e, desde o ajuste
+  final (migration `20261005120000_add_accepted_legal_versions`), `acceptedTermsVersion`/`acceptedPrivacyVersion` = `LEGAL_VERSION`
+  (legal-content.ts). Usuários antigos ficam NULL (sem backfill, sem reaceite forçado). Ao mudar o texto, atualizar `LEGAL_VERSION`.
+- **Meta CAPI (fato conferido no código)**: só 2 envios — CompleteRegistration (e-mail em hash SHA-256, fbp/fbc, IP, user agent, event_id)
+  e Purchase (e-mail em hash, fbp/fbc, valor e BRL, event_id); só se META_PIXEL_ID/META_ACCESS_TOKEN existirem. Nenhum dado de saúde/treino.
+  Política descreve exatamente isso. Backup: política não menciona restauração de dados excluídos nem prazo.
 - **Pendências de decisão/verificação externa**: base legal e prazos 5/15 dias (texto pré-existente, mantido); advogado
-  (ver pending_legal_review); confirmar Resend em produção; se Meta CAPI deve continuar no cadastro.
+  (ver pending_legal_review); confirmar Resend em produção; decidir se Meta CAPI continua no cadastro.
