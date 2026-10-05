@@ -129,6 +129,9 @@ export interface MethodologyHistoryWeek {
   // util pra situar uma prova/longao especifico no tempo.
   weekStartDate: string;
   longestRunDate: string | null;
+  // 05/10/2026: uma linha por sessao COM registro do aluno (data, modalidade, forma, prescrito,
+  // realizado, autorrelato de ter corrido tudo). Fatos para o Treinador situar sozinho a progressao.
+  recordedSessions?: string[];
 }
 
 export interface MethodologyInput {

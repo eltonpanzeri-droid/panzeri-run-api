@@ -10,6 +10,7 @@ import { ContextEventsService } from '../context-events/context-events.service';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 import { MedalEvaluationService } from '../medals/medal-evaluation.service';
+import { describeSessionShape, pacingModeLabel } from '../training-plans/agent-context-format';
 import { ShoesService, RUNNING_MODALITIES } from '../shoes/shoes.service';
 
 @Injectable()
@@ -385,10 +386,13 @@ export class WorkoutCompletionsService {
       : '';
 
     const statusLabelForProfile = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'fez com ajustes' : 'nao fez';
+    const sessionShape = describeSessionShape(session.sessionType, session.structure);
+    const pacingText = pacingModeLabel((details as Record<string, unknown>).pacingMode);
     const profileParts = [
-      `Aluno ${statusLabelForProfile} o treino "${session.title}".`,
+      `Aluno ${statusLabelForProfile} o treino "${session.title}" (${session.scheduledDate.toISOString().slice(0, 10)}, ${session.modality}${sessionShape ? `, ${sessionShape}` : ''}).`,
       dto.distanceKm ? `Distancia: ${dto.distanceKm}km.` : '',
       dto.avgPaceSecondsKm ? `Pace medio: ${Math.floor(dto.avgPaceSecondsKm / 60)}:${String(dto.avgPaceSecondsKm % 60).padStart(2, '0')}/km.` : '',
+      pacingText ? `Como foi feito: ${pacingText}.` : '',
       // Bloco Sono (v2). "5" nestas variaveis sempre significa MAIS da coisa perguntada — 5 em
       // irregularidade/interrupcao/dificuldade e' RUIM (mais problema), nao inverter a leitura.
       dto.preSleepQuality ? `Qualidade do sono na noite anterior: ${dto.preSleepQuality}/5 (1=muito ruim, 5=excelente).` : '',

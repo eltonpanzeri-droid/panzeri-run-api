@@ -32,6 +32,7 @@ import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 import { SessionExecutionLinkService, WeekReconciliation, localCalendarDate } from '../activity-execution/session-execution-link.service';
 import { ShoesService } from '../shoes/shoes.service';
+import { describeSessionShape, formatDirectiveForAgent, formatRecordedSession } from './agent-context-format';
 
 interface SessionTemplate {
   title: string;
@@ -612,7 +613,7 @@ export class TrainingPlansService {
       this.prisma.studentDirective.findMany({
         where: { userId, active: true, OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] },
         orderBy: { createdAt: 'desc' },
-        select: { content: true },
+        select: { content: true, createdAt: true },
       }),
       this.painReports.computeSafetyTier(userId),
       this.targetRaces.activeGoals(userId),
@@ -795,6 +796,12 @@ export class TrainingPlansService {
         unregisteredSessions: historyPlan.sessions.filter((session) => session.completion === null).length,
         weekStartDate: historyPlan.startDate.toISOString().slice(0, 10),
         longestRunDate: longestRun ? longestRun.scheduledDate.toISOString().slice(0, 10) : null,
+        // 05/10/2026 (caso Eduarda): fatos sessao a sessao, so' das sessoes com registro do aluno (as sem
+        // registro ja estao contadas em unregisteredSessions — ausencia de registro nao vira dado).
+        recordedSessions: historyPlan.sessions
+          .filter((session): session is typeof session & { completion: NonNullable<typeof session.completion> } => session.completion !== null)
+          .sort((a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime())
+          .map((session) => formatRecordedSession(session)),
       };
     });
     // So chama a IA do prontuario se houver evento novo acumulado desde a ultima atualizacao —
@@ -845,7 +852,7 @@ export class TrainingPlansService {
         modalityDurations: normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined),
       })),
       history: methodologyHistory,
-      studentDirectives: activeDirectives.map((directive) => directive.content),
+      studentDirectives: activeDirectives.map(formatDirectiveForAgent),
       activeObservations: activeObservations.map((observation) => observation.content),
       studentProfileSummary,
       weeklyCheckIn: latestWeeklyCheckIn,
@@ -1266,7 +1273,7 @@ export class TrainingPlansService {
               rationale: methodology.rationale,
               safetyAdjustment: methodology.safetyAdjustment,
               history: methodologyHistory,
-              studentDirectives: activeDirectives.map((directive) => directive.content),
+              studentDirectives: activeDirectives.map(formatDirectiveForAgent),
               decisionDateTime: saoPauloDateTime(new Date()),
             },
             weeklyOverrideUsed: adjustedAvailability.length > 0,
@@ -1344,6 +1351,9 @@ export class TrainingPlansService {
     const weekSummaryForProfile = sessionsToCreate
       .map((session) => {
         const parts = [`${weekdayLabel(session.weekday)} ${session.modality}: ${session.title}`];
+        // Forma da sessao (continuo/intervalado/misto + blocos) quando a estrutura gravada permite afirmar.
+        const shape = describeSessionShape(session.sessionType, session.structure);
+        if (shape) parts.push(shape);
         if (session.distanceKm) parts.push(`${session.distanceKm}km`);
         if (session.durationMin) parts.push(`${session.durationMin}min`);
         return parts.join(', ');
@@ -1754,7 +1764,7 @@ export class TrainingPlansService {
       this.prisma.studentDirective.findMany({
         where: { userId, active: true, OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] },
         orderBy: { createdAt: 'desc' },
-        select: { content: true },
+        select: { content: true, createdAt: true },
       }),
       this.prisma.studentObservation.findMany({ where: { userId, active: true }, orderBy: { createdAt: 'desc' } }),
       this.prisma.reassessment.findFirst({ where: { userId, completedAt: { not: null } }, orderBy: { completedAt: 'desc' } }),
@@ -1785,7 +1795,7 @@ export class TrainingPlansService {
         answers,
         availability: [],
         history: [],
-        studentDirectives: activeDirectives.map((directive) => directive.content),
+        studentDirectives: activeDirectives.map(formatDirectiveForAgent),
         activeObservations: activeObservations.map((observation) => observation.content),
         todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
         recentReassessment: latestReassessment ? {
@@ -1831,7 +1841,7 @@ export class TrainingPlansService {
       const runDecision = await this.prescriptionAgent.proposeRunSession({
         durationMin,
         evidence: paceEvidence,
-        studentDirectives: activeDirectives.map((directive) => directive.content),
+        studentDirectives: activeDirectives.map(formatDirectiveForAgent),
         activeObservations: activeObservations.map((observation) => observation.content),
         painTier: painSafety.tier,
         painReason: painSafety.reason,
