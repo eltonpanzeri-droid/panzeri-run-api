@@ -2475,3 +2475,22 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
 - Resolvido: `ADMIN_EMAILS` (mesmo padrão de `COACH_EMAILS`; `src/common/staff-roles.ts`). Precedência admin > coach >
   papel persistido. Admin herda o que era checado literalmente como coach: isenção de `accountStatus` no login,
   relatório `/funnel` e destinatário dos avisos de feedback. Para ativar: definir `ADMIN_EMAILS` no EasyPanel.
+
+### 2026-10-05 — Pré-Garmin 3: Termos/Política canônicos, consentimento e área "Privacidade e dados"
+- **Divergência encontrada:** duas versões vigentes — `/legal/terms` e `/legal/privacy` (curtas, genéricas) e
+  `/termos-de-uso` e `/politica-privacidade` (usadas pelo cadastro no app, pela landing e pelas lojas). Agora o
+  conteúdo vive só em `apps/api/src/legal/legal-content.ts` (fonte canônica: Termos, Política e resumo do app);
+  `/legal/*` redireciona 301 para as canônicas. `GET /legal/summary` alimenta a tela do app com as mesmas frases.
+- **Política**: wearables (Polar e Strava hoje; sem Garmin), dados brutos × derivados, IA (Anthropic, inferência; o que
+  o fornecedor faz com os dados depende dos termos dele — não afirmado), terceiros reais (Anthropic, Resend, Asaas,
+  RevenueCat/lojas, Expo, Telegram, Meta quando configurado, hospedagem), desconexão ≠ exclusão, backups sem
+  prometer exclusão imediata nem prazo. Removidas duas frases que o código não sustenta ("sob contrato de
+  confidencialidade do provedor" e "não compartilhamos dados com terceiros para fins de publicidade" — há evento Meta CAPI).
+- **App**: item de menu permanente "Privacidade e dados" (`PrivacyDataScreen`): dados, integrações, IA, gerenciar
+  (desconectar e excluir dados da Polar com confirmação, via `PolarConnect` variants `status`/`manage`), links,
+  terceiros, solicitações. Nenhuma regra nova de backend.
+- **Consentimento**: `acceptedTerms` é booleano no DTO; grava `acceptedTermsAt`/`acceptedPrivacyAt`
+  (timestamps) sem VERSÃO. Versionamento depende de migration (`acceptedTermsVersion`/`acceptedPrivacyVersion`) — NÃO feita,
+  aguardando decisão. `LEGAL_VERSION` (2026-10-05) já existe nos documentos para uso futuro.
+- **Pendências de decisão/verificação externa**: base legal e prazos 5/15 dias (texto pré-existente, mantido); advogado
+  (ver pending_legal_review); confirmar Resend em produção; se Meta CAPI deve continuar no cadastro.

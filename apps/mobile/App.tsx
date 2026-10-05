@@ -69,7 +69,7 @@ type Screen = 'login' | 'app';
 // destinos orfaos desde que "Conta"/"Perfil" passaram a montar os mesmos componentes
 // (MeusDados/Anamnese) diretamente. 'billing' permanece: ainda e' destino de redirects reais do
 // funil de pagamento (quickIntake/billing_regularize).
-type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes';
+type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -1975,6 +1975,7 @@ function AppInner() {
             {activeTab === 'ciclo' && <MenstrualCycleScreen accessToken={accessToken} />}
             {activeTab === 'strava' && <StravaSync accessToken={accessToken} />}
             {activeTab === 'billing' && <Billing accessToken={accessToken} />}
+            {activeTab === 'privacy' && <PrivacyDataScreen accessToken={accessToken} onOpenStrava={() => setActiveTab('strava')} />}
             {activeTab === 'profile' && (
               <>
                 <PolarConnect accessToken={accessToken} />
@@ -8483,13 +8484,16 @@ function formatConnectionDate(value: string) {
 // nao e exposto aqui ainda — fora do escopo desta tarefa). O /polar/callback e uma pagina HTML
 // publica fora da navegacao do app, entao a unica forma de saber se a autorizacao deu certo
 // depois do aluno voltar e consultar o /polar/status.
-function PolarConnect({ accessToken }: { accessToken: string }) {
+// variant (05/10/2026): 'profile' = tela de Perfil (comportamento original); 'status' e 'manage' sao as duas
+// metades usadas pela area Privacidade e dados — mesmo componente, mesmos endpoints, sem regra duplicada.
+function PolarConnect({ accessToken, variant = 'profile' }: { accessToken: string; variant?: 'profile' | 'status' | 'manage' }) {
   const [connection, setConnection] = useState<PolarConnectionStatus | null>(null);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [syncResult, setSyncResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function loadStatus() {
@@ -8608,11 +8612,55 @@ function PolarConnect({ accessToken }: { accessToken: string }) {
     ]);
   }
 
+  // Excluir dados importados da Polar (05/10/2026): acao SEPARADA de desconectar. Exige conexao desconectada
+  // (a API recusa com 409 senao) e confirmacao explicita.
+  async function runDeleteData() {
+    setDeleting(true);
+    setSyncResult(null);
+    try {
+      const response = await fetch(`${API_URL}/polar/data`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } });
+      let body: { activities?: number; preservedMaterialized?: unknown[]; message?: string | string[] } | null = null;
+      try { body = await response.json(); } catch { /* sem corpo */ }
+      if (!response.ok) {
+        const apiMessage = Array.isArray(body?.message) ? body?.message.join(' ') : body?.message;
+        setSyncResult({ ok: false, text: apiMessage || 'Nao consegui excluir os dados agora. Tente novamente.' });
+        return;
+      }
+      const kept = body?.preservedMaterialized?.length ?? 0;
+      setSyncResult({
+        ok: true,
+        text: `Dados importados da Polar excluidos (${body?.activities ?? 0} atividade(s)).${kept > 0 ? ` ${kept} treino(s) com informacoes que voce mesmo registrou foram mantidos, sem os valores que vieram da Polar.` : ''}`,
+      });
+    } catch {
+      setSyncResult({ ok: false, text: 'Nao consegui conectar com o servidor para excluir.' });
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function deletePolarData() {
+    if (deleting || connection?.connected) return;
+    const title = 'Excluir dados importados da Polar?';
+    const message = 'Serão removidos os dados que vieram exclusivamente da Polar (atividades, amostras e séries). Informações que você mesmo registrou no Panzeri Run, como esforço percebido, dor e observações, podem ser preservadas, sem os valores da Polar. Esta ação não pode ser desfeita.';
+    if (Platform.OS === 'web') {
+      if (window.confirm(`${title}\n\n${message}`)) void runDeleteData();
+      return;
+    }
+    Alert.alert(title, message, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Excluir dados', style: 'destructive', onPress: () => { void runDeleteData(); } },
+    ]);
+  }
+
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionLabel}>Integracao</Text>
-      <Text style={styles.titleSmall}>Conectar Polar</Text>
-      <Text style={styles.formHint}>Autorize sua conta Polar para o Panzeri Run comecar a receber seus treinos.</Text>
+    <View style={variant === 'profile' ? styles.section : { gap: 8 }}>
+      {variant === 'profile' ? (
+        <>
+          <Text style={styles.sectionLabel}>Integracao</Text>
+          <Text style={styles.titleSmall}>Conectar Polar</Text>
+          <Text style={styles.formHint}>Autorize sua conta Polar para o Panzeri Run comecar a receber seus treinos. As atividades recebidas sao usadas no seu acompanhamento; veja os detalhes em Privacidade e dados.</Text>
+        </>
+      ) : null}
 
       <View style={styles.formSection}>
         <View style={styles.reportRow}>
@@ -8622,12 +8670,36 @@ function PolarConnect({ accessToken }: { accessToken: string }) {
           ) : null}
         </View>
 
-        {!connection?.connected ? (
+        {variant === 'manage' ? (
+          <>
+            <Text style={styles.reportTitle}>Desconectar a Polar</Text>
+            <Text style={styles.formHint}>Interrompe novas sincronizações e retira a autorização. Não apaga o histórico já importado.</Text>
+            {connection?.connected ? (
+              <Pressable style={[styles.secondaryOutlineButton, disconnecting && styles.disabledButton]} disabled={disconnecting} onPress={disconnectPolar}>
+                <Text style={styles.secondaryOutlineButtonText}>{disconnecting ? 'Desconectando...' : 'Desconectar Polar'}</Text>
+                <Ionicons name="unlink" size={18} color={PRColors.ocean} />
+              </Pressable>
+            ) : (
+              <Text style={styles.reportText}>A Polar não está conectada.</Text>
+            )}
+            <View style={{ height: 1, backgroundColor: '#e2e8f0', marginVertical: 8 }} />
+            <Text style={styles.reportTitle}>Excluir dados importados da Polar</Text>
+            <Text style={styles.formHint}>Ação diferente de desconectar. Remove os dados que vieram exclusivamente da Polar; informações que você mesmo registrou podem ser preservadas. Para excluir, desconecte primeiro.</Text>
+            <Pressable
+              style={[styles.secondaryOutlineButton, { borderColor: '#b91c1c' }, (deleting || connection?.connected) && styles.disabledButton]}
+              disabled={deleting || Boolean(connection?.connected)}
+              onPress={deletePolarData}
+            >
+              <Text style={[styles.secondaryOutlineButtonText, { color: '#b91c1c' }]}>{deleting ? 'Excluindo...' : 'Excluir dados importados'}</Text>
+              <Ionicons name="trash-outline" size={18} color="#b91c1c" />
+            </Pressable>
+          </>
+        ) : !connection?.connected ? (
           <Pressable style={[styles.primaryButton, connecting && styles.disabledButton]} disabled={connecting} onPress={connectPolar}>
             <Text style={styles.primaryButtonText}>{connecting ? 'Abrindo autorizacao...' : 'Conectar Polar'}</Text>
             <Ionicons name="link" size={18} color={PRColors.mineral} />
           </Pressable>
-        ) : (
+        ) : variant === 'status' ? null : (
           <>
             <Pressable style={[styles.secondaryOutlineButton, syncing && styles.disabledButton]} disabled={syncing} onPress={syncNow}>
               <Text style={styles.secondaryOutlineButtonText}>{syncing ? 'Sincronizando...' : 'Sincronizar agora'}</Text>
@@ -8644,6 +8716,86 @@ function PolarConnect({ accessToken }: { accessToken: string }) {
           <Text style={[styles.statusMessage, syncResult.ok ? null : { color: '#b91c1c' }]}>{syncResult.text}</Text>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+interface LegalSummary {
+  version: string;
+  updatedLabel: string;
+  contact: string;
+  sections: Array<{ id: string; title: string; paragraphs: string[] }>;
+}
+
+// Privacidade e dados (05/10/2026): camada de transparencia e controle. NAO substitui Politica, Termos nem
+// consentimento. O texto vem de GET /legal/summary (mesma fonte canonica dos documentos publicos); as acoes
+// reutilizam PolarConnect (status/desconectar/excluir) e a aba do Strava.
+function PrivacyDataScreen({ accessToken, onOpenStrava }: { accessToken: string; onOpenStrava: () => void }) {
+  const [summary, setSummary] = useState<LegalSummary | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_URL}/legal/summary`)
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error('status'))))
+      .then((data: LegalSummary) => { if (alive) setSummary(data); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, []);
+
+  const section = (id: string) => summary?.sections.find((item) => item.id === id);
+  const renderText = (id: string) => (section(id)?.paragraphs ?? []).map((paragraph, index) => (
+    <Text key={`${id}-${index}`} style={styles.formHint}>{paragraph.startsWith('- ') ? `• ${paragraph.slice(2)}` : paragraph}</Text>
+  ));
+  const block = (id: string, title: string, children?: React.ReactNode) => (
+    <View style={styles.section}>
+      <Text style={styles.titleSmall}>{title}</Text>
+      {summary ? renderText(id) : failed ? null : <ActivityIndicator />}
+      {children}
+    </View>
+  );
+
+  return (
+    <View style={{ gap: 16 }}>
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Transparência</Text>
+        <Text style={styles.titleSmall}>Privacidade e dados</Text>
+        <Text style={styles.formHint}>Aqui você vê, em resumo, como seus dados são usados e controla as integrações. Os documentos completos são a Política de Privacidade e os Termos de Uso.</Text>
+        {failed ? <Text style={styles.statusMessage}>Não foi possível carregar os textos agora. Os controles abaixo continuam funcionando e os documentos completos estão nos links.</Text> : null}
+      </View>
+
+      {block('dados', 'Seus dados')}
+
+      {block('integracoes', 'Dispositivos e integrações', (
+        <>
+          <PolarConnect accessToken={accessToken} variant="status" />
+          <View style={styles.formSection}>
+            <Text style={styles.reportTitle}>Strava</Text>
+            <Pressable style={styles.secondaryOutlineButton} onPress={onOpenStrava}>
+              <Text style={styles.secondaryOutlineButtonText}>Gerenciar conexão com o Strava</Text>
+              <Ionicons name="sync" size={18} color={PRColors.ocean} />
+            </Pressable>
+          </View>
+        </>
+      ))}
+
+      {block('ia', 'Inteligência Artificial')}
+
+      {block('gerenciar', 'Gerenciar dados da integração', <PolarConnect accessToken={accessToken} variant="manage" />)}
+
+      <View style={styles.section}>
+        <Text style={styles.titleSmall}>Privacidade e Termos</Text>
+        <Text style={styles.termsText}>
+          <Text style={styles.termsLink} onPress={() => Linking.openURL(LEGAL_PRIVACY_URL)}>Política de Privacidade</Text>
+          {'  ·  '}
+          <Text style={styles.termsLink} onPress={() => Linking.openURL(LEGAL_TERMS_URL)}>Termos de Uso</Text>
+        </Text>
+        {summary ? <Text style={styles.formHint}>Versão de {summary.updatedLabel}.</Text> : null}
+      </View>
+
+      {block('terceiros', 'Terceiros e processamento')}
+
+      {block('solicitacoes', 'Solicitações sobre meus dados')}
     </View>
   );
 }
@@ -9847,6 +9999,8 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     // "Conta", pra nao ter duas portas pro mesmo lugar. A aba interna 'meusDados' foi removida
     // (orfa, confirmado por busca); 'billing' continua existindo (redirects automaticos do funil
     // de pagamento ainda usam 'billing').
+    // 05/10/2026: transparencia e controle de dados como parte visivel do produto (area permanente).
+    { id: 'privacy', label: 'Privacidade e dados', icon: 'shield-checkmark-outline' },
     { id: 'conta', label: 'Conta', icon: 'settings-outline' },
     // Ciclo menstrual: so visivel para alunas (sex=Feminino) — 11/09
     ...(isFeminino ? [{ id: 'ciclo' as Tab, label: 'Registrar ciclo menstrual', icon: 'medical-outline' as keyof typeof Ionicons.glyphMap }] : []),
