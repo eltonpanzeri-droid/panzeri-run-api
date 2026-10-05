@@ -1,3 +1,4 @@
+import { parseEmailList } from '../common/staff-roles';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -433,10 +434,11 @@ export class WorkoutCompletionsService {
     void this.studentProfile.recordEvent(userId, ProfileEventCode.WORKOUT_COMPLETED, profileParts).catch(() => undefined);
 
     const student = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
-    const coachEmails = (this.config.get<string>('COACH_EMAILS') ?? '')
-      .split(',')
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean);
+    // Avisos de feedback vao para quem acompanha os alunos: coach e admin (mesmo conjunto de capacidades).
+    const coachEmails = [...new Set([
+      ...parseEmailList(this.config.get<string>('COACH_EMAILS')),
+      ...parseEmailList(this.config.get<string>('ADMIN_EMAILS')),
+    ])];
     if (coachEmails.length) {
       const coaches = await this.prisma.user.findMany({ where: { email: { in: coachEmails } }, select: { id: true } });
       const statusLabel = dto.status === 'done' ? 'concluiu' : dto.status === 'adjusted' ? 'registrou com ajustes' : 'marcou como nao feito';

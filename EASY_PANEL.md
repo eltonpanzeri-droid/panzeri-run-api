@@ -16,6 +16,8 @@ STRAVA_CLIENT_ID=<id do Strava>
 STRAVA_CLIENT_SECRET=<secret do Strava>
 STRAVA_REDIRECT_URI=https://agenteselton-panzeri-run-api.hbljgk.easypanel.host/strava/callback
 COACH_EMAILS=eltonpanzeri@gmail.com
+# Opcional: e-mails com papel admin (acesso ao payload bruto de atividades externas; mantem tudo do coach). Precedencia: ADMIN_EMAILS > COACH_EMAILS.
+ADMIN_EMAILS=eltonpanzeri@gmail.com
 APP_PUBLIC_URL=https://agenteselton-panzeri-run-api.hbljgk.easypanel.host
 ```
 

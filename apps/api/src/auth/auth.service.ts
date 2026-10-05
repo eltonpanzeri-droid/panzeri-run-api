@@ -2,6 +2,7 @@
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
+import { isStaffRole, resolveEffectiveRole } from '../common/staff-roles';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -98,7 +99,8 @@ export class AuthService {
     // aconteceu uma vez e o treinador ficou sem nenhum jeito de se autocorrigir (nao da pra
     // editar o proprio status sem antes conseguir entrar no painel). Para o coach, esse campo
     // simplesmente nao se aplica.
-    if (role !== 'coach' && user.accountStatus !== 'active') {
+    // admin tem a mesma isencao do coach: status de matricula/cobranca nunca tranca a equipe para fora.
+    if (!isStaffRole(role) && user.accountStatus !== 'active') {
       throw new UnauthorizedException('Conta sem acesso ativo.');
     }
 
@@ -315,16 +317,7 @@ export class AuthService {
   }
 
   private effectiveRole(email: string, role: string) {
-    const coachEmails = (this.config.get<string>('COACH_EMAILS') ?? '')
-      .split(',')
-      .map((item) => item.trim().toLowerCase())
-      .filter(Boolean);
-
-    if (coachEmails.includes(email.toLowerCase())) {
-      return 'coach';
-    }
-
-    return role;
+    return resolveEffectiveRole(email, role, this.config.get<string>('ADMIN_EMAILS'), this.config.get<string>('COACH_EMAILS'));
   }
 }
 

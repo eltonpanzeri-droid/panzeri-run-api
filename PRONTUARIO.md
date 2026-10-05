@@ -2471,4 +2471,7 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
   operação; sem payload/credencial) ANTES de devolver o dado (falha de auditoria nega a leitura). Posse do
   `activityLogId` pelo `studentId` já era checada na query e agora está coberta por teste.
 - ATENÇÃO: o papel `admin` não é atribuível hoje em produção (`effectiveRole` só promove a `coach` por `COACH_EMAILS`;
-  nenhum código cria `admin`). Logo a rota raw está inacessível a todos até existir um mecanismo de admin.
+  nenhum código cria `admin`). Logo a rota raw estava inacessível a todos.
+- Resolvido: `ADMIN_EMAILS` (mesmo padrão de `COACH_EMAILS`; `src/common/staff-roles.ts`). Precedência admin > coach >
+  papel persistido. Admin herda o que era checado literalmente como coach: isenção de `accountStatus` no login,
+  relatório `/funnel` e destinatário dos avisos de feedback. Para ativar: definir `ADMIN_EMAILS` no EasyPanel.

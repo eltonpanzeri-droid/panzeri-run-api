@@ -1,3 +1,4 @@
+import { isStaffRole } from '../common/staff-roles';
 import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle } from '@nestjs/throttler';
@@ -96,14 +97,14 @@ export class FunnelController {
     return { ok: true, linked: true };
   }
 
-  // Endpoint privado — so o treinador (role coach) pode ver.
+  // Endpoint privado — so a equipe (coach ou admin) pode ver.
   @UseGuards(AuthGuard('jwt'))
   @Get('funnel')
   async getFunnel(
     @Req() req: { user: { sub: string; role: string } },
     @Query('days') days?: string,
   ) {
-    if (req.user.role !== 'coach') return { error: 'Acesso restrito ao treinador.' };
+    if (!isStaffRole(req.user.role)) return { error: 'Acesso restrito ao treinador.' };
     return this.funnel.getReport(days ? Number(days) : 30);
   }
 }
