@@ -15,20 +15,31 @@ import { PrismaService } from '../prisma/prisma.service';
 //   ActivityLog, RawExternalActivity, notificacoes de reconciliacao dessas atividades e as sessoes
 //   sinteticas 'device_extra' (TrainingSession + WorkoutCompletion) que existiam SO' por causa da
 //   atividade e nao receberam nada do aluno.
-// O que NAO e' apagado: a sessao sintetica cujo feedback tem QUALQUER informacao propria do aluno
-//   (RPE, dor, sono, notas, tenis...). Esse caso e' semanticamente ambiguo (os numeros copiados do
-//   relogio e o relato do aluno convivem na mesma linha) e e' devolvido em "preservedMaterialized"
-//   para decisao de produto — nenhuma regra e' inventada aqui.
+// Sessao sintetica ENRIQUECIDA pelo aluno (RPE, dor, sono, notas, tenis, valor editado por ele...) —
+//   decisao de produto de 04/10/2026: a sessao e o feedback PERMANECEM (pertencem ao historico do
+//   aluno), mas tudo que tem o provider como proveniencia exclusiva e' removido:
+//     * WorkoutCompletion: distanceKm, durationMin, avgHeartRate, maxHeartRate sao anulados quando
+//       ainda sao a copia do que a atividade tinha (comparacao com a propria ActivityLog antes de
+//       apaga-la); avgPaceSecondsKm so' quando e' derivado dessas copias; completedAt volta ao dia da
+//       sessao (a hora exata veio do relogio). Valor que o aluno editou nao bate com a copia e fica.
+//     * TrainingSession: title, structure (activityLogId/provider/source) e origin deixam de apontar
+//       para a atividade; passa a ser um treino extra registrado pelo aluno (origin 'student_extra').
+//   Nada e' substituido por zero ou valor inventado: ausencia continua null.
 // Prescricoes (TrainingSession de programa) nunca sao tocadas: perdem apenas o vinculo com a atividade.
 
 // Colunas de WorkoutCompletion que uma sessao sintetica recebe do proprio relogio (ver
 // SessionExecutionLinkService.materializeExtraActivity) + colunas de sistema. Qualquer OUTRA coluna
 // preenchida significa dado do aluno. Lista por exclusao de proposito: coluna nova no futuro cai no
 // lado seguro (preservar) em vez de ser apagada sem querer.
-const DEVICE_OR_SYSTEM_COMPLETION_FIELDS = new Set([
+const SYSTEM_OR_DEVICE_COMPLETION_FIELDS = new Set([
   'id', 'userId', 'sessionId', 'completedAt', 'status', 'durationMin', 'distanceKm', 'avgPaceSecondsKm',
-  'avgHeartRate', 'maxHeartRate', 'source', 'feedbackVersion', 'createdAt', 'updatedAt',
+  'avgHeartRate', 'maxHeartRate', 'source', 'feedbackVersion', 'createdAt', 'updatedAt', 'shoeUsage',
 ]);
+
+// Tolerancias de ARREDONDAMENTO (nao de decisao) para reconhecer que o valor do feedback ainda e' a
+// copia do que o relogio mediu: o formulario do aluno trabalha em metros (0,001 km) e segundos.
+const DISTANCE_COPY_TOLERANCE_KM = 0.005;
+const DURATION_COPY_TOLERANCE_MIN = 0.02;
 
 export interface ProviderDataDeletionResult {
   provider: string;
@@ -39,16 +50,51 @@ export interface ProviderDataDeletionResult {
   executionLinks: number;
   notifications: number;
   syntheticSessions: number;
-  preservedMaterialized: Array<{ sessionId: string; reason: 'student_input' | 'not_done' | 'shoe_usage' }>;
+  // Sessoes sinteticas mantidas porque o aluno as enriqueceu; "clearedFields" lista (so' os nomes) o que
+  // foi removido de proveniencia do provider.
+  preservedMaterialized: Array<{ sessionId: string; reason: 'student_input' | 'not_done' | 'shoe_usage'; clearedFields: string[] }>;
 }
 
-export function completionHasStudentInput(completion: Record<string, unknown>): boolean {
-  return Object.entries(completion).some(([key, value]) => {
-    if (DEVICE_OR_SYSTEM_COMPLETION_FIELDS.has(key)) return false;
-    if (value === null || value === undefined) return false;
-    if (Array.isArray(value)) return value.length > 0;
-    return true;
-  });
+interface ActivityCopySource {
+  startedAt: Date;
+  distanceMeters: number | null;
+  durationSec: number | null;
+  avgHeartRateBpm: number | null;
+  maxHeartRateBpm: number | null;
+}
+
+const near = (a: number | null | undefined, b: number | null | undefined, tolerance: number) =>
+  a != null && b != null && Math.abs(a - b) <= tolerance;
+
+// Separa, num feedback de sessao sintetica, o que ainda e' copia do relogio (a anular) do que e' do aluno
+// (a manter). Exportada para teste.
+export function classifyMaterializedCompletion(completion: Record<string, any>, activity: ActivityCopySource) {
+  const clear: Record<string, null> = {};
+  let studentInput = false;
+
+  const distanceCopy = completion.distanceKm != null && near(completion.distanceKm, activity.distanceMeters == null ? null : activity.distanceMeters / 1000, DISTANCE_COPY_TOLERANCE_KM);
+  const durationCopy = completion.durationMin != null && near(completion.durationMin, activity.durationSec == null ? null : activity.durationSec / 60, DURATION_COPY_TOLERANCE_MIN);
+  const avgHrCopy = completion.avgHeartRate != null && completion.avgHeartRate === activity.avgHeartRateBpm;
+  const maxHrCopy = completion.maxHeartRate != null && completion.maxHeartRate === activity.maxHeartRateBpm;
+  const metric = (field: string, isCopy: boolean) => {
+    if (completion[field] == null) return;
+    if (isCopy) clear[field] = null; else studentInput = true;
+  };
+  metric('distanceKm', distanceCopy);
+  metric('durationMin', durationCopy);
+  metric('avgHeartRate', avgHrCopy);
+  metric('maxHeartRate', maxHrCopy);
+  // Ritmo medio: derivado de distancia e tempo; so' e' do relogio se ambos eram copias.
+  if (completion.avgPaceSecondsKm != null) {
+    if (distanceCopy && durationCopy) clear.avgPaceSecondsKm = null; else studentInput = true;
+  }
+
+  for (const [key, value] of Object.entries(completion)) {
+    if (SYSTEM_OR_DEVICE_COMPLETION_FIELDS.has(key) || value == null) continue;
+    if (Array.isArray(value) ? value.length > 0 : true) studentInput = true;
+  }
+  if (completion.status !== 'done') studentInput = true;
+  return { clear, studentInput };
 }
 
 @Injectable()
@@ -57,8 +103,12 @@ export class ProviderDataDeletionService {
 
   async deleteProviderData(userId: string, provider: string): Promise<ProviderDataDeletionResult> {
     return this.prisma.$transaction(async (tx) => {
-      const activities = await tx.activityLog.findMany({ where: { userId, provider }, select: { id: true } });
+      const activities = await tx.activityLog.findMany({
+        where: { userId, provider },
+        select: { id: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true },
+      });
       const activityIds = activities.map((a) => a.id);
+      const activityById = new Map(activities.map((a) => [a.id, a]));
       const activityIdSet = new Set(activityIds);
 
       // Sessoes sinteticas materializadas a partir destas atividades (structure.activityLogId).
@@ -69,16 +119,20 @@ export class ProviderDataDeletionService {
       const preservedMaterialized: ProviderDataDeletionResult['preservedMaterialized'] = [];
       const sessionsToDelete: string[] = [];
       const completionsToDelete: string[] = [];
+      const sessionsToSanitize: Array<{ sessionId: string; modality: string; completionId: string | null; clear: Record<string, null>; completedAtReset: Date | null }> = [];
       for (const session of deviceExtras) {
         const ref = (session.structure as { activityLogId?: string } | null)?.activityLogId;
         if (!ref || !activityIdSet.has(ref)) continue;
         const completion = session.completion;
         if (completion) {
           const { shoeUsage, ...fields } = completion as typeof completion & { shoeUsage: unknown };
-          if (shoeUsage) { preservedMaterialized.push({ sessionId: session.id, reason: 'shoe_usage' }); continue; }
-          if (completion.status !== 'done') { preservedMaterialized.push({ sessionId: session.id, reason: 'not_done' }); continue; }
-          if (completionHasStudentInput(fields as Record<string, unknown>)) {
-            preservedMaterialized.push({ sessionId: session.id, reason: 'student_input' });
+          const { clear, studentInput } = classifyMaterializedCompletion(fields as Record<string, any>, activityById.get(ref)!);
+          const reason = shoeUsage ? 'shoe_usage' : completion.status !== 'done' ? 'not_done' : studentInput ? 'student_input' : null;
+          if (reason) {
+            // Hora exata de inicio veio do relogio: volta ao dia da sessao (mesma data, sem a hora medida).
+            const resetCompletedAt = completion.completedAt.getTime() === activityById.get(ref)!.startedAt.getTime() ? session.scheduledDate : null;
+            sessionsToSanitize.push({ sessionId: session.id, modality: session.modality, completionId: completion.id, clear, completedAtReset: resetCompletedAt });
+            preservedMaterialized.push({ sessionId: session.id, reason, clearedFields: [...Object.keys(clear), ...(resetCompletedAt ? ['completedAt(hora)'] : [])] });
             continue;
           }
           completionsToDelete.push(completion.id);
@@ -95,6 +149,20 @@ export class ProviderDataDeletionService {
       if (linkIds.length > 0) {
         await tx.sessionExecutionLink.updateMany({ where: { supersededByLinkId: { in: linkIds } }, data: { supersededByLinkId: null } });
         await tx.sessionExecutionLink.deleteMany({ where: { id: { in: linkIds } } });
+      }
+
+      // Sessoes enriquecidas pelo aluno: ficam, sem nenhuma referencia nem valor do provider.
+      for (const item of sessionsToSanitize) {
+        if (item.completionId) {
+          await tx.workoutCompletion.update({
+            where: { id: item.completionId },
+            data: { ...item.clear, ...(item.completedAtReset ? { completedAt: item.completedAtReset } : {}), source: 'manual' },
+          });
+        }
+        await tx.trainingSession.update({
+          where: { id: item.sessionId },
+          data: { title: `${item.modality} (extra)`, structure: { type: 'extra', source: 'student' }, origin: 'student_extra' },
+        });
       }
 
       if (completionsToDelete.length > 0) await tx.workoutCompletion.deleteMany({ where: { id: { in: completionsToDelete } } });

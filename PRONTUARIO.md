@@ -2454,8 +2454,11 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
   no meio do sync.
 - `DELETE /polar/data` (exige estar desconectado) → `ProviderDataDeletionService` (provider-agnóstico, em
   `activity-execution/`): apaga por (userId, provider) raw, ActivityLog, samples, série, vínculos, notificações de
-  reconciliação e sessões sintéticas `device_extra` puras. Sessão sintética com dado do aluno (RPE, dor, notas,
-  tênis…) é PRESERVADA e devolvida em `preservedMaterialized` — decisão de produto pendente. Auditoria em
+  reconciliação e sessões sintéticas `device_extra` puras. Sessão sintética ENRIQUECIDA pelo aluno (RPE, dor,
+  notas, tênis, status/valor editado) é MANTIDA (decisão de Elton, 04/10): permanecem os dados do aluno; são anulados
+  distanceKm/durationMin/avgHeartRate/maxHeartRate quando ainda são a cópia da atividade (comparação com a
+  ActivityLog antes de apagá-la), avgPaceSecondsKm derivado delas, e a hora de completedAt (volta ao dia da sessão);
+  a sessão vira `student_extra` sem activityLogId/provider. Valor editado pelo aluno fica. Auditoria em
   `ProviderConnectionEvent` (sem token/payload).
 - Limitação: backups não foram tratados; restaurar um backup pode trazer de volta linhas apagadas e
   `disconnectedAt = null` anterior (o token restaurado já foi revogado na Polar). Tratar no bloco de Backup.

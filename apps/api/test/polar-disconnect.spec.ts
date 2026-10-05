@@ -4,7 +4,7 @@ import { PolarService } from '../src/polar/polar.service';
 import { PolarActivityIngestionService } from '../src/polar/polar-activity-ingestion.service';
 import { PolarWebhookService } from '../src/polar/polar-webhook.service';
 import { PolarSyncFallbackSchedulerService } from '../src/polar/polar-sync-fallback-scheduler.service';
-import { ProviderDataDeletionService, completionHasStudentInput } from '../src/activity-execution/provider-data-deletion.service';
+import { ProviderDataDeletionService, classifyMaterializedCompletion } from '../src/activity-execution/provider-data-deletion.service';
 
 // Bloco pre-Garmin 1 (04/10/2026): desconexao, revogacao de coleta e exclusao de dados de provider.
 // O "banco" abaixo e' um armazenamento em memoria com a semantica que importa (where simples,
@@ -54,6 +54,7 @@ function world() {
       return { count: hit.length };
     },
     create: async ({ data }: { data: Row }) => { const row = { id: id(name), ...data }; db[name].push(row); return row; },
+    update: async ({ where, data }: { where: { id: string }; data: Row }) => { const row = db[name].find((r) => r.id === where.id)!; return Object.assign(row, data); },
   });
 
   const prisma: Record<string, any> = {
@@ -363,9 +364,11 @@ describe('desconexao de provider (Polar)', () => {
   });
 });
 
+const STARTED_AT = new Date('2026-10-01T07:15:30Z');
+
 function seedHistory(w: ReturnType<typeof world>, userId: string, provider: string, externalId: string) {
   const raw = { id: `raw-${userId}-${provider}-${externalId}`, userId, provider, externalId, payload: {} };
-  const log = { id: `log-${userId}-${provider}-${externalId}`, userId, provider, externalId, rawActivityId: raw.id, executionClassification: 'corresponding' };
+  const log = { id: `log-${userId}-${provider}-${externalId}`, userId, provider, externalId, rawActivityId: raw.id, executionClassification: 'corresponding', startedAt: STARTED_AT, distanceMeters: 5230, durationSec: 1815, avgHeartRateBpm: 152, maxHeartRateBpm: 178 };
   w.db.rawExternalActivity.push(raw);
   w.db.activityLog.push(log);
   w.db.rawActivitySample.push({ id: `s-${log.id}`, activityLogId: log.id, provider, sampleType: '0' });
@@ -419,37 +422,164 @@ describe('exclusao dos dados de um provider (userId + provider)', () => {
     expect(JSON.stringify(w.db.providerConnectionEvent)).not.toContain('payload');
   });
 
-  it('12b. sessao sintetica device_extra: apagada so quando existe unicamente pela atividade; com dado do aluno e preservada e reportada', async () => {
+  // Sessao sintetica materializada a partir de uma atividade (mesmos campos que
+  // SessionExecutionLinkService.materializeExtraActivity copia do relogio).
+  function materialize(w: ReturnType<typeof world>, userId: string, logId: string, sid: string, student: Row = {}, completionOverrides: Row = {}) {
+    w.db.trainingSession.push({
+      id: sid, userId, modality: 'corrida', title: 'corrida (extra · polar)', origin: 'device_extra',
+      scheduledDate: new Date('2026-10-01T00:00:00Z'),
+      structure: { type: 'extra', source: 'device', provider: 'polar', modality: 'corrida', activityLogId: logId },
+    });
+    w.db.workoutCompletion.push({
+      id: `c-${sid}`, sessionId: sid, userId, status: 'done', completedAt: STARTED_AT, source: 'device_extra',
+      distanceKm: 5.23, durationMin: 1815 / 60, avgHeartRate: 152, maxHeartRate: 178, avgPaceSecondsKm: null,
+      adjustmentReasons: [], perceivedEffort: null, painFlag: null, notes: null, ...student, ...completionOverrides,
+    });
+  }
+  const completionOf = (w: ReturnType<typeof world>, sid: string) => w.db.workoutCompletion.find((c) => c.sessionId === sid)!;
+  const sessionOf = (w: ReturnType<typeof world>, sid: string) => w.db.trainingSession.find((x) => x.id === sid)!;
+
+  it('12b. sessao sintetica pura (sem nada do aluno) e apagada junto com a atividade', async () => {
     const w = world();
     const a = seedHistory(w, 'user-a', 'polar', 'e1');
-    const c = seedHistory(w, 'user-a', 'polar', 'e2');
-    const d = seedHistory(w, 'user-a', 'polar', 'e3');
-    const synth = (sid: string, logId: string) => ({ id: sid, userId: 'user-a', origin: 'device_extra', structure: { type: 'extra', provider: 'polar', activityLogId: logId } });
-    w.db.trainingSession.push(synth('s-pure', a.log.id), synth('s-rpe', c.log.id), synth('s-shoe', d.log.id));
-    const base = { userId: 'user-a', status: 'done', distanceKm: 5, durationMin: 30, avgHeartRate: 150, source: 'device_extra', adjustmentReasons: [], perceivedEffort: null, painFlag: null, notes: null };
-    w.db.workoutCompletion.push(
-      { id: 'c-pure', sessionId: 's-pure', ...base },
-      { id: 'c-rpe', sessionId: 's-rpe', ...base, perceivedEffort: 7 },
-      { id: 'c-shoe', sessionId: 's-shoe', ...base, shoeUsage: { id: 'u1' } },
-    );
+    materialize(w, 'user-a', a.log.id, 's-pure');
 
     const result = await w.deletion.deleteProviderData('user-a', 'polar');
 
     expect(result.syntheticSessions).toBe(1);
-    expect(w.db.trainingSession.map((s) => s.id).sort()).toEqual(['s-rpe', 's-shoe']);
-    expect(w.db.workoutCompletion.map((x) => x.id).sort()).toEqual(['c-rpe', 'c-shoe']);
-    expect(result.preservedMaterialized).toEqual(expect.arrayContaining([
-      { sessionId: 's-rpe', reason: 'student_input' },
-      { sessionId: 's-shoe', reason: 'shoe_usage' },
-    ]));
+    expect(w.db.trainingSession).toHaveLength(0);
+    expect(w.db.workoutCompletion).toHaveLength(0);
+    expect(result.preservedMaterialized).toEqual([]);
   });
 
-  it('completionHasStudentInput: coluna desconhecida preenchida cai no lado seguro (preservar)', () => {
-    const copy = { id: 'c', userId: 'u', sessionId: 's', status: 'done', distanceKm: 1, durationMin: 2, source: 'device_extra', adjustmentReasons: [], notes: null };
-    expect(completionHasStudentInput(copy)).toBe(false);
-    expect(completionHasStudentInput({ ...copy, notes: 'cansado' })).toBe(true);
-    expect(completionHasStudentInput({ ...copy, adjustmentReasons: ['x'] })).toBe(true);
-    expect(completionHasStudentInput({ ...copy, colunaFutura: 3 })).toBe(true);
+  it('B1. atividade Polar materializada + RPE: o RPE permanece e as metricas do relogio desaparecem', async () => {
+    const w = world();
+    const a = seedHistory(w, 'user-a', 'polar', 'e1');
+    materialize(w, 'user-a', a.log.id, 's1', { perceivedEffort: 7, preMotivation: 4 });
+
+    const result = await w.deletion.deleteProviderData('user-a', 'polar');
+
+    const c = completionOf(w, 's1');
+    expect(c.perceivedEffort).toBe(7); // dado do aluno
+    expect(c.preMotivation).toBe(4);
+    expect(c.distanceKm).toBeNull();
+    expect(c.durationMin).toBeNull();
+    expect(c.avgHeartRate).toBeNull();
+    expect(c.maxHeartRate).toBeNull();
+    expect(c.avgPaceSecondsKm).toBeNull();
+    expect(result.preservedMaterialized).toEqual([
+      { sessionId: 's1', reason: 'student_input', clearedFields: expect.arrayContaining(['distanceKm', 'durationMin', 'avgHeartRate', 'maxHeartRate', 'completedAt(hora)']) },
+    ]);
+  });
+
+  it('B2. dor e observacao do aluno permanecem; sessao perde toda referencia a atividade e ao provider', async () => {
+    const w = world();
+    const a = seedHistory(w, 'user-a', 'polar', 'e1');
+    materialize(w, 'user-a', a.log.id, 's2', { painFlag: 'leve', painTiming: 'so_depois', notes: 'joelho incomodou no fim', perceivedEffort: 5 });
+
+    await w.deletion.deleteProviderData('user-a', 'polar');
+
+    const c = completionOf(w, 's2');
+    expect(c).toMatchObject({ painFlag: 'leve', painTiming: 'so_depois', notes: 'joelho incomodou no fim', perceivedEffort: 5 });
+    const session = sessionOf(w, 's2');
+    expect(session.structure).toEqual({ type: 'extra', source: 'student' }); // sem activityLogId/provider/device
+    expect(session.origin).toBe('student_extra');
+    expect(session.title).toBe('corrida (extra)');
+    expect(c.source).toBe('manual');
+    // O que sobra de data e' o dia da sessao, nao a hora medida pelo relogio.
+    expect((c.completedAt as Date).toISOString()).toBe('2026-10-01T00:00:00.000Z');
+  });
+
+  it('B3. metricas ausentes permanecem null (nunca zero) e nada e inventado no lugar das removidas', async () => {
+    const w = world();
+    const log = seedHistory(w, 'user-a', 'polar', 'e1').log;
+    Object.assign(w.db.activityLog.find((l) => l.id === log.id)!, { avgHeartRateBpm: null, maxHeartRateBpm: null });
+    materialize(w, 'user-a', log.id, 's3', { perceivedEffort: 6 }, { avgHeartRate: null, maxHeartRate: null });
+
+    await w.deletion.deleteProviderData('user-a', 'polar');
+
+    const c = completionOf(w, 's3');
+    for (const field of ['distanceKm', 'durationMin', 'avgHeartRate', 'maxHeartRate', 'avgPaceSecondsKm']) {
+      expect(c[field]).toBeNull();
+      expect(c[field]).not.toBe(0);
+    }
+  });
+
+  it('B4. nenhum consumidor recupera a metrica excluida: nao sobra o valor em nenhum campo, vinculo ou referencia', async () => {
+    const w = world();
+    const a = seedHistory(w, 'user-a', 'polar', 'e1');
+    materialize(w, 'user-a', a.log.id, 's4', { perceivedEffort: 8 });
+
+    await w.deletion.deleteProviderData('user-a', 'polar');
+
+    const remaining = JSON.stringify({ s: sessionOf(w, 's4'), c: completionOf(w, 's4') });
+    for (const leaked of ['5.23', '1815', '1815', '152', '178', a.log.id, a.raw.id, 'polar', 'device', '07:15:30']) {
+      expect(remaining).not.toContain(leaked);
+    }
+    // Consumidor real de volume (coach): a sessao preservada contribui com 0 km conhecidos, nao com 5,23.
+    const { summarizeSessions } = await import('../src/coach/coach.service');
+    const summary = summarizeSessions([{ scheduledDate: new Date('2026-10-01'), durationMin: null, distanceKm: null, completion: { status: 'done', distanceKm: completionOf(w, 's4').distanceKm } }]);
+    expect(JSON.stringify(summary)).not.toContain('5.23');
+    // As atividades que alimentam pace/FC/cadencia/TI (ActivityLog, samples, serie) nao existem mais.
+    expect(w.db.activityLog).toHaveLength(0);
+    expect(w.db.rawActivitySample).toHaveLength(0);
+    expect(w.db.activityTimeSeriesPoint).toHaveLength(0);
+    expect(w.db.sessionExecutionLink).toHaveLength(0);
+  });
+
+  it('B5. dados de outro provider (e de outro usuario) permanecem intactos, inclusive sessao sintetica deles', async () => {
+    const w = world();
+    const polar = seedHistory(w, 'user-a', 'polar', 'e1');
+    const strava = seedHistory(w, 'user-a', 'strava', 'e1');
+    const other = seedHistory(w, 'user-b', 'polar', 'e1');
+    materialize(w, 'user-a', polar.log.id, 's-polar', { perceivedEffort: 7 });
+    materialize(w, 'user-a', strava.log.id, 's-strava', { perceivedEffort: 6 });
+    materialize(w, 'user-b', other.log.id, 's-other', { perceivedEffort: 5 });
+    const before = JSON.stringify([sessionOf(w, 's-strava'), completionOf(w, 's-strava'), sessionOf(w, 's-other'), completionOf(w, 's-other')]);
+
+    await w.deletion.deleteProviderData('user-a', 'polar');
+
+    expect(JSON.stringify([sessionOf(w, 's-strava'), completionOf(w, 's-strava'), sessionOf(w, 's-other'), completionOf(w, 's-other')])).toBe(before);
+    expect(completionOf(w, 's-strava').distanceKm).toBe(5.23);
+  });
+
+  it('B6. valor editado pelo aluno (nao e mais a copia do relogio) e dado do aluno e permanece', async () => {
+    const w = world();
+    const a = seedHistory(w, 'user-a', 'polar', 'e1');
+    // O aluno corrigiu a distancia para 5,0 km e o tempo para 32 min; FC segue a copia.
+    materialize(w, 'user-a', a.log.id, 's6', { perceivedEffort: 7 }, { distanceKm: 5.0, durationMin: 32 });
+
+    await w.deletion.deleteProviderData('user-a', 'polar');
+
+    const c = completionOf(w, 's6');
+    expect(c.distanceKm).toBe(5.0);
+    expect(c.durationMin).toBe(32);
+    expect(c.avgHeartRate).toBeNull();
+    expect(c.maxHeartRate).toBeNull();
+  });
+
+  it('tenis escolhido pelo aluno (ShoeUsage) mantem a sessao; status alterado pelo aluno tambem', async () => {
+    const w = world();
+    const a = seedHistory(w, 'user-a', 'polar', 'e1');
+    const b = seedHistory(w, 'user-a', 'polar', 'e2');
+    materialize(w, 'user-a', a.log.id, 's-shoe', {}, { shoeUsage: { id: 'u1' } });
+    materialize(w, 'user-a', b.log.id, 's-adj', {}, { status: 'adjusted' });
+
+    const result = await w.deletion.deleteProviderData('user-a', 'polar');
+
+    expect(result.preservedMaterialized.map((p) => [p.sessionId, p.reason]).sort()).toEqual([['s-adj', 'not_done'], ['s-shoe', 'shoe_usage']]);
+    expect(completionOf(w, 's-shoe').shoeUsage).toEqual({ id: 'u1' });
+    expect(completionOf(w, 's-shoe').distanceKm).toBeNull();
+  });
+
+  it('classifyMaterializedCompletion: coluna desconhecida preenchida cai no lado seguro (e do aluno)', () => {
+    const activity = { startedAt: STARTED_AT, distanceMeters: 5230, durationSec: 1815, avgHeartRateBpm: 152, maxHeartRateBpm: 178 };
+    const copy = { id: 'c', userId: 'u', sessionId: 's', status: 'done', distanceKm: 5.23, durationMin: 1815 / 60, avgHeartRate: 152, maxHeartRate: 178, source: 'device_extra', adjustmentReasons: [], notes: null };
+    expect(classifyMaterializedCompletion(copy, activity)).toMatchObject({ studentInput: false });
+    expect(classifyMaterializedCompletion({ ...copy, notes: 'cansado' }, activity).studentInput).toBe(true);
+    expect(classifyMaterializedCompletion({ ...copy, adjustmentReasons: ['x'] }, activity).studentInput).toBe(true);
+    expect(classifyMaterializedCompletion({ ...copy, colunaFutura: 3 }, activity).studentInput).toBe(true);
+    expect(classifyMaterializedCompletion({ ...copy, avgPaceSecondsKm: 347 }, activity).clear).toHaveProperty('avgPaceSecondsKm');
   });
 
   it('13. exclusao e idempotente: a segunda chamada devolve zeros e nao falha', async () => {
