@@ -1171,14 +1171,14 @@ model PolarConnection {
   updatedAt               DateTime  @updatedAt
 }
 
-// Trilha de auditoria de desconexao/exclusao de dados de provedores (04/10/2026), generica por
-// provedor. Sem FK em userId de proposito: o registro de que a exclusao ocorreu sobrevive a exclusao
+// Trilha de auditoria de provedores (04/10/2026): desconexao, exclusao de dados e leitura admin do payload
+// bruto (05/10/2026), generica por provedor. Sem FK em userId de proposito: o registro de que a exclusao ocorreu sobrevive a exclusao
 // da conta. "details" guarda so' contagens/resultado — nunca token, payload ou dado esportivo.
 model ProviderConnectionEvent {
   id        String   @id @default(uuid())
   userId    String
   provider  String
-  type      String // 'disconnected' | 'data_deleted'
+  type      String // 'disconnected' | 'data_deleted' | 'raw_read' (leitura admin do payload bruto; userId = aluno dono)
   details   Json?
   createdAt DateTime @default(now())
 

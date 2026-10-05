@@ -8,6 +8,9 @@ import { CoachService } from '../src/coach/coach.service';
 // como indicador bruto (tamanho da serializacao JSON), e ausencia de samples nao quebra o raw
 // existente.
 
+const ADMIN = { id: 'admin-1', role: 'admin' };
+const audit = () => ({ create: jest.fn().mockResolvedValue({}) });
+
 function noop() {
   return {} as never;
 }
@@ -54,17 +57,18 @@ describe('CoachService.getExternalActivityRaw — samples anexados ao raw existe
       },
     ];
     const prisma = {
-      activityLog: { findFirst: jest.fn().mockResolvedValue({ rawActivityId: 'raw-1' }) },
+      activityLog: { findFirst: jest.fn().mockResolvedValue({ rawActivityId: 'raw-1', provider: 'polar' }) },
+      providerConnectionEvent: audit(),
       rawExternalActivity: { findUnique: jest.fn().mockResolvedValue(rawActivity) },
       rawActivitySample: { findMany: jest.fn().mockResolvedValue(sampleRows) },
     };
     const service = buildService(prisma);
 
-    const result = (await service.getExternalActivityRaw('student-1', 'log-1')) as any;
+    const result = (await service.getExternalActivityRaw('student-1', 'log-1', ADMIN)) as any;
 
     expect(prisma.activityLog.findFirst).toHaveBeenCalledWith({
       where: { id: 'log-1', userId: 'student-1' },
-      select: { rawActivityId: true },
+      select: { rawActivityId: true, provider: true },
     });
     expect(prisma.rawActivitySample.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { activityLogId: 'log-1' } }),
@@ -95,13 +99,14 @@ describe('CoachService.getExternalActivityRaw — samples anexados ao raw existe
       receivedAt: new Date('2026-10-01T00:00:00.000Z'),
     };
     const prisma = {
-      activityLog: { findFirst: jest.fn().mockResolvedValue({ rawActivityId: 'raw-2' }) },
+      activityLog: { findFirst: jest.fn().mockResolvedValue({ rawActivityId: 'raw-2', provider: 'polar' }) },
+      providerConnectionEvent: audit(),
       rawExternalActivity: { findUnique: jest.fn().mockResolvedValue(rawActivity) },
       rawActivitySample: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const service = buildService(prisma);
 
-    const result = (await service.getExternalActivityRaw('student-1', 'log-2')) as any;
+    const result = (await service.getExternalActivityRaw('student-1', 'log-2', ADMIN)) as any;
 
     expect(result.samples).toEqual([]);
     expect(result.payloadSchemaVersion).toBe('1');
@@ -110,12 +115,13 @@ describe('CoachService.getExternalActivityRaw — samples anexados ao raw existe
   it('continua lancando NotFoundException quando a atividade nao pertence ao aluno, sem consultar samples', async () => {
     const prisma = {
       activityLog: { findFirst: jest.fn().mockResolvedValue(null) },
+      providerConnectionEvent: audit(),
       rawExternalActivity: { findUnique: jest.fn() },
       rawActivitySample: { findMany: jest.fn() },
     };
     const service = buildService(prisma);
 
-    await expect(service.getExternalActivityRaw('student-1', 'log-de-outro-aluno')).rejects.toBeInstanceOf(
+    await expect(service.getExternalActivityRaw('student-1', 'log-de-outro-aluno', ADMIN)).rejects.toBeInstanceOf(
       require('@nestjs/common').NotFoundException,
     );
     expect(prisma.rawActivitySample.findMany).not.toHaveBeenCalled();

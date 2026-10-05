@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
@@ -378,9 +379,17 @@ export class CoachController {
     return this.coachService.listExternalActivities(studentId);
   }
 
+  // Payload bruto do provider + samples (05/10/2026): ferramenta de diagnostico tecnico, nao faz parte do
+  // acompanhamento normal do treinador — por isso EXCLUSIVO de admin (o @Roles do metodo prevalece sobre
+  // o da classe). Cada leitura gera registro de auditoria (quem, qual atividade, qual aluno, quando).
+  @Roles('admin')
   @Get('students/:studentId/external-activities/:activityLogId/raw')
-  getExternalActivityRaw(@Param('studentId') studentId: string, @Param('activityLogId') activityLogId: string) {
-    return this.coachService.getExternalActivityRaw(studentId, activityLogId);
+  getExternalActivityRaw(
+    @CurrentUser() actor: CurrentUserPayload,
+    @Param('studentId') studentId: string,
+    @Param('activityLogId') activityLogId: string,
+  ) {
+    return this.coachService.getExternalActivityRaw(studentId, activityLogId, { id: actor.sub, role: actor.role });
   }
 
   // Reprocessamento manual MINIMO (03/10/2026) — pra' atividades que ja' existiam antes do gatilho

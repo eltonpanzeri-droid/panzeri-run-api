@@ -107,14 +107,24 @@ export class CoachService {
   // Par do metodo acima: abre o RawExternalActivity de UMA atividade especifica, pro treinador
   // inspecionar o payload bruto do provedor. userId checado na query (nao so' no rawActivityId)
   // pra nunca deixar um studentId abrir a atividade externa de outro aluno.
-  async getExternalActivityRaw(studentId: string, activityLogId: string) {
+  async getExternalActivityRaw(studentId: string, activityLogId: string, actor: { id: string; role: string }) {
     const log = await this.prisma.activityLog.findFirst({
       where: { id: activityLogId, userId: studentId },
-      select: { rawActivityId: true },
+      select: { rawActivityId: true, provider: true },
     });
     if (!log) {
       throw new NotFoundException('Atividade externa nao encontrada para este aluno.');
     }
+    // Auditoria ANTES de devolver o dado (falha de auditoria = leitura negada). Guarda so' identificadores
+    // e a operacao — nunca payload, samples, GPS, FIT nem credenciais.
+    await this.prisma.providerConnectionEvent.create({
+      data: {
+        userId: studentId,
+        provider: log.provider,
+        type: 'raw_read',
+        details: { actorId: actor.id, actorRole: actor.role, activityLogId, operation: 'read_raw_payload_and_samples' },
+      },
+    });
     const [rawActivity, samples] = await Promise.all([
       this.prisma.rawExternalActivity.findUnique({
         where: { id: log.rawActivityId },

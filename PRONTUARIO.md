@@ -2462,3 +2462,13 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
   `ProviderConnectionEvent` (sem token/payload).
 - Limitação: backups não foram tratados; restaurar um backup pode trazer de volta linhas apagadas e
   `disconnectedAt = null` anterior (o token restaurado já foi revogado na Polar). Tratar no bloco de Backup.
+
+### 2026-10-05 — Pré-Garmin 2: payload bruto de provider só para admin, com auditoria
+- Modelo atual = treinador único (não há vínculo treinador-aluno; `coach` é global via `COACH_EMAILS`). Decisão de
+  Elton: não criar `coachId`/carteira. Coach e admin seguem com listagem/resumo e `reclassify` de atividades externas.
+- `GET /coach/students/:studentId/external-activities/:activityLogId/raw` (payload bruto + samples) passou a
+  `@Roles('admin')`. Cada leitura grava `ProviderConnectionEvent` (`type 'raw_read'`: ator, papel, atividade, aluno,
+  operação; sem payload/credencial) ANTES de devolver o dado (falha de auditoria nega a leitura). Posse do
+  `activityLogId` pelo `studentId` já era checada na query e agora está coberta por teste.
+- ATENÇÃO: o papel `admin` não é atribuível hoje em produção (`effectiveRole` só promove a `coach` por `COACH_EMAILS`;
+  nenhum código cria `admin`). Logo a rota raw está inacessível a todos até existir um mecanismo de admin.
