@@ -17,8 +17,7 @@ function buildService(sessions: unknown[], links: unknown[] = [], alternativeLog
   };
   const noop = {} as never;
   const service = new TrainingPlansService(
-    prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop,
-  );
+    prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop);
   return { service, prisma };
 }
 

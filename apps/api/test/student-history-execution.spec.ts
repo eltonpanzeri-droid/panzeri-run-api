@@ -10,7 +10,7 @@ function build(sessions: unknown[], links: unknown[], alternativeLogs: unknown[]
     activityLog: { findMany: jest.fn().mockResolvedValue(alternativeLogs) },
   };
   const noop = {} as never;
-  return new TrainingPlansService(prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop);
+  return new TrainingPlansService(prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop);
 }
 
 function session(overrides: Partial<any> = {}) {

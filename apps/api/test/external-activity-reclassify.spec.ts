@@ -13,9 +13,8 @@ function noop() {
 
 function buildService(prisma: Record<string, unknown>, sessionExecutionLink: Record<string, unknown>) {
   return new CoachService(
-    prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
-    noop(), noop(), noop(), sessionExecutionLink as never,
-  );
+    prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
+    noop(), noop(), noop(), sessionExecutionLink as never);
 }
 
 describe('CoachService.reclassifyExternalActivity', () => {

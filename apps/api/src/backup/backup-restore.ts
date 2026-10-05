@@ -23,6 +23,10 @@ const execFileAsync = promisify(execFile);
 export interface SafeguardPrisma {
   polarConnection: { updateMany(args: { where: { disconnectedAt: null }; data: Record<string, unknown> }): Promise<{ count: number }> };
   stravaConnection: { deleteMany(args: Record<string, never>): Promise<{ count: number }> };
+  // Dados Strava restaurados de um backup (anterior a regra de exclusao na origem) tambem nao voltam: o cache vale 7 dias.
+  stravaActivity: { deleteMany(args: Record<string, never>): Promise<{ count: number }> };
+  stravaAnalysisCache: { deleteMany(args: Record<string, never>): Promise<{ count: number }> };
+  trainingExecutionInsight: { deleteMany(args: Record<string, never>): Promise<{ count: number }> };
   providerConnectionEvent: { create(args: { data: { userId: string; provider: string; type: string; details: unknown } }): Promise<unknown> };
 }
 
@@ -34,6 +38,9 @@ export async function postRestoreSafeguard(prisma: SafeguardPrisma, now: Date = 
     data: { disconnectedAt: now, accessTokenEncrypted: null, openTransactionId: null, openTransactionOpenedAt: null, registeredAt: null },
   });
   const strava = await prisma.stravaConnection.deleteMany({});
+  await prisma.stravaActivity.deleteMany({});
+  await prisma.stravaAnalysisCache.deleteMany({});
+  await prisma.trainingExecutionInsight.deleteMany({});
   // Trilha de auditoria da propria restauracao (apenas contagens).
   await prisma.providerConnectionEvent.create({
     data: {

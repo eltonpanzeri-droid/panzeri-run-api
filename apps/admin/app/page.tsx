@@ -111,8 +111,6 @@ interface StudentRow {
   billingNextChargeAt?: string | null;
   billingProviderStatus?: string | null;
   billingLastSyncAt?: string | null;
-  stravaConnected?: boolean;
-  stravaLastSyncAt?: string | null;
 }
 
 interface StudentDetail {
@@ -135,7 +133,6 @@ interface StudentDetail {
   needsUpdate?: boolean;
   needsUpdateReason?: string | null;
   generationBlocked?: boolean;
-  strava?: { connected: boolean; automaticSync: boolean; lastActivityAt?: string | null };
   birthDate?: string | null;
   heightCm?: number | null;
   weightKg?: number | null;
@@ -256,7 +253,6 @@ interface StudentDetail {
       completedDistanceKm?: number | null;
       completedPaceSecondsKm?: number | null;
       completedAt?: string | null;
-      stravaActivity?: StravaActivity | null;
       // Motivos de caminhada/parada, multi-select (14/09/2026)
       walkingReasons?: string[] | null;
       // Feedback v1 — bloco 1: estado pre-treino
@@ -284,7 +280,6 @@ interface StudentDetail {
       feedbackVersion?: number | null;
     }>;
   } | null;
-  unmatchedStravaActivities?: StravaActivity[];
   reports?: CoachReport[];
   history?: Array<{
     id: string;
@@ -350,18 +345,6 @@ interface StudentDetail {
   }>;
 }
 
-interface StravaActivity {
-  id: string;
-  stravaId: string;
-  name?: string | null;
-  type?: string | null;
-  startDate: string;
-  distanceKm?: number | null;
-  durationMin?: number | null;
-  paceSecondsKm?: number | null;
-  averageHeartRate?: number | null;
-  maxHeartRate?: number | null;
-}
 interface CoachReport {
   id: string;
   reportType: string;
@@ -1674,7 +1657,6 @@ export default function AdminHome() {
                   <span>
                     <strong>{student.name} <small className="studentCodeTag">Cod. {student.studentCode}</small></strong>
                     <small>{student.email}</small>
-                    <small className="status warn">Strava: recurso indisponivel</small>
                   </span>
                   <span>{student.goal}</span>
                   <span>{student.adherencePercent}%</span>
@@ -2929,7 +2911,6 @@ function StudentPanel({
       <div className="studentIdentityHeader">
         <p className="eyebrow">Aluno selecionado</p>
         <h2>{student.name} <small className="studentCodeTag">Cod. {student.studentCode}</small></h2>
-        <span className="status warn">Strava: recurso indisponivel</span>
       </div>
 
       {/* 01/09: o resto do painel virou abas (pedido do treinador — antes era uma pagina so' com
@@ -2966,9 +2947,6 @@ function StudentPanel({
       <>
       <section className="miniSection">
         <h3>Dados de contato</h3>
-        {student.strava?.connected && student.strava.lastActivityAt ? (
-          <p className="formHintText">Ultima atividade no Strava: {dateTimeLabel(student.strava.lastActivityAt)}</p>
-        ) : null}
         <div className="interviewAnswerGrid">
           <div className="interviewAnswerRow"><span className="interviewAnswerLabel">E-mail</span><span className="interviewAnswerValue">{student.email}</span></div>
           <div className="interviewAnswerRow"><span className="interviewAnswerLabel">WhatsApp</span><span className="interviewAnswerValue">{student.phone ?? 'Nao informado'}</span></div>
@@ -3131,7 +3109,7 @@ function StudentPanel({
         <textarea
           value={chatInput}
           onChange={(event) => setChatInput(event.target.value)}
-          placeholder="Pergunte sobre o treino, peca o relatorio do Strava, ou combine uma regra para este aluno"
+          placeholder="Pergunte sobre o treino ou combine uma regra para este aluno"
           rows={8}
           className="chatInputTextarea"
         />
@@ -3506,7 +3484,6 @@ function StudentPanel({
             <button className="secondaryButton" type="button" onClick={regenerateWeek}><RefreshCw size={16} />Refazer nova semana de treinos</button>
             <button className="secondaryButton" type="button" onClick={recoverSessions}><RefreshCw size={16} />Recuperar treinos presos em programa antigo</button>
             <button className="secondaryButton" type="button" onClick={syncAvailability}><RefreshCw size={16} />Sincronizar disponibilidade da entrevista</button>
-            <button className="secondaryButton" type="button" disabled title="Integracao com Strava ainda nao disponivel">Strava: recurso indisponivel</button>
             {student.generationBlocked ? (
               <button className="secondaryButton" type="button" onClick={allowExtraGenerationAttempt}><RefreshCw size={16} />Liberar mais uma tentativa de geracao</button>
             ) : null}
@@ -3565,13 +3542,6 @@ function StudentPanel({
             })}
           </div>
         ) : <p>Sem programa ativo.</p>}
-        {student.unmatchedStravaActivities?.length ? (
-          <div className="unmatchedStrava">
-            <h4>Outras atividades recebidas do Strava</h4>
-            <p>Foram realizadas nesta semana, mas nao correspondem diretamente a um treino proposto.</p>
-            {student.unmatchedStravaActivities.map((activity) => <StravaActivityPanel activity={activity} key={activity.id} />)}
-          </div>
-        ) : null}
       </section>
       </>
       ) : null}
@@ -5993,8 +5963,8 @@ function EditableSession({
     <div className="sessionEditor" style={{ borderLeft: `4px solid ${modalityAccentColor(session.modality)}` }}>
       {sessionLabel ? <p className="multiSessionLabel">{sessionLabel}</p> : null}
       <div className="sessionEditorHeader">
-        <span className={`executionStatus execution-${session.stravaActivity ? 'done' : session.completionStatus}`}>
-          {session.stravaActivity ? 'Strava recebido' : completionLabel(session.completionStatus)}
+        <span className={`executionStatus execution-${session.completionStatus}`}>
+          {completionLabel(session.completionStatus)}
         </span>
         <div className="sessionEditorHeaderActions">
           <button className="editSessionButton" type="button" onClick={() => setIsEditing((current) => !current)}>
@@ -6010,9 +5980,9 @@ function EditableSession({
         <span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''}</span>
       </div>
       <AdminPrescription structure={session.structure} notes={session.notes} />
-      <div className={`executionPanel ${session.completionStatus === 'sem_registro' && !session.stravaActivity ? 'emptyExecution' : ''}`}>
+      <div className={`executionPanel ${session.completionStatus === 'sem_registro' ? 'emptyExecution' : ''}`}>
         <strong>Realizado pelo aluno</strong>
-        {session.completionStatus === 'sem_registro' ? <span>{session.stravaActivity ? 'Sem registro manual no aplicativo' : 'Sem registro'}</span> : (
+        {session.completionStatus === 'sem_registro' ? <span>Sem registro</span> : (
           <>
             <span>
               {session.completedDurationMin ? `${session.completedDurationMin} min` : 'Tempo nao informado'}
@@ -6069,7 +6039,6 @@ function EditableSession({
           </>
         )}
       </div>
-      {session.stravaActivity ? <StravaActivityPanel activity={session.stravaActivity} /> : null}
       {isEditing ? (
         <div className="editOverlay" role="dialog" aria-modal="true" aria-label="Editar treino">
           <div className="editDialog">
@@ -6267,25 +6236,6 @@ function AddSessionButton({
         </button>
       ))}
       <button type="button" className="addSessionCancel" disabled={isCreating} onClick={() => setPickerOpen(false)}>Cancelar</button>
-    </div>
-  );
-}
-
-function StravaActivityPanel({ activity }: { activity: StravaActivity }) {
-  return (
-    <div className="stravaActivityPanel">
-      <div className="stravaActivityHeader">
-        <strong>Atividade recebida do Strava</strong>
-        <span>{dateTimeLabel(activity.startDate)}</span>
-      </div>
-      <b>{activity.name || activity.type || 'Atividade'}</b>
-      <div className="stravaMetrics">
-        {activity.distanceKm !== null && activity.distanceKm !== undefined ? <span>{activity.distanceKm} km</span> : null}
-        {activity.durationMin ? <span>{activity.durationMin} min</span> : null}
-        {activity.paceSecondsKm ? <span>{paceLabel(activity.paceSecondsKm)}</span> : null}
-        {activity.averageHeartRate ? <span>FC media {activity.averageHeartRate} bpm</span> : null}
-        {activity.maxHeartRate ? <span>FC max. {activity.maxHeartRate} bpm</span> : null}
-      </div>
     </div>
   );
 }
@@ -6845,8 +6795,6 @@ function reportMetricLabel(key: string) {
     prescribedSessions: 'Treinos previstos',
     prescribedKm: 'Km previstos',
     completedKm: 'Km feitos',
-    stravaKm: 'Km Strava',
-    stravaMinutes: 'Min Strava',
     averageEffort: 'PSE media',
     trend: 'Tendencia',
   };

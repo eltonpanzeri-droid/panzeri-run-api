@@ -28,7 +28,7 @@ export const ACCOUNT_DELETE_ORDER = [
   'messageLog', 'healthProfile', 'userPreferences', 'weeklyAvailability', 'fitnessTest', 'targetRace', 'painReport',
   'menstrualProfile', 'menstrualCycleLog', 'menstrualDailyLog', 'userAchievement', 'challengeProgress', 'coachReport',
   'studentProfileEvent', 'studentProfile', 'studentReportEntry', 'onboardingInterview', 'shoe', 'stravaConnection',
-  'stravaActivity', 'stravaAnalysisCache', 'polarConnection', 'polarOAuthAttempt', 'funnelEvent', 'freeTesterEmail',
+  'stravaActivity', 'stravaAnalysisCache', 'stravaOAuthAttempt', 'polarConnection', 'polarOAuthAttempt', 'funnelEvent', 'freeTesterEmail',
 ] as const;
 
 // ── B: preservar anonimizado (so' o necessario para registro financeiro/auditoria; nenhum dado de identificacao) ─────

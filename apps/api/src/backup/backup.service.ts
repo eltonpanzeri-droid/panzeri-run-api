@@ -25,6 +25,9 @@ const execFileAsync = promisify(execFile);
 
 export const BACKUP_PREFIX = 'panzeri-backups/db/';
 export const BACKUP_RETENTION_DAYS = 14;
+// Dados de proveniencia Strava (cache de 7 dias, tokens e derivados) NAO entram nos dumps: as copias duram 14 dias e a
+// regra Strava permite no maximo 7. So' a ESTRUTURA dessas tabelas vai no dump; o conteudo e' omitido na origem.
+export const BACKUP_EXCLUDED_TABLE_DATA = ['StravaActivity', 'StravaConnection', 'StravaAnalysisCache', 'TrainingExecutionInsight', 'StravaOAuthAttempt', 'StravaWebhookEvent'];
 const BACKUP_SIZE_WARNING_BYTES = 20 * 1024 * 1024;
 
 export interface BackupResult {
@@ -66,7 +69,7 @@ export class BackupService {
 
   protected async runPgDump(env: Record<string, string>, dumpPath: string): Promise<void> {
     // execFile = SEM shell; nenhum argumento contem a URL (conexao vem das variaveis PG* do ambiente).
-    await execFileAsync('pg_dump', ['--format=custom', '--file', dumpPath], {
+    await execFileAsync('pg_dump', ['--format=custom', '--file', dumpPath, ...BACKUP_EXCLUDED_TABLE_DATA.map((table) => `--exclude-table-data="${table}"`)], {
       env: { PATH: process.env.PATH ?? '', ...env },
       maxBuffer: 1024 * 1024,
     });

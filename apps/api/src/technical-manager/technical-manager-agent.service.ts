@@ -2,7 +2,6 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
-import { StravaService } from '../strava/strava.service';
 import { AiQueueService } from '../common/ai-queue.service';
 import { TrainingPlansService } from '../training-plans/training-plans.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
@@ -26,7 +25,6 @@ export class TechnicalManagerAgentService {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly strava: StravaService,
     private readonly aiQueue: AiQueueService,
     private readonly trainingPlans: TrainingPlansService,
     private readonly studentProfile: StudentProfileService,
@@ -219,14 +217,6 @@ export class TechnicalManagerAgentService {
       },
       {
         spec: {
-          name: 'get_strava_report',
-          description: 'Retorna o relatorio de execucao do Strava do aluno para a semana ativa: prescrito x realizado, aderencia, tendencia de carga.',
-          input_schema: { type: 'object', properties: {} },
-        },
-        run: async () => JSON.stringify(await this.strava.report(studentId), null, 2),
-      },
-      {
-        spec: {
           name: 'save_directive',
           description: 'Salva uma diretriz para este aluno, que o agente de prescricao de treinos vai OBRIGATORIAMENTE consultar e respeitar em toda geracao futura de treino — tanto na geracao automatica semanal quanto quando o treinador pedir para regenerar a semana manualmente. Pode ser permanente (sem data de validade) ou temporaria (com data de validade, ex: ate uma prova ou por algumas semanas). So use depois que o treinador confirmar explicitamente, em uma mensagem anterior, que quer salvar aquilo.',
           input_schema: {
@@ -289,27 +279,6 @@ export class TechnicalManagerAgentService {
           return 'Diretriz desativada com sucesso.';
         },
       },
-      {
-        spec: {
-          name: 'set_strava_analysis_frequency',
-          description: 'Define de quantos em quantos dias a analise do historico do Strava (cadencia, frequencia cardiaca, padroes) deste aluno especifico deve rodar. Por padrao todos os alunos sao analisados a cada 30 dias automaticamente; use esta ferramenta so quando o treinador pedir explicitamente uma frequencia diferente para ESTE aluno (ex: "analise o Strava dela toda semana", "volta pro padrao mensal"). Isso so guarda a preferencia — nao dispara uma analise agora.',
-          input_schema: {
-            type: 'object',
-            properties: {
-              frequencyDays: { type: 'number', description: 'De quantos em quantos dias analisar. Omita (nao inclua o campo) para voltar ao padrao de 30 dias.' },
-            },
-          },
-        },
-        run: async (input) => {
-          const frequencyDays = typeof input.frequencyDays === 'number' && Number.isFinite(input.frequencyDays) && input.frequencyDays > 0
-            ? Math.round(input.frequencyDays)
-            : null;
-          await this.trainingPlans.setStravaAnalysisFrequency(studentId, frequencyDays);
-          return frequencyDays
-            ? `Frequencia de analise do Strava deste aluno definida para a cada ${frequencyDays} dia(s).`
-            : 'Frequencia de analise do Strava deste aluno voltou ao padrao (a cada 30 dias).';
-        },
-      },
     ];
   }
 
@@ -367,8 +336,8 @@ export class TechnicalManagerAgentService {
   private buildSystemPromptStable() {
     return [
       'Voce e o agente gerente tecnico da Panzeri Run.',
-      'Pense na estrutura como uma academia: existe um agente que monta o treino da semana (o "professor") e um agente que analisa dados do Strava. Voce e a ponte entre o treinador e esses agentes — o gerente tecnico que recebe orientacoes especificas sobre um aluno e garante que elas sejam seguidas.',
-      'Voce pode consultar o contexto completo do aluno (get_student_context) e o relatorio de execucao do Strava (get_strava_report) para responder com informacao real, nunca invente dados.',
+      'Pense na estrutura como uma academia: existe um agente que monta o treino da semana (o "professor"). Voce e a ponte entre o treinador e esse agente — o gerente tecnico que recebe orientacoes especificas sobre um aluno e garante que elas sejam seguidas.',
+      'Voce pode consultar o contexto completo do aluno (get_student_context) para responder com informacao real, nunca invente dados.',
       'Quando o treinador pedir sua opiniao, de uma opiniao tecnica real baseada nos dados, como um profissional experiente faria — nao seja generico ou evasivo.',
       'REGRA MAIS IMPORTANTE sobre diretrizes permanentes: quando o treinador pedir para voce criar uma regra fixa/permanente para este aluno especifico, primeiro responda em texto confirmando exatamente o que sera salvo (ex: "Entendido, vou aplicar isso para a Juliana a partir de agora: ..."). So chame a ferramenta save_directive depois que o treinador confirmar explicitamente numa mensagem seguinte (ex: "sim", "pode salvar", "confirmado"). Nunca chame save_directive na mesma resposta em que voce esta pedindo a confirmacao.',
       'O agente que gera os treinos (tanto na geracao automatica semanal quanto quando o treinador pede para regenerar a semana) NAO participa desta conversa e NAO tem acesso a ela — a UNICA forma de qualquer combinado aqui realmente virar treino de verdade e voce salvar isso com save_directive. Se o treinador combinar algo especifico com voce (datas, distancias, paces, taper, etc) e voce nao salvar, isso sera perdido e o proximo treino gerado vai ignorar tudo o que foi conversado — isso e um erro grave, entao nunca diga para o treinador "editar a sessao manualmente" ou "regenerar o treino" como se isso fosse aplicar o combinado sozinho; regenerar so aplica o que estiver salvo como diretriz.',

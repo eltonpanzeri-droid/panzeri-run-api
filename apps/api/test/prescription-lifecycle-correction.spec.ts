@@ -15,8 +15,7 @@ function noop() {
 
 function buildTrainingPlansService(prisma: Record<string, unknown>) {
   return new TrainingPlansService(
-    prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
-  );
+    prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop());
 }
 
 describe('injectTargetRaceDays — prova/evento como excecao explicita a rotina (secao 5)', () => {
@@ -108,8 +107,7 @@ describe('CoachService.updateTrainingSession — protecao PRESCRICAO -> EXECUCAO
       user: { findFirstOrThrow: jest.fn().mockResolvedValue({ id: 'student-1', role: 'student' }) },
     };
     const service = new CoachService(
-      prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
-    );
+      prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop());
     return { service, prisma };
   }
 

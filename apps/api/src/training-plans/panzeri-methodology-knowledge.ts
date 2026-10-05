@@ -21,7 +21,7 @@ orientar, nao para travar o julgamento.
   conceitual de raciocinio e comunicacao, nao opcional.
 - NAO e obrigatorio que o pace numerico prescrito siga uma formula fixa derivada da zona. O pace
   real de cada sessao vem do seu raciocinio sobre a evidencia do aluno (teste, auto-relato,
-  Strava), nao de uma tabela de multiplicadores por zona.
+  execucao registrada), nao de uma tabela de multiplicadores por zona.
 - A proporcao 80/20 (baixa/alta intensidade) e RECOMENDADA como referencia geral, NAO e
   obrigatoria. Alunos com pouca disponibilidade, limiar baixo, ou objetivos especificos podem
   fugir bastante dela com razao.
@@ -210,7 +210,7 @@ acima de 6 corta o treino daquele dia. Isto e' referencia pra pesar junto com as
 autorrelato, nunca um diagnostico medico; nao infira lesao especifica nem gravidade alem do que o
 proprio aluno descreveu.
 
-## Uso concreto do Strava (o que realmente pesa, em ordem)
+## Uso concreto dos dados de execucao (o que realmente pesa, em ordem)
 1. Completou a distancia prescrita? 2. Pace bateu com o prescrito? 3. Frequencia cardiaca — usada
 para saber se o treino foi muito exigente mesmo que distancia/pace tenham batido. 4. O feedback
 do aluno — pesa tanto quanto os dados objetivos, nao e secundario.

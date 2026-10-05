@@ -98,7 +98,7 @@ export const PANZERI_PRESCRIPTION_PRINCIPLES = [
   'Usar fortalecimento com volume compativel, boa execucao e intensidade progressiva.',
   'Reduzir carga e recomendar avaliacao profissional diante de dor importante, limitacao, lesao recente ou doenca aguda.',
   'Ajustar o pace prescrito pela evolucao real, aderencia e percepcao do aluno ao longo do tempo — nunca mencionar nem sugerir teste de 3km ao aluno, feature suspensa pelo treinador.',
-  'Reavaliar semanalmente o que foi prescrito, realizado e registrado no Strava antes de manter, aumentar ou reduzir carga.',
+  'Reavaliar semanalmente o que foi prescrito, realizado e registrado pelo aluno antes de manter, aumentar ou reduzir carga.',
 ] as const;
 
 export interface MethodologyAvailability {
@@ -137,21 +137,6 @@ export interface MethodologyInput {
   answers: Record<string, unknown>;
   availability: MethodologyAvailability[];
   history: MethodologyHistoryWeek[];
-  stravaRunMinutes: number;
-  stravaLongestRunMinutes: number;
-  executionInsight?: {
-    adherencePercent: number;
-    executionPercent: number;
-    actualKm: number;
-    actualMinutes: number;
-    distanceChangePercent: number | null;
-    loadTrend: string;
-  } | null;
-  stravaAnalysis?: {
-    summary: string;
-    flags: string[];
-    crossTrainingNote: string | null;
-  } | null;
   studentDirectives?: string[];
   activeObservations?: string[];
   // Resumo condensado do prontuario do aluno (StudentProfileService.refreshProfile), gerado por

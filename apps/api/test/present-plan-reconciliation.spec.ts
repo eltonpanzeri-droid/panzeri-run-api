@@ -10,8 +10,7 @@ import { WeekReconciliation } from '../src/activity-execution/session-execution-
 function buildService() {
   const noop = {} as never;
   return new TrainingPlansService(
-    noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop,
-  );
+    noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop);
 }
 
 function emptyReconciliation(): WeekReconciliation {

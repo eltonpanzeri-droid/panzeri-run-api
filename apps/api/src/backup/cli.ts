@@ -7,6 +7,7 @@ import { decryptFile, parseBackupKey } from './backup-crypto';
 import { applyTombstones, postRestoreSafeguard, restoreBackupFile } from './backup-restore';
 import { redactSecrets, sameDatabaseTarget, secretsFromDatabaseUrl } from './backup-sanitize';
 import { BACKUP_PREFIX } from './backup.service';
+import { deleteStravaData } from '../strava/strava-data-deletion';
 import { R2Client } from './r2-client';
 import { Tombstone, TombstoneLedger } from './tombstone-ledger';
 
@@ -105,7 +106,10 @@ async function main() {
       const accounts = new AccountDeletionService(prisma as never); // so' local: sem ledger/polar (reaplicacao nao grava tombstone nem chama providers)
       const deleteAccount = (userId: string) => accounts.executeAccountDeletion(userId);
       const ledger = ledgerFromEnv();
-      const deleteProviderData = (userId: string, provider: string) => deletion.executeProviderDataDeletion(userId, provider);
+      // Strava tem cadeia propria (cache/derivados/tokens); os demais providers usam a exclusao canonica existente.
+      const deleteProviderData = (userId: string, provider: string) => provider === 'strava'
+        ? prisma.$transaction((tx) => deleteStravaData(tx as never, userId))
+        : deletion.executeProviderDataDeletion(userId, provider);
       const loadTombstones = (): Promise<Tombstone[]> => ledger.loadAll();
       try {
         if (command === 'restore') {

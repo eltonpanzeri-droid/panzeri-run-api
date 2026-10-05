@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { StravaService } from '../strava/strava.service';
 import { SubmitWeeklyCheckInDto } from './dto/submit-weekly-checkin.dto';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
@@ -44,7 +43,6 @@ export interface WeeklyCheckInSummary {
 export class WeeklyCheckInService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly strava: StravaService,
     private readonly reportTimeline: ReportTimelineService,
     private readonly medalEvaluation: MedalEvaluationService,
   ) {}
@@ -247,22 +245,9 @@ export class WeeklyCheckInService {
     });
   }
 
-  // Prefere os numeros que o StravaService.report() ja calcula (comparacao real prescrito x
-  // executado, incluindo "modalidade diferente" via atividade do Strava) quando o aluno tem Strava
-  // conectado — reaproveita a logica existente em vez de duplicar. Sem Strava, cai pra uma conta
-  // mais simples (so' pelo registro manual: feito ou sem registro), sem inventar um numero de
-  // "diferente" que nao temos como saber sem o Strava.
+  // Contagem so' pelo registro do aluno (feito/ajustado, 'nao feito', sem registro). Dados do Strava nao entram
+  // aqui (politica Strava, 05/10/2026): nao ha como inferir 'modalidade diferente' sem eles — fica 0.
   private async computeSummary(userId: string, planId: string, options?: { skipCache?: boolean }): Promise<WeeklyCheckInSummary> {
-    const report = await this.strava.report(userId, { skipCache: options?.skipCache }).catch(() => ({ summary: null }));
-    if (report.summary) {
-      return {
-        asPrescribedSessions: report.summary.asPrescribedSessions,
-        changedModalitySessions: report.summary.sameModalityChangedSessions,
-        differentSessions: report.summary.differentSessions,
-        missedSessions: report.summary.missedSessions,
-      };
-    }
-
     const sessions = await this.prisma.trainingSession.findMany({
       where: { planId },
       select: { scheduledDate: true, completion: { select: { status: true } } },

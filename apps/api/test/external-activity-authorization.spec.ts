@@ -52,9 +52,8 @@ function build(prisma: Record<string, unknown>, classify = jest.fn()) {
   const noop = () => ({} as never);
   const sessionLink = { classify, getActiveLinkForActivity: jest.fn(async () => null) };
   return new CoachService(
-    prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), sessionLink as never, noop(), noop(),
-    noop(), noop(), noop(), noop(),
-  );
+    prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), sessionLink as never, noop(), noop(),
+    noop(), noop(), noop(), noop());
 }
 
 describe('CoachService — posse da atividade e auditoria da leitura do raw', () => {

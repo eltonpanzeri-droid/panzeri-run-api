@@ -1530,6 +1530,28 @@ model StravaAnalysisCache {
   updatedAt           DateTime @updatedAt
 }
 
+// Tentativa OAuth Strava de uso unico (05/10/2026): o state nunca e' persistido em texto puro (so' o hash), expira
+// em minutos, e' consumido de forma atomica no callback e fica vinculado ao usuario que a iniciou.
+model StravaOAuthAttempt {
+  stateHash  String    @id
+  userId     String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// Deduplicacao dos eventos de webhook do Strava (05/10/2026): o Strava nao assina os eventos e reenvia ate 3 vezes;
+// a chave (hash de tipo/objeto/aspecto/dono/hora/updates) torna o processamento idempotente. Sem PII; expira em 7 dias.
+model StravaWebhookEvent {
+  dedupeKey  String   @id
+  receivedAt DateTime @default(now())
+
+  @@index([receivedAt])
+}
+
 model StravaActivity {
   id             String   @id @default(uuid())
   userId         String
@@ -1553,6 +1575,9 @@ model StravaActivity {
   elevationGainM Float?
   raw            Json
   createdAt      DateTime @default(now())
+  // Quando esta atividade foi buscada pela ULTIMA vez na API do Strava. O cache Strava expira 7 dias depois
+  // (StravaService.purgeExpiredData); por isso e' fetchedAt, nao createdAt, que governa a retencao.
+  fetchedAt      DateTime @default(now())
 }
 
 // Sistema de Medalhas (30/09/2026, especificacao completa em SISTEMA_DE_MEDALHAS.md) — tabelas

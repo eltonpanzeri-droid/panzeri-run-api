@@ -21,8 +21,6 @@ function baseInput(overrides: Partial<MethodologyInput> = {}): MethodologyInput 
     answers: {},
     availability: [{ weekday: 1, modalities: ['corrida'], availableMin: 60, modalityDurations: null }],
     history: [],
-    stravaRunMinutes: 0,
-    stravaLongestRunMinutes: 0,
     studentDirectives: [],
     activeObservations: [],
     ...overrides,

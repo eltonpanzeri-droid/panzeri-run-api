@@ -7,6 +7,6 @@ import { StravaService } from './strava.service';
   imports: [PrismaModule],
   controllers: [StravaController],
   providers: [StravaService],
-  exports: [StravaService],
+  // Sem exports: nenhum outro modulo consome o servico Strava (dados Strava ficam isolados no proprio aluno).
 })
 export class StravaModule {}

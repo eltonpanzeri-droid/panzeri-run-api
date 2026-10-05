@@ -18,10 +18,8 @@ import {
   isCurrentlyRunning,
 } from './training-methodology';
 import { PrescriptionAgentService, PaceEvidence } from './prescription-agent.service';
-import { StravaAnalysisAgentService, StravaAnalysisReport } from './strava-analysis-agent.service';
 import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
-import { StravaService } from '../strava/strava.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WeeklyCheckInService } from './weekly-checkin.service';
@@ -95,9 +93,6 @@ const STANDARD_WARMUP_COOLDOWN_MIN_LEADING_WALK_MIN = 5;
 // enquanto o proprio bug estava sendo investigado — cada reabertura custava uma chamada cara ao
 // Opus, com 2 tentativas internas, e falhava de novo. Este cooldown garante que, apos uma falha,
 // o sistema espera antes de tentar de novo automaticamente, em vez de gastar a cada visualizacao.
-// Cadencia padrao da analise do Strava (ver refreshStravaAnalysis) — o treinador pode pedir uma
-// frequencia diferente pra um aluno especifico (StravaAnalysisCache.customFrequencyDays).
-const DEFAULT_STRAVA_ANALYSIS_FREQUENCY_DAYS = 30;
 const AI_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
 // Auditoria Astra (29/09/2026), item 02 — acima do teto real de uma geracao (TASK_TIMEOUT_MS em
 // ai-queue.service.ts, 10min) com folga, pra nunca reclamar uma trava de uma geracao ainda em
@@ -182,10 +177,8 @@ export class TrainingPlansService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly prescriptionAgent: PrescriptionAgentService,
-    private readonly stravaAnalysisAgent: StravaAnalysisAgentService,
     private readonly painReports: PainReportsService,
     private readonly targetRaces: TargetRacesService,
-    private readonly stravaService: StravaService,
     private readonly telegram: TelegramService,
     private readonly studentProfile: StudentProfileService,
     private readonly notifications: NotificationsService,
@@ -588,20 +581,13 @@ export class TrainingPlansService {
       );
     }
 
-    // O webhook do Strava ja mantem os treinos do aluno atualizados em tempo real, mas isso e
-    // uma rede de seguranca (webhook perdido, assinatura caida, etc): antes de decidir o treino,
-    // tenta puxar dados novos do Strava. syncIfStale so faz a chamada de verdade se o ultimo sync
-    // tiver mais de alguns minutos, entao isso nao pesa quando ja esta em dia. Qualquer erro aqui
-    // e ignorado de proposito — melhor gerar o treino com o que ja temos do que travar por causa
-    // de uma falha de sincronizacao.
-    await this.stravaService.syncIfStale(userId).catch(() => null);
-
+    // Dados do Strava NAO entram na geracao do treino nem em nenhum contexto de IA (politica Strava, 05/10/2026).
     const historyStart = addDays(startOfWeek(new Date()), -35);
     // Auditoria Astra (29/09/2026), item 06: previousPlans NAO pode mais vir daqui — precisa da
     // semana-ALVO da geracao (weekStart, so' calculada mais abaixo depois do rollover de domingo),
     // nunca da semana do relogio no momento da chamada. Movido pra logo apos weekStart existir
     // (ver comentario la). Ver PRONTUARIO.md pra causa raiz completa.
-    const [user, latestTest, availability, onboarding, recentStrava, latestExecutionInsight, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRaces, latestReassessment, activeObservations, longestRunSession] = await Promise.all([
+    const [user, latestTest, availability, onboarding, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRaces, latestReassessment, activeObservations, longestRunSession] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         include: {
@@ -618,15 +604,6 @@ export class TrainingPlansService {
         orderBy: { weekday: 'asc' },
       }),
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true, answers: true } }),
-      this.prisma.stravaActivity.findMany({
-        where: { userId, startDate: { gte: historyStart } },
-        orderBy: { startDate: 'desc' },
-      }),
-      this.prisma.trainingExecutionInsight.findFirst({
-        where: { userId },
-        orderBy: { updatedAt: 'desc' },
-        select: { summary: true },
-      }),
       this.prisma.trainingPlan.findFirst({
         where: { userId, status: 'active' },
         orderBy: { createdAt: 'desc' },
@@ -820,15 +797,6 @@ export class TrainingPlansService {
         longestRunDate: longestRun ? longestRun.scheduledDate.toISOString().slice(0, 10) : null,
       };
     });
-    const stravaRuns = recentStrava.filter((activity) => isStravaRunningActivity(activity.type, activity.name));
-    const executionSummary = jsonObject(latestExecutionInsight?.summary);
-    const progression = jsonObject(executionSummary.progression);
-    // A analise do Strava NAO roda mais aqui — ela tem sua propria cadencia, desacoplada da
-    // geracao da semana (mensal por padrao, ou a frequencia customizada do aluno, ou quando o
-    // treinador pede manualmente — ver StravaAnalysisSchedulerService e refreshStravaAnalysis).
-    // generateWeek() so LE o que ja estiver pronto no cache, nunca dispara uma chamada de IA nova.
-    const stravaAnalysisCache = await this.prisma.stravaAnalysisCache.findUnique({ where: { userId } });
-    const stravaAnalysis = (stravaAnalysisCache?.analysis as unknown as StravaAnalysisReport | null) ?? null;
     // So chama a IA do prontuario se houver evento novo acumulado desde a ultima atualizacao —
     // ver StudentProfileService.refreshProfile. Falha aqui nunca bloqueia a geracao da semana.
     const studentProfileSummary = await this.studentProfile.refreshProfile(userId).catch(() => '');
@@ -877,17 +845,6 @@ export class TrainingPlansService {
         modalityDurations: normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined),
       })),
       history: methodologyHistory,
-      stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
-      stravaLongestRunMinutes: Math.round(Math.max(0, ...stravaRuns.map((activity) => activity.movingTimeSec ?? 0)) / 60),
-      executionInsight: latestExecutionInsight ? {
-        adherencePercent: numericValue(executionSummary.adherencePercent),
-        executionPercent: numericValue(executionSummary.executionPercent),
-        actualKm: numericValue(executionSummary.actualKm),
-        actualMinutes: numericValue(executionSummary.actualMinutes),
-        distanceChangePercent: nullableNumericValue(progression.distanceChangePercent),
-        loadTrend: String(progression.loadTrend ?? 'sem_base_anterior'),
-      } : null,
-      stravaAnalysis,
       studentDirectives: activeDirectives.map((directive) => directive.content),
       activeObservations: activeObservations.map((observation) => observation.content),
       studentProfileSummary,
@@ -966,14 +923,9 @@ export class TrainingPlansService {
           })(),
         })),
     };
-    const stravaPacedRuns = stravaRuns.filter((activity) => (activity.avgPaceSecKm ?? 0) > 0 && (activity.distanceKm ?? 0) >= 1);
-    const stravaAveragePaceSecondsPerKm = stravaPacedRuns.length
-      ? Math.round(stravaPacedRuns.reduce((total, activity) => total + (activity.avgPaceSecKm ?? 0), 0) / stravaPacedRuns.length)
-      : null;
     const paceEvidence: PaceEvidence = {
       testPace: latestTest ? { secondsPerKm: latestTest.paceSecondsPerKm, daysAgo: Math.floor((Date.now() - latestTest.createdAt.getTime()) / 86400000) } : null,
       selfReportedPace: paceFallback ? { secondsPerKm: paceFallback.paceSecondsPerKm, source: paceFallback.source } : null,
-      stravaAveragePace: stravaAveragePaceSecondsPerKm ? { secondsPerKm: stravaAveragePaceSecondsPerKm, sampleRuns: stravaPacedRuns.length } : null,
     };
     const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput, paceEvidence);
     if (!aiDecision) {
@@ -1314,9 +1266,6 @@ export class TrainingPlansService {
               rationale: methodology.rationale,
               safetyAdjustment: methodology.safetyAdjustment,
               history: methodologyHistory,
-              stravaRunMinutes: Math.round(stravaRuns.reduce((total, activity) => total + (activity.movingTimeSec ?? 0), 0) / 60),
-              analysisAgent: latestExecutionInsight ? executionSummary : null,
-              stravaAnalysis,
               studentDirectives: activeDirectives.map((directive) => directive.content),
               decisionDateTime: saoPauloDateTime(new Date()),
             },
@@ -1654,60 +1603,6 @@ export class TrainingPlansService {
     ).catch(() => undefined);
   }
 
-  // Analise do historico do Strava (cadencia, FC, padroes) — desacoplada de generateWeek() de
-  // proposito (ver comentario la): ela tem sua propria cadencia, nao a da geracao de treino.
-  // Chamada por: StravaAnalysisSchedulerService (mensal, por padrao, ou a frequencia customizada
-  // do aluno), o botao "Gerar relatorio do Strava agora" do treinador (force: true), e o Gerente
-  // Tecnico so quando muda a frequencia de um aluno (nao chama isso diretamente, so guarda a
-  // preferencia — ver setStravaAnalysisFrequency).
-  //
-  // force=true ignora a data de vencimento (dueForAnalysis) mas AINDA exige atividade nova desde a
-  // ultima analise real — nao existe custo de IA sem dado novo pra analisar, mesmo forcado a mao.
-  async refreshStravaAnalysis(userId: string, options?: { force?: boolean }): Promise<{ analyzed: boolean; reason: string }> {
-    const cache = await this.prisma.stravaAnalysisCache.findUnique({ where: { userId } });
-    const frequencyDays = cache?.customFrequencyDays ?? DEFAULT_STRAVA_ANALYSIS_FREQUENCY_DAYS;
-    const dueForAnalysis = !cache?.analysis || Date.now() - cache.updatedAt.getTime() >= frequencyDays * 24 * 60 * 60 * 1000;
-    if (!options?.force && !dueForAnalysis) {
-      return { analyzed: false, reason: `Ainda nao venceu o prazo de analise (a cada ${frequencyDays} dia(s)).` };
-    }
-
-    const historyStart = addDays(startOfWeek(new Date()), -35);
-    const recentStrava = await this.prisma.stravaActivity.findMany({
-      where: { userId, startDate: { gte: historyStart } },
-      orderBy: { startDate: 'desc' },
-    });
-    const latestActivityId = recentStrava[0]?.stravaId ?? null;
-    if (!latestActivityId) {
-      return { analyzed: false, reason: 'Aluno sem atividades recentes no Strava para analisar.' };
-    }
-    if (!options?.force && cache?.lastActivityId === latestActivityId) {
-      return { analyzed: false, reason: 'Nenhuma atividade nova desde a ultima analise.' };
-    }
-
-    const analysis = await this.stravaAnalysisAgent.analyze(recentStrava);
-    if (!analysis) {
-      return { analyzed: false, reason: 'Falha ao gerar a analise com o agente de IA — tente novamente.' };
-    }
-
-    await this.prisma.stravaAnalysisCache.upsert({
-      where: { userId },
-      create: { userId, lastActivityId: latestActivityId, analysis: analysis as unknown as Prisma.InputJsonObject, customFrequencyDays: cache?.customFrequencyDays ?? null },
-      update: { lastActivityId: latestActivityId, analysis: analysis as unknown as Prisma.InputJsonObject },
-    });
-    return { analyzed: true, reason: 'Analise atualizada com sucesso.' };
-  }
-
-  // Chamado pelo Gerente Tecnico quando o treinador pede uma periodicidade especifica para um
-  // aluno (ex: "analise o Strava da Fulana a cada 7 dias") — so guarda a preferencia, nao dispara
-  // analise nenhuma agora (isso e responsabilidade do cron mensal/botao manual).
-  async setStravaAnalysisFrequency(userId: string, frequencyDays: number | null) {
-    await this.prisma.stravaAnalysisCache.upsert({
-      where: { userId },
-      create: { userId, customFrequencyDays: frequencyDays },
-      update: { customFrequencyDays: frequencyDays },
-    });
-  }
-
   // Corrige alunos afetados pelo bug antigo de regeneracao de semana: antes da correcao, gerar
   // um novo treino sem usar o ajuste de rotina (ex: o botao do treinador) arquivava o plano
   // anterior sem migrar os dias ja passados daquela semana, fazendo treinos ja feitos (com
@@ -1890,8 +1785,6 @@ export class TrainingPlansService {
         answers,
         availability: [],
         history: [],
-        stravaRunMinutes: 0,
-        stravaLongestRunMinutes: 0,
         studentDirectives: activeDirectives.map((directive) => directive.content),
         activeObservations: activeObservations.map((observation) => observation.content),
         todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
@@ -1930,7 +1823,6 @@ export class TrainingPlansService {
       const paceEvidence: PaceEvidence = {
         testPace: latestTest ? { secondsPerKm: latestTest.paceSecondsPerKm, daysAgo: Math.max(0, Math.floor((Date.now() - latestTest.createdAt.getTime()) / 86400000)) } : null,
         selfReportedPace: paceFallback ? { secondsPerKm: paceFallback.paceSecondsPerKm, source: paceFallback.source } : null,
-        stravaAveragePace: null,
       };
       // Decide TUDO deste dia numa unica chamada (distancia, pace, estrutura) — nunca reaproveita
       // um pace guardado de outro dia nem calcula distancia por formula (ver proposeRunSession).
@@ -3100,11 +2992,6 @@ function remapAvailabilityForPainSafety(days: AvailableDay[], removeRunning: boo
     ...day,
     modalities: [...new Set(day.modalities.map((modality) => (isRunningModality(modality) ? 'fortalecimento_corredores' : modality)))],
   }));
-}
-
-function isStravaRunningActivity(type: string | null, name: string | null) {
-  const value = `${type ?? ''} ${name ?? ''}`.toLowerCase();
-  return value.includes('run') || value.includes('corrida');
 }
 
 function jsonObject(value: unknown): Record<string, unknown> {

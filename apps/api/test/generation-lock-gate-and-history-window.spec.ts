@@ -88,10 +88,8 @@ function buildFullMocks(overrides: { activePlanStartDate?: Date | null } = {}) {
   const service = new TrainingPlansService(
     prisma as never,
     prescriptionAgent as never,
-    noop(), // stravaAnalysisAgent
     painReports as never,
     targetRaces as never,
-    stravaService as never,
     noop(), // telegram
     studentProfile as never,
     noop(), // notifications

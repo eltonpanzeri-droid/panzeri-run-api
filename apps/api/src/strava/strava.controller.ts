@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { SkipThrottle } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { StravaService } from './strava.service';
 
@@ -15,11 +15,11 @@ export class StravaController {
   }
 
   @Get('callback')
-  async callback(@Query('code') code: string, @Query('state') state: string, @Res() response: { type: (value: string) => { send: (value: string) => void } }) {
+  async callback(@Query() query: { code?: string; state?: string; error?: string; scope?: string }, @Res() response: { type: (value: string) => { send: (value: string) => void } }) {
     let message: string;
     let isError = false;
     try {
-      message = await this.stravaService.callback(code, state);
+      message = await this.stravaService.callback(query);
     } catch (error) {
       isError = true;
       message = error instanceof Error ? error.message : 'Nao consegui concluir a conexao com o Strava.';
@@ -79,7 +79,9 @@ export class StravaController {
     return this.stravaService.report(user.sub);
   }
 
-  @SkipThrottle()
+  // Webhook do Strava (05/10/2026): sem SkipThrottle — limite alto o bastante para os reenvios do Strava, baixo o bastante
+  // para nao virar vetor de flood. O Strava nao assina os eventos (ver StravaService.handleWebhook).
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
   @Get('webhook')
   verifyWebhook(
     @Query('hub.mode') mode: string,
@@ -89,18 +91,20 @@ export class StravaController {
     return this.stravaService.verifyWebhook(mode, challenge, verifyToken);
   }
 
-  @SkipThrottle()
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
+  @HttpCode(200)
   @Post('webhook')
-  receiveWebhook(@Body() event: StravaWebhookEvent) {
+  receiveWebhook(@Body() event: Record<string, unknown>) {
+    // Responde 200 de imediato (o Strava exige resposta em 2 s); o processamento e' assincrono e validado la.
     void this.stravaService.handleWebhook(event);
     return { received: true };
   }
-}
 
-interface StravaWebhookEvent {
-  object_type: 'activity' | 'athlete';
-  object_id: number;
-  aspect_type: 'create' | 'update' | 'delete';
-  owner_id: number;
-  updates?: Record<string, string | boolean>;
+  // Desconectar o Strava (05/10/2026): so' a conexao do proprio aluno (JWT). Para a coleta na hora e apaga os dados Strava.
+  @UseGuards(AuthGuard('jwt'))
+  @Post('disconnect')
+  @HttpCode(200)
+  disconnect(@CurrentUser() user: CurrentUserPayload) {
+    return this.stravaService.disconnect(user.sub);
+  }
 }

@@ -189,7 +189,7 @@ describe('BackupService (R2, criptografado)', () => {
 
   it('pg_dump nao usa shell nem URL: so variaveis PG* e execFile (sem interpolacao da DATABASE_URL)', () => {
     const source = readFileSync(join(__dirname, '../src/backup/backup.service.ts'), 'utf8');
-    expect(source).toContain("execFileAsync('pg_dump', ['--format=custom', '--file', dumpPath]");
+    expect(source).toContain("execFileAsync('pg_dump', ['--format=custom', '--file', dumpPath,");
     expect(source).not.toMatch(/\bexec\(|promisify\(exec\)|execAsync/);
     expect(source).not.toMatch(/pg_dump\s+"\$\{/);
     const { service } = buildService();
@@ -267,6 +267,9 @@ describe('restauracao fail-closed', () => {
       polar, strava, events,
       polarConnection: { updateMany: async ({ where, data }: { where: { disconnectedAt: null }; data: Record<string, unknown> }) => { const hit = polar.filter((c) => c.disconnectedAt == null); hit.forEach((c) => Object.assign(c, data)); return { count: hit.length }; } },
       stravaConnection: { deleteMany: async () => { const count = strava.length; strava.length = 0; return { count }; } },
+      stravaActivity: { deleteMany: async () => ({ count: 0 }) },
+      stravaAnalysisCache: { deleteMany: async () => ({ count: 0 }) },
+      trainingExecutionInsight: { deleteMany: async () => ({ count: 0 }) },
       providerConnectionEvent: { create: async ({ data }: { data: unknown }) => { events.push(data); return data; } },
     };
   }

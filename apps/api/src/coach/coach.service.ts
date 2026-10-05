@@ -10,7 +10,6 @@ import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
 import { CreateManualSessionDto } from './dto/create-manual-session.dto';
 import { TrainingPlansService, hasSubscriptionAccess } from '../training-plans/training-plans.service';
-import { StravaService } from '../strava/strava.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { SendStudentMessageDto } from './dto/send-student-message.dto';
 import { runnerStrengthExercises } from '../training-plans/runner-strength-library';
@@ -42,7 +41,6 @@ export class CoachService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly trainingPlans: TrainingPlansService,
-    private readonly strava: StravaService,
     private readonly messaging: MessagingService,
     private readonly backup: BackupService,
     private readonly meService: MeService,
@@ -770,11 +768,6 @@ export class CoachService {
     return this.prisma.weeklyAvailability.findMany({ where: { userId: studentId }, orderBy: { weekday: 'asc' } });
   }
 
-  async analyzeStudentStrava(studentId: string) {
-    await this.assertStudent(studentId);
-    return this.trainingPlans.refreshStravaAnalysis(studentId, { force: true });
-  }
-
   async runDatabaseBackup() {
     return this.backup.runBackup();
   }
@@ -1266,8 +1259,6 @@ export class CoachService {
       this.logger.warn(`checkPlanFreshness falhou para o aluno ${studentId} (nao bloqueante): ${(error as Error).message}`);
       return { needsUpdate: false, reason: null };
     });
-    await this.strava.syncIfStale(studentId).catch(() => undefined);
-    const stravaStatus = await this.strava.status(studentId).catch(() => null);
     const student = await (this.prisma.user as any).findFirstOrThrow({
       where: { id: studentId, role: 'student' },
       include: {
@@ -1298,32 +1289,7 @@ export class CoachService {
     });
 
     const plan = student.plans.find((item: any) => item.status === 'active') ?? student.plans[0] ?? null;
-    const analysisInsight = plan
-      ? await this.prisma.trainingExecutionInsight.findUnique({ where: { planId: plan.id } })
-      : null;
     const observations = await this.prisma.studentObservation.findMany({ where: { userId: studentId }, orderBy: { createdAt: 'desc' }, take: 30 });
-    const stravaActivities = plan
-      ? await this.prisma.stravaActivity.findMany({
-          where: {
-            userId: studentId,
-            startDate: { gte: plan.startDate, lte: plan.endDate ?? addDays(plan.startDate, 6) },
-          },
-          orderBy: { startDate: 'asc' },
-        })
-      : [];
-    const usedStravaIds = new Set<string>();
-    const stravaBySession = new Map<string, (typeof stravaActivities)[number]>();
-    for (const session of plan?.sessions ?? []) {
-      const activity = stravaActivities.find((candidate) =>
-        !usedStravaIds.has(candidate.id) &&
-        sameUtcDay(candidate.startDate, session.scheduledDate) &&
-        stravaMatchesModality(candidate, session.modality),
-      );
-      if (activity) {
-        usedStravaIds.add(activity.id);
-        stravaBySession.set(session.id, activity);
-      }
-    }
     const summary = plan ? summarizeSessions(plan.sessions) : emptySummary();
     const uniqueHistory = Array.from(
       student.plans.reduce((plans: Map<string, any>, historyPlan: any) => {
@@ -1359,15 +1325,6 @@ export class CoachService {
       // training-plans.service.ts) — usado so pra decidir se mostra o botao "Liberar mais uma
       // tentativa" no painel; volta a false sozinho quando a semana muda ou voce libera.
       generationBlocked: Boolean(student.generationExhaustedAlertSent),
-      strava: stravaStatus ? {
-        connected: stravaStatus.connected,
-        automaticSync: stravaStatus.automaticSync,
-        lastActivityAt: stravaStatus.lastActivityAt,
-      } : { connected: false, automaticSync: false, lastActivityAt: null },
-      analysisAgent: analysisInsight ? {
-        updatedAt: analysisInsight.updatedAt,
-        summary: analysisInsight.summary,
-      } : null,
       observations: observations.map((observation: any) => ({
         id: observation.id,
         content: observation.content,
@@ -1465,7 +1422,6 @@ export class CoachService {
               completedDistanceKm: session.completion?.distanceKm ?? null,
               completedPaceSecondsKm: session.completion?.avgPaceSecondsKm ?? null,
               completedAt: session.completion?.completedAt ?? null,
-              stravaActivity: serializeStravaActivity(stravaBySession.get(session.id) ?? null),
               // walkingReasons: motivos de caminhada/parada, multi-select (14/09/2026)
               walkingReasons: session.completion?.details != null && typeof session.completion.details === 'object'
                 ? (Array.isArray((session.completion.details as Record<string, unknown>).walkingReasons)
@@ -1513,9 +1469,6 @@ export class CoachService {
         content: report.content,
         createdAt: report.createdAt,
       })),
-      unmatchedStravaActivities: stravaActivities
-        .filter((activity) => !usedStravaIds.has(activity.id))
-        .map((activity) => serializeStravaActivity(activity)),
       history: uniqueHistory.map((historyPlan: any) => ({
         id: historyPlan.id,
         name: historyPlan.name,
@@ -2064,19 +2017,12 @@ function buildEvolutionReportContent(detail: any) {
   const summary = detail.plan?.summary ?? emptySummary();
   const sessions = detail.plan?.sessions ?? [];
   const done = sessions.filter((session: any) => session.completionStatus === 'done' || session.completionStatus === 'adjusted');
-  const strava = [
-    ...sessions.map((session: any) => session.stravaActivity).filter(Boolean),
-    ...(detail.unmatchedStravaActivities ?? []),
-  ];
   // null = não registrado (histórico pré-v1 ou sessão sem feedback) — não entra no denominador.
   // Nunca colapsar null em 0: zero não pertence à escala 1–10.
   const effortObs = done.filter((session: any) => session.perceivedEffort != null);
   const avgEffort = effortObs.length
     ? Math.round((effortObs.reduce((total: number, session: any) => total + Number(session.perceivedEffort), 0) / effortObs.length) * 10) / 10
     : null;
-  const stravaKm = round(strava.reduce((total: number, activity: any) => total + Number(activity.distanceKm ?? 0), 0));
-  const stravaMinutes = Math.round(strava.reduce((total: number, activity: any) => total + Number(activity.durationMin ?? 0), 0));
-  const latestInsight = detail.analysisAgent?.summary;
   return {
     generatedAt: new Date().toISOString(),
     type: 'evolution',
@@ -2087,10 +2033,8 @@ function buildEvolutionReportContent(detail: any) {
       prescribedSessions: summary.prescribedSessions,
       prescribedKm: summary.prescribedKm,
       completedKm: summary.completedKm,
-      stravaKm,
-      stravaMinutes,
       averageEffort: avgEffort,
-      trend: latestInsight?.progression?.loadTrend ?? 'sem tendencia calculada',
+      trend: 'sem tendencia calculada',
     },
     sections: [
       {
@@ -2104,12 +2048,8 @@ function buildEvolutionReportContent(detail: any) {
           : 'Ainda nao ha feedback manual suficiente para conclusao.',
       },
       {
-        title: 'Dados do Strava',
-        text: strava.length ? `Foram encontrados ${strava.length} atividade(s) no Strava no periodo observado, somando ${stravaKm} km e ${stravaMinutes} min. O agente deve comparar modalidade, distancia, tempo, pace, frequencia cardiaca e cadencia quando disponiveis.` : 'Ainda nao ha atividades Strava suficientes no periodo observado.',
-      },
-      {
         title: 'Tendencia observada',
-        text: latestInsight?.coachAnalysis?.text ?? 'Sem tendencia automatica consolidada. A proxima analise deve priorizar consistencia, resposta cardiovascular e diferenca entre prescrito e realizado.',
+        text: 'Sem tendencia automatica consolidada. A proxima analise deve priorizar consistencia, resposta cardiovascular e diferenca entre prescrito e realizado.',
       },
       {
         title: 'Proximas decisoes sugeridas',
@@ -2118,46 +2058,8 @@ function buildEvolutionReportContent(detail: any) {
     ],
   };
 }
-function serializeStravaActivity(activity: {
-  id: string;
-  stravaId: string;
-  name: string | null;
-  type: string | null;
-  startDate: Date;
-  distanceKm: number | null;
-  movingTimeSec: number | null;
-  avgPaceSecKm: number | null;
-  avgHeartRate: number | null;
-  maxHeartRate: number | null;
-} | null) {
-  if (!activity) return null;
-  return {
-    id: activity.id,
-    stravaId: activity.stravaId,
-    name: activity.name,
-    type: activity.type,
-    startDate: activity.startDate,
-    distanceKm: activity.distanceKm,
-    durationMin: activity.movingTimeSec ? Math.round(activity.movingTimeSec / 60) : null,
-    paceSecondsKm: activity.avgPaceSecKm,
-    averageHeartRate: activity.avgHeartRate,
-    maxHeartRate: activity.maxHeartRate,
-  };
-}
-
 function sameUtcDay(left: Date, right: Date) {
   return left.toISOString().slice(0, 10) === right.toISOString().slice(0, 10);
-}
-
-function stravaMatchesModality(activity: { type: string | null; name: string | null }, modality: string) {
-  const value = `${activity.type ?? ''} ${activity.name ?? ''}`.toLowerCase();
-  if (modality === 'corrida' || modality === 'esteira') return value.includes('run');
-  if (modality === 'bike') return value.includes('ride') || value.includes('bike');
-  if (modality === 'forca' || modality === 'fortalecimento_corredores') {
-    return ['weight', 'strength', 'workout', 'training', 'treinamento', 'peso', 'musculacao', 'forca']
-      .some((term) => value.includes(term));
-  }
-  return false;
 }
 
 function addDays(date: Date, days: number) {

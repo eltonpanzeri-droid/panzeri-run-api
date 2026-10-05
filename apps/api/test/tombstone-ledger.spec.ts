@@ -199,6 +199,9 @@ describe('aplicacao pos-restauracao dos tombstones', () => {
     const prisma = {
       polarConnection: { updateMany: async ({ data }: { data: Record<string, unknown> }) => { polar.forEach((c) => Object.assign(c, data)); return { count: polar.length }; } },
       stravaConnection: { deleteMany: async () => ({ count: 0 }) },
+      stravaActivity: { deleteMany: async () => ({ count: 0 }) },
+      stravaAnalysisCache: { deleteMany: async () => ({ count: 0 }) },
+      trainingExecutionInsight: { deleteMany: async () => ({ count: 0 }) },
       providerConnectionEvent: { create: async () => undefined },
     };
     const deleteProviderData = jest.fn();

@@ -280,11 +280,6 @@ export class CoachController {
     return this.coachService.allowExtraGenerationAttempt(studentId);
   }
 
-  @Post('students/:studentId/strava/analyze')
-  analyzeStudentStrava(@Param('studentId') studentId: string) {
-    return this.coachService.analyzeStudentStrava(studentId);
-  }
-
   @Post('students/:studentId/sync-availability')
   syncStudentAvailability(@Param('studentId') studentId: string) {
     return this.coachService.syncStudentAvailability(studentId);

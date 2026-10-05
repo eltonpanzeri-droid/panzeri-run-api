@@ -17,9 +17,8 @@ function noop() {
 
 function buildService(prisma: Record<string, unknown>) {
   return new CoachService(
-    prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
-    noop(), noop(), noop(), noop(),
-  );
+    prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
+    noop(), noop(), noop(), noop());
 }
 
 describe('CoachService.getExternalActivityRaw — samples anexados ao raw existente (sem nova chamada ao provedor)', () => {
