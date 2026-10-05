@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import * as bcrypt from 'bcryptjs';
@@ -118,5 +119,63 @@ describe('capacidades de coach preservadas para admin', () => {
     const role = resolveEffectiveRole('so-admin@x.com', 'student', 'so-admin@x.com', '');
     expect(allowed('getExternalActivityRaw', role)).toBe(true);
     expect(allowed('listExternalActivities', role)).toBe(true);
+  });
+});
+
+describe('AuthService.refresh — mesma regra do login e papel recalculado', () => {
+  const TOKEN = 'refresh-token-antigo';
+  const tokenHash = createHash('sha256').update(TOKEN).digest('hex');
+
+  function build(env: Record<string, string>, user: { email: string; role: string; accountStatus: string }, tokenRole = 'student') {
+    const prisma = {
+      user: {
+        findUnique: jest.fn(async () => ({ ...user, refreshTokenHash: tokenHash })),
+        update: jest.fn(async () => ({})),
+      },
+    };
+    const jwt = {
+      verifyAsync: jest.fn(async () => ({ sub: 'u1', email: user.email, role: tokenRole })),
+      signAsync: jest.fn(async (payload: { role: string }) => `jwt-${payload.role}`),
+    };
+    const config = { get: jest.fn((name: string) => env[name]) };
+    const service = new AuthService(prisma as never, jwt as never, config as never, {} as never);
+    return { service, jwt };
+  }
+  const env = { ADMIN_EMAILS: 'admin@panzeri.run', COACH_EMAILS: 'treinador@panzeri.run' };
+
+  it('aluno inativo continua impedido de renovar', async () => {
+    const { service } = build(env, { email: 'aluno@x.com', role: 'student', accountStatus: 'paused' });
+    await expect(service.refresh(TOKEN)).rejects.toThrow('Refresh token invalido.');
+  });
+
+  it('aluno ativo renova normalmente', async () => {
+    const { service } = build(env, { email: 'aluno@x.com', role: 'student', accountStatus: 'active' });
+    await expect(service.refresh(TOKEN)).resolves.toHaveProperty('tokens');
+  });
+
+  it('coach renova independentemente de accountStatus', async () => {
+    const { service } = build(env, { email: 'treinador@panzeri.run', role: 'student', accountStatus: 'paused' });
+    await expect(service.refresh(TOKEN)).resolves.toHaveProperty('tokens');
+  });
+
+  it('admin renova independentemente de accountStatus', async () => {
+    const { service } = build(env, { email: 'admin@panzeri.run', role: 'student', accountStatus: 'archived' });
+    await expect(service.refresh(TOKEN)).resolves.toHaveProperty('tokens');
+  });
+
+  it('o papel do novo token vem da configuracao ATUAL das listas, nao do token anterior', async () => {
+    // Token antigo dizia coach; o e-mail agora esta so em ADMIN_EMAILS => novo token admin.
+    const promoted = build(env, { email: 'admin@panzeri.run', role: 'student', accountStatus: 'active' }, 'coach');
+    await promoted.service.refresh(TOKEN);
+    expect((promoted.jwt.signAsync.mock.calls[0] as unknown[])[0]).toMatchObject({ role: 'admin' });
+    // Token antigo dizia admin; o e-mail saiu das listas => volta ao papel persistido.
+    const demoted = build({ ADMIN_EMAILS: '', COACH_EMAILS: '' }, { email: 'admin@panzeri.run', role: 'student', accountStatus: 'active' }, 'admin');
+    await demoted.service.refresh(TOKEN);
+    expect((demoted.jwt.signAsync.mock.calls[0] as unknown[])[0]).toMatchObject({ role: 'student' });
+  });
+
+  it('refresh token que nao confere com o salvo continua invalido, mesmo para a equipe', async () => {
+    const { service } = build(env, { email: 'admin@panzeri.run', role: 'student', accountStatus: 'active' });
+    await expect(service.refresh('outro-token')).rejects.toThrow('Refresh token invalido.');
   });
 });

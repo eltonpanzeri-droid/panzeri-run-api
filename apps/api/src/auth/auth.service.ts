@@ -253,12 +253,15 @@ export class AuthService {
         where: { id: payload.sub },
         select: { email: true, role: true, accountStatus: true, refreshTokenHash: true },
       });
-      if (!user || user.accountStatus !== 'active' || user.refreshTokenHash !== hashToken(refreshToken)) {
+      // Papel recalculado com a configuracao ATUAL de ADMIN_EMAILS/COACH_EMAILS (nao o do token anterior).
+      // Mesma regra do login: equipe (coach/admin) renova independentemente de accountStatus; aluno inativo nao.
+      const role = user ? this.effectiveRole(user.email, user.role) : null;
+      if (!user || !role || (!isStaffRole(role) && user.accountStatus !== 'active') || user.refreshTokenHash !== hashToken(refreshToken)) {
         throw new UnauthorizedException('Refresh token invalido.');
       }
 
       return {
-        tokens: await this.signTokens(payload.sub, user.email, this.effectiveRole(user.email, user.role)),
+        tokens: await this.signTokens(payload.sub, user.email, role),
       };
     } catch {
       throw new UnauthorizedException('Refresh token invalido.');
