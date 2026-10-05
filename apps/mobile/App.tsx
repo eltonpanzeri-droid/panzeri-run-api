@@ -8,6 +8,7 @@ import Constants from 'expo-constants';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { parseJourneyFromSearch, resolveJourney } from './src/journey';
+import { STRAVA_BUTTON_HEIGHT, STRAVA_COMPATIBLE_LOGO, STRAVA_CONNECT_BUTTON } from './src/stravaBrand';
 import { planStartsInFuture, saoPauloDateString } from './src/weekWindow';
 import { ActivityDetailBody, type ActivityDetail } from './src/activityDetail';
 import { BrandMark } from './theme/BrandMark';
@@ -27,6 +28,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Image,
   Modal,
   PanResponder,
   Platform,
@@ -8359,6 +8361,7 @@ function StravaSync({ accessToken }: { accessToken: string }) {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   async function loadStatus() {
     try {
@@ -8417,27 +8420,48 @@ function StravaSync({ accessToken }: { accessToken: string }) {
     }
   }
 
-  // Alunos sem Strava conectado veem aviso de "em breve" — mantem acesso para quem ja tem
-  // a integracao ativa, mas nao exibe o botao de conexao para novos usuarios (decisao do
-  // treinador, 10/09/2026: integracao pausada para novos, ativos nao sao afetados).
-  const stravaUnavailable = !loading && !connection?.connected;
+  // Desconectar (05/10/2026): para a coleta na hora E apaga os dados do Strava guardados no Panzeri Run.
+  async function runDisconnect() {
+    setDisconnecting(true);
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/strava/disconnect`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) {
+        setMessage('Nao consegui desconectar o Strava agora. Tente novamente.');
+        return;
+      }
+      setMessage('Strava desconectado. Nenhuma nova atividade sera recebida e os dados do Strava foram apagados do Panzeri Run.');
+    } catch {
+      setMessage('Nao consegui conectar com o servidor para desconectar.');
+    } finally {
+      setDisconnecting(false);
+      void loadStatus();
+    }
+  }
+
+  function disconnectStrava() {
+    if (disconnecting) return;
+    const title = 'Desconectar o Strava?';
+    const text = 'O Panzeri Run deixa de receber suas atividades do Strava e apaga agora os dados do Strava que guardou. Seus treinos e feedbacks registrados no Panzeri Run nao sao afetados.';
+    if (Platform.OS === 'web') {
+      if (window.confirm(`${title}\n\n${text}`)) void runDisconnect();
+      return;
+    }
+    Alert.alert(title, text, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Desconectar e apagar', style: 'destructive', onPress: () => { void runDisconnect(); } },
+    ]);
+  }
 
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Integracao</Text>
       <Text style={styles.titleSmall}>Sincronizar com Strava</Text>
-      <Text style={styles.formHint}>Autorize uma vez. Depois, os treinos enviados pelo seu relogio ao Strava chegam automaticamente ao Panzeri Run.</Text>
+      <Text style={styles.formHint}>Autorize uma vez. Depois, os treinos enviados pelo seu relogio ao Strava aparecem aqui para voce, automaticamente.</Text>
 
-      {stravaUnavailable ? (
-        // Gate: integracao pausada para novos usuarios
-        <View style={{ backgroundColor: '#f8fafc', borderRadius: 12, padding: 16, marginTop: 12, borderWidth: 1, borderColor: '#e2e8f0', alignItems: 'center', gap: 8 }}>
-          <Ionicons name="time-outline" size={32} color="#94a3b8" />
-          <Text style={{ fontSize: 15, fontWeight: '700', color: '#334155', textAlign: 'center' }}>Em breve</Text>
-          <Text style={{ fontSize: 13, color: '#64748b', textAlign: 'center', lineHeight: 20 }}>
-            A integracao com o Strava estara disponivel em uma proxima atualizacao do app.
-          </Text>
-        </View>
-      ) : (
       <View style={styles.formSection}>
         <View style={styles.reportRow}>
           <Text style={styles.reportTitle}>{loading ? 'Consultando conexao...' : connection?.connected ? 'Strava conectado' : 'Strava nao conectado'}</Text>
@@ -8446,7 +8470,7 @@ function StravaSync({ accessToken }: { accessToken: string }) {
               ? connection.automaticSync
                 ? 'Sincronizacao automatica ativa. Voce nao precisa apertar nenhum botao depois dos treinos.'
                 : 'Conta conectada. A ativacao da sincronizacao automatica esta sendo concluida.'
-              : 'Conecte sua conta para permitir o acompanhamento dos treinos pelo treinador.'}
+              : 'Conecte sua conta para ver aqui as atividades que seu relogio envia ao Strava.'}
           </Text>
         </View>
 
@@ -8458,19 +8482,46 @@ function StravaSync({ accessToken }: { accessToken: string }) {
         ) : null}
 
         {!connection?.connected ? (
-          <Pressable style={[styles.primaryButton, connecting && styles.disabledButton]} disabled={connecting} onPress={connectStrava}>
-            <Text style={styles.primaryButtonText}>{connecting ? 'Abrindo autorizacao...' : 'Conectar com Strava'}</Text>
-            <Ionicons name="link" size={18} color={PRColors.mineral} />
-          </Pressable>
+          <>
+            <View style={styles.reportRow}>
+              <Text style={styles.reportTitle}>O que voce autoriza</Text>
+              <Text style={styles.reportText}>Leitura das suas atividades no Strava, inclusive as privadas ("Somente voce"). Nada e publicado nem alterado no seu Strava.</Text>
+              <Text style={styles.reportText}>Como usamos: os dados do Strava aparecem somente para voce, neste app. Eles nao sao mostrados ao treinador, nao sao enviados a inteligencia artificial e ficam guardados por ate 7 dias.</Text>
+              <Text style={styles.reportText}>Como retirar a autorizacao: toque em "Desconectar" aqui (os dados sao apagados) ou, no Strava, em Configuracoes &gt; Meus aplicativos.</Text>
+            </View>
+            {STRAVA_CONNECT_BUTTON ? (
+              // Botao OFICIAL do Strava, sem alteracao (ver src/stravaBrand.ts).
+              <Pressable accessibilityRole="button" accessibilityLabel="Connect with Strava" disabled={connecting} onPress={connectStrava} style={connecting ? styles.disabledButton : undefined}>
+                <Image source={STRAVA_CONNECT_BUTTON} resizeMode="contain" style={{ height: STRAVA_BUTTON_HEIGHT, width: 237 }} />
+              </Pressable>
+            ) : (
+              <Pressable style={[styles.primaryButton, connecting && styles.disabledButton]} disabled={connecting} onPress={connectStrava}>
+                <Text style={styles.primaryButtonText}>{connecting ? 'Abrindo autorizacao...' : 'Conectar com Strava'}</Text>
+                <Ionicons name="link" size={18} color={PRColors.mineral} />
+              </Pressable>
+            )}
+          </>
         ) : (
-          <Pressable style={styles.secondaryOutlineButton} onPress={verifyNow}>
-            <Text style={styles.secondaryOutlineButtonText}>Verificar agora</Text>
-            <Ionicons name="refresh" size={18} color={PRColors.ocean} />
-          </Pressable>
+          <>
+            <Pressable style={styles.secondaryOutlineButton} onPress={verifyNow}>
+              <Text style={styles.secondaryOutlineButtonText}>Verificar agora</Text>
+              <Ionicons name="refresh" size={18} color={PRColors.ocean} />
+            </Pressable>
+            <Pressable
+              style={[styles.secondaryOutlineButton, { borderColor: '#b91c1c' }, disconnecting && styles.disabledButton]}
+              disabled={disconnecting}
+              onPress={disconnectStrava}
+            >
+              <Text style={[styles.secondaryOutlineButtonText, { color: '#b91c1c' }]}>{disconnecting ? 'Desconectando...' : 'Desconectar Strava e apagar dados'}</Text>
+              <Ionicons name="unlink" size={18} color="#b91c1c" />
+            </Pressable>
+          </>
         )}
+        {STRAVA_COMPATIBLE_LOGO ? (
+          <Image source={STRAVA_COMPATIBLE_LOGO} resizeMode="contain" style={{ height: 24, width: 160, marginTop: 8 }} />
+        ) : null}
         {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
       </View>
-      )}
     </View>
   );
 }

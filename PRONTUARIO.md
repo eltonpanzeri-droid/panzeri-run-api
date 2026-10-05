@@ -2539,3 +2539,22 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
   sem novo tombstone). Política (seção 13) ajustada ao comportamento real; removida a frase sobre "prazo mínimo da legislação fiscal" (não implementado).
 - Julgamentos CONFIRMADOS por Elton: `CouponRedemption` em B; eventos de funil em A (perde parte do BI); registros financeiros em B (prazo de
   retenção a definir com advogado). Aceite dos termos/privacidade/aptidão (datas e versões) é ZERADO na anonimização — sem finalidade de retenção definida.
+
+### 2026-10-05 — Conformidade Strava (auditoria externa → correções)
+- **Isolamento (por proveniência Strava):** nada de Strava chega a treinador/Admin nem a IA. Removidos: agente de análise Strava (Anthropic) e seu agendador;
+  `refreshStravaAnalysis`; contexto Strava no prompt do agente de prescrição (`minutosCorridosStrava…`, `analiseExecucao`, `analiseAprofundadaStrava`,
+  `mediaStravaRecente`); ferramentas Strava do Gerente Técnico; uso de Strava no check-in semanal; atividades/derivados no detalhe do aluno (coach) e no
+  painel Admin. `StravaModule` ficou sem `exports` (só o app e o próprio aluno). Teste-guarda lista os únicos arquivos autorizados a tocar tabelas Strava.
+- **OAuth/tokens:** `StravaOAuthAttempt` (state aleatório, hash no banco, 10 min, consumo atômico, vínculo ao usuário); replay NÃO é sucesso; escopo único
+  `activity:read_all` conferido no callback; tokens AES-256-GCM com `STRAVA_TOKEN_ENCRYPTION_KEY` (nova, obrigatória); tokens antigos migram sozinhos.
+- **Webhook:** o Strava NÃO assina eventos (documentação atual). Implementado: verify token obrigatório (sem padrão), `subscription_id` = nossa inscrição,
+  dono conhecido, janela de 24 h, dedupe (`StravaWebhookEvent`), throttle, conteúdo sempre rebuscado na API. Desautorização apaga toda a cadeia Strava.
+- **Revogação/exclusão:** `POST /strava/disconnect` (aluno): para a coleta na hora, apaga a cadeia Strava e revoga em `POST /oauth/revoke` (melhor esforço).
+- **Retenção:** cache Strava = 7 dias desde a última busca (`StravaActivity.fetchedAt`, cron diário + migration que já expurga). Dumps de backup agora
+  EXCLUEM os dados das tabelas Strava (`pg_dump --exclude-table-data`) e a restauração purga qualquer resquício. Sem tombstone Strava: o fail-closed já cobre.
+- **Migration `20261005200000_strava_compliance`:** tabelas novas, `fetchedAt`, expurgo >7 d, apaga `TrainingExecutionInsight`, zera `StravaAnalysisCache`,
+  remove campos Strava de `TrainingPlan.inputSnapshot` e de relatórios de evolução já gerados. Resíduo: texto livre gerado antes pela IA pode citar o Strava.
+- **UI:** "Em breve" removido; conexão com explicação de escopo/uso/retirada e botão "Desconectar e apagar". **Pendente:** colocar os arquivos OFICIAIS do
+  Strava (botão Connect with Strava + selo Compatible with Strava) em `apps/mobile/assets/strava/` e apontar em `src/stravaBrand.ts` (links do zip retornaram 404).
+- **Variáveis novas no EasyPanel:** `STRAVA_TOKEN_ENCRYPTION_KEY` (obrigatória; adicionar JUNTO do deploy, senão a conexão Strava falha) e, para criar
+  webhook, `STRAVA_WEBHOOK_VERIFY_TOKEN`.
