@@ -62,6 +62,7 @@ export async function applyTombstones(opts: {
   snapshotStartedAt: Date;
   load: () => Promise<Tombstone[]>;
   deleteProviderData: (userId: string, provider: string) => Promise<unknown>;
+  deleteAccount: (userId: string) => Promise<unknown>;
 }): Promise<TombstoneApplication> {
   let tombstones: Tombstone[];
   try {
@@ -78,8 +79,11 @@ export async function applyTombstones(opts: {
     if (tombstone.type === 'provider_data_deleted' && tombstone.provider) {
       await opts.deleteProviderData(tombstone.userId, tombstone.provider);
       applied++;
+    } else if (tombstone.type === 'account_deleted') {
+      await opts.deleteAccount(tombstone.userId); // mesma operacao local e idempotente; nao grava novo tombstone
+      applied++;
     } else {
-      unsupported++; // ex.: account_deleted — sem executor ainda; mantem a reconciliacao pendente
+      unsupported++; // tipo desconhecido: mantem a reconciliacao pendente
     }
   }
   return unsupported > 0
@@ -105,6 +109,7 @@ export async function restoreBackupFile(opts: {
   snapshotStartedAt: Date;
   loadTombstones: () => Promise<Tombstone[]>;
   deleteProviderData: (userId: string, provider: string) => Promise<unknown>;
+  deleteAccount: (userId: string) => Promise<unknown>;
 }): Promise<RestoreOutcome> {
   const exec: ExecFileLike = opts.exec ?? ((file, args, options) => execFileAsync(file, args, options));
   const env = pgEnvFromUrl(opts.targetDatabaseUrl);
@@ -122,6 +127,6 @@ export async function restoreBackupFile(opts: {
   const result = await postRestoreSafeguard(opts.prisma);
   if (restoreError) throw new Error(`pg_restore terminou com erro (a etapa pos-restauracao foi executada): ${redactSecrets(restoreError, secrets)}`);
   // Depois do fail-closed: carregar o ledger e reaplicar as exclusoes posteriores ao snapshot.
-  const tombstones = await applyTombstones({ snapshotStartedAt: opts.snapshotStartedAt, load: opts.loadTombstones, deleteProviderData: opts.deleteProviderData });
+  const tombstones = await applyTombstones({ snapshotStartedAt: opts.snapshotStartedAt, load: opts.loadTombstones, deleteProviderData: opts.deleteProviderData, deleteAccount: opts.deleteAccount });
   return { safeguard: result, tombstones, complete: tombstones.status === 'applied' };
 }

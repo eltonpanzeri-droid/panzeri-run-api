@@ -300,7 +300,7 @@ describe('restauracao fail-closed', () => {
     const calls: Array<{ file: string; args: string[]; env: Record<string, string> }> = [];
     const ok = await restoreBackupFile({
       dumpPath: '/tmp/x.dump', targetDatabaseUrl: DB_URL, prisma: prisma as never,
-      snapshotStartedAt: new Date(), loadTombstones: async () => [], deleteProviderData: async () => undefined,
+      snapshotStartedAt: new Date(), loadTombstones: async () => [], deleteProviderData: async () => undefined, deleteAccount: async () => undefined,
       exec: async (file, args, options) => { calls.push({ file, args, env: options.env }); },
     });
     expect(calls[0].file).toBe('pg_restore');
@@ -313,7 +313,7 @@ describe('restauracao fail-closed', () => {
     const prisma2 = fakePrisma([{ userId: 'a', disconnectedAt: null, accessTokenEncrypted: 'v1:x' }], [{ userId: 'a' }]);
     await expect(restoreBackupFile({
       dumpPath: '/tmp/x.dump', targetDatabaseUrl: DB_URL, prisma: prisma2 as never,
-      snapshotStartedAt: new Date(), loadTombstones: async () => [], deleteProviderData: async () => undefined,
+      snapshotStartedAt: new Date(), loadTombstones: async () => [], deleteProviderData: async () => undefined, deleteAccount: async () => undefined,
       exec: async () => { throw new Error(`falhou em ${DB_URL} com ${DB_PASSWORD}`); },
     })).rejects.toThrow('a etapa pos-restauracao foi executada');
     expect(prisma2.polar[0].disconnectedAt).not.toBeNull();

@@ -47,7 +47,7 @@ Atualizado em 2026-10-05 (Bloco pré-Garmin 4). Substitui o backup por e-mail.
 - Ledger **fora do PostgreSQL**, no mesmo bucket, em `panzeri-backups/tombstones/AAAAMMDDTHHMMSSZ-<8 hex>.tomb.enc`. Conteúdo: JSON cifrado (AES-256-GCM, mesma `BACKUP_ENCRYPTION_KEY`, cabeçalho `PZTB1`) com `v`, `type`, `userId`, `provider` (quando se aplica) e `at`. Sem nome, e-mail, CPF ou conteúdo.
 - **Ordem obrigatória:** `tombstone gravado e confirmado no R2 → exclusão local`. Se o R2 não confirmar, a exclusão falha com 503 ("nada foi apagado") e um alerta vai ao Telegram. Se a exclusão local falhar depois do tombstone, o tombstone fica (seguro), o evento é auditado e há alerta.
 - Criado hoje: exclusão de dados de provider (`DELETE /polar/data`). **Desconexão simples não gera tombstone:** o fail-closed pós-restauração já desconecta todas as conexões restauradas, então ele não acrescentaria nada.
-- Pendente: exclusão de conta (ver abaixo). O tipo `account_deleted` já é aceito no formato, mas **não tem executor**: um tombstone desse tipo mantém a restauração como pendente.
+- Também criado na exclusão de conta (`account_deleted`). Tipos desconhecidos mantêm a restauração como pendente.
 
 ## Restauração
 
@@ -88,9 +88,24 @@ Regra **fail closed**: o snapshot pode conter autorizações que o usuário revo
 
 Depois de restaurar em produção: avisar os alunos para reconectar Polar e Strava.
 
-## O que a restauração NÃO resolve ainda
-- **Contas excluídas depois do snapshot** voltam com o backup: a exclusão de conta ainda não existe como operação (bloqueio de decisão: o `User` não pode ser apagado sem perder os registros de pagamento que a Política manda reter — `BillingEvent` tem `onDelete: Restrict`). Até lá, após qualquer restauração, reexecute manualmente as exclusões de conta conhecidas.
-- Dados de provider excluídos depois do snapshot **são** reaplicados pelo ledger (acima).
+## Exclusão de conta (admin)
+
+`POST /coach/students/:studentId/delete-account` — **somente admin**. Corpo: `{ "confirmUserId": "<mesmo id da URL>", "confirmText": "EXCLUIR CONTA" }`.
+
+Pré-condições: conta de aluno; assinatura **não ativa** (`active`/`grace` recusadas, salvo cortesia manual) — a exclusão nunca executa ação financeira, cancele antes no Asaas/loja.
+
+Fluxo: identificar → validar confirmação → **tombstone `account_deleted` confirmado no R2** → revogar Polar (falha externa não bloqueia) → **uma transação**: apagar categoria A, anonimizar o `User`, limpar a assinatura, auditar. R2 fora = 503 e nada é apagado. Falha local depois do tombstone = transação revertida, tombstone mantido, alerta (sem PII).
+
+- **A (apagado):** perfil de saúde, entrevista, rotina, feedbacks, sono/estresse, dor, ciclo menstrual, prontuário/relatos/diretrizes, planos, sessões e entregas, atividades (raw, séries, amostras, vínculos), Polar/Strava (conexões e atividades), tênis, notificações, mensagens, tokens, conquistas, eventos de funil da jornada e e-mail na lista de testadores.
+- **B (preservado, anonimizado):** linha técnica do `User` (e-mail aleatório `deleted-…@deleted.invalid`, nome "Conta excluida", sem CPF/telefone/endereço/nascimento/perfil/senha/tokens, `accountStatus = 'deleted'`, aceite dos termos mantido), `BillingEvent`, `BillingSubscription` (ids e datas do pagamento; URLs, cliente externo e próxima cobrança anulados), `CouponRedemption` e `ProviderConnectionEvent`.
+- Login, refresh e access tokens de conta excluída são recusados; o e-mail original pode ser usado em novo cadastro.
+
+Na restauração o `restore`/`apply-tombstones` reaplica esta mesma operação **só localmente** (sem novo tombstone e sem chamadas a providers), de forma idempotente.
+
+## O que a restauração NÃO resolve
+- Exclusões feitas **antes** do primeiro tombstone existir (anteriores a este recurso) não são reaplicáveis.
+- Tokens de reset de senha e de login por link emitidos antes do snapshot e ainda não usados voltam válidos até expirarem (a exclusão de conta os apaga, mas só se o tombstone existir).
+- Dados de provider e contas excluídos depois do snapshot **são** reaplicados pelo ledger (acima).
 - Tokens de reset de senha e de login por link emitidos antes do snapshot e ainda não usados voltam válidos até expirarem.
 - Os tokens que o sistema descarta não são revogados nos providers (não há chamadas externas em massa na restauração).
 

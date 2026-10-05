@@ -177,7 +177,7 @@ describe('aplicacao pos-restauracao dos tombstones', () => {
 
   it('reaplica SO os posteriores ao snapshot (com a margem do tempo maximo da exclusao) e e idempotente', async () => {
     const applied: string[] = [];
-    const run = () => applyTombstones({ snapshotStartedAt: snapshot, load: async () => tombs, deleteProviderData: async (u, p) => { applied.push(`${u}:${p}`); } });
+    const run = () => applyTombstones({ snapshotStartedAt: snapshot, load: async () => tombs, deleteProviderData: async (u, p) => { applied.push(`${u}:${p}`); }, deleteAccount: async () => undefined });
     const first = await run();
     expect(first).toEqual({ status: 'applied', applied: 2, skippedBeforeSnapshot: 1, unsupported: 0 });
     expect(applied).toEqual(['na-margem:polar', 'depois:strava']);
@@ -185,10 +185,10 @@ describe('aplicacao pos-restauracao dos tombstones', () => {
     expect(await run()).toEqual(first); // segunda execucao: mesmo resultado
   });
 
-  it('tipo sem executor (account_deleted) mantem a reconciliacao PENDENTE', async () => {
+  it('tipo desconhecido (sem executor) mantem a reconciliacao PENDENTE', async () => {
     const result = await applyTombstones({
-      snapshotStartedAt: snapshot, deleteProviderData: async () => undefined,
-      load: async () => [{ v: 1, type: 'account_deleted', userId: 'x', at: at(1000) }],
+      snapshotStartedAt: snapshot, deleteProviderData: async () => undefined, deleteAccount: async () => undefined,
+      load: async () => [{ v: 1, type: 'tipo_futuro' as never, userId: 'x', at: at(1000) }],
     });
     expect(result.status).toBe('pending');
     expect(result.unsupported).toBe(1);
@@ -206,7 +206,7 @@ describe('aplicacao pos-restauracao dos tombstones', () => {
       dumpPath: '/tmp/x.dump', targetDatabaseUrl: 'postgresql://u:senha-do-alvo@h:5432/db', prisma: prisma as never,
       exec: async () => undefined, snapshotStartedAt: snapshot,
       loadTombstones: async () => { throw new Error(`R2 indisponivel em https://x.r2.cloudflarestorage.com (${R2_SECRET})`); },
-      deleteProviderData,
+      deleteProviderData, deleteAccount: jest.fn(),
     });
     expect(outcome.complete).toBe(false);
     expect(outcome.tombstones.status).toBe('pending');

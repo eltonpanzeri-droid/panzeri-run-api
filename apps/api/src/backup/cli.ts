@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
 import { PrismaClient } from '@prisma/client';
 import { readFile, writeFile } from 'fs/promises';
+import { AccountDeletionService } from '../account-deletion/account-deletion.service';
 import { ProviderDataDeletionService } from '../activity-execution/provider-data-deletion.service';
 import { decryptFile, parseBackupKey } from './backup-crypto';
 import { applyTombstones, postRestoreSafeguard, restoreBackupFile } from './backup-restore';
@@ -100,6 +101,8 @@ async function main() {
       }
       const prisma = new PrismaClient({ datasources: { db: { url: target } } });
       const deletion = new ProviderDataDeletionService(prisma as never); // sem ledger: reaplicacao nao grava novo tombstone
+      const accounts = new AccountDeletionService(prisma as never); // so' local: sem ledger/polar (reaplicacao nao grava tombstone nem chama providers)
+      const deleteAccount = (userId: string) => accounts.executeAccountDeletion(userId);
       const ledger = ledgerFromEnv();
       const deleteProviderData = (userId: string, provider: string) => deletion.executeProviderDataDeletion(userId, provider);
       const loadTombstones = (): Promise<Tombstone[]> => ledger.loadAll();
@@ -107,13 +110,13 @@ async function main() {
         if (command === 'restore') {
           const outcome = await restoreBackupFile({
             dumpPath: need('dump', arg('dump')), targetDatabaseUrl: target, prisma: prisma as never,
-            snapshotStartedAt: await snapshotStartedAt(arg('dump')), loadTombstones, deleteProviderData,
+            snapshotStartedAt: await snapshotStartedAt(arg('dump')), loadTombstones, deleteProviderData, deleteAccount,
           });
           console.log('Resultado:', JSON.stringify(outcome));
           if (outcome.complete) console.log('Restauracao concluida (fail-closed aplicado e exclusoes posteriores reaplicadas).');
           else reportPending(outcome.tombstones);
         } else if (command === 'apply-tombstones') {
-          const result = await applyTombstones({ snapshotStartedAt: await snapshotStartedAt(arg('dump')), load: loadTombstones, deleteProviderData });
+          const result = await applyTombstones({ snapshotStartedAt: await snapshotStartedAt(arg('dump')), load: loadTombstones, deleteProviderData, deleteAccount });
           console.log('Resultado:', JSON.stringify(result));
           if (result.status === 'applied') console.log('Reconciliacao concluida.'); else reportPending(result);
         } else {

@@ -92,7 +92,7 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
-    if (!user) {
+    if (!user || user.accountStatus === 'deleted') {
       throw new UnauthorizedException('Credenciais invalidas.');
     }
 
@@ -259,7 +259,7 @@ export class AuthService {
       });
       // Papel recalculado com a configuracao ATUAL de ADMIN_EMAILS/COACH_EMAILS (nao o do token anterior).
       // Mesma regra do login: equipe (coach/admin) renova independentemente de accountStatus; aluno inativo nao.
-      const role = user ? this.effectiveRole(user.email, user.role) : null;
+      const role = user && user.accountStatus !== 'deleted' ? this.effectiveRole(user.email, user.role) : null;
       if (!user || !role || (!isStaffRole(role) && user.accountStatus !== 'active') || user.refreshTokenHash !== hashToken(refreshToken)) {
         throw new UnauthorizedException('Refresh token invalido.');
       }
@@ -332,7 +332,7 @@ function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex');
 }
 
-function canonicalizeEmail(email: string): string {
+export function canonicalizeEmail(email: string): string {
   const [local, domain] = email.split('@');
   if (!domain) {
     return email;

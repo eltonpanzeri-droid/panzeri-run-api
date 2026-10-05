@@ -2526,3 +2526,16 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
 - **BLOQUEIO — exclusão de conta NÃO implementada:** `User` tem ~36 FKs (default Restrict) + 13 tabelas por userId sem FK e `BillingEvent`
   com `onDelete: Restrict` (registro de pagamento que a Política manda reter). `DELETE User` é inviável sem perder registros de
   pagamento; exige decisão (anonimizar o `User` e apagar o resto, por categoria). Aguardando decisão de Elton.
+
+### 2026-10-05 — Pré-Garmin 4 (fecho): exclusão de conta com anonimização irreversível
+- **Decisão de Elton (opção 1):** `POST /coach/students/:studentId/delete-account` (**admin-only**; confirmação `confirmUserId` + `"EXCLUIR CONTA"`).
+  Fluxo: tombstone `account_deleted` confirmado no R2 → revoga Polar (falha externa não bloqueia) → UMA transação que apaga a categoria A,
+  anonimiza o `User` (e-mail aleatório `.invalid`, sem PII/senha/tokens, `accountStatus='deleted'`) e preserva B. Pré-condição: assinatura não
+  ativa (nunca executa ação financeira). Código: `account-deletion/account-deletion.service.ts`.
+- **Mapa A/B (sem itens C):** A = 49 tabelas (saúde, feedbacks, prontuário, treino, atividades/raw/séries, Polar/Strava, tênis, notificações, mensagens,
+  tokens, conquistas, funil da jornada, e-mail em `FreeTesterEmail`). B = `User` anonimizado, `BillingEvent`, `BillingSubscription` (só ids/datas do
+  pagamento), `CouponRedemption`, `ProviderConnectionEvent`. Teste falha se surgir modelo com `userId` sem classificação.
+- Login/refresh/JWT recusam conta excluída (JwtStrategy consulta o status ≤ 1×/min por usuário). Restore reaplica a mesma exclusão (local, idempotente,
+  sem novo tombstone). Política (seção 13) ajustada ao comportamento real; removida a frase sobre "prazo mínimo da legislação fiscal" (não implementado).
+- Julgamentos a confirmar: `CouponRedemption` (B por registrar o benefício concedido), eventos de funil apagados (reduz histórico de BI), aceite dos
+  termos mantido na linha anonimizada, retenção dos registros financeiros sem prazo de expurgo.

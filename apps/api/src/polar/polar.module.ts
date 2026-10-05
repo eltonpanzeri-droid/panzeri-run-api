@@ -12,5 +12,6 @@ import { PolarWebhookService } from './polar-webhook.service';
   imports: [PrismaModule, ActivityTimeSeriesModule, ActivityExecutionModule],
   controllers: [PolarController],
   providers: [PolarService, PolarActivityIngestionService, PolarSyncFallbackSchedulerService, PolarWebhookService],
+  exports: [PolarService],
 })
 export class PolarModule {}

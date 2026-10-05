@@ -138,8 +138,8 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     heading: '13. Como pedir a exclusão da sua conta e dos seus dados',
     paragraphs: [
       `Envie um e-mail para ${LEGAL_CONTACT}, do mesmo endereço cadastrado no Panzeri Run, com o assunto "Exclusão de conta". Confirmamos o pedido em até 5 dias úteis e concluímos a exclusão em até 15 dias.`,
-      'São excluídos: dados de cadastro (nome, e-mail, telefone, CPF, endereço), dados de saúde e condicionamento físico, histórico de treinos prescritos e realizados, dados importados de serviços conectados e mensagens trocadas com o treinador/agente de IA, no banco em operação. As cópias de segurança seguem o descrito na seção 10.',
-      'São mantidos, quando exigido por lei, apenas registros de pagamento (nota fiscal/comprovante), pelo prazo mínimo exigido pela legislação fiscal brasileira — nunca usados para nenhum outro fim depois da exclusão da conta.',
+      'A conta é anonimizada de forma irreversível: nome, e-mail, CPF, telefone, endereço, data de nascimento e demais dados de perfil são removidos, o acesso deixa de ser possível e o e-mail poderá ser usado em um novo cadastro. São excluídos, no banco em operação, os dados de saúde e condicionamento físico, a entrevista, a rotina, os feedbacks e relatos, o registro do ciclo menstrual, o histórico de treinos prescritos e realizados, os dados importados de serviços conectados, as notificações, as mensagens trocadas com o treinador/agente de IA e as credenciais de acesso. As cópias de segurança seguem o descrito na seção 10.',
+      'Permanecem apenas registros de pagamento e de assinatura (valores, datas e identificadores do pagamento), o registro do aceite dos termos e registros técnicos de auditoria, todos vinculados a um identificador técnico anônimo, sem nome, e-mail, CPF ou outros dados de identificação direta.',
     ],
   },
   {

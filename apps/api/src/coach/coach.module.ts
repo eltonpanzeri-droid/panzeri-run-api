@@ -7,6 +7,7 @@ import { TrainingPlansModule } from '../training-plans/training-plans.module';
 import { StravaModule } from '../strava/strava.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { BackupModule } from '../backup/backup.module';
+import { AccountDeletionModule } from '../account-deletion/account-deletion.module';
 import { MeModule } from '../me/me.module';
 import { BillingModule } from '../billing/billing.module';
 import { MenstrualCycleModule } from '../menstrual-cycle/menstrual-cycle.module';
@@ -17,7 +18,7 @@ import { EvolutionModule } from '../evolution/evolution.module';
 import { ActivityExecutionModule } from '../activity-execution/activity-execution.module';
 
 @Module({
-  imports: [TrainingPlansModule, StravaModule, MessagingModule, BackupModule, MeModule, BillingModule, MenstrualCycleModule, TrainingIntelligenceModule, ContextEventsModule, ReassessmentModule, EvolutionModule, ActivityExecutionModule],
+  imports: [TrainingPlansModule, StravaModule, MessagingModule, BackupModule, MeModule, BillingModule, MenstrualCycleModule, TrainingIntelligenceModule, ContextEventsModule, ReassessmentModule, EvolutionModule, ActivityExecutionModule, AccountDeletionModule],
   controllers: [CoachController, CoachToolingController],
   providers: [CoachService, BusinessIntelligenceService],
 })

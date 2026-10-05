@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
+import { AccountDeletionService } from '../account-deletion/account-deletion.service';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
@@ -30,6 +31,7 @@ export class CoachController {
     private readonly businessIntelligence: BusinessIntelligenceService,
     private readonly trainingIntelligenceQuery: TrainingIntelligenceQueryService,
     private readonly athleteStateSnapshot: AthleteStateSnapshotService,
+    private readonly accountDeletion: AccountDeletionService,
     private readonly contextEvents: ContextEventsService,
     private readonly reassessmentService: ReassessmentService,
   ) {}
@@ -379,6 +381,18 @@ export class CoachController {
   @Get('students/:studentId/external-activities')
   listExternalActivities(@Param('studentId') studentId: string) {
     return this.coachService.listExternalActivities(studentId);
+  }
+
+  // Exclusao de conta (05/10/2026): anonimizacao irreversivel do User + exclusao dos dados pessoais/operacionais
+  // (ver account-deletion.service.ts). ADMIN-ONLY, exige confirmacao explicita e tombstone externo confirmado.
+  @Roles('admin')
+  @Post('students/:studentId/delete-account')
+  deleteStudentAccount(
+    @CurrentUser() actor: CurrentUserPayload,
+    @Param('studentId') studentId: string,
+    @Body() body: { confirmUserId?: string; confirmText?: string },
+  ) {
+    return this.accountDeletion.deleteAccount(studentId, body ?? {}, { id: actor.sub, role: actor.role });
   }
 
   // Payload bruto do provider + samples (05/10/2026): ferramenta de diagnostico tecnico, nao faz parte do
