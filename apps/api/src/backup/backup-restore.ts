@@ -1,6 +1,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { pgEnvFromUrl, redactSecrets, secretsFromDatabaseUrl } from './backup-sanitize';
+import type { Tombstone } from './tombstone-ledger';
 
 const execFileAsync = promisify(execFile);
 
@@ -15,8 +16,9 @@ const execFileAsync = promisify(execFile);
 //    registeredAt zerado — o aluno precisa autorizar de novo (mesmo estado de uma desconexao normal).
 //  - Strava: linhas de StravaConnection (tokens) removidas — a "desconexao" do Strava no sistema ja e' a
 //    ausencia da linha (strava.service.ts), entao nada sincroniza sem novo OAuth.
-// Nao cobre (ver runbook): dados de provider excluidos depois do snapshot e contas excluidas depois do
-// snapshot — dependem do ledger de tombstones, ainda nao implementado.
+// Depois do fail-closed, a restauracao carrega o ledger de tombstones (R2) e REAPLICA as exclusoes posteriores ao
+// snapshot (applyTombstones, idempotente). Se o ledger estiver indisponivel, a restauracao NAO e' declarada
+// concluida: o banco fica em fail-closed e o resultado informa reconciliacao pendente.
 
 export interface SafeguardPrisma {
   polarConnection: { updateMany(args: { where: { disconnectedAt: null }; data: Record<string, unknown> }): Promise<{ count: number }> };
@@ -42,6 +44,56 @@ export async function postRestoreSafeguard(prisma: SafeguardPrisma, now: Date = 
   return { polarDisconnected: polar.count, stravaConnectionsRemoved: strava.count };
 }
 
+// Margem anterior ao inicio do snapshot: a exclusao grava o tombstone e so' depois apaga (a transacao tem teto de
+// 60 s). Um dump iniciado nesse intervalo pode conter dados cuja exclusao o tombstone ja' registrava. 5 min cobre o
+// teto com folga; reaplicar e' idempotente.
+export const SNAPSHOT_TOMBSTONE_MARGIN_MS = 5 * 60 * 1000;
+
+export interface TombstoneApplication {
+  status: 'applied' | 'pending';
+  applied: number;
+  skippedBeforeSnapshot: number;
+  unsupported: number;
+  error?: string;
+}
+
+// Reaplica so' os tombstones POSTERIORES ao snapshot. Idempotente: reexecutar nao muda o resultado.
+export async function applyTombstones(opts: {
+  snapshotStartedAt: Date;
+  load: () => Promise<Tombstone[]>;
+  deleteProviderData: (userId: string, provider: string) => Promise<unknown>;
+}): Promise<TombstoneApplication> {
+  let tombstones: Tombstone[];
+  try {
+    tombstones = await opts.load();
+  } catch (error) {
+    return { status: 'pending', applied: 0, skippedBeforeSnapshot: 0, unsupported: 0, error: redactSecrets(error, []) };
+  }
+  const threshold = opts.snapshotStartedAt.getTime() - SNAPSHOT_TOMBSTONE_MARGIN_MS;
+  let applied = 0;
+  let skipped = 0;
+  let unsupported = 0;
+  for (const tombstone of tombstones) {
+    if (Date.parse(tombstone.at) < threshold) { skipped++; continue; }
+    if (tombstone.type === 'provider_data_deleted' && tombstone.provider) {
+      await opts.deleteProviderData(tombstone.userId, tombstone.provider);
+      applied++;
+    } else {
+      unsupported++; // ex.: account_deleted — sem executor ainda; mantem a reconciliacao pendente
+    }
+  }
+  return unsupported > 0
+    ? { status: 'pending', applied, skippedBeforeSnapshot: skipped, unsupported, error: 'Ha tombstones de tipo ainda nao suportado para reaplicacao.' }
+    : { status: 'applied', applied, skippedBeforeSnapshot: skipped, unsupported };
+}
+
+export interface RestoreOutcome {
+  safeguard: SafeguardResult;
+  tombstones: TombstoneApplication;
+  // So' e' true com o pg_restore OK, o fail-closed aplicado E todas as exclusoes posteriores reaplicadas.
+  complete: boolean;
+}
+
 export type ExecFileLike = (file: string, args: string[], options: { env: Record<string, string>; maxBuffer: number }) => Promise<unknown>;
 
 // pg_restore (sem shell, sem URL em argumento) seguido SEMPRE da etapa pos-restauracao.
@@ -50,7 +102,10 @@ export async function restoreBackupFile(opts: {
   targetDatabaseUrl: string;
   prisma: SafeguardPrisma;
   exec?: ExecFileLike;
-}): Promise<SafeguardResult> {
+  snapshotStartedAt: Date;
+  loadTombstones: () => Promise<Tombstone[]>;
+  deleteProviderData: (userId: string, provider: string) => Promise<unknown>;
+}): Promise<RestoreOutcome> {
   const exec: ExecFileLike = opts.exec ?? ((file, args, options) => execFileAsync(file, args, options));
   const env = pgEnvFromUrl(opts.targetDatabaseUrl);
   const secrets = secretsFromDatabaseUrl(opts.targetDatabaseUrl);
@@ -66,5 +121,7 @@ export async function restoreBackupFile(opts: {
   // Fail closed: roda mesmo que o pg_restore tenha falhado no meio.
   const result = await postRestoreSafeguard(opts.prisma);
   if (restoreError) throw new Error(`pg_restore terminou com erro (a etapa pos-restauracao foi executada): ${redactSecrets(restoreError, secrets)}`);
-  return result;
+  // Depois do fail-closed: carregar o ledger e reaplicar as exclusoes posteriores ao snapshot.
+  const tombstones = await applyTombstones({ snapshotStartedAt: opts.snapshotStartedAt, load: opts.loadTombstones, deleteProviderData: opts.deleteProviderData });
+  return { safeguard: result, tombstones, complete: tombstones.status === 'applied' };
 }

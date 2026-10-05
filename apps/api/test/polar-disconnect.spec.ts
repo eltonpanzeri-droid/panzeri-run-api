@@ -119,7 +119,9 @@ function world() {
       POLAR_REDIRECT_URI: 'https://api.example.com/polar/callback', POLAR_TOKEN_ENCRYPTION_KEY: 'ab'.repeat(32),
     } as Record<string, string>)[name],
   };
-  const deletion = new ProviderDataDeletionService(prisma as never);
+  // Ledger fake (tombstone sempre confirmado); o comportamento do ledger tem testes proprios em tombstone-ledger.spec.ts.
+  const ledger = { record: jest.fn(async () => 'panzeri-backups/tombstones/x.tomb.enc'), alert: jest.fn(async () => undefined) };
+  const deletion = new ProviderDataDeletionService(prisma as never, ledger as never);
   const polar = new PolarService(prisma as never, config as never, deletion);
   const timeSeries = { normalizeFromRawSamples: jest.fn(async () => undefined) };
   const link = { classify: jest.fn(async () => 'alternative') };

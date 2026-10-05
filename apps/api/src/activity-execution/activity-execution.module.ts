@@ -5,6 +5,7 @@ import { ActivityExecutionController } from './activity-execution.controller';
 import { ActivityDetailService } from './activity-detail.service';
 import { ActivityNotificationService } from './activity-notification.service';
 import { ProviderDataDeletionService } from './provider-data-deletion.service';
+import { TombstoneModule } from '../backup/tombstone.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ActivityTimeSeriesModule } from '../activity-timeseries/activity-timeseries.module';
 
@@ -12,7 +13,7 @@ import { ActivityTimeSeriesModule } from '../activity-timeseries/activity-timese
 // confirmCandidate (visualizacao Prescrito x Realizado do aluno); classify() e' acionado apos a
 // ingestao Polar (03/10/2026).
 @Module({
-  imports: [PrismaModule, NotificationsModule, ActivityTimeSeriesModule],
+  imports: [PrismaModule, NotificationsModule, ActivityTimeSeriesModule, TombstoneModule],
   controllers: [ActivityExecutionController],
   providers: [SessionExecutionLinkService, ActivityDetailService, ActivityNotificationService, ProviderDataDeletionService],
   exports: [SessionExecutionLinkService, ActivityNotificationService, ProviderDataDeletionService],

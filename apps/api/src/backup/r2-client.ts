@@ -22,6 +22,7 @@ export interface TransportRequest {
   path: string; // ja com query string
   headers: Record<string, string>;
   bodyFile?: string; // upload em streaming a partir de arquivo
+  body?: Buffer; // upload de objeto pequeno em memoria (tombstones)
   downloadTo?: string; // download em streaming para arquivo
 }
 export interface TransportResponse { status: number; headers: Record<string, string | string[] | undefined>; body: Buffer }
@@ -93,7 +94,7 @@ export const defaultTransport: Transport = (request) =>
     if (request.bodyFile) {
       pipeline(createReadStream(request.bodyFile), req).catch(reject);
     } else {
-      req.end();
+      req.end(request.body);
     }
   });
 
@@ -109,7 +110,7 @@ export class R2Client {
     return key === undefined ? base : `${base}/${key.split('/').map(awsEncode).join('/')}`;
   }
 
-  private async send(method: string, key: string | undefined, opts: { query?: Record<string, string>; extraHeaders?: Record<string, string>; bodyFile?: string; payloadHash?: string; contentLength?: number; downloadTo?: string } = {}) {
+  private async send(method: string, key: string | undefined, opts: { query?: Record<string, string>; extraHeaders?: Record<string, string>; bodyFile?: string; body?: Buffer; payloadHash?: string; contentLength?: number; downloadTo?: string } = {}) {
     const amzDate = this.now().toISOString().replace(/[:-]|\.\d{3}/g, '');
     const payloadHash = opts.payloadHash ?? EMPTY_PAYLOAD_SHA256;
     const signed: Record<string, string> = { host: this.host, 'x-amz-content-sha256': payloadHash, 'x-amz-date': amzDate, ...(opts.extraHeaders ?? {}) };
@@ -122,7 +123,7 @@ export class R2Client {
     const queryString = Object.entries(opts.query ?? {}).map(([k, v]) => `${awsEncode(k)}=${awsEncode(v)}`).sort().join('&');
     const headers: Record<string, string> = { ...signed, Authorization: authorization };
     if (opts.contentLength !== undefined) headers['content-length'] = String(opts.contentLength);
-    return this.transport({ method, host: this.host, path: queryString ? `${path}?${queryString}` : path, headers, bodyFile: opts.bodyFile, downloadTo: opts.downloadTo });
+    return this.transport({ method, host: this.host, path: queryString ? `${path}?${queryString}` : path, headers, bodyFile: opts.bodyFile, body: opts.body, downloadTo: opts.downloadTo });
   }
 
   private static fail(operation: string, status: number): never {
@@ -137,13 +138,31 @@ export class R2Client {
     if (res.status < 200 || res.status >= 300) R2Client.fail('upload', res.status);
   }
 
-  async headObject(key: string): Promise<{ size: number; etag: string | null } | null> {
+  // Objeto pequeno em memoria (usado pelo ledger de tombstones).
+  async putObjectBuffer(key: string, body: Buffer, metadata: Record<string, string> = {}) {
+    const extraHeaders: Record<string, string> = { 'content-type': 'application/octet-stream' };
+    for (const [k, v] of Object.entries(metadata)) extraHeaders[`x-amz-meta-${k.toLowerCase()}`] = v;
+    const res = await this.send('PUT', key, { body, payloadHash: sha256Hex(body), contentLength: body.length, extraHeaders });
+    if (res.status < 200 || res.status >= 300) R2Client.fail('upload', res.status);
+  }
+
+  async getObjectBuffer(key: string): Promise<Buffer> {
+    const res = await this.send('GET', key);
+    if (res.status !== 200) R2Client.fail('download', res.status);
+    return res.body;
+  }
+
+  async headObject(key: string): Promise<{ size: number; etag: string | null; metadata: Record<string, string> } | null> {
     const res = await this.send('HEAD', key);
     if (res.status === 404) return null;
     if (res.status !== 200) R2Client.fail('verificacao', res.status);
     const size = Number(res.headers['content-length']);
     const etag = typeof res.headers['etag'] === 'string' ? (res.headers['etag'] as string).replace(/"/g, '') : null;
-    return { size: Number.isFinite(size) ? size : -1, etag };
+    const metadata: Record<string, string> = {};
+    for (const [name, value] of Object.entries(res.headers)) {
+      if (name.toLowerCase().startsWith('x-amz-meta-') && typeof value === 'string') metadata[name.toLowerCase().slice('x-amz-meta-'.length)] = value;
+    }
+    return { size: Number.isFinite(size) ? size : -1, etag, metadata };
   }
 
   async getObjectToFile(key: string, dest: string) {

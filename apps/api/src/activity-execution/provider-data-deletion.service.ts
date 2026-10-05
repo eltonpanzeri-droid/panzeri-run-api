@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { TombstoneLedger } from '../backup/tombstone-ledger';
 
 // Exclusao dos dados atribuiveis a UM provider de UM usuario (04/10/2026). Provider-agnostico: so'
 // conhece o dominio canonico (RawExternalActivity / ActivityLog / samples / series / vinculos) e a
@@ -99,9 +100,31 @@ export function classifyMaterializedCompletion(completion: Record<string, any>, 
 
 @Injectable()
 export class ProviderDataDeletionService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(ProviderDataDeletionService.name);
 
+  // ledger: ausente so' na CLI de restauracao, que chama executeProviderDataDeletion (reaplicacao) sem gravar tombstone.
+  constructor(private readonly prisma: PrismaService, private readonly ledger?: TombstoneLedger) {}
+
+  // Fluxo de producao (05/10/2026): tombstone externo CONFIRMADO -> exclusao local. Se o R2 nao confirmar, o
+  // ledger lanca 503 e NADA e' apagado. Se a exclusao local falhar depois, o tombstone fica (seguro para
+  // restauracao), o evento e' auditado e um alerta e' enviado.
   async deleteProviderData(userId: string, provider: string): Promise<ProviderDataDeletionResult> {
+    if (!this.ledger) throw new InternalServerErrorException('Exclusao indisponivel: ledger de tombstones nao configurado.');
+    await this.ledger.record({ type: 'provider_data_deleted', userId, provider });
+    try {
+      return await this.executeProviderDataDeletion(userId, provider);
+    } catch (error) {
+      this.logger.error(`Exclusao de dados do provider falhou apos o tombstone (${provider}): ${(error as Error).message?.slice(0, 200)}`);
+      await this.prisma.providerConnectionEvent.create({
+        data: { userId, provider, type: 'data_deletion_failed', details: { tombstoneKept: true } },
+      }).catch(() => undefined);
+      await this.ledger.alert(`ALERTA: a exclusao de dados do provider ${provider} falhou DEPOIS de gravar o tombstone (o tombstone foi mantido). Usuario interno: ${userId}. Reexecutar a exclusao.`);
+      throw new InternalServerErrorException('A exclusao nao foi concluida. O registro de seguranca foi mantido; tente novamente.');
+    }
+  }
+
+  // A exclusao propriamente dita (idempotente). Tambem usada pela restauracao para reaplicar tombstones.
+  async executeProviderDataDeletion(userId: string, provider: string): Promise<ProviderDataDeletionResult> {
     return this.prisma.$transaction(async (tx) => {
       const activities = await tx.activityLog.findMany({
         where: { userId, provider },

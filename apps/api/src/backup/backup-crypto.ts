@@ -15,6 +15,30 @@ const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 const HEADER_LENGTH = BACKUP_MAGIC.length + IV_LENGTH;
 
+// Tombstones usam o mesmo AES-256-GCM e a mesma chave, com magic proprio (nunca confundidos com dumps).
+export const TOMBSTONE_MAGIC = Buffer.from('PZTB1\n', 'utf8');
+
+export function encryptBuffer(plain: Buffer, key: Buffer, magic: Buffer = TOMBSTONE_MAGIC): Buffer {
+  const iv = randomBytes(IV_LENGTH);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  cipher.setAAD(magic);
+  const body = Buffer.concat([cipher.update(plain), cipher.final()]);
+  return Buffer.concat([magic, iv, body, cipher.getAuthTag()]);
+}
+
+export function decryptBuffer(data: Buffer, key: Buffer, magic: Buffer = TOMBSTONE_MAGIC): Buffer {
+  const headerLength = magic.length + IV_LENGTH;
+  if (data.length < headerLength + TAG_LENGTH || !data.subarray(0, magic.length).equals(magic)) throw new Error('Registro invalido (formato desconhecido).');
+  const decipher = createDecipheriv('aes-256-gcm', key, data.subarray(magic.length, headerLength));
+  decipher.setAAD(magic);
+  decipher.setAuthTag(data.subarray(data.length - TAG_LENGTH));
+  try {
+    return Buffer.concat([decipher.update(data.subarray(headerLength, data.length - TAG_LENGTH)), decipher.final()]);
+  } catch {
+    throw new Error('Nao foi possivel descriptografar o registro: chave incorreta ou conteudo corrompido.');
+  }
+}
+
 export function parseBackupKey(raw: string | undefined | null): Buffer {
   const value = raw?.trim();
   if (!value || !/^[\da-fA-F]{64}$/.test(value)) {

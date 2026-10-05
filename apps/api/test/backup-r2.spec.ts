@@ -65,7 +65,7 @@ describe('SigV4 (R2) e cliente', () => {
     await client.deleteObject('panzeri-backups/db/a.dump.enc');
     expect(calls[2].method).toBe('DELETE');
     expect(calls[2].host).toBe('conta123.r2.cloudflarestorage.com');
-    expect(await client.headObject('x')).toEqual({ size: 20, etag: 'abc' });
+    expect(await client.headObject('x')).toEqual({ size: 20, etag: 'abc', metadata: {} });
     for (const call of calls) {
       expect(call.headers.Authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=AKIAFICTICIOACESSO123\/20261005\/auto\/s3\/aws4_request/);
       expect(JSON.stringify(call)).not.toContain(R2_SECRET);
@@ -300,17 +300,20 @@ describe('restauracao fail-closed', () => {
     const calls: Array<{ file: string; args: string[]; env: Record<string, string> }> = [];
     const ok = await restoreBackupFile({
       dumpPath: '/tmp/x.dump', targetDatabaseUrl: DB_URL, prisma: prisma as never,
+      snapshotStartedAt: new Date(), loadTombstones: async () => [], deleteProviderData: async () => undefined,
       exec: async (file, args, options) => { calls.push({ file, args, env: options.env }); },
     });
     expect(calls[0].file).toBe('pg_restore');
     expect(calls[0].args).toContain('--dbname=panzeri');
     expect(JSON.stringify(calls[0].args)).not.toContain(DB_PASSWORD);
     expect(calls[0].env.PGPASSWORD).toBe(DB_PASSWORD);
-    expect(ok.polarDisconnected).toBe(1);
+    expect(ok.safeguard.polarDisconnected).toBe(1);
+    expect(ok.complete).toBe(true);
 
     const prisma2 = fakePrisma([{ userId: 'a', disconnectedAt: null, accessTokenEncrypted: 'v1:x' }], [{ userId: 'a' }]);
     await expect(restoreBackupFile({
       dumpPath: '/tmp/x.dump', targetDatabaseUrl: DB_URL, prisma: prisma2 as never,
+      snapshotStartedAt: new Date(), loadTombstones: async () => [], deleteProviderData: async () => undefined,
       exec: async () => { throw new Error(`falhou em ${DB_URL} com ${DB_PASSWORD}`); },
     })).rejects.toThrow('a etapa pos-restauracao foi executada');
     expect(prisma2.polar[0].disconnectedAt).not.toBeNull();

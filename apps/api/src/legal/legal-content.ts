@@ -76,6 +76,7 @@ const THIRD_PARTIES = [
 const BACKUP_PARAGRAPHS = [
   'Mantemos cópias de segurança periódicas do banco de dados para recuperação em caso de falha. Elas contêm os dados da conta existentes no momento de cada cópia e ficam guardadas fora do banco em operação.',
   'Quando um dado é excluído do banco em operação, a remoção das cópias de segurança pode não ocorrer imediatamente: elas permanecem até serem substituídas ou descartadas pela nossa rotina, e não prometemos um prazo exato.',
+  'Também mantemos, por 1 ano, um registro mínimo e criptografado das exclusões de dados de serviços conectados (identificador interno do usuário, tipo de exclusão e data), usado apenas para garantir que essas exclusões sejam mantidas em uma eventual recuperação do banco.',
 ];
 
 const REQUEST_PARAGRAPHS = [

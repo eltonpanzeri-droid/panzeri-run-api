@@ -2511,3 +2511,18 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
 - **Pendente (aprovação):** ledger de tombstones fora do banco (conta/dados de provider excluídos depois do snapshot).
   **Pendente (operacional, Elton):** criar bucket/token/regra no R2, variáveis no EasyPanel, `ADMIN_EMAILS`, ensaio de
   restauração, limpeza manual dos backups antigos por e-mail, rotação da senha do Postgres. Strava com token em texto puro: bloco seguinte.
+
+### 2026-10-05 — Pré-Garmin 4 (conclusão): tombstones externos no R2 + restauração com reconciliação
+- **Ledger de tombstones** (`backup/tombstone-ledger.ts`): `panzeri-backups/tombstones/…tomb.enc`, JSON cifrado (v, type, userId,
+  provider?, at; sem PII), AES-256-GCM com a `BACKUP_ENCRYPTION_KEY`. **Ordem: tombstone confirmado no R2 → exclusão local**;
+  R2 indisponível = 503 "nada foi apagado" + alerta Telegram. Falha local depois do tombstone: tombstone mantido, evento
+  `data_deletion_failed`, alerta. Integrado a `ProviderDataDeletionService.deleteProviderData` (a lógica de exclusão não foi
+  duplicada: `executeProviderDataDeletion`). Desconexão simples NÃO gera tombstone (o fail-closed global pós-restore já cobre).
+- **Restore:** `decrypt → pg_restore → fail-closed → carregar tombstones → reaplicar os posteriores ao snapshot` (margem de 5 min,
+  idempotente). Data do snapshot = metadado `created` (início do pg_dump) do objeto no R2, salvo em `<dump>.snapshot.json`.
+  Ledger indisponível ⇒ CLI sai com código 2 ("RESTAURACAO NAO CONCLUIDA"), banco fica fail-closed. Comando `apply-tombstones` retoma.
+- **Lifecycle no R2 (manual):** duas regras independentes — `panzeri-backups/db/` 14 dias; `panzeri-backups/tombstones/` 365 dias
+  (o código nunca apaga tombstones).
+- **BLOQUEIO — exclusão de conta NÃO implementada:** `User` tem ~36 FKs (default Restrict) + 13 tabelas por userId sem FK e `BillingEvent`
+  com `onDelete: Restrict` (registro de pagamento que a Política manda reter). `DELETE User` é inviável sem perder registros de
+  pagamento; exige decisão (anonimizar o `User` e apagar o resto, por categoria). Aguardando decisão de Elton.

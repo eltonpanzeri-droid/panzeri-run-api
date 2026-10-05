@@ -98,6 +98,8 @@ export class BackupService {
       const dumpPath = join(tempDir, 'dump.pgcustom');
       const encPath = join(tempDir, 'dump.enc');
 
+      // Instante de INICIO do dump = data confiavel do snapshot (o pg_dump enxerga o estado desse momento).
+      const snapshotStartedAt = new Date();
       await this.runPgDump(pgEnv, dumpPath);
       const info = await encryptFile(dumpPath, encPath, key);
       // O dump em claro some assim que o cifrado existe — antes de qualquer envio.
@@ -105,7 +107,7 @@ export class BackupService {
 
       const objectKey = backupObjectKey();
       const client = this.createR2(r2 as R2Config);
-      await client.putObjectFromFile(objectKey, encPath, info, { format: 'pzbk1', created: new Date().toISOString() });
+      await client.putObjectFromFile(objectKey, encPath, info, { format: 'pzbk1', created: snapshotStartedAt.toISOString() });
 
       // Confirmacao: o objeto existe com o tamanho e o MD5 esperados (ETag de PUT simples = MD5 do corpo).
       const head = await client.headObject(objectKey);
