@@ -1154,17 +1154,35 @@ model PolarOAuthAttempt {
 // (ex.: 3 de 5 exercicios persistidos e falhou), o proximo sync REUTILIZA a mesma transaction em
 // vez de abrir outra — ver PolarActivityIngestionService.sync(). So commitamos na Polar depois que
 // TODOS os exercicios da transaction foram persistidos localmente com sucesso (raw + ActivityLog).
+// Estado da conexao (04/10/2026): disconnectedAt == null => coleta autorizada; preenchido =>
+// desconectada/revogada pelo aluno (accessTokenEncrypted vira null; polarUserId e' mantido para o
+// webhook identificar e DESCARTAR eventos tardios). Reconectar limpa disconnectedAt via nova autorizacao.
 model PolarConnection {
   id                      String    @id @default(uuid())
   userId                  String    @unique
   polarUserId             String    @unique
-  accessTokenEncrypted    String
+  accessTokenEncrypted    String?
+  disconnectedAt          DateTime?
   registeredAt            DateTime?
   openTransactionId       String?
   openTransactionOpenedAt DateTime?
   lastSyncCompletedAt     DateTime?
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
+}
+
+// Trilha de auditoria de desconexao/exclusao de dados de provedores (04/10/2026), generica por
+// provedor. Sem FK em userId de proposito: o registro de que a exclusao ocorreu sobrevive a exclusao
+// da conta. "details" guarda so' contagens/resultado — nunca token, payload ou dado esportivo.
+model ProviderConnectionEvent {
+  id        String   @id @default(uuid())
+  userId    String
+  provider  String
+  type      String // 'disconnected' | 'data_deleted'
+  details   Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, provider])
 }
 
 // Webhook de notificacao do provedor Polar (03/10/2026). Uma assinatura por aplicacao (nao por

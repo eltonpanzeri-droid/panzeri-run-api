@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -16,8 +17,13 @@ import { extractPolarProviderMetrics, normalizePolarModality, PolarNormalizerInp
 
 const ACCESSLINK_BASE = 'https://www.polaraccesslink.com';
 
+// Lancada quando a conexao foi revogada no meio de um sync: nada mais pode ser persistido.
+export class CollectionRevokedError extends Error {
+  constructor() { super('Coleta Polar revogada pelo usuario.'); }
+}
+
 export interface PolarSyncResult {
-  status: 'synced' | 'no_new_data' | 'in_progress';
+  status: 'synced' | 'no_new_data' | 'in_progress' | 'disconnected';
   imported: number;
   resumedTransaction: boolean;
 }
@@ -72,6 +78,10 @@ export class PolarActivityIngestionService {
     this.syncsInFlight.add(userId);
     try {
       return await this.runSync(userId);
+    } catch (error) {
+      // Revogada no meio do sync: encerra sem erro e sem persistir mais nada.
+      if (error instanceof CollectionRevokedError) return { status: 'disconnected', imported: 0, resumedTransaction: false };
+      throw error;
     } finally {
       this.syncsInFlight.delete(userId);
     }
@@ -80,6 +90,11 @@ export class PolarActivityIngestionService {
   private async runSync(userId: string): Promise<PolarSyncResult> {
     const connection = await this.prisma.polarConnection.findUnique({ where: { userId } });
     if (!connection) throw new NotFoundException('Conta Polar nao conectada para este usuario.');
+    // Fonte canonica de consentimento: disconnectedAt. Vale para sync manual, polling, webhook e retry,
+    // que passam todos por aqui. Sem token tambem nao ha coleta possivel.
+    if (connection.disconnectedAt || !connection.accessTokenEncrypted) {
+      throw new ConflictException('Conta Polar desconectada. Conecte novamente para sincronizar.');
+    }
 
     const accessToken = this.polar.decryptAccessToken(connection.accessTokenEncrypted);
 
@@ -94,7 +109,7 @@ export class PolarActivityIngestionService {
     // Tentativa concluida com sucesso sem nada novo (204 da Polar) conta como sincronizada: o
     // lastSyncCompletedAt registra que a conexao foi conferida. Falhas nao chegam aqui (lancam antes).
     if (!transactionId) {
-      await this.prisma.polarConnection.update({ where: { userId }, data: { lastSyncCompletedAt: new Date() } });
+      await this.updateConnectionIfActive(userId, { lastSyncCompletedAt: new Date() });
       return { status: 'no_new_data', imported: 0, resumedTransaction: false };
     }
 
@@ -107,6 +122,7 @@ export class PolarActivityIngestionService {
         await this.ingestExercise(userId, url, accessToken, transactionId);
         imported++;
       } catch (error) {
+        if (error instanceof CollectionRevokedError) throw error;
         this.logger.error(`Falha ao importar exercicio Polar (${url}): ${error instanceof Error ? error.message : String(error)}`);
         failures.push(url);
       }
@@ -120,10 +136,7 @@ export class PolarActivityIngestionService {
     }
 
     await this.commitTransaction(connection.polarUserId, transactionId, accessToken);
-    await this.prisma.polarConnection.update({
-      where: { userId },
-      data: { openTransactionId: null, openTransactionOpenedAt: null, lastSyncCompletedAt: new Date() },
-    });
+    await this.updateConnectionIfActive(userId, { openTransactionId: null, openTransactionOpenedAt: null, lastSyncCompletedAt: new Date() });
 
     return { status: 'synced', imported, resumedTransaction };
   }
@@ -148,7 +161,23 @@ export class PolarActivityIngestionService {
     if (!response.ok && response.status !== 409) {
       throw new BadGatewayException(`A Polar recusou o registro do usuario (status ${response.status}).`);
     }
-    await this.prisma.polarConnection.update({ where: { userId }, data: { registeredAt: new Date() } });
+    await this.updateConnectionIfActive(userId, { registeredAt: new Date() });
+  }
+
+  // Escrita de estado da conexao que nunca ressuscita uma conexao revogada (race sync x desconexao).
+  private async updateConnectionIfActive(userId: string, data: Prisma.PolarConnectionUpdateManyMutationInput) {
+    await this.prisma.polarConnection.updateMany({ where: { userId, disconnectedAt: null }, data });
+  }
+
+  // Toda persistencia de dado coletado passa por aqui. A linha da conexao fica travada em modo
+  // compartilhado ate o commit: a desconexao (UPDATE na mesma linha) espera a escrita terminar, e uma
+  // escrita que comecar depois da desconexao nao encontra conexao ativa e aborta. Rede fica fora.
+  private async writeIfStillAuthorized<T>(userId: string, write: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return this.prisma.$transaction(async (tx) => {
+      const active = await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "PolarConnection" WHERE "userId" = ${userId} AND "disconnectedAt" IS NULL FOR SHARE`;
+      if (active.length === 0) throw new CollectionRevokedError();
+      return write(tx);
+    });
   }
 
   private async openTransaction(userId: string, polarUserId: string, accessToken: string): Promise<string | null> {
@@ -173,10 +202,7 @@ export class PolarActivityIngestionService {
 
     // Gravado ANTES de processar qualquer exercicio: se o processo cair logo em seguida, o
     // proximo sync reutiliza esta mesma transaction (nunca abre uma segunda).
-    await this.prisma.polarConnection.update({
-      where: { userId },
-      data: { openTransactionId: transactionId, openTransactionOpenedAt: new Date() },
-    });
+    await this.updateConnectionIfActive(userId, { openTransactionId: transactionId, openTransactionOpenedAt: new Date() });
     return transactionId;
   }
 
@@ -224,7 +250,9 @@ export class PolarActivityIngestionService {
 
     // Raw primeiro, sempre — mesmo que o mapeamento canonico abaixo falhe depois, o payload
     // bruto ja fica preservado e disponivel para reprocessamento futuro.
-    const raw = await this.prisma.rawExternalActivity.upsert({
+    const canonical = this.mapExerciseSummary(summary);
+    const { raw, activityLog } = await this.writeIfStillAuthorized(userId, async (tx) => {
+    const raw = await tx.rawExternalActivity.upsert({
       where: { provider_userId_externalId: { provider: 'polar', userId, externalId } },
       create: {
         userId,
@@ -240,18 +268,19 @@ export class PolarActivityIngestionService {
       },
     });
 
-    const canonical = this.mapExerciseSummary(summary);
-    const activityLog = await this.prisma.activityLog.upsert({
+    const activityLog = await tx.activityLog.upsert({
       where: { provider_userId_externalId: { provider: 'polar', userId, externalId } },
       create: { userId, provider: 'polar', externalId, rawActivityId: raw.id, ...canonical },
       update: { rawActivityId: raw.id, ...canonical },
+    });
+    return { raw, activityLog };
     });
 
     // Samples (02/10/2026) — SEMPRE depois do resumo ja persistido com sucesso. Qualquer falha
     // aqui dentro e' so' logada, nunca propagada: a ActivityLog/RawExternalActivity do resumo ja
     // esta' salva e correta, e uma falha de samples nao pode fazer sync() tratar este exercicio
     // inteiro como falho (o que reabriria a transaction Polar sem necessidade).
-    await this.ingestSamples(activityLog.id, exerciseUrl, accessToken);
+    await this.ingestSamples(userId, activityLog.id, exerciseUrl, accessToken);
 
     // Normalizacao canonica (03/10/2026) — le os RawActivitySample recem-persistidos e preenche
     // ActivityTimeSeriesPoint. Mesma garantia de resiliencia que ingestSamples: nunca propaga falha
@@ -289,7 +318,7 @@ export class PolarActivityIngestionService {
   // uma lista fixa) e preserva cada um como uma linha RawActivitySample. Ver comentario do model
   // em schema.prisma: isto e' camada RAW, nao canonica — nenhuma interpretacao do conteudo
   // acontece aqui, so' preservacao do que a Polar devolveu.
-  private async ingestSamples(activityLogId: string, exerciseUrl: string, accessToken: string) {
+  private async ingestSamples(userId: string, activityLogId: string, exerciseUrl: string, accessToken: string) {
     // Rede 'try' em volta do METODO INTEIRO (nao so' do fetch) de proposito: requisito explicito e'
     // que NENHUMA falha de samples — rede, parsing, OU um erro de escrita no banco dentro do loop —
     // possa derrubar a ActivityLog/RawExternalActivity do resumo, que ja foi salva com sucesso
@@ -329,12 +358,14 @@ export class PolarActivityIngestionService {
         // Por entrada: falha ao persistir UM tipo (ex.: erro de banco pontual) nunca deve impedir
         // os demais tipos daquela mesma atividade de serem tentados.
         try {
-          await this.ingestOneSample(activityLogId, exerciseUrl, entry, accessToken);
+          await this.ingestOneSample(userId, activityLogId, exerciseUrl, entry, accessToken);
         } catch (error) {
+          if (error instanceof CollectionRevokedError) throw error;
           this.logger.warn(`Falha ao persistir sample "${entry.sampleType}" da atividade ${activityLogId}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
     } catch (error) {
+      if (error instanceof CollectionRevokedError) throw error;
       this.logger.warn(`Falha inesperada ao sincronizar samples da atividade ${activityLogId}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -384,6 +415,7 @@ export class PolarActivityIngestionService {
   }
 
   private async ingestOneSample(
+    userId: string,
     activityLogId: string,
     exerciseUrl: string,
     entry: { sampleType: string; url?: string; inlinePayload?: unknown },
@@ -416,7 +448,7 @@ export class PolarActivityIngestionService {
       }
     }
 
-    await this.prisma.rawActivitySample.upsert({
+    await this.writeIfStillAuthorized(userId, (tx) => tx.rawActivitySample.upsert({
       where: { activityLogId_provider_sampleType: { activityLogId, provider: 'polar', sampleType: entry.sampleType } },
       create: {
         activityLogId,
@@ -429,7 +461,7 @@ export class PolarActivityIngestionService {
         payload: payload as Prisma.InputJsonValue,
         providerMeta: { endpoint, fetchedVia: entry.inlinePayload !== undefined ? 'available-samples-inline' : 'per-type-fetch' },
       },
-    });
+    }));
   }
 
   private async commitTransaction(polarUserId: string, transactionId: string, accessToken: string) {

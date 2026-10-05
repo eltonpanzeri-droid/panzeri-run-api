@@ -2440,3 +2440,22 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
   acessível (apêndice "Exercise sample types" não retornou ao consultar). Raw preservado. Pendência.
 - Pendência: reprocessamento só ocorre ao abrir o detalhe; Histórico/Home não dependem da série.
   `analytics-instrumentation.spec.ts` segue falhando (pré-existente, não relacionado).
+
+### 2026-10-04 — Pré-Garmin 1: desconexão, revogação de coleta e exclusão de dados de provider
+- **Fonte canônica de consentimento**: `PolarConnection.disconnectedAt` (null = coleta autorizada). Ao desconectar:
+  `accessTokenEncrypted` vira null (coluna passou a ser opcional), transaction aberta é limpa, `polarUserId`
+  é mantido para o webhook identificar e descartar eventos tardios. Reconectar (novo OAuth) zera tudo.
+- `POST /polar/disconnect` (JWT, só a própria conexão, idempotente): revoga localmente PRIMEIRO, depois chama
+  `DELETE /v3/users/{id}` da AccessLink (documentada: 204 = desregistrado e token revogado); falha da Polar não
+  impede a revogação local. **Não apaga histórico.**
+- Todos os caminhos de entrada respeitam o estado: `runSync` (manual/polling/webhook/retry) recusa com 409,
+  scheduler filtra `disconnectedAt: null`, webhook descarta. Toda escrita de dado coletado passa por
+  `writeIfStillAuthorized` (SELECT … FOR SHARE na linha da conexão dentro da transação) e aborta se revogado
+  no meio do sync.
+- `DELETE /polar/data` (exige estar desconectado) → `ProviderDataDeletionService` (provider-agnóstico, em
+  `activity-execution/`): apaga por (userId, provider) raw, ActivityLog, samples, série, vínculos, notificações de
+  reconciliação e sessões sintéticas `device_extra` puras. Sessão sintética com dado do aluno (RPE, dor, notas,
+  tênis…) é PRESERVADA e devolvida em `preservedMaterialized` — decisão de produto pendente. Auditoria em
+  `ProviderConnectionEvent` (sem token/payload).
+- Limitação: backups não foram tratados; restaurar um backup pode trazer de volta linhas apagadas e
+  `disconnectedAt = null` anterior (o token restaurado já foi revogado na Polar). Tratar no bloco de Backup.

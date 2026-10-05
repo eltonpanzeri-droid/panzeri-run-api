@@ -2,10 +2,12 @@ import { BadGatewayException, BadRequestException, ConflictException, Injectable
 import { ConfigService } from '@nestjs/config';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { ProviderDataDeletionService } from '../activity-execution/provider-data-deletion.service';
 
 const AUTHORIZATION_URL = 'https://flow.polar.com/oauth2/authorization';
 const TOKEN_URL = 'https://polarremote.com/v2/oauth2/token';
 const STATE_TTL_MS = 10 * 60 * 1000;
+const ACCESSLINK_BASE = 'https://www.polaraccesslink.com';
 
 interface CallbackQuery {
   state?: unknown;
@@ -24,6 +26,7 @@ export class PolarService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly providerData?: ProviderDataDeletionService,
   ) {}
 
   async connectUrl(userId: string) {
@@ -93,7 +96,18 @@ export class PolarService {
     await this.prisma.polarConnection.upsert({
       where: { userId: user.id },
       create: { userId: user.id, polarUserId: token.polarUserId, accessTokenEncrypted },
-      update: { polarUserId: token.polarUserId, accessTokenEncrypted },
+      // Reconectar = nova autorizacao valida (state + code acabaram de ser trocados por um token novo).
+      // Zera o estado da conexao anterior: o registro na AccessLink e a transaction aberta pertenciam ao
+      // token revogado, entao o proximo sync registra o usuario de novo.
+      update: {
+        polarUserId: token.polarUserId,
+        accessTokenEncrypted,
+        disconnectedAt: null,
+        registeredAt: null,
+        openTransactionId: null,
+        openTransactionOpenedAt: null,
+        lastSyncCompletedAt: null,
+      },
     });
     return 'connected';
   }
@@ -119,8 +133,60 @@ export class PolarService {
   // fora da navegacao do app, entao o app nao tem outro jeito de saber o resultado).
   async status(userId: string) {
     const connection = await this.prisma.polarConnection.findUnique({ where: { userId } });
-    if (!connection) return { connected: false, connectedAt: null };
-    return { connected: true, connectedAt: connection.createdAt };
+    if (!connection) return { connected: false, connectedAt: null, disconnectedAt: null };
+    if (connection.disconnectedAt) return { connected: false, connectedAt: null, disconnectedAt: connection.disconnectedAt };
+    return { connected: true, connectedAt: connection.createdAt, disconnectedAt: null };
+  }
+
+  // Desconexao (04/10/2026). Ordem deliberada: PRIMEIRO revoga localmente (fonte canonica de "a coleta
+  // ainda e' autorizada?" = disconnectedAt) e descarta o token, DEPOIS avisa a Polar. Assim a coleta
+  // para no mesmo instante mesmo que a Polar esteja fora do ar; o custo e' que, se a chamada a Polar
+  // falhar, nao ha token para tentar de novo (o aluno ainda pode revogar no Polar Flow). Idempotente:
+  // repetir nao reexecuta nada. NAO apaga historico (ver ProviderDataDeletionService).
+  // DELETE /v3/users/{user-id} (AccessLink v3, "Delete user"): 204 = desregistrado e token revogado.
+  async disconnect(userId: string): Promise<{ status: 'disconnected' | 'already_disconnected' | 'not_connected'; providerRevocation: 'revoked' | 'not_registered' | 'failed' | 'skipped' }> {
+    const connection = await this.prisma.polarConnection.findUnique({ where: { userId } });
+    if (!connection) return { status: 'not_connected', providerRevocation: 'skipped' };
+    if (connection.disconnectedAt) return { status: 'already_disconnected', providerRevocation: 'skipped' };
+
+    const revoked = await this.prisma.polarConnection.updateMany({
+      where: { userId, disconnectedAt: null },
+      data: { disconnectedAt: new Date(), accessTokenEncrypted: null, openTransactionId: null, openTransactionOpenedAt: null },
+    });
+    // Outra requisicao concorrente venceu a corrida: o efeito ja ocorreu, nada mais a fazer.
+    if (revoked.count !== 1) return { status: 'already_disconnected', providerRevocation: 'skipped' };
+
+    const providerRevocation = await this.deregisterAtPolar(connection.polarUserId, connection.accessTokenEncrypted);
+    await this.providerData?.recordDisconnection(userId, 'polar', { providerRevocation });
+    return { status: 'disconnected', providerRevocation };
+  }
+
+  // Exclusao do historico Polar do proprio usuario (04/10/2026). Exige conexao desconectada: com a
+  // coleta ainda ativa o proximo sync/webhook reimportaria o que acabou de ser apagado.
+  async deleteData(userId: string) {
+    if (!this.providerData) throw new ServiceUnavailableException('Exclusao de dados indisponivel.');
+    const connection = await this.prisma.polarConnection.findUnique({ where: { userId }, select: { disconnectedAt: true } });
+    if (connection && !connection.disconnectedAt) {
+      throw new ConflictException('Desconecte a Polar antes de excluir os dados importados dela.');
+    }
+    return this.providerData.deleteProviderData(userId, 'polar');
+  }
+
+  private async deregisterAtPolar(polarUserId: string, tokenEncrypted: string | null): Promise<'revoked' | 'not_registered' | 'failed'> {
+    if (!tokenEncrypted) return 'failed';
+    try {
+      const token = this.decrypt(tokenEncrypted, this.settings().key);
+      const response = await fetch(`${ACCESSLINK_BASE}/v3/users/${polarUserId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.status === 204 || response.ok) return 'revoked';
+      // 404: usuario nunca chegou a ser registrado na AccessLink (sem sync) — nada a revogar la.
+      if (response.status === 404) return 'not_registered';
+      return 'failed';
+    } catch {
+      return 'failed';
+    }
   }
 
   private settings() {

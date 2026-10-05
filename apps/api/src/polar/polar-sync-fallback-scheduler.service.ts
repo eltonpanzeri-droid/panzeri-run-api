@@ -38,7 +38,7 @@ export class PolarSyncFallbackSchedulerService {
     try {
       const cutoff = new Date(now.getTime() - FALLBACK_INTERVAL_MS);
       const stale = await this.prisma.polarConnection.findMany({
-        where: { OR: [{ lastSyncCompletedAt: null }, { lastSyncCompletedAt: { lt: cutoff } }] },
+        where: { disconnectedAt: null, OR: [{ lastSyncCompletedAt: null }, { lastSyncCompletedAt: { lt: cutoff } }] },
         select: { userId: true },
         take: MAX_CONNECTIONS_PER_RUN,
       });

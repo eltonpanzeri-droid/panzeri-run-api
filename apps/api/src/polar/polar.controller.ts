@@ -1,4 +1,4 @@
-import { Controller, Get, Headers, HttpCode, HttpException, Logger, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Headers, HttpCode, HttpException, Logger, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { PolarService } from './polar.service';
@@ -47,6 +47,22 @@ export class PolarController {
   @Get('status')
   status(@CurrentUser() user: CurrentUserPayload) {
     return this.polarService.status(user.sub);
+  }
+
+  // Desconectar (04/10/2026): so' a conexao do proprio usuario (JWT); nenhum userId vem do cliente.
+  // Para a coleta imediatamente e NAO apaga o historico ja' importado.
+  @UseGuards(AuthGuard('jwt'))
+  @Post('disconnect')
+  @HttpCode(200)
+  disconnect(@CurrentUser() user: CurrentUserPayload) {
+    return this.polarService.disconnect(user.sub);
+  }
+
+  // Excluir os dados importados da Polar do proprio usuario (exige estar desconectado).
+  @UseGuards(AuthGuard('jwt'))
+  @Delete('data')
+  deleteData(@CurrentUser() user: CurrentUserPayload) {
+    return this.polarService.deleteData(user.sub);
   }
 
   // Sincronizacao controlada, disparada manualmente pelo proprio usuario autenticado. Sem cron

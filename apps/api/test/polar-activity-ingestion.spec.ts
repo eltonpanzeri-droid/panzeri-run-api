@@ -13,6 +13,7 @@ interface FakeConnection {
   openTransactionId: string | null;
   openTransactionOpenedAt: Date | null;
   lastSyncCompletedAt: Date | null;
+  disconnectedAt?: Date | null;
 }
 
 function jsonResponse(status: number, body: unknown, headers: Record<string, string> = {}): Response {
@@ -59,14 +60,24 @@ function fixture(connection: FakeConnection | null) {
     return `${k.activityLogId}|${k.provider}|${k.sampleType}`;
   };
 
-  const prisma = {
+  const prisma: Record<string, any> = {
     polarConnection: {
       findUnique: jest.fn(async () => conn),
       update: jest.fn(async ({ data }: { data: Partial<FakeConnection> }) => {
         conn = { ...(conn as FakeConnection), ...data };
         return conn;
       }),
+      // Escritas de estado nunca ressuscitam conexao revogada (where disconnectedAt: null).
+      updateMany: jest.fn(async ({ data }: { where: { disconnectedAt: null }; data: Partial<FakeConnection> }) => {
+        if (!conn || conn.disconnectedAt) return { count: 0 };
+        conn = { ...conn, ...data };
+        return { count: 1 };
+      }),
     },
+    // Guarda transacional de coleta: mesma semantica do SELECT ... FOR SHARE (so' prossegue com
+    // conexao ativa). Callback roda sobre o proprio mock (sem isolamento real — ver relatorio).
+    $queryRaw: jest.fn(async () => (conn && !conn.disconnectedAt ? [{ id: 'conn-1' }] : [])),
+    $transaction: jest.fn(async (cb: (tx: unknown) => Promise<unknown>): Promise<unknown> => cb(prisma)),
     rawExternalActivity: {
       upsert: jest.fn(async ({ where, create, update }: { where: Parameters<typeof keyOf>[0]; create: Record<string, unknown>; update: Record<string, unknown> }) => {
         const key = keyOf(where);

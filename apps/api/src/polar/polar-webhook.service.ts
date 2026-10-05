@@ -39,7 +39,9 @@ export class PolarWebhookService {
   async handleEvent(body: { event?: unknown; user_id?: unknown } | null | undefined): Promise<void> {
     if (!body || body.event !== 'EXERCISE' || body.user_id == null) return;
     const connection = await this.prisma.polarConnection.findUnique({ where: { polarUserId: String(body.user_id) } });
-    if (!connection) return;
+    // Evento atrasado de uma conexao revogada: a requisicao HTTP ja foi respondida 200, mas o dado
+    // NAO e' coletado (consentimento revogado). Nada de sync, nada de retry agendado.
+    if (!connection || connection.disconnectedAt) return;
     const result = await this.ingestion.sync(connection.userId);
     // Sync manual/polling em andamento devolve in_progress e o evento seria perdido ate o fallback.
     // Uma unica nova tentativa atrasada cobre a janela sem criar fila nem loop.

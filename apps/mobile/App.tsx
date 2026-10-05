@@ -8489,6 +8489,7 @@ function PolarConnect({ accessToken }: { accessToken: string }) {
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const [syncResult, setSyncResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function loadStatus() {
@@ -8570,6 +8571,43 @@ function PolarConnect({ accessToken }: { accessToken: string }) {
     }
   }
 
+  // Desconectar (04/10/2026): para novas sincronizacoes e revoga o acesso; NAO apaga o historico ja
+  // importado. O texto da confirmacao deixa isso explicito (window.confirm na web/PWA, Alert no nativo).
+  async function runDisconnect() {
+    setDisconnecting(true);
+    setSyncResult(null);
+    try {
+      const response = await fetch(`${API_URL}/polar/disconnect`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) {
+        setSyncResult({ ok: false, text: 'Nao consegui desconectar a Polar agora. Tente novamente.' });
+        return;
+      }
+      setSyncResult({ ok: true, text: 'Polar desconectada. Nenhuma nova sincronizacao sera feita; o historico ja importado foi mantido.' });
+    } catch {
+      setSyncResult({ ok: false, text: 'Nao consegui conectar com o servidor para desconectar.' });
+    } finally {
+      setDisconnecting(false);
+      void loadStatus();
+    }
+  }
+
+  function disconnectPolar() {
+    if (disconnecting) return;
+    const title = 'Desconectar a Polar?';
+    const message = 'Desconectar interrompe novas sincronizações, mas não apaga automaticamente o histórico já importado.';
+    if (Platform.OS === 'web') {
+      if (window.confirm(`${title}\n\n${message}`)) void runDisconnect();
+      return;
+    }
+    Alert.alert(title, message, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Desconectar', style: 'destructive', onPress: () => { void runDisconnect(); } },
+    ]);
+  }
+
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Integracao</Text>
@@ -8590,10 +8628,16 @@ function PolarConnect({ accessToken }: { accessToken: string }) {
             <Ionicons name="link" size={18} color={PRColors.mineral} />
           </Pressable>
         ) : (
-          <Pressable style={[styles.secondaryOutlineButton, syncing && styles.disabledButton]} disabled={syncing} onPress={syncNow}>
-            <Text style={styles.secondaryOutlineButtonText}>{syncing ? 'Sincronizando...' : 'Sincronizar agora'}</Text>
-            <Ionicons name="sync" size={18} color={PRColors.ocean} />
-          </Pressable>
+          <>
+            <Pressable style={[styles.secondaryOutlineButton, syncing && styles.disabledButton]} disabled={syncing} onPress={syncNow}>
+              <Text style={styles.secondaryOutlineButtonText}>{syncing ? 'Sincronizando...' : 'Sincronizar agora'}</Text>
+              <Ionicons name="sync" size={18} color={PRColors.ocean} />
+            </Pressable>
+            <Pressable style={[styles.secondaryOutlineButton, disconnecting && styles.disabledButton]} disabled={disconnecting} onPress={disconnectPolar}>
+              <Text style={styles.secondaryOutlineButtonText}>{disconnecting ? 'Desconectando...' : 'Desconectar Polar'}</Text>
+              <Ionicons name="unlink" size={18} color={PRColors.ocean} />
+            </Pressable>
+          </>
         )}
         {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
         {syncResult ? (

@@ -113,13 +113,13 @@ describe('Polar OAuth foundation', () => {
 
   it('status() reports not connected when there is no PolarConnection row', async () => {
     const { service } = fixture();
-    await expect(service.status('user-a')).resolves.toEqual({ connected: false, connectedAt: null });
+    await expect(service.status('user-a')).resolves.toEqual({ connected: false, connectedAt: null, disconnectedAt: null });
   });
 
   it('status() reports connected with connectedAt when a PolarConnection row exists', async () => {
     const { service, prisma } = fixture();
     const connectedAt = new Date('2026-10-01T12:00:00Z');
     prisma.polarConnection.findUnique = jest.fn(async () => ({ createdAt: connectedAt })) as unknown as typeof prisma.polarConnection.findUnique;
-    await expect(service.status('user-a')).resolves.toEqual({ connected: true, connectedAt });
+    await expect(service.status('user-a')).resolves.toEqual({ connected: true, connectedAt, disconnectedAt: null });
   });
 });
