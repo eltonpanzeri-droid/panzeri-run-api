@@ -1784,7 +1784,7 @@ model StudentReportEntry {
   facts            String?
   perception       String?
   themes           String[]
-  temporality      String? // ATUAL | PASSADO | RECORRENTE | RESOLVIDO | EXPECTATIVA_FUTURA | INDETERMINADO
+  temporality      String? // ATUAL | PASSADO | RECORRENTE | RESOLVIDO | EXPECTATIVA_FUTURA | PERSISTENTE_ATE_CONTRARIO | INDETERMINADO
   longitudinalNote String?
   hypotheses       String[]
   relevance        String? // PONTUAL | ACOMPANHAR | LONGITUDINAL | MUDANCA_IMPORTANTE

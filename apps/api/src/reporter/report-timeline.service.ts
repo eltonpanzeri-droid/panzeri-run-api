@@ -69,7 +69,7 @@ export class ReportTimelineService {
         where: { userId: entry.userId, id: { not: entry.id } },
         orderBy: { occurredAt: 'desc' },
         take: PRIOR_ENTRIES_CONTEXT_LIMIT,
-        select: { occurredAt: true, sourceType: true, originalText: true, themes: true, relevance: true },
+        select: { occurredAt: true, sourceType: true, originalText: true, themes: true, relevance: true, temporality: true },
       }),
     ]);
 
@@ -79,6 +79,7 @@ export class ReportTimelineService {
       originalText: row.originalText,
       themes: row.themes,
       relevance: row.relevance,
+      temporality: row.temporality,
     }));
 
     const result = await this.relatorAgent.analyze({
@@ -119,7 +120,10 @@ export class ReportTimelineService {
     // Tempo, nunca infla o resumo condensado que o Agente Treinador le. O formato do conteudo
     // preserva explicitamente a separacao FATO vs PERCEPCAO/HIPOTESE (nunca funde as duas) —
     // ver instrucao correspondente no prompt de condensacao do prontuario.
-    if (result.relevance !== 'PONTUAL') {
+    // 05/10/2026: PONTUAL so' fica de fora quando a informacao tambem NAO e persistente — um fato
+    // dito uma vez mas valido ate o aluno dizer o contrario (ex: "minha academia nao tem hack squat")
+    // precisa chegar ao prontuario. Pontualidade do relato != duracao da informacao.
+    if (result.relevance !== 'PONTUAL' || result.temporality === 'PERSISTENTE_ATE_CONTRARIO') {
       void this.studentProfile
         .recordEvent(entry.userId, ProfileEventCode.STUDENT_REPORT_ANALYZED, this.formatForProfile(entry, result))
         .catch((error) => {
@@ -133,6 +137,9 @@ export class ReportTimelineService {
     const parts = [
       `Relato do aluno interpretado (${origin}, relevancia=${result.relevance}, temporalidade=${result.temporality}).`,
       `FATO: ${result.facts}`,
+      result.temporality === 'PERSISTENTE_ATE_CONTRARIO'
+        ? 'VALIDADE: informacao persistente — vale como estado atual do aluno ate ele informar o contrario.'
+        : '',
       result.perception ? `PERCEPCAO (interpretacao do Relator, nunca fato confirmado): ${result.perception}` : '',
       result.longitudinalNote ? `PADRAO OBSERVADO: ${result.longitudinalNote}` : '',
       result.hypotheses.length ? `HIPOTESES (nao confirmadas): ${result.hypotheses.join('; ')}` : '',

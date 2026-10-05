@@ -15,7 +15,10 @@ export const RelatorOutputSchema = z.object({
   facts: z.string().min(1).max(500),
   perception: z.string().max(500).nullable(),
   themes: z.array(z.string().min(1).max(60)).max(8),
-  temporality: z.enum(['ATUAL', 'PASSADO', 'RECORRENTE', 'RESOLVIDO', 'EXPECTATIVA_FUTURA', 'INDETERMINADO']),
+  // PERSISTENTE_ATE_CONTRARIO (05/10/2026): fato sobre o ambiente/recursos/condicao do aluno que continua
+  // verdadeiro ate ele dizer o contrario, mesmo dito uma unica vez (ex: "minha academia nao tem hack squat").
+  // E' ortogonal a relevance (frequencia do relato) — ver report-timeline.service.ts (promocao ao prontuario).
+  temporality: z.enum(['ATUAL', 'PASSADO', 'RECORRENTE', 'RESOLVIDO', 'EXPECTATIVA_FUTURA', 'PERSISTENTE_ATE_CONTRARIO', 'INDETERMINADO']),
   longitudinalNote: z.string().max(500).nullable(),
   hypotheses: z.array(z.string().min(1).max(300)).max(5),
   relevance: z.enum(['PONTUAL', 'ACOMPANHAR', 'LONGITUDINAL', 'MUDANCA_IMPORTANTE']),
@@ -29,6 +32,7 @@ export interface PriorReportEntryForContext {
   originalText: string;
   themes: string[];
   relevance: string | null;
+  temporality?: string | null;
 }
 
 export interface RelatorAgentInput {
@@ -111,12 +115,13 @@ export class StudentReporterAgentService {
       'Classifique semanticamente os assuntos presentes no texto (pode ter varios). Lista ABERTA, nao fechada — exemplos: SONO, TRABALHO, FAMILIA, DOR, MOTIVACAO, TREINAMENTO, ROTINA, CICLO_MENSTRUAL, RECUPERACAO, PROVA, DESEMPENHO — mas use qualquer tema que descreva melhor o conteudo real, em maiusculas, curto (uma ou duas palavras).',
       '=== D. TEMPORALIDADE (campo temporality, enum fechado) ===',
       'ATUAL = o relato descreve algo acontecendo agora/nesse momento. PASSADO = algo que ja aconteceu e nao ha indicacao de continuar. RECORRENTE = o aluno indica que isso se repete/e um padrao. RESOLVIDO = o aluno indica explicitamente que algo que existia parou de existir. EXPECTATIVA_FUTURA = algo que o aluno espera/planeja/teme que aconteca. INDETERMINADO = nao da pra saber pelo texto. REGRA CRITICA: nunca transforme "eu TINHA dor" (passado) em "TEM dor atualmente" (ATUAL) so por estar registrado agora — a temporalidade e sobre o que o TEXTO descreve, nao sobre quando ele foi escrito.',
+      'PERSISTENTE_ATE_CONTRARIO = o texto descreve um FATO sobre o ambiente, os recursos ou a condicao fixa do aluno que continua verdadeiro ate ele dizer o contrario, mesmo tendo sido dito uma unica vez. Exemplos: "minha academia nao tem hack squat", "nao tenho esteira em casa", "treino sempre de manha", "as quartas nao consigo treinar" (quando o texto indica algo fixo, nao so aquela semana). IMPORTANTE: duracao da informacao NAO e o mesmo que frequencia do relato — um relato NAO precisa ser recorrente para ser persistente (por isso o campo relevance, que mede frequencia/importancia do relato, pode ser PONTUAL e a temporalidade ainda ser PERSISTENTE_ATE_CONTRARIO). NAO e persistente: algo temporario ou de um dia ("hoje o aparelho estava quebrado", "nesta semana estou viajando", "hoje estou cansado") — esses continuam ATUAL/PASSADO. Dor, desconforto e limitacao fisica seguem a semantica ja descrita acima (ATUAL/RECORRENTE/RESOLVIDO conforme o texto), sem criar regra nova. Se o texto ATUALIZA ou CONTRARIA um fato persistente anterior (veja priorEntries, que traz a temporalidade de cada relato — ex: antes "minha academia nao tem hack squat", agora "troquei de academia e la tem hack squat"), registre o NOVO estado como PERSISTENTE_ATE_CONTRARIO (e o estado vigente agora) e diga isso em longitudinalNote (ex: "substitui o relato anterior de que a academia nao tinha hack squat"). Na duvida entre temporario e persistente, use INDETERMINADO ou ATUAL — nunca force persistencia.',
       '=== E. CONEXAO LONGITUDINAL (campo longitudinalNote) ===',
       'Compare com priorEntries (quando houver) procurando continuidade, repeticao, mudanca, resolucao ou contradicao relevante. Se encontrar algo digno de nota, descreva objetivamente (ex: "E a terceira referencia recente a dificuldade para realizar longos sem companhia."). Se nao houver priorEntries relevantes ou nao houver conexao digna de nota, deixe null — nao force uma conexao artificial.',
       '=== F. HIPOTESES INTERPRETATIVAS (campo hypotheses) ===',
       'Quando o texto justificar, registre hipoteses claramente identificadas como interpretacao, nunca como fato (ex: "A aluna parece associar sua dificuldade recente ao aumento das demandas profissionais."). Pode ficar vazio quando nao houver base textual para nenhuma hipotese. NUNCA transforme uma hipotese em afirmacao categorica.',
       '=== G. RELEVANCIA PARA O PRONTUARIO (campo relevance, enum fechado) ===',
-      'PONTUAL = comentario isolado, sem sinal de precisar de acompanhamento. ACOMPANHAR = merece atencao nas proximas interacoes, mas ainda nao e um padrao confirmado. LONGITUDINAL = ja faz parte de um padrao real e recorrente deste aluno (baseado em priorEntries ou em recorrencia explicita no proprio texto). MUDANCA_IMPORTANTE = o relato indica uma mudanca significativa que provavelmente precisa ser refletida no acompanhamento do aluno (nova lesao, mudanca de objetivo, evento de vida relevante, abandono iminente, etc.). NAO crie nenhum score numerico — use exclusivamente uma dessas 4 categorias.',
+      'PONTUAL = comentario isolado, sem sinal de precisar de acompanhamento. ACOMPANHAR = merece atencao nas proximas interacoes, mas ainda nao e um padrao confirmado. LONGITUDINAL = ja faz parte de um padrao real e recorrente deste aluno (baseado em priorEntries ou em recorrencia explicita no proprio texto). MUDANCA_IMPORTANTE = o relato indica uma mudanca significativa que provavelmente precisa ser refletida no acompanhamento do aluno (nova lesao, mudanca de objetivo, evento de vida relevante, abandono iminente, etc.). NAO crie nenhum score numerico — use exclusivamente uma dessas 4 categorias. relevance mede a FREQUENCIA/importancia do relato; ela NAO mede por quanto tempo a informacao vale (isso e o campo temporality). Um fato persistente dito uma unica vez (ex: "minha academia nao tem hack squat") e relevance=PONTUAL com temporality=PERSISTENTE_ATE_CONTRARIO.',
       '=== LIMITES ABSOLUTOS (o que voce NUNCA faz) ===',
       '- Voce NAO prescreve treino, NAO altera treino, NAO decide conduta, NAO diagnostica.',
       '- Voce NUNCA transforma hipotese em fato, NEM percepcao em fato.',
