@@ -5449,7 +5449,23 @@ type ExternalActivityRow = {
   detailFetchedAt: string | null;
   receivedAt: string;
   sourceUpdatedAt: string | null;
+  physicalEventId?: string | null;
+  physicalIdentityStatus?: string | null;
+  physicalCanonicalActivityLogId?: string | null;
+  physicalCanonicalReason?: PhysicalCanonicalReasonView | null;
+  providerMetrics?: { source?: { name?: string; bundleId?: string; family?: string }; device?: { name?: string; manufacturer?: string; model?: string } } | null;
 };
+
+// Motivo da observacao canonica (regra v2, so' leitura): papel de cada observacao do evento + regra usada.
+type PhysicalCanonicalReasonView = {
+  version?: number;
+  rule?: string;
+  tieBreak?: string | null;
+  nativeObservationPresent?: boolean;
+  candidates?: Array<{ activityLogId: string; role: string; roleBasis: string }>;
+};
+
+type ExternalActivityIdentitySummary = { evaluated: number; matchedEvents: number; ambiguous: number; unique: number };
 
 type ExternalActivitySample = {
   id: string;
@@ -5503,6 +5519,25 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
 
   React.useEffect(() => { void load(); }, [load]);
 
+  // Reavaliacao de identidade fisica (so' este aluno) — chama o endpoint existente (idempotente, nao altera ActivityLog) e recarrega.
+  const [identityState, setIdentityState] = React.useState<'idle' | 'loading' | 'error'>('idle');
+  const [identitySummary, setIdentitySummary] = React.useState<ExternalActivityIdentitySummary | null>(null);
+  async function evaluateIdentity() {
+    setIdentityState('loading');
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/external-activities/evaluate-identity`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) { setIdentityState('error'); return; }
+      setIdentitySummary((await response.json()) as ExternalActivityIdentitySummary);
+      setIdentityState('idle');
+      await load();
+    } catch {
+      setIdentityState('error');
+    }
+  }
+
   async function reclassify(activityLogId: string) {
     setReclassifyById((current) => ({ ...current, [activityLogId]: 'loading' }));
     try {
@@ -5543,12 +5578,61 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
         Leitura direta de ActivityLog/RawExternalActivity — sem vínculo com os treinos prescritos, sem recálculo. Uso: investigação manual de sincronização (Polar hoje, outros provedores no futuro).
       </p>
 
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button type="button" className="secondaryOutlineButton" disabled={identityState === 'loading'} onClick={() => void evaluateIdentity()}>
+          {identityState === 'loading' ? 'Reavaliando...' : 'Reavaliar identidade física (este aluno)'}
+        </button>
+        {identityState === 'error' ? <span style={{ fontSize: 11, color: '#b91c1c' }}>Falha ao reavaliar.</span> : null}
+        {identitySummary ? (
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+            avaliadas: <strong>{identitySummary.evaluated}</strong> · eventos formados: <strong>{identitySummary.matchedEvents}</strong> · ambíguas: <strong>{identitySummary.ambiguous}</strong> · únicas: <strong>{identitySummary.unique}</strong>
+          </span>
+        ) : null}
+      </div>
+
       {rows.length === 0 ? (
         <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma atividade externa importada para este aluno.</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {rows.map((row) => (
-            <div key={row.id} className="card" style={{ padding: 12 }}>
+          {(() => {
+            // Visao diagnostica: observacoes do mesmo physicalEventId ficam juntas; as demais seguem na ordem normal.
+            const byEvent = new Map<string, ExternalActivityRow[]>();
+            for (const r of rows) if (r.physicalEventId) byEvent.set(r.physicalEventId, [...(byEvent.get(r.physicalEventId) ?? []), r]);
+            const emitted = new Set<string>();
+            const ordered: ExternalActivityRow[] = [];
+            for (const r of rows) {
+              if (!r.physicalEventId) { ordered.push(r); continue; }
+              if (emitted.has(r.physicalEventId)) continue;
+              emitted.add(r.physicalEventId);
+              ordered.push(...(byEvent.get(r.physicalEventId) ?? []));
+            }
+            return ordered;
+          })().map((row, index, ordered) => (
+            <React.Fragment key={row.id}>
+              {row.physicalEventId && (index === 0 || ordered[index - 1].physicalEventId !== row.physicalEventId) ? (
+                <div style={{ fontSize: 12, marginTop: 8 }}>
+                  <strong>Evento físico</strong> <code>{row.physicalEventId}</code>
+                  {' · '}{ordered.filter((o) => o.physicalEventId === row.physicalEventId).length} observação(ões)
+                </div>
+              ) : null}
+            <div className="card" style={{ padding: 12, ...(row.physicalEventId ? { marginLeft: 12, borderLeft: '3px solid var(--muted)' } : {}) }}>
+              {(() => {
+                const reason = row.physicalCanonicalReason;
+                const candidate = reason?.candidates?.find((c) => c.activityLogId === row.id);
+                const source = row.providerMetrics?.source;
+                const device = row.providerMetrics?.device;
+                return (
+                  <div style={{ fontSize: 12, background: 'var(--surface)', borderRadius: 6, padding: 8, marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span>
+                      Identidade: <strong>{row.physicalIdentityStatus ?? 'não avaliada'}</strong>
+                      {row.physicalCanonicalActivityLogId ? (row.physicalCanonicalActivityLogId === row.id ? <strong> · ★ CANÔNICA</strong> : ' · não canônica') : ''}
+                    </span>
+                    <span>Origem: {source ? `${source.name ?? '—'} (${source.bundleId ?? '—'})` : '—'} · dispositivo: {device ? `${device.name ?? device.model ?? '—'} / ${device.manufacturer ?? '—'}` : '—'}</span>
+                    <span>Papel v2: <strong>{candidate?.role ?? '—'}</strong> · roleBasis: {candidate?.roleBasis ?? '—'}</span>
+                    <span>Regra: versão {reason?.version ?? '—'} · {reason?.rule ?? '—'}{reason?.tieBreak ? ` (desempate: ${reason.tieBreak})` : ''}</span>
+                  </div>
+                );
+              })()}
               <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                 <strong>{row.provider} · {row.sport ?? 'modalidade não informada'}</strong>
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>externalId: {row.externalId}</span>
@@ -5635,6 +5719,7 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
                 </div>
               ) : null}
             </div>
+            </React.Fragment>
           ))}
         </div>
       )}
