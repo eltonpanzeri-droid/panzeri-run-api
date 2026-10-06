@@ -267,3 +267,72 @@ describe('PhysicalActivityIdentityService', () => {
     expect([...ctx.data.values()].map((r) => r.physicalEventId).sort()).toEqual(ids);
   });
 });
+
+// Correcao de determinismo (06/10/2026): o estado final depende so' do CONJUNTO de observacoes, nunca da ordem em que chegaram.
+describe('PhysicalActivityIdentityService — determinismo com chegada progressiva', () => {
+  const arrivals: Array<{ id: string; make: () => Row }> = [
+    { id: 'p1', make: () => POLAR('p1') },
+    { id: 'p2', make: () => ({ ...POLAR('p2'), startedAt: new Date('2026-10-06T09:00:30Z') }) },
+    { id: 'a', make: () => APPLE_STRAVA('a') },
+    { id: 'w', make: () => APPLE_WATCH('w') },
+  ];
+  const permutations = <T,>(items: T[]): T[][] => (items.length <= 1 ? [items] : items.flatMap((item, i) => permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest])));
+
+  function run(order: string[]) {
+    const ctx = buildService([]);
+    for (const id of order) {
+      ctx.data.set(id, { ...arrivals.find((x) => x.id === id)!.make() });
+      void 0;
+    }
+    return ctx;
+  }
+
+  async function arriveOneByOne(order: string[]) {
+    const ctx = buildService([]);
+    for (const id of order) {
+      ctx.data.set(id, { ...arrivals.find((x) => x.id === id)!.make() });
+      await ctx.service.evaluate(id);
+    }
+    const state = Object.fromEntries([...ctx.data.values()].sort((x, y) => (x.id < y.id ? -1 : 1)).map((r) => [r.id, r.physicalIdentityStatus]));
+    return { partition: ctx.partition(), state };
+  }
+
+  it('registro conflitante chegando DEPOIS de um grupo formado desfaz o grupo: resultado igual ao da chegada simultanea (todas as 6 ordens de p1, p2, a)', async () => {
+    const results = [];
+    for (const order of permutations(['p1', 'p2', 'a'])) results.push(await arriveOneByOne(order));
+    for (const result of results) {
+      expect(result.partition).toEqual([]);
+      expect(result.state).toEqual({ p1: 'ambiguous', p2: 'ambiguous', a: 'ambiguous' });
+    }
+  });
+
+  it('com um quarto observador legitimo (w) e o conflito (p2), todas as 24 ordens convergem para o mesmo estado final', async () => {
+    const outcomes = new Set<string>();
+    for (const order of permutations(['p1', 'p2', 'a', 'w'])) {
+      const { partition, state } = await arriveOneByOne(order);
+      outcomes.add(JSON.stringify({ partition, state }));
+    }
+    expect(outcomes.size).toBe(1);
+  });
+
+  it('sem conflito (p1, a, w): todas as 6 ordens dao o mesmo evento unico', async () => {
+    for (const order of permutations(['p1', 'a', 'w'])) {
+      const { partition } = await arriveOneByOne(order);
+      expect(partition).toEqual(['a+p1+w']);
+    }
+    expect(run(['p1']).data.size).toBe(1);
+  });
+
+  it('o id de um grupo novo e deterministico e o de um grupo existente e preservado quando ele cresce', async () => {
+    const ctx = buildService([POLAR(), APPLE_STRAVA()]);
+    await ctx.service.evaluate('a');
+    const firstId = ctx.data.get('p')!.physicalEventId;
+    expect(firstId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/);
+    const again = buildService([POLAR(), APPLE_STRAVA()]);
+    await again.service.evaluate('p');
+    expect(again.data.get('p')!.physicalEventId).toBe(firstId);
+    ctx.data.set('w', { ...APPLE_WATCH('w') });
+    await ctx.service.evaluate('w');
+    expect(new Set([...ctx.data.values()].map((r) => r.physicalEventId))).toEqual(new Set([firstId]));
+  });
+});
