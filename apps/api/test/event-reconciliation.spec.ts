@@ -250,6 +250,33 @@ describe('3B — reconcileEvent (PhysicalEvent <-> TrainingSession)', () => {
     expect(activeLinks()).toHaveLength(1);
   });
 
+  it('trava por aluno: a reconciliacao que grava roda numa transacao com advisory lock (mesma chave da identidade); a simulacao nao trava', async () => {
+    const { prisma, polar, addSession, activeLinks } = eventFixture();
+    addSession();
+    const executeRaw = jest.fn(async () => 1);
+    const txOps: string[] = [];
+    const transaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+      txOps.push('begin');
+      const result = await fn({ ...prisma, $executeRaw: executeRaw });
+      txOps.push('commit');
+      return result;
+    });
+    const locked = new SessionExecutionLinkService({ ...prisma, $transaction: transaction } as unknown as PrismaService);
+
+    await locked.reconcileEvent(polar.id, { dryRun: true });
+    expect(transaction).not.toHaveBeenCalled();
+    expect(activeLinks()).toHaveLength(0);
+
+    const result = await locked.reconcileEvent(polar.id);
+    expect(result).toMatchObject({ outcome: 'linked', changed: true });
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(executeRaw.mock.calls[0])).toContain('physical-identity:');
+    expect(JSON.stringify(executeRaw.mock.calls[0])).toContain('u1');
+    expect(txOps).toEqual(['begin', 'commit']);
+    expect(activeLinks()).toHaveLength(1);
+  });
+
   it('identidade ambigua nao e reconciliada automaticamente (evita contar a mesma execucao duas vezes)', async () => {
     const f = fixture();
     const a = f.addActivity({ physicalIdentityStatus: 'ambiguous' });

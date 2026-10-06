@@ -2608,3 +2608,4 @@ h3 {
   .extObs { padding: 12px; }
   .extToolbar { padding: 12px; }
 }
+.extDangerButton { border-color: var(--danger); color: var(--danger); }

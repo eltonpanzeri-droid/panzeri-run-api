@@ -456,6 +456,23 @@ export class SessionExecutionLinkService {
   //    ('alternative'/'ambiguous') sao recalculados com a semantica atual (modalidade canonica, sem rivais do mesmo evento);
   //  - idempotente: sem mudanca de evidencia nada e' escrito; dryRun calcula e descreve sem gravar.
   async reconcileEvent(activityLogId: string, options: { dryRun?: boolean } = {}): Promise<EventReconciliationResult> {
+    // Trava por aluno (mesma chave da identidade fisica, 3A): reconciliacao nunca concorre com ingestao/avaliacao/outra reconciliacao do
+    // mesmo aluno. Simulacao (dryRun) so' le, entao nao precisa da trava.
+    if (options.dryRun) return this.reconcileEventUnlocked(activityLogId, options);
+    const owner = await this.prisma.activityLog.findUnique({ where: { id: activityLogId } });
+    if (!owner) throw new NotFoundException('Atividade nao encontrada.');
+    if (typeof (this.prisma as { $transaction?: unknown }).$transaction !== 'function') return this.reconcileEventUnlocked(activityLogId, options);
+    return this.prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'physical-identity:' + owner.userId}))`;
+        // Mesma logica, com todas as leituras/escritas dentro da transacao que segura a trava.
+        return new SessionExecutionLinkService(tx as unknown as PrismaService).reconcileEventUnlocked(activityLogId, options);
+      },
+      { timeout: 30_000 },
+    );
+  }
+
+  private async reconcileEventUnlocked(activityLogId: string, options: { dryRun?: boolean } = {}): Promise<EventReconciliationResult> {
     const activity = await this.prisma.activityLog.findUnique({ where: { id: activityLogId } });
     if (!activity) throw new NotFoundException('Atividade nao encontrada.');
     const dryRun = options.dryRun === true;

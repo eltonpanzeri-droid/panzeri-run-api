@@ -5516,6 +5516,29 @@ type ExternalCompareResult = {
   b: ExternalCompareInput;
 };
 
+type ExternalReconcileResult = {
+  identity: ExternalActivityIdentitySummary | null;
+  reconciliation: {
+    dryRun: boolean;
+    events: number;
+    changed: number;
+    conflicts: number;
+    byOutcome: Record<string, number>;
+    results: Array<{ activityLogId: string; physicalEventId: string | null; canonicalActivityLogId: string | null; classification: string | null; outcome: string; changed: boolean; conflicts: number }>;
+  };
+};
+const EXT_OUTCOME_LABEL: Record<string, string> = {
+  unchanged: 'sem mudança',
+  linked: 'vinculado à sessão prescrita',
+  link_moved: 'vínculo acompanha a nova canônica',
+  duplicate_links_collapsed: 'vínculos duplicados unificados',
+  candidates: 'ambíguo (candidatas para confirmação)',
+  alternative: 'atividade adicional (sem prescrição)',
+  human_preserved: 'decisão humana preservada',
+  kept_materialized_alternative: 'alternativa já materializada preservada',
+  skipped_identity_ambiguous: 'ignorado: identidade ambígua',
+  skipped_no_canonical: 'ignorado: sem observação canônica',
+};
 const EXT_PROVIDER_LABEL: Record<string, string> = { polar: 'Polar', apple_health: 'Apple Health', strava: 'Strava', garmin: 'Garmin', coros: 'COROS' };
 const EXT_CRITERION_LABEL: Record<string, string> = {
   same_athlete: 'Mesmo atleta',
@@ -5619,6 +5642,28 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
       setCompareState('idle');
     } catch {
       setCompareState('error');
+    }
+  }
+
+  // 3B: reconciliacao do historico por PhysicalEvent. 'Simular' (dryRun) so' descreve; 'Reconciliar' grava, com confirmacao explicita.
+  const [reconcileState, setReconcileState] = React.useState<'idle' | 'loading' | 'error'>('idle');
+  const [reconcileResult, setReconcileResult] = React.useState<ExternalReconcileResult | null>(null);
+  async function reconcileHistory(dryRun: boolean) {
+    if (!dryRun && !window.confirm('Reconciliar o histórico deste aluno vai GRAVAR vínculos entre eventos físicos e programa de treino (decisões humanas são preservadas; a operação é idempotente). Recomenda-se simular antes. Continuar?')) return;
+    setReconcileState('loading');
+    setReconcileResult(null);
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/external-activities/reconcile-history`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun }),
+      });
+      if (!response.ok) { setReconcileState('error'); return; }
+      setReconcileResult((await response.json()) as ExternalReconcileResult);
+      setReconcileState('idle');
+      if (!dryRun) await load();
+    } catch {
+      setReconcileState('error');
     }
   }
 
@@ -5806,6 +5851,13 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
             {identityState === 'loading' ? 'Reavaliando...' : 'Reavaliar identidade física (este aluno)'}
           </button>
           {identityState === 'error' ? <span className="extBadge extBadgeDanger">Falha ao reavaliar</span> : null}
+          <button type="button" className="secondaryOutlineButton" disabled={reconcileState === 'loading'} onClick={() => void reconcileHistory(true)} title="Calcula o que a reconciliacao faria, sem gravar nada">
+            {reconcileState === 'loading' ? 'Processando...' : 'Simular reconciliação'}
+          </button>
+          <button type="button" className="secondaryOutlineButton extDangerButton" disabled={reconcileState === 'loading'} onClick={() => void reconcileHistory(false)} title="Grava a reconciliacao do historico (pede confirmacao)">
+            Reconciliar histórico
+          </button>
+          {reconcileState === 'error' ? <span className="extBadge extBadgeDanger">Falha na reconciliação</span> : null}
           {identitySummary ? (
             <span className="extHint">
               avaliadas <strong>{identitySummary.evaluated}</strong> · eventos formados <strong>{identitySummary.matchedEvents}</strong> · ambíguas <strong>{identitySummary.ambiguous}</strong> · únicas <strong>{identitySummary.unique}</strong>
@@ -5822,6 +5874,52 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
           {compareState === 'error' ? <span className="extBadge extBadgeDanger">Falha ao comparar</span> : null}
         </div>
       </div>
+
+      {reconcileResult ? (
+        <div className="extCompare">
+          <div className="extRowBetween">
+            <div className="extToolbarGroup">
+              <strong>{reconcileResult.reconciliation.dryRun ? 'Simulação da reconciliação (nada foi gravado)' : 'Reconciliação executada'}</strong>
+              <span className="extBadge extBadgeNeutral">{reconcileResult.reconciliation.events} evento(s)</span>
+              <span className={`extBadge ${reconcileResult.reconciliation.changed > 0 ? 'extBadgeWarn' : 'extBadgeOk'}`}>
+                {reconcileResult.reconciliation.dryRun ? 'mudariam' : 'alterados'}: {reconcileResult.reconciliation.changed}
+              </span>
+              <span className={`extBadge ${reconcileResult.reconciliation.conflicts > 0 ? 'extBadgeDanger' : 'extBadgeNeutral'}`}>conflitos com decisão humana: {reconcileResult.reconciliation.conflicts}</span>
+            </div>
+            <button type="button" className="extLink" onClick={() => setReconcileResult(null)}>fechar</button>
+          </div>
+          <div className="extToolbarGroup">
+            {Object.entries(reconcileResult.reconciliation.byOutcome).map(([outcome, count]) => (
+              <span key={outcome} className="extBadge extBadgeNeutral">{EXT_OUTCOME_LABEL[outcome] ?? outcome}: {count}</span>
+            ))}
+          </div>
+          <div className="extTableWrap">
+            <table className="extTable">
+              <thead><tr><th>Evento / observação canônica</th><th>Resultado</th><th>Classificação</th><th>{reconcileResult.reconciliation.dryRun ? 'Mudaria?' : 'Alterou?'}</th></tr></thead>
+              <tbody>
+                {reconcileResult.reconciliation.results.map((item) => {
+                  const canonicalRow = rows.find((r) => r.id === item.canonicalActivityLogId);
+                  return (
+                    <tr key={`${item.activityLogId}-${item.outcome}`}>
+                      <td>
+                        {canonicalRow ? `${EXT_PROVIDER_LABEL[canonicalRow.provider] ?? canonicalRow.provider} · ${extFmtDateTime(canonicalRow.startedAt)}` : (item.canonicalActivityLogId ?? '—')}
+                        {item.physicalEventId ? <div className="extHint">PhysicalEvent {item.physicalEventId}</div> : null}
+                      </td>
+                      <td>{EXT_OUTCOME_LABEL[item.outcome] ?? item.outcome}</td>
+                      <td>{item.classification ?? '—'}</td>
+                      <td>{item.changed ? 'sim' : 'não'}{item.conflicts > 0 ? ' · conflito' : ''}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <details className="extDetails">
+            <summary>JSON bruto da reconciliação</summary>
+            <pre className="extPre">{JSON.stringify(reconcileResult, null, 2)}</pre>
+          </details>
+        </div>
+      ) : null}
 
       {compareResult ? (
         <div className="extCompare">
