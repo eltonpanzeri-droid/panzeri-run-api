@@ -1,5 +1,6 @@
 import { compareObservations, observerKeyOf, ObservedActivity } from '../src/activity-execution/physical-activity-identity';
 import { PhysicalActivityIdentityService } from '../src/activity-execution/physical-activity-identity.service';
+import { canonicalModality } from '../src/activity-execution/canonical-modality';
 
 // Apple Etapa 2 (06/10/2026) — identidade fisica cross-provider: varios ActivityLog podem ser observacoes do MESMO evento.
 // Referencias reais (sem regra por data/usuario): 06/10 7,01 km 34 min (polar x apple_health/strava), 03/10 30,07 x 30,08 km 156 min,
@@ -76,6 +77,26 @@ describe('compareObservations — matcher puro', () => {
     const unknown = obs({ id: 'b', provider: 'apple_health', observerKey: STRAVA_VIA_HK, sport: 'outra' });
     expect(compareObservations(run, unknown).verdict).toBe('ambiguous');
     expect(compareObservations(run, obs({ id: 'c', provider: 'apple_health', observerKey: STRAVA_VIA_HK, sport: 'esteira' })).verdict).toBe('same'); // corrida x esteira compativeis
+  });
+
+  it('caso real 01/10: Polar legado sport="RUNNING" x Apple "corrida" -> same / strong_multi_evidence (modalidade canonica, valor original preservado)', () => {
+    const polar = obs({ id: 'p', sport: 'RUNNING', startedAt: new Date('2026-10-01T10:34:00Z'), durationSec: 3058, distanceMeters: 10018 });
+    const apple = obs({ id: 'a', provider: 'apple_health', observerKey: 'apple_health:com.apple.health', sport: 'corrida', startedAt: new Date('2026-10-01T10:34:01Z'), durationSec: 3056, distanceMeters: 10012.1 });
+    const result = compareObservations(polar, apple);
+    expect(result).toMatchObject({ verdict: 'same', reason: 'strong_multi_evidence' });
+    // o valor ORIGINAL fica na evidencia ao lado do canonico
+    expect(result.evidence.find((e) => e.criterion === 'compatible_modality')).toMatchObject({ matched: true, detail: { a: 'RUNNING', b: 'corrida', canonicalA: 'corrida', canonicalB: 'corrida' } });
+    // simetrico e independente de caixa
+    expect(compareObservations(apple, obs({ ...polar, sport: 'running' })).verdict).toBe('same');
+  });
+
+  it('canonicalModality: aliases comprovados convergem; desconhecido e null (nunca incompativel); modalidades realmente diferentes seguem distintas', () => {
+    expect(['RUNNING', 'running', ' Run ', 'corrida'].map(canonicalModality)).toEqual(['corrida', 'corrida', 'corrida', 'corrida']);
+    expect(canonicalModality('OTHER')).toBe('outra');
+    expect(canonicalModality('algo_nunca_visto')).toBeNull();
+    expect(canonicalModality(null)).toBeNull();
+    expect(compareObservations(obs({ id: 'p', sport: 'RUNNING' }), obs({ id: 'a', provider: 'apple_health', observerKey: STRAVA_VIA_HK, sport: 'forca' }))).toMatchObject({ verdict: 'distinct', reason: 'incompatible_modality' });
+    expect(compareObservations(obs({ id: 'p', sport: 'algo_nunca_visto' }), obs({ id: 'a', provider: 'apple_health', observerKey: STRAVA_VIA_HK })).verdict).toBe('ambiguous');
   });
 
   it('dois registros do MESMO observador nunca sao o mesmo evento (ex.: duas corridas seguidas do mesmo provider)', () => {
@@ -169,6 +190,16 @@ const APPLE_STRAVA = (id = 'a') => row(id, 'apple_health', 'com.strava.stravarid
 const APPLE_WATCH = (id = 'w') => row(id, 'apple_health', 'com.apple.health.ABC', '2026-10-06T08:59:55Z', 34, 7.0);
 
 describe('PhysicalActivityIdentityService', () => {
+  it('servico: Polar legado sport="RUNNING" + Apple "corrida" (01/10) agrupam em um PhysicalEvent sem alterar o sport gravado', async () => {
+    const legacyPolar = row('p', 'polar', null, '2026-10-01T10:34:00Z', 51, 10.018, 'user-1', 'RUNNING');
+    const apple = row('a', 'apple_health', 'com.apple.health', '2026-10-01T10:34:01Z', 51, 10.012);
+    const { service, data } = buildService([legacyPolar, apple]);
+    const result = await service.evaluate('a');
+    expect(result).toMatchObject({ status: 'matched', memberCount: 2 });
+    expect(data.get('p')!.sport).toBe('RUNNING');
+    expect(data.get('p')!.physicalEventId).toBe(data.get('a')!.physicalEventId);
+  });
+
   it('compareStored (diagnostico): usa o matcher atual com os valores persistidos, expoe entradas/deltas e NAO grava nada', async () => {
     const { service, activityLog, original, data } = buildService([POLAR(), APPLE_STRAVA(), row('o', 'apple_health', 'com.apple.health.X', '2026-10-06T09:00:00Z', 34, 7.01, 'user-2')]);
     const result = await service.compareStored('user-1', 'p', 'a');

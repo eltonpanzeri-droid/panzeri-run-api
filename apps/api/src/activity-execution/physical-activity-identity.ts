@@ -10,6 +10,8 @@
 // Cada criterio devolve matched: true | false | null (null = dado ausente — NUNCA incompatibilidade), no mesmo estilo de
 // SessionExecutionLink.evidence. As tolerancias sao graduadas (forte/fraca) e escalam com a duracao; nenhuma e' "verdade universal".
 
+import { canonicalModality } from './canonical-modality';
+
 export type IdentityVerdict = 'same' | 'ambiguous' | 'distinct';
 export type EvidenceLevel = 'strong' | 'weak' | 'no';
 
@@ -54,7 +56,11 @@ const RUNNING_SPORTS = new Set(['corrida', 'esteira']);
 
 type SportCompatibility = 'compatible' | 'incompatible' | 'unknown';
 
-function sportCompatibility(a: string | null, b: string | null): SportCompatibility {
+// Compara a modalidade CANONICA (nao o valor bruto do provider): 'corrida' e 'RUNNING' sao o mesmo conceito. O valor original segue em
+// ObservedActivity.sport e e' registrado na evidencia.
+function sportCompatibility(rawA: string | null, rawB: string | null): SportCompatibility {
+  const a = canonicalModality(rawA);
+  const b = canonicalModality(rawB);
   if (!a || !b || a === 'outra' || b === 'outra') return 'unknown';
   if (a === b) return 'compatible';
   if (RUNNING_SPORTS.has(a) && RUNNING_SPORTS.has(b)) return 'compatible';
@@ -82,7 +88,10 @@ export function compareObservations(a: ObservedActivity, b: ObservedActivity): I
   if (!sameAthlete) return done('distinct', 'different_athlete');
 
   const sport = sportCompatibility(a.sport, b.sport);
-  evidence.push({ criterion: 'compatible_modality', matched: sport === 'unknown' ? null : sport === 'compatible', detail: { a: a.sport, b: b.sport } });
+  evidence.push({
+    criterion: 'compatible_modality', matched: sport === 'unknown' ? null : sport === 'compatible',
+    detail: { a: a.sport, b: b.sport, canonicalA: canonicalModality(a.sport), canonicalB: canonicalModality(b.sport) },
+  });
   if (sport === 'incompatible') return done('distinct', 'incompatible_modality');
 
   const sameObserver = a.observerKey === b.observerKey;
