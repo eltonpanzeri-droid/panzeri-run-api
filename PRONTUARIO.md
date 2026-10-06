@@ -2570,3 +2570,14 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
   RevenueCat iOS ficam pendentes — não mexidas pela prova Apple Watch.
 - **Pendente (só o Elton):** conta Apple Developer + `eas device:create` + `eas build -p ios --profile preview` + teste no iPhone/Apple Watch. O app iOS nativo
   nunca foi buildado antes (iPhone usava PWA).
+
+### 2026-10-06 — Apple, Etapa 1: ingestão HealthKit pela arquitetura canônica de atividade
+- **Fluxo:** app iOS lê `HKWorkout` (corrida) → `POST /apple-health/workouts` (JWT; userId SEMPRE do token) → normalizer → `RawExternalActivity` + `ActivityLog`
+  com `provider='apple_health'` (= canal de ingestão). Origem observada fica em `ActivityLog.providerMetrics`: `source{name,bundleId,family}` (family só `apple`/`strava`
+  quando o bundle id permite; senão null), `device{...}|null`, `activityType`, `isIndoor`, `timeZone`, `hkWorkoutUuid`. HealthKit NÃO implica Apple Watch.
+- **Idempotência:** `externalId = HKWorkout.uuid` (minúsculo) na chave única `(provider,userId,externalId)`; reimportar devolve `already_imported`; corrida de
+  concorrência (P2002) é tratada. Só duplicação DENTRO do HealthKit — dedup cross-provider é a Etapa 2.
+- **Deliberadamente NÃO feito:** `classify()`/reconciliação, notificações, samples/série temporal, dedup cross-provider, FC/calorias (exigiria novos tipos HealthKit).
+  `ActivityLog` nasce com `executionClassification=null`: TI/evolução só leem `corresponding`/`alternative`, então a atividade Apple não alimenta nada ainda.
+- **Pendências de privacidade/produto (não resolvidas):** política/termos ainda não citam HealthKit; não há exclusão de dados `apple_health` por desconexão
+  (só exclusão de conta); atividades com source Strava vindas pelo HealthKit precisam de decisão (regras de isolamento do Strava) antes de alimentar qualquer coisa.

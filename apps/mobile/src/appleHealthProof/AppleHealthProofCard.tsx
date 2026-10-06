@@ -14,7 +14,7 @@ import {
 } from '../../modules/panzeri-apple-health/src';
 
 // Bloco 1 (prova tecnica, 05/10/2026) — Apple Watch via HealthKit + WorkoutKit. Tela de teste, SO iOS nativo, ligada por
-// extra.appleHealthProof em app.json (remover a flag desliga). Nao envia nada para API/treinador/analytics/IA; nao grava
+// extra.appleHealthProof em app.json (remover a flag desliga). Somente o passo 7 envia (corridas, para a propria conta, via API); nada para treinador/analytics/IA; nao grava
 // em ActivityLog. O resultado de cada passo aparece so na propria tela.
 
 function uuidV4(): string {
@@ -29,7 +29,7 @@ function formatDuration(seconds: number) {
   return `${minutes}min ${Math.round(seconds % 60)}s`;
 }
 
-export function AppleHealthProofCard() {
+export function AppleHealthProofCard({ accessToken, apiUrl }: { accessToken: string; apiUrl: string }) {
   const enabled = Platform.OS === 'ios' && isAppleHealthSupported && Constants.expoConfig?.extra?.appleHealthProof === true;
   const [busy, setBusy] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
@@ -119,12 +119,36 @@ export function AppleHealthProofCard() {
         log('Agendados removidos.');
       },
     },
+    {
+      label: '7. Importar ultimas corridas para o Panzeri Run',
+      action: async () => {
+        // Etapa 1 (ingestao): envia os HKWorkout lidos neste aparelho para a conta autenticada. So' corridas; so' os campos que o
+        // HealthKit informou. O servidor decide duplicidade pelo UUID do HKWorkout.
+        const workouts = await readRecentRunningWorkouts(20);
+        if (workouts.length === 0) {
+          log('Nenhuma corrida para importar.');
+          return;
+        }
+        const response = await fetch(`${apiUrl}/apple-health/workouts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ workouts }),
+        });
+        if (!response.ok) {
+          log(`Servidor recusou a importacao (status ${response.status}).`);
+          return;
+        }
+        const result = (await response.json()) as { created: number; alreadyImported: number; rejected: number; items: Array<{ uuid: string | null; status: string; reason?: string }> };
+        log(`Importadas: ${result.created} | ja importadas: ${result.alreadyImported} | rejeitadas: ${result.rejected}`);
+        for (const item of result.items.filter((entry) => entry.status === 'rejected')) log(`  rejeitada ${item.uuid ?? '?'}: ${item.reason ?? 'motivo desconhecido'}`);
+      },
+    },
   ];
 
   return (
     <View style={styles.card}>
       <Text style={styles.title}>Prova Apple Watch (Bloco 1)</Text>
-      <Text style={styles.hint}>Teste tecnico. Os dados do Saude ficam so neste aparelho e nao sao enviados a lugar nenhum.</Text>
+      <Text style={styles.hint}>Teste tecnico. Os passos 1 a 6 ficam so neste aparelho. O passo 7 envia suas corridas lidas do Saude para a sua propria conta no Panzeri Run.</Text>
       {steps.map((step) => (
         <Pressable key={step.label} style={[styles.button, busy && styles.buttonDisabled]} disabled={busy} onPress={() => void run(step.label, step.action)}>
           <Text style={styles.buttonText}>{step.label}</Text>

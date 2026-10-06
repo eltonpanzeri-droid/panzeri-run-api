@@ -8,7 +8,16 @@ export interface AppleRunningWorkout {
   uuid: string;
   sourceName: string;
   sourceBundleId: string;
+  sourceProductType: string | null;
   deviceName: string | null;
+  deviceManufacturer: string | null;
+  deviceModel: string | null;
+  deviceHardwareVersion: string | null;
+  deviceSoftwareVersion: string | null;
+  activityType: string;
+  activityTypeRaw: number;
+  isIndoor: boolean | null;
+  timeZone: string | null;
   startDate: string;
   endDate: string;
   durationSeconds: number;

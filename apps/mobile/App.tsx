@@ -8822,7 +8822,7 @@ function PrivacyDataScreen({ accessToken, onOpenStrava }: { accessToken: string;
             </Pressable>
           </View>
           {/* Bloco 1 (prova tecnica Apple Watch): so' aparece no app nativo iOS com extra.appleHealthProof. */}
-          <AppleHealthProofCard />
+          <AppleHealthProofCard accessToken={accessToken} apiUrl={API_URL} />
         </>
       ))}
 
