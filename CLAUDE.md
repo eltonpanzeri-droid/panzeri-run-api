@@ -71,6 +71,17 @@ Remover sincronização é simples; o dano (dados silenciosamente incoerentes) a
 
 Não edite quando o pedido for apenas analisar, repensar, auditar, comparar ou propor.
 
+## Falsa diferença entre sistemas (raciocínio preventivo)
+
+Regra permanente, nascida de problemas reais do projeto (06/10/2026: Polar legado com `sport = "RUNNING"` e Apple Health com `"corrida"` foram tratados como modalidades incompatíveis e o mesmo treino de 01/10 deixou de agrupar; antes disso, pastas/checkouts diferentes e nomes diferentes para o mesmo conceito já tinham causado divergência invisível). Não é checklist para toda resposta: é um reflexo a aplicar **antes de concluir que existe diferença real**, sempre que houver integração entre sistemas, dado externo, nome, enum, caminho ou fonte diferente.
+
+- **Semântica:** nomes diferentes podem ser o mesmo conceito? O mesmo nome pode ser conceitos diferentes?
+- **Representação:** maiúsculas/minúsculas, português/inglês, singular/plural, abreviações, enums, aliases, unidades e formatos podem estar criando falsa diferença?
+- **Caminhos:** o arquivo, diretório, checkout, endpoint e fluxo são realmente os canônicos?
+- **Fonte do dado:** qual é a origem real (provider direto, dispositivo, HealthKit, Strava, banco, dado derivado, relay)? Dado legado pode ter sido gravado por versão anterior do código com outro formato.
+- **Normalização:** estamos comparando valores brutos de sistemas diferentes quando deveríamos comparar uma representação canônica? Reutilize a normalização existente antes de criar outra, e não crie exceção por par de providers.
+- **Proveniência:** a normalização preserva o valor/origem original para auditoria? Normalizar serve para interpretar/comparar, nunca para destruir o dado recebido.
+
 ## Matriz de risco
 
 - Baixo: documentação, texto e estilo sem implicação legal. Pode implementar e testar.
