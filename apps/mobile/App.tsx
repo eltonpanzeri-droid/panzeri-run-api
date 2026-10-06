@@ -10191,8 +10191,7 @@ function getUserIdFromAccessToken(accessToken: string): string | null {
 const REVENUECAT_ANDROID_API_KEY = (Constants.expoConfig?.extra?.revenueCatAndroidApiKey as string | undefined) ?? '';
 
 function isNativeStorePurchaseAvailable(): boolean {
-  // So' Android: a chave do RevenueCat e' do Google Play. Num build iOS nativo (prova Apple Watch) a compra segue o fluxo Asaas.
-  return Platform.OS === 'android' && REVENUECAT_ANDROID_API_KEY.length > 0;
+  return Platform.OS !== 'web' && REVENUECAT_ANDROID_API_KEY.length > 0;
 }
 
 let revenueCatConfiguredUserId: string | null = null;

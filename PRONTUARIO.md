@@ -2565,7 +2565,8 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
   `WorkoutScheduler`, `SingleGoalWorkout` de corrida com distância, `WorkoutPlan(id: UUID)` = id do Panzeri Run) + config plugin `plugins/withAppleHealthProof.js`
   (entitlement HealthKit, `NSHealthShareUsageDescription`, iOS 17.0 mínimo) + tela de teste `src/appleHealthProof/AppleHealthProofCard.tsx` (só iOS nativo, flag
   `extra.appleHealthProof` em `app.json`). Android/web/PWA não têm o módulo e não mostram a tela.
-- **Correção necessária junto:** `isNativeStorePurchaseAvailable()` passou a exigir `Platform.OS === 'android'` (antes: qualquer nativo), para um build iOS não
-  tentar o RevenueCat com a chave do Google Play.
+- **RevenueCat no iOS (lacuna PRÉ-EXISTENTE, não resolvida aqui):** `isNativeStorePurchaseAvailable()` continua `Platform.OS !== 'web' && chave Android`; num build iOS nativo
+  ela daria true e tentaria RevenueCat com a chave do Google Play (erro capturado/logado), desviando o fluxo de assinatura do Asaas. Decisão de compra iOS e chave
+  RevenueCat iOS ficam pendentes — não mexidas pela prova Apple Watch.
 - **Pendente (só o Elton):** conta Apple Developer + `eas device:create` + `eas build -p ios --profile preview` + teste no iPhone/Apple Watch. O app iOS nativo
   nunca foi buildado antes (iPhone usava PWA).
