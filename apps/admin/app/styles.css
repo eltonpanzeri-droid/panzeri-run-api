@@ -2551,11 +2551,13 @@ h3 {
 
 
 /* ---- Atividades externas (diagnostico, 06/10/2026): so' apresentacao; usa os tokens existentes ---- */
-.extWrap { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.extWrap { display: flex; flex-direction: column; gap: 20px; min-width: 0; width: 100%; }
+/* .detailPanel e' um grid de 4 colunas e posiciona filhos diretos por seletor: sem isto a aba cai numa unica coluna estreita. */
+.detailPanel > .extWrap { grid-column: 1 / -1; }
 .extStack { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .extHint { font-size: 12px; color: var(--muted); }
 .extRowBetween { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.extToolbar { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.extToolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 14px 28px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 .extToolbarGroup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .extLink { background: none; border: 0; padding: 0; color: var(--accent); font-size: 12px; cursor: pointer; text-decoration: underline; }
 .extBadge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 1.5; border: 1px solid transparent; white-space: nowrap; }
@@ -2566,12 +2568,12 @@ h3 {
 .extBadgeNeutral { background: var(--panel); color: var(--muted); border-color: var(--line); }
 .extBadgeCanonical { background: var(--accent); color: #fff; }
 .extBadgeSelected { background: #e0e7ff; color: #3730a3; border-color: #818cf8; }
-.extEvent { border: 1px solid var(--line); border-radius: 12px; background: var(--paper); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.extEventLoose { border-style: dashed; background: var(--panel); }
+.extEvent { border: 1px solid var(--line); border-left: 5px solid var(--accent); border-radius: 12px; background: var(--paper); padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+.extEventLoose { border-left-color: var(--line); background: var(--panel); }
 .extEventHead { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.extEventTitle { font-size: 15px; }
-.extObsGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; min-width: 0; }
-.extObs { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--paper); min-width: 0; }
+.extEventTitle { font-size: 17px; }
+.extObsGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 16px; align-items: start; min-width: 0; }
+.extObs { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 14px; background: var(--paper); min-width: 0; }
 .extObsCanonical { border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent); }
 .extObsSelected { outline: 2px solid #6366f1; outline-offset: 1px; background: #f5f6ff; }
 .extObsHead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -2581,10 +2583,10 @@ h3 {
 .extProvider_strava { background: #fc4c02; }
 .extProvider_garmin { background: #007cc3; }
 .extSelect { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; font-weight: 600; color: #3730a3; }
-.extMetrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
-.extMetric { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 8px; background: var(--panel); min-width: 0; }
+.extMetrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; }
+.extMetric { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 8px; background: var(--panel); min-width: 0; }
 .extMetric span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
-.extMetric strong { font-size: 14px; }
+.extMetric strong { font-size: 16px; }
 .extDetails { border-top: 1px solid var(--line); padding-top: 6px; font-size: 12px; }
 .extDetails summary { cursor: pointer; font-weight: 600; color: var(--muted); }
 .extDl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 8px 0 0; }
@@ -2594,8 +2596,15 @@ h3 {
 .extPre { font-size: 11px; background: var(--panel); padding: 10px; border-radius: 6px; overflow: auto; max-height: 320px; margin: 6px 0 0; }
 .extRaw { display: flex; flex-direction: column; gap: 8px; }
 .extSample { border: 1px solid var(--line); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
-.extCompare { border: 2px solid #6366f1; border-radius: 12px; padding: 14px; background: var(--paper); display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.extCompare { border: 2px solid #6366f1; border-radius: 12px; padding: 18px 20px; background: var(--paper); display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .extTableWrap { overflow-x: auto; }
 .extTable { width: 100%; border-collapse: collapse; font-size: 12px; }
 .extTable th, .extTable td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .extTable th { background: var(--panel); color: var(--muted); font-weight: 600; }
+.extCompareGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 16px; align-items: start; }
+.extDl { grid-template-columns: max-content minmax(0, 1fr); }
+@media (max-width: 720px) {
+  .extEvent { padding: 12px; }
+  .extObs { padding: 12px; }
+  .extToolbar { padding: 12px; }
+}

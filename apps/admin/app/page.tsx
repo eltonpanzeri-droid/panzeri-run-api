@@ -5833,6 +5833,7 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
             </div>
             <button type="button" className="extLink" onClick={() => setCompareResult(null)}>fechar</button>
           </div>
+          <div className="extCompareGrid">
           <div className="extTableWrap">
             <table className="extTable">
               <thead><tr><th>Valor usado pelo matcher</th><th>A · {EXT_PROVIDER_LABEL[compareResult.a.provider] ?? compareResult.a.provider}</th><th>B · {EXT_PROVIDER_LABEL[compareResult.b.provider] ?? compareResult.b.provider}</th></tr></thead>
@@ -5860,6 +5861,7 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
                 ))}
               </tbody>
             </table>
+          </div>
           </div>
           <details className="extDetails">
             <summary>JSON bruto da comparação</summary>
