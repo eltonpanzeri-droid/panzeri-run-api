@@ -2597,3 +2597,17 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
 - **Quarentena mantida:** não altera `executionClassification`, não liga a `TrainingSession`, não toca TI/evolução/aderência.
 - **ATENÇÃO (consumidor a tratar depois):** `SessionExecutionLinkService.classify()` considera `executionClassification=null` como "rival" no mesmo dia — uma duplicata
   Apple (null) pode tornar uma atividade Polar `ambiguous`. A identidade física agora permite excluir duplicatas desse cálculo, mas isso NÃO foi alterado aqui.
+
+### 2026-10-06 — Apple, Subetapa 3A: observação canônica por evento físico + ecossistema primário por período
+- **Antes (commit separado `e65ec3b`):** identidade física passou a ser função pura do CONJUNTO de observações (recomputa o cluster a cada avaliação; um
+  registro conflitante tardio desfaz o grupo antigo e todas as ordens de chegada convergem). Esta etapa só trata a canônica.
+- **Estrutura:** `ActivityLog.physicalCanonicalActivityLogId` (todo membro de um evento aponta para a mesma observação real; `unique` aponta para si; `ambiguous` = null) +
+  `physicalCanonicalReason` (regra, primário vigente NA DATA DO EVENTO, motivo do fallback, candidatas) e a tabela `AthletePrimarySource` (ecossistema primário do atleta
+  POR PERÍODO, `effectiveFrom`). Migration aditiva `20261006180000_physical_canonical_observation`.
+- **Regra:** (1) primário do atleta na data do evento, se houver observação válida dele (canal direto antes de relay do mesmo ecossistema); (2) senão fallback
+  determinístico entre as válidas (mais completa, depois canal direto, depois id) — SEM hierarquia universal de provider; (3) registra o porquê. Nenhuma métrica é
+  copiada entre observações. Ecossistema de uma observação HealthKit só vale quando o bundle da ORIGEM pertence a um ecossistema conhecido (`com.polar.*`, `com.garmin.*`,
+  `com.apple.*`, `com.strava.*`); senão null (não se inventa o dispositivo original).
+- **Primário do atleta:** linha explícita vigente na data > histórico de `WorkoutDelivery` (enviada/entregue) até a data > nenhum. Trocar de relógio = novo período
+  (`POST /coach/students/:id/primary-source`), eventos anteriores continuam resolvidos pelo período antigo.
+- **Fora de escopo (3B/3C):** reconciliação por evento, consumidores, UI, composição de métricas.

@@ -418,6 +418,13 @@ export class CoachController {
     return this.coachService.evaluateExternalActivityIdentity(studentId);
   }
 
+  // Ecossistema de execucao primario do atleta (06/10/2026, Apple Etapa 3A): vale a partir de effectiveFrom (padrao: agora) e define qual
+  // observacao e' canonica nos eventos desse periodo. Nao reescreve eventos anteriores.
+  @Post('students/:studentId/primary-source')
+  setStudentPrimarySource(@Param('studentId') studentId: string, @Body() body: { provider?: unknown; effectiveFrom?: unknown; note?: unknown }) {
+    return this.coachService.setStudentPrimarySource(studentId, body ?? {});
+  }
+
   // ─── Panzeri Data Layer — Fase 1 ────────────────────────────────────────────
 
   @Get('data/growth/funnel')

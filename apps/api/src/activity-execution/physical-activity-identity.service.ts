@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { compareObservations, IdentityComparison, ObservedActivity, observerKeyOf } from './physical-activity-identity';
+import { CanonicalCandidateInput, selectCanonicalObservation } from './physical-canonical';
+import { resolvePrimarySource } from './athlete-primary-source';
 
 // Janela de busca de candidatos (so' performance — quem decide e' compareObservations; a janela larga tolera diferenca de fuso).
 const CANDIDATE_WINDOW_MS = 12 * 60 * 60 * 1000;
@@ -25,14 +27,24 @@ type Row = {
   startedAt: Date;
   durationSec: number | null;
   distanceMeters: number | null;
+  caloriesKcal: number | null;
+  avgHeartRateBpm: number | null;
+  maxHeartRateBpm: number | null;
+  cadenceAvg: number | null;
+  powerAvgWatts: number | null;
+  elevationGainMeters: number | null;
+  hasRoute: boolean | null;
   providerMetrics: Prisma.JsonValue | null;
   physicalEventId: string | null;
   physicalIdentityStatus: string | null;
+  physicalCanonicalActivityLogId: string | null;
+  physicalCanonicalReason: Prisma.JsonValue | null;
 };
 
 const SELECT = {
   id: true, userId: true, provider: true, sport: true, startedAt: true, durationSec: true, distanceMeters: true,
-  providerMetrics: true, physicalEventId: true, physicalIdentityStatus: true,
+  caloriesKcal: true, avgHeartRateBpm: true, maxHeartRateBpm: true, cadenceAvg: true, powerAvgWatts: true, elevationGainMeters: true, hasRoute: true,
+  providerMetrics: true, physicalEventId: true, physicalIdentityStatus: true, physicalCanonicalActivityLogId: true, physicalCanonicalReason: true,
 } as const;
 
 function toObserved(row: Row): ObservedActivity {
@@ -44,18 +56,27 @@ function toObserved(row: Row): ObservedActivity {
   };
 }
 
+function toCandidate(row: Row): CanonicalCandidateInput {
+  return {
+    id: row.id, provider: row.provider, providerMetrics: row.providerMetrics, durationSec: row.durationSec, distanceMeters: row.distanceMeters,
+    caloriesKcal: row.caloriesKcal, avgHeartRateBpm: row.avgHeartRateBpm, maxHeartRateBpm: row.maxHeartRateBpm, cadenceAvg: row.cadenceAvg,
+    powerAvgWatts: row.powerAvgWatts, elevationGainMeters: row.elevationGainMeters, hasRoute: row.hasRoute,
+  };
+}
+
 // uuid deterministico (v5-like) a partir do menor id de ActivityLog do grupo — so' para grupos NOVOS; grupos existentes mantem seu id.
 function deterministicEventId(minMemberId: string): string {
   const hex = createHash('sha1').update(`physical-event:${minMemberId}`).digest('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
-// Agrupamento persistente e idempotente de ActivityLog que sao observacoes do MESMO evento fisico (Apple Etapa 2).
-//  - NUNCA apaga, funde ou reescreve ActivityLog/RawExternalActivity: so' preenche physicalEventId/Status/Evidence.
-//  - DETERMINISMO (correcao 06/10/2026): o estado de identidade de um conjunto de observacoes e' uma FUNCAO PURA desse conjunto, nao
-//    da ordem de chegada. Cada avaliacao recomputa, a partir de todas as observacoes do cluster (alvo + vizinhas 'same'/'ambiguous' +
-//    membros de grupos ja' gravados que se tocam), os componentes conexos por veredito 'same'; componente com dois registros do mesmo
-//    observador e' contestado e fica inteiro 'ambiguous' (inclusive desfazendo um grupo antigo que o novo registro contesta).
+// Agrupamento persistente e idempotente de ActivityLog que sao observacoes do MESMO evento fisico (Apple Etapa 2) + selecao da
+// observacao canonica de cada evento (Etapa 3A).
+//  - NUNCA apaga, funde ou reescreve ActivityLog/RawExternalActivity: so' preenche as colunas physical*. A canonica e' uma observacao REAL
+//    e nenhuma metrica de outro provider e' copiada para ela.
+//  - DETERMINISMO: identidade e canonica sao FUNCOES PURAS do conjunto de observacoes (e do primario vigente na data do evento), nao da
+//    ordem de chegada. Cada avaliacao recomputa o cluster (alvo + vizinhas 'same'/'ambiguous' + membros de grupos gravados que se tocam),
+//    os componentes conexos por 'same', e componente com dois registros do mesmo observador e' contestado e fica 'ambiguous'.
 //  - Nao toca executionClassification, SessionExecutionLink nem nenhum consumidor (Training Intelligence, evolucao, aderencia).
 //  - Avaliacoes do mesmo usuario sao serializadas por advisory lock transacional.
 @Injectable()
@@ -176,8 +197,72 @@ export class PhysicalActivityIdentityService {
         });
       }
 
+      // Observacao canonica de cada evento do cluster (3A) — sobre o estado de identidade recem-decidido.
+      const byGroup = new Map<string, Row[]>();
+      const singles: Row[] = [];
+      const withoutIdentity: Row[] = [];
+      for (const id of clusterIds) {
+        const want = desired.get(id)!;
+        const row = rows.get(id)!;
+        if (want.status === 'matched' && want.groupId) byGroup.set(want.groupId, [...(byGroup.get(want.groupId) ?? []), row]);
+        else if (want.status === 'unique') singles.push(row);
+        else withoutIdentity.push(row);
+      }
+      await this.applyCanonical(tx, target.userId, [...byGroup.values()], singles, withoutIdentity);
+
       const mine = desired.get(target.id)!;
       return { activityLogId, status: mine.status, physicalEventId: mine.groupId, memberCount: mine.status === 'matched' ? mine.size : 0 };
+    });
+  }
+
+  // Escolhe e grava a canonica de cada evento. Idempotente: so' escreve quando a canonica ou o motivo mudam. 'ambiguous' / sem identidade
+  // ficam sem canonica (null) — ainda nao ha um evento fisico para representar.
+  private async applyCanonical(tx: Prisma.TransactionClient, userId: string, groups: Row[][], singles: Row[], withoutIdentity: Row[]) {
+    const write = async (row: Row, canonicalId: string | null, reason: unknown) => {
+      const same = row.physicalCanonicalActivityLogId === canonicalId && JSON.stringify(row.physicalCanonicalReason ?? null) === JSON.stringify(reason ?? null);
+      if (same) return;
+      await tx.activityLog.update({
+        where: { id: row.id },
+        data: { physicalCanonicalActivityLogId: canonicalId, physicalCanonicalReason: (reason === null ? Prisma.JsonNull : (reason as Prisma.InputJsonValue)) },
+      });
+    };
+    for (const members of [...groups, ...singles.map((row) => [row])]) {
+      // Fonte primaria vigente NA DATA DO EVENTO (inicio mais antigo entre as observacoes), nao a preferencia de hoje.
+      const eventTime = new Date(Math.min(...members.map((m) => m.startedAt.getTime())));
+      const primary = await resolvePrimarySource(tx, userId, eventTime);
+      const selection = selectCanonicalObservation(members.map(toCandidate), primary);
+      if (!selection) continue;
+      const reason = JSON.parse(JSON.stringify(selection.reason));
+      for (const row of members) await write(row, selection.canonicalId, reason);
+    }
+    for (const row of withoutIdentity) await write(row, null, null);
+  }
+
+  // Muda o ecossistema primario do atleta A PARTIR de uma data (padrao: agora) e recalcula as canonicas. Eventos anteriores a effectiveFrom
+  // continuam resolvidos pelo periodo anterior — trocar de relogio nao reescreve a historia.
+  async setPrimarySource(userId: string, provider: string, options: { effectiveFrom?: Date; origin: 'coach' | 'athlete'; note?: string }) {
+    const effectiveFrom = options.effectiveFrom ?? new Date();
+    const created = await this.prisma.athletePrimarySource.create({
+      data: { userId, provider, effectiveFrom, origin: options.origin, note: options.note ?? null },
+      select: { id: true, provider: true, effectiveFrom: true },
+    });
+    const recomputed = await this.recomputeCanonicalForUser(userId);
+    return { ...created, recomputed };
+  }
+
+  // Recalcula a observacao canonica de TODOS os eventos ja' avaliados do aluno (idempotente; nunca altera identidade nem observacoes).
+  async recomputeCanonicalForUser(userId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'physical-identity:' + userId}))`;
+      const logs = (await tx.activityLog.findMany({ where: { userId, physicalIdentityStatus: { in: ['matched', 'unique'] } }, select: SELECT, take: MAX_HISTORY_BATCH })) as Row[];
+      const byGroup = new Map<string, Row[]>();
+      const singles: Row[] = [];
+      for (const row of logs) {
+        if (row.physicalIdentityStatus === 'matched' && row.physicalEventId) byGroup.set(row.physicalEventId, [...(byGroup.get(row.physicalEventId) ?? []), row]);
+        else singles.push(row);
+      }
+      await this.applyCanonical(tx, userId, [...byGroup.values()], singles, []);
+      return { events: byGroup.size + singles.length };
     });
   }
 

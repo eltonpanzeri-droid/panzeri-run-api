@@ -1343,6 +1343,13 @@ model ActivityLog {
   // matched:null = dado ausente (nunca incompatibilidade). Explica a decisao, nunca a veta.
   physicalIdentityEvidence Json?
   physicalIdentityEvaluatedAt DateTime?
+  // Observacao CANONICA do evento fisico (Apple Etapa 3A, 06/10/2026): qual ActivityLog REAL representa o evento para analise/exibicao.
+  // Todo membro de um evento 'matched' aponta para a mesma observacao canonica (que aponta para si mesma); 'unique' aponta para si
+  // (sole_observation); 'ambiguous' / nao avaliado ficam null (sem identidade, sem canonica). Nao copia nem mistura metricas: a canonica
+  // continua sendo uma observacao real e as demais ficam intactas. physicalCanonicalReason guarda por que foi escolhida (regra, fonte
+  // primaria vigente NA DATA DO EVENTO, fallback e candidatas) para auditoria e recalculo.
+  physicalCanonicalActivityLogId String?
+  physicalCanonicalReason Json?
 
   executionLinks SessionExecutionLink[]
   samples        RawActivitySample[]
@@ -1354,6 +1361,24 @@ model ActivityLog {
   @@unique([provider, userId, externalId])
   @@index([userId, startedAt])
   @@index([physicalEventId])
+}
+
+// Ecossistema de execucao PRIMARIO do atleta, por PERIODO (Apple Etapa 3A, 06/10/2026). Ex.: Polar ate 2026-12-31 e Garmin a partir de
+// 2027-01-01. A fonte canonica de um evento e' resolvida pelo periodo vigente NA DATA DO EVENTO — trocar de relogio cria uma linha nova
+// (effectiveFrom) e nunca reescreve retroativamente os eventos antigos. Nao ha hierarquia universal de provider: a prioridade pertence ao
+// atleta. Sem linha vigente, o padrao deriva do historico de WorkoutDelivery (ecossistema que recebeu a prescricao) — ver
+// athlete-primary-source.ts. provider usa o mesmo vocabulario de ActivityLog ('polar' | 'garmin' | 'apple_health' | ...).
+model AthletePrimarySource {
+  id            String   @id @default(uuid())
+  userId        String
+  provider      String
+  effectiveFrom DateTime
+  // 'coach' | 'athlete'
+  origin        String
+  note          String?
+  createdAt     DateTime @default(now())
+
+  @@index([userId, effectiveFrom])
 }
 
 // Ingestao de samples (02/10/2026) — serie temporal de uma atividade (FC, velocidade, distancia

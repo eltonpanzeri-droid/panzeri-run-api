@@ -98,6 +98,7 @@ export class CoachService {
         // Identidade fisica cross-provider (Apple Etapa 2) — so' leitura diagnostica.
         physicalEventId: true,
         physicalIdentityStatus: true,
+        physicalCanonicalActivityLogId: true,
         rawActivity: { select: { receivedAt: true, sourceUpdatedAt: true } },
       },
     });
@@ -205,6 +206,20 @@ export class CoachService {
   async evaluateExternalActivityIdentity(studentId: string) {
     if (!this.physicalIdentity) throw new NotFoundException('Servico de identidade fisica indisponivel.');
     return this.physicalIdentity.evaluateUserHistory(studentId);
+  }
+
+  // Ecossistema de execucao PRIMARIO do atleta a partir de uma data (Apple Etapa 3A). Cria um periodo novo; nao reescreve eventos anteriores.
+  async setStudentPrimarySource(studentId: string, body: { provider?: unknown; effectiveFrom?: unknown; note?: unknown }) {
+    if (!this.physicalIdentity) throw new NotFoundException('Servico de identidade fisica indisponivel.');
+    const provider = typeof body.provider === 'string' ? body.provider.trim().toLowerCase() : '';
+    if (!/^[a-z][a-z_]{1,29}$/.test(provider)) throw new BadRequestException('provider invalido (ex.: polar, garmin, apple_health).');
+    let effectiveFrom: Date | undefined;
+    if (body.effectiveFrom !== undefined && body.effectiveFrom !== null) {
+      effectiveFrom = new Date(String(body.effectiveFrom));
+      if (Number.isNaN(effectiveFrom.getTime())) throw new BadRequestException('effectiveFrom invalido (use ISO 8601).');
+    }
+    const note = typeof body.note === 'string' ? body.note.slice(0, 300) : undefined;
+    return this.physicalIdentity.setPrimarySource(studentId, provider, { effectiveFrom, origin: 'coach', note });
   }
 
   // Passo 5 (continuacao, 25/09/2026) — todos os testes de 3km do aluno, sem o take:3 que o
