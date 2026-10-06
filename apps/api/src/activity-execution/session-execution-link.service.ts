@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { ActivityLog, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { canonicalModality } from './canonical-modality';
 
 // Fundacao Prescricao x Execucao (01/10/2026) + Motor de Reconciliacao V1 (02/10/2026). Fronteira
 // ONDE isto se conecta ao resto do sistema: TrainingSession (prescrita OU sintetica/extra) e
@@ -44,6 +45,45 @@ export type ExecutionOrigin = 'automatic' | 'student' | 'coach';
 // corresponde a nenhuma prescricao aplicavel (nunca "extra"/"substituicao" — ver correcao acima).
 // 'ambiguous' = plausivel mas sem evidencia suficiente pra decidir sozinho.
 export type ExecutionClassification = 'corresponding' | 'alternative' | 'ambiguous';
+// Plano de reconciliacao (resultado de planClassification, sem escrita).
+export type ReconciliationPlan =
+  | { kind: 'link'; session: { id: string }; evidence: EvidenceItem[]; matchMethod: string }
+  | { kind: 'ambiguous'; matchMethod?: string; candidates: Array<{ session: { id: string }; evidence: EvidenceItem[] }> }
+  | { kind: 'alternative' };
+
+function classificationOf(plan: ReconciliationPlan): ExecutionClassification {
+  return plan.kind === 'link' ? 'corresponding' : plan.kind;
+}
+
+// Observacao que REPRESENTA seu evento fisico: sem evento, 'unique', ou a canonica do evento. Observacoes nao-canonicas nao competem.
+function isEventRepresentative(row: { id: string; physicalIdentityStatus?: string | null; physicalEventId?: string | null; physicalCanonicalActivityLogId?: string | null }): boolean {
+  if (row.physicalIdentityStatus === 'matched' && row.physicalEventId && row.physicalCanonicalActivityLogId) return row.physicalCanonicalActivityLogId === row.id;
+  return true;
+}
+
+export type EventReconciliationOutcome =
+  | 'unchanged' | 'linked' | 'link_moved' | 'duplicate_links_collapsed' | 'candidates' | 'alternative'
+  | 'human_preserved' | 'kept_materialized_alternative' | 'skipped_identity_ambiguous' | 'skipped_no_canonical';
+
+export interface EventReconciliationResult {
+  activityLogId: string;
+  physicalEventId: string | null;
+  canonicalActivityLogId: string | null;
+  classification: ExecutionClassification | null;
+  outcome: EventReconciliationOutcome;
+  changed: boolean;
+  conflicts: number;
+}
+
+export interface UserReconciliationSummary {
+  dryRun: boolean;
+  events: number;
+  changed: number;
+  conflicts: number;
+  byOutcome: Record<string, number>;
+  results: EventReconciliationResult[];
+}
+
 export type LinkStatus = 'active' | 'revoked' | 'candidate';
 
 // Evidencia nunca e' um score: e' a lista dos criterios canonicos avaliados e o resultado de cada
@@ -80,10 +120,14 @@ const MODALITY_COMPATIBILITY: Record<string, string[]> = {
   bike: ['bike'],
 };
 
-function modalitiesCompatible(sessionModality: string, activitySport: string | null): boolean {
+// Compara SEMPRE a modalidade canonica (ActivityLog legado pode guardar o enum bruto do provider, ex.: 'RUNNING'); valor desconhecido
+// continua nao-compativel (nunca se adivinha compatibilidade).
+function modalitiesCompatible(sessionModality: string, rawActivitySport: string | null): boolean {
+  const activitySport = canonicalModality(rawActivitySport);
   if (!activitySport || activitySport === 'outra') return false;
-  const group = MODALITY_COMPATIBILITY[sessionModality];
-  return group ? group.includes(activitySport) : sessionModality === activitySport;
+  const sessionCanonical = canonicalModality(sessionModality) ?? sessionModality;
+  const group = MODALITY_COMPATIBILITY[sessionCanonical];
+  return group ? group.includes(activitySport) : sessionCanonical === activitySport;
 }
 
 // null quando qualquer um dos dois lados nao tem o dado — nunca trata ausencia como zero/divergencia.
@@ -316,10 +360,23 @@ export class SessionExecutionLinkService {
   async classify(activityLogId: string): Promise<ExecutionClassification> {
     const activity = await this.prisma.activityLog.findUnique({ where: { id: activityLogId } });
     if (!activity) throw new NotFoundException('Atividade nao encontrada.');
+    // 3B: observacao de um evento fisico com varias observacoes NAO e' reconciliada isoladamente — a unidade e' o PhysicalEvent.
+    if (activity.physicalIdentityStatus === 'matched' && activity.physicalEventId) {
+      const result = await this.reconcileEvent(activityLogId);
+      if (result.classification) return result.classification;
+    }
     if (activity.executionClassification) {
       return activity.executionClassification as ExecutionClassification;
     }
+    const plan = await this.planClassification(activity, new Set([activity.id]));
+    await this.applyPlan(activity, plan);
+    return classificationOf(plan);
+  }
 
+  // Decide (SEM escrever) o que o Motor V1 faria para esta atividade. `memberIds` = ids das observacoes do MESMO evento fisico (so' a
+  // propria atividade quando nao ha evento): elas nunca sao rivais entre si, e uma sessao cujo vinculo ativo pertence a elas nao esta
+  // "ocupada por outra atividade". Modalidade sempre pela representacao canonica (ActivityLog legado pode guardar o enum bruto do provider).
+  private async planClassification(activity: ActivityLog, memberIds: Set<string>): Promise<ReconciliationPlan> {
     const localDay = localCalendarDate(activity.startedAt, activity.utcOffsetMinutes);
     const dayStart = new Date(`${localDay}T00:00:00.000Z`);
 
@@ -327,103 +384,250 @@ export class SessionExecutionLinkService {
       where: { userId: activity.userId, scheduledDate: dayStart },
       include: { executionLinks: { where: { status: 'active' } } },
     });
-    // Compativel em modalidade E ainda sem vinculo ATIVO (uma sessao ja' cumprida por outra
-    // atividade nao concorre de novo). 'candidate' nao conta como "ja' vinculada" aqui — so'
-    // 'active' representa execucao confirmada (ver comentario do status no schema).
-    const modalityCompatible = sameDaySessions.filter((s) => modalitiesCompatible(s.modality, activity.sport));
-    const candidates = modalityCompatible.filter((s) => s.executionLinks.length === 0);
+    // Sessao sintetica de atividade alternativa (origin 'device_extra') nunca e' uma prescricao: nao concorre como candidata.
+    const prescribable = sameDaySessions.filter((s) => s.origin !== 'device_extra');
+    // Compativel em modalidade E ainda sem vinculo ATIVO de OUTRA atividade (uma sessao ja' cumprida por outra atividade nao concorre de
+    // novo). 'candidate' nao conta como "ja' vinculada" — so' 'active' representa execucao confirmada.
+    const modalityCompatible = prescribable.filter((s) => modalitiesCompatible(s.modality, activity.sport));
+    const candidates = modalityCompatible.filter((s) => s.executionLinks.every((link) => memberIds.has(link.activityLogId)));
 
     if (candidates.length === 0) {
-      if (modalityCompatible.length > 0) {
-        // Existe sessao compativel em modalidade, mas TODAS ja' tem vinculo ativo (outra
-        // atividade). Incerto se esta e' uma duplicata/continuacao (requisito 4 — pode ser a
-        // mesma execucao interrompida/reiniciada) ou uma atividade genuinamente extra — V1
-        // deliberadamente NAO assume "extra" aqui, fica ambiguo pra' revisao humana.
-        await this.setClassification(activityLogId, 'ambiguous', 'automatic');
-        return 'ambiguous';
-      }
-      // Nenhuma sessao do dia tem modalidade compativel (ex.: corrida prescrita + ciclismo
-      // observado) — a(s) sessao(oes) incompativel(is) continuam SEM execucao confirmada (nunca
-      // marcadas como cumpridas por esta atividade; nunca se infere "substituicao"), e esta
-      // atividade e' uma 'alternative' (atividade realizada sem prescricao aplicavel).
-      await this.setClassification(activityLogId, 'alternative', 'automatic');
-      return 'alternative';
+      // Existe sessao compativel, mas todas ja' tem vinculo ativo de outra atividade: incerto (duplicata/continuacao ou extra genuina) —
+      // nao assume "extra", fica ambiguo. Sem nenhuma sessao compativel: atividade 'alternative' (nunca se infere "substituicao").
+      return modalityCompatible.length > 0 ? { kind: 'ambiguous', candidates: [] } : { kind: 'alternative' };
     }
 
     if (candidates.length > 1) {
-      // Multiplas prescricoes plausiveis (PASSO D) — tenta desambiguar com a evidencia disponivel
-      // (distancia/duracao observadas vs cada candidata) ANTES de desistir pra ambiguidade.
+      // Multiplas prescricoes plausiveis — tenta desambiguar com a evidencia (distancia/duracao) ANTES de desistir pra ambiguidade.
       const perCandidateEvidence = candidates.map((candidate) => ({ candidate, evidence: buildEvidence(candidate, activity) }));
       const consistent = perCandidateEvidence.filter((c) => isFullyConsistent(c.evidence));
-
       if (consistent.length === 1) {
-        // Exatamente uma candidata ficou claramente identificavel pela evidencia (PASSO E) —
-        // associa direto, sem pedir confirmacao humana pra algo que ja' temos como distinguir.
-        const winner = consistent[0];
-        await this.linkManually({
-          trainingSessionId: winner.candidate.id,
-          activityLogId,
-          origin: 'automatic',
-          matchMethod: 'automatic_multi_candidate_disambiguated',
-          evidence: winner.evidence,
-        });
-        return 'corresponding';
+        return { kind: 'link', session: consistent[0].candidate, evidence: consistent[0].evidence, matchMethod: 'automatic_multi_candidate_disambiguated' };
       }
-
-      // Nenhuma evidencia suficiente pra distinguir (0 consistentes) OU mais de uma candidata
-      // igualmente consistente — nao escolhe arbitrariamente. Registra uma linha 'candidate' POR
-      // sessao plausivel, cada uma com sua propria evidencia, pra' o aluno/treinador confirmarem
-      // depois qual e' a certa (ver confirmCandidate).
-      for (const { candidate, evidence } of perCandidateEvidence) {
-        await this.createCandidateLink(activity, candidate, 'automatic_multi_candidate', evidence);
-      }
-      await this.setClassification(activityLogId, 'ambiguous', 'automatic');
-      return 'ambiguous';
+      return { kind: 'ambiguous', matchMethod: 'automatic_multi_candidate', candidates: perCandidateEvidence.map((c) => ({ session: c.candidate, evidence: c.evidence })) };
     }
 
-    // Exatamente 1 sessao candidata — ainda falta checar o lado da atividade: existe outra
-    // atividade nao-resolvida do mesmo dia tambem compativel com essa mesma sessao? Se sim, nao
-    // da' pra saber qual das duas e' a execucao real (PASSO F — pode ser atividade diferente,
-    // interrupcao/reinicio, fragmentacao ou duplicacao entre fontes; nao resolvemos aqui).
+    // Exatamente 1 sessao candidata — falta checar o lado da atividade: existe OUTRA atividade fisica nao-resolvida do mesmo dia tambem
+    // compativel com essa sessao? Rival = outra atividade ainda NAO resolvida (null ou 'ambiguous'). NAO sao rivais: observacoes do mesmo
+    // evento fisico, nem observacoes nao-canonicas de outros eventos (quem representa aquele evento e' a canonica dele).
     const onlyCandidate = candidates[0];
-    // Rival = outra atividade ainda NAO resolvida (null = nunca processada, ou 'ambiguous' =
-    // processada mas ainda em aberto) disputando a mesma sessao. Deliberadamente NAO filtra so'
-    // por "null" — isso faria o resultado depender da ORDEM em que classify() e' chamado pra cada
-    // atividade (a primeira "consumiria" a ambiguidade e a segunda seria vinculada sozinha). Uma
-    // atividade ja' 'corresponding' (a outra sessao) ou 'alternative' esta' de fato resolvida e
-    // nao compete mais.
-    const rivalActivities = await this.prisma.activityLog.findMany({
+    const otherActivities = await this.prisma.activityLog.findMany({
       where: {
         userId: activity.userId,
         id: { not: activity.id },
         OR: [{ executionClassification: null }, { executionClassification: 'ambiguous' }],
       },
     });
-    const hasRival = rivalActivities.some(
+    const hasRival = otherActivities.some(
       (rival) =>
+        !memberIds.has(rival.id) &&
+        isEventRepresentative(rival) &&
         localCalendarDate(rival.startedAt, rival.utcOffsetMinutes) === localDay &&
         modalitiesCompatible(onlyCandidate.modality, rival.sport),
     );
+    const evidence = buildEvidence(onlyCandidate, activity);
     if (hasRival) {
-      await this.createCandidateLink(activity, onlyCandidate, 'automatic_rival_activity', buildEvidence(onlyCandidate, activity));
-      await this.setClassification(activityLogId, 'ambiguous', 'automatic');
-      return 'ambiguous';
+      return { kind: 'ambiguous', matchMethod: 'automatic_rival_activity', candidates: [{ session: onlyCandidate, evidence }] };
+    }
+    // Unica prescricao plausivel -> associa SEMPRE, independente de distancia/duracao/pace (correspondencia != fidelidade de execucao).
+    return { kind: 'link', session: onlyCandidate, evidence, matchMethod: 'automatic_single_candidate' };
+  }
+
+  private async applyPlan(activity: ActivityLog, plan: ReconciliationPlan) {
+    if (plan.kind === 'link') {
+      await this.linkManually({ trainingSessionId: plan.session.id, activityLogId: activity.id, origin: 'automatic', matchMethod: plan.matchMethod, evidence: plan.evidence });
+      return;
+    }
+    if (plan.kind === 'ambiguous') {
+      // Uma linha 'candidate' POR sessao plausivel, cada uma com sua propria evidencia, pra confirmacao humana futura.
+      for (const { session, evidence } of plan.candidates) await this.createCandidateLink(activity, session, plan.matchMethod ?? 'automatic_multi_candidate', evidence);
+      await this.setClassification(activity.id, 'ambiguous', 'automatic');
+      return;
+    }
+    await this.setClassification(activity.id, 'alternative', 'automatic');
+  }
+
+  // ---- 3B: reconciliacao por PhysicalEvent --------------------------------------------------------------------------------------
+  // Unidade logica = PhysicalEvent <-> TrainingSession. O SessionExecutionLink continua sendo a unica estrutura de vinculo; seu activityLogId
+  // aponta para a observacao CANONICA atual do evento (para atividade 'unique', a propria observacao). Observacoes nao-canonicas nunca
+  // carregam vinculo nem classificacao automatica (uma atividade fisica conta uma vez).
+  //  - decisao HUMANA (coach/student) prevalece sempre; conflito com a automacao vira linha 'revoked' auditavel, nunca sobrescrita;
+  //  - vinculo automatico ja' ativo e' ESTAVEL (so' acompanha a canonica, com supersessao); estados automaticos nao-vinculados
+  //    ('alternative'/'ambiguous') sao recalculados com a semantica atual (modalidade canonica, sem rivais do mesmo evento);
+  //  - idempotente: sem mudanca de evidencia nada e' escrito; dryRun calcula e descreve sem gravar.
+  async reconcileEvent(activityLogId: string, options: { dryRun?: boolean } = {}): Promise<EventReconciliationResult> {
+    const activity = await this.prisma.activityLog.findUnique({ where: { id: activityLogId } });
+    if (!activity) throw new NotFoundException('Atividade nao encontrada.');
+    const dryRun = options.dryRun === true;
+    const base = { activityLogId, physicalEventId: activity.physicalEventId ?? null };
+
+    // 1) Evento e observacao canonica.
+    let members: ActivityLog[] = [activity];
+    let canonical: ActivityLog = activity;
+    if (activity.physicalIdentityStatus === 'ambiguous') {
+      return { ...base, canonicalActivityLogId: null, classification: (activity.executionClassification as ExecutionClassification | null) ?? null, outcome: 'skipped_identity_ambiguous', changed: false, conflicts: 0 };
+    }
+    if (activity.physicalIdentityStatus === 'matched' && activity.physicalEventId) {
+      const all = await this.prisma.activityLog.findMany({ where: { userId: activity.userId, physicalEventId: activity.physicalEventId } });
+      members = all.filter((m) => m.physicalEventId === activity.physicalEventId && m.userId === activity.userId);
+      if (!members.some((m) => m.id === activity.id)) members.push(activity);
+      const canonicalId = activity.physicalCanonicalActivityLogId ?? members.find((m) => m.physicalCanonicalActivityLogId)?.physicalCanonicalActivityLogId ?? null;
+      const found = canonicalId ? members.find((m) => m.id === canonicalId) : undefined;
+      if (!found) {
+        return { ...base, canonicalActivityLogId: null, classification: null, outcome: 'skipped_no_canonical', changed: false, conflicts: 0 };
+      }
+      canonical = found;
+    }
+    const memberIds = new Set(members.map((m) => m.id));
+    const others = members.filter((m) => m.id !== canonical.id);
+
+    const links = await this.prisma.sessionExecutionLink.findMany({ where: { activityLogId: { in: [...memberIds] }, status: { in: ['active', 'candidate'] } } });
+    const memberLinks = links.filter((l) => memberIds.has(l.activityLogId));
+    const activeLinks = memberLinks.filter((l) => l.status === 'active');
+    const writes: Array<() => Promise<unknown>> = [];
+    const isHumanOrigin = (origin: string | null | undefined) => origin === 'coach' || origin === 'student';
+    const humanActive = activeLinks.filter((l) => isHumanOrigin(l.origin));
+    const humanClassified = members.filter((m) => m.executionClassification && isHumanOrigin(m.executionClassifiedBy));
+    const quarantine = () => {
+      // Observacoes nao-canonicas nao carregam classificacao AUTOMATICA (a execucao e' contada uma vez, pela canonica). Humana fica.
+      for (const m of others) {
+        if (m.executionClassification && !isHumanOrigin(m.executionClassifiedBy)) {
+          writes.push(() => this.prisma.activityLog.update({ where: { id: m.id }, data: { executionClassification: null, executionClassifiedAt: null, executionClassifiedBy: null } }));
+        }
+      }
+    };
+    const revoke = (link: { id: string; note: string | null }, note: string, supersededByLinkId: string | null = null) =>
+      writes.push(() => this.prisma.sessionExecutionLink.update({ where: { id: link.id }, data: { status: 'revoked', revokedAt: new Date(), note: link.note ?? note, supersededByLinkId } }));
+    let outcome: EventReconciliationOutcome = 'unchanged';
+    let conflicts = 0;
+    let finalClassification = (canonical.executionClassification as ExecutionClassification | null) ?? null;
+
+    if (humanActive.length > 0 || humanClassified.length > 0) {
+      // 2) Decisao humana prevalece: a automacao nunca a substitui. Vinculos automaticos do mesmo evento viram historico revogado
+      // (duplicata da decisao humana) e o conflito, se houver, fica auditavel como linha 'revoked' que nenhum consumidor le.
+      outcome = 'human_preserved';
+      const automaticLinks = memberLinks.filter((l) => !isHumanOrigin(l.origin));
+      for (const link of automaticLinks) revoke(link, 'superseded_by_human_decision_in_same_event');
+      for (const m of members) {
+        const bearsHuman = humanClassified.some((h) => h.id === m.id) || humanActive.some((l) => l.activityLogId === m.id);
+        if (!bearsHuman && m.executionClassification && !isHumanOrigin(m.executionClassifiedBy)) {
+          writes.push(() => this.prisma.activityLog.update({ where: { id: m.id }, data: { executionClassification: null, executionClassifiedAt: null, executionClassifiedBy: null } }));
+        }
+      }
+      const humanSessionId = humanActive[0]?.trainingSessionId ?? null;
+      const wouldBe = await this.planClassification(canonical, memberIds);
+      const conflicting = wouldBe.kind === 'link' && (humanSessionId ? wouldBe.session.id !== humanSessionId : humanClassified.some((h) => h.executionClassification === 'alternative'));
+      if (conflicting && wouldBe.kind === 'link') {
+        conflicts = 1;
+        const existingAudit = await this.prisma.sessionExecutionLink.findMany({ where: { activityLogId: canonical.id, trainingSessionId: wouldBe.session.id, status: 'revoked' } });
+        if (!existingAudit.some((l) => l.matchMethod === 'automatic_conflict_with_human_decision')) {
+          writes.push(() => this.prisma.sessionExecutionLink.create({
+            data: {
+              userId: canonical.userId, trainingSessionId: wouldBe.session.id, activityLogId: canonical.id, status: 'revoked', origin: 'automatic', revokedAt: new Date(),
+              matchMethod: 'automatic_conflict_with_human_decision', evidence: wouldBe.evidence as unknown as Prisma.InputJsonValue,
+              note: 'Evidencia automatica divergente de decisao humana ja registrada neste evento; a decisao humana foi preservada.',
+            },
+          }));
+        }
+      }
+    } else if (activeLinks.length > 0) {
+      // 3) Vinculo automatico existente e' ESTAVEL: so' acompanha a observacao canonica (e nunca fica duplicado no mesmo evento).
+      const onCanonical = activeLinks.filter((l) => l.activityLogId === canonical.id);
+      const keeper = onCanonical.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0] ?? [...activeLinks].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
+      const toRetire = activeLinks.filter((l) => l.id !== keeper.id);
+      if (keeper.activityLogId !== canonical.id) {
+        outcome = 'link_moved';
+        writes.push(async () => {
+          const created = await this.prisma.sessionExecutionLink.create({
+            data: {
+              userId: canonical.userId, trainingSessionId: keeper.trainingSessionId, activityLogId: canonical.id, status: 'active', origin: 'automatic', confidence: keeper.confidence,
+              matchMethod: 'automatic_canonical_follow', evidence: (keeper.evidence as Prisma.InputJsonValue | null) ?? undefined,
+              note: `Acompanha a observacao canonica do evento fisico (vinculo anterior em ${keeper.activityLogId}).`,
+            },
+          });
+          await this.prisma.sessionExecutionLink.update({ where: { id: keeper.id }, data: { status: 'revoked', revokedAt: new Date(), supersededByLinkId: created.id } });
+          await this.prisma.activityLog.update({ where: { id: canonical.id }, data: { executionClassification: 'corresponding', executionClassifiedAt: new Date(), executionClassifiedBy: 'automatic' } });
+        });
+        for (const link of toRetire) revoke(link, 'duplicate_of_same_physical_event');
+        finalClassification = 'corresponding';
+      } else if (toRetire.length > 0) {
+        outcome = 'duplicate_links_collapsed';
+        for (const link of toRetire) revoke(link, 'duplicate_of_same_physical_event');
+      }
+      for (const link of memberLinks.filter((l) => l.status === 'candidate')) revoke(link, 'resolved_by_active_link_in_same_event');
+      quarantine();
+    } else {
+      // 4) Sem vinculo ativo: recalcula o estado automatico da canonica com a semantica atual (preservando alternativa ja' materializada).
+      const materialized = await this.findMaterializedSessionForActivities(canonical.userId, memberIds);
+      const current = (canonical.executionClassification as ExecutionClassification | null) ?? null;
+      const alternativeInEvent = members.some((m) => m.executionClassification === 'alternative' && !isHumanOrigin(m.executionClassifiedBy));
+      if (materialized && alternativeInEvent) {
+        // Atividade alternativa ja' materializada como sessao sintetica: nao e' reinterpretada; a sintetica e a classificacao acompanham a canonica.
+        outcome = 'kept_materialized_alternative';
+        finalClassification = 'alternative';
+        const structure = (materialized.structure ?? {}) as { activityLogId?: string };
+        if (structure.activityLogId !== canonical.id) {
+          writes.push(() => this.prisma.trainingSession.update({ where: { id: materialized.id }, data: { structure: { ...structure, activityLogId: canonical.id, provider: canonical.provider } as unknown as Prisma.InputJsonValue } }));
+          outcome = 'link_moved';
+        }
+        if (current !== 'alternative') writes.push(() => this.setClassification(canonical.id, 'alternative', 'automatic'));
+      } else {
+        const plan = await this.planClassification(canonical, memberIds);
+        const candidateLinks = memberLinks.filter((l) => l.status === 'candidate');
+        const sameCandidates = (sessionIds: string[]) =>
+          candidateLinks.length === sessionIds.length && candidateLinks.every((l) => l.activityLogId === canonical.id && sessionIds.includes(l.trainingSessionId));
+        if (plan.kind === 'alternative') {
+          finalClassification = 'alternative';
+          if (current !== 'alternative' || candidateLinks.length > 0) {
+            outcome = 'alternative';
+            for (const link of candidateLinks) revoke(link, 'recomputed_as_alternative');
+            writes.push(() => this.setClassification(canonical.id, 'alternative', 'automatic'));
+          }
+        } else if (plan.kind === 'ambiguous') {
+          finalClassification = 'ambiguous';
+          const planned = plan.candidates.map((c) => c.session.id);
+          if (current !== 'ambiguous' || !sameCandidates(planned)) {
+            outcome = 'candidates';
+            for (const link of candidateLinks) revoke(link, 'recomputed');
+            writes.push(() => this.applyPlan(canonical, plan));
+          }
+        } else {
+          outcome = 'linked';
+          finalClassification = 'corresponding';
+          for (const link of candidateLinks) revoke(link, 'resolved_by_automatic_link');
+          writes.push(() => this.applyPlan(canonical, plan));
+        }
+      }
+      quarantine();
     }
 
-    // PASSO C: unica prescricao plausivel -> associa SEMPRE, independente de distancia/duracao/
-    // pace observados (correspondencia != fidelidade de execucao — ver cabecalho do arquivo). A
-    // evidencia e' calculada e preservada so' pra EXPLICAR a decisao (matchMethod/evidence),
-    // nunca pra veta-la: ratioCompatible pode voltar false aqui (ex.: treino interrompido, 10km
-    // realizados de 12km prescritos) e ainda assim o vinculo e' criado normalmente.
-    const evidence = buildEvidence(onlyCandidate, activity);
-    await this.linkManually({
-      trainingSessionId: onlyCandidate.id,
-      activityLogId,
-      origin: 'automatic',
-      matchMethod: 'automatic_single_candidate',
-      evidence,
-    });
-    return 'corresponding';
+    const changed = writes.length > 0;
+    if (!dryRun) for (const write of writes) await write();
+    return { ...base, canonicalActivityLogId: canonical.id, classification: finalClassification, outcome, changed, conflicts };
+  }
+
+  // Caminho explicito e idempotente para reconciliar o HISTORICO de um aluno com o conceito de PhysicalEvent. Percorre os eventos em ordem
+  // cronologica estavel; nao reescreve resultados estabilizados (vinculos automaticos ativos e decisoes humanas). dryRun descreve sem gravar.
+  // Pre-condicao: a identidade fisica do aluno ja' foi avaliada (evaluateUserHistory); linhas nunca avaliadas contam como evento proprio.
+  async reconcileUserHistory(userId: string, options: { dryRun?: boolean } = {}): Promise<UserReconciliationSummary> {
+    const logs = (await this.prisma.activityLog.findMany({ where: { userId } })).filter((l) => l.userId === userId);
+    logs.sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime() || (a.id < b.id ? -1 : 1));
+    const seen = new Set<string>();
+    const results: EventReconciliationResult[] = [];
+    for (const log of logs) {
+      const key = log.physicalIdentityStatus === 'matched' && log.physicalEventId ? `event:${log.physicalEventId}` : `activity:${log.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push(await this.reconcileEvent(log.id, options));
+    }
+    const byOutcome: Record<string, number> = {};
+    for (const r of results) byOutcome[r.outcome] = (byOutcome[r.outcome] ?? 0) + 1;
+    return { dryRun: options.dryRun === true, events: results.length, changed: results.filter((r) => r.changed).length, conflicts: results.reduce((n, r) => n + r.conflicts, 0), byOutcome, results };
+  }
+
+  private async findMaterializedSessionForActivities(userId: string, activityLogIds: Set<string>) {
+    const sessions = await this.prisma.trainingSession.findMany({ where: { userId, origin: 'device_extra' }, include: { completion: true } });
+    return sessions.find((s) => activityLogIds.has((s.structure as { activityLogId?: string } | null)?.activityLogId ?? '')) ?? null;
   }
 
   // Cria uma linha 'candidate' (nunca 'active') — proposta de correspondencia ainda nao

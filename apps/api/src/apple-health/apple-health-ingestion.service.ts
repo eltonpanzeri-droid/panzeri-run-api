@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
+import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { APPLE_HEALTH_CHANNEL, APPLE_HEALTH_PAYLOAD_SCHEMA, APPLE_HEALTH_PROVIDER, normalizeAppleHealthWorkout, NormalizedAppleWorkout } from './apple-health-normalizer';
 
 export const MAX_WORKOUTS_PER_BATCH = 50;
@@ -24,10 +25,9 @@ export interface AppleHealthImportResult {
 // caminho canonico da Polar. O userId vem SEMPRE do JWT (nunca do corpo) e entra na chave unica
 // (provider+userId+externalId), entao nada e' compartilhado entre usuarios.
 //
-// Fora do escopo desta etapa (de proposito): deduplicacao cross-provider, Motor de Reconciliacao (classify), notificacoes,
-// samples/serie temporal. ActivityLog nasce com executionClassification=null — os consumidores de Training Intelligence e
-// evolucao so' leem 'corresponding'/'alternative', entao uma atividade Apple ainda nao classificada nao alimenta nada
-// (e nao pode contar em dobro com a mesma corrida vinda de outro provider antes da Etapa 2).
+// Fora do escopo: samples/serie temporal e notificacoes. A reconciliacao com a prescricao (3B) e' por PhysicalEvent: a observacao Apple so'
+// carrega vinculo/classificacao quando e' a CANONICA do evento (sem gravador nativo do mesmo evento); caso contrario fica sem classificacao
+// e a execucao e' contada uma vez, pela canonica.
 @Injectable()
 export class AppleHealthIngestionService {
   private readonly logger = new Logger(AppleHealthIngestionService.name);
@@ -36,7 +36,17 @@ export class AppleHealthIngestionService {
     private readonly prisma: PrismaService,
     // Opcional so' para testes que constroem o servico sem ele; em producao e' sempre injetado.
     private readonly physicalIdentity?: PhysicalActivityIdentityService,
+    // 3B: reconciliacao por PhysicalEvent apos a identidade fisica resolvida. Opcional so' para testes que constroem o servico sem ele.
+    private readonly sessionExecutionLink?: SessionExecutionLinkService,
   ) {}
+
+  private async reconcileSafely(activityLogId: string): Promise<void> {
+    try {
+      await this.sessionExecutionLink?.reconcileEvent(activityLogId);
+    } catch (error) {
+      this.logger.warn(`Falha ao reconciliar evento fisico da atividade ${activityLogId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
   async importWorkouts(userId: string, body: unknown): Promise<AppleHealthImportResult> {
     const workouts = (body as { workouts?: unknown } | null)?.workouts;
@@ -54,8 +64,12 @@ export class AppleHealthIngestionService {
       try {
         const item = await this.persist(userId, normalized.value);
         items.push(item);
-        // Identidade fisica cross-provider (Etapa 2): so' agrupa; nunca classifica nem reconcilia. Best-effort.
-        if (item.status === 'created' && item.activityLogId) await this.physicalIdentity?.evaluateSafely(item.activityLogId);
+        // Identidade fisica cross-provider (Etapa 2) e, DEPOIS dela, a reconciliacao do EVENTO com a prescricao (3B): so' a observacao
+        // canonica do evento carrega vinculo/classificacao. Best-effort — nunca derruba a ingestao.
+        if (item.status === 'created' && item.activityLogId) {
+          await this.physicalIdentity?.evaluateSafely(item.activityLogId);
+          await this.reconcileSafely(item.activityLogId);
+        }
       } catch (error) {
         // Falha de um treino nunca derruba o lote inteiro nem vaza detalhe interno ao cliente.
         this.logger.warn(`Falha ao importar treino HealthKit ${normalized.value.externalId}: ${error instanceof Error ? error.message : String(error)}`);

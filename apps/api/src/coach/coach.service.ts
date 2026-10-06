@@ -218,6 +218,15 @@ export class CoachService {
     return this.physicalIdentity.evaluateUserHistory(studentId);
   }
 
+  // 3B: reconciliacao do HISTORICO de um aluno por PhysicalEvent (idempotente). dryRun (padrao) so' descreve o que mudaria, sem gravar
+  // nada (nem a identidade). Com dryRun=false avalia a identidade fisica do aluno primeiro e depois reconcilia os eventos.
+  async reconcileExternalActivityHistory(studentId: string, dryRun: boolean) {
+    if (!this.physicalIdentity) throw new NotFoundException('Servico de identidade fisica indisponivel.');
+    const identity = dryRun ? null : await this.physicalIdentity.evaluateUserHistory(studentId);
+    const reconciliation = await this.sessionExecutionLink.reconcileUserHistory(studentId, { dryRun });
+    return { identity, reconciliation };
+  }
+
   // Diagnostico Admin: comparacao sob demanda (sem persistir) de duas observacoes pelo matcher atual.
   async compareExternalActivities(studentId: string, a: string, b: string) {
     if (!this.physicalIdentity) throw new NotFoundException('Servico de identidade fisica indisponivel.');

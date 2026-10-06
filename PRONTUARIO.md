@@ -2621,3 +2621,17 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
   `physicalCanonicalReason` v2: `rule`, `nativeObservationPresent`, `tieBreak`, `nativeAlternatives`, candidatas com `role`/`roleBasis`.
 - **`AthletePrimarySource`** deixou de ser seletor: só override excepcional (desempata nativos equivalentes) e registro histórico. **`WorkoutDelivery` não entra** (prova destino, não correspondência
   — ganha força na 3B). Pendência: confirmar com dados reais se o `device` do HKWorkout distingue gravação nativa de cópia importada.
+
+### 2026-10-06 — Apple Etapa 3B (núcleo): reconciliação por PhysicalEvent ↔ TrainingSession
+- **Modelo:** `SessionExecutionLink` continua sendo a única estrutura; `activityLogId` aponta para a observação **canônica** atual do evento
+  (para `unique`, a própria observação). Sem migration. Observações não-canônicas não carregam vínculo nem classificação automática (conta uma vez).
+- **`SessionExecutionLinkService.reconcileEvent(id, {dryRun})`** resolve evento → canônica; decisão humana (`coach`/`student`) prevalece e
+  conflito vira linha `revoked` inerte (`automatic_conflict_with_human_decision`); vínculo automático ativo é estável e só acompanha a canônica
+  (`automatic_canonical_follow`, com supersessão); estados automáticos não vinculados (`alternative`/`ambiguous`) são recalculados.
+  `classify()` virou plano (`planClassification`) + aplicação; para evento `matched` delega a `reconcileEvent`.
+- **Correções semânticas:** modalidade canônica (`canonical-modality.ts`) também na reconciliação; observações do mesmo evento e não-canônicas de
+  outros eventos não são rivais; sessões sintéticas `device_extra` não concorrem como candidatas; atividade alternativa já materializada é preservada.
+- **Histórico:** `reconcileUserHistory(userId, {dryRun})` (idempotente); endpoint `POST /coach/students/:id/external-activities/reconcile-history`
+  (SIMULAÇÃO por padrão; só grava com `{"dryRun": false}`, após avaliar a identidade). **Não executado em produção.**
+- **Disparo:** Polar (`classify` após `evaluateSafely`) e Apple (`evaluateSafely` → `reconcileEvent`). Identidade `ambiguous` não é reconciliada.
+- **Fora desta etapa:** consumidores (3C), TI, UI do aluno, Garmin/COROS. Sem botão no Admin para a reconciliação histórica (próximo passo pequeno).
