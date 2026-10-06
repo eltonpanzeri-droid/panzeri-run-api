@@ -276,6 +276,25 @@ export class PhysicalActivityIdentityService {
     }
   }
 
+  // DIAGNOSTICO (so' leitura): compara duas observacoes do mesmo aluno com EXATAMENTE o matcher atual e os valores persistidos. Nao grava
+  // nada, nao altera physicalIdentityEvidence nem o agrupamento.
+  async compareStored(userId: string, activityLogIdA: string, activityLogIdB: string) {
+    const rows = (await this.prisma.activityLog.findMany({ where: { userId, id: { in: [activityLogIdA, activityLogIdB] } }, select: SELECT })) as Row[];
+    const a = rows.find((r) => r.id === activityLogIdA);
+    const b = rows.find((r) => r.id === activityLogIdB);
+    if (!a || !b || activityLogIdA === activityLogIdB) return null;
+    const inputOf = (row: Row) => {
+      const o = toObserved(row);
+      return {
+        activityLogId: o.id, provider: o.provider, sport: o.sport, observerKey: o.observerKey,
+        startedAt: o.startedAt.toISOString(), endedAt: o.endedAt ? o.endedAt.toISOString() : null,
+        durationSec: o.durationSec, distanceMeters: o.distanceMeters,
+      };
+    };
+    const comparison = compareObservations(toObserved(a), toObserved(b));
+    return { verdict: comparison.verdict, reason: comparison.reason, evidence: comparison.evidence, a: inputOf(a), b: inputOf(b) };
+  }
+
   // Backfill sob demanda do historico de UM aluno (nao ha migration de dados nem processamento massivo automatico).
   async evaluateUserHistory(userId: string) {
     const logs = await this.prisma.activityLog.findMany({ where: { userId }, orderBy: { startedAt: 'asc' }, select: { id: true }, take: MAX_HISTORY_BATCH });

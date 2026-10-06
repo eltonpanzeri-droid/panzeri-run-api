@@ -5540,6 +5540,24 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
     }
   }
 
+  // Diagnostico: compara DUAS observacoes selecionadas com o matcher atual, sob demanda (nada e' gravado).
+  const [compareIds, setCompareIds] = React.useState<string[]>([]);
+  const [compareResult, setCompareResult] = React.useState<unknown>(null);
+  const [compareState, setCompareState] = React.useState<'idle' | 'loading' | 'error'>('idle');
+  async function compareSelected() {
+    if (compareIds.length !== 2) return;
+    setCompareState('loading');
+    setCompareResult(null);
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/external-activities/compare?a=${encodeURIComponent(compareIds[0])}&b=${encodeURIComponent(compareIds[1])}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) { setCompareState('error'); return; }
+      setCompareResult(await response.json());
+      setCompareState('idle');
+    } catch {
+      setCompareState('error');
+    }
+  }
+
   async function reclassify(activityLogId: string) {
     setReclassifyById((current) => ({ ...current, [activityLogId]: 'loading' }));
     try {
@@ -5592,6 +5610,19 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
         ) : null}
       </div>
 
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button type="button" className="secondaryOutlineButton" disabled={compareIds.length !== 2 || compareState === 'loading'} onClick={() => void compareSelected()}>
+          {compareState === 'loading' ? 'Comparando...' : `Comparar selecionadas (${compareIds.length}/2)`}
+        </button>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>Marque 2 observações abaixo. Cálculo sob demanda com o matcher atual; nada é gravado.</span>
+        {compareState === 'error' ? <span style={{ fontSize: 11, color: '#b91c1c' }}>Falha ao comparar.</span> : null}
+      </div>
+      {compareResult ? (
+        <pre style={{ fontSize: 11, background: 'var(--surface)', padding: 10, borderRadius: 6, overflowX: 'auto', maxHeight: 420, overflowY: 'auto', margin: 0 }}>
+          {JSON.stringify(compareResult, null, 2)}
+        </pre>
+      ) : null}
+
       {rows.length === 0 ? (
         <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma atividade externa importada para este aluno.</p>
       ) : (
@@ -5639,6 +5670,14 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
                   </div>
                 );
               })()}
+              <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={compareIds.includes(row.id)}
+                  onChange={(event) => setCompareIds((current) => (event.target.checked ? [...current, row.id].slice(-2) : current.filter((id) => id !== row.id)))}
+                />
+                selecionar para comparar (id {row.id})
+              </label>
               <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                 <strong>{row.provider} · {row.sport ?? 'modalidade não informada'}</strong>
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>externalId: {row.externalId}</span>

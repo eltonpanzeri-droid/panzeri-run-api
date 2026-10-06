@@ -213,6 +213,14 @@ export class CoachService {
     return this.physicalIdentity.evaluateUserHistory(studentId);
   }
 
+  // Diagnostico Admin: comparacao sob demanda (sem persistir) de duas observacoes pelo matcher atual.
+  async compareExternalActivities(studentId: string, a: string, b: string) {
+    if (!this.physicalIdentity) throw new NotFoundException('Servico de identidade fisica indisponivel.');
+    const result = await this.physicalIdentity.compareStored(studentId, a, b);
+    if (!result) throw new NotFoundException('Duas atividades distintas deste aluno sao necessarias.');
+    return result;
+  }
+
   // Ecossistema de execucao PRIMARIO do atleta a partir de uma data (Apple Etapa 3A). Cria um periodo novo; nao reescreve eventos anteriores.
   async setStudentPrimarySource(studentId: string, body: { provider?: unknown; effectiveFrom?: unknown; note?: unknown }) {
     if (!this.physicalIdentity) throw new NotFoundException('Servico de identidade fisica indisponivel.');

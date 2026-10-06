@@ -169,6 +169,19 @@ const APPLE_STRAVA = (id = 'a') => row(id, 'apple_health', 'com.strava.stravarid
 const APPLE_WATCH = (id = 'w') => row(id, 'apple_health', 'com.apple.health.ABC', '2026-10-06T08:59:55Z', 34, 7.0);
 
 describe('PhysicalActivityIdentityService', () => {
+  it('compareStored (diagnostico): usa o matcher atual com os valores persistidos, expoe entradas/deltas e NAO grava nada', async () => {
+    const { service, activityLog, original, data } = buildService([POLAR(), APPLE_STRAVA(), row('o', 'apple_health', 'com.apple.health.X', '2026-10-06T09:00:00Z', 34, 7.01, 'user-2')]);
+    const result = await service.compareStored('user-1', 'p', 'a');
+    expect(result).toMatchObject({ verdict: 'same', reason: 'strong_multi_evidence', a: { activityLogId: 'p', provider: 'polar' }, b: { activityLogId: 'a', provider: 'apple_health' } });
+    expect(result!.evidence.find((e) => e.criterion === 'start_proximity')?.detail).toMatchObject({ diffSec: 20 });
+    expect(result!.a.startedAt).toBe('2026-10-06T09:00:00.000Z');
+    expect(activityLog.update).not.toHaveBeenCalled();
+    expect(JSON.stringify(data.get('p'))).toBe(original.get('p'));
+    // outro aluno ou o mesmo id nos dois lados: sem comparacao
+    expect(await service.compareStored('user-1', 'p', 'o')).toBeNull();
+    expect(await service.compareStored('user-1', 'p', 'p')).toBeNull();
+  });
+
   it('agrupa Polar + HealthKit(Strava) no mesmo physicalEventId, sem tocar em mais nada do registro', async () => {
     const { service, data, original } = buildService([POLAR(), APPLE_STRAVA()]);
     const result = await service.evaluate('a');

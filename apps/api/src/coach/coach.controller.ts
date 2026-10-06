@@ -413,6 +413,12 @@ export class CoachController {
 
   // Identidade fisica cross-provider (06/10/2026, Apple Etapa 2): agrupa, para UM aluno, observacoes de providers diferentes
   // que sao o mesmo evento fisico. Idempotente, nunca apaga/altera ActivityLog nem raw, nao classifica nem reconcilia.
+  // Diagnostico (so' leitura): compara duas observacoes sob demanda com o matcher atual, sem persistir nada.
+  @Get('students/:studentId/external-activities/compare')
+  compareExternalActivities(@Param('studentId') studentId: string, @Query('a') a: string, @Query('b') b: string) {
+    return this.coachService.compareExternalActivities(studentId, String(a ?? ''), String(b ?? ''));
+  }
+
   @Post('students/:studentId/external-activities/evaluate-identity')
   evaluateExternalActivityIdentity(@Param('studentId') studentId: string) {
     return this.coachService.evaluateExternalActivityIdentity(studentId);
