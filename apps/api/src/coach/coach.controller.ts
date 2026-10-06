@@ -411,6 +411,13 @@ export class CoachController {
     return this.coachService.reclassifyExternalActivity(studentId, activityLogId);
   }
 
+  // Identidade fisica cross-provider (06/10/2026, Apple Etapa 2): agrupa, para UM aluno, observacoes de providers diferentes
+  // que sao o mesmo evento fisico. Idempotente, nunca apaga/altera ActivityLog nem raw, nao classifica nem reconcilia.
+  @Post('students/:studentId/external-activities/evaluate-identity')
+  evaluateExternalActivityIdentity(@Param('studentId') studentId: string) {
+    return this.coachService.evaluateExternalActivityIdentity(studentId);
+  }
+
   // ─── Panzeri Data Layer — Fase 1 ────────────────────────────────────────────
 
   @Get('data/growth/funnel')

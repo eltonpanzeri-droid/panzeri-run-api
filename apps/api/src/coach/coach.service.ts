@@ -33,6 +33,7 @@ import { ReassessmentService } from '../reassessment/reassessment.service';
 import { EvolutionMetricService } from '../evolution/evolution-metric.service';
 import type { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
+import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 
 @Injectable()
 export class CoachService {
@@ -53,6 +54,8 @@ export class CoachService {
     private readonly reassessmentService: ReassessmentService,
     private readonly evolutionMetric: EvolutionMetricService,
     private readonly sessionExecutionLink: SessionExecutionLinkService,
+    // Opcional so' para testes antigos que constroem o servico sem ele; em producao e' sempre injetado.
+    private readonly physicalIdentity?: PhysicalActivityIdentityService,
   ) {}
 
   // Passo 5 (continuacao) — lista leve de TODOS os alunos ativos (id/nome/codigo), sem paginacao —
@@ -92,6 +95,9 @@ export class CoachService {
         elevationGainMeters: true,
         hasRoute: true,
         detailFetchedAt: true,
+        // Identidade fisica cross-provider (Apple Etapa 2) — so' leitura diagnostica.
+        physicalEventId: true,
+        physicalIdentityStatus: true,
         rawActivity: { select: { receivedAt: true, sourceUpdatedAt: true } },
       },
     });
@@ -192,6 +198,13 @@ export class CoachService {
       classification,
       activeLinkTrainingSessionId: activeLink?.trainingSessionId ?? null,
     };
+  }
+
+  // Avalia a identidade fisica (observacoes do mesmo evento) de TODO o historico de UM aluno. Idempotente; nao apaga nem altera
+  // ActivityLog/RawExternalActivity, nao classifica nem reconcilia. Ver PhysicalActivityIdentityService.
+  async evaluateExternalActivityIdentity(studentId: string) {
+    if (!this.physicalIdentity) throw new NotFoundException('Servico de identidade fisica indisponivel.');
+    return this.physicalIdentity.evaluateUserHistory(studentId);
   }
 
   // Passo 5 (continuacao, 25/09/2026) — todos os testes de 3km do aluno, sem o take:3 que o

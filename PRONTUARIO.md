@@ -2581,3 +2581,19 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
   `ActivityLog` nasce com `executionClassification=null`: TI/evolução só leem `corresponding`/`alternative`, então a atividade Apple não alimenta nada ainda.
 - **Pendências de privacidade/produto (não resolvidas):** política/termos ainda não citam HealthKit; não há exclusão de dados `apple_health` por desconexão
   (só exclusão de conta); atividades com source Strava vindas pelo HealthKit precisam de decisão (regras de isolamento do Strava) antes de alimentar qualquer coisa.
+
+### 2026-10-06 — Apple, Etapa 2: identidade física cross-provider (deduplicação sem fusão)
+- **Necessidade:** a mesma corrida chega por mais de um caminho (Polar direto; Polar→Strava→HealthKit→app). Cada registro continua em `ActivityLog` (provenance), mas o
+  domínio precisa saber que são o MESMO evento. Não existia mecanismo de dedup/correlação reutilizável.
+- **Estrutura mínima:** 4 colunas anuláveis em `ActivityLog` (migration aditiva `20261006120000_activity_physical_identity`): `physicalEventId` (uuid compartilhado
+  só quando há ≥2 observações), `physicalIdentityStatus` (`unique`/`matched`/`ambiguous`; null = nunca avaliado), `physicalIdentityEvidence`, `physicalIdentityEvaluatedAt`.
+  Nada é apagado, fundido ou reescrito; sem hierarquia de provider e sem métricas "escolhidas".
+- **Matching** (`activity-execution/physical-activity-identity.ts`, função pura): mesmo atleta, modalidade compatível, observador diferente (dois registros do mesmo
+  provider/source nunca são o mesmo evento), início, sobreposição de intervalos, duração e distância — níveis forte/fraco/não, tolerâncias graduadas que escalam com a duração.
+  Resultado: `same` (≥3 sinais fortes, nenhum contrário), `distinct` (outro horário, modalidade incompatível, mesmo observador…), `ambiguous` (nunca força match).
+- **Serviço** (`PhysicalActivityIdentityService`): avalia a nova observação contra TODAS da janela (±12h), une grupos que passam a se tocar, serializa por usuário com
+  advisory lock, nunca desagrupa sozinho, rival do mesmo observador → ambíguo. Chamado (best-effort) após a ingestão Polar e Apple; backfill por aluno em
+  `POST /coach/students/:id/external-activities/evaluate-identity`. Validador offline sem banco: `apps/api/scripts/validate-physical-identity.ts`.
+- **Quarentena mantida:** não altera `executionClassification`, não liga a `TrainingSession`, não toca TI/evolução/aderência.
+- **ATENÇÃO (consumidor a tratar depois):** `SessionExecutionLinkService.classify()` considera `executionClassification=null` como "rival" no mesmo dia — uma duplicata
+  Apple (null) pode tornar uma atividade Polar `ambiguous`. A identidade física agora permite excluir duplicatas desse cálculo, mas isso NÃO foi alterado aqui.

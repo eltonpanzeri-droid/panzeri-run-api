@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { APPLE_HEALTH_CHANNEL, APPLE_HEALTH_PAYLOAD_SCHEMA, APPLE_HEALTH_PROVIDER, normalizeAppleHealthWorkout, NormalizedAppleWorkout } from './apple-health-normalizer';
 
 export const MAX_WORKOUTS_PER_BATCH = 50;
@@ -31,7 +32,11 @@ export interface AppleHealthImportResult {
 export class AppleHealthIngestionService {
   private readonly logger = new Logger(AppleHealthIngestionService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Opcional so' para testes que constroem o servico sem ele; em producao e' sempre injetado.
+    private readonly physicalIdentity?: PhysicalActivityIdentityService,
+  ) {}
 
   async importWorkouts(userId: string, body: unknown): Promise<AppleHealthImportResult> {
     const workouts = (body as { workouts?: unknown } | null)?.workouts;
@@ -47,7 +52,10 @@ export class AppleHealthIngestionService {
         continue;
       }
       try {
-        items.push(await this.persist(userId, normalized.value));
+        const item = await this.persist(userId, normalized.value);
+        items.push(item);
+        // Identidade fisica cross-provider (Etapa 2): so' agrupa; nunca classifica nem reconcilia. Best-effort.
+        if (item.status === 'created' && item.activityLogId) await this.physicalIdentity?.evaluateSafely(item.activityLogId);
       } catch (error) {
         // Falha de um treino nunca derruba o lote inteiro nem vaza detalhe interno ao cliente.
         this.logger.warn(`Falha ao importar treino HealthKit ${normalized.value.externalId}: ${error instanceof Error ? error.message : String(error)}`);

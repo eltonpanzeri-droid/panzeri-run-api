@@ -1329,6 +1329,21 @@ model ActivityLog {
   // e' a unica proveniencia.
   executionClassifiedBy   String?
 
+  // Identidade FISICA cross-provider (06/10/2026, Apple Etapa 2). Varios ActivityLog (Polar, HealthKit, Strava-via-HealthKit,
+  // Garmin...) podem ser observacoes do MESMO evento fisico. Nenhum registro e apagado nem fundido: cada ActivityLog continua
+  // com seu provider/externalId/raw/metricas/provenance, e as observacoes do mesmo evento compartilham physicalEventId (um uuid
+  // gerado so' quando ha pelo menos 2 observacoes; null = nenhuma contraparte conhecida). Sem hierarquia de provider e sem
+  // metricas "escolhidas": isto so' diz QUE sao o mesmo evento. NAO e reconciliacao (nada aqui liga a TrainingSession) nem
+  // executionClassification.
+  physicalEventId String?
+  // null = nunca avaliado (historico anterior) | 'unique' = avaliado, sem contraparte | 'matched' = ha physicalEventId com >=2
+  // observacoes | 'ambiguous' = ha candidato(s) proximo(s) mas a evidencia nao basta (nunca vira match sozinho).
+  physicalIdentityStatus String?
+  // Criterios avaliados por candidato ({activityLogId, provider, verdict, reason, criteria:[{criterion, matched: true|false|null, ...}]});
+  // matched:null = dado ausente (nunca incompatibilidade). Explica a decisao, nunca a veta.
+  physicalIdentityEvidence Json?
+  physicalIdentityEvaluatedAt DateTime?
+
   executionLinks SessionExecutionLink[]
   samples        RawActivitySample[]
   timeSeriesPoints ActivityTimeSeriesPoint[]
@@ -1338,6 +1353,7 @@ model ActivityLog {
 
   @@unique([provider, userId, externalId])
   @@index([userId, startedAt])
+  @@index([physicalEventId])
 }
 
 // Ingestao de samples (02/10/2026) — serie temporal de uma atividade (FC, velocidade, distancia

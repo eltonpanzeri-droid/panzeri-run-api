@@ -5,6 +5,7 @@ import { ActivityExecutionController } from './activity-execution.controller';
 import { ActivityDetailService } from './activity-detail.service';
 import { ActivityNotificationService } from './activity-notification.service';
 import { ProviderDataDeletionService } from './provider-data-deletion.service';
+import { PhysicalActivityIdentityService } from './physical-activity-identity.service';
 import { TombstoneModule } from '../backup/tombstone.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ActivityTimeSeriesModule } from '../activity-timeseries/activity-timeseries.module';
@@ -15,7 +16,7 @@ import { ActivityTimeSeriesModule } from '../activity-timeseries/activity-timese
 @Module({
   imports: [PrismaModule, NotificationsModule, ActivityTimeSeriesModule, TombstoneModule],
   controllers: [ActivityExecutionController],
-  providers: [SessionExecutionLinkService, ActivityDetailService, ActivityNotificationService, ProviderDataDeletionService],
-  exports: [SessionExecutionLinkService, ActivityNotificationService, ProviderDataDeletionService],
+  providers: [SessionExecutionLinkService, ActivityDetailService, ActivityNotificationService, ProviderDataDeletionService, PhysicalActivityIdentityService],
+  exports: [SessionExecutionLinkService, ActivityNotificationService, ProviderDataDeletionService, PhysicalActivityIdentityService],
 })
 export class ActivityExecutionModule {}

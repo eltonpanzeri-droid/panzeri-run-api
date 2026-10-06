@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ActivityTimeSeriesService } from '../activity-timeseries/activity-timeseries.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { ActivityNotificationService } from '../activity-execution/activity-notification.service';
+import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { PolarService } from './polar.service';
 import { extractPolarProviderMetrics, normalizePolarModality, PolarNormalizerInput } from './polar-activity-normalizer';
 
@@ -64,6 +65,8 @@ export class PolarActivityIngestionService {
     private readonly timeSeries: ActivityTimeSeriesService,
     private readonly sessionExecutionLink: SessionExecutionLinkService,
     private readonly activityNotifications: ActivityNotificationService,
+    // Opcional so' para os testes antigos que constroem o servico sem ele; em producao e' sempre injetado.
+    private readonly physicalIdentity?: PhysicalActivityIdentityService,
   ) {}
 
   // Trava por usuario (03/10/2026): webhook, polling e botao manual sao gatilhos do MESMO sync. Dois
@@ -275,6 +278,10 @@ export class PolarActivityIngestionService {
     });
     return { raw, activityLog };
     });
+
+    // Identidade fisica cross-provider (Apple Etapa 2): so' agrupa observacoes do mesmo evento (nao classifica nem reconcilia).
+    // Best-effort — nunca derruba a ingestao.
+    await this.physicalIdentity?.evaluateSafely(activityLog.id);
 
     // Samples (02/10/2026) — SEMPRE depois do resumo ja persistido com sucesso. Qualquer falha
     // aqui dentro e' so' logada, nunca propagada: a ActivityLog/RawExternalActivity do resumo ja
