@@ -5453,6 +5453,8 @@ type ExternalActivityRow = {
   physicalIdentityStatus?: string | null;
   physicalCanonicalActivityLogId?: string | null;
   physicalCanonicalReason?: PhysicalCanonicalReasonView | null;
+  physicalIdentityEvidence?: unknown;
+  physicalIdentityEvaluatedAt?: string | null;
   providerMetrics?: { source?: { name?: string; bundleId?: string; family?: string }; device?: { name?: string; manufacturer?: string; model?: string } } | null;
 };
 
@@ -5630,6 +5632,10 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
                     <span>Origem: {source ? `${source.name ?? '—'} (${source.bundleId ?? '—'})` : '—'} · dispositivo: {device ? `${device.name ?? device.model ?? '—'} / ${device.manufacturer ?? '—'}` : '—'}</span>
                     <span>Papel v2: <strong>{candidate?.role ?? '—'}</strong> · roleBasis: {candidate?.roleBasis ?? '—'}</span>
                     <span>Regra: versão {reason?.version ?? '—'} · {reason?.rule ?? '—'}{reason?.tieBreak ? ` (desempate: ${reason.tieBreak})` : ''}</span>
+                    <details>
+                      <summary style={{ cursor: 'pointer' }}>Evidência de identidade gravada (avaliada em {row.physicalIdentityEvaluatedAt ? fmtDayFull(row.physicalIdentityEvaluatedAt) : '—'})</summary>
+                      <pre style={{ fontSize: 11, overflowX: 'auto', maxHeight: 300, overflowY: 'auto' }}>{JSON.stringify(row.physicalIdentityEvidence ?? null, null, 2)}</pre>
+                    </details>
                   </div>
                 );
               })()}

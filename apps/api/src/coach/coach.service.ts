@@ -101,6 +101,8 @@ export class CoachService {
         physicalCanonicalActivityLogId: true,
         // Diagnostico da canonica v2 (motivo com papeis) e proveniencia (source/device) — leitura, sem payload bruto.
         physicalCanonicalReason: true,
+        physicalIdentityEvidence: true,
+        physicalIdentityEvaluatedAt: true,
         providerMetrics: true,
         rawActivity: { select: { receivedAt: true, sourceUpdatedAt: true } },
       },
