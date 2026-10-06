@@ -5,6 +5,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
+import { AppleHealthProofCard } from './src/appleHealthProof/AppleHealthProofCard';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { parseJourneyFromSearch, resolveJourney } from './src/journey';
@@ -8820,6 +8821,8 @@ function PrivacyDataScreen({ accessToken, onOpenStrava }: { accessToken: string;
               <Ionicons name="sync" size={18} color={PRColors.ocean} />
             </Pressable>
           </View>
+          {/* Bloco 1 (prova tecnica Apple Watch): so' aparece no app nativo iOS com extra.appleHealthProof. */}
+          <AppleHealthProofCard />
         </>
       ))}
 
@@ -10188,7 +10191,8 @@ function getUserIdFromAccessToken(accessToken: string): string | null {
 const REVENUECAT_ANDROID_API_KEY = (Constants.expoConfig?.extra?.revenueCatAndroidApiKey as string | undefined) ?? '';
 
 function isNativeStorePurchaseAvailable(): boolean {
-  return Platform.OS !== 'web' && REVENUECAT_ANDROID_API_KEY.length > 0;
+  // So' Android: a chave do RevenueCat e' do Google Play. Num build iOS nativo (prova Apple Watch) a compra segue o fluxo Asaas.
+  return Platform.OS === 'android' && REVENUECAT_ANDROID_API_KEY.length > 0;
 }
 
 let revenueCatConfiguredUserId: string | null = null;

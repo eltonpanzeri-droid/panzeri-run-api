@@ -1,0 +1,10 @@
+{
+  "name": "panzeri-apple-health",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Prova tecnica (Bloco 1): HealthKit (leitura de HKWorkout) + WorkoutKit (agendar corrida no Apple Watch). Modulo nativo local, so iOS.",
+  "main": "src/index.ts",
+  "license": "UNLICENSED",
+  "author": "Panzeri Run",
+  "homepage": "https://panzerirun.com"
+}

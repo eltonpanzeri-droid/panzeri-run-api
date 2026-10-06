@@ -2558,3 +2558,14 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
   Strava (botão Connect with Strava + selo Compatible with Strava) em `apps/mobile/assets/strava/` e apontar em `src/stravaBrand.ts` (links do zip retornaram 404).
 - **Variáveis novas no EasyPanel:** `STRAVA_TOKEN_ENCRYPTION_KEY` (obrigatória; adicionar JUNTO do deploy, senão a conexão Strava falha) e, para criar
   webhook, `STRAVA_WEBHOOK_VERIFY_TOKEN`.
+
+### 2026-10-05 — Apple Watch, Bloco 1: prova técnica HealthKit + WorkoutKit (código escrito, NÃO compilado nem testado em aparelho)
+- **Escopo:** só prova. Nada vai para API/ActivityLog/IA/Training Intelligence; sem deduplicação, sem rotas/GPS, sem background.
+- **Arquitetura:** módulo Expo nativo local `apps/mobile/modules/panzeri-apple-health` (Swift: HealthKit leitura de `HKWorkout` corrida + distância; WorkoutKit
+  `WorkoutScheduler`, `SingleGoalWorkout` de corrida com distância, `WorkoutPlan(id: UUID)` = id do Panzeri Run) + config plugin `plugins/withAppleHealthProof.js`
+  (entitlement HealthKit, `NSHealthShareUsageDescription`, iOS 17.0 mínimo) + tela de teste `src/appleHealthProof/AppleHealthProofCard.tsx` (só iOS nativo, flag
+  `extra.appleHealthProof` em `app.json`). Android/web/PWA não têm o módulo e não mostram a tela.
+- **Correção necessária junto:** `isNativeStorePurchaseAvailable()` passou a exigir `Platform.OS === 'android'` (antes: qualquer nativo), para um build iOS não
+  tentar o RevenueCat com a chave do Google Play.
+- **Pendente (só o Elton):** conta Apple Developer + `eas device:create` + `eas build -p ios --profile preview` + teste no iPhone/Apple Watch. O app iOS nativo
+  nunca foi buildado antes (iPhone usava PWA).
