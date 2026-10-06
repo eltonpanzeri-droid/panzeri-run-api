@@ -2611,3 +2611,13 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
 - **Primário do atleta:** linha explícita vigente na data > histórico de `WorkoutDelivery` (enviada/entregue) até a data > nenhum. Trocar de relógio = novo período
   (`POST /coach/students/:id/primary-source`), eventos anteriores continuam resolvidos pelo período antigo.
 - **Fora de escopo (3B/3C):** reconciliação por evento, consumidores, UI, composição de métricas.
+
+### 2026-10-06 — Apple 3A revisada (regra v2): canônica automática por PAPEL da observação, sem fonte primária manual
+- **Decisão (Elton):** o aluno só conecta o que usa; o Panzeri Run escolhe. Princípio: gravador nativo antes de cópia/relay — papel da observação NAQUELE evento, nunca hierarquia de marcas.
+- **Papéis** (`physical-canonical.ts`): `native_recorder` (integração direta Polar/Garmin/…; HealthKit com origem Apple + device Apple, ex. Apple Watch), `relay` (só com evidência:
+  HealthKit de app X + gravação nativa DIRETA de X no MESMO evento; Strava nunca é promovido) e `unknown` (HealthKit de app de terceiro sozinho — Strava, Polar Flow, Garmin Connect —,
+  origem Apple sem device, agregador). Sensor (cinta de FC) não é observador. Não se inventa origem.
+- **Seleção:** nativo vence (entre nativos: override excepcional > completude > id; alternativas registradas); sem nativo → `best_available` (não é erro); `sole_observation` para uma só.
+  `physicalCanonicalReason` v2: `rule`, `nativeObservationPresent`, `tieBreak`, `nativeAlternatives`, candidatas com `role`/`roleBasis`.
+- **`AthletePrimarySource`** deixou de ser seletor: só override excepcional (desempata nativos equivalentes) e registro histórico. **`WorkoutDelivery` não entra** (prova destino, não correspondência
+  — ganha força na 3B). Pendência: confirmar com dados reais se o `device` do HKWorkout distingue gravação nativa de cópia importada.

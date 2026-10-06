@@ -360,148 +360,200 @@ describe('PhysicalActivityIdentityService — determinismo com chegada progressi
   });
 });
 
-// ---- Etapa 3A: observacao canonica e ecossistema primario --------------------------------------------------------------------------
-const POLAR_FLOW_VIA_HK = (id = 'pf') => row(id, 'apple_health', 'com.polar.polarflow', '2026-10-06T09:00:10Z', 34, 7.01);
-const GARMIN = (id = 'g') => ({ ...row(id, 'garmin', null, '2026-10-06T09:00:00Z', 34, 7.01), avgHeartRateBpm: 150 } as Row);
-const GARMIN_VIA_HK = (id = 'gh') => row(id, 'apple_health', 'com.garmin.connect.mobile', '2026-10-06T09:00:15Z', 34, 7.01);
+// ---- Etapa 3A (regra v2): observacao canonica por PAPEL da observacao no evento ----------------------------------------------------
+// Principio: gravador nativo vence copia/relay; proveniencia indeterminada nao e' promovida nem rebaixada sem evidencia; sem nativa a melhor
+// observacao disponivel e' escolhida (nao e' erro); nada e' configurado pelo aluno ou treinador; WorkoutDelivery nao e' evidencia aqui.
+import { baseProvenanceProfile, provenanceProfiles, selectCanonicalObservation } from '../src/activity-execution/physical-canonical';
+
+const withDevice = (r: Row, device: Record<string, string>): Row => ({ ...r, providerMetrics: { ...(r.providerMetrics as object), device } });
+const APPLE_DEVICE = { name: 'Apple Watch', manufacturer: 'Apple Inc.', model: 'Watch' };
+
 const POLAR_RICH = (id = 'p') => ({ ...row(id, 'polar', null, '2026-10-06T09:00:00Z', 34, 7.01), avgHeartRateBpm: 152, caloriesKcal: 520, cadenceAvg: 170, hasRoute: true } as Row);
+const GARMIN = (id = 'g') => ({ ...row(id, 'garmin', null, '2026-10-06T09:00:00Z', 34, 7.01), avgHeartRateBpm: 150, cadenceAvg: 168 } as Row);
+const HK_STRAVA = (id = 'a') => APPLE_STRAVA(id);
+const HK_POLAR_FLOW = (id = 'pf') => row(id, 'apple_health', 'com.polar.polarflow', '2026-10-06T09:00:10Z', 34, 7.01);
+const HK_GARMIN_CONNECT = (id = 'gh') => row(id, 'apple_health', 'com.garmin.connect.mobile', '2026-10-06T09:00:15Z', 34, 7.01);
+const WATCH_NATIVE = (id = 'w') => withDevice(APPLE_WATCH(id), APPLE_DEVICE);
 
 const canonicalOf = (ctx: { data: Map<string, Row> }, id: string) => (ctx.data.get(id) as any).physicalCanonicalActivityLogId as string | null;
 const reasonOf = (ctx: { data: Map<string, Row> }, id: string) => (ctx.data.get(id) as any).physicalCanonicalReason as any;
+const roleOf = (reason: any, id: string) => reason.candidates.find((c: any) => c.activityLogId === id).role as string;
 
 async function evaluateAll(ctx: ReturnType<typeof buildService>, order: string[]) {
   for (const id of order) await ctx.service.evaluate(id);
 }
+const permutations = <T,>(items: T[]): T[][] => (items.length <= 1 ? [items] : items.flatMap((item, i) => permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest])));
 
-describe('Etapa 3A — observacao canonica', () => {
-  it('Polar primario + Polar direto + HealthKit(Strava) -> Polar canonico', async () => {
-    const ctx = buildService([POLAR_RICH(), APPLE_STRAVA()]);
-    ctx.setPrimary('user-1', 'polar', '2026-01-01T00:00:00Z');
-    await evaluateAll(ctx, ['a', 'p']);
-    expect(canonicalOf(ctx, 'p')).toBe('p');
-    expect(canonicalOf(ctx, 'a')).toBe('p'); // todos apontam para a mesma canonica
-    expect(reasonOf(ctx, 'p')).toMatchObject({ rule: 'primary_ecosystem', primarySource: 'polar', primarySourceOrigin: 'explicit', fallbackReason: null });
-    expect(reasonOf(ctx, 'p').candidates).toHaveLength(2);
+describe('Etapa 3A v2 — perfil de proveniencia', () => {
+  it('provider direto = gravador nativo; Strava (agregador) = unknown', () => {
+    expect(baseProvenanceProfile('polar', null)).toMatchObject({ role: 'native_recorder', ecosystem: 'polar', basis: 'direct_provider_integration' });
+    expect(baseProvenanceProfile('garmin', null).role).toBe('native_recorder');
+    expect(baseProvenanceProfile('strava', null)).toMatchObject({ role: 'unknown', basis: 'aggregator_cannot_tell_recorder' });
   });
 
-  it('Polar primario + Polar direto + Polar Flow via HealthKit -> o canal DIRETO do mesmo ecossistema e canonico (relay preservado)', async () => {
-    const ctx = buildService([POLAR_RICH(), POLAR_FLOW_VIA_HK()]);
-    ctx.setPrimary('user-1', 'polar', '2026-01-01T00:00:00Z');
-    await evaluateAll(ctx, ['pf', 'p']);
-    expect(ctx.partition()).toEqual(['p+pf']);
-    expect(canonicalOf(ctx, 'pf')).toBe('p');
-    expect(ecosystemKeyOfForTest('apple_health', { source: { bundleId: 'com.polar.polarflow' } })).toBe('polar');
+  it('Apple Watch gravando via HealthKit pode ser native_recorder (origem Apple + device Apple); sem device Apple fica unknown', () => {
+    expect(baseProvenanceProfile('apple_health', { source: { bundleId: 'com.apple.health.X' }, device: APPLE_DEVICE })).toMatchObject({ role: 'native_recorder', ecosystem: 'apple_health', basis: 'apple_device_recorded' });
+    expect(baseProvenanceProfile('apple_health', { source: { bundleId: 'com.apple.health.X' } })).toMatchObject({ role: 'unknown', basis: 'apple_source_without_recording_device' });
   });
 
-  it('Garmin primario + Garmin direto + Garmin Connect via HealthKit -> Garmin canonico', async () => {
-    const ctx = buildService([GARMIN(), GARMIN_VIA_HK()]);
-    ctx.setPrimary('user-1', 'garmin', '2026-01-01T00:00:00Z');
-    await evaluateAll(ctx, ['gh', 'g']);
-    expect(canonicalOf(ctx, 'g')).toBe('g');
-    expect(canonicalOf(ctx, 'gh')).toBe('g');
-    expect(reasonOf(ctx, 'g')).toMatchObject({ rule: 'primary_ecosystem', primarySource: 'garmin' });
-  });
-
-  it('Apple Watch / HealthKit primario -> o HealthKit de origem Apple e canonico (nao o HealthKit de origem Strava)', async () => {
-    const ctx = buildService([APPLE_STRAVA(), APPLE_WATCH()]);
-    ctx.setPrimary('user-1', 'apple_health', '2026-01-01T00:00:00Z');
-    await evaluateAll(ctx, ['a', 'w']);
-    expect(ctx.partition()).toEqual(['a+w']);
-    expect(canonicalOf(ctx, 'a')).toBe('w');
-    expect(canonicalOf(ctx, 'w')).toBe('w');
-    expect(reasonOf(ctx, 'w')).toMatchObject({ rule: 'primary_ecosystem', primarySource: 'apple_health' });
-  });
-
-  it('fonte primaria ausente neste evento -> fallback deterministico (registro valido mais completo), com o motivo registrado', async () => {
-    const ctx = buildService([POLAR_RICH(), APPLE_WATCH()]);
-    ctx.setPrimary('user-1', 'garmin', '2026-01-01T00:00:00Z'); // nao ha observacao Garmin
-    await evaluateAll(ctx, ['p', 'w']);
-    expect(canonicalOf(ctx, 'w')).toBe('p'); // Polar e' o mais completo — escolha neutra, nao hierarquia de provider
-    expect(reasonOf(ctx, 'p')).toMatchObject({ rule: 'fallback_deterministic', primarySource: 'garmin', fallbackReason: 'primary_absent' });
-  });
-
-  it('sem primario definido -> fallback com motivo no_primary_defined; sem hierarquia universal (HealthKit mais completo vence um Polar vazio)', async () => {
-    const richHealthKit = { ...APPLE_WATCH(), avgHeartRateBpm: 150, caloriesKcal: 500 } as Row;
-    const ctx = buildService([POLAR(), richHealthKit]);
-    await evaluateAll(ctx, ['p', 'w']);
-    expect(canonicalOf(ctx, 'p')).toBe('w');
-    expect(reasonOf(ctx, 'w')).toMatchObject({ rule: 'fallback_deterministic', primarySource: null, fallbackReason: 'no_primary_defined' });
-  });
-
-  it('observacao primaria sem duracao e distancia nao e valida: fallback com primary_has_no_valid_observation', async () => {
-    const { selectCanonicalObservation } = await import('../src/activity-execution/physical-canonical');
-    const base = { caloriesKcal: null, avgHeartRateBpm: null, maxHeartRateBpm: null, cadenceAvg: null, powerAvgWatts: null, elevationGainMeters: null, hasRoute: null };
-    const emptyPolar = { id: 'p', provider: 'polar', providerMetrics: null, durationSec: null, distanceMeters: null, ...base };
-    const hk = { id: 'a', provider: 'apple_health', providerMetrics: { source: { bundleId: 'com.strava.stravaride' } }, durationSec: 2040, distanceMeters: 7010, ...base };
-    const selection = selectCanonicalObservation([emptyPolar, hk], { key: 'polar', origin: 'explicit' });
-    expect(selection!.reason).toMatchObject({ rule: 'fallback_deterministic', fallbackReason: 'primary_has_no_valid_observation' });
-    expect(selection!.canonicalId).toBe('a');
-  });
-
-  it('fonte primaria chegando DEPOIS: a observacao primaria entra e a canonica e recalculada', async () => {
-    const ctx = buildService([APPLE_WATCH()]);
-    ctx.setPrimary('user-1', 'polar', '2026-01-01T00:00:00Z');
-    await evaluateAll(ctx, ['w']);
-    expect(canonicalOf(ctx, 'w')).toBe('w'); // unica observacao
-    expect(reasonOf(ctx, 'w')).toMatchObject({ rule: 'sole_observation' });
-    ctx.data.set('p', { ...POLAR_RICH() });
-    await ctx.service.evaluate('p');
-    expect(canonicalOf(ctx, 'w')).toBe('p');
-    expect(canonicalOf(ctx, 'p')).toBe('p');
-    expect(reasonOf(ctx, 'p')).toMatchObject({ rule: 'primary_ecosystem', primarySource: 'polar' });
-  });
-
-  it('ordem de chegada diferente -> mesma canonica (todas as 6 ordens de Polar, HealthKit/Strava e HealthKit/Watch)', async () => {
-    const ids = ['p', 'a', 'w'];
-    const perms: number[][] = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
-    for (const primary of ['polar', 'apple_health', null]) {
-      const outcomes = new Set<string>();
-      for (const order of perms) {
-        const ctx = buildService([]);
-        if (primary) ctx.setPrimary('user-1', primary, '2026-01-01T00:00:00Z');
-        const rowsById: Record<string, Row> = { p: POLAR_RICH(), a: APPLE_STRAVA(), w: APPLE_WATCH() };
-        for (const i of order) { ctx.data.set(ids[i], { ...rowsById[ids[i]] }); await ctx.service.evaluate(ids[i]); }
-        outcomes.add(JSON.stringify(ids.map((id) => [canonicalOf(ctx, id), reasonOf(ctx, id)?.rule])));
-      }
-      expect(outcomes.size).toBe(1);
+  it('HealthKit de app de terceiro NUNCA e classificado como relay sozinho (Strava, Polar Flow, Garmin Connect, desconhecido)', () => {
+    for (const bundleId of ['com.strava.stravaride', 'com.polar.polarflow', 'com.garmin.connect.mobile', 'com.exemplo.app']) {
+      expect(baseProvenanceProfile('apple_health', { source: { bundleId } })).toMatchObject({ role: 'unknown', basis: 'third_party_app_source' });
     }
   });
 
-  it('mudanca futura Polar -> Garmin nao reescreve eventos historicos (preferencia atual != fonte canonica historica)', async () => {
-    const ctx = buildService([
-      { ...POLAR_RICH('p-old'), startedAt: new Date('2026-09-10T09:00:00Z') } as Row, row('a-old', 'apple_health', 'com.strava.stravaride', '2026-09-10T09:00:15Z', 34, 7.01),
-      { ...GARMIN('g-new'), startedAt: new Date('2026-10-20T09:00:00Z') } as Row, row('gh-new', 'apple_health', 'com.garmin.connect.mobile', '2026-10-20T09:00:15Z', 34, 7.01),
-    ]);
-    ctx.setPrimary('user-1', 'polar', '2026-01-01T00:00:00Z');
+  it('sensor (cinta de FC) nao vira observador: device nao-Apple nao torna a observacao nativa nem importa o ecossistema do sensor', () => {
+    const strapOnly = baseProvenanceProfile('apple_health', { source: { bundleId: 'com.apple.health.X' }, device: { name: 'Polar H10', manufacturer: 'Polar' } });
+    expect(strapOnly.role).toBe('unknown');
+    expect(strapOnly.ecosystem).toBe('apple_health'); // ecossistema = o da ORIGEM informada, nunca o do sensor
+  });
+
+  it('so vira relay com evidencia: HealthKit de app X + gravacao nativa DIRETA de X no mesmo evento; Strava nunca e promovido', () => {
+    const polar = POLAR_RICH();
+    const flow = HK_POLAR_FLOW();
+    const strava = HK_STRAVA();
+    const toInput = (r: Row) => ({ id: r.id, provider: r.provider, providerMetrics: r.providerMetrics, durationSec: r.durationSec, distanceMeters: r.distanceMeters, caloriesKcal: null, avgHeartRateBpm: null, maxHeartRateBpm: null, cadenceAvg: null, powerAvgWatts: null, elevationGainMeters: null, hasRoute: null });
+    const together = provenanceProfiles([polar, flow, strava].map(toInput));
+    expect(together.get('pf')).toMatchObject({ role: 'relay', basis: 'copy_of_native_in_same_event', ecosystem: 'polar' });
+    expect(together.get('a')!.role).toBe('unknown'); // Strava: nao prova de quem veio
+    expect(provenanceProfiles([toInput(flow)]).get('pf')!.role).toBe('unknown'); // sozinho: indeterminado
+  });
+});
+
+describe('Etapa 3A v2 — selecao canonica por evento', () => {
+  it('Polar + Strava(HealthKit) + Polar Flow(HealthKit) -> Polar direto canonico; Polar Flow = relay; Strava = unknown (todos preservados)', async () => {
+    const ctx = buildService([POLAR_RICH(), HK_STRAVA(), HK_POLAR_FLOW()]);
+    await evaluateAll(ctx, ['a', 'pf', 'p']);
+    expect(ctx.partition()).toEqual(['a+p+pf']);
+    for (const id of ['p', 'a', 'pf']) expect(canonicalOf(ctx, id)).toBe('p');
+    const reason = reasonOf(ctx, 'p');
+    expect(reason).toMatchObject({ version: 2, rule: 'native_recorder', nativeObservationPresent: true, overrideEcosystem: null });
+    expect(roleOf(reason, 'p')).toBe('native_recorder');
+    expect(roleOf(reason, 'pf')).toBe('relay');
+    expect(roleOf(reason, 'a')).toBe('unknown');
+    expect(ctx.data.size).toBe(3);
+  });
+
+  it('Garmin + Strava(HealthKit) + Garmin Connect(HealthKit) -> Garmin canonico (por papel, nao por marca)', async () => {
+    const ctx = buildService([GARMIN(), HK_STRAVA(), HK_GARMIN_CONNECT()]);
+    await evaluateAll(ctx, ['gh', 'a', 'g']);
+    expect(canonicalOf(ctx, 'a')).toBe('g');
+    expect(roleOf(reasonOf(ctx, 'g'), 'gh')).toBe('relay');
+  });
+
+  it('somente Strava via HealthKit (relogio conectado mas nao gravou): treino reconhecido, observacao unica canonica, sem exigir o relogio', async () => {
+    const ctx = buildService([HK_STRAVA()]);
+    await evaluateAll(ctx, ['a']);
+    expect(canonicalOf(ctx, 'a')).toBe('a');
+    expect(reasonOf(ctx, 'a')).toMatchObject({ version: 2, rule: 'sole_observation', nativeObservationPresent: false });
+    expect(roleOf(reasonOf(ctx, 'a'), 'a')).toBe('unknown');
+  });
+
+  it('sem gravador nativo no evento: melhor observacao disponivel (best_available), sem tratar como erro e sem promover origem', async () => {
+    const richer = { ...HK_STRAVA('a'), avgHeartRateBpm: 150, caloriesKcal: 500 } as Row;
+    const other = row('z', 'apple_health', 'com.exemplo.app', '2026-10-06T09:00:05Z', 34, 7.0);
+    const ctx = buildService([richer, other]);
+    await evaluateAll(ctx, ['a', 'z']);
+    expect(ctx.partition()).toEqual(['a+z']);
+    expect(canonicalOf(ctx, 'z')).toBe('a');
+    expect(reasonOf(ctx, 'a')).toMatchObject({ rule: 'best_available', nativeObservationPresent: false, tieBreak: 'completeness' });
+    expect(roleOf(reasonOf(ctx, 'a'), 'z')).toBe('unknown');
+  });
+
+  it('Apple Watch (nativo via HealthKit) + Strava(HealthKit) -> Apple Watch canonico', async () => {
+    const ctx = buildService([HK_STRAVA(), WATCH_NATIVE()]);
+    await evaluateAll(ctx, ['a', 'w']);
+    expect(canonicalOf(ctx, 'a')).toBe('w');
+    expect(roleOf(reasonOf(ctx, 'w'), 'w')).toBe('native_recorder');
+    expect(roleOf(reasonOf(ctx, 'w'), 'a')).toBe('unknown');
+  });
+
+  it('HealthKit Apple SEM device nao e nativo: nao vence um HealthKit de terceiro mais completo (conservador)', async () => {
+    const strava = { ...HK_STRAVA('a'), avgHeartRateBpm: 150, caloriesKcal: 500 } as Row;
+    const ctx = buildService([strava, APPLE_WATCH('w')]); // APPLE_WATCH sem device
+    await evaluateAll(ctx, ['a', 'w']);
+    expect(canonicalOf(ctx, 'a')).toBe('a');
+    expect(reasonOf(ctx, 'a').rule).toBe('best_available');
+  });
+
+  it('dois relogios (Polar direto + Apple Watch nativo): ambos nativos, desempate por completude, alternativa preservada e registrada', async () => {
+    const ctx = buildService([POLAR_RICH(), WATCH_NATIVE()]);
+    await evaluateAll(ctx, ['w', 'p']);
+    expect(canonicalOf(ctx, 'w')).toBe('p');
+    expect(reasonOf(ctx, 'p')).toMatchObject({ rule: 'native_recorder', tieBreak: 'completeness', nativeAlternatives: ['w'] });
+    expect(ctx.data.has('w')).toBe(true);
+  });
+
+  it('override excepcional (AthletePrimarySource explicito) so desempata entre nativos; nunca promove copia/unknown sobre um nativo', async () => {
+    const ctx = buildService([POLAR_RICH(), WATCH_NATIVE(), HK_STRAVA()]);
+    ctx.setPrimary('user-1', 'apple_health', '2026-01-01T00:00:00Z'); // suporte prefere o ecossistema Apple
+    await evaluateAll(ctx, ['p', 'w', 'a']);
+    expect(canonicalOf(ctx, 'a')).toBe('w'); // desempate entre os dois nativos
+    expect(reasonOf(ctx, 'w')).toMatchObject({ tieBreak: 'explicit_override', overrideEcosystem: 'apple_health', nativeAlternatives: ['p'] });
+    // override para um ecossistema SEM nativo no evento nao tem efeito
+    const ctx2 = buildService([POLAR_RICH(), HK_STRAVA()]);
+    ctx2.setPrimary('user-1', 'strava', '2026-01-01T00:00:00Z');
+    await evaluateAll(ctx2, ['p', 'a']);
+    expect(canonicalOf(ctx2, 'a')).toBe('p');
+    expect(reasonOf(ctx2, 'p').overrideEcosystem).toBeNull();
+  });
+
+  it('sem nenhuma configuracao a escolha e automatica; WorkoutDelivery NAO influencia a canonica', async () => {
+    const without = buildService([POLAR_RICH(), WATCH_NATIVE()]);
+    await evaluateAll(without, ['p', 'w']);
+    const withDelivery = buildService([POLAR_RICH(), WATCH_NATIVE()]);
+    withDelivery.addDelivery('user-1', 'apple_health', 'sent', '2026-10-01T00:00:00Z'); // entrega para a Apple, nao muda nada
+    await evaluateAll(withDelivery, ['p', 'w']);
+    expect(canonicalOf(withDelivery, 'w')).toBe(canonicalOf(without, 'w'));
+    expect(JSON.stringify(reasonOf(withDelivery, 'p'))).toBe(JSON.stringify(reasonOf(without, 'p')));
+  });
+
+  it('chegada tardia da melhor observacao: a canonica e recalculada (cópia -> nativa) sem apagar nada', async () => {
+    const ctx = buildService([HK_STRAVA()]);
+    await evaluateAll(ctx, ['a']);
+    expect(canonicalOf(ctx, 'a')).toBe('a');
+    ctx.data.set('p', { ...POLAR_RICH() });
+    await ctx.service.evaluate('p');
+    expect(canonicalOf(ctx, 'a')).toBe('p');
+    expect(canonicalOf(ctx, 'p')).toBe('p');
+    expect(reasonOf(ctx, 'p').rule).toBe('native_recorder');
+    ctx.data.set('pf', { ...HK_POLAR_FLOW() });
+    await ctx.service.evaluate('pf');
+    expect(canonicalOf(ctx, 'pf')).toBe('p');
+    expect(roleOf(reasonOf(ctx, 'p'), 'pf')).toBe('relay'); // agora ha evidencia suficiente de copia
+    expect(ctx.data.size).toBe(3);
+  });
+
+  it('independe da ordem de chegada: todas as ordens de Polar, Polar Flow(HK), Strava(HK) e Apple Watch dao a mesma canonica e os mesmos papeis', async () => {
+    const rowsById: Record<string, Row> = { p: POLAR_RICH(), pf: HK_POLAR_FLOW(), a: HK_STRAVA(), w: WATCH_NATIVE() };
+    const outcomes = new Set<string>();
+    for (const order of permutations(['p', 'pf', 'a', 'w'])) {
+      const ctx = buildService([]);
+      for (const id of order) { ctx.data.set(id, { ...rowsById[id] }); await ctx.service.evaluate(id); }
+      outcomes.add(JSON.stringify(['p', 'pf', 'a', 'w'].map((id) => [canonicalOf(ctx, id), reasonOf(ctx, id)])));
+    }
+    expect(outcomes.size).toBe(1);
+  });
+
+  it('troca de relogio ao longo do tempo: cada evento resolve pelas SUAS observacoes, sem configuracao e sem reescrever a historia', async () => {
+    const oldRun = { ...POLAR_RICH('p-old'), startedAt: new Date('2026-09-10T09:00:00Z') } as Row;
+    const oldCopy = row('a-old', 'apple_health', 'com.strava.stravaride', '2026-09-10T09:00:15Z', 34, 7.01);
+    const newRun = { ...GARMIN('g-new'), startedAt: new Date('2026-10-20T09:00:00Z') } as Row;
+    const newCopy = row('gh-new', 'apple_health', 'com.garmin.connect.mobile', '2026-10-20T09:00:15Z', 34, 7.01);
+    const ctx = buildService([oldRun, oldCopy, newRun, newCopy]);
     await evaluateAll(ctx, ['p-old', 'a-old', 'g-new', 'gh-new']);
     expect(canonicalOf(ctx, 'a-old')).toBe('p-old');
-    expect(reasonOf(ctx, 'a-old')).toMatchObject({ primarySource: 'polar', rule: 'primary_ecosystem' });
-    // atleta migra para Garmin a partir de 15/10 — periodo NOVO; recalcula tudo
-    ctx.setPrimary('user-1', 'garmin', '2026-10-15T00:00:00Z');
+    expect(canonicalOf(ctx, 'gh-new')).toBe('g-new');
+    const historic = JSON.stringify(reasonOf(ctx, 'p-old'));
     await ctx.service.recomputeCanonicalForUser('user-1');
-    expect(canonicalOf(ctx, 'a-old')).toBe('p-old'); // historico continua Polar
-    expect(reasonOf(ctx, 'a-old')).toMatchObject({ primarySource: 'polar' });
-    expect(canonicalOf(ctx, 'gh-new')).toBe('g-new'); // evento novo resolve pelo periodo Garmin
-    expect(reasonOf(ctx, 'g-new')).toMatchObject({ primarySource: 'garmin', rule: 'primary_ecosystem' });
+    await ctx.service.evaluate('g-new');
+    expect(JSON.stringify(reasonOf(ctx, 'p-old'))).toBe(historic); // evento antigo intacto
   });
 
-  it('padrao derivado do historico de WorkoutDelivery quando nao ha preferencia explicita; entrega cancelada ou posterior ao evento nao conta', async () => {
-    const ctx = buildService([POLAR(), APPLE_WATCH()]);
-    ctx.addDelivery('user-1', 'polar', 'canceled', '2026-10-01T00:00:00Z');
-    ctx.addDelivery('user-1', 'polar', 'sent', '2026-10-30T00:00:00Z'); // depois do evento
-    await evaluateAll(ctx, ['p', 'w']);
-    expect(reasonOf(ctx, 'p')).toMatchObject({ primarySource: null, fallbackReason: 'no_primary_defined' });
-    ctx.addDelivery('user-1', 'polar', 'sent', '2026-10-02T00:00:00Z');
-    await ctx.service.recomputeCanonicalForUser('user-1');
-    expect(reasonOf(ctx, 'p')).toMatchObject({ primarySource: 'polar', primarySourceOrigin: 'delivery_history', rule: 'primary_ecosystem' });
-    expect(canonicalOf(ctx, 'w')).toBe('p');
-  });
-
-  it('observacao unica: ela mesma e canonica (sole_observation); ambigua: sem canonica', async () => {
+  it('observacao unica e canonica de si mesma; ambigua fica sem canonica', async () => {
     const lone = buildService([POLAR()]);
     await lone.service.evaluate('p');
-    expect(canonicalOf(lone, 'p')).toBe('p');
-    expect(reasonOf(lone, 'p')).toMatchObject({ rule: 'sole_observation' });
+    expect(reasonOf(lone, 'p')).toMatchObject({ version: 2, rule: 'sole_observation' });
     const weakApple = row('a', 'apple_health', 'com.strava.stravaride', '2026-10-06T09:05:00Z', 35, null);
     const amb = buildService([{ ...POLAR(), distanceMeters: null } as Row, weakApple]);
     await amb.service.evaluate('a');
@@ -509,15 +561,23 @@ describe('Etapa 3A — observacao canonica', () => {
     expect(canonicalOf(amb, 'p')).toBeNull();
   });
 
-  it('recalcular e idempotente e nenhuma observacao original e alterada ou apagada', async () => {
-    const ctx = buildService([POLAR_RICH(), APPLE_STRAVA(), APPLE_WATCH()]);
-    ctx.setPrimary('user-1', 'polar', '2026-01-01T00:00:00Z');
+  it('gravador nativo sem duracao e distancia nao e valido: cai para a melhor observacao valida (best_available)', () => {
+    const base = { caloriesKcal: null, avgHeartRateBpm: null, maxHeartRateBpm: null, cadenceAvg: null, powerAvgWatts: null, elevationGainMeters: null, hasRoute: null };
+    const emptyPolar = { id: 'p', provider: 'polar', providerMetrics: null, durationSec: null, distanceMeters: null, ...base };
+    const hk = { id: 'a', provider: 'apple_health', providerMetrics: { source: { bundleId: 'com.strava.stravaride' } }, durationSec: 2040, distanceMeters: 7010, ...base };
+    const selection = selectCanonicalObservation([emptyPolar, hk]);
+    expect(selection!.canonicalId).toBe('a');
+    expect(selection!.reason).toMatchObject({ rule: 'best_available', nativeObservationPresent: true });
+  });
+
+  it('preservacao: recalcular e idempotente, so escreve colunas physical*, nenhum ActivityLog excluido e nenhuma metrica copiada', async () => {
+    const ctx = buildService([POLAR_RICH(), HK_STRAVA(), WATCH_NATIVE()]);
     await evaluateAll(ctx, ['p', 'a', 'w']);
     const writesBefore = ctx.activityLog.update.mock.calls.length;
     await ctx.service.recomputeCanonicalForUser('user-1');
     await ctx.service.recomputeCanonicalForUser('user-1');
-    expect(ctx.activityLog.update.mock.calls.length).toBe(writesBefore); // nada mudou -> nada escrito
-    expect(ctx.data.size).toBe(3); // nenhuma exclusao
+    expect(ctx.activityLog.update.mock.calls.length).toBe(writesBefore);
+    expect(ctx.data.size).toBe(3);
     for (const id of ['p', 'a', 'w']) {
       const before = JSON.parse(ctx.original.get(id)!);
       const after = ctx.data.get(id)!;
@@ -525,20 +585,8 @@ describe('Etapa 3A — observacao canonica', () => {
         expect(JSON.stringify((after as any)[k])).toBe(JSON.stringify(before[k]));
       }
     }
+    expect(((ctx.data.get('w') as any).avgHeartRateBpm ?? null)).toBeNull(); // nada copiado da Polar para o Apple Watch
     const allowed = new Set(['physicalEventId', 'physicalIdentityStatus', 'physicalIdentityEvidence', 'physicalIdentityEvaluatedAt', 'physicalCanonicalActivityLogId', 'physicalCanonicalReason']);
     for (const call of ctx.activityLog.update.mock.calls) for (const k of Object.keys((call[0] as any).data)) expect(allowed.has(k)).toBe(true);
   });
-
-  it('setPrimarySource cria um periodo novo e recalcula; metricas da canonica nao sao complementadas com as das demais', async () => {
-    const poorPolar = POLAR(); // sem FC
-    const hkWithHr = { ...APPLE_WATCH(), avgHeartRateBpm: 149 } as Row;
-    const ctx = buildService([poorPolar, hkWithHr]);
-    await evaluateAll(ctx, ['p', 'w']);
-    const result = await ctx.service.setPrimarySource('user-1', 'polar', { effectiveFrom: new Date('2026-01-01T00:00:00Z'), origin: 'coach' });
-    expect(result.recomputed.events).toBe(1);
-    expect(canonicalOf(ctx, 'w')).toBe('p');
-    expect(((ctx.data.get('p') as any).avgHeartRateBpm ?? null)).toBeNull(); // nada copiado do HealthKit para a Polar
-  });
 });
-
-import { ecosystemKeyOf as ecosystemKeyOfForTest } from '../src/activity-execution/physical-canonical';

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { compareObservations, IdentityComparison, ObservedActivity, observerKeyOf } from './physical-activity-identity';
 import { CanonicalCandidateInput, selectCanonicalObservation } from './physical-canonical';
-import { resolvePrimarySource } from './athlete-primary-source';
+import { resolveExplicitOverride } from './athlete-primary-source';
 
 // Janela de busca de candidatos (so' performance — quem decide e' compareObservations; a janela larga tolera diferenca de fuso).
 const CANDIDATE_WINDOW_MS = 12 * 60 * 60 * 1000;
@@ -227,10 +227,11 @@ export class PhysicalActivityIdentityService {
       });
     };
     for (const members of [...groups, ...singles.map((row) => [row])]) {
-      // Fonte primaria vigente NA DATA DO EVENTO (inicio mais antigo entre as observacoes), nao a preferencia de hoje.
+      // Escolha automatica POR EVENTO pelo papel de cada observacao (regra v2). O override explicito (raro) so' desempata entre nativos
+      // equivalentes; vigente NA DATA DO EVENTO (inicio mais antigo entre as observacoes), nao a preferencia de hoje.
       const eventTime = new Date(Math.min(...members.map((m) => m.startedAt.getTime())));
-      const primary = await resolvePrimarySource(tx, userId, eventTime);
-      const selection = selectCanonicalObservation(members.map(toCandidate), primary);
+      const overrideEcosystem = await resolveExplicitOverride(tx, userId, eventTime);
+      const selection = selectCanonicalObservation(members.map(toCandidate), { overrideEcosystem });
       if (!selection) continue;
       const reason = JSON.parse(JSON.stringify(selection.reason));
       for (const row of members) await write(row, selection.canonicalId, reason);
@@ -238,8 +239,8 @@ export class PhysicalActivityIdentityService {
     for (const row of withoutIdentity) await write(row, null, null);
   }
 
-  // Muda o ecossistema primario do atleta A PARTIR de uma data (padrao: agora) e recalcula as canonicas. Eventos anteriores a effectiveFrom
-  // continuam resolvidos pelo periodo anterior — trocar de relogio nao reescreve a historia.
+  // Override EXCEPCIONAL (nao e' fluxo normal): registra um ecossistema que desempata entre gravadores nativos equivalentes A PARTIR de uma data
+  // e recalcula as canonicas. A selecao automatica por evento nao depende disso.
   async setPrimarySource(userId: string, provider: string, options: { effectiveFrom?: Date; origin: 'coach' | 'athlete'; note?: string }) {
     const effectiveFrom = options.effectiveFrom ?? new Date();
     const created = await this.prisma.athletePrimarySource.create({

@@ -1,29 +1,20 @@
 import { Prisma } from '@prisma/client';
-import { PrimaryOrigin } from './physical-canonical';
 
-// Ecossistema de execucao PRIMARIO do atleta NUM INSTANTE (Apple Etapa 3A). Preferencia por periodo, nao um atributo "atual" do usuario:
-//  1) linha explicita de AthletePrimarySource vigente em `at` (a de maior effectiveFrom <= at) — trocar de relogio cria uma linha nova e
-//     NAO muda a resolucao de datas anteriores a ela;
-//  2) senao, o ecossistema que recebeu a prescricao: WorkoutDelivery mais recente (enviada/entregue) ate `at` — estrutura ja' existente,
-//     com timestamp, entao tambem e' historicamente estavel;
-//  3) senao, null (sem primario: a canonica sai por fallback deterministico).
-// Nunca deriva do conjunto atual de conexoes nem de hierarquia de provider.
-export async function resolvePrimarySource(
-  tx: Pick<Prisma.TransactionClient, 'athletePrimarySource' | 'workoutDelivery'>,
+// Override EXCEPCIONAL de ecossistema (Apple Etapa 3A, revisada em 06/10/2026). NAO e' seletor da observacao canonica: a escolha e'
+// automatica, por evento, pelo papel de cada observacao (ver physical-canonical.ts). AthletePrimarySource so' existe como:
+//  - override explicito de suporte, que apenas DESEMPATA entre gravadores nativos equivalentes do mesmo evento (ex.: dois relogios);
+//  - registro historico por periodo (effectiveFrom) de uma preferencia declarada.
+// Sem linha explicita (o caso normal) esta funcao devolve null e nada muda. WorkoutDelivery NAO entra aqui: prova destino da prescricao,
+// nao que o evento corresponde a ela (isso so' sera evidencia forte depois da reconciliacao TrainingSession <-> evento, na 3B).
+export async function resolveExplicitOverride(
+  tx: Pick<Prisma.TransactionClient, 'athletePrimarySource'>,
   userId: string,
   at: Date,
-): Promise<{ key: string; origin: PrimaryOrigin } | null> {
+): Promise<string | null> {
   const explicit = await tx.athletePrimarySource.findFirst({
     where: { userId, effectiveFrom: { lte: at } },
     orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
     select: { provider: true },
   });
-  if (explicit) return { key: explicit.provider, origin: 'explicit' };
-
-  const delivery = await tx.workoutDelivery.findFirst({
-    where: { trainingSession: { userId }, status: { in: ['sent', 'delivered_to_device'] }, requestedAt: { lte: at } },
-    orderBy: { requestedAt: 'desc' },
-    select: { provider: true },
-  });
-  return delivery ? { key: delivery.provider, origin: 'delivery_history' } : null;
+  return explicit ? explicit.provider : null;
 }
