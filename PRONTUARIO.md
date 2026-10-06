@@ -31,8 +31,8 @@ Scripts locais úteis (raiz do repositório):
 - `abrir-painel-admin-estavel.bat` — abre o painel do treinador local (`http://127.0.0.1:3000`).
 - `abrir-mobile-preview.bat` / `abrir-mobile-navegador.bat` / `abrir-mobile-expo.bat` — abrem o app
   mobile local de formas diferentes.
-- `atualizar-github-panzeri-run.bat` — sincroniza o código local com o mirror que o GitHub Desktop
-  monitora (ver nota sobre os dois diretórios, entrada de 06/09/07/09 no Diário).
+- `atualizar-github-panzeri-run.bat` — **DESCONTINUADO** (ver CLAUDE.md, "Workflow de deploy"). Não há mais
+  sincronização por `.bat`: o desenvolvimento acontece direto neste checkout canônico.
 - `gerar-app-android.bat` / `gerar-app-android-producao.bat` — geram build Android (preview/produção).
 
 Cuidados: nunca registrar senha, token, secret ou chave privada neste documento nem em nenhum outro
@@ -60,9 +60,9 @@ Monorepo com três apps:
   "Gerente Técnico" (agente de IA), relatórios.
 - `apps/mobile` — Expo/React Native, rodando como PWA. App do aluno.
 
-Deploy em produção via EasyPanel. Sincronização do código local para o repositório do GitHub
-Desktop é feita por `atualizar-github-panzeri-run.bat` — o treinador confere no GitHub Desktop e
-decide commit/push/deploy, isso nunca é feito automaticamente pela sessão de IA.
+Deploy em produção via EasyPanel. O código é desenvolvido diretamente neste checkout canônico
+(`C:\Users\elton\OneDrive\Documentos\GitHub\panzeri-run-api`), sem sincronização por `.bat`; push e
+deploy só acontecem sob ordem explícita do treinador, nunca automaticamente pela sessão de IA.
 
 ## Regra central do motor de treino: só IA decide, nunca uma fórmula fixa
 

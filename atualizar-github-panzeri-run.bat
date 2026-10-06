@@ -1,3 +1,9 @@
+@echo off
+rem DESCONTINUADO (06/10/2026). O desenvolvimento acontece direto em GitHub\panzeri-run-api; nao ha mais sincronizacao por bat.
+rem Este script copiava uma pasta antiga POR CIMA do checkout canonico. Mantido so' como registro historico; aborta sempre.
+echo Este script foi descontinuado e nao copia nada. Desenvolva direto em GitHub\panzeri-run-api (ver CLAUDE.md).
+pause
+exit /b 1
 @echo on
 setlocal
 title Atualizar Panzeri Run no GitHub Desktop

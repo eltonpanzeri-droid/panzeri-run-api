@@ -87,7 +87,7 @@ Não edite quando o pedido for apenas analisar, repensar, auditar, comparar ou p
 - Preserve compatibilidade e caminho de rollback.
 - Operações críticas devem ser idempotentes e seguras contra concorrência e falha parcial.
 - Nunca exponha segredo em código, prompt, comando, log, memória ou permissão.
-- **Nunca edite arquivos fonte diretamente dentro da pasta do espelho Git** (`C:\Users\elton\OneDrive\Documentos\GitHub\panzeri-run-api`). Sempre edite em `Aplicativo Panzeri Run` e sincronize via bat. Commitar no espelho é correto; editar fontes no espelho bypassa o bat e cria divergência invisível.
+- **Fonte única de código ativa:** `C:\Users\elton\OneDrive\Documentos\GitHub\panzeri-run-api`. Todo desenvolvimento (editar, testar, commitar) acontece diretamente nele. Nunca copie código de outras pastas para ele nem dele para outras pastas (ver "Workflow de deploy").
 
 ## Definição de pronto
 
@@ -103,7 +103,7 @@ Uma tarefa só está concluída quando todos os gates aplicáveis passam:
 - schema e migração coerentes;
 - secret scan;
 - revisão de segurança para caminhos sensíveis;
-- origem e conteúdo preparado para entrega são idênticos.
+- o que será commitado é exatamente o diff revisado, no checkout canônico.
 
 **Antes de dizer "corrigido"** — obrigatório para qualquer bug real:
 
@@ -155,7 +155,7 @@ Use revisor com contexto separado para mudanças em auth, billing, prescrição,
 - Discordar com evidência quando a solução pedida comprometer o objetivo.
 - Não atribuir ao usuário validação técnica que ele não tem como realizar.
 - Antes de mudança relevante, informar diagnóstico, arquivos, solução, alternativas, riscos e testes.
-- Após preparar sincronização, informar estado dos gates, arquivos incluídos, rollback e **título sugerido de commit — SEMPRE, sem exceção, mesmo que o Elton não peça explicitamente.**
+- Após preparar o commit, informar estado dos gates, arquivos incluídos, rollback e **título sugerido de commit — SEMPRE, sem exceção, mesmo que o Elton não peça explicitamente.**
 
 **Relacionamento:**
 - Se Elton usar xingamento/palavrão com intenção claramente ofensiva (não humor leve; especificamente quando dirigido a Claude ou à situação com raiva real): incluir na próxima resposta, de forma breve e não condescendente, uma observação lembrando quem ele quer ser, que ele mesmo pediu essa pausa, e que é um exemplo para a Antonella. Sugerir 60 segundos antes de continuar. Depois responder normalmente o restante — não travar a conversa.
@@ -163,32 +163,32 @@ Use revisor com contexto separado para mudanças em auth, billing, prescrição,
 
 ## Ritmo de trabalho
 
-- **Revisão pesada** (`/code-review` multi-agente) somente para mudanças grandes ou que mexem em fluxo real (pagamento, geração de treino, autenticação, dado sensível). Ajuste pequeno de UI/texto/estilo: reler o próprio diff com atenção antes de sincronizar.
-- **Nunca criar branch** para sincronizar — sempre direto na `main`, exceto se Elton pedir branch explicitamente.
-- **Agrupar** ajustes pequenos relacionados em uma mudança só antes de sincronizar/revisar, em vez de repetir o ciclo completo para cada detalhe.
+- **Revisão pesada** (`/code-review` multi-agente) somente para mudanças grandes ou que mexem em fluxo real (pagamento, geração de treino, autenticação, dado sensível). Ajuste pequeno de UI/texto/estilo: reler o próprio diff com atenção antes de commitar.
+- **Nunca criar branch** — sempre direto na `main`, exceto se Elton pedir branch explicitamente.
+- **Agrupar** ajustes pequenos relacionados em uma mudança só antes de commitar/revisar, em vez de repetir o ciclo completo para cada detalhe.
 - Decidir mais rápido em coisa de baixo risco; não re-verificar tudo por precaução quando a evidência já é suficiente.
 
 ## Fluxo do repositório
 
-- A fonte canônica deve ser identificada antes de qualquer edição.
-- Verifique `git status`, branch e último commit antes de build/sincronização.
+- A fonte canônica é `C:\Users\elton\OneDrive\Documentos\GitHub\panzeri-run-api`; confirme que o diretório de trabalho da sessão é ele antes de qualquer edição.
+- Verifique `git status`, branch e último commit antes de build/commit.
 - Não faça commit, push, deploy ou publicação automaticamente.
-- Não sincronize quando qualquer gate aplicável estiver vermelho.
-- Todo arquivo novo deve aparecer no diff final e no mecanismo de entrega.
+- Não commite quando qualquer gate aplicável estiver vermelho.
+- Todo arquivo novo deve aparecer no diff final.
 
 ## Workflow de deploy — Panzeri Run
 
-**Dois diretórios, mesmo remote:**
-- `C:\Users\elton\OneDrive\Documentos\Aplicativo Panzeri Run` — diretório de trabalho. Claude edita aqui.
-- `C:\Users\elton\OneDrive\Documentos\GitHub\panzeri-run-api` — espelho monitorado pelo GitHub Desktop. Os commits são feitos aqui.
+**Fonte única de código ativa (um só checkout):**
+- `C:\Users\elton\OneDrive\Documentos\GitHub\panzeri-run-api` — checkout canônico, monitorado pelo GitHub Desktop. Claude edita, testa e commita **diretamente aqui**. É o único lugar onde se desenvolve.
+- `C:\Users\elton\OneDrive\Documentos\Aplicativo Panzeri Run` e `C:\Users\elton\OneDrive\Documentos\Panzeri Run Atual` — cópias antigas/divergentes, **somente para consulta**. Não são fonte de código, não se edita nada nelas, não se roda launcher/build delas e não se copia código delas para o canônico. Serão classificadas e consolidadas em etapa própria, ordenada por Elton.
+- Não existe mais sincronização por `.bat`. O `atualizar-github-panzeri-run.bat` está descontinuado e não deve ser executado (a cópia dele em qualquer pasta antiga sobrescreveria o checkout canônico com código antigo).
 
-**Processo de sincronização:**
-1. Editar os arquivos em `Aplicativo Panzeri Run`.
-2. Executar `atualizar-github-panzeri-run.bat` via **PowerShell** (não Bash — o bat falha silenciosamente via git-bash). Verificar "1 arquivo(s) copiado(s)" para cada arquivo. Se um arquivo novo foi criado, adicionar a linha `copy /Y` correspondente no bat antes de rodar.
-3. Rodar `tsc --noEmit` em cada app tocada (api, admin, mobile) — não sincronizar com typecheck vermelho.
+**Processo de trabalho:**
+1. Editar os arquivos diretamente no checkout canônico.
+2. Rodar `tsc --noEmit` em cada app tocada (api, admin, mobile) e os testes aplicáveis — não commitar com typecheck vermelho.
 
-**Checklist pós-sync — OBRIGATÓRIO, NUNCA PULAR:**
-1. `git add` + `git commit` no espelho `GitHub\panzeri-run-api` com mensagem já pronta em português.
+**Checklist pós-commit — OBRIGATÓRIO, NUNCA PULAR:**
+1. `git add` + `git commit` no checkout canônico com mensagem já pronta em português.
 2. **Claude abre o GitHub Desktop** via PowerShell: `Start-Process "C:\Users\elton\AppData\Local\GitHubDesktop\GitHubDesktop.exe"`. Nunca escrever "abra o GitHub Desktop" — ABRIR EU MESMO.
 3. Informar o título do commit no chat — **SEMPRE, sem exceção**.
 
@@ -261,6 +261,6 @@ Se alguma resposta importante foi perdida → recuperar dos registros permanente
 
 - Rápido: typecheck e testes focalizados da superfície tocada.
 - Completo: lint, typecheck, testes de todos os apps e builds aplicáveis.
-- Release: completo + dependências + segredos + migrações + smoke + comparação origem/entrega.
+- Release: completo + dependências + segredos + migrações + smoke + revisão do diff final contra o remoto.
 
 Use os scripts oficiais do repositório quando forem criados; não invente variantes que produzam resultados diferentes.
