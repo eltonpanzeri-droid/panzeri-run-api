@@ -72,7 +72,7 @@ type Screen = 'login' | 'app';
 // destinos orfaos desde que "Conta"/"Perfil" passaram a montar os mesmos componentes
 // (MeusDados/Anamnese) diretamente. 'billing' permanece: ainda e' destino de redirects reais do
 // funil de pagamento (quickIntake/billing_regularize).
-type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy';
+type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy' | 'devices';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -1977,6 +1977,7 @@ function AppInner() {
             {activeTab === 'observations' && <ObservationsScreen accessToken={accessToken} />}
             {activeTab === 'ciclo' && <MenstrualCycleScreen accessToken={accessToken} />}
             {activeTab === 'strava' && <StravaSync accessToken={accessToken} />}
+            {activeTab === 'devices' && <DevicesIntegrationsScreen accessToken={accessToken} onOpenStrava={() => setActiveTab('strava')} />}
             {activeTab === 'billing' && <Billing accessToken={accessToken} />}
             {activeTab === 'privacy' && <PrivacyDataScreen accessToken={accessToken} onOpenStrava={() => setActiveTab('strava')} />}
             {activeTab === 'profile' && (
@@ -8772,6 +8773,35 @@ interface LegalSummary {
   sections: Array<{ id: string; title: string; paragraphs: string[] }>;
 }
 
+// Conteudo de "Dispositivos e integracoes" — usado por Privacidade e dados (Polar so' status) e pela tela do menu (Polar completo).
+// Nao duplica logica: cada integracao continua sendo o seu proprio componente.
+function DevicesIntegrationsPanel({ accessToken, onOpenStrava, polarVariant }: { accessToken: string; onOpenStrava: () => void; polarVariant: 'profile' | 'status' }) {
+  return (
+    <>
+      <PolarConnect accessToken={accessToken} variant={polarVariant} />
+      <View style={styles.formSection}>
+        <Text style={styles.reportTitle}>Strava</Text>
+        <Pressable style={styles.secondaryOutlineButton} onPress={onOpenStrava}>
+          <Text style={styles.secondaryOutlineButtonText}>Gerenciar conexão com o Strava</Text>
+          <Ionicons name="sync" size={18} color={PRColors.ocean} />
+        </Pressable>
+      </View>
+      {/* Bloco 1 (prova tecnica Apple Watch): so' aparece no app nativo iOS com extra.appleHealthProof. */}
+      <AppleHealthProofCard accessToken={accessToken} apiUrl={API_URL} />
+    </>
+  );
+}
+
+function DevicesIntegrationsScreen({ accessToken, onOpenStrava }: { accessToken: string; onOpenStrava: () => void }) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Integrações</Text>
+      <Text style={styles.titleSmall}>Dispositivos e integrações</Text>
+      <DevicesIntegrationsPanel accessToken={accessToken} onOpenStrava={onOpenStrava} polarVariant="profile" />
+    </View>
+  );
+}
+
 // Privacidade e dados (05/10/2026): camada de transparencia e controle. NAO substitui Politica, Termos nem
 // consentimento. O texto vem de GET /legal/summary (mesma fonte canonica dos documentos publicos); as acoes
 // reutilizam PolarConnect (status/desconectar/excluir) e a aba do Strava.
@@ -8812,18 +8842,7 @@ function PrivacyDataScreen({ accessToken, onOpenStrava }: { accessToken: string;
       {block('dados', 'Seus dados')}
 
       {block('integracoes', 'Dispositivos e integrações', (
-        <>
-          <PolarConnect accessToken={accessToken} variant="status" />
-          <View style={styles.formSection}>
-            <Text style={styles.reportTitle}>Strava</Text>
-            <Pressable style={styles.secondaryOutlineButton} onPress={onOpenStrava}>
-              <Text style={styles.secondaryOutlineButtonText}>Gerenciar conexão com o Strava</Text>
-              <Ionicons name="sync" size={18} color={PRColors.ocean} />
-            </Pressable>
-          </View>
-          {/* Bloco 1 (prova tecnica Apple Watch): so' aparece no app nativo iOS com extra.appleHealthProof. */}
-          <AppleHealthProofCard accessToken={accessToken} apiUrl={API_URL} />
-        </>
+        <DevicesIntegrationsPanel accessToken={accessToken} onOpenStrava={onOpenStrava} polarVariant="status" />
       ))}
 
       {block('ia', 'Inteligência Artificial')}
@@ -10040,6 +10059,8 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     { id: 'progress', label: 'Evolucao', icon: 'stats-chart' },
     { id: 'history', label: 'Calendario de treinos', icon: 'calendar-outline' },
     { id: 'strava', label: 'Sincronizar com Strava', icon: 'sync' },
+    // 06/10/2026: porta unica para Polar, Strava e Apple (mesmos componentes ja usados em Perfil/Strava/Privacidade).
+    { id: 'devices', label: 'Dispositivos e integrações', icon: 'watch-outline' },
     { id: 'profile', label: 'Perfil', icon: 'person' },
     // BLOCO 3 (04/10/2026): "Meus dados" e "Plano e faturamento" deixaram de ser itens proprios do
     // menu — seu conteudo (mesmos componentes, reaproveitados sem alteracao) agora vive dentro de
@@ -10381,6 +10402,10 @@ function ActivityDetailButton({ activityLogId, accessToken }: { activityLogId: s
   const [detail, setDetail] = useState<ActivityDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Modal em tela cheia no iOS fica ATRAS do status bar/notch: sem respeitar a area segura superior o titulo e o "Fechar" ficavam
+  // sob o status bar (inacessiveis). No Android o Modal ja' comeca abaixo da barra de status — nao adicionar nada la'.
+  const safeAreaInsets = useSafeAreaInsets();
+  const modalTopInset = Platform.OS === 'ios' ? safeAreaInsets.top : 0;
 
   async function openDetail() {
     setOpen(true);
@@ -10407,9 +10432,12 @@ function ActivityDetailButton({ activityLogId, accessToken }: { activityLogId: s
       </Pressable>
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
         <View style={{ flex: 1, backgroundColor: '#fff' }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
+          {/* Cabecalho FIXO (fora do ScrollView): so' o conteudo do relatorio rola. */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12, paddingTop: modalTopInset + 12, borderBottomWidth: 1, borderBottomColor: '#e5e7eb', backgroundColor: '#fff' }}>
             <Text style={{ fontSize: 17, fontWeight: '700' }}>Treino completo</Text>
-            <Pressable onPress={() => setOpen(false)}><Text style={{ fontSize: 15, color: '#1769AA', fontWeight: '600' }}>Fechar</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Fechar" hitSlop={12} onPress={() => setOpen(false)} style={{ paddingVertical: 8, paddingHorizontal: 8 }}>
+              <Text style={{ fontSize: 15, color: '#1769AA', fontWeight: '600' }}>Fechar</Text>
+            </Pressable>
           </View>
           <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
             {loading ? <Text style={{ color: '#64748b' }}>Carregando...</Text> : null}
