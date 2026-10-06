@@ -5455,6 +5455,8 @@ type ExternalActivityRow = {
   physicalCanonicalReason?: PhysicalCanonicalReasonView | null;
   physicalIdentityEvidence?: unknown;
   physicalIdentityEvaluatedAt?: string | null;
+  observerKey?: string;
+  sportCanonical?: string | null;
   providerMetrics?: { source?: { name?: string; bundleId?: string; family?: string }; device?: { name?: string; manufacturer?: string; model?: string } } | null;
 };
 
@@ -5502,6 +5504,68 @@ type ExternalActivityRaw = {
 // TrainingSession, nunca transforma o dado.
 type ExternalActivityReclassifyResult = { activityLogId: string; classification: string; activeLinkTrainingSessionId: string | null };
 
+// ---- Atividades externas: apresentacao diagnostica (06/10/2026) -------------------------------------------------------------------
+// So' apresentacao: nenhuma logica de identidade/canonica aqui. Evento fisico = observacoes com o mesmo physicalEventId; o resto aparece como
+// observacao sem evento. Tudo que ja existia (raw, samples, reclassificar, evidencia, comparacao) continua disponivel, em areas recolhiveis.
+type ExternalCompareInput = { activityLogId: string; provider: string; sport: string | null; observerKey: string; startedAt: string; endedAt: string | null; durationSec: number | null; distanceMeters: number | null };
+type ExternalCompareResult = {
+  verdict: string;
+  reason: string;
+  evidence: Array<{ criterion: string; matched: boolean | null; level?: string; detail?: Record<string, number | string | null> }>;
+  a: ExternalCompareInput;
+  b: ExternalCompareInput;
+};
+
+const EXT_PROVIDER_LABEL: Record<string, string> = { polar: 'Polar', apple_health: 'Apple Health', strava: 'Strava', garmin: 'Garmin', coros: 'COROS' };
+const EXT_CRITERION_LABEL: Record<string, string> = {
+  same_athlete: 'Mesmo atleta',
+  compatible_modality: 'Modalidade compatível',
+  different_observer: 'Observadores distintos',
+  start_proximity: 'Proximidade do início',
+  time_overlap: 'Sobreposição de tempo',
+  duration_compatible: 'Duração compatível',
+  distance_compatible: 'Distância compatível',
+};
+
+function extFmtDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+function extFmtDuration(sec: number | null | undefined): string {
+  if (sec == null) return '—';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.round(sec % 60);
+  return h > 0 ? `${h}h${String(m).padStart(2, '0')}min` : `${m}min ${String(s).padStart(2, '0')}s`;
+}
+function extFmtKm(meters: number | null | undefined): string {
+  return meters == null ? '—' : `${(meters / 1000).toFixed(2)} km`;
+}
+function extStatusBadge(status: string | null | undefined) {
+  if (status === 'matched') return <span className="extBadge extBadgeOk">matched · agrupada</span>;
+  if (status === 'ambiguous') return <span className="extBadge extBadgeWarn">ambiguous · ambígua</span>;
+  if (status === 'unique') return <span className="extBadge extBadgeNeutral">unique · única</span>;
+  return <span className="extBadge extBadgeNeutral">não avaliada</span>;
+}
+function extVerdictBadge(verdict: string) {
+  const cls = verdict === 'same' ? 'extBadgeOk' : verdict === 'ambiguous' ? 'extBadgeWarn' : 'extBadgeDanger';
+  return <span className={`extBadge extBadgeLg ${cls}`}>{verdict}</span>;
+}
+function extTriState(matched: boolean | null) {
+  if (matched === true) return <span className="extBadge extBadgeOk">ok</span>;
+  if (matched === false) return <span className="extBadge extBadgeDanger">falhou</span>;
+  return <span className="extBadge extBadgeNeutral">sem dado</span>;
+}
+function ExtMetric({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="extMetric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
 function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; accessToken: string }) {
   const [rows, setRows] = React.useState<ExternalActivityRow[] | null>(null);
   const [openRawId, setOpenRawId] = React.useState<string>('');
@@ -5542,7 +5606,7 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
 
   // Diagnostico: compara DUAS observacoes selecionadas com o matcher atual, sob demanda (nada e' gravado).
   const [compareIds, setCompareIds] = React.useState<string[]>([]);
-  const [compareResult, setCompareResult] = React.useState<unknown>(null);
+  const [compareResult, setCompareResult] = React.useState<ExternalCompareResult | null>(null);
   const [compareState, setCompareState] = React.useState<'idle' | 'loading' | 'error'>('idle');
   async function compareSelected() {
     if (compareIds.length !== 2) return;
@@ -5551,7 +5615,7 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
     try {
       const response = await fetch(`${API_URL}/coach/students/${studentId}/external-activities/compare?a=${encodeURIComponent(compareIds[0])}&b=${encodeURIComponent(compareIds[1])}`, { headers: { Authorization: `Bearer ${accessToken}` } });
       if (!response.ok) { setCompareState('error'); return; }
-      setCompareResult(await response.json());
+      setCompareResult((await response.json()) as ExternalCompareResult);
       setCompareState('idle');
     } catch {
       setCompareState('error');
@@ -5591,181 +5655,244 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
 
   if (rows === null) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Carregando...</p>;
 
+  // Agrupamento so' de exibicao: eventos fisicos (mesmo physicalEventId) e observacoes sem evento, na ordem cronologica decrescente.
+  type Block = { key: string; eventId: string | null; members: ExternalActivityRow[] };
+  const blocks: Block[] = [];
+  const blockByEvent = new Map<string, Block>();
+  for (const row of rows) {
+    if (!row.physicalEventId) { blocks.push({ key: row.id, eventId: null, members: [row] }); continue; }
+    let block = blockByEvent.get(row.physicalEventId);
+    if (!block) { block = { key: row.physicalEventId, eventId: row.physicalEventId, members: [] }; blockByEvent.set(row.physicalEventId, block); blocks.push(block); }
+    block.members.push(row);
+  }
+
+  function renderRaw(row: ExternalActivityRow) {
+    const raw = rawById[row.id];
+    if (raw === 'loading') return <p className="extHint">Carregando raw...</p>;
+    if (raw === 'error') return <p className="extHint">Não consegui carregar o payload bruto.</p>;
+    if (!raw) return null;
+    const samples = (raw as ExternalActivityRaw).samples;
+    return (
+      <div className="extRaw">
+        <pre className="extPre">{JSON.stringify(raw, null, 2)}</pre>
+        {!samples || samples.length === 0 ? (
+          <p className="extHint">Nenhum RawActivitySample persistido para esta atividade.</p>
+        ) : (
+          <div className="extStack">
+            <strong style={{ fontSize: 12 }}>Samples ({samples.length})</strong>
+            {samples.map((sample) => (
+              <div key={sample.id} className="extSample">
+                <div className="extRowBetween">
+                  <span><strong>{sample.sampleType}</strong> · {sample.provider}</span>
+                  <span className="extHint">{sample.recordCount != null ? `${sample.recordCount} registros · ` : ''}{sample.payloadSize} bytes (JSON)</span>
+                </div>
+                <div className="extHint">buscado em {fmtDayFull(sample.fetchedAt)} · criado {fmtDayFull(sample.createdAt)} · atualizado {fmtDayFull(sample.updatedAt)}</div>
+                <pre className="extPre">{JSON.stringify({ payload: sample.payload, providerMeta: sample.providerMeta }, null, 2)}</pre>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderObservation(row: ExternalActivityRow) {
+    const reason = row.physicalCanonicalReason;
+    const candidate = reason?.candidates?.find((c) => c.activityLogId === row.id);
+    const source = row.providerMetrics?.source;
+    const device = row.providerMetrics?.device;
+    const isCanonical = Boolean(row.physicalCanonicalActivityLogId) && row.physicalCanonicalActivityLogId === row.id;
+    const selected = compareIds.includes(row.id);
+    const reclassifyState = reclassifyById[row.id];
+    return (
+      <div key={row.id} className={`extObs${isCanonical ? ' extObsCanonical' : ''}${selected ? ' extObsSelected' : ''}`}>
+        <div className="extObsHead">
+          <span className={`extProvider extProvider_${row.provider}`}>{EXT_PROVIDER_LABEL[row.provider] ?? row.provider}</span>
+          {isCanonical ? <span className="extBadge extBadgeCanonical">★ CANÔNICA</span> : row.physicalCanonicalActivityLogId ? <span className="extBadge extBadgeNeutral">não canônica</span> : null}
+          {extStatusBadge(row.physicalIdentityStatus)}
+          {candidate ? <span className="extBadge extBadgeNeutral">papel: {candidate.role}</span> : null}
+          <label className="extSelect">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={(event) => setCompareIds((current) => (event.target.checked ? [...current, row.id].slice(-2) : current.filter((id) => id !== row.id)))}
+            />
+            comparar
+          </label>
+        </div>
+        <div className="extHint">
+          {extFmtDateTime(row.startedAt)} · {row.sport ?? 'modalidade não informada'}
+          {row.sportCanonical && row.sportCanonical !== row.sport ? ` (canônica: ${row.sportCanonical})` : ''}
+        </div>
+
+        <div className="extMetrics">
+          <ExtMetric label="Duração" value={extFmtDuration(row.durationSec)} />
+          <ExtMetric label="Distância" value={extFmtKm(row.distanceMeters)} />
+          <ExtMetric label="FC média" value={row.avgHeartRateBpm ?? '—'} />
+          <ExtMetric label="FC máxima" value={row.maxHeartRateBpm ?? '—'} />
+          <ExtMetric label="Cadência" value={row.cadenceAvg ?? '—'} />
+          <ExtMetric label="Calorias" value={row.caloriesKcal ?? '—'} />
+          <ExtMetric label="Potência" value={row.powerAvgWatts != null ? `${row.powerAvgWatts} W` : '—'} />
+          <ExtMetric label="Elevação" value={row.elevationGainMeters != null ? `${row.elevationGainMeters} m` : '—'} />
+          <ExtMetric label="Rota" value={row.hasRoute == null ? '—' : row.hasRoute ? 'sim' : 'não'} />
+        </div>
+
+        <details className="extDetails">
+          <summary>Detalhes técnicos</summary>
+          <dl className="extDl">
+            <dt>ActivityLog id</dt><dd>{row.id}</dd>
+            <dt>externalId</dt><dd>{row.externalId}</dd>
+            <dt>observerKey</dt><dd>{row.observerKey ?? '—'}</dd>
+            <dt>Origem (source)</dt><dd>{source ? `${source.name ?? '—'} · ${source.bundleId ?? '—'}${source.family ? ` · ${source.family}` : ''}` : '—'}</dd>
+            <dt>Dispositivo</dt><dd>{device ? `${device.name ?? device.model ?? '—'} / ${device.manufacturer ?? '—'}` : '—'}</dd>
+            <dt>Papel v2 / roleBasis</dt><dd>{candidate ? `${candidate.role} · ${candidate.roleBasis}` : '—'}</dd>
+            <dt>Regra canônica</dt><dd>versão {reason?.version ?? '—'} · {reason?.rule ?? '—'}{reason?.tieBreak ? ` (desempate: ${reason.tieBreak})` : ''}</dd>
+            <dt>Offset UTC</dt><dd>{row.utcOffsetMinutes ?? '—'} min</dd>
+            <dt>Recebido em</dt><dd>{extFmtDateTime(row.receivedAt)}</dd>
+            <dt>Atualizado na origem</dt><dd>{extFmtDateTime(row.sourceUpdatedAt)}</dd>
+            <dt>Detalhe buscado em</dt><dd>{extFmtDateTime(row.detailFetchedAt)}</dd>
+            <dt>Identidade avaliada em</dt><dd>{extFmtDateTime(row.physicalIdentityEvaluatedAt)}</dd>
+          </dl>
+        </details>
+
+        <details className="extDetails">
+          <summary>Evidência de identidade gravada</summary>
+          <pre className="extPre">{JSON.stringify(row.physicalIdentityEvidence ?? null, null, 2)}</pre>
+        </details>
+
+        <div className="extActions">
+          <button type="button" className="secondaryOutlineButton" onClick={() => toggleRaw(row.id)}>
+            {openRawId === row.id ? 'Fechar payload bruto' : 'Ver payload bruto (raw)'}
+          </button>
+          <button
+            type="button"
+            className="secondaryOutlineButton"
+            disabled={reclassifyState === 'loading'}
+            onClick={() => reclassify(row.id)}
+            title="Reprocessa a correspondencia desta atividade com o Motor de Reconciliacao ja existente (util pra atividades importadas antes do gatilho automatico)"
+          >
+            {reclassifyState === 'loading' ? 'Reclassificando...' : 'Reclassificar'}
+          </button>
+          {reclassifyState === 'error' ? (
+            <span className="extHint" style={{ color: '#b91c1c' }}>Falha ao reclassificar.</span>
+          ) : reclassifyState && reclassifyState !== 'loading' ? (
+            <span className="extHint">
+              classification: <strong>{reclassifyState.classification}</strong> · activeLinkTrainingSessionId: <strong>{reclassifyState.activeLinkTrainingSessionId ?? 'null'}</strong>
+            </span>
+          ) : null}
+        </div>
+        {openRawId === row.id ? renderRaw(row) : null}
+      </div>
+    );
+  }
+
+  const selectedLabel = (id: string) => {
+    const row = rows.find((r) => r.id === id);
+    return row ? `${EXT_PROVIDER_LABEL[row.provider] ?? row.provider} · ${extFmtDateTime(row.startedAt)}` : id;
+  };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <h3 style={{ margin: 0 }}>Atividades externas (diagnóstico)</h3>
-      <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
-        Leitura direta de ActivityLog/RawExternalActivity — sem vínculo com os treinos prescritos, sem recálculo. Uso: investigação manual de sincronização (Polar hoje, outros provedores no futuro).
-      </p>
-
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <button type="button" className="secondaryOutlineButton" disabled={identityState === 'loading'} onClick={() => void evaluateIdentity()}>
-          {identityState === 'loading' ? 'Reavaliando...' : 'Reavaliar identidade física (este aluno)'}
-        </button>
-        {identityState === 'error' ? <span style={{ fontSize: 11, color: '#b91c1c' }}>Falha ao reavaliar.</span> : null}
-        {identitySummary ? (
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-            avaliadas: <strong>{identitySummary.evaluated}</strong> · eventos formados: <strong>{identitySummary.matchedEvents}</strong> · ambíguas: <strong>{identitySummary.ambiguous}</strong> · únicas: <strong>{identitySummary.unique}</strong>
-          </span>
-        ) : null}
+    <div className="extWrap">
+      <div>
+        <h3 style={{ margin: 0 }}>Atividades externas (diagnóstico)</h3>
+        <p className="extHint" style={{ margin: '4px 0 0' }}>
+          Leitura direta de ActivityLog/RawExternalActivity — sem vínculo com os treinos prescritos, sem recálculo. Observações do mesmo evento físico ficam agrupadas.
+        </p>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <button type="button" className="secondaryOutlineButton" disabled={compareIds.length !== 2 || compareState === 'loading'} onClick={() => void compareSelected()}>
-          {compareState === 'loading' ? 'Comparando...' : `Comparar selecionadas (${compareIds.length}/2)`}
-        </button>
-        <span style={{ fontSize: 11, color: 'var(--muted)' }}>Marque 2 observações abaixo. Cálculo sob demanda com o matcher atual; nada é gravado.</span>
-        {compareState === 'error' ? <span style={{ fontSize: 11, color: '#b91c1c' }}>Falha ao comparar.</span> : null}
+      <div className="extToolbar">
+        <div className="extToolbarGroup">
+          <button type="button" className="secondaryOutlineButton" disabled={identityState === 'loading'} onClick={() => void evaluateIdentity()}>
+            {identityState === 'loading' ? 'Reavaliando...' : 'Reavaliar identidade física (este aluno)'}
+          </button>
+          {identityState === 'error' ? <span className="extBadge extBadgeDanger">Falha ao reavaliar</span> : null}
+          {identitySummary ? (
+            <span className="extHint">
+              avaliadas <strong>{identitySummary.evaluated}</strong> · eventos formados <strong>{identitySummary.matchedEvents}</strong> · ambíguas <strong>{identitySummary.ambiguous}</strong> · únicas <strong>{identitySummary.unique}</strong>
+            </span>
+          ) : null}
+        </div>
+        <div className="extToolbarGroup">
+          <button type="button" className="secondaryOutlineButton" disabled={compareIds.length !== 2 || compareState === 'loading'} onClick={() => void compareSelected()}>
+            {compareState === 'loading' ? 'Comparando...' : `Comparar selecionadas (${compareIds.length}/2)`}
+          </button>
+          {compareIds.length === 0 ? <span className="extHint">Marque “comparar” em 2 observações. Cálculo sob demanda com o matcher atual; nada é gravado.</span> : null}
+          {compareIds.map((id) => <span key={id} className="extBadge extBadgeSelected">{selectedLabel(id)}</span>)}
+          {compareIds.length > 0 ? <button type="button" className="extLink" onClick={() => { setCompareIds([]); setCompareResult(null); }}>limpar</button> : null}
+          {compareState === 'error' ? <span className="extBadge extBadgeDanger">Falha ao comparar</span> : null}
+        </div>
       </div>
+
       {compareResult ? (
-        <pre style={{ fontSize: 11, background: 'var(--surface)', padding: 10, borderRadius: 6, overflowX: 'auto', maxHeight: 420, overflowY: 'auto', margin: 0 }}>
-          {JSON.stringify(compareResult, null, 2)}
-        </pre>
+        <div className="extCompare">
+          <div className="extRowBetween">
+            <div className="extToolbarGroup">
+              <strong>Resultado da comparação</strong>
+              {extVerdictBadge(compareResult.verdict)}
+              <code>{compareResult.reason}</code>
+            </div>
+            <button type="button" className="extLink" onClick={() => setCompareResult(null)}>fechar</button>
+          </div>
+          <div className="extTableWrap">
+            <table className="extTable">
+              <thead><tr><th>Valor usado pelo matcher</th><th>A · {EXT_PROVIDER_LABEL[compareResult.a.provider] ?? compareResult.a.provider}</th><th>B · {EXT_PROVIDER_LABEL[compareResult.b.provider] ?? compareResult.b.provider}</th></tr></thead>
+              <tbody>
+                <tr><td>Modalidade (valor original)</td><td>{compareResult.a.sport ?? '—'}</td><td>{compareResult.b.sport ?? '—'}</td></tr>
+                <tr><td>observerKey</td><td>{compareResult.a.observerKey}</td><td>{compareResult.b.observerKey}</td></tr>
+                <tr><td>Início</td><td>{extFmtDateTime(compareResult.a.startedAt)}</td><td>{extFmtDateTime(compareResult.b.startedAt)}</td></tr>
+                <tr><td>Fim</td><td>{extFmtDateTime(compareResult.a.endedAt)}</td><td>{extFmtDateTime(compareResult.b.endedAt)}</td></tr>
+                <tr><td>Duração</td><td>{compareResult.a.durationSec ?? '—'} s</td><td>{compareResult.b.durationSec ?? '—'} s</td></tr>
+                <tr><td>Distância</td><td>{compareResult.a.distanceMeters ?? '—'} m</td><td>{compareResult.b.distanceMeters ?? '—'} m</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="extTableWrap">
+            <table className="extTable">
+              <thead><tr><th>Critério</th><th>Resultado</th><th>Nível</th><th>Valores / deltas</th></tr></thead>
+              <tbody>
+                {compareResult.evidence.map((item) => (
+                  <tr key={item.criterion}>
+                    <td>{EXT_CRITERION_LABEL[item.criterion] ?? item.criterion}</td>
+                    <td>{extTriState(item.matched)}</td>
+                    <td>{item.level ?? '—'}</td>
+                    <td>{item.detail ? Object.entries(item.detail).map(([k, v]) => `${k}: ${v ?? '—'}`).join(' · ') : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <details className="extDetails">
+            <summary>JSON bruto da comparação</summary>
+            <pre className="extPre">{JSON.stringify(compareResult, null, 2)}</pre>
+          </details>
+        </div>
       ) : null}
 
       {rows.length === 0 ? (
-        <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma atividade externa importada para este aluno.</p>
+        <p className="extHint">Nenhuma atividade externa importada para este aluno.</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {(() => {
-            // Visao diagnostica: observacoes do mesmo physicalEventId ficam juntas; as demais seguem na ordem normal.
-            const byEvent = new Map<string, ExternalActivityRow[]>();
-            for (const r of rows) if (r.physicalEventId) byEvent.set(r.physicalEventId, [...(byEvent.get(r.physicalEventId) ?? []), r]);
-            const emitted = new Set<string>();
-            const ordered: ExternalActivityRow[] = [];
-            for (const r of rows) {
-              if (!r.physicalEventId) { ordered.push(r); continue; }
-              if (emitted.has(r.physicalEventId)) continue;
-              emitted.add(r.physicalEventId);
-              ordered.push(...(byEvent.get(r.physicalEventId) ?? []));
-            }
-            return ordered;
-          })().map((row, index, ordered) => (
-            <React.Fragment key={row.id}>
-              {row.physicalEventId && (index === 0 || ordered[index - 1].physicalEventId !== row.physicalEventId) ? (
-                <div style={{ fontSize: 12, marginTop: 8 }}>
-                  <strong>Evento físico</strong> <code>{row.physicalEventId}</code>
-                  {' · '}{ordered.filter((o) => o.physicalEventId === row.physicalEventId).length} observação(ões)
-                </div>
-              ) : null}
-            <div className="card" style={{ padding: 12, ...(row.physicalEventId ? { marginLeft: 12, borderLeft: '3px solid var(--muted)' } : {}) }}>
-              {(() => {
-                const reason = row.physicalCanonicalReason;
-                const candidate = reason?.candidates?.find((c) => c.activityLogId === row.id);
-                const source = row.providerMetrics?.source;
-                const device = row.providerMetrics?.device;
-                return (
-                  <div style={{ fontSize: 12, background: 'var(--surface)', borderRadius: 6, padding: 8, marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span>
-                      Identidade: <strong>{row.physicalIdentityStatus ?? 'não avaliada'}</strong>
-                      {row.physicalCanonicalActivityLogId ? (row.physicalCanonicalActivityLogId === row.id ? <strong> · ★ CANÔNICA</strong> : ' · não canônica') : ''}
-                    </span>
-                    <span>Origem: {source ? `${source.name ?? '—'} (${source.bundleId ?? '—'})` : '—'} · dispositivo: {device ? `${device.name ?? device.model ?? '—'} / ${device.manufacturer ?? '—'}` : '—'}</span>
-                    <span>Papel v2: <strong>{candidate?.role ?? '—'}</strong> · roleBasis: {candidate?.roleBasis ?? '—'}</span>
-                    <span>Regra: versão {reason?.version ?? '—'} · {reason?.rule ?? '—'}{reason?.tieBreak ? ` (desempate: ${reason.tieBreak})` : ''}</span>
-                    <details>
-                      <summary style={{ cursor: 'pointer' }}>Evidência de identidade gravada (avaliada em {row.physicalIdentityEvaluatedAt ? fmtDayFull(row.physicalIdentityEvaluatedAt) : '—'})</summary>
-                      <pre style={{ fontSize: 11, overflowX: 'auto', maxHeight: 300, overflowY: 'auto' }}>{JSON.stringify(row.physicalIdentityEvidence ?? null, null, 2)}</pre>
-                    </details>
+        <div className="extStack">
+          {blocks.map((block) => {
+            const earliest = block.members.reduce((min, r) => (r.startedAt < min ? r.startedAt : min), block.members[0].startedAt);
+            const sport = block.members.find((m) => m.sportCanonical)?.sportCanonical ?? block.members[0].sport ?? 'modalidade não informada';
+            const status = block.eventId ? 'matched' : block.members[0].physicalIdentityStatus;
+            return (
+              <section key={block.key} className={`extEvent${block.eventId ? '' : ' extEventLoose'}`}>
+                <header className="extEventHead">
+                  <div>
+                    <strong className="extEventTitle">{extFmtDateTime(earliest)}</strong>
+                    <span className="extHint"> · {sport}</span>
                   </div>
-                );
-              })()}
-              <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <input
-                  type="checkbox"
-                  checked={compareIds.includes(row.id)}
-                  onChange={(event) => setCompareIds((current) => (event.target.checked ? [...current, row.id].slice(-2) : current.filter((id) => id !== row.id)))}
-                />
-                selecionar para comparar (id {row.id})
-              </label>
-              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                <strong>{row.provider} · {row.sport ?? 'modalidade não informada'}</strong>
-                <span style={{ fontSize: 11, color: 'var(--muted)' }}>externalId: {row.externalId}</span>
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                {fmtDayFull(row.startedAt)} · offset {row.utcOffsetMinutes ?? '—'} min · recebido {fmtDayFull(row.receivedAt)}
-                {row.sourceUpdatedAt ? ` · atualizado na origem ${fmtDayFull(row.sourceUpdatedAt)}` : ''}
-              </div>
-              <div style={{ fontSize: 13, marginTop: 8, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 6 }}>
-                <span>Duração: {row.durationSec != null ? `${Math.round(row.durationSec / 60)} min` : '—'}</span>
-                <span>Distância: {row.distanceMeters != null ? `${(row.distanceMeters / 1000).toFixed(2)} km` : '—'}</span>
-                <span>Calorias: {row.caloriesKcal ?? '—'}</span>
-                <span>FC média: {row.avgHeartRateBpm ?? '—'}</span>
-                <span>FC máxima: {row.maxHeartRateBpm ?? '—'}</span>
-                <span>Cadência média: {row.cadenceAvg ?? '—'}</span>
-                <span>Potência média: {row.powerAvgWatts != null ? `${row.powerAvgWatts} W` : '—'}</span>
-                <span>Ganho de elevação: {row.elevationGainMeters != null ? `${row.elevationGainMeters} m` : '—'}</span>
-                <span>Rota (hasRoute): {row.hasRoute == null ? '—' : row.hasRoute ? 'sim' : 'não'}</span>
-                <span>Detalhe buscado em: {row.detailFetchedAt ? fmtDayFull(row.detailFetchedAt) : '—'}</span>
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
-                <button type="button" className="secondaryOutlineButton" onClick={() => toggleRaw(row.id)}>
-                  {openRawId === row.id ? 'Fechar payload bruto' : 'Ver payload bruto (raw)'}
-                </button>
-                <button
-                  type="button"
-                  className="secondaryOutlineButton"
-                  disabled={reclassifyById[row.id] === 'loading'}
-                  onClick={() => reclassify(row.id)}
-                  title="Reprocessa a correspondencia desta atividade com o Motor de Reconciliacao ja existente (util pra atividades importadas antes do gatilho automatico)"
-                >
-                  {reclassifyById[row.id] === 'loading' ? 'Reclassificando...' : 'Reclassificar'}
-                </button>
-                {reclassifyById[row.id] === 'error' ? (
-                  <span style={{ fontSize: 11, color: '#b91c1c' }}>Falha ao reclassificar.</span>
-                ) : reclassifyById[row.id] && reclassifyById[row.id] !== 'loading' ? (
-                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    classification: <strong>{(reclassifyById[row.id] as ExternalActivityReclassifyResult).classification}</strong>
-                    {' · '}activeLinkTrainingSessionId: <strong>{(reclassifyById[row.id] as ExternalActivityReclassifyResult).activeLinkTrainingSessionId ?? 'null'}</strong>
-                  </span>
-                ) : null}
-              </div>
-              {openRawId === row.id ? (
-                <div style={{ marginTop: 8 }}>
-                  {rawById[row.id] === 'loading' ? (
-                    <p style={{ fontSize: 12, color: 'var(--muted)' }}>Carregando raw...</p>
-                  ) : rawById[row.id] === 'error' ? (
-                    <p style={{ fontSize: 12, color: 'var(--muted)' }}>Não consegui carregar o payload bruto.</p>
-                  ) : rawById[row.id] ? (
-                    <>
-                      <pre style={{ fontSize: 11, background: 'var(--surface)', padding: 10, borderRadius: 6, overflowX: 'auto', maxHeight: 400, overflowY: 'auto' }}>
-                        {JSON.stringify(rawById[row.id], null, 2)}
-                      </pre>
-                      {(() => {
-                        const raw = rawById[row.id];
-                        const samples = raw && typeof raw === 'object' ? (raw as ExternalActivityRaw).samples : undefined;
-                        if (!samples || samples.length === 0) {
-                          return <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Nenhum RawActivitySample persistido para esta atividade.</p>;
-                        }
-                        return (
-                          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <strong style={{ fontSize: 12 }}>Samples ({samples.length})</strong>
-                            {samples.map((sample) => (
-                              <div key={sample.id} className="card" style={{ padding: 8 }}>
-                                <div style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                                  <span><strong>{sample.sampleType}</strong> · {sample.provider}</span>
-                                  <span style={{ color: 'var(--muted)' }}>
-                                    {sample.recordCount != null ? `${sample.recordCount} registros · ` : ''}{sample.payloadSize} bytes (JSON)
-                                  </span>
-                                </div>
-                                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                                  buscado em {fmtDayFull(sample.fetchedAt)} · criado {fmtDayFull(sample.createdAt)} · atualizado {fmtDayFull(sample.updatedAt)}
-                                </div>
-                                <pre style={{ fontSize: 11, background: 'var(--surface)', padding: 8, borderRadius: 6, overflowX: 'auto', maxHeight: 240, overflowY: 'auto', marginTop: 6 }}>
-                                  {JSON.stringify({ payload: sample.payload, providerMeta: sample.providerMeta }, null, 2)}
-                                </pre>
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-            </React.Fragment>
-          ))}
+                  <div className="extToolbarGroup">
+                    <span className="extBadge extBadgeNeutral">{block.members.length} observaç{block.members.length === 1 ? 'ão' : 'ões'}</span>
+                    {block.eventId ? extStatusBadge(status) : <span className="extBadge extBadgeNeutral">sem evento físico</span>}
+                  </div>
+                </header>
+                {block.eventId ? <div className="extHint">PhysicalEvent <code>{block.eventId}</code></div> : null}
+                <div className="extObsGrid">{block.members.map(renderObservation)}</div>
+              </section>
+            );
+          })}
         </div>
       )}
     </div>

@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { observerKeyOf } from '../activity-execution/physical-activity-identity';
+import { canonicalModality } from '../activity-execution/canonical-modality';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { MergeStudentDto } from './dto/merge-student.dto';
 import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
@@ -109,6 +111,9 @@ export class CoachService {
     });
     return logs.map(({ rawActivity, ...log }) => ({
       ...log,
+      // Derivados so' para exibicao diagnostica (mesmas funcoes do matcher); o sport original segue em `sport`.
+      observerKey: observerKeyOf(log.provider, log.providerMetrics),
+      sportCanonical: canonicalModality(log.sport),
       receivedAt: rawActivity.receivedAt,
       sourceUpdatedAt: rawActivity.sourceUpdatedAt,
     }));
