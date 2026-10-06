@@ -4,6 +4,7 @@ import { BadGatewayException, InternalServerErrorException, UnauthorizedExceptio
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PolarService } from '../src/polar/polar.service';
 import { PolarActivityIngestionService } from '../src/polar/polar-activity-ingestion.service';
+import { compareObservations, observerKeyOf } from '../src/activity-execution/physical-activity-identity';
 
 interface FakeConnection {
   userId: string;
@@ -365,6 +366,47 @@ describe('PolarActivityIngestionService', () => {
     await service.sync('user-a');
     const log = activityStore.get('polar|user-a|tz-1');
     expect((log?.startedAt as Date).toISOString()).toBe('2026-09-30T10:15:00.000Z');
+  });
+
+  it('caso real 01/10: Polar 07:34:00 offset -180 + Apple 10:34:01Z sao o mesmo evento fisico (offset aplicado uma unica vez)', async () => {
+    const { service, activityStore } = fixture(baseConnection({ registeredAt: new Date() }));
+    const summary = { id: '511782096', 'start-time': '2026-10-01T07:34:00', 'start-time-utc-offset': -180, duration: 'PT50M57.775S', distance: 10018 };
+    const { fn } = queueFetch([
+      jsonResponse(201, { 'transaction-id': 'txn-real' }),
+      jsonResponse(200, { exercises: [EXERCISE_URL] }),
+      jsonResponse(200, summary),
+      NO_SAMPLES_RESPONSE(),
+      jsonResponse(200, {}),
+    ]);
+    global.fetch = fn as unknown as typeof fetch;
+    await service.sync('user-a');
+    const log = activityStore.get('polar|user-a|511782096');
+    const polarStart = log?.startedAt as Date;
+    expect(polarStart.toISOString()).toBe('2026-10-01T10:34:00.000Z');
+
+    const polar = { id: 'p', userId: 'user-a', provider: 'polar', sport: 'corrida', startedAt: polarStart, durationSec: 3058, distanceMeters: 10018, observerKey: observerKeyOf('polar', null) };
+    const apple = {
+      id: 'a', userId: 'user-a', provider: 'apple_health', sport: 'corrida', startedAt: new Date('2026-10-01T10:34:01.000Z'), durationSec: 3056, distanceMeters: 10012.1,
+      endedAt: new Date('2026-10-01T11:24:57.000Z'), observerKey: observerKeyOf('apple_health', { source: { bundleId: 'com.apple.health' } }),
+    };
+    const verdict = compareObservations(apple, polar);
+    expect(verdict.verdict).toBe('same');
+    expect(verdict.evidence.find((e) => e.criterion === 'start_proximity')).toMatchObject({ level: 'strong', detail: { diffSec: 1 } });
+  });
+
+  it('start-time que ja traz timezone explicito (UTC) NAO recebe o offset de novo', async () => {
+    const { service, activityStore } = fixture(baseConnection({ registeredAt: new Date() }));
+    const summary = { id: 'utc-1', 'start-time': '2026-10-01T10:34:00Z', 'start-time-utc-offset': -180 };
+    const { fn } = queueFetch([
+      jsonResponse(201, { 'transaction-id': 'txn-utc' }),
+      jsonResponse(200, { exercises: [EXERCISE_URL] }),
+      jsonResponse(200, summary),
+      NO_SAMPLES_RESPONSE(),
+      jsonResponse(200, {}),
+    ]);
+    global.fetch = fn as unknown as typeof fetch;
+    await service.sync('user-a');
+    expect((activityStore.get('polar|user-a|utc-1')?.startedAt as Date).toISOString()).toBe('2026-10-01T10:34:00.000Z');
   });
 
   it('erro da Polar (5xx) ao abrir transaction propaga BadGatewayException sem corromper estado', async () => {
