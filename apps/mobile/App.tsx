@@ -6,7 +6,6 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { AppleHealthProofCard } from './src/appleHealthProof/AppleHealthProofCard';
-import { CustomWorkoutProbeCard } from './src/appleWatchDelivery/CustomWorkoutProbeCard';
 import { AppleWatchSendButton } from './src/appleWatchDelivery/AppleWatchSendButton';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -8792,8 +8791,6 @@ function DevicesIntegrationsPanel({ accessToken, onOpenStrava, polarVariant }: {
       </View>
       {/* Bloco 1 (prova tecnica Apple Watch): so' aparece no app nativo iOS com extra.appleHealthProof. */}
       <AppleHealthProofCard accessToken={accessToken} apiUrl={API_URL} />
-      {/* Apple Etapa 6 (sonda temporaria): constroi/valida CustomWorkout no iPhone, sem agendar. Mesma flag da prova acima. */}
-      <CustomWorkoutProbeCard />
     </>
   );
 }

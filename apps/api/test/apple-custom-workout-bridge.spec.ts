@@ -150,10 +150,21 @@ describe('Contrato estatico do codigo Swift (nao e compilacao)', () => {
     }
   });
 
-  it('o modulo expoe a funcao, sem ligar ao envio: nenhum agendamento novo e o fluxo SingleGoalWorkout atual segue intacto', () => {
+  it('o modulo expoe a validacao e o agendamento do CustomWorkout, ambos pelo MESMO builder; o agendamento so roda depois da autorizacao', () => {
     expect(moduleSource).toContain('Function("validateCustomWorkoutSpec")');
     expect(moduleSource).toContain('CustomWorkoutSpecBuilder.validate(specJson: specJson)');
+    expect(moduleSource).toContain('AsyncFunction("scheduleCustomWorkoutSpec")');
+    expect(moduleSource).toContain('CustomWorkoutSpecBuilder.construct(specJson: specJson)'); // sem segunda implementacao da traducao
+    const custom = moduleSource.slice(moduleSource.indexOf('AsyncFunction("scheduleCustomWorkoutSpec")'), moduleSource.indexOf('Function("validateCustomWorkoutSpec")'));
+    expect(custom.indexOf('requestAuthorization()')).toBeGreaterThan(-1);
+    expect(custom.indexOf('requestAuthorization()')).toBeLessThan(custom.indexOf('.schedule(plan'));
+    expect(custom).toContain('WorkoutPlan(.custom(workout), id: uuid)'); // o planId do app vira WorkoutPlan.id (identidade estavel da entrega)
+    expect(custom).toContain('"scheduled": false'); // spec invalido nao agenda e devolve os erros
+    expect(custom).toContain('E_NOT_AUTHORIZED'); // erro nativo real preservado
+    // o fluxo antigo (SingleGoalWorkout) continua so' na prova tecnica; o builder nunca agenda
     expect(moduleSource).toContain('SingleGoalWorkout(');
-    expect(moduleSource.match(/WorkoutScheduler\.shared\.schedule\(/g)?.length).toBe(1); // so' o agendamento simples ja existente
+    expect(moduleSource.split('WorkoutScheduler.shared.schedule(').length - 1).toBe(2);
+    expect(builder).not.toContain('.schedule(');
+    expect(builder).not.toContain('WorkoutScheduler');
   });
 });

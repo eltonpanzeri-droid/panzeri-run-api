@@ -3,21 +3,16 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import {
   isAppleHealthSupported,
   requestWorkoutAuthorization,
-  scheduleRunWorkout,
+  scheduleCustomWorkoutSpec,
+  validateCustomWorkoutSpec,
   listScheduledWorkouts,
 } from '../../modules/panzeri-apple-health/src';
-import { AppleEligibility, ApplePrepare, AppleWatchApi, appleWatchAvailability, sendSessionToAppleWatch } from './sendSessionToAppleWatch';
+import { AppleEligibility, ApplePrepare, AppleWatchApi, appleWatchAvailability, sendResultMessage, sendSessionToAppleWatch } from './sendSessionToAppleWatch';
 
-// "Enviar ao Apple Watch" no card da sessao prescrita. So' no app nativo iOS e SO' quando a sessao e' uma corrida continua externa com
-// distancia definida (a API decide; qualquer outra coisa nao mostra o botao). A identidade da entrega e' persistente no servidor
-// (WorkoutDelivery); tocar de novo nao cria outro workout. Agendar no WorkoutKit nao significa que o treino foi executado.
-
-const REASON_TEXT: Record<string, string> = {
-  prescricao_alterada: 'A prescrição mudou depois do envio anterior.',
-  falha_workoutkit: 'Não foi possível agendar no Apple Watch.',
-  agendamento_nao_confirmado: 'O agendamento não foi confirmado pelo iPhone.',
-  nao_suportado: 'Disponível apenas no app do iPhone.',
-};
+// "Enviar ao Apple Watch" no card da sessao prescrita. So' no app nativo iOS e SO' quando a API (tradutor Apple) consegue representar a corrida
+// sem inventar informacao: continua, varias partes e intervalados por distancia (CustomWorkout). Qualquer outra coisa nao mostra o botao. A
+// identidade da entrega e' persistente no servidor (WorkoutDelivery); tocar de novo nao cria outro workout. Agendar no WorkoutKit nao significa
+// que o treino foi executado.
 
 export function AppleWatchSendButton({ sessionId, accessToken, apiUrl }: { sessionId: string; accessToken: string; apiUrl: string }) {
   const [eligibility, setEligibility] = useState<AppleEligibility | { error: string } | null>(null);
@@ -74,11 +69,12 @@ export function AppleWatchSendButton({ sessionId, accessToken, apiUrl }: { sessi
     try {
       const result = await sendSessionToAppleWatch(sessionId, api, {
         isSupported: isAppleHealthSupported,
+        validateCustomWorkoutSpec,
         requestAuthorization: requestWorkoutAuthorization,
         listScheduled: listScheduledWorkouts,
-        scheduleRun: (planId, distanceKm, date) => scheduleRunWorkout(planId, distanceKm, date),
+        scheduleCustomWorkout: (planId, specJson, date) => scheduleCustomWorkoutSpec(planId, specJson, date),
       });
-      setMessage(result.ok ? (result.state === 'already_scheduled' ? 'Já estava agendado no Apple Watch.' : 'Agendado no Apple Watch. Confira no app Treino do iPhone/Watch.') : (REASON_TEXT[result.reason] ?? result.message));
+      setMessage(sendResultMessage(result));
       await loadEligibility();
     } catch {
       setMessage('Não foi possível enviar agora. Tente novamente.');

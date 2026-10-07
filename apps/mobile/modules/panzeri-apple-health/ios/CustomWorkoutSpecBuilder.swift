@@ -52,14 +52,19 @@ enum CustomWorkoutSpecBuilder {
 
   // Valida e constroi. Devolve sempre um dicionario serializavel: { valid, errors[{code,message,path}], summary? }.
   static func validate(specJson: String) -> [String: Any] {
+    construct(specJson: specJson).result
+  }
+
+  // Mesma validacao/construcao da sonda; devolve tambem o CustomWorkout (nil se invalido) para o agendamento reutilizar EXATAMENTE o que foi validado.
+  static func construct(specJson: String) -> (workout: CustomWorkout?, result: [String: Any]) {
     guard let data = specJson.data(using: .utf8) else {
-      return invalid([CustomWorkoutSpecIssue(code: "E_SPEC_INVALID_JSON", message: "O spec nao e texto UTF-8 valido.", path: "")])
+      return (nil, invalid([CustomWorkoutSpecIssue(code: "E_SPEC_INVALID_JSON", message: "O spec nao e texto UTF-8 valido.", path: "")]))
     }
     let spec: CustomWorkoutSpec
     do {
       spec = try JSONDecoder().decode(CustomWorkoutSpec.self, from: data)
     } catch {
-      return invalid([CustomWorkoutSpecIssue(code: "E_SPEC_INVALID_JSON", message: "Spec ilegivel: \(String(describing: error))", path: "")])
+      return (nil, invalid([CustomWorkoutSpecIssue(code: "E_SPEC_INVALID_JSON", message: "Spec ilegivel: \(String(describing: error))", path: "")]))
     }
 
     var issues: [CustomWorkoutSpecIssue] = []
@@ -134,7 +139,7 @@ enum CustomWorkoutSpecBuilder {
       }
     }
 
-    guard issues.isEmpty else { return invalid(issues) }
+    guard issues.isEmpty else { return (nil, invalid(issues)) }
 
     let workout = CustomWorkout(activity: .running, location: .outdoor, displayName: nil, warmup: nil, blocks: blocks, cooldown: nil)
 
@@ -159,13 +164,13 @@ enum CustomWorkoutSpecBuilder {
       // dataRepresentation lanca erro: se o WorkoutKit nao conseguir serializar, o erro nativo real e' devolvido (nao engolido).
       serializedBytes = try plan.dataRepresentation.count
     } catch {
-      return invalid([CustomWorkoutSpecIssue(code: "E_WORKOUTKIT_DATA_REPRESENTATION_FAILED", message: "O WorkoutKit nao serializou o plano: \(String(describing: error))", path: "")])
+      return (nil, invalid([CustomWorkoutSpecIssue(code: "E_WORKOUTKIT_DATA_REPRESENTATION_FAILED", message: "O WorkoutKit nao serializou o plano: \(String(describing: error))", path: "")]))
     }
     if serializedBytes == 0 {
-      return invalid([CustomWorkoutSpecIssue(code: "E_WORKOUTKIT_DATA_REPRESENTATION_FAILED", message: "O WorkoutKit nao serializou o plano (0 bytes).", path: "")])
+      return (nil, invalid([CustomWorkoutSpecIssue(code: "E_WORKOUTKIT_DATA_REPRESENTATION_FAILED", message: "O WorkoutKit nao serializou o plano (0 bytes).", path: "")]))
     }
 
-    return [
+    return (workout, [
       "valid": true,
       "errors": [[String: Any]](),
       "summary": [
@@ -175,7 +180,7 @@ enum CustomWorkoutSpecBuilder {
         "totalMeters": totalMeters,
         "serializedBytes": serializedBytes
       ] as [String: Any]
-    ]
+    ])
   }
 
   private static func invalid(_ issues: [CustomWorkoutSpecIssue]) -> [String: Any] {

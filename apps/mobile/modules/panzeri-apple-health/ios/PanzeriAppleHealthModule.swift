@@ -154,6 +154,44 @@ public class PanzeriAppleHealthModule: Module {
       }
     }
 
+    // Agenda um CustomWorkout construido a partir do AppleCustomWorkoutSpec ja' validado pela API (Etapa 7). Usa o MESMO builder da sonda
+    // (CustomWorkoutSpecBuilder.construct): spec invalido NAO agenda e devolve os erros identificaveis. planId (UUID) vira WorkoutPlan.id — a
+    // identidade estavel da entrega, devolvida depois pelo HealthKit. Falha de autorizacao/agendamento rejeita com o erro real (codigo + mensagem).
+    AsyncFunction("scheduleCustomWorkoutSpec") { (planId: String, specJson: String, startIso: String, promise: Promise) in
+      guard let uuid = UUID(uuidString: planId) else {
+        promise.reject("E_INVALID_PLAN_ID", "planId precisa ser um UUID.")
+        return
+      }
+      let formatter = ISO8601DateFormatter()
+      formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+      guard let start = formatter.date(from: startIso) ?? ISO8601DateFormatter().date(from: startIso) else {
+        promise.reject("E_INVALID_DATE", "Data invalida (use ISO 8601).")
+        return
+      }
+      let construction = CustomWorkoutSpecBuilder.construct(specJson: specJson)
+      guard let workout = construction.workout else {
+        // Spec invalido: nada e' agendado; os erros estruturados voltam para o app registrar e mostrar.
+        promise.resolve(["scheduled": false, "planId": uuid.uuidString, "errors": construction.result["errors"] ?? [[String: Any]]()])
+        return
+      }
+      let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: start)
+
+      Task {
+        let state = await WorkoutScheduler.shared.requestAuthorization()
+        guard state == .authorized else {
+          promise.reject("E_NOT_AUTHORIZED", "WorkoutKit nao autorizado (estado: \(Self.describe(state))).")
+          return
+        }
+        let plan = WorkoutPlan(.custom(workout), id: uuid)
+        await WorkoutScheduler.shared.schedule(plan, at: components)
+        promise.resolve([
+          "scheduled": true,
+          "planId": uuid.uuidString,
+          "scheduledFor": formatter.string(from: start)
+        ])
+      }
+    }
+
     // Constroi e VALIDA (sem agendar) um CustomWorkout a partir do AppleCustomWorkoutSpec ja' validado pela API. Traducao mecanica: ver
     // CustomWorkoutSpecBuilder.swift. Devolve { valid, errors[{code,message,path}], summary? } — rejeicoes sao identificaveis, nunca genericas.
     Function("validateCustomWorkoutSpec") { (specJson: String) -> [String: Any] in

@@ -3,12 +3,21 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkoutDeliveryService } from './workout-delivery.service';
-import { appleRunEligibility, AppleRunCanonicalWorkout, AppleRunIneligibleReason } from './apple-run-workout';
+import { appleWorkoutEligibility } from './apple-workout-eligibility';
+import { AppleCustomWorkoutSpec, APPLE_TRANSLATOR_VERSION } from './apple-custom-workout-spec';
 
-// Apple Watch via WorkoutKit — adaptador de entrega (primeiro envio real). Reutiliza o WorkoutDelivery existente (sem estrutura concorrente):
-//   TrainingSession (prescricao) -> WorkoutDelivery (provider 'apple_workoutkit', UMA entrega ativa por sessao) -> WorkoutPlan.id do WorkoutKit
-//   (UUID gerado AQUI, persistido em WorkoutDelivery.externalWorkoutId e providerMetadata.workoutPlanId) -> agendamento Apple.
+// Apple Watch via WorkoutKit — adaptador de entrega. Reutiliza o WorkoutDelivery existente (sem estrutura concorrente):
+//   TrainingSession (prescricao) -> CanonicalWorkout -> AppleCustomWorkoutSpec (tradutor Apple) -> WorkoutDelivery (provider 'apple_workoutkit',
+//   UMA entrega ativa por sessao) -> WorkoutPlan.id do WorkoutKit (UUID gerado AQUI, persistido em WorkoutDelivery.externalWorkoutId e
+//   providerMetadata.workoutPlanId) -> Swift CustomWorkout -> agendamento Apple.
 // Esse UUID e' a identidade que o HealthKit devolve depois em HKWorkout.workoutPlan.id (retorno futuro: relacionar a execucao a prescricao).
+//
+// O que a entrega GUARDA (sem migration, so' os campos JSON existentes):
+//   - WorkoutDelivery.canonicalWorkout = o CanonicalWorkout efetivamente enviado (snapshot, nao referencia viva a TrainingSession.structure);
+//   - WorkoutDelivery.providerMetadata = { channel, workoutKitType: 'CustomWorkout', workoutPlanId, scheduledDate, specHash, translatorVersion,
+//     appleSpec (o spec enviado ao Swift), losses, canonicalWarningCodes, schedulingEvidence }.
+// A identidade do CONTEUDO e' o specHash (so' o que e' enviado: ordem, distancias, repeticoes, work/recovery) + a data: mudar so' o pace (que nao e'
+// enviado) NAO desatualiza a entrega; mudar um passo, uma distancia ou o repeatCount, sim.
 //
 // Estados (so' o que a evidencia permite afirmar): 'pending' = identidade reservada, nada agendado ainda; 'sent' = o app confirmou que o
 // WorkoutKit ACEITOU o agendamento (o plano consta na lista de agendados do app); 'failed' = a chamada falhou. NUNCA 'delivered_to_device'
@@ -20,17 +29,25 @@ export interface AppleDeliveryView {
   id: string;
   status: string;
   planId: string;
-  // A prescricao mudou depois que esta entrega foi criada (distancia/data diferentes do snapshot).
+  // A prescricao mudou depois que esta entrega foi criada (conteudo enviado ou data diferentes do snapshot).
   outdated: boolean;
 }
 
 export type AppleEligibilityResult =
-  | { eligible: false; reason: AppleRunIneligibleReason }
+  | { eligible: false; reason: string }
   | { eligible: true; distanceKm: number; scheduledDate: string; delivery: AppleDeliveryView | null };
 
 export type ApplePrepareResult =
-  | { eligible: false; reason: AppleRunIneligibleReason }
-  | { eligible: true; distanceKm: number; scheduledDate: string; delivery: AppleDeliveryView };
+  | { eligible: false; reason: string }
+  // spec = o AppleCustomWorkoutSpec da entrega (o snapshot enviado); null so' para entrega antiga (SingleGoalWorkout) sem spec gravado.
+  | { eligible: true; distanceKm: number; scheduledDate: string; delivery: AppleDeliveryView; spec: AppleCustomWorkoutSpec | null };
+
+interface AppleDeliveryMetadata {
+  specHash?: string;
+  scheduledDate?: string;
+  appleSpec?: AppleCustomWorkoutSpec;
+  [key: string]: unknown;
+}
 
 function todayInSaoPauloIso(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
@@ -51,7 +68,7 @@ export class AppleWatchDeliveryService {
       eligible: true,
       distanceKm: result.distanceKm,
       scheduledDate: result.scheduledDate,
-      delivery: active ? this.view(active, result.canonicalWorkout) : null,
+      delivery: active ? this.view(active, { specHash: result.spec.specHash, scheduledDate: result.scheduledDate }) : null,
     };
   }
 
@@ -72,24 +89,38 @@ export class AppleWatchDeliveryService {
   private async prepareUnlocked(userId: string, sessionId: string): Promise<ApplePrepareResult> {
     const { result } = await this.evaluate(userId, sessionId);
     if (!result.eligible) return { eligible: false, reason: result.reason };
+    const current = { specHash: result.spec.specHash, scheduledDate: result.scheduledDate };
 
     let active = await this.activeDelivery(sessionId);
-    if (active && this.isOutdated(active, result.canonicalWorkout) && active.status === 'pending') {
-      // Reserva ainda nao agendada com snapshot defasado: retira e recria (nada foi enviado ao WorkoutKit).
+    if (active && this.isOutdated(active, current) && active.status === 'pending') {
+      // Reserva ainda nao agendada com snapshot defasado (ou de uma versao antiga do envio): retira e recria (nada foi enviado ao WorkoutKit).
       await this.deliveries.markCanceled(active.id);
       active = null;
     }
     if (!active) {
       const planId = randomUUID();
+      const metadata: AppleDeliveryMetadata = {
+        channel: 'workoutkit',
+        workoutKitType: 'CustomWorkout',
+        workoutPlanId: planId,
+        scheduledDate: result.scheduledDate,
+        specHash: result.spec.specHash,
+        translatorVersion: APPLE_TRANSLATOR_VERSION,
+        appleSpec: result.spec,
+        losses: result.losses,
+        canonicalWarningCodes: result.canonicalWarningCodes,
+        schedulingEvidence: 'none',
+      };
       active = await this.deliveries.recordAttempt({
         trainingSessionId: sessionId,
         provider: APPLE_WORKOUTKIT_PROVIDER,
         canonicalWorkout: result.canonicalWorkout as unknown as Prisma.InputJsonValue,
         externalWorkoutId: planId,
-        providerMetadata: { channel: 'workoutkit', workoutPlanId: planId, schedulingEvidence: 'none' } as unknown as Prisma.InputJsonValue,
+        providerMetadata: metadata as unknown as Prisma.InputJsonValue,
       });
     }
-    return { eligible: true, distanceKm: result.distanceKm, scheduledDate: result.scheduledDate, delivery: this.view(active, result.canonicalWorkout) };
+    const stored = ((active.providerMetadata as AppleDeliveryMetadata | null)?.appleSpec ?? null) as AppleCustomWorkoutSpec | null;
+    return { eligible: true, distanceKm: result.distanceKm, scheduledDate: result.scheduledDate, delivery: this.view(active, current), spec: stored };
   }
 
   // O app chama DEPOIS de confirmar que o WorkoutKit aceitou o agendamento. 'sent' e' o maximo que isto prova.
@@ -105,7 +136,7 @@ export class AppleWatchDeliveryService {
     return this.view(updated, null);
   }
 
-  // Falha na chamada ao WorkoutKit: registra a falha (nunca como sucesso). Uma entrega ja 'sent' nao e' rebaixada.
+  // Falha na validacao/agendamento do WorkoutKit: registra a falha com o erro nativo REAL (nunca como sucesso). Uma entrega ja 'sent' nao e' rebaixada.
   async reportFailure(userId: string, deliveryId: string, message: string): Promise<AppleDeliveryView> {
     const delivery = await this.ownedDelivery(userId, deliveryId);
     if (delivery.status !== 'pending') return this.view(delivery, null);
@@ -120,7 +151,7 @@ export class AppleWatchDeliveryService {
       include: { completion: { select: { status: true } } },
     });
     if (!session) throw new NotFoundException('Sessao de treino nao encontrada.');
-    const result = appleRunEligibility(
+    const result = appleWorkoutEligibility(
       {
         id: session.id,
         modality: session.modality,
@@ -151,13 +182,14 @@ export class AppleWatchDeliveryService {
     return delivery;
   }
 
-  private isOutdated(delivery: { canonicalWorkout: unknown }, current: AppleRunCanonicalWorkout | null): boolean {
+  // Identidade do conteudo: hash do spec enviado + data. Entrega sem specHash gravado (versao antiga do envio) conta como desatualizada.
+  private isOutdated(delivery: { providerMetadata: unknown }, current: { specHash: string; scheduledDate: string } | null): boolean {
     if (!current) return false;
-    const snapshot = delivery.canonicalWorkout as Partial<AppleRunCanonicalWorkout> | null;
-    return snapshot?.goal?.distanceKm !== current.goal.distanceKm || snapshot?.scheduledDate !== current.scheduledDate;
+    const metadata = (delivery.providerMetadata ?? {}) as AppleDeliveryMetadata;
+    return metadata.specHash !== current.specHash || metadata.scheduledDate !== current.scheduledDate;
   }
 
-  private view(delivery: { id: string; status: string; externalWorkoutId: string | null; canonicalWorkout: unknown }, current: AppleRunCanonicalWorkout | null): AppleDeliveryView {
+  private view(delivery: { id: string; status: string; externalWorkoutId: string | null; providerMetadata: unknown }, current: { specHash: string; scheduledDate: string } | null): AppleDeliveryView {
     return { id: delivery.id, status: delivery.status, planId: delivery.externalWorkoutId ?? '', outdated: this.isOutdated(delivery, current) };
   }
 }
