@@ -10689,7 +10689,7 @@ function SessionPrescription({
           </View>
           <View>
             <Text style={styles.runMetricLabel}>Duracao total</Text>
-            <Text style={styles.runMetricValue}>{structure.durationRange ?? `${structure.durationMin ?? session.durationMin ?? '-'} min`}</Text>
+            <Text style={styles.runMetricValue}>{structure.durationRange ? collapseEqualRange(structure.durationRange) : `${structure.durationMin ?? session.durationMin ?? '-'} min`}</Text>
           </View>
         </View>
       )}
@@ -10710,17 +10710,18 @@ function SessionPrescription({
                 return (
                   <Text style={styles.prescriptionText} key={`${step.label}-${index}`}>
                     - {step.label}{step.pausaType === 'ativa' ? ' (pausa ativa' + (step.activityType ? `, ${step.activityType}` : '') + ')' : step.activityType ? ` (${step.activityType})` : ''} por {step.distanceValue}{step.distanceUnit ?? 'km'}
-                    {step.paceRange ? ` - Pace (${step.paceRange})` : ''}
-                    {step.speedRange ? ` | Velocidade (${step.speedRange})` : ''}
-                    {step.durationRange ? ` - completar entre ${step.durationRange}` : ''}
+                    {step.paceRange ? ` - Pace (${collapseEqualRange(step.paceRange)})` : ''}
+                    {step.speedRange ? ` | Velocidade (${collapseEqualRange(step.speedRange)})` : ''}
+                    {step.durationRange ? ` - completar entre ${collapseEqualRange(step.durationRange)}` : ''}
                   </Text>
                 );
               })}
             </View>
           );
         }
-        const pace = block.paceRange;
-        const speed = block.speedRange ?? speedRangeFromPace(pace) ?? (block.speedKmh ? `${formatDecimal(block.speedKmh)} km/h` : null);
+        const pace = block.paceRange ? collapseEqualRange(block.paceRange) : block.paceRange;
+        const speedRaw = block.speedRange ?? speedRangeFromPace(pace) ?? (block.speedKmh ? `${formatDecimal(block.speedKmh)} km/h` : null);
+        const speed = speedRaw ? collapseEqualRange(speedRaw) : speedRaw;
         return (
           <View style={styles.runBlock} key={block.label}>
             <View style={styles.runBlockHeader}>
@@ -12974,7 +12975,7 @@ function paceFromSpeed(speedKmh: number) {
 }
 
 function runBlockDurationLabel(block: { durationMin?: number; durationRange?: string; durationType?: string; distanceValue?: string | number; distanceUnit?: string }) {
-  if (block.durationRange) return `Tempo: ${block.durationRange}`;
+  if (block.durationRange) return `Tempo: ${collapseEqualRange(block.durationRange)}`;
   return `${block.durationMin ?? 0} min`;
 }
 
@@ -13007,6 +13008,14 @@ function speedRangeFromPace(pace: string | null | undefined) {
   if (!speeds.length) return null;
   if (speeds.length === 1) return `${formatDecimal(speeds[0])} km/h`;
   return `${formatDecimal(speeds[0])} a ${formatDecimal(speeds[speeds.length - 1])} km/h`;
+}
+
+// Apresentacao: "5:45/km a 5:45/km" -> "5:45/km"; "10.4 a 10.4 km/h" -> "10.4 km/h"; faixa real (valores diferentes) fica como esta.
+function collapseEqualRange(text: string): string {
+  const match = text.match(/^\s*([\d:.,]+)([^\d\s]*?)\s+a\s+([\d:.,]+)(.*)$/);
+  if (!match) return text;
+  const [, first, , second, rest] = match;
+  return first === second ? `${second}${rest}` : text;
 }
 
 function formatDecimal(value: number) {

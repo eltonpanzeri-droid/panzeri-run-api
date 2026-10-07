@@ -6883,8 +6883,8 @@ function RunStepEditor({
 
       <div className="calculatedIntensity">
         <span><strong>Zona</strong>{String(block.zone ?? '-')}</span>
-        <span><strong>Pace</strong>{String(block.paceRange ?? '-')}</span>
-        <span><strong>Velocidade</strong>{String(block.speedRange ?? '-').replaceAll('.', ',')}</span>
+        <span><strong>Pace</strong>{collapseEqualRange(String(block.paceRange ?? '-'))}</span>
+        <span><strong>Velocidade</strong>{collapseEqualRange(String(block.speedRange ?? '-')).replaceAll('.', ',')}</span>
       </div>
       {paceWarning ? <p className="fieldError">{paceWarning}</p> : null}
       <label>Instrucao da etapa<input value={String(block.guidance ?? '')} onChange={(event) => onChange({ ...block, guidance: event.target.value })} placeholder="Orientacao que aparecera para o aluno" /></label>
@@ -7081,9 +7081,9 @@ function AdminPrescription({ structure, notes }: { structure?: Record<string, un
                   return (
                     <span key={`${String(step.label)}-${index}`}>
                       - {String(step.label)}{pausaType === 'ativa' ? ' (pausa ativa' + (step.activityType ? `, ${String(step.activityType)}` : '') + ')' : step.activityType ? ` (${String(step.activityType)})` : ''} por {String(step.distanceValue)}{String(step.distanceUnit ?? 'km')}
-                      {step.paceRange ? ` - Pace (${String(step.paceRange)})` : ''}
-                      {step.speedRange ? ` | Velocidade (${String(step.speedRange).replaceAll('.', ',')})` : ''}
-                      {step.durationRange ? ` - completar entre ${String(step.durationRange)}` : ''}
+                      {step.paceRange ? ` - Pace (${collapseEqualRange(String(step.paceRange))})` : ''}
+                      {step.speedRange ? ` | Velocidade (${collapseEqualRange(String(step.speedRange)).replaceAll('.', ',')})` : ''}
+                      {step.durationRange ? ` - completar entre ${collapseEqualRange(String(step.durationRange))}` : ''}
                     </span>
                   );
                 })}
@@ -7094,8 +7094,8 @@ function AdminPrescription({ structure, notes }: { structure?: Record<string, un
             <div className="adminBlock" key={String(block.label)}>
               <strong>{String(block.label)}</strong>
               <span>{adminStepMeasure(block)} {block.zone ? `| ${String(block.zone)}` : ''}</span>
-              {block.paceRange ? <span>Pace: {String(block.paceRange)}</span> : null}
-              {block.speedRange ? <span>Velocidade: {String(block.speedRange).replaceAll('.', ',')}</span> : null}
+              {block.paceRange ? <span>Pace: {collapseEqualRange(String(block.paceRange))}</span> : null}
+              {block.speedRange ? <span>Velocidade: {collapseEqualRange(String(block.speedRange)).replaceAll('.', ',')}</span> : null}
               {block.rpe ? <span>Esforco: {adminRpeLabel(String(block.rpe))}</span> : null}
               {block.guidance ? <span>{String(block.guidance)}</span> : null}
             </div>
@@ -7400,6 +7400,14 @@ function parsePaceRange(value: string) {
 
 function parseSpeedRange(value: string) {
   return [...value.matchAll(/(\d+(?:[.,]\d+)?)/g)].map((match) => match[1].replace('.', ','));
+}
+
+// Apresentacao: "5:45/km a 5:45/km" -> "5:45/km"; "10.4 a 10.4 km/h" -> "10.4 km/h"; faixa real (valores diferentes) fica como esta.
+function collapseEqualRange(text: string): string {
+  const match = text.match(/^\s*([\d:.,]+)([^\d\s]*?)\s+a\s+([\d:.,]+)(.*)$/);
+  if (!match) return text;
+  const [, first, , second, rest] = match;
+  return first === second ? `${second}${rest}` : text;
 }
 
 function speedRangeForPaces(fastPace: number, slowPace: number) {

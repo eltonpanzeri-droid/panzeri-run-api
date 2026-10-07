@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { collapseEqualRange, runPaceHeaderLabel } from './range-display';
 import { sleepDurationHoursEstimate } from '../workout-completions/workout-completions.service';
 import { runnerStrengthExercises } from './runner-strength-library';
 import { gymExerciseLibrary } from './gym-exercise-library';
@@ -2579,7 +2580,7 @@ export class TrainingPlansService {
             date: formatDate(session.scheduledDate),
             isoDate: session.scheduledDate.toISOString().slice(0, 10),
             title: session.title,
-            detail: [structureDurationLabel(session.structure, session.durationMin), session.intensityZone, session.paceMinSec]
+            detail: [structureDurationLabel(session.structure, session.durationMin), session.intensityZone, runPaceHeaderLabel(session.structure, session.paceMinSec)]
               .filter(Boolean)
               .join(' - '),
             modality: session.modality,
@@ -3010,7 +3011,7 @@ function jsonObject(value: unknown): Record<string, unknown> {
 
 function structureDurationLabel(structure: unknown, durationMin: number | null) {
   const value = jsonObject(structure).durationRange;
-  if (typeof value === 'string' && value) return `Tempo ${value}`;
+  if (typeof value === 'string' && value) return `Tempo ${collapseEqualRange(value)}`;
   return durationMin ? `${durationMin} min` : null;
 }
 
