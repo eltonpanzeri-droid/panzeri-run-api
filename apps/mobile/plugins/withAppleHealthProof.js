@@ -6,7 +6,7 @@ const { withEntitlementsPlist, withInfoPlist, withPodfileProperties, withXcodePr
 
 const IOS_DEPLOYMENT_TARGET = '17.0';
 const HEALTH_SHARE_TEXT =
-  'O Panzeri Run le seus treinos de corrida do app Saude (inicio, fim, duracao e distancia) para esta prova tecnica. Nada e enviado para fora do seu aparelho.';
+  'O Panzeri Run le seus treinos de corrida do app Saude (inicio, fim, duracao e distancia). Os dados de treino que voce autorizar podem ser enviados ao Panzeri Run para sincronizacao e acompanhamento do seu treino.';
 
 module.exports = function withAppleHealthProof(config) {
   config = withEntitlementsPlist(config, (c) => {

@@ -2,7 +2,8 @@ import { Platform } from 'react-native';
 import { requireOptionalNativeModule } from 'expo';
 
 // Bloco 1 (prova tecnica) — HealthKit + WorkoutKit. Modulo nativo SO iOS: em Android, web/PWA e Expo Go o modulo nao
-// existe, `isSupported` e' false e nenhuma chamada e' feita. Nenhuma funcao daqui envia dado para fora do aparelho.
+// existe, `isSupported` e' false e nenhuma chamada e' feita. Estas funcoes so' leem/agendam NO aparelho; o envio de treinos lidos para a API
+// (sincronizacao com o Panzeri Run) e' feito pelo app, com autorizacao do usuario.
 
 export interface AppleRunningWorkout {
   uuid: string;

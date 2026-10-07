@@ -29,6 +29,9 @@ export class WorkoutDeliveryService {
     provider: string;
     canonicalWorkout: Prisma.InputJsonValue;
     providerMetadata?: Prisma.InputJsonValue | null;
+    // Identidade da entrega conhecida ANTES do envio (ex.: o WorkoutPlan.id que o Apple/WorkoutKit usa e devolve no HealthKit). Providers
+    // que so' recebem o id depois do envio nao passam isto.
+    externalWorkoutId?: string | null;
   }) {
     const session = await this.prisma.trainingSession.findUnique({ where: { id: params.trainingSessionId } });
     if (!session) throw new NotFoundException('Sessao de treino nao encontrada.');
@@ -40,6 +43,7 @@ export class WorkoutDeliveryService {
         canonicalWorkout: params.canonicalWorkout,
         status: 'pending',
         providerMetadata: params.providerMetadata ?? undefined,
+        ...(params.externalWorkoutId ? { externalWorkoutId: params.externalWorkoutId } : {}),
       },
     });
   }

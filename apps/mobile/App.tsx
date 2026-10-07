@@ -6,6 +6,7 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { AppleHealthProofCard } from './src/appleHealthProof/AppleHealthProofCard';
+import { AppleWatchSendButton } from './src/appleWatchDelivery/AppleWatchSendButton';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { parseJourneyFromSearch, resolveJourney } from './src/journey';
@@ -5553,6 +5554,8 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                             do colapsivel da SessionPrescription em vez de sempre visivel aqui */}
                         <RealizedComparisonCard realized={session.realized} prescribedDistanceKm={session.distanceKm} prescribedDurationMin={session.durationMin} />
                         {session.realized ? <ActivityDetailButton activityLogId={session.realized.activityLogId} accessToken={accessToken} /> : null}
+                        {/* Envio ao Apple Watch (WorkoutKit): so' no app nativo iOS e so' p/ corrida continua externa por distancia (a API decide). */}
+                        <AppleWatchSendButton sessionId={session.id} accessToken={accessToken} apiUrl={API_URL} />
                         <SessionPrescription
                           session={session}
                           sessionNotes={'notes' in session && session.notes ? session.notes : undefined}
