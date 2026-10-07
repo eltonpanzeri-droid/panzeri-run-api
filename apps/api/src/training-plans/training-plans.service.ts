@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, InternalServerErrorException, Logger, 
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { collapseEqualRange, runPaceHeaderLabel } from './range-display';
+import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
+import { canonicalModality } from '../activity-execution/canonical-modality';
 import { sleepDurationHoursEstimate } from '../workout-completions/workout-completions.service';
 import { runnerStrengthExercises } from './runner-strength-library';
 import { gymExerciseLibrary } from './gym-exercise-library';
@@ -2113,8 +2115,16 @@ export class TrainingPlansService {
       where: { status: 'active', trainingSession: { userId } },
       include: { activityLog: true },
     });
-    const activityBySessionId = new Map(activeLinks.map((l) => [l.trainingSessionId, l.activityLog]));
-    const linkedActivityIds = new Set(activeLinks.map((l) => l.activityLogId));
+    // 3C.2: um evento fisico = uma execucao. O dado exibido de uma sessao vinculada e' o da observacao CANONICA do evento (3A); todas as
+    // observacoes do evento contam como "ja' vinculadas" (nao reaparecem como atividade alternativa).
+    const linkedPicks = await pickCanonicalPerEvent(
+      activeLinks.map((l) => l.activityLog),
+      (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }),
+    );
+    const canonicalByReadId = new Map<string, (typeof activeLinks)[number]['activityLog']>();
+    for (const pick of linkedPicks) for (const member of pick.members) canonicalByReadId.set(member.id, pick.row);
+    const activityBySessionId = new Map(activeLinks.map((l) => [l.trainingSessionId, canonicalByReadId.get(l.activityLogId) ?? l.activityLog]));
+    const linkedActivityIds = new Set([...activeLinks.map((l) => l.activityLogId), ...linkedPicks.flatMap((p) => [p.row.id, ...p.members.map((m) => m.id)])]);
 
     // Atividades 'alternative' sem sessao sintetica: tambem foram realizadas e entram no historico
     // (card proprio), mas nunca como cumprimento de uma prescricao. As ja materializadas aparecem
@@ -2139,8 +2149,11 @@ export class TrainingPlansService {
       return byWeek.get(ws)!;
     };
 
-    for (const log of alternativeLogs) {
-      if (linkedActivityIds.has(log.id) || materializedActivityIds.has(log.id)) continue;
+    // Atividade alternativa: um cartao por EVENTO (observacao canonica), com a modalidade pela representacao canonica.
+    const alternativePicks = await pickCanonicalPerEvent(alternativeLogs, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
+    for (const { row: log, members } of alternativePicks) {
+      if (members.some((m) => linkedActivityIds.has(m.id) || materializedActivityIds.has(m.id)) || linkedActivityIds.has(log.id) || materializedActivityIds.has(log.id)) continue;
+      const modality = canonicalModality(log.sport) ?? log.sport;
       const isoDate = localCalendarDate(log.startedAt, log.utcOffsetMinutes);
       const day = new Date(`${isoDate}T00:00:00.000Z`);
       const distanceKm = log.distanceMeters != null ? Math.round((log.distanceMeters / 1000) * 100) / 100 : null;
@@ -2150,8 +2163,8 @@ export class TrainingPlansService {
         id: `activity:${log.id}`,
         date: isoDate,
         weekday: day.getUTCDay(),
-        modality: log.sport ?? 'outra',
-        title: `${log.sport ?? 'Atividade'} (${log.provider})`,
+        modality: modality ?? 'outra',
+        title: `${modality ?? 'Atividade'} (${log.provider})`,
         completionStatus: null,
         completedDistanceKm: distanceKm,
         isExtra: true,

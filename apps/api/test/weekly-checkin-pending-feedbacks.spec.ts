@@ -15,6 +15,7 @@ function build(sessions: unknown[], options: { existingCheckIn?: boolean } = {})
     },
     weeklyAvailability: { findFirst: jest.fn().mockResolvedValue(null) },
     trainingSession: { findMany: jest.fn().mockResolvedValue(sessions) },
+    activityLog: { findMany: jest.fn().mockResolvedValue([]) },
   };
   const strava = { report: jest.fn().mockResolvedValue({ summary: null }) };
   const service = new WeeklyCheckInService(prisma as never, {} as never, {} as never);

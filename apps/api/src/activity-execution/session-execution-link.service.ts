@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { ActivityLog, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { canonicalModality } from './canonical-modality';
+import { pickCanonicalPerEvent } from './canonical-observation';
 
 // Fundacao Prescricao x Execucao (01/10/2026) + Motor de Reconciliacao V1 (02/10/2026). Fronteira
 // ONDE isto se conecta ao resto do sistema: TrainingSession (prescrita OU sintetica/extra) e
@@ -276,6 +277,11 @@ export class SessionExecutionLinkService {
 
     const activityIds = activities.map((a) => a.id);
     const activityById = new Map(activities.map((a) => [a.id, a]));
+    // 3C.2: uma atividade fisica = um cartao. Cada observacao lida mapeia para o seu evento; quem REPRESENTA o evento na saida e' a
+    // observacao canonica (3A). As regras de matching nao mudam — so' a apresentacao das ativas/alternativas/candidatas.
+    const eventPicks = await pickCanonicalPerEvent(activities, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
+    const eventByReadId = new Map<string, (typeof eventPicks)[number]>();
+    for (const pick of eventPicks) for (const member of pick.members) eventByReadId.set(member.id, pick);
 
     const links = await this.prisma.sessionExecutionLink.findMany({
       where: { activityLogId: { in: activityIds }, status: { in: ['active', 'candidate'] } },
@@ -290,9 +296,11 @@ export class SessionExecutionLinkService {
       const activity = activityById.get(link.activityLogId);
       if (!activity) continue;
       if (link.status === 'active') {
-        linkedActivityIds.add(link.activityLogId);
+        const pick = eventByReadId.get(link.activityLogId);
+        for (const member of pick?.members ?? [activity]) linkedActivityIds.add(member.id);
+        if (pick) linkedActivityIds.add(pick.row.id);
         activeLinkBySessionId.set(link.trainingSessionId, {
-          activityLog: toActivitySummary(activity),
+          activityLog: toActivitySummary(pick?.row ?? activity),
           matchMethod: link.matchMethod,
         });
       } else {
@@ -321,21 +329,32 @@ export class SessionExecutionLinkService {
         .filter((id): id is string => Boolean(id)),
     );
 
-    const alternativeActivities = activities
+    // Alternativas: um cartao por EVENTO (canonica), nunca um por observacao; fora se qualquer observacao do evento tem vinculo ativo ou
+    // sessao sintetica ja' materializada.
+    const alternativeActivities = eventPicks
       .filter(
-        (a) =>
-          a.executionClassification === 'alternative' &&
-          !linkedActivityIds.has(a.id) &&
-          !materializedActivityIds.has(a.id),
+        (pick) =>
+          pick.members.some((m) => m.executionClassification === 'alternative') &&
+          !pick.members.some((m) => linkedActivityIds.has(m.id) || materializedActivityIds.has(m.id)) &&
+          !materializedActivityIds.has(pick.row.id),
       )
-      .map(toActivitySummary);
+      .map((pick) => toActivitySummary(pick.row));
 
-    const pendingActivities = [...candidatesByActivityId.entries()]
-      .filter(([activityId]) => !linkedActivityIds.has(activityId))
-      .map(([activityId, candidates]) => ({
-        activityLog: toActivitySummary(activityById.get(activityId)!),
-        candidates,
-      }));
+    // Candidatas: um cartao por evento; as opcoes de todas as observacoes do evento sao reunidas (sem repetir a mesma sessao).
+    const pendingByEvent = new Map<string, { pick: (typeof eventPicks)[number]; candidates: ReconciliationCandidateOption[] }>();
+    for (const [activityId, candidates] of candidatesByActivityId.entries()) {
+      const pick = eventByReadId.get(activityId);
+      if (!pick || pick.members.some((m) => linkedActivityIds.has(m.id))) continue;
+      const entry = pendingByEvent.get(pick.row.id) ?? { pick, candidates: [] };
+      for (const candidate of candidates) {
+        if (!entry.candidates.some((c) => c.trainingSessionId === candidate.trainingSessionId)) entry.candidates.push(candidate);
+      }
+      pendingByEvent.set(pick.row.id, entry);
+    }
+    const pendingActivities = [...pendingByEvent.values()].map(({ pick, candidates }) => ({
+      activityLog: toActivitySummary(pick.row),
+      candidates,
+    }));
 
     return { activeLinkBySessionId, alternativeActivities, pendingActivities };
   }

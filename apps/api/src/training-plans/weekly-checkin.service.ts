@@ -1,3 +1,4 @@
+import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -31,6 +32,9 @@ export interface WeeklyCheckInSummary {
   changedModalitySessions: number;
   differentSessions: number;
   missedSessions: number;
+  // 3C.2 (informativo): atividades fisicas adicionais/livres (sem prescricao correspondente) ja' realizadas na semana — um evento fisico conta
+  // uma vez (observacao canonica), independente de quantos providers o entregaram. Nao entra em nenhum dos quatro numeros acima.
+  additionalActivities: number;
 }
 
 // 31/08: check-in obrigatorio antes do aluno gerar a proxima semana (pedido explicito do
@@ -68,7 +72,7 @@ export class WeeklyCheckInService {
     if (existing) return { needsCheckIn: false, summary: null, showExplanation: false, todayHasRoutine, pendingFeedbacks };
 
     const [summary, totalCheckIns] = await Promise.all([
-      this.computeSummary(userId, plan.id, { skipCache: true }),
+      this.computeSummary(userId, plan, { skipCache: true }),
       this.prisma.weeklyCheckIn.count({ where: { userId } }),
     ]);
     // Explicacao do "pra que serve" some depois das duas primeiras vezes (pedido do treinador —
@@ -247,10 +251,16 @@ export class WeeklyCheckInService {
 
   // Contagem so' pelo registro do aluno (feito/ajustado, 'nao feito', sem registro). Dados do Strava nao entram
   // aqui (politica Strava, 05/10/2026): nao ha como inferir 'modalidade diferente' sem eles — fica 0.
-  private async computeSummary(userId: string, planId: string, options?: { skipCache?: boolean }): Promise<WeeklyCheckInSummary> {
+  //
+  // 3C.2 — execucao objetiva x feedback subjetivo (dois conceitos, nunca confundidos): uma sessao prescrita com vinculo ATIVO a um evento fisico
+  // (SessionExecutionLink) foi EXECUTADA mesmo que o aluno ainda nao tenha respondido o feedback — conta como feita; a ausencia de
+  // WorkoutCompletion nunca a transforma em 'nao realizada' nem inventa uma resposta. Quando o aluno registrou um status explicito, ele
+  // continua valendo (inclusive 'nao feito'). Sessao sintetica de atividade adicional (device_extra) nao e' prescricao: sai da contagem 'feita
+  // como prescrito' e a atividade e' reconhecida em additionalActivities.
+  private async computeSummary(userId: string, plan: { id: string; startDate: Date }, options?: { skipCache?: boolean }): Promise<WeeklyCheckInSummary> {
     const sessions = await this.prisma.trainingSession.findMany({
-      where: { planId },
-      select: { scheduledDate: true, completion: { select: { status: true } } },
+      where: { planId: plan.id },
+      select: { scheduledDate: true, origin: true, completion: { select: { status: true } }, executionLinks: { where: { status: 'active' }, select: { id: true } } },
     });
     const today = todayInSaoPaulo();
     let asPrescribedSessions = 0;
@@ -258,7 +268,12 @@ export class WeeklyCheckInService {
     for (const session of sessions) {
       const isPastOrToday = startOfDay(session.scheduledDate).getTime() <= today.getTime();
       if (!isPastOrToday) continue;
+      if (session.origin === 'device_extra') continue;
       const status = session.completion?.status;
+      if (!status && (session.executionLinks?.length ?? 0) > 0) {
+        asPrescribedSessions += 1; // execucao objetiva comprovada, feedback ainda nao respondido
+        continue;
+      }
       // 08/09: separar status='missed' (aluno marcou "nao feito" explicitamente) de completion=null
       // (sem nenhuma interacao — treino pode ter sido feito e nao registrado). Antes ambos iam pra
       // missedSessions, gerando "sem registro" falso pro aluno quando ele marcou "nao feito" de
@@ -269,6 +284,19 @@ export class WeeklyCheckInService {
       else if (status === 'missed') missedSessions += 1;
       // status null/undefined: sem interacao — nao conta em nenhum bucket (nao e' missedSessions)
     }
-    return { asPrescribedSessions, changedModalitySessions: 0, differentSessions: 0, missedSessions };
+    const additionalActivities = await this.countAdditionalActivities(userId, plan.startDate, today);
+    return { asPrescribedSessions, changedModalitySessions: 0, differentSessions: 0, missedSessions, additionalActivities };
+  }
+
+  // Atividades fisicas adicionais/livres da semana do plano, um evento fisico = uma atividade (canonica da 3A).
+  private async countAdditionalActivities(userId: string, planStart: Date, today: Date): Promise<number> {
+    const weekEnd = new Date(planStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const dayAfterToday = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+    const rangeEnd = weekEnd.getTime() < dayAfterToday.getTime() ? weekEnd : dayAfterToday;
+    const rows = await this.prisma.activityLog.findMany({
+      where: { userId, executionClassification: 'alternative', startedAt: { gte: planStart, lt: rangeEnd } },
+    });
+    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
+    return picks.length;
   }
 }
