@@ -3,7 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { WorkoutDeliveryService } from '../src/workout-delivery/workout-delivery.service';
 import { AppleWatchDeliveryService, APPLE_WORKOUTKIT_PROVIDER } from '../src/workout-delivery/apple-watch-delivery.service';
 import { appleRunEligibility } from '../src/workout-delivery/apple-run-workout';
-import { sendSessionToAppleWatch, sessionDateToLocalNoon, AppleWatchApi, AppleWatchNative } from '../../mobile/src/appleWatchDelivery/sendSessionToAppleWatch';
+import { appleWatchAvailability, sendSessionToAppleWatch, sessionDateToLocalNoon, AppleWatchApi, AppleWatchNative } from '../../mobile/src/appleWatchDelivery/sendSessionToAppleWatch';
 
 // Apple Watch via WorkoutKit — primeiro envio real (so' corrida continua externa por distancia). Servico + orquestracao do app, com banco em
 // memoria e WorkoutKit simulado. Nenhum PhysicalEvent/ActivityLog pode ser criado pelo envio; agendamento aceito nao e' execucao.
@@ -255,5 +255,31 @@ describe('sendSessionToAppleWatch — orquestracao (app) com WorkoutKit simulado
   it('sessionDateToLocalNoon: dia da sessao ao meio-dia local (nao desloca o dia)', () => {
     const date = sessionDateToLocalNoon('2026-12-31');
     expect([date.getFullYear(), date.getMonth(), date.getDate(), date.getHours()]).toEqual([2026, 11, 31, 12]);
+  });
+});
+
+describe('appleWatchAvailability — o que o card mostra antes do toque (falha nao e mais silenciosa)', () => {
+  const eligible = { eligible: true as const, distanceKm: 5, scheduledDate: FUTURE_DATE, delivery: null };
+  it('sessao elegivel: botao', () => {
+    expect(appleWatchAvailability(eligible)).toEqual({ show: 'button' });
+  });
+  it('corrida inelegivel por motivo compreensivel (varias partes, intervalado, por tempo, distancia): mostra o motivo em uma linha', () => {
+    const multi = appleWatchAvailability({ eligible: false, reason: 'varias_partes' });
+    expect(multi).toMatchObject({ show: 'note' });
+    expect((multi as { note: string }).note).toContain('varias partes');
+    for (const reason of ['intervalado', 'por_tempo', 'distancia_invalida', 'distancia_inconsistente']) {
+      expect(appleWatchAvailability({ eligible: false, reason })).toMatchObject({ show: 'note' });
+    }
+  });
+  it('falha na consulta: avisa que nao conseguiu verificar, com o codigo (antes o botao sumia sem explicacao)', () => {
+    const failed = appleWatchAvailability({ error: 'HTTP 404' }) as { show: string; note: string };
+    expect(failed.show).toBe('note');
+    expect(failed.note).toContain('HTTP 404');
+  });
+  it('sessoes que nunca teriam o botao e estados esperados continuam sem mensagem; as regras de elegibilidade nao mudam', () => {
+    for (const reason of ['modalidade_nao_suportada', 'sessao_extra', 'estrutura_nao_suportada', 'data_passada', 'sessao_ja_registrada']) {
+      expect(appleWatchAvailability({ eligible: false, reason })).toEqual({ show: 'nothing' });
+    }
+    expect(appleWatchAvailability(null)).toEqual({ show: 'nothing' });
   });
 });

@@ -6,7 +6,7 @@ import {
   scheduleRunWorkout,
   listScheduledWorkouts,
 } from '../../modules/panzeri-apple-health/src';
-import { AppleEligibility, ApplePrepare, AppleWatchApi, sendSessionToAppleWatch } from './sendSessionToAppleWatch';
+import { AppleEligibility, ApplePrepare, AppleWatchApi, appleWatchAvailability, sendSessionToAppleWatch } from './sendSessionToAppleWatch';
 
 // "Enviar ao Apple Watch" no card da sessao prescrita. So' no app nativo iOS e SO' quando a sessao e' uma corrida continua externa com
 // distancia definida (a API decide; qualquer outra coisa nao mostra o botao). A identidade da entrega e' persistente no servidor
@@ -20,7 +20,7 @@ const REASON_TEXT: Record<string, string> = {
 };
 
 export function AppleWatchSendButton({ sessionId, accessToken, apiUrl }: { sessionId: string; accessToken: string; apiUrl: string }) {
-  const [eligibility, setEligibility] = useState<AppleEligibility | null>(null);
+  const [eligibility, setEligibility] = useState<AppleEligibility | { error: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const busyRef = useRef(false); // trava o duplo toque antes mesmo do estado atualizar
@@ -41,8 +41,9 @@ export function AppleWatchSendButton({ sessionId, accessToken, apiUrl }: { sessi
   const loadEligibility = useCallback(async () => {
     try {
       setEligibility((await call('GET', `sessions/${sessionId}/eligibility`)) as AppleEligibility);
-    } catch {
-      setEligibility(null);
+    } catch (error) {
+      // Nao esconde a falha em silencio: o card diz que nao conseguiu verificar (com o codigo), em vez de o botao sumir sem explicacao.
+      setEligibility({ error: error instanceof Error ? error.message : 'erro' });
     }
   }, [call, sessionId]);
 
@@ -50,7 +51,11 @@ export function AppleWatchSendButton({ sessionId, accessToken, apiUrl }: { sessi
     if (isAppleHealthSupported) void loadEligibility();
   }, [loadEligibility]);
 
-  if (!isAppleHealthSupported || !eligibility || !eligibility.eligible) return null;
+  if (!isAppleHealthSupported) return null;
+  const availability = appleWatchAvailability(eligibility);
+  if (availability.show === 'nothing') return null;
+  if (availability.show === 'note') return <Text style={styles.hint}>{availability.note}</Text>;
+  if (!eligibility || 'error' in eligibility || !eligibility.eligible) return null;
 
   const status = eligibility.delivery?.status ?? null;
   const alreadySent = status === 'sent' || status === 'delivered_to_device';

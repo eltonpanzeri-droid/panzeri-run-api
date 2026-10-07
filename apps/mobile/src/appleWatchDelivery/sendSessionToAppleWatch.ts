@@ -30,6 +30,31 @@ export type SendResult =
   | { ok: true; state: 'scheduled' | 'already_scheduled'; planId: string }
   | { ok: false; reason: string; message: string };
 
+// O que o card mostra ANTES do toque. O botao so' aparece para sessao elegivel (a API decide; as regras nao mudam aqui). Quando uma sessao de CORRIDA
+// nao e' elegivel por um motivo que o aluno pode entender (varias partes, intervalado, por tempo, distancia), ou quando a consulta falha, o card
+// mostra uma linha curta dizendo o porque — antes a falha era silenciosa e o botao simplesmente sumia sem explicacao. Sessoes que nunca teriam o
+// botao (forca, esteira, extra) e estados esperados (data passada, ja registrada) continuam sem nenhuma mensagem.
+export type AppleWatchAvailability =
+  | { show: 'button' }
+  | { show: 'note'; note: string }
+  | { show: 'nothing' };
+
+const NOTE_BY_REASON: Record<string, string> = {
+  varias_partes: 'este treino tem varias partes (por enquanto so corrida continua)',
+  intervalado: 'treino intervalado ainda nao e suportado',
+  por_tempo: 'treino por tempo ainda nao e suportado (por enquanto so corrida por distancia)',
+  distancia_invalida: 'distancia do treino invalida ou ausente',
+  distancia_inconsistente: 'a distancia da estrutura nao confere com a do treino',
+};
+
+export function appleWatchAvailability(result: AppleEligibility | { error: string } | null): AppleWatchAvailability {
+  if (!result) return { show: 'nothing' };
+  if ('error' in result) return { show: 'note', note: `Nao foi possivel verificar o envio ao Apple Watch (${result.error}).` };
+  if (result.eligible) return { show: 'button' };
+  const note = NOTE_BY_REASON[result.reason];
+  return note ? { show: 'note', note: `Envio ao Apple Watch indisponivel: ${note}.` } : { show: 'nothing' };
+}
+
 // 'YYYY-MM-DD' (dia da sessao) -> meio-dia LOCAL do aparelho: o WorkoutKit agenda por componentes (ano/mes/dia/hora/minuto) no calendario do
 // aparelho, e meio-dia evita que um fuso desloque o dia.
 export function sessionDateToLocalNoon(isoDate: string): Date {
