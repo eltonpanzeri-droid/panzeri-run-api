@@ -7,6 +7,8 @@ import { NotificationsService } from '../src/notifications/notifications.service
 
 function buildPrisma(opts: { link?: { trainingSessionId: string } | null; existingNotificationRef?: boolean } = {}) {
   return {
+    // 3C.3: a notificacao resolve a identidade fisica da atividade; por padrao uma atividade unique (formato de chave original).
+    activityLog: { findUnique: jest.fn(async ({ where }: any) => ({ id: where.id, physicalIdentityStatus: 'unique', physicalEventId: null, physicalCanonicalActivityLogId: null })) },
     sessionExecutionLink: {
       findFirst: jest.fn().mockResolvedValue(opts.link === undefined ? { trainingSessionId: 'sess-30km' } : opts.link),
     },

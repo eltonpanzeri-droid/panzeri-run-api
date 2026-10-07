@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { UpsertShoeDto } from './dto/upsert-shoe.dto';
 
 // Meus Tenis (04/10/2026). Km acumulado e numero de treinos NUNCA sao armazenados — sempre
@@ -141,15 +142,28 @@ export class ShoesService {
   // canonica (ActivityLog, via SessionExecutionLink ATIVO) quando existir, senao o que o aluno
   // digitou no proprio feedback (WorkoutCompletion.distanceKm). Nunca inventa distancia quando
   // nenhuma das duas fontes tem o dado (Caso H do pedido original).
+  //
+  // 3C.3: a distancia vem da observacao CANONICA do PhysicalEvent (3A) — Polar + Apple do mesmo evento valem UMA distancia. Se o vinculo
+  // ativo (legado ou decisao humana) esta' numa observacao nao-canonica, a distancia e' lida da canonica, sem alterar o vinculo. Atividade
+  // 'unique' segue como antes; sem distancia objetiva, cai no que o aluno digitou (WorkoutCompletion.distanceKm).
   private async resolveDistanceKm(sessionId: string | null, fallbackDistanceKm: number | null): Promise<number | null> {
     if (!sessionId) return fallbackDistanceKm;
     const link = await this.prisma.sessionExecutionLink.findFirst({
       where: { trainingSessionId: sessionId, status: 'active' },
       orderBy: { createdAt: 'asc' },
-      include: { activityLog: { select: { distanceMeters: true } } },
+      include: {
+        activityLog: { select: { id: true, distanceMeters: true, physicalIdentityStatus: true, physicalEventId: true, physicalCanonicalActivityLogId: true } },
+      },
     });
-    if (link?.activityLog.distanceMeters != null) return link.activityLog.distanceMeters / 1000;
-    return fallbackDistanceKm;
+    if (!link) return fallbackDistanceKm;
+    const [pick] = await pickCanonicalPerEvent([link.activityLog], (ids) =>
+      this.prisma.activityLog.findMany({
+        where: { userId: link.userId, id: { in: ids } },
+        select: { id: true, distanceMeters: true, physicalIdentityStatus: true, physicalEventId: true, physicalCanonicalActivityLogId: true },
+      }),
+    );
+    const distanceMeters = pick?.row.distanceMeters ?? null;
+    return distanceMeters != null ? distanceMeters / 1000 : fallbackDistanceKm;
   }
 
   private async loadUsageRows(shoeId: string): Promise<UsageRow[]> {
