@@ -401,10 +401,12 @@ export class SessionExecutionLinkService {
 
     const sameDaySessions = await this.prisma.trainingSession.findMany({
       where: { userId: activity.userId, scheduledDate: dayStart },
-      include: { executionLinks: { where: { status: 'active' } } },
+      include: { executionLinks: { where: { status: 'active' } }, completion: { select: { status: true } } },
     });
-    // Sessao sintetica de atividade alternativa (origin 'device_extra') nunca e' uma prescricao: nao concorre como candidata.
-    const prescribable = sameDaySessions.filter((s) => s.origin !== 'device_extra');
+    // Sessao sintetica de atividade alternativa (origin 'device_extra') nunca e' uma prescricao: nao concorre como candidata. Tampouco
+    // concorre uma sessao que o ALUNO marcou explicitamente como 'nao feito': o registro dele prevalece sobre a evidencia objetiva para
+    // aquela prescricao; o evento fisico continua existindo e, sem outra sessao compativel, e' atividade adicional (alternative).
+    const prescribable = sameDaySessions.filter((s) => s.origin !== 'device_extra' && s.completion?.status !== 'missed');
     // Compativel em modalidade E ainda sem vinculo ATIVO de OUTRA atividade (uma sessao ja' cumprida por outra atividade nao concorre de
     // novo). 'candidate' nao conta como "ja' vinculada" — so' 'active' representa execucao confirmada.
     const modalityCompatible = prescribable.filter((s) => modalitiesCompatible(s.modality, activity.sport));
@@ -523,7 +525,18 @@ export class SessionExecutionLinkService {
     const writes: Array<() => Promise<unknown>> = [];
     const isHumanOrigin = (origin: string | null | undefined) => origin === 'coach' || origin === 'student';
     const humanActive = activeLinks.filter((l) => isHumanOrigin(l.origin));
+    // "Nao feito" explicito do aluno x vinculo automatico: o registro do aluno prevalece — o vinculo vira historico revogado e o evento e'
+    // recalculado (atividade adicional se nenhuma outra sessao compativel). Decisao humana de vinculo (coach/student) nao e' tocada aqui.
+    const explicitNotDoneLinkIds = new Set<string>();
+    for (const link of activeLinks.filter((l) => !isHumanOrigin(l.origin))) {
+      const linkedSession = await this.prisma.trainingSession.findUnique({ where: { id: link.trainingSessionId }, include: { completion: { select: { status: true } } } });
+      if (linkedSession?.completion?.status === 'missed') explicitNotDoneLinkIds.add(link.id);
+    }
+    const effectiveActiveLinks = activeLinks.filter((l) => !explicitNotDoneLinkIds.has(l.id));
     const humanClassified = members.filter((m) => m.executionClassification && isHumanOrigin(m.executionClassifiedBy));
+    for (const link of memberLinks.filter((l) => explicitNotDoneLinkIds.has(l.id))) {
+      writes.push(() => this.prisma.sessionExecutionLink.update({ where: { id: link.id }, data: { status: 'revoked', revokedAt: new Date(), note: link.note ?? 'explicit_not_done_by_student' } }));
+    }
     const quarantine = () => {
       // Observacoes nao-canonicas nao carregam classificacao AUTOMATICA (a execucao e' contada uma vez, pela canonica). Humana fica.
       for (const m of others) {
@@ -566,11 +579,11 @@ export class SessionExecutionLinkService {
           }));
         }
       }
-    } else if (activeLinks.length > 0) {
+    } else if (effectiveActiveLinks.length > 0) {
       // 3) Vinculo automatico existente e' ESTAVEL: so' acompanha a observacao canonica (e nunca fica duplicado no mesmo evento).
-      const onCanonical = activeLinks.filter((l) => l.activityLogId === canonical.id);
-      const keeper = onCanonical.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0] ?? [...activeLinks].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
-      const toRetire = activeLinks.filter((l) => l.id !== keeper.id);
+      const onCanonical = effectiveActiveLinks.filter((l) => l.activityLogId === canonical.id);
+      const keeper = onCanonical.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0] ?? [...effectiveActiveLinks].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
+      const toRetire = effectiveActiveLinks.filter((l) => l.id !== keeper.id);
       if (keeper.activityLogId !== canonical.id) {
         outcome = 'link_moved';
         writes.push(async () => {
@@ -659,6 +672,16 @@ export class SessionExecutionLinkService {
     const byOutcome: Record<string, number> = {};
     for (const r of results) byOutcome[r.outcome] = (byOutcome[r.outcome] ?? 0) + 1;
     return { dryRun: options.dryRun === true, events: results.length, changed: results.filter((r) => r.changed).length, conflicts: results.reduce((n, r) => n + r.conflicts, 0), byOutcome, results };
+  }
+
+  // Reavalia os eventos fisicos hoje ligados (ativo ou candidato) a uma sessao — chamado quando o aluno registra 'nao feito' (ou altera o
+  // status) nessa sessao, para o vinculo automatico nao contradizer o registro explicito dele.
+  async reconcileEventsOfSession(trainingSessionId: string): Promise<EventReconciliationResult[]> {
+    const links = await this.prisma.sessionExecutionLink.findMany({ where: { trainingSessionId, status: { in: ['active', 'candidate'] } } });
+    const activityIds = [...new Set(links.map((l) => l.activityLogId))];
+    const results: EventReconciliationResult[] = [];
+    for (const id of activityIds) results.push(await this.reconcileEvent(id));
+    return results;
   }
 
   private async findMaterializedSessionForActivities(userId: string, activityLogIds: Set<string>) {

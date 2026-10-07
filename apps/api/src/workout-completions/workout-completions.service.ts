@@ -12,6 +12,7 @@ import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constan
 import { MedalEvaluationService } from '../medals/medal-evaluation.service';
 import { describeSessionShape, pacingModeLabel } from '../training-plans/agent-context-format';
 import { ShoesService, RUNNING_MODALITIES } from '../shoes/shoes.service';
+import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 
 @Injectable()
 export class WorkoutCompletionsService {
@@ -24,6 +25,9 @@ export class WorkoutCompletionsService {
     private readonly reportTimeline: ReportTimelineService,
     private readonly medalEvaluation: MedalEvaluationService,
     private readonly shoes: ShoesService,
+    // 3C.2: quando o aluno registra 'nao feito', o vinculo automatico a um evento fisico nao pode contradizer o registro dele. Opcional so'
+    // para testes que constroem o servico sem ele; em producao e' sempre injetado.
+    private readonly sessionExecutionLink?: SessionExecutionLinkService,
   ) {}
 
   async upsert(userId: string, dto: UpsertWorkoutCompletionDto) {
@@ -248,6 +252,15 @@ export class WorkoutCompletionsService {
 
     if (dto.status === 'done' || dto.status === 'adjusted') {
       void this.maybeRecordFirstCompleted(userId, session.id);
+    }
+
+    // "Nao feito" explicito prevalece sobre vinculo automatico (3C.2): reavalia o evento fisico ligado a esta sessao. Best-effort.
+    if (dto.status === 'missed') {
+      try {
+        await this.sessionExecutionLink?.reconcileEventsOfSession(session.id);
+      } catch {
+        // nunca bloqueia o salvamento do feedback; a proxima reconciliacao do aluno corrige.
+      }
     }
 
     // Meus Tenis — so' mexe na associacao quando o campo veio no payload (undefined = nao enviado,
