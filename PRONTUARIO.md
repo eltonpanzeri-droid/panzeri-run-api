@@ -2635,3 +2635,25 @@ sem push/deploy. Caso de aceitação: Polar `512122061` (03/10/2026, 30,08 km, p
   (SIMULAÇÃO por padrão; só grava com `{"dryRun": false}`, após avaliar a identidade). **Não executado em produção.**
 - **Disparo:** Polar (`classify` após `evaluateSafely`) e Apple (`evaluateSafely` → `reconcileEvent`). Identidade `ambiguous` não é reconciliada.
 - **Fora desta etapa:** consumidores (3C), TI, UI do aluno, Garmin/COROS. Sem botão no Admin para a reconciliação histórica (próximo passo pequeno).
+
+### 2026-10-07 — Apple bidirecional (envio de treino ao Apple Watch): fechamento da fase
+Pipeline implementado: `TrainingSession` → `CanonicalWorkout` → `AppleCustomWorkoutSpec` → Swift `CustomWorkout` → `WorkoutDelivery` → `WorkoutScheduler`.
+- **Camadas (todas independentes de provider, exceto o adaptador Apple):** `training-plans/canonical-workout.ts` (representação canônica: ordem, repeatCount,
+  distância em metros, work/recovery, `activity` só quando explícito, prescrito × derivado, perdas/avisos), `workout-delivery/apple-custom-workout-spec.ts`
+  (tradutor Apple; recusa o que exigiria inventar informação; sem alertas de pace; banda ±20 s nunca enviada), `workout-delivery/apple-workout-eligibility.ts`,
+  `AppleWatchDeliveryService` (uma entrega ativa por sessão, `planId` estável, idempotência, `specHash`), módulo nativo
+  `CustomWorkoutSpecBuilder.swift` + `scheduleCustomWorkoutSpec`. O teto de 100 km é regra do adaptador Apple, não do `CanonicalWorkout`.
+- **Validado em iPhone real:** `CanonicalWorkout`; `AppleCustomWorkoutSpec`; `CustomWorkout` compilado (builds iOS preview, Swift sem erros) e executado;
+  contínuo `1×[work 8000 m]`; intervalado `6×[work 400 m, recovery 200 m]`; misto `1×[2000] → 5×[1000, 400] → 1×[2000]`; **`IntervalBlock` com único passo `work`
+  aceito** pelo WorkoutKit; **`dataRepresentation`** serializou nos três casos (sonda temporária da Etapa 6, depois removida).
+- **Fluxo real pelo `WorkoutDelivery`** (treino estruturado de 10,8 km): validado **até `WorkoutScheduler.requestAuthorization`**.
+- **Resultado da autorização no iPhone do treinador (sem Apple Watch pareado): `WorkoutKit não autorizado (notDetermined)`.** Decisão: **não contornar** — a
+  autorização do agendador depende de um Apple Watch pareado; o erro nativo real fica preservado na entrega (`failed` + `errorMessage`) e no card.
+- **PENDENTE (teste final):** `WorkoutScheduler → Apple Watch → execução → HealthKit → PhysicalEvent`, com **aluno que tenha Apple Watch**. Só ali se prova que o
+  agendamento é aceito, que o treino aparece no relógio, e o retorno do `workoutPlanId` (HKWorkout.workoutPlan.id) relacionado à `TrainingSession`. Hoje, `sent`
+  = "WorkoutKit aceitou e o plano consta em `scheduledWorkouts`"; **nunca** `delivered_to_device` sem evidência; nenhuma inferência de execução a partir do delivery.
+- **Incidente resolvido no caminho:** HTTP 500 na elegibilidade = drift Prisma × banco (`WorkoutDelivery.deliveredAt`/`canceledAt`) por migration editada depois de
+  aplicada; corrigido com a migration `20261007200000_workout_delivery_add_missing_columns` (aditiva) e guarda de drift em teste. Outras migrations também foram
+  editadas após a criação (`20260705120000`, `20260710120000`, `20260729160000`, `20260916164659`): drift **não verificado** nelas — auditoria separada recomendada.
+- **Fora desta fase:** alertas de pace, passo por tempo, pausa passiva, esteira, `CustomWorkout` com `displayName` (iOS 18+), Polar, Garmin, remoção de treino do relógio
+  quando a prescrição muda depois do envio (hoje: sinalizado como desatualizado, sem reenvio automático).
