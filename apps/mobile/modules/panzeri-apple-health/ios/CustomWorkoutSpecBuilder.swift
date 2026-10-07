@@ -154,7 +154,13 @@ enum CustomWorkoutSpecBuilder {
 
     // Serializacao do plano (nao depende de Apple Watch): se o WorkoutKit nao conseguir representar a estrutura, aparece aqui.
     let plan = WorkoutPlan(.custom(workout), id: UUID())
-    let serializedBytes = plan.dataRepresentation.count
+    let serializedBytes: Int
+    do {
+      // dataRepresentation lanca erro: se o WorkoutKit nao conseguir serializar, o erro nativo real e' devolvido (nao engolido).
+      serializedBytes = try plan.dataRepresentation.count
+    } catch {
+      return invalid([CustomWorkoutSpecIssue(code: "E_WORKOUTKIT_DATA_REPRESENTATION_FAILED", message: "O WorkoutKit nao serializou o plano: \(String(describing: error))", path: "")])
+    }
     if serializedBytes == 0 {
       return invalid([CustomWorkoutSpecIssue(code: "E_WORKOUTKIT_DATA_REPRESENTATION_FAILED", message: "O WorkoutKit nao serializou o plano (0 bytes).", path: "")])
     }
