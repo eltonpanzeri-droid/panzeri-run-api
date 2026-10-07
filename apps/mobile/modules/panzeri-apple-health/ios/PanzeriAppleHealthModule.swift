@@ -2,8 +2,8 @@ import ExpoModulesCore
 import HealthKit
 import WorkoutKit
 
-// Bloco 1 (prova tecnica) — Apple Watch via HealthKit + WorkoutKit, isolado neste modulo.
-// Nada daqui sai do aparelho: nenhuma funcao envia dado para API, treinador, analytics ou IA.
+// Apple Watch via HealthKit + WorkoutKit, isolado neste modulo. As funcoes daqui so' leem/agendam NO aparelho; o envio de treinos lidos para a API
+// (sincronizacao com o Panzeri Run) e' feito pelo app, com autorizacao do usuario.
 //
 // HealthKit: so' LEITURA de HKWorkout (corrida) e da distancia andada/corrida. Nada e' escrito no Saude.
 // WorkoutKit: agenda UM treino de corrida simples (distancia definida) no app Treino do Apple Watch,
@@ -152,6 +152,12 @@ public class PanzeriAppleHealthModule: Module {
           "scheduledFor": formatter.string(from: start)
         ])
       }
+    }
+
+    // Constroi e VALIDA (sem agendar) um CustomWorkout a partir do AppleCustomWorkoutSpec ja' validado pela API. Traducao mecanica: ver
+    // CustomWorkoutSpecBuilder.swift. Devolve { valid, errors[{code,message,path}], summary? } — rejeicoes sao identificaveis, nunca genericas.
+    Function("validateCustomWorkoutSpec") { (specJson: String) -> [String: Any] in
+      CustomWorkoutSpecBuilder.validate(specJson: specJson)
     }
 
     // Treinos agendados por ESTE app (WorkoutKit so' mostra os do proprio app).

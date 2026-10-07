@@ -33,6 +33,19 @@ export interface AppleScheduledWorkout {
   complete: boolean;
 }
 
+// Resultado da construcao/validacao nativa de um CustomWorkout (sem agendar). Rejeicoes sao estruturadas e identificaveis.
+export interface NativeCustomWorkoutValidation {
+  valid: boolean;
+  errors: Array<{ code: string; message: string; path: string }>;
+  summary?: {
+    activity: string;
+    location: string;
+    blocks: Array<{ iterations: number; steps: Array<{ purpose: string; meters: number }> }>;
+    totalMeters: number;
+    serializedBytes: number;
+  };
+}
+
 export type HealthAuthorizationRequestStatus = 'shouldRequest' | 'unnecessary' | 'unknown';
 export type WorkoutAuthorizationState = 'authorized' | 'denied' | 'restricted' | 'notDetermined' | 'unknown';
 
@@ -43,6 +56,7 @@ interface NativeModule {
   readRecentRunningWorkouts(limit: number): Promise<AppleRunningWorkout[]>;
   requestWorkoutAuthorization(): Promise<WorkoutAuthorizationState>;
   scheduleRunWorkout(planId: string, distanceKm: number, startIso: string): Promise<{ scheduled: boolean; planId: string; distanceKm: number; scheduledFor: string }>;
+  validateCustomWorkoutSpec(specJson: string): NativeCustomWorkoutValidation;
   listScheduledWorkouts(): Promise<AppleScheduledWorkout[]>;
   removeAllScheduledWorkouts(): Promise<{ removed: boolean }>;
 }
@@ -62,5 +76,7 @@ export const requestHealthAuthorization = () => module_().requestHealthAuthoriza
 export const readRecentRunningWorkouts = (limit = 5) => module_().readRecentRunningWorkouts(limit);
 export const requestWorkoutAuthorization = () => module_().requestWorkoutAuthorization();
 export const scheduleRunWorkout = (planId: string, distanceKm: number, start: Date) => module_().scheduleRunWorkout(planId, distanceKm, start.toISOString());
+// Constroi e valida (SEM agendar) um CustomWorkout a partir do AppleCustomWorkoutSpec ja validado pela API. O spec vai como JSON, sem alteracao.
+export const validateCustomWorkoutSpec = (specJson: string): NativeCustomWorkoutValidation => module_().validateCustomWorkoutSpec(specJson);
 export const listScheduledWorkouts = () => module_().listScheduledWorkouts();
 export const removeAllScheduledWorkouts = () => module_().removeAllScheduledWorkouts();
