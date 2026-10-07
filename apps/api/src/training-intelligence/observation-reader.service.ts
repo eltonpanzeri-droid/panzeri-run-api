@@ -12,6 +12,8 @@
 //   observacao carrega instrumentVersion, e o consumidor (endpoint) decide o que fazer com isso.
 // - Sempre e' possivel voltar ao registro original (sessionId/checkinId ficam no context).
 
+import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
+import { canonicalModality } from '../activity-execution/canonical-modality';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
@@ -400,11 +402,15 @@ export class ObservationReaderService {
 
   // Metricas objetivas por atividade (04/10/2026). Fonte canonica: ActivityLog ja classificado como
   // corresponding/alternative (ambiguous fica fora ate' decisao humana). Nunca depende de feedback.
+  // 3C.1: UMA observacao por PhysicalEvent (a canonica da 3A) — Polar + Apple do mesmo evento geram uma unica observacao, com os valores da
+  // canonica (nada das outras observacoes entra). Modalidade pela representacao canonica ('RUNNING' legado == 'corrida').
   private async readActivityObjectiveVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
-    const logs = await this.prisma.activityLog.findMany({
-      where: { userId: athleteId, sport: 'corrida', executionClassification: { in: ['corresponding', 'alternative'] } },
+    const rows = await this.prisma.activityLog.findMany({
+      where: { userId: athleteId, executionClassification: { in: ['corresponding', 'alternative'] } },
       orderBy: { startedAt: 'asc' },
     });
+    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId: athleteId, id: { in: ids } } }));
+    const logs = picks.map((pick) => pick.row).filter((log) => canonicalModality(log.sport) === 'corrida').sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
     const observations: Observation[] = [];
     for (const log of logs) {
       let value: number | null = null;

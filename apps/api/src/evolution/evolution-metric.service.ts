@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
+import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
+import { canonicalModality } from '../activity-execution/canonical-modality';
 import type {
   AdherencePeriod,
   AdherenceSummary,
@@ -139,22 +141,32 @@ export class EvolutionMetricService {
   // Atividades realmente executadas (ActivityLog) já classificadas como corresponding ou alternative
   // (03/10/2026). Execução objetiva: entra no realizado independentemente de feedback. Atividades
   // ainda não classificadas (null/ambiguous) ficam fora até a decisão — nunca contadas por palpite.
+  //
+  // 3C.1: UMA observacao por PhysicalEvent — a canonica (3A). Polar + Apple do mesmo evento contam uma vez; a classificacao continua a da
+  // linha lida. Filtro de modalidade pela representacao canonica (ex.: 'RUNNING' legado == 'corrida'), nao pelo sport bruto.
   private async fetchRealizedActivities(userId: string, sport?: string): Promise<RawRealizedActivity[]> {
+    const select = {
+      id: true, startedAt: true, utcOffsetMinutes: true, distanceMeters: true, executionClassification: true, sport: true,
+      physicalIdentityStatus: true, physicalEventId: true, physicalCanonicalActivityLogId: true,
+    } as const;
     const rows = await this.prisma.activityLog.findMany({
       where: {
         userId,
         executionClassification: { in: ['corresponding', 'alternative'] },
         startedAt: { gte: TRAINING_INTELLIGENCE_DATA_CUTOFF },
-        ...(sport ? { sport } : {}),
       },
-      select: { id: true, startedAt: true, utcOffsetMinutes: true, distanceMeters: true, executionClassification: true },
+      select,
     });
-    return rows.map((r) => ({
-      id: r.id,
-      isoDate: localIsoDate(r.startedAt, r.utcOffsetMinutes),
-      classification: r.executionClassification as RawRealizedActivity['classification'],
-      distanceKm: r.distanceMeters != null ? r.distanceMeters / 1000 : null,
-    }));
+    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } }, select }));
+    const wanted = sport ? (canonicalModality(sport) ?? sport) : null;
+    return picks
+      .filter(({ row }) => !wanted || (canonicalModality(row.sport) ?? row.sport) === wanted)
+      .map(({ row, representedBy }) => ({
+        id: row.id,
+        isoDate: localIsoDate(row.startedAt, row.utcOffsetMinutes),
+        classification: representedBy.executionClassification as RawRealizedActivity['classification'],
+        distanceKm: row.distanceMeters != null ? row.distanceMeters / 1000 : null,
+      }));
   }
 
   // -------------------------------------------------------------------------

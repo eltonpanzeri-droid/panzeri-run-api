@@ -41,11 +41,11 @@ describe('ObservationReaderService — activity.* (ActivityLog)', () => {
     expect(await reader.getObservations('aluno-1', 'activity.avgPaceSecondsKm')).toHaveLength(0);
   });
 
-  it('consulta so corrida correspondente/alternativa do proprio aluno (ambigua fica fora)', async () => {
+  it('consulta so atividades correspondente/alternativa do proprio aluno (ambigua fica fora); corrida decidida pela modalidade canonica', async () => {
     const { reader, prisma } = buildReader([]);
     await reader.getObservations('aluno-1', 'activity.cadenceAvg');
     expect(prisma.activityLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { userId: 'aluno-1', sport: 'corrida', executionClassification: { in: ['corresponding', 'alternative'] } },
+      where: { userId: 'aluno-1', executionClassification: { in: ['corresponding', 'alternative'] } },
     }));
   });
 });
