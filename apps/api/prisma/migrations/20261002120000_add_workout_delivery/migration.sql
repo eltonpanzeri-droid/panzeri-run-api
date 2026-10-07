@@ -1,9 +1,7 @@
 -- CreateTable: fundacao canonica de entrega de treino pra providers externos (Polar/Garmin/COROS/
 -- Apple). Nao representa execucao (ActivityLog/SessionExecutionLink continuam intocados por esta
--- tabela). externalWorkoutId, sentAt, deliveredAt, failedAt, errorMessage e canceledAt sao
--- nullable de proposito: uma tentativa comeca 'pending' sem nenhum desses preenchidos.
--- status: 'pending' | 'sent' | 'delivered_to_device' | 'failed' | 'canceled'. 'delivered_to_device'
--- so' e' usado quando o provider confirma entrega real no dispositivo (nunca inferido de 'sent').
+-- tabela). externalWorkoutId, sentAt, failedAt e errorMessage sao nullable de proposito: uma
+-- tentativa comeca 'pending' sem nenhum desses preenchidos.
 CREATE TABLE "WorkoutDelivery" (
     "id" TEXT NOT NULL,
     "trainingSessionId" TEXT NOT NULL,
@@ -13,10 +11,8 @@ CREATE TABLE "WorkoutDelivery" (
     "externalWorkoutId" TEXT,
     "requestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "sentAt" TIMESTAMP(3),
-    "deliveredAt" TIMESTAMP(3),
     "failedAt" TIMESTAMP(3),
     "errorMessage" TEXT,
-    "canceledAt" TIMESTAMP(3),
     "providerMetadata" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
