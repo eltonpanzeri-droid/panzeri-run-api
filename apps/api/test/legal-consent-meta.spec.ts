@@ -6,7 +6,7 @@ import { createHash } from 'crypto';
 const https = require('node:https') as { request: unknown };
 import { AuthService } from '../src/auth/auth.service';
 import { MetaCapiService } from '../src/meta/meta-capi.service';
-import { LEGAL_VERSION, PRIVACY_SECTIONS } from '../src/legal/legal-content';
+import { LEGAL_UPDATED_LABEL, LEGAL_VERSION, PRIVACY_SECTIONS } from '../src/legal/legal-content';
 
 // Ajustes finais do Bloco 3 (05/10/2026): versao juridica do aceite e descricao factual do Meta CAPI.
 
@@ -40,7 +40,7 @@ describe('versao juridica aceita no cadastro', () => {
   it('LEGAL_VERSION e o mesmo valor impresso nos documentos publicados (versao dos textos exibidos no aceite)', () => {
     expect(LEGAL_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     const alteracoes = PRIVACY_SECTIONS.find((s) => s.id === 'alteracoes')!.paragraphs.join(' ');
-    expect(alteracoes).toContain('5 de outubro de 2026');
+    expect(alteracoes).toContain(LEGAL_UPDATED_LABEL);
   });
 
   it('sem aceite continua recusando o cadastro e nada e criado', async () => {

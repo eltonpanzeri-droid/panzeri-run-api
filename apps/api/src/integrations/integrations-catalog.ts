@@ -82,11 +82,11 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   {
     id: 'wahoo',
     name: 'Wahoo',
-    // Etapa 3: so' a conexao da conta. Sem treino enviado nem atividade recebida (Etapas 4 e 5).
-    summary: 'Conecte sua conta Wahoo. O envio de treinos ainda não está ativo.',
+    // Etapa 5: le os treinos gravados por dispositivos/apps da Wahoo. O envio de treinos (Etapa 4) ainda nao existe.
+    summary: 'Importa suas atividades gravadas em dispositivos e aplicativos Wahoo. O envio de treinos ainda não está disponível.',
     availability: 'available',
     platforms: ALL_PLATFORMS,
-    capabilities: { receiveActivities: false, sendWorkouts: false },
+    capabilities: { receiveActivities: true, sendWorkouts: false },
     requiresEnv: ['WAHOO_CLIENT_ID', 'WAHOO_CLIENT_SECRET', 'WAHOO_REDIRECT_URI', 'WAHOO_TOKEN_ENCRYPTION_KEY'],
     requiresAllowlist: true,
   },

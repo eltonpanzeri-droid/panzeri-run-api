@@ -8798,18 +8798,29 @@ function DevicesIntegrationsPanel({ accessToken, onOpenStrava, polarVariant }: {
   );
 }
 
-// Wahoo (08/10/2026, Etapa 3): SOMENTE conectar/desconectar a conta. Nao envia treino nem le atividade.
-function WahooConnect({ accessToken }: { accessToken: string }) {
-  const [connection, setConnection] = useState<{ connected: boolean; connectedAt: string | null } | null>(null);
+// Wahoo (08/10/2026): conectar, sincronizar atividades, desconectar e (em Privacidade e dados) excluir os dados importados.
+// Le atividades gravadas por dispositivos/apps da Wahoo; ainda NAO envia treinos.
+interface WahooConnectionStatus {
+  connected: boolean;
+  connectedAt: string | null;
+  lastSyncCompletedAt: string | null;
+  needsReauthorization: boolean;
+}
+
+function WahooConnect({ accessToken, variant = 'screen' }: { accessToken: string; variant?: 'screen' | 'manage' }) {
+  const [connection, setConnection] = useState<WahooConnectionStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [available, setAvailable] = useState(variant === 'screen');
   const [connecting, setConnecting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function loadStatus() {
     try {
       const response = await fetch(`${API_URL}/wahoo/status`, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (response.ok) setConnection((await response.json()) as { connected: boolean; connectedAt: string | null });
+      if (response.ok) setConnection((await response.json()) as WahooConnectionStatus);
     } catch {
       setMessage({ ok: false, text: 'Nao consegui consultar a conexao agora.' });
     } finally {
@@ -8823,6 +8834,19 @@ function WahooConnect({ accessToken }: { accessToken: string }) {
     const timer = setInterval(() => void loadStatus(), 5000);
     return () => clearInterval(timer);
   }, [accessToken]);
+
+  // Em Privacidade e dados o bloco so aparece para quem a Wahoo esta disponivel (ou ja conectou): o catalogo do servidor decide.
+  useEffect(() => {
+    if (variant !== 'manage') return;
+    let alive = true;
+    fetch(`${API_URL}/me/integrations`, { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error('status'))))
+      .then((data: { providers: Array<{ id: string; availability: string }> }) => {
+        if (alive) setAvailable(data.providers.some((item) => item.id === 'wahoo' && item.availability !== 'unavailable'));
+      })
+      .catch(() => { if (alive) setAvailable(false); });
+    return () => { alive = false; };
+  }, [accessToken, variant]);
 
   async function connectWahoo() {
     if (connecting) return;
@@ -8843,6 +8867,35 @@ function WahooConnect({ accessToken }: { accessToken: string }) {
     }
   }
 
+  async function syncNow() {
+    if (syncing) return;
+    setSyncing(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`${API_URL}/wahoo/sync`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      let body: { status?: string; imported?: number; message?: string | string[] } | null = null;
+      try { body = await response.json(); } catch { /* sem corpo */ }
+      if (!response.ok) {
+        const apiMessage = Array.isArray(body?.message) ? body?.message.join(' ') : body?.message;
+        setMessage({ ok: false, text: apiMessage || 'A sincronizacao falhou. Tente novamente em instantes.' });
+      } else if (body?.status === 'reauthorization_required') {
+        setMessage({ ok: false, text: 'Para importar suas atividades, desconecte e conecte a Wahoo de novo para autorizar a leitura.' });
+      } else if (body?.status === 'rate_limited') {
+        setMessage({ ok: false, text: 'A Wahoo limitou as consultas agora. Tente de novo em alguns minutos.' });
+      } else if (body?.status === 'in_progress') {
+        setMessage({ ok: true, text: 'Ja existe uma sincronizacao em andamento. Aguarde alguns instantes.' });
+      } else {
+        const imported = body?.imported ?? 0;
+        setMessage({ ok: true, text: imported > 0 ? `Sincronizacao concluida: ${imported} atividade(s) importada(s).` : 'Sincronizacao concluida: nenhuma atividade nova.' });
+      }
+    } catch {
+      setMessage({ ok: false, text: 'Nao consegui conectar com o servidor para sincronizar.' });
+    } finally {
+      setSyncing(false);
+      void loadStatus();
+    }
+  }
+
   async function runDisconnect() {
     setDisconnecting(true);
     setMessage(null);
@@ -8852,7 +8905,7 @@ function WahooConnect({ accessToken }: { accessToken: string }) {
         setMessage({ ok: false, text: 'Nao consegui desconectar a Wahoo agora. Tente novamente.' });
         return;
       }
-      setMessage({ ok: true, text: 'Wahoo desconectada.' });
+      setMessage({ ok: true, text: 'Wahoo desconectada. Nenhuma nova atividade sera importada; o historico ja importado foi mantido.' });
     } catch {
       setMessage({ ok: false, text: 'Nao consegui conectar com o servidor para desconectar.' });
     } finally {
@@ -8861,18 +8914,80 @@ function WahooConnect({ accessToken }: { accessToken: string }) {
     }
   }
 
-  function disconnectWahoo() {
-    if (disconnecting) return;
-    const title = 'Desconectar a Wahoo?';
-    const text = 'O Panzeri Run perde o acesso à sua conta Wahoo e a autorização é revogada. Para usar de novo, será preciso conectar outra vez.';
+  function confirmThen(title: string, text: string, action: () => void) {
     if (Platform.OS === 'web') {
-      if (window.confirm(`${title}\n\n${text}`)) void runDisconnect();
+      if (window.confirm(`${title}\n\n${text}`)) action();
       return;
     }
     Alert.alert(title, text, [
       { text: 'Cancelar', style: 'cancel' },
-      { text: 'Desconectar', style: 'destructive', onPress: () => { void runDisconnect(); } },
+      { text: 'Confirmar', style: 'destructive', onPress: action },
     ]);
+  }
+
+  function disconnectWahoo() {
+    if (disconnecting) return;
+    confirmThen('Desconectar a Wahoo?', 'Desconectar interrompe a importacao de novas atividades e revoga a autorizacao na Wahoo, mas nao apaga automaticamente o historico ja importado.', () => { void runDisconnect(); });
+  }
+
+  async function runDeleteData() {
+    setDeleting(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`${API_URL}/wahoo/data`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } });
+      let body: { activities?: number; preservedMaterialized?: unknown[]; message?: string | string[] } | null = null;
+      try { body = await response.json(); } catch { /* sem corpo */ }
+      if (!response.ok) {
+        const apiMessage = Array.isArray(body?.message) ? body?.message.join(' ') : body?.message;
+        setMessage({ ok: false, text: apiMessage || 'Nao consegui excluir os dados agora. Tente novamente.' });
+        return;
+      }
+      const kept = body?.preservedMaterialized?.length ?? 0;
+      setMessage({
+        ok: true,
+        text: `Dados importados da Wahoo excluidos (${body?.activities ?? 0} atividade(s)).${kept > 0 ? ` ${kept} treino(s) com informacoes que voce mesmo registrou foram mantidos, sem os valores da Wahoo.` : ''}`,
+      });
+    } catch {
+      setMessage({ ok: false, text: 'Nao consegui conectar com o servidor para excluir.' });
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function deleteWahooData() {
+    if (deleting || connection?.connected) return;
+    confirmThen(
+      'Excluir dados importados da Wahoo?',
+      'Serão removidos os dados que vieram exclusivamente da Wahoo (atividades e resumos). Informações que você mesmo registrou no Panzeri Run, como esforço percebido, dor e observações, podem ser preservadas, sem os valores da Wahoo. Esta ação não pode ser desfeita.',
+      () => { void runDeleteData(); },
+    );
+  }
+
+  if (!available) return null;
+
+  if (variant === 'manage') {
+    return (
+      <View style={styles.formSection}>
+        <Text style={styles.reportTitle}>Wahoo</Text>
+        <Text style={styles.reportText}>{loading ? 'Consultando conexao...' : connection?.connected ? 'Wahoo conectada' : 'Wahoo nao conectada'}</Text>
+        {connection?.connected ? (
+          <Pressable style={[styles.secondaryOutlineButton, disconnecting && styles.disabledButton]} disabled={disconnecting} onPress={disconnectWahoo}>
+            <Text style={styles.secondaryOutlineButtonText}>{disconnecting ? 'Desconectando...' : 'Desconectar Wahoo'}</Text>
+            <Ionicons name="unlink" size={18} color={PRColors.ocean} />
+          </Pressable>
+        ) : null}
+        <Text style={styles.formHint}>Excluir os dados importados é uma ação diferente de desconectar. Para excluir, desconecte primeiro.</Text>
+        <Pressable
+          style={[styles.secondaryOutlineButton, { borderColor: '#b91c1c' }, (deleting || connection?.connected) && styles.disabledButton]}
+          disabled={deleting || Boolean(connection?.connected)}
+          onPress={deleteWahooData}
+        >
+          <Text style={[styles.secondaryOutlineButtonText, { color: '#b91c1c' }]}>{deleting ? 'Excluindo...' : 'Excluir dados importados da Wahoo'}</Text>
+          <Ionicons name="trash-outline" size={18} color="#b91c1c" />
+        </Pressable>
+        {message ? <Text style={[styles.statusMessage, message.ok ? null : { color: '#b91c1c' }]}>{message.text}</Text> : null}
+      </View>
+    );
   }
 
   return (
@@ -8881,17 +8996,31 @@ function WahooConnect({ accessToken }: { accessToken: string }) {
       {connection?.connected && connection.connectedAt ? (
         <Text style={styles.reportText}>Conectada em {formatConnectionDate(connection.connectedAt)}</Text>
       ) : null}
-      <Text style={styles.formHint}>Nesta etapa a conexão só vincula a sua conta Wahoo. O Panzeri Run ainda não envia treinos nem lê atividades da Wahoo.</Text>
+      {connection?.connected && connection.lastSyncCompletedAt ? (
+        <Text style={styles.reportText}>Ultima sincronizacao em {formatConnectionDate(connection.lastSyncCompletedAt)}</Text>
+      ) : null}
+      <Text style={styles.formHint}>A conexão importa as atividades gravadas em dispositivos e aplicativos Wahoo. Atividades de outros aplicativos que apenas sincronizam com a Wahoo não são compartilhadas por ela. O envio de treinos para a Wahoo ainda não está disponível.</Text>
+      {connection?.connected && connection.needsReauthorization ? (
+        <Text style={[styles.statusMessage, { color: '#b45309' }]}>Sua conexão foi feita antes da importação de atividades. Desconecte e conecte a Wahoo de novo para autorizar a leitura.</Text>
+      ) : null}
       {!connection?.connected ? (
         <Pressable style={[styles.primaryButton, connecting && styles.disabledButton]} disabled={connecting} onPress={connectWahoo}>
           <Text style={styles.primaryButtonText}>{connecting ? 'Abrindo autorizacao...' : 'Conectar Wahoo'}</Text>
           <Ionicons name="link" size={18} color={PRColors.mineral} />
         </Pressable>
       ) : (
-        <Pressable style={[styles.secondaryOutlineButton, disconnecting && styles.disabledButton]} disabled={disconnecting} onPress={disconnectWahoo}>
-          <Text style={styles.secondaryOutlineButtonText}>{disconnecting ? 'Desconectando...' : 'Desconectar Wahoo'}</Text>
-          <Ionicons name="unlink" size={18} color={PRColors.ocean} />
-        </Pressable>
+        <>
+          {!connection.needsReauthorization ? (
+            <Pressable style={[styles.secondaryOutlineButton, syncing && styles.disabledButton]} disabled={syncing} onPress={syncNow}>
+              <Text style={styles.secondaryOutlineButtonText}>{syncing ? 'Sincronizando...' : 'Sincronizar agora'}</Text>
+              <Ionicons name="sync" size={18} color={PRColors.ocean} />
+            </Pressable>
+          ) : null}
+          <Pressable style={[styles.secondaryOutlineButton, disconnecting && styles.disabledButton]} disabled={disconnecting} onPress={disconnectWahoo}>
+            <Text style={styles.secondaryOutlineButtonText}>{disconnecting ? 'Desconectando...' : 'Desconectar Wahoo'}</Text>
+            <Ionicons name="unlink" size={18} color={PRColors.ocean} />
+          </Pressable>
+        </>
       )}
       {message ? <Text style={[styles.statusMessage, message.ok ? null : { color: '#b91c1c' }]}>{message.text}</Text> : null}
     </View>
@@ -8960,7 +9089,12 @@ function PrivacyDataScreen({ accessToken, onOpenStrava }: { accessToken: string;
 
       {block('ia', 'Inteligência Artificial')}
 
-      {block('gerenciar', 'Gerenciar dados da integração', <PolarConnect accessToken={accessToken} variant="manage" />)}
+      {block('gerenciar', 'Gerenciar dados da integração', (
+        <>
+          <PolarConnect accessToken={accessToken} variant="manage" />
+          <WahooConnect accessToken={accessToken} variant="manage" />
+        </>
+      ))}
 
       <View style={styles.section}>
         <Text style={styles.titleSmall}>Privacidade e Termos</Text>

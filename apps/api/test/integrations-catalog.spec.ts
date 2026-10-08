@@ -67,11 +67,11 @@ describe('catalogo de dispositivos e integracoes', () => {
     expect(byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set() }), 'polar').availability).toBe('available'); // Polar/Strava nao dependem da lista
   });
 
-  it('Wahoo (Etapa 3): disponivel so com as 4 variaveis; so conexao, sem enviar treino nem receber atividade', () => {
+  it('Wahoo (Etapa 5): disponivel so com as 4 variaveis; recebe atividades e NAO envia treino', () => {
     const on = byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set(['wahoo']), allowedProviderIds: new Set(['wahoo']) }), 'wahoo');
     expect(on.availability).toBe('available');
     expect(on.connection.state).toBe('connected');
-    expect(on.capabilities).toEqual({ receiveActivities: false, sendWorkouts: false });
+    expect(on.capabilities).toEqual({ receiveActivities: true, sendWorkouts: false });
     for (const missing of WAHOO_ENV) {
       const env = new Set([...ENV_OK].filter((name) => name !== missing));
       const off = byId(buildIntegrationsCatalog({ configuredEnv: env, connectedProviderIds: new Set(['wahoo']), allowedProviderIds: new Set(['wahoo']) }), 'wahoo');

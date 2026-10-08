@@ -64,7 +64,7 @@ describe('fonte canonica unica e URLs preservadas', () => {
 describe('conteudo fiel ao produto atual', () => {
   it('nao afirma Garmin (nem na politica, nem nos termos, nem no resumo do app)', () => {
     for (const doc of [PRIVACY, TERMS, SUMMARY]) expect(doc).not.toMatch(/garmin/i);
-    expect(PRIVACY).toContain('Hoje o aplicativo oferece conexão com a Polar e com o Strava');
+    expect(PRIVACY).toContain('Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo');
     expect(PRIVACY).toContain('Outros serviços poderão ser adicionados');
   });
 

@@ -1,5 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { WahooActivityIngestionService } from '../src/wahoo/wahoo-activity-ingestion.service';
+import { WahooWebhookService } from '../src/wahoo/wahoo-webhook.service';
 import { ProviderDataDeletionService } from '../src/activity-execution/provider-data-deletion.service';
 import { isWahooEnabledFor } from '../src/wahoo/wahoo-access';
 import { ConfigService } from '@nestjs/config';
@@ -110,7 +112,7 @@ describe('Wahoo OAuth (Etapa 3)', () => {
       expect(parsed.searchParams.get('client_id')).toBe('wahoo-client-id');
       expect(parsed.searchParams.get('redirect_uri')).toBe(redirectUri);
       expect(parsed.searchParams.get('response_type')).toBe('code');
-      expect(parsed.searchParams.get('scope')).toBe('user_read');
+      expect(parsed.searchParams.get('scope')).toBe('user_read workouts_read offline_data');
       expect(parsed.searchParams.get('code_challenge_method')).toBe('S256');
       expect(state).toMatch(/^[A-Za-z0-9_-]{43}$/);
       expect(state).not.toContain('user-a');
@@ -230,6 +232,8 @@ describe('Wahoo OAuth (Etapa 3)', () => {
         controllers: [WahooController],
         providers: [
           WahooService,
+          { provide: WahooActivityIngestionService, useValue: {} },
+          { provide: WahooWebhookService, useValue: {} },
           { provide: PrismaService, useValue: prismaStub },
           { provide: ConfigService, useValue: { get: () => undefined } },
           { provide: ProviderDataDeletionService, useValue: { recordDisconnection: async () => undefined } },
@@ -239,7 +243,7 @@ describe('Wahoo OAuth (Etapa 3)', () => {
       await expect(service.connectUrl('u')).rejects.toBeInstanceOf(ForbiddenException); // sem lista: ninguem
       const withList = new WahooService(prismaStub as never, { get: (n: string) => (n === 'WAHOO_ENABLED_USER_IDS' ? 'u' : undefined) } as never);
       await expect(withList.connectUrl('u')).rejects.toBeInstanceOf(ServiceUnavailableException); // lista, mas sem credenciais
-      expect(await service.status('u')).toEqual({ connected: false, connectedAt: null, disconnectedAt: null });
+      expect(await service.status('u')).toEqual({ connected: false, connectedAt: null, disconnectedAt: null, lastSyncCompletedAt: null, needsReauthorization: false });
       await expect(service.disconnect('u')).resolves.toEqual({ status: 'not_connected', providerRevocation: 'skipped' });
     });
   });
@@ -284,7 +288,9 @@ describe('Wahoo OAuth (Etapa 3)', () => {
       expect(JSON.stringify(row)).not.toContain('refresh-1');
       expect(decryptSecret(row.accessTokenEncrypted, Buffer.from(KEY, 'hex'))).toBe('access-1');
       expect(row.accessTokenExpiresAt.getTime()).toBeGreaterThan(Date.now() + 100 * 60 * 1000);
-      expect(row.grantedScopes).toBe('user_read');
+      expect(row.grantedScopes).toBe('user_read workouts_read offline_data');
+      expect(row.collectFrom.getTime()).toBeLessThan(Date.now());
+      expect(row.collectFrom.getTime()).toBeGreaterThan(Date.now() - 8 * 86_400_000);
       expect(events).toEqual([expect.objectContaining({ userId: 'user-a', provider: 'wahoo', type: 'connected' })]);
 
       // Reuso do mesmo state: recusado sem nova chamada de rede.
@@ -378,14 +384,14 @@ describe('Wahoo OAuth (Etapa 3)', () => {
     it('nunca consulta a Wahoo nem devolve credenciais', async () => {
       const { service } = fixture();
       const calls = network({});
-      expect(await service.status('user-a')).toEqual({ connected: false, connectedAt: null, disconnectedAt: null });
+      expect(await service.status('user-a')).toEqual({ connected: false, connectedAt: null, disconnectedAt: null, lastSyncCompletedAt: null, needsReauthorization: false });
       await service.callback({ state: stateFrom((await service.connectUrl('user-a')).url), code: 'c' });
       const callsBefore = calls.length;
       const status = await service.status('user-a');
       expect(status).toMatchObject({ connected: true, disconnectedAt: null });
       expect(JSON.stringify(status)).not.toMatch(/token|v1:|access|refresh/i);
       expect(calls.length).toBe(callsBefore);
-      expect(await service.status('user-b')).toEqual({ connected: false, connectedAt: null, disconnectedAt: null });
+      expect(await service.status('user-b')).toEqual({ connected: false, connectedAt: null, disconnectedAt: null, lastSyncCompletedAt: null, needsReauthorization: false });
     });
   });
 
@@ -580,7 +586,7 @@ describe('Wahoo OAuth (Etapa 3)', () => {
     it('o HTML do callback nunca contem state, code, token ou segredo e envia cabecalhos de seguranca', async () => {
       const f = fixture({ STUDENT_APP_URL: 'https://panzerirun.eltonpanzeripersonal.com.br' });
       network({ token: () => json(200, tokenBody(1)) });
-      const controller = new WahooController(f.service);
+      const controller = new WahooController(f.service, {} as never, {} as never);
       const state = stateFrom((await f.service.connectUrl('user-a')).url);
       const sent: { status?: number; html?: string; headers: Record<string, string> } = { headers: {} };
       const res: any = {

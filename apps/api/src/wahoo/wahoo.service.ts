@@ -28,9 +28,11 @@ const REFRESH_SKEW_MS = 5 * 60 * 1000;
 const REFRESH_LEASE_MS = 30 * 1000;
 const REFRESH_WAIT_ATTEMPTS = 8;
 const REFRESH_WAIT_MS = 500;
-// Menor privilegio: so' leitura do usuario nesta etapa. Escopos de treino (workouts_*, plans_*) e offline_data entram
-// na Etapa 4/5, com WAHOO_SCOPES e nova autorizacao do aluno.
-const DEFAULT_SCOPES = 'user_read';
+// Menor privilegio para o que existe hoje: identificar a conta (user_read), LER os treinos (workouts_read) e receber o
+// aviso automatico de treino novo (offline_data, exigido pela Wahoo para webhook). Nada de escrita: workouts_write e
+// plans_* so' entram quando o envio de treinos existir (Etapa 4), com nova autorizacao do aluno.
+const DEFAULT_SCOPES = 'user_read workouts_read offline_data';
+const LOOKBACK_DAYS = 7;
 
 interface CallbackQuery {
   state?: unknown;
@@ -172,6 +174,9 @@ export class WahooService {
       accessTokenExpiresAt: new Date(Date.now() + token.expiresInSec * 1000),
       grantedScopes: settings.scopes,
       refreshLockUntil: null,
+      // A coleta de atividades comeca na conexao (com uma janela curta para trás), nunca no historico inteiro.
+      collectFrom: new Date(Date.now() - LOOKBACK_DAYS * 86_400_000),
+      lastSyncCompletedAt: null,
       disconnectedAt: null,
     };
     try {
@@ -192,13 +197,15 @@ export class WahooService {
   // Leitura pura, sem chamada a Wahoo: o app so' precisa saber se mostra "Conectar" ou "Conectado".
   async status(userId: string) {
     const connection = await this.prisma.wahooConnection.findUnique({
-      where: { userId }, select: { createdAt: true, disconnectedAt: true, accessTokenEncrypted: true },
+      where: { userId }, select: { createdAt: true, disconnectedAt: true, accessTokenEncrypted: true, grantedScopes: true, lastSyncCompletedAt: true },
     });
-    if (!connection) return { connected: false, connectedAt: null, disconnectedAt: null };
+    if (!connection) return { connected: false, connectedAt: null, disconnectedAt: null, lastSyncCompletedAt: null, needsReauthorization: false };
     if (connection.disconnectedAt || !connection.accessTokenEncrypted) {
-      return { connected: false, connectedAt: null, disconnectedAt: connection.disconnectedAt };
+      return { connected: false, connectedAt: null, disconnectedAt: connection.disconnectedAt, lastSyncCompletedAt: null, needsReauthorization: false };
     }
-    return { connected: true, connectedAt: connection.createdAt, disconnectedAt: null };
+    // Conexao anterior a leitura de atividades (so' user_read): funciona, mas precisa reconectar para importar treinos.
+    const needsReauthorization = !connection.grantedScopes.split(' ').includes('workouts_read');
+    return { connected: true, connectedAt: connection.createdAt, disconnectedAt: null, lastSyncCompletedAt: connection.lastSyncCompletedAt, needsReauthorization };
   }
 
   // Token de acesso valido para uso imediato (Etapas 4/5). Renova so' quando falta menos de REFRESH_SKEW_MS.
@@ -242,6 +249,17 @@ export class WahooService {
     const providerRevocation = await this.revokeStoredCredentials(connection);
     await this.providerData?.recordDisconnection(userId, 'wahoo', { providerRevocation });
     return { status: 'disconnected', providerRevocation };
+  }
+
+  // Exclusao dos dados importados da Wahoo do proprio usuario (mesma regra da Polar): exige conexao desconectada, senao a
+  // proxima sincronizacao reimportaria o que acabou de ser apagado. Provider-agnostica: apaga so' provider='wahoo'.
+  async deleteData(userId: string) {
+    if (!this.providerData) throw new ServiceUnavailableException('Exclusao de dados indisponivel.');
+    const connection = await this.prisma.wahooConnection.findUnique({ where: { userId }, select: { disconnectedAt: true } });
+    if (connection && !connection.disconnectedAt) {
+      throw new ConflictException('Desconecte a Wahoo antes de excluir os dados importados dela.');
+    }
+    return this.providerData.deleteProviderData(userId, 'wahoo');
   }
 
   studentAppUrl(): string | null {

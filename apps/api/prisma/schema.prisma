@@ -1978,6 +1978,9 @@ model WahooConnection {
   accessTokenExpiresAt  DateTime?
   grantedScopes         String
   refreshLockUntil      DateTime?
+  // Etapa 5 (leitura de atividades): a coleta so olha treinos a partir de collectFrom (conexao menos 7 dias; nunca todo o historico).
+  collectFrom           DateTime?
+  lastSyncCompletedAt   DateTime?
   disconnectedAt        DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt

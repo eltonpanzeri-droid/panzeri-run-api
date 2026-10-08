@@ -1,7 +1,10 @@
-import { Controller, Get, HttpCode, HttpException, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpException, Logger, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { WahooService } from './wahoo.service';
+import { WahooActivityIngestionService } from './wahoo-activity-ingestion.service';
+import { WahooWebhookService } from './wahoo-webhook.service';
 
 interface HtmlResponse {
   status: (code: number) => HtmlResponse;
@@ -14,7 +17,13 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ '&'
 
 @Controller('wahoo')
 export class WahooController {
-  constructor(private readonly wahooService: WahooService) {}
+  private readonly logger = new Logger(WahooController.name);
+
+  constructor(
+    private readonly wahooService: WahooService,
+    private readonly ingestion: WahooActivityIngestionService,
+    private readonly webhookService: WahooWebhookService,
+  ) {}
 
   // Todas as rotas autenticadas usam SOMENTE o usuario do JWT; nenhum userId vem do cliente.
   @UseGuards(AuthGuard('jwt'))
@@ -35,6 +44,34 @@ export class WahooController {
   @HttpCode(200)
   disconnect(@CurrentUser() user: CurrentUserPayload) {
     return this.wahooService.disconnect(user.sub);
+  }
+
+  // Sincronizacao manual do proprio aluno (JWT). Mesmo sync do webhook e da rotina de seguranca; idempotente.
+  @Throttle({ default: { limit: 6, ttl: 60_000 } })
+  @UseGuards(AuthGuard('jwt'))
+  @Post('sync')
+  @HttpCode(200)
+  sync(@CurrentUser() user: CurrentUserPayload) {
+    return this.ingestion.sync(user.sub);
+  }
+
+  // Excluir os dados importados da Wahoo do proprio aluno (exige estar desconectado).
+  @UseGuards(AuthGuard('jwt'))
+  @Delete('data')
+  deleteData(@CurrentUser() user: CurrentUserPayload) {
+    return this.wahooService.deleteData(user.sub);
+  }
+
+  // Webhook oficial da Wahoo. Sem JWT: a autenticacao e' o webhook_token do corpo (a Wahoo nao assina). Responde 200 logo
+  // apos validar; o processamento roda em segundo plano e so' dispara o sync normal (o conteudo do evento nunca vira dado).
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
+  @Post('webhook')
+  @HttpCode(200)
+  webhook(@Body() body: unknown) {
+    this.webhookService.verifyToken(body);
+    this.webhookService.handleEvent(body)
+      .catch((error: unknown) => this.logger.warn(`Falha ao processar webhook Wahoo: ${error instanceof Error ? error.message : String(error)}`));
+    return { ok: true };
   }
 
   // A Wahoo redireciona o navegador diretamente para esta rota HTTPS publica (callback cadastrado no portal).
