@@ -57,3 +57,42 @@ describe('catalogo de dispositivos e integracoes', () => {
     expect(JSON.stringify(catalog)).not.toContain('CLIENT_ID');
   });
 });
+
+describe('GET /me/integrations: autenticacao e escopo', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { IntegrationsController } = require('../src/integrations/integrations.controller');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { IntegrationsService } = require('../src/integrations/integrations.service');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { readFileSync } = require('fs');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { join } = require('path');
+
+  it('rota protegida por JWT e sem @Public', () => {
+    const guards = Reflect.getMetadata('__guards__', IntegrationsController) as unknown[];
+    expect(guards?.length).toBeGreaterThan(0);
+    expect(Reflect.getMetadata('path', IntegrationsController)).toBe('me/integrations');
+  });
+
+  it('le somente o estado da conexao do proprio aluno, nunca token/segredo/dado esportivo', async () => {
+    const calls: Array<{ model: string; args: any }> = [];
+    const prisma = {
+      polarConnection: { findUnique: async (args: any) => { calls.push({ model: 'polar', args }); return { disconnectedAt: null }; } },
+      stravaConnection: { findUnique: async (args: any) => { calls.push({ model: 'strava', args }); return { id: 'x' }; } },
+    };
+    const config = { get: (key: string) => (key.endsWith('CLIENT_ID') ? 'segredo-nao-pode-sair' : undefined) };
+    const service = new IntegrationsService(prisma, config);
+    const result = await service.catalog('aluno-A');
+    expect(calls.map((call) => call.args.where)).toEqual([{ userId: 'aluno-A' }, { userId: 'aluno-A' }]);
+    expect(calls[0].args.select).toEqual({ disconnectedAt: true });
+    expect(calls[1].args.select).toEqual({ id: true });
+    const body = JSON.stringify(result);
+    expect(body).not.toContain('segredo-nao-pode-sair');
+    expect(body).not.toMatch(/token|secret|aluno-A|athleteId|polarUserId/i);
+  });
+
+  it('o servico nao referencia campos sensiveis das tabelas de conexao', () => {
+    const source = readFileSync(join(__dirname, '../src/integrations/integrations.service.ts'), 'utf8');
+    expect(source).not.toMatch(/accessToken|refreshToken|athleteId|polarUserId|stravaActivity|rawExternalActivity/);
+  });
+});

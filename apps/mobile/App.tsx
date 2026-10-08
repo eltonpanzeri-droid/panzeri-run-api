@@ -8809,7 +8809,7 @@ function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessT
   };
   return (
     <View style={styles.section}>
-      <IntegrationsHub accessToken={accessToken} apiUrl={API_URL} screens={screens} initialProviderId={initialProviderId} />
+      <IntegrationsHub accessToken={accessToken} apiUrl={API_URL} screens={screens} initialProviderId={initialProviderId} fallback={[{ id: 'polar', name: 'Polar' }, { id: 'strava', name: 'Strava' }]} />
     </View>
   );
 }

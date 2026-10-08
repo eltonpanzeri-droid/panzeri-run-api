@@ -60,11 +60,14 @@ export function IntegrationsHub({
   apiUrl,
   screens,
   initialProviderId,
+  fallback = [],
 }: {
   accessToken: string;
   apiUrl: string;
   screens: IntegrationScreens;
   initialProviderId?: string;
+  // Fabricantes com conexao ja existente, exibidos so' se o catalogo falhar (sem afirmar estado).
+  fallback?: Array<{ id: string; name: string }>;
 }) {
   const [providers, setProviders] = useState<IntegrationCatalogEntry[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -86,12 +89,31 @@ export function IntegrationsHub({
   useEffect(() => { void load(); }, [load]);
 
   if (failed && !providers) {
+    // Catalogo fora do ar: o aluno continua alcancando as conexoes que ja existem (cada tela consulta o proprio
+    // status). Nenhuma disponibilidade/estado e afirmado aqui; so os fabricantes que tem tela no app.
+    const fallbackScreen = selectedId ? screens[selectedId] : undefined;
+    if (selectedId && fallbackScreen) {
+      return (
+        <View style={styles.wrap}>
+          <Pressable onPress={() => setSelectedId(null)} accessibilityRole="button">
+            <Text style={styles.back}>← Dispositivos e integrações</Text>
+          </Pressable>
+          {fallbackScreen()}
+        </View>
+      );
+    }
     return (
       <View style={styles.wrap}>
         <Text style={styles.label}>Integrações</Text>
         <Text style={styles.title}>Dispositivos e integrações</Text>
-        <Text style={styles.hint}>Não consegui carregar a lista agora.</Text>
-        <Pressable style={styles.button} onPress={() => void load()}>
+        <Text style={styles.hint}>Não consegui carregar a lista completa agora. Suas conexões abaixo continuam acessíveis.</Text>
+        {fallback.filter((item) => screens[item.id]).map((item) => (
+          <Pressable key={item.id} style={styles.row} onPress={() => setSelectedId(item.id)} accessibilityRole="button">
+            <Text style={[styles.cardTitle, { flex: 1 }]}>{item.name}</Text>
+            <Ionicons name="chevron-forward" size={20} color={PRColors.slate} />
+          </Pressable>
+        ))}
+        <Pressable style={styles.button} onPress={() => void load()} accessibilityRole="button">
           <Text style={styles.buttonText}>Tentar novamente</Text>
         </Pressable>
       </View>
