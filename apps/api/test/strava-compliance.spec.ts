@@ -369,6 +369,7 @@ describe('isolamento: nada de Strava no treinador/Admin nem na IA', () => {
       'app.module.ts', // registra o modulo
       'backup/backup-restore.ts', // purga apos restauracao
       'coach/coach.service.ts', // so' o booleano "conectado" da lista (estado da integracao, nao dado do Strava)
+      'integrations/integrations.service.ts', // so' o booleano "conectado" do proprio aluno no catalogo (select id; nenhum dado do Strava)
       'strava/strava-data-deletion.ts',
       'strava/strava.controller.ts',
       'strava/strava.module.ts',

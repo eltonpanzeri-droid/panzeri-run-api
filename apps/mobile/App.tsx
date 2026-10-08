@@ -6,6 +6,7 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { AppleHealthProofCard } from './src/appleHealthProof/AppleHealthProofCard';
+import { IntegrationsHub, IntegrationScreens } from './src/integrations/IntegrationsHub';
 import { AppleWatchSendButton } from './src/appleWatchDelivery/AppleWatchSendButton';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -1977,8 +1978,10 @@ function AppInner() {
             {activeTab === 'shoes' && <ShoesScreen accessToken={accessToken} />}
             {activeTab === 'observations' && <ObservationsScreen accessToken={accessToken} />}
             {activeTab === 'ciclo' && <MenstrualCycleScreen accessToken={accessToken} />}
-            {activeTab === 'strava' && <StravaSync accessToken={accessToken} />}
-            {activeTab === 'devices' && <DevicesIntegrationsScreen accessToken={accessToken} onOpenStrava={() => setActiveTab('strava')} />}
+            {/* Etapa 2 (08/10/2026): 'strava' e rota antiga; abre o hub ja na tela do Strava (Privacidade ainda usa setActiveTab('strava')). */}
+            {(activeTab === 'devices' || activeTab === 'strava') && (
+              <DevicesIntegrationsScreen key={activeTab} accessToken={accessToken} initialProviderId={activeTab === 'strava' ? 'strava' : undefined} />
+            )}
             {activeTab === 'billing' && <Billing accessToken={accessToken} />}
             {activeTab === 'privacy' && <PrivacyDataScreen accessToken={accessToken} onOpenStrava={() => setActiveTab('strava')} />}
             {activeTab === 'profile' && (
@@ -8795,12 +8798,18 @@ function DevicesIntegrationsPanel({ accessToken, onOpenStrava, polarVariant }: {
   );
 }
 
-function DevicesIntegrationsScreen({ accessToken, onOpenStrava }: { accessToken: string; onOpenStrava: () => void }) {
+// Registro central: qual conteudo ja existente abre para cada id do catalogo (GET /me/integrations).
+// Fabricante sem entrada aqui (Samsung, Garmin, COROS, Wahoo) so mostra o texto de indisponibilidade do catalogo.
+function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessToken: string; initialProviderId?: string }) {
+  const screens: IntegrationScreens = {
+    polar: () => <PolarConnect accessToken={accessToken} variant="profile" />,
+    strava: () => <StravaSync accessToken={accessToken} />,
+    // Prova tecnica Apple: so aparece no app nativo iOS com extra.appleHealthProof (o proprio card se autolimita).
+    apple_watch: () => <AppleHealthProofCard accessToken={accessToken} apiUrl={API_URL} />,
+  };
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionLabel}>Integrações</Text>
-      <Text style={styles.titleSmall}>Dispositivos e integrações</Text>
-      <DevicesIntegrationsPanel accessToken={accessToken} onOpenStrava={onOpenStrava} polarVariant="profile" />
+      <IntegrationsHub accessToken={accessToken} apiUrl={API_URL} screens={screens} initialProviderId={initialProviderId} />
     </View>
   );
 }
@@ -10061,7 +10070,6 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     { id: 'observations', label: 'Relatar observação', icon: 'chatbox-ellipses' },
     { id: 'progress', label: 'Evolucao', icon: 'stats-chart' },
     { id: 'history', label: 'Calendario de treinos', icon: 'calendar-outline' },
-    { id: 'strava', label: 'Sincronizar com Strava', icon: 'sync' },
     // 06/10/2026: porta unica para Polar, Strava e Apple (mesmos componentes ja usados em Perfil/Strava/Privacidade).
     { id: 'devices', label: 'Dispositivos e integrações', icon: 'watch-outline' },
     { id: 'profile', label: 'Perfil', icon: 'person' },
@@ -10091,7 +10099,7 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
         <Pressable style={styles.appMenuSheet} onPress={(event) => event.stopPropagation()}>
           <ScrollView contentContainerStyle={styles.appMenuContent}>
             {tabs.map((tab) => {
-              const active = tab.id === activeTab;
+              const active = tab.id === activeTab || (tab.id === 'devices' && activeTab === 'strava');
               return (
                 <Pressable style={[styles.menuItem, active && styles.menuItemActive]} key={tab.id} onPress={() => onChange(tab.id)}>
                   <Ionicons name={tab.icon} size={21} color={active ? PRColors.ocean : '#64748b'} />
