@@ -261,10 +261,11 @@ describe('POST /coach/backup/run e admin-only', () => {
 });
 
 describe('restauracao fail-closed', () => {
-  function fakePrisma(polar: Array<Record<string, unknown>>, strava: Array<Record<string, unknown>>) {
+  function fakePrisma(polar: Array<Record<string, unknown>>, strava: Array<Record<string, unknown>>, wahoo: Array<Record<string, unknown>> = []) {
     const events: unknown[] = [];
     return {
-      polar, strava, events,
+      polar, strava, wahoo, events,
+      wahooConnection: { updateMany: async ({ data }: { where: { disconnectedAt: null }; data: Record<string, unknown> }) => { const hit = wahoo.filter((c) => c.disconnectedAt == null); hit.forEach((c) => Object.assign(c, data)); return { count: hit.length }; } },
       polarConnection: { updateMany: async ({ where, data }: { where: { disconnectedAt: null }; data: Record<string, unknown> }) => { const hit = polar.filter((c) => c.disconnectedAt == null); hit.forEach((c) => Object.assign(c, data)); return { count: hit.length }; } },
       stravaConnection: { deleteMany: async () => { const count = strava.length; strava.length = 0; return { count }; } },
       stravaActivity: { deleteMany: async () => ({ count: 0 }) },
@@ -280,13 +281,25 @@ describe('restauracao fail-closed', () => {
       [{ userId: 'a', accessToken: 'tok', refreshToken: 'ref' }],
     );
     const result = await postRestoreSafeguard(prisma as never, new Date('2026-10-05T12:00:00Z'));
-    expect(result).toEqual({ polarDisconnected: 1, stravaConnectionsRemoved: 1 });
+    expect(result).toEqual({ polarDisconnected: 1, stravaConnectionsRemoved: 1, wahooDisconnected: 0 });
     expect(prisma.polar[0]).toMatchObject({ disconnectedAt: new Date('2026-10-05T12:00:00Z'), accessTokenEncrypted: null, openTransactionId: null, registeredAt: null });
     expect(prisma.strava).toHaveLength(0); // sem linha = sem sync (strava.service.ts so' sincroniza com StravaConnection)
     expect(prisma.events).toHaveLength(1);
     expect(JSON.stringify(prisma.events)).not.toMatch(/token|v1:x/i);
     // idempotente
-    expect(await postRestoreSafeguard(prisma as never)).toEqual({ polarDisconnected: 0, stravaConnectionsRemoved: 0 });
+    expect(await postRestoreSafeguard(prisma as never)).toEqual({ polarDisconnected: 0, stravaConnectionsRemoved: 0, wahooDisconnected: 0 });
+  });
+
+  it('Wahoo restaurada como conectada volta DESCONECTADA e sem nenhum token (refresh token rotativo do backup e invalido); idempotente', async () => {
+    const prisma = fakePrisma([], [], [
+      { userId: 'a', disconnectedAt: null, accessTokenEncrypted: 'v1:a', refreshTokenEncrypted: 'v1:r', accessTokenExpiresAt: new Date(), refreshLockUntil: new Date() },
+      { userId: 'b', disconnectedAt: new Date('2026-01-01'), accessTokenEncrypted: null, refreshTokenEncrypted: null },
+    ]);
+    const result = await postRestoreSafeguard(prisma as never, new Date('2026-10-08T12:00:00Z'));
+    expect(result).toEqual({ polarDisconnected: 0, stravaConnectionsRemoved: 0, wahooDisconnected: 1 });
+    expect(prisma.wahoo[0]).toMatchObject({ disconnectedAt: new Date('2026-10-08T12:00:00Z'), accessTokenEncrypted: null, refreshTokenEncrypted: null, accessTokenExpiresAt: null, refreshLockUntil: null });
+    expect(JSON.stringify(prisma.events)).not.toMatch(/token|v1:/i);
+    expect((await postRestoreSafeguard(prisma as never)).wahooDisconnected).toBe(0);
   });
 
   it('Polar restaurada nao sincroniza: o sync recusa conexao desconectada (mesma regra do Bloco 1)', async () => {

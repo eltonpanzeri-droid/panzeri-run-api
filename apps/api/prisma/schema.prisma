@@ -1950,3 +1950,35 @@ model ShoeUsage {
   @@index([shoeId])
   @@index([userId])
 }
+
+// Wahoo Cloud API (08/10/2026, Etapa 3 — somente OAuth/conexao; nenhum treino e' enviado, nenhuma atividade e' lida).
+// Tentativa OAuth de uso unico: o state nunca e' persistido em texto puro; o code_verifier do PKCE (S256) fica cifrado
+// com a chave PROPRIA da Wahoo e so' existe ate o callback.
+model WahooOAuthAttempt {
+  stateHash             String    @id
+  userId                String
+  codeVerifierEncrypted String
+  expiresAt             DateTime
+  consumedAt            DateTime?
+  createdAt             DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// Conexao Wahoo. A Wahoo ROTACIONA o refresh token a cada renovacao: o novo par e' gravado antes de qualquer uso.
+// refreshLockUntil e' uma trava (lease) de renovacao por aluno, sem transacao em volta da chamada de rede.
+// Desconectar = disconnectedAt preenchido + tokens apagados (mesmo padrao da Polar); a linha permanece para auditoria.
+model WahooConnection {
+  id                    String    @id @default(uuid())
+  userId                String    @unique
+  wahooUserId           String    @unique
+  accessTokenEncrypted  String?
+  refreshTokenEncrypted String?
+  accessTokenExpiresAt  DateTime?
+  grantedScopes         String
+  refreshLockUntil      DateTime?
+  disconnectedAt        DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}

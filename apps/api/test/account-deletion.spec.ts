@@ -38,7 +38,7 @@ function seedDb() {
   add('user',
     { id: A, role: 'student', email: PII.email, name: PII.name, cpf: PII.cpf, phone: PII.phone, address: PII.address, birthDate: new Date('1990-01-01'), sex: 'F', heightCm: 165, weightKg: 60, education: 'x', passwordHash: 'hash-original', studentCode: 42, accountStatus: 'active', subscriptionStatus: 'canceled', subscriptionManualOverride: false, subscriptionProvider: 'asaas', acceptedTermsAt: new Date('2026-01-01'), acceptedPrivacyAt: new Date('2026-01-01'), acceptedTermsVersion: '2026-10-05', acceptedPrivacyVersion: '2026-10-05', acceptedExerciseResponsibilityAt: new Date('2026-01-01'), cancelReason: 'preco', cancelFeedbackText: 'texto livre com meu nome', cancelWouldReturn: 'sim', refreshTokenHash: 'rt', expoPushToken: 'ExponentPushToken[abc]', acquisitionAttribution: { journeyId: 'J1', fbclid: 'x' } },
     { id: B, role: 'student', email: 'outra@exemplo.com', name: 'Outra Pessoa', accountStatus: 'active', subscriptionStatus: 'active' });
-  for (const name of ['healthProfile', 'onboardingInterview', 'painReport', 'menstrualCycleLog', 'menstrualProfile', 'workoutCompletion', 'trainingPlan', 'weeklyCheckIn', 'nightlySleepLog', 'userPreferences', 'passwordResetToken', 'loginLinkToken', 'userNotification', 'messageLog', 'studentProfile', 'studentReportEntry', 'coachChatMessage', 'studentProfileEvent', 'studentObservation', 'coachReport', 'shoe', 'polarConnection', 'stravaConnection', 'stravaActivity', 'polarOAuthAttempt', 'userAchievement', 'challengeProgress', 'reassessment', 'evolutionReport', 'fitnessTest', 'weeklyAvailability', 'targetRace', 'contextEvent', 'stressCheckin', 'studentDirective', 'trainingExecutionInsight', 'stravaAnalysisCache', 'trainingPlanGenerationLock', 'shoeUsage', 'sessionExecutionLink']) {
+  for (const name of ['healthProfile', 'onboardingInterview', 'painReport', 'menstrualCycleLog', 'menstrualProfile', 'workoutCompletion', 'trainingPlan', 'weeklyCheckIn', 'nightlySleepLog', 'userPreferences', 'passwordResetToken', 'loginLinkToken', 'userNotification', 'messageLog', 'studentProfile', 'studentReportEntry', 'coachChatMessage', 'studentProfileEvent', 'studentObservation', 'coachReport', 'shoe', 'polarConnection', 'stravaConnection', 'stravaActivity', 'polarOAuthAttempt', 'wahooConnection', 'wahooOAuthAttempt', 'userAchievement', 'challengeProgress', 'reassessment', 'evolutionReport', 'fitnessTest', 'weeklyAvailability', 'targetRace', 'contextEvent', 'stressCheckin', 'studentDirective', 'trainingExecutionInsight', 'stravaAnalysisCache', 'trainingPlanGenerationLock', 'shoeUsage', 'sessionExecutionLink']) {
     add(name, { id: `${name}-A`, userId: A, secret: `dado-de-saude-${name}` }, { id: `${name}-B`, userId: B });
   }
   add('trainingSession', { id: 'ts-A', userId: A }, { id: 'ts-B', userId: B });
@@ -115,15 +115,16 @@ describe('exclusao de conta — fluxo e ordem', () => {
     const tx = db.prisma.$transaction;
     db.prisma.$transaction = async (cb: (t: unknown) => Promise<unknown>) => { order.push('exclusao'); return tx(cb); };
     const polar = { disconnect: jest.fn(async () => { order.push('polar'); return { status: 'disconnected', providerRevocation: 'failed' }; }) };
-    const service = new AccountDeletionService(db.prisma, ledger, polar as never);
-    return { db, ledger, order, polar, service };
+    const wahoo = { disconnect: jest.fn(async () => { order.push('wahoo'); return { status: 'disconnected', providerRevocation: 'failed' }; }) };
+    const service = new AccountDeletionService(db.prisma, ledger, polar as never, wahoo as never);
+    return { db, ledger, order, polar, wahoo, service };
   }
 
   it('o tombstone externo precede a revogacao e qualquer exclusao; depois PII, saude, feedbacks, treino e providers somem', async () => {
     const { db, order, service, ledger } = build();
     const result = await service.deleteAccount(A, CONFIRM, ADMIN);
     expect(result.status).toBe('deleted');
-    expect(order).toEqual(['tombstone', 'polar', 'exclusao']);
+    expect(order).toEqual(['tombstone', 'polar', 'wahoo', 'exclusao']);
     const t = db.tables();
     // dados pessoais, saude, feedbacks, prontuario, treino, providers, tokens: nenhuma linha do usuario A
     for (const model of ACCOUNT_DELETE_ORDER) {
@@ -136,7 +137,7 @@ describe('exclusao de conta — fluxo e ordem', () => {
     expect(t.funnelEvent.map((r) => r.id)).toEqual(['f3']); // inclui o evento pre-cadastro da mesma jornada
     expect(t.freeTesterEmail.map((r) => r.id)).toEqual(['ft-B']);
     // dados de OUTRO usuario intactos
-    for (const model of ['healthProfile', 'painReport', 'workoutCompletion', 'polarConnection', 'stravaConnection', 'messageLog']) {
+    for (const model of ['healthProfile', 'painReport', 'workoutCompletion', 'polarConnection', 'stravaConnection', 'wahooConnection', 'wahooOAuthAttempt', 'messageLog']) {
       expect(t[model].filter((r) => r.userId === B)).toHaveLength(1);
     }
     expect(t.user.find((u) => u.id === B)!.name).toBe('Outra Pessoa');

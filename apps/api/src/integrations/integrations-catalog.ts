@@ -20,8 +20,8 @@ export interface IntegrationProvider {
   // Plataformas onde a integracao pode ser usada pelo aluno.
   platforms: IntegrationPlatform[];
   capabilities: { receiveActivities: boolean; sendWorkouts: boolean };
-  // Variavel de ambiente que precisa estar configurada para a integracao estar available (opcional).
-  requiresEnv?: string;
+  // Variavel(is) de ambiente que precisam estar configuradas para a integracao estar available (opcional).
+  requiresEnv?: string | string[];
 }
 
 const ALL_PLATFORMS: IntegrationPlatform[] = ['web', 'android', 'ios_native'];
@@ -80,10 +80,12 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   {
     id: 'wahoo',
     name: 'Wahoo',
-    summary: 'Integração ainda não disponível.',
-    availability: 'unavailable',
+    // Etapa 3: so' a conexao da conta. Sem treino enviado nem atividade recebida (Etapas 4 e 5).
+    summary: 'Conecte sua conta Wahoo. O envio de treinos ainda não está ativo.',
+    availability: 'available',
     platforms: ALL_PLATFORMS,
     capabilities: { receiveActivities: false, sendWorkouts: false },
+    requiresEnv: ['WAHOO_CLIENT_ID', 'WAHOO_CLIENT_SECRET', 'WAHOO_REDIRECT_URI', 'WAHOO_TOKEN_ENCRYPTION_KEY'],
   },
 ];
 
@@ -102,7 +104,8 @@ export function buildIntegrationsCatalog(inputs: CatalogInputs): IntegrationCata
   return INTEGRATION_PROVIDERS.map((provider) => {
     const { requiresEnv, ...rest } = provider;
     // Disponibilidade real: se exige configuracao no servidor e ela esta ausente, nao e oferecida.
-    const operational = provider.availability === 'available' && (!requiresEnv || inputs.configuredEnv.has(requiresEnv));
+    const required = requiresEnv === undefined ? [] : Array.isArray(requiresEnv) ? requiresEnv : [requiresEnv];
+    const operational = provider.availability === 'available' && required.every((name) => inputs.configuredEnv.has(name));
     const availability: IntegrationAvailability = operational
       ? 'available'
       : provider.availability === 'available' ? 'unavailable' : provider.availability;

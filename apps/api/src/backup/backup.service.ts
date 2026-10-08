@@ -27,7 +27,9 @@ export const BACKUP_PREFIX = 'panzeri-backups/db/';
 export const BACKUP_RETENTION_DAYS = 14;
 // Dados de proveniencia Strava (cache de 7 dias, tokens e derivados) NAO entram nos dumps: as copias duram 14 dias e a
 // regra Strava permite no maximo 7. So' a ESTRUTURA dessas tabelas vai no dump; o conteudo e' omitido na origem.
-export const BACKUP_EXCLUDED_TABLE_DATA = ['StravaActivity', 'StravaConnection', 'StravaAnalysisCache', 'TrainingExecutionInsight', 'StravaOAuthAttempt', 'StravaWebhookEvent'];
+// Wahoo (08/10/2026): tokens OAuth rotativos (o refresh token de um backup ja' foi invalidado pela rotacao) e verifiers PKCE
+// nao entram nos dumps; apos uma restauracao o aluno reconecta (mesmo estado do fail-closed abaixo).
+export const BACKUP_EXCLUDED_TABLE_DATA = ['StravaActivity', 'StravaConnection', 'StravaAnalysisCache', 'TrainingExecutionInsight', 'StravaOAuthAttempt', 'StravaWebhookEvent', 'WahooConnection', 'WahooOAuthAttempt'];
 const BACKUP_SIZE_WARNING_BYTES = 20 * 1024 * 1024;
 
 export interface BackupResult {

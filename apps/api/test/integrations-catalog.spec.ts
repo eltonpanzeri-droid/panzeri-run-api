@@ -1,6 +1,7 @@
 import { buildIntegrationsCatalog, INTEGRATION_PROVIDERS } from '../src/integrations/integrations-catalog';
 
-const ENV_OK = new Set(['POLAR_CLIENT_ID', 'STRAVA_CLIENT_ID']);
+const WAHOO_ENV = ['WAHOO_CLIENT_ID', 'WAHOO_CLIENT_SECRET', 'WAHOO_REDIRECT_URI', 'WAHOO_TOKEN_ENCRYPTION_KEY'];
+const ENV_OK = new Set(['POLAR_CLIENT_ID', 'STRAVA_CLIENT_ID', ...WAHOO_ENV]);
 const none = new Set<string>();
 const byId = (list: ReturnType<typeof buildIntegrationsCatalog>, id: string) => list.find((entry) => entry.id === id)!;
 
@@ -42,13 +43,26 @@ describe('catalogo de dispositivos e integracoes', () => {
     expect(apple.connection.state).toBe('not_applicable');
   });
 
-  it('Samsung, Garmin, COROS e Wahoo: indisponiveis, sem capacidades nem conexao', () => {
-    const catalog = buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set(['wahoo', 'garmin']) });
-    for (const id of ['samsung', 'garmin', 'coros', 'wahoo']) {
+  it('Samsung, Garmin e COROS: indisponiveis, sem capacidades nem conexao', () => {
+    const catalog = buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set(['garmin']) });
+    for (const id of ['samsung', 'garmin', 'coros']) {
       const entry = byId(catalog, id);
       expect(entry.availability).toBe('unavailable');
       expect(entry.connection.state).toBe('not_applicable');
       expect(entry.capabilities).toEqual({ receiveActivities: false, sendWorkouts: false });
+    }
+  });
+
+  it('Wahoo (Etapa 3): disponivel so com as 4 variaveis; so conexao, sem enviar treino nem receber atividade', () => {
+    const on = byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set(['wahoo']) }), 'wahoo');
+    expect(on.availability).toBe('available');
+    expect(on.connection.state).toBe('connected');
+    expect(on.capabilities).toEqual({ receiveActivities: false, sendWorkouts: false });
+    for (const missing of WAHOO_ENV) {
+      const env = new Set([...ENV_OK].filter((name) => name !== missing));
+      const off = byId(buildIntegrationsCatalog({ configuredEnv: env, connectedProviderIds: new Set(['wahoo']) }), 'wahoo');
+      expect(off.availability).toBe('unavailable');
+      expect(off.connection.state).toBe('not_applicable');
     }
   });
 
@@ -79,13 +93,15 @@ describe('GET /me/integrations: autenticacao e escopo', () => {
     const prisma = {
       polarConnection: { findUnique: async (args: any) => { calls.push({ model: 'polar', args }); return { disconnectedAt: null }; } },
       stravaConnection: { findUnique: async (args: any) => { calls.push({ model: 'strava', args }); return { id: 'x' }; } },
+      wahooConnection: { findUnique: async (args: any) => { calls.push({ model: 'wahoo', args }); return { disconnectedAt: null }; } },
     };
     const config = { get: (key: string) => (key.endsWith('CLIENT_ID') ? 'segredo-nao-pode-sair' : undefined) };
     const service = new IntegrationsService(prisma, config);
     const result = await service.catalog('aluno-A');
-    expect(calls.map((call) => call.args.where)).toEqual([{ userId: 'aluno-A' }, { userId: 'aluno-A' }]);
+    expect(calls.map((call) => call.args.where)).toEqual([{ userId: 'aluno-A' }, { userId: 'aluno-A' }, { userId: 'aluno-A' }]);
     expect(calls[0].args.select).toEqual({ disconnectedAt: true });
     expect(calls[1].args.select).toEqual({ id: true });
+    expect(calls[2].args.select).toEqual({ disconnectedAt: true });
     const body = JSON.stringify(result);
     expect(body).not.toContain('segredo-nao-pode-sair');
     expect(body).not.toMatch(/token|secret|aluno-A|athleteId|polarUserId/i);
@@ -93,6 +109,6 @@ describe('GET /me/integrations: autenticacao e escopo', () => {
 
   it('o servico nao referencia campos sensiveis das tabelas de conexao', () => {
     const source = readFileSync(join(__dirname, '../src/integrations/integrations.service.ts'), 'utf8');
-    expect(source).not.toMatch(/accessToken|refreshToken|athleteId|polarUserId|stravaActivity|rawExternalActivity/);
+    expect(source).not.toMatch(/accessToken|refreshToken|athleteId|polarUserId|wahooUserId|stravaActivity|rawExternalActivity/);
   });
 });

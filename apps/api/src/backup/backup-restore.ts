@@ -14,6 +14,7 @@ const execFileAsync = promisify(execFile);
 // postRestoreSafeguard so' mexe no banco LOCAL (nenhuma chamada a Polar/Strava):
 //  - Polar: toda conexao ativa vira desconectada (disconnectedAt), token e estado de transaction apagados,
 //    registeredAt zerado — o aluno precisa autorizar de novo (mesmo estado de uma desconexao normal).
+//  - Wahoo: toda conexao ativa vira desconectada e os tokens (rotativos) sao apagados — o aluno reconecta.
 //  - Strava: linhas de StravaConnection (tokens) removidas — a "desconexao" do Strava no sistema ja e' a
 //    ausencia da linha (strava.service.ts), entao nada sincroniza sem novo OAuth.
 // Depois do fail-closed, a restauracao carrega o ledger de tombstones (R2) e REAPLICA as exclusoes posteriores ao
@@ -22,6 +23,8 @@ const execFileAsync = promisify(execFile);
 
 export interface SafeguardPrisma {
   polarConnection: { updateMany(args: { where: { disconnectedAt: null }; data: Record<string, unknown> }): Promise<{ count: number }> };
+  // Wahoo (08/10/2026): refresh token rotativo — o de um backup ja' foi invalidado; toda conexao ativa volta desconectada.
+  wahooConnection: { updateMany(args: { where: { disconnectedAt: null }; data: Record<string, unknown> }): Promise<{ count: number }> };
   stravaConnection: { deleteMany(args: Record<string, never>): Promise<{ count: number }> };
   // Dados Strava restaurados de um backup (anterior a regra de exclusao na origem) tambem nao voltam: o cache vale 7 dias.
   stravaActivity: { deleteMany(args: Record<string, never>): Promise<{ count: number }> };
@@ -30,12 +33,16 @@ export interface SafeguardPrisma {
   providerConnectionEvent: { create(args: { data: { userId: string; provider: string; type: string; details: unknown } }): Promise<unknown> };
 }
 
-export interface SafeguardResult { polarDisconnected: number; stravaConnectionsRemoved: number }
+export interface SafeguardResult { polarDisconnected: number; stravaConnectionsRemoved: number; wahooDisconnected: number }
 
 export async function postRestoreSafeguard(prisma: SafeguardPrisma, now: Date = new Date()): Promise<SafeguardResult> {
   const polar = await prisma.polarConnection.updateMany({
     where: { disconnectedAt: null },
     data: { disconnectedAt: now, accessTokenEncrypted: null, openTransactionId: null, openTransactionOpenedAt: null, registeredAt: null },
+  });
+  const wahoo = await prisma.wahooConnection.updateMany({
+    where: { disconnectedAt: null },
+    data: { disconnectedAt: now, accessTokenEncrypted: null, refreshTokenEncrypted: null, accessTokenExpiresAt: null, refreshLockUntil: null },
   });
   const strava = await prisma.stravaConnection.deleteMany({});
   await prisma.stravaActivity.deleteMany({});
@@ -45,10 +52,10 @@ export async function postRestoreSafeguard(prisma: SafeguardPrisma, now: Date = 
   await prisma.providerConnectionEvent.create({
     data: {
       userId: 'system', provider: 'all', type: 'post_restore_safeguard',
-      details: { polarDisconnected: polar.count, stravaConnectionsRemoved: strava.count, at: now.toISOString() },
+      details: { polarDisconnected: polar.count, stravaConnectionsRemoved: strava.count, wahooDisconnected: wahoo.count, at: now.toISOString() },
     },
   });
-  return { polarDisconnected: polar.count, stravaConnectionsRemoved: strava.count };
+  return { polarDisconnected: polar.count, stravaConnectionsRemoved: strava.count, wahooDisconnected: wahoo.count };
 }
 
 // Margem anterior ao inicio do snapshot: a exclusao grava o tombstone e so' depois apaga (a transacao tem teto de

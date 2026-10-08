@@ -8798,12 +8798,113 @@ function DevicesIntegrationsPanel({ accessToken, onOpenStrava, polarVariant }: {
   );
 }
 
+// Wahoo (08/10/2026, Etapa 3): SOMENTE conectar/desconectar a conta. Nao envia treino nem le atividade.
+function WahooConnect({ accessToken }: { accessToken: string }) {
+  const [connection, setConnection] = useState<{ connected: boolean; connectedAt: string | null } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function loadStatus() {
+    try {
+      const response = await fetch(`${API_URL}/wahoo/status`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (response.ok) setConnection((await response.json()) as { connected: boolean; connectedAt: string | null });
+    } catch {
+      setMessage({ ok: false, text: 'Nao consegui consultar a conexao agora.' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadStatus();
+    // O callback acontece fora da navegacao do app; ao voltar, o status e verificado de novo (mesmo intervalo da Polar/Strava).
+    const timer = setInterval(() => void loadStatus(), 5000);
+    return () => clearInterval(timer);
+  }, [accessToken]);
+
+  async function connectWahoo() {
+    if (connecting) return;
+    setConnecting(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`${API_URL}/wahoo/connect-url`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) {
+        setMessage({ ok: false, text: 'Nao consegui iniciar a autorizacao da Wahoo.' });
+        return;
+      }
+      const data = (await response.json()) as { url: string };
+      navigateTopLevel(data.url);
+    } catch {
+      setMessage({ ok: false, text: 'Nao consegui abrir a autorizacao da Wahoo.' });
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  async function runDisconnect() {
+    setDisconnecting(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`${API_URL}/wahoo/disconnect`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) {
+        setMessage({ ok: false, text: 'Nao consegui desconectar a Wahoo agora. Tente novamente.' });
+        return;
+      }
+      setMessage({ ok: true, text: 'Wahoo desconectada.' });
+    } catch {
+      setMessage({ ok: false, text: 'Nao consegui conectar com o servidor para desconectar.' });
+    } finally {
+      setDisconnecting(false);
+      void loadStatus();
+    }
+  }
+
+  function disconnectWahoo() {
+    if (disconnecting) return;
+    const title = 'Desconectar a Wahoo?';
+    const text = 'O Panzeri Run perde o acesso à sua conta Wahoo e a autorização é revogada. Para usar de novo, será preciso conectar outra vez.';
+    if (Platform.OS === 'web') {
+      if (window.confirm(`${title}\n\n${text}`)) void runDisconnect();
+      return;
+    }
+    Alert.alert(title, text, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Desconectar', style: 'destructive', onPress: () => { void runDisconnect(); } },
+    ]);
+  }
+
+  return (
+    <View style={styles.formSection}>
+      <Text style={styles.reportTitle}>{loading ? 'Consultando conexao...' : connection?.connected ? 'Wahoo conectada' : 'Wahoo nao conectada'}</Text>
+      {connection?.connected && connection.connectedAt ? (
+        <Text style={styles.reportText}>Conectada em {formatConnectionDate(connection.connectedAt)}</Text>
+      ) : null}
+      <Text style={styles.formHint}>Nesta etapa a conexão só vincula a sua conta Wahoo. O Panzeri Run ainda não envia treinos nem lê atividades da Wahoo.</Text>
+      {!connection?.connected ? (
+        <Pressable style={[styles.primaryButton, connecting && styles.disabledButton]} disabled={connecting} onPress={connectWahoo}>
+          <Text style={styles.primaryButtonText}>{connecting ? 'Abrindo autorizacao...' : 'Conectar Wahoo'}</Text>
+          <Ionicons name="link" size={18} color={PRColors.mineral} />
+        </Pressable>
+      ) : (
+        <Pressable style={[styles.secondaryOutlineButton, disconnecting && styles.disabledButton]} disabled={disconnecting} onPress={disconnectWahoo}>
+          <Text style={styles.secondaryOutlineButtonText}>{disconnecting ? 'Desconectando...' : 'Desconectar Wahoo'}</Text>
+          <Ionicons name="unlink" size={18} color={PRColors.ocean} />
+        </Pressable>
+      )}
+      {message ? <Text style={[styles.statusMessage, message.ok ? null : { color: '#b91c1c' }]}>{message.text}</Text> : null}
+    </View>
+  );
+}
+
 // Registro central: qual conteudo ja existente abre para cada id do catalogo (GET /me/integrations).
-// Fabricante sem entrada aqui (Samsung, Garmin, COROS, Wahoo) so mostra o texto de indisponibilidade do catalogo.
+// Fabricante sem entrada aqui (Samsung, Garmin, COROS) so mostra o texto de indisponibilidade do catalogo.
 function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessToken: string; initialProviderId?: string }) {
   const screens: IntegrationScreens = {
     polar: () => <PolarConnect accessToken={accessToken} variant="profile" />,
     strava: () => <StravaSync accessToken={accessToken} />,
+    wahoo: () => <WahooConnect accessToken={accessToken} />,
     // Prova tecnica Apple: so aparece no app nativo iOS com extra.appleHealthProof (o proprio card se autolimita).
     apple_watch: () => <AppleHealthProofCard accessToken={accessToken} apiUrl={API_URL} />,
   };

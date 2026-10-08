@@ -198,6 +198,7 @@ describe('aplicacao pos-restauracao dos tombstones', () => {
     const polar = [{ userId: 'a', disconnectedAt: null as Date | null, accessTokenEncrypted: 'v1:x' as string | null }];
     const prisma = {
       polarConnection: { updateMany: async ({ data }: { data: Record<string, unknown> }) => { polar.forEach((c) => Object.assign(c, data)); return { count: polar.length }; } },
+      wahooConnection: { updateMany: async () => ({ count: 0 }) },
       stravaConnection: { deleteMany: async () => ({ count: 0 }) },
       stravaActivity: { deleteMany: async () => ({ count: 0 }) },
       stravaAnalysisCache: { deleteMany: async () => ({ count: 0 }) },

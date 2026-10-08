@@ -12,17 +12,20 @@ export class IntegrationsService {
   ) {}
 
   async catalog(userId: string) {
-    const [polar, strava] = await Promise.all([
+    const [polar, strava, wahoo] = await Promise.all([
       this.prisma.polarConnection.findUnique({ where: { userId }, select: { disconnectedAt: true } }),
       this.prisma.stravaConnection.findUnique({ where: { userId }, select: { id: true } }),
+      this.prisma.wahooConnection.findUnique({ where: { userId }, select: { disconnectedAt: true } }),
     ]);
     const connectedProviderIds = new Set<string>();
     if (polar && !polar.disconnectedAt) connectedProviderIds.add('polar');
     if (strava) connectedProviderIds.add('strava');
+    if (wahoo && !wahoo.disconnectedAt) connectedProviderIds.add('wahoo');
 
     const configuredEnv = new Set<string>();
     for (const provider of INTEGRATION_PROVIDERS) {
-      if (provider.requiresEnv && this.config.get<string>(provider.requiresEnv)?.trim()) configuredEnv.add(provider.requiresEnv);
+      const names = provider.requiresEnv === undefined ? [] : Array.isArray(provider.requiresEnv) ? provider.requiresEnv : [provider.requiresEnv];
+      for (const name of names) if (this.config.get<string>(name)?.trim()) configuredEnv.add(name);
     }
     return { providers: buildIntegrationsCatalog({ configuredEnv, connectedProviderIds }) };
   }

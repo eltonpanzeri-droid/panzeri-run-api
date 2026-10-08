@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto';
 import { canonicalizeEmail } from '../auth/auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PolarService } from '../polar/polar.service';
+import { WahooService } from '../wahoo/wahoo.service';
 import { TombstoneLedger } from '../backup/tombstone-ledger';
 
 // Exclusao de conta (05/10/2026 — Bloco pre-Garmin 4). Decisao de Elton: ANONIMIZACAO IRREVERSIVEL do User +
@@ -14,7 +15,7 @@ import { TombstoneLedger } from '../backup/tombstone-ledger';
 //   A = APAGAR   B = PRESERVAR ANONIMIZADO   (nenhum item em "C/revisao": todos decididos pela finalidade existente)
 //
 // Fluxo (deleteAccount): identificar -> confirmar -> pre-condicao financeira -> tombstone account_deleted CONFIRMADO no R2
-//   -> revogar integracoes (Polar; falha externa nao bloqueia) -> executeAccountDeletion (UMA transacao: apaga A, anonimiza
+//   -> revogar integracoes (Polar e Wahoo; falha externa nao bloqueia) -> executeAccountDeletion (UMA transacao: apaga A, anonimiza
 //   User, scrub de BillingSubscription, preserva B, audita). Sem tombstone confirmado nada e' apagado. Falha local apos o
 //   tombstone: rollback da transacao, tombstone mantido, evento auditado e alerta (sem PII).
 // executeAccountDeletion e' idempotente e SO' LOCAL — e' o que a restauracao reaplica a partir do tombstone.
@@ -28,7 +29,7 @@ export const ACCOUNT_DELETE_ORDER = [
   'messageLog', 'healthProfile', 'userPreferences', 'weeklyAvailability', 'fitnessTest', 'targetRace', 'painReport',
   'menstrualProfile', 'menstrualCycleLog', 'menstrualDailyLog', 'userAchievement', 'challengeProgress', 'coachReport',
   'studentProfileEvent', 'studentProfile', 'studentReportEntry', 'onboardingInterview', 'shoe', 'stravaConnection',
-  'athletePrimarySource', 'stravaActivity', 'stravaAnalysisCache', 'stravaOAuthAttempt', 'polarConnection', 'polarOAuthAttempt', 'funnelEvent', 'freeTesterEmail',
+  'athletePrimarySource', 'stravaActivity', 'stravaAnalysisCache', 'stravaOAuthAttempt', 'polarConnection', 'polarOAuthAttempt', 'wahooConnection', 'wahooOAuthAttempt', 'funnelEvent', 'freeTesterEmail',
 ] as const;
 
 // ── B: preservar anonimizado (so' o necessario para registro financeiro/auditoria; nenhum dado de identificacao) ─────
@@ -53,6 +54,7 @@ export class AccountDeletionService {
     private readonly prisma: PrismaService,
     private readonly ledger?: TombstoneLedger,
     private readonly polar?: PolarService,
+    private readonly wahoo?: WahooService,
   ) {}
 
   async deleteAccount(studentId: string, confirmation: { confirmUserId?: string; confirmText?: string }, actor: { id: string; role: string }): Promise<AccountDeletionResult> {
@@ -73,9 +75,12 @@ export class AccountDeletionService {
     // 3. Tombstone externo CONFIRMADO antes de qualquer exclusao (R2 fora => 503 e nada e' apagado).
     await this.ledger.record({ type: 'account_deleted', userId: studentId });
 
-    // 4. Revogar integracoes. Polar: mecanismo existente (revoga local primeiro; falha externa nao bloqueia).
+    // 4. Revogar integracoes. Polar e Wahoo: mecanismo existente (revoga local primeiro; falha externa nao bloqueia).
     if (this.polar) {
       await this.polar.disconnect(studentId).catch(() => undefined);
+    }
+    if (this.wahoo) {
+      await this.wahoo.disconnect(studentId).catch(() => undefined);
     }
 
     // 5-7. Apagar A, anonimizar, preservar B, auditar — uma transacao.
