@@ -58,8 +58,10 @@ export class WahooController {
       message = status === 400
         ? 'A autorizacao e invalida, expirou ou ja foi utilizada. Inicie outra conexao no aplicativo.'
         : status === 409
-          ? 'Esta conta Wahoo ja esta vinculada a outro aluno.'
-          : 'A conexao nao foi concluida. Inicie outra tentativa no aplicativo.';
+          ? 'Esta conta Wahoo ja esta vinculada. Se for a sua, desconecte-a antes no aplicativo.'
+          : status === 403
+            ? 'Esta integracao esta indisponivel no momento.'
+            : 'A conexao nao foi concluida. Inicie outra tentativa no aplicativo.';
     }
     // Nenhum state, code, token ou detalhe da resposta Wahoo aparece no HTML.
     const appUrl = this.wahooService.studentAppUrl();

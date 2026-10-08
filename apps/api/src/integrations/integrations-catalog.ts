@@ -22,6 +22,8 @@ export interface IntegrationProvider {
   capabilities: { receiveActivities: boolean; sendWorkouts: boolean };
   // Variavel(is) de ambiente que precisam estar configuradas para a integracao estar available (opcional).
   requiresEnv?: string | string[];
+  // Integracao em validacao: so' aparece como disponivel para quem foi habilitado (ou ja esta conectado, para poder desconectar).
+  requiresAllowlist?: boolean;
 }
 
 const ALL_PLATFORMS: IntegrationPlatform[] = ['web', 'android', 'ios_native'];
@@ -86,10 +88,11 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     platforms: ALL_PLATFORMS,
     capabilities: { receiveActivities: false, sendWorkouts: false },
     requiresEnv: ['WAHOO_CLIENT_ID', 'WAHOO_CLIENT_SECRET', 'WAHOO_REDIRECT_URI', 'WAHOO_TOKEN_ENCRYPTION_KEY'],
+    requiresAllowlist: true,
   },
 ];
 
-export interface IntegrationCatalogEntry extends Omit<IntegrationProvider, 'requiresEnv'> {
+export interface IntegrationCatalogEntry extends Omit<IntegrationProvider, 'requiresEnv' | 'requiresAllowlist'> {
   connection: { state: IntegrationConnectionState };
 }
 
@@ -98,14 +101,17 @@ export interface CatalogInputs {
   configuredEnv: ReadonlySet<string>;
   // Provedores em que ESTE aluno esta conectado agora.
   connectedProviderIds: ReadonlySet<string>;
+  // Provedores em validacao liberados para ESTE aluno (porta de habilitacao do servidor). Ausente = nenhum.
+  allowedProviderIds?: ReadonlySet<string>;
 }
 
 export function buildIntegrationsCatalog(inputs: CatalogInputs): IntegrationCatalogEntry[] {
   return INTEGRATION_PROVIDERS.map((provider) => {
-    const { requiresEnv, ...rest } = provider;
+    const { requiresEnv, requiresAllowlist, ...rest } = provider;
     // Disponibilidade real: se exige configuracao no servidor e ela esta ausente, nao e oferecida.
     const required = requiresEnv === undefined ? [] : Array.isArray(requiresEnv) ? requiresEnv : [requiresEnv];
-    const operational = provider.availability === 'available' && required.every((name) => inputs.configuredEnv.has(name));
+    const allowed = !requiresAllowlist || (inputs.allowedProviderIds?.has(provider.id) ?? false) || inputs.connectedProviderIds.has(provider.id);
+    const operational = provider.availability === 'available' && allowed && required.every((name) => inputs.configuredEnv.has(name));
     const availability: IntegrationAvailability = operational
       ? 'available'
       : provider.availability === 'available' ? 'unavailable' : provider.availability;

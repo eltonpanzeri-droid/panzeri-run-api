@@ -1,4 +1,7 @@
-import { BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { ProviderDataDeletionService } from '../src/activity-execution/provider-data-deletion.service';
+import { isWahooEnabledFor } from '../src/wahoo/wahoo-access';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -13,6 +16,7 @@ const baseSettings: Record<string, string> = {
   WAHOO_CLIENT_SECRET: 'wahoo-client-secret-VALUE',
   WAHOO_REDIRECT_URI: redirectUri,
   WAHOO_TOKEN_ENCRYPTION_KEY: KEY,
+  WAHOO_ENABLED_USER_IDS: 'user-a,user-b',
   POLAR_TOKEN_ENCRYPTION_KEY: 'ab'.repeat(32),
   STRAVA_TOKEN_ENCRYPTION_KEY: 'ef'.repeat(32),
 };
@@ -138,11 +142,124 @@ describe('Wahoo OAuth (Etapa 3)', () => {
     });
 
     it('chave de criptografia propria: recusa chave igual a da Polar ou do Strava; redirect precisa ser o callback https', async () => {
-      await expect(fixture({ WAHOO_TOKEN_ENCRYPTION_KEY: 'ab'.repeat(32) }).service.connectUrl('u')).rejects.toBeInstanceOf(ServiceUnavailableException);
-      await expect(fixture({ WAHOO_TOKEN_ENCRYPTION_KEY: 'ef'.repeat(32) }).service.connectUrl('u')).rejects.toBeInstanceOf(ServiceUnavailableException);
-      await expect(fixture({ WAHOO_REDIRECT_URI: 'http://x.com/wahoo/callback' }).service.connectUrl('u')).rejects.toBeInstanceOf(ServiceUnavailableException);
-      await expect(fixture({ WAHOO_REDIRECT_URI: 'https://x.com/outra/rota' }).service.connectUrl('u')).rejects.toBeInstanceOf(ServiceUnavailableException);
-      await expect(fixture({ WAHOO_SCOPES: 'workouts_write' }).service.connectUrl('u')).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await expect(fixture({ WAHOO_TOKEN_ENCRYPTION_KEY: 'ab'.repeat(32) }).service.connectUrl('user-a')).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await expect(fixture({ WAHOO_TOKEN_ENCRYPTION_KEY: 'ef'.repeat(32) }).service.connectUrl('user-a')).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await expect(fixture({ WAHOO_REDIRECT_URI: 'http://x.com/wahoo/callback' }).service.connectUrl('user-a')).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await expect(fixture({ WAHOO_REDIRECT_URI: 'https://x.com/outra/rota' }).service.connectUrl('user-a')).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await expect(fixture({ WAHOO_SCOPES: 'workouts_write' }).service.connectUrl('user-a')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    });
+  });
+
+  describe('habilitacao controlada (validacao real)', () => {
+    it('ids autenticados: so quem esta na lista conecta; vazio/ausente = ninguem; "*" = todos; espacos tolerados', () => {
+      expect(isWahooEnabledFor('user-a, user-b', 'user-b')).toBe(true);
+      expect(isWahooEnabledFor('user-a,user-b', 'user-c')).toBe(false);
+      expect(isWahooEnabledFor('user-a', 'user')).toBe(false); // sem casamento parcial
+      expect(isWahooEnabledFor(undefined, 'user-a')).toBe(false);
+      expect(isWahooEnabledFor('', 'user-a')).toBe(false);
+      expect(isWahooEnabledFor('  ', 'user-a')).toBe(false);
+      expect(isWahooEnabledFor(',,', 'user-a')).toBe(false);
+      expect(isWahooEnabledFor('*', 'user-z')).toBe(true);
+      expect(isWahooEnabledFor('user-a', '')).toBe(false);
+    });
+
+    it('aluno nao habilitado: connect-url recusa (403) sem criar tentativa, sem tocar a rede e sem revelar a configuracao', async () => {
+      const f = fixture({ WAHOO_ENABLED_USER_IDS: 'user-a', WAHOO_CLIENT_ID: undefined });
+      const calls = network({});
+      await expect(f.service.connectUrl('user-x')).rejects.toBeInstanceOf(ForbiddenException);
+      expect(f.attempts.size).toBe(0);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('credenciais configuradas mas sem lista: ninguem conecta (configurar nao libera)', async () => {
+      const f = fixture({ WAHOO_ENABLED_USER_IDS: undefined });
+      await expect(f.service.connectUrl('user-a')).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('a habilitacao retirada no meio do fluxo bloqueia o callback antes de qualquer troca de code', async () => {
+      const f = fixture();
+      const calls = network({});
+      const state = stateFrom((await f.service.connectUrl('user-a')).url);
+      (f.service as any).config.get = (name: string) => (name === 'WAHOO_ENABLED_USER_IDS' ? 'outro' : baseSettings[name]);
+      await expect(f.service.callback({ state, code: 'c' })).rejects.toBeInstanceOf(ForbiddenException);
+      expect(calls).toHaveLength(0);
+      expect(f.connections.size).toBe(0);
+    });
+
+    it('desconectar nunca depende da lista: quem ja tem conexao sempre consegue revogar', async () => {
+      const f = fixture();
+      network({});
+      await f.service.callback({ state: stateFrom((await f.service.connectUrl('user-a')).url), code: 'c' });
+      (f.service as any).config.get = (name: string) => (name === 'WAHOO_ENABLED_USER_IDS' ? undefined : baseSettings[name]);
+      network({});
+      await expect(f.service.disconnect('user-a')).resolves.toMatchObject({ status: 'disconnected', providerRevocation: 'revoked' });
+    });
+  });
+
+  describe('conta ja conectada nao reconecta', () => {
+    it('connect-url recusa (409) enquanto ha conexao ativa e volta a permitir apos desconectar', async () => {
+      const f = fixture();
+      network({});
+      await f.service.callback({ state: stateFrom((await f.service.connectUrl('user-a')).url), code: 'c' });
+      const attemptsBefore = f.attempts.size;
+      await expect(f.service.connectUrl('user-a')).rejects.toBeInstanceOf(ConflictException);
+      expect(f.attempts.size).toBe(attemptsBefore); // nenhuma tentativa nova
+      network({});
+      await f.service.disconnect('user-a');
+      await expect(f.service.connectUrl('user-a')).resolves.toHaveProperty('url');
+    });
+
+    it('corrida: conexao criada em outra aba durante o fluxo => callback recusa (409), nao sobrescreve e nao revoga', async () => {
+      const f = fixture();
+      network({});
+      const stateSlow = stateFrom((await f.service.connectUrl('user-a')).url); // fluxo aberto antes
+      const stateFast = stateFrom((await f.service.connectUrl('user-a')).url);
+      await f.service.callback({ state: stateFast, code: 'c1' }); // outra aba conclui primeiro
+      const winner = decryptSecret(f.connections.get('user-a')!.accessTokenEncrypted, Buffer.from(KEY, 'hex'));
+      const calls = network({ token: () => json(200, tokenBody(2)) });
+      await expect(f.service.callback({ state: stateSlow, code: 'c2' })).rejects.toBeInstanceOf(ConflictException);
+      expect(decryptSecret(f.connections.get('user-a')!.accessTokenEncrypted, Buffer.from(KEY, 'hex'))).toBe(winner);
+      expect(calls.filter((c) => c.url.endsWith('/v1/permissions'))).toHaveLength(0);
+    });
+  });
+
+  describe('inicializacao sem variaveis Wahoo', () => {
+    it('o modulo sobe (DI resolve) sem nenhuma variavel Wahoo; so as operacoes recusam, nunca com excecao nao tratada', async () => {
+      const prismaStub = { user: { findUnique: async () => ({ id: 'u' }) }, wahooConnection: { findUnique: async () => null }, providerConnectionEvent: { create: async () => undefined } };
+      const moduleRef = await Test.createTestingModule({
+        controllers: [WahooController],
+        providers: [
+          WahooService,
+          { provide: PrismaService, useValue: prismaStub },
+          { provide: ConfigService, useValue: { get: () => undefined } },
+          { provide: ProviderDataDeletionService, useValue: { recordDisconnection: async () => undefined } },
+        ],
+      }).compile();
+      const service = moduleRef.get(WahooService);
+      await expect(service.connectUrl('u')).rejects.toBeInstanceOf(ForbiddenException); // sem lista: ninguem
+      const withList = new WahooService(prismaStub as never, { get: (n: string) => (n === 'WAHOO_ENABLED_USER_IDS' ? 'u' : undefined) } as never);
+      await expect(withList.connectUrl('u')).rejects.toBeInstanceOf(ServiceUnavailableException); // lista, mas sem credenciais
+      expect(await service.status('u')).toEqual({ connected: false, connectedAt: null, disconnectedAt: null });
+      await expect(service.disconnect('u')).resolves.toEqual({ status: 'not_connected', providerRevocation: 'skipped' });
+    });
+  });
+
+  describe('isolamento de integracoes', () => {
+    it('conectar, renovar e desconectar a Wahoo so tocam as tabelas Wahoo, o usuario e a auditoria (nunca Polar/Strava/atividades)', async () => {
+      const touched = new Set<string>();
+      const f = fixture();
+      const guarded = new Proxy(f.prisma as Record<string, unknown>, {
+        get: (target, key: string) => { touched.add(key); return target[key]; },
+      });
+      const service = new WahooService(guarded as never, { get: (n: string) => ({ ...baseSettings })[n] } as never, f.providerData as never);
+      network({});
+      await service.callback({ state: stateFrom((await service.connectUrl('user-a')).url), code: 'c' });
+      f.connections.get('user-a')!.accessTokenExpiresAt = new Date(Date.now() - 1000);
+      network({ token: () => json(200, tokenBody(2)) });
+      await service.getAccessToken('user-a');
+      network({});
+      await service.disconnect('user-a');
+      expect([...touched].sort()).toEqual(['providerConnectionEvent', 'user', 'wahooConnection', 'wahooOAuthAttempt']);
     });
   });
 
@@ -206,24 +323,25 @@ describe('Wahoo OAuth (Etapa 3)', () => {
       expect([...connections.keys()]).toEqual(['user-a']);
     });
 
-    it('a mesma conta Wahoo nao pode ficar vinculada a dois alunos: 409 e o token novo e revogado', async () => {
+    it('a mesma conta Wahoo nao pode ficar vinculada a dois alunos: 409, sem gravar e SEM revogar (nao derruba a conexao do outro aluno)', async () => {
       const { service, connections } = fixture();
       const calls = network({});
       await service.callback({ state: stateFrom((await service.connectUrl('user-a')).url), code: 'c1' });
       const stateB = stateFrom((await service.connectUrl('user-b')).url);
       await expect(service.callback({ state: stateB, code: 'c2' })).rejects.toBeInstanceOf(ConflictException);
       expect(connections.has('user-b')).toBe(false);
-      expect(calls.filter((c) => c.url.endsWith('/v1/permissions') && c.method === 'DELETE')).toHaveLength(1);
+      expect(connections.get('user-a')!.disconnectedAt).toBeNull(); // a conexao do aluno A segue intacta
+      expect(calls.filter((c) => c.url.endsWith('/v1/permissions'))).toHaveLength(0);
     });
 
-    it('corrida na unicidade (P2002 no upsert): 409 e o token novo e revogado, sem conexao parcial', async () => {
+    it('corrida na unicidade (P2002 no upsert): 409 sem conexao parcial e sem revogar', async () => {
       const f = fixture();
       const calls = network({});
       (f.prisma.wahooConnection.upsert as jest.Mock).mockRejectedValueOnce(Object.assign(new Error('unique'), { code: 'P2002' }));
       const state = stateFrom((await f.service.connectUrl('user-a')).url);
       await expect(f.service.callback({ state, code: 'c' })).rejects.toBeInstanceOf(ConflictException);
       expect(f.connections.size).toBe(0);
-      expect(calls.some((c) => c.url.endsWith('/v1/permissions') && c.method === 'DELETE')).toBe(true);
+      expect(calls.some((c) => c.url.endsWith('/v1/permissions'))).toBe(false);
     });
 
     it('falha na troca do code: nada e gravado e o erro nao carrega code/token/segredo', async () => {
@@ -236,13 +354,13 @@ describe('Wahoo OAuth (Etapa 3)', () => {
       expect(connections.size).toBe(0);
     });
 
-    it('falha ao identificar a conta (/v1/user): revoga o token e nao grava conexao', async () => {
+    it('falha ao identificar a conta (/v1/user): nao grava conexao e nao revoga (identidade desconhecida)', async () => {
       const { service, connections } = fixture();
       const calls = network({ user: () => json(403, {}) });
       const state = stateFrom((await service.connectUrl('user-a')).url);
       await expect(service.callback({ state, code: 'c' })).rejects.toThrow();
       expect(connections.size).toBe(0);
-      expect(calls.some((c) => c.url.endsWith('/v1/permissions'))).toBe(true);
+      expect(calls.some((c) => c.url.endsWith('/v1/permissions'))).toBe(false);
     });
 
     it('resposta de token sem refresh_token ou com expires_in invalido e recusada', async () => {

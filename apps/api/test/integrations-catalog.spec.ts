@@ -53,14 +53,28 @@ describe('catalogo de dispositivos e integracoes', () => {
     }
   });
 
+  it('Wahoo em validacao: credenciais configuradas NAO liberam; so quem esta habilitado (ou ja conectado, para poder desconectar) a ve disponivel', () => {
+    const none = byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set() }), 'wahoo');
+    expect(none.availability).toBe('unavailable');
+    expect(none.summary).toBe('Integração indisponível no momento.');
+    const allowed = byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set(), allowedProviderIds: new Set(['wahoo']) }), 'wahoo');
+    expect(allowed.availability).toBe('available');
+    expect(allowed.connection.state).toBe('disconnected');
+    const connectedOnly = byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set(['wahoo']) }), 'wahoo');
+    expect(connectedOnly.availability).toBe('available');
+    const noEnv = byId(buildIntegrationsCatalog({ configuredEnv: new Set(), connectedProviderIds: new Set(), allowedProviderIds: new Set(['wahoo']) }), 'wahoo');
+    expect(noEnv.availability).toBe('unavailable'); // habilitado, mas sem credenciais
+    expect(byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set() }), 'polar').availability).toBe('available'); // Polar/Strava nao dependem da lista
+  });
+
   it('Wahoo (Etapa 3): disponivel so com as 4 variaveis; so conexao, sem enviar treino nem receber atividade', () => {
-    const on = byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set(['wahoo']) }), 'wahoo');
+    const on = byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set(['wahoo']), allowedProviderIds: new Set(['wahoo']) }), 'wahoo');
     expect(on.availability).toBe('available');
     expect(on.connection.state).toBe('connected');
     expect(on.capabilities).toEqual({ receiveActivities: false, sendWorkouts: false });
     for (const missing of WAHOO_ENV) {
       const env = new Set([...ENV_OK].filter((name) => name !== missing));
-      const off = byId(buildIntegrationsCatalog({ configuredEnv: env, connectedProviderIds: new Set(['wahoo']) }), 'wahoo');
+      const off = byId(buildIntegrationsCatalog({ configuredEnv: env, connectedProviderIds: new Set(['wahoo']), allowedProviderIds: new Set(['wahoo']) }), 'wahoo');
       expect(off.availability).toBe('unavailable');
       expect(off.connection.state).toBe('not_applicable');
     }

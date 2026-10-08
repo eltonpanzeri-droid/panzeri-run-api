@@ -1,9 +1,10 @@
-import { BadGatewayException, BadRequestException, ConflictException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderDataDeletionService } from '../activity-execution/provider-data-deletion.service';
 import { decryptSecret, encryptSecret, hashState, newPkcePair } from './wahoo-crypto';
+import { isWahooEnabledFor } from './wahoo-access';
 
 // Wahoo Cloud API — Etapa 3 (08/10/2026): SOMENTE conexao (OAuth), status, renovacao de token e desconexao.
 // Nenhum treino e' enviado e nenhuma atividade e' lida aqui (Etapas 4 e 5, com autorizacao propria).
@@ -60,10 +61,23 @@ export class WahooService {
     private readonly providerData?: ProviderDataDeletionService,
   ) {}
 
+  // Habilitacao controlada (validacao real, 08/10/2026): a Wahoo so' esta disponivel para os ids listados em
+  // WAHOO_ENABLED_USER_IDS ("id1,id2" ou "*" para todos). Vazio/ausente = ninguem (fail-closed). O id vem SEMPRE do JWT.
+  isEnabledFor(userId: string): boolean {
+    return isWahooEnabledFor(this.config.get<string>('WAHOO_ENABLED_USER_IDS'), userId);
+  }
+
   async connectUrl(userId: string) {
+    // Primeiro a porta de habilitacao: quem nao esta liberado nao descobre nem o estado da configuracao.
+    if (!this.isEnabledFor(userId)) throw new ForbiddenException('Integracao indisponivel no momento.');
     const settings = this.settings();
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
     if (!user) throw new BadRequestException('Usuario nao encontrado.');
+    // Conta ja conectada nao reconecta: o aluno desconecta antes (evita token duplicado e o limite de 10 por usuario).
+    const current = await this.prisma.wahooConnection.findUnique({ where: { userId }, select: { disconnectedAt: true, accessTokenEncrypted: true } });
+    if (current && !current.disconnectedAt && current.accessTokenEncrypted) {
+      throw new ConflictException('A Wahoo ja esta conectada. Desconecte antes de conectar de novo.');
+    }
 
     // O state bruto so' sai na URL de autorizacao; no banco ficam seu hash e o verifier PKCE cifrado.
     const state = randomBytes(32).toString('base64url');
@@ -109,6 +123,8 @@ export class WahooService {
     if (!attempt) throw new BadRequestException('Autorizacao Wahoo invalida.');
     const user = await this.prisma.user.findUnique({ where: { id: attempt.userId }, select: { id: true } });
     if (!user) throw new BadRequestException('Usuario Panzeri Run nao encontrado.');
+    // A habilitacao pode ter sido retirada depois que o fluxo comecou.
+    if (!this.isEnabledFor(user.id)) throw new ForbiddenException('Integracao indisponivel no momento.');
 
     if (error !== undefined) {
       if (typeof error !== 'string' || code !== undefined) throw new BadRequestException('Resposta Wahoo invalida.');
@@ -133,17 +149,20 @@ export class WahooService {
       code_verifier: verifier,
     }, 'exchange');
 
-    let wahooUserId: string;
-    try {
-      wahooUserId = await this.fetchWahooUserId(token.accessToken);
-    } catch (failure) {
-      await this.revokeToken(token.accessToken); // nao deixa token orfao contando no limite de 10 por usuario
-      throw failure;
-    }
+    // ATENCAO: nos caminhos de recusa abaixo o token recem-emitido NAO e' revogado. DELETE /v1/permissions remove a
+    // permissao do APP para a conta Wahoo inteira (a documentacao nao garante que revogue so' este token) e derrubaria
+    // a conexao legitima existente (do proprio aluno ou do outro aluno que ja' tem esta conta). O token recusado nunca
+    // e' gravado; ele expira sozinho (2 h; no maximo 60 dias) e so' conta no limite de 10 por usuario. Revogar fica
+    // restrito a desconexao explicita do dono da conexao.
+    const wahooUserId = await this.fetchWahooUserId(token.accessToken);
     const owner = await this.prisma.wahooConnection.findUnique({ where: { wahooUserId }, select: { userId: true, disconnectedAt: true } });
     if (owner && owner.userId !== user.id) {
-      await this.revokeToken(token.accessToken);
       throw new ConflictException('Esta conta Wahoo ja esta vinculada a outro usuario.');
+    }
+    // Corrida: o aluno conectou em outra aba enquanto este fluxo estava aberto. Nao sobrescreve a conexao ativa.
+    const current = await this.prisma.wahooConnection.findUnique({ where: { userId: user.id }, select: { disconnectedAt: true, accessTokenEncrypted: true } });
+    if (current && !current.disconnectedAt && current.accessTokenEncrypted) {
+      throw new ConflictException('A Wahoo ja esta conectada.');
     }
 
     const data = {
@@ -163,7 +182,6 @@ export class WahooService {
       });
     } catch (failure) {
       // Corrida: outro aluno gravou a mesma conta Wahoo entre a checagem e a gravacao (unicidade de wahooUserId).
-      await this.revokeToken(token.accessToken);
       if ((failure as { code?: string }).code === 'P2002') throw new ConflictException('Esta conta Wahoo ja esta vinculada a outro usuario.');
       throw failure;
     }

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildIntegrationsCatalog, INTEGRATION_PROVIDERS } from './integrations-catalog';
+import { isWahooEnabledFor } from '../wahoo/wahoo-access';
 
 // Somente leitura. Nao chama Polar/Strava, nao renova token, nao cria webhook (diferente de StravaService.status).
 @Injectable()
@@ -27,6 +28,9 @@ export class IntegrationsService {
       const names = provider.requiresEnv === undefined ? [] : Array.isArray(provider.requiresEnv) ? provider.requiresEnv : [provider.requiresEnv];
       for (const name of names) if (this.config.get<string>(name)?.trim()) configuredEnv.add(name);
     }
-    return { providers: buildIntegrationsCatalog({ configuredEnv, connectedProviderIds }) };
+    // Porta de habilitacao (validacao real): o id vem do JWT; a lista fica so' no servidor.
+    const allowedProviderIds = new Set<string>();
+    if (isWahooEnabledFor(this.config.get<string>('WAHOO_ENABLED_USER_IDS'), userId)) allowedProviderIds.add('wahoo');
+    return { providers: buildIntegrationsCatalog({ configuredEnv, connectedProviderIds, allowedProviderIds }) };
   }
 }
