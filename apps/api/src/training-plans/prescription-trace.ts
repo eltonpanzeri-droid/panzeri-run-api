@@ -102,8 +102,8 @@ export interface EvidenceBuildInput {
   interviewCompletedAt: Date | null;
   paceSource: string | null;
   contextGaps: ContextGap[];
-  // Provedores de dispositivo com atividades na janela das variaveis longitudinais (proveniencia dos agregados "activity_objective").
-  activityProviders?: string[];
+  // Proveniencia por provedor dos agregados derivados de dispositivo (atividade objetiva e carga semanal).
+  provenance?: ProviderProvenance;
 }
 
 function item(partial: Partial<EvidenceItem> & Pick<EvidenceItem, 'ref' | 'kind' | 'source' | 'label'>): EvidenceItem {
@@ -183,11 +183,14 @@ export function buildEvidenceIndex(p: EvidenceBuildInput): EvidenceItem[] {
       const n = variable.evidence?.n ?? 0;
       if (n <= 0) continue;
       withData++;
-      const deviceDerived = isDeviceDerivedVariable(variableId);
+      const derivedProviders = providersForVariable(variableId, p.provenance);
       items.push(item({
-        ref: `variable:${variableId}`, kind: 'athlete_state_variable', source: deviceDerived ? 'ActivityLog' : 'WorkoutCompletion|WeeklyCheckIn|...', asOf: variable.evidence.lastObservationAt ? dayOf(variable.evidence.lastObservationAt) : null,
+        ref: `variable:${variableId}`, kind: 'athlete_state_variable',
+        source: isDeviceDerivedVariable(variableId) ? 'ActivityLog' : variableId in LOAD_VARIABLE_DERIVATION ? 'TrainingSession|WorkoutCompletion|SessionExecutionLink' : 'WorkoutCompletion|WeeklyCheckIn|...',
+        asOf: variable.evidence.lastObservationAt ? dayOf(variable.evidence.lastObservationAt) : null,
         label: `Variavel longitudinal ${variableId}`, storage: 'reference_only', storageNote: `n=${n}; estado completo em agentInput.`,
-        ...(deviceDerived ? { providers: [...new Set(p.activityProviders ?? [])].sort() } : {}),
+        // providers presente (mesmo vazio) = proveniencia CONHECIDA; ausente = nao derivada de dispositivo OU item anterior a este campo.
+        ...(derivedProviders ? { providers: derivedProviders } : {}),
       }));
     }
     items.push(item({ ref: 'athlete_state:summary', kind: 'athlete_state_summary', source: 'AthleteStateSnapshot', label: 'Estado longitudinal do atleta (resumo)', storage: 'complete', excerpt: `${withData} variavel(is) com dados; ${Object.keys(state.variables ?? {}).length - withData} sem dados` }));
@@ -202,34 +205,111 @@ export function buildEvidenceIndex(p: EvidenceBuildInput): EvidenceItem[] {
 
 // ── Exclusao de dados de um provedor ─────────────────────────────────────────────────────────────────────────────
 
-// Variavel longitudinal calculada a partir de atividades de dispositivo (registro: source = 'activity_objective').
+// Variavel longitudinal calculada diretamente de atividades de dispositivo (registro: source = 'activity_objective').
 export const isDeviceDerivedVariable = (variableId: string) => getVariableDefinition(variableId)?.source === 'activity_objective';
 
-// Provedores a registrar no pacote: so' quando o contexto enviado a IA TEM agregados derivados de atividade (n > 0). Sem eles => [] (conhecido: nenhum).
-export function sourceProvidersOf(input: MethodologyInput, activityProviders: string[]): string[] {
+// Carga semanal (source = 'weekly_training_load'): decisoes de Elton de 10/10/2026 (D1-D3). Cada variavel depende de um ou dois tipos de
+// contribuicao de dispositivo; `training.volumePrescribedKm` NAO esta aqui de proposito: vem so' da prescricao e e' sempre preservada.
+//  - 'extra': sessao extra criada a partir de atividade do relogio (device_extra);
+//  - 'prescribed_copy': registro de sessao prescrita cujo valor e' COPIA do relogio (mesmo nao editado — D2). Valor diferente = do aluno.
+// O ACWR (D3) e' invalidado quando QUALQUER componente da janela depende do provedor; o agregado e' invalidado, nunca recalculado (D1).
+export type LoadContributionKind = 'extra' | 'prescribed_copy';
+export const LOAD_VARIABLE_DERIVATION: Record<string, LoadContributionKind[]> = {
+  'training.volumeExtraKm': ['extra'],
+  'training.volumeCompletedPrescribedOnlyKm': ['prescribed_copy'],
+  'training.adherencePercent': ['prescribed_copy'],
+  'training.volumeCompletedTotalKm': ['extra', 'prescribed_copy'],
+  'training.volumeDiffAbsoluteKm': ['extra', 'prescribed_copy'],
+  'training.volumeRatioCompletedPrescribed': ['extra', 'prescribed_copy'],
+  'training.acwr': ['extra', 'prescribed_copy'],
+};
+
+// Qualquer variavel cujo valor pode conter contribuicao de um provedor de dispositivo.
+export const isProviderDerivedVariable = (variableId: string) => isDeviceDerivedVariable(variableId) || variableId in LOAD_VARIABLE_DERIVATION;
+
+export interface ProviderProvenance {
+  // provedores com atividade na janela (agregados activity.*)
+  activity: string[];
+  // provedores cujas sessoes extras (device_extra) existem na janela
+  extra: string[];
+  // provedores cujos valores foram copiados para o registro de sessoes prescritas na janela
+  prescribedCopy: string[];
+}
+
+export const EMPTY_PROVENANCE: ProviderProvenance = { activity: [], extra: [], prescribedCopy: [] };
+
+// Provedores de que uma variavel pode derivar (lista possivelmente vazia = proveniencia conhecida e sem contribuicao); null = nao derivada de dispositivo.
+export function providersForVariable(variableId: string, provenance: ProviderProvenance = EMPTY_PROVENANCE): string[] | null {
+  if (isDeviceDerivedVariable(variableId)) return [...new Set(provenance.activity)].sort();
+  const kinds = LOAD_VARIABLE_DERIVATION[variableId];
+  if (!kinds) return null;
+  return [...new Set([...(kinds.includes('extra') ? provenance.extra : []), ...(kinds.includes('prescribed_copy') ? provenance.prescribedCopy : [])])].sort();
+}
+
+// Provedores a registrar no pacote: uniao dos provedores das variaveis derivadas de dispositivo COM dados (n > 0) presentes no prompt.
+export function sourceProvidersOf(input: MethodologyInput, provenance: ProviderProvenance): string[] {
   const variables = input.athleteStateContext?.variables ?? {};
-  const hasDeviceAggregate = Object.entries(variables).some(([id, variable]) => isDeviceDerivedVariable(id) && (variable.evidence?.n ?? 0) > 0);
-  return hasDeviceAggregate ? [...new Set(activityProviders)].sort() : [];
+  const providers = new Set<string>();
+  for (const [id, variable] of Object.entries(variables)) {
+    if ((variable.evidence?.n ?? 0) <= 0) continue;
+    (providersForVariable(id, provenance) ?? []).forEach((provider) => providers.add(provider));
+  }
+  return [...providers].sort();
+}
+
+export interface SessionForLoadProvenance {
+  origin: string | null;
+  structure: unknown;
+  completion: Record<string, unknown> | null;
+  // vinculos ATIVOS com atividade do relogio
+  links: Array<{ activity: { provider: string; startedAt: Date; distanceMeters: number | null; durationSec: number | null; avgHeartRateBpm: number | null; maxHeartRateBpm: number | null } }>;
+}
+
+// Classifica, deterministicamente (sem formula de treino), quais provedores contribuem para os agregados de carga da janela.
+// `copiesOf` e' a MESMA comparacao tolerante usada na exclusao viva (classifyMaterializedCompletion): devolve as colunas do registro que ainda
+// sao copia da atividade. `providerOfActivityId` resolve o provedor da atividade que originou uma sessao device_extra.
+export function classifyLoadProvenance(
+  sessions: SessionForLoadProvenance[],
+  copiesOf: (completion: Record<string, unknown>, activity: SessionForLoadProvenance['links'][number]['activity']) => string[],
+  providerOfActivityId: (activityLogId: string) => string | null,
+): { extra: string[]; prescribedCopy: string[] } {
+  const extra = new Set<string>();
+  const prescribedCopy = new Set<string>();
+  for (const session of sessions) {
+    if (session.origin === 'device_extra') {
+      const structure = (session.structure ?? {}) as { activityLogId?: string; provider?: string };
+      // Sessao sintetica do relogio: sempre derivada. Provedor desconhecido => marcador '?' (nunca casa com um provedor real, mas mantem o agregado ligado a dispositivo).
+      extra.add((structure.activityLogId ? providerOfActivityId(structure.activityLogId) : null) ?? (typeof structure.provider === 'string' ? structure.provider : '?'));
+      continue;
+    }
+    if (!session.completion) continue;
+    for (const link of session.links) {
+      if (copiesOf(session.completion, link.activity).length > 0) prescribedCopy.add(link.activity.provider);
+    }
+  }
+  return { extra: [...extra].sort(), prescribedCopy: [...prescribedCopy].sort() };
 }
 
 // O pacote pode conter dados do provedor? Proveniencia desconhecida (null) => sim, por seguranca. Proveniencia conhecida => so' se o provedor consta
 // nela OU algum item do indice de evidencias o cita (diretamente ou como origem de um agregado).
 export function packageMayContainProvider(sourceProviders: unknown, provider: string, evidence?: unknown): boolean {
   if (!Array.isArray(sourceProviders)) return true;
-  if (sourceProviders.includes(provider)) return true;
-  return Array.isArray(evidence) && (evidence as EvidenceItem[]).some((entry) => entry?.provider === provider || (Array.isArray(entry?.providers) && entry.providers.includes(provider)));
+  if (sourceProviders.includes(provider) || sourceProviders.includes('?')) return true;
+  return Array.isArray(evidence) && (evidence as EvidenceItem[]).some((entry) => entry?.provider === provider || (Array.isArray(entry?.providers) && (entry.providers.includes(provider) || entry.providers.includes('?'))));
 }
 
 // Remove valores e referencias dos itens de evidencia derivados de atividades do provedor (so' em exclusao explicita pelo aluno;
 // desconectar NAO chama isto): itens diretos (provider === X) e itens AGREGADOS cuja proveniencia inclui X (providers).
-export function redactEvidenceForProvider(evidence: unknown, provider: string, options: { unknownProvenance?: boolean } = {}): { evidence: EvidenceItem[]; redacted: number } {
+// `assumeAll`: proveniencia do pacote desconhecida (anterior ao campo) => todo item de variavel derivavel de dispositivo e' redigido.
+export function redactEvidenceForProvider(evidence: unknown, provider: string, options: { assumeAll?: boolean } = {}): { evidence: EvidenceItem[]; redacted: number } {
   const list = Array.isArray(evidence) ? (evidence as EvidenceItem[]) : [];
   let redacted = 0;
   const next = list.map((entry) => {
     if (!entry || entry.redacted) return entry;
     const derivesFromProvider = entry.provider === provider
-      || (Array.isArray(entry.providers) && entry.providers.includes(provider))
-      || (options.unknownProvenance === true && typeof entry.ref === 'string' && entry.ref.startsWith('variable:') && isDeviceDerivedVariable(entry.ref.slice('variable:'.length)));
+      || (Array.isArray(entry.providers) && (entry.providers.includes(provider) || entry.providers.includes('?')))
+      // item de variavel derivavel de dispositivo SEM lista de provedores (anterior a este campo): proveniencia desconhecida => conservador
+      || ((entry.providers === undefined || options.assumeAll === true) && typeof entry.ref === 'string' && entry.ref.startsWith('variable:') && isProviderDerivedVariable(entry.ref.slice('variable:'.length)));
     if (!derivesFromProvider) return entry;
     redacted++;
     // Marcador auditavel: continua existindo UM item no lugar, dizendo o que foi removido, de onde e por que — sem valor, sem data, sem referencia.
@@ -252,20 +332,22 @@ export interface AgentInputRedaction {
 // athleteStateContext, com legenda e referencias de dominio). Todo o resto do prompt (relatos, diretrizes, entrevista, historico, outros
 // agregados) permanece. Um prompt que nao e' JSON valido nao pode ser editado com seguranca: o texto daquela chamada e' removido por
 // inteiro (marcado). Os hashes originais ficam (impressao digital de conteudo que nao existe mais) e o hash do texto resultante e' gravado.
-export function redactAgentInputForProvider(agentInput: unknown, provider: string, now: Date = new Date()): { agentInput: unknown; redaction: AgentInputRedaction | null } {
+// `variableIds`: ids a remover (derivados do indice do pacote); null = proveniencia desconhecida => todas as variaveis derivaveis de dispositivo.
+export function redactAgentInputForProvider(agentInput: unknown, provider: string, now: Date = new Date(), variableIds: Set<string> | null = null): { agentInput: unknown; redaction: AgentInputRedaction | null } {
   const calls = (agentInput as { calls?: Array<Record<string, unknown>> } | null)?.calls;
   if (!Array.isArray(calls)) return { agentInput, redaction: null };
   const removedIds = new Set<string>();
   let callsChanged = 0;
   let callsUnparseableRemoved = 0;
   const nextCalls = calls.map((call) => {
-    if (call.userPromptRedacted === true || call.userPromptRedacted === 'removed_unparseable' || typeof call.userPrompt !== 'string') return call;
+    // Uma chamada ja redigida por OUTRO provedor continua editavel (exclusoes sucessivas); so' o texto removido por inteiro nao tem o que editar.
+    if (call.userPromptRedacted === 'removed_unparseable' || typeof call.userPrompt !== 'string') return call;
     let parsed: unknown;
     try { parsed = JSON.parse(call.userPrompt); } catch {
       callsUnparseableRemoved++;
       return { ...call, userPrompt: null, userPromptRedacted: 'removed_unparseable' };
     }
-    const removed = stripDeviceAggregates(parsed);
+    const removed = stripDeviceAggregates(parsed, variableIds);
     if (removed.length === 0) return call;
     removed.forEach((id) => removedIds.add(id));
     callsChanged++;
@@ -280,7 +362,7 @@ export function redactAgentInputForProvider(agentInput: unknown, provider: strin
 }
 
 // Percorre o JSON do prompt e, em cada athleteStateContext, remove as variaveis derivadas de dispositivo. Devolve os ids removidos (muta o objeto).
-function stripDeviceAggregates(node: unknown): string[] {
+function stripDeviceAggregates(node: unknown, only: Set<string> | null): string[] {
   const removed: string[] = [];
   const visit = (value: unknown) => {
     if (Array.isArray(value)) { value.forEach(visit); return; }
@@ -289,7 +371,7 @@ function stripDeviceAggregates(node: unknown): string[] {
     const state = record.athleteStateContext as Record<string, unknown> | null | undefined;
     if (state && typeof state === 'object') {
       const variables = state.variables as Record<string, unknown> | undefined;
-      const ids = variables && typeof variables === 'object' ? Object.keys(variables).filter(isDeviceDerivedVariable) : [];
+      const ids = variables && typeof variables === 'object' ? Object.keys(variables).filter((id) => isProviderDerivedVariable(id) && (only === null || only.has(id))) : [];
       if (ids.length > 0) {
         for (const id of ids) {
           delete (variables as Record<string, unknown>)[id];

@@ -90,3 +90,8 @@ Escopo: somente as pendências da 1.2a. Sem 1.2b, sem Etapa 2, sem alteração d
 
 ## Migration nova
 `20261010120000_prescription_trace_hardening` — aditiva: 4 colunas anuláveis (`sourceProviders`, `agentInputRedactions` no pacote; `sessionSnapshot`, `sessionSnapshotSha256` na decisão). Pacotes existentes ficam com `sourceProviders = NULL` (tratado como "pode conter qualquer provedor"). A migration anterior (`20261009120000`, já enviada) **não foi alterada**.
+
+---
+
+# Carga semanal (weekly_training_load) — implementação das decisões D1-D4 (10/10/2026)
+Detalhes técnicos e testes em `PROPOSTA_WEEKLY_TRAINING_LOAD_EXCLUSAO_PROVEDOR.md` (seção 8). Resumo: a exclusão explícita de dados de um provedor invalida (sem recalcular) os agregados de carga semanal que dependem dele — extras do relógio, valores copiados do relógio em sessões prescritas (mesmo sem edição) e o ACWR quando qualquer componente da janela depende do provedor — preservando volume prescrito, treinos prescritos e registros independentes do aluno, com marcador auditável sem valores. Aviso sobre invalidação de indicadores históricos incluído no rascunho da Política (item 2.4). Sem migration, sem alteração de prompts/modelos.

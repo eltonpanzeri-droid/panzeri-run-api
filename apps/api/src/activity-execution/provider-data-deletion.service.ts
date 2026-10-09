@@ -2,7 +2,7 @@ import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TombstoneLedger } from '../backup/tombstone-ledger';
-import { AgentInputRedaction, packageMayContainProvider, redactAgentInputForProvider, redactEvidenceForProvider } from '../training-plans/prescription-trace';
+import { AgentInputRedaction, EvidenceItem, isProviderDerivedVariable, packageMayContainProvider, redactAgentInputForProvider, redactEvidenceForProvider } from '../training-plans/prescription-trace';
 
 // Exclusao dos dados atribuiveis a UM provider de UM usuario (04/10/2026). Provider-agnostico: so'
 // conhece o dominio canonico (RawExternalActivity / ActivityLog / samples / series / vinculos) e a
@@ -68,6 +68,18 @@ interface ActivityCopySource {
   durationSec: number | null;
   avgHeartRateBpm: number | null;
   maxHeartRateBpm: number | null;
+}
+
+// Ids das variaveis longitudinais do indice que derivam do provedor (ainda nao redigidas). Item sem lista de provedores = proveniencia desconhecida.
+function providerVariableIds(evidence: unknown, provider: string): Set<string> {
+  const ids = new Set<string>();
+  for (const entry of Array.isArray(evidence) ? (evidence as EvidenceItem[]) : []) {
+    if (!entry || entry.redacted || typeof entry.ref !== 'string' || !entry.ref.startsWith('variable:')) continue;
+    const id = entry.ref.slice('variable:'.length);
+    if (!isProviderDerivedVariable(id)) continue;
+    if (entry.providers === undefined || entry.providers.includes(provider) || entry.providers.includes('?')) ids.add(id);
+  }
+  return ids;
 }
 
 const near = (a: number | null | undefined, b: number | null | undefined, tolerance: number) =>
@@ -222,8 +234,11 @@ export class ProviderDataDeletionService {
       }) ?? [];
       for (const pkg of packages) {
         if (!packageMayContainProvider(pkg.sourceProviders, provider, pkg.evidence)) continue;
-        const { evidence, redacted } = redactEvidenceForProvider(pkg.evidence, provider, { unknownProvenance: !Array.isArray(pkg.sourceProviders) });
-        const input = pkg.agentInput === null ? { agentInput: null, redaction: null } : redactAgentInputForProvider(pkg.agentInput, provider);
+        const { evidence, redacted } = redactEvidenceForProvider(pkg.evidence, provider, { assumeAll: !Array.isArray(pkg.sourceProviders) });
+        // Variaveis a remover do texto guardado: as que o INDICE do pacote liga ao provedor (providers inclui o provedor ou o desconhecido '?') e as de
+        // proveniencia nao registrada. Pacote sem proveniencia (anterior ao campo) => todas as derivaveis de dispositivo (null).
+        const variableIds = Array.isArray(pkg.sourceProviders) ? providerVariableIds(pkg.evidence, provider) : null;
+        const input = pkg.agentInput === null ? { agentInput: null, redaction: null } : redactAgentInputForProvider(pkg.agentInput, provider, new Date(), variableIds);
         if (redacted === 0 && input.redaction === null) continue;
         const marker: AgentInputRedaction & { evidenceItemsRedacted: number; agentInputAlreadyPurged: boolean } = {
           ...(input.redaction ?? { provider, at: new Date().toISOString(), reason: 'provider_data_deleted' as const, removedVariableIds: [], callsChanged: 0, callsUnparseableRemoved: 0 }),

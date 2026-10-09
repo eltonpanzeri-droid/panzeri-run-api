@@ -205,7 +205,7 @@ export class TrainingPlansService {
 
   // Garante, ANTES de gastar uma chamada de IA, que o servico de rastreabilidade esta presente (protege tambem contra stubs/configuracao incompleta).
   private requireTrace(): PrescriptionTraceService {
-    if (!this.trace || typeof this.trace.persistWeekly !== 'function' || typeof this.trace.persistDayRegeneration !== 'function') {
+    if (!this.trace || typeof this.trace.persistWeekly !== 'function' || typeof this.trace.persistDayRegeneration !== 'function' || typeof this.trace.collectProvenance !== 'function') {
       this.logger.error('Servico de rastreabilidade indisponivel: geracao de prescricao recusada antes de chamar a IA.');
       throw new InternalServerErrorException('Rastreabilidade das prescricoes indisponivel. Nenhuma prescricao foi gerada.');
     }
@@ -1442,10 +1442,8 @@ export class TrainingPlansService {
       const toTrace = (session: { id: string; weekday: number; modality: string; title?: string | null; notes?: string | null; sessionType: string | null; durationMin: number | null; distanceKm: number | null; paceMinSec: string | null; structure: unknown }): SessionForTrace => ({
         id: session.id, weekday: session.weekday, modality: session.modality, title: session.title ?? null, notes: session.notes ?? null, sessionType: session.sessionType, durationMin: session.durationMin, distanceKm: session.distanceKm, paceMinSec: session.paceMinSec, structure: session.structure,
       });
-      // Proveniencia dos agregados de atividade enviados a IA: provedores com atividade na janela das variaveis longitudinais (baseline de 200 dias + folga).
-      // Conservador de proposito: preferir incluir um provedor a mais a deixar dado derivado fora do alcance de uma exclusao.
-      const activityProviderRows = await tx.activityLog.findMany({ where: { userId, startedAt: { gte: new Date(weekStart.getTime() - 230 * 86_400_000) } }, select: { provider: true }, distinct: ['provider'] });
-      const activityProviders = activityProviderRows.map((row) => row.provider);
+      // Proveniencia dos agregados derivados de dispositivo enviados a IA (atividade objetiva e carga semanal), por provedor.
+      const provenance = await this.trace.collectProvenance(tx, userId, weekStart);
       const previousWeek = historyWeeks[0] ? { startDate: historyWeeks[0].startDate, sessions: historyWeeks[0].sessions.map(toTrace) } : null;
       await this.trace.persistWeekly(tx, {
         userId, planId: createdPlan.id, weekStart, methodologyVersion: PANZERI_METHODOLOGY_VERSION,
@@ -1466,11 +1464,11 @@ export class TrainingPlansService {
           interviewCompletedAt: onboarding?.completedAt ?? null,
           paceSource,
           contextGaps,
-          activityProviders,
+          provenance,
         }),
         contextGaps,
         agentTrace,
-        sourceProviders: sourceProvidersOf(methodologyInput, activityProviders),
+        sourceProviders: sourceProvidersOf(methodologyInput, provenance),
         recommendation: methodology.recommendation,
         rationale: methodology.rationale,
         safetyAdjustment: methodology.safetyAdjustment,

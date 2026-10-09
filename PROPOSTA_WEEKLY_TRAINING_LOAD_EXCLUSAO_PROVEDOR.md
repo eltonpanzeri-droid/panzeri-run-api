@@ -1,6 +1,6 @@
 # PROPOSTA TÉCNICA (não implementada) — `weekly_training_load` na exclusão de dados de um provedor
 
-> Data: 10/10/2026 · Status: **proposta para revisão do Astra. Nada foi implementado.** Deploy proibido; 1.2b e Etapa 2 não iniciadas.
+> Data: 10/10/2026 · Status: **IMPLEMENTADA** após as decisões definitivas de Elton (D1 invalidar sem recalcular; D2 valor copiado do relógio é derivado mesmo sem edição; D3 ACWR invalidado se qualquer componente da janela depende do provedor; D4 aviso na Política). O texto abaixo é a proposta original; a seção final "Como ficou" registra a implementação. Deploy proibido; 1.2b e Etapa 2 não iniciadas.
 > Regra de Elton (a aplicar): (1) preservar o que vem das prescrições e dos registros independentes do aluno; (2) excluir/invalidar o que deriva de dados de um provedor quando há pedido explícito de exclusão; (3) se um agregado mistura origens e a contribuição do provedor não pode ser separada, **invalidar o agregado na trilha**, deixando marcador auditável sem os valores; (4) **nunca alterar retroativamente os treinos prescritos**.
 
 ## 1. Fatos (verificados no código)
@@ -66,3 +66,12 @@ Variáveis invalidadas somem do texto guardado; o restante do prompt permanece. 
 3. Testes de integração da seção 4.
 4. Atualizar `REVISAO_ASTRA_ETAPA_1_2A.md` e o rascunho legal.
 Lote pequeno, um commit, sem migration, sem alteração de prompts/modelos.
+
+## 8. Como ficou (implementação, 10/10/2026)
+- **Proveniência na geração** (`PrescriptionTraceService.collectProvenance`, só leitura, dentro da transação): por provedor, (a) atividade na janela (agregados `activity.*`), (b) sessões extras do relógio (`device_extra`, provedor resolvido pela atividade de origem; '?' se irresolúvel, o que casa com qualquer exclusão), (c) registros de sessões **prescritas** cujo valor é cópia da atividade vinculada (mesma comparação tolerante da exclusão viva — D2). Valor diferente do relógio = registro independente, não conta.
+- **Mapa por variável** (`LOAD_VARIABLE_DERIVATION`): `volumeExtraKm` ← extras; `volumeCompletedPrescribedOnlyKm` e `adherencePercent` ← cópias em prescritas; `volumeCompletedTotalKm`, `volumeDiffAbsoluteKm`, `volumeRatioCompletedPrescribed` e `acwr` ← qualquer um dos dois (D3). `volumePrescribedKm` fica **fora do mapa: nunca é invalidado**.
+- **Exclusão do provedor P:** variáveis cuja lista `providers` inclui P (ou '?') viram marcador no índice e saem do texto exato guardado (variável, legenda, referências de domínio, avisos); sem recálculo (D1). Pacote sem proveniência registrada: todas as variáveis derivadas de dispositivo (nunca o volume prescrito). Marcador auditável em `agentInputRedactions` (ids, sem valores). Exclusões sucessivas de provedores diferentes acumulam marcadores.
+- **Não retroatividade:** `TrainingSession` prescrita e as versões/decisões da trilha não são tocadas (hash idêntico antes/depois, comprovado em teste).
+- **Sem migration.** Prompts e modelos de IA inalterados.
+- **Testes:** unit `weekly-load-provenance.spec.ts`; integração (`prescription-trace-hardening.int.spec.ts`, bloco 3) com pacotes realistas: Polar (extra), Wahoo (cópia exata), Garmin (registro independente), exclusão sucessiva de cada um, aluno sem proveniência, valores sentinela ausentes do pacote.
+- **Corrigido no caminho:** uma exclusão posterior não alcançava texto já redigido por outro provedor (a chamada ficava marcada e era ignorada); agora exclusões sucessivas funcionam.

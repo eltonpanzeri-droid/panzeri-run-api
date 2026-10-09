@@ -4,5 +4,6 @@ export function traceStub(): never {
   return {
     persistWeekly: jest.fn().mockResolvedValue({ packageId: 'pacote-simulado' }),
     persistDayRegeneration: jest.fn().mockResolvedValue({ packageId: 'pacote-simulado' }),
+    collectProvenance: jest.fn().mockResolvedValue({ activity: [], extra: [], prescribedCopy: [] }),
   } as never;
 }

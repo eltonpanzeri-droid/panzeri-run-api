@@ -8,7 +8,8 @@ import { StudentProfileService } from '../../src/training-plans/student-profile.
 import { computeRunSlots, computeStrengthSlots, MethodologyInput, WeeklyMethodologyDecision } from '../../src/training-plans/training-methodology';
 import { TrainingPlansService } from '../../src/training-plans/training-plans.service';
 import { createTestPrisma } from './pg-guard';
-import { DEVICE_CADENCE, DEVICE_PACE, OTHER_EFFORT } from './fixtures/realistic-athlete-context';
+import { DEVICE_CADENCE, DEVICE_PACE, LOAD, OTHER_EFFORT } from './fixtures/realistic-athlete-context';
+import { createHash } from 'crypto';
 import { cleanupStudents, seedStudent } from './synthetic';
 
 // O contexto longitudinal REAL do atleta e' montado a partir de um snapshot do banco; aqui ele e' substituido por um contexto com a forma real
@@ -218,7 +219,12 @@ describe('endurecimento da rastreabilidade (PostgreSQL 17 real, dados sinteticos
       const b = await packageOf(bruno.userId);
       expect(promptOf(b.agentInput)).not.toContain(String(DEVICE_PACE));
       expect(promptOf(b.agentInput)).toContain('Evitar corrida na quarta');
-      expect((b.evidence as unknown as EvidenceItem[]).filter((e) => e.redacted)).toHaveLength(2);
+      // proveniencia desconhecida: as 2 variaveis de atividade + as 7 de carga derivaveis de dispositivo; o volume prescrito e as outras fontes ficam
+      const items = b.evidence as unknown as EvidenceItem[];
+      expect(items.filter((e) => e.redacted)).toHaveLength(9);
+      expect(items.some((e) => e.ref === 'variable:training.volumePrescribedKm')).toBe(true);
+      expect(promptOf(b.agentInput)).toContain(String(LOAD.prescribed));
+      expect(promptOf(b.agentInput)).not.toContain(String(LOAD.acwr));
     });
 
     it('pacote cuja entrada completa ja expirou (retencao): o indice e redigido e o marcador registra que nao havia texto', async () => {
@@ -379,6 +385,112 @@ describe('endurecimento da rastreabilidade (PostgreSQL 17 real, dados sinteticos
       expect((versions[0].snapshot as { structure: unknown }).structure).toEqual(seeded.structure);
       expect(versions[1]).toMatchObject({ version: 2, traced: true, packageKind: 'day_regeneration' });
       expect(versions[0].validUntil).toBe(versions[1].validFrom);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  describe('3) carga semanal (weekly_training_load): D1-D4 de Elton', () => {
+    const sha = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    const textOf = (agentInput: unknown) => promptOf(agentInput);
+    const idsOf = (pkg: { evidence: unknown }) => (pkg.evidence as unknown as EvidenceItem[]).filter((e) => e.ref.startsWith('variable:')).map((e) => e.ref.slice('variable:'.length));
+    let frida: Awaited<ReturnType<typeof seedRoutineStudent>>;
+
+    beforeAll(async () => {
+      frida = await seedRoutineStudent('frida-carga');
+      const polar = await seedActivity(frida.userId, 'polar', '2026-10-06T08:00:00Z', 'polar-f-0');
+      const wahoo = await seedActivity(frida.userId, 'wahoo', '2026-09-29T08:00:00Z', 'wahoo-f-0');
+      const garmin = await seedActivity(frida.userId, 'garmin', '2026-10-01T08:00:00Z', 'garmin-f-0');
+      // (a) sessao EXTRA criada a partir da atividade da Polar
+      await prisma.trainingSession.create({
+        data: { planId: frida.planId, userId: frida.userId, scheduledDate: new Date('2026-10-06T00:00:00Z'), weekday: 2, modality: 'corrida', title: 'corrida (extra)', structure: { type: 'extra', source: 'device', provider: 'polar', activityLogId: polar.id }, origin: 'device_extra' },
+      });
+      // (b) sessao PRESCRITA cujo registro e COPIA exata da atividade da Wahoo (5,1 km em 41 min) — derivado, mesmo sem edicao (D2)
+      await prisma.activityLog.update({ where: { id: wahoo.id }, data: { distanceMeters: 5100, durationSec: 2460 } });
+      await prisma.sessionExecutionLink.create({ data: { userId: frida.userId, trainingSessionId: frida.sessionIds[0], activityLogId: wahoo.id, status: 'active', origin: 'automatic' } });
+      // (c) sessao PRESCRITA cujo registro o aluno informou DIFERENTE da atividade da Garmin — independente
+      await prisma.workoutCompletion.create({ data: { userId: frida.userId, sessionId: frida.sessionIds[1], status: 'done', distanceKm: 10, durationMin: 70, painFlag: 'none' } });
+      await prisma.sessionExecutionLink.create({ data: { userId: frida.userId, trainingSessionId: frida.sessionIds[1], activityLogId: garmin.id, status: 'active', origin: 'automatic' } });
+      await generate(frida.userId);
+    });
+
+    it('a geracao registra a proveniencia por variavel: prescrito sem provedor; extras da Polar; copia da Wahoo; Garmin so em atividade', async () => {
+      const pkg = await packageOf(frida.userId);
+      const providers = (id: string) => (pkg.evidence as unknown as EvidenceItem[]).find((e) => e.ref === `variable:${id}`)?.providers;
+      expect(providers('training.volumePrescribedKm')).toBeUndefined();
+      expect(providers('training.volumeExtraKm')).toEqual(['polar']);
+      expect(providers('training.volumeCompletedPrescribedOnlyKm')).toEqual(['wahoo']);
+      expect(providers('training.adherencePercent')).toEqual(['wahoo']);
+      for (const id of ['training.volumeCompletedTotalKm', 'training.volumeDiffAbsoluteKm', 'training.volumeRatioCompletedPrescribed', 'training.acwr']) expect(providers(id)).toEqual(['polar', 'wahoo']);
+      expect(providers('activity.avgPaceSecondsKm')).toEqual(['garmin', 'polar', 'wahoo']);
+      expect(providers('workout.perceivedEffort')).toBeUndefined();
+      expect(pkg.sourceProviders).toEqual(['garmin', 'polar', 'wahoo']); // garmin so por atividade; NAO por carga (registro independente)
+      const text = textOf(pkg.agentInput);
+      for (const value of Object.values(LOAD)) expect(text).toContain(String(value));
+    });
+
+    it('excluir a POLAR invalida extra, agregados mistos e ACWR (D1/D3); preserva prescrito, aderencia/registro da Wahoo e outras fontes; nao toca os treinos prescritos', async () => {
+      const prescribedBefore = await prisma.trainingSession.findMany({ where: { planId: frida.planId, origin: { not: 'device_extra' } }, orderBy: { id: 'asc' }, select: { id: true, structure: true, durationMin: true, distanceKm: true, paceMinSec: true, weekday: true } });
+      const decisionsBefore = await prisma.prescriptionDecision.findMany({ where: { userId: frida.userId, kind: 'session' }, orderBy: { id: 'asc' }, select: { id: true, sessionSnapshot: true, sessionSnapshotSha256: true } });
+
+      const result = await deletion.executeProviderDataDeletion(frida.userId, 'polar');
+      expect(result.agentInputsRedacted).toBe(1);
+      const pkg = await packageOf(frida.userId);
+      const text = textOf(pkg.agentInput);
+      const gone = [LOAD.extra, LOAD.total, LOAD.diff, LOAD.ratio, LOAD.acwr, DEVICE_PACE, DEVICE_CADENCE];
+      const kept = [LOAD.prescribed, LOAD.prescribedOnly, LOAD.adherence, OTHER_EFFORT];
+      for (const value of gone) expect(text).not.toContain(String(value));
+      for (const value of kept) expect(text).toContain(String(value));
+      expect(text).toContain('Evitar corrida na quarta');
+      expect(text).toContain('A esteira do aluno vai so ate 12 km/h');
+      expect(pkg.agentInputRedactions).toEqual([expect.objectContaining({
+        provider: 'polar', reason: 'provider_data_deleted', callsChanged: 1,
+        removedVariableIds: ['activity.avgPaceSecondsKm', 'activity.cadenceAvg', 'training.acwr', 'training.volumeCompletedTotalKm', 'training.volumeDiffAbsoluteKm', 'training.volumeExtraKm', 'training.volumeRatioCompletedPrescribed'],
+      })]);
+      // marcador sem nenhum valor; indice sem datas nem referencias dos itens invalidados
+      for (const value of gone) expect(JSON.stringify(pkg.agentInputRedactions)).not.toContain(String(value));
+      expect(idsOf(pkg).sort()).toEqual(['training.adherencePercent', 'training.volumeCompletedPrescribedOnlyKm', 'training.volumePrescribedKm', 'workout.perceivedEffort']);
+      expect((pkg.evidence as unknown as EvidenceItem[]).filter((e) => e.redacted)).toHaveLength(7);
+
+      // D4/regra 4: treinos prescritos e suas decisoes/versoes NAO mudam
+      const prescribedAfter = await prisma.trainingSession.findMany({ where: { planId: frida.planId, origin: { not: 'device_extra' } }, orderBy: { id: 'asc' }, select: { id: true, structure: true, durationMin: true, distanceKm: true, paceMinSec: true, weekday: true } });
+      expect(sha(prescribedAfter)).toBe(sha(prescribedBefore));
+      const decisionsAfter = await prisma.prescriptionDecision.findMany({ where: { userId: frida.userId, kind: 'session' }, orderBy: { id: 'asc' }, select: { id: true, sessionSnapshot: true, sessionSnapshotSha256: true } });
+      expect(sha(decisionsAfter)).toBe(sha(decisionsBefore));
+    });
+
+    it('excluir a WAHOO invalida o que dependia da copia do relogio (aderencia e realizado das prescritas — D2); o volume prescrito segue intacto', async () => {
+      const result = await deletion.executeProviderDataDeletion(frida.userId, 'wahoo');
+      expect(result.agentInputsRedacted).toBe(1);
+      const pkg = await packageOf(frida.userId);
+      const text = textOf(pkg.agentInput);
+      expect(text).not.toContain(String(LOAD.adherence));
+      expect(text).not.toContain(String(LOAD.prescribedOnly));
+      expect(text).toContain(String(LOAD.prescribed));
+      expect(text).toContain(String(OTHER_EFFORT));
+      expect(idsOf(pkg).sort()).toEqual(['training.volumePrescribedKm', 'workout.perceivedEffort']);
+      expect(pkg.agentInputRedactions).toHaveLength(2);
+    });
+
+    it('excluir a GARMIN (so atividade; registro do aluno independente) nao invalida nada de carga e e idempotente', async () => {
+      const before = await packageOf(frida.userId);
+      const result = await deletion.executeProviderDataDeletion(frida.userId, 'garmin');
+      expect(result).toMatchObject({ evidenceRedacted: 0, agentInputsRedacted: 0 });
+      const after = await packageOf(frida.userId);
+      expect(after.agentInput).toEqual(before.agentInput);
+      expect(after.evidence).toEqual(before.evidence);
+      expect(textOf(after.agentInput)).toContain(String(LOAD.prescribed));
+      // o registro independente do aluno segue la
+      expect(await prisma.workoutCompletion.count({ where: { sessionId: frida.sessionIds[1] } })).toBe(1);
+    });
+
+    it('pacote sem proveniencia registrada: todas as derivaveis de dispositivo saem, o volume prescrito nunca', async () => {
+      const gil = await seedRoutineStudent('gil-carga');
+      await generate(gil.userId);
+      await prisma.$executeRaw`UPDATE "PrescriptionEvidencePackage" SET "sourceProviders" = NULL WHERE "userId" = ${gil.userId}`;
+      await deletion.executeProviderDataDeletion(gil.userId, 'qualquer');
+      const text = textOf((await packageOf(gil.userId)).agentInput);
+      for (const value of [LOAD.extra, LOAD.total, LOAD.diff, LOAD.ratio, LOAD.acwr, LOAD.adherence, LOAD.prescribedOnly]) expect(text).not.toContain(String(value));
+      expect(text).toContain(String(LOAD.prescribed));
     });
   });
 });

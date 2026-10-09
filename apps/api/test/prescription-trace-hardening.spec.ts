@@ -1,6 +1,6 @@
 import {
   buildSessionVersions, canonicalJson, packageMayContainProvider, redactAgentInputForProvider, redactEvidenceForProvider, sha256, snapshotOfSession,
-  sourceProvidersOf, VersionDecisionInput,
+  sourceProvidersOf, VersionDecisionInput, providersForVariable, classifyLoadProvenance, isProviderDerivedVariable, LOAD_VARIABLE_DERIVATION,
 } from '../src/training-plans/prescription-trace';
 import type { EvidenceItem } from '../src/training-plans/prescription-trace';
 import type { MethodologyInput } from '../src/training-plans/training-methodology';
@@ -40,12 +40,12 @@ const realisticInput = (): MethodologyInput => ({ athleteStateContext: athleteSt
 
 describe('proveniencia dos agregados', () => {
   it('registra os provedores so quando o contexto TEM agregado derivado de atividade com dados (n > 0)', () => {
-    expect(sourceProvidersOf(realisticInput(), ['wahoo', 'polar', 'polar'])).toEqual(['polar', 'wahoo']);
-    expect(sourceProvidersOf({} as MethodologyInput, ['polar'])).toEqual([]);
+    expect(sourceProvidersOf(realisticInput(), { activity: ['wahoo', 'polar', 'polar'], extra: [], prescribedCopy: [] })).toEqual(['polar', 'wahoo']);
+    expect(sourceProvidersOf({} as MethodologyInput, { activity: ['polar'], extra: [], prescribedCopy: [] })).toEqual([]);
     const semAtividade = athleteStateContext();
     delete (semAtividade.variables as Record<string, unknown>)['activity.avgPaceSecondsKm'];
     delete (semAtividade.variables as Record<string, unknown>)['activity.cadenceAvg'];
-    expect(sourceProvidersOf({ athleteStateContext: semAtividade } as unknown as MethodologyInput, ['polar'])).toEqual([]);
+    expect(sourceProvidersOf({ athleteStateContext: semAtividade } as unknown as MethodologyInput, { activity: ['polar'], extra: [], prescribedCopy: [] })).toEqual([]);
   });
 
   it('pacote envolve o provedor quando consta na proveniencia, quando um item o cita, ou quando a proveniencia e desconhecida (null)', () => {
@@ -135,7 +135,7 @@ describe('exclusao de dados de provedor: indice de evidencias', () => {
 
   it('proveniencia desconhecida (pacote antigo): tambem redige os agregados de atividade, por seguranca', () => {
     const legacy = [item({ ref: 'variable:activity.cadenceAvg', kind: 'athlete_state_variable', excerpt: null }), item({ ref: 'variable:workout.perceivedEffort', kind: 'athlete_state_variable', excerpt: null })];
-    const result = redactEvidenceForProvider(legacy, 'polar', { unknownProvenance: true });
+    const result = redactEvidenceForProvider(legacy, 'polar');
     expect(result.redacted).toBe(1);
     expect(result.evidence[1].ref).toBe('variable:workout.perceivedEffort');
   });

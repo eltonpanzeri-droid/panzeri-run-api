@@ -4,8 +4,9 @@ import { Interval } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
+import { classifyMaterializedCompletion } from '../activity-execution/provider-data-deletion.service';
 import {
-  AgentCallTrace, buildAgentInputRecord, buildSessionDecisions, buildSessionVersions, buildWeekDecision, DecisionDraft, describeSessionForTrace, EvidenceItem,
+  AgentCallTrace, classifyLoadProvenance, ProviderProvenance, SessionForLoadProvenance, buildAgentInputRecord, buildSessionDecisions, buildSessionVersions, buildWeekDecision, DecisionDraft, describeSessionForTrace, EvidenceItem,
   parseRetentionMonths, retentionCutoff, SessionForTrace, snapshotOfSession, TRACE_SCHEMA_VERSION,
 } from './prescription-trace';
 import type { ContextGap } from './student-information-context';
@@ -52,6 +53,36 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
   ) {}
+
+  // Proveniencia por provedor dos agregados derivados de dispositivo (atividade objetiva e CARGA SEMANAL) na janela das variaveis longitudinais
+  // (baseline de 200 dias + folga). So' leitura, dentro da transacao do programa. Conservador de proposito: preferir um provedor a mais a deixar
+  // dado derivado fora do alcance de uma exclusao (decisoes D1-D3 de Elton, 10/10/2026).
+  async collectProvenance(tx: Tx, userId: string, weekStart: Date): Promise<ProviderProvenance> {
+    const since = new Date(weekStart.getTime() - 230 * 86_400_000);
+    const activityRows = await tx.activityLog.findMany({ where: { userId, startedAt: { gte: since } }, select: { provider: true }, distinct: ['provider'] });
+    const sessions = await tx.trainingSession.findMany({
+      where: { userId, scheduledDate: { gte: since } },
+      select: {
+        origin: true, structure: true, completion: true,
+        executionLinks: { where: { status: 'active' }, select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } } },
+      },
+    });
+    const extraActivityIds = sessions.filter((s) => s.origin === 'device_extra').map((s) => (s.structure as { activityLogId?: string } | null)?.activityLogId).filter((id): id is string => !!id);
+    const providerById = new Map<string, string>();
+    if (extraActivityIds.length > 0) {
+      for (const row of await tx.activityLog.findMany({ where: { userId, id: { in: extraActivityIds } }, select: { id: true, provider: true } })) providerById.set(row.id, row.provider);
+    }
+    const input: SessionForLoadProvenance[] = sessions.map((s) => ({
+      origin: s.origin, structure: s.structure, completion: s.completion as unknown as Record<string, unknown> | null,
+      links: s.executionLinks.map((link) => ({ activity: link.activityLog })),
+    }));
+    const load = classifyLoadProvenance(
+      input,
+      (completion, activity) => Object.keys(classifyMaterializedCompletion(completion, activity).clear),
+      (activityLogId) => providerById.get(activityLogId) ?? null,
+    );
+    return { activity: activityRows.map((row) => row.provider).sort(), extra: load.extra, prescribedCopy: load.prescribedCopy };
+  }
 
   // Gravado NA MESMA TRANSACAO que cria o plano: nenhuma prescricao nova existe sem trilha. Registros imutaveis.
   async persistWeekly(tx: Tx, p: PersistWeeklyParams): Promise<{ packageId: string }> {

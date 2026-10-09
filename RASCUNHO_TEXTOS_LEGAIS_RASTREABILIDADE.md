@@ -32,7 +32,7 @@ Dados do Strava não entram na IA nem nessa trilha (regra já vigente).
 
 ### 2.4 Política de Privacidade — seção 9 "Excluir os dados de um serviço conectado" (acrescentar parágrafo)
 
-> Ao excluir os dados de um serviço, também retiramos, dos registros de geração de programas, os indicadores calculados a partir das atividades desse serviço (tanto da lista do que foi considerado quanto do texto enviado à IA guardado), preservando as demais informações — como seus relatos, diretrizes e feedbacks — e deixando um marcador que registra apenas que a remoção ocorreu, quando e quais indicadores foram retirados, sem os valores. Como esses indicadores são médias calculadas sobre o conjunto das atividades do serviço, não é possível separar apenas parte deles: eles são retirados por inteiro.
+> Ao excluir os dados de um serviço, também retiramos, dos registros de geração de programas, os indicadores calculados a partir das atividades desse serviço (tanto da lista do que foi considerado quanto do texto enviado à IA guardado), preservando as demais informações — como seus relatos, diretrizes e feedbacks — e deixando um marcador que registra apenas que a remoção ocorreu, quando e quais indicadores foram retirados, sem os valores. Como esses indicadores são médias ou somas calculadas sobre o conjunto das atividades, não é possível separar apenas a parte vinda do serviço excluído: **a exclusão pode invalidar indicadores históricos derivados** (por exemplo, volume extra, volume total realizado, razão entre realizado e prescrito, aderência calculada a partir de registros copiados do relógio e a carga aguda/crônica), e eles são retirados por inteiro dos registros de geração de programas, **sem recálculo**. Permanecem o volume prescrito, os treinos prescritos e os registros que você mesmo informou com valores próprios.
 
 ### 2.5 Política de Privacidade — seção 13 "Exclusão da conta" (acrescentar à lista do que é excluído)
 
@@ -57,7 +57,7 @@ Reutilizar o parágrafo 2.1 (a tela do app usa as mesmas frases da Política). I
 1. **Base legal dos dados de saúde no texto guardado** (consentimento específico vs. execução de contrato): o registro replica dados de saúde que já eram enviados à IA; a seção 5 da Política precisa cobrir a guarda, não só o envio.
 2. **Prazo de 12 meses**: justificar a finalidade (auditoria e melhoria do programa) e confirmar que 12 meses é proporcional; o valor é configurável (`PRESCRIPTION_TRACE_INPUT_RETENTION_MONTHS`).
 3. **Marcadores e índice sem prazo (até a exclusão da conta)**: confirmar que não contêm dado pessoal além do já tratado (contêm trechos curtos de relatos/diretrizes — ver tabela do item 1).
-4. **Pedido de exclusão de dados do serviço**: a remoção dos indicadores de dispositivo é "por inteiro" (não há recorte parcial possível). Confirmar que a explicação do item 2.4 é suficiente.
+4. **Pedido de exclusão de dados do serviço**: a remoção dos indicadores de dispositivo e de carga semanal é "por inteiro" e sem recálculo (decisões D1-D4 de Elton, 10/10/2026). Confirmar que a explicação do item 2.4 — incluindo a frase de que a exclusão pode invalidar indicadores históricos derivados — é suficiente.
 5. **Cópias de segurança** (item 2.6).
 6. **Aviso aos alunos já existentes** (nova versão dos textos) e momento da publicação: só junto com o deploy da 1.2a.
 
