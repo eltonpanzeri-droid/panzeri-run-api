@@ -149,6 +149,7 @@ describe('decisoes deterministicas (sem IA)', () => {
 
   it('resumo da sessao so com o que foi gravado; changeFromPrevious aponta o mesmo dia/modalidade da semana anterior', () => {
     expect(describeSessionForTrace(session('x', 2))).toBe('ter | corrida | continuo | 40min | 5km | pace 8:00/km');
+    expect(describeSessionForTrace({ ...session('x', 2), paceMinSec: '8:00/km' })).toBe('ter | corrida | continuo | 40min | 5km | pace 8:00/km'); // formato real gravado pelas prescricoes
     const decisions = buildSessionDecisions({
       sessions: [session('n1', 2), session('n2', 4)],
       previousWeek: { startDate: new Date('2026-10-05'), sessions: [session('p1', 2), session('p2', 3)] },

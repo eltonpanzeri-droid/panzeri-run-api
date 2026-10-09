@@ -227,7 +227,8 @@ export function describeSessionForTrace(session: Omit<SessionForTrace, 'id'>): s
     shape,
     session.durationMin != null ? `${session.durationMin}min` : null,
     session.distanceKm != null ? `${Number(session.distanceKm.toFixed(2))}km` : null,
-    session.paceMinSec ? `pace ${session.paceMinSec}/km` : null,
+    // paceMinSec ja vem gravado como "8:00/km" nas prescricoes geradas; so completa a unidade quando faltar.
+    session.paceMinSec ? `pace ${session.paceMinSec.replace(/\/km$/, '')}/km` : null,
   ].filter(Boolean).join(' | ');
 }
 
