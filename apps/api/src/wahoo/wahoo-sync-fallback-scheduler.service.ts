@@ -7,6 +7,7 @@ import { WahooActivityIngestionService } from './wahoo-activity-ingestion.servic
 // funciona como sincronizacao automatica enquanto o webhook nao estiver ativo no portal da Wahoo.
 // Cuidado com os limites da Cloud API (producao: 200/5 min, 1000/h, 5000/dia, por app): o intervalo padrao e' 3 h, com
 // teto de conexoes por rodada, ritmo espacado e parada imediata no primeiro limite atingido.
+// DESLIGADA POR PADRAO (09/10/2026): so' roda com WAHOO_FALLBACK_ENABLED=true. A sincronizacao manual (botao) nao depende dela.
 // Configuravel por WAHOO_FALLBACK_INTERVAL_MINUTES (aumente quando o webhook estiver ativo).
 const DEFAULT_FALLBACK_INTERVAL_MINUTES = 180;
 const FALLBACK_INTERVAL_MINUTES = Number(process.env.WAHOO_FALLBACK_INTERVAL_MINUTES) > 0
@@ -26,8 +27,14 @@ export class WahooSyncFallbackSchedulerService {
     private readonly ingestion: WahooActivityIngestionService,
   ) {}
 
+  // Le a flag a cada execucao (ligar/desligar so' exige reiniciar a API, nunca mexe no sync manual).
+  isEnabled(): boolean {
+    return process.env.WAHOO_FALLBACK_ENABLED?.trim().toLowerCase() === 'true';
+  }
+
   @Interval(FALLBACK_INTERVAL_MS)
   async syncStaleConnections(now: Date = new Date(), pacingMs: number = PACING_MS) {
+    if (!this.isEnabled()) return;
     if (this.isRunning) {
       this.logger.warn('Rotina de sincronizacao Wahoo ainda estava rodando — pulando esta execucao.');
       return;

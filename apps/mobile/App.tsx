@@ -9000,6 +9000,7 @@ function WahooConnect({ accessToken, variant = 'screen' }: { accessToken: string
         <Text style={styles.reportText}>Ultima sincronizacao em {formatConnectionDate(connection.lastSyncCompletedAt)}</Text>
       ) : null}
       <Text style={styles.formHint}>A conexão importa as atividades gravadas em dispositivos e aplicativos Wahoo. Atividades de outros aplicativos que apenas sincronizam com a Wahoo não são compartilhadas por ela. O envio de treinos para a Wahoo ainda não está disponível.</Text>
+      <Text style={styles.formHint}>Recurso novo: a importação ainda está em validação com atividades reais. Se algo não aparecer ou der erro, avise o treinador.</Text>
       {connection?.connected && connection.needsReauthorization ? (
         <Text style={[styles.statusMessage, { color: '#b45309' }]}>Sua conexão foi feita antes da importação de atividades. Desconecte e conecte a Wahoo de novo para autorizar a leitura.</Text>
       ) : null}

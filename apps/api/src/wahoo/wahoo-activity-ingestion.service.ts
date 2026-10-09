@@ -1,4 +1,4 @@
-import { BadGatewayException, ConflictException, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadGatewayException, ConflictException, HttpException, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
@@ -64,6 +64,8 @@ export class WahooActivityIngestionService {
       if (error instanceof CollectionRevokedError) return { status: 'disconnected', imported: 0 };
       if (error instanceof RateLimitedError) return { status: 'rate_limited', imported: 0 };
       if (error instanceof ScopeMissingError) return { status: 'reauthorization_required', imported: 0 };
+      // Falha real: registra para diagnostico (so' o tipo do erro e o status HTTP; nunca token, mensagem livre ou dado de treino).
+      await this.audit(userId, 'sync_failed', { errorName: error instanceof Error ? error.name : 'unknown', status: error instanceof HttpException ? error.getStatus() : null });
       throw error;
     } finally {
       this.syncsInFlight.delete(userId);
@@ -173,6 +175,14 @@ export class WahooActivityIngestionService {
   }
 
   // ── persistencia ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  private async audit(userId: string, type: string, details: Record<string, unknown>) {
+    try {
+      await this.prisma.providerConnectionEvent.create({ data: { userId, provider: 'wahoo', type, details: details as never } });
+    } catch (failure) {
+      this.logger.warn(`Auditoria Wahoo nao gravada: ${failure instanceof Error ? failure.message.slice(0, 120) : 'erro'}`);
+    }
+  }
 
   private async updateConnectionIfActive(userId: string, data: Prisma.WahooConnectionUpdateManyMutationInput) {
     await this.prisma.wahooConnection.updateMany({ where: { userId, disconnectedAt: null }, data });

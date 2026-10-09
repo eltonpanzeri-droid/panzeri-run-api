@@ -121,6 +121,22 @@ describe('GET /me/integrations: autenticacao e escopo', () => {
     expect(body).not.toMatch(/token|secret|aluno-A|athleteId|polarUserId/i);
   });
 
+  it('WAHOO_ENABLED_USER_IDS=* + credenciais completas: a Wahoo fica disponivel para QUALQUER aluno; sem a lista ou sem credencial, nao', async () => {
+    const prisma = { polarConnection: { findUnique: async () => null }, stravaConnection: { findUnique: async () => null }, wahooConnection: { findUnique: async () => null } };
+    const full: Record<string, string> = { POLAR_CLIENT_ID: 'p', STRAVA_CLIENT_ID: 's', WAHOO_CLIENT_ID: 'w', WAHOO_CLIENT_SECRET: 'w', WAHOO_REDIRECT_URI: 'w', WAHOO_TOKEN_ENCRYPTION_KEY: 'w' };
+    const wahooFor = async (env: Record<string, string>, user: string) => {
+      const service = new IntegrationsService(prisma, { get: (k: string) => env[k] });
+      return (await service.catalog(user)).providers.find((p: { id: string }) => p.id === 'wahoo');
+    };
+    for (const user of ['aluno-1', 'aluno-2', 'qualquer-outro']) {
+      expect((await wahooFor({ ...full, WAHOO_ENABLED_USER_IDS: '*' }, user)).availability).toBe('available');
+    }
+    expect((await wahooFor(full, 'aluno-1')).availability).toBe('unavailable');
+    expect((await wahooFor({ ...full, WAHOO_ENABLED_USER_IDS: '*', WAHOO_CLIENT_SECRET: '' }, 'aluno-1')).availability).toBe('unavailable');
+    const summary = (await wahooFor({ ...full, WAHOO_ENABLED_USER_IDS: '*' }, 'aluno-1')).summary as string;
+    expect(summary).toContain('ainda em validação com atividades reais');
+  });
+
   it('o servico nao referencia campos sensiveis das tabelas de conexao', () => {
     const source = readFileSync(join(__dirname, '../src/integrations/integrations.service.ts'), 'utf8');
     expect(source).not.toMatch(/accessToken|refreshToken|athleteId|polarUserId|wahooUserId|stravaActivity|rawExternalActivity/);

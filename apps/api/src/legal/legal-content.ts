@@ -8,8 +8,8 @@
 // legal, nao inventa prazo, base legal nem garantia de fornecedor. O que depende de contrato ou de
 // configuracao externa e' dito como tal.
 
-export const LEGAL_VERSION = '2026-10-08';
-export const LEGAL_UPDATED_LABEL = '8 de outubro de 2026';
+export const LEGAL_VERSION = '2026-10-09';
+export const LEGAL_UPDATED_LABEL = '9 de outubro de 2026';
 export const LEGAL_CONTACT = 'eltonpanzeri@gmail.com';
 export const LEGAL_PATHS = { terms: '/termos-de-uso', privacy: '/politica-privacidade' } as const;
 

@@ -83,7 +83,7 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     id: 'wahoo',
     name: 'Wahoo',
     // Etapa 5: le os treinos gravados por dispositivos/apps da Wahoo. O envio de treinos (Etapa 4) ainda nao existe.
-    summary: 'Importa suas atividades gravadas em dispositivos e aplicativos Wahoo. O envio de treinos ainda não está disponível.',
+    summary: 'Importa suas atividades gravadas em dispositivos e aplicativos Wahoo. Recurso novo, ainda em validação com atividades reais. O envio de treinos ainda não está disponível.',
     availability: 'available',
     platforms: ALL_PLATFORMS,
     capabilities: { receiveActivities: true, sendWorkouts: false },

@@ -27,7 +27,9 @@ function fixture(connectionOverrides: Row = {}) {
   const logs = new Map<string, Row>();
   let revoked = false;
   const key = (w: Row) => `${w.provider_userId_externalId.provider}|${w.provider_userId_externalId.userId}|${w.provider_userId_externalId.externalId}`;
+  const events: Row[] = [];
   const prisma: any = {
+    providerConnectionEvent: { create: jest.fn(async ({ data }: Row) => { events.push(data); }) },
     wahooConnection: {
       findUnique: jest.fn(async ({ where }: Row) => { const r = connections.get(where.userId); return r ? { ...r } : null; }),
       updateMany: jest.fn(async ({ where, data }: Row) => { const r = connections.get(where.userId); if (!r || (where.disconnectedAt === null && r.disconnectedAt)) return { count: 0 }; Object.assign(r, data); return { count: 1 }; }),
@@ -47,7 +49,7 @@ function fixture(connectionOverrides: Row = {}) {
   const notifications = { notifyReconciliation: jest.fn(async () => undefined) };
   const identity = { evaluateSafely: jest.fn(async () => undefined) };
   const service = new WahooActivityIngestionService(prisma, wahoo as never, link as never, notifications as never, identity as never);
-  return { service, prisma, connections, raws, logs, wahoo, link, notifications, identity, revoke: () => { revoked = true; } };
+  return { service, prisma, connections, raws, logs, wahoo, link, notifications, identity, events, revoke: () => { revoked = true; } };
 }
 
 // Roteia a rede por URL; registra cada chamada.
@@ -239,6 +241,31 @@ describe('sincronizacao de atividades Wahoo', () => {
     await expect(f.service.sync('user-a')).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it('falha real fica registrada para diagnostico (so o tipo do erro e o status), sem token, mensagem livre nem dado de treino', async () => {
+    const f = fixture();
+    network({ pages: [[workout(2, '2026-10-08T12:00:00Z')]], summaries: { 2: () => json(500, { detalhe: 'segredo-do-erro' }) } });
+    await expect(f.service.sync('user-a')).rejects.toBeInstanceOf(InternalServerErrorException);
+    expect(f.events).toEqual([{ userId: 'user-a', provider: 'wahoo', type: 'sync_failed', details: { errorName: 'InternalServerErrorException', status: 500 } }]);
+    expect(JSON.stringify(f.events)).not.toMatch(/access-token-PRIVADO|segredo-do-erro|Treino/);
+  });
+
+  it('rate_limited, reautorizacao e desconexao NAO sao falhas: nao geram registro de erro', async () => {
+    const f = fixture();
+    network({ listStatus: 429 });
+    await f.service.sync('user-a');
+    const g = fixture({ grantedScopes: 'user_read' });
+    await g.service.sync('user-a');
+    expect(f.events).toHaveLength(0);
+    expect(g.events).toHaveLength(0);
+  });
+
+  it('falha ao gravar a auditoria nunca esconde o erro original', async () => {
+    const f = fixture();
+    f.prisma.providerConnectionEvent.create.mockRejectedValue(new Error('banco fora'));
+    network({ listStatus: 500 });
+    await expect(f.service.sync('user-a')).rejects.toThrow();
+  });
+
   it('falha parcial: importa o que da, NAO confirma o sync e a proxima rodada retoma o que faltou', async () => {
     const f = fixture();
     let broken = true;
@@ -305,7 +332,7 @@ describe('sincronizacao de atividades Wahoo', () => {
 
 describe('webhook Wahoo', () => {
   const TOKEN = 'token-do-webhook-com-mais-de-16-caracteres';
-  function webhook(env: Record<string, string | undefined> = { WAHOO_WEBHOOK_TOKEN: TOKEN }, connections: Row[] = [{ userId: 'user-a', wahooUserId: '111', disconnectedAt: null }]) {
+  function webhook(env: Record<string, string | undefined> = { WAHOO_WEBHOOK_TOKEN: TOKEN, WAHOO_WEBHOOK_ENABLED: 'true' }, connections: Row[] = [{ userId: 'user-a', wahooUserId: '111', disconnectedAt: null }]) {
     const prisma = { wahooConnection: { findUnique: jest.fn(async ({ where }: Row) => connections.find((c) => c.wahooUserId === where.wahooUserId) ?? null) } };
     const ingestion = { sync: jest.fn(async () => ({ status: 'synced', imported: 1 })) };
     const service = new WahooWebhookService(prisma as never, { get: (n: string) => env[n] } as never, ingestion as never);
@@ -318,8 +345,18 @@ describe('webhook Wahoo', () => {
     for (const body of [{}, null, undefined, { webhook_token: '' }, { webhook_token: 'errado' }, { webhook_token: TOKEN + 'x' }, { webhook_token: 123 }]) {
       expect(() => service.verifyToken(body)).toThrow(UnauthorizedException);
     }
-    expect(() => webhook({ WAHOO_WEBHOOK_TOKEN: undefined }).service.verifyToken({ webhook_token: 'qualquer' })).toThrow(UnauthorizedException);
-    expect(() => webhook({ WAHOO_WEBHOOK_TOKEN: 'curto' }).service.verifyToken({ webhook_token: 'curto' })).toThrow(UnauthorizedException); // token fraco e recusado
+    expect(() => webhook({ WAHOO_WEBHOOK_TOKEN: undefined, WAHOO_WEBHOOK_ENABLED: 'true' }).service.verifyToken({ webhook_token: 'qualquer' })).toThrow(UnauthorizedException);
+    expect(() => webhook({ WAHOO_WEBHOOK_TOKEN: 'curto', WAHOO_WEBHOOK_ENABLED: 'true' }).service.verifyToken({ webhook_token: 'curto' })).toThrow(UnauthorizedException); // token fraco e recusado
+  });
+
+  it('DESLIGADO por padrao: sem WAHOO_WEBHOOK_ENABLED=true recusa mesmo com o token certo, e o controller nao processa nada', () => {
+    for (const env of [{ WAHOO_WEBHOOK_TOKEN: TOKEN }, { WAHOO_WEBHOOK_TOKEN: TOKEN, WAHOO_WEBHOOK_ENABLED: 'false' }, { WAHOO_WEBHOOK_TOKEN: TOKEN, WAHOO_WEBHOOK_ENABLED: '' }, { WAHOO_WEBHOOK_TOKEN: TOKEN, WAHOO_WEBHOOK_ENABLED: '1' }]) {
+      const { service, ingestion } = webhook(env);
+      expect(() => service.verifyToken({ webhook_token: TOKEN })).toThrow(UnauthorizedException);
+      const controller = new WahooController({} as never, {} as never, service);
+      expect(() => controller.webhook({ event_type: 'workout_summary', user: { id: 111 }, webhook_token: TOKEN })).toThrow(UnauthorizedException);
+      expect(ingestion.sync).not.toHaveBeenCalled();
+    }
   });
 
   it('evento workout_summary de aluno conectado dispara o sync do ALUNO DONO (por id Wahoo), sem usar o conteudo do evento', async () => {
@@ -365,7 +402,10 @@ describe('webhook Wahoo', () => {
 });
 
 describe('rotina de seguranca Wahoo', () => {
+  const originalFlag = process.env.WAHOO_FALLBACK_ENABLED;
+  afterEach(() => { if (originalFlag === undefined) delete process.env.WAHOO_FALLBACK_ENABLED; else process.env.WAHOO_FALLBACK_ENABLED = originalFlag; });
   function scheduler(results: Array<{ status: string } | Error>) {
+    process.env.WAHOO_FALLBACK_ENABLED = 'true';
     const prisma = { wahooConnection: { findMany: jest.fn(async () => results.map((_, i) => ({ userId: `u${i}` }))) } };
     let i = 0;
     const ingestion = { sync: jest.fn(async () => { const r = results[i++]; if (r instanceof Error) throw r; return r; }) };
@@ -387,6 +427,22 @@ describe('rotina de seguranca Wahoo', () => {
     const { service, ingestion } = scheduler([{ status: 'synced' }, { status: 'rate_limited' }, { status: 'synced' }, { status: 'synced' }]);
     await service.syncStaleConnections(NOW, 0);
     expect(ingestion.sync).toHaveBeenCalledTimes(2);
+  });
+
+  it('DESLIGADA por padrao: sem WAHOO_FALLBACK_ENABLED=true nao consulta o banco nem sincroniza ninguem; o sync manual segue funcionando', async () => {
+    const { service, prisma, ingestion } = scheduler([{ status: 'synced' }]);
+    for (const value of [undefined, '', 'false', '0', 'sim']) {
+      if (value === undefined) delete process.env.WAHOO_FALLBACK_ENABLED; else process.env.WAHOO_FALLBACK_ENABLED = value;
+      await service.syncStaleConnections(NOW, 0);
+    }
+    expect(prisma.wahooConnection.findMany).not.toHaveBeenCalled();
+    expect(ingestion.sync).not.toHaveBeenCalled();
+    // o botao "Sincronizar agora" chama o sync direto, sem passar pela rotina nem pelo webhook
+    const guards = (name: string) => Reflect.getMetadata('__guards__', (WahooController.prototype as any)[name]) as unknown[] | undefined;
+    expect(guards('sync')?.length).toBeGreaterThan(0);
+    const manual = new WahooController({} as never, ingestion as never, {} as never);
+    await manual.sync({ sub: 'user-a', email: 'a@a.com', role: 'student' });
+    expect(ingestion.sync).toHaveBeenCalledWith('user-a');
   });
 
   it('execucao sobreposta e pulada', async () => {

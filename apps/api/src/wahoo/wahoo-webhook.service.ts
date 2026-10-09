@@ -10,7 +10,8 @@ const WEBHOOK_RETRY_DELAY_MS = 60_000;
 // Webhook da Wahoo (Etapa 5). Contrato oficial: POST JSON com "event_type" = "workout_summary", "user": { "id" } e
 // "webhook_token" NO CORPO (a Wahoo nao assina o corpo). Como o corpo nao e' assinado, o token e' a unica autenticacao
 // e o conteudo do evento NUNCA vira dado: ele so' dispara o sync normal, que busca tudo na API autenticada do aluno.
-// Fail-closed: sem WAHOO_WEBHOOK_TOKEN configurado, ou token ausente/divergente, o evento e' recusado (401).
+// DESLIGADO POR PADRAO (09/10/2026): so' funciona com WAHOO_WEBHOOK_ENABLED=true. Fail-closed: desligado, sem
+// WAHOO_WEBHOOK_TOKEN configurado, ou token ausente/divergente, o evento e' recusado (401) e nada e' processado.
 @Injectable()
 export class WahooWebhookService {
   private readonly logger = new Logger(WahooWebhookService.name);
@@ -22,6 +23,7 @@ export class WahooWebhookService {
   ) {}
 
   verifyToken(body: unknown): void {
+    if (this.config.get<string>('WAHOO_WEBHOOK_ENABLED')?.trim().toLowerCase() !== 'true') throw new UnauthorizedException('Webhook Wahoo nao autorizado.');
     const expected = this.config.get<string>('WAHOO_WEBHOOK_TOKEN')?.trim();
     const received = (body as { webhook_token?: unknown } | null | undefined)?.webhook_token;
     if (!expected || expected.length < 16 || typeof received !== 'string' || !received) throw new UnauthorizedException('Webhook Wahoo nao autorizado.');
