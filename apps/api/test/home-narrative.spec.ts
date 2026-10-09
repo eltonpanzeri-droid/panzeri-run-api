@@ -1,4 +1,4 @@
-import { FeelingDomain, SnapshotLite, domainSentences } from '../../mobile/home/insights';
+import { FeelingDomain, PatternLite, SnapshotLite, domainSentences } from '../../mobile/home/insights';
 
 // Narrativa deterministica dos quatro dominios (04/10/2026): mesmas saidas do motor, texto corrido,
 // priorizado e curto. Nada de LLM, nada de calculo novo — so' selecao e redacao.
@@ -6,7 +6,7 @@ import { FeelingDomain, SnapshotLite, domainSentences } from '../../mobile/home/
 type Dir = 'increasing' | 'decreasing' | 'stable' | 'insufficient_data';
 type Verdict = 'above' | 'below' | 'within' | null;
 
-interface Spec { current: number; trend?: Dir; verdict?: Verdict; variability?: 'increased' | 'decreased' | 'unchanged' | 'insufficient_data'; n?: number }
+interface Spec { current: number; pattern?: PatternLite; trend?: Dir; verdict?: Verdict; variability?: 'increased' | 'decreased' | 'unchanged' | 'insufficient_data'; n?: number }
 
 function mk(id: string, spec: Spec): SnapshotLite {
   const isRpe = id === 'workout.perceivedEffort';
@@ -17,7 +17,7 @@ function mk(id: string, spec: Spec): SnapshotLite {
     mathApplicable: true,
     current: spec.current,
     movingAverages: null,
-    trend: { short_21d: { direction: spec.trend ?? 'stable', n: spec.n ?? 10 } },
+    trend: { short_21d: { direction: spec.trend ?? 'stable', n: spec.n ?? 10, ...(spec.pattern ? { pattern: spec.pattern } : {}) } },
     habitualRange: verdict === null ? { lower: null, upper: null, median: null, n: 0 } : { lower: 2, upper: 4, median: 3, n: spec.n ?? 10, isPartialWindow: true },
     persistence: verdict === null ? { currentlyOutsideHabitualRange: null, direction: null } : { currentlyOutsideHabitualRange: verdict !== 'within', direction: verdict === 'above' ? 'above' : verdict === 'below' ? 'below' : null },
     variabilityChange: { direction: spec.variability ?? 'unchanged' },
@@ -114,7 +114,7 @@ describe('domainSentences — narrativa dos dominios', () => {
       'workout.preSleepQuality': { current: 3, trend: 'insufficient_data', verdict: null, n: 1 },
       'workout.sleepInterruption': { current: 2, trend: 'insufficient_data', verdict: null, n: 1 },
     }));
-    expect(text).toBe('Ainda não há registros suficientes para descrever como seu sono tem se comportado.');
+    expect(text).toBe('Ainda não existem registros suficientes para identificar uma tendência confiável sobre seu sono.');
   });
 
   it('variavel sem sustentacao do motor nao entra na narrativa (n e limites nao sao repetidos)', () => {
@@ -146,5 +146,49 @@ describe('domainSentences — narrativa dos dominios', () => {
     const text = narrate('response', { 'workout.postPhysicalFatigue': { current: 4, trend: 'increasing' } });
     expect(text).toContain('vem aumentando');
     expect(text).not.toMatch(/melhor|pior|piora|melhora/);
+  });
+});
+
+// Classificacao individual do motor (10/2026): o texto segue o TIPO de mudanca, nunca so' a inclinacao.
+describe('domainSentences — padroes de mudanca do motor', () => {
+  const FATIGUE = 'workout.prePhysicalFatigue';
+  const pat = (kind: PatternLite['kind'], side: PatternLite['side'] = null, extra: Partial<PatternLite> = {}): PatternLite => ({ kind, side, windowDays: 9, ...extra });
+  // direction ja vem corrigida pela API: so' 'sustained_change' vira increasing/decreasing
+  const dir = (p: PatternLite): Dir => (p.kind === 'sustained_change' ? (p.side === 'below' ? 'decreasing' : 'increasing') : p.kind === 'insufficient_data' ? 'insufficient_data' : 'stable');
+  const say = (p: PatternLite, verdict: Verdict = 'within') => narrate('readiness', { [FATIGUE]: { current: 3, pattern: p, trend: dir(p), verdict } });
+
+  it('estabilidade: registros proximos do padrao habitual (sem "aumentando")', () => {
+    const text = say(pat('stable'));
+    expect(text).toContain('O cansaço físico antes do treino permanece relativamente estável');
+    expect(text).not.toMatch(/aumentando|diminuindo|tendência de/);
+  });
+
+  it('oscilacao pontual: registros fora do padrao seguidos de retorno', () => {
+    const text = say(pat('isolated_oscillation', 'above'));
+    expect(text).toContain('O cansaço físico antes do treino teve registros fora do seu padrão habitual, seguidos de retorno aos valores anteriores.');
+    expect(text).not.toMatch(/aumentando|persistente/);
+  });
+
+  it('mudanca recente: acima do padrao, mas cedo para afirmar tendencia sustentada', () => {
+    const text = say(pat('recent_change', 'above'), 'above');
+    expect(text).toContain('Nos registros mais recentes, o cansaço físico antes do treino ficou acima do seu padrão habitual, mas ainda é cedo para afirmar que existe uma tendência sustentada.');
+  });
+
+  it('tendencia sustentada: permaneceu acima do padrao anterior, mudanca persistente', () => {
+    const text = say(pat('sustained_change', 'above'), 'above');
+    expect(text).toContain('Ao longo das últimas semanas, o cansaço físico antes do treino permaneceu acima do padrão anterior, indicando uma mudança persistente');
+    const down = narrate('readiness', { 'workout.preMotivation': { current: 2, pattern: pat('sustained_change', 'below'), trend: 'decreasing', verdict: 'below' } });
+    expect(down).toContain('a vontade de treinar permaneceu abaixo do padrão anterior');
+  });
+
+  it('dados insuficientes: nao interpreta', () => {
+    const text = say(pat('insufficient_data'), null);
+    expect(text).toContain('Ainda não existem registros suficientes para identificar uma tendência confiável');
+  });
+
+  it('um unico registro fora do padrao (sem continuidade) nao vira tendencia nem oscilacao: aparece so no veredito da faixa', () => {
+    const text = say(pat('isolated_oscillation', 'above', { ongoing: true }), 'above');
+    expect(text).toContain('No último registro, o cansaço físico antes do treino ficou acima do seu padrão habitual');
+    expect(text).not.toMatch(/seguidos de retorno|tendência/);
   });
 });

@@ -2735,3 +2735,6 @@ Analista determinístico (0 chamadas de IA) com contrato training-analysis/1 per
 
 ### 2026-10-09 — Etapa 3: ajuste dos agentes (local)
 Regeneração de dia recebe o retrato do Analista; seleção por foco; fundamentação com decides; evento TRAINING_ANALYSIS_FINDINGS no Prontuário; prompts ajustados. Ver ETAPA_3_AJUSTE_DOS_AGENTES.md.
+
+### 2026-10-10 — Classificação individual de tendências + Polar fora do Perfil (local)
+changePattern (estável/oscilação/mudança recente/sustentada/insuficiente) por histórico individual; direção exposta agora é a sustentada; desempate de observações no mesmo dia; instância PolarConnect removida do Perfil. Ver AJUSTE_CLASSIFICACAO_DE_TENDENCIAS.md. Duplicidades Polar/Apple: investigação só de leitura (sem acesso a dados reais).

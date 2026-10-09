@@ -7,6 +7,15 @@
 // construto, nao "melhor"); evidencia insuficiente => frase de insuficiencia ou nenhuma frase.
 // Home e telas de dominio usam ESTAS mesmas funcoes, para nunca contradizerem uma a outra.
 
+// Classificacao da mudanca CALCULADA PELO MOTOR (ChangePattern, API): o app so' le e redige, nunca recalcula. 'side' e' numerico (acima/abaixo), nao melhora/piora.
+export interface PatternLite {
+  kind: 'stable' | 'isolated_oscillation' | 'recent_change' | 'sustained_change' | 'insufficient_data';
+  side: 'above' | 'below' | null;
+  ongoing?: boolean;
+  windowDays?: number;
+  run?: { days: number; spanDays: number } | null;
+}
+
 export interface SnapshotLite {
   variable: { id?: string; dataType?: string; constructLabel?: string; scale?: { min: number; max: number; unit?: string } };
   mathApplicable: boolean;
@@ -15,7 +24,7 @@ export interface SnapshotLite {
   movingAverageSeries?: Record<string, Array<{ timestamp: string; value: number | null }>> | null;
   baseline?: { value: number | null; n: number } | null;
   deviation?: { absoluteDeviation: number | null; relativeDeviation: number | null } | null;
-  trend: Record<string, { direction: string; n?: number }> | null;
+  trend: Record<string, { direction: string; n?: number; pattern?: PatternLite | null }> | null;
   habitualRange?: { lower: number | null; upper: number | null; median: number | null; n: number; isPartialWindow?: boolean } | null;
   variabilityChange?: { direction: string } | null;
   persistence?: { currentlyOutsideHabitualRange: boolean | null; direction?: 'above' | 'below' | null } | null;
@@ -43,18 +52,53 @@ export function capitalize(text: string): string {
 
 const TREND_WINDOW_LABEL: Record<string, string> = { short_21d: 'nas últimas 3 semanas', medium_60d: 'nos últimos 2 meses' };
 
-/** Tendencia — a mesma frase usada na Home e nas telas de dominio. Null quando nao ha evidencia. */
-export function trendSentence(snapshot: SnapshotLite | null | undefined, d: Descriptor): string | null {
+export interface EnginePattern {
+  kind: 'stable' | 'isolated_oscillation' | 'recent_change' | 'sustained_change';
+  side: 'above' | 'below' | null;
+  ongoing: boolean;
+  windowKey: string;
+  days: number | null;
+  /** true = API antiga, sem `pattern`: vale so' a direcao e o texto antigo. */
+  legacy: boolean;
+}
+
+/** Classificacao da mudanca pelo motor (janela curta; media se a curta nao sustenta). Null quando o motor nao sustenta nenhuma leitura. */
+export function enginePattern(snapshot: SnapshotLite | null | undefined): EnginePattern | null {
   if (!snapshot || !snapshot.mathApplicable || !snapshot.trend) return null;
   for (const key of ['short_21d', 'medium_60d']) {
     const t = snapshot.trend[key];
     if (!t || t.direction === 'insufficient_data') continue;
-    const when = TREND_WINDOW_LABEL[key];
-    if (t.direction === 'stable') return `${d.label} permaneceu estável ${when}.`;
-    if (t.direction === 'increasing') return `${d.label} apresenta tendência de aumento ${when}.`;
-    if (t.direction === 'decreasing') return `${d.label} apresenta tendência de queda ${when}.`;
+    if (t.pattern) {
+      if (t.pattern.kind === 'insufficient_data') continue;
+      return { kind: t.pattern.kind, side: t.pattern.side, ongoing: t.pattern.ongoing === true, windowKey: key, days: t.pattern.windowDays ?? null, legacy: false };
+    }
+    if (t.direction === 'stable') return { kind: 'stable', side: null, ongoing: false, windowKey: key, days: null, legacy: true };
+    if (t.direction === 'increasing' || t.direction === 'decreasing') return { kind: 'sustained_change', side: t.direction === 'increasing' ? 'above' : 'below', ongoing: false, windowKey: key, days: null, legacy: true };
   }
   return null;
+}
+
+const daysNote = (days: number | null) => (days ? ` (${days} ${days === 1 ? 'dia' : 'dias'} com registro no período)` : '');
+
+/** Tendencia — a mesma frase usada na Home e nas telas de dominio. Null quando nao ha evidencia. */
+export function trendSentence(snapshot: SnapshotLite | null | undefined, d: Descriptor): string | null {
+  const p = enginePattern(snapshot);
+  if (!p) return null;
+  const when = TREND_WINDOW_LABEL[p.windowKey];
+  if (p.legacy) {
+    if (p.kind === 'stable') return `${d.label} permaneceu estável ${when}.`;
+    return p.side === 'above' ? `${d.label} apresenta tendência de aumento ${when}.` : `${d.label} apresenta tendência de queda ${when}.`;
+  }
+  const side = p.side === 'below' ? 'abaixo' : 'acima';
+  switch (p.kind) {
+    case 'stable': return `${d.label}: registros próximos do seu padrão habitual ${when}${daysNote(p.days)}.`;
+    case 'isolated_oscillation':
+      return p.ongoing
+        ? `${d.label}: o registro mais recente ficou fora do seu padrão habitual, ainda sem continuidade${daysNote(p.days)}.`
+        : `${d.label}: houve registros fora do seu padrão habitual ${when}, seguidos de retorno aos valores anteriores${daysNote(p.days)}.`;
+    case 'recent_change': return `${d.label}: os registros mais recentes estão ${side} do seu padrão habitual, mas ainda é cedo para afirmar que existe uma tendência sustentada${daysNote(p.days)}.`;
+    default: return `${d.label}: ${when}, os registros permaneceram ${side} do padrão anterior, indicando uma mudança persistente${daysNote(p.days)}.`;
+  }
 }
 
 /**
@@ -93,15 +137,12 @@ export function habitualRangeSentence(snapshot: SnapshotLite | null | undefined,
 
 // Chips curtos dos cards da Home — MESMAS regras de evidencia das frases (nunca divergem).
 export function trendChip(snapshot: SnapshotLite | null | undefined): string | null {
-  if (!snapshot || !snapshot.mathApplicable || !snapshot.trend) return null;
-  for (const key of ['short_21d', 'medium_60d']) {
-    const t = snapshot.trend[key];
-    if (!t || t.direction === 'insufficient_data') continue;
-    if (t.direction === 'stable') return 'estável';
-    if (t.direction === 'increasing') return 'em aumento';
-    if (t.direction === 'decreasing') return 'em queda';
-  }
-  return null;
+  const p = enginePattern(snapshot);
+  if (!p) return null;
+  if (p.kind === 'stable') return 'estável';
+  if (p.kind === 'isolated_oscillation') return 'oscilação pontual';
+  if (p.kind === 'recent_change') return 'mudança recente';
+  return p.side === 'below' ? 'em queda' : 'em aumento';
 }
 
 export function rangeChip(snapshot: SnapshotLite | null | undefined): string | null {
@@ -361,16 +402,6 @@ function formatScaleValue(id: string, snapshot: SnapshotLite): string | null {
   return max != null ? `${value}/${max}` : value;
 }
 
-/** Direcao de tendencia sustentada pelo motor (janela curta; media se a curta nao sustenta). */
-function engineTrendDirection(snapshot: SnapshotLite | null | undefined): 'increasing' | 'decreasing' | 'stable' | null {
-  if (!snapshot || !snapshot.mathApplicable || !snapshot.trend) return null;
-  for (const key of ['short_21d', 'medium_60d']) {
-    const t = snapshot.trend[key];
-    if (!t || t.direction === 'insufficient_data') continue;
-    if (t.direction === 'increasing' || t.direction === 'decreasing' || t.direction === 'stable') return t.direction;
-  }
-  return null;
-}
 
 interface NarrativeItem { priority: number; text: string }
 
@@ -379,23 +410,29 @@ export function domainSentences(domain: FeelingDomain, snapshots: Record<string,
   const ids = cfg.variables.filter((v) => !v.categorical && NARRATIVE_SUBJECTS[v.id]).map((v) => v.id).filter((id) => (snapshots[id]?.evidence.n ?? 0) > 0);
   if (ids.length === 0) return [];
 
-  const trend = new Map(ids.map((id) => [id, engineTrendDirection(snapshots[id])] as const));
+  const pat = new Map(ids.map((id) => [id, enginePattern(snapshots[id])] as const));
+  const legacy = ids.some((id) => pat.get(id)?.legacy === true);
   const verdict = new Map(ids.map((id) => [id, engineRangeVerdict(snapshots[id])?.verdict ?? null] as const));
   const variability = new Map(ids.map((id) => [id, snapshots[id]?.variabilityChange?.direction ?? null] as const));
 
-  const supported = ids.filter((id) => trend.get(id) != null || verdict.get(id) != null || variability.get(id) === 'increased' || variability.get(id) === 'decreased');
+  const supported = ids.filter((id) => pat.get(id) != null || verdict.get(id) != null || variability.get(id) === 'increased' || variability.get(id) === 'decreased');
   if (supported.length === 0) {
-    return [`Ainda não há registros suficientes para descrever como ${DOMAIN_TEXT[domain].subject} tem se comportado.`];
+    return [`Ainda não existem registros suficientes para identificar uma tendência confiável sobre ${DOMAIN_TEXT[domain].subject}.`];
   }
 
   const items: NarrativeItem[] = [];
-  const increasing = ids.filter((id) => trend.get(id) === 'increasing');
-  const decreasing = ids.filter((id) => trend.get(id) === 'decreasing');
-  const stable = ids.filter((id) => trend.get(id) === 'stable');
+  // sustentada (acima/abaixo do padrao anterior) | mudanca recente | oscilacao que voltou | estavel (inclui um unico registro fora, que ja' aparece no veredito de faixa)
+  const increasing = ids.filter((id) => pat.get(id)?.kind === 'sustained_change' && pat.get(id)?.side !== 'below');
+  const decreasing = ids.filter((id) => pat.get(id)?.kind === 'sustained_change' && pat.get(id)?.side === 'below');
+  const recentUp = ids.filter((id) => pat.get(id)?.kind === 'recent_change' && pat.get(id)?.side !== 'below');
+  const recentDown = ids.filter((id) => pat.get(id)?.kind === 'recent_change' && pat.get(id)?.side === 'below');
+  const oscillating = ids.filter((id) => pat.get(id)?.kind === 'isolated_oscillation' && pat.get(id)?.ongoing !== true);
+  const stable = ids.filter((id) => pat.get(id)?.kind === 'stable' || (pat.get(id)?.kind === 'isolated_oscillation' && pat.get(id)?.ongoing === true));
   const above = ids.filter((id) => verdict.get(id) === 'above');
   const below = ids.filter((id) => verdict.get(id) === 'below');
   const within = ids.filter((id) => verdict.get(id) === 'within');
-  const hasChange = increasing.length + decreasing.length > 0;
+  const hasSustained = increasing.length + decreasing.length > 0;
+  const hasChange = hasSustained || recentUp.length + recentDown.length > 0;
 
   // 1) Fora da faixa habitual
   if (above.length + below.length > 0) {
@@ -414,17 +451,17 @@ export function domainSentences(domain: FeelingDomain, snapshots: Record<string,
   const varIncreased = ids.filter((id) => variability.get(id) === 'increased');
   const varDecreased = ids.filter((id) => variability.get(id) === 'decreased');
   let variabilityMerged = false;
-  if (hasChange) {
+  if (hasSustained) {
     const clauses: Array<{ ids: string[]; verb: (plural: boolean) => string }> = [];
     const first = [...increasing, ...decreasing].sort((a, b) => ids.indexOf(a) - ids.indexOf(b))[0];
     const groups = first && decreasing.includes(first) ? [decreasing, increasing] : [increasing, decreasing];
     for (const g of groups) {
       if (g.length === 0) continue;
       const isInc = g === increasing;
-      clauses.push({ ids: g, verb: (p) => `${p ? 'vêm' : 'vem'} ${isInc ? 'aumentando' : 'diminuindo'}` });
+      clauses.push({ ids: g, verb: (p) => (legacy ? `${p ? 'vêm' : 'vem'} ${isInc ? 'aumentando' : 'diminuindo'}` : `${p ? 'permaneceram' : 'permaneceu'} ${isInc ? 'acima' : 'abaixo'} do padrão anterior`) });
     }
     const written = clauses.map((c) => `${groupPhrase(c.ids)} ${c.verb(isPluralGroup(c.ids))}`);
-    let sentence = upperFirst(written.join(', enquanto '));
+    let sentence = legacy ? upperFirst(written.join(', enquanto ')) : `Ao longo das últimas semanas, ${written.join(', enquanto ')}, indicando uma mudança persistente`;
     if (stable.length) sentence += `; já ${groupPhrase(stable)} ${isPluralGroup(stable) ? 'permanecem estáveis' : 'permanece estável'}`;
     items.push({ priority: 2, text: `${sentence}.` });
     items.push({ priority: 6, text: DOMAIN_TEXT[domain].intro });
@@ -439,6 +476,13 @@ export function domainSentences(domain: FeelingDomain, snapshots: Record<string,
     }
     items.push({ priority: 2, text: `${sentence}.` });
   }
+
+  // 2b) Mudanca recente (ainda sem persistencia) e oscilacao pontual com retorno — nunca descritas como tendencia
+  const recentParts: string[] = [];
+  if (recentUp.length) recentParts.push(`${groupPhrase(recentUp)} ${isPluralGroup(recentUp) ? 'ficaram' : 'ficou'} acima do seu padrão habitual`);
+  if (recentDown.length) recentParts.push(`${groupPhrase(recentDown)} ${isPluralGroup(recentDown) ? 'ficaram' : 'ficou'} abaixo do seu padrão habitual`);
+  if (recentParts.length) items.push({ priority: 2, text: `Nos registros mais recentes, ${recentParts.join(' e ')}, mas ainda é cedo para afirmar que existe uma tendência sustentada.` });
+  if (oscillating.length) items.push({ priority: 2, text: `${upperFirst(groupPhrase(oscillating))} ${isPluralGroup(oscillating) ? 'tiveram' : 'teve'} registros fora do seu padrão habitual, seguidos de retorno aos valores anteriores.` });
 
   // 3) Variabilidade
   if (!variabilityMerged && (varIncreased.length > 0 || varDecreased.length > 0)) {
@@ -467,7 +511,7 @@ export function domainSentences(domain: FeelingDomain, snapshots: Record<string,
     }
   } else {
     const alreadyWithValue = [...above, ...below].length > 0 && [...above, ...below].length === 1 ? [...above, ...below] : [];
-    const relevant = [...above, ...below, ...increasing, ...decreasing].filter((id, i, arr) => arr.indexOf(id) === i && !alreadyWithValue.includes(id)).slice(0, 2);
+    const relevant = [...above, ...below, ...increasing, ...decreasing, ...recentUp, ...recentDown].filter((id, i, arr) => arr.indexOf(id) === i && !alreadyWithValue.includes(id)).slice(0, 2);
     const parts = relevant
       .map((id) => {
         const s = NARRATIVE_SUBJECTS[id];

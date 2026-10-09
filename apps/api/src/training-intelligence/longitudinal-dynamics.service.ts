@@ -18,7 +18,7 @@
 // estrategia no futuro sem redesenho, mas so' criamos a segunda quando existir uma necessidade real.
 
 import { Injectable } from '@nestjs/common';
-import { MathLayerService, SeriesPoint, WindowSpec } from './math-layer.service';
+import { ChangePattern, MathLayerService, SeriesPoint, WindowSpec } from './math-layer.service';
 
 export interface DispersionResult {
   window: WindowSpec;
@@ -163,6 +163,17 @@ interface HabitualBounds {
 }
 
 const POST_RETURN_WINDOW_SIZE = 3;
+
+// ── Padrao de mudanca individual (10/2026) ──────────────────────────────────────────────────────────────────────────────
+const DAY_MS = 24 * 60 * 60 * 1000;
+const PATTERN_REFERENCE_DAYS = 200;           // mesma janela longa do baseline/faixa habitual
+const PATTERN_INDIVIDUAL_MIN_REF_DAYS = 12;   // abaixo disso a faixa de referencia e' marcada como limitada
+const PATTERN_MIN_REF_DAYS = 4;               // abaixo disso nao ha referencia anterior: usa-se a 1a metade da janela (se houver dias)
+const PATTERN_WITHIN_WINDOW_MIN_DAYS = 6;
+// Persistencia exigida para chamar de "sustentada" (dias distintos fora do padrao, todos do mesmo lado, ate' o ultimo registro, e o tempo coberto).
+const SUSTAINED_RULES = { individual: { minRun: 3, minSpanDays: 7 }, limited: { minRun: 4, minSpanDays: 10 } } as const;
+const SUPPORTING_MAX = 8;
+const round3 = (v: number) => Math.round(v * 1000) / 1000;
 const VARIABILITY_CHANGE_RATIO_THRESHOLD = 1.3; // acima disso = 'increased', abaixo do inverso = 'decreased'
 const LEVEL_RECOVERY_UNIT_TOLERANCE = 0; // postReturnLevel precisa cair dentro de [lower, upper] pra contar como recuperado
 const VARIABILITY_RECOVERY_RATIO_TOLERANCE = 1.5; // postReturnMad <= habitualMad * essa tolerancia conta como recuperado
@@ -190,6 +201,95 @@ function percentile(sortedValues: number[], p: number): number | null {
 @Injectable()
 export class LongitudinalDynamicsService {
   constructor(private readonly mathLayer: MathLayerService) {}
+
+  /**
+   * Classifica a mudanca da serie na janela em relacao ao PROPRIO historico do aluno — nao por uma inclinacao universal.
+   * (1) registros do mesmo dia viram um unico valor (mediana do dia): dois treinos no dia nao contam como duas semanas;
+   * (2) referencia = dias ANTERIORES a janela (ate' 200 d); faixa = P10-P90 com historico individual, ou todo o intervalo observado com pouco historico;
+   * (3) ruido individual = MAD/IQR robustos da referencia, com piso de meio degrau em escalas ordinais (mesmo aluno sempre em 2 => 1 ponto de afastamento e' real);
+   * (4) um dia conta como "fora do padrao" se passa do limite da faixa por pelo menos o ruido individual;
+   * (5) a sequencia FINAL de dias fora, do mesmo lado, decide: sem sequencia => estavel/oscilacao (saiu e voltou); sequencia curta => mudanca recente;
+   *     sequencia com dias e tempo suficientes (mais exigente se a referencia e' limitada) => sustentada.
+   * `step`: degrau da escala ordinal (1 para 1-5); `range`: amplitude da escala, para variaveis continuas.
+   */
+  changePattern(series: SeriesPoint[], window: WindowSpec, opts: { step?: number | null; range?: { min: number; max: number } | null } = {}): ChangePattern {
+    const empty = (reason: string, over: Partial<ChangePattern> = {}): ChangePattern => ({
+      kind: 'insufficient_data', side: null, ongoing: false, referenceBasis: 'none', referenceDays: 0, band: null, noise: null, windowDays: 0, run: null, episodes: 0, outsideDays: 0,
+      supporting: [], period: null, caution: reason, ...over,
+    });
+    const sorted = [...series].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    if (sorted.length === 0) return empty('Sem registros.');
+    const lastT = sorted[sorted.length - 1].timestamp.getTime();
+    const selection = this.mathLayer.selectWindow(sorted, window);
+    if (selection.points.length === 0) return empty('Sem registros na janela.');
+    const firstWindowT = selection.points[0].timestamp.getTime();
+
+    const daily = (points: SeriesPoint[]) => {
+      const byDay = new Map<string, number[]>();
+      for (const p of points) {
+        const key = p.timestamp.toISOString().slice(0, 10);
+        byDay.set(key, [...(byDay.get(key) ?? []), p.value]);
+      }
+      return [...byDay.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([date, values]) => ({ date, value: median([...values].sort((x, y) => x - y)) as number }));
+    };
+    const windowDaily = daily(selection.points);
+    const referenceDaily = daily(sorted.filter((p) => p.timestamp.getTime() < firstWindowT && p.timestamp.getTime() > lastT - PATTERN_REFERENCE_DAYS * DAY_MS));
+
+    let basis: ChangePattern['referenceBasis'];
+    let reference = referenceDaily;
+    let test = windowDaily;
+    if (referenceDaily.length >= PATTERN_INDIVIDUAL_MIN_REF_DAYS) basis = 'individual';
+    else if (referenceDaily.length >= PATTERN_MIN_REF_DAYS) basis = 'limited';
+    else if (windowDaily.length >= PATTERN_WITHIN_WINDOW_MIN_DAYS) {
+      const half = Math.ceil(windowDaily.length / 2);
+      reference = windowDaily.slice(0, half);
+      test = windowDaily.slice(half);
+      basis = 'within_window';
+    } else {
+      return empty('Ainda nao ha dias de registro suficientes para identificar uma tendencia confiavel.', { windowDays: windowDaily.length, referenceDays: referenceDaily.length, period: { from: windowDaily[0].date, to: windowDaily[windowDaily.length - 1].date } });
+    }
+    if (test.length < 2) {
+      return empty('Menos de dois dias com registro na parte avaliada.', { referenceBasis: basis, referenceDays: reference.length, windowDays: windowDaily.length, period: { from: windowDaily[0].date, to: windowDaily[windowDaily.length - 1].date } });
+    }
+
+    const refValues = reference.map((d) => d.value).sort((a, b) => a - b);
+    const refMedian = median(refValues) as number;
+    const lower = basis === 'individual' ? (percentile(refValues, 10) as number) : refValues[0];
+    const upper = basis === 'individual' ? (percentile(refValues, 90) as number) : refValues[refValues.length - 1];
+    const mad = median(refValues.map((v) => Math.abs(v - refMedian)).sort((a, b) => a - b)) as number;
+    const iqr = (percentile(refValues, 75) as number) - (percentile(refValues, 25) as number);
+    const floor = opts.step != null ? 0.5 * opts.step : opts.range ? 0.02 * (opts.range.max - opts.range.min) : 0.02 * Math.max(Math.abs(refMedian), 1);
+    const noise = Math.max(1.4826 * mad, iqr / 1.349, floor);
+
+    const flags = test.map((d) => (d.value > upper && d.value - upper >= noise ? 'above' as const : d.value < lower && lower - d.value >= noise ? 'below' as const : null));
+    const lastFlag = flags[flags.length - 1];
+    let runLength = 0;
+    if (lastFlag) { for (let i = flags.length - 1; i >= 0 && flags[i] === lastFlag; i -= 1) runLength += 1; }
+    const runStart = test[test.length - runLength];
+    const runSpanDays = runLength > 0 ? Math.round((Date.parse(test[test.length - 1].date) - Date.parse(runStart.date)) / DAY_MS) : 0;
+    let episodes = 0;
+    for (let i = 0; i < flags.length; i += 1) if (flags[i] && flags[i] !== flags[i - 1]) episodes += 1;
+    const outsideDays = flags.filter(Boolean).length;
+
+    const rules = basis === 'individual' ? SUSTAINED_RULES.individual : SUSTAINED_RULES.limited;
+    let kind: ChangePattern['kind'];
+    let ongoing = false;
+    if (lastFlag && runLength >= 2) kind = runLength >= rules.minRun && runSpanDays >= rules.minSpanDays ? 'sustained_change' : 'recent_change';
+    else if (lastFlag) { kind = 'isolated_oscillation'; ongoing = true; } // um registro fora do padrao, ainda sem continuidade nem retorno
+    else kind = outsideDays > 0 ? 'isolated_oscillation' : 'stable';
+
+    const supportingDays = kind === 'sustained_change' || kind === 'recent_change' ? test.slice(test.length - runLength) : test.filter((_, i) => flags[i]);
+    const caution = basis === 'limited' ? `Referencia calculada com apenas ${reference.length} dias de registro; a faixa usada e' todo o intervalo observado e a persistencia exigida e' maior.`
+      : basis === 'within_window' ? 'Sem historico anterior a janela: a referencia sao os primeiros dias da propria janela.' : null;
+
+    return {
+      kind, side: lastFlag ?? (outsideDays > 0 ? (flags.find(Boolean) as 'above' | 'below') : null), ongoing, referenceBasis: basis, referenceDays: reference.length,
+      band: { lower: round3(lower), upper: round3(upper) }, noise: round3(noise), windowDays: windowDaily.length,
+      run: runLength > 0 ? { days: runLength, spanDays: runSpanDays } : null, episodes, outsideDays,
+      supporting: supportingDays.slice(-SUPPORTING_MAX).map((d) => ({ date: d.date, value: round3(d.value) })),
+      period: { from: windowDaily[0].date, to: windowDaily[windowDaily.length - 1].date }, caution,
+    };
+  }
 
   /** Mediana, MAD, IQR e amplitude de um conjunto de pontos — nao presume distribuicao. */
   dispersion(points: SeriesPoint[], window: WindowSpec, isPartialWindow: boolean): DispersionResult {

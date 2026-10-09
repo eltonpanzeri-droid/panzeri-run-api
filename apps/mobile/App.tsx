@@ -1989,7 +1989,7 @@ function AppInner() {
             {activeTab === 'privacy' && <PrivacyDataScreen accessToken={accessToken} onOpenStrava={() => setActiveTab('strava')} />}
             {activeTab === 'profile' && (
               <>
-                <PolarConnect accessToken={accessToken} />
+                {/* 10/2026: a conexao Polar vive so' em 'Dispositivos e integrações' (e a gestao/exclusao em 'Privacidade e dados'). */}
                 <Anamnese
                   accessToken={accessToken}
                   userEmail={userEmail}

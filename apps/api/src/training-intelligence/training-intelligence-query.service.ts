@@ -213,8 +213,15 @@ export class TrainingIntelligenceQueryService {
     const deviationResult = this.mathLayer.deviation(current, baselineResult.value);
 
     const trend: VariableSnapshotResponse['trend'] = {};
+    const patternOptions = { step: definition.dataType === 'ordinal_scale' ? 1 : null, range: definition.scale ? { min: definition.scale.min, max: definition.scale.max } : null };
     for (const [label, window] of Object.entries(TREND_WINDOWS)) {
-      trend[label] = this.mathLayer.trend(series, window);
+      const regression = this.mathLayer.trend(series, window);
+      const pattern = this.longitudinalDynamics.changePattern(series, window, patternOptions);
+      // A direcao exposta (consumida pelo Prescritor, Evolucao, Analista e telas) passa a ser a SUSTENTADA: a regressao sozinha chamava de
+      // "aumento"/"queda" picos isolados em escala 1-5. A regressao pura continua em slopeDirection/slopePerDay.
+      const direction = pattern.kind === 'sustained_change' ? (pattern.side === 'above' ? 'increasing' as const : 'decreasing' as const)
+        : pattern.kind === 'insufficient_data' ? 'insufficient_data' as const : 'stable' as const;
+      trend[label] = { ...regression, direction, slopeDirection: regression.direction, pattern };
     }
 
     // Dinamica longitudinal (variabilidade/faixa habitual/persistencia/excursao/retorno). So

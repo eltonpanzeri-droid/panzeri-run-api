@@ -68,6 +68,20 @@ export interface CompactExcursionSummary {
   overshootOccurred: boolean | null;
 }
 
+/** Tipo de mudanca em relacao ao proprio historico do aluno (nao e' melhora/piora; e' descricao). Ver ChangePattern. */
+export interface CompactChangePattern {
+  kind: string;
+  side: 'above' | 'below' | null;
+  referenceBasis: string;
+  runDays: number | null;
+  windowDays: number;
+}
+
+export function compactPattern(pattern: { kind: string; side: 'above' | 'below' | null; referenceBasis: string; run: { days: number } | null; windowDays: number } | null | undefined): CompactChangePattern | null {
+  if (!pattern) return null;
+  return { kind: pattern.kind, side: pattern.side, referenceBasis: pattern.referenceBasis, runDays: pattern.run?.days ?? null, windowDays: pattern.windowDays };
+}
+
 /**
  * Estado compacto de UMA variavel. Quando evidence.n===0, so' `evidence` e' preenchido — os demais
  * campos ficam ausentes (nao "null" escrito por extenso) porque nao ha absolutamente nada a
@@ -75,7 +89,7 @@ export interface CompactExcursionSummary {
  */
 export interface CompactVariableState {
   current?: number | null;
-  trend?: { recent: string; mediumTerm: string };
+  trend?: { recent: string; mediumTerm: string; recentPattern?: CompactChangePattern | null; mediumTermPattern?: CompactChangePattern | null };
   baseline?: number | null;
   deviationFromBaseline?: { absolute: number | null; relative: number | null };
   variability?: { recent: number | null; habitual: number | null; change: string };
@@ -228,6 +242,8 @@ function compactVariable(entry: CompactableSnapshot): CompactVariableState {
     trend: {
       recent: entry.trend?.short_21d?.direction ?? 'insufficient_data',
       mediumTerm: entry.trend?.medium_60d?.direction ?? 'insufficient_data',
+      recentPattern: compactPattern(entry.trend?.short_21d?.pattern),
+      mediumTermPattern: compactPattern(entry.trend?.medium_60d?.pattern),
     },
     baseline: entry.baseline?.value ?? null,
     deviationFromBaseline: {

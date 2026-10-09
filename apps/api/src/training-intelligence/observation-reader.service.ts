@@ -165,7 +165,15 @@ export class ObservationReaderService {
     private readonly mathLayer: MathLayerService,
   ) {}
 
+  // Ordem total e deterministica: data e, no mesmo instante (ex.: duas sessoes no mesmo dia), o id do registro de origem. Sem isso o "ultimo"
+  // valor de um dia com duas sessoes dependia da ordem devolvida pelo banco.
   async getObservations(athleteId: string, variableId: string): Promise<Observation[]> {
+    const observations = await this.readObservations(athleteId, variableId);
+    const tieBreak = (o: Observation) => o.context.sessionId ?? o.context.workoutCompletionId ?? o.context.checkinId ?? o.context.nightlySleepLogId ?? o.context.stressCheckinId ?? o.context.activityLogId ?? '';
+    return [...observations].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime() || (tieBreak(a) < tieBreak(b) ? -1 : tieBreak(a) > tieBreak(b) ? 1 : 0));
+  }
+
+  private async readObservations(athleteId: string, variableId: string): Promise<Observation[]> {
     const definition = getVariableDefinition(variableId);
     if (!definition) {
       throw new NotFoundException(`Variavel desconhecida no VariableRegistry: ${variableId}`);

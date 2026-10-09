@@ -66,12 +66,54 @@ export interface DeviationResult {
   relativeDeviation: number | null;
 }
 
+/**
+ * Tipo de mudanca de uma serie em relacao ao PROPRIO historico do aluno (10/2026). Nao e' bom nem ruim: so' descreve o que os dados sustentam.
+ * stable = dentro da variabilidade habitual | isolated_oscillation = saiu do padrao e voltou (ou um unico registro fora, ainda sem continuidade) |
+ * recent_change = sinais de mudanca ainda sem persistencia suficiente | sustained_change = afastamento persistente do padrao anterior |
+ * insufficient_data = sem base para interpretar.
+ */
+export type ChangeKind = 'stable' | 'isolated_oscillation' | 'recent_change' | 'sustained_change' | 'insufficient_data';
+
+export interface ChangePattern {
+  kind: ChangeKind;
+  /** Lado numerico do afastamento em relacao a faixa de referencia (acima/abaixo). NAO significa melhora/piora. */
+  side: 'above' | 'below' | null;
+  /** true quando o ultimo registro esta fora do padrao e ainda nao ha retorno nem continuidade que permita outra leitura. */
+  ongoing: boolean;
+  /** individual = faixa P10-P90 de >= 12 dias de historico anterior | limited = 4-11 dias (faixa = todo o intervalo observado) | within_window = sem historico anterior, 1a metade da janela | none. */
+  referenceBasis: 'individual' | 'limited' | 'within_window' | 'none';
+  referenceDays: number;
+  band: { lower: number; upper: number } | null;
+  /** Escala de ruido individual (MAD/IQR robustos, com piso de meio degrau da escala): afastamento menor que isto nao conta como mudanca. */
+  noise: number | null;
+  /** Dias distintos com registro na janela (registros do mesmo dia sao resumidos pela mediana do dia). */
+  windowDays: number;
+  /** Sequencia final de dias consecutivos fora do padrao, do mesmo lado. */
+  run: { days: number; spanDays: number } | null;
+  /** Quantas vezes a serie saiu do padrao e voltou dentro da janela. */
+  episodes: number;
+  outsideDays: number;
+  /** Dias que sustentam a classificacao (os fora do padrao, no maximo 8), para rastreio. */
+  supporting: Array<{ date: string; value: number }>;
+  period: { from: string; to: string } | null;
+  caution: string | null;
+}
+
 export interface TrendResult {
+  /**
+   * Direcao SUSTENTADA: 'increasing'/'decreasing' somente quando o padrao e' sustained_change; 'insufficient_data' quando o padrao nao
+   * tem base; 'stable' nos demais casos (inclusive oscilacao e mudanca recente — ver `pattern` para a distincao).
+   * Quando `pattern` nao e' calculado (uso direto da MathLayer), vale a regra antiga da regressao.
+   */
   direction: 'increasing' | 'decreasing' | 'stable' | 'insufficient_data';
   /** Inclinacao da regressao linear simples, em unidades da variavel por dia. Null se n < 2. */
   slopePerDay: number | null;
   window: WindowSpec;
   n: number;
+  /** Classificacao individual da mudanca (preenchida pelo TrainingIntelligenceQueryService). */
+  pattern?: ChangePattern;
+  /** Direcao da regressao linear pura (criterio antigo, mantido so' como informacao; nao e' mais usado como veredito). */
+  slopeDirection?: 'increasing' | 'decreasing' | 'stable' | 'insufficient_data';
 }
 
 /** Abaixo desta magnitude de inclinacao*dias a tendencia e' considerada estavel, nao um viezes numerico. */
