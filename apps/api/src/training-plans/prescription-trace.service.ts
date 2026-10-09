@@ -6,7 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { classifyMaterializedCompletion } from '../activity-execution/provider-data-deletion.service';
 import {
-  AgentCallTrace, classifyLoadProvenance, ProviderProvenance, SessionForLoadProvenance, buildAgentInputRecord, buildSessionDecisions, buildSessionVersions, buildWeekDecision, DecisionDraft, describeSessionForTrace, EvidenceItem,
+  AgentCallTrace, classifyExecutionProvenance, ExecutionProvenance, classifyLoadProvenance, ProviderProvenance, SessionForLoadProvenance, buildAgentInputRecord, buildSessionDecisions, buildSessionVersions, buildWeekDecision, DecisionDraft, describeSessionForTrace, EvidenceItem,
   parseRetentionMonths, retentionCutoff, SessionForTrace, snapshotOfSession, TRACE_SCHEMA_VERSION,
 } from './prescription-trace';
 import type { ContextGap } from './student-information-context';
@@ -43,6 +43,7 @@ export interface PersistDayParams {
   evidence: EvidenceItem[];
   contextGaps: ContextGap[];
   agentTrace: AgentCallTrace[];
+  sourceProviders: string[];
 }
 
 @Injectable()
@@ -84,6 +85,33 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
     return { activity: activityRows.map((row) => row.provider).sort(), extra: load.extra, prescribedCopy: load.prescribedCopy };
   }
 
+  // Proveniencia de dispositivo dos VALORES DE EXECUCAO enviados a IA (historico semanal, recorde, treinos perto do recorde) e das narrativas de
+  // evolucao. Mesma definicao de "derivado" da carga semanal (sessionDerivation). Narrativas escritas por IA a partir do estado/volume do atleta
+  // nao podem ser separadas por provedor: ficam ligadas a todos os provedores com contribuicao na janela (invalidacao por inteiro, D1).
+  async collectExecutionProvenance(
+    tx: Tx, userId: string,
+    data: { weeks: Array<{ weekStartDate: string; sessions: unknown[]; recorded: unknown[] }>; longestRun: unknown | null; nearRecord: unknown[]; profile?: { summaryMayCarryEvolutionNarrative: boolean; pendingEventCodes: string[] } },
+    provenance: ProviderProvenance,
+  ): Promise<ExecutionProvenance> {
+    type Raw = { origin?: string | null; structure?: unknown; completion?: unknown; executionLinks?: Array<{ activityLog: SessionForLoadProvenance['links'][number]['activity'] }> };
+    const toLoad = (raw: unknown): SessionForLoadProvenance => {
+      const session = raw as Raw;
+      return { origin: session.origin ?? null, structure: session.structure ?? null, completion: (session.completion ?? null) as Record<string, unknown> | null, links: (session.executionLinks ?? []).map((link) => ({ activity: link.activityLog })) };
+    };
+    const weeks = data.weeks.map((week) => ({ weekStartDate: week.weekStartDate, sessions: week.sessions.map(toLoad), recorded: week.recorded.map(toLoad) }));
+    const longestRun = data.longestRun ? toLoad(data.longestRun) : null;
+    const nearRecord = data.nearRecord.map(toLoad);
+    const all = [...weeks.flatMap((w) => w.sessions), ...(longestRun ? [longestRun] : []), ...nearRecord];
+    const ids = [...new Set(all.filter((s) => s.origin === 'device_extra').map((s) => (s.structure as { activityLogId?: string } | null)?.activityLogId).filter((id): id is string => !!id))];
+    const providerById = new Map<string, string>();
+    if (ids.length > 0) for (const row of await tx.activityLog.findMany({ where: { userId, id: { in: ids } }, select: { id: true, provider: true } })) providerById.set(row.id, row.provider);
+    return classifyExecutionProvenance(
+      { weeks, longestRun, nearRecord, narrativeProviders: [...provenance.activity, ...provenance.extra, ...provenance.prescribedCopy], profile: data.profile },
+      (completion, activity) => Object.keys(classifyMaterializedCompletion(completion, activity).clear),
+      (activityLogId) => providerById.get(activityLogId) ?? null,
+    );
+  }
+
   // Gravado NA MESMA TRANSACAO que cria o plano: nenhuma prescricao nova existe sem trilha. Registros imutaveis.
   async persistWeekly(tx: Tx, p: PersistWeeklyParams): Promise<{ packageId: string }> {
     const record = buildAgentInputRecord(p.agentTrace);
@@ -113,8 +141,7 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
         modelIds: record.modelIds, agentInputHash: record.agentInputHash,
         evidence: p.evidence as unknown as Prisma.InputJsonValue, contextGaps: p.contextGaps as unknown as Prisma.InputJsonValue,
         agentInput: record.agentInput === null ? Prisma.DbNull : (record.agentInput as Prisma.InputJsonValue),
-        // O prompt de regeneracao de UM dia nao leva agregados de dispositivo: proveniencia conhecida e vazia.
-        sourceProviders: [] as unknown as Prisma.InputJsonValue,
+        sourceProviders: p.sourceProviders as unknown as Prisma.InputJsonValue,
       },
     });
     const [decision] = buildSessionDecisions({ sessions: [p.session], previousWeek: null });

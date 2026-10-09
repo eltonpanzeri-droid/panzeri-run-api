@@ -64,7 +64,7 @@ describe('endurecimento da rastreabilidade (PostgreSQL 17 real, dados sinteticos
   const agent = new FakeAgent();
   const deletion = new ProviderDataDeletionService(prisma as never);
 
-  function plansService() {
+  function plansService(opts: { snapshotFails?: boolean } = {}) {
     const studentProfile = new StudentProfileService(prisma as never, { condenseProfile: async () => null } as never);
     return new TrainingPlansService(
       prisma as never, agent as never,
@@ -73,14 +73,14 @@ describe('endurecimento da rastreabilidade (PostgreSQL 17 real, dados sinteticos
       { notifyCoach: jest.fn().mockResolvedValue(undefined) } as never, studentProfile as never,
       { notifyUser: async () => undefined } as never, {} as never,
       { getAgentContext: async () => null } as never,
-      { getSnapshot: async () => ({}) } as never, // o contexto compacto realista vem do jest.mock acima
+      { getSnapshot: async () => { if (opts.snapshotFails) throw new Error('snapshot indisponivel no teste'); return {}; } } as never, // o contexto compacto realista vem do jest.mock acima
       { isReassessmentDue: async () => false, getLatestValidEvolutionReport: async () => null } as never,
       { retryStalledAnalyses: async () => ({ attempted: 0, resolved: 0, stillPending: 0 }) } as never,
       {} as never, {} as never,
       trace,
     );
   }
-  const generate = (userId: string) => (plansService() as unknown as { generateWeekLocked: (userId: string) => Promise<{ id: string }> }).generateWeekLocked(userId);
+  const generate = (userId: string, opts: { snapshotFails?: boolean } = {}) => (plansService(opts) as unknown as { generateWeekLocked: (userId: string) => Promise<{ id: string }> }).generateWeekLocked(userId);
 
   async function seedRoutineStudent(label: string) {
     const student = await seedStudent(prisma, label);
@@ -385,6 +385,198 @@ describe('endurecimento da rastreabilidade (PostgreSQL 17 real, dados sinteticos
       expect((versions[0].snapshot as { structure: unknown }).structure).toEqual(seeded.structure);
       expect(versions[1]).toMatchObject({ version: 2, traced: true, packageKind: 'day_regeneration' });
       expect(versions[0].validUntil).toBe(versions[1].validFrom);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  describe('4) valores de execucao no texto enviado a IA (historicoSemanal, recorde, prontuario): a classe inteira, nao so athleteStateContext', () => {
+    const SENT_SUMMARY = 'SENTINELA_PRONTUARIO';
+    const SENT_EVENT = 'SENTINELA_EVOLUCAO';
+    const REMOVED = '[registro removido: dado derivado de servico excluido pelo aluno]';
+    const week = (pkg: { agentInput: unknown }) => JSON.parse(promptOf(pkg.agentInput)).historicoSemanal[0] as Record<string, unknown> & { recordedSessions: string[] };
+    const parsed = (pkg: { agentInput: unknown }) => JSON.parse(promptOf(pkg.agentInput)) as Record<string, any>;
+
+    // Aluno com: (0) sessao prescrita cujo registro e COPIA exata da atividade da Wahoo; (1) sessao EXTRA do relogio da Polar; (2) sessao prescrita
+    // cujo registro o aluno informou DIFERENTE da atividade da Garmin (independente); prontuario com resumo e eventos (um deles e a reavaliacao).
+    async function seedExecutionStudent(label: string, options: { independentCompletion?: boolean } = {}) {
+      const s = await seedRoutineStudent(label);
+      const wahoo = await seedActivity(s.userId, 'wahoo', '2026-09-29T08:00:00Z', `wahoo-${label}`);
+      await prisma.activityLog.update({ where: { id: wahoo.id }, data: { distanceMeters: 5100, durationSec: 2460 } });
+      await prisma.sessionExecutionLink.create({ data: { userId: s.userId, trainingSessionId: s.sessionIds[0], activityLogId: wahoo.id, status: 'active', origin: 'automatic' } });
+      const polar = await seedActivity(s.userId, 'polar', '2026-09-30T08:00:00Z', `polar-${label}`);
+      const extra = await prisma.trainingSession.create({
+        data: { planId: s.planId, userId: s.userId, scheduledDate: new Date('2026-09-30T00:00:00Z'), weekday: 2, modality: 'corrida', title: 'corrida (extra)', durationMin: 40, distanceKm: 5, structure: { type: 'extra', source: 'device', provider: 'polar', activityLogId: polar.id }, origin: 'device_extra' },
+      });
+      await prisma.workoutCompletion.create({ data: { userId: s.userId, sessionId: extra.id, status: 'done', durationMin: 40, distanceKm: 5 } });
+      if (options.independentCompletion !== false) {
+        const garmin = await seedActivity(s.userId, 'garmin', '2026-10-01T08:00:00Z', `garmin-${label}`);
+        await prisma.sessionExecutionLink.create({ data: { userId: s.userId, trainingSessionId: s.sessionIds[1], activityLogId: garmin.id, status: 'active', origin: 'automatic' } });
+        await prisma.workoutCompletion.create({ data: { userId: s.userId, sessionId: s.sessionIds[1], status: 'done', distanceKm: 10, durationMin: 70, painFlag: 'none' } });
+      }
+      await prisma.studentProfile.create({ data: { userId: s.userId, summary: `Prontuario com ${SENT_SUMMARY}` } });
+      await prisma.studentProfileEvent.create({ data: { userId: s.userId, code: 'WORKOUT_COMPLETED', content: 'Feedback independente do aluno', createdAt: new Date('2026-10-02T10:00:00Z') } });
+      await prisma.studentProfileEvent.create({ data: { userId: s.userId, code: 'REASSESSMENT_COMPLETED', content: `Reavaliacao periodica concluida. Resumo de evolucao: ${SENT_EVENT}`, createdAt: new Date('2026-10-03T10:00:00Z') } });
+      return s;
+    }
+    const prescribedSnapshot = async (planId: string) => JSON.stringify(await prisma.trainingSession.findMany({ where: { planId, origin: { not: 'device_extra' } }, orderBy: { id: 'asc' }, select: { id: true, structure: true, durationMin: true, distanceKm: true, paceMinSec: true, weekday: true } }));
+
+    it('historico derivado de provedor: exclusoes SUCESSIVAS alcançam so o que cada provedor contamina; registro independente e prescricoes originais ficam', async () => {
+      const helena = await seedExecutionStudent('helena-exec');
+      await generate(helena.userId);
+      const before = await packageOf(helena.userId);
+      const original = week(before);
+      const text0 = promptOf(before.agentInput);
+      expect(text0).toContain(SENT_SUMMARY);
+      expect(text0).toContain(SENT_EVENT);
+      expect(original.recordedSessions).toHaveLength(3);
+      // indice: derivacao por campo e por linha, so nomes e posicoes
+      const item = (before.evidence as unknown as EvidenceItem[]).find((e) => e.ref === 'history_week:2026-09-28')!;
+      expect(item.derivation?.fields).toMatchObject({ prescribedSessions: ['polar'], runMinutes: ['polar'], completedSessions: ['polar', 'wahoo'], longestRunDate: ['polar', 'wahoo'] });
+      expect(item.derivation?.entries).toEqual([{ index: 0, providers: ['wahoo'] }, { index: 1, providers: ['polar'] }]);
+      expect(JSON.stringify(item.derivation)).not.toMatch(/km|min\b/);
+      expect(before.sourceProviders).toEqual(['garmin', 'polar', 'wahoo']);
+      expect(before.schemaVersion).toBe(2);
+      const prescribedBefore = await prescribedSnapshot(helena.planId);
+
+      // 1) WAHOO
+      const r1 = await deletion.executeProviderDataDeletion(helena.userId, 'wahoo');
+      expect(r1.agentInputsRedacted).toBe(1);
+      let pkg = await packageOf(helena.userId);
+      let w = week(pkg);
+      for (const field of ['completedSessions', 'completedRunMinutes', 'longestRunMinutes', 'longestRunDate']) expect(w).not.toHaveProperty(field);
+      expect(w.prescribedSessions).toBe(original.prescribedSessions); // so da Polar
+      expect(w.runMinutes).toBe(original.runMinutes);
+      expect(w.unregisteredSessions).toBe(original.unregisteredSessions);
+      expect(w.weekStartDate).toBe('2026-09-28');
+      expect(w.recordedSessions).toEqual([REMOVED, original.recordedSessions[1], original.recordedSessions[2]]);
+      expect(parsed(pkg).prontuarioDoAluno).toBeNull(); // narrativa que pode ter absorvido o relatorio de evolucao
+      const events = parsed(pkg).eventosDoProntuarioAindaNaoCondensados as string[];
+      expect(events[0]).toContain('Feedback independente do aluno');
+      expect(events[1]).toBe(REMOVED);
+      expect(promptOf(pkg.agentInput)).not.toContain(SENT_SUMMARY);
+      expect(promptOf(pkg.agentInput)).not.toContain(SENT_EVENT);
+      // o indice nao guarda mais o trecho da narrativa; a derivacao da Polar continua registrada
+      const afterItem = (pkg.evidence as unknown as EvidenceItem[]).find((e) => e.ref === 'history_week:2026-09-28')!;
+      expect(afterItem.derivation?.fields).toEqual({ prescribedSessions: ['polar'], runMinutes: ['polar'] });
+      expect(afterItem.invalidatedProviders).toEqual(['wahoo']);
+      expect(JSON.stringify(pkg.evidence)).not.toContain(SENT_EVENT);
+
+      // 2) POLAR
+      const r2 = await deletion.executeProviderDataDeletion(helena.userId, 'polar');
+      expect(r2.agentInputsRedacted).toBe(1);
+      pkg = await packageOf(helena.userId);
+      w = week(pkg);
+      expect(w).not.toHaveProperty('prescribedSessions');
+      expect(w).not.toHaveProperty('runMinutes');
+      expect(w.recordedSessions).toEqual([REMOVED, REMOVED, original.recordedSessions[2]]); // o registro independente (Garmin, valor diferente) permanece
+      expect(w.unregisteredSessions).toBe(original.unregisteredSessions);
+
+      // 3) GARMIN: nada de execucao dependia dela; sem novo marcador de execucao
+      const markersBefore = (pkg.agentInputRedactions as unknown[]).length;
+      await deletion.executeProviderDataDeletion(helena.userId, 'garmin');
+      pkg = await packageOf(helena.userId);
+      expect(week(pkg).recordedSessions[2]).toBe(original.recordedSessions[2]);
+      expect((pkg.agentInputRedactions as unknown[]).length).toBeGreaterThanOrEqual(markersBefore);
+      expect(parsed(pkg).objetivo).toBe('Correr 10km');
+      expect(promptOf(pkg.agentInput)).toContain('Evitar corrida na quarta');
+      expect(promptOf(pkg.agentInput)).toContain('A esteira do aluno vai so ate 12 km/h');
+
+      // marcadores: nomes de campo e indices, nunca valores
+      const markers = JSON.stringify(pkg.agentInputRedactions);
+      expect(markers).toContain('historicoSemanal[2026-09-28].completedRunMinutes');
+      expect(markers).toContain('historicoSemanal[2026-09-28].recordedSessions[0]');
+      for (const leaked of [SENT_SUMMARY, SENT_EVENT, '10km', '5.1km']) expect(markers).not.toContain(leaked);
+
+      // prescricoes originais intocadas
+      expect(await prescribedSnapshot(helena.planId)).toBe(prescribedBefore);
+      expect(await prisma.workoutCompletion.count({ where: { sessionId: helena.sessionIds[1] } })).toBe(1); // registro independente segue no dominio vivo
+    });
+
+    it('pacote SEM athleteStateContext: o historico derivado e as narrativas tambem sao alcancados', async () => {
+      const kauan = await seedExecutionStudent('kauan-exec');
+      await generate(kauan.userId, { snapshotFails: true });
+      const before = await packageOf(kauan.userId);
+      expect(parsed(before).athleteStateContext).toBeNull();
+      expect(before.sourceProviders).toEqual(['garmin', 'polar', 'wahoo']); // sem agregados de atividade; a Garmin entra pela narrativa (prontuario/eventos)
+      expect(promptOf(before.agentInput)).toContain(SENT_EVENT);
+
+      const result = await deletion.executeProviderDataDeletion(kauan.userId, 'polar');
+      expect(result.agentInputsRedacted).toBe(1);
+      const pkg = await packageOf(kauan.userId);
+      const w = week(pkg);
+      expect(w).not.toHaveProperty('prescribedSessions');
+      expect(w.recordedSessions[1]).toBe(REMOVED);
+      expect(w.recordedSessions[2]).toBe(week(before).recordedSessions[2]);
+      expect(parsed(pkg).prontuarioDoAluno).toBeNull();
+      expect(promptOf(pkg.agentInput)).not.toContain(SENT_EVENT);
+      expect(parsed(pkg).athleteStateContext).toBeNull();
+    });
+
+    it('recorde (maiorLongaoJaRegistrado) e treinos perto do recorde: derivados saem por posicao; independentes ficam; exclusoes sucessivas', async () => {
+      const joana = await seedRoutineStudent('joana-exec');
+      const mk = async (km: number, min: number, date: string, weekday: number, provider: string | null) => {
+        const session = await prisma.trainingSession.create({ data: { planId: joana.planId, userId: joana.userId, scheduledDate: new Date(date), weekday, modality: 'corrida', title: 'Corrida', structure: { type: 'run' }, origin: 'agent', durationMin: min, distanceKm: km } });
+        await prisma.workoutCompletion.create({ data: { userId: joana.userId, sessionId: session.id, status: 'done', distanceKm: km, durationMin: min, painFlag: 'none' } });
+        if (provider) {
+          const activity = await seedActivity(joana.userId, provider, `${date.slice(0, 10)}T08:00:00Z`, `${provider}-joana-${km}`);
+          await prisma.activityLog.update({ where: { id: activity.id }, data: { distanceMeters: km * 1000, durationSec: min * 60 } });
+          await prisma.sessionExecutionLink.create({ data: { userId: joana.userId, trainingSessionId: session.id, activityLogId: activity.id, status: 'active', origin: 'automatic' } });
+        }
+      };
+      await mk(9, 60, '2026-09-22T00:00:00Z', 1, 'wahoo'); // recorde, copia da Wahoo
+      await mk(8.5, 55, '2026-09-23T00:00:00Z', 2, 'polar'); // perto do recorde, copia da Polar
+      await mk(6, 40, '2026-09-24T00:00:00Z', 3, null); // independente
+      await generate(joana.userId);
+      const before = parsed(await packageOf(joana.userId));
+      expect(before.maiorLongaoJaRegistrado.distanciaKm).toBe(9);
+      expect(before.sessoesRecentesPertoDoRecorde.map((s: { distanciaKm: number }) => s.distanciaKm)).toEqual([9, 8.5, 6, 5.1]);
+
+      await deletion.executeProviderDataDeletion(joana.userId, 'wahoo');
+      let after = parsed(await packageOf(joana.userId));
+      expect(after.maiorLongaoJaRegistrado).toBeNull();
+      expect(after.sessoesRecentesPertoDoRecorde).toEqual([{ removido: true }, before.sessoesRecentesPertoDoRecorde[1], before.sessoesRecentesPertoDoRecorde[2], before.sessoesRecentesPertoDoRecorde[3]]);
+
+      await deletion.executeProviderDataDeletion(joana.userId, 'polar');
+      after = parsed(await packageOf(joana.userId));
+      expect(after.sessoesRecentesPertoDoRecorde).toEqual([{ removido: true }, { removido: true }, before.sessoesRecentesPertoDoRecorde[2], before.sessoesRecentesPertoDoRecorde[3]]);
+      const item = ((await packageOf(joana.userId)).evidence as unknown as EvidenceItem[]).find((e) => e.ref === 'record:longest_run')!;
+      expect(item).toMatchObject({ providers: [], invalidatedProviders: ['wahoo'] });
+    });
+
+    it('regeneracao de UM dia: prontuario e eventos derivados tambem saem do texto guardado do dia', async () => {
+      const mira = await seedExecutionStudent('mira-exec', { independentCompletion: false });
+      await prisma.trainingSession.update({ where: { id: mira.sessionIds[1] }, data: { scheduledDate: new Date('2026-10-14T00:00:00Z'), weekday: 3 } });
+      await plansService().regenerateSession(mira.userId, mira.sessionIds[1]);
+      const day = await packageOf(mira.userId, 'day_regeneration');
+      expect(day.schemaVersion).toBe(2);
+      expect(day.sourceProviders).toEqual(['polar', 'wahoo']);
+      expect(promptOf(day.agentInput)).toContain(SENT_SUMMARY);
+      const result = await deletion.executeProviderDataDeletion(mira.userId, 'wahoo');
+      expect(result.agentInputsRedacted).toBe(1);
+      const after = await packageOf(mira.userId, 'day_regeneration');
+      expect(parsed(after).prontuarioDoAluno).toBeNull();
+      expect(parsed(after).eventosDoProntuarioAindaNaoCondensados[0]).toContain('Feedback independente do aluno');
+      expect(promptOf(after.agentInput)).not.toContain(SENT_EVENT);
+      expect(promptOf(after.agentInput)).toContain('A esteira do aluno vai so ate 12 km/h'); // relato do aluno permanece
+    });
+
+    it('pacote de versao anterior (sem derivacao registrada): todo valor de execucao derivavel e invalidado; o que e do aluno por natureza fica', async () => {
+      const lia = await seedExecutionStudent('lia-exec');
+      await generate(lia.userId);
+      await prisma.$executeRaw`UPDATE "PrescriptionEvidencePackage" SET "schemaVersion" = 1 WHERE "userId" = ${lia.userId}`;
+      const before = week(await packageOf(lia.userId));
+      await deletion.executeProviderDataDeletion(lia.userId, 'qualquer');
+      const pkg = await packageOf(lia.userId);
+      const w = week(pkg);
+      expect(w.recordedSessions).toEqual([REMOVED, REMOVED, REMOVED]);
+      expect(w).not.toHaveProperty('completedRunMinutes');
+      expect(w.weekStartDate).toBe('2026-09-28');
+      expect(w.unregisteredSessions).toBe(before.unregisteredSessions);
+      expect(parsed(pkg).prontuarioDoAluno).toBeNull();
+      expect(parsed(pkg).objetivo).toBe('Correr 10km');
+      expect(promptOf(pkg.agentInput)).toContain('Evitar corrida na quarta');
+      const item = (pkg.evidence as unknown as EvidenceItem[]).find((e) => e.ref === 'history_week:2026-09-28')!;
+      expect(item.excerpt).toBeNull();
     });
   });
 

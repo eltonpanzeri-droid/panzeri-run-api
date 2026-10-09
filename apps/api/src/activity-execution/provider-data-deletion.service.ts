@@ -2,7 +2,7 @@ import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TombstoneLedger } from '../backup/tombstone-ledger';
-import { AgentInputRedaction, EvidenceItem, isProviderDerivedVariable, packageMayContainProvider, redactAgentInputForProvider, redactEvidenceForProvider } from '../training-plans/prescription-trace';
+import { AgentInputRedaction, EvidenceItem, executionActionsFor, isProviderDerivedVariable, packageMayContainProvider, redactAgentInputForProvider, redactEvidenceForProvider } from '../training-plans/prescription-trace';
 
 // Exclusao dos dados atribuiveis a UM provider de UM usuario (04/10/2026). Provider-agnostico: so'
 // conhece o dominio canonico (RawExternalActivity / ActivityLog / samples / series / vinculos) e a
@@ -230,18 +230,20 @@ export class ProviderDataDeletionService {
       let evidenceRedacted = 0;
       let agentInputsRedacted = 0;
       const packages = await tx.prescriptionEvidencePackage?.findMany({
-        where: { userId }, select: { id: true, evidence: true, agentInput: true, sourceProviders: true, agentInputRedactions: true },
+        where: { userId }, select: { id: true, schemaVersion: true, evidence: true, agentInput: true, sourceProviders: true, agentInputRedactions: true },
       }) ?? [];
       for (const pkg of packages) {
-        if (!packageMayContainProvider(pkg.sourceProviders, provider, pkg.evidence)) continue;
-        const { evidence, redacted } = redactEvidenceForProvider(pkg.evidence, provider, { assumeAll: !Array.isArray(pkg.sourceProviders) });
+        // Pacote de versao < 2 nao registra a derivacao dos valores de execucao (historico semanal, recorde, narrativas): proveniencia desconhecida.
+        const legacy = pkg.schemaVersion < 2 || !Array.isArray(pkg.sourceProviders);
+        if (!legacy && !packageMayContainProvider(pkg.sourceProviders, provider, pkg.evidence)) continue;
+        const { evidence, redacted } = redactEvidenceForProvider(pkg.evidence, provider, { assumeAll: legacy });
         // Variaveis a remover do texto guardado: as que o INDICE do pacote liga ao provedor (providers inclui o provedor ou o desconhecido '?') e as de
         // proveniencia nao registrada. Pacote sem proveniencia (anterior ao campo) => todas as derivaveis de dispositivo (null).
         const variableIds = Array.isArray(pkg.sourceProviders) ? providerVariableIds(pkg.evidence, provider) : null;
-        const input = pkg.agentInput === null ? { agentInput: null, redaction: null } : redactAgentInputForProvider(pkg.agentInput, provider, new Date(), variableIds);
+        const input = pkg.agentInput === null ? { agentInput: null, redaction: null } : redactAgentInputForProvider(pkg.agentInput, provider, new Date(), variableIds, legacy ? 'all' : executionActionsFor(pkg.evidence, provider));
         if (redacted === 0 && input.redaction === null) continue;
         const marker: AgentInputRedaction & { evidenceItemsRedacted: number; agentInputAlreadyPurged: boolean } = {
-          ...(input.redaction ?? { provider, at: new Date().toISOString(), reason: 'provider_data_deleted' as const, removedVariableIds: [], callsChanged: 0, callsUnparseableRemoved: 0 }),
+          ...(input.redaction ?? { provider, at: new Date().toISOString(), reason: 'provider_data_deleted' as const, removedVariableIds: [], removedExecutionFields: [], callsChanged: 0, callsUnparseableRemoved: 0 }),
           evidenceItemsRedacted: redacted,
           agentInputAlreadyPurged: pkg.agentInput === null,
         };

@@ -171,6 +171,13 @@ interface RawWorkoutCompletion {
   shoeUsage?: { shoeId: string } | null;
 }
 
+// Sessoes COM registro do aluno, em ordem cronologica: a lista de que sai recordedSessions (e a proveniencia, pelos mesmos indices).
+function recordedSessionsOf<S extends { scheduledDate: Date; completion: unknown }>(plan: { sessions: S[] }) {
+  return plan.sessions
+    .filter((session): session is S & { completion: NonNullable<S['completion']> } => session.completion !== null)
+    .sort((a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime());
+}
+
 @Injectable()
 export class TrainingPlansService {
   private readonly logger = new Logger(TrainingPlansService.name);
@@ -205,7 +212,7 @@ export class TrainingPlansService {
 
   // Garante, ANTES de gastar uma chamada de IA, que o servico de rastreabilidade esta presente (protege tambem contra stubs/configuracao incompleta).
   private requireTrace(): PrescriptionTraceService {
-    if (!this.trace || typeof this.trace.persistWeekly !== 'function' || typeof this.trace.persistDayRegeneration !== 'function' || typeof this.trace.collectProvenance !== 'function') {
+    if (!this.trace || typeof this.trace.persistWeekly !== 'function' || typeof this.trace.persistDayRegeneration !== 'function' || typeof this.trace.collectProvenance !== 'function' || typeof this.trace.collectExecutionProvenance !== 'function') {
       this.logger.error('Servico de rastreabilidade indisponivel: geracao de prescricao recusada antes de chamar a IA.');
       throw new InternalServerErrorException('Rastreabilidade das prescricoes indisponivel. Nenhuma prescricao foi gerada.');
     }
@@ -228,6 +235,10 @@ export class TrainingPlansService {
     let interpretedReportIds: string[] = [];
     let pendingReportIds: string[] = [];
     let pendingProfileEventIds: string[] = [];
+    let pendingProfileEventCodes: string[] = [];
+    // O resumo condensado do prontuario pode ter absorvido o texto do relatorio de evolucao (evento REASSESSMENT_COMPLETED), escrito por IA a partir do
+    // estado/volume do atleta: para a exclusao de dados de provedor ele e' tratado como narrativa derivada. Falha ao consultar => conservador (true).
+    let profileNarrativeDerived = false;
 
     if (options.refreshProfile) {
       try {
@@ -244,11 +255,18 @@ export class TrainingPlansService {
       studentProfileSummary = profile.summary;
       pendingProfileEvents = profile.pendingEvents.map((event) => formatPendingProfileEvent(event));
       pendingProfileEventIds = profile.pendingEvents.map((event) => event.id);
+      pendingProfileEventCodes = profile.pendingEvents.map((event) => event.code);
       if (profile.status === 'failed') {
         gaps.push({ source: 'prontuario', severity: 'informativo', reason: 'A condensacao do prontuario falhou nesta geracao.', effect: `${profile.pendingEvents.length} evento(s) recente(s) ainda nao estao no resumo do prontuario; foram entregues em texto bruto em eventosDoProntuarioAindaNaoCondensados.` });
       }
     } catch (error) {
       gaps.push({ source: 'prontuario', severity: 'degradado', reason: describeError(error), effect: 'O prontuario do aluno NAO pode ser recuperado; o historico condensado (inclusive restricoes persistentes) pode estar ausente deste contexto.' });
+    }
+
+    try {
+      profileNarrativeDerived = ((await this.prisma.studentProfileEvent?.count?.({ where: { userId, code: 'REASSESSMENT_COMPLETED' } })) ?? 0) > 0;
+    } catch {
+      profileNarrativeDerived = true;
     }
 
     let deliveredReportCount = 0;
@@ -281,7 +299,7 @@ export class TrainingPlansService {
       gaps.push({ source: 'relatos_do_aluno', severity: 'degradado', reason: describeError(error), effect: 'Os relatos interpretados do aluno (restricoes, equipamento, dificuldades) NAO puderam ser recuperados.' });
     }
 
-    return { studentProfileSummary, pendingProfileEvents, studentReports, pendingStudentReports, deliveredReportCount, gaps, interpretedReportIds, pendingReportIds, pendingProfileEventIds };
+    return { studentProfileSummary, pendingProfileEvents, studentReports, pendingStudentReports, deliveredReportCount, gaps, interpretedReportIds, pendingReportIds, pendingProfileEventIds, pendingProfileEventCodes, profileNarrativeDerived };
   }
 
   // Falha de recuperacao de contexto nunca passa em silencio: log estruturado e aviso ao treinador. A geracao NAO e
@@ -741,7 +759,7 @@ export class TrainingPlansService {
           completion: { status: { in: ['done', 'adjusted'] }, distanceKm: { not: null } },
         },
         orderBy: { completion: { distanceKm: 'desc' } },
-        select: { scheduledDate: true, completion: { select: { distanceKm: true, satisfaction: true, details: true } } },
+        select: { scheduledDate: true, origin: true, structure: true, completion: { select: { status: true, distanceKm: true, durationMin: true, avgHeartRate: true, maxHeartRate: true, avgPaceSecondsKm: true, satisfaction: true, details: true } }, executionLinks: { where: { status: 'active' }, select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } } } },
       }),
     ]);
 
@@ -867,7 +885,7 @@ export class TrainingPlansService {
       where: { userId, startDate: { lt: weekStart } },
       orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
       take: 24,
-      include: { sessions: { include: { completion: { include: { shoeUsage: true } } } } },
+      include: { sessions: { include: { completion: { include: { shoeUsage: true } }, executionLinks: { where: { status: 'active' }, select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } } } } } },
     });
     // Injeta o dia da prova (secao 5 do fechamento do Passo 2) — precisa vir DEPOIS do weekStart
     // final (inclusive do rollover acima) e ANTES de qualquer uso de availableDays dai pra frente
@@ -885,6 +903,8 @@ export class TrainingPlansService {
     // plano mais recente daquela semana (autoritativo); planos anteriores da mesma semana so contribuem com sessoes COM
     // registro do aluno. Mesma regra de evolution-metric.service.ts (plano ativo OU sessao com registro).
     const historyWeeks = selectHistoryWeeks(previousPlans, 4);
+    // Proveniencia de dispositivo dos VALORES DE EXECUCAO do historico: as MESMAS sessoes, na MESMA ordem das linhas enviadas a IA (recordedSessions).
+    const executionWeeks: Array<{ weekStartDate: string; sessions: unknown[]; recorded: unknown[] }> = [];
     const methodologyHistory = historyWeeks.map((historyPlan) => {
       const runSessions = historyPlan.sessions.filter((session) => isRunningModality(session.modality));
       const completedRuns = runSessions.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted');
@@ -909,12 +929,12 @@ export class TrainingPlansService {
         longestRunDate: longestRun ? longestRun.scheduledDate.toISOString().slice(0, 10) : null,
         // 05/10/2026 (caso Eduarda): fatos sessao a sessao, so' das sessoes com registro do aluno (as sem
         // registro ja estao contadas em unregisteredSessions — ausencia de registro nao vira dado).
-        recordedSessions: historyPlan.sessions
-          .filter((session): session is typeof session & { completion: NonNullable<typeof session.completion> } => session.completion !== null)
-          .sort((a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime())
-          .map((session) => formatRecordedSession(session)),
+        recordedSessions: recordedSessionsOf(historyPlan).map((session) => formatRecordedSession(session)),
       };
     });
+    for (const historyPlan of historyWeeks) {
+      executionWeeks.push({ weekStartDate: historyPlan.startDate.toISOString().slice(0, 10), sessions: historyPlan.sessions, recorded: recordedSessionsOf(historyPlan) });
+    }
     // So chama a IA do prontuario se houver evento novo acumulado desde a ultima atualizacao —
     // ver StudentProfileService.refreshProfile. Falha aqui nunca bloqueia a geracao da semana.
     const informationContext = await this.loadStudentInformationContext(userId, { refreshProfile: true });
@@ -934,13 +954,15 @@ export class TrainingPlansService {
           },
           orderBy: { completion: { distanceKm: 'desc' } },
           take: 5,
-          select: { scheduledDate: true, completion: { select: { distanceKm: true, details: true } } },
+          select: { scheduledDate: true, origin: true, structure: true, completion: { select: { status: true, distanceKm: true, durationMin: true, avgHeartRate: true, maxHeartRate: true, avgPaceSecondsKm: true, details: true } }, executionLinks: { where: { status: 'active' }, select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } } } },
         })
       : [];
     // Passo 2/6 da integracao Training Intelligence (25/09/2026, auditoria aprovada): Snapshot ->
     // Compact Agent Context -> prompt. REGRA DURA: falha aqui NUNCA pode bloquear a geracao semanal
     // (mesmo padrao ja usado pra studentProfileSummary logo acima) — o campo so fica null e o resto
     // do fluxo segue normalmente, exatamente como funcionava antes desta integracao existir.
+    // Mesma lista, na mesma ordem, enviada a IA em sessoesRecentesPertoDoRecorde (a proveniencia usa os mesmos indices).
+    const nearRecordSessions = recentSessionsNearRecord.filter((session): session is typeof session & { completion: { distanceKm: number; details: unknown } } => session.completion?.distanceKm != null);
     const athleteStateContextBase = await this.athleteStateSnapshot
       .getSnapshot(userId)
       .then((snapshot) => buildCompactAgentContext(snapshot))
@@ -1036,8 +1058,7 @@ export class TrainingPlansService {
           return typeof value === 'string' ? value : null;
         })(),
       } : null,
-      recentSessionsNearRecord: recentSessionsNearRecord
-        .filter((session): session is typeof session & { completion: { distanceKm: number; details: unknown } } => session.completion?.distanceKm != null)
+      recentSessionsNearRecord: nearRecordSessions
         .map((session) => ({
           distanceKm: session.completion.distanceKm,
           date: session.scheduledDate.toISOString().slice(0, 10),
@@ -1444,6 +1465,14 @@ export class TrainingPlansService {
       });
       // Proveniencia dos agregados derivados de dispositivo enviados a IA (atividade objetiva e carga semanal), por provedor.
       const provenance = await this.trace.collectProvenance(tx, userId, weekStart);
+      const executionProvenance = await this.trace.collectExecutionProvenance(
+        tx, userId,
+        {
+          weeks: executionWeeks, longestRun: longestRunSession ?? null, nearRecord: nearRecordSessions,
+          profile: { summaryMayCarryEvolutionNarrative: informationContext.profileNarrativeDerived, pendingEventCodes: informationContext.pendingProfileEventCodes },
+        },
+        provenance,
+      );
       const previousWeek = historyWeeks[0] ? { startDate: historyWeeks[0].startDate, sessions: historyWeeks[0].sessions.map(toTrace) } : null;
       await this.trace.persistWeekly(tx, {
         userId, planId: createdPlan.id, weekStart, methodologyVersion: PANZERI_METHODOLOGY_VERSION,
@@ -1465,10 +1494,11 @@ export class TrainingPlansService {
           paceSource,
           contextGaps,
           provenance,
+          executionProvenance,
         }),
         contextGaps,
         agentTrace,
-        sourceProviders: sourceProvidersOf(methodologyInput, provenance),
+        sourceProviders: sourceProvidersOf(methodologyInput, provenance, executionProvenance),
         recommendation: methodology.recommendation,
         rationale: methodology.rationale,
         safetyAdjustment: methodology.safetyAdjustment,
@@ -2072,6 +2102,18 @@ export class TrainingPlansService {
         throw new BadRequestException({ message: 'Esse treino ja foi registrado pelo aluno — nao e possivel gerar um novo treino no lugar dele.', code: 'session_already_completed' });
       }
       const updated = await tx.trainingSession.update(updateArgs);
+      // Proveniencia de dispositivo dos agregados e das narrativas que o prompt do dia carrega (prontuario e eventos). O prompt do dia nao leva historico,
+      // recorde nem relatorio de evolucao: essas listas ficam vazias.
+      const dayProvenance = await trace.collectProvenance(tx, userId, session.scheduledDate);
+      const dayExecution = {
+        ...(await trace.collectExecutionProvenance(
+          tx, userId,
+          { weeks: [], longestRun: null, nearRecord: [], profile: { summaryMayCarryEvolutionNarrative: dayInformationContext.profileNarrativeDerived, pendingEventCodes: dayInformationContext.pendingProfileEventCodes } },
+          dayProvenance,
+        )),
+        evolutionReport: [] as string[],
+        reassessmentEvolution: [] as string[],
+      };
       await trace.persistDayRegeneration(tx, {
         userId, planId: updated.planId, methodologyVersion: PANZERI_METHODOLOGY_VERSION,
         session: toTraceSession(updated),
@@ -2087,9 +2129,11 @@ export class TrainingPlansService {
           reassessment: latestReassessment ? { id: latestReassessment.id, completedAt: latestReassessment.completedAt } : null,
           evolutionReport: latestEvolutionReport ? { id: latestEvolutionReport.id, createdAt: latestEvolutionReport.createdAt } : null,
           interviewCompletedAt: null, paceSource: null, contextGaps: dayInformationContext.gaps,
+          provenance: dayProvenance, executionProvenance: dayExecution,
         }),
         contextGaps: dayInformationContext.gaps,
         agentTrace: dayAgentTrace,
+        sourceProviders: sourceProvidersOf(dayEvidenceInput, dayProvenance, dayExecution),
       });
       return updated;
     });

@@ -104,7 +104,7 @@ describe('rastreabilidade das prescricoes (PostgreSQL 17 real, dados sinteticos)
     const pkg = result.packages[0];
 
     // identificacao e versao
-    expect(pkg).toMatchObject({ userId: student.userId, planId: plan.id, kind: 'weekly', schemaVersion: 1 });
+    expect(pkg).toMatchObject({ userId: student.userId, planId: plan.id, kind: 'weekly', schemaVersion: 2 });
     expect(pkg.methodologyVersion).toBeTruthy();
     expect(pkg.modelIds).toEqual(['claude-sonnet-5']);
 

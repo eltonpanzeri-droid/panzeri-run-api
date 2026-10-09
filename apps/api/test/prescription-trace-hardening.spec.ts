@@ -78,7 +78,7 @@ describe('exclusao de dados de provedor: texto enviado a IA (agentInput)', () =>
     expect(prompt.relatosEstruturadosDoAluno[0].fatos).toBe('A esteira do aluno vai so ate 12 km/h');
     expect(prompt.studentDirectives).toEqual(['Evitar corrida na quarta']);
     // marcador auditavel: so metadados, jamais o conteudo removido
-    expect(redaction).toEqual({ provider: 'polar', at: '2026-10-12T16:00:00.000Z', reason: 'provider_data_deleted', removedVariableIds: ['activity.avgPaceSecondsKm', 'activity.cadenceAvg'], callsChanged: 1, callsUnparseableRemoved: 0 });
+    expect(redaction).toEqual({ provider: 'polar', at: '2026-10-12T16:00:00.000Z', reason: 'provider_data_deleted', removedVariableIds: ['activity.avgPaceSecondsKm', 'activity.cadenceAvg'], removedExecutionFields: [], callsChanged: 1, callsUnparseableRemoved: 0 });
     expect(JSON.stringify(redaction)).not.toMatch(/437|171\.6/);
     // hashes: o original fica (prova de que existiu) e o do texto atual e' gravado
     expect(call.userPromptSha256).toBe(sha256(promptWith(athleteStateContext())));
