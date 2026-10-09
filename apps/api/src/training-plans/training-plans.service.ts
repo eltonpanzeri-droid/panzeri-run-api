@@ -24,6 +24,9 @@ import { PrescriptionAgentService, PaceEvidence } from './prescription-agent.ser
 import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
+import {
+  ContextGap, describeError, formatObservationForAgent, formatPendingProfileEvent, selectHistoryWeeks, selectRelevantReportEntries,
+} from './student-information-context';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WeeklyCheckInService } from './weekly-checkin.service';
 import { StudentProfileService, ProfileEventCode } from './student-profile.service';
@@ -194,6 +197,87 @@ export class TrainingPlansService {
     private readonly sessionExecutionLink: SessionExecutionLinkService,
     private readonly shoes: ShoesService,
   ) {}
+
+  // Etapa 1.1 (09/10/2026) — carrega, de forma EXPLICITA, todo o contexto textual do aluno que o Prescritor precisa:
+  //  - prontuario (resumo condensado) + eventos ainda NAO condensados, em texto bruto, se a condensacao falhar;
+  //  - relatos do aluno ja interpretados pelo Relator (persistentes/relevantes/resolvidos), em ordem cronologica;
+  //  - relatos ainda SEM interpretacao (em andamento ou com falha), em texto bruto — nada se perde enquanto o
+  //    processamento nao termina (nao se espera o Relator: o texto bruto vai junto e e marcado como tal);
+  //  - lacunas: qualquer parte que nao pode ser recuperada vira um ContextGap (jamais um catch silencioso).
+  // Nunca lanca: uma falha vira lacuna. Com refreshProfile=false (regeneracao de um dia) nenhuma IA e chamada.
+  private async loadStudentInformationContext(userId: string, options: { refreshProfile: boolean }) {
+    const gaps: ContextGap[] = [];
+    let studentProfileSummary = '';
+    let pendingProfileEvents: string[] = [];
+    let studentReports: ReturnType<typeof selectRelevantReportEntries>['interpreted'] = [];
+    let pendingStudentReports: ReturnType<typeof selectRelevantReportEntries>['pending'] = [];
+
+    if (options.refreshProfile) {
+      try {
+        await this.reportTimeline.retryStalledAnalyses(userId);
+      } catch (error) {
+        gaps.push({ source: 'relatos_do_aluno', severity: 'informativo', reason: describeError(error), effect: 'O reprocessamento de relatos sem interpretacao nao rodou; eles seguem em texto bruto em relatosAindaNaoInterpretadosDoAluno.' });
+      }
+    }
+
+    try {
+      const profile = options.refreshProfile
+        ? await this.studentProfile.refreshProfileDetailed(userId)
+        : await this.studentProfile.loadProfileContext(userId);
+      studentProfileSummary = profile.summary;
+      pendingProfileEvents = profile.pendingEvents.map((event) => formatPendingProfileEvent(event));
+      if (profile.status === 'failed') {
+        gaps.push({ source: 'prontuario', severity: 'informativo', reason: 'A condensacao do prontuario falhou nesta geracao.', effect: `${profile.pendingEvents.length} evento(s) recente(s) ainda nao estao no resumo do prontuario; foram entregues em texto bruto em eventosDoProntuarioAindaNaoCondensados.` });
+      }
+    } catch (error) {
+      gaps.push({ source: 'prontuario', severity: 'degradado', reason: describeError(error), effect: 'O prontuario do aluno NAO pode ser recuperado; o historico condensado (inclusive restricoes persistentes) pode estar ausente deste contexto.' });
+    }
+
+    let deliveredReportCount = 0;
+    try {
+      const select = {
+        id: true, sourceType: true, relatedLabel: true, originalText: true, occurredAt: true, analyzedAt: true, analysisError: true, createdAt: true,
+        facts: true, perception: true, themes: true, temporality: true, longitudinalNote: true, hypotheses: true, relevance: true,
+      } as const;
+      // Duas leituras: (1) os persistentes de QUALQUER idade (restricao dita uma vez vale ate o aluno dizer o contrario — nao
+      // pode sair do contexto por haver muitos relatos mais novos); (2) os relatos recentes/pendentes.
+      const [persistentRows, recentRows] = await Promise.all([
+        this.prisma.studentReportEntry.findMany({ where: { userId, temporality: 'PERSISTENTE_ATE_CONTRARIO' }, orderBy: { occurredAt: 'desc' }, take: 60, select }),
+        this.prisma.studentReportEntry.findMany({ where: { userId }, orderBy: { occurredAt: 'desc' }, take: 300, select }),
+      ]);
+      const seen = new Set<string>();
+      const rows = [...persistentRows, ...recentRows].filter((entry) => (seen.has(entry.id) ? false : (seen.add(entry.id), true)));
+      const selected = selectRelevantReportEntries(rows);
+      studentReports = selected.interpreted;
+      pendingStudentReports = selected.pending;
+      deliveredReportCount = selected.interpreted.length;
+      if (selected.pending.length > 0) {
+        gaps.push({ source: 'relatos_do_aluno', severity: 'informativo', reason: `${selected.pending.length} relato(s) do aluno ainda sem interpretacao (em andamento ou com falha).`, effect: 'O texto bruto foi entregue em relatosAindaNaoInterpretadosDoAluno; nada foi descartado.' });
+      }
+      if (selected.omittedForBudget > 0) {
+        gaps.push({ source: 'relatos_do_aluno', severity: 'informativo', reason: `${selected.omittedForBudget} relato(s) mais antigos e nao persistentes ficaram fora por limite de tamanho.`, effect: 'Os relatos persistentes e os mais recentes foram preservados; o historico completo segue consultavel no sistema.' });
+      }
+    } catch (error) {
+      gaps.push({ source: 'relatos_do_aluno', severity: 'degradado', reason: describeError(error), effect: 'Os relatos interpretados do aluno (restricoes, equipamento, dificuldades) NAO puderam ser recuperados.' });
+    }
+
+    return { studentProfileSummary, pendingProfileEvents, studentReports, pendingStudentReports, deliveredReportCount, gaps };
+  }
+
+  // Falha de recuperacao de contexto nunca passa em silencio: log estruturado e aviso ao treinador. A geracao NAO e
+  // bloqueada (o agente recebe as lacunas e e instruido a ser conservador), mas o treinador sabe que ela saiu incompleta.
+  private async reportDegradedContext(userId: string, name: string | null | undefined, studentCode: number | null | undefined, gaps: ContextGap[]) {
+    const degraded = gaps.filter((gap) => gap.severity === 'degradado');
+    if (degraded.length === 0) return;
+    this.logger.warn(`Contexto incompleto na geracao do programa de treino (userId=${userId}): ${degraded.map((gap) => `${gap.source}: ${gap.reason}`).join(' | ')}`);
+    try {
+      await this.telegram.notifyCoach(
+        `⚠️ Programa de treino gerado com CONTEXTO INCOMPLETO.\nAluno: ${name ?? 'sem nome'} (Cod. ${formatStudentCode(studentCode ?? null)})\nNao recuperado: ${degraded.map((gap) => gap.source).join(', ')}\nO programa foi gerado mesmo assim e a IA foi avisada para ser conservadora; confira o aluno.`,
+      );
+    } catch {
+      // aviso e melhor esforco; o log acima ja registrou
+    }
+  }
 
   // REGRA DURA (2026-07-28): current() e SO LEITURA — nunca chama generateWeek() nem mexe no
   // banco. E chamado toda vez que o aluno abre o app E toda vez que o treinador abre a pagina
@@ -683,7 +767,11 @@ export class TrainingPlansService {
     // getCycleOverview (mesma Camada Matematica do resto da Training Intelligence). Retorna null
     // pra quem nao tem ciclo ativo ou ainda nao tem nenhum ciclo registrado. Falha aqui nunca
     // bloqueia a geracao — e dado de contexto, nao dado critico de prescricao.
-    const menstrualCycleContext = await this.menstrualCycle.getAgentContext(userId).catch(() => null);
+    const contextGaps: ContextGap[] = [];
+    const menstrualCycleContext = await this.menstrualCycle.getAgentContext(userId).catch((error) => {
+      contextGaps.push({ source: 'ciclo_menstrual', severity: 'degradado', reason: describeError(error), effect: 'O contexto do ciclo menstrual nao pode ser recuperado; se a aluna tem ciclo ativo, a ausencia NAO significa que nao ha influencia.' });
+      return null;
+    });
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan(hasSubscriptionAccess(user.subscriptionStatus));
 
@@ -750,10 +838,12 @@ export class TrainingPlansService {
     // teria startDate IGUAL a semana do relogio, nunca menor), fazendo historicoSemanal chegar na
     // IA sem a semana que o aluno acabou de viver. Numa segunda-feira comum a mesma geracao teria
     // outro historico — nao deveria depender do dia em que a chamada acontece.
+    // Etapa 1.1 (09/10/2026): busca margem de planos (uma semana regenerada tem varios) e o historico considera
+    // SEMANAS, nao planos — ver selectHistoryWeeks.
     const previousPlans = await this.prisma.trainingPlan.findMany({
       where: { userId, startDate: { lt: weekStart } },
-      orderBy: { startDate: 'desc' },
-      take: 4,
+      orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
+      take: 24,
       include: { sessions: { include: { completion: { include: { shoeUsage: true } } } } },
     });
     // Injeta o dia da prova (secao 5 do fechamento do Passo 2) — precisa vir DEPOIS do weekStart
@@ -767,17 +857,12 @@ export class TrainingPlansService {
     // 2 sessoes para Dom que apareceram no app como treinos indevidos.
     const trainingWeekdays = new Set(availableDays.map((d) => d.weekday));
 
-    // RISCO CONHECIDO, NAO CORRIGIDO NESTA RODADA (auditoria de fechamento do Passo 2, 25/09/2026):
-    // previousPlans (query acima) NAO filtra plano arquivado sem completion (sessao-fantasma) —
-    // diferente da regra ja estabelecida em evolution-metric.service.ts
-    // (plan.status==='active' || completion!==null), reutilizada pelo Athlete State Snapshot. Isso
-    // significa que prescribedSessions/completedSessions abaixo podem estar inflados por sessoes de
-    // planos regenerados que o aluno nunca chegou a ver. Nao foi corrigido agora porque
-    // historicoSemanal alimenta varias regras finas do prompt (weekStartDate/longestRunDate/
-    // unregisteredSessions) e trocar a fonte exige validacao propria, fora do escopo desta correcao
-    // (que era: comprimir contexto, eliminar duplicidade do check-in, e nomear/reconciliar conceitos
-    // de aderencia). Ver relatorio de auditoria da Correcao 3 para o comparativo completo.
-    const methodologyHistory = previousPlans.map((historyPlan) => {
+    // CORRIGIDO NA ETAPA 1.1 (09/10/2026) — antes, o historico usava os ultimos 4 PLANOS e contava sessoes-fantasma de
+    // planos regenerados (o aluno nunca as viu), inflando prescribedSessions/unregisteredSessions. Agora: UMA semana = o
+    // plano mais recente daquela semana (autoritativo); planos anteriores da mesma semana so contribuem com sessoes COM
+    // registro do aluno. Mesma regra de evolution-metric.service.ts (plano ativo OU sessao com registro).
+    const historyWeeks = selectHistoryWeeks(previousPlans, 4);
+    const methodologyHistory = historyWeeks.map((historyPlan) => {
       const runSessions = historyPlan.sessions.filter((session) => isRunningModality(session.modality));
       const completedRuns = runSessions.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted');
       // O treino mais longo da semana (candidato mais provavel a ser uma prova/longao que a IA
@@ -809,7 +894,8 @@ export class TrainingPlansService {
     });
     // So chama a IA do prontuario se houver evento novo acumulado desde a ultima atualizacao —
     // ver StudentProfileService.refreshProfile. Falha aqui nunca bloqueia a geracao da semana.
-    const studentProfileSummary = await this.studentProfile.refreshProfile(userId).catch(() => '');
+    const informationContext = await this.loadStudentInformationContext(userId, { refreshProfile: true });
+    contextGaps.push(...informationContext.gaps);
     // So busca quando o recorde historico for >=8km (pedido explicito do treinador 10/08) — abaixo
     // disso o "recorde quente vs frio" nao importa pra decisao. Nao calcula nem julga nada aqui —
     // so traz os treinos concluidos nas ultimas 10 semanas que chegaram perto (>=50%) do recorde,
@@ -837,6 +923,7 @@ export class TrainingPlansService {
       .then((snapshot) => buildCompactAgentContext(snapshot))
       .catch((error) => {
         this.logger.warn(`Falha ao gerar Athlete State Snapshot para ${userId}, seguindo sem ele: ${error instanceof Error ? error.message : error}`);
+        contextGaps.push({ source: 'estado_do_atleta', severity: 'degradado', reason: describeError(error), effect: 'O estado longitudinal do atleta (sono, fadiga, recuperacao, carga, dor) NAO pode ser recuperado; decida com cautela sobre a progressao.' });
         return null;
       });
     // menstrualCycleContext (calculado acima, ja com fallback null em falha) entra no MESMO objeto
@@ -856,8 +943,12 @@ export class TrainingPlansService {
       })),
       history: methodologyHistory,
       studentDirectives: activeDirectives.map(formatDirectiveForAgent),
-      activeObservations: activeObservations.map((observation) => observation.content),
-      studentProfileSummary,
+      activeObservations: activeObservations.map(formatObservationForAgent),
+      studentProfileSummary: informationContext.studentProfileSummary,
+      studentReports: informationContext.studentReports,
+      pendingStudentReports: informationContext.pendingStudentReports,
+      pendingProfileEvents: informationContext.pendingProfileEvents,
+      contextGaps,
       weeklyCheckIn: latestWeeklyCheckIn,
       athleteStateContext,
       todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
@@ -937,6 +1028,7 @@ export class TrainingPlansService {
       testPace: latestTest ? { secondsPerKm: latestTest.paceSecondsPerKm, daysAgo: Math.floor((Date.now() - latestTest.createdAt.getTime()) / 86400000) } : null,
       selfReportedPace: paceFallback ? { secondsPerKm: paceFallback.paceSecondsPerKm, source: paceFallback.source } : null,
     };
+    await this.reportDegradedContext(userId, user.name, user.studentCode, contextGaps);
     const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput, paceEvidence);
     if (!aiDecision) {
       // O treinador foi explicito: a prescricao TEM que vir de raciocinio real da IA, nunca de
@@ -1270,6 +1362,14 @@ export class TrainingPlansService {
             painTier: painSafety.tier,
             painReason: painSafety.reason,
             targetRaces: methodologyInput.targetRaces,
+            // Etapa 1.1: o que da informacao textual chegou ao Prescritor e o que NAO pode ser recuperado (nunca silencioso).
+            informationContext: {
+              reportEntriesDelivered: informationContext.deliveredReportCount,
+              pendingReportsDelivered: informationContext.pendingStudentReports.length,
+              pendingProfileEventsDelivered: informationContext.pendingProfileEvents.length,
+              observationsDelivered: activeObservations.length,
+              contextGaps,
+            },
             methodology: {
               version: PANZERI_METHODOLOGY_VERSION,
               principles: PANZERI_PRESCRIPTION_PRINCIPLES,
@@ -1373,7 +1473,7 @@ export class TrainingPlansService {
     // 09/09: texto adaptado ao histórico de registros da semana anterior — sem registro ≠ não feito;
     // mostrar o número cria consciência sobre o impacto na qualidade da prescrição.
     if (planStatus === 'active') {
-      const prevPlan = previousPlans[0] ?? null;
+      const prevPlan = historyWeeks[0] ?? null;
       const unregisteredCount = prevPlan
         ? prevPlan.sessions.filter((s) => s.completion === null).length
         : 0;
@@ -1772,6 +1872,9 @@ export class TrainingPlansService {
       this.prisma.studentObservation.findMany({ where: { userId, active: true }, orderBy: { createdAt: 'desc' } }),
       this.prisma.reassessment.findFirst({ where: { userId, completedAt: { not: null } }, orderBy: { completedAt: 'desc' } }),
     ]);
+    // Etapa 1.1: a regeneracao de um dia recebe o MESMO contexto textual da semana (prontuario, relatos, pendencias) —
+    // sem chamada de IA (so leitura): a condensacao do prontuario so roda na geracao semanal.
+    const dayInformationContext = await this.loadStudentInformationContext(userId, { refreshProfile: false });
 
     // stripRoutineKeysFromAnswers: idem ao generateWeek() — rotina via WA, nao via answers.
     const answers = stripRoutineKeysFromAnswers(sanitizeInterviewAnswers(jsonObject(onboarding?.answers)));
@@ -1799,7 +1902,12 @@ export class TrainingPlansService {
         availability: [],
         history: [],
         studentDirectives: activeDirectives.map(formatDirectiveForAgent),
-        activeObservations: activeObservations.map((observation) => observation.content),
+        activeObservations: activeObservations.map(formatObservationForAgent),
+        studentProfileSummary: dayInformationContext.studentProfileSummary,
+        studentReports: dayInformationContext.studentReports,
+        pendingStudentReports: dayInformationContext.pendingStudentReports,
+        pendingProfileEvents: dayInformationContext.pendingProfileEvents,
+        contextGaps: dayInformationContext.gaps,
         todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
         recentReassessment: latestReassessment ? {
           completedAt: latestReassessment.completedAt!.toISOString(),
@@ -1845,9 +1953,15 @@ export class TrainingPlansService {
         durationMin,
         evidence: paceEvidence,
         studentDirectives: activeDirectives.map(formatDirectiveForAgent),
-        activeObservations: activeObservations.map((observation) => observation.content),
+        activeObservations: activeObservations.map(formatObservationForAgent),
         painTier: painSafety.tier,
         painReason: painSafety.reason,
+        answers,
+        studentProfileSummary: dayInformationContext.studentProfileSummary,
+        studentReports: dayInformationContext.studentReports,
+        pendingStudentReports: dayInformationContext.pendingStudentReports,
+        pendingProfileEvents: dayInformationContext.pendingProfileEvents,
+        contextGaps: dayInformationContext.gaps,
       });
       if (!runDecision) {
         this.logger.error(`Falha ao gerar treino de corrida avulso com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);

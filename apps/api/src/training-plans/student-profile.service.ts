@@ -49,6 +49,24 @@ export class StudentProfileService {
   // a IA se houver evento novo acumulado — senao retorna sem gastar nada. Pensado para rodar logo
   // antes da geracao da proxima semana, nunca em toda gravacao de evento.
   async refreshProfile(userId: string): Promise<string> {
+    return (await this.refreshProfileDetailed(userId)).summary;
+  }
+
+  // Leitura SEM IA (usada na regeneracao de um unico dia): resumo atual + eventos ainda nao condensados.
+  async loadProfileContext(userId: string): Promise<ProfileRefreshResult> {
+    const existing = await this.prisma.studentProfile.findUnique({ where: { userId } });
+    const pendingEvents = await this.prisma.studentProfileEvent.findMany({
+      where: { userId, summarizedAt: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    return { summary: existing?.summary ?? '', pendingEvents: pendingEvents.map(toPendingEvent), status: pendingEvents.length === 0 ? 'nothing_pending' : 'not_attempted' };
+  }
+
+  // Mesmo comportamento de refreshProfile, mas DEVOLVE o que ficou sem condensar. Antes, uma falha da condensacao
+  // devolvia o resumo antigo e os eventos novos (relatos persistentes, restricoes, observacoes) sumiam da prescricao
+  // ate a proxima condensacao bem-sucedida. Agora o chamador recebe os eventos pendentes e o status, e os entrega ao
+  // Prescritor em texto bruto.
+  async refreshProfileDetailed(userId: string): Promise<ProfileRefreshResult> {
     const existing = await this.prisma.studentProfile.findUnique({ where: { userId } });
     const pendingEvents = await this.prisma.studentProfileEvent.findMany({
       where: { userId, summarizedAt: null },
@@ -56,7 +74,7 @@ export class StudentProfileService {
     });
 
     if (pendingEvents.length === 0) {
-      return existing?.summary ?? '';
+      return { summary: existing?.summary ?? '', pendingEvents: [], status: 'nothing_pending' };
     }
 
     try {
@@ -70,8 +88,8 @@ export class StudentProfileService {
       });
 
       if (!summary) {
-        this.logger.warn(`Prontuario: condensacao indisponivel (IA nao configurada ou falhou) para userId=${userId}`);
-        return existing?.summary ?? '';
+        this.logger.warn(`Prontuario: condensacao indisponivel (IA nao configurada ou falhou) para userId=${userId}; ${pendingEvents.length} evento(s) seguem sem condensar e serao entregues em texto bruto ao Prescritor.`);
+        return { summary: existing?.summary ?? '', pendingEvents: pendingEvents.map(toPendingEvent), status: 'failed' };
       }
 
       const trimmedSummary = summary.trim().slice(0, PROFILE_SUMMARY_HARD_LIMIT);
@@ -89,10 +107,27 @@ export class StudentProfileService {
         }),
       ]);
 
-      return trimmedSummary;
+      return { summary: trimmedSummary, pendingEvents: [], status: 'ok' };
     } catch (error) {
-      this.logger.warn(`Falha ao atualizar prontuario do userId=${userId}: ${(error as Error).message}`);
-      return existing?.summary ?? '';
+      this.logger.warn(`Falha ao atualizar prontuario do userId=${userId}: ${(error as Error).message}; ${pendingEvents.length} evento(s) seguem sem condensar e serao entregues em texto bruto ao Prescritor.`);
+      return { summary: existing?.summary ?? '', pendingEvents: pendingEvents.map(toPendingEvent), status: 'failed' };
     }
   }
+}
+
+export interface PendingProfileEvent {
+  code: string;
+  content: string;
+  createdAt: Date;
+}
+
+export interface ProfileRefreshResult {
+  summary: string;
+  // Eventos que NAO entraram no resumo (falha da condensacao ou leitura sem IA).
+  pendingEvents: PendingProfileEvent[];
+  status: 'ok' | 'nothing_pending' | 'failed' | 'not_attempted';
+}
+
+function toPendingEvent(event: { code: string; content: string; createdAt: Date }): PendingProfileEvent {
+  return { code: event.code, content: event.content, createdAt: event.createdAt };
 }

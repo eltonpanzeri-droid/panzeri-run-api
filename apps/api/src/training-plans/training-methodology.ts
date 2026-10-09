@@ -257,6 +257,16 @@ export interface MethodologyInput {
   // integracao para o que e' redundante vs complementar. Optional/nullable: falha ao buscar o
   // Snapshot NUNCA pode bloquear a geracao semanal (ver training-plans.service.ts).
   athleteStateContext?: import('../training-intelligence/compact-agent-context').CompactAgentContext | null;
+  // Etapa 1.1 (09/10/2026) — informacoes textuais do aluno que NAO podem se perder entre o Relator, o prontuario e o
+  // Prescritor. Ver training-plans/student-information-context.ts.
+  // Relatos do aluno ja interpretados pelo Relator (persistentes + relevantes + resolvidos), em ordem cronologica.
+  studentReports?: import('./student-information-context').ReportEntryForAgent[];
+  // Relatos ainda SEM interpretacao (em processamento ou analise falhou), em texto bruto.
+  pendingStudentReports?: import('./student-information-context').PendingReportForAgent[];
+  // Eventos do prontuario que a condensacao ainda nao incorporou ao resumo (texto bruto, com data).
+  pendingProfileEvents?: string[];
+  // Partes do contexto que nao puderam ser recuperadas nesta geracao (nunca silencioso).
+  contextGaps?: import('./student-information-context').ContextGap[];
   // Passo 3 (25/09/2026): trajetoria de MESES do aluno (INITIAL -> R1 -> R2 -> R3...), persistida
   // uma vez por reavaliacao concluida (ReassessmentService.complete()) e nunca recalculada aqui —
   // este campo so' LE o ultimo relatorio valido. Complementar a athleteStateContext (que descreve

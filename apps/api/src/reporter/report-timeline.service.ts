@@ -59,6 +59,29 @@ export class ReportTimelineService {
     }
   }
 
+  // Reprocessa relatos do aluno que ficaram SEM interpretacao: a analise falhou (analysisError) ou nunca terminou
+  // (processo reiniciado). Relatos recentes (ainda podem estar em andamento) sao deixados em paz — nunca se roda duas
+  // analises do mesmo relato ao mesmo tempo. Chamado antes de uma geracao semanal; limitado e tolerante a falha.
+  async retryStalledAnalyses(userId: string, options: { max?: number; stalledAfterMs?: number } = {}): Promise<{ attempted: number; resolved: number; stillPending: number }> {
+    const max = options.max ?? 3;
+    const cutoff = new Date(Date.now() - (options.stalledAfterMs ?? 10 * 60 * 1000));
+    const stalled = await this.prisma.studentReportEntry.findMany({
+      where: { userId, analyzedAt: null, createdAt: { lt: cutoff } },
+      orderBy: { createdAt: 'desc' },
+      take: max,
+      select: { id: true },
+    });
+    let resolved = 0;
+    for (const entry of stalled) {
+      await this.analyzeEntry(entry.id).catch((error) => {
+        this.logger.warn(`Reprocessamento do relato ${entry.id} falhou: ${(error as Error).message}`);
+      });
+      const after = await this.prisma.studentReportEntry.findUnique({ where: { id: entry.id }, select: { analyzedAt: true } });
+      if (after?.analyzedAt) resolved++;
+    }
+    return { attempted: stalled.length, resolved, stillPending: stalled.length - resolved };
+  }
+
   async analyzeEntry(entryId: string): Promise<void> {
     const entry = await this.prisma.studentReportEntry.findUnique({ where: { id: entryId } });
     if (!entry) return;

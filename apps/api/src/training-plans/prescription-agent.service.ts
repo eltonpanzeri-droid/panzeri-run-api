@@ -193,6 +193,22 @@ function truncateText(text: string, max: number = FREE_TEXT_DISPLAY_LIMIT): stri
 type RunSlot = ReturnType<typeof computeRunSlots>[number];
 type StrengthSlot = ReturnType<typeof computeStrengthSlots>[number];
 
+export interface RunSessionParams {
+  durationMin: number;
+  evidence: PaceEvidence;
+  studentDirectives: string[];
+  activeObservations: string[];
+  painTier: 'normal' | 'reduced' | 'remove_running';
+  painReason: string | null;
+  // Etapa 1.1 — contexto textual (opcional: chamadas antigas continuam validas).
+  answers?: Record<string, unknown>;
+  studentProfileSummary?: string;
+  studentReports?: MethodologyInput['studentReports'];
+  pendingStudentReports?: MethodologyInput['pendingStudentReports'];
+  pendingProfileEvents?: string[];
+  contextGaps?: MethodologyInput['contextGaps'];
+}
+
 export interface PaceEvidence {
   testPace?: { secondsPerKm: number; daysAgo: number } | null;
   selfReportedPace?: { secondsPerKm: number; source: 'self_report_5k' | 'qualitative' } | null;
@@ -250,14 +266,7 @@ export class PrescriptionAgentService {
   // chamada — distancia, pace e estrutura, na forma que fizer sentido pra ela (ver AiSessionSchema)
   // — com o mesmo contexto (diretivas, observacoes, sinal de dor) que a geracao semanal usa, nunca
   // uma formula ou um numero reaproveitado de outro dia.
-  async proposeRunSession(params: {
-    durationMin: number;
-    evidence: PaceEvidence;
-    studentDirectives: string[];
-    activeObservations: string[];
-    painTier: 'normal' | 'reduced' | 'remove_running';
-    painReason: string | null;
-  }): Promise<{ parts: z.infer<typeof AiSessionPartsSchema> } | null> {
+  async proposeRunSession(params: RunSessionParams): Promise<{ parts: z.infer<typeof AiSessionPartsSchema> } | null> {
     if (!this.client) {
       this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado para o treino avulso.');
       return null;
@@ -266,14 +275,7 @@ export class PrescriptionAgentService {
     return (await attempt()) ?? (await attempt());
   }
 
-  private async attemptRunSessionDecision(params: {
-    durationMin: number;
-    evidence: PaceEvidence;
-    studentDirectives: string[];
-    activeObservations: string[];
-    painTier: 'normal' | 'reduced' | 'remove_running';
-    painReason: string | null;
-  }): Promise<{ parts: z.infer<typeof AiSessionPartsSchema> } | null> {
+  private async attemptRunSessionDecision(params: RunSessionParams): Promise<{ parts: z.infer<typeof AiSessionPartsSchema> } | null> {
     const client = this.client;
     if (!client) return null;
     const schema = z.object({ parts: AiSessionPartsSchema });
@@ -309,18 +311,12 @@ export class PrescriptionAgentService {
       'Voce recebe evidencias de pace (autoRelatoRecente) — use a mais recente e mais confiavel, nunca uma proporcao fixa entre elas (tipo "pace_teste vezes 0.95").',
       'PROIBICAO ABSOLUTA — TESTE DE 3KM: As expressoes "teste de 3km", "teste oficial", "3 km", "avaliacao fisica", "ainda nao fez o teste", "quando fizer o teste" e qualquer variante NAO PODEM APARECER EM NENHUM CAMPO GERADO — nem notes, nem rationale, nem recommendation, nem titulo de sessao. Isso inclui qualquer frase que explique por que voce escolheu uma fonte de pace em vez de outra ("como voce ainda nao fez o teste, usamos X" e PROIBIDO). O aluno nao sabe que essa feature existiu. Se nao tiver evidencia de pace forte, calcule normalmente e nao explique a origem da estimativa — nunca mencione o que esta "faltando".',
       'Se diretrizesEspecificasDoTreinadorParaEsteAluno mencionar algo que se aplique a este dia especifico, aplique literalmente (prioridade quase absoluta). observacoesRegistradasPeloProprioAluno sao informais, considere quando fizer sentido sem sacrificar seguranca. sinalDeSeguranca e motivoDoSinalDeSeguranca sao so informacao de contexto (o aluno relatou dor) — use seu julgamento sobre o que isso muda no treino de hoje, nao existe uma trava automatica aqui.',
+      'INFORMACOES DO ALUNO POR TEXTO: relatosEstruturadosDoAluno (relatos do proprio aluno ja interpretados, cronologicos, o mais recente por ultimo — o mais recente prevalece sobre o mais antigo no mesmo assunto; RESOLVIDO encerra uma restricao anterior; PERSISTENTE_ATE_CONTRARIO vale ate um relato posterior dizer o contrario), relatosAindaNaoInterpretadosDoAluno e eventosDoProntuarioAindaNaoCondensados (texto bruto ainda nao interpretado: leia e nao ignore). Respeite RESTRICOES REAIS (equipamento, limite da esteira, local, saude); preferencias podem ser acomodadas sem sacrificar seguranca; dificuldade de execucao relatada e evidencia a ponderar. Um relato isolado nao vira regra permanente. lacunasDeContexto lista o que nao pode ser recuperado: a ausencia nao significa normalidade, seja conservador onde a parte faltante seria decisiva.',
       `Recomendacao (nao e uma regra rigida): evite prescrever pace de corrida mais lento que 8:30/km (${MAX_EASY_PACE_SECONDS_PER_KM} segundos por km) quando puder, porque abaixo disso a mecanica da corrida tende a piorar e se aproximar de uma caminhada. Se o ritmo confortavel real deste aluno estiver nessa faixa, considere usar uma parte "intervalada" alternando corrida de verdade com caminhada de verdade — mas a decisao final e sempre sua, pensando no aluno real.`,
     ].join('\n\n');
   }
 
-  private buildRunSessionUserPrompt(params: {
-    durationMin: number;
-    evidence: PaceEvidence;
-    studentDirectives: string[];
-    activeObservations: string[];
-    painTier: string;
-    painReason: string | null;
-  }) {
+  private buildRunSessionUserPrompt(params: RunSessionParams) {
     return JSON.stringify(
       {
         durationMinDisponivel: params.durationMin,
@@ -329,6 +325,15 @@ export class PrescriptionAgentService {
         observacoesRegistradasPeloProprioAluno: params.activeObservations,
         sinalDeSeguranca: params.painTier !== 'normal',
         motivoDoSinalDeSeguranca: params.painReason,
+        // Etapa 1.1 (09/10/2026): antes a regeneracao de um dia de corrida NAO recebia nada alem das linhas acima — nem o
+        // prontuario, nem os relatos do aluno (equipamento, limite da esteira, dificuldades). Agora recebe o mesmo
+        // contexto textual da geracao semanal.
+        respostasEntrevista: params.answers ?? null,
+        prontuarioDoAluno: params.studentProfileSummary || null,
+        relatosEstruturadosDoAluno: params.studentReports ?? [],
+        relatosAindaNaoInterpretadosDoAluno: params.pendingStudentReports ?? [],
+        eventosDoProntuarioAindaNaoCondensados: params.pendingProfileEvents ?? [],
+        lacunasDeContexto: params.contextGaps ?? [],
       },
       null,
       2,
@@ -695,6 +700,8 @@ export class PrescriptionAgentService {
       '- DIRETRIZES DE PROGRESSAO x EXECUCAO RECENTE: cada diretriz chega com a data em que foi criada ("[criada em AAAA-MM-DD]"), e cada semana de historicoSemanal traz recordedSessions — uma linha por sessao com registro do aluno (dia, data, modalidade, forma da sessao, prescrito e realizado, e quando disponivel o autorrelato de ter corrido tudo ou caminhado/parado). Diretrizes que descrevem progressoes ou trajetorias devem ser interpretadas em conjunto com as execucoes posteriores registradas. Nao presuma que o aluno permanece ou retorna a etapa inicial quando o historico recente demonstra avanco. Se decidir manter ou regredir uma progressao por razao tecnica atual, essa decisao deve ser coerente com os fatos disponiveis e nao pode ser justificada por uma afirmacao factual contraditoria com o historico (ex: nao escreva que o aluno "ainda nao migrou" para uma forma de treino que recordedSessions mostra que ele ja executa). Voce continua com autonomia para avancar, manter ou regredir.',
       '- INTERPRETACAO DO HISTORICO SEMANAL (historicoSemanal): a diferenca entre prescribedSessions e completedSessions NAO e evidencia de que esses treinos nao foram feitos. O campo unregisteredSessions informa quantas dessas sessoes o aluno simplesmente nao abriu no app — ele pode ter feito o treino e apenas nao registrado. Apenas (prescribedSessions - completedSessions - unregisteredSessions) e o numero de treinos marcados explicitamente como "nao feito" pelo proprio aluno, e mesmo assim isso e um indicador contextual, nao uma certeza absoluta. REGRA: ausencia de registro NAO e ausencia de execucao. Continue a progressao normalmente quando nao houver evidencia contraria real (relato de dor, dificuldade explicitamente descrita, ou diretriz do treinador). Se precisar mencionar o historico de registro em qualquer campo de texto, use linguagem que reconheca a incerteza: "semana passada nao recebi registros — seguirei a progressao considerando como feito. Se algo de fato nao saiu como planejado, me conte no feedback ou fale com seu treinador." NUNCA escreva "voce fez poucos treinos" ou "voce nao treinou muito" baseado so na diferenca de prescribedSessions - completedSessions — isso e uma afirmacao factual que voce nao tem como confirmar.',
       '- autoavaliacaoDaSemanaPeloAluno (quando presente) e a resposta do proprio aluno sobre a semana que acabou de terminar como um TODO (nao por sessao — isso e o historicoSemanal). O CONTEUDO varia por versao (campo "versao" dentro do objeto): v1 (legado) traz 3 perguntas numericas 1-5; v2 (legado) traz 15 perguntas em 3 blocos; v3 (atual) traz APENAS bloco4_expectativaDoAluno (preferencia declarada pra proxima semana + observacao livre) — as demais respostas da v3 (avaliacao da proposta, adequacao, satisfacao com execucao, exigencia da semana, resposta do corpo, motivacao, interferencia da rotina) ja chegam por athleteStateContext (checkin.* — ver instrucao abaixo), com historico/tendencia, nao repetidas aqui. Trate qualquer numero aqui como sinal real do aluno, nao uma formula: pese junto com o resto do contexto, nunca como unico fator decidindo sozinho.',
+      '- INFORMACOES DO ALUNO QUE CHEGAM POR TEXTO (relatosEstruturadosDoAluno, relatosAindaNaoInterpretadosDoAluno, eventosDoProntuarioAindaNaoCondensados): relatosEstruturadosDoAluno sao relatos escritos pelo PROPRIO aluno, ja interpretados por outro agente (o Relator), em ordem cronologica (o mais recente por ultimo). Cada item traz data, origem, fatos, percepcaoDoAluno, temas, temporalidade e relevancia; hipotesesDoRelator sao HIPOTESES, nunca fatos. (1) PRECEDENCIA: quando dois itens tratam do MESMO assunto, o mais recente prevalece sobre o mais antigo; temporalidade RESOLVIDO encerra a restricao ou queixa anterior sobre aquele assunto; PERSISTENTE_ATE_CONTRARIO continua valendo ate um relato posterior dizer o contrario, mesmo dito uma unica vez e ha muito tempo. (2) NATUREZA: distinga RESTRICAO REAL (equipamento que o aluno nao tem, limite de velocidade da esteira, local de treino, condicao de saude), PREFERENCIA, DIFICULDADE DE EXECUCAO relatada (ex: nao conseguir cumprir um pace) e COMPORTAMENTO que se repete — e trate cada uma pelo que e: restricao real deve ser respeitada ao montar o treino; preferencia pode ser acomodada sem sacrificar seguranca nem objetivo; dificuldade de execucao e evidencia a ser confrontada com o historico real (historicoSemanal, athleteStateContext) antes de ajustar; comportamento recorrente informa o ritmo de progressao. (3) Um relato isolado nao vira regra permanente — relevancia e recorrencia dizem o peso. (4) relatosAindaNaoInterpretadosDoAluno e eventosDoProntuarioAindaNaoCondensados sao informacoes REAIS que ainda nao passaram pela interpretacao ou condensacao: leia o texto bruto, nunca ignore, e nao presuma que a falta de interpretacao significa irrelevancia. (5) Quando um relato do aluno alterar uma decisao sua, cite-o em rationale (data e assunto).',
+      '- lacunasDeContexto lista partes do contexto que NAO puderam ser recuperadas nesta geracao. O que falta NAO significa normalidade: quando a parte ausente seria decisiva (estado atual do atleta, dor, ciclo menstrual, prontuario), seja conservador e diga isso em rationale. Lista vazia = nada deixou de ser recuperado.',
       // Passo 2/6 da integracao Training Intelligence (25/09/2026, auditoria aprovada) — ver
       // relatorio de mapeamento pra classificacao completa de cada campo antigo vs este novo.
       // Principio central (Elton): a matematica CARACTERIZA o sistema, voce INTERPRETA. Nunca vira
@@ -811,6 +818,11 @@ export class PrescriptionAgentService {
         diretrizesEspecificasDoTreinadorParaEsteAluno: input.studentDirectives ?? [],
         observacoesRegistradasPeloProprioAluno: input.activeObservations ?? [],
         prontuarioDoAluno: input.studentProfileSummary || null,
+        // Etapa 1.1 (09/10/2026): informacoes textuais do aluno, nunca perdidas entre Relator -> prontuario -> Prescritor.
+        relatosEstruturadosDoAluno: input.studentReports ?? [],
+        relatosAindaNaoInterpretadosDoAluno: input.pendingStudentReports ?? [],
+        eventosDoProntuarioAindaNaoCondensados: input.pendingProfileEvents ?? [],
+        lacunasDeContexto: input.contextGaps ?? [],
         // Check-in que o aluno respondeu antes de pedir essa geracao (31/08, pedido do
         // treinador) — autoavaliacao da semana COMO UM TODO (nao por sessao, ja coberto acima em
         // historicoSemanal). Null quando o aluno ainda nao passou por essa etapa (ex: 1a semana).
@@ -981,6 +993,7 @@ export class PrescriptionAgentService {
       PANZERI_METHODOLOGY_KNOWLEDGE,
       '- Se diretrizesEspecificasDoTreinadorParaEsteAluno nao estiver vazio, aplique-as literalmente para este dia — sao ordens pessoais do treinador para este aluno, prioridade quase absoluta.',
       '- observacoesRegistradasPeloProprioAluno sao anotacoes informais do proprio aluno, nao uma ordem — considere quando fizer sentido, sem sacrificar seguranca.',
+      '- INFORMACOES DO ALUNO POR TEXTO (equipamento da academia, aparelhos que nao existem, limitacoes fisicas sao RESTRICOES REAIS para a escolha dos exercicios): relatosEstruturadosDoAluno (relatos do proprio aluno ja interpretados, cronologicos, o mais recente por ultimo — o mais recente prevalece sobre o mais antigo no mesmo assunto; RESOLVIDO encerra uma restricao anterior; PERSISTENTE_ATE_CONTRARIO vale ate um relato posterior dizer o contrario), relatosAindaNaoInterpretadosDoAluno e eventosDoProntuarioAindaNaoCondensados (texto bruto ainda nao interpretado: leia e nao ignore). Respeite RESTRICOES REAIS (equipamento, limite da esteira, local, saude); preferencias podem ser acomodadas sem sacrificar seguranca; dificuldade de execucao relatada e evidencia a ponderar. Um relato isolado nao vira regra permanente. lacunasDeContexto lista o que nao pode ser recuperado: a ausencia nao significa normalidade, seja conservador onde a parte faltante seria decisiva.',
       '- exerciseIds normalmente vem do catalogo informado (catalogoExerciciosMusculacao para modality "forca", catalogoExerciciosFortalecimentoCorredores para "fortalecimento_corredores"), que ja tem video/descricao prontos. So cite um exercicio fora do catalogo se uma diretriz especifica pedir aquele exercicio por nome (aparece pro aluno so como texto, sem video). Escolha entre 3 e 10 exercicios conforme a duracao do dia.',
       '- Se houver diretriz de foco muscular para este dia especifico (ex: "so perna hoje") ou lista explicita de exercicios, aplique literalmente usando o campo "group"/"focus" do catalogo para filtrar. Sem diretriz, monte uma sessao equilibrada e variada.',
       '- Prefira exercicios de nivel "base" para alunos iniciantes ou com sinalDeSeguranca ativo.',
@@ -1001,6 +1014,11 @@ export class PrescriptionAgentService {
         respostasEntrevista: input.answers,
         diretrizesEspecificasDoTreinadorParaEsteAluno: input.studentDirectives ?? [],
         observacoesRegistradasPeloProprioAluno: input.activeObservations ?? [],
+        prontuarioDoAluno: input.studentProfileSummary || null,
+        relatosEstruturadosDoAluno: input.studentReports ?? [],
+        relatosAindaNaoInterpretadosDoAluno: input.pendingStudentReports ?? [],
+        eventosDoProntuarioAindaNaoCondensados: input.pendingProfileEvents ?? [],
+        lacunasDeContexto: input.contextGaps ?? [],
         hoje: input.todayDate ?? null,
         sinalDeSeguranca: (input.painTier ?? 'normal') !== 'normal',
         motivoDoSinalDeSeguranca: input.painReason ?? null,
