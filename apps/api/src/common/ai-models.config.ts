@@ -5,5 +5,7 @@
 // sem alteracoes".
 export const AI_MODELS = {
   SONNET_5: 'claude-sonnet-5',
-  HAIKU_4_5: 'claude-haiku-4-5-20251001',
+  // 09/10/2026: Haiku 5.5 (lancado em 07/10/2026) substitui o Haiku 4.5 nos agentes auxiliares. ID fixo, sem sufixo de data nem alias.
+  // Tokenizador novo: ~30% mais tokens para o mesmo texto (por isso os max_tokens dos agentes auxiliares foram elevados).
+  HAIKU_5_5: 'claude-haiku-5-5',
 } as const;

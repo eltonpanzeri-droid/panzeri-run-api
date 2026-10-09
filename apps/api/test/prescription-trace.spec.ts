@@ -51,7 +51,7 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
   });
 
   it('os modelos continuam os mesmos (nenhum modelo alterado)', () => {
-    expect(AI_MODELS).toEqual({ SONNET_5: 'claude-sonnet-5', HAIKU_4_5: 'claude-haiku-4-5-20251001' });
+    expect(AI_MODELS).toEqual({ SONNET_5: 'claude-sonnet-5', HAIKU_5_5: 'claude-haiku-5-5' });
   });
 
   it('registrar a chamada nao altera o texto: o que foi registrado e exatamente o que o construtor devolve', () => {

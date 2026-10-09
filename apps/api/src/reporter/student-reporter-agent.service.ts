@@ -73,8 +73,8 @@ export class StudentReporterAgentService {
       // da tarefa de otimizacao pra comparacao Haiku x Sonnet neste agente especifico.
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
-          model: AI_MODELS.HAIKU_4_5,
-          max_tokens: 2000,
+          model: AI_MODELS.HAIKU_5_5,
+          max_tokens: 2600, // 2000 no Haiku 4.5; +30% de tokens por texto no tokenizador do Haiku 5.5
           thinking: { type: 'disabled' },
           output_config: {
             format: zodOutputFormat(RelatorOutputSchema),
@@ -91,7 +91,7 @@ export class StudentReporterAgentService {
       );
       logAiUsage(this.logger, {
         agent: 'relator',
-        model: AI_MODELS.HAIKU_4_5,
+        model: AI_MODELS.HAIKU_5_5,
         usage: response.usage,
         durationMs: Date.now() - startedAt,
         ttl: '5m (default, abaixo do minimo de cache pra este modelo)',

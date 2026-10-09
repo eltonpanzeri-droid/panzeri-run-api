@@ -77,8 +77,8 @@ export class EvolutionAgentService {
     try {
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
-          model: AI_MODELS.SONNET_5,
-          max_tokens: 4000,
+          model: AI_MODELS.HAIKU_5_5,
+          max_tokens: 5200, // 4000 no Sonnet 5; Haiku 5.5 usa tokenizador com ~30% mais tokens
           thinking: { type: 'adaptive' },
           output_config: {
             effort: 'medium',
@@ -88,7 +88,7 @@ export class EvolutionAgentService {
           messages: [{ role: 'user', content: JSON.stringify(input, null, 2) }],
         }),
       );
-      logAiUsage(this.logger, { agent: 'prontuario', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
+      logAiUsage(this.logger, { agent: 'prontuario', model: AI_MODELS.HAIKU_5_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
 
       return response.parsed_output ?? null;
     } catch (error) {
@@ -105,8 +105,8 @@ export class EvolutionAgentService {
     try {
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
-          model: AI_MODELS.SONNET_5,
-          max_tokens: 1800,
+          model: AI_MODELS.HAIKU_5_5,
+          max_tokens: 2400, // 1800 no Sonnet 5; idem (o limite de caracteres do resumo, em codigo, nao mudou)
           thinking: { type: 'disabled' },
           output_config: {
             effort: 'medium',
@@ -116,7 +116,7 @@ export class EvolutionAgentService {
           messages: [{ role: 'user', content: this.buildProfileCondensationUserPrompt(input) }],
         }),
       );
-      logAiUsage(this.logger, { agent: 'prontuario_condensacao', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
+      logAiUsage(this.logger, { agent: 'prontuario_condensacao', model: AI_MODELS.HAIKU_5_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
 
       return response.parsed_output?.summary ?? null;
     } catch (error) {

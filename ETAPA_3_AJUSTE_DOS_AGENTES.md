@@ -11,3 +11,8 @@ Sem novos agentes, sem novas chamadas de IA, sem alterar cálculos ou limiares d
 7. **Não alterados:** Evolução, Relator, Gerente Técnico (sem inconsistência concreta encontrada).
 
 Custo: 0 chamadas novas. Estimativa: semana ≈ +450 tokens no prompt de sistema (cacheado) e +~250 por evento do Prontuário na condensação; dia de corrida ≈ +120 (sistema, cacheado) e ≤ ~900 de evidência.
+
+## Atualização de modelos (09/10/2026)
+- `claude-haiku-5-5` (ID fixo, lançado em 07/10/2026) passa a ser usado por: Relator (antes Haiku 4.5), Agente de Prontuário (condensação), Agente de Evolução e Gerente Técnico (antes Sonnet 5). Prescritor (semana, dia de corrida, dia de força) permanece em `claude-sonnet-5`; Agente de Análise do Strava (ID fixo próprio) não foi tocado.
+- Compatibilidade (guia oficial Haiku 4.5 → 5.5): sem `temperature`/`top_p`/`top_k`, sem `budget_tokens`, sem prefill (nenhum usado no código). Tokenizador ~30% maior: `max_tokens` elevados — Relator 2000→2600, condensação 1800→2400, Evolução 4000→5200, Gerente Técnico 8192→10600. Blocos de resposta já selecionados por `type`. Recusa (`refusal`) cai nos caminhos de falha existentes (resultado nulo / mensagem padrão). Prompts, contratos e rastreabilidade inalterados; chamadas de IA inalteradas.
+- Pendente de observação em produção: `thinking: disabled` (Relator e condensação) não é citado como erro no guia, mas deve ser confirmado na primeira chamada real; custo por token do Haiku 5.5 e efeito do +30% de tokens a medir pelo log de uso.

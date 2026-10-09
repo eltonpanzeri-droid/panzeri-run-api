@@ -124,14 +124,14 @@ export class TechnicalManagerAgentService {
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
       const startedAt = Date.now();
       const response = await client.messages.create({
-        model: AI_MODELS.SONNET_5,
+        model: AI_MODELS.HAIKU_5_5,
         // Era 2000, depois 4096 — ainda insuficiente na pratica quando o treinador manda uma
         // mensagem longa descrevendo varios dias diferentes de uma vez, ou quando a conversa e o
         // contexto do aluno (get_student_context) ja acumularam bastante historico. O modelo
         // cortava no meio (stop_reason 'max_tokens') antes de terminar a confirmacao em texto ou
         // a chamada de save_directive, e o treinador so via "Nao consegui gerar uma resposta" sem
         // saber que a diretriz nunca chegou a ser salva.
-        max_tokens: 8192,
+        max_tokens: 10600, // 8192 no Sonnet 5; tokens de raciocinio adaptativo (padrao do Haiku 5.5) tambem contam aqui
         // Bloco estavel (identico pra qualquer aluno) com cache_control primeiro, linha com o
         // nome do aluno depois, sem cache_control — preserva o prefixo cacheado entre alunos
         // diferentes e entre turnos da mesma conversa (ver shared/prompt-caching.md do skill
@@ -145,7 +145,7 @@ export class TechnicalManagerAgentService {
       });
       logAiUsage(this.logger, {
         agent: 'gerente_tecnico',
-        model: AI_MODELS.SONNET_5,
+        model: AI_MODELS.HAIKU_5_5,
         usage: response.usage,
         durationMs: Date.now() - startedAt,
         ttl: '5m (default)',
