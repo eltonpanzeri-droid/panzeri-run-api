@@ -6,7 +6,7 @@ import { AiQueueService } from '../common/ai-queue.service';
 import { TrainingPlansService } from '../training-plans/training-plans.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
-import { AI_MODELS } from '../common/ai-models.config';
+import { AI_MODELS, cacheControlFor, cacheTtlLabel } from '../common/ai-models.config';
 import { logAiUsage } from '../common/ai-usage-logger';
 
 const MAX_TOOL_ITERATIONS = 6;
@@ -137,7 +137,7 @@ export class TechnicalManagerAgentService {
         // diferentes e entre turnos da mesma conversa (ver shared/prompt-caching.md do skill
         // claude-api).
         system: [
-          { type: 'text', text: this.buildSystemPromptStable(), cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: this.buildSystemPromptStable(), ...cacheControlFor('gerente_tecnico') },
           { type: 'text', text: this.buildStudentContextLine(studentName) },
         ],
         tools: tools.map((tool) => tool.spec),
@@ -148,7 +148,7 @@ export class TechnicalManagerAgentService {
         model: AI_MODELS.HAIKU_5_5,
         usage: response.usage,
         durationMs: Date.now() - startedAt,
-        ttl: '5m (default)',
+        ttl: cacheTtlLabel('gerente_tecnico'),
         extra: `iteracao=${iteration}`,
       });
 

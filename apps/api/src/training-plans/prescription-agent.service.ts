@@ -15,7 +15,7 @@ import {
 } from './training-methodology';
 import { PANZERI_METHODOLOGY_KNOWLEDGE } from './panzeri-methodology-knowledge';
 import { AiQueueService } from '../common/ai-queue.service';
-import { AI_MODELS } from '../common/ai-models.config';
+import { AI_MODELS, cacheControlFor, cacheTtlLabel } from '../common/ai-models.config';
 import { logAiUsage } from '../common/ai-usage-logger';
 import { AgentCallTrace, BASIS_SOURCES, DECISION_VARIABLES, DeclaredReasoning, normalizeDeclaredReasoning, recordAgentCall } from './prescription-trace';
 import { gymExerciseLibrary } from './gym-exercise-library';
@@ -330,11 +330,11 @@ export class PrescriptionAgentService {
           output_config: { effort: 'medium', format: zodOutputFormat(schema) },
           // Prompt identico pra qualquer aluno/chamada — cache_control deixa isso barato depois
           // da primeira vez (ver shared/prompt-caching.md do skill claude-api).
-          system: [{ type: 'text', text: runSystem, cache_control: { type: 'ephemeral' } }],
+          system: [{ type: 'text', text: runSystem, ...cacheControlFor('treinador_dia_corrida') }],
           messages: [{ role: 'user', content: runUser }],
         }),
       );
-      logAiUsage(this.logger, { agent: 'treinador_dia_corrida', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
+      logAiUsage(this.logger, { agent: 'treinador_dia_corrida', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: cacheTtlLabel('treinador_dia_corrida') });
       const parsed = response.parsed_output;
       if (!parsed) return null;
       return { parts: parsed.parts, declared: normalizeDeclaredReasoning(parsed.reasoning) };
@@ -402,11 +402,11 @@ export class PrescriptionAgentService {
             effort: 'high',
             format: zodOutputFormat(AiStrengthSessionSchema),
           },
-          system: [{ type: 'text', text: strengthSystem, cache_control: { type: 'ephemeral' } }],
+          system: [{ type: 'text', text: strengthSystem, ...cacheControlFor('treinador_dia_forca') }],
           messages: [{ role: 'user', content: strengthUser }],
         }),
       );
-      logAiUsage(this.logger, { agent: 'treinador_dia_forca', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
+      logAiUsage(this.logger, { agent: 'treinador_dia_forca', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: cacheTtlLabel('treinador_dia_forca') });
       const parsed = response.parsed_output;
       if (!parsed) return null;
       // Chamada avulsa pra um slot ESPECIFICO (repo de dia faltante ou regenerar-1-dia do
@@ -482,7 +482,7 @@ export class PrescriptionAgentService {
           // depois do bloco grande COM cache_control, pra nao invalidar o prefixo cacheado toda vez
           // que esses dois booleanos mudam (ver shared/prompt-caching.md do skill claude-api).
           system: [
-            { type: 'text', text: systemStable, cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: systemStable, ...cacheControlFor('treinador_semana') },
             { type: 'text', text: safetyGuidance },
           ],
           messages: [{ role: 'user', content: userPrompt }],
@@ -508,7 +508,7 @@ export class PrescriptionAgentService {
         model: AI_MODELS.SONNET_5,
         usage: response.usage,
         durationMs: Date.now() - startedAt,
-        ttl: '5m (default)',
+        ttl: cacheTtlLabel('treinador_semana'),
         extra: `effort=${effort}`,
       });
 

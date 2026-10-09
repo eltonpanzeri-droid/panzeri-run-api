@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
 import { AiQueueService } from '../common/ai-queue.service';
-import { AI_MODELS } from '../common/ai-models.config';
+import { AI_MODELS, cacheControlFor, cacheTtlLabel } from '../common/ai-models.config';
 import { logAiUsage } from '../common/ai-usage-logger';
 
 // Contrato de saida do Agente Relator (pedido 28/09/2026, itens 3.A-3.G). Listas de temas/percepcao
@@ -85,7 +85,7 @@ export class StudentReporterAgentService {
           // ignorada pela Anthropic nesse caso (nunca da erro, so' nao cacheia). Nao inflar o
           // prompt artificialmente so' pra bater o minimo (instrucao explicita do treinador) —
           // registrado como limitacao conhecida no relatorio da tarefa.
-          system: [{ type: 'text', text: this.buildSystemPrompt(), cache_control: { type: 'ephemeral' } }],
+          system: [{ type: 'text', text: this.buildSystemPrompt(), ...cacheControlFor('relator') }],
           messages: [{ role: 'user', content: JSON.stringify(input, null, 2) }],
         }),
       );
@@ -94,7 +94,7 @@ export class StudentReporterAgentService {
         model: AI_MODELS.HAIKU_5_5,
         usage: response.usage,
         durationMs: Date.now() - startedAt,
-        ttl: '5m (default, abaixo do minimo de cache pra este modelo)',
+        ttl: cacheTtlLabel('relator'),
       });
       return response.parsed_output ?? null;
     } catch (error) {

@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
 import { AiQueueService } from '../common/ai-queue.service';
-import { AI_MODELS } from '../common/ai-models.config';
+import { AI_MODELS, cacheControlFor, cacheTtlLabel } from '../common/ai-models.config';
 import { logAiUsage } from '../common/ai-usage-logger';
 import { VariableTrajectory, FitnessTestPoint } from './reassessment-trajectory';
 
@@ -78,17 +78,17 @@ export class EvolutionAgentService {
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
           model: AI_MODELS.HAIKU_5_5,
-          max_tokens: 5200, // 4000 no Sonnet 5; Haiku 5.5 usa tokenizador com ~30% mais tokens
+          max_tokens: 8000, // 4000 no Sonnet 5; Haiku 5.5: +30% de tokens e o raciocinio adaptativo (ligado por padrao) tambem conta aqui. Chamada rara e saida curta: o teto alto nao custa mais
           thinking: { type: 'adaptive' },
           output_config: {
             effort: 'medium',
             format: zodOutputFormat(EvolutionReportSchema),
           },
-          system: [{ type: 'text', text: this.buildSystemPrompt(), cache_control: { type: 'ephemeral' } }],
+          system: [{ type: 'text', text: this.buildSystemPrompt(), ...cacheControlFor('prontuario') }],
           messages: [{ role: 'user', content: JSON.stringify(input, null, 2) }],
         }),
       );
-      logAiUsage(this.logger, { agent: 'prontuario', model: AI_MODELS.HAIKU_5_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
+      logAiUsage(this.logger, { agent: 'prontuario', model: AI_MODELS.HAIKU_5_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: cacheTtlLabel('prontuario') });
 
       return response.parsed_output ?? null;
     } catch (error) {
@@ -112,11 +112,11 @@ export class EvolutionAgentService {
             effort: 'medium',
             format: zodOutputFormat(ProfileCondensationSchema),
           },
-          system: [{ type: 'text', text: this.buildProfileCondensationSystemPrompt(), cache_control: { type: 'ephemeral' } }],
+          system: [{ type: 'text', text: this.buildProfileCondensationSystemPrompt(), ...cacheControlFor('prontuario_condensacao') }],
           messages: [{ role: 'user', content: this.buildProfileCondensationUserPrompt(input) }],
         }),
       );
-      logAiUsage(this.logger, { agent: 'prontuario_condensacao', model: AI_MODELS.HAIKU_5_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
+      logAiUsage(this.logger, { agent: 'prontuario_condensacao', model: AI_MODELS.HAIKU_5_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: cacheTtlLabel('prontuario_condensacao') });
 
       return response.parsed_output?.summary ?? null;
     } catch (error) {
