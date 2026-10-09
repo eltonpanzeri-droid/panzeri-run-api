@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { PrescriptionAgentService } from '../src/training-plans/prescription-agent.service';
+import { PrescriptionAgentService, REASONING_INSTRUCTION } from '../src/training-plans/prescription-agent.service';
 import { AI_MODELS } from '../src/common/ai-models.config';
 import {
   buildAgentInputRecord, buildEvidenceIndex, buildSessionDecisions, buildWeekDecision, describeSessionForTrace, EvidenceItem, MAX_AGENT_INPUT_CHARS,
@@ -26,13 +26,27 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
   };
   const service = new PrescriptionAgentService({ get: () => undefined } as never, {} as never) as unknown as Record<string, (...args: unknown[]) => string>;
 
-  it('os prompts de sistema sao bit a bit os mesmos de antes da rastreabilidade', () => {
-    expect(sha256(service.buildSystemPromptStable())).toBe(FROZEN.stable);
+  // 1.2b (10/10/2026): a UNICA mudanca autorizada nos prompts e' o bloco REASONING_INSTRUCTION. Provado: removendo exatamente esse bloco, cada prompt volta
+  // bit a bit ao hash de antes da rastreabilidade; as orientacoes de seguranca nao mudaram nada.
+  it('os prompts de sistema so mudam pelo bloco de raciocinio declarado (1.2b): sem ele, voltam bit a bit ao original', () => {
+    const without = (prompt: string) => prompt.replace('\n\n' + REASONING_INSTRUCTION, '');
+    const stable = service.buildSystemPromptStable();
+    const run = service.buildRunSessionSystemPrompt();
+    const strength = service.buildSingleStrengthSystemPrompt();
+    for (const prompt of [stable, run, strength]) expect(prompt).toContain(REASONING_INSTRUCTION);
+    expect(sha256(without(stable))).toBe(FROZEN.stable);
+    expect(sha256(without(run))).toBe(FROZEN.run);
+    expect(sha256(without(strength))).toBe(FROZEN.strength);
     expect(sha256(service.buildSafetyGuidance(false, false))).toBe(FROZEN.safetyOff);
     expect(sha256(service.buildSafetyGuidance(true, false))).toBe(FROZEN.safetyOn);
     expect(sha256(service.buildSafetyGuidance(true, true))).toBe(FROZEN.safetyRemove);
-    expect(sha256(service.buildRunSessionSystemPrompt())).toBe(FROZEN.run);
-    expect(sha256(service.buildSingleStrengthSystemPrompt())).toBe(FROZEN.strength);
+  });
+
+  it('o bloco de raciocinio e curto e pede limites objetivos (controle de tokens)', () => {
+    expect(REASONING_INSTRUCTION.length).toBeLessThan(1000);
+    expect(REASONING_INSTRUCTION).toMatch(/160 caracteres/);
+    expect(REASONING_INSTRUCTION).toMatch(/ate 3 itens/);
+    expect(REASONING_INSTRUCTION).toMatch(/NAO muda nada no treino/);
   });
 
   it('os modelos continuam os mesmos (nenhum modelo alterado)', () => {

@@ -431,6 +431,118 @@ export const PROMPT_FIELD_CLASSIFICATION: Record<string, PromptFieldClass> = {
   reavaliacaoMaisRecente: 'device_narrative', relatorioDeEvolucao: 'device_narrative', prontuarioDoAluno: 'device_narrative', eventosDoProntuarioAindaNaoCondensados: 'device_narrative',
 };
 
+// ── Raciocinio DECLARADO pela IA (Etapa 1.2b) ──────────────────────────────────────────────────────────────────────
+
+// Campos do contexto que a IA pode citar como fundamento. Vocabulario FECHADO (enum no schema de saida): a IA nao inventa nomes e o codigo liga cada
+// fonte aos itens do indice de evidencias. 'outro' = nao ha campo especifico. O que a IA declara NAO e prova de que a evidencia influenciou a decisao.
+export const BASIS_SOURCES = [
+  'historicoSemanal', 'athleteStateContext', 'relatosEstruturadosDoAluno', 'relatosAindaNaoInterpretadosDoAluno', 'diretrizesEspecificasDoTreinadorParaEsteAluno',
+  'observacoesRegistradasPeloProprioAluno', 'prontuarioDoAluno', 'eventosDoProntuarioAindaNaoCondensados', 'autoavaliacaoDaSemanaPeloAluno', 'respostasEntrevista',
+  'reavaliacaoMaisRecente', 'relatorioDeEvolucao', 'maiorLongaoJaRegistrado', 'sessoesRecentesPertoDoRecorde', 'metasDeProva', 'evidenciasDePace', 'sinalDeSeguranca', 'outro',
+] as const;
+export type BasisSource = (typeof BASIS_SOURCES)[number];
+
+// Limites de TAMANHO aplicados em codigo (truncar, nunca rejeitar a resposta): mantem o custo de tokens e o armazenamento previsiveis.
+export const REASONING_LIMITS = { intent: 160, expected: 160, basisItems: 3, basisNote: 100 } as const;
+
+export interface DeclaredReasoning {
+  intent: string | null;
+  expected: string | null;
+  basis: Array<{ source: BasisSource; note: string }>;
+}
+
+const clipText = (value: unknown, max: number): string => (typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, max) : '');
+
+// Normaliza o que a IA devolveu: trunca, descarta itens vazios, troca fonte desconhecida por 'outro'. Nada aqui rejeita a prescricao.
+export function normalizeDeclaredReasoning(raw: unknown): DeclaredReasoning | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const record = raw as { intent?: unknown; expected?: unknown; basis?: unknown };
+  const intent = clipText(record.intent, REASONING_LIMITS.intent) || null;
+  const expected = clipText(record.expected, REASONING_LIMITS.expected) || null;
+  const basis = (Array.isArray(record.basis) ? record.basis : [])
+    .map((item) => {
+      const entry = (item ?? {}) as { source?: unknown; note?: unknown };
+      const source: BasisSource = (BASIS_SOURCES as readonly string[]).includes(entry.source as string) ? (entry.source as BasisSource) : 'outro';
+      return { source, note: clipText(entry.note, REASONING_LIMITS.basisNote) };
+    })
+    .filter((entry) => entry.note.length > 0 || entry.source !== 'outro')
+    .slice(0, REASONING_LIMITS.basisItems);
+  return intent || expected || basis.length > 0 ? { intent, expected, basis } : null;
+}
+
+// Fonte declarada -> tipos de item do indice de evidencias que a representam.
+const EVIDENCE_KINDS_BY_SOURCE: Record<BasisSource, string[]> = {
+  historicoSemanal: ['history_week'], athleteStateContext: ['athlete_state_variable', 'athlete_state_summary', 'menstrual_cycle'],
+  relatosEstruturadosDoAluno: ['report'], relatosAindaNaoInterpretadosDoAluno: ['report_pending'], diretrizesEspecificasDoTreinadorParaEsteAluno: ['directive'],
+  observacoesRegistradasPeloProprioAluno: ['observation'], prontuarioDoAluno: ['profile_summary'], eventosDoProntuarioAindaNaoCondensados: ['profile_event_pending'],
+  autoavaliacaoDaSemanaPeloAluno: ['checkin'], respostasEntrevista: ['interview'], reavaliacaoMaisRecente: ['reassessment'], relatorioDeEvolucao: ['evolution_report'],
+  maiorLongaoJaRegistrado: ['record_run'], sessoesRecentesPertoDoRecorde: ['record_run'], metasDeProva: ['target_race'], evidenciasDePace: ['pace_evidence'],
+  sinalDeSeguranca: ['pain_safety'], outro: [],
+};
+
+export interface DeclaredBasisEntry {
+  source: BasisSource;
+  note: string | null;
+  // Itens do indice de evidencias que correspondem a fonte declarada (vinculo feito pelo CODIGO).
+  evidenceRefs: string[];
+  // true = a fonte existe no indice e foi entregue a IA; false = declarada mas NAO entregue/ausente (a declaracao nao tem lastro no contexto).
+  delivered: boolean;
+  // Provedores de dispositivo de que a evidencia vinculada deriva (para a exclusao de dados de um provedor).
+  providers: string[];
+  removed?: boolean;
+}
+
+export interface DeclaredBasis {
+  declared: true;
+  // Aviso permanente no proprio registro: e' declaracao da IA, nao prova de influencia.
+  nature: 'declared_by_ai_not_proof_of_influence';
+  providers: string[];
+  invalidatedProviders: string[];
+  entries: DeclaredBasisEntry[];
+}
+
+export interface DecisionReasoningFields {
+  intent: string | null;
+  expected: { text: string } | null;
+  basis: DeclaredBasis | null;
+  traceStatus: 'complete' | 'partial' | 'absent';
+}
+
+// Converte o raciocinio declarado nos campos da decisao, ligando cada fonte aos itens do indice. Sem declaracao => absent (registros antigos e
+// respostas sem o campo ficam exatamente como na 1.2a).
+export function buildDecisionReasoning(declared: DeclaredReasoning | null | undefined, evidence: EvidenceItem[]): DecisionReasoningFields {
+  if (!declared) return { intent: null, expected: null, basis: null, traceStatus: 'absent' };
+  const entries: DeclaredBasisEntry[] = declared.basis.map((entry) => {
+    const kinds = EVIDENCE_KINDS_BY_SOURCE[entry.source];
+    const linked = evidence.filter((item) => kinds.includes(item.kind) && !item.redacted);
+    const delivered = linked.some((item) => item.delivery !== 'absent');
+    return {
+      source: entry.source, note: entry.note || null, evidenceRefs: linked.map((item) => item.ref).slice(0, 12), delivered,
+      providers: [...new Set(linked.flatMap((item) => item.providers ?? []))].sort(),
+    };
+  });
+  const providers = [...new Set(entries.flatMap((entry) => entry.providers))].sort();
+  const complete = Boolean(declared.intent && declared.expected && entries.length > 0);
+  return {
+    intent: declared.intent,
+    expected: declared.expected ? { text: declared.expected } : null,
+    basis: { declared: true, nature: 'declared_by_ai_not_proof_of_influence', providers, invalidatedProviders: [], entries },
+    traceStatus: complete ? 'complete' : 'partial',
+  };
+}
+
+// Exclusao de dados de um provedor: o texto que a IA declarou a partir de evidencia derivada dele sai (D1: invalidar, nao recalcular). A IA pode ter
+// citado o valor nas tres partes (fundamento, intencao, esperado), entao as tres saem juntas quando a decisao se apoia em evidencia dele.
+export function invalidateDeclaredForProvider(basis: unknown, provider: string): { changed: boolean; basis: DeclaredBasis | null; clearTexts: boolean } {
+  const current = basis as DeclaredBasis | null;
+  if (!current || current.declared !== true || !Array.isArray(current.entries)) return { changed: false, basis: current, clearTexts: false };
+  const hit = (providers: string[] | undefined) => Array.isArray(providers) && (providers.includes(provider) || providers.includes('?'));
+  if (!hit(current.providers)) return { changed: false, basis: current, clearTexts: false };
+  const entries = current.entries.map((entry) => (hit(entry.providers) ? { ...entry, note: null, evidenceRefs: [], providers: [], removed: true } : entry));
+  const providers = [...new Set(entries.flatMap((entry) => entry.providers))].sort();
+  return { changed: true, clearTexts: true, basis: { ...current, entries, providers, invalidatedProviders: [...new Set([...(current.invalidatedProviders ?? []), provider])].sort() } };
+}
+
 export interface ExecutionAction {
   kind: ExecutionDerivation['kind'];
   weekStartDate?: string;
@@ -657,6 +769,14 @@ export interface SessionForTrace {
   distanceKm: number | null;
   paceMinSec: string | null;
   structure: unknown;
+  // Data do treino (so' para ligar o raciocinio declarado a sessao criada; nao entra no snapshot da versao).
+  scheduledDate?: Date | string | null;
+}
+
+// Chave que liga a sessao CRIADA ao rascunho que a IA descreveu (mesmos campos nos dois lados; nao ha id antes da gravacao).
+export function declaredKey(s: { scheduledDate?: Date | string | null; modality: string; distanceKm: number | null; durationMin: number | null; paceMinSec: string | null }): string {
+  const day = s.scheduledDate ? new Date(s.scheduledDate).toISOString().slice(0, 10) : '';
+  return [day, s.modality, s.distanceKm ?? '', s.durationMin ?? '', s.paceMinSec ?? ''].join('|');
 }
 
 // JSON canonico (chaves ordenadas): o jsonb do Postgres reordena chaves, entao o hash de uma versao precisa independer da ordem.
@@ -702,6 +822,11 @@ export interface DecisionDraft {
   rationale: Record<string, unknown> | null;
   sessionSnapshot: Record<string, unknown> | null;
   sessionSnapshotSha256: string | null;
+  // Etapa 1.2b: raciocinio DECLARADO pela IA (ver buildDecisionReasoning). Sem declaracao: intent/expected/basis nulos e traceStatus = absent.
+  intent: string | null;
+  expected: { text: string } | null;
+  basis: DeclaredBasis | null;
+  traceStatus: 'complete' | 'partial' | 'absent';
 }
 
 export function buildSessionDecisions(params: {
@@ -715,6 +840,7 @@ export function buildSessionDecisions(params: {
     return {
       sessionSnapshot: snapshot,
       sessionSnapshotSha256: snapshotSha,
+      intent: null, expected: null, basis: null, traceStatus: 'absent' as const,
       kind: 'session' as const,
       sessionId: session.id,
       weekday: session.weekday,
@@ -738,6 +864,7 @@ export function buildWeekDecision(params: { weekStart: Date; sessionCount: numbe
     changeFromPrevious: null,
     sessionSnapshot: null,
     sessionSnapshotSha256: null,
+    intent: null, expected: null, basis: null, traceStatus: 'absent' as const,
     // Justificativa em texto livre devolvida pela IA (DECLARADA; nao e prova de influencia — ver 1.2b).
     rationale: { recommendation: params.recommendation, rationale: params.rationale, safetyAdjustment: params.safetyAdjustment, routineMismatch: params.routineMismatch ?? null },
   };
@@ -754,6 +881,8 @@ export interface VersionDecisionInput {
   sessionSnapshot: unknown;
   sessionSnapshotSha256: string | null;
   changeFromPrevious: unknown;
+  // Etapa 1.2b: raciocinio declarado pela IA nesta versao (ausente em registros antigos).
+  reasoning?: { intent: string | null; expected: unknown; basis: unknown; traceStatus: string };
 }
 
 export interface SessionExecutionForTrace {
@@ -784,6 +913,8 @@ export interface SessionVersion {
   supersededBy: string | null;
   // true quando a sessao foi alterada fora de uma regeneracao registrada entre a versao anterior e esta (edicao manual, por exemplo).
   untracedChangeBefore: boolean | null;
+  // Raciocinio declarado pela IA nesta versao (null em versoes antigas/sem declaracao). Declaracao, nao prova de influencia.
+  reasoning: { intent: string | null; expected: unknown; basis: unknown; traceStatus: string } | null;
   outcome: {
     status: VersionOutcomeStatus;
     // Criterio de atribuicao, explicito: o registro do aluno pertence a ULTIMA versao (invariante: sessao registrada nao e' regenerada); a atividade
@@ -810,7 +941,7 @@ export function buildSessionVersions(decisions: VersionDecisionInput[], executio
   if (first && first.packageKind === 'day_regeneration' && firstChange?.previousVersionTraced === false && firstChange.previousSnapshot) {
     drafts.push({
       traced: false, decisionId: null, packageId: null, packageKind: null, summary: null, snapshot: firstChange.previousSnapshot, snapshotSha256: firstChange.previousSnapshotSha256 ?? null,
-      validFrom: execution.sessionCreatedAt ? execution.sessionCreatedAt.toISOString() : null, validUntil: first.createdAt.toISOString(), supersededBy: first.decisionId, untracedChangeBefore: null,
+      validFrom: execution.sessionCreatedAt ? execution.sessionCreatedAt.toISOString() : null, validUntil: first.createdAt.toISOString(), supersededBy: first.decisionId, untracedChangeBefore: null, reasoning: null,
       from: execution.sessionCreatedAt, until: first.createdAt,
     });
   }
@@ -820,7 +951,7 @@ export function buildSessionVersions(decisions: VersionDecisionInput[], executio
     drafts.push({
       traced: true, decisionId: decision.decisionId, packageId: decision.packageId, packageKind: decision.packageKind, summary: decision.summary, snapshot: decision.sessionSnapshot, snapshotSha256: decision.sessionSnapshotSha256,
       validFrom: decision.createdAt.toISOString(), validUntil: next ? next.createdAt.toISOString() : null, supersededBy: next ? next.decisionId : null,
-      untracedChangeBefore: change?.untracedChangeSincePreviousVersion ?? null, from: decision.createdAt, until: next ? next.createdAt : null,
+      untracedChangeBefore: change?.untracedChangeSincePreviousVersion ?? null, reasoning: decision.reasoning ?? null, from: decision.createdAt, until: next ? next.createdAt : null,
     });
   });
 

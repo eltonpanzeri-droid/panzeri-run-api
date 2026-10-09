@@ -25,7 +25,7 @@ import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { PrescriptionTraceService } from './prescription-trace.service';
-import { AgentCallTrace, buildEvidenceIndex, SessionForTrace, sourceProvidersOf } from './prescription-trace';
+import { AgentCallTrace, buildEvidenceIndex, DeclaredReasoning, declaredKey, SessionForTrace, sourceProvidersOf } from './prescription-trace';
 import {
   ContextGap, describeError, formatObservationForAgent, formatPendingProfileEvent, selectHistoryWeeks, selectRelevantReportEntries,
 } from './student-information-context';
@@ -1152,6 +1152,8 @@ export class TrainingPlansService {
     // isso, so aceita o que a IA decidiu. .shift() consome a PRIMEIRA decisao daquele dia pro slot
     // normal de disponibilidade; qualquer sobra (segunda sessao no mesmo dia, ou um dia que nem
     // estava na disponibilidade normal) vira sessao extra depois do loop principal.
+    // Etapa 1.2b: raciocinio declarado pela IA de cada rascunho de sessao (por identidade do objeto; depois ligado a sessao criada por declaredKey).
+    const declaredByDraft = new WeakMap<object, DeclaredReasoning>();
     const runDecisionsByWeekday = new Map<number, RunSessionDecision[]>();
     for (const decision of methodology.sessions) {
       const list = runDecisionsByWeekday.get(decision.weekday) ?? [];
@@ -1207,7 +1209,7 @@ export class TrainingPlansService {
             // nao existe mais nenhuma conta de codigo (duracao/pace fixo) decidindo isso.
             : this.runPrescription(durationMin, modality, { parts: runDecision?.parts ?? [] });
 
-        return [{
+        const draft = {
           userId,
           scheduledDate,
           weekday: day.weekday,
@@ -1240,7 +1242,10 @@ export class TrainingPlansService {
           // Correcao definitiva do ciclo de vida da prescricao (25/09/2026) — origem real desta
           // sessao, sempre 'agent' aqui (gerada pelo prescription-agent).
           origin: 'agent',
-        }];
+        };
+        const declared = strengthDecision ? strengthDecision.declared : runDecision?.declared;
+        if (declared) declaredByDraft.set(draft, declared);
+        return [draft];
       });
     });
 
@@ -1283,7 +1288,7 @@ export class TrainingPlansService {
       return leftover.map((runDecision) => {
         const durationMin = runDecision.durationMin;
         const prescription = this.runPrescription(durationMin, 'corrida', { parts: runDecision.parts });
-        return {
+        const extraDraft = {
           userId,
           scheduledDate,
           weekday,
@@ -1305,6 +1310,8 @@ export class TrainingPlansService {
             : null,
           origin: 'agent',
         };
+        if (runDecision.declared) declaredByDraft.set(extraDraft, runDecision.declared);
+        return extraDraft;
       });
     });
     sessions.push(...extraRunSessions);
@@ -1368,6 +1375,10 @@ export class TrainingPlansService {
         return Boolean(options?.allowToday);
       }
       return false;
+    });
+    const declaredDrafts = sessionsToCreate.flatMap((draft) => {
+      const declared = declaredByDraft.get(draft);
+      return declared ? [{ key: declaredKey(draft), declared }] : [];
     });
     // Auditoria Astra (29/09/2026), item 02 — CAUSA RAIZ: arquivar o plano ativo, criar o novo (com
     // as sessoes) e migrar as sessoes preservadas do plano antigo eram 3 operacoes de banco
@@ -1460,8 +1471,8 @@ export class TrainingPlansService {
       // nenhuma sessao "de hoje" pertencente a essa semana ainda (ela comeca no futuro).
       // Etapa 1.2a (09/10/2026): rastreabilidade gravada na MESMA transacao do plano — nenhuma prescricao nova existe sem trilha. So' as
       // sessoes CRIADAS agora (sessionsToCreate) viram decisoes; as migradas do plano anterior sao execucao real, nao decisao nova.
-      const toTrace = (session: { id: string; weekday: number; modality: string; title?: string | null; notes?: string | null; sessionType: string | null; durationMin: number | null; distanceKm: number | null; paceMinSec: string | null; structure: unknown }): SessionForTrace => ({
-        id: session.id, weekday: session.weekday, modality: session.modality, title: session.title ?? null, notes: session.notes ?? null, sessionType: session.sessionType, durationMin: session.durationMin, distanceKm: session.distanceKm, paceMinSec: session.paceMinSec, structure: session.structure,
+      const toTrace = (session: { id: string; weekday: number; modality: string; scheduledDate?: Date | null; title?: string | null; notes?: string | null; sessionType: string | null; durationMin: number | null; distanceKm: number | null; paceMinSec: string | null; structure: unknown }): SessionForTrace => ({
+        id: session.id, weekday: session.weekday, modality: session.modality, scheduledDate: session.scheduledDate ?? null, title: session.title ?? null, notes: session.notes ?? null, sessionType: session.sessionType, durationMin: session.durationMin, distanceKm: session.distanceKm, paceMinSec: session.paceMinSec, structure: session.structure,
       });
       // Proveniencia dos agregados derivados de dispositivo enviados a IA (atividade objetiva e carga semanal), por provedor.
       const provenance = await this.trace.collectProvenance(tx, userId, weekStart);
@@ -1498,6 +1509,7 @@ export class TrainingPlansService {
         }),
         contextGaps,
         agentTrace,
+        declared: declaredDrafts,
         sourceProviders: sourceProvidersOf(methodologyInput, provenance, executionProvenance),
         recommendation: methodology.recommendation,
         rationale: methodology.rationale,
@@ -1986,6 +1998,7 @@ export class TrainingPlansService {
     // (fixedModalityTitle), decidido na criacao da sessao e nunca reescrito pela IA (pedido
     // explicito do treinador 03/08 — sem titulos "criativos").
     let strengthNotesUpdate: string | undefined;
+    let dayDeclared: DeclaredReasoning | null | undefined;
     const dayAgentTrace: AgentCallTrace[] = [];
 
     let prescription;
@@ -2035,6 +2048,7 @@ export class TrainingPlansService {
       }
       prescription = this.strengthPrescription(durationMin, strengthDecision);
       strengthNotesUpdate = strengthDecision.notes;
+      dayDeclared = strengthDecision.declared;
     } else {
       const paceEvidence: PaceEvidence = {
         testPace: latestTest ? { secondsPerKm: latestTest.paceSecondsPerKm, daysAgo: Math.max(0, Math.floor((Date.now() - latestTest.createdAt.getTime()) / 86400000)) } : null,
@@ -2066,6 +2080,7 @@ export class TrainingPlansService {
         throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
       }
       prescription = this.runPrescription(durationMin, session.modality, runDecision);
+      dayDeclared = runDecision.declared;
     }
 
     const updateArgs = {
@@ -2134,6 +2149,7 @@ export class TrainingPlansService {
         contextGaps: dayInformationContext.gaps,
         agentTrace: dayAgentTrace,
         sourceProviders: sourceProvidersOf(dayEvidenceInput, dayProvenance, dayExecution),
+        declared: dayDeclared,
       });
       return updated;
     });

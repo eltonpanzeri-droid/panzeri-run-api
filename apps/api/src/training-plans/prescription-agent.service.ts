@@ -17,7 +17,7 @@ import { PANZERI_METHODOLOGY_KNOWLEDGE } from './panzeri-methodology-knowledge';
 import { AiQueueService } from '../common/ai-queue.service';
 import { AI_MODELS } from '../common/ai-models.config';
 import { logAiUsage } from '../common/ai-usage-logger';
-import { AgentCallTrace, recordAgentCall } from './prescription-trace';
+import { AgentCallTrace, BASIS_SOURCES, DeclaredReasoning, normalizeDeclaredReasoning, recordAgentCall } from './prescription-trace';
 import { gymExerciseLibrary } from './gym-exercise-library';
 import { runnerStrengthExercises } from './runner-strength-library';
 
@@ -100,6 +100,19 @@ const AiSessionPartSchema = z.discriminatedUnion('kind', [AiContinuousPartSchema
 // dois lugares, so muda o que envolve isso (semana inteira vs. um dia so).
 const AiSessionPartsSchema = z.array(AiSessionPartSchema).min(1).max(6);
 
+// Etapa 1.2b — raciocinio tecnico DECLARADO (objetivo, resultado esperado, fundamentos). Sem .max() em nenhum campo de texto e sem limite de itens:
+// o tamanho e controlado em CODIGO (normalizeDeclaredReasoning trunca) — nunca rejeita a resposta inteira por texto longo (licao dos incidentes
+// de 28/07, 16/08 e 04/09). 'source' e um enum fechado (campos do contexto), entao a IA nao inventa nomes. nullable (e nao optional): a chave
+// vem sempre, e null quando nao ha o que declarar.
+export const AiReasoningSchema = z.object({
+  intent: z.string(),
+  expected: z.string(),
+  basis: z.array(z.object({ source: z.enum(BASIS_SOURCES), note: z.string() })),
+});
+
+// Corpo da decisao de UM dia de corrida (regeneracao isolada): partes + raciocinio declarado.
+export const AiRunDaySchema = z.object({ parts: AiSessionPartsSchema, reasoning: AiReasoningSchema.nullable() });
+
 const AiSessionSchema = z.object({
   weekday: z.number().int().min(0).max(6),
   // 04/09: sem .min(1) de proposito (bug real — caso Ju, semana inteira falhou por causa de UM
@@ -135,6 +148,7 @@ const AiSessionSchema = z.object({
   // especifico — cite a diretriz que autoriza isso para ESTE dia. Null/vazio quando a duracao
   // esta dentro do normal do dia.
   durationJustification: z.string().max(300).nullable(),
+  reasoning: AiReasoningSchema.nullable(),
 });
 
 // Exercicios de forca/fortalecimento tambem sao decisao real da IA, nunca de uma rotina fixa
@@ -144,7 +158,7 @@ const AiSessionSchema = z.object({
 // "reps" tambem ficou sem .max() pelo mesmo motivo: incidente real em producao (2026-07-28) — a
 // IA escreve instrucoes tipo "12 cada lado, 3x, controle na descida" que passam facil de 40
 // caracteres, e nao e um numero curto tipo "4x12" sempre. Truncado em codigo (ver attemptDecision).
-const AiStrengthSessionSchema = z.object({
+export const AiStrengthSessionSchema = z.object({
   weekday: z.number().int().min(0).max(6),
   modality: z.enum(['forca', 'fortalecimento_corredores']),
   // 04/09: sem .min(1), mesmo motivo do AiSessionSchema acima — title de forca tambem e descartado
@@ -162,9 +176,10 @@ const AiStrengthSessionSchema = z.object({
   // falharam por isso nesse incidente, atrasando a geracao em mais de 10 minutos). notes vazio
   // pra um dia especifico e melhor que arriscar a resposta inteira falhar/atrasar.
   notes: z.string(),
+  reasoning: AiReasoningSchema.nullable(),
 });
 
-const AiWeeklyDecisionSchema = z.object({
+export const AiWeeklyDecisionSchema = z.object({
   sessions: z.array(AiSessionSchema).min(1).max(7),
   // Max 7 dias * ate 2 modalidades de forca no mesmo dia (forca + fortalecimento_corredores sao
   // multi-select legitimo no app, ver computeStrengthSlots em training-methodology.ts) = 14, nao
@@ -187,6 +202,11 @@ const AiWeeklyDecisionSchema = z.object({
 // unico campo estoura um tamanho razoavel — ver o historico acima sobre por que os limites de
 // caracteres nao ficam mais no schema Zod para esses campos.
 const FREE_TEXT_DISPLAY_LIMIT = 2000;
+// Etapa 1.2b — instrucao CURTA e identica nos tres prompts (semana, dia de corrida, dia de forca). O custo e controlado por tres frentes: limites de
+// caracteres pedidos aqui, truncamento em codigo e max_tokens com folga pequena.
+export const REASONING_INSTRUCTION =
+  'RACIOCINIO PARA AUDITORIA (campo reasoning de cada sessao; NAO e texto para o aluno): registre de forma OBJETIVA por que voce decidiu este treino. intent = o objetivo desta sessao em UMA frase (ate 160 caracteres). expected = o que voce espera obter/observar com ela (ate 160 caracteres). basis = ate 3 itens {source, note}: source e o NOME do campo do contexto que mais pesou nesta decisao (use "outro" se nao houver um) e note e UMA frase curta (ate 100 caracteres) dizendo como ele pesou. E uma declaracao sua, nao uma prova: cite so o que realmente considerou, sem copiar relatos nem repetir numeros longos. Se nao houver o que declarar, devolva reasoning = null. Isto NAO muda nada no treino: prescreva exatamente como prescreveria sem este campo.';
+
 function truncateText(text: string, max: number = FREE_TEXT_DISPLAY_LIMIT): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
@@ -268,7 +288,7 @@ export class PrescriptionAgentService {
   // chamada — distancia, pace e estrutura, na forma que fizer sentido pra ela (ver AiSessionSchema)
   // — com o mesmo contexto (diretivas, observacoes, sinal de dor) que a geracao semanal usa, nunca
   // uma formula ou um numero reaproveitado de outro dia.
-  async proposeRunSession(params: RunSessionParams, trace?: AgentCallTrace[]): Promise<{ parts: z.infer<typeof AiSessionPartsSchema> } | null> {
+  async proposeRunSession(params: RunSessionParams, trace?: AgentCallTrace[]): Promise<{ parts: z.infer<typeof AiSessionPartsSchema>; declared?: DeclaredReasoning | null } | null> {
     if (!this.client) {
       this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado para o treino avulso.');
       return null;
@@ -277,19 +297,20 @@ export class PrescriptionAgentService {
     return (await attempt()) ?? (await attempt());
   }
 
-  private async attemptRunSessionDecision(params: RunSessionParams, trace?: AgentCallTrace[]): Promise<{ parts: z.infer<typeof AiSessionPartsSchema> } | null> {
+  private async attemptRunSessionDecision(params: RunSessionParams, trace?: AgentCallTrace[]): Promise<{ parts: z.infer<typeof AiSessionPartsSchema>; declared?: DeclaredReasoning | null } | null> {
     const client = this.client;
     if (!client) return null;
     const runSystem = this.buildRunSessionSystemPrompt();
     const runUser = this.buildRunSessionUserPrompt(params);
     recordAgentCall(trace, { purpose: 'dia_corrida', model: AI_MODELS.SONNET_5, system: runSystem, userPrompt: runUser });
-    const schema = z.object({ parts: AiSessionPartsSchema });
+    const schema = AiRunDaySchema;
     const startedAt = Date.now();
     try {
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
           model: AI_MODELS.SONNET_5,
-          max_tokens: 2000,
+          // 2000 -> 2600 na 1.2b: espaco para o raciocinio declarado (curto, truncado em codigo) sem arriscar o corte da propria prescricao.
+          max_tokens: 2600,
           thinking: { type: 'adaptive' },
           output_config: { effort: 'medium', format: zodOutputFormat(schema) },
           // Prompt identico pra qualquer aluno/chamada — cache_control deixa isso barato depois
@@ -301,7 +322,7 @@ export class PrescriptionAgentService {
       logAiUsage(this.logger, { agent: 'treinador_dia_corrida', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
       const parsed = response.parsed_output;
       if (!parsed) return null;
-      return parsed;
+      return { parts: parsed.parts, declared: normalizeDeclaredReasoning(parsed.reasoning) };
     } catch (error) {
       this.logger.warn(`Falha ao gerar treino avulso com o agente de IA: ${describeAiError(error)}`);
       return null;
@@ -318,6 +339,7 @@ export class PrescriptionAgentService {
       'Se diretrizesEspecificasDoTreinadorParaEsteAluno mencionar algo que se aplique a este dia especifico, aplique literalmente (prioridade quase absoluta). observacoesRegistradasPeloProprioAluno sao informais, considere quando fizer sentido sem sacrificar seguranca. sinalDeSeguranca e motivoDoSinalDeSeguranca sao so informacao de contexto (o aluno relatou dor) — use seu julgamento sobre o que isso muda no treino de hoje, nao existe uma trava automatica aqui.',
       'INFORMACOES DO ALUNO POR TEXTO: relatosEstruturadosDoAluno (relatos do proprio aluno ja interpretados, cronologicos, o mais recente por ultimo — o mais recente prevalece sobre o mais antigo no mesmo assunto; RESOLVIDO encerra uma restricao anterior; PERSISTENTE_ATE_CONTRARIO vale ate um relato posterior dizer o contrario), relatosAindaNaoInterpretadosDoAluno e eventosDoProntuarioAindaNaoCondensados (texto bruto ainda nao interpretado: leia e nao ignore). Respeite RESTRICOES REAIS (equipamento, limite da esteira, local, saude); preferencias podem ser acomodadas sem sacrificar seguranca; dificuldade de execucao relatada e evidencia a ponderar. Um relato isolado nao vira regra permanente. lacunasDeContexto lista o que nao pode ser recuperado: a ausencia nao significa normalidade, seja conservador onde a parte faltante seria decisiva.',
       `Recomendacao (nao e uma regra rigida): evite prescrever pace de corrida mais lento que 8:30/km (${MAX_EASY_PACE_SECONDS_PER_KM} segundos por km) quando puder, porque abaixo disso a mecanica da corrida tende a piorar e se aproximar de uma caminhada. Se o ritmo confortavel real deste aluno estiver nessa faixa, considere usar uma parte "intervalada" alternando corrida de verdade com caminhada de verdade — mas a decisao final e sempre sua, pensando no aluno real.`,
+      REASONING_INSTRUCTION,
     ].join('\n\n');
   }
 
@@ -356,7 +378,8 @@ export class PrescriptionAgentService {
       const response = await this.aiQueue.run(() =>
         client.messages.parse({
           model: AI_MODELS.SONNET_5,
-          max_tokens: 3000,
+          // 3000 -> 3400 na 1.2b (mesmo motivo do dia de corrida).
+          max_tokens: 3400,
           thinking: { type: 'adaptive' },
           output_config: {
             effort: 'high',
@@ -605,6 +628,7 @@ export class PrescriptionAgentService {
         // Limite subiu 30% (900->1170) em 20/08, pedido do treinador (junto com o timeout maior).
         notes: truncateText(session.notes, 1170),
         parts: session.parts,
+        declared: normalizeDeclaredReasoning(session.reasoning),
       });
     }
 
@@ -683,6 +707,7 @@ export class PrescriptionAgentService {
         intensity: session.intensity,
         // Limite subiu 30% (900->1170) em 20/08, pedido do treinador (junto com o timeout maior).
         notes: truncateText(session.notes, 1170),
+        declared: normalizeDeclaredReasoning(session.reasoning),
       });
     }
 
@@ -792,6 +817,7 @@ export class PrescriptionAgentService {
       'ORCAMENTO DE TEXTO DA RESPOSTA (importante, incidente real 02/08): sua resposta inteira — todos os dias de corrida e de forca de uma vez — tem um limite de tamanho. Se voce escrever textos longos demais nos primeiros dias, pode faltar espaco pra terminar os ultimos, e a resposta e cortada no meio (fica invalida, o aluno nao recebe treino nenhum naquela semana). Terminar a resposta INTEIRA e sempre mais importante do que cada campo de texto ser longo. Regra pratica: notes de cada dia de corrida/forca sao curtos por definicao (2 a 4 frases ou vazio — ver instrucao de notes acima), rationale como bullets curtos. Se em algum momento perceber que esta gastando texto demais, prefira DIMINUIR o que ainda vai escrever (textos mais diretos e objetivos) — nunca "force" continuar no mesmo nivel de detalhe e arriscar nao terminar. Uma resposta completa com texto mais enxuto e sempre melhor que uma resposta rica mas cortada.',
       'O campo title de cada sessao NAO e mais exibido ao aluno nem ao treinador — o titulo mostrado e sempre o nome fixo da modalidade (Corrida/Fortalecimento para corredores/Musculacao), decidido em codigo. Preencha title com qualquer texto curto valido, sem gastar esforco pensando nele.',
       'Responda em portugues nos campos de texto (notes, rationale, durationJustification).',
+      REASONING_INSTRUCTION,
       'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida.',
       '- OBRIGATORIO: retorne EXATAMENTE uma sessao em strengthSessions para CADA item listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). O mesmo weekday pode aparecer mais de uma vez na lista, uma para cada modalidade — retorne uma sessao pra cada item nesse caso, isso e o dado real da rotina do aluno, nao um erro. Se diasDisponiveisParaForca tiver 3 itens, strengthSessions tem que ter 3 sessoes — nunca deixe esse campo vazio ou incompleto quando diasDisponiveisParaForca nao estiver vazio: a resposta inteira e descartada quando isso acontece, desperdicando todo o raciocinio que voce fez pros dias de corrida.',
       '- A modalidade de cada item em diasDisponiveisParaForca vem da rotina real do aluno e normalmente nao muda — copie o campo modality literalmente. Uma diretriz sobre forca/fortalecimento normalmente muda foco/exercicios/intensidade daquele dia, nao a modalidade em si; so mude a modalidade se a diretriz pedir isso explicitamente.',
@@ -1017,6 +1043,7 @@ export class PrescriptionAgentService {
       'O campo notes e o texto que o ALUNO le antes de comecar o treino. REGRAS: curto (2 a 4 frases ou vazio), escreva o OBJETIVO/FOCO da sessao de hoje (ex: "a sessao de hoje trabalha a posterior da coxa e lombar com foco em controle de movimento"), nunca explique o raciocinio por tras da escolha de exercicios. Se houver sinal de dor/saude: mencione de forma neutra que foi considerado ("Seu treino de hoje levou em consideracao seu feedback sobre [condicao]."), sem detalhar o que mudou ou por que. PROIBIDO o formato "como voce relatou X, fiz Y". Pode deixar vazio se os exercicios ja forem autoexplicativos.',
       'O campo title NAO e mais exibido — o titulo mostrado e sempre o nome fixo da modalidade, decidido em codigo. Preencha com qualquer texto curto valido.',
       'Responda em portugues nos campos de texto (notes).',
+      REASONING_INSTRUCTION,
     ].join('\n\n');
   }
 

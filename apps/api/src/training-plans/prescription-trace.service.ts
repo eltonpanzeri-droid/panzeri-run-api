@@ -6,7 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { classifyMaterializedCompletion } from '../activity-execution/provider-data-deletion.service';
 import {
-  AgentCallTrace, classifyExecutionProvenance, ExecutionProvenance, classifyLoadProvenance, ProviderProvenance, SessionForLoadProvenance, buildAgentInputRecord, buildSessionDecisions, buildSessionVersions, buildWeekDecision, DecisionDraft, describeSessionForTrace, EvidenceItem,
+  AgentCallTrace, buildDecisionReasoning, DeclaredReasoning, declaredKey, classifyExecutionProvenance, ExecutionProvenance, classifyLoadProvenance, ProviderProvenance, SessionForLoadProvenance, buildAgentInputRecord, buildSessionDecisions, buildSessionVersions, buildWeekDecision, DecisionDraft, describeSessionForTrace, EvidenceItem,
   parseRetentionMonths, retentionCutoff, SessionForTrace, snapshotOfSession, TRACE_SCHEMA_VERSION,
 } from './prescription-trace';
 import type { ContextGap } from './student-information-context';
@@ -25,6 +25,8 @@ export interface PersistWeeklyParams {
   evidence: EvidenceItem[];
   contextGaps: ContextGap[];
   agentTrace: AgentCallTrace[];
+  // Etapa 1.2b: raciocinio declarado pela IA por sessao (ligado a sessao criada por declaredKey).
+  declared?: Array<{ key: string; declared: DeclaredReasoning }>;
   // Provedores de dispositivo cujos dados alimentaram agregados do prompt (proveniencia, usada na exclusao de dados de um provedor).
   sourceProviders: string[];
   recommendation: string;
@@ -44,6 +46,7 @@ export interface PersistDayParams {
   contextGaps: ContextGap[];
   agentTrace: AgentCallTrace[];
   sourceProviders: string[];
+  declared?: DeclaredReasoning | null;
 }
 
 @Injectable()
@@ -128,6 +131,15 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
       buildWeekDecision({ weekStart: p.weekStart, sessionCount: p.createdSessions.length, recommendation: p.recommendation, rationale: p.rationale, safetyAdjustment: p.safetyAdjustment, routineMismatch: p.routineMismatch }),
       ...buildSessionDecisions({ sessions: p.createdSessions, previousWeek: p.previousWeek }),
     ];
+    // 1.2b: liga o raciocinio declarado a cada sessao criada (cada rascunho da IA e consumido uma vez; sem correspondencia => absent).
+    const pending = [...(p.declared ?? [])];
+    for (const session of p.createdSessions) {
+      const index = pending.findIndex((entry) => entry.key === declaredKey(session));
+      if (index < 0) continue;
+      const [{ declared }] = pending.splice(index, 1);
+      const draft = decisions.find((d) => d.kind === 'session' && d.sessionId === session.id);
+      if (draft) Object.assign(draft, buildDecisionReasoning(declared, p.evidence));
+    }
     await tx.prescriptionDecision.createMany({ data: decisions.map((d) => this.toRow(pkg.id, p.userId, p.planId, d)) });
     return { packageId: pkg.id };
   }
@@ -150,6 +162,7 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
       where: { userId: p.userId, sessionId: p.session.id, kind: 'session' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true, sessionSnapshotSha256: true },
     });
     const previous = snapshotOfSession(p.previous);
+    Object.assign(decision, buildDecisionReasoning(p.declared, p.evidence));
     decision.changeFromPrevious = {
       previousSummary: describeSessionForTrace(p.previous),
       previousSnapshot: previous.snapshot,
@@ -170,7 +183,10 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
       rationale: d.rationale === null ? Prisma.DbNull : (d.rationale as Prisma.InputJsonValue),
       sessionSnapshot: d.sessionSnapshot === null ? Prisma.DbNull : (d.sessionSnapshot as Prisma.InputJsonValue),
       sessionSnapshotSha256: d.sessionSnapshotSha256,
-      traceStatus: 'absent',
+      intent: d.intent,
+      expected: d.expected === null ? Prisma.DbNull : (d.expected as unknown as Prisma.InputJsonValue),
+      basis: d.basis === null ? Prisma.DbNull : (d.basis as unknown as Prisma.InputJsonValue),
+      traceStatus: d.traceStatus,
     };
   }
 
@@ -212,12 +228,13 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
   async versionsOf(userId: string, sessionId: string) {
     const decisions = await this.prisma.prescriptionDecision.findMany({
       where: { userId, sessionId, kind: 'session' }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: { id: true, packageId: true, createdAt: true, summary: true, sessionSnapshot: true, sessionSnapshotSha256: true, changeFromPrevious: true, package: { select: { kind: true } } },
+      select: { id: true, packageId: true, createdAt: true, summary: true, sessionSnapshot: true, sessionSnapshotSha256: true, changeFromPrevious: true, intent: true, expected: true, basis: true, traceStatus: true, package: { select: { kind: true } } },
     });
     const execution = await this.executionOf(userId, sessionId);
     return buildSessionVersions(decisions.map((d) => ({
       decisionId: d.id, packageId: d.packageId, packageKind: d.package.kind, createdAt: d.createdAt, summary: d.summary, sessionSnapshot: d.sessionSnapshot,
       sessionSnapshotSha256: d.sessionSnapshotSha256, changeFromPrevious: d.changeFromPrevious,
+      reasoning: { intent: d.intent, expected: d.expected, basis: d.basis, traceStatus: d.traceStatus },
     })), execution);
   }
 

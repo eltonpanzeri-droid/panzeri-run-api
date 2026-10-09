@@ -2,7 +2,7 @@ import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TombstoneLedger } from '../backup/tombstone-ledger';
-import { AgentInputRedaction, EvidenceItem, executionActionsFor, isProviderDerivedVariable, packageMayContainProvider, redactAgentInputForProvider, redactEvidenceForProvider } from '../training-plans/prescription-trace';
+import { AgentInputRedaction, EvidenceItem, executionActionsFor, invalidateDeclaredForProvider, isProviderDerivedVariable, packageMayContainProvider, redactAgentInputForProvider, redactEvidenceForProvider } from '../training-plans/prescription-trace';
 
 // Exclusao dos dados atribuiveis a UM provider de UM usuario (04/10/2026). Provider-agnostico: so'
 // conhece o dominio canonico (RawExternalActivity / ActivityLog / samples / series / vinculos) e a
@@ -60,6 +60,8 @@ export interface ProviderDataDeletionResult {
   // provedores e o restante do contexto (relatos, diretrizes, entrevista...) permanecem. Cada pacote afetado ganha um marcador auditavel.
   evidenceRedacted?: number;
   agentInputsRedacted?: number;
+  // Etapa 1.2b: decisoes cujo raciocinio declarado pela IA (objetivo, esperado, fundamentos) se apoiava em evidencia derivada do provedor; os textos saem.
+  declaredReasoningInvalidated?: number;
 }
 
 interface ActivityCopySource {
@@ -260,6 +262,19 @@ export class ProviderDataDeletionService {
         if (input.redaction) agentInputsRedacted++;
       }
 
+      // Raciocinio declarado pela IA (1.2b) que se apoiou em evidencia derivada deste provedor: o texto (que pode citar os valores) sai; fica o marcador.
+      let declaredReasoningInvalidated = 0;
+      const declaredDecisions = await tx.prescriptionDecision?.findMany({ where: { userId, NOT: { basis: { equals: Prisma.DbNull } } }, select: { id: true, basis: true } }) ?? [];
+      for (const decision of declaredDecisions) {
+        const outcome = invalidateDeclaredForProvider(decision.basis, provider);
+        if (!outcome.changed) continue;
+        await tx.prescriptionDecision.update({
+          where: { id: decision.id },
+          data: { basis: outcome.basis as unknown as Prisma.InputJsonValue, intent: null, expected: Prisma.DbNull, traceStatus: 'partial' },
+        });
+        declaredReasoningInvalidated++;
+      }
+
       const result: ProviderDataDeletionResult = {
         provider,
         activities: logs.count,
@@ -272,6 +287,7 @@ export class ProviderDataDeletionService {
         preservedMaterialized,
         evidenceRedacted,
         agentInputsRedacted,
+        declaredReasoningInvalidated,
       };
       await tx.providerConnectionEvent.create({
         data: { userId, provider, type: 'data_deleted', details: result as unknown as Prisma.InputJsonValue },

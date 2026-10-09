@@ -25,6 +25,8 @@ jest.mock('../../src/training-intelligence/compact-agent-context', () => ({
 
 class FakeAgent extends PrescriptionAgentService {
   weeklyCalls = 0;
+  // Etapa 1.2b: quando ligado, o Prescritor simulado devolve o raciocinio declarado (primeira sessao: historico + estado do atleta + relato; demais: so relato).
+  declare = false;
   // Gancho executado durante a "chamada de IA" do dia (simula o aluno registrando o treino enquanto a IA pensa).
   duringRun: (() => Promise<void>) | null = null;
   constructor() { super({ get: () => undefined } as never, {} as never); }
@@ -40,6 +42,14 @@ class FakeAgent extends PrescriptionAgentService {
       sessions: runSlots.map((slot, index) => ({
         weekday: slot.weekday, title: 'Corrida', durationMin: slot.durationMin, notes: `Objetivo da sessao ${index + 1}.`,
         parts: [{ kind: 'continua' as const, distanceKm: 5, paceSecondsPerKmMin: 480, paceSecondsPerKmMax: 480 }],
+        ...(this.declare ? {
+          declared: {
+            intent: `Objetivo do dia ${slot.weekday}`, expected: `Esperado do dia ${slot.weekday}`,
+            basis: index === 0
+              ? [{ source: 'historicoSemanal' as const, note: 'ritmo recente 7:15/km' }, { source: 'athleteStateContext' as const, note: 'cadencia 171.6 estavel' }, { source: 'relatosEstruturadosDoAluno' as const, note: 'esteira limitada' }]
+              : [{ source: 'relatosEstruturadosDoAluno' as const, note: 'esteira limitada' }],
+          },
+        } : {}),
       })),
       strengthSessions: [],
       recommendation: 'Semana de teste sintetico.',
@@ -52,7 +62,10 @@ class FakeAgent extends PrescriptionAgentService {
     const self = this as unknown as { buildRunSessionUserPrompt: (p: unknown) => string; buildRunSessionSystemPrompt: () => string };
     recordAgentCall(trace, { purpose: 'dia_corrida', model: 'claude-sonnet-5', system: self.buildRunSessionSystemPrompt(), userPrompt: self.buildRunSessionUserPrompt(params) });
     if (this.duringRun) await this.duringRun();
-    return { parts: [{ kind: 'continua' as const, distanceKm: 7, paceSecondsPerKmMin: 450, paceSecondsPerKmMax: 450 }] };
+    return {
+      parts: [{ kind: 'continua' as const, distanceKm: 7, paceSecondsPerKmMin: 450, paceSecondsPerKmMax: 450 }],
+      ...(this.declare ? { declared: { intent: 'Reforcar a base apos a troca de dia', expected: 'Concluir 7 km sem dor', basis: [{ source: 'diretrizesEspecificasDoTreinadorParaEsteAluno' as const, note: 'evitar quarta' }] } } : {}),
+    };
   }
 }
 
@@ -61,6 +74,7 @@ describe('endurecimento da rastreabilidade (PostgreSQL 17 real, dados sinteticos
   const userIds: string[] = [];
   const config = { get: () => undefined };
   const trace = new PrescriptionTraceService(prisma as never, config as never);
+  const trace_ = trace;
   const agent = new FakeAgent();
   const deletion = new ProviderDataDeletionService(prisma as never);
 
@@ -385,6 +399,85 @@ describe('endurecimento da rastreabilidade (PostgreSQL 17 real, dados sinteticos
       expect((versions[0].snapshot as { structure: unknown }).structure).toEqual(seeded.structure);
       expect(versions[1]).toMatchObject({ version: 2, traced: true, packageKind: 'day_regeneration' });
       expect(versions[0].validUntil).toBe(versions[1].validFrom);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  describe('5) Etapa 1.2b: raciocinio declarado pela IA (intent / expected / basis) na trilha', () => {
+    afterEach(() => { agent.declare = false; });
+    const decisionsOf = async (userId: string) => (await packageOf(userId)).decisions.filter((d) => d.kind === 'session').sort((a, b) => (a.weekday ?? 0) - (b.weekday ?? 0));
+
+    it('persiste objetivo, esperado e fundamentos por sessao, ligados pelo codigo as evidencias; rotulado como declaracao (nao prova)', async () => {
+      agent.declare = true;
+      const rita = await seedRoutineStudent('rita-12b');
+      await seedActivity(rita.userId, 'polar', '2026-10-06T08:00:00Z', 'polar-rita');
+      await generate(rita.userId);
+      const [first, second] = await decisionsOf(rita.userId);
+      expect(first).toMatchObject({ intent: `Objetivo do dia ${first.weekday}`, expected: { text: `Esperado do dia ${first.weekday}` }, traceStatus: 'complete' });
+      expect(second).toMatchObject({ intent: `Objetivo do dia ${second.weekday}`, traceStatus: 'complete' }); // cada rascunho ligado a SUA sessao
+      const basis = first.basis as unknown as { declared: boolean; nature: string; providers: string[]; entries: Array<{ source: string; note: string; evidenceRefs: string[]; delivered: boolean; providers: string[] }> };
+      expect(basis).toMatchObject({ declared: true, nature: 'declared_by_ai_not_proof_of_influence', providers: ['polar'] });
+      const byRef = (source: string) => basis.entries.find((entry) => entry.source === source)!;
+      expect(byRef('historicoSemanal')).toMatchObject({ delivered: true, evidenceRefs: expect.arrayContaining([expect.stringMatching(/^history_week:/)]) });
+      expect(byRef('relatosEstruturadosDoAluno')).toMatchObject({ delivered: true, evidenceRefs: [expect.stringMatching(/^report:/)], providers: [] });
+      expect(byRef('athleteStateContext')).toMatchObject({ delivered: true, providers: ['polar'] });
+      expect((second.basis as unknown as typeof basis).entries).toHaveLength(1);
+      // tamanho controlado e prescricao intacta: o raciocinio nao vaza para o treino do aluno
+      expect(JSON.stringify(first.basis).length).toBeLessThan(1500);
+      const sessions = await prisma.trainingSession.findMany({ where: { planId: first.planId } });
+      expect(JSON.stringify(sessions)).not.toContain('Objetivo do dia');
+      // a decisao da SEMANA segue sem declaracao propria (usa recommendation/rationale ja existentes)
+      expect((await packageOf(rita.userId)).decisions.find((d) => d.kind === 'week')).toMatchObject({ intent: null, basis: null, traceStatus: 'absent' });
+    });
+
+    it('registros SEM os campos (resposta sem reasoning / registros antigos) continuam validos: traceStatus absent e reconstrucao normal', async () => {
+      agent.declare = false;
+      const paulo = await seedRoutineStudent('paulo-12b');
+      await generate(paulo.userId);
+      const decisions = await decisionsOf(paulo.userId);
+      expect(decisions.every((d) => d.intent === null && d.expected === null && d.basis === null && d.traceStatus === 'absent')).toBe(true);
+      const trace = await trace_.getTrace(paulo.userId, { planId: decisions[0].planId });
+      expect(trace.sessions.every((s) => s.versions.every((v) => v.reasoning?.traceStatus === 'absent' && v.reasoning.basis === null))).toBe(true);
+      // linha antiga (1.2a) sem nenhuma das colunas novas preenchidas: continua legivel
+      const legacy = await prisma.prescriptionDecision.findFirstOrThrow({ where: { id: decisions[0].id } });
+      expect(legacy.traceStatus).toBe('absent');
+    });
+
+    it('regeneracao de um dia (corrida): o raciocinio da nova versao e registrado; a versao anterior mantem o seu; reconstrucao por versao', async () => {
+      agent.declare = true;
+      const vera = await seedRoutineStudent('vera-12b');
+      const plan = await generate(vera.userId);
+      const session = (await prisma.trainingSession.findMany({ where: { planId: plan.id }, orderBy: { weekday: 'asc' } }))[0];
+      await plansService().regenerateSession(vera.userId, session.id);
+      const { sessions } = await trace_.getTrace(vera.userId, { sessionId: session.id });
+      const [v1, v2] = sessions[0].versions;
+      expect(v1.reasoning).toMatchObject({ intent: `Objetivo do dia ${session.weekday}`, traceStatus: 'complete' });
+      expect(v2.reasoning).toMatchObject({ intent: 'Reforcar a base apos a troca de dia', traceStatus: 'complete' });
+      expect((v2.reasoning!.basis as { entries: Array<{ source: string; evidenceRefs: string[] }> }).entries[0]).toMatchObject({ source: 'diretrizesEspecificasDoTreinadorParaEsteAluno', evidenceRefs: [expect.stringMatching(/^directive:/)] });
+      expect(v2.reasoning!.expected).toEqual({ text: 'Concluir 7 km sem dor' });
+    });
+
+    it('exclusao de dados de provedor: o raciocinio apoiado em evidencia dele e invalidado; o apoiado so em fontes independentes fica', async () => {
+      agent.declare = true;
+      const nina = await seedRoutineStudent('nina-12b');
+      await seedActivity(nina.userId, 'polar', '2026-10-06T08:00:00Z', 'polar-nina');
+      await generate(nina.userId);
+      const before = await decisionsOf(nina.userId);
+      const result = await deletion.executeProviderDataDeletion(nina.userId, 'polar');
+      expect(result.declaredReasoningInvalidated).toBe(1);
+      const [first, second] = await decisionsOf(nina.userId);
+      expect(first).toMatchObject({ intent: null, expected: null, traceStatus: 'partial' });
+      const basis = first.basis as unknown as { providers: string[]; invalidatedProviders: string[]; entries: Array<{ source: string; note: string | null; removed?: boolean; evidenceRefs: string[] }> };
+      expect(basis).toMatchObject({ providers: [], invalidatedProviders: ['polar'] });
+      expect(basis.entries.find((e) => e.source === 'athleteStateContext')).toMatchObject({ note: null, removed: true, evidenceRefs: [] });
+      expect(basis.entries.find((e) => e.source === 'relatosEstruturadosDoAluno')!.note).toBe('esteira limitada'); // independente: fica
+      // o historico desta aluna nao deriva de dispositivo (nenhuma sessao extra/copia): essa entrada fica, mesmo na decisao invalidada
+      expect(basis.entries.find((e) => e.source === 'historicoSemanal')!.note).toBe('ritmo recente 7:15/km');
+      expect(JSON.stringify(first)).not.toMatch(/171\.6|Objetivo do dia/);
+      // a decisao sem apoio em dispositivo permanece integra
+      expect(second).toMatchObject({ intent: before[1].intent, traceStatus: 'complete' });
+      // idempotente
+      expect((await deletion.executeProviderDataDeletion(nina.userId, 'polar')).declaredReasoningInvalidated).toBe(0);
     });
   });
 

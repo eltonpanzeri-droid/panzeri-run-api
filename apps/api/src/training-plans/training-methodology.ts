@@ -323,6 +323,8 @@ export interface RunSessionDecision {
   durationMin: number;
   notes: string;
   parts: SessionPartDecision[];
+  // Etapa 1.2b: raciocinio tecnico DECLARADO pela IA (objetivo, resultado esperado, fundamentos), ja normalizado/truncado. Ausente em respostas sem o campo.
+  declared?: import('./prescription-trace').DeclaredReasoning | null;
 }
 
 export type StrengthModality = 'forca' | 'fortalecimento_corredores';
@@ -347,6 +349,7 @@ export interface StrengthSessionDecision {
   restSeconds: number;
   intensity: 'Leve' | 'Moderada' | 'Forte';
   notes: string;
+  declared?: import('./prescription-trace').DeclaredReasoning | null;
 }
 
 export interface WeeklyMethodologyDecision {
