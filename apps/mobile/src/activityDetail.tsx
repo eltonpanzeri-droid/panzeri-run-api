@@ -86,6 +86,8 @@ export interface ActivityDetail {
   prescribed: { title: string; distanceKm: number | null; durationMin: number | null } | null;
   prescribedSegments?: ActivityDetailSegment[];
   executionSummary?: ActivityExecutionSummary | null;
+  // Etapa 2.1: relatorio determinístico pos-treino (texto montado dos indicadores; sem IA). null quando nao ha analise.
+  report?: { lines: string[] } | null;
   splits: ActivityDetailSplit[];
   chart: ActivityDetailChartPoint[];
   chartAxis?: 'distance' | 'time';
@@ -140,6 +142,8 @@ interface ChartBand {
   yFast: number | null; // faixa de valor (mesma unidade do eixo Y)
   ySlow: number | null;
   label: string;
+  // Etapa 2.1: identificacao curta (numero do bloco) desenhada DENTRO da faixa; o texto completo fica na lista de blocos e no toque no grafico.
+  shortLabel?: string;
 }
 
 interface DetailChartProps {
@@ -236,6 +240,8 @@ export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, 
 
   const cursorPoint = cursor != null ? real.reduce((best, p) => (Math.abs(p.x - cursor) < Math.abs(best.x - cursor) ? p : best), real[0]) : null;
 
+  const cursorBand = cursorPoint != null ? (bands ?? []).find((b) => cursorPoint.x >= b.from && cursorPoint.x <= b.to) ?? null : null;
+
   function onTouch(locationX: number) {
     const x = xMin + ((locationX - M.left) / plotW) * (xMax - xMin);
     setCursor(Math.min(Math.max(x, xMin), xMax));
@@ -246,7 +252,7 @@ export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, 
       <Text style={{ fontSize: 12, fontWeight: '700', color: MUTED }}>{title}</Text>
       <Text style={{ fontSize: 12, color: cursorPoint ? '#0f172a' : '#94a3b8', minHeight: 16 }}>
         {cursorPoint
-          ? `${formatX ? formatX(cursorPoint.x) : xLabel === 'km' ? `km ${roundKm(cursorPoint.x)}` : `${Math.round(cursorPoint.x)} min`} · ${formatY(cursorPoint.y)} ${unit}`
+          ? `${formatX ? formatX(cursorPoint.x) : xLabel === 'km' ? `km ${roundKm(cursorPoint.x)}` : `${Math.round(cursorPoint.x)} min`} · ${formatY(cursorPoint.y)} ${unit}${cursorBand ? ` · bloco ${cursorBand.shortLabel ?? ''}: ${cursorBand.label}` : ''}`
           : 'Toque no gráfico para ver o valor em cada ponto'}
       </Text>
       <View
@@ -269,7 +275,9 @@ export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, 
             return (
               <React.Fragment key={`band-${i}`}>
                 <Rect x={sx(b.from)} y={top} width={Math.max(sx(b.to) - sx(b.from), 1)} height={Math.max(bottom - top, 2)} fill="#f59e0b" opacity={0.22} />
-                <SvgText x={sx(b.from) + 3} y={M.top + 9} fontSize={9} fill="#92400e">{b.label}</SvgText>
+                {b.shortLabel && sx(b.to) - sx(b.from) >= 14 ? (
+                  <SvgText x={(sx(b.from) + sx(b.to)) / 2} y={M.top + 9} fontSize={9} fill="#92400e" textAnchor="middle">{b.shortLabel}</SvgText>
+                ) : null}
               </React.Fragment>
             );
           })}
@@ -301,7 +309,7 @@ export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, 
         </Svg>
       </View>
       <Text style={{ fontSize: 11, color: '#94a3b8' }}>
-        {unit}{bands && bands.length ? ' · faixa laranja = ritmo prescrito' : ''}
+        {unit}{bands && bands.length ? ' · faixa laranja = ritmo prescrito (números = blocos da lista abaixo; toque para ver o bloco)' : ''}
         {seriesLabel ? ` · linha azul: ${seriesLabel}` : ''}
         {secondary ? ` · tracejado: ${secondary.label}` : ''}
         {band ? ` · faixa cinza: ${band.label}` : ''}
@@ -347,7 +355,7 @@ function SplitsTable({ splits, segments }: { splits: ActivityDetailSplit[]; segm
         if (own.length === 0) return null;
         return (
           <View key={seg.index}>
-            <Text style={{ fontSize: 13, fontWeight: '700' }}>{seg.label} · {seg.startKm}–{seg.endKm} km</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700' }}>{seg.index + 1}. {seg.label} · {seg.startKm}–{seg.endKm} km</Text>
             {seg.paceFastSecondsKm != null && seg.paceSlowSecondsKm != null ? (
               <Text style={{ fontSize: 12, color: MUTED }}>Prescrito: {formatPace(seg.paceFastSecondsKm)}–{formatPace(seg.paceSlowSecondsKm)}/km</Text>
             ) : null}
@@ -391,6 +399,7 @@ export function ActivityDetailBody({ detail }: { detail: ActivityDetail }) {
         label: seg.paceFastSecondsKm != null && seg.paceSlowSecondsKm != null
           ? `${seg.label}: ${formatPace(seg.paceFastSecondsKm)}–${formatPace(seg.paceSlowSecondsKm)}`
           : seg.label,
+        shortLabel: String(seg.index + 1),
       }))
     : undefined;
   const boundaries = byDistance ? segments.slice(1).map((seg) => seg.startKm) : undefined;
@@ -407,6 +416,15 @@ export function ActivityDetailBody({ detail }: { detail: ActivityDetail }) {
         {s.cadenceAvg != null ? <Text style={{ fontSize: 15 }}>Cadência média: {s.cadenceAvg} passos/min</Text> : null}
         {s.caloriesKcal != null ? <Text style={{ fontSize: 15 }}>Calorias: {s.caloriesKcal} kcal</Text> : null}
       </View>
+
+      {/* Etapa 2.1: relatorio pos-treino (deterministico) */}
+      {detail.report && detail.report.lines.length > 0 ? (
+        <View style={{ gap: 4, padding: 12, borderRadius: 10, backgroundColor: '#eff6ff' }}>
+          <Text style={sectionTitle}>RELATÓRIO DO TREINO</Text>
+          {detail.report.lines.map((line, i) => <Text key={i} style={{ fontSize: 14 }}>{line}</Text>)}
+          <Text style={{ fontSize: 11, color: MUTED }}>Calculado a partir do que o relógio registrou; descreve o que aconteceu, não o motivo.</Text>
+        </View>
+      ) : null}
 
       {/* 2. Prescrito x Realizado */}
       {detail.prescribed ? (
@@ -425,7 +443,7 @@ export function ActivityDetailBody({ detail }: { detail: ActivityDetail }) {
             const deltaSeg = detail.executionSummary?.segments.find((d) => d.index === seg.index) ?? null;
             return (
               <View key={seg.index} style={{ marginTop: 6 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700' }}>{seg.label} · {seg.startKm}–{seg.endKm} km</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700' }}>{seg.index + 1}. {seg.label} · {seg.startKm}–{seg.endKm} km</Text>
                 {seg.paceFastSecondsKm != null && seg.paceSlowSecondsKm != null ? (
                   <Text style={{ fontSize: 13 }}>Prescrito: {formatPace(seg.paceFastSecondsKm)}–{formatPace(seg.paceSlowSecondsKm)}/km</Text>
                 ) : null}

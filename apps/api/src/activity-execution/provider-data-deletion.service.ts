@@ -62,6 +62,9 @@ export interface ProviderDataDeletionResult {
   agentInputsRedacted?: number;
   // Etapa 1.2b: decisoes cujo raciocinio declarado pela IA (objetivo, esperado, fundamentos) se apoiava em evidencia derivada do provedor; os textos saem.
   declaredReasoningInvalidated?: number;
+  // Etapa 2.1: indicadores de execucao derivados das atividades deste provedor (linhas por sessao apagadas; relatorios semanais que as usaram invalidados).
+  executionAnalyses?: number;
+  weeklyReportsInvalidated?: number;
 }
 
 interface ActivityCopySource {
@@ -223,6 +226,21 @@ export class ProviderDataDeletionService {
         .map((n) => n.id);
       if (notificationIds.length > 0) await tx.userNotification.deleteMany({ where: { id: { in: notificationIds } } });
 
+      // Etapa 2.1: indicadores derivados das atividades (cobertura, tempo por faixa, estrutura, FC) saem junto; o relatorio semanal que usou dados deste
+      // provedor e' INVALIDADO por inteiro (D1: nao se recalcula). Registros do proprio aluno (feedback, esforco, duracao) ficam onde sempre estiveram.
+      const analysesDeleted = await tx.sessionExecutionAnalysis?.deleteMany({ where: { userId, OR: [{ provider }, ...(activityIds.length > 0 ? [{ activityLogId: { in: activityIds } }] : [])] } });
+      let weeklyReportsInvalidated = 0;
+      const weeklyReports = await tx.weeklyExecutionReport?.findMany({ where: { userId, status: 'active' }, select: { id: true, sources: true, invalidatedProviders: true } }) ?? [];
+      for (const report of weeklyReports) {
+        const providers = (report.sources as { providers?: string[] } | null)?.providers ?? [];
+        if (!providers.includes(provider)) continue;
+        await tx.weeklyExecutionReport.update({
+          where: { id: report.id },
+          data: { status: 'invalidated', indicators: {}, textLines: [], invalidatedProviders: [...new Set([...(Array.isArray(report.invalidatedProviders) ? report.invalidatedProviders as string[] : []), provider])] },
+        });
+        weeklyReportsInvalidated++;
+      }
+
       const logs = await tx.activityLog.deleteMany({ where: { userId, provider } });
       const raws = await tx.rawExternalActivity.deleteMany({ where: { userId, provider } });
 
@@ -288,6 +306,8 @@ export class ProviderDataDeletionService {
         evidenceRedacted,
         agentInputsRedacted,
         declaredReasoningInvalidated,
+        executionAnalyses: analysesDeleted?.count ?? 0,
+        weeklyReportsInvalidated,
       };
       await tx.providerConnectionEvent.create({
         data: { userId, provider, type: 'data_deleted', details: result as unknown as Prisma.InputJsonValue },

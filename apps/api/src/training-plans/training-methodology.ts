@@ -206,6 +206,9 @@ export interface MethodologyInput {
   // desse patamar) de um recorde "frio" (feito uma vez, sem nada perto depois) — ela mesma faz essa
   // leitura como recomendacao de raciocinio (ver buildSystemPromptStable em
   // prescription-agent.service.ts), nao existe nenhuma formula em codigo decidindo isso.
+  // Etapa 2.1: consolidacao matematica da semana ANTERIOR (frequencia x fidelidade, tempo por faixa prescrita, estrutura dos intervalados, km, musculacao).
+  // Fato medido; so' numeros. Null quando nao ha semana anterior analisavel.
+  weeklyExecutionReport?: Record<string, unknown> | null;
   recentSessionsNearRecord?: Array<{
     distanceKm: number;
     date: string;

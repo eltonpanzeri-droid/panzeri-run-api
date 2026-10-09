@@ -2724,3 +2724,7 @@ Pipeline implementado: `TrainingSession` → `CanonicalWorkout` → `AppleCustom
 - **Provedores:** o texto declarado que se apoia em evidência derivada de um provedor sai na exclusão explícita (objetivo, esperado e a entrada), com marcador; fontes independentes ficam.
 - **Prompts:** a única mudança é o bloco `REASONING_INSTRUCTION`; removendo-o, cada prompt volta bit a bit ao hash anterior (teste). Modelos inalterados.
 - **Limite:** a IA pode citar valor de dispositivo em `intent`/`expected` sem declarar a fonte — não detectável sem heurística; a invalidação cobre o que ela declarou como fundamento.
+
+### 2026-10-11 — Etapa 2.1: análise determinística da execução, relatório por treino e semanal (implementado; NÃO publicado; sem deploy)
+- **Entregue:** matemática pura de execução (tempo observável por faixa, cobertura, estrutura A–F, intensidade), relatório por treino e semanal sem IA, consolidação no ponto existente de `generateWeekLocked` (indicadores ao Prescritor + retrato gravado com o programa + exibição no app), 4 variáveis longitudinais, exclusão de dados do provedor integrada e correção visual do gráfico. Migration aditiva `20261011120000_execution_analysis`. Detalhes, critérios e limites em `ETAPA_2_1_ANALISE_DE_EXECUCAO.md`.
+- **Limites:** validado com séries sintéticas (sem séries reais no repositório); prescrição por tempo sem alinhamento por bloco; limiares não calibrados com dados reais; indicadores vivos recalculados ao abrir treino/semana (sem gancho na sincronização).

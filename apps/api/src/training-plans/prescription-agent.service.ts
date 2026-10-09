@@ -204,6 +204,10 @@ export const AiWeeklyDecisionSchema = z.object({
 const FREE_TEXT_DISPLAY_LIMIT = 2000;
 // Etapa 1.2b — instrucao CURTA e identica nos tres prompts (semana, dia de corrida, dia de forca). O custo e controlado por tres frentes: limites de
 // caracteres pedidos aqui, truncamento em codigo e max_tokens com folga pequena.
+// Etapa 2.1 — so' no prompt da SEMANA (o campo so' existe la). Curto e factual.
+export const EXECUTION_REPORT_INSTRUCTION =
+  'RELATORIO DE EXECUCAO DA SEMANA ANTERIOR (relatorioDeExecucaoDaSemanaAnterior): consolidacao MATEMATICA e deterministica do que foi medido na semana que acabou (frequencia separada de fidelidade, tempo observado dentro/mais rapido/mais lento que as faixas PRESCRITAS de cada bloco, estrutura executada dos intervalados, km previstos x realizados, duracao e esforco percebido da musculacao). Use como evidencia ao lado de historicoSemanal, nunca como julgamento: campo ausente ou null = sem dado (nao e zero); percentuais valem so para o tempo com dados confiaveis; nao atribua intencao ao aluno (o relogio mostra o que aconteceu, nao o porque). Nao copie os numeros para o texto do aluno.';
+
 export const REASONING_INSTRUCTION =
   'RACIOCINIO PARA AUDITORIA (campo reasoning de cada sessao; NAO e texto para o aluno): registre de forma OBJETIVA por que voce decidiu este treino. intent = o objetivo desta sessao em UMA frase (ate 160 caracteres). expected = o que voce espera obter/observar com ela (ate 160 caracteres). basis = ate 3 itens {source, note}: source e o NOME do campo do contexto que mais pesou nesta decisao (use "outro" se nao houver um) e note e UMA frase curta (ate 100 caracteres) dizendo como ele pesou. E uma declaracao sua, nao uma prova: cite so o que realmente considerou, sem copiar relatos nem repetir numeros longos. Se nao houver o que declarar, devolva reasoning = null. Isto NAO muda nada no treino: prescreva exatamente como prescreveria sem este campo.';
 
@@ -818,6 +822,7 @@ export class PrescriptionAgentService {
       'O campo title de cada sessao NAO e mais exibido ao aluno nem ao treinador — o titulo mostrado e sempre o nome fixo da modalidade (Corrida/Fortalecimento para corredores/Musculacao), decidido em codigo. Preencha title com qualquer texto curto valido, sem gastar esforco pensando nele.',
       'Responda em portugues nos campos de texto (notes, rationale, durationJustification).',
       REASONING_INSTRUCTION,
+      EXECUTION_REPORT_INSTRUCTION,
       'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida.',
       '- OBRIGATORIO: retorne EXATAMENTE uma sessao em strengthSessions para CADA item listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). O mesmo weekday pode aparecer mais de uma vez na lista, uma para cada modalidade — retorne uma sessao pra cada item nesse caso, isso e o dado real da rotina do aluno, nao um erro. Se diasDisponiveisParaForca tiver 3 itens, strengthSessions tem que ter 3 sessoes — nunca deixe esse campo vazio ou incompleto quando diasDisponiveisParaForca nao estiver vazio: a resposta inteira e descartada quando isso acontece, desperdicando todo o raciocinio que voce fez pros dias de corrida.',
       '- A modalidade de cada item em diasDisponiveisParaForca vem da rotina real do aluno e normalmente nao muda — copie o campo modality literalmente. Uma diretriz sobre forca/fortalecimento normalmente muda foco/exercicios/intensidade daquele dia, nao a modalidade em si; so mude a modalidade se a diretriz pedir isso explicitamente.',
@@ -977,6 +982,8 @@ export class PrescriptionAgentService {
           ? runnerStrengthExercises.map((exercise) => ({ id: exercise.id, name: exercise.name, focus: exercise.focus, level: exercise.level }))
           : [],
         historicoSemanal: input.history,
+        // Etapa 2.1: consolidacao determinística da semana anterior (indicadores medidos; sem texto do aluno). Null quando indisponivel.
+        relatorioDeExecucaoDaSemanaAnterior: input.weeklyExecutionReport ?? null,
         sinalDeSeguranca: safetyAdjustment,
         motivoDoSinalDeSeguranca: painReason,
         maiorLongaoJaRegistrado: input.longestRunEver ? {

@@ -2058,3 +2058,50 @@ model PrescriptionDecision {
   @@index([sessionId])
   @@index([planId])
 }
+
+// Etapa 2.1 (11/10/2026) — analise deterministica da execucao. SO indicadores derivados (nunca atividade bruta nem serie temporal): uma linha por sessao e
+// versao do algoritmo, recalculada quando a fonte muda (atividade sincronizada depois, feedback corrigido) — fingerprint de fonte. Referencias soft (sem FK),
+// como a trilha de prescricao. Derivada de dispositivo: apagada na exclusao de dados do provedor.
+model SessionExecutionAnalysis {
+  id                String   @id @default(uuid())
+  userId            String
+  trainingSessionId String
+  activityLogId     String?
+  provider          String?
+  modality          String
+  scheduledDate     DateTime
+  algorithmVersion  Int
+  // analyzed | summary_only | manual_only | not_done | no_data
+  status            String
+  sourceFingerprint String
+  // Resultado estruturado completo (execution-analysis.ts): cobertura, blocos, intensidade, estrutura, limitacoes.
+  indicators        Json
+  computedAt        DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([trainingSessionId, algorithmVersion])
+  @@index([userId, scheduledDate])
+  @@index([activityLogId])
+}
+
+// Retrato do relatorio da semana ANTERIOR entregue junto com o programa novo. Gravado na mesma transacao que cria o programa e NUNCA reescrito por dados
+// que chegam depois (os indicadores vivos ficam em SessionExecutionAnalysis). So' a exclusao de dados de um provedor o invalida (status = invalidated).
+model WeeklyExecutionReport {
+  id                   String   @id @default(uuid())
+  userId               String
+  weekStartDate        DateTime
+  analyzedPlanId       String?
+  deliveredWithPlanId  String?
+  algorithmVersion     Int
+  // active | invalidated
+  status               String   @default("active")
+  indicators           Json
+  textLines            Json
+  // { sessionIds, activityLogIds, providers } — fontes usadas
+  sources              Json
+  invalidatedProviders Json?
+  createdAt            DateTime @default(now())
+
+  @@index([userId, weekStartDate])
+  @@index([deliveredWithPlanId])
+}

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { collapseEqualRange, runPaceHeaderLabel } from './range-display';
@@ -25,6 +25,7 @@ import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { PrescriptionTraceService } from './prescription-trace.service';
+import { ExecutionAnalysisService, WeeklyReportDraft } from '../activity-execution/execution-analysis.service';
 import { AgentCallTrace, buildEvidenceIndex, DeclaredReasoning, declaredKey, SessionForTrace, sourceProvidersOf } from './prescription-trace';
 import {
   ContextGap, describeError, formatObservationForAgent, formatPendingProfileEvent, selectHistoryWeeks, selectRelevantReportEntries,
@@ -208,6 +209,8 @@ export class TrainingPlansService {
     // Etapa 1.2a: rastreabilidade OBRIGATORIA (correcao pos-revisao do Astra, 10/10/2026). Sem ela o servico nem sobe (DI) e nenhuma chamada a IA
     // de prescricao e' feita (requireTrace()). Nao existe caminho para gerar prescricao sem trilha.
     private readonly trace: PrescriptionTraceService,
+    // Etapa 2.1: analise de execucao. Opcional de proposito: o relatorio da semana anterior e' informacao adicional e nunca bloqueia a geracao.
+    @Optional() private readonly executionAnalysis?: ExecutionAnalysisService,
   ) {}
 
   // Garante, ANTES de gastar uma chamada de IA, que o servico de rastreabilidade esta presente (protege tambem contra stubs/configuracao incompleta).
@@ -394,7 +397,7 @@ export class TrainingPlansService {
     }
 
     const reconciliation = await this.sessionExecutionLink.getWeekReconciliation(userId, plan.startDate, addDays(plan.startDate, 7));
-    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest), reconciliation);
+    return this.withExecutionReports(userId, plan, this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest), reconciliation), reconciliation);
   }
 
   // REPARO DE EMERGENCIA (03/08, manha): na noite de 02/08 o botao "Gerar semana seguinte para
@@ -556,7 +559,7 @@ export class TrainingPlansService {
     }
 
     const reconciliation = await this.sessionExecutionLink.getWeekReconciliation(userId, plan.startDate, addDays(plan.startDate, 7));
-    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest), reconciliation);
+    return this.withExecutionReports(userId, plan, this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest), reconciliation), reconciliation);
   }
 
   // options.referenceDate/planStatus/archiveCurrentActive existem so para a pre-geracao da
@@ -935,6 +938,22 @@ export class TrainingPlansService {
     for (const historyPlan of historyWeeks) {
       executionWeeks.push({ weekStartDate: historyPlan.startDate.toISOString().slice(0, 10), sessions: historyPlan.sessions, recorded: recordedSessionsOf(historyPlan) });
     }
+    // Etapa 2.1 — relatorio de execucao da SEMANA ANTERIOR: consolida os treinos prescritos da semana anterior (indicadores deterministicos, sem IA) ANTES
+    // de montar o contexto do Prescritor. Mesmo ponto e mesma chamada de sempre: nenhum agendamento paralelo, nenhuma segunda chamada ao Prescritor.
+    // Falha ou ausencia de dados nunca bloqueia a geracao: vira lacuna informativa.
+    let weeklyExecution: WeeklyReportDraft | null = null;
+    const previousWeekStart = addDays(weekStart, -7);
+    const previousWeekPlan = historyWeeks.find((plan) => plan.startDate.getTime() === previousWeekStart.getTime());
+    if (this.executionAnalysis && previousWeekPlan) {
+      try {
+        weeklyExecution = await this.executionAnalysis.prepareWeeklyReport(userId, {
+          startDate: previousWeekStart, planId: previousWeekPlan.planId,
+          sessionIds: previousWeekPlan.sessions.filter((session) => !['device_extra', 'student_extra'].includes(session.origin ?? '') && ['corrida', 'esteira', 'forca', 'fortalecimento_corredores'].includes(session.modality)).map((session) => session.id),
+        });
+      } catch (error) {
+        contextGaps.push({ source: 'execucao_da_semana', severity: 'informativo', reason: describeError(error), effect: 'O relatorio matematico da semana anterior NAO pode ser calculado; decida pelo historicoSemanal.' });
+      }
+    }
     // So chama a IA do prontuario se houver evento novo acumulado desde a ultima atualizacao —
     // ver StudentProfileService.refreshProfile. Falha aqui nunca bloqueia a geracao da semana.
     const informationContext = await this.loadStudentInformationContext(userId, { refreshProfile: true });
@@ -995,6 +1014,7 @@ export class TrainingPlansService {
       pendingProfileEvents: informationContext.pendingProfileEvents,
       contextGaps,
       weeklyCheckIn: latestWeeklyCheckIn,
+      weeklyExecutionReport: weeklyExecution?.promptIndicators ?? null,
       athleteStateContext,
       todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
       // options.generateFrom: definido quando o aluno escolheu "Nao, a partir de amanha" no app
@@ -1476,7 +1496,9 @@ export class TrainingPlansService {
       });
       // Proveniencia dos agregados derivados de dispositivo enviados a IA (atividade objetiva e carga semanal), por provedor.
       const provenance = await this.trace.collectProvenance(tx, userId, weekStart);
-      const executionProvenance = await this.trace.collectExecutionProvenance(
+      // O retrato do relatorio entregue com este programa e' gravado AQUI (mesma transacao): dados que chegarem depois atualizam os indicadores vivos, nunca este registro.
+      if (weeklyExecution && this.executionAnalysis) await this.executionAnalysis.persistWeeklyReport(tx, userId, weeklyExecution, createdPlan.id);
+      const executionProvenanceBase = await this.trace.collectExecutionProvenance(
         tx, userId,
         {
           weeks: executionWeeks, longestRun: longestRunSession ?? null, nearRecord: nearRecordSessions,
@@ -1484,6 +1506,7 @@ export class TrainingPlansService {
         },
         provenance,
       );
+      const executionProvenance = { ...executionProvenanceBase, weeklyExecutionReport: weeklyExecution?.indicators.sources.providers ?? [] };
       const previousWeek = historyWeeks[0] ? { startDate: historyWeeks[0].startDate, sessions: historyWeeks[0].sessions.map(toTrace) } : null;
       await this.trace.persistWeekly(tx, {
         userId, planId: createdPlan.id, weekStart, methodologyVersion: PANZERI_METHODOLOGY_VERSION,
@@ -1623,7 +1646,7 @@ export class TrainingPlansService {
       ).catch(() => null);
     }
 
-    return this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest));
+    return this.withExecutionReports(userId, plan, this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest)), undefined);
   }
 
   // Chamado todo domingo 19h (ver WeeklyPlanSchedulerService). NAO existe pre-geracao nem status
@@ -2792,6 +2815,28 @@ export class TrainingPlansService {
       maxHeartRate: completion.maxHeartRate,
       shoeId: completion.shoeUsage?.shoeId ?? null,
     };
+  }
+
+  // Etapa 2.1: acrescenta a apresentacao o relatorio da semana anterior (entregue com ESTE programa) e o relatorio curto de cada treino ja registrado.
+  // So' leitura/recalculo de indicadores; falha aqui nunca derruba a tela.
+  private async withExecutionReports<T extends object>(
+    userId: string,
+    plan: { id: string; sessions: Array<{ id: string; modality: string; origin: string | null; completion?: unknown | null }> },
+    presented: T,
+    reconciliation?: WeekReconciliation,
+  ): Promise<T & { weeklyExecutionReport?: unknown; sessionReports?: unknown }> {
+    if (!this.executionAnalysis || !('sessions' in presented)) return presented;
+    try {
+      const analyzable = new Set(['corrida', 'esteira', 'forca', 'fortalecimento_corredores']);
+      const candidates = plan.sessions
+        .filter((session) => analyzable.has(session.modality) && !['device_extra', 'student_extra'].includes(session.origin ?? '') && (session.completion || reconciliation?.activeLinkBySessionId.has(session.id)))
+        .map((session) => session.id);
+      const extra = await this.executionAnalysis.presentationFor(userId, plan.id, plan.sessions.map((session) => session.id), candidates);
+      return { ...presented, weeklyExecutionReport: extra.weeklyReport, sessionReports: extra.sessionReports };
+    } catch (error) {
+      this.logger.warn(`Relatorios de execucao indisponiveis para o programa ${plan.id}: ${error instanceof Error ? error.message : error}`);
+      return presented;
+    }
   }
 
   private presentPlan(plan: {

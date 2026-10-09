@@ -26,6 +26,7 @@ import { EvolutionMetricService } from '../evolution/evolution-metric.service';
 import type { AdherenceSummary, ConsistencyStreak, ModalityBreakdown, WeeklyVolume } from '../evolution/evolution.types';
 import { TrainingIntelligenceQueryService, VariableSnapshotResponse } from './training-intelligence-query.service';
 import { ContextEventsService } from '../context-events/context-events.service';
+import { EXECUTION_ANALYSIS_VARIABLE_IDS } from './variable-registry';
 
 export type DomainAvailability = 'available' | 'partial' | 'unavailable';
 
@@ -248,6 +249,8 @@ const TRAINING_LOAD_VARIABLES = [
   'training.volumeRatioCompletedPrescribed',
   'training.adherencePercent',
   'training.acwr',
+  // Etapa 2.1: execucao medida (comparacao prescrito x serie do relogio) nas mesmas janelas longitudinais.
+  ...EXECUTION_ANALYSIS_VARIABLE_IDS,
 ];
 
 const ALL_DOMAIN_VARIABLE_IDS = [

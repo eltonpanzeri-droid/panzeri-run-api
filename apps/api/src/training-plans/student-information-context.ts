@@ -12,7 +12,8 @@ export type ContextGapSource =
   | 'prontuario'
   | 'relatos_do_aluno'
   | 'checkin_semanal'
-  | 'historico_semanal';
+  | 'historico_semanal'
+  | 'execucao_da_semana';
 
 export interface ContextGap {
   source: ContextGapSource;

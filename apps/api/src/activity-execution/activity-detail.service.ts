@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityTimeSeriesService, NORMALIZATION_VERSION } from '../activity-timeseries/activity-timeseries.service';
 import { buildSplits } from './activity-splits';
@@ -6,6 +6,8 @@ import { buildChartSeries } from './activity-chart';
 import { extractPrescribedSegments } from './prescribed-segments';
 import { assignSegments, summarizeSegments } from './activity-segments';
 import { buildExecutionSummary } from './execution-summary';
+import { ExecutionAnalysisService } from './execution-analysis.service';
+import { renderSessionReport } from './execution-report';
 
 // "Ver treino completo" (03/10/2026): leitura de modelos canonicos apenas — ActivityLog, vinculo
 // ativo e ActivityTimeSeriesPoint. Provider aparece so' como origem. Pace e' derivado de
@@ -21,6 +23,8 @@ export class ActivityDetailService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly timeSeries: ActivityTimeSeriesService,
+    // Etapa 2.1: relatorio pos-treino. Opcional so' para os testes antigos; em producao e' sempre injetado.
+    @Optional() private readonly executionAnalysis?: ExecutionAnalysisService,
   ) {}
 
   private readSeries(activityLogId: string) {
@@ -101,6 +105,18 @@ export class ActivityDetailService {
         })
       : null;
 
+    // Etapa 2.1: analise deterministica da execucao (serie COMPLETA, nao a versao reduzida do grafico) e relatorio curto. Recalcula se a fonte mudou
+    // (sincronizacao tardia, feedback corrigido). Falha aqui nunca derruba o detalhe do treino.
+    let report: { lines: string[]; analysis: unknown } | null = null;
+    if (link && this.executionAnalysis) {
+      try {
+        const result = await this.executionAnalysis.analyzeSession(userId, link.trainingSession.id);
+        if (result && result.analysis.kind !== 'not_done') report = { lines: renderSessionReport(result.analysis), analysis: result.analysis };
+      } catch (error) {
+        this.logger.warn(`Analise de execucao indisponivel para a atividade ${activityLogId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
     return {
       activityLogId: log.id,
       provider: log.provider,
@@ -130,6 +146,7 @@ export class ActivityDetailService {
       // parciais saem sem agrupamento (segmentIndex null em todas).
       prescribedSegments,
       executionSummary,
+      report,
       splits,
       chart: chartSeries.points,
       chartAxis: chartSeries.xAxis,

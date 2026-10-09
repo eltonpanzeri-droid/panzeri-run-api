@@ -45,7 +45,10 @@ export type VariableSource =
   | 'weekly_training_load'
   // 04/10/2026 — metrica OBJETIVA de uma atividade executada (ActivityLog, qualquer provedor). Nao
   // depende de feedback; uma linha de ActivityLog = uma observacao.
-  | 'activity_objective';
+  | 'activity_objective'
+  // 11/10/2026 (Etapa 2.1) — indicador DERIVADO da analise deterministica de execucao (SessionExecutionAnalysis): uma linha por sessao analisada, com
+  // atividade do relogio. Nunca depende de feedback do aluno; a fonte e' a comparacao prescrito x serie temporal.
+  | 'session_execution_analysis';
 
 export type MathStrategy = 'ordinal_or_continuous_stats' | 'categorical_frequency';
 
@@ -933,6 +936,42 @@ VARIABLE_REGISTRY['activity.cadenceAvg'] = {
   notes:
     'ActivityLog.cadenceAvg (media da serie canonica, ignorando leituras 0 = sem sinal de movimento). So entram atividades de corrida com cadencia valida fornecida pelo dispositivo — sem cadencia, a atividade nao gera observacao.',
 };
+
+// Etapa 2.1 — indicadores de execucao que alimentam as janelas longitudinais (21/60/200 dias). Escolhidos pelos padroes pedidos, nao por quantidade:
+//  - volume sistematicamente abaixo do prescrito mesmo com sessoes concluidas => distanceCompletionRatio
+//  - evolucao da aderencia as intensidades => timeInBandPct
+//  - intervalados executados como continuos => intervalStructureMatch
+//  - resposta cardiovascular em esforcos comparaveis => avgHeartRateInBandBpm (FC enquanto estava DENTRO da faixa prescrita)
+// (alteracoes de esforco percebido ja existem em workout.perceivedEffort.)
+const EXECUTION_COMMON = {
+  domain: 'training_load' as const,
+  dataType: 'numeric_continuous' as const,
+  direction: 'not_directional' as const,
+  source: 'session_execution_analysis' as const,
+  expectedFrequency: 'per_workout' as const,
+  allowedMathStrategy: 'ordinal_or_continuous_stats' as const,
+  missingPolicy: 'never_impute' as const,
+  versions: [{ version: 1, storageLocation: 'column' as const, field: 'indicators' }],
+  versionComparability: 'comparable_across_versions' as const,
+  excludeExtraSessions: false,
+};
+VARIABLE_REGISTRY['execution.distanceCompletionRatio'] = {
+  ...EXECUTION_COMMON, variableId: 'execution.distanceCompletionRatio', constructLabel: 'distancia realizada / distancia prescrita (corrida)', scale: { min: 0, max: 3, unit: 'razao' },
+  notes: 'Por corrida analisada com atividade do relogio e distancia prescrita. 1 = fez exatamente o prescrito; abaixo de 1 = volume menor que o prescrito.',
+};
+VARIABLE_REGISTRY['execution.timeInBandPct'] = {
+  ...EXECUTION_COMMON, variableId: 'execution.timeInBandPct', constructLabel: 'percentual do tempo observavel dentro da faixa de ritmo prescrita', scale: { min: 0, max: 100, unit: '%' },
+  notes: 'Tempo confiavel dentro da faixa de CADA bloco prescrito (intervalado: estimulo + recuperacao; demais: blocos com faixa). So existe com cobertura suficiente da serie.',
+};
+VARIABLE_REGISTRY['execution.intervalStructureMatch'] = {
+  ...EXECUTION_COMMON, variableId: 'execution.intervalStructureMatch', constructLabel: 'estrutura intervalada prescrita reproduzida (1) ou nao (0)', scale: { min: 0, max: 1, unit: 'binario' },
+  notes: 'So treinos intervalados com estrutura classificada (nunca indeterminado). 1 = alternancias reconhecidas (cenarios A/E); 0 = continuo, parcial ou continuo com aceleracao final (B/C/D).',
+};
+VARIABLE_REGISTRY['execution.avgHeartRateInBandBpm'] = {
+  ...EXECUTION_COMMON, variableId: 'execution.avgHeartRateInBandBpm', constructLabel: 'frequencia cardiaca media enquanto estava dentro da faixa de ritmo prescrita', scale: { min: 40, max: 230, unit: 'bpm' },
+  notes: 'Esforcos comparaveis: exige pelo menos 60 s dentro da faixa. Permite acompanhar mudanca de resposta cardiovascular ao mesmo ritmo.',
+};
+export const EXECUTION_ANALYSIS_VARIABLE_IDS = ['execution.distanceCompletionRatio', 'execution.timeInBandPct', 'execution.intervalStructureMatch', 'execution.avgHeartRateInBandBpm'];
 
 export function getVariableDefinition(variableId: string): VariableDefinition | undefined {
   return VARIABLE_REGISTRY[variableId];

@@ -411,6 +411,9 @@ interface WeekPlan {
   // PendingActivity. Default [] no backend quando vazio, nunca undefined.
   alternativeActivities?: AlternativeActivity[];
   pendingActivities?: PendingActivity[];
+  // Etapa 2.1: relatorio da semana anterior (entregue com ESTE programa) e relatorio curto de cada treino registrado.
+  weeklyExecutionReport?: { id: string; weekStartDate: string; lines: string[] } | null;
+  sessionReports?: Record<string, { lines: string[]; status: string; scenario: string | null }>;
 }
 
 interface WeekByOffsetResponse extends Partial<WeekPlan> {
@@ -5438,6 +5441,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
           endpoint continuam existindo, so o convite pra fazer o teste ficou escondido daqui. */}
 
       <View style={styles.weekList}>
+        <ExecutionReportCard title="Relatório da semana anterior" lines={plan?.weeklyExecutionReport?.lines} />
         {plan?.recommendation ? (
           <View style={styles.coachBox}>
             <Pressable style={styles.collapseHeader} onPress={() => setRecommendationOpen((open) => !open)}>
@@ -5556,6 +5560,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                         {/* 12/09: session.notes (texto IA: aquecimento/resfriamento) agora aparece dentro
                             do colapsivel da SessionPrescription em vez de sempre visivel aqui */}
                         <RealizedComparisonCard realized={session.realized} prescribedDistanceKm={session.distanceKm} prescribedDurationMin={session.durationMin} />
+                        <ExecutionReportCard title="Relatório do treino" lines={plan?.sessionReports?.[session.id]?.lines} />
                         {session.realized ? <ActivityDetailButton activityLogId={session.realized.activityLogId} accessToken={accessToken} /> : null}
                         {/* Envio ao Apple Watch (WorkoutKit): so' no app nativo iOS e so' p/ corrida continua externa por distancia (a API decide). */}
                         <AppleWatchSendButton sessionId={session.id} accessToken={accessToken} apiUrl={API_URL} />
@@ -10620,6 +10625,17 @@ function SessionCard({
         <Text style={styles.sessionDetail}>{detail}</Text>
         <Text style={styles.sessionNote}>{note}</Text>
       </View>
+    </View>
+  );
+}
+
+// Etapa 2.1: relatorio deterministico (sem IA) — texto montado dos indicadores calculados; some quando nao ha linhas.
+function ExecutionReportCard({ title, lines }: { title: string; lines?: string[] | null }) {
+  if (!lines || lines.length === 0) return null;
+  return (
+    <View style={{ gap: 4, padding: 12, borderRadius: 10, backgroundColor: '#eff6ff', marginVertical: 6 }}>
+      <Text style={{ fontSize: 12, fontWeight: '700', color: '#1e3a8a' }}>{title.toUpperCase()}</Text>
+      {lines.map((line, index) => <Text key={index} style={{ fontSize: 14, color: '#0f172a' }}>{line}</Text>)}
     </View>
   );
 }

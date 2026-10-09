@@ -22,6 +22,7 @@ import { EvolutionMetricService } from '../evolution/evolution-metric.service';
 import type { EvolutionSeries } from '../evolution/evolution.types';
 import { MathLayerService, SeriesPoint } from './math-layer.service';
 import { getVariableDefinition, InstrumentVersionSpec, VariableDefinition, VariableSource } from './variable-registry';
+import { EXECUTION_ANALYSIS_VERSION, intensityBasisOf, RunExecutionAnalysis } from '../activity-execution/execution-analysis';
 
 export interface Observation {
   athleteId: string;
@@ -183,6 +184,9 @@ export class ObservationReaderService {
     }
     if (definition.source === 'weekly_training_load') {
       return this.readTrainingLoadVariable(athleteId, definition);
+    }
+    if (definition.source === 'session_execution_analysis') {
+      return this.readExecutionAnalysisVariable(athleteId, definition);
     }
     if (definition.source === 'activity_objective') {
       return this.readActivityObjectiveVariable(athleteId, definition);
@@ -404,6 +408,35 @@ export class ObservationReaderService {
   // corresponding/alternative (ambiguous fica fora ate' decisao humana). Nunca depende de feedback.
   // 3C.1: UMA observacao por PhysicalEvent (a canonica da 3A) — Polar + Apple do mesmo evento geram uma unica observacao, com os valores da
   // canonica (nada das outras observacoes entra). Modalidade pela representacao canonica ('RUNNING' legado == 'corrida').
+  // Etapa 2.1: indicadores derivados da analise de execucao (uma linha por sessao com atividade do relogio, versao atual do algoritmo). Pode haver linhas
+  // atualizadas depois de uma sincronizacao tardia: a leitura sempre usa a linha mais recente (a mesma por sessao). Sem valor => ausencia, nunca zero.
+  private async readExecutionAnalysisVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
+    const rows = await this.prisma.sessionExecutionAnalysis.findMany({
+      where: { userId: athleteId, algorithmVersion: EXECUTION_ANALYSIS_VERSION, activityLogId: { not: null }, status: { in: ['analyzed', 'summary_only'] } },
+      orderBy: { scheduledDate: 'asc' },
+    });
+    const observations: Observation[] = [];
+    for (const row of rows) {
+      const analysis = row.indicators as unknown as RunExecutionAnalysis;
+      if (analysis?.kind !== 'run') continue;
+      let value: number | null = null;
+      switch (definition.variableId) {
+        case 'execution.distanceCompletionRatio': value = analysis.totals.completionRatio; break;
+        case 'execution.timeInBandPct': value = analysis.dataLevel === 'series' && analysis.intensity.status !== 'indeterminado' ? intensityBasisOf(analysis)?.inPct ?? null : null; break;
+        case 'execution.intervalStructureMatch':
+          value = analysis.structure.prescribed === 'intervalado' && analysis.structure.scenario && analysis.structure.scenario !== 'F' ? (['A', 'E'].includes(analysis.structure.scenario) ? 1 : 0) : null;
+          break;
+        case 'execution.avgHeartRateInBandBpm': value = analysis.avgHeartRateInBandBpm; break;
+      }
+      if (value == null) continue; // ausencia — nunca vira zero
+      observations.push({
+        athleteId, variableId: definition.variableId, value, timestamp: row.scheduledDate, source: 'session_execution_analysis', instrumentVersion: row.algorithmVersion,
+        context: { sessionId: row.trainingSessionId, modality: row.modality, activityLogId: row.activityLogId ?? undefined, provider: row.provider ?? undefined },
+      });
+    }
+    return observations;
+  }
+
   private async readActivityObjectiveVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
     const rows = await this.prisma.activityLog.findMany({
       where: { userId: athleteId, executionClassification: { in: ['corresponding', 'alternative'] } },
