@@ -2732,3 +2732,6 @@ Pipeline implementado: `TrainingSession` → `CanonicalWorkout` → `AppleCustom
 
 ### 2026-10-09 — Etapa 2.2 Analista de Treinos (local, sem push)
 Analista determinístico (0 chamadas de IA) com contrato training-analysis/1 persistido em TrainingAnalysis; evidência enxuta no prompt semanal; ver ETAPA_2_2_ANALISTA_DE_TREINOS.md.
+
+### 2026-10-09 — Etapa 3: ajuste dos agentes (local)
+Regeneração de dia recebe o retrato do Analista; seleção por foco; fundamentação com decides; evento TRAINING_ANALYSIS_FINDINGS no Prontuário; prompts ajustados. Ver ETAPA_3_AJUSTE_DOS_AGENTES.md.

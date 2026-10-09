@@ -18,6 +18,8 @@ export const ProfileEventCode = {
   // relevance != 'PONTUAL' (ver ReportTimelineService.analyzeEntry) — um comentario isolado sem
   // relevancia longitudinal fica so' na Linha do Tempo de Relatos, nunca infla o prontuario.
   STUDENT_REPORT_ANALYZED: 'STUDENT_REPORT_ANALYZED',
+  // Etapa 3 (10/2026): poucas linhas deterministicas do Analista de Treinos (capacidades demonstradas, mudancas entre sessoes semelhantes, padroes). Sem IA para gravar.
+  TRAINING_ANALYSIS_FINDINGS: 'TRAINING_ANALYSIS_FINDINGS',
 } as const;
 
 // Limite defensivo (nunca rejeita a resposta, so trunca depois de parsear — mesmo padrao ja usado

@@ -9,7 +9,7 @@ import { TrainingIntelligenceQueryService } from '../training-intelligence/train
 import { getVariableDefinition } from '../training-intelligence/variable-registry';
 import {
   ANALYST_VERSION, AnalysisContract, AnalysisRow, analyzeLongitudinal, analyzeSessionInContext, analyzeWeekInContext, FeedbackInput, PrescriptionContext,
-  summarizePreviousWeeks, toPrescriberEvidence, VariableTrend,
+  EvidenceFocus, prontuarioDigest, summarizePreviousWeeks, toPrescriberEvidence, VariableTrend,
 } from './training-analyst';
 
 // Servico do Analista de Treinos (Etapa 2.2): carrega o que ja existe (indicadores da 2.1, janelas 21/60/200 do motor matematico, feedbacks, intencao da 1.2b),
@@ -169,6 +169,27 @@ export class TrainingAnalystService {
         },
       });
     }
+  }
+
+  // Etapa 3 (ajuste 1): regeneracao de UM dia. Reaproveita o RETRATO entregue com o programa desta semana (semana anterior + evolucao, ja calculados na
+  // geracao semanal, com a data de referencia dela): nenhuma recomputacao, nenhuma escrita, nenhuma chamada de IA, e nada posterior a esse retrato entra.
+  // Retrato invalidado (exclusao de dados do provedor) ou ausente (programa anterior a 2.2) => null.
+  async forDayRegeneration(userId: string, planId: string, focus?: EvidenceFocus): Promise<{ promptEvidence: Record<string, unknown> | null; providers: string[] } | null> {
+    const rows = await this.prisma.trainingAnalysis.findMany({ where: { userId, deliveredWithPlanId: planId, status: 'active', scope: { in: ['week', 'longitudinal'] } } });
+    const week = (rows.find((r) => r.scope === 'week')?.contract ?? null) as unknown as AnalysisContract | null;
+    const longitudinal = (rows.find((r) => r.scope === 'longitudinal')?.contract ?? null) as unknown as AnalysisContract | null;
+    if (!week && !longitudinal) return null;
+    const providers = [...new Set([week, longitudinal].flatMap((c) => c?.evidence.providers ?? []))].sort();
+    return { promptEvidence: toPrescriberEvidence({ week, longitudinal, sessions: [] }, focus), providers };
+  }
+
+  // Etapa 3: texto para o Prontuario (evento TRAINING_ANALYSIS_FINDINGS). Null quando nao ha nada relevante OU quando e' identico ao ultimo registrado.
+  async prontuarioEvent(userId: string, draft: AnalystDraft): Promise<string | null> {
+    const text = prontuarioDigest(draft.longitudinal);
+    if (!text) return null;
+    const last = await this.prisma.studentProfileEvent.findFirst({ where: { userId, code: 'TRAINING_ANALYSIS_FINDINGS' }, orderBy: { createdAt: 'desc' }, select: { content: true } });
+    const body = (value: string) => value.replace(/dados ate \d{4}-\d{2}-\d{2}/, '');
+    return last && body(last.content) === body(text) ? null : text;
   }
 
   // Leitura para o painel do treinador/Prontuario.

@@ -17,6 +17,8 @@ import { cleanupStudents, seedStudent } from './synthetic';
 
 class FakeAgent extends PrescriptionAgentService {
   weeklyCalls = 0;
+  dayCalls = 0;
+  lastDayParams: { trainingAnalysis?: Record<string, unknown> | null } | null = null;
   lastInput: MethodologyInput | null = null;
   constructor() { super({ get: () => undefined } as never, {} as never); }
   async proposeWeeklyDecision(input: MethodologyInput, evidence: PaceEvidence, trace?: AgentCallTrace[]): Promise<WeeklyMethodologyDecision | null> {
@@ -29,6 +31,14 @@ class FakeAgent extends PrescriptionAgentService {
     return { sessions: runSlots.map((slot) => ({ weekday: slot.weekday, title: 'Corrida', durationMin: slot.durationMin, notes: 'n', parts: [{ kind: 'continua' as const, distanceKm: 5, paceSecondsPerKmMin: 480, paceSecondsPerKmMax: 480 }] })), strengthSessions: [], recommendation: 'r', rationale: ['d'], safetyAdjustment: false } as unknown as WeeklyMethodologyDecision;
   }
 }
+
+FakeAgent.prototype.proposeRunSession = async function (this: FakeAgent, params: never, trace?: AgentCallTrace[]) {
+  this.dayCalls++;
+  this.lastDayParams = params;
+  const self = this as unknown as { buildRunSessionUserPrompt: (p: unknown) => string; buildRunSessionSystemPrompt: () => string };
+  recordAgentCall(trace, { purpose: 'dia_corrida', model: 'claude-sonnet-5', system: self.buildRunSessionSystemPrompt(), userPrompt: self.buildRunSessionUserPrompt(params) });
+  return { parts: [{ kind: 'continua' as const, distanceKm: 6, paceSecondsPerKmMin: 400, paceSecondsPerKmMax: 400 }], declared: { intent: 'manter estimulo', expected: 'avaliar resposta', basis: [{ source: 'analiseTecnicaDoAnalistaDeTreinos' as const, note: 'capacidade recorrente', decides: 'progressao' as const }] } } as never;
+} as never;
 
 type Leg = { km: number; pace: number };
 const block = (label: string, km: number, range: string) => ({ label, distanceValue: km, distanceUnit: 'km', paceRange: range });
@@ -176,6 +186,22 @@ describe('Analista de Treinos (PostgreSQL 17 real, dados sinteticos)', () => {
       expect(JSON.stringify(frozenWeek) + JSON.stringify(frozenLong)).toBe(snapshot);
       expect(await prisma.trainingAnalysis.count({ where: { userId: ana.userId, scope: 'session', refKey: ana.sessionIds[0] } })).toBe(1); // sem duplicar
       expect(await prisma.trainingPlan.count({ where: { userId: ana.userId } })).toBe(plansBefore);
+    });
+
+    it('3b) regeneracao de UM dia recebe o MESMO retrato do Analista (somente leitura, sem recomputar), registra a fundamentacao e a rastreabilidade', async () => {
+      const target = await prisma.trainingSession.findFirstOrThrow({ where: { planId, modality: 'corrida', scheduledDate: { gt: new Date('2026-10-12T00:00:00Z') } }, orderBy: { scheduledDate: 'asc' } });
+      const rowsBefore = await prisma.trainingAnalysis.count({ where: { userId: ana.userId } });
+      const weeklyBefore = agent.weeklyCalls;
+      await (plansService() as unknown as { regenerateSession: (userId: string, sessionId: string) => Promise<unknown> }).regenerateSession(ana.userId, target.id);
+      expect(agent.dayCalls).toBe(1);
+      expect(agent.weeklyCalls).toBe(weeklyBefore); // nenhuma chamada semanal; o dia usa a sua chamada de sempre
+      expect(await prisma.trainingAnalysis.count({ where: { userId: ana.userId } })).toBe(rowsBefore); // nao recria nem recalcula o Analista
+      const evidence = agent.lastDayParams!.trainingAnalysis as { evolucao: { capacidades: unknown[] } } | null;
+      expect(evidence?.evolucao.capacidades.length).toBeGreaterThan(0);
+      const decision = await prisma.prescriptionDecision.findFirstOrThrow({ where: { sessionId: target.id }, orderBy: { createdAt: 'desc' } });
+      const entry = (decision.basis as unknown as { entries: Array<{ source: string; decides?: string; delivered: boolean; evidenceRefs: string[]; providers: string[] }> }).entries[0];
+      expect(entry).toMatchObject({ source: 'analiseTecnicaDoAnalistaDeTreinos', decides: 'progressao', delivered: true, providers: ['polar'] });
+      expect(entry.evidenceRefs).toContain('training_analysis');
     });
 
     it('4) leitura para o treinador/Prontuario (por escopo) e exclusao de dados do provedor: vivos apagados, retratos invalidados, texto guardado da decisao sem os achados', async () => {

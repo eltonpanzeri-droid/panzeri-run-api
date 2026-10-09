@@ -17,7 +17,7 @@ import { PANZERI_METHODOLOGY_KNOWLEDGE } from './panzeri-methodology-knowledge';
 import { AiQueueService } from '../common/ai-queue.service';
 import { AI_MODELS } from '../common/ai-models.config';
 import { logAiUsage } from '../common/ai-usage-logger';
-import { AgentCallTrace, BASIS_SOURCES, DeclaredReasoning, normalizeDeclaredReasoning, recordAgentCall } from './prescription-trace';
+import { AgentCallTrace, BASIS_SOURCES, DECISION_VARIABLES, DeclaredReasoning, normalizeDeclaredReasoning, recordAgentCall } from './prescription-trace';
 import { gymExerciseLibrary } from './gym-exercise-library';
 import { runnerStrengthExercises } from './runner-strength-library';
 
@@ -107,7 +107,7 @@ const AiSessionPartsSchema = z.array(AiSessionPartSchema).min(1).max(6);
 export const AiReasoningSchema = z.object({
   intent: z.string(),
   expected: z.string(),
-  basis: z.array(z.object({ source: z.enum(BASIS_SOURCES), note: z.string() })),
+  basis: z.array(z.object({ source: z.enum(BASIS_SOURCES), note: z.string(), decides: z.enum(DECISION_VARIABLES).nullish() })),
 });
 
 // Corpo da decisao de UM dia de corrida (regeneracao isolada): partes + raciocinio declarado.
@@ -210,10 +210,15 @@ export const EXECUTION_REPORT_INSTRUCTION =
 
 // Etapa 2.2 — so' no prompt da SEMANA.
 export const ANALYST_EVIDENCE_INSTRUCTION =
-  'ANALISE TECNICA DO ANALISTA DE TREINOS (analiseTecnicaDoAnalistaDeTreinos): achados deterministicos sobre os treinos da semana anterior, a propria semana e a evolucao do aluno (capacidades demonstradas, formatos recorrentes, mudancas entre sessoes semelhantes variavel a variavel, tendencias nas janelas de 21/60/200 dias). Cada item traz sustentacao (alta/media/baixa) e horizonte (pontual/recente/consolidado); lacunas dizem o que nao se sabe. Sao EVIDENCIAS para a sua decisao: o Analista nao prescreve e voce decide objetivos, estimulos e progressoes. Nao trate coincidencia de series como causa, nao presuma o motivo de uma execucao diferente da prescrita (so o que o aluno relatou) e nao copie os numeros para o texto do aluno. Campo null = sem dados suficientes.';
+  'ANALISE TECNICA DO ANALISTA DE TREINOS (analiseTecnicaDoAnalistaDeTreinos): achados deterministicos sobre os treinos da semana anterior, a propria semana e a evolucao do aluno (capacidades demonstradas, formatos recorrentes, mudancas entre sessoes semelhantes variavel a variavel, tendencias nas janelas de 21/60/200 dias). Cada item traz sustentacao (alta/media/baixa) e horizonte (pontual/recente/consolidado); lacunas dizem o que nao se sabe. Sao EVIDENCIAS para a sua decisao: o Analista nao prescreve e voce decide objetivos, estimulos e progressoes. Nao trate coincidencia de series como causa, nao presuma o motivo de uma execucao diferente da prescrita (so o que o aluno relatou) e nao copie os numeros para o texto do aluno. Campo null = sem dados suficientes.' +
+  ' COMO USAR (raciocinio tecnico, nao tabela de decisao): (1) capacidade demonstrada, inclusive por iniciativa do aluno, e conhecimento sobre ele: nao a ignore nem prescreva so a partir de referencias antigas; mas reconhece-la nao obriga a prescrever mais rapido, mais longo ou mais intenso — decida pelo objetivo do proximo estimulo, pela quantidade e duracao dos esforcos, pelas recuperacoes e pela resposta fisiologica e subjetiva. (2) Distancia por repeticao, numero de repeticoes, velocidade, volume rapido acumulado e recuperacao sao estimulos diferentes e nao intercambiaveis: aumentar, manter, reduzir ou trocar qualquer uma e legitimo — escolha e justifique, sem progressao automatica so porque a sessao anterior foi cumprida (nem regressao so porque nao foi). (3) Uma semana ruim nao apaga capacidade demonstrada antes (pese horizonte e sustentacao); capacidade antiga nao e capacidade atual. (4) Evoluir nao e so correr mais rapido ou mais longe: o objetivo do aluno define o que conta (distancia, ritmo, menor esforco, preservar). (5) Cite o Analista em reasoning.basis (source analiseTecnicaDoAnalistaDeTreinos, decides = a variavel que ele sustentou) apenas quando realmente pesou. (6) No campo recommendation (texto que o aluno le) explique em linguagem simples o que foi feito, o que isso representa, o que mudou e o que ainda nao se sabe, apoiado em fatos concretos — sem elogio generico, sem causalidade nao comprovada e sem despejar indicadores.';
+
+// Etapa 3 (ajuste 1) — so' no prompt de UM dia de corrida regenerado.
+export const ANALYST_DAY_INSTRUCTION =
+  'ANALISE TECNICA (analiseTecnicaDoAnalistaDeTreinos): achados deterministicos do Analista de Treinos entregues com o programa desta semana (retrato do inicio da semana, nao de hoje). Sao evidencia, nao ordem: capacidade demonstrada nao obriga a prescrever mais forte; decida pelo objetivo deste estimulo, pela resposta do aluno e pelas diretrizes. Distancia por repeticao, repeticoes, velocidade e recuperacao sao estimulos distintos e nao intercambiaveis. Cite-a em reasoning.basis (source analiseTecnicaDoAnalistaDeTreinos) so se pesou. Null = sem dados.';
 
 export const REASONING_INSTRUCTION =
-  'RACIOCINIO PARA AUDITORIA (campo reasoning de cada sessao; NAO e texto para o aluno): registre de forma OBJETIVA por que voce decidiu este treino. intent = o objetivo desta sessao em UMA frase (ate 160 caracteres). expected = o que voce espera obter/observar com ela (ate 160 caracteres). basis = ate 3 itens {source, note}: source e o NOME do campo do contexto que mais pesou nesta decisao (use "outro" se nao houver um) e note e UMA frase curta (ate 100 caracteres) dizendo como ele pesou. E uma declaracao sua, nao uma prova: cite so o que realmente considerou, sem copiar relatos nem repetir numeros longos. Se nao houver o que declarar, devolva reasoning = null. Isto NAO muda nada no treino: prescreva exatamente como prescreveria sem este campo.';
+  'RACIOCINIO PARA AUDITORIA (campo reasoning de cada sessao; NAO e texto para o aluno): registre de forma OBJETIVA por que voce decidiu este treino. intent = o objetivo desta sessao em UMA frase (ate 160 caracteres). expected = o que voce espera obter/observar com ela (ate 160 caracteres). basis = ate 3 itens {source, note, decides}: source e o NOME do campo do contexto que mais pesou nesta decisao (use "outro" se nao houver um), note e UMA frase curta (ate 100 caracteres) dizendo como ele pesou e decides e a variavel da prescricao que esse fundamento sustentou (intensidade, volume, recuperacao, progressao, estrutura, manutencao ou outra; null se nao se aplica). E uma declaracao sua, nao uma prova: cite so o que realmente considerou, sem copiar relatos nem repetir numeros longos. Se nao houver o que declarar, devolva reasoning = null. Isto NAO muda nada no treino: prescreva exatamente como prescreveria sem este campo.';
 
 function truncateText(text: string, max: number = FREE_TEXT_DISPLAY_LIMIT): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
@@ -236,6 +241,8 @@ export interface RunSessionParams {
   pendingStudentReports?: MethodologyInput['pendingStudentReports'];
   pendingProfileEvents?: string[];
   contextGaps?: MethodologyInput['contextGaps'];
+  // Etapa 3: achados do Analista (retrato entregue com o programa); null/ausente = sem dados.
+  trainingAnalysis?: Record<string, unknown> | null;
 }
 
 export interface PaceEvidence {
@@ -348,6 +355,7 @@ export class PrescriptionAgentService {
       'INFORMACOES DO ALUNO POR TEXTO: relatosEstruturadosDoAluno (relatos do proprio aluno ja interpretados, cronologicos, o mais recente por ultimo — o mais recente prevalece sobre o mais antigo no mesmo assunto; RESOLVIDO encerra uma restricao anterior; PERSISTENTE_ATE_CONTRARIO vale ate um relato posterior dizer o contrario), relatosAindaNaoInterpretadosDoAluno e eventosDoProntuarioAindaNaoCondensados (texto bruto ainda nao interpretado: leia e nao ignore). Respeite RESTRICOES REAIS (equipamento, limite da esteira, local, saude); preferencias podem ser acomodadas sem sacrificar seguranca; dificuldade de execucao relatada e evidencia a ponderar. Um relato isolado nao vira regra permanente. lacunasDeContexto lista o que nao pode ser recuperado: a ausencia nao significa normalidade, seja conservador onde a parte faltante seria decisiva.',
       `Recomendacao (nao e uma regra rigida): evite prescrever pace de corrida mais lento que 8:30/km (${MAX_EASY_PACE_SECONDS_PER_KM} segundos por km) quando puder, porque abaixo disso a mecanica da corrida tende a piorar e se aproximar de uma caminhada. Se o ritmo confortavel real deste aluno estiver nessa faixa, considere usar uma parte "intervalada" alternando corrida de verdade com caminhada de verdade — mas a decisao final e sempre sua, pensando no aluno real.`,
       REASONING_INSTRUCTION,
+      ANALYST_DAY_INSTRUCTION,
     ].join('\n\n');
   }
 
@@ -369,6 +377,7 @@ export class PrescriptionAgentService {
         relatosAindaNaoInterpretadosDoAluno: params.pendingStudentReports ?? [],
         eventosDoProntuarioAindaNaoCondensados: params.pendingProfileEvents ?? [],
         lacunasDeContexto: params.contextGaps ?? [],
+        analiseTecnicaDoAnalistaDeTreinos: params.trainingAnalysis ?? null,
       },
       null,
       2,

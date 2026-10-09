@@ -441,17 +441,54 @@ export function summarizePreviousWeeks(rows: AnalysisRow[], feedbacks: Map<strin
 const SUPPORT_RANK: Record<Support, number> = { alta: 3, media: 2, baixa: 1 };
 const rank = (f: Finding) => (f.support ? SUPPORT_RANK[f.support] : 0) * 10 + (f.horizon === 'consolidado' ? 3 : f.horizon === 'recente' ? 2 : 1);
 
-export function toPrescriberEvidence(parts: { week: AnalysisContract | null; longitudinal: AnalysisContract | null; sessions: AnalysisContract[] }): Record<string, unknown> | null {
-  const pick = (list: Finding[], n: number) => [...list].sort((a, b) => rank(b) - rank(a)).slice(0, n).map((f) => ({ codigo: f.code, texto: f.statement, sustentacao: f.support, horizonte: f.horizon }));
+// Contexto que orienta a SELECAO (nunca os calculos): objetivo, diretrizes do treinador e tipo da sessao que sera prescrita.
+export interface EvidenceFocus {
+  goal?: string | null;
+  directives?: string[];
+  sessionKind?: 'intervalado' | 'continuo' | 'forca' | null;
+}
+
+const fold = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const FOCUS_STOPWORDS = new Set(['para', 'com', 'como', 'mais', 'muito', 'treino', 'treinos', 'sessao', 'sessoes', 'semana', 'aluno', 'aluna', 'correr', 'corrida', 'quero', 'minha', 'meu', 'fazer', 'tempo', 'sobre', 'quando', 'durante', 'esta', 'este', 'essa', 'esse', 'ainda', 'apenas', 'evoluir', 'consistencia']);
+const keywordsOf = (texts: string[]) => [...new Set(texts.flatMap((t) => fold(t).split(/[^a-z0-9]+/)).filter((w) => w.length >= 4 && !FOCUS_STOPWORDS.has(w)))].slice(0, 40);
+const SESSION_TERMS: Record<'intervalado' | 'continuo' | 'forca', RegExp> = {
+  intervalado: /interval|altern|repeti|tiro|rapid|esforco/,
+  continuo: /long|continu|ritmo|regularidade|aceleracao/,
+  forca: /forca|musculac|forcalecimento/,
+};
+const KIND_WEIGHT: Record<string, number> = { dificuldade: 3, divergencia: 2, padrao: 2, contradicao: 1 };
+
+// Pontuacao de relevancia: sustentacao e horizonte (ja existentes) + tipo do achado (dificuldade/divergencia/padrao), recorrencia, aderencia ao
+// objetivo e as diretrizes (palavras-chave) e ao tipo da sessao. So' ordena o que ja foi calculado; nada e recalculado nem descartado por regra de treino.
+function relevanceOf(text: string, focus: EvidenceFocus | undefined, keywords: string[], base: number, extra = 0): number {
+  const folded = fold(text);
+  let score = base + extra;
+  const hits = keywords.filter((k) => folded.includes(k)).length;
+  score += Math.min(hits, 3) * 4;
+  if (focus?.sessionKind && SESSION_TERMS[focus.sessionKind].test(folded)) score += 5;
+  return score;
+}
+
+export function toPrescriberEvidence(parts: { week: AnalysisContract | null; longitudinal: AnalysisContract | null; sessions: AnalysisContract[] }, focus?: EvidenceFocus): Record<string, unknown> | null {
+  const keywords = keywordsOf([focus?.goal ?? '', ...(focus?.directives ?? [])]);
+  const findingScore = (f: Finding) => relevanceOf(`${f.code} ${f.statement}`, focus, keywords, rank(f), (f.kind ? KIND_WEIGHT[f.kind] ?? 0 : 0) + (/recorrente|recorrencia/.test(f.code) || Number(f.data?.count ?? 0) >= 3 ? 3 : 0));
+  const pick = (list: Finding[], n: number) => [...list].sort((a, b) => findingScore(b) - findingScore(a)).slice(0, n).map((f) => ({ codigo: f.code, texto: f.statement, sustentacao: f.support, horizonte: f.horizon }));
+  const horizonScore = (h: Horizon) => (h === 'consolidado' ? 3 : h === 'recente' ? 2 : 1) * 4;
   const sessionFindings = parts.sessions.flatMap((s) => s.findings).filter((f) => f.kind === 'divergencia' || f.kind === 'dificuldade' || f.kind === 'contradicao');
+  const capabilities = parts.longitudinal
+    ? [...parts.longitudinal.capabilities].sort((a, b) => relevanceOf(`${b.family} ${b.statement}`, focus, keywords, horizonScore(b.horizon)) - relevanceOf(`${a.family} ${a.statement}`, focus, keywords, horizonScore(a.horizon))).slice(0, 5)
+    : [];
+  const changes = parts.longitudinal
+    ? [...parts.longitudinal.changes].sort((a, b) => relevanceOf(`${b.family} ${b.variable}`, focus, keywords, Math.min(Math.abs(b.deltaPct ?? 0) / 10, 3)) - relevanceOf(`${a.family} ${a.variable}`, focus, keywords, Math.min(Math.abs(a.deltaPct ?? 0) / 10, 3))).slice(0, 6)
+    : [];
   const out = {
     natureza: 'Achados do Analista de Treinos: fatos medidos, relatos e interpretacoes tecnicas com grau de sustentacao. Nao sao prescricao nem prova de causa; sem historico suficiente o item aparece como lacuna.',
     semana: parts.week ? { achados: pick(parts.week.findings, 5), lacunas: parts.week.gaps.slice(0, 2).map((g) => g.statement) } : null,
     treinosDaSemana: pick(sessionFindings, 5),
     evolucao: parts.longitudinal ? {
       achados: pick(parts.longitudinal.findings, 5),
-      capacidades: parts.longitudinal.capabilities.slice(0, 5).map((cap) => ({ tipo: cap.kind, texto: cap.statement, horizonte: cap.horizon })),
-      mudancasEntreSessoesSemelhantes: parts.longitudinal.changes.slice(0, 6).map((ch) => ({ formato: ch.family, variavel: ch.variable, de: ch.from, para: ch.to, variacaoPct: ch.deltaPct })),
+      capacidades: capabilities.map((cap) => ({ tipo: cap.kind, texto: cap.statement, horizonte: cap.horizon })),
+      mudancasEntreSessoesSemelhantes: changes.map((ch) => ({ formato: ch.family, variavel: ch.variable, de: ch.from, para: ch.to, variacaoPct: ch.deltaPct })),
       lacunas: parts.longitudinal.gaps.slice(0, 2).map((g) => g.statement),
     } : null,
   };
@@ -461,3 +498,17 @@ export function toPrescriberEvidence(parts: { week: AnalysisContract | null; lon
 
 // Todos os provedores de que o contrato deriva (para a exclusão de dados de provedor).
 export const contractProviders = (c: AnalysisContract) => c.evidence.providers;
+
+// Etapa 3 — resumo CURTO do conhecimento longitudinal para o Prontuario: so' o que e' capacidade demonstrada, mudanca entre sessoes semelhantes ou
+// padrao/dificuldade com sustentacao pelo menos media. Nao e' o relatorio: sao poucas linhas datadas, para o agente de condensacao integrar (ou nao).
+export const PRONTUARIO_DIGEST_MAX_CHARS = 900;
+export function prontuarioDigest(longitudinal: AnalysisContract | null): string | null {
+  if (!longitudinal) return null;
+  const lines: string[] = [];
+  for (const cap of longitudinal.capabilities.slice(0, 4)) lines.push(`Capacidade (${cap.horizon}): ${cap.statement}`);
+  for (const ch of longitudinal.changes.slice(0, 3)) lines.push(`Mudanca em ${ch.family}: ${ch.variable} de ${ch.from ?? '?'} para ${ch.to ?? '?'}${ch.deltaPct != null ? ` (${ch.deltaPct}%)` : ''}`);
+  for (const f of longitudinal.findings.filter((x) => (x.kind === 'padrao' || x.kind === 'dificuldade') && (x.support === 'alta' || x.support === 'media')).slice(0, 3)) lines.push(`${f.kind === 'dificuldade' ? 'Dificuldade' : 'Padrao'} (${f.horizon ?? 'pontual'}): ${f.statement}`);
+  if (lines.length === 0) return null;
+  const text = `Achados do Analista de Treinos (medidos pelo relogio e pelos registros, calculo deterministico; dados ate ${longitudinal.asOf}): ${lines.join(' | ')}`;
+  return text.length > PRONTUARIO_DIGEST_MAX_CHARS ? `${text.slice(0, PRONTUARIO_DIGEST_MAX_CHARS - 1)}…` : text;
+}

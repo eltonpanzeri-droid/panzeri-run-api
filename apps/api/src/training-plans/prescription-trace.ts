@@ -407,7 +407,7 @@ export function classifyExecutionProvenance(
     evolutionReport: narrative,
     reassessmentEvolution: narrative,
     profileSummary: input.profile?.summaryMayCarryEvolutionNarrative ? narrative : [],
-    pendingProfileEvents: (input.profile?.pendingEventCodes ?? []).flatMap((code, index) => (code === 'REASSESSMENT_COMPLETED' ? [{ index, providers: narrative }] : [])),
+    pendingProfileEvents: (input.profile?.pendingEventCodes ?? []).flatMap((code, index) => (code === 'REASSESSMENT_COMPLETED' || code === 'TRAINING_ANALYSIS_FINDINGS' ? [{ index, providers: narrative }] : [])),
   };
 }
 
@@ -451,8 +451,13 @@ export const PROMPT_FIELD_CLASSIFICATION: Record<string, PromptFieldClass> = {
 export const BASIS_SOURCES = [
   'historicoSemanal', 'athleteStateContext', 'relatosEstruturadosDoAluno', 'relatosAindaNaoInterpretadosDoAluno', 'diretrizesEspecificasDoTreinadorParaEsteAluno',
   'observacoesRegistradasPeloProprioAluno', 'prontuarioDoAluno', 'eventosDoProntuarioAindaNaoCondensados', 'autoavaliacaoDaSemanaPeloAluno', 'respostasEntrevista',
-  'reavaliacaoMaisRecente', 'relatorioDeEvolucao', 'maiorLongaoJaRegistrado', 'sessoesRecentesPertoDoRecorde', 'metasDeProva', 'evidenciasDePace', 'sinalDeSeguranca', 'outro',
+  'reavaliacaoMaisRecente', 'relatorioDeEvolucao', 'maiorLongaoJaRegistrado', 'sessoesRecentesPertoDoRecorde', 'metasDeProva', 'evidenciasDePace', 'sinalDeSeguranca',
+  // Etapas 2.1/2.2: o Prescritor passou a poder citar o que o Analista de Treinos e o relatorio de execucao trouxeram.
+  'analiseTecnicaDoAnalistaDeTreinos', 'relatorioDeExecucaoDaSemanaAnterior', 'outro',
 ] as const;
+// Variavel da prescricao que o fundamento sustentou (declaracao da IA; enum fechado para nao inventar categorias).
+export const DECISION_VARIABLES = ['intensidade', 'volume', 'recuperacao', 'progressao', 'estrutura', 'manutencao', 'outra'] as const;
+export type DecisionVariable = (typeof DECISION_VARIABLES)[number];
 export type BasisSource = (typeof BASIS_SOURCES)[number];
 
 // Limites de TAMANHO aplicados em codigo (truncar, nunca rejeitar a resposta): mantem o custo de tokens e o armazenamento previsiveis.
@@ -461,7 +466,7 @@ export const REASONING_LIMITS = { intent: 160, expected: 160, basisItems: 3, bas
 export interface DeclaredReasoning {
   intent: string | null;
   expected: string | null;
-  basis: Array<{ source: BasisSource; note: string }>;
+  basis: Array<{ source: BasisSource; note: string; decides?: DecisionVariable | null }>;
 }
 
 const clipText = (value: unknown, max: number): string => (typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, max) : '');
@@ -474,9 +479,10 @@ export function normalizeDeclaredReasoning(raw: unknown): DeclaredReasoning | nu
   const expected = clipText(record.expected, REASONING_LIMITS.expected) || null;
   const basis = (Array.isArray(record.basis) ? record.basis : [])
     .map((item) => {
-      const entry = (item ?? {}) as { source?: unknown; note?: unknown };
+      const entry = (item ?? {}) as { source?: unknown; note?: unknown; decides?: unknown };
       const source: BasisSource = (BASIS_SOURCES as readonly string[]).includes(entry.source as string) ? (entry.source as BasisSource) : 'outro';
-      return { source, note: clipText(entry.note, REASONING_LIMITS.basisNote) };
+      const decides: DecisionVariable | null = (DECISION_VARIABLES as readonly string[]).includes(entry.decides as string) ? (entry.decides as DecisionVariable) : null;
+      return { source, note: clipText(entry.note, REASONING_LIMITS.basisNote), ...(decides ? { decides } : {}) };
     })
     .filter((entry) => entry.note.length > 0 || entry.source !== 'outro')
     .slice(0, REASONING_LIMITS.basisItems);
@@ -490,12 +496,14 @@ const EVIDENCE_KINDS_BY_SOURCE: Record<BasisSource, string[]> = {
   observacoesRegistradasPeloProprioAluno: ['observation'], prontuarioDoAluno: ['profile_summary'], eventosDoProntuarioAindaNaoCondensados: ['profile_event_pending'],
   autoavaliacaoDaSemanaPeloAluno: ['checkin'], respostasEntrevista: ['interview'], reavaliacaoMaisRecente: ['reassessment'], relatorioDeEvolucao: ['evolution_report'],
   maiorLongaoJaRegistrado: ['record_run'], sessoesRecentesPertoDoRecorde: ['record_run'], metasDeProva: ['target_race'], evidenciasDePace: ['pace_evidence'],
-  sinalDeSeguranca: ['pain_safety'], outro: [],
+  sinalDeSeguranca: ['pain_safety'], analiseTecnicaDoAnalistaDeTreinos: ['training_analysis'], relatorioDeExecucaoDaSemanaAnterior: ['weekly_execution_report'], outro: [],
 };
 
 export interface DeclaredBasisEntry {
   source: BasisSource;
   note: string | null;
+  // Variavel da prescricao que este fundamento sustentou, segundo a IA (null = nao declarada). Declaracao, nao medicao.
+  decides?: DecisionVariable | null;
   // Itens do indice de evidencias que correspondem a fonte declarada (vinculo feito pelo CODIGO).
   evidenceRefs: string[];
   // true = a fonte existe no indice e foi entregue a IA; false = declarada mas NAO entregue/ausente (a declaracao nao tem lastro no contexto).
@@ -530,7 +538,7 @@ export function buildDecisionReasoning(declared: DeclaredReasoning | null | unde
     const linked = evidence.filter((item) => kinds.includes(item.kind) && !item.redacted);
     const delivered = linked.some((item) => item.delivery !== 'absent');
     return {
-      source: entry.source, note: entry.note || null, evidenceRefs: linked.map((item) => item.ref).slice(0, 12), delivered,
+      source: entry.source, note: entry.note || null, ...(entry.decides ? { decides: entry.decides } : {}), evidenceRefs: linked.map((item) => item.ref).slice(0, 12), delivered,
       providers: [...new Set(linked.flatMap((item) => item.providers ?? []))].sort(),
     };
   });

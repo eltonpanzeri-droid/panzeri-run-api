@@ -27,6 +27,7 @@ import { TelegramService, formatStudentCode } from '../billing/telegram.service'
 import { PrescriptionTraceService } from './prescription-trace.service';
 import { ExecutionAnalysisService, WeeklyReportDraft } from '../activity-execution/execution-analysis.service';
 import { AnalystDraft, TrainingAnalystService } from './training-analyst.service';
+import { toPrescriberEvidence } from './training-analyst';
 import { AgentCallTrace, buildEvidenceIndex, DeclaredReasoning, declaredKey, SessionForTrace, sourceProvidersOf } from './prescription-trace';
 import {
   ContextGap, describeError, formatObservationForAgent, formatPendingProfileEvent, selectHistoryWeeks, selectRelevantReportEntries,
@@ -270,7 +271,7 @@ export class TrainingPlansService {
     }
 
     try {
-      profileNarrativeDerived = ((await this.prisma.studentProfileEvent?.count?.({ where: { userId, code: 'REASSESSMENT_COMPLETED' } })) ?? 0) > 0;
+      profileNarrativeDerived = ((await this.prisma.studentProfileEvent?.count?.({ where: { userId, code: { in: ['REASSESSMENT_COMPLETED', 'TRAINING_ANALYSIS_FINDINGS'] } } })) ?? 0) > 0;
     } catch {
       profileNarrativeDerived = true;
     }
@@ -1030,7 +1031,8 @@ export class TrainingPlansService {
       contextGaps,
       weeklyCheckIn: latestWeeklyCheckIn,
       weeklyExecutionReport: weeklyExecution?.promptIndicators ?? null,
-      trainingAnalysis: analystDraft?.promptEvidence ?? null,
+      // Selecao enxuta priorizada pelo objetivo e pelas diretrizes (so' ordena o que o Analista ja calculou).
+      trainingAnalysis: analystDraft ? toPrescriberEvidence(analystDraft, { goal: user.preferences?.mainGoal ?? null, directives: activeDirectives.map(formatDirectiveForAgent) }) : null,
       athleteStateContext,
       todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
       // options.generateFrom: definido quando o aluno escolheu "Nao, a partir de amanha" no app
@@ -1609,6 +1611,12 @@ export class TrainingPlansService {
     void this.studentProfile
       .recordEvent(userId, ProfileEventCode.WEEK_GENERATED, `Semana de ${plan.startDate.toISOString().slice(0, 10)} gerada: ${weekSummaryForProfile}`)
       .catch(() => undefined);
+    // Etapa 3: conhecimento longitudinal do Analista -> Prontuario (evento; condensado pelo fluxo existente na proxima geracao, sem chamada nova).
+    if (analystDraft && this.analyst) {
+      void this.analyst.prontuarioEvent(userId, analystDraft)
+        .then((text) => (text ? this.studentProfile.recordEvent(userId, ProfileEventCode.TRAINING_ANALYSIS_FINDINGS, text) : undefined))
+        .catch(() => undefined);
+    }
 
     // Avisa o aluno so quando um plano de verdade vira a semana ATIVA dele (nunca na
     // pre-geracao "scheduled" de domingo, que ja tem seu proprio aviso — ver Sunday-19h
@@ -2021,6 +2029,15 @@ export class TrainingPlansService {
     // Etapa 1.1: a regeneracao de um dia recebe o MESMO contexto textual da semana (prontuario, relatos, pendencias) —
     // sem chamada de IA (so leitura): a condensacao do prontuario so roda na geracao semanal.
     const dayInformationContext = await this.loadStudentInformationContext(userId, { refreshProfile: false });
+    // Etapa 3 (ajuste 1): mesmo retrato do Analista entregue com o programa deste dia (somente leitura; falha nao bloqueia).
+    let dayAnalysis: { promptEvidence: Record<string, unknown> | null; providers: string[] } | null = null;
+    if (this.analyst && !(session.modality === 'forca' || session.modality === 'fortalecimento_corredores')) {
+      const shape = JSON.stringify(session.structure ?? {});
+      const sessionKind = /repeatCount|intervalad/i.test(shape) ? 'intervalado' as const : /longo|long/i.test(session.title ?? '') ? 'continuo' as const : null;
+      dayAnalysis = await this.analyst
+        .forDayRegeneration(userId, session.planId, { goal: user.preferences?.mainGoal ?? null, directives: activeDirectives.map(formatDirectiveForAgent), sessionKind })
+        .catch((error) => { this.logger.warn(`Analista (dia): leitura do retrato falhou: ${describeError(error)}`); return null; });
+    }
 
     // stripRoutineKeysFromAnswers: idem ao generateWeek() — rotina via WA, nao via answers.
     const answers = stripRoutineKeysFromAnswers(sanitizeInterviewAnswers(jsonObject(onboarding?.answers)));
@@ -2111,6 +2128,7 @@ export class TrainingPlansService {
         pendingStudentReports: dayInformationContext.pendingStudentReports,
         pendingProfileEvents: dayInformationContext.pendingProfileEvents,
         contextGaps: dayInformationContext.gaps,
+        trainingAnalysis: dayAnalysis?.promptEvidence ?? null,
       }, dayAgentTrace);
       if (!runDecision) {
         this.logger.error(`Falha ao gerar treino de corrida avulso com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);
@@ -2146,6 +2164,7 @@ export class TrainingPlansService {
       studentProfileSummary: dayInformationContext.studentProfileSummary, studentReports: dayInformationContext.studentReports,
       pendingStudentReports: dayInformationContext.pendingStudentReports, pendingProfileEvents: dayInformationContext.pendingProfileEvents,
       contextGaps: dayInformationContext.gaps, painTier: painSafety.tier, painReason: painSafety.reason,
+      trainingAnalysis: dayAnalysis?.promptEvidence ?? null,
     };
     return this.prisma.$transaction(async (tx) => {
       // Prescricao ANTERIOR lida na MESMA transacao que a reescreve (preservada por inteiro na trilha). Se o aluno registrou o treino entre a
@@ -2168,6 +2187,7 @@ export class TrainingPlansService {
         )),
         evolutionReport: [] as string[],
         reassessmentEvolution: [] as string[],
+        trainingAnalysis: dayAnalysis?.providers ?? [],
       };
       await trace.persistDayRegeneration(tx, {
         userId, planId: updated.planId, methodologyVersion: PANZERI_METHODOLOGY_VERSION,
