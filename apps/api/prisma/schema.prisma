@@ -2012,6 +2012,11 @@ model PrescriptionEvidencePackage {
   // Entrada completa enviada a IA (chamadas, modelo, prompt de usuario). Nula apos a retencao.
   agentInput         Json?
   agentInputPurgedAt DateTime?
+  // Proveniencia (correcao pos-revisao do Astra, 10/10/2026): provedores de dispositivo cujos dados alimentaram agregados do prompt.
+  // null = desconhecido (pacote anterior a este campo) e e' tratado como "pode conter qualquer provedor".
+  sourceProviders    Json?
+  // Marcadores auditaveis das remocoes feitas em agentInput por exclusao explicita de dados de um provedor (so' metadados: nunca o conteudo removido).
+  agentInputRedactions Json?
   createdAt          DateTime               @default(now())
   decisions          PrescriptionDecision[]
 
@@ -2038,6 +2043,10 @@ model PrescriptionDecision {
   summary            String
   changeFromPrevious Json?
   rationale          Json?
+  // VERSAO da sessao prescrita (correcao pos-revisao, 10/10/2026): estado completo da sessao NO MOMENTO desta decisao. A vigencia da
+  // versao vai do createdAt desta decisao ate o createdAt da decisao seguinte da mesma sessao. Imutavel.
+  sessionSnapshot    Json?
+  sessionSnapshotSha256 String?
   intent             String?
   expected           Json?
   basis              Json?

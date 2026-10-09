@@ -8,13 +8,14 @@ import {
   appleWatchAvailability, sendResultMessage, sendSessionToAppleWatch, sessionDateToLocalNoon, AppleWatchApi, AppleWatchNative,
 } from '../../mobile/src/appleWatchDelivery/sendSessionToAppleWatch';
 import { AppleCustomWorkoutSpecJson, NativeCustomWorkoutValidation } from '../../mobile/src/appleWatchDelivery/customWorkoutBridge';
+import { traceStub } from './helpers/trace-stub';
 
 // Apple Etapa 7 — TrainingSession real -> CanonicalWorkout -> AppleCustomWorkoutSpec -> WorkoutDelivery -> (Swift) CustomWorkout -> WorkoutScheduler.
 // Servico + orquestracao do app, com banco em memoria e WorkoutKit/Swift SIMULADOS (o Swift so' roda no iPhone). Nenhum PhysicalEvent/ActivityLog
 // pode ser criado pelo envio; agendamento aceito nao e' execucao; 'delivered_to_device' nunca e' registrado.
 const FUTURE_DATE = '2099-01-10';
 const noop = {} as never;
-const plans = new TrainingPlansService(noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop) as unknown as {
+const plans = new TrainingPlansService(noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, traceStub()) as unknown as {
   runPrescription: (durationMin: number, modality: string, decision: { parts: unknown[] }) => Record<string, unknown> & { distanceKm: number };
 };
 const continua = (distanceKm: number, min: number, max = min) => ({ kind: 'continua', distanceKm, paceSecondsPerKmMin: min, paceSecondsPerKmMax: max });

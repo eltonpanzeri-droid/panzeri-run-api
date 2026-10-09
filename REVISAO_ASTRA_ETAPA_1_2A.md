@@ -60,3 +60,33 @@ Termos de Uso e Política de Privacidade ainda **não** mencionam: (a) o registr
 - `basis`/`intent`/`expected` vazios até a 1.2b; itens de evidência por provedor ainda não existem (dados de dispositivo entram como variáveis agregadas).
 - Pendências da 1.1 seguem abertas: precedência estruturada entre informação atual/antiga/resolvida, contexto matemático e check-in na regeneração de dia, critérios objetivos para bloquear vs prescrever com cautela.
 - Escrita atômica: falha da trilha aborta a geração (decisão consciente; revisar se preferirem degradar).
+
+---
+
+# Correções após a revisão do Astra (10/10/2026) — pendências bloqueantes da 1.2a
+
+Escopo: somente as pendências da 1.2a. Sem 1.2b, sem Etapa 2, sem alteração de prompts ou modelos de IA (hashes dos prompts congelados continuam passando), sem push e sem deploy.
+
+## C1. Exclusão de dados de provedor alcança o texto enviado à IA e os derivados
+- **Causa da falha apontada:** a redação atuava só em itens do índice com `provider` preenchido, e nenhum item nascia com `provider`; o texto enviado à IA (`agentInput`) nunca era tocado. Os dados de dispositivo entram no prompt como agregados (`activity.avgPaceSecondsKm`, `activity.cadenceAvg`).
+- **Solução:** (a) o pacote passa a registrar a **proveniência** (`sourceProviders`: provedores com atividade na janela dos agregados, só quando o prompt tem agregado de atividade com dados); (b) itens agregados do índice carregam `providers`; (c) na exclusão explícita de um provedor, para cada pacote que o envolve: itens diretos e agregados viram marcador (`redacted:<provedor>`, sem valor, data nem referência) e os agregados `activity_objective` são removidos **do texto exato guardado** (variável, legenda, referências de domínio, avisos de comparabilidade), preservando todo o resto (relatos, diretrizes, entrevista, histórico, agregados de outras fontes); (d) marcador auditável em `agentInputRedactions` (provedor, instante, ids removidos, contagens; nunca o conteúdo); hash original mantido + hash do texto resultante. Pacote sem proveniência (anterior ao campo) é tratado de forma conservadora; prompt que não é JSON é removido por inteiro e marcado; pacote já expurgado pela retenção só tem o índice redigido. Idempotente; outro aluno e pacotes que não envolvem o provedor não são tocados; **desconectar continua não tocando na trilha**.
+- **Limite honesto:** os agregados são médias sobre o conjunto de atividades; não é possível separar a parte de um provedor — saem **por inteiro** (inclusive a parte vinda de outro provedor). Valores de treino copiados pelo aluno no próprio feedback (já tratados pela exclusão existente) não são reprocessados dentro de pacotes antigos.
+- **Provas:** unit `test/prescription-trace-hardening.spec.ts` (15) e integração `prescription-trace-hardening.int.spec.ts` (pacotes reais gerados com contexto realista; checa que valores `437.25`/`171.6`, ids e datas não sobram em lugar nenhum do pacote, que o resto permanece, marcador sem valores, idempotência, isolamento entre alunos/provedores, proveniência desconhecida, retenção, desconexão intacta).
+
+## C2. Versões das sessões regeneradas
+- **Causa:** a regeneração reescrevia a sessão no lugar; a trilha só guardava um resumo da anterior e o resultado era lido do estado atual da sessão (atribuição retroativa à prescrição errada).
+- **Solução:** cada decisão de sessão guarda o **estado completo** da sessão naquele momento (`sessionSnapshot` + hash canônico). A regeneração lê o estado anterior **na mesma transação** (com a linha da sessão travada) e o grava por inteiro (`previousSnapshot`, `previousDecisionId`, e `untracedChangeSincePreviousVersion` quando houve mudança fora da trilha, p. ex. edição manual do treinador). `getTrace` devolve `sessions[].versions[]` com vigência (`validFrom`→`validUntil`) e o resultado **de cada versão**: atividade objetiva pertence à versão vigente quando **começou**; o registro do aluno pertence à **última** versão, por invariante (sessão registrada não pode ser regenerada — verificado na transação, que agora relê o registro com a sessão travada). Versão anterior sem trilha (sessão antiga) é reconstruída do estado preservado e marcada `traced:false`. Edições do treinador após o registro (`prescriptionHistory`) são sinalizadas.
+- **Provas (integração):** regenerada antes e depois de atividades objetivas e antes do registro (v1 preservada por inteiro, cada resultado na sua versão, decisões mostram só o resultado da própria vigência); registro do aluno **durante** a geração da IA (nada reescrito, nenhuma trilha); edição manual entre versões; sessão sem trilha anterior.
+- **Limite honesto:** `WorkoutCompletion` não tem instante de criação confiável (`completedAt` é escolhido pelo aluno/dispositivo); por isso o registro é atribuído pela invariante, não por horário.
+
+## C3. Rastreabilidade obrigatória
+`PrescriptionTraceService` deixou de ser opcional (sem `@Optional()`): sem ele o Nest nem sobe. Além disso, `requireTrace()` recusa a geração semanal e a regeneração de dia **antes de qualquer chamada de IA** se o serviço estiver ausente ou incompleto (nenhum custo de IA, nenhum plano, nenhuma sessão alterada). A gravação continua dentro da transação do programa (rollback comprovado). Os testes antigos que construíam o serviço sem a trilha foram atualizados (`test/helpers/trace-stub.ts`).
+
+## C4. Migration 0916 — verificação somente leitura
+`VERIFICACAO_MIGRATIONS_PRODUCAO.md` + `apps/api/scripts/verify-migrations-production.sql` (consulta, sessão forçada a somente-leitura) + `apps/api/scripts/verify-migration-checksums.cjs` (comparação **offline** dos checksums completos com todas as versões do git; não acessa banco). Cobre as cinco migrations que tiveram o arquivo editado. **Não executado em produção.**
+
+## C5. Textos legais
+`RASCUNHO_TEXTOS_LEGAIS_RASTREABILIDADE.md`: parágrafos propostos (IA, retenção de até 12 meses, desconexão × exclusão, exclusão de conta, termos), tabela do que é guardado e quando é apagado, e pontos para o advogado. **Nada publicado** (`legal-content.ts` intacto).
+
+## Migration nova
+`20261010120000_prescription_trace_hardening` — aditiva: 4 colunas anuláveis (`sourceProviders`, `agentInputRedactions` no pacote; `sessionSnapshot`, `sessionSnapshotSha256` na decisão). Pacotes existentes ficam com `sourceProviders = NULL` (tratado como "pode conter qualquer provedor"). A migration anterior (`20261009120000`, já enviada) **não foi alterada**.

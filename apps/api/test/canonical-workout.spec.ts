@@ -1,10 +1,11 @@
 import { TrainingPlansService } from '../src/training-plans/training-plans.service';
 import { buildCanonicalWorkout, CanonicalRepeat, CanonicalStep } from '../src/training-plans/canonical-workout';
+import { traceStub } from './helpers/trace-stub';
 
 // CanonicalWorkout: TrainingSession.structure (REAL, gerada por TrainingPlansService.runPrescription, ou editada no Admin) -> representacao
 // canonica independente de provider. Esta camada so' traduz o que ja' foi decidido; nao decide treino, nao altera a TrainingSession.
 const noop = {} as never;
-const service = new TrainingPlansService(noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop) as unknown as {
+const service = new TrainingPlansService(noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, traceStub()) as unknown as {
   runPrescription: (durationMin: number, modality: string, decision: { parts: unknown[] }) => Record<string, unknown>;
 };
 const generate = (parts: unknown[]) => service.runPrescription(50, 'corrida', { parts });

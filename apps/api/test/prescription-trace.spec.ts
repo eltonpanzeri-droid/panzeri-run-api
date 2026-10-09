@@ -50,10 +50,10 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
 });
 
 describe('injecao e protecao', () => {
-  it('a rastreabilidade e a ULTIMA dependencia do TrainingPlansService (token correto para o Nest) e a rota e so de treinador/admin', () => {
+  it('a rastreabilidade e a ULTIMA dependencia do TrainingPlansService, OBRIGATORIA (nao-opcional) e a rota e so de treinador/admin', () => {
     const types = Reflect.getMetadata('design:paramtypes', TrainingPlansService) as unknown[];
     expect(types[types.length - 1]).toBe(PrescriptionTraceService);
-    expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService)).toContain(types.length - 1);
+    expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService) ?? []).not.toContain(types.length - 1);
     expect(Reflect.getMetadata('__guards__', PrescriptionTraceController)).toHaveLength(2); // JWT + RolesGuard
     expect(Reflect.getMetadata('roles', PrescriptionTraceController)).toEqual(['coach', 'admin']);
     expect(Reflect.getMetadata('path', PrescriptionTraceController)).toBe('coach');

@@ -1,4 +1,5 @@
 import { TrainingPlansService } from '../src/training-plans/training-plans.service';
+import { traceStub } from './helpers/trace-stub';
 
 // Correcao 02/10/2026: getStudentHistory() (consumido por HistoryCalendar no mobile) tinha
 // isExtra reconhecendo so structure.source==='student' — uma TrainingSession sintetica
@@ -17,7 +18,7 @@ function buildService(sessions: unknown[], links: unknown[] = [], alternativeLog
   };
   const noop = {} as never;
   const service = new TrainingPlansService(
-    prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop);
+    prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, traceStub());
   return { service, prisma };
 }
 

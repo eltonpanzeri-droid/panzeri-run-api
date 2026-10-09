@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { TrainingPlansService, injectTargetRaceDays, todayInSaoPaulo } from '../src/training-plans/training-plans.service';
 import { CoachService } from '../src/coach/coach.service';
 import { isWithinValidTrainingHistory, TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../src/common/training-history-policy';
+import { traceStub } from './helpers/trace-stub';
 
 // 25/09/2026 — Correcao definitiva do ciclo de vida da prescricao (fechamento do Passo 2). Cobre
 // as propriedades pedidas: regra temporal da regeneracao, protecao de execucao ja registrada,
@@ -15,7 +16,7 @@ function noop() {
 
 function buildTrainingPlansService(prisma: Record<string, unknown>) {
   return new TrainingPlansService(
-    prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop());
+    prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), traceStub());
 }
 
 describe('injectTargetRaceDays — prova/evento como excecao explicita a rotina (secao 5)', () => {

@@ -1,11 +1,12 @@
 import { TrainingPlansService } from '../src/training-plans/training-plans.service';
 import { buildCanonicalWorkout } from '../src/training-plans/canonical-workout';
 import { translateToAppleCustomWorkout, AppleCustomWorkoutSpec } from '../src/workout-delivery/apple-custom-workout-spec';
+import { traceStub } from './helpers/trace-stub';
 
 // CanonicalWorkout -> AppleCustomWorkoutSpec (intermediaria, sem agendar nada). Preserva ordem, distancia, repeatCount e papel work/recovery;
 // nao envia pace; nao usa a banda derivada; recusa com motivo o que exigiria inventar informacao.
 const noop = {} as never;
-const service = new TrainingPlansService(noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop) as unknown as {
+const service = new TrainingPlansService(noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, traceStub()) as unknown as {
   runPrescription: (durationMin: number, modality: string, decision: { parts: unknown[] }) => Record<string, unknown>;
 };
 const continua = (distanceKm: number, min: number, max = min) => ({ kind: 'continua', distanceKm, paceSecondsPerKmMin: min, paceSecondsPerKmMax: max });

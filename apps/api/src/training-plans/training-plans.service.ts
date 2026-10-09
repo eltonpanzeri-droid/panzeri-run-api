@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { collapseEqualRange, runPaceHeaderLabel } from './range-display';
@@ -25,7 +25,7 @@ import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { PrescriptionTraceService } from './prescription-trace.service';
-import { AgentCallTrace, buildEvidenceIndex, describeSessionForTrace, SessionForTrace } from './prescription-trace';
+import { AgentCallTrace, buildEvidenceIndex, SessionForTrace, sourceProvidersOf } from './prescription-trace';
 import {
   ContextGap, describeError, formatObservationForAgent, formatPendingProfileEvent, selectHistoryWeeks, selectRelevantReportEntries,
 } from './student-information-context';
@@ -198,9 +198,19 @@ export class TrainingPlansService {
     private readonly reportTimeline: ReportTimelineService,
     private readonly sessionExecutionLink: SessionExecutionLinkService,
     private readonly shoes: ShoesService,
-    // Etapa 1.2a: rastreabilidade. Opcional so' para os testes antigos que constroem o servico sem ela; em producao e' sempre injetada.
-    @Optional() private readonly trace?: PrescriptionTraceService,
+    // Etapa 1.2a: rastreabilidade OBRIGATORIA (correcao pos-revisao do Astra, 10/10/2026). Sem ela o servico nem sobe (DI) e nenhuma chamada a IA
+    // de prescricao e' feita (requireTrace()). Nao existe caminho para gerar prescricao sem trilha.
+    private readonly trace: PrescriptionTraceService,
   ) {}
+
+  // Garante, ANTES de gastar uma chamada de IA, que o servico de rastreabilidade esta presente (protege tambem contra stubs/configuracao incompleta).
+  private requireTrace(): PrescriptionTraceService {
+    if (!this.trace || typeof this.trace.persistWeekly !== 'function' || typeof this.trace.persistDayRegeneration !== 'function') {
+      this.logger.error('Servico de rastreabilidade indisponivel: geracao de prescricao recusada antes de chamar a IA.');
+      throw new InternalServerErrorException('Rastreabilidade das prescricoes indisponivel. Nenhuma prescricao foi gerada.');
+    }
+    return this.trace;
+  }
 
   // Etapa 1.1 (09/10/2026) — carrega, de forma EXPLICITA, todo o contexto textual do aluno que o Prescritor precisa:
   //  - prontuario (resumo condensado) + eventos ainda NAO condensados, em texto bruto, se a condensacao falhar;
@@ -634,6 +644,8 @@ export class TrainingPlansService {
     weeklyOverride?: WeeklyAvailabilityInput[],
     options?: { referenceDate?: Date; planStatus?: string; archiveCurrentActive?: boolean; allowToday?: boolean; generateFrom?: string | null },
   ) {
+    // Rastreabilidade obrigatoria: antes de qualquer leitura, condensacao ou chamada de IA desta geracao.
+    this.requireTrace();
     const referenceDate = options?.referenceDate ?? new Date();
     const planStatus = options?.planStatus ?? 'active';
     const archiveCurrentActive = options?.archiveCurrentActive ?? true;
@@ -1427,39 +1439,43 @@ export class TrainingPlansService {
       // nenhuma sessao "de hoje" pertencente a essa semana ainda (ela comeca no futuro).
       // Etapa 1.2a (09/10/2026): rastreabilidade gravada na MESMA transacao do plano — nenhuma prescricao nova existe sem trilha. So' as
       // sessoes CRIADAS agora (sessionsToCreate) viram decisoes; as migradas do plano anterior sao execucao real, nao decisao nova.
-      if (this.trace) {
-        const toTrace = (session: { id: string; weekday: number; modality: string; sessionType: string | null; durationMin: number | null; distanceKm: number | null; paceMinSec: string | null; structure: unknown }): SessionForTrace => ({
-          id: session.id, weekday: session.weekday, modality: session.modality, sessionType: session.sessionType, durationMin: session.durationMin, distanceKm: session.distanceKm, paceMinSec: session.paceMinSec, structure: session.structure,
-        });
-        const previousWeek = historyWeeks[0] ? { startDate: historyWeeks[0].startDate, sessions: historyWeeks[0].sessions.map(toTrace) } : null;
-        await this.trace.persistWeekly(tx, {
-          userId, planId: createdPlan.id, weekStart, methodologyVersion: PANZERI_METHODOLOGY_VERSION,
-          createdSessions: createdPlan.sessions.map(toTrace),
-          previousWeek,
-          evidence: buildEvidenceIndex({
-            input: methodologyInput,
-            directives: activeDirectives.map((d) => ({ id: d.id, content: d.content, createdAt: d.createdAt })),
-            observations: activeObservations.map((o) => ({ id: o.id, content: o.content, createdAt: o.createdAt })),
-            interpretedReportIds: informationContext.interpretedReportIds,
-            pendingReportIds: informationContext.pendingReportIds,
-            pendingProfileEventIds: informationContext.pendingProfileEventIds,
-            historyWeeks: historyWeeks.map((w) => ({ startDate: w.startDate, planId: w.planId })),
-            checkIn: latestWeeklyCheckIn ? { id: latestWeeklyCheckIn.id } : null,
-            targetRaces: targetRaces.map((race) => ({ id: race.id, name: race.name })),
-            reassessment: latestReassessment ? { id: latestReassessment.id, completedAt: latestReassessment.completedAt } : null,
-            evolutionReport: latestEvolutionReport ? { id: latestEvolutionReport.id, createdAt: latestEvolutionReport.createdAt } : null,
-            interviewCompletedAt: onboarding?.completedAt ?? null,
-            paceSource,
-            contextGaps,
-          }),
+      const toTrace = (session: { id: string; weekday: number; modality: string; title?: string | null; notes?: string | null; sessionType: string | null; durationMin: number | null; distanceKm: number | null; paceMinSec: string | null; structure: unknown }): SessionForTrace => ({
+        id: session.id, weekday: session.weekday, modality: session.modality, title: session.title ?? null, notes: session.notes ?? null, sessionType: session.sessionType, durationMin: session.durationMin, distanceKm: session.distanceKm, paceMinSec: session.paceMinSec, structure: session.structure,
+      });
+      // Proveniencia dos agregados de atividade enviados a IA: provedores com atividade na janela das variaveis longitudinais (baseline de 200 dias + folga).
+      // Conservador de proposito: preferir incluir um provedor a mais a deixar dado derivado fora do alcance de uma exclusao.
+      const activityProviderRows = await tx.activityLog.findMany({ where: { userId, startedAt: { gte: new Date(weekStart.getTime() - 230 * 86_400_000) } }, select: { provider: true }, distinct: ['provider'] });
+      const activityProviders = activityProviderRows.map((row) => row.provider);
+      const previousWeek = historyWeeks[0] ? { startDate: historyWeeks[0].startDate, sessions: historyWeeks[0].sessions.map(toTrace) } : null;
+      await this.trace.persistWeekly(tx, {
+        userId, planId: createdPlan.id, weekStart, methodologyVersion: PANZERI_METHODOLOGY_VERSION,
+        createdSessions: createdPlan.sessions.map(toTrace),
+        previousWeek,
+        evidence: buildEvidenceIndex({
+          input: methodologyInput,
+          directives: activeDirectives.map((d) => ({ id: d.id, content: d.content, createdAt: d.createdAt })),
+          observations: activeObservations.map((o) => ({ id: o.id, content: o.content, createdAt: o.createdAt })),
+          interpretedReportIds: informationContext.interpretedReportIds,
+          pendingReportIds: informationContext.pendingReportIds,
+          pendingProfileEventIds: informationContext.pendingProfileEventIds,
+          historyWeeks: historyWeeks.map((w) => ({ startDate: w.startDate, planId: w.planId })),
+          checkIn: latestWeeklyCheckIn ? { id: latestWeeklyCheckIn.id } : null,
+          targetRaces: targetRaces.map((race) => ({ id: race.id, name: race.name })),
+          reassessment: latestReassessment ? { id: latestReassessment.id, completedAt: latestReassessment.completedAt } : null,
+          evolutionReport: latestEvolutionReport ? { id: latestEvolutionReport.id, createdAt: latestEvolutionReport.createdAt } : null,
+          interviewCompletedAt: onboarding?.completedAt ?? null,
+          paceSource,
           contextGaps,
-          agentTrace,
-          recommendation: methodology.recommendation,
-          rationale: methodology.rationale,
-          safetyAdjustment: methodology.safetyAdjustment,
-          routineMismatch: methodology.routineMismatch ?? null,
-        });
-      }
+          activityProviders,
+        }),
+        contextGaps,
+        agentTrace,
+        sourceProviders: sourceProvidersOf(methodologyInput, activityProviders),
+        recommendation: methodology.recommendation,
+        rationale: methodology.rationale,
+        safetyAdjustment: methodology.safetyAdjustment,
+        routineMismatch: methodology.routineMismatch ?? null,
+      });
 
       if (activePlanBeforeAdjustment && shouldMigrateTodaySessionsToNewPlan({ hasActivePlan: true, shouldRollToNextWeek })) {
         // Hoje e os dias que ja passaram nunca podem ser reescritos ao gerar uma nova semana —
@@ -1906,6 +1922,8 @@ export class TrainingPlansService {
       });
     }
 
+    // Rastreabilidade obrigatoria: verificada antes de qualquer leitura cara ou chamada de IA.
+    const trace = this.requireTrace();
     const latestEvolutionReport = await this.reassessmentService.getLatestValidEvolutionReport(userId);
 
     const [user, latestTest, onboarding, activeDirectives, activeObservations, latestReassessment] = await Promise.all([
@@ -2034,12 +2052,10 @@ export class TrainingPlansService {
         origin: 'agent',
       },
     } as const;
-    if (!this.trace) return this.prisma.trainingSession.update(updateArgs);
-
     // Etapa 1.2a: trilha da regeneracao de UM dia, gravada na mesma transacao que reescreve o treino (nunca um sem o outro).
-    const previousSummary = describeSessionForTrace({
-      weekday: session.weekday, modality: session.modality, sessionType: session.sessionType, durationMin: session.durationMin,
-      distanceKm: session.distanceKm, paceMinSec: session.paceMinSec, structure: session.structure,
+    const toTraceSession = (row: { id: string; weekday: number; modality: string; title: string; notes: string | null; sessionType: string | null; durationMin: number | null; distanceKm: number | null; paceMinSec: string | null; structure: unknown }): SessionForTrace => ({
+      id: row.id, weekday: row.weekday, modality: row.modality, title: row.title, notes: row.notes, sessionType: row.sessionType, durationMin: row.durationMin,
+      distanceKm: row.distanceKm, paceMinSec: row.paceMinSec, structure: row.structure,
     });
     const dayEvidenceInput: MethodologyInput = {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia', experience: '', answers, availability: [], history: [],
@@ -2049,11 +2065,19 @@ export class TrainingPlansService {
       contextGaps: dayInformationContext.gaps, painTier: painSafety.tier, painReason: painSafety.reason,
     };
     return this.prisma.$transaction(async (tx) => {
+      // Prescricao ANTERIOR lida na MESMA transacao que a reescreve (preservada por inteiro na trilha). Se o aluno registrou o treino entre a
+      // verificacao inicial e este ponto, nada e' alterado: a execucao nunca e' atribuida a uma prescricao que ele nao viu.
+      await tx.$queryRaw`SELECT "id" FROM "TrainingSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      const before = await tx.trainingSession.findFirst({ where: { id: sessionId, userId }, include: { completion: { select: { id: true } } } });
+      if (!before) throw new BadRequestException('Treino nao encontrado para este aluno.');
+      if (before.completion) {
+        throw new BadRequestException({ message: 'Esse treino ja foi registrado pelo aluno — nao e possivel gerar um novo treino no lugar dele.', code: 'session_already_completed' });
+      }
       const updated = await tx.trainingSession.update(updateArgs);
-      await this.trace!.persistDayRegeneration(tx, {
+      await trace.persistDayRegeneration(tx, {
         userId, planId: updated.planId, methodologyVersion: PANZERI_METHODOLOGY_VERSION,
-        session: { id: updated.id, weekday: updated.weekday, modality: updated.modality, sessionType: updated.sessionType, durationMin: updated.durationMin, distanceKm: updated.distanceKm, paceMinSec: updated.paceMinSec, structure: updated.structure },
-        previousSummary,
+        session: toTraceSession(updated),
+        previous: toTraceSession(before),
         evidence: buildEvidenceIndex({
           input: dayEvidenceInput,
           directives: activeDirectives.map((d) => ({ id: d.id, content: d.content, createdAt: d.createdAt })),

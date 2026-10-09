@@ -43,9 +43,10 @@ describe('backup -> restauracao em ambiente isolado (PostgreSQL 17 local, dados 
   // Rastreabilidade (Etapa 1.2a): pacote + decisao de cada aluno, com a entrada completa enviada a IA.
   async function seedTrace(student: SyntheticStudent) {
     const pkg = await source.prescriptionEvidencePackage.create({
-      data: { userId: student.userId, planId: student.planId, kind: 'weekly', schemaVersion: 1, methodologyVersion: 'teste', modelIds: ['claude-sonnet-5'], agentInputHash: 'h'.repeat(64), evidence: [{ ref: 'report:x', delivery: 'delivered', storage: 'complete' }], contextGaps: [], agentInput: { calls: [{ purpose: 'semana', userPrompt: '{"k":"v"}' }] } },
+      data: { userId: student.userId, planId: student.planId, kind: 'weekly', schemaVersion: 1, methodologyVersion: 'teste', modelIds: ['claude-sonnet-5'], agentInputHash: 'h'.repeat(64), evidence: [{ ref: 'report:x', delivery: 'delivered', storage: 'complete' }], contextGaps: [], agentInput: { calls: [{ purpose: 'semana', userPrompt: '{"k":"v"}' }] },
+        sourceProviders: ['polar'], agentInputRedactions: [{ provider: 'wahoo', reason: 'provider_data_deleted', removedVariableIds: ['activity.cadenceAvg'] }] },
     });
-    await source.prescriptionDecision.create({ data: { packageId: pkg.id, userId: student.userId, planId: student.planId, sessionId: student.sessionIds[0], kind: 'session', summary: 'ter | corrida', traceStatus: 'absent' } });
+    await source.prescriptionDecision.create({ data: { packageId: pkg.id, userId: student.userId, planId: student.planId, sessionId: student.sessionIds[0], kind: 'session', summary: 'ter | corrida', traceStatus: 'absent', sessionSnapshot: { weekday: 2, structure: { type: 'run' } }, sessionSnapshotSha256: 's'.repeat(64) } });
     return pkg.id;
   }
   let alicePackageId: string;
@@ -103,6 +104,10 @@ describe('backup -> restauracao em ambiente isolado (PostgreSQL 17 local, dados 
     expect(restoredPackage).toMatchObject({ userId: alice.userId, kind: 'weekly', agentInputHash: 'h'.repeat(64) });
     expect(restoredPackage?.agentInput).toEqual({ calls: [{ purpose: 'semana', userPrompt: '{"k":"v"}' }] });
     expect(restoredPackage?.decisions).toHaveLength(1);
+    // correcoes pos-revisao: proveniencia, marcadores de redacao e VERSAO da sessao tambem viajam no backup
+    expect(restoredPackage?.sourceProviders).toEqual(['polar']);
+    expect(restoredPackage?.agentInputRedactions).toEqual([{ provider: 'wahoo', reason: 'provider_data_deleted', removedVariableIds: ['activity.cadenceAvg'] }]);
+    expect(restoredPackage?.decisions[0]).toMatchObject({ sessionSnapshot: { weekday: 2, structure: { type: 'run' } }, sessionSnapshotSha256: 's'.repeat(64) });
     // ...e a trilha de BRUNO some junto com a conta (tombstone posterior ao snapshot reaplicado)
     expect(await restore.prescriptionEvidencePackage.count({ where: { id: brunoPackageId } })).toBe(0);
     expect(await restore.prescriptionDecision.count({ where: { userId: bruno.userId } })).toBe(0);

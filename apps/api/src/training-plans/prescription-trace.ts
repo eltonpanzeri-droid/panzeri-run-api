@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { describeSessionShape } from './agent-context-format';
 import type { ContextGap } from './student-information-context';
 import type { MethodologyInput } from './training-methodology';
+import { getVariableDefinition } from '../training-intelligence/variable-registry';
 
 // Rastreabilidade das prescricoes (Etapa 1.2a, 09/10/2026). Funcoes PURAS: montam o INDICE de evidencias e as decisoes
 // deterministicas. Nada aqui decide treino. O que a IA "declara" ter usado (intent/expected/basis) e' da 1.2b — aqui ficam
@@ -22,6 +23,9 @@ export interface EvidenceItem {
   sourceId: string | null;
   // Provedor de dispositivo de que o item deriva diretamente (so' itens de atividade); Strava nunca aparece.
   provider: string | null;
+  // Itens AGREGADOS (variaveis longitudinais calculadas a partir de atividades de dispositivo): provedores cujos dados podem ter
+  // entrado no calculo. Nao e' um provedor unico, mas a exclusao de dados de qualquer um deles precisa alcancar o item.
+  providers?: string[];
   asOf: string | null;
   label: string;
   // entregue a IA / entregue sem processar (texto bruto) / ausente (nao recuperado).
@@ -98,6 +102,8 @@ export interface EvidenceBuildInput {
   interviewCompletedAt: Date | null;
   paceSource: string | null;
   contextGaps: ContextGap[];
+  // Provedores de dispositivo com atividades na janela das variaveis longitudinais (proveniencia dos agregados "activity_objective").
+  activityProviders?: string[];
 }
 
 function item(partial: Partial<EvidenceItem> & Pick<EvidenceItem, 'ref' | 'kind' | 'source' | 'label'>): EvidenceItem {
@@ -177,7 +183,12 @@ export function buildEvidenceIndex(p: EvidenceBuildInput): EvidenceItem[] {
       const n = variable.evidence?.n ?? 0;
       if (n <= 0) continue;
       withData++;
-      items.push(item({ ref: `variable:${variableId}`, kind: 'athlete_state_variable', source: 'ActivityLog|WorkoutCompletion|WeeklyCheckIn|...', asOf: variable.evidence.lastObservationAt ? dayOf(variable.evidence.lastObservationAt) : null, label: `Variavel longitudinal ${variableId}`, storage: 'reference_only', storageNote: `n=${n}; estado completo em agentInput.` }));
+      const deviceDerived = isDeviceDerivedVariable(variableId);
+      items.push(item({
+        ref: `variable:${variableId}`, kind: 'athlete_state_variable', source: deviceDerived ? 'ActivityLog' : 'WorkoutCompletion|WeeklyCheckIn|...', asOf: variable.evidence.lastObservationAt ? dayOf(variable.evidence.lastObservationAt) : null,
+        label: `Variavel longitudinal ${variableId}`, storage: 'reference_only', storageNote: `n=${n}; estado completo em agentInput.`,
+        ...(deviceDerived ? { providers: [...new Set(p.activityProviders ?? [])].sort() } : {}),
+      }));
     }
     items.push(item({ ref: 'athlete_state:summary', kind: 'athlete_state_summary', source: 'AthleteStateSnapshot', label: 'Estado longitudinal do atleta (resumo)', storage: 'complete', excerpt: `${withData} variavel(is) com dados; ${Object.keys(state.variables ?? {}).length - withData} sem dados` }));
     if (state.menstrualCycle) items.push(item({ ref: 'menstrual_cycle:context', kind: 'menstrual_cycle', source: 'MenstrualCycleLog', label: 'Contexto do ciclo menstrual', storage: 'reference_only', storageNote: 'Conteudo em agentInput.' }));
@@ -191,17 +202,117 @@ export function buildEvidenceIndex(p: EvidenceBuildInput): EvidenceItem[] {
 
 // ── Exclusao de dados de um provedor ─────────────────────────────────────────────────────────────────────────────
 
-// Remove valores e referencias dos itens de evidencia derivados DIRETAMENTE de atividades do provedor (so' em exclusao explicita
-// pelo aluno; desconectar NAO chama isto). Itens agregados/derivados (variaveis longitudinais) nao sao atribuiveis a um provedor.
-export function redactEvidenceForProvider(evidence: unknown, provider: string): { evidence: EvidenceItem[]; redacted: number } {
+// Variavel longitudinal calculada a partir de atividades de dispositivo (registro: source = 'activity_objective').
+export const isDeviceDerivedVariable = (variableId: string) => getVariableDefinition(variableId)?.source === 'activity_objective';
+
+// Provedores a registrar no pacote: so' quando o contexto enviado a IA TEM agregados derivados de atividade (n > 0). Sem eles => [] (conhecido: nenhum).
+export function sourceProvidersOf(input: MethodologyInput, activityProviders: string[]): string[] {
+  const variables = input.athleteStateContext?.variables ?? {};
+  const hasDeviceAggregate = Object.entries(variables).some(([id, variable]) => isDeviceDerivedVariable(id) && (variable.evidence?.n ?? 0) > 0);
+  return hasDeviceAggregate ? [...new Set(activityProviders)].sort() : [];
+}
+
+// O pacote pode conter dados do provedor? Proveniencia desconhecida (null) => sim, por seguranca. Proveniencia conhecida => so' se o provedor consta
+// nela OU algum item do indice de evidencias o cita (diretamente ou como origem de um agregado).
+export function packageMayContainProvider(sourceProviders: unknown, provider: string, evidence?: unknown): boolean {
+  if (!Array.isArray(sourceProviders)) return true;
+  if (sourceProviders.includes(provider)) return true;
+  return Array.isArray(evidence) && (evidence as EvidenceItem[]).some((entry) => entry?.provider === provider || (Array.isArray(entry?.providers) && entry.providers.includes(provider)));
+}
+
+// Remove valores e referencias dos itens de evidencia derivados de atividades do provedor (so' em exclusao explicita pelo aluno;
+// desconectar NAO chama isto): itens diretos (provider === X) e itens AGREGADOS cuja proveniencia inclui X (providers).
+export function redactEvidenceForProvider(evidence: unknown, provider: string, options: { unknownProvenance?: boolean } = {}): { evidence: EvidenceItem[]; redacted: number } {
   const list = Array.isArray(evidence) ? (evidence as EvidenceItem[]) : [];
   let redacted = 0;
   const next = list.map((entry) => {
-    if (entry?.provider !== provider || entry.redacted) return entry;
+    if (!entry || entry.redacted) return entry;
+    const derivesFromProvider = entry.provider === provider
+      || (Array.isArray(entry.providers) && entry.providers.includes(provider))
+      || (options.unknownProvenance === true && typeof entry.ref === 'string' && entry.ref.startsWith('variable:') && isDeviceDerivedVariable(entry.ref.slice('variable:'.length)));
+    if (!derivesFromProvider) return entry;
     redacted++;
-    return { ...entry, ref: `redacted:${provider}`, sourceId: null, excerpt: null, label: `Evidencia removida (dados do provedor ${provider} excluidos a pedido do aluno)`, storage: 'reference_only' as const, storageNote: 'Removida por exclusao explicita de dados do provedor.', redacted: true };
+    // Marcador auditavel: continua existindo UM item no lugar, dizendo o que foi removido, de onde e por que — sem valor, sem data, sem referencia.
+    return { ...entry, ref: `redacted:${provider}`, sourceId: null, asOf: null, excerpt: null, providers: undefined, label: `Evidencia removida (dados do provedor ${provider} excluidos a pedido do aluno)`, storage: 'reference_only' as const, storageNote: 'Removida por exclusao explicita de dados do provedor.', redacted: true };
   });
   return { evidence: next, redacted };
+}
+
+export interface AgentInputRedaction {
+  provider: string;
+  at: string;
+  reason: 'provider_data_deleted';
+  // So' metadados: quais variaveis e em quantas chamadas — nunca o conteudo removido.
+  removedVariableIds: string[];
+  callsChanged: number;
+  callsUnparseableRemoved: number;
+}
+
+// Remove, do texto EXATO guardado em agentInput, os agregados derivados de atividade de dispositivo (variaveis "activity_objective" do
+// athleteStateContext, com legenda e referencias de dominio). Todo o resto do prompt (relatos, diretrizes, entrevista, historico, outros
+// agregados) permanece. Um prompt que nao e' JSON valido nao pode ser editado com seguranca: o texto daquela chamada e' removido por
+// inteiro (marcado). Os hashes originais ficam (impressao digital de conteudo que nao existe mais) e o hash do texto resultante e' gravado.
+export function redactAgentInputForProvider(agentInput: unknown, provider: string, now: Date = new Date()): { agentInput: unknown; redaction: AgentInputRedaction | null } {
+  const calls = (agentInput as { calls?: Array<Record<string, unknown>> } | null)?.calls;
+  if (!Array.isArray(calls)) return { agentInput, redaction: null };
+  const removedIds = new Set<string>();
+  let callsChanged = 0;
+  let callsUnparseableRemoved = 0;
+  const nextCalls = calls.map((call) => {
+    if (call.userPromptRedacted === true || call.userPromptRedacted === 'removed_unparseable' || typeof call.userPrompt !== 'string') return call;
+    let parsed: unknown;
+    try { parsed = JSON.parse(call.userPrompt); } catch {
+      callsUnparseableRemoved++;
+      return { ...call, userPrompt: null, userPromptRedacted: 'removed_unparseable' };
+    }
+    const removed = stripDeviceAggregates(parsed);
+    if (removed.length === 0) return call;
+    removed.forEach((id) => removedIds.add(id));
+    callsChanged++;
+    const text = JSON.stringify(parsed);
+    return { ...call, userPrompt: text, userPromptRedacted: true, userPromptSha256AfterRedaction: sha256(text) };
+  });
+  if (callsChanged === 0 && callsUnparseableRemoved === 0) return { agentInput, redaction: null };
+  return {
+    agentInput: { ...(agentInput as object), calls: nextCalls },
+    redaction: { provider, at: now.toISOString(), reason: 'provider_data_deleted', removedVariableIds: [...removedIds].sort(), callsChanged, callsUnparseableRemoved },
+  };
+}
+
+// Percorre o JSON do prompt e, em cada athleteStateContext, remove as variaveis derivadas de dispositivo. Devolve os ids removidos (muta o objeto).
+function stripDeviceAggregates(node: unknown): string[] {
+  const removed: string[] = [];
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) { value.forEach(visit); return; }
+    if (!value || typeof value !== 'object') return;
+    const record = value as Record<string, unknown>;
+    const state = record.athleteStateContext as Record<string, unknown> | null | undefined;
+    if (state && typeof state === 'object') {
+      const variables = state.variables as Record<string, unknown> | undefined;
+      const ids = variables && typeof variables === 'object' ? Object.keys(variables).filter(isDeviceDerivedVariable) : [];
+      if (ids.length > 0) {
+        for (const id of ids) {
+          delete (variables as Record<string, unknown>)[id];
+          const legend = state.variableLegend as Record<string, unknown> | undefined;
+          if (legend && typeof legend === 'object') delete legend[id];
+          removed.push(id);
+        }
+        const idSet = new Set(ids);
+        const dropRefs = (container: unknown) => {
+          if (!container || typeof container !== 'object') return;
+          for (const [key, child] of Object.entries(container as Record<string, unknown>)) {
+            if ((key === 'variableIds' || key === 'variablesWithComparabilityWarning') && Array.isArray(child)) (container as Record<string, unknown>)[key] = child.filter((entry) => !idSet.has(String(entry)));
+            else if (child && typeof child === 'object') dropRefs(child);
+          }
+        };
+        dropRefs(state);
+      }
+      return;
+    }
+    Object.values(record).forEach(visit);
+  };
+  visit(node);
+  return removed;
 }
 
 // ── Decisoes deterministicas ─────────────────────────────────────────────────────────────────────────────────────
@@ -211,11 +322,31 @@ export interface SessionForTrace {
   weekday: number;
   modality: string;
   title?: string | null;
+  notes?: string | null;
   sessionType: string | null;
   durationMin: number | null;
   distanceKm: number | null;
   paceMinSec: string | null;
   structure: unknown;
+}
+
+// JSON canonico (chaves ordenadas): o jsonb do Postgres reordena chaves, entao o hash de uma versao precisa independer da ordem.
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+// ESTADO COMPLETO da sessao prescrita (a estrutura da prescricao, nao um resumo). Cada decisao guarda o seu; nada e' sobrescrito.
+export function snapshotOfSession(session: Omit<SessionForTrace, 'id'>): { snapshot: Record<string, unknown>; sha256: string } {
+  const snapshot = {
+    weekday: session.weekday, modality: session.modality, title: session.title ?? null, notes: session.notes ?? null, sessionType: session.sessionType,
+    durationMin: session.durationMin, distanceKm: session.distanceKm, paceMinSec: session.paceMinSec, structure: session.structure ?? null,
+  };
+  return { snapshot, sha256: sha256(canonicalJson(JSON.parse(JSON.stringify(snapshot)))) };
 }
 
 // Resumo de UMA sessao, so' com o que a prescricao gravou (sem interpretar).
@@ -240,6 +371,8 @@ export interface DecisionDraft {
   summary: string;
   changeFromPrevious: Record<string, unknown> | null;
   rationale: Record<string, unknown> | null;
+  sessionSnapshot: Record<string, unknown> | null;
+  sessionSnapshotSha256: string | null;
 }
 
 export function buildSessionDecisions(params: {
@@ -249,7 +382,10 @@ export function buildSessionDecisions(params: {
 }): DecisionDraft[] {
   return params.sessions.map((session) => {
     const previous = params.previousWeek?.sessions.find((candidate) => candidate.weekday === session.weekday && candidate.modality === session.modality) ?? null;
+    const { snapshot, sha256: snapshotSha } = snapshotOfSession(session);
     return {
+      sessionSnapshot: snapshot,
+      sessionSnapshotSha256: snapshotSha,
       kind: 'session' as const,
       sessionId: session.id,
       weekday: session.weekday,
@@ -271,8 +407,114 @@ export function buildWeekDecision(params: { weekStart: Date; sessionCount: numbe
     modality: null,
     summary: `Semana de ${dayOf(params.weekStart)}: ${params.sessionCount} sessao(oes) prescrita(s)`,
     changeFromPrevious: null,
+    sessionSnapshot: null,
+    sessionSnapshotSha256: null,
     // Justificativa em texto livre devolvida pela IA (DECLARADA; nao e prova de influencia — ver 1.2b).
     rationale: { recommendation: params.recommendation, rationale: params.rationale, safetyAdjustment: params.safetyAdjustment, routineMismatch: params.routineMismatch ?? null },
+  };
+}
+
+// ── Versoes de uma sessao prescrita ──────────────────────────────────────────────────────────────────────────────
+
+export interface VersionDecisionInput {
+  decisionId: string;
+  packageId: string;
+  packageKind: string;
+  createdAt: Date;
+  summary: string;
+  sessionSnapshot: unknown;
+  sessionSnapshotSha256: string | null;
+  changeFromPrevious: unknown;
+}
+
+export interface SessionExecutionForTrace {
+  sessionCreatedAt: Date | null;
+  // WorkoutCompletion nao tem instante de criacao confiavel (completedAt e' escolhido pelo aluno/dispositivo). A atribuicao do registro do aluno
+  // usa o INVARIANTE de ciclo de vida: sessao com registro nao pode ser regenerada (checado na mesma transacao, com a linha da sessao travada).
+  // Logo o registro e' posterior a ultima regeneracao e pertence a ULTIMA versao.
+  completion: { status: string; [key: string]: unknown } | null;
+  // Edicoes manuais do treinador DEPOIS do registro (TrainingSession.prescriptionHistory): a prescricao vista pelo aluno pode ter mudado sem trilha.
+  coachEditsAfterRegistration: number;
+  objectiveActivities: Array<{ startedAt: Date; [key: string]: unknown }>;
+}
+
+export type VersionOutcomeStatus = 'executed' | 'missed' | 'objective_only' | 'no_record';
+
+export interface SessionVersion {
+  version: number;
+  // false = versao anterior ao primeiro registro de trilha da sessao, reconstruida a partir do estado preservado na regeneracao.
+  traced: boolean;
+  decisionId: string | null;
+  packageId: string | null;
+  packageKind: string | null;
+  summary: string | null;
+  snapshot: unknown;
+  snapshotSha256: string | null;
+  validFrom: string | null;
+  validUntil: string | null;
+  supersededBy: string | null;
+  // true quando a sessao foi alterada fora de uma regeneracao registrada entre a versao anterior e esta (edicao manual, por exemplo).
+  untracedChangeBefore: boolean | null;
+  outcome: {
+    status: VersionOutcomeStatus;
+    // Criterio de atribuicao, explicito: o registro do aluno pertence a ULTIMA versao (invariante: sessao registrada nao e' regenerada); a atividade
+    // objetiva, a versao vigente quando COMECOU.
+    completion: SessionExecutionForTrace['completion'];
+    completionAttribution: 'recorded_after_last_regeneration' | null;
+    coachEditsAfterRegistration: number;
+    objectiveActivities: SessionExecutionForTrace['objectiveActivities'];
+    objectiveAttribution: 'activity_started_during_validity';
+  };
+}
+
+const withinWindow = (at: Date, from: Date | null, until: Date | null) => (from === null || at.getTime() >= from.getTime()) && (until === null || at.getTime() < until.getTime());
+
+// Monta as versoes de UMA sessao (decisoes em ordem cronologica) e atribui a cada uma SO' o resultado ocorrido na sua vigencia.
+// Nada e' atribuido retroativamente: um resultado fora de todas as vigencias fica em outsideVersions.
+export function buildSessionVersions(decisions: VersionDecisionInput[], execution: SessionExecutionForTrace): { versions: SessionVersion[]; outsideVersions: { completion: SessionExecutionForTrace['completion']; objectiveActivities: SessionExecutionForTrace['objectiveActivities'] } } {
+  const ordered = [...decisions].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.decisionId.localeCompare(b.decisionId));
+  type Draft = Omit<SessionVersion, 'outcome' | 'version'> & { from: Date | null; until: Date | null };
+  const drafts: Draft[] = [];
+
+  const first = ordered[0];
+  const firstChange = first?.changeFromPrevious as { previousSnapshot?: unknown; previousSnapshotSha256?: string; previousVersionTraced?: boolean } | null | undefined;
+  if (first && first.packageKind === 'day_regeneration' && firstChange?.previousVersionTraced === false && firstChange.previousSnapshot) {
+    drafts.push({
+      traced: false, decisionId: null, packageId: null, packageKind: null, summary: null, snapshot: firstChange.previousSnapshot, snapshotSha256: firstChange.previousSnapshotSha256 ?? null,
+      validFrom: execution.sessionCreatedAt ? execution.sessionCreatedAt.toISOString() : null, validUntil: first.createdAt.toISOString(), supersededBy: first.decisionId, untracedChangeBefore: null,
+      from: execution.sessionCreatedAt, until: first.createdAt,
+    });
+  }
+  ordered.forEach((decision, index) => {
+    const next = ordered[index + 1];
+    const change = decision.changeFromPrevious as { untracedChangeSincePreviousVersion?: boolean | null } | null;
+    drafts.push({
+      traced: true, decisionId: decision.decisionId, packageId: decision.packageId, packageKind: decision.packageKind, summary: decision.summary, snapshot: decision.sessionSnapshot, snapshotSha256: decision.sessionSnapshotSha256,
+      validFrom: decision.createdAt.toISOString(), validUntil: next ? next.createdAt.toISOString() : null, supersededBy: next ? next.decisionId : null,
+      untracedChangeBefore: change?.untracedChangeSincePreviousVersion ?? null, from: decision.createdAt, until: next ? next.createdAt : null,
+    });
+  });
+
+  const claimedActivities = new Set<unknown>();
+  let completionClaimed = false;
+  const versions: SessionVersion[] = drafts.map((draft, index) => {
+    const { from, until, ...rest } = draft;
+    const completion = execution.completion && index === drafts.length - 1 ? execution.completion : null;
+    if (completion) completionClaimed = true;
+    const activities = execution.objectiveActivities.filter((activity) => withinWindow(activity.startedAt, from, until));
+    activities.forEach((activity) => claimedActivities.add(activity));
+    const status: VersionOutcomeStatus = completion ? (completion.status === 'missed' ? 'missed' : 'executed') : activities.length > 0 ? 'objective_only' : 'no_record';
+    return {
+      version: index + 1, ...rest,
+      outcome: { status, completion, completionAttribution: completion ? 'recorded_after_last_regeneration' : null, coachEditsAfterRegistration: completion ? execution.coachEditsAfterRegistration : 0, objectiveActivities: activities, objectiveAttribution: 'activity_started_during_validity' },
+    };
+  });
+  return {
+    versions,
+    outsideVersions: {
+      completion: execution.completion && !completionClaimed ? execution.completion : null,
+      objectiveActivities: execution.objectiveActivities.filter((activity) => !claimedActivities.has(activity)),
+    },
   };
 }
 

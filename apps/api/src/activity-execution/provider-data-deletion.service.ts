@@ -2,7 +2,7 @@ import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TombstoneLedger } from '../backup/tombstone-ledger';
-import { redactEvidenceForProvider } from '../training-plans/prescription-trace';
+import { AgentInputRedaction, packageMayContainProvider, redactAgentInputForProvider, redactEvidenceForProvider } from '../training-plans/prescription-trace';
 
 // Exclusao dos dados atribuiveis a UM provider de UM usuario (04/10/2026). Provider-agnostico: so'
 // conhece o dominio canonico (RawExternalActivity / ActivityLog / samples / series / vinculos) e a
@@ -55,9 +55,11 @@ export interface ProviderDataDeletionResult {
   // Sessoes sinteticas mantidas porque o aluno as enriqueceu; "clearedFields" lista (so' os nomes) o que
   // foi removido de proveniencia do provider.
   preservedMaterialized: Array<{ sessionId: string; reason: 'student_input' | 'not_done' | 'shoe_usage'; clearedFields: string[] }>;
-  // Etapa 1.2a: itens de evidencia (pacotes de rastreabilidade) derivados DIRETAMENTE de atividades deste provedor, com valores e
-  // referencias removidos. Metricas agregadas/derivadas (variaveis longitudinais) nao sao atribuiveis a um provedor e permanecem.
+  // Etapa 1.2a (rastreabilidade das prescricoes): itens de evidencia derivados de atividades deste provedor (diretos E agregados), com valores,
+  // datas e referencias removidos, e pacotes cujo texto enviado a IA (agentInput) teve os agregados do provedor removidos. Fontes de outros
+  // provedores e o restante do contexto (relatos, diretrizes, entrevista...) permanecem. Cada pacote afetado ganha um marcador auditavel.
   evidenceRedacted?: number;
+  agentInputsRedacted?: number;
 }
 
 interface ActivityCopySource {
@@ -210,16 +212,35 @@ export class ProviderDataDeletionService {
       const logs = await tx.activityLog.deleteMany({ where: { userId, provider } });
       const raws = await tx.rawExternalActivity.deleteMany({ where: { userId, provider } });
 
-      // So' na exclusao EXPLICITA de dados (nunca na desconexao, que nao passa por aqui): remove valores e referencias do provedor
-      // dos pacotes de evidencia. Os registros e as decisoes permanecem; so' o conteudo derivado desse provedor some.
+      // So' na exclusao EXPLICITA de dados (nunca na desconexao, que nao passa por aqui): remove, nos pacotes de rastreabilidade, tudo que deriva
+      // das atividades deste provedor — itens do indice de evidencias E os agregados dentro do texto enviado a IA (agentInput). Registros e decisoes
+      // permanecem; um marcador auditavel (sem o conteudo removido) fica no pacote. Pacotes sem proveniencia registrada sao tratados como "podem conter".
       let evidenceRedacted = 0;
-      const packages = await tx.prescriptionEvidencePackage?.findMany({ where: { userId }, select: { id: true, evidence: true } }) ?? [];
+      let agentInputsRedacted = 0;
+      const packages = await tx.prescriptionEvidencePackage?.findMany({
+        where: { userId }, select: { id: true, evidence: true, agentInput: true, sourceProviders: true, agentInputRedactions: true },
+      }) ?? [];
       for (const pkg of packages) {
-        const { evidence, redacted } = redactEvidenceForProvider(pkg.evidence, provider);
-        if (redacted > 0) {
-          await tx.prescriptionEvidencePackage.update({ where: { id: pkg.id }, data: { evidence: evidence as unknown as Prisma.InputJsonValue } });
-          evidenceRedacted += redacted;
-        }
+        if (!packageMayContainProvider(pkg.sourceProviders, provider, pkg.evidence)) continue;
+        const { evidence, redacted } = redactEvidenceForProvider(pkg.evidence, provider, { unknownProvenance: !Array.isArray(pkg.sourceProviders) });
+        const input = pkg.agentInput === null ? { agentInput: null, redaction: null } : redactAgentInputForProvider(pkg.agentInput, provider);
+        if (redacted === 0 && input.redaction === null) continue;
+        const marker: AgentInputRedaction & { evidenceItemsRedacted: number; agentInputAlreadyPurged: boolean } = {
+          ...(input.redaction ?? { provider, at: new Date().toISOString(), reason: 'provider_data_deleted' as const, removedVariableIds: [], callsChanged: 0, callsUnparseableRemoved: 0 }),
+          evidenceItemsRedacted: redacted,
+          agentInputAlreadyPurged: pkg.agentInput === null,
+        };
+        const previousMarkers = Array.isArray(pkg.agentInputRedactions) ? pkg.agentInputRedactions : [];
+        await tx.prescriptionEvidencePackage.update({
+          where: { id: pkg.id },
+          data: {
+            evidence: evidence as unknown as Prisma.InputJsonValue,
+            ...(input.redaction ? { agentInput: input.agentInput as Prisma.InputJsonValue } : {}),
+            agentInputRedactions: [...previousMarkers, marker] as unknown as Prisma.InputJsonValue,
+          },
+        });
+        evidenceRedacted += redacted;
+        if (input.redaction) agentInputsRedacted++;
       }
 
       const result: ProviderDataDeletionResult = {
@@ -233,6 +254,7 @@ export class ProviderDataDeletionService {
         syntheticSessions: sessionsToDelete.length,
         preservedMaterialized,
         evidenceRedacted,
+        agentInputsRedacted,
       };
       await tx.providerConnectionEvent.create({
         data: { userId, provider, type: 'data_deleted', details: result as unknown as Prisma.InputJsonValue },

@@ -4,13 +4,14 @@ import { TrainingPlansService } from '../src/training-plans/training-plans.servi
 import { buildCanonicalWorkout } from '../src/training-plans/canonical-workout';
 import { translateToAppleCustomWorkout } from '../src/workout-delivery/apple-custom-workout-spec';
 import { validateAppleSpecOnDevice, AppleCustomWorkoutSpecJson, NativeCustomWorkoutValidation } from '../../mobile/src/appleWatchDelivery/customWorkoutBridge';
+import { traceStub } from './helpers/trace-stub';
 
 // Ponte AppleCustomWorkoutSpec -> Swift -> WorkoutKit CustomWorkout. IMPORTANTE: o Swift NAO roda neste ambiente (Windows/jest). Aqui se valida:
 //  (1) a ponte JS (o spec segue como JSON identico ao do tradutor e o resultado nativo e' conferido contra ele, com erros nativos preservados);
 //  (2) um contrato ESTATICO do codigo Swift (campos lidos, mapeamento mecanico, ausencia de alertas/agendamento/inferencia). Nao e' compilacao:
 //      a construcao real do CustomWorkout so' e' provada em um build iOS no aparelho.
 const noop = {} as never;
-const service = new TrainingPlansService(noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop) as unknown as {
+const service = new TrainingPlansService(noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, traceStub()) as unknown as {
   runPrescription: (durationMin: number, modality: string, decision: { parts: unknown[] }) => Record<string, unknown>;
 };
 const continua = (distanceKm: number, min: number, max = min) => ({ kind: 'continua', distanceKm, paceSecondsPerKmMin: min, paceSecondsPerKmMax: max });

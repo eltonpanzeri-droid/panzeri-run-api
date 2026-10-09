@@ -70,7 +70,7 @@ describe('rastreabilidade das prescricoes (PostgreSQL 17 real, dados sinteticos)
       { isReassessmentDue: async () => false, getLatestValidEvolutionReport: async () => null } as never,
       { retryStalledAnalyses: async () => ({ attempted: 0, resolved: 0, stillPending: 0 }) } as never,
       {} as never, {} as never,
-      opts.traceService,
+      opts.traceService as never,
     );
   }
 
@@ -296,10 +296,27 @@ describe('rastreabilidade das prescricoes (PostgreSQL 17 real, dados sinteticos)
     expect((await new AccountDeletionService(prisma as never).executeAccountDeletion(gone.userId)).status).toBe('already_deleted');
   });
 
-  it('o registro sem a rastreabilidade injetada (servico antigo) continua gerando o plano normalmente (compatibilidade)', async () => {
-    const student = await seedRoutineStudent('legado');
-    const plan = await (plansService({ traceService: undefined }) as unknown as { generateWeekLocked: (userId: string) => Promise<{ id: string }> }).generateWeekLocked(student.userId);
-    expect(plan.id).toBeTruthy();
+  it('OBRIGATORIEDADE: sem o servico de rastreabilidade nenhuma prescricao e gerada — recusa ANTES de chamar a IA (semana e dia)', async () => {
+    const student = await seedRoutineStudent('sem-trilha');
+    const callsBefore = agent.weeklyCalls;
+    const plansBefore = await prisma.trainingPlan.count({ where: { userId: student.userId } });
+    const sessionsBefore = await prisma.trainingSession.count({ where: { userId: student.userId } });
+    for (const broken of [undefined, {}, { persistWeekly: () => undefined }]) {
+      const service = plansService({ traceService: broken as never });
+      await expect((service as unknown as { generateWeekLocked: (userId: string) => Promise<unknown> }).generateWeekLocked(student.userId)).rejects.toThrow(/Rastreabilidade das prescricoes indisponivel/);
+    }
+    // regeneracao de um dia: mesma recusa (sessao no futuro, sem registro)
+    const sessionId = student.sessionIds[1];
+    await prisma.trainingSession.update({ where: { id: sessionId }, data: { scheduledDate: new Date('2026-10-14T00:00:00Z'), weekday: 3 } });
+    const before = await prisma.trainingSession.findUniqueOrThrow({ where: { id: sessionId } });
+    const runSpy = jest.spyOn(agent, 'proposeRunSession');
+    await expect(plansService({ traceService: undefined as never }).regenerateSession(student.userId, sessionId)).rejects.toThrow(/Rastreabilidade das prescricoes indisponivel/);
+    expect(runSpy).not.toHaveBeenCalled();
+    runSpy.mockRestore();
+    expect(agent.weeklyCalls).toBe(callsBefore); // nenhuma chamada de IA gasta
+    expect(await prisma.trainingPlan.count({ where: { userId: student.userId } })).toBe(plansBefore);
+    expect(await prisma.trainingSession.count({ where: { userId: student.userId } })).toBe(sessionsBefore);
+    expect((await prisma.trainingSession.findUniqueOrThrow({ where: { id: sessionId } })).structure).toEqual(before.structure); // treino intocado
     expect(await prisma.prescriptionEvidencePackage.count({ where: { userId: student.userId } })).toBe(0);
   });
 });

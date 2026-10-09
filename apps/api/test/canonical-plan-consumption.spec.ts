@@ -2,6 +2,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { SessionExecutionLinkService } from '../src/activity-execution/session-execution-link.service';
 import { TrainingPlansService } from '../src/training-plans/training-plans.service';
 import { WeeklyCheckInService } from '../src/training-plans/weekly-checkin.service';
+import { traceStub } from './helpers/trace-stub';
 
 // 3C.2 — training-plans (historico + getWeekReconciliation) e weekly-checkin: uma atividade fisica = um cartao/execucao (observacao canonica da
 // 3A); execucao objetiva e feedback subjetivo sao conceitos separados; decisoes humanas e sessoes sinteticas device_extra preservadas.
@@ -104,7 +105,7 @@ describe('3C.2 — getStudentHistory: um cartao por PhysicalEvent', () => {
       activityLog: activityStore(activities),
     };
     const noop = {} as never;
-    return new TrainingPlansService(prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop);
+    return new TrainingPlansService(prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, traceStub());
   }
   const session = (overrides: Record<string, unknown> = {}) => ({
     id: 's1', scheduledDate: new Date('2026-09-30T00:00:00Z'), weekday: 3, modality: 'corrida', title: 'Longao', structure: {}, origin: 'agent', completion: null, plan: { status: 'active' }, ...overrides,

@@ -1,6 +1,7 @@
 import { TrainingPlansService } from '../src/training-plans/training-plans.service';
 import { ReassessmentService, REASSESSMENT_DUE_AFTER_DAYS, REASSESSMENT_WARNING_AFTER_DAYS } from '../src/reassessment/reassessment.service';
 import { buildReassessmentTrajectories, buildFitnessTestTrajectory, REASSESSMENT_INSTRUMENT_VERSION } from '../src/reassessment/reassessment-trajectory';
+import { traceStub } from './helpers/trace-stub';
 
 // 25/09/2026 — Passo 3 (reavaliacao de 15 semanas + Evolution Report). Cobre as propriedades
 // pedidas: trajetoria INITIAL->R1->R2->R3 comparavel, missing != zero, ciclo = 105 dias, ancora
@@ -183,7 +184,7 @@ describe('TrainingPlansService.generateWeek — gate de reavaliacao necessaria (
     const reassessmentService = { isReassessmentDue: jest.fn().mockResolvedValue(true) };
     const service = new TrainingPlansService(
       prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
-    reassessmentService as never, noop(), noop(), noop());
+    reassessmentService as never, noop(), noop(), noop(), traceStub());
     await expect(service.generateWeek('u1')).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'reassessment_required' }),
     });

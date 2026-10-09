@@ -1,4 +1,5 @@
 import { TrainingPlansService } from '../src/training-plans/training-plans.service';
+import { traceStub } from './helpers/trace-stub';
 
 // Bloco 1 (04/10/2026): o Historico lia so' WorkoutCompletion. ActivityLog + SessionExecutionLink
 // ativo prova a execucao; feedback e' estado separado. Caso real: Polar 512122061, 03/10/2026
@@ -10,7 +11,7 @@ function build(sessions: unknown[], links: unknown[], alternativeLogs: unknown[]
     activityLog: { findMany: jest.fn().mockResolvedValue(alternativeLogs) },
   };
   const noop = {} as never;
-  return new TrainingPlansService(prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop);
+  return new TrainingPlansService(prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, traceStub());
 }
 
 function session(overrides: Partial<any> = {}) {

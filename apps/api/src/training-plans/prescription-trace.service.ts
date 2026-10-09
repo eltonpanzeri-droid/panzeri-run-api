@@ -5,8 +5,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import {
-  AgentCallTrace, buildAgentInputRecord, buildSessionDecisions, buildWeekDecision, DecisionDraft, describeSessionForTrace, EvidenceItem,
-  parseRetentionMonths, retentionCutoff, SessionForTrace, TRACE_SCHEMA_VERSION,
+  AgentCallTrace, buildAgentInputRecord, buildSessionDecisions, buildSessionVersions, buildWeekDecision, DecisionDraft, describeSessionForTrace, EvidenceItem,
+  parseRetentionMonths, retentionCutoff, SessionForTrace, snapshotOfSession, TRACE_SCHEMA_VERSION,
 } from './prescription-trace';
 import type { ContextGap } from './student-information-context';
 
@@ -24,6 +24,8 @@ export interface PersistWeeklyParams {
   evidence: EvidenceItem[];
   contextGaps: ContextGap[];
   agentTrace: AgentCallTrace[];
+  // Provedores de dispositivo cujos dados alimentaram agregados do prompt (proveniencia, usada na exclusao de dados de um provedor).
+  sourceProviders: string[];
   recommendation: string;
   rationale: string[];
   safetyAdjustment: boolean;
@@ -34,8 +36,9 @@ export interface PersistDayParams {
   userId: string;
   planId: string;
   methodologyVersion: string;
+  // Estado da sessao DEPOIS da regeneracao e ANTES dela (ambos lidos na mesma transacao que reescreve o treino).
   session: SessionForTrace;
-  previousSummary: string;
+  previous: SessionForTrace;
   evidence: EvidenceItem[];
   contextGaps: ContextGap[];
   agentTrace: AgentCallTrace[];
@@ -59,6 +62,7 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
         modelIds: record.modelIds, agentInputHash: record.agentInputHash,
         evidence: p.evidence as unknown as Prisma.InputJsonValue, contextGaps: p.contextGaps as unknown as Prisma.InputJsonValue,
         agentInput: record.agentInput === null ? Prisma.DbNull : (record.agentInput as Prisma.InputJsonValue),
+        sourceProviders: p.sourceProviders as unknown as Prisma.InputJsonValue,
       },
     });
     const decisions: DecisionDraft[] = [
@@ -78,10 +82,25 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
         modelIds: record.modelIds, agentInputHash: record.agentInputHash,
         evidence: p.evidence as unknown as Prisma.InputJsonValue, contextGaps: p.contextGaps as unknown as Prisma.InputJsonValue,
         agentInput: record.agentInput === null ? Prisma.DbNull : (record.agentInput as Prisma.InputJsonValue),
+        // O prompt de regeneracao de UM dia nao leva agregados de dispositivo: proveniencia conhecida e vazia.
+        sourceProviders: [] as unknown as Prisma.InputJsonValue,
       },
     });
     const [decision] = buildSessionDecisions({ sessions: [p.session], previousWeek: null });
-    decision.changeFromPrevious = { previousSummary: p.previousSummary, newSummary: describeSessionForTrace(p.session) };
+    // PRESERVA a prescricao anterior por inteiro (nao so o resumo) e diz se ela era a ultima versao registrada ou se houve mudanca fora da trilha.
+    const lastVersion = await tx.prescriptionDecision.findFirst({
+      where: { userId: p.userId, sessionId: p.session.id, kind: 'session' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true, sessionSnapshotSha256: true },
+    });
+    const previous = snapshotOfSession(p.previous);
+    decision.changeFromPrevious = {
+      previousSummary: describeSessionForTrace(p.previous),
+      previousSnapshot: previous.snapshot,
+      previousSnapshotSha256: previous.sha256,
+      previousDecisionId: lastVersion?.id ?? null,
+      previousVersionTraced: lastVersion !== null,
+      untracedChangeSincePreviousVersion: lastVersion ? lastVersion.sessionSnapshotSha256 !== previous.sha256 : null,
+      newSummary: describeSessionForTrace(p.session),
+    };
     await tx.prescriptionDecision.createMany({ data: [this.toRow(pkg.id, p.userId, p.planId, decision)] });
     return { packageId: pkg.id };
   }
@@ -91,6 +110,8 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
       packageId, userId, planId, sessionId: d.sessionId, kind: d.kind, weekday: d.weekday, modality: d.modality, summary: d.summary,
       changeFromPrevious: d.changeFromPrevious === null ? Prisma.DbNull : (d.changeFromPrevious as Prisma.InputJsonValue),
       rationale: d.rationale === null ? Prisma.DbNull : (d.rationale as Prisma.InputJsonValue),
+      sessionSnapshot: d.sessionSnapshot === null ? Prisma.DbNull : (d.sessionSnapshot as Prisma.InputJsonValue),
+      sessionSnapshotSha256: d.sessionSnapshotSha256,
       traceStatus: 'absent',
     };
   }
@@ -102,13 +123,22 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
       orderBy: { createdAt: 'asc' },
       include: { decisions: { orderBy: { createdAt: 'asc' } } },
     });
+    // Versoes de cada sessao citada: TODAS as decisoes da sessao (em qualquer pacote), cada uma com a sua vigencia e o resultado ocorrido nela.
+    const sessionIds = query.sessionId
+      ? [query.sessionId]
+      : [...new Set(packages.flatMap((pkg) => pkg.decisions.map((d) => d.sessionId).filter((id): id is string => !!id)))];
+    const versionsBySession = new Map<string, ReturnType<typeof buildSessionVersions>>();
+    for (const sessionId of sessionIds) versionsBySession.set(sessionId, await this.versionsOf(userId, sessionId));
+
     const result = [];
     for (const pkg of packages) {
       const { agentInput, ...rest } = pkg;
-      const decisions = [];
-      for (const decision of pkg.decisions) {
-        decisions.push({ ...decision, outcome: decision.sessionId ? await this.outcomeOf(userId, decision.sessionId) : null });
-      }
+      const decisions = pkg.decisions.map((decision) => {
+        const versions = decision.sessionId ? versionsBySession.get(decision.sessionId)?.versions : undefined;
+        // outcome = SO' o que ocorreu na vigencia DESTA decisao (nao o estado atual da sessao).
+        const outcome = versions?.find((version) => version.decisionId === decision.id)?.outcome ?? null;
+        return { ...decision, outcome };
+      });
       result.push({
         ...rest,
         decisions,
@@ -116,7 +146,21 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
         ...(query.includeAgentInput ? { agentInput: this.withParsedInput(agentInput) } : {}),
       });
     }
-    return { userId, packages: result };
+    const sessions = sessionIds.map((sessionId) => ({ sessionId, ...versionsBySession.get(sessionId)! }));
+    return { userId, packages: result, sessions };
+  }
+
+  // Todas as versoes registradas de UMA sessao (decisoes em ordem) + a execucao observada, repartida por vigencia.
+  async versionsOf(userId: string, sessionId: string) {
+    const decisions = await this.prisma.prescriptionDecision.findMany({
+      where: { userId, sessionId, kind: 'session' }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, packageId: true, createdAt: true, summary: true, sessionSnapshot: true, sessionSnapshotSha256: true, changeFromPrevious: true, package: { select: { kind: true } } },
+    });
+    const execution = await this.executionOf(userId, sessionId);
+    return buildSessionVersions(decisions.map((d) => ({
+      decisionId: d.id, packageId: d.packageId, packageKind: d.package.kind, createdAt: d.createdAt, summary: d.summary, sessionSnapshot: d.sessionSnapshot,
+      sessionSnapshotSha256: d.sessionSnapshotSha256, changeFromPrevious: d.changeFromPrevious,
+    })), execution);
   }
 
   // Conveniencia de leitura: cada chamada ganha userInput (o prompt parseado). O texto exato continua em userPrompt.
@@ -126,17 +170,18 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
     return { calls: calls.map((call) => { let userInput: unknown = null; try { userInput = JSON.parse(call.userPrompt ?? ''); } catch { /* texto nao-JSON */ } return { ...call, userInput }; }) };
   }
 
-  // Resultado observado de uma sessao: o registro do aluno e a execucao OBJETIVA (atividade canonica do evento fisico).
-  async outcomeOf(userId: string, sessionId: string) {
+  // Execucao observada de uma sessao (registro do aluno + atividade objetiva canonica do evento fisico), COM os instantes que permitem
+  // atribui-la a uma versao: createdAt do registro e startedAt da atividade. Sessao inexistente (apagada) => sem execucao.
+  async executionOf(userId: string, sessionId: string) {
     const session = await this.prisma.trainingSession.findFirst({
       where: { id: sessionId, userId },
       select: {
-        id: true, scheduledDate: true,
+        id: true, createdAt: true, prescriptionHistory: true,
         completion: { select: { status: true, completedAt: true, durationMin: true, distanceKm: true, avgPaceSecondsKm: true, avgHeartRate: true, perceivedEffort: true, painFlag: true } },
         executionLinks: { where: { status: 'active' }, select: { activityLog: true } },
       },
     });
-    if (!session) return { status: 'session_not_found' as const, completion: null, objectiveActivities: [] };
+    if (!session) return { sessionCreatedAt: null, completion: null, coachEditsAfterRegistration: 0, objectiveActivities: [] };
     const picks = await pickCanonicalPerEvent(session.executionLinks.map((link) => link.activityLog), (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
     const objectiveActivities = picks.map((pick) => ({
       activityLogId: pick.row.id, provider: pick.row.provider, startedAt: pick.row.startedAt,
@@ -144,8 +189,10 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
       durationMin: pick.row.durationSec != null ? pick.row.durationSec / 60 : null,
       avgHeartRateBpm: pick.row.avgHeartRateBpm,
     }));
-    const status = session.completion ? (session.completion.status === 'missed' ? ('missed' as const) : ('executed' as const)) : objectiveActivities.length > 0 ? ('objective_only' as const) : ('no_record' as const);
-    return { status, completion: session.completion, objectiveActivities };
+    return {
+      sessionCreatedAt: session.createdAt, completion: session.completion, objectiveActivities,
+      coachEditsAfterRegistration: session.completion && Array.isArray(session.prescriptionHistory) ? session.prescriptionHistory.length : 0,
+    };
   }
 
   // Retencao da ENTRADA COMPLETA enviada a IA (configuravel). O indice de evidencias e as decisoes permanecem.

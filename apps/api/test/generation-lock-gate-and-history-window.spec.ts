@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { TrainingPlansService } from '../src/training-plans/training-plans.service';
+import { traceStub } from './helpers/trace-stub';
 
 function uniqueConstraintError() {
   return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: 'test' });
@@ -100,6 +101,7 @@ function buildFullMocks(overrides: { activePlanStartDate?: Date | null } = {}) {
     noop(), // reportTimeline
     noop(), // sessionExecutionLink
     noop(), // shoes
+    traceStub(), // rastreabilidade (obrigatoria)
   );
 
   return { service, prisma, trainingPlanFindMany, trainingPlanGenerationLock };
@@ -276,6 +278,7 @@ describe('item 02 — arquivar + criar + migrar sessoes vira UMA transacao atomi
     const tx = {
       trainingPlan: { updateMany: txUpdateMany, create: txCreate, findUniqueOrThrow: jest.fn().mockResolvedValue(createdPlan) },
       trainingSession: { updateMany: txSessionUpdateMany },
+      activityLog: { findMany: jest.fn().mockResolvedValue([]) }, // proveniencia dos agregados (rastreabilidade)
     };
     const transactionSpy = jest.fn().mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback(tx));
     (prisma as unknown as { $transaction: unknown }).$transaction = transactionSpy;

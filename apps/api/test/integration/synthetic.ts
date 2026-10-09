@@ -61,6 +61,9 @@ export async function cleanupStudents(prisma: PrismaClient, userIds: string[]): 
   await prisma.userPreferences.deleteMany({ where });
   await prisma.userNotification.deleteMany({ where });
   await prisma.trainingPlanGenerationLock.deleteMany({ where });
+  await prisma.sessionExecutionLink.deleteMany({ where });
+  await prisma.activityLog.deleteMany({ where });
+  await prisma.rawExternalActivity.deleteMany({ where });
   await prisma.trainingSession.deleteMany({ where });
   await prisma.trainingPlan.deleteMany({ where });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });

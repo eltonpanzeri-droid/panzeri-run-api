@@ -11,6 +11,7 @@ import { MethodologyInput } from '../src/training-plans/training-methodology';
 import {
   formatObservationForAgent, REPORT_CONTEXT_LIMITS, ReportEntryRow, selectHistoryWeeks, selectRelevantReportEntries,
 } from '../src/training-plans/student-information-context';
+import { traceStub } from './helpers/trace-stub';
 
 // Etapa 1.1 (09/10/2026) — informacoes do aluno chegam ao Prescritor; o que nao chega fica EXPLICITO; informacao
 // desatualizada nao prevalece; planos arquivados nao distorcem o historico. Sem chamada de IA paga: tudo com mocks.
@@ -309,6 +310,7 @@ describe('regenerateSession (um dia): recebe o MESMO contexto textual da semana,
       { computeSafetyTier: jest.fn().mockResolvedValue({ tier: 'normal', reason: null }) } as never, {} as never,
       { notifyCoach: jest.fn().mockResolvedValue(undefined) } as never, studentProfile as never, {} as never, {} as never, {} as never, {} as never,
       { getLatestValidEvolutionReport: jest.fn().mockResolvedValue(null) } as never, {} as never, {} as never, {} as never,
+      traceStub(),
     );
     return { service, captured, studentProfile, prisma };
   }
@@ -387,6 +389,7 @@ describe('generateWeekLocked entrega o contexto textual completo ao Prescritor',
       reportTimeline as never,
       {} as never,
       {} as never,
+      traceStub(),
     );
     return { service, prisma, captured, telegram, studentProfile, reportTimeline, prescriptionAgent };
   }

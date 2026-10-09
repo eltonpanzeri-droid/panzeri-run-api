@@ -1,5 +1,6 @@
 import { TrainingPlansService } from '../src/training-plans/training-plans.service';
 import { WeekReconciliation } from '../src/activity-execution/session-execution-link.service';
+import { traceStub } from './helpers/trace-stub';
 
 // Visualizacao Prescrito x Realizado (02/10/2026) — presentPlan() e' o serializador compartilhado
 // por current()/getWeekByOffset() (ja' usado pelo mobile pra montar a tela de semana). Estes
@@ -10,7 +11,7 @@ import { WeekReconciliation } from '../src/activity-execution/session-execution-
 function buildService() {
   const noop = {} as never;
   return new TrainingPlansService(
-    noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop);
+    noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, traceStub());
 }
 
 function emptyReconciliation(): WeekReconciliation {

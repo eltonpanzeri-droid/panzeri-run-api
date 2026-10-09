@@ -1,4 +1,5 @@
 import { TrainingPlansService } from '../src/training-plans/training-plans.service';
+import { traceStub } from './helpers/trace-stub';
 
 // generateFirstWeekIfNeeded() e' o UNICO gate real de "primeira semana" (roda em varios gatilhos:
 // pagamento confirmado, rotina configurada, anamnese) — por isso first_plan_generated e' disparado
@@ -29,7 +30,7 @@ function buildService(overrides: {
 
   const noop = {} as never;
   const service = new TrainingPlansService(
-    prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop);
+    prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, traceStub());
   return { service, prisma, funnelEventCreate };
 }
 
