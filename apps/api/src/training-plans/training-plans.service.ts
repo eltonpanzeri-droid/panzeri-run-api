@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { collapseEqualRange, runPaceHeaderLabel } from './range-display';
@@ -24,6 +24,8 @@ import { PrescriptionAgentService, PaceEvidence } from './prescription-agent.ser
 import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
+import { PrescriptionTraceService } from './prescription-trace.service';
+import { AgentCallTrace, buildEvidenceIndex, describeSessionForTrace, SessionForTrace } from './prescription-trace';
 import {
   ContextGap, describeError, formatObservationForAgent, formatPendingProfileEvent, selectHistoryWeeks, selectRelevantReportEntries,
 } from './student-information-context';
@@ -196,6 +198,8 @@ export class TrainingPlansService {
     private readonly reportTimeline: ReportTimelineService,
     private readonly sessionExecutionLink: SessionExecutionLinkService,
     private readonly shoes: ShoesService,
+    // Etapa 1.2a: rastreabilidade. Opcional so' para os testes antigos que constroem o servico sem ela; em producao e' sempre injetada.
+    @Optional() private readonly trace?: PrescriptionTraceService,
   ) {}
 
   // Etapa 1.1 (09/10/2026) — carrega, de forma EXPLICITA, todo o contexto textual do aluno que o Prescritor precisa:
@@ -211,6 +215,9 @@ export class TrainingPlansService {
     let pendingProfileEvents: string[] = [];
     let studentReports: ReturnType<typeof selectRelevantReportEntries>['interpreted'] = [];
     let pendingStudentReports: ReturnType<typeof selectRelevantReportEntries>['pending'] = [];
+    let interpretedReportIds: string[] = [];
+    let pendingReportIds: string[] = [];
+    let pendingProfileEventIds: string[] = [];
 
     if (options.refreshProfile) {
       try {
@@ -226,6 +233,7 @@ export class TrainingPlansService {
         : await this.studentProfile.loadProfileContext(userId);
       studentProfileSummary = profile.summary;
       pendingProfileEvents = profile.pendingEvents.map((event) => formatPendingProfileEvent(event));
+      pendingProfileEventIds = profile.pendingEvents.map((event) => event.id);
       if (profile.status === 'failed') {
         gaps.push({ source: 'prontuario', severity: 'informativo', reason: 'A condensacao do prontuario falhou nesta geracao.', effect: `${profile.pendingEvents.length} evento(s) recente(s) ainda nao estao no resumo do prontuario; foram entregues em texto bruto em eventosDoProntuarioAindaNaoCondensados.` });
       }
@@ -250,6 +258,8 @@ export class TrainingPlansService {
       const selected = selectRelevantReportEntries(rows);
       studentReports = selected.interpreted;
       pendingStudentReports = selected.pending;
+      interpretedReportIds = selected.interpretedIds;
+      pendingReportIds = selected.pendingIds;
       deliveredReportCount = selected.interpreted.length;
       if (selected.pending.length > 0) {
         gaps.push({ source: 'relatos_do_aluno', severity: 'informativo', reason: `${selected.pending.length} relato(s) do aluno ainda sem interpretacao (em andamento ou com falha).`, effect: 'O texto bruto foi entregue em relatosAindaNaoInterpretadosDoAluno; nada foi descartado.' });
@@ -261,7 +271,7 @@ export class TrainingPlansService {
       gaps.push({ source: 'relatos_do_aluno', severity: 'degradado', reason: describeError(error), effect: 'Os relatos interpretados do aluno (restricoes, equipamento, dificuldades) NAO puderam ser recuperados.' });
     }
 
-    return { studentProfileSummary, pendingProfileEvents, studentReports, pendingStudentReports, deliveredReportCount, gaps };
+    return { studentProfileSummary, pendingProfileEvents, studentReports, pendingStudentReports, deliveredReportCount, gaps, interpretedReportIds, pendingReportIds, pendingProfileEventIds };
   }
 
   // Falha de recuperacao de contexto nunca passa em silencio: log estruturado e aviso ao treinador. A geracao NAO e
@@ -700,7 +710,7 @@ export class TrainingPlansService {
       this.prisma.studentDirective.findMany({
         where: { userId, active: true, OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] },
         orderBy: { createdAt: 'desc' },
-        select: { content: true, createdAt: true },
+        select: { id: true, content: true, createdAt: true },
       }),
       this.painReports.computeSafetyTier(userId),
       this.targetRaces.activeGoals(userId),
@@ -740,6 +750,7 @@ export class TrainingPlansService {
       ? await this.prisma.weeklyCheckIn.findFirst({
           where: { userId, planId: activePlanBeforeAdjustment.id },
           select: {
+            id: true,
             // V1 campos (legado 31/08)
             elaborationSatisfaction: true, adherenceSatisfaction: true,
             // V2 Bloco 1
@@ -1029,7 +1040,8 @@ export class TrainingPlansService {
       selfReportedPace: paceFallback ? { secondsPerKm: paceFallback.paceSecondsPerKm, source: paceFallback.source } : null,
     };
     await this.reportDegradedContext(userId, user.name, user.studentCode, contextGaps);
-    const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput, paceEvidence);
+    const agentTrace: AgentCallTrace[] = [];
+    const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput, paceEvidence, agentTrace);
     if (!aiDecision) {
       // O treinador foi explicito: a prescricao TEM que vir de raciocinio real da IA, nunca de
       // um motor de regras fixas — o motor antigo nao lia diretiva nenhuma nem pace especifico e
@@ -1413,6 +1425,42 @@ export class TrainingPlansService {
       // Correcao: a migracao de "sessoes de hoje/ja passadas" so faz sentido quando a semana sendo
       // gerada e' a que CONTEM hoje — nunca numa antecipacao pra semana seguinte, onde nao existe
       // nenhuma sessao "de hoje" pertencente a essa semana ainda (ela comeca no futuro).
+      // Etapa 1.2a (09/10/2026): rastreabilidade gravada na MESMA transacao do plano — nenhuma prescricao nova existe sem trilha. So' as
+      // sessoes CRIADAS agora (sessionsToCreate) viram decisoes; as migradas do plano anterior sao execucao real, nao decisao nova.
+      if (this.trace) {
+        const toTrace = (session: { id: string; weekday: number; modality: string; sessionType: string | null; durationMin: number | null; distanceKm: number | null; paceMinSec: string | null; structure: unknown }): SessionForTrace => ({
+          id: session.id, weekday: session.weekday, modality: session.modality, sessionType: session.sessionType, durationMin: session.durationMin, distanceKm: session.distanceKm, paceMinSec: session.paceMinSec, structure: session.structure,
+        });
+        const previousWeek = historyWeeks[0] ? { startDate: historyWeeks[0].startDate, sessions: historyWeeks[0].sessions.map(toTrace) } : null;
+        await this.trace.persistWeekly(tx, {
+          userId, planId: createdPlan.id, weekStart, methodologyVersion: PANZERI_METHODOLOGY_VERSION,
+          createdSessions: createdPlan.sessions.map(toTrace),
+          previousWeek,
+          evidence: buildEvidenceIndex({
+            input: methodologyInput,
+            directives: activeDirectives.map((d) => ({ id: d.id, content: d.content, createdAt: d.createdAt })),
+            observations: activeObservations.map((o) => ({ id: o.id, content: o.content, createdAt: o.createdAt })),
+            interpretedReportIds: informationContext.interpretedReportIds,
+            pendingReportIds: informationContext.pendingReportIds,
+            pendingProfileEventIds: informationContext.pendingProfileEventIds,
+            historyWeeks: historyWeeks.map((w) => ({ startDate: w.startDate, planId: w.planId })),
+            checkIn: latestWeeklyCheckIn ? { id: latestWeeklyCheckIn.id } : null,
+            targetRaces: targetRaces.map((race) => ({ id: race.id, name: race.name })),
+            reassessment: latestReassessment ? { id: latestReassessment.id, completedAt: latestReassessment.completedAt } : null,
+            evolutionReport: latestEvolutionReport ? { id: latestEvolutionReport.id, createdAt: latestEvolutionReport.createdAt } : null,
+            interviewCompletedAt: onboarding?.completedAt ?? null,
+            paceSource,
+            contextGaps,
+          }),
+          contextGaps,
+          agentTrace,
+          recommendation: methodology.recommendation,
+          rationale: methodology.rationale,
+          safetyAdjustment: methodology.safetyAdjustment,
+          routineMismatch: methodology.routineMismatch ?? null,
+        });
+      }
+
       if (activePlanBeforeAdjustment && shouldMigrateTodaySessionsToNewPlan({ hasActivePlan: true, shouldRollToNextWeek })) {
         // Hoje e os dias que ja passaram nunca podem ser reescritos ao gerar uma nova semana —
         // o que o aluno ja fez (ou nao fez) fica registrado no plano anterior, so migramos essas
@@ -1867,7 +1915,7 @@ export class TrainingPlansService {
       this.prisma.studentDirective.findMany({
         where: { userId, active: true, OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] },
         orderBy: { createdAt: 'desc' },
-        select: { content: true, createdAt: true },
+        select: { id: true, content: true, createdAt: true },
       }),
       this.prisma.studentObservation.findMany({ where: { userId, active: true }, orderBy: { createdAt: 'desc' } }),
       this.prisma.reassessment.findFirst({ where: { userId, completedAt: { not: null } }, orderBy: { completedAt: 'desc' } }),
@@ -1892,6 +1940,7 @@ export class TrainingPlansService {
     // (fixedModalityTitle), decidido na criacao da sessao e nunca reescrito pela IA (pedido
     // explicito do treinador 03/08 — sem titulos "criativos").
     let strengthNotesUpdate: string | undefined;
+    const dayAgentTrace: AgentCallTrace[] = [];
 
     let prescription;
     if (isStrength) {
@@ -1930,7 +1979,7 @@ export class TrainingPlansService {
         weekday: session.weekday,
         modality: session.modality as 'forca' | 'fortalecimento_corredores',
         durationMin,
-      });
+      }, dayAgentTrace);
       if (!strengthDecision) {
         this.logger.error(`Falha ao gerar decisao de forca avulsa com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);
         await this.telegram.notifyCoach(
@@ -1962,7 +2011,7 @@ export class TrainingPlansService {
         pendingStudentReports: dayInformationContext.pendingStudentReports,
         pendingProfileEvents: dayInformationContext.pendingProfileEvents,
         contextGaps: dayInformationContext.gaps,
-      });
+      }, dayAgentTrace);
       if (!runDecision) {
         this.logger.error(`Falha ao gerar treino de corrida avulso com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);
         await this.telegram.notifyCoach(
@@ -1973,7 +2022,7 @@ export class TrainingPlansService {
       prescription = this.runPrescription(durationMin, session.modality, runDecision);
     }
 
-    return this.prisma.trainingSession.update({
+    const updateArgs = {
       where: { id: sessionId },
       data: {
         distanceKm: prescription.distanceKm,
@@ -1984,6 +2033,43 @@ export class TrainingPlansService {
         ...(strengthNotesUpdate ? { notes: strengthNotesUpdate } : {}),
         origin: 'agent',
       },
+    } as const;
+    if (!this.trace) return this.prisma.trainingSession.update(updateArgs);
+
+    // Etapa 1.2a: trilha da regeneracao de UM dia, gravada na mesma transacao que reescreve o treino (nunca um sem o outro).
+    const previousSummary = describeSessionForTrace({
+      weekday: session.weekday, modality: session.modality, sessionType: session.sessionType, durationMin: session.durationMin,
+      distanceKm: session.distanceKm, paceMinSec: session.paceMinSec, structure: session.structure,
+    });
+    const dayEvidenceInput: MethodologyInput = {
+      goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia', experience: '', answers, availability: [], history: [],
+      studentDirectives: activeDirectives.map(formatDirectiveForAgent), activeObservations: activeObservations.map(formatObservationForAgent),
+      studentProfileSummary: dayInformationContext.studentProfileSummary, studentReports: dayInformationContext.studentReports,
+      pendingStudentReports: dayInformationContext.pendingStudentReports, pendingProfileEvents: dayInformationContext.pendingProfileEvents,
+      contextGaps: dayInformationContext.gaps, painTier: painSafety.tier, painReason: painSafety.reason,
+    };
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.trainingSession.update(updateArgs);
+      await this.trace!.persistDayRegeneration(tx, {
+        userId, planId: updated.planId, methodologyVersion: PANZERI_METHODOLOGY_VERSION,
+        session: { id: updated.id, weekday: updated.weekday, modality: updated.modality, sessionType: updated.sessionType, durationMin: updated.durationMin, distanceKm: updated.distanceKm, paceMinSec: updated.paceMinSec, structure: updated.structure },
+        previousSummary,
+        evidence: buildEvidenceIndex({
+          input: dayEvidenceInput,
+          directives: activeDirectives.map((d) => ({ id: d.id, content: d.content, createdAt: d.createdAt })),
+          observations: activeObservations.map((o) => ({ id: o.id, content: o.content, createdAt: o.createdAt })),
+          interpretedReportIds: dayInformationContext.interpretedReportIds,
+          pendingReportIds: dayInformationContext.pendingReportIds,
+          pendingProfileEventIds: dayInformationContext.pendingProfileEventIds,
+          historyWeeks: [], checkIn: null, targetRaces: [],
+          reassessment: latestReassessment ? { id: latestReassessment.id, completedAt: latestReassessment.completedAt } : null,
+          evolutionReport: latestEvolutionReport ? { id: latestEvolutionReport.id, createdAt: latestEvolutionReport.createdAt } : null,
+          interviewCompletedAt: null, paceSource: null, contextGaps: dayInformationContext.gaps,
+        }),
+        contextGaps: dayInformationContext.gaps,
+        agentTrace: dayAgentTrace,
+      });
+      return updated;
     });
   }
 

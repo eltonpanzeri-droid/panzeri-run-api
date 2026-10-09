@@ -112,7 +112,7 @@ const entrySize = (entry: ReportEntryForAgent) => JSON.stringify(entry).length;
 //  - relatos RESOLVIDOS dos ultimos N dias (para o agente ver que uma restricao anterior foi encerrada);
 //  - relatos ainda SEM interpretacao entram a parte, com o texto bruto.
 // Ordem cronologica crescente: o mais recente vem por ultimo (a regra de precedencia esta no prompt do agente).
-export function selectRelevantReportEntries(rows: ReportEntryRow[], now: Date = new Date()): { interpreted: ReportEntryForAgent[]; pending: PendingReportForAgent[]; omittedForBudget: number } {
+export function selectRelevantReportEntries(rows: ReportEntryRow[], now: Date = new Date()): { interpreted: ReportEntryForAgent[]; pending: PendingReportForAgent[]; omittedForBudget: number; interpretedIds: string[]; pendingIds: string[] } {
   const L = REPORT_CONTEXT_LIMITS;
   const dayMs = 86_400_000;
   const analyzed = rows.filter((row) => row.analyzedAt !== null);
@@ -143,14 +143,15 @@ export function selectRelevantReportEntries(rows: ReportEntryRow[], now: Date = 
   }
   nonPersistent = keptNonPersistent;
 
-  const interpreted = [...persistent, ...nonPersistent]
-    .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime())
-    .map(toAgentEntry);
+  const interpretedRows = [...persistent, ...nonPersistent].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
+  const interpreted = interpretedRows.map(toAgentEntry);
 
-  const pending: PendingReportForAgent[] = rows
+  const pendingRows = rows
     .filter((row) => row.analyzedAt === null)
     .sort(newestFirst)
     .slice(0, L.maxPending)
+    .reverse();
+  const pending: PendingReportForAgent[] = pendingRows
     .map((row): PendingReportForAgent => ({
       data: day(row.occurredAt),
       origem: row.relatedLabel ?? row.sourceType,
@@ -158,10 +159,10 @@ export function selectRelevantReportEntries(rows: ReportEntryRow[], now: Date = 
         ? 'analise_falhou'
         : now.getTime() - row.createdAt.getTime() <= L.inFlightMs ? 'em_processamento' : 'sem_analise',
       relatoOriginal: truncate(row.originalText, L.pendingTextChars),
-    }))
-    .reverse();
+    }));
 
-  return { interpreted, pending, omittedForBudget };
+  // Ids paralelos aos arrays acima (rastreabilidade); NAO fazem parte do que e enviado a IA.
+  return { interpreted, pending, omittedForBudget, interpretedIds: interpretedRows.map((r) => r.id), pendingIds: pendingRows.map((r) => r.id) };
 }
 
 // ── Observacoes do aluno e eventos do prontuario ainda nao condensados ───────────────────────────────────────────

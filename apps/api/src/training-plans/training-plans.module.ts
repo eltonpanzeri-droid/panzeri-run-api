@@ -5,6 +5,8 @@ import { TrainingPlansController } from './training-plans.controller';
 import { TrainingPlansService } from './training-plans.service';
 import { WeeklyCheckInService } from './weekly-checkin.service';
 import { PrescriptionAgentService } from './prescription-agent.service';
+import { PrescriptionTraceService } from './prescription-trace.service';
+import { PrescriptionTraceController } from './prescription-trace.controller';
 import { StudentProfileModule } from './student-profile.module';
 import { WeeklyPlanSchedulerService } from './weekly-plan-scheduler.service';
 import { DirectiveExpiryNotifierService } from './directive-expiry-notifier.service';
@@ -22,8 +24,8 @@ import { ShoesModule } from '../shoes/shoes.module';
 
 @Module({
   imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, forwardRef(() => BillingModule), StudentProfileModule, NotificationsModule, MenstrualCycleModule, TrainingIntelligenceModule, ReassessmentModule, ReporterModule, MedalsModule, ActivityExecutionModule, ShoesModule],
-  controllers: [TrainingPlansController],
-  providers: [TrainingPlansService, PrescriptionAgentService, WeeklyPlanSchedulerService, DirectiveExpiryNotifierService, WeeklyCheckInService],
+  controllers: [TrainingPlansController, PrescriptionTraceController],
+  providers: [TrainingPlansService, PrescriptionAgentService, PrescriptionTraceService, WeeklyPlanSchedulerService, DirectiveExpiryNotifierService, WeeklyCheckInService],
   exports: [TrainingPlansService, StudentProfileModule, WeeklyPlanSchedulerService],
 })
 export class TrainingPlansModule {}

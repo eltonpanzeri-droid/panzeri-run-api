@@ -22,6 +22,8 @@ import { TombstoneLedger } from '../backup/tombstone-ledger';
 
 // ── A: apagar (ordem respeita as FKs: filhos antes dos pais) ───────────────────────────────────────────────────────
 export const ACCOUNT_DELETE_ORDER = [
+  // Etapa 1.2a: rastreabilidade das prescricoes (copias de relatos/saude enviados a IA) — apagada com a conta.
+  'prescriptionDecision', 'prescriptionEvidencePackage',
   'shoeUsage', 'workoutDelivery', 'sessionExecutionLink', 'workoutCompletion', 'trainingSession', 'weeklyCheckIn',
   'trainingExecutionInsight', 'trainingPlan', 'trainingPlanGenerationLock', 'nightlySleepLog', 'stressCheckin', 'contextEvent',
   'rawActivitySample', 'activityTimeSeriesPoint', 'activityLog', 'rawExternalActivity', 'evolutionReport', 'reassessment',

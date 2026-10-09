@@ -116,6 +116,7 @@ export class StudentProfileService {
 }
 
 export interface PendingProfileEvent {
+  id: string;
   code: string;
   content: string;
   createdAt: Date;
@@ -128,6 +129,6 @@ export interface ProfileRefreshResult {
   status: 'ok' | 'nothing_pending' | 'failed' | 'not_attempted';
 }
 
-function toPendingEvent(event: { code: string; content: string; createdAt: Date }): PendingProfileEvent {
-  return { code: event.code, content: event.content, createdAt: event.createdAt };
+function toPendingEvent(event: { id: string; code: string; content: string; createdAt: Date }): PendingProfileEvent {
+  return { id: event.id, code: event.code, content: event.content, createdAt: event.createdAt };
 }

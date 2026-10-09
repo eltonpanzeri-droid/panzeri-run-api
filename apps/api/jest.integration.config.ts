@@ -1,14 +1,15 @@
 import type { Config } from 'jest';
 
+// Testes de integracao com PostgreSQL local de teste (ver test/integration/pg-guard.ts). Separados da suite padrao.
 const config: Config = {
   preset: 'ts-jest',
   transform: { '^.+\\.tsx?$': ['ts-jest', { tsconfig: { types: ['node', 'jest'] } }] },
   testEnvironment: 'node',
   rootDir: '.',
-  testRegex: '.*\\.spec\\.ts$',
-  // Testes de integracao (PostgreSQL local) rodam so por jest.integration.config.ts (npm run test:integration).
-  testPathIgnorePatterns: ['/node_modules/', '\\.int\\.spec\\.ts$'],
+  testRegex: '.*\\.int\\.spec\\.ts$',
   moduleFileExtensions: ['ts', 'js', 'json'],
+  testTimeout: 180_000,
+  maxWorkers: 1,
 };
 
 export default config;

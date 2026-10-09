@@ -2,6 +2,7 @@ import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TombstoneLedger } from '../backup/tombstone-ledger';
+import { redactEvidenceForProvider } from '../training-plans/prescription-trace';
 
 // Exclusao dos dados atribuiveis a UM provider de UM usuario (04/10/2026). Provider-agnostico: so'
 // conhece o dominio canonico (RawExternalActivity / ActivityLog / samples / series / vinculos) e a
@@ -54,6 +55,9 @@ export interface ProviderDataDeletionResult {
   // Sessoes sinteticas mantidas porque o aluno as enriqueceu; "clearedFields" lista (so' os nomes) o que
   // foi removido de proveniencia do provider.
   preservedMaterialized: Array<{ sessionId: string; reason: 'student_input' | 'not_done' | 'shoe_usage'; clearedFields: string[] }>;
+  // Etapa 1.2a: itens de evidencia (pacotes de rastreabilidade) derivados DIRETAMENTE de atividades deste provedor, com valores e
+  // referencias removidos. Metricas agregadas/derivadas (variaveis longitudinais) nao sao atribuiveis a um provedor e permanecem.
+  evidenceRedacted?: number;
 }
 
 interface ActivityCopySource {
@@ -206,6 +210,18 @@ export class ProviderDataDeletionService {
       const logs = await tx.activityLog.deleteMany({ where: { userId, provider } });
       const raws = await tx.rawExternalActivity.deleteMany({ where: { userId, provider } });
 
+      // So' na exclusao EXPLICITA de dados (nunca na desconexao, que nao passa por aqui): remove valores e referencias do provedor
+      // dos pacotes de evidencia. Os registros e as decisoes permanecem; so' o conteudo derivado desse provedor some.
+      let evidenceRedacted = 0;
+      const packages = await tx.prescriptionEvidencePackage?.findMany({ where: { userId }, select: { id: true, evidence: true } }) ?? [];
+      for (const pkg of packages) {
+        const { evidence, redacted } = redactEvidenceForProvider(pkg.evidence, provider);
+        if (redacted > 0) {
+          await tx.prescriptionEvidencePackage.update({ where: { id: pkg.id }, data: { evidence: evidence as unknown as Prisma.InputJsonValue } });
+          evidenceRedacted += redacted;
+        }
+      }
+
       const result: ProviderDataDeletionResult = {
         provider,
         activities: logs.count,
@@ -216,6 +232,7 @@ export class ProviderDataDeletionService {
         notifications: notificationIds.length,
         syntheticSessions: sessionsToDelete.length,
         preservedMaterialized,
+        evidenceRedacted,
       };
       await tx.providerConnectionEvent.create({
         data: { userId, provider, type: 'data_deleted', details: result as unknown as Prisma.InputJsonValue },

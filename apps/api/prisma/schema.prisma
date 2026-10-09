@@ -1985,3 +1985,67 @@ model WahooConnection {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 }
+
+// Rastreabilidade das prescricoes (Etapa 1.2a, 09/10/2026). Registros IMUTAVEIS (append-only) criados na MESMA transacao que
+// cria o plano (ou que regenera um dia), para que nenhuma prescricao nova exista sem trilha. Referencias sao "moles" (sem FK
+// para User/TrainingPlan/TrainingSession) de proposito: a trilha sobrevive a edicoes/arquivamento de planos e e removida por
+// userId na exclusao de conta (ACCOUNT_DELETE_ORDER). Nada aqui e' dado de provedor bruto; Strava nunca entra (nunca vai a IA).
+//
+// Pacote de evidencias: o que foi CONSIDERADO (entregue / entregue sem processar / ausente) e como foi guardado (completo /
+// parcial / so' referencia), mais a entrada COMPLETA enviada a IA (agentInput), mantida por ate N meses (retencao configuravel;
+// depois so' o indice de evidencias permanece — agentInputPurgedAt registra quando).
+model PrescriptionEvidencePackage {
+  id                 String                 @id @default(uuid())
+  userId             String
+  planId             String
+  // Preenchido so' na regeneracao de UM dia (kind = day_regeneration).
+  sessionId          String?
+  kind               String // weekly | day_regeneration
+  schemaVersion      Int
+  methodologyVersion String
+  modelIds           String[]
+  // SHA-256 do(s) texto(s) exato(s) enviado(s) a IA (verifica a fidelidade de agentInput).
+  agentInputHash     String
+  // Indice de evidencias (itens com ref estavel, delivery e storage) — permanece depois da retencao.
+  evidence           Json
+  contextGaps        Json
+  // Entrada completa enviada a IA (chamadas, modelo, prompt de usuario). Nula apos a retencao.
+  agentInput         Json?
+  agentInputPurgedAt DateTime?
+  createdAt          DateTime               @default(now())
+  decisions          PrescriptionDecision[]
+
+  @@index([userId, createdAt])
+  @@index([planId])
+  @@index([sessionId])
+  @@index([createdAt])
+}
+
+// Uma decisao por sessao prescrita (kind = session) e uma por semana (kind = week, com a justificativa em texto livre da IA).
+// 1.2a: summary/changeFromPrevious/rationale sao deterministicos ou ja existentes; intent/expected/basis ficam vazios
+// (traceStatus = absent) ate a 1.2b. O RESULTADO posterior nao e copiado: e lido por vinculo (sessionId -> WorkoutCompletion,
+// SessionExecutionLink/ActivityLog, observacoes), sempre consistente com o dado atual.
+model PrescriptionDecision {
+  id                 String                      @id @default(uuid())
+  packageId          String
+  package            PrescriptionEvidencePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  userId             String
+  planId             String
+  sessionId          String?
+  kind               String // week | session
+  weekday            Int?
+  modality           String?
+  summary            String
+  changeFromPrevious Json?
+  rationale          Json?
+  intent             String?
+  expected           Json?
+  basis              Json?
+  traceStatus        String                      @default("absent") // complete | partial | absent
+  createdAt          DateTime                    @default(now())
+
+  @@index([userId, createdAt])
+  @@index([packageId])
+  @@index([sessionId])
+  @@index([planId])
+}

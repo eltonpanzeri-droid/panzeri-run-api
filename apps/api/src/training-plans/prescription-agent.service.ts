@@ -17,6 +17,7 @@ import { PANZERI_METHODOLOGY_KNOWLEDGE } from './panzeri-methodology-knowledge';
 import { AiQueueService } from '../common/ai-queue.service';
 import { AI_MODELS } from '../common/ai-models.config';
 import { logAiUsage } from '../common/ai-usage-logger';
+import { AgentCallTrace, recordAgentCall } from './prescription-trace';
 import { gymExerciseLibrary } from './gym-exercise-library';
 import { runnerStrengthExercises } from './runner-strength-library';
 
@@ -231,7 +232,8 @@ export class PrescriptionAgentService {
     this.client = apiKey ? new Anthropic({ apiKey }) : null;
   }
 
-  async proposeWeeklyDecision(input: MethodologyInput, evidence: PaceEvidence): Promise<WeeklyMethodologyDecision | null> {
+  // `trace` (opcional): recebe o registro EXATO do que foi enviado a IA (Etapa 1.2a). Nunca altera prompt, modelo nem resultado.
+  async proposeWeeklyDecision(input: MethodologyInput, evidence: PaceEvidence, trace?: AgentCallTrace[]): Promise<WeeklyMethodologyDecision | null> {
     if (!this.client) {
       this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado. Nenhum treino sera gerado por regra fixa no lugar disso.');
       return null;
@@ -246,18 +248,18 @@ export class PrescriptionAgentService {
     // gerar nada. Se falhar, quem chama (generateWeek) ja avisa o treinador pelo Telegram e para
     // por ali — sem regra fixa no lugar (nao ha motor deterministico de fallback), o proprio
     // treinador decide gerar de novo pelo painel quando quiser.
-    return this.attemptDecision(input, evidence, 'medium');
+    return this.attemptDecision(input, evidence, 'medium', trace);
   }
 
   // Usado quando o treinador regenera UM dia de forca/fortalecimento isolado (sem regenerar a
   // semana inteira) — mesma exigencia de nunca usar rotina fixa, so que numa chamada menor,
   // focada em um unico dia, em vez de reprocessar a semana toda de corrida junto.
-  async proposeStrengthSession(input: MethodologyInput, slot: StrengthSlot): Promise<StrengthSessionDecision | null> {
+  async proposeStrengthSession(input: MethodologyInput, slot: StrengthSlot, trace?: AgentCallTrace[]): Promise<StrengthSessionDecision | null> {
     if (!this.client) {
       this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado para o dia de forca avulso.');
       return null;
     }
-    const attempt = () => this.attemptStrengthSessionDecision(input, slot);
+    const attempt = () => this.attemptStrengthSessionDecision(input, slot, trace);
     return (await attempt()) ?? (await attempt());
   }
 
@@ -266,18 +268,21 @@ export class PrescriptionAgentService {
   // chamada — distancia, pace e estrutura, na forma que fizer sentido pra ela (ver AiSessionSchema)
   // — com o mesmo contexto (diretivas, observacoes, sinal de dor) que a geracao semanal usa, nunca
   // uma formula ou um numero reaproveitado de outro dia.
-  async proposeRunSession(params: RunSessionParams): Promise<{ parts: z.infer<typeof AiSessionPartsSchema> } | null> {
+  async proposeRunSession(params: RunSessionParams, trace?: AgentCallTrace[]): Promise<{ parts: z.infer<typeof AiSessionPartsSchema> } | null> {
     if (!this.client) {
       this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado para o treino avulso.');
       return null;
     }
-    const attempt = () => this.attemptRunSessionDecision(params);
+    const attempt = () => this.attemptRunSessionDecision(params, trace);
     return (await attempt()) ?? (await attempt());
   }
 
-  private async attemptRunSessionDecision(params: RunSessionParams): Promise<{ parts: z.infer<typeof AiSessionPartsSchema> } | null> {
+  private async attemptRunSessionDecision(params: RunSessionParams, trace?: AgentCallTrace[]): Promise<{ parts: z.infer<typeof AiSessionPartsSchema> } | null> {
     const client = this.client;
     if (!client) return null;
+    const runSystem = this.buildRunSessionSystemPrompt();
+    const runUser = this.buildRunSessionUserPrompt(params);
+    recordAgentCall(trace, { purpose: 'dia_corrida', model: AI_MODELS.SONNET_5, system: runSystem, userPrompt: runUser });
     const schema = z.object({ parts: AiSessionPartsSchema });
     const startedAt = Date.now();
     try {
@@ -289,8 +294,8 @@ export class PrescriptionAgentService {
           output_config: { effort: 'medium', format: zodOutputFormat(schema) },
           // Prompt identico pra qualquer aluno/chamada — cache_control deixa isso barato depois
           // da primeira vez (ver shared/prompt-caching.md do skill claude-api).
-          system: [{ type: 'text', text: this.buildRunSessionSystemPrompt(), cache_control: { type: 'ephemeral' } }],
-          messages: [{ role: 'user', content: this.buildRunSessionUserPrompt(params) }],
+          system: [{ type: 'text', text: runSystem, cache_control: { type: 'ephemeral' } }],
+          messages: [{ role: 'user', content: runUser }],
         }),
       );
       logAiUsage(this.logger, { agent: 'treinador_dia_corrida', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
@@ -340,9 +345,12 @@ export class PrescriptionAgentService {
     );
   }
 
-  private async attemptStrengthSessionDecision(input: MethodologyInput, slot: StrengthSlot): Promise<StrengthSessionDecision | null> {
+  private async attemptStrengthSessionDecision(input: MethodologyInput, slot: StrengthSlot, trace?: AgentCallTrace[], purpose: 'dia_forca' | 'reparo_forca' = 'dia_forca'): Promise<StrengthSessionDecision | null> {
     const client = this.client;
     if (!client) return null;
+    const strengthSystem = this.buildSingleStrengthSystemPrompt();
+    const strengthUser = this.buildSingleStrengthUserPrompt(input, slot);
+    recordAgentCall(trace, { purpose, model: AI_MODELS.SONNET_5, system: strengthSystem, userPrompt: strengthUser });
     const startedAt = Date.now();
     try {
       const response = await this.aiQueue.run(() =>
@@ -354,8 +362,8 @@ export class PrescriptionAgentService {
             effort: 'high',
             format: zodOutputFormat(AiStrengthSessionSchema),
           },
-          system: [{ type: 'text', text: this.buildSingleStrengthSystemPrompt(), cache_control: { type: 'ephemeral' } }],
-          messages: [{ role: 'user', content: this.buildSingleStrengthUserPrompt(input, slot) }],
+          system: [{ type: 'text', text: strengthSystem, cache_control: { type: 'ephemeral' } }],
+          messages: [{ role: 'user', content: strengthUser }],
         }),
       );
       logAiUsage(this.logger, { agent: 'treinador_dia_forca', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: '5m (default)' });
@@ -377,6 +385,7 @@ export class PrescriptionAgentService {
     input: MethodologyInput,
     evidence: PaceEvidence,
     effort: 'high' | 'medium' = 'high',
+    trace?: AgentCallTrace[],
   ): Promise<WeeklyMethodologyDecision | null> {
     const client = this.client;
     if (!client) return null;
@@ -392,6 +401,11 @@ export class PrescriptionAgentService {
     // do JSON estruturado falhar la embaixo — em vez de adivinhar a causa depois, ver catch.
     let lastSnapshot: Anthropic.Messages.Message | undefined;
     const startedAt = Date.now();
+    // Texto EXATO enviado (mesmas strings de antes, so' hoisted para poder ser registrado).
+    const systemStable = this.buildSystemPromptStable();
+    const safetyGuidance = this.buildSafetyGuidance(safetyAdjustment, removeRunning);
+    const userPrompt = this.buildUserPrompt(input, runSlots, strengthSlots, safetyAdjustment, novice, evidence, input.painReason ?? null);
+    recordAgentCall(trace, { purpose: 'semana', model: AI_MODELS.SONNET_5, system: `${systemStable}\n${safetyGuidance}`, userPrompt });
     try {
       // Streaming (nao client.messages.parse, que e sempre nao-streaming): com max_tokens alto
       // (24000) + pensamento adaptativo, o proprio SDK recusa a chamada de antemao com "Streaming
@@ -428,10 +442,10 @@ export class PrescriptionAgentService {
           // depois do bloco grande COM cache_control, pra nao invalidar o prefixo cacheado toda vez
           // que esses dois booleanos mudam (ver shared/prompt-caching.md do skill claude-api).
           system: [
-            { type: 'text', text: this.buildSystemPromptStable(), cache_control: { type: 'ephemeral' } },
-            { type: 'text', text: this.buildSafetyGuidance(safetyAdjustment, removeRunning) },
+            { type: 'text', text: systemStable, cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: safetyGuidance },
           ],
-          messages: [{ role: 'user', content: this.buildUserPrompt(input, runSlots, strengthSlots, safetyAdjustment, novice, evidence, input.painReason ?? null) }],
+          messages: [{ role: 'user', content: userPrompt }],
         });
         // snapshot e atualizado a cada evento (inclusive stop_reason/usage, preenchidos pelo
         // evento message_delta antes do message_stop) — se o parse do JSON falhar depois, esse
@@ -478,7 +492,7 @@ export class PrescriptionAgentService {
         // regenerar-1-dia do treinador) — o que a IA ja acertou (inclusive dias extras por
         // diretriz) fica como esta, nao e descartado.
         this.logger.warn(`${strengthValidation.missingSlots.length} dia(s) de forca da rotina sem sessao correspondente — repondo via chamada avulsa por dia: [${strengthValidation.missingSlots.map((s) => `${s.weekday}:${s.modality}`).join(',')}].`);
-        const repaired = await this.repairStrengthSessions(input, strengthValidation.missingSlots);
+        const repaired = await this.repairStrengthSessions(input, strengthValidation.missingSlots, trace);
         if (!repaired) {
           this.logger.warn('Reparo avulso dos dias de forca tambem falhou — descartando esta tentativa.');
           return null;
@@ -608,9 +622,9 @@ export class PrescriptionAgentService {
   // usada no "regenerar 1 dia" do treinador, sem mexer no que a IA ja acertou (inclusive dias
   // extras por diretriz individual). Se qualquer dia faltante falhar de novo, desiste (retorna
   // null) e deixa o attemptDecision descartar esta tentativa como antes.
-  private async repairStrengthSessions(input: MethodologyInput, missingSlots: StrengthSlot[]): Promise<StrengthSessionDecision[] | null> {
+  private async repairStrengthSessions(input: MethodologyInput, missingSlots: StrengthSlot[], trace?: AgentCallTrace[]): Promise<StrengthSessionDecision[] | null> {
     const repaired = await Promise.all(
-      missingSlots.map((slot) => this.attemptStrengthSessionDecision(input, slot)),
+      missingSlots.map((slot) => this.attemptStrengthSessionDecision(input, slot, trace, 'reparo_forca')),
     );
     if (repaired.some((decision) => decision === null)) {
       this.logger.warn(`Reparo avulso de forca falhou para ${repaired.filter((decision) => decision === null).length} dia(s).`);
