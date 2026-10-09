@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { EXECUTION_REPORT_INSTRUCTION, PrescriptionAgentService, REASONING_INSTRUCTION } from '../src/training-plans/prescription-agent.service';
+import { ANALYST_EVIDENCE_INSTRUCTION, EXECUTION_REPORT_INSTRUCTION, PrescriptionAgentService, REASONING_INSTRUCTION } from '../src/training-plans/prescription-agent.service';
 import { AI_MODELS } from '../src/common/ai-models.config';
 import {
   buildAgentInputRecord, buildEvidenceIndex, buildSessionDecisions, buildWeekDecision, describeSessionForTrace, EvidenceItem, MAX_AGENT_INPUT_CHARS,
@@ -30,7 +30,7 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
   // bit a bit ao hash de antes da rastreabilidade; as orientacoes de seguranca nao mudaram nada.
   it('os prompts de sistema so mudam pelo bloco de raciocinio declarado (1.2b): sem ele, voltam bit a bit ao original', () => {
     // 1.2b: REASONING_INSTRUCTION (3 prompts) | 2.1: EXECUTION_REPORT_INSTRUCTION (so no prompt da semana). Removidos os blocos, voltam ao original.
-    const without = (prompt: string) => prompt.replace('\n\n' + EXECUTION_REPORT_INSTRUCTION, '').replace('\n\n' + REASONING_INSTRUCTION, '');
+    const without = (prompt: string) => prompt.replace('\n\n' + ANALYST_EVIDENCE_INSTRUCTION, '').replace('\n\n' + EXECUTION_REPORT_INSTRUCTION, '').replace('\n\n' + REASONING_INSTRUCTION, '');
     const stable = service.buildSystemPromptStable();
     const run = service.buildRunSessionSystemPrompt();
     const strength = service.buildSingleStrengthSystemPrompt();
@@ -69,9 +69,9 @@ describe('injecao e protecao', () => {
     const types = Reflect.getMetadata('design:paramtypes', TrainingPlansService) as unknown[];
     // 2.1 acrescentou ExecutionAnalysisService (opcional) DEPOIS da rastreabilidade: a trilha continua a ultima dependencia OBRIGATORIA.
     const traceIndex = types.indexOf(PrescriptionTraceService);
-    expect(traceIndex).toBe(types.length - 2);
+    expect(traceIndex).toBe(types.length - 3); // depois dela, os opcionais: ExecutionAnalysisService (2.1) e TrainingAnalystService (2.2)
     expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService) ?? []).not.toContain(traceIndex);
-    expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService)).toContain(types.length - 1);
+    expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService)).toEqual(expect.arrayContaining([types.length - 1, types.length - 2]));
     expect(Reflect.getMetadata('__guards__', PrescriptionTraceController)).toHaveLength(2); // JWT + RolesGuard
     expect(Reflect.getMetadata('roles', PrescriptionTraceController)).toEqual(['coach', 'admin']);
     expect(Reflect.getMetadata('path', PrescriptionTraceController)).toBe('coach');

@@ -2105,3 +2105,33 @@ model WeeklyExecutionReport {
   @@index([userId, weekStartDate])
   @@index([deliveredWithPlanId])
 }
+
+// Etapa 2.2 (11/10/2026) — Analista de Treinos. Contrato estruturado e persistente (fatos medidos, relatos, achados com sustentacao e horizonte, lacunas,
+// capacidades e mudancas por variavel) pronto para o futuro Agente de Prontuario. Escopo session = indicador VIVO (recalculado quando a fonte muda);
+// week/longitudinal = RETRATO entregue ao Prescritor com o programa (deliveredWithPlanId), nunca reescrito por dados posteriores. Referencias soft.
+// Derivado de dispositivo: apagado/invalidado na exclusao de dados de um provedor.
+model TrainingAnalysis {
+  id                   String   @id @default(uuid())
+  userId               String
+  // session | week | longitudinal
+  scope                String
+  // sessionId (session) | AAAA-MM-DD da segunda-feira (week) | AAAA-MM-DD da data de referencia (longitudinal)
+  refKey               String
+  analystVersion       Int
+  periodStart          DateTime
+  periodEnd            DateTime
+  // active | invalidated
+  status               String   @default("active")
+  contract             Json
+  // { sessionIds, activityLogIds, providers }
+  sources              Json
+  sourceFingerprint    String
+  deliveredWithPlanId  String?
+  invalidatedProviders Json?
+  computedAt           DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([userId, scope, refKey])
+  @@index([deliveredWithPlanId])
+  @@index([userId, periodEnd])
+}

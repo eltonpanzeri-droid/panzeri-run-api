@@ -20,12 +20,14 @@ import { ReassessmentModule } from '../reassessment/reassessment.module';
 import { ReporterModule } from '../reporter/reporter.module';
 import { MedalsModule } from '../medals/medals.module';
 import { ActivityExecutionModule } from '../activity-execution/activity-execution.module';
+import { TrainingAnalystService } from './training-analyst.service';
+import { TrainingAnalysisController } from './training-analysis.controller';
 import { ShoesModule } from '../shoes/shoes.module';
 
 @Module({
   imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, forwardRef(() => BillingModule), StudentProfileModule, NotificationsModule, MenstrualCycleModule, TrainingIntelligenceModule, ReassessmentModule, ReporterModule, MedalsModule, ActivityExecutionModule, ShoesModule],
-  controllers: [TrainingPlansController, PrescriptionTraceController],
-  providers: [TrainingPlansService, PrescriptionAgentService, PrescriptionTraceService, WeeklyPlanSchedulerService, DirectiveExpiryNotifierService, WeeklyCheckInService],
+  controllers: [TrainingPlansController, PrescriptionTraceController, TrainingAnalysisController],
+  providers: [TrainingPlansService, PrescriptionAgentService, PrescriptionTraceService, TrainingAnalystService, WeeklyPlanSchedulerService, DirectiveExpiryNotifierService, WeeklyCheckInService],
   exports: [TrainingPlansService, StudentProfileModule, WeeklyPlanSchedulerService],
 })
 export class TrainingPlansModule {}

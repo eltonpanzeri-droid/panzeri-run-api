@@ -65,6 +65,8 @@ export interface ProviderDataDeletionResult {
   // Etapa 2.1: indicadores de execucao derivados das atividades deste provedor (linhas por sessao apagadas; relatorios semanais que as usaram invalidados).
   executionAnalyses?: number;
   weeklyReportsInvalidated?: number;
+  // Etapa 2.2: contratos do Analista que usaram dados deste provedor (sessao viva apagada; semana/evolucao entregues invalidadas).
+  analystContracts?: number;
 }
 
 interface ActivityCopySource {
@@ -241,6 +243,21 @@ export class ProviderDataDeletionService {
         weeklyReportsInvalidated++;
       }
 
+      let analystContracts = 0;
+      const analyses = await tx.trainingAnalysis?.findMany({ where: { userId, status: 'active' }, select: { id: true, scope: true, deliveredWithPlanId: true, sources: true, invalidatedProviders: true } }) ?? [];
+      for (const analysis of analyses) {
+        const providers = (analysis.sources as { providers?: string[] } | null)?.providers ?? [];
+        if (!providers.includes(provider)) continue;
+        if (analysis.scope === 'session' && analysis.deliveredWithPlanId === null) await tx.trainingAnalysis.delete({ where: { id: analysis.id } });
+        else {
+          await tx.trainingAnalysis.update({
+            where: { id: analysis.id },
+            data: { status: 'invalidated', contract: {}, invalidatedProviders: [...new Set([...(Array.isArray(analysis.invalidatedProviders) ? analysis.invalidatedProviders as string[] : []), provider])] },
+          });
+        }
+        analystContracts++;
+      }
+
       const logs = await tx.activityLog.deleteMany({ where: { userId, provider } });
       const raws = await tx.rawExternalActivity.deleteMany({ where: { userId, provider } });
 
@@ -308,6 +325,7 @@ export class ProviderDataDeletionService {
         declaredReasoningInvalidated,
         executionAnalyses: analysesDeleted?.count ?? 0,
         weeklyReportsInvalidated,
+        analystContracts,
       };
       await tx.providerConnectionEvent.create({
         data: { userId, provider, type: 'data_deleted', details: result as unknown as Prisma.InputJsonValue },

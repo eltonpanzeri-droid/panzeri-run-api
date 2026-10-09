@@ -25,7 +25,7 @@ export const ACCOUNT_DELETE_ORDER = [
   // Etapa 1.2a: rastreabilidade das prescricoes (copias de relatos/saude enviados a IA) — apagada com a conta.
   'prescriptionDecision', 'prescriptionEvidencePackage',
   // Etapa 2.1: indicadores derivados da execucao (apagados com a conta).
-  'weeklyExecutionReport', 'sessionExecutionAnalysis',
+  'weeklyExecutionReport', 'sessionExecutionAnalysis', 'trainingAnalysis',
   'shoeUsage', 'workoutDelivery', 'sessionExecutionLink', 'workoutCompletion', 'trainingSession', 'weeklyCheckIn',
   'trainingExecutionInsight', 'trainingPlan', 'trainingPlanGenerationLock', 'nightlySleepLog', 'stressCheckin', 'contextEvent',
   'rawActivitySample', 'activityTimeSeriesPoint', 'activityLog', 'rawExternalActivity', 'evolutionReport', 'reassessment',

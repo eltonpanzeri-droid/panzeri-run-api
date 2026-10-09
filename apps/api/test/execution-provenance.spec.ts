@@ -163,7 +163,7 @@ describe('cobertura: todo campo do texto enviado a IA esta classificado', () => 
   it('todo campo classificado como derivado de dispositivo tem tratamento na redacao', () => {
     // um prompt com TODOS os campos derivados preenchidos, redigido em modo "desconhecido", fica sem nenhum valor derivado
     const derived = Object.entries(PROMPT_FIELD_CLASSIFICATION).filter(([, kind]) => kind !== 'independent').map(([key]) => key);
-    expect([...derived].sort()).toEqual(['athleteStateContext', 'eventosDoProntuarioAindaNaoCondensados', 'historicoSemanal', 'maiorLongaoJaRegistrado', 'prontuarioDoAluno', 'reavaliacaoMaisRecente', 'relatorioDeEvolucao', 'relatorioDeExecucaoDaSemanaAnterior', 'sessoesRecentesPertoDoRecorde'].sort());
+    expect([...derived].sort()).toEqual(['athleteStateContext', 'eventosDoProntuarioAindaNaoCondensados', 'historicoSemanal', 'maiorLongaoJaRegistrado', 'prontuarioDoAluno', 'reavaliacaoMaisRecente', 'relatorioDeEvolucao', 'relatorioDeExecucaoDaSemanaAnterior', 'analiseTecnicaDoAnalistaDeTreinos', 'sessoesRecentesPertoDoRecorde'].sort());
     const out = redactAgentInputForProvider({ calls: [{ userPrompt: promptText() }] }, 'x', new Date(), null, 'all');
     const text = (out.agentInput as { calls: Array<{ userPrompt: string }> }).calls[0].userPrompt;
     expect(text).not.toContain('SENTINELA');

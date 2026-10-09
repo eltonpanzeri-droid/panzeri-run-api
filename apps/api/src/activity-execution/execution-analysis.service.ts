@@ -12,6 +12,8 @@ import { buildWeeklyExecutionIndicators, renderSessionReport, renderWeeklyReport
 // Persistencia e consolidacao da analise de execucao (Etapa 2.1). So' LE atividade, vinculo e serie; grava apenas INDICADORES derivados (nunca duplica a
 // atividade bruta nem a serie). A associacao sessao<->atividade e' a existente (SessionExecutionLink ativo) e nao e' alterada aqui.
 
+// Revisao do CONTEUDO calculado (nao muda o formato do contrato): 2 = assinatura do estimulo (Etapa 2.2). Entra na impressao digital: linhas antigas sao recalculadas.
+const ANALYSIS_REVISION = 2;
 const RUN = new Set(['corrida', 'esteira']);
 const STRENGTH = new Set(['forca', 'fortalecimento_corredores']);
 const EXTRA_ORIGINS = new Set(['device_extra', 'student_extra']);
@@ -44,7 +46,10 @@ export class ExecutionAnalysisService {
     });
     if (!session) return null;
     const kind = RUN.has(session.modality) ? 'run' : STRENGTH.has(session.modality) ? 'strength' : null;
-    if (!kind || EXTRA_ORIGINS.has(session.origin ?? '')) return null;
+    if (!kind) return null;
+    // Atividades por iniciativa do aluno/relogio (sem prescricao correspondente): analisadas SO' como assinatura do estimulo (Etapa 2.2); nada e comparado com prescricao.
+    const isExtra = EXTRA_ORIGINS.has(session.origin ?? '');
+    if (isExtra && kind !== 'run') return null;
 
     const picks = await pickCanonicalPerEvent(session.executionLinks.map((link) => link.activityLog), (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
     const activity = picks[0]?.row ?? null;
@@ -55,7 +60,7 @@ export class ExecutionAnalysisService {
       : null;
     const completion = session.completion;
     const fingerprint = this.fingerprint({
-      v: EXECUTION_ANALYSIS_VERSION,
+      v: EXECUTION_ANALYSIS_VERSION, r: ANALYSIS_REVISION,
       a: activity ? [activity.id, activity.distanceMeters, activity.durationSec, activity.avgHeartRateBpm, activity.cadenceAvg, activity.caloriesKcal] : null,
       p: seriesStats ? [seriesStats._count._all, seriesStats._min.offsetSec, seriesStats._max.offsetSec, seriesStats._max.distanceMeters] : null,
       c: completion ? [completion.status, completion.distanceKm, completion.durationMin, completion.perceivedEffort, completion.avgHeartRate] : null,
@@ -74,7 +79,7 @@ export class ExecutionAnalysisService {
     else if (!completion && !activity) analysis = this.notDone(session, 'sem_registro');
     else if (kind === 'run') {
       analysis = analyzeRunExecution({
-        structure: session.structure, prescribedDistanceKm: session.distanceKm, prescribedDurationMin: session.durationMin, points,
+        structure: isExtra ? null : session.structure, prescribedDistanceKm: isExtra ? null : session.distanceKm, prescribedDurationMin: isExtra ? null : session.durationMin, points,
         activity: activity ? { distanceMeters: activity.distanceMeters, durationSec: activity.durationSec, avgHeartRateBpm: activity.avgHeartRateBpm, cadenceAvg: activity.cadenceAvg } : null,
         completion: completion ? { status: completion.status, distanceKm: completion.distanceKm, durationMin: completion.durationMin, avgHeartRate: completion.avgHeartRate, perceivedEffort: completion.perceivedEffort } : null,
       });

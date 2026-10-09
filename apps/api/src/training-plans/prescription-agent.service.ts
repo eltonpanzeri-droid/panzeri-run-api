@@ -208,6 +208,10 @@ const FREE_TEXT_DISPLAY_LIMIT = 2000;
 export const EXECUTION_REPORT_INSTRUCTION =
   'RELATORIO DE EXECUCAO DA SEMANA ANTERIOR (relatorioDeExecucaoDaSemanaAnterior): consolidacao MATEMATICA e deterministica do que foi medido na semana que acabou (frequencia separada de fidelidade, tempo observado dentro/mais rapido/mais lento que as faixas PRESCRITAS de cada bloco, estrutura executada dos intervalados, km previstos x realizados, duracao e esforco percebido da musculacao). Use como evidencia ao lado de historicoSemanal, nunca como julgamento: campo ausente ou null = sem dado (nao e zero); percentuais valem so para o tempo com dados confiaveis; nao atribua intencao ao aluno (o relogio mostra o que aconteceu, nao o porque). Nao copie os numeros para o texto do aluno.';
 
+// Etapa 2.2 — so' no prompt da SEMANA.
+export const ANALYST_EVIDENCE_INSTRUCTION =
+  'ANALISE TECNICA DO ANALISTA DE TREINOS (analiseTecnicaDoAnalistaDeTreinos): achados deterministicos sobre os treinos da semana anterior, a propria semana e a evolucao do aluno (capacidades demonstradas, formatos recorrentes, mudancas entre sessoes semelhantes variavel a variavel, tendencias nas janelas de 21/60/200 dias). Cada item traz sustentacao (alta/media/baixa) e horizonte (pontual/recente/consolidado); lacunas dizem o que nao se sabe. Sao EVIDENCIAS para a sua decisao: o Analista nao prescreve e voce decide objetivos, estimulos e progressoes. Nao trate coincidencia de series como causa, nao presuma o motivo de uma execucao diferente da prescrita (so o que o aluno relatou) e nao copie os numeros para o texto do aluno. Campo null = sem dados suficientes.';
+
 export const REASONING_INSTRUCTION =
   'RACIOCINIO PARA AUDITORIA (campo reasoning de cada sessao; NAO e texto para o aluno): registre de forma OBJETIVA por que voce decidiu este treino. intent = o objetivo desta sessao em UMA frase (ate 160 caracteres). expected = o que voce espera obter/observar com ela (ate 160 caracteres). basis = ate 3 itens {source, note}: source e o NOME do campo do contexto que mais pesou nesta decisao (use "outro" se nao houver um) e note e UMA frase curta (ate 100 caracteres) dizendo como ele pesou. E uma declaracao sua, nao uma prova: cite so o que realmente considerou, sem copiar relatos nem repetir numeros longos. Se nao houver o que declarar, devolva reasoning = null. Isto NAO muda nada no treino: prescreva exatamente como prescreveria sem este campo.';
 
@@ -823,6 +827,7 @@ export class PrescriptionAgentService {
       'Responda em portugues nos campos de texto (notes, rationale, durationJustification).',
       REASONING_INSTRUCTION,
       EXECUTION_REPORT_INSTRUCTION,
+      ANALYST_EVIDENCE_INSTRUCTION,
       'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida.',
       '- OBRIGATORIO: retorne EXATAMENTE uma sessao em strengthSessions para CADA item listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). O mesmo weekday pode aparecer mais de uma vez na lista, uma para cada modalidade — retorne uma sessao pra cada item nesse caso, isso e o dado real da rotina do aluno, nao um erro. Se diasDisponiveisParaForca tiver 3 itens, strengthSessions tem que ter 3 sessoes — nunca deixe esse campo vazio ou incompleto quando diasDisponiveisParaForca nao estiver vazio: a resposta inteira e descartada quando isso acontece, desperdicando todo o raciocinio que voce fez pros dias de corrida.',
       '- A modalidade de cada item em diasDisponiveisParaForca vem da rotina real do aluno e normalmente nao muda — copie o campo modality literalmente. Uma diretriz sobre forca/fortalecimento normalmente muda foco/exercicios/intensidade daquele dia, nao a modalidade em si; so mude a modalidade se a diretriz pedir isso explicitamente.',
@@ -984,6 +989,8 @@ export class PrescriptionAgentService {
         historicoSemanal: input.history,
         // Etapa 2.1: consolidacao determinística da semana anterior (indicadores medidos; sem texto do aluno). Null quando indisponivel.
         relatorioDeExecucaoDaSemanaAnterior: input.weeklyExecutionReport ?? null,
+        // Etapa 2.2: achados do Analista (deterministico; sem IA). Evidencia para a SUA decisao; nao e' recomendacao nem prova de causa.
+        analiseTecnicaDoAnalistaDeTreinos: input.trainingAnalysis ?? null,
         sinalDeSeguranca: safetyAdjustment,
         motivoDoSinalDeSeguranca: painReason,
         maiorLongaoJaRegistrado: input.longestRunEver ? {

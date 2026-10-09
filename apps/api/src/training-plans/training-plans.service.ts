@@ -26,6 +26,7 @@ import { TargetRacesService } from '../target-races/target-races.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { PrescriptionTraceService } from './prescription-trace.service';
 import { ExecutionAnalysisService, WeeklyReportDraft } from '../activity-execution/execution-analysis.service';
+import { AnalystDraft, TrainingAnalystService } from './training-analyst.service';
 import { AgentCallTrace, buildEvidenceIndex, DeclaredReasoning, declaredKey, SessionForTrace, sourceProvidersOf } from './prescription-trace';
 import {
   ContextGap, describeError, formatObservationForAgent, formatPendingProfileEvent, selectHistoryWeeks, selectRelevantReportEntries,
@@ -211,6 +212,8 @@ export class TrainingPlansService {
     private readonly trace: PrescriptionTraceService,
     // Etapa 2.1: analise de execucao. Opcional de proposito: o relatorio da semana anterior e' informacao adicional e nunca bloqueia a geracao.
     @Optional() private readonly executionAnalysis?: ExecutionAnalysisService,
+    // Etapa 2.2: Analista de Treinos (deterministico, sem IA). Opcional de proposito: e' evidencia adicional e nunca bloqueia a geracao.
+    @Optional() private readonly analyst?: TrainingAnalystService,
   ) {}
 
   // Garante, ANTES de gastar uma chamada de IA, que o servico de rastreabilidade esta presente (protege tambem contra stubs/configuracao incompleta).
@@ -954,6 +957,18 @@ export class TrainingPlansService {
         contextGaps.push({ source: 'execucao_da_semana', severity: 'informativo', reason: describeError(error), effect: 'O relatorio matematico da semana anterior NAO pode ser calculado; decida pelo historicoSemanal.' });
       }
     }
+    // Etapa 2.2 — Analista de Treinos: interpreta os indicadores (2.1), o historico (21/60/200 d), os feedbacks e a intencao da prescricao (1.2b). Mesmo ponto do
+    // fluxo, SEM chamada de IA e sem segunda chamada ao Prescritor; os achados selecionados viajam no proprio contexto da geracao.
+    let analystDraft: AnalystDraft | null = null;
+    if (this.analyst) {
+      try {
+        analystDraft = await this.analyst.buildForGeneration(userId, weekStart, previousWeekPlan
+          ? { startDate: previousWeekStart, sessionIds: previousWeekPlan.sessions.filter((session) => !['device_extra', 'student_extra'].includes(session.origin ?? '') && ['corrida', 'esteira', 'forca', 'fortalecimento_corredores'].includes(session.modality)).map((session) => session.id), indicators: weeklyExecution?.indicators ?? null }
+          : null);
+      } catch (error) {
+        contextGaps.push({ source: 'analise_de_treinos', severity: 'informativo', reason: describeError(error), effect: 'A analise tecnica dos treinos NAO pode ser calculada; decida pelo historicoSemanal e pelos relatorios.' });
+      }
+    }
     // So chama a IA do prontuario se houver evento novo acumulado desde a ultima atualizacao —
     // ver StudentProfileService.refreshProfile. Falha aqui nunca bloqueia a geracao da semana.
     const informationContext = await this.loadStudentInformationContext(userId, { refreshProfile: true });
@@ -1015,6 +1030,7 @@ export class TrainingPlansService {
       contextGaps,
       weeklyCheckIn: latestWeeklyCheckIn,
       weeklyExecutionReport: weeklyExecution?.promptIndicators ?? null,
+      trainingAnalysis: analystDraft?.promptEvidence ?? null,
       athleteStateContext,
       todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
       // options.generateFrom: definido quando o aluno escolheu "Nao, a partir de amanha" no app
@@ -1498,6 +1514,7 @@ export class TrainingPlansService {
       const provenance = await this.trace.collectProvenance(tx, userId, weekStart);
       // O retrato do relatorio entregue com este programa e' gravado AQUI (mesma transacao): dados que chegarem depois atualizam os indicadores vivos, nunca este registro.
       if (weeklyExecution && this.executionAnalysis) await this.executionAnalysis.persistWeeklyReport(tx, userId, weeklyExecution, createdPlan.id);
+      if (analystDraft && this.analyst) await this.analyst.persistSnapshots(tx, userId, analystDraft, createdPlan.id);
       const executionProvenanceBase = await this.trace.collectExecutionProvenance(
         tx, userId,
         {
@@ -1506,7 +1523,7 @@ export class TrainingPlansService {
         },
         provenance,
       );
-      const executionProvenance = { ...executionProvenanceBase, weeklyExecutionReport: weeklyExecution?.indicators.sources.providers ?? [] };
+      const executionProvenance = { ...executionProvenanceBase, weeklyExecutionReport: weeklyExecution?.indicators.sources.providers ?? [], trainingAnalysis: analystDraft?.providers ?? [] };
       const previousWeek = historyWeeks[0] ? { startDate: historyWeeks[0].startDate, sessions: historyWeeks[0].sessions.map(toTrace) } : null;
       await this.trace.persistWeekly(tx, {
         userId, planId: createdPlan.id, weekStart, methodologyVersion: PANZERI_METHODOLOGY_VERSION,

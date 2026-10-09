@@ -209,6 +209,8 @@ export interface MethodologyInput {
   // Etapa 2.1: consolidacao matematica da semana ANTERIOR (frequencia x fidelidade, tempo por faixa prescrita, estrutura dos intervalados, km, musculacao).
   // Fato medido; so' numeros. Null quando nao ha semana anterior analisavel.
   weeklyExecutionReport?: Record<string, unknown> | null;
+  // Etapa 2.2: achados do Analista de Treinos (semana, treinos, evolucao) — selecao enxuta, com sustentacao e horizonte. Evidencia, nao decisao. Null sem dados.
+  trainingAnalysis?: Record<string, unknown> | null;
   recentSessionsNearRecord?: Array<{
     distanceKm: number;
     date: string;

@@ -24,6 +24,8 @@ export const EXECUTION_THRESHOLDS = {
   gapFactor: 3,
   minMovingMs: 0.5,
   smoothSec: 15,
+  // Janela mais curta so' para delimitar esforcos curtos (a de 15 s encurta ~10-15% um esforco de 300 m).
+  fineSmoothSec: 8,
   paceToleranceSec: 3,
   minSegmentObservedSec: 15,
   minCoverageForPercent: 0.5,
@@ -38,6 +40,15 @@ export const EXECUTION_THRESHOLDS = {
   accelMaxFraction: 0.25,
   accelSustainedFraction: 0.7,
   strengthDurationTolerance: 0.05,
+  // Assinatura do estimulo (Etapa 2.2): esforco = trecho >=8% mais rapido que o pace tipico da sessao, com >=20 s e >=100 m.
+  boutFasterThan: 0.92,
+  boutMinSec: 20,
+  boutMinMeters: 100,
+  boutMergeGapSec: 5,
+  recoveryMaxSec: 600,
+  passiveRecoverySpeedMs: 0.5,
+  passiveRecoveryPaceSecKm: 600,
+  signatureMinMovingSec: 120,
 } as const;
 
 export interface SeriesSample {
@@ -53,7 +64,8 @@ type Validity = 'valid' | 'gap' | 'invalid';
 interface Interval {
   t0: number; t1: number; d0: number; d1: number; dt: number; dd: number;
   validity: Validity; moving: boolean;
-  pace: number | null; // suavizado
+  pace: number | null; // suavizado (15 s)
+  paceFine: number | null; // suavizado (8 s) — usado so' para delimitar esforcos
   hr: number | null; cad: number | null;
 }
 
@@ -77,19 +89,23 @@ export function buildIntervals(points: SeriesSample[]): Interval[] {
     const validity: Validity = dt <= 0 || dd < 0 ? 'invalid' : dt > maxGap ? 'gap' : 'valid';
     out.push({
       t0: a.offsetSec, t1: b.offsetSec, d0: a.distanceMeters as number, d1: b.distanceMeters as number, dt: Math.max(dt, 0), dd,
-      validity, moving: validity === 'valid' && dd / dt >= EXECUTION_THRESHOLDS.minMovingMs, pace: null,
+      validity, moving: validity === 'valid' && dd / dt >= EXECUTION_THRESHOLDS.minMovingMs, pace: null, paceFine: null,
       hr: b.heartRateBpm, cad: b.cadenceSpm != null && b.cadenceSpm > 0 ? b.cadenceSpm : null,
     });
   }
   // pace suavizado: janela deslizante anterior de smoothSec sobre intervalos validos CONSECUTIVOS (uma pausa zera a janela)
-  for (let i = 0; i < out.length; i++) {
-    if (!out[i].moving) continue;
+  const smooth = (i: number, windowSec: number) => {
     let sumDt = 0; let sumDd = 0;
     for (let j = i; j >= 0 && out[j].validity === 'valid'; j--) {
       sumDt += out[j].dt; sumDd += out[j].dd;
-      if (sumDt >= EXECUTION_THRESHOLDS.smoothSec) break;
+      if (sumDt >= windowSec) break;
     }
-    out[i].pace = sumDd > 0 ? sumDt / (sumDd / 1000) : null;
+    return sumDd > 0 ? sumDt / (sumDd / 1000) : null;
+  };
+  for (let i = 0; i < out.length; i++) {
+    if (!out[i].moving) continue;
+    out[i].pace = smooth(i, EXECUTION_THRESHOLDS.smoothSec);
+    out[i].paceFine = smooth(i, EXECUTION_THRESHOLDS.fineSmoothSec);
   }
   return out;
 }
@@ -153,8 +169,27 @@ export interface StructureResult {
   reason: string | null;
 }
 
+// Esforcos efetivamente executados, reconhecidos pela SERIE (independente da prescricao): serve para comparar formatos de treino entre sessoes
+// (distancia por repeticao, quantidade, velocidade, volume rapido, recuperacao, regularidade) e para treinos sem prescricao correspondente.
+export interface EffortBout { startKm: number; distanceKm: number; durationSec: number; paceSecondsKm: number; avgHeartRateBpm: number | null }
+export interface RunSignature {
+  sessionDistanceKm: number;
+  typicalPaceSecondsKm: number;
+  boutCount: number;
+  boutDistanceKm: { median: number; min: number; max: number } | null;
+  boutPaceSecondsKm: { median: number; best: number; worst: number } | null;
+  fastVolumeKm: number;
+  fastVolumeSec: number;
+  recovery: { count: number; medianSec: number | null; mode: 'passiva' | 'ativa' | 'mista' | null };
+  regularity: { paceCvPct: number | null; distanceCvPct: number | null };
+  avgHeartRateInBoutsBpm: number | null;
+  bouts: EffortBout[];
+}
+
 export interface RunExecutionAnalysis {
   kind: 'run';
+  // Etapa 2.2: assinatura do estimulo executado (null sem serie ou com pouco tempo em movimento).
+  signature?: RunSignature | null;
   version: number;
   dataLevel: 'series' | 'summary_only' | 'manual_only' | 'none';
   totals: { prescribedKm: number | null; realizedKm: number | null; deltaKm: number | null; completionRatio: number | null; prescribedDurationSec: number | null; realizedDurationSec: number | null; avgPaceSecondsKm: number | null; avgHeartRateBpm: number | null; avgCadenceSpm: number | null; perceivedEffort: number | null };
@@ -233,6 +268,64 @@ function weightedAvg(intervals: Interval[], pick: (i: Interval) => number | null
     sum += value * interval.dt; weight += interval.dt;
   }
   return weight > 0 ? Math.round(sum / weight) : null;
+}
+
+// ── assinatura do estimulo (esforcos executados) ─────────────────────────────────────────────────────────────────────
+
+const median = (values: number[]) => { const s = [...values].sort((a, b) => a - b); const n = s.length; return n === 0 ? null : n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2; };
+const cvPct = (values: number[]) => { if (values.length < 3) return null; const m = values.reduce((a, b) => a + b, 0) / values.length; if (m <= 0) return null; const sd = Math.sqrt(values.reduce((a, b) => a + (b - m) ** 2, 0) / values.length); return round((sd / m) * 100); };
+
+export function detectSignature(intervals: Interval[]): RunSignature | null {
+  const moving = intervals.filter((i) => i.moving && i.paceFine != null);
+  const movingSec = moving.reduce((s, i) => s + i.dt, 0);
+  if (movingSec < EXECUTION_THRESHOLDS.signatureMinMovingSec) return null;
+  // pace tipico = mediana ponderada pelo tempo
+  const byPace = [...moving].sort((a, b) => (a.paceFine as number) - (b.paceFine as number));
+  let acc = 0; let typical = byPace[0].paceFine as number;
+  for (const i of byPace) { acc += i.dt; if (acc >= movingSec / 2) { typical = i.paceFine as number; break; } }
+  const threshold = typical * EXECUTION_THRESHOLDS.boutFasterThan;
+
+  type Raw = { from: number; to: number };
+  const runs: Raw[] = [];
+  let current: Raw | null = null; let pendingGapSec = 0;
+  intervals.forEach((interval, index) => {
+    const fast = interval.moving && interval.paceFine != null && interval.paceFine <= threshold;
+    if (fast) { if (current && pendingGapSec <= EXECUTION_THRESHOLDS.boutMergeGapSec) current.to = index; else { if (current) runs.push(current); current = { from: index, to: index }; } pendingGapSec = 0; }
+    else if (current) { pendingGapSec += interval.dt; if (interval.validity !== 'valid' || pendingGapSec > EXECUTION_THRESHOLDS.boutMergeGapSec) { runs.push(current); current = null; pendingGapSec = 0; } }
+  });
+  if (current) runs.push(current);
+
+  const bouts = runs.map((run) => {
+    const slice = intervals.slice(run.from, run.to + 1);
+    const dt = slice.reduce((s, i) => s + i.dt, 0); const dd = slice.reduce((s, i) => s + i.dd, 0);
+    return { run, slice, dt, dd, startM: slice[0].d0 };
+  }).filter((b) => b.dt >= EXECUTION_THRESHOLDS.boutMinSec && b.dd >= EXECUTION_THRESHOLDS.boutMinMeters);
+
+  const efforts: EffortBout[] = bouts.map((b) => ({
+    startKm: round(b.startM / 1000, 2), distanceKm: round(b.dd / 1000, 3), durationSec: round(b.dt, 0), paceSecondsKm: Math.round(b.dt / (b.dd / 1000)),
+    avgHeartRateBpm: weightedAvg(b.slice, (i) => i.hr),
+  }));
+  const recoveries = bouts.slice(1).map((b, i) => {
+    const prev = bouts[i];
+    const between = intervals.slice(prev.run.to + 1, b.run.from);
+    const dt = between.reduce((s, x) => s + x.dt, 0); const dd = between.reduce((s, x) => s + x.dd, 0);
+    if (dt <= 0 || dt > EXECUTION_THRESHOLDS.recoveryMaxSec) return null;
+    const speed = dd / dt; const pace = dd > 0 ? dt / (dd / 1000) : Infinity;
+    return { sec: dt, passive: speed < EXECUTION_THRESHOLDS.passiveRecoverySpeedMs || pace > EXECUTION_THRESHOLDS.passiveRecoveryPaceSecKm };
+  }).filter((r): r is { sec: number; passive: boolean } => r !== null);
+  const passiveShare = recoveries.length > 0 ? recoveries.filter((r) => r.passive).length / recoveries.length : null;
+  const distances = efforts.map((e) => e.distanceKm); const paces = efforts.map((e) => e.paceSecondsKm);
+  const hrInBouts = weightedAvg(bouts.flatMap((b) => b.slice), (i) => i.hr);
+  return {
+    sessionDistanceKm: round(intervals.filter((i) => i.validity === 'valid').reduce((s, i) => s + i.dd, 0) / 1000, 2),
+    typicalPaceSecondsKm: Math.round(typical), boutCount: efforts.length,
+    boutDistanceKm: efforts.length > 0 ? { median: round(median(distances) as number, 3), min: Math.min(...distances), max: Math.max(...distances) } : null,
+    boutPaceSecondsKm: efforts.length > 0 ? { median: Math.round(median(paces) as number), best: Math.min(...paces), worst: Math.max(...paces) } : null,
+    fastVolumeKm: round(efforts.reduce((s, e) => s + e.distanceKm, 0), 2), fastVolumeSec: round(efforts.reduce((s, e) => s + e.durationSec, 0), 0),
+    recovery: { count: recoveries.length, medianSec: recoveries.length > 0 ? round(median(recoveries.map((r) => r.sec)) as number, 0) : null, mode: passiveShare == null ? null : passiveShare >= 0.75 ? 'passiva' : passiveShare <= 0.25 ? 'ativa' : 'mista' },
+    regularity: { paceCvPct: cvPct(paces), distanceCvPct: cvPct(distances) },
+    avgHeartRateInBoutsBpm: hrInBouts, bouts: efforts.slice(0, 40),
+  };
 }
 
 // ── analise por bloco ───────────────────────────────────────────────────────────────────────────────────────────
@@ -371,7 +464,7 @@ export function analyzeRunExecution(input: RunInputs): RunExecutionAnalysis {
 
   if (!hasSeries) {
     limitations.push(dataLevel === 'summary_only' ? 'Sem serie temporal: so ha o resumo do relogio (sem percentuais por faixa nem estrutura).' : dataLevel === 'manual_only' ? 'Sem atividade do relogio: so ha o registro manual.' : 'Sem dados de execucao.');
-    return { kind: 'run', version: EXECUTION_ANALYSIS_VERSION, dataLevel, totals, coverage: null, blocks: null, blocksLimitation: 'sem_serie_temporal', intensity: { status: 'indeterminado', overall: null, byRole: {} }, structure: { prescribed: null, executed: 'indeterminado', scenario: null, confidence: null, evidence: null, reason: 'sem_serie_temporal' }, avgHeartRateInBandBpm: null, limitations };
+    return { kind: 'run', version: EXECUTION_ANALYSIS_VERSION, signature: null, dataLevel, totals, coverage: null, blocks: null, blocksLimitation: 'sem_serie_temporal', intensity: { status: 'indeterminado', overall: null, byRole: {} }, structure: { prescribed: null, executed: 'indeterminado', scenario: null, confidence: null, evidence: null, reason: 'sem_serie_temporal' }, avgHeartRateInBandBpm: null, limitations };
   }
 
   const elapsed = intervals.reduce((s, i) => s + i.dt, 0);
@@ -409,7 +502,7 @@ export function analyzeRunExecution(input: RunInputs): RunExecutionAnalysis {
     return total >= 60 ? weightedAvg(inBand, (i) => i.hr) : null; // exige >= 60 s dentro da faixa para ser comparavel
   })();
   const structure = classifyStructure(blocks, analyzed, coverage.coveragePct, intervals, realizedKm, status);
-  return { kind: 'run', version: EXECUTION_ANALYSIS_VERSION, dataLevel, totals, coverage, blocks: analyzed, blocksLimitation: blocks ? null : 'prescricao_sem_blocos_por_distancia', intensity: { status, overall, byRole }, structure, avgHeartRateInBandBpm: hrInBand, limitations };
+  return { kind: 'run', version: EXECUTION_ANALYSIS_VERSION, signature: detectSignature(intervals), dataLevel, totals, coverage, blocks: analyzed, blocksLimitation: blocks ? null : 'prescricao_sem_blocos_por_distancia', intensity: { status, overall, byRole }, structure, avgHeartRateInBandBpm: hrInBand, limitations };
 }
 
 // ── musculacao ──────────────────────────────────────────────────────────────────────────────────────────────────

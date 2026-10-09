@@ -2728,3 +2728,7 @@ Pipeline implementado: `TrainingSession` → `CanonicalWorkout` → `AppleCustom
 ### 2026-10-11 — Etapa 2.1: análise determinística da execução, relatório por treino e semanal (implementado; NÃO publicado; sem deploy)
 - **Entregue:** matemática pura de execução (tempo observável por faixa, cobertura, estrutura A–F, intensidade), relatório por treino e semanal sem IA, consolidação no ponto existente de `generateWeekLocked` (indicadores ao Prescritor + retrato gravado com o programa + exibição no app), 4 variáveis longitudinais, exclusão de dados do provedor integrada e correção visual do gráfico. Migration aditiva `20261011120000_execution_analysis`. Detalhes, critérios e limites em `ETAPA_2_1_ANALISE_DE_EXECUCAO.md`.
 - **Limites:** validado com séries sintéticas (sem séries reais no repositório); prescrição por tempo sem alinhamento por bloco; limiares não calibrados com dados reais; indicadores vivos recalculados ao abrir treino/semana (sem gancho na sincronização).
+
+
+### 2026-10-09 — Etapa 2.2 Analista de Treinos (local, sem push)
+Analista determinístico (0 chamadas de IA) com contrato training-analysis/1 persistido em TrainingAnalysis; evidência enxuta no prompt semanal; ver ETAPA_2_2_ANALISTA_DE_TREINOS.md.

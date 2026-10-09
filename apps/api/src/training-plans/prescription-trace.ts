@@ -46,7 +46,7 @@ export interface EvidenceItem {
 }
 
 export interface ExecutionDerivation {
-  kind: 'history_week' | 'longest_run' | 'near_record' | 'evolution_report' | 'reassessment_evolution' | 'profile_summary' | 'pending_profile_events' | 'weekly_execution_report';
+  kind: 'history_week' | 'longest_run' | 'near_record' | 'evolution_report' | 'reassessment_evolution' | 'profile_summary' | 'pending_profile_events' | 'weekly_execution_report' | 'training_analysis';
   weekStartDate?: string;
   // campo agregado da semana -> provedores de que deriva
   fields?: Record<string, string[]>;
@@ -193,6 +193,9 @@ export function buildEvidenceIndex(p: EvidenceBuildInput): EvidenceItem[] {
   if (p.executionProvenance && input.weeklyExecutionReport) {
     items.push(item({ ref: 'weekly_execution_report', kind: 'weekly_execution_report', source: 'WeeklyExecutionReport', label: 'Consolidacao de execucao da semana anterior', storage: 'reference_only', ...derivationParts({ kind: 'weekly_execution_report', providers: p.executionProvenance.weeklyExecutionReport ?? [] }) }));
   }
+  if (p.executionProvenance && input.trainingAnalysis) {
+    items.push(item({ ref: 'training_analysis', kind: 'training_analysis', source: 'TrainingAnalysis', label: 'Achados do Analista de Treinos', storage: 'reference_only', ...derivationParts({ kind: 'training_analysis', providers: p.executionProvenance.trainingAnalysis ?? [] }) }));
+  }
   if (p.executionProvenance && input.longestRunEver) {
     items.push(item({ ref: 'record:longest_run', kind: 'record_run', source: 'WorkoutCompletion', label: 'Maior longao ja registrado', storage: 'reference_only', ...derivationParts({ kind: 'longest_run', providers: p.executionProvenance.longestRun }) }));
   }
@@ -290,6 +293,7 @@ export function sourceProvidersOf(input: MethodologyInput, provenance: ProviderP
   for (const week of execution?.weeks ?? []) { Object.values(week.fields).flat().forEach((p) => providers.add(p)); week.recordedSessions.forEach((e) => e.providers.forEach((p) => providers.add(p))); }
   (execution?.longestRun ?? []).forEach((p) => providers.add(p));
   if (input.weeklyExecutionReport) (execution?.weeklyExecutionReport ?? []).forEach((p) => providers.add(p));
+  if (input.trainingAnalysis) (execution?.trainingAnalysis ?? []).forEach((p) => providers.add(p));
   (execution?.nearRecord ?? []).forEach((e) => e.providers.forEach((p) => providers.add(p)));
   if (input.studentProfileSummary) (execution?.profileSummary ?? []).forEach((p) => providers.add(p));
   (input.pendingProfileEvents ?? []).forEach((_, index) => (execution?.pendingProfileEvents ?? []).filter((e) => e.index === index).forEach((e) => e.providers.forEach((p) => providers.add(p))));
@@ -369,6 +373,8 @@ export interface ExecutionProvenance {
   pendingProfileEvents?: Array<{ index: number; providers: string[] }>;
   // Etapa 2.1: provedores das atividades usadas no relatorio de execucao da semana anterior enviado ao Prescritor (indicadores derivados de dispositivo).
   weeklyExecutionReport?: string[];
+  // Etapa 2.2: provedores de que derivam os achados do Analista enviados ao Prescritor.
+  trainingAnalysis?: string[];
 }
 
 export function classifyExecutionProvenance(
@@ -434,7 +440,7 @@ export const PROMPT_FIELD_CLASSIFICATION: Record<string, PromptFieldClass> = {
   durationMinDisponivel: 'independent', diaDeForcaParaRegenerar: 'independent',
   athleteStateContext: 'device_aggregate',
   historicoSemanal: 'device_execution', maiorLongaoJaRegistrado: 'device_execution', sessoesRecentesPertoDoRecorde: 'device_execution',
-  relatorioDeExecucaoDaSemanaAnterior: 'device_execution',
+  relatorioDeExecucaoDaSemanaAnterior: 'device_execution', analiseTecnicaDoAnalistaDeTreinos: 'device_execution',
   reavaliacaoMaisRecente: 'device_narrative', relatorioDeEvolucao: 'device_narrative', prontuarioDoAluno: 'device_narrative', eventosDoProntuarioAindaNaoCondensados: 'device_narrative',
 };
 
@@ -618,6 +624,7 @@ export function applyExecutionActions(prompt: unknown, plan: ExecutionAction[] |
       for (const index of indexes) if (index < list.length && list[index] !== REMOVED_LINE) { list[index] = REMOVED_LINE; removed.push('eventosDoProntuarioAindaNaoCondensados[' + index + ']'); }
     }
     if ('relatorioDeExecucaoDaSemanaAnterior' in node && node.relatorioDeExecucaoDaSemanaAnterior !== null && (all || actions.some((a) => a.kind === 'weekly_execution_report'))) { node.relatorioDeExecucaoDaSemanaAnterior = null; removed.push('relatorioDeExecucaoDaSemanaAnterior'); }
+    if ('analiseTecnicaDoAnalistaDeTreinos' in node && node.analiseTecnicaDoAnalistaDeTreinos !== null && (all || actions.some((a) => a.kind === 'training_analysis'))) { node.analiseTecnicaDoAnalistaDeTreinos = null; removed.push('analiseTecnicaDoAnalistaDeTreinos'); }
     if ('relatorioDeEvolucao' in node && node.relatorioDeEvolucao !== null && (all || actions.some((a) => a.kind === 'evolution_report'))) { node.relatorioDeEvolucao = null; removed.push('relatorioDeEvolucao'); }
     const reassessment = node.reavaliacaoMaisRecente as Record<string, unknown> | null | undefined;
     if (reassessment && typeof reassessment === 'object' && (all || actions.some((a) => a.kind === 'reassessment_evolution'))) {
@@ -655,7 +662,7 @@ export function redactEvidenceForProvider(evidence: unknown, provider: string, o
       const derivation = entry.derivation;
       const fields = Object.fromEntries(Object.entries(derivation.fields ?? {}).filter(([, providers]) => !matchesProvider(providers, provider)));
       const entries = (derivation.entries ?? []).filter((e) => !matchesProvider(e.providers, provider));
-      const itemHit = ['longest_run', 'evolution_report', 'reassessment_evolution', 'profile_summary', 'weekly_execution_report'].includes(derivation.kind) ? matchesProvider(entry.providers, provider) : false;
+      const itemHit = ['longest_run', 'evolution_report', 'reassessment_evolution', 'profile_summary', 'weekly_execution_report', 'training_analysis'].includes(derivation.kind) ? matchesProvider(entry.providers, provider) : false;
       const changed = itemHit || Object.keys(fields).length !== Object.keys(derivation.fields ?? {}).length || entries.length !== (derivation.entries ?? []).length;
       if (!changed) return entry;
       redacted++;

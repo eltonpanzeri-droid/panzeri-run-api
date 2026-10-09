@@ -13,7 +13,8 @@ export type ContextGapSource =
   | 'relatos_do_aluno'
   | 'checkin_semanal'
   | 'historico_semanal'
-  | 'execucao_da_semana';
+  | 'execucao_da_semana'
+  | 'analise_de_treinos';
 
 export interface ContextGap {
   source: ContextGapSource;
