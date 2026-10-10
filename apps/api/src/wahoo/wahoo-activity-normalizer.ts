@@ -11,8 +11,9 @@
 
 // workout_type_id (enumeracao da documentacao). So' o que e' inequivocamente corrida vira modalidade de corrida;
 // qualquer outra coisa e' 'outra' (mesma postura conservadora do adapter Polar).
-const RUNNING_TYPE_IDS = new Set([1, 3, 4, 67]); // RUNNING, RUNNING_TRACK, RUNNING_TRAIL, RUNNING_RACE
-const TREADMILL_TYPE_IDS = new Set([5, 71]); // RUNNING_TREADMILL, RUNNING_INDOOR_VIRTUAL
+// (10/2026: o mapa completo id -> modalidade canonica vive em activity-modality-map.ts.)
+
+import { wahooModality } from '../activity-execution/activity-modality-map';
 
 export const WAHOO_WORKOUT_TYPE_NAMES: Record<number, string> = {
   0: 'BIKING', 1: 'RUNNING', 2: 'FE', 3: 'RUNNING_TRACK', 4: 'RUNNING_TRAIL', 5: 'RUNNING_TREADMILL', 6: 'WALKING', 7: 'WALKING_SPEED',
@@ -60,11 +61,7 @@ export function asId(value: unknown): string | null {
 }
 
 export function normalizeWahooModality(workoutTypeId: unknown): string {
-  const id = asNumber(workoutTypeId);
-  if (id === null) return 'outra';
-  if (RUNNING_TYPE_IDS.has(id)) return 'corrida';
-  if (TREADMILL_TYPE_IDS.has(id)) return 'esteira';
-  return 'outra';
+  return wahooModality(asNumber(workoutTypeId));
 }
 
 // Inicio do treino: workout.starts e' ISO 8601 UTC. Sem fuso explicito NAO assumimos nada (mesma regra do Polar).

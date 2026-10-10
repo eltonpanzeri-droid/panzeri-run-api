@@ -28,6 +28,22 @@ export class ActivityExecutionController {
     return this.sessionExecutionLinkService.confirmCandidateAsStudent(user.sub, linkId, note ?? null);
   }
 
+  // Correcao pelo aluno (10/2026): "Vincular a treino prescrito" (tambem corrige um vinculo existente) e "Desfazer vinculo".
+  @Get(':activityLogId/linkable-sessions')
+  linkableSessions(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string) {
+    return this.sessionExecutionLinkService.linkableSessionsAsStudent(user.sub, activityLogId);
+  }
+
+  @Post(':activityLogId/link')
+  link(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string, @Body('trainingSessionId') trainingSessionId: string) {
+    return this.sessionExecutionLinkService.linkActivityToSessionAsStudent(user.sub, activityLogId, String(trainingSessionId ?? ''));
+  }
+
+  @Post(':activityLogId/unlink')
+  unlink(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string, @Body('note') note?: string) {
+    return this.sessionExecutionLinkService.unlinkActivityAsStudent(user.sub, activityLogId, note ?? null);
+  }
+
   // Feedback de Atividade Alternativa (02/10/2026) — materializa (idempotente) a TrainingSession +
   // WorkoutCompletion sinteticas pra' uma ActivityLog 'alternative', devolvendo o sessionId pro
   // mobile abrir o MESMO formulario de feedback (POST /workout-completions) ja' usado pra sessoes

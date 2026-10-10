@@ -218,6 +218,7 @@ interface WeekPlanSession {
   isAlternative?: boolean;
   // So' presente quando isAlternative — rotulo discreto da origem do dado (ver ProviderLabel).
   alternativeProvider?: string | null;
+  alternativeActivityLogId?: string | null;
 }
 
 // Shape de WorkoutCompletion devolvido pela API — reusado tanto por WeekPlanSession.completion
@@ -5099,6 +5100,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       realized: null,
       isAlternative: true,
       alternativeProvider: activity.provider,
+      alternativeActivityLogId: activity.activityLogId,
     };
   }
 
@@ -5562,6 +5564,8 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                         <RealizedComparisonCard realized={session.realized} prescribedDistanceKm={session.distanceKm} prescribedDurationMin={session.durationMin} />
                         <ExecutionReportCard title="Relatório do treino" lines={plan?.sessionReports?.[session.id]?.lines} />
                         {session.realized ? <ActivityDetailButton activityLogId={session.realized.activityLogId} accessToken={accessToken} /> : null}
+                        {session.realized ? <ActivityLinkControls activityLogId={session.realized.activityLogId} linked accessToken={accessToken} onChanged={loadPlan} /> : null}
+                        {session.isAlternative && session.alternativeActivityLogId ? <ActivityLinkControls activityLogId={session.alternativeActivityLogId} linked={false} accessToken={accessToken} onChanged={loadPlan} /> : null}
                         {/* Envio ao Apple Watch (WorkoutKit): so' no app nativo iOS e so' p/ corrida continua externa por distancia (a API decide). */}
                         <AppleWatchSendButton sessionId={session.id} accessToken={accessToken} apiUrl={API_URL} />
                         <SessionPrescription
@@ -10660,6 +10664,95 @@ function roundKm(value: number) {
 // 03/10/2026 — "Ver treino completo": detalhe canonico da execucao (GET /me/activity-reconciliation/:id/detail).
 // Provider aparece so' como origem. Null nunca vira zero: cada linha so' aparece quando o dado existe.
 // Tipos e corpo do 'Treino completo' em src/activityDetail.tsx (Bloco 1, 04/10/2026).
+// Correcao pelo aluno (10/2026): "Vincular a treino prescrito" (atividade extra), "Trocar treino" e "Desfazer vinculo" (atividade vinculada).
+// O app so' mostra o que a API devolve (treinos validos para a atividade) e envia a escolha; quem valida e grava e' o servico de vinculos.
+function confirmAsync(title: string, message: string): Promise<boolean> {
+  if (Platform.OS === 'web') return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [{ text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) }, { text: 'Confirmar', onPress: () => resolve(true) }], { cancelable: true, onDismiss: () => resolve(false) });
+  });
+}
+
+function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }: { activityLogId: string; linked: boolean; accessToken: string; onChanged: () => void }) {
+  const [options, setOptions] = React.useState<Array<{ id: string; title: string; modality: string; isoDate: string; linkedToThisActivity: boolean; linkedToAnotherActivity: boolean }> | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [message, setMessage] = React.useState('');
+  const headers = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+
+  async function openOptions() {
+    setBusy(true);
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/me/activity-reconciliation/${activityLogId}/linkable-sessions`, { headers });
+      if (!response.ok) throw new Error();
+      const list = (await response.json()) as NonNullable<typeof options>;
+      setOptions(list);
+      if (list.length === 0) setMessage('Não há treino prescrito desta semana compatível com esta atividade.');
+    } catch {
+      setMessage('Não foi possível carregar os treinos agora.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function post(path: 'link' | 'unlink', body: Record<string, unknown>) {
+    setBusy(true);
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/me/activity-reconciliation/${activityLogId}/${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        setMessage(payload?.message ?? 'Não foi possível salvar agora.');
+        return;
+      }
+      setOptions(null);
+      onChanged();
+    } catch {
+      setMessage('Não foi possível salvar agora.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function choose(option: NonNullable<typeof options>[number]) {
+    const replaces = option.linkedToAnotherActivity ? '\n\nEsse treino já tinha outra atividade vinculada; ela passará a ser uma atividade extra.' : '';
+    const ok = await confirmAsync('Vincular atividade', `Confirma que esta atividade foi o treino "${option.title}" de ${option.isoDate.split('-').reverse().join('/')}? O seu feedback desse treino será mantido.${replaces}`);
+    if (ok) await post('link', { trainingSessionId: option.id });
+  }
+
+  async function unlink() {
+    const ok = await confirmAsync('Desfazer vínculo', 'Esta atividade deixará de ser contada como esse treino e passará a ser uma atividade extra. O feedback do treino será mantido.');
+    if (ok) await post('unlink', {});
+  }
+
+  return (
+    <View style={{ gap: 6, marginTop: 6 }}>
+      {options == null ? (
+        <>
+          <Pressable style={[styles.secondaryOutlineButton, busy && styles.disabledButton]} disabled={busy} onPress={openOptions}>
+            <Text style={styles.secondaryOutlineButtonText}>{busy ? 'Carregando...' : linked ? 'Trocar treino vinculado' : 'Vincular a treino prescrito'}</Text>
+          </Pressable>
+          {linked ? (
+            <Pressable style={[styles.secondaryOutlineButton, busy && styles.disabledButton]} disabled={busy} onPress={unlink}>
+              <Text style={styles.secondaryOutlineButtonText}>Desfazer vínculo</Text>
+            </Pressable>
+          ) : null}
+        </>
+      ) : (
+        <>
+          {options.map((option) => (
+            <Pressable key={option.id} style={[styles.secondaryOutlineButton, (busy || option.linkedToThisActivity) && styles.disabledButton]} disabled={busy || option.linkedToThisActivity} onPress={() => choose(option)}>
+              <Text style={styles.secondaryOutlineButtonText}>{`${option.isoDate.split('-').reverse().slice(0, 2).join('/')} · ${option.title}${option.linkedToThisActivity ? ' (atual)' : option.linkedToAnotherActivity ? ' (já vinculado a outra atividade)' : ''}`}</Text>
+            </Pressable>
+          ))}
+          <Pressable onPress={() => { setOptions(null); setMessage(''); }}><Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center' }}>Cancelar</Text></Pressable>
+        </>
+      )}
+      {message ? <Text style={{ fontSize: 12, color: '#b91c1c' }}>{message}</Text> : null}
+    </View>
+  );
+}
+
 function ActivityDetailButton({ activityLogId, accessToken }: { activityLogId: string; accessToken: string }) {
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<ActivityDetail | null>(null);
@@ -10803,6 +10896,7 @@ function AlternativeActivityCard({ activity, accessToken, onMaterialized, highli
         <Pressable style={[styles.secondaryOutlineButton, { marginTop: 8 }, submitting && styles.disabledButton]} disabled={submitting} onPress={registerFeedback}>
           <Text style={styles.secondaryOutlineButtonText}>{submitting ? 'Abrindo...' : 'Registrar feedback'}</Text>
         </Pressable>
+        {activity.activityLogId ? <ActivityLinkControls activityLogId={activity.activityLogId} linked={false} accessToken={accessToken} onChanged={onMaterialized} /> : null}
         {error ? <Text style={{ fontSize: 12, color: '#b91c1c' }}>{error}</Text> : null}
       </View>
     </View>
@@ -12518,6 +12612,9 @@ function iconForModality(modality: string): keyof typeof Ionicons.glyphMap {
   if (modality === 'descanso') {
     return 'moon';
   }
+  if (modality === 'funcional') return 'barbell';
+  if (modality === 'bike') return 'bicycle';
+  if (modality === 'natacao') return 'water';
   return 'walk';
 }
 
@@ -12961,6 +13058,9 @@ function modalityLabel(modality?: string | null) {
   if (modality === 'bike') return 'bike/aerobico';
   if (modality === 'forca') return 'musculacao';
   if (modality === 'fortalecimento_corredores') return 'fortalecimento';
+  if (modality === 'funcional') return 'treino funcional';
+  if (modality === 'natacao') return 'natação';
+  if (modality === 'caminhada') return 'caminhada';
   return 'outra atividade';
 }
 

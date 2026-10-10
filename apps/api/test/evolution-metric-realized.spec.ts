@@ -29,6 +29,7 @@ function activity(overrides: Record<string, unknown> = {}) {
     utcOffsetMinutes: 0,
     distanceMeters: 10200,
     executionClassification: 'corresponding',
+    sport: 'corrida',
     ...overrides,
   };
 }
@@ -96,6 +97,21 @@ describe('EvolutionMetricService — realidade objetiva no longitudinal (03/10/2
     const week = series.weeks[0];
     expect(week.kmPercorridos).toBe(5); // uma vez, nunca 10
     expect(week.sessoesPrescritas).toBe(0); // device_extra nunca e' prescricao
+  });
+
+  it('(10/2026) bike, natacao e caminhada ALTERNATIVAS continuam registradas mas NUNCA viram km de corrida; esteira conta como corrida', async () => {
+    const service = build(
+      [],
+      [
+        activity({ id: 'b1', sport: 'bike', distanceMeters: 40000, executionClassification: 'alternative' }),
+        activity({ id: 'n1', sport: 'natacao', distanceMeters: 2000, executionClassification: 'alternative' }),
+        activity({ id: 'c1', sport: 'caminhada', distanceMeters: 5000, executionClassification: 'alternative' }),
+        activity({ id: 'e1', sport: 'esteira', distanceMeters: 8000, executionClassification: 'corresponding' }),
+      ],
+    );
+    const week = (await service.getSeries('aluno-1')).weeks[0];
+    expect(week.kmPercorridos).toBe(8);
+    expect(week.kmExtras).toBeNull();
   });
 
   it('distancia ausente vira null, nunca zero (semana sem km realizado mantem kmPercorridos null)', async () => {

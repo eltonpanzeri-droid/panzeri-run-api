@@ -9,6 +9,8 @@
 //    preenchida quando o bundle identifier permite afirmar (senao null).
 // Dado ausente permanece null. Nada aqui calcula, interpreta ou deduplica.
 
+import { appleHealthModality } from '../activity-execution/activity-modality-map';
+
 export const APPLE_HEALTH_PROVIDER = 'apple_health';
 export const APPLE_HEALTH_CHANNEL = 'healthkit';
 export const APPLE_HEALTH_PAYLOAD_SCHEMA = 'apple-healthkit-workout-v1';
@@ -72,10 +74,10 @@ export function utcOffsetMinutesAt(timeZone: string, at: Date): number | null {
   }
 }
 
-// Mapa conservador (so' o que e' observado): running -> corrida. Qualquer outra atividade vira 'outra' (o tipo bruto
-// fica preservado em providerMetrics.activityType). Nao tenta distinguir esteira aqui (isIndoor fica preservado).
-function modalityFor(activityType: string | null): string {
-  return activityType === 'running' ? 'corrida' : 'outra';
+// Modalidade canonica pelo valor NUMERICO oficial do HKWorkoutActivityType (activityTypeRaw), conforme activity-modality-map.ts. O tipo bruto
+// continua preservado em raw/providerMetrics. Sem o numero, so' 'running' e' reconhecido; qualquer outro vira 'outra' (registrada, nunca descartada).
+function modalityFor(activityType: string | null, activityTypeRaw: number | null, isIndoor: boolean | null): string {
+  return appleHealthModality(activityTypeRaw, activityType, isIndoor);
 }
 
 export function normalizeAppleHealthWorkout(input: unknown): NormalizeResult {
@@ -139,7 +141,7 @@ export function normalizeAppleHealthWorkout(input: unknown): NormalizeResult {
         utcOffsetMinutes,
         durationSec: durationNumber === null ? null : Math.round(durationNumber),
         distanceMeters: distanceNumber,
-        sport: modalityFor(activityType),
+        sport: modalityFor(activityType, asFiniteNumber(w.activityTypeRaw), typeof w.isIndoor === 'boolean' ? w.isIndoor : null),
       },
       providerMetrics: {
         channel: APPLE_HEALTH_CHANNEL,

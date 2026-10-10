@@ -2738,3 +2738,6 @@ Regeneração de dia recebe o retrato do Analista; seleção por foco; fundament
 
 ### 2026-10-10 — Classificação individual de tendências + Polar fora do Perfil (local)
 changePattern (estável/oscilação/mudança recente/sustentada/insuficiente) por histórico individual; direção exposta agora é a sustentada; desempate de observações no mesmo dia; instância PolarConnect removida do Perfil. Ver AJUSTE_CLASSIFICACAO_DE_TENDENCIAS.md. Duplicidades Polar/Apple: investigação só de leitura (sem acesso a dados reais).
+
+### 2026-10-10 — Atividades externas × treinos: modalidades oficiais, extras sem contaminar km, correção pelo aluno (local)
+Ver ETAPA_ATIVIDADES_EXTERNAS_E_VINCULOS.md e RUNBOOK_CORRECAO_MUSCULACAO_30-09_01-10.md (correção de dados de produção preparada, aguardando autorização).

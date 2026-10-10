@@ -74,7 +74,13 @@ describe('normalizador Wahoo', () => {
   it('modalidade: so corrida e esteira inequivocas; resto e outra (nunca inventa)', () => {
     for (const id of [1, 3, 4, 67]) expect(normalizeWahooModality(id)).toBe('corrida');
     for (const id of [5, 71]) expect(normalizeWahooModality(id)).toBe('esteira');
-    for (const id of [0, 6, 9, 42, 56, 255, null, undefined, 'x']) expect(normalizeWahooModality(id)).toBe('outra');
+    // (10/2026) tabela oficial ampliada (activity-modality-map.ts): bike, caminhada, natacao e treino generico (funcional) sao reconhecidos.
+    for (const id of [0, 12, 61]) expect(normalizeWahooModality(id)).toBe('bike');
+    for (const id of [6, 9, 56]) expect(normalizeWahooModality(id)).toBe('caminhada');
+    for (const id of [25, 26]) expect(normalizeWahooModality(id)).toBe('natacao');
+    expect(normalizeWahooModality(42)).toBe('funcional');
+    // motociclismo (17), ioga (66), esportes sem familia propria, desconhecido e valores invalidos seguem como atividade registrada 'outra'
+    for (const id of [17, 66, 46, 255, null, undefined, 'x']) expect(normalizeWahooModality(id)).toBe('outra');
   });
 
   it('decimais em string e unidades corretas; campo ausente vira null, nunca 0', () => {

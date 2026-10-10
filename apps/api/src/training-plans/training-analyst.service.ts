@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ExecutionAnalysisService } from '../activity-execution/execution-analysis.service';
 import { EXECUTION_ANALYSIS_VERSION, SessionAnalysis } from '../activity-execution/execution-analysis';
+import { canonicalModality } from '../activity-execution/canonical-modality';
+import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { WeeklyExecutionIndicators } from '../activity-execution/execution-report';
 import { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
 import { getVariableDefinition } from '../training-intelligence/variable-registry';
@@ -103,6 +105,26 @@ export class TrainingAnalystService {
     return out;
   }
 
+  // Atividades extras de modalidades que NAO sao corrida/esteira (musculacao/funcional por iniciativa do aluno, bike, natacao, caminhada, outras): uma
+  // observacao por evento fisico (canonica), so' contagem e minutos reais. Corrida/esteira extras ja' entram como linhas analisadas (loadRows).
+  private async loadOtherActivities(userId: string, from: Date, to: Date): Promise<{ items: Array<{ modality: string; count: number; minutes: number }>; providers: string[]; activityLogIds: string[] }> {
+    const providers = new Set<string>();
+    const activityLogIds: string[] = [];
+    const rows = await this.prisma.activityLog.findMany({ where: { userId, executionClassification: 'alternative', startedAt: { gte: from, lt: to } } });
+    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
+    const byModality = new Map<string, { count: number; minutes: number }>();
+    for (const { row } of picks) {
+      const modality = canonicalModality(row.sport) ?? 'outra';
+      if (modality === 'corrida' || modality === 'esteira') continue;
+      providers.add(row.provider); activityLogIds.push(row.id);
+      const entry = byModality.get(modality) ?? { count: 0, minutes: 0 };
+      entry.count += 1;
+      entry.minutes += row.durationSec != null ? row.durationSec / 60 : 0;
+      byModality.set(modality, entry);
+    }
+    return { items: [...byModality.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([modality, v]) => ({ modality, count: v.count, minutes: Math.round(v.minutes) })), providers: [...providers].sort(), activityLogIds };
+  }
+
   private async prescriptionContexts(userId: string, rows: AnalysisRow[]): Promise<Map<string, PrescriptionContext>> {
     const ids = rows.filter((r) => !r.isExtra).map((r) => r.sessionId);
     if (ids.length === 0) return new Map();
@@ -137,10 +159,17 @@ export class TrainingAnalystService {
       row: r, prescription: prescriptions.get(r.sessionId) ?? null, feedback: feedbacks.get(r.sessionId) ?? null,
       history: rows.filter((h) => h.scheduledDate < r.scheduledDate && h.sessionId !== r.sessionId),
     }));
+    const others = await this.loadOtherActivities(userId, prevStart, weekStart);
+    const otherActivities = others.items;
     const weekFeedback = new Map(weekRows.filter((r) => feedbacks.has(r.sessionId)).map((r) => [r.sessionId, feedbacks.get(r.sessionId) as FeedbackInput]));
-    const week = weekRows.length > 0 || previousWeek?.indicators
-      ? analyzeWeekInContext({ weekStart: day(prevStart), indicators: previousWeek?.indicators ?? null, rows: weekRows, previousWeeks: summarizePreviousWeeks(rows, feedbacks, day(prevStart)), trends: trends.filter((t) => RECOVERY_VARIABLES.includes(t.variableId)), feedbackBySession: weekFeedback })
+    const week = weekRows.length > 0 || previousWeek?.indicators || others.items.length > 0
+      ? analyzeWeekInContext({ weekStart: day(prevStart), otherActivities, indicators: previousWeek?.indicators ?? null, rows: weekRows, previousWeeks: summarizePreviousWeeks(rows, feedbacks, day(prevStart)), trends: trends.filter((t) => RECOVERY_VARIABLES.includes(t.variableId)), feedbackBySession: weekFeedback })
       : null;
+    // Os achados sobre outras modalidades derivam de dados de dispositivo: entram na proveniencia (exclusao de dados de provedor).
+    if (week && others.items.length > 0) {
+      week.evidence.providers = [...new Set([...week.evidence.providers, ...others.providers])].sort();
+      week.evidence.activityLogIds = [...new Set([...week.evidence.activityLogIds, ...others.activityLogIds])];
+    }
     const longitudinal = analyzeLongitudinal({ asOf, rows, trends: trends.filter((t) => LONGITUDINAL_VARIABLES.includes(t.variableId)), rpeBySession });
 
     // persiste o indicador VIVO de cada sessao analisada (recalculado quando a fonte muda)

@@ -53,6 +53,9 @@ export function observerKeyOf(provider: string, providerMetrics: unknown): strin
 }
 
 const RUNNING_SPORTS = new Set(['corrida', 'esteira']);
+// (10/2026) Familia de forca: o mesmo treino pode chegar como 'forca' num provedor (ex.: Polar STRENGTH_TRAINING) e como 'funcional' em outro (ex.: Apple
+// functionalStrengthTraining/crossTraining). Sem isto, a ampliacao do vocabulario faria o mesmo evento contar duas vezes.
+const STRENGTH_SPORTS = new Set(['forca', 'funcional']);
 
 type SportCompatibility = 'compatible' | 'incompatible' | 'unknown';
 
@@ -64,6 +67,7 @@ function sportCompatibility(rawA: string | null, rawB: string | null): SportComp
   if (!a || !b || a === 'outra' || b === 'outra') return 'unknown';
   if (a === b) return 'compatible';
   if (RUNNING_SPORTS.has(a) && RUNNING_SPORTS.has(b)) return 'compatible';
+  if (STRENGTH_SPORTS.has(a) && STRENGTH_SPORTS.has(b)) return 'compatible';
   return 'incompatible';
 }
 

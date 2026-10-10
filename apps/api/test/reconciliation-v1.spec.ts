@@ -356,16 +356,17 @@ describe('Motor de Reconciliacao Prescricao x Execucao V1', () => {
     expect(sessionExecutionLinks.size).toBe(countAfterFirst);
   });
 
-  it('18. sessao ja vinculada a OUTRA atividade: nova atividade compativel fica ambigua (possivel duplicata/continuacao/fragmentacao), nunca decide sozinho', async () => {
+  it('18. sessao ja vinculada a OUTRA atividade: a nova atividade compativel vira atividade EXTRA (10/2026; antes ficava ambigua), sem tocar no vinculo existente', async () => {
     const { service, addActivity, addSession } = fixture();
     const session = addSession({ modality: 'corrida' });
     const first = addActivity({ sport: 'corrida', startedAt: new Date('2026-10-01T07:00:00Z') });
     await service.linkManually({ trainingSessionId: session.id, activityLogId: first.id, origin: 'automatic' });
 
-    // Segunda atividade do mesmo dia, mesma modalidade, sem nenhum OUTRO candidato disponivel —
-    // pode ser continuacao/reinicio da mesma execucao (requisito 4), entao fica ambigua.
+    // Segunda atividade do mesmo dia, mesma modalidade, sem nenhum OUTRO candidato livre: uma unica prescricao ja' cumprida => atividade extra.
+    // O aluno pode corrigir pelo "Vincular a treino prescrito".
     const second = addActivity({ sport: 'corrida', startedAt: new Date('2026-10-01T09:00:00Z') });
-    expect(await service.classify(second.id)).toBe('ambiguous');
+    expect(await service.classify(second.id)).toBe('alternative');
+    expect(await service.hasActiveLink(session.id)).toBe(true);
   });
 
   it('16. vinculo anteriormente corrigido/revogado pelo aluno: classify() nunca reexecuta nem ressuscita decisao, historico preservado', async () => {

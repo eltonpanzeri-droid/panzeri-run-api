@@ -68,11 +68,11 @@ describe('3C.1 — Evolution: distancia objetiva por PhysicalEvent', () => {
     expect(series.weeks[0].kmPercorridos).toBe(10.2);
   });
 
-  it('modalidade: RUNNING (legado) e corrida sao a mesma semantica no filtro por modalidade; esteira continua distinta', async () => {
+  it('modalidade: RUNNING (legado), corrida e esteira sao a mesma modalidade interna (corrida) no filtro por modalidade (10/2026)', async () => {
     const rows = [log('legacy', { sport: 'RUNNING', distanceMeters: 6000 }), log('modern', { distanceMeters: 4000, startedAt: new Date('2026-08-04T10:00:00Z') }), log('treadmill', { sport: 'esteira', distanceMeters: 3000, startedAt: new Date('2026-08-05T10:00:00Z') })];
     const prisma = { trainingSession: { findMany: jest.fn().mockResolvedValue([]) }, activityLog: store(rows) };
     const series = await new EvolutionMetricService(prisma as never).getSeriesByModality('aluno-1', 'corrida');
-    expect(series.weeks[0].kmPercorridos).toBe(10);
+    expect(series.weeks[0].kmPercorridos).toBe(13); // 6 (RUNNING legado) + 4 (corrida) + 3 (esteira)
   });
 });
 

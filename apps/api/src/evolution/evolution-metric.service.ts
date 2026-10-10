@@ -158,9 +158,17 @@ export class EvolutionMetricService {
       select,
     });
     const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } }, select }));
-    const wanted = sport ? (canonicalModality(sport) ?? sport) : null;
+    // (10/2026) Volume em KM e' km de CORRIDA: sem modalidade pedida, so' corrida/esteira entram (bike, natacao, caminhada etc. continuam registradas
+    // como atividades extras, mas nunca viram km de corrida). Com modalidade pedida, vale aquela modalidade (corrida inclui esteira).
+    const wantedRaw = sport ? (canonicalModality(sport) ?? sport) : null;
+    const wanted = wantedRaw === 'esteira' ? 'corrida' : wantedRaw;
+    const matches = (value: string | null) => {
+      const modality = canonicalModality(value) ?? value;
+      const family = modality === 'esteira' ? 'corrida' : modality;
+      return wanted ? family === wanted : family === 'corrida';
+    };
     return picks
-      .filter(({ row }) => !wanted || (canonicalModality(row.sport) ?? row.sport) === wanted)
+      .filter(({ row }) => matches(row.sport))
       .map(({ row, representedBy }) => ({
         id: row.id,
         isoDate: localIsoDate(row.startedAt, row.utcOffsetMinutes),

@@ -7,7 +7,8 @@
 // Conservadora: so' mapeia aliases comprovadamente equivalentes. Valor desconhecido -> null (modalidade nao interpretavel = "desconhecida",
 // nunca "incompativel"). Idempotente: valor ja canonico volta igual.
 
-const CANONICAL = new Set(['corrida', 'esteira', 'forca', 'fortalecimento_corredores', 'bike', 'outra']);
+// 'funcional', 'natacao' e 'caminhada' (10/2026) so' registram o que foi feito (atividade extra); ver activity-modality-map.ts.
+const CANONICAL = new Set(['corrida', 'esteira', 'forca', 'fortalecimento_corredores', 'bike', 'outra', 'funcional', 'natacao', 'caminhada']);
 
 const ALIASES: Record<string, string> = {
   running: 'corrida',

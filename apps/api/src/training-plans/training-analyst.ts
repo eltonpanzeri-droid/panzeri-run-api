@@ -346,7 +346,12 @@ export interface WeekInput {
   previousWeeks: Array<{ weekStart: string; realizedKm: number | null; fastVolumeKm: number | null; frequencyPct: number | null; rpeAvg: number | null; hrInBand: number | null }>;
   trends: VariableTrend[];
   feedbackBySession: Map<string, FeedbackInput>;
+  // Atividades de OUTRAS modalidades (nao corrida/esteira) registradas pelos dispositivos na semana e sem prescricao correspondente: carga fisica adicional.
+  // So' contagem e minutos reais por modalidade — nunca convertidos em km de corrida nem em carga fisiologica estimada.
+  otherActivities?: Array<{ modality: string; count: number; minutes: number }>;
 }
+
+const OTHER_MODALITY_LABEL: Record<string, string> = { forca: 'musculação', funcional: 'treino funcional/misto', bike: 'ciclismo', natacao: 'natação', caminhada: 'caminhada', outra: 'outra modalidade' };
 
 export interface WeekSummaryData { realizedKm: number | null; fastVolumeKm: number | null; frequencyPct: number | null; rpeAvg: number | null; hrInBand: number | null }
 
@@ -367,7 +372,7 @@ export function analyzeWeekInContext(input: WeekInput): AnalysisContract {
   const c = emptyContract('week', { start: input.weekStart, end }, end, input.rows, [21, 60, 200]);
   const ind = input.indicators; const cur = weekSummaryOf(input);
   const refs = { weekStart: input.weekStart };
-  if (!ind && input.rows.length === 0) { c.gaps.push(finding({ id: `week:${input.weekStart}:empty`, code: 'semana_sem_dados', source: 'gap', statement: 'Sem treinos analisáveis na semana.', refs })); return c; }
+  if (!ind && input.rows.length === 0 && !(input.otherActivities?.length)) { c.gaps.push(finding({ id: `week:${input.weekStart}:empty`, code: 'semana_sem_dados', source: 'gap', statement: 'Sem treinos analisáveis na semana.', refs })); return c; }
 
   if (ind) {
     c.facts.push(finding({ id: `week:${input.weekStart}:adherence`, code: 'frequencia_e_adesao', source: 'measured', statement: `Realizou ${ind.overview.performed} de ${ind.overview.prescribed} treinos previstos (${ind.overview.frequencyPct ?? '?'}%); ${ind.overview.noRecord} sem registro.`, data: { performed: ind.overview.performed, prescribed: ind.overview.prescribed, noRecord: ind.overview.noRecord }, refs }));
@@ -382,6 +387,10 @@ export function analyzeWeekInContext(input: WeekInput): AnalysisContract {
   // fatos do relógio por estímulo
   const intervalSessions = input.rows.filter((r) => { const run = runOf(r); return run && stimulusClass(run) === 'intervalado'; });
   if (cur.fastVolumeKm != null) c.facts.push(finding({ id: `week:${input.weekStart}:fast-volume`, code: 'volume_rapido_da_semana', source: 'measured', statement: `Volume em esforços rápidos reconhecidos: ${km(cur.fastVolumeKm)} km em ${intervalSessions.length} sessão(ões) com alternâncias.`, data: { fastVolumeKm: cur.fastVolumeKm, sessions: intervalSessions.length }, refs }));
+  if (input.otherActivities && input.otherActivities.length > 0) {
+    const text = input.otherActivities.map((o) => `${OTHER_MODALITY_LABEL[o.modality] ?? o.modality}: ${o.count} atividade(s), ${num(o.minutes, 0)} min`).join('; ');
+    c.findings.push(finding({ id: `week:${input.weekStart}:other-modalities`, code: 'atividades_de_outras_modalidades', source: 'measured', kind: 'padrao', statement: `Atividades de outras modalidades registradas pelos dispositivos na semana, sem treino prescrito correspondente (carga física adicional; sem equivalência em km de corrida): ${text}.`, support: 'alta', horizon: 'pontual', basis: [], refs }));
+  }
   const extras = input.rows.filter((r) => r.isExtra);
   if (extras.length > 0) {
     const extraKm = extras.reduce((s, r) => s + (runOf(r)?.totals.realizedKm ?? 0), 0);
