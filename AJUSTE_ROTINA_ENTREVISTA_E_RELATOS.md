@@ -11,3 +11,7 @@
 7. **Atividades externas:** sem mudança de escopo; relato textual e dispositivo continuam fontes separadas (o texto nunca vira execução com distância/carga).
 
 **Testes:** `test/integration/routine-and-interview.int.spec.ts` (12 casos em PostgreSQL), ajustes em `report-timeline` e `me-identity-answer-sync`. **Limitações:** não testado em dispositivo; `experienceLevel`/modalidades reescritas na reconclusão da entrevista seguem a regra anterior (só `mainGoal` foi protegido); atividades externas do aluno não alteram a rotina de prescrição.
+
+## Complemento (10/2026)
+- **Reconclusao da entrevista:** quando a entrevista ja foi concluida antes (completedAt ou interviewVersion), as preferencias operacionais (objetivo, experiencia, modalidades, locais) NAO sao reescritas; na 1a conclusao sao projetadas normalmente. Correcao explicita de uma resposta continua atualizando so o campo correspondente. **Fora deste ajuste (decisao pendente):** HealthProfile e User (altura/peso etc.) ainda sao reprojetados na reconclusao.
+- **Observacao ao editar a rotina:** PUT /me/availability (e o salvamento composto) aceita observation (ate 2000 caracteres; Perfil e tela Rotina ganharam o campo opcional); segue ao fluxo geral de relatos (Relator->Prontuario) uma vez por texto, mesmo sem mudanca na rotina. O "Relatar observacao" geral ja encaminhava ao Relator.

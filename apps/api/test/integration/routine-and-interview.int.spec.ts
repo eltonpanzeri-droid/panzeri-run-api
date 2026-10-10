@@ -4,6 +4,7 @@ import { validateSync } from 'class-validator';
 import { PrismaClient } from '@prisma/client';
 import { CoachService } from '../../src/coach/coach.service';
 import { UpdateAnamneseDto } from '../../src/me/dto/update-anamnese.dto';
+import { UpdateAvailabilityDto as UpdateAvailabilityDtoClass } from '../../src/me/dto/update-availability.dto';
 import { UpdateHealthDto } from '../../src/me/dto/update-health.dto';
 import { MeService } from '../../src/me/me.service';
 import { ReassessmentService } from '../../src/reassessment/reassessment.service';
@@ -109,6 +110,47 @@ describe('rotina, entrevista, objetivo e relatos (PostgreSQL real)', () => {
     await prisma.onboardingInterview.update({ where: { userId: s.userId }, data: { answers: routineAnswers({ routine_observation: 'Mudei de emprego, treino so de manha' }) } });
     await me.completeRoutineFromInterview(s.userId, true);
     expect(await prisma.studentReportEntry.count({ where: { userId: s.userId, sourceType: 'onboarding_interview_routine_note' } })).toBe(2);
+  });
+
+  it('observacao ao editar a rotina por PUT /me/availability chega ao fluxo de relatos (Relator/Prontuario) uma vez; texto novo gera novo relato; sem texto, nada e registrado; rotina e programa intactos', async () => {
+    const s = await student('obs-edicao');
+    const sessionsBefore = await prisma.trainingSession.findMany({ where: { userId: s.userId }, orderBy: { id: 'asc' } });
+    const body = { availability: [day(2)], observation: '  Faco musculacao em outra academia  ' };
+    expect(validation(UpdateAvailabilityDtoClass, body)).toHaveLength(0);
+    expect(validation(UpdateAvailabilityDtoClass, { ...body, observation: 'x'.repeat(2001) }).length).toBeGreaterThan(0);
+    await me.updateAvailability(s.userId, body as never);
+    await me.updateAvailability(s.userId, body as never); // mesma edicao reenviada
+    const entries = await prisma.studentReportEntry.findMany({ where: { userId: s.userId, sourceType: 'onboarding_interview_routine_note' } });
+    expect(entries.map((e) => e.originalText)).toEqual(['Faco musculacao em outra academia']); // texto original (sem espacos extras), uma vez
+    expect(entries[0]).toMatchObject({ userId: s.userId, relatedLabel: 'Rotina semanal' });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(relator.analyze).toHaveBeenCalledWith(expect.objectContaining({ originalText: 'Faco musculacao em outra academia', sourceType: 'onboarding_interview_routine_note' })); // segue ao Relator existente
+    expect(profileEvents.filter((e) => e.code === 'STUDENT_OBSERVATION')).toHaveLength(1);
+    await me.updateAvailability(s.userId, { availability: [day(2)], observation: 'Agora treino so de manha' } as never);
+    expect(await prisma.studentReportEntry.count({ where: { userId: s.userId, sourceType: 'onboarding_interview_routine_note' } })).toBe(2); // historico preservado
+    await me.updateAvailability(s.userId, { availability: [day(2)] } as never); // sem observacao
+    expect(await prisma.studentReportEntry.count({ where: { userId: s.userId, sourceType: 'onboarding_interview_routine_note' } })).toBe(2);
+    expect((await me.availability(s.userId)).map((d) => d.weekday)).toEqual([2]);
+    expect(await prisma.trainingSession.findMany({ where: { userId: s.userId }, orderBy: { id: 'asc' } })).toEqual(sessionsBefore);
+    expect(trainingPlans.generateWeek).not.toHaveBeenCalled();
+  });
+
+  it('reconclusao da entrevista NAO sobrescreve experiencia, modalidades, objetivo nem locais atualizados depois; a 1a conclusao projeta normalmente', async () => {
+    const answers = () => ({ personal_name: 'Aluno Sintetico', personal_phone: '11999999999', personal_cpf: validCpf(), personal_birth_date: '15/03/1990', personal_sex: 'Masculino', personal_height: 175, personal_weight: 70, personal_address_city: 'Sao Paulo', personal_address_state: 'SP', objective: 'Completar 5 km', running_experience: 'Nunca corri', current_activities: ['Musculacao'], favorite_activities: ['Natacao'] });
+    // 1a conclusao: projeta (mesmo havendo linha de preferencias criada antes pelo Perfil)
+    const first = await student('reconclusao-1');
+    await prisma.userPreferences.create({ data: { userId: first.userId, mainGoal: 'Nao informado', preferredModalities: ['Corrida'], otherModalities: [], trainingLocations: ['Corrida na rua'] } });
+    await prisma.onboardingInterview.create({ data: { userId: first.userId, answers: answers() } });
+    await me.completeOnboarding(first.userId);
+    const projected = await prisma.userPreferences.findUniqueOrThrow({ where: { userId: first.userId } });
+    expect([projected.mainGoal, projected.experienceLevel, projected.preferredModalities, projected.otherModalities]).toEqual(['Completar 5 km', 'Nunca corri', ['Musculacao'], ['Natacao']]);
+    // atualizacao posterior (Perfil/reavaliacao) + reabrir e reconcluir a entrevista
+    await prisma.userPreferences.update({ where: { userId: first.userId }, data: { mainGoal: 'Completar 21 km', experienceLevel: 'Corro ha mais de 2 anos', preferredModalities: ['Corrida', 'Musculacao'], otherModalities: ['Ciclismo'] } });
+    await me.reopenOnboarding(first.userId);
+    await me.completeOnboarding(first.userId);
+    const after = await prisma.userPreferences.findUniqueOrThrow({ where: { userId: first.userId } });
+    expect([after.mainGoal, after.experienceLevel, after.preferredModalities, after.otherModalities]).toEqual(['Completar 21 km', 'Corro ha mais de 2 anos', ['Corrida', 'Musculacao'], ['Ciclismo']]);
+    expect((await prisma.onboardingInterview.findUniqueOrThrow({ where: { userId: first.userId } })).answers).toMatchObject({ objective: 'Completar 5 km', running_experience: 'Nunca corri', current_activities: ['Musculacao'] }); // avaliacao inicial preservada
   });
 
   it('primeira rotina (sem WeeklyAvailability): continua sendo criada a partir das respostas da rotina', async () => {

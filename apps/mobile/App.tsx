@@ -7145,13 +7145,14 @@ function RoutineOverviewScreen({
 function RoutineEditScreen({ accessToken, routineDays, onRoutineChange, onSaved, onBack }: { accessToken: string; routineDays: RoutineDay[]; onRoutineChange: (routineDays: RoutineDay[]) => void; onSaved: () => void; onBack: () => void }) {
   const [saving, setSaving] = React.useState(false);
   const [status, setStatus] = React.useState('');
+  const [observation, setObservation] = React.useState('');
 
   async function save() {
     setSaving(true);
     setStatus('');
-    const result = await saveRoutineAvailability(accessToken, routineDays);
+    const result = await saveRoutineAvailability(accessToken, routineDays, observation);
     setStatus(result.message);
-    if (result.ok) onSaved();
+    if (result.ok) { setObservation(''); onSaved(); }
     setSaving(false);
   }
 
@@ -7162,6 +7163,8 @@ function RoutineEditScreen({ accessToken, routineDays, onRoutineChange, onSaved,
         Escolha os dias e os treinos que voce quer receber do Panzeri Run. Isso nao inclui as outras atividades que voce faz por conta propria (por exemplo, musculacao em outra academia): se quiser nos contar, use "Relatar observacao".
       </Text>
       <RoutineEditor routineDays={routineDays} onChange={onRoutineChange} />
+      <Text style={[styles.inputLabel, { marginTop: 12 }]}>Quer contar algo sobre a sua rotina? (opcional)</Text>
+      <TextInput style={styles.input} value={observation} onChangeText={setObservation} multiline numberOfLines={3} maxLength={2000} placeholder="Ex.: trabalho em turnos, treino musculacao em outra academia..." />
       <Pressable style={[styles.primaryButton, saving && styles.disabledButton, { marginTop: 12 }]} disabled={saving} onPress={save}>
         <Text style={styles.primaryButtonText}>{saving ? 'Salvando...' : 'Salvar rotina'}</Text>
       </Pressable>
@@ -9207,14 +9210,15 @@ function Anamnese({
   const [isSaving, setIsSaving] = useState(false);
   const [routineSaving, setRoutineSaving] = useState(false);
   const [routineStatus, setRoutineStatus] = useState('');
+  const [routineObservation, setRoutineObservation] = useState('');
 
   // A rotina tem salvamento proprio (PUT /me/availability): nao reenvia nem revalida saude/perfil/preferencias.
   async function saveRoutineOnly() {
     setRoutineSaving(true);
     setRoutineStatus('');
-    const result = await saveRoutineAvailability(accessToken, routineDays);
+    const result = await saveRoutineAvailability(accessToken, routineDays, routineObservation);
     setRoutineStatus(result.message);
-    if (result.ok) onSavedMeChange(await loadSavedMe(accessToken));
+    if (result.ok) { setRoutineObservation(''); onSavedMeChange(await loadSavedMe(accessToken)); }
     setRoutineSaving(false);
   }
 
@@ -9476,6 +9480,7 @@ function Anamnese({
           Entendemos que na pratica, nem sempre o aluno consegue fazer todos os treinos que sao propostos. Nos ajustaremos os treinos de acordo com o que voce realmente estiver conseguindo fazer. Alem disso, voce pode fazer uma alteracao por mes na sua rotina. Para imprevistos pontuais (viagem, fase mais corrida, ou outro motivo de ausencia), sem precisar mudar a rotina toda, use o menu "Observacoes" para avisar seu treinador.
         </Text>
         <RoutineEditor routineDays={routineDays} onChange={onRoutineChange} />
+        <TextInput style={[styles.input, { marginTop: 12 }]} value={routineObservation} onChangeText={setRoutineObservation} multiline numberOfLines={3} maxLength={2000} placeholder="Observação sobre a rotina (opcional) — ex.: faço musculação em outra academia" />
         <Pressable style={[styles.secondaryOutlineButton, { marginTop: 12 }, (isSaving || routineSaving) && styles.disabledButton]} disabled={isSaving || routineSaving} onPress={saveRoutineOnly}>
           <Text style={styles.secondaryOutlineButtonText}>{routineSaving ? 'Salvando rotina...' : 'Salvar rotina'}</Text>
         </Pressable>
@@ -13137,12 +13142,12 @@ function paceInputToSeconds(value: string) {
 
 // Salva SOMENTE a rotina (PUT /me/availability). So' confirma depois que a API respondeu ok; o texto diz exatamente o que acontece: a rotina vale na proxima
 // geracao (liberada aos domingos a partir das 12h) e nunca altera treinos ja entregues.
-async function saveRoutineAvailability(accessToken: string, routineDays: RoutineDay[]): Promise<{ ok: boolean; message: string }> {
+async function saveRoutineAvailability(accessToken: string, routineDays: RoutineDay[], observation = ''): Promise<{ ok: boolean; message: string }> {
   try {
     const response = await fetch(`${API_URL}/me/availability`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ availability: routineToAvailability(routineDays) }),
+      body: JSON.stringify({ availability: routineToAvailability(routineDays), ...(observation.trim() ? { observation: observation.trim() } : {}) }),
     });
     if (!response.ok) {
       const apiMessage = await readApiError(response);

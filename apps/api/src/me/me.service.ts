@@ -251,6 +251,8 @@ export class MeService {
 
     const preferredModalities = stringArray(answers.current_activities);
     const completedAt = new Date();
+    // Ja' concluida antes? (completedAt some quando a entrevista e' reaberta; interviewVersion permanece.)
+    const completedBefore = Boolean(interview?.completedAt) || interview?.interviewVersion != null;
 
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -300,12 +302,14 @@ export class MeService {
             mainGoal: answers.objective != null ? String(answers.objective) : 'Nao informado',
             experienceLevel: answers.running_experience != null ? String(answers.running_experience) : null,
           },
-          // (10/2026) mainGoal NAO e' reescrito ao reconcluir a entrevista: o objetivo ATUAL pode ter sido atualizado depois (reavaliacao, correcao). A resposta
-          // da entrevista continua preservada em OnboardingInterview.answers como historico; uma edicao explicita dela atualiza o objetivo (saveOnboardingAnswer).
-          update: {
+          // (10/2026) Reconclusao da entrevista NAO reescreve as preferencias operacionais (objetivo, experiencia, modalidades, locais): elas podem ter sido
+          // atualizadas depois (reavaliacao, Perfil, correcao da entrevista). A resposta inicial continua preservada em OnboardingInterview.answers (historico) e uma
+          // edicao explicita de uma resposta atualiza so' o campo correspondente (saveOnboardingAnswer). Na PRIMEIRA conclusao, as preferencias sao projetadas normalmente.
+          update: completedBefore ? {} : {
             preferredModalities,
             otherModalities: stringArray(answers.favorite_activities),
             trainingLocations: ['Corrida na rua'],
+            mainGoal: answers.objective != null ? String(answers.objective) : 'Nao informado',
             experienceLevel: answers.running_experience != null ? String(answers.running_experience) : null,
           },
         });
@@ -714,6 +718,10 @@ export class MeService {
       void this.telegram.notifyCoach(buildRoutineChangeTelegramMessage(student?.name, student?.studentCode, !existingPlanBefore)).catch(() => undefined);
     }
 
+    // Observacao textual junto da edicao: mesmo fluxo geral de relatos (idempotente), mesmo quando a rotina nao mudou.
+    const note = (dto.observation ?? '').trim();
+    if (note) await this.forwardRoutineObservation(userId, note, new Date(), 'edicao da rotina');
+
     return { availability: updated, routineChanged, firstTime };
   }
 
@@ -820,6 +828,9 @@ export class MeService {
     // unico salvamento) saber se deve mostrar a mensagem especifica de "rotina registrada e
     // treino recriado" ou so a confirmacao generica de perfil salvo — nem toda edicao de
     // anamnese mexe na rotina (ex: so atualizar peso ou e-mail).
+    const note = (dto.availability?.observation ?? '').trim();
+    if (note) await this.forwardRoutineObservation(userId, note, new Date(), 'edicao da rotina');
+
     return { ...result, routineChanged };
   }
 }

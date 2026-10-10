@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsInt, IsObject, IsOptional, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsObject, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 
 export class AvailabilityDayDto {
   @IsInt()
@@ -25,4 +25,11 @@ export class UpdateAvailabilityDto {
   @ValidateNested({ each: true })
   @Type(() => AvailabilityDayDto)
   availability!: AvailabilityDayDto[];
+
+  // (10/2026) Observacao livre do aluno ao editar a rotina (ex.: "faco musculacao em outra academia"). Nao altera a rotina: segue ao fluxo geral de relatos
+  // (Relator -> Prontuario), uma vez por texto.
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  observation?: string;
 }
