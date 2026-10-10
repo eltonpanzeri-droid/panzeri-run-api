@@ -13,8 +13,10 @@ import { MeService } from '../src/me/me.service';
 function buildService(overrides: {
   existingAnswers?: Record<string, unknown>;
   userUpdateImpl?: (args: unknown) => unknown;
+  hasPreferences?: boolean;
 } = {}) {
-  const { existingAnswers = {}, userUpdateImpl } = overrides;
+  const { existingAnswers = {}, userUpdateImpl, hasPreferences = true } = overrides;
+  const preferencesUpdate = jest.fn().mockResolvedValue({});
   const userUpdate = jest.fn().mockImplementation(userUpdateImpl ?? (() => Promise.resolve({})));
   const prisma = {
     onboardingInterview: {
@@ -22,10 +24,11 @@ function buildService(overrides: {
       upsert: jest.fn().mockImplementation(({ update }: { update: unknown }) => Promise.resolve(update)),
     },
     user: { update: userUpdate },
+    userPreferences: { findUnique: jest.fn().mockResolvedValue(hasPreferences ? { userId: 'user-1' } : null), update: preferencesUpdate },
   };
   const noop = {} as never;
   const service = new MeService(prisma as never, noop, noop, noop, noop);
-  return { service, userUpdate };
+  return { service, userUpdate, preferencesUpdate };
 }
 
 describe('MeService.saveOnboardingAnswer — sincronizacao de identidade com User (correcao pos-Bloco 3)', () => {
@@ -69,10 +72,17 @@ describe('MeService.saveOnboardingAnswer — sincronizacao de identidade com Use
     expect(userUpdate).toHaveBeenCalledWith({ where: { id: 'user-1' }, data: { address: expect.stringContaining('Rua das Flores') } });
   });
 
-  it('chave que NAO e de identidade (ex: objective): nunca toca em User', async () => {
-    const { service, userUpdate } = buildService();
+  it('chave que NAO e de identidade (ex: objective): nunca toca em User; a correcao do objetivo atualiza o objetivo OPERACIONAL (UserPreferences.mainGoal)', async () => {
+    const { service, userUpdate, preferencesUpdate } = buildService();
     await service.saveOnboardingAnswer('user-1', { key: 'objective', value: 'Correr 10km', currentStep: 3 });
     expect(userUpdate).not.toHaveBeenCalled();
+    expect(preferencesUpdate).toHaveBeenCalledWith({ where: { userId: 'user-1' }, data: { mainGoal: 'Correr 10km' } });
+  });
+
+  it('antes da primeira conclusao (sem preferencias) o objetivo da entrevista nao cria nem altera preferencias', async () => {
+    const { service, preferencesUpdate } = buildService({ hasPreferences: false });
+    await service.saveOnboardingAnswer('user-1', { key: 'objective', value: 'Correr 10km', currentStep: 3 });
+    expect(preferencesUpdate).not.toHaveBeenCalled();
   });
 
   it('nome/nascimento/sexo/altura/peso nunca sincronizam aqui (fonte propria em Conta/Perfil)', async () => {

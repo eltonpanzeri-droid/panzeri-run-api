@@ -17,7 +17,7 @@ import { SendStudentMessageDto } from './dto/send-student-message.dto';
 import { runnerStrengthExercises } from '../training-plans/runner-strength-library';
 import { gymExerciseLibrary } from '../training-plans/gym-exercise-library';
 import { BackupService } from '../backup/backup.service';
-import { MeService, syncInterviewAnswersFromAvailability, asAnswerObject } from '../me/me.service';
+import { MeService } from '../me/me.service';
 import { BillingService } from '../billing/billing.service';
 import { formatStudentCode } from '../billing/telegram.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
@@ -764,9 +764,11 @@ export class CoachService {
     return this.trainingPlans.grantExtraGenerationAttempt(studentId);
   }
 
-  async syncStudentAvailability(studentId: string) {
+  // Reparo EXPLICITO do treinador: reconstroi a rotina a partir das respostas HISTORICAS da entrevista. Previa por padrao (dryRun): so' grava com dryRun=false.
+  // Nunca roda sozinho: a rotina atual (WeeklyAvailability) so' e' substituida por decisao do treinador depois de ver a diferenca.
+  async syncStudentAvailability(studentId: string, dryRun = true) {
     await this.assertStudent(studentId);
-    return this.meService.syncAvailabilityFromInterview(studentId);
+    return this.meService.syncAvailabilityFromInterview(studentId, false, true, { dryRun, force: true });
   }
 
   // Botao "Editar rotina" no painel — pedido explicito do treinador (03/08, caso da Roberta): ele
@@ -789,11 +791,8 @@ export class CoachService {
     // reabrisse aquela tela — ou o proprio aluno so confirmando sem mudar nada — sobrescrevia
     // silenciosamente a correcao manual do treinador com os dados antigos da entrevista. Mesmo
     // sync que updateAvailability ja fazia, agora replicado aqui.
-    const onboarding = await this.prisma.onboardingInterview.findUnique({ where: { userId: studentId }, select: { answers: true } });
-    const syncedAnswers = onboarding
-      ? syncInterviewAnswersFromAvailability(asAnswerObject(onboarding.answers), dto.availability)
-      : null;
-
+    // (10/2026) As respostas da entrevista sao HISTORICO: editar a rotina NAO as reescreve (antes, a copia {dia}_run_time etc. era regravada aqui). O painel e os
+    // agentes leem a rotina atual de WeeklyAvailability.
     await this.prisma.$transaction([
       this.prisma.weeklyAvailability.deleteMany({ where: { userId: studentId } }),
       ...dto.availability.map((day) =>
@@ -808,15 +807,16 @@ export class CoachService {
           },
         }),
       ),
-      ...(syncedAnswers ? [this.prisma.onboardingInterview.update({ where: { userId: studentId }, data: { answers: syncedAnswers } })] : []),
     ]);
 
     // Mesmo gate de pagamento das outras rotas de rotina — nunca gera pra quem ainda nao pagou,
     // mesmo que o ajuste tenha sido feito pelo treinador.
     const student = await this.prisma.user.findUnique({ where: { id: studentId }, select: { name: true, studentCode: true, subscriptionStatus: true } });
+    // (10/2026) REGRA ABSOLUTA: salvar rotina nunca regenera nem substitui treinos ja entregues. applyNow so' gera a PRIMEIRA semana (quem ainda nao tem programa);
+    // para quem ja tem programa, a rotina vale na proxima geracao (o treinador pode usar "Refazer nova semana" de forma explicita e separada).
     if (applyNow && student && hasSubscriptionAccess(student.subscriptionStatus)) {
-      void this.trainingPlans.generateWeek(studentId).catch((error) => {
-        this.logger.warn(`generateWeek apos updateStudentAvailability (treinador) falhou para ${studentId} (nao bloqueante): ${(error as Error).message}`);
+      void this.trainingPlans.generateFirstWeekIfNeeded(studentId).catch((error) => {
+        this.logger.warn(`generateFirstWeekIfNeeded apos updateStudentAvailability (treinador) falhou para ${studentId} (nao bloqueante): ${(error as Error).message}`);
       });
     }
 

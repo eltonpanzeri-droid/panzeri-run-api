@@ -17,6 +17,8 @@ export interface RecordReportEntryInput {
   relatedLabel?: string | null;
   originalText: string | null | undefined;
   occurredAt: Date;
+  // true = nao registra de novo o MESMO texto (mesmo aluno e mesma fonte) — protege contra reenvio da mesma resposta sem alteracao.
+  dedupe?: boolean;
 }
 
 @Injectable()
@@ -33,11 +35,16 @@ export class ReportTimelineService {
   // original ja ter sido salvo com sucesso (nunca dentro da mesma transacao — grava rapido, sem IA,
   // e dispara a analise em segundo plano sem bloquear quem chamou). Todo texto vazio/so espaco e
   // ignorado: ausencia de texto nao e um relato.
-  async record(input: RecordReportEntryInput): Promise<void> {
+  // Devolve true quando um relato NOVO foi criado (false: texto vazio, duplicado por dedupe, ou falha).
+  async record(input: RecordReportEntryInput): Promise<boolean> {
     const text = (input.originalText ?? '').trim();
-    if (!text) return;
+    if (!text) return false;
 
     try {
+      if (input.dedupe) {
+        const existing = await this.prisma.studentReportEntry.findFirst({ where: { userId: input.userId, sourceType: input.sourceType, originalText: text }, select: { id: true } });
+        if (existing) return false;
+      }
       const entry = await this.prisma.studentReportEntry.create({
         data: {
           userId: input.userId,
@@ -52,10 +59,12 @@ export class ReportTimelineService {
       void this.analyzeEntry(entry.id).catch((error) => {
         this.logger.warn(`Falha ao disparar analise do relato ${entry.id}: ${(error as Error).message}`);
       });
+      return true;
     } catch (error) {
       // Nunca deixa a Linha do Tempo derrubar o fluxo real (salvar feedback/dor/check-in etc.) —
       // best-effort, mesmo padrao de robustez ja usado nos outros agentes desta arquitetura.
       this.logger.warn(`Falha ao registrar relato na timeline (sourceType=${input.sourceType}): ${(error as Error).message}`);
+      return false;
     }
   }
 

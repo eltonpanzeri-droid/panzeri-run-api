@@ -11,6 +11,7 @@ export const STUDENT_REPORT_SOURCE_TYPES = {
   CONTEXT_EVENT: 'context_event',
   ONBOARDING_INTERVIEW_HEALTH: 'onboarding_interview_health',
   ONBOARDING_INTERVIEW_ROUTINE_NOTE: 'onboarding_interview_routine_note',
+  ONBOARDING_INTERVIEW_ADDITIONAL_INFO: 'onboarding_interview_additional_info',
   REASSESSMENT_HEALTH: 'reassessment_health',
   SUBSCRIPTION_CANCEL_FEEDBACK: 'subscription_cancel_feedback',
 } as const;

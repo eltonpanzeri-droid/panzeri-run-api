@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiQueueService } from '../common/ai-queue.service';
 import { TrainingPlansService } from '../training-plans/training-plans.service';
-import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
+import { sanitizeInterviewAnswers, stripRoutineKeysFromAnswers } from '../training-plans/training-methodology';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 import { AI_MODELS, cacheControlFor, cacheTtlLabel } from '../common/ai-models.config';
 import { logAiUsage } from '../common/ai-usage-logger';
@@ -283,7 +283,7 @@ export class TechnicalManagerAgentService {
   }
 
   private async gatherStudentContext(studentId: string) {
-    const [user, onboarding, tests, directives, activePlan] = await Promise.all([
+    const [user, onboarding, tests, directives, activePlan, weeklyAvailability] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({ where: { id: studentId }, include: { preferences: true, healthProfile: true } }),
       this.prisma.onboardingInterview.findUnique({ where: { userId: studentId }, select: { answers: true } }),
       this.prisma.fitnessTest.findMany({ where: { userId: studentId, testType: '3km' }, orderBy: { createdAt: 'desc' }, take: 5 }),
@@ -293,6 +293,7 @@ export class TechnicalManagerAgentService {
         orderBy: { createdAt: 'desc' },
         include: { sessions: { include: { completion: true } } },
       }),
+      this.prisma.weeklyAvailability.findMany({ where: { userId: studentId }, orderBy: { weekday: 'asc' } }),
     ]);
 
     return {
@@ -304,7 +305,14 @@ export class TechnicalManagerAgentService {
         estresse: user.healthProfile.stressLevel,
         lesoesAnteriores: user.healthProfile.previousInjuries,
       } : null,
-      respostasEntrevista: onboarding?.answers ? sanitizeInterviewAnswers(onboarding.answers as Record<string, unknown>) : null,
+      // As respostas de rotina da entrevista sao HISTORICO e saem do contexto; a disponibilidade vigente e' a de WeeklyAvailability (fonte operacional unica).
+      respostasEntrevista: onboarding?.answers ? stripRoutineKeysFromAnswers(sanitizeInterviewAnswers(onboarding.answers as Record<string, unknown>)) : null,
+      disponibilidadeOperacionalAtual: weeklyAvailability.map((day) => ({
+        diaDaSemana: day.weekday,
+        semTreino: day.noTraining,
+        modalidades: day.noTraining ? [] : day.modalities,
+        minutosPorModalidade: day.noTraining ? {} : day.modalityDurations ?? {},
+      })),
       historicoTestes3km: tests.map((test) => ({
         data: test.createdAt.toISOString().slice(0, 10),
         paceSegundosPorKm: test.paceSecondsPerKm,

@@ -2717,19 +2717,35 @@ function StudentPanel({
 
   async function syncAvailability() {
     if (!student) return;
-    onStatus('Sincronizando disponibilidade a partir da entrevista...');
+    onStatus('Comparando a rotina atual com as respostas antigas da entrevista...');
     try {
-      const response = await fetch(`${API_URL}/coach/students/${student.id}/sync-availability`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+      // 1) Previa (nada e' gravado): mostra a diferenca entre a rotina ATUAL e a reconstruida a partir da entrevista (historico).
+      const previewResponse = await fetch(`${API_URL}/coach/students/${student.id}/sync-availability`, { method: 'POST', headers, body: JSON.stringify({ dryRun: true }) });
+      if (!previewResponse.ok) {
+        onStatus('Nao consegui comparar a disponibilidade.');
+        return;
+      }
+      const preview = (await previewResponse.json()) as { changed?: boolean; currentDays?: unknown[]; interviewDays?: unknown[] };
+      if (preview.changed === false) {
+        onStatus('A rotina atual ja e igual a da entrevista: nada a reparar.');
+        return;
+      }
+      const confirmed = window.confirm(
+        `ATENCAO: isto SUBSTITUI a rotina atual do aluno (${preview.currentDays?.length ?? 0} dia(s) com treino) pela das respostas antigas da entrevista (${preview.interviewDays?.length ?? 0} dia(s)). Treinos ja entregues nao sao alterados. Continuar?`,
+      );
+      if (!confirmed) {
+        onStatus('Reparo cancelado: a rotina atual foi mantida.');
+        return;
+      }
+      const response = await fetch(`${API_URL}/coach/students/${student.id}/sync-availability`, { method: 'POST', headers, body: JSON.stringify({ dryRun: false }) });
       if (!response.ok) {
         onStatus('Nao consegui sincronizar a disponibilidade.');
         return;
       }
       const data = (await response.json()) as { synced: boolean; days: number };
       await onRefresh();
-      onStatus(`Disponibilidade sincronizada: ${data.days} dia(s) com treino a partir da entrevista.`);
+      onStatus(`Disponibilidade reparada: ${data.days} dia(s) com treino a partir da entrevista.`);
     } catch {
       onStatus('Nao consegui conectar com a API.');
     }
@@ -7525,7 +7541,7 @@ function RoutineAvailabilityTable({ answers, availability }: { answers: Record<s
         ))}
         {rows.map((row) => (
           <tr key={row.availableSuffix}>
-            <td>Horario - {row.label}</td>
+            <td title="Horario informado na entrevista inicial (historico). A rotina atual de dias e minutos esta nas linhas acima.">Horario (entrevista, historico) - {row.label}</td>
             {ROUTINE_DAYS.map(([dayKey]) => (
               <td key={dayKey}>{interviewValue(`${dayKey}_${row.availableSuffix}`, answers[`${dayKey}_${row.availableSuffix}`])}</td>
             ))}
@@ -7602,7 +7618,7 @@ function ManualRoutineEditor({ studentId, token, availability, onStatus, onSaved
 
   async function save(applyNow: boolean) {
     setSaving(true);
-    onStatus(applyNow ? 'Salvando rotina e gerando o treino...' : 'Salvando rotina...');
+    onStatus('Salvando rotina...');
     try {
       const payload = days.map((day) => ({
         weekday: day.weekday,
@@ -7622,8 +7638,8 @@ function ManualRoutineEditor({ studentId, token, availability, onStatus, onSaved
       }
       await onSaved();
       onStatus(applyNow
-        ? 'Rotina atualizada. O treino esta sendo gerado com base nela.'
-        : 'Rotina salva. Vale a partir da geracao automatica de domingo — a semana atual continua igual.');
+        ? 'Rotina salva. Se o aluno ainda nao tinha programa, a primeira semana esta sendo gerada; programas ja entregues nao sao alterados.'
+        : 'Rotina salva. Vale na proxima geracao do programa; os treinos ja entregues nao mudam.');
       setEditing(false);
     } catch {
       onStatus('Nao consegui conectar com a API.');
@@ -7668,8 +7684,8 @@ function ManualRoutineEditor({ studentId, token, availability, onStatus, onSaved
         </div>
       ))}
       <div className="manualRoutineActions">
-        <button className="primaryButton" type="button" onClick={() => save(true)} disabled={saving}>Salvar e gerar agora</button>
-        <button className="secondaryButton" type="button" onClick={() => save(false)} disabled={saving}>Salvar (aplicar so domingo)</button>
+        <button className="primaryButton" type="button" onClick={() => save(false)} disabled={saving}>Salvar rotina (vale na proxima geracao)</button>
+        <button className="secondaryButton" type="button" onClick={() => save(true)} disabled={saving} title="So gera quando o aluno ainda nao tem nenhum programa; nunca altera treinos ja entregues.">Salvar e gerar a 1a semana (so quem ainda nao tem programa)</button>
         <button className="secondaryButton" type="button" onClick={() => setEditing(false)} disabled={saving}>Cancelar</button>
       </div>
     </div>

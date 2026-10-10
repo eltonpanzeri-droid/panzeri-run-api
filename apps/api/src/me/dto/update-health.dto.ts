@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 
 export class UpdateHealthDto {
   @IsOptional()
@@ -33,15 +33,17 @@ export class UpdateHealthDto {
   @IsString()
   medications?: string;
 
+  // Valores historicos: a entrevista grava a RESPOSTA ORIGINAL (ex.: "Entre 6 e 7 horas", "7/10") nestes campos. Eles continuam aceitos (e preservados
+  // sem conversao) para o formulario nao rejeitar o que o proprio sistema gravou; os valores novos seguem os enums do formulario.
   @IsOptional()
-  @IsEnum(['menos_5', '5_6', '6_7', '7_8', 'mais_8'])
+  @Matches(/^(menos_5|5_6|6_7|7_8|mais_8|(menos de|entre|mais de) [0-9]+( e [0-9]+)? horas?|nao informado)?$/i)
   averageSleep?: string;
 
   @IsOptional()
-  @IsEnum(['baixo', 'moderado', 'alto', 'muito_alto'])
+  @Matches(/^(baixo|moderado|alto|muito_alto|[0-9]{1,2}\/10|nao informado)?$/i)
   stressLevel?: string;
 
   @IsOptional()
-  @IsEnum(['nao', 'leve', 'moderada', 'alta'])
+  @Matches(/^(nao|leve|moderada|alta|[0-9]{1,2}\/10|nao informado)?$/i)
   anxietyLevel?: string;
 }

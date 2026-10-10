@@ -2741,3 +2741,6 @@ changePattern (estável/oscilação/mudança recente/sustentada/insuficiente) po
 
 ### 2026-10-10 — Atividades externas × treinos: modalidades oficiais, extras sem contaminar km, correção pelo aluno (local)
 Ver ETAPA_ATIVIDADES_EXTERNAS_E_VINCULOS.md e RUNBOOK_CORRECAO_MUSCULACAO_30-09_01-10.md (correção de dados de produção preparada, aguardando autorização).
+
+### 2026-10-10 — Rotina/entrevista/objetivo/relatos (local)
+Rotina salva por PUT /me/availability; WA fonte unica; nada regenera treinos entregues; objetivo atual unico; routine_observation/additional_info chegam ao Relator. Ver AJUSTE_ROTINA_ENTREVISTA_E_RELATOS.md.

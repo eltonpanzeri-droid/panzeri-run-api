@@ -31,10 +31,12 @@ export class ReassessmentService {
   ) {}
 
   async state(userId: string) {
-    const [draft, lastCompleted, onboarding] = await Promise.all([
+    const [draft, lastCompleted, onboarding, preferences] = await Promise.all([
       this.prisma.reassessment.findFirst({ where: { userId, completedAt: null }, orderBy: { createdAt: 'desc' } }),
       this.prisma.reassessment.findFirst({ where: { userId, completedAt: { not: null } }, orderBy: { completedAt: 'desc' } }),
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } }),
+      // Objetivo ATUAL (fonte operacional): a reavaliacao pergunta se ele continua o mesmo.
+      this.prisma.userPreferences?.findUnique?.({ where: { userId }, select: { mainGoal: true } }) ?? Promise.resolve(null),
     ]);
 
     const referenceDate = lastCompleted?.completedAt ?? onboarding?.completedAt ?? null;
@@ -48,6 +50,7 @@ export class ReassessmentService {
       answers: asAnswerObject(draft?.answers),
       currentStep: draft?.currentStep ?? 0,
       lastCompletedAt: lastCompleted?.completedAt ?? null,
+      currentGoal: preferences?.mainGoal ?? null,
     };
   }
 
@@ -102,6 +105,9 @@ export class ReassessmentService {
       where: { id: draft.id },
       data: { completedAt: new Date(), reassessmentVersion: REASSESSMENT_INSTRUMENT_VERSION },
     });
+    // Objetivo principal: "continua o mesmo?" (sim/nao). Atualiza a fonte operacional (UserPreferences.mainGoal) e guarda o objetivo anterior na propria
+    // reavaliacao; o Prescritor passa a receber um unico objetivo atual. A resposta da entrevista inicial segue preservada como historico.
+    (completed as { answers: unknown }).answers = await this.resolveObjective(userId, completed.id, asAnswerObject(completed.answers), user.preferences?.mainGoal ?? null);
 
     // Sistema de Medalhas (30/09/2026) — fire-and-forget, aqui e não depois do relatório de
     // evolução: a reavaliação em si já está concluída neste ponto (a medalha é sobre a
@@ -208,6 +214,17 @@ export class ReassessmentService {
         evolutionConcerns: report.concerns,
       },
     });
+  }
+
+  private async resolveObjective(userId: string, reassessmentId: string, answers: Record<string, Prisma.InputJsonValue>, previousGoal: string | null): Promise<Record<string, Prisma.InputJsonValue>> {
+    const chosen = typeof answers.objective === 'string' ? answers.objective.trim() : '';
+    // 'yes' = o objetivo atual continua. Qualquer outra resposta com um objetivo escolhido (inclusive o app antigo, que sempre perguntava o objetivo) vale como o objetivo atual.
+    const effective = answers.objective_still_current === 'yes' ? previousGoal : chosen || null;
+    if (!effective) return answers;
+    const resolved: Record<string, Prisma.InputJsonValue> = { ...answers, objective: effective, ...(previousGoal ? { objective_previous: previousGoal } : {}) };
+    await this.prisma.reassessment.update({ where: { id: reassessmentId }, data: { answers: resolved } });
+    if (effective !== previousGoal) await this.prisma.userPreferences?.updateMany?.({ where: { userId }, data: { mainGoal: effective } });
+    return resolved;
   }
 
   async history(userId: string) {

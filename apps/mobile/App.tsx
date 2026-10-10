@@ -435,6 +435,8 @@ interface InterviewState {
   // 18/08 (Bloco 2 de onboarding): marco separado das 5 perguntas rapidas pre-pagamento — ver
   // GuidedInterview mode="quick_intake" e MeService.completeQuickIntake no backend.
   quickIntakeCompletedAt?: string | null;
+  // Reavaliacao: objetivo principal atual (UserPreferences.mainGoal), mostrado na pergunta "continua o mesmo?".
+  currentGoal?: string | null;
 }
 
 interface InterviewOption {
@@ -1481,7 +1483,8 @@ function buildQuickIntakeSummary(name: string, answers: InterviewAnswers): strin
 // ANTERIOR (v1, ate 25/09/2026) — removidos desta lista ativa, mas as respostas antigas continuam
 // intactas no banco (legado, nunca reescrito nem migrado automaticamente).
 const reassessmentQuestions: InterviewQuestion[] = [
-  { key: 'objective', module: 'Objetivo', prompt: 'Qual e o seu objetivo atual com a corrida?', type: 'dropdown_single', options: [
+  { key: 'objective_still_current', module: 'Objetivo', prompt: 'Seu objetivo principal continua sendo: {{objective}}?', type: 'single', options: [option('Sim, continuar com esse objetivo.', 'yes'), option('Não, quero alterar meu objetivo.', 'no')] },
+  { key: 'objective', module: 'Objetivo', prompt: 'Qual e o seu novo objetivo principal?', type: 'dropdown_single', condition: (a) => a.objective_still_current === 'no', options: [
     option('Comecar a correr'), option('Completar 5 km'), option('Melhorar meu tempo nos 5 km'), option('Completar 10 km'),
     option('Melhorar meu tempo nos 10 km'), option('Completar 21 km'), option('Melhorar meu tempo nos 21 km'),
     option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'),
@@ -1544,6 +1547,7 @@ function AppInner() {
   const [routineSetupMode, setRoutineSetupMode] = useState(false);
 
   const metrics = useMemo(() => calculateThreeKmMetrics(Number(threeKmSeconds)), [threeKmSeconds]);
+  const hasSavedRoutine = (savedMe?.availability ?? savedMe?.weeklyAvailability ?? []).some((day) => !day.noTraining);
 
   // A tela Semana usa anamneseRoutine (carregado uma vez por sessao) como estado inicial da
   // rotina. Se a entrevista/reavaliacao for concluida no meio da sessao e essa copia local nao
@@ -1875,11 +1879,21 @@ function AppInner() {
             {activeTab === 'routine' && !routineSetupMode && (
               <RoutineOverviewScreen
                 availability={savedMe?.availability ?? savedMe?.weeklyAvailability ?? []}
-                onSetup={() => setRoutineSetupMode(true)}
+                onSetup={() => { void refreshRoutineFromServer().finally(() => setRoutineSetupMode(true)); }}
                 onBack={() => setActiveTab('week')}
               />
             )}
-            {activeTab === 'routine' && routineSetupMode && (
+            {/* (10/2026) Rotina ja' salva: a alteracao parte da rotina ATUAL (WeeklyAvailability) e e' salva por PUT /me/availability — as respostas antigas da entrevista nunca a restauram. */}
+            {activeTab === 'routine' && routineSetupMode && hasSavedRoutine && (
+              <RoutineEditScreen
+                accessToken={accessToken}
+                routineDays={anamneseRoutine}
+                onRoutineChange={setAnamneseRoutine}
+                onSaved={() => { void refreshRoutineFromServer(); }}
+                onBack={() => setRoutineSetupMode(false)}
+              />
+            )}
+            {activeTab === 'routine' && routineSetupMode && !hasSavedRoutine && (
               <View style={{ flex: 1 }}>
                 {/* Link sempre visível para sair da entrevista de rotina e voltar à visão geral */}
                 <Pressable
@@ -2996,6 +3010,8 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     loadInterviewState(loadUrl, accessToken).then((state) => {
       const loadedAnswers = state?.answers ?? {};
       if (mode === 'onboarding' && !loadedAnswers.personal_name && userName) loadedAnswers.personal_name = userName;
+      // Valor so' de exibicao (nunca enviado ao servidor: as respostas sao salvas uma a uma pela chave respondida).
+      if (mode === 'reassessment') loadedAnswers.__objective_current = state?.currentGoal ?? '';
       setAnswers(loadedAnswers);
       // "routine" reaproveita o MESMO registro de entrevista (mesmas answers) so pra reusar o
       // load/save — completedAt e currentStep ali sao da entrevista inteira (ja concluida antes
@@ -3320,7 +3336,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
                 // um tempo (geracao virou sempre sob demanda) — a promessa antiga nunca mais se
                 // cumpria, deixando o aluno com uma rotina nova salva mas nenhum treino atualizado
                 // e nenhuma pista do que fazer a respeito.
-                : 'Sua rotina foi salva. Toque em "Gerar treino da semana", na tela de treino, para atualizar seu programa com a rotina nova agora.')
+                : 'Sua rotina foi salva e sera considerada na proxima geracao do seu programa, liberada aos domingos a partir das 12h. Os treinos que voce ja recebeu nao mudam.')
             : mode === 'fixModule'
               ? 'Suas respostas foram salvas. Essas informacoes serao usadas na proxima geracao de treino.'
               : 'Parabens por completar sua entrevista! Seus dados foram salvos e serao usados para montar seu programa de treinos personalizado.'}
@@ -3373,7 +3389,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress}%` }]} /></View>
       {previousAck ? <View style={styles.quickIntakeAckBox}><Text style={styles.quickIntakeAckText}>{previousAck}</Text></View> : null}
       {mode === 'routine' && step === 0 ? <Text style={styles.copyTight}>Isso encaixa o treino na sua semana de verdade, nao numa rotina padrao de segunda a domingo. Conte pra gente os dias e horarios que voce realmente tem disponivel. O treino se adapta a sua vida, nao o contrario.</Text> : null}
-      <Text style={styles.interviewQuestion}>{question?.prompt}{question && !question.optional && question.type !== 'notice' ? <Text style={styles.requiredMark}> *</Text> : null}</Text>
+      <Text style={styles.interviewQuestion}>{question?.prompt.replace('{{objective}}', String(answers.__objective_current || 'o objetivo que voce informou antes'))}{question && !question.optional && question.type !== 'notice' ? <Text style={styles.requiredMark}> *</Text> : null}</Text>
       {question?.key === 'routine_confirmation' ? (
         <View style={styles.section}>
           {summarizeRoutineAnswers(answers).map((line) => <Text key={line} style={styles.copyTight}>{line}</Text>)}
@@ -7126,6 +7142,37 @@ function RoutineOverviewScreen({
   );
 }
 
+function RoutineEditScreen({ accessToken, routineDays, onRoutineChange, onSaved, onBack }: { accessToken: string; routineDays: RoutineDay[]; onRoutineChange: (routineDays: RoutineDay[]) => void; onSaved: () => void; onBack: () => void }) {
+  const [saving, setSaving] = React.useState(false);
+  const [status, setStatus] = React.useState('');
+
+  async function save() {
+    setSaving(true);
+    setStatus('');
+    const result = await saveRoutineAvailability(accessToken, routineDays);
+    setStatus(result.message);
+    if (result.ok) onSaved();
+    setSaving(false);
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Rotina semanal</Text>
+      <Text style={[styles.reportText, { marginBottom: 12 }]}>
+        Escolha os dias e os treinos que voce quer receber do Panzeri Run. Isso nao inclui as outras atividades que voce faz por conta propria (por exemplo, musculacao em outra academia): se quiser nos contar, use "Relatar observacao".
+      </Text>
+      <RoutineEditor routineDays={routineDays} onChange={onRoutineChange} />
+      <Pressable style={[styles.primaryButton, saving && styles.disabledButton, { marginTop: 12 }]} disabled={saving} onPress={save}>
+        <Text style={styles.primaryButtonText}>{saving ? 'Salvando...' : 'Salvar rotina'}</Text>
+      </Pressable>
+      <Pressable style={[styles.secondaryButton, { marginTop: 12 }]} onPress={onBack}>
+        <Text style={styles.secondaryButtonText}>Voltar</Text>
+      </Pressable>
+      {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+    </View>
+  );
+}
+
 // 09/09: tela "Meus dados" — exibe os dados de contato e permite editá-los via modulo
 // "Dados pessoais" da entrevista sem precisar reabrir a entrevista inteira.
 function MeusDados({ savedMe, onEditContactInfo, onBack }: { savedMe: MeResponse | null; onEditContactInfo: () => void; onBack?: () => void }) {
@@ -9158,6 +9205,18 @@ function Anamnese({
   const [mainGoal, setMainGoal] = useState('');
   const [status, setStatus] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [routineSaving, setRoutineSaving] = useState(false);
+  const [routineStatus, setRoutineStatus] = useState('');
+
+  // A rotina tem salvamento proprio (PUT /me/availability): nao reenvia nem revalida saude/perfil/preferencias.
+  async function saveRoutineOnly() {
+    setRoutineSaving(true);
+    setRoutineStatus('');
+    const result = await saveRoutineAvailability(accessToken, routineDays);
+    setRoutineStatus(result.message);
+    if (result.ok) onSavedMeChange(await loadSavedMe(accessToken));
+    setRoutineSaving(false);
+  }
 
   useEffect(() => {
     if (!savedMe) {
@@ -9243,9 +9302,6 @@ function Anamnese({
             mainGoal,
             experienceLevel: 'iniciante_intermediario',
           },
-          availability: {
-            availability: routineToAvailability(routineDays),
-          },
         }),
       });
 
@@ -9275,7 +9331,6 @@ function Anamnese({
             mainGoal,
             experienceLevel: 'iniciante_intermediario',
           },
-          availability: routineToAvailability(routineDays),
         });
 
         if (!legacySaved.ok) {
@@ -9298,9 +9353,7 @@ function Anamnese({
       onNameChange(cleanName);
       const savedResponse = (await response.json()) as MeResponse & { routineChanged?: boolean };
       onSavedMeChange(savedResponse);
-      setStatus(savedResponse.routineChanged
-        ? 'Sua nova rotina foi registrada. Seu programa de treino da semana esta sendo atualizado automaticamente e pode levar ate 10 minutos para aparecer.'
-        : 'Seus dados foram atualizados com sucesso.');
+      setStatus('Seus dados foram atualizados com sucesso.');
     } catch {
       setStatus('Nao consegui conectar com a API agora.');
     } finally {
@@ -9423,6 +9476,10 @@ function Anamnese({
           Entendemos que na pratica, nem sempre o aluno consegue fazer todos os treinos que sao propostos. Nos ajustaremos os treinos de acordo com o que voce realmente estiver conseguindo fazer. Alem disso, voce pode fazer uma alteracao por mes na sua rotina. Para imprevistos pontuais (viagem, fase mais corrida, ou outro motivo de ausencia), sem precisar mudar a rotina toda, use o menu "Observacoes" para avisar seu treinador.
         </Text>
         <RoutineEditor routineDays={routineDays} onChange={onRoutineChange} />
+        <Pressable style={[styles.secondaryOutlineButton, { marginTop: 12 }, (isSaving || routineSaving) && styles.disabledButton]} disabled={isSaving || routineSaving} onPress={saveRoutineOnly}>
+          <Text style={styles.secondaryOutlineButtonText}>{routineSaving ? 'Salvando rotina...' : 'Salvar rotina'}</Text>
+        </Pressable>
+        {routineStatus ? <Text style={styles.statusMessage}>{routineStatus}</Text> : null}
       </View>
 
       <Pressable style={[styles.primaryButton, isSaving && styles.disabledButton]} disabled={isSaving} onPress={saveProfile}>
@@ -13078,6 +13135,28 @@ function paceInputToSeconds(value: string) {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
+// Salva SOMENTE a rotina (PUT /me/availability). So' confirma depois que a API respondeu ok; o texto diz exatamente o que acontece: a rotina vale na proxima
+// geracao (liberada aos domingos a partir das 12h) e nunca altera treinos ja entregues.
+async function saveRoutineAvailability(accessToken: string, routineDays: RoutineDay[]): Promise<{ ok: boolean; message: string }> {
+  try {
+    const response = await fetch(`${API_URL}/me/availability`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ availability: routineToAvailability(routineDays) }),
+    });
+    if (!response.ok) {
+      const apiMessage = await readApiError(response);
+      return { ok: false, message: response.status === 401 ? 'Sua sessao expirou. Saia e entre novamente.' : `Nao consegui salvar a rotina: ${apiMessage}` };
+    }
+    const data = (await response.json()) as { routineChanged?: boolean; firstTime?: boolean };
+    if (data.firstTime) return { ok: true, message: 'Rotina salva. Seu primeiro programa esta sendo preparado.' };
+    if (data.routineChanged === false) return { ok: true, message: 'Rotina conferida: nenhuma alteracao em relacao a que ja estava salva.' };
+    return { ok: true, message: 'Rotina salva. Ela sera considerada na proxima geracao do seu programa, liberada aos domingos a partir das 12h. Os treinos que voce ja recebeu nao mudam.' };
+  } catch {
+    return { ok: false, message: 'Nao consegui conectar com a API agora. A rotina NAO foi salva.' };
+  }
+}
+
 function routineToAvailability(routineDays: RoutineDay[]) {
   return routineDays.map((day) => ({
     weekday: day.weekday,
@@ -13142,13 +13221,13 @@ async function saveAnamneseWithLegacyApi(input: {
   profile: Record<string, unknown>;
   health: Record<string, unknown>;
   preferences: Record<string, unknown>;
-  availability: ReturnType<typeof routineToAvailability>;
+  availability?: ReturnType<typeof routineToAvailability>;
 }) {
   const requests = [
     { path: 'profile', body: input.profile },
     { path: 'health', body: input.health },
     { path: 'preferences', body: input.preferences },
-    { path: 'availability', body: { availability: input.availability } },
+    ...(input.availability ? [{ path: 'availability', body: { availability: input.availability } }] : []),
   ];
 
   for (const request of requests) {

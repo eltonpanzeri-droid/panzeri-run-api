@@ -281,8 +281,8 @@ export class CoachController {
   }
 
   @Post('students/:studentId/sync-availability')
-  syncStudentAvailability(@Param('studentId') studentId: string) {
-    return this.coachService.syncStudentAvailability(studentId);
+  syncStudentAvailability(@Param('studentId') studentId: string, @Body() body: { dryRun?: boolean } | undefined) {
+    return this.coachService.syncStudentAvailability(studentId, body?.dryRun !== false);
   }
 
   @Patch('students/:studentId/availability')

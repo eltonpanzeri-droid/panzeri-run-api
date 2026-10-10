@@ -15,6 +15,8 @@ import { ONBOARDING_INTERVIEW_VERSION } from '../reassessment/reassessment-traje
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 
+// (10/2026) Regra vigente: salvar a rotina NUNCA regenera, arquiva ou altera treinos ja entregues; a rotina vale na PROXIMA geracao (a geracao da semana seguinte
+// e' liberada aos domingos a partir das 12h, America/Sao_Paulo, e e' sob demanda — nao ha geracao automatica). Os comentarios abaixo sobre "domingo automatico" sao historicos.
 // ATE 03/08 existia um limite de 1 alteracao de rotina a cada 30 dias, porque cada mudanca
 // disparava uma geracao de IA na hora (custo real por alteracao). Ordem explicita do treinador
 // (03/08): uma mudanca de rotina de quem JA TEM plano ativo nunca mais gera na hora — ela so
@@ -94,6 +96,36 @@ export class MeService {
     // (PUT /me/profile via "Conta", PUT /me/anamnese via "Perfil"); sincronizar aqui tambem criaria
     // uma terceira fonte de verdade pra eles.
     await this.syncIdentityAnswerToUser(userId, dto.key, answers);
+
+    // (10/2026) Correcao explicita do objetivo (tela "Corrigir respostas"/entrevista): atualiza o objetivo OPERACIONAL (UserPreferences.mainGoal), que e' o que o
+    // Prescritor recebe. A resposta anterior fica preservada em OnboardingInterview.answers so' ate' ser sobrescrita pela nova; o historico de mudancas de objetivo
+    // vem das reavaliacoes. Antes da primeira conclusao nao ha preferencias: o objetivo e' projetado em completeOnboarding.
+    // Mesma ideia para as demais preferencias operacionais que a entrevista inicial projeta (experiencia, atividades atuais/preferidas): so' o campo editado, so' se
+    // as preferencias ja existem (depois da primeira conclusao) — nunca recalcula os outros a partir do JSON inteiro.
+    const preferencesPatch: Prisma.UserPreferencesUpdateInput | null =
+      dto.key === 'objective' && typeof dto.value === 'string' && dto.value.trim() ? { mainGoal: dto.value.trim() }
+        : dto.key === 'running_experience' && typeof dto.value === 'string' && dto.value.trim() ? { experienceLevel: dto.value.trim() }
+          : dto.key === 'current_activities' && Array.isArray(dto.value) ? { preferredModalities: stringArray(dto.value) }
+            : dto.key === 'favorite_activities' && Array.isArray(dto.value) ? { otherModalities: stringArray(dto.value) }
+              : null;
+    if (preferencesPatch) {
+      const preferences = await this.prisma.userPreferences.findUnique({ where: { userId }, select: { userId: true } });
+      if (preferences) await this.prisma.userPreferences.update({ where: { userId }, data: preferencesPatch });
+    }
+
+    // Texto livre "informacao adicional" editado DEPOIS da conclusao da entrevista: segue ao Relator/Prontuario (sem duplicar o mesmo texto). Antes da conclusao,
+    // completeOnboarding o encaminha uma vez.
+    if (dto.key === 'additional_info' && current?.completedAt && typeof dto.value === 'string' && dto.value.trim()) {
+      await this.reportTimeline.record({
+        userId,
+        sourceType: STUDENT_REPORT_SOURCE_TYPES.ONBOARDING_INTERVIEW_ADDITIONAL_INFO,
+        promptQuestion: 'Quer acrescentar alguma informacao?',
+        relatedLabel: 'Entrevista - informacao adicional (editada)',
+        originalText: dto.value,
+        occurredAt: new Date(),
+        dedupe: true,
+      });
+    }
 
     return result;
   }
@@ -268,11 +300,12 @@ export class MeService {
             mainGoal: answers.objective != null ? String(answers.objective) : 'Nao informado',
             experienceLevel: answers.running_experience != null ? String(answers.running_experience) : null,
           },
+          // (10/2026) mainGoal NAO e' reescrito ao reconcluir a entrevista: o objetivo ATUAL pode ter sido atualizado depois (reavaliacao, correcao). A resposta
+          // da entrevista continua preservada em OnboardingInterview.answers como historico; uma edicao explicita dela atualiza o objetivo (saveOnboardingAnswer).
           update: {
             preferredModalities,
             otherModalities: stringArray(answers.favorite_activities),
             trainingLocations: ['Corrida na rua'],
-            mainGoal: answers.objective != null ? String(answers.objective) : 'Nao informado',
             experienceLevel: answers.running_experience != null ? String(answers.running_experience) : null,
           },
         });
@@ -347,23 +380,7 @@ export class MeService {
     // e quem eventualmente "paga" pra condensar isso, nao esta chamada. Depois disso o agente de
     // prescricao semanal ja recebe essa informacao pronta no resumo, sem reprocessar de novo.
     const routineObservation = stringValue(answers.routine_observation).trim();
-    if (routineObservation) {
-      void this.studentProfile.recordEvent(
-        userId,
-        ProfileEventCode.STUDENT_OBSERVATION,
-        `Observacao do aluno sobre a rotina (entrevista inicial): ${routineObservation}`,
-      ).catch((error) => {
-        this.logger.warn(`recordEvent(STUDENT_OBSERVATION, rotina) falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
-      });
-      void this.reportTimeline.record({
-        userId,
-        sourceType: STUDENT_REPORT_SOURCE_TYPES.ONBOARDING_INTERVIEW_ROUTINE_NOTE,
-        promptQuestion: 'Alguma observacao sobre sua rotina?',
-        relatedLabel: 'Entrevista inicial - rotina',
-        originalText: routineObservation,
-        occurredAt: completedAt,
-      });
-    }
+    if (routineObservation) await this.forwardRoutineObservation(userId, routineObservation, completedAt, 'entrevista inicial');
 
     // Linha do Tempo de Relatos (28/09/2026) — texto livre REAL dentro da entrevista (nunca os
     // resumos compostos gravados em HealthProfile, que ja misturam varias respostas numa frase
@@ -393,6 +410,21 @@ export class MeService {
       });
     }
 
+    // (10/2026) "Informacao adicional": texto livre que o aluno escreveu no fim da entrevista. Antes ficava so' no JSON; agora segue ao Relator/Prontuario
+    // (mesmo mecanismo dos demais textos livres), sem registrar de novo o mesmo texto se a entrevista for reconcluida.
+    const additionalInfo = stringValue(answers.additional_info).trim();
+    if (additionalInfo) {
+      void this.reportTimeline.record({
+        userId,
+        sourceType: STUDENT_REPORT_SOURCE_TYPES.ONBOARDING_INTERVIEW_ADDITIONAL_INFO,
+        promptQuestion: 'Quer acrescentar alguma informacao?',
+        relatedLabel: 'Entrevista inicial - informacao adicional',
+        originalText: additionalInfo,
+        occurredAt: completedAt,
+        dedupe: true,
+      });
+    }
+
     // Incidente real: prospectos respondiam a entrevista inteira, a IA gerava a semana de treino
     // (chamada cara), e boa parte desistia antes de assinar de verdade — gastando tokens a toa.
     // A partir de agora, concluir a entrevista NAO gera mais o treino sozinho: isso so acontece
@@ -419,11 +451,12 @@ export class MeService {
     if (payingUser && hasSubscriptionAccess(payingUser.subscriptionStatus)) {
       if (existingAvailability) {
         // Aluno existente refazendo a entrevista: ja tem rotina → gera agora.
-        // generateWeek() cuida sozinho de arquivar o plano ativo anterior.
+        // (10/2026) REGRA ABSOLUTA: refazer a entrevista nao pode regenerar nem arquivar treinos ja entregues. generateFirstWeekIfNeeded so gera quando
+        // ainda NAO existe nenhum programa; quem ja tem programa recebe a nova semana pelo fluxo normal de geracao.
         // NUNCA arquivamos manualmente antes de chamar generateWeek — ja foi um bug real.
         // NAO AWAIT: pode levar 30s+.
-        void this.trainingPlans.generateWeek(userId).catch((error) => {
-          this.logger.warn(`generateWeek apos completeOnboarding falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+        void this.trainingPlans.generateFirstWeekIfNeeded(userId).catch((error) => {
+          this.logger.warn(`generateFirstWeekIfNeeded apos completeOnboarding falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
         });
       } else {
         // Aluno novo: rotina ainda nao foi configurada — completeRoutineFromInterview vai
@@ -452,7 +485,7 @@ export class MeService {
   // treinos", via completeRoutineFromInterview) — o botao de reparo do treinador no painel
   // ("Sincronizar disponibilidade da entrevista") reaproveita este mesmo metodo mas NAO deve
   // mandar um Telegram dizendo "aluno solicitou", porque quem disparou foi o proprio treinador.
-  async syncAvailabilityFromInterview(userId: string, notifyAsStudentRequest = false, changesWereMade = true) {
+  async syncAvailabilityFromInterview(userId: string, notifyAsStudentRequest = false, changesWereMade = true, options: { force?: boolean; dryRun?: boolean } = {}) {
     const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
     if (!interview) {
       throw new BadRequestException('Aluno ainda nao respondeu a entrevista.');
@@ -473,6 +506,21 @@ export class MeService {
     // incompletas/ausentes no momento da chamada (ex.: entrevista reaberta numa reavaliacao sem
     // o modulo de rotina ter sido refeito) — nunca e' isso que o aluno realmente quer. Preferimos
     // abortar e avisar a apagar silenciosamente uma rotina que ja funcionava.
+    // (10/2026) WeeklyAvailability e' a UNICA fonte operacional da rotina. Quando o ALUNO conclui a tela da entrevista mas ja' existe rotina com treinos
+    // (feita antes, editada no Perfil ou pelo treinador), as respostas HISTORICAS da entrevista nao a sobrescrevem: a rotina atual e' preservada. A edicao
+    // posterior da rotina usa PUT /me/availability. O reparo explicito do treinador (notifyAsStudentRequest=false) continua possivel, com previa (dryRun).
+    if (notifyAsStudentRequest && !options.force && currentAvailability.some((day) => !day.noTraining)) {
+      this.logger.log(`syncAvailabilityFromInterview PRESERVOU a rotina atual de ${userId}: ja existe rotina configurada; as respostas antigas da entrevista nao a sobrescrevem.`);
+      return { synced: false, preserved: true, reason: 'existing_routine_preserved', days: currentAvailability.filter((day) => !day.noTraining).length, firstTime: false };
+    }
+    if (options.dryRun) {
+      return {
+        dryRun: true,
+        changed: routineChanged,
+        currentDays: currentAvailability.filter((day) => !day.noTraining).map((day) => ({ weekday: day.weekday, modalities: day.modalities, modalityDurations: day.modalityDurations })),
+        interviewDays: availability.filter((day) => !day.noTraining).map((day) => ({ weekday: day.weekday, modalities: day.modalities, modalityDurations: day.modalityDurations })),
+      };
+    }
     const currentHasTraining = currentAvailability.some((day) => !day.noTraining);
     const newHasTraining = availability.some((day) => !day.noTraining);
     if (currentHasTraining && !newHasTraining) {
@@ -522,7 +570,31 @@ export class MeService {
   // em vigor na proxima geracao de domingo.
   async completeRoutineFromInterview(userId: string, changesWereMade?: boolean) {
     // changesWereMade undefined → app antigo sem o campo → assume true (conservador: nao silencia).
-    return this.syncAvailabilityFromInterview(userId, true, changesWereMade ?? true);
+    const result = await this.syncAvailabilityFromInterview(userId, true, changesWereMade ?? true);
+    // (10/2026) "Alguma observacao sobre sua rotina?" e' um canal de comunicacao do aluno: o texto vai ao mecanismo de relatos (Relator -> Prontuario) ao concluir
+    // a rotina, mesmo quando a agenda atual foi preservada. Idempotente (o mesmo texto nao e' registrado duas vezes).
+    const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } });
+    const note = stringValue(asAnswerObject(interview?.answers).routine_observation).trim();
+    if (note) await this.forwardRoutineObservation(userId, note, new Date(), 'tela de rotina');
+    return result;
+  }
+
+  // Encaminha um texto livre do aluno sobre a rotina ao mecanismo ja' existente de relatos (Relator -> Prontuario). O texto original, o autor (userId) e a data
+  // ficam em StudentReportEntry; o evento do Prontuario so' e' gravado quando o relato e' NOVO (sem duplicar quando a mesma resposta e' reenviada).
+  private async forwardRoutineObservation(userId: string, text: string, occurredAt: Date, origin: string) {
+    const recorded = await this.reportTimeline.record({
+      userId,
+      sourceType: STUDENT_REPORT_SOURCE_TYPES.ONBOARDING_INTERVIEW_ROUTINE_NOTE,
+      promptQuestion: 'Alguma observacao sobre sua rotina?',
+      relatedLabel: 'Rotina semanal',
+      originalText: text,
+      occurredAt,
+      dedupe: true,
+    });
+    if (!recorded) return;
+    void this.studentProfile.recordEvent(userId, ProfileEventCode.STUDENT_OBSERVATION, `Observacao do aluno sobre a rotina (${origin}): ${text}`).catch((error) => {
+      this.logger.warn(`recordEvent(STUDENT_OBSERVATION, rotina) falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
+    });
   }
 
   // 10/09: chamado pelo app quando o aluno conclui a correcao de respostas via fixModule
@@ -646,7 +718,8 @@ export class MeService {
   }
 
   async updateAnamnese(userId: string, dto: UpdateAnamneseDto) {
-    validateAvailability(dto.availability.availability);
+    const incomingAvailability = dto.availability?.availability;
+    if (incomingAvailability) validateAvailability(incomingAvailability);
 
     const normalizedEmail = dto.profile.email.trim().toLowerCase();
     const emailOwner = await this.prisma.user.findUnique({
@@ -658,7 +731,7 @@ export class MeService {
     }
 
     const currentAvailability = await this.prisma.weeklyAvailability.findMany({ where: { userId } });
-    const routineChanged = availabilityChanged(currentAvailability, dto.availability.availability);
+    const routineChanged = incomingAvailability ? availabilityChanged(currentAvailability, incomingAvailability) : false;
     // ORDEM EXECUTIVA 09/09/2026: sincronizacao reversa WA→answers eliminada.
     // Ver comentario equivalente em updateAvailability para justificativa completa e rollback.
 
@@ -689,18 +762,21 @@ export class MeService {
         update: dto.preferences,
       });
 
-      await tx.weeklyAvailability.deleteMany({ where: { userId } });
-      for (const day of dto.availability.availability) {
-        await tx.weeklyAvailability.create({
-          data: {
-            userId,
-            weekday: day.weekday,
-            noTraining: day.noTraining,
-            modalities: day.noTraining ? [] : day.modalities,
-            availableMin: day.noTraining ? 0 : day.availableMin,
-            modalityDurations: day.noTraining ? undefined : day.modalityDurations ?? {},
-          },
-        });
+      // Sem `availability` no corpo, a rotina atual NAO e' tocada (a rotina e' salva por PUT /me/availability).
+      if (incomingAvailability) {
+        await tx.weeklyAvailability.deleteMany({ where: { userId } });
+        for (const day of incomingAvailability) {
+          await tx.weeklyAvailability.create({
+            data: {
+              userId,
+              weekday: day.weekday,
+              noTraining: day.noTraining,
+              modalities: day.noTraining ? [] : day.modalities,
+              availableMin: day.noTraining ? 0 : day.availableMin,
+              modalityDurations: day.noTraining ? undefined : day.modalityDurations ?? {},
+            },
+          });
+        }
       }
 
       return tx.user.findUniqueOrThrow({

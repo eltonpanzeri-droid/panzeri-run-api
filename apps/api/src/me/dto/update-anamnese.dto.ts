@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ValidateNested } from 'class-validator';
+import { IsOptional, ValidateNested } from 'class-validator';
 import { UpdateAvailabilityDto } from './update-availability.dto';
 import { UpdateHealthDto } from './update-health.dto';
 import { UpdatePreferencesDto } from './update-preferences.dto';
@@ -18,7 +18,9 @@ export class UpdateAnamneseDto {
   @Type(() => UpdatePreferencesDto)
   preferences!: UpdatePreferencesDto;
 
+  // (10/2026) Opcional: a rotina e' salva por PUT /me/availability. Sem este campo o salvamento de perfil/saude/preferencias NAO toca a rotina atual.
+  @IsOptional()
   @ValidateNested()
   @Type(() => UpdateAvailabilityDto)
-  availability!: UpdateAvailabilityDto;
+  availability?: UpdateAvailabilityDto;
 }

@@ -64,7 +64,7 @@ describe('ReportTimelineService.record — preservacao do texto original', () =>
   it('falha ao gravar a timeline NUNCA propaga erro pra quem chamou (best-effort)', async () => {
     const { service, studentReportEntry } = build();
     studentReportEntry.create.mockRejectedValue(new Error('banco indisponivel'));
-    await expect(service.record({ userId: 'aluno-1', sourceType: 'workout_feedback_notes', originalText: 'algo', occurredAt: new Date() })).resolves.toBeUndefined();
+    await expect(service.record({ userId: 'aluno-1', sourceType: 'workout_feedback_notes', originalText: 'algo', occurredAt: new Date() })).resolves.toBe(false); // nunca lanca; false = nada foi registrado
   });
 });
 
