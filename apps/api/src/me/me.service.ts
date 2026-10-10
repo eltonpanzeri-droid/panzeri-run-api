@@ -113,6 +113,13 @@ export class MeService {
       if (preferences) await this.prisma.userPreferences.update({ where: { userId }, data: preferencesPatch });
     }
 
+    // Saude: correcao explicita de uma resposta atualiza so' o campo derivado correspondente (so' se o perfil de saude ja existe; na 1a conclusao e' criado inteiro).
+    const healthPatch = this.healthPatchForAnswer(dto.key, answers);
+    if (healthPatch) {
+      const profile = await this.prisma.healthProfile.findUnique({ where: { userId }, select: { userId: true } });
+      if (profile) await this.prisma.healthProfile.update({ where: { userId }, data: healthPatch });
+    }
+
     // Texto livre "informacao adicional" editado DEPOIS da conclusao da entrevista: segue ao Relator/Prontuario (sem duplicar o mesmo texto). Antes da conclusao,
     // completeOnboarding o encaminha uma vez.
     if (dto.key === 'additional_info' && current?.completedAt && typeof dto.value === 'string' && dto.value.trim()) {
@@ -128,6 +135,18 @@ export class MeService {
     }
 
     return result;
+  }
+
+  // Campo(s) de HealthProfile derivado(s) da resposta editada (os resumos compostos sao recalculados so' quando uma de suas chaves muda).
+  private healthPatchForAnswer(key: string, answers: Record<string, Prisma.InputJsonValue>): Prisma.HealthProfileUpdateInput | null {
+    if (key === 'sleep_hours') return { averageSleep: stringValue(answers.sleep_hours) };
+    if (key === 'rating_stress') return { stressLevel: ratingValue(answers.rating_stress) };
+    if (key === 'rating_anxiety') return { anxietyLevel: ratingValue(answers.rating_anxiety) };
+    if (key === 'continuous_medications') return { medications: stringValue(answers.continuous_medications) };
+    if (key === 'health_conditions' || key === 'health_conditions_other' || key.startsWith('health_condition_status_')) return { healthProblems: healthConditionsSummary(answers) };
+    const injuryKeys = ['current_pain', 'important_injury', 'injury_time_since', 'injury_description', 'medical_recommendation', 'diagnosed_running_conditions', 'diagnosed_running_conditions_other'];
+    if (injuryKeys.includes(key) || key.startsWith('pain_') || key.startsWith('running_condition_status_')) return { previousInjuries: interviewInjurySummary(answers) };
+    return null;
   }
 
   private async syncIdentityAnswerToUser(userId: string, key: string, answers: Record<string, Prisma.InputJsonValue>) {
@@ -256,7 +275,9 @@ export class MeService {
 
     try {
       await this.prisma.$transaction(async (tx) => {
-        await tx.user.update({
+        // (10/2026) Reconclusao NAO reescreve os dados operacionais do aluno com as respostas antigas (peso, altura, nome, nascimento, sexo...): eles podem ter sido
+        // atualizados depois (Perfil/Conta). Telefone, CPF, escolaridade e endereco tem correcao explicita propria (saveOnboardingAnswer). Na 1a conclusao, projeta tudo.
+        if (!completedBefore) await tx.user.update({
           where: { id: userId },
           data: {
             name: String(answers.personal_name),
@@ -283,7 +304,9 @@ export class MeService {
             healthProblems: healthConditionsSummary(answers),
             medications: stringValue(answers.continuous_medications),
           },
-          update: {
+          // Saude: mesma regra — a reconclusao nao sobrescreve o que o aluno atualizou depois (Perfil/Anamnese); correcao explicita de uma resposta atualiza so' o campo
+          // correspondente (saveOnboardingAnswer). As respostas iniciais seguem intactas em OnboardingInterview.answers.
+          update: completedBefore ? {} : {
             averageSleep: stringValue(answers.sleep_hours),
             stressLevel: ratingValue(answers.rating_stress),
             anxietyLevel: ratingValue(answers.rating_anxiety),

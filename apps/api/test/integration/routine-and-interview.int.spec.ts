@@ -153,6 +153,47 @@ describe('rotina, entrevista, objetivo e relatos (PostgreSQL real)', () => {
     expect((await prisma.onboardingInterview.findUniqueOrThrow({ where: { userId: first.userId } })).answers).toMatchObject({ objective: 'Completar 5 km', running_experience: 'Nunca corri', current_activities: ['Musculacao'] }); // avaliacao inicial preservada
   });
 
+  it('saude e dados pessoais: 1a conclusao projeta; reconclusao preserva o que foi atualizado depois; correcao explicita atualiza so o campo; historico e programa intactos', async () => {
+    const s = await student('saude-user');
+    const answers = {
+      personal_name: 'Aluno Sintetico', personal_phone: '11999999999', personal_cpf: validCpf(), personal_birth_date: '15/03/1990', personal_sex: 'Masculino', personal_height: 175, personal_weight: 70,
+      personal_address_city: 'Sao Paulo', personal_address_state: 'SP', sleep_hours: 'Entre 6 e 7 horas', rating_stress: 7, rating_anxiety: 4, continuous_medications: 'nenhuma', objective: 'Completar 5 km',
+      current_pain: 'no', important_injury: 'never', health_conditions: ['Nenhuma'],
+    };
+    await prisma.onboardingInterview.create({ data: { userId: s.userId, answers } });
+    // 1a conclusao: preenche User e HealthProfile
+    await me.completeOnboarding(s.userId);
+    let user = await prisma.user.findUniqueOrThrow({ where: { id: s.userId } });
+    let health = await prisma.healthProfile.findUniqueOrThrow({ where: { userId: s.userId } });
+    expect([user.heightCm, Number(user.weightKg), user.phone]).toEqual([175, 70, '11999999999']);
+    expect([health.averageSleep, health.stressLevel, health.anxietyLevel, health.medications]).toEqual(['Entre 6 e 7 horas', '7/10', '4/10', 'nenhuma']);
+    // o aluno atualiza depois pelas telas proprias (Perfil/Anamnese/Conta)
+    await prisma.user.update({ where: { id: s.userId }, data: { weightKg: 64, heightCm: 176, name: 'Nome Atual' } });
+    await prisma.healthProfile.update({ where: { userId: s.userId }, data: { averageSleep: '7_8', stressLevel: 'baixo', medications: 'vitamina D' } });
+    const planBefore = await prisma.trainingPlan.findMany({ where: { userId: s.userId } });
+    const sessionsBefore = await prisma.trainingSession.findMany({ where: { userId: s.userId }, orderBy: { id: 'asc' } });
+    const answersBefore = (await prisma.onboardingInterview.findUniqueOrThrow({ where: { userId: s.userId } })).answers;
+    // reabrir e reconcluir: respostas antigas NAO sobrescrevem
+    await me.reopenOnboarding(s.userId);
+    await me.completeOnboarding(s.userId);
+    user = await prisma.user.findUniqueOrThrow({ where: { id: s.userId } });
+    health = await prisma.healthProfile.findUniqueOrThrow({ where: { userId: s.userId } });
+    expect([user.heightCm, Number(user.weightKg), user.name]).toEqual([176, 64, 'Nome Atual']);
+    expect([health.averageSleep, health.stressLevel, health.medications]).toEqual(['7_8', 'baixo', 'vitamina D']);
+    expect((await prisma.onboardingInterview.findUniqueOrThrow({ where: { userId: s.userId } })).answers).toMatchObject(answersBefore as object); // avaliacao inicial preservada
+    // correcao explicita de uma resposta: atualiza so' o campo correspondente
+    await me.saveOnboardingAnswer(s.userId, { key: 'sleep_hours', value: 'Mais de 8 horas', currentStep: 5 });
+    await me.saveOnboardingAnswer(s.userId, { key: 'personal_phone', value: '11888888888', currentStep: 5 });
+    await me.saveOnboardingAnswer(s.userId, { key: 'rating_stress', value: 9, currentStep: 5 });
+    user = await prisma.user.findUniqueOrThrow({ where: { id: s.userId } });
+    health = await prisma.healthProfile.findUniqueOrThrow({ where: { userId: s.userId } });
+    expect([health.averageSleep, health.stressLevel, health.medications, user.phone, Number(user.weightKg)]).toEqual(['Mais de 8 horas', '9/10', 'vitamina D', '11888888888', 64]);
+    // nenhum plano/sessao entregue foi tocado
+    expect(await prisma.trainingPlan.findMany({ where: { userId: s.userId } })).toEqual(planBefore);
+    expect(await prisma.trainingSession.findMany({ where: { userId: s.userId }, orderBy: { id: 'asc' } })).toEqual(sessionsBefore);
+    expect(trainingPlans.generateWeek).not.toHaveBeenCalled();
+  });
+
   it('primeira rotina (sem WeeklyAvailability): continua sendo criada a partir das respostas da rotina', async () => {
     const s = await student('primeira');
     await prisma.onboardingInterview.create({ data: { userId: s.userId, answers: routineAnswers(), completedAt: new Date('2026-10-01T00:00:00Z') } });
