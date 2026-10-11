@@ -726,7 +726,7 @@ describe('D2 — reconcileAffectedByIdentity apos mudanca de identidade', () => 
     f.addSession();
     split(f);
     const spy = jest.spyOn(f.service, 'reconcileEvent').mockRejectedValueOnce(new Error('falha simulada'));
-    await expect(f.service.reconcileAffectedByIdentity({ affectedActivityLogIds: [f.polar.id, f.hc.id] }, null)).resolves.toBeUndefined();
+    await expect(f.service.reconcileAffectedByIdentity({ affectedActivityLogIds: [f.polar.id, f.hc.id] }, null)).resolves.toBe(false); // nunca lanca; false = alguma falhou (o chamador nao carimba a decisao)
     expect(spy).toHaveBeenCalledTimes(2);
     expect(f.prisma.trainingSession.update).not.toHaveBeenCalled();
   });

@@ -34,6 +34,9 @@ export interface HumanIdentityDecision {
   // Preenchido pela avaliacao de identidade (deterministico, sem horario): 'applied' | 'suspended' (+ motivo objetivo).
   state?: HumanDecisionState;
   stateReason?: string | null;
+  // Carimbo de "efeito concluido": gravado SO' depois de a identidade ser reavaliada E a reconciliacao concluida (criacao ou reversao). Sem ele a decisao
+  // esta' EM PROCESSAMENTO e e' reprocessada sozinha (idempotente) na proxima leitura das pendencias ou pelo treinador.
+  processedAt?: string | null;
 }
 
 // Motivos em que a evidencia objetiva e' decisiva contra "mesma execucao" (o humano nao fez o dado mudar).
@@ -67,6 +70,11 @@ export function decisionsOfEvidence(evidence: unknown): HumanIdentityDecision[] 
     const x = d as Partial<HumanIdentityDecision> | null;
     return Boolean(x && typeof x.id === 'string' && (x.kind === 'same' || x.kind === 'distinct') && Array.isArray(x.pairs) && Array.isArray(x.observationIds));
   });
+}
+
+// Decisao (de qualquer status) cujo efeito ainda nao foi concluido — a ser reprocessada.
+export function isUnprocessed(decision: HumanIdentityDecision): boolean {
+  return !decision.processedAt;
 }
 
 export function activeDecisions(decisions: HumanIdentityDecision[]): HumanIdentityDecision[] {

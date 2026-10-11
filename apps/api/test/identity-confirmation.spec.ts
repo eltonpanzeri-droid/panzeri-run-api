@@ -23,6 +23,11 @@ function matches(row: Row, where: Record<string, any> | undefined): boolean {
     const value = row[key];
     if (expected && typeof expected === 'object' && !(expected instanceof Date)) {
       const e = expected as Record<string, any>;
+      if ('path' in e) { // filtro JSON do Prisma: valor no caminho existe e nao e' null
+        let at: any = value;
+        for (const part of e.path as string[]) at = at == null ? undefined : at[part];
+        return at !== undefined && at !== null;
+      }
       if ('in' in e && !e.in.includes(value)) return false;
       if ('not' in e && (e.not === null ? value === null || value === undefined : value === e.not)) return false;
       if ('gte' in e && !(value >= e.gte)) return false;
@@ -634,5 +639,228 @@ describe('nucleo das decisoes humanas (puro)', () => {
     expect(decisionsOfEvidence(null)).toEqual([]);
     expect(decisionsOfEvidence({ version: 1, comparisons: [] })).toEqual([]);
     expect(decisionsOfEvidence({ humanDecisions: [{ id: 'x' }] })).toEqual([]);
+  });
+});
+
+// ---- Verificacao final (1): decisao registrada, efeito ainda nao concluido — reprocessamento sozinho, idempotente e honesto com o aluno ----------
+describe('decisao registrada com efeito ainda nao concluido', () => {
+  const pair = async () => {
+    const w = world();
+    await w.ingest(AMBIGUOUS_POLAR());
+    await w.ingest(AMBIGUOUS_HC());
+    return w;
+  };
+  const decisionsOf = (w: ReturnType<typeof world>, id = 'p') => decisionsOfEvidence(w.get(id).physicalIdentityEvidence);
+
+  it('falha persistente: a resposta fica registrada UMA vez, o aluno ve "em atualizacao" (sem acao) e nunca recebe applied=true; repetir o mesmo tipo nao duplica; outro tipo e 409', async () => {
+    const w = await pair();
+    jest.spyOn(w.identity, 'evaluateSafely').mockResolvedValue(null);
+    const first = await w.confirmation.resolveAsStudent('u1', { activityLogIds: ['p', 'h'], decision: 'same' });
+    expect(first).toMatchObject({ status: 'resolved', applied: false, reevaluated: false, retried: false });
+    expect(decisionsOf(w)).toHaveLength(1);
+    expect(decisionsOf(w)[0].processedAt).toBeUndefined(); // sem carimbo = em processamento
+    expect(w.get('p').physicalIdentityStatus).toBe('ambiguous'); // a identidade ainda nao foi aplicada
+    expect(w.counting()).toHaveLength(1); // contagem conservadora preservada
+    const view = await w.confirmation.pendingForStudent('u1', NOW);
+    expect(view).toHaveLength(1);
+    expect(view[0].status).toBe('processing'); // distingue "resposta registrada, atualizando" de "aguardando resposta"
+    const retry = await w.confirmation.resolveAsStudent('u1', { activityLogIds: ['h', 'p'], decision: 'same' });
+    expect(retry).toMatchObject({ retried: true, applied: false, decisionId: first.decisionId });
+    expect(decisionsOf(w)).toHaveLength(1); // idempotente: nao duplicou
+    await expect(w.confirmation.resolveAsStudent('u1', { activityLogIds: ['p', 'h'], decision: 'distinct' })).rejects.toBeInstanceOf(ConflictException);
+    expect(decisionsOf(w)).toHaveLength(1);
+    expect((await w.confirmation.quality(90, NOW)).confirmations.awaitingReprocess).toBe(1);
+  });
+
+  it('recuperacao SEM intervencao: quando o servico volta, a proxima leitura reprocessa sozinha — identidade, contabilizacao e carimbo — e a leitura seguinte nao escreve nada', async () => {
+    const w = await pair();
+    const spy = jest.spyOn(w.identity, 'evaluateSafely').mockResolvedValue(null);
+    await w.confirmation.resolveAsStudent('u1', { activityLogIds: ['p', 'h'], decision: 'same' });
+    spy.mockRestore(); // falha transitoria passou
+    expect(await w.confirmation.pendingForStudent('u1', NOW)).toEqual([]); // reprocessou e nada mais pendente
+    expect(w.get('p').physicalIdentityStatus).toBe('matched');
+    expect(w.get('h').physicalCanonicalActivityLogId).toBe('p');
+    expect(decisionsOf(w)).toHaveLength(1);
+    expect(decisionsOf(w)[0]).toMatchObject({ state: 'applied' });
+    expect(decisionsOf(w)[0].processedAt).toBeDefined();
+    expect(w.counting()).toHaveLength(1);
+    expect(await w.km()).toBe(10);
+    const writesBefore = w.writes();
+    expect(await w.confirmation.pendingForStudent('u1', NOW)).toEqual([]);
+    expect(w.writes()).toBe(writesBefore); // idempotente: nada a reprocessar
+    expect((await w.confirmation.quality(90, NOW)).confirmations.awaitingReprocess).toBe(0);
+  });
+
+  it('falha transitoria em UMA das observacoes ("diferentes"): a leitura seguinte completa o que faltou; as duas passam a contar uma vez cada', async () => {
+    const w = await pair();
+    jest.spyOn(w.identity, 'evaluateSafely').mockResolvedValueOnce(null); // so' a primeira avaliacao falha
+    const result = await w.confirmation.resolveAsStudent('u1', { activityLogIds: ['p', 'h'], decision: 'distinct' });
+    expect(result.applied).toBe(false);
+    expect(decisionsOf(w)[0].processedAt).toBeUndefined();
+    expect((await w.confirmation.pendingForStudent('u1', NOW))).toEqual([]);
+    expect(decisionsOf(w)[0].processedAt).toBeDefined();
+    expect(w.get('p').physicalIdentityStatus).toBe('unique');
+    expect(w.get('h').physicalIdentityStatus).toBe('unique');
+    expect(w.counting()).toHaveLength(2);
+    expect(await w.km()).toBe(20.4);
+    expect(decisionsOf(w)).toHaveLength(1);
+  });
+
+  it('falha na RECONCILIACAO (identidade ja aplicada): sem carimbo ate concluir; a leitura seguinte reconcilia e a contabilizacao fica correta', async () => {
+    const w = await pair();
+    jest.spyOn(w.link, 'reconcileAffectedByIdentity').mockResolvedValueOnce(false);
+    const result = await w.confirmation.resolveAsStudent('u1', { activityLogIds: ['p', 'h'], decision: 'distinct' });
+    expect(result.applied).toBe(false);
+    expect(w.get('p').physicalIdentityStatus).toBe('unique'); // a identidade ja' foi aplicada...
+    expect(w.counting()).toHaveLength(1); // ...mas a segunda execucao ainda nao foi contabilizada
+    expect(decisionsOf(w)[0].processedAt).toBeUndefined();
+    await w.confirmation.pendingForStudent('u1', NOW);
+    expect(decisionsOf(w)[0].processedAt).toBeDefined();
+    expect(w.counting()).toHaveLength(2);
+    expect(await w.km()).toBe(20.4);
+  });
+
+  it('o treinador repetir a mesma decisao enquanto nao concluida e idempotente (nao duplica); a lista do treinador tambem reprocessa sozinha', async () => {
+    const w = await pair();
+    const spy = jest.spyOn(w.identity, 'evaluateSafely').mockResolvedValue(null);
+    const first = await w.confirmation.resolveAsCoach('u1', { id: 'coach-1' }, 'h', 'distinct');
+    expect(first.applied).toBe(false);
+    spy.mockRestore();
+    const rows = [...w.logs.values()];
+    expect(await w.confirmation.healForCoachView('u1', rows)).toBe(true);
+    expect(decisionsOf(w)).toHaveLength(1);
+    expect(decisionsOf(w)[0].processedAt).toBeDefined();
+    expect(w.get('h').physicalIdentityStatus).toBe('unique');
+    expect(await w.confirmation.healForCoachView('u1', [...w.logs.values()])).toBe(false); // nada mais a reprocessar
+    const again = await world();
+    await again.ingest(AMBIGUOUS_POLAR());
+    await again.ingest(AMBIGUOUS_HC());
+    const stuck = jest.spyOn(again.identity, 'evaluateSafely').mockResolvedValue(null);
+    await again.confirmation.resolveAsCoach('u1', { id: 'coach-1' }, 'h', 'same');
+    stuck.mockRestore();
+    const retried = await again.confirmation.resolveAsCoach('u1', { id: 'coach-1' }, 'h', 'same');
+    expect(retried).toMatchObject({ retried: true, applied: true });
+    expect(decisionsOf(again)).toHaveLength(1);
+    expect(again.get('p').physicalIdentityStatus).toBe('matched');
+  });
+
+  it('reversao nao concluida: repetir e idempotente e conclui (sem BadRequest indevido, sem nova decisao); depois nao ha mais o que reverter', async () => {
+    const w = await pair();
+    await w.confirmation.resolveAsStudent('u1', { activityLogIds: ['p', 'h'], decision: 'same' });
+    const spy = jest.spyOn(w.identity, 'evaluateSafely').mockResolvedValue(null);
+    const first = await w.confirmation.revertAsCoach('u1', { id: 'coach-1' }, 'h');
+    expect(first.applied).toBe(false);
+    expect(decisionsOf(w)[0]).toMatchObject({ status: 'reverted' });
+    expect(decisionsOf(w)[0].processedAt ?? null).toBeNull();
+    expect(w.get('p').physicalIdentityStatus).toBe('matched'); // identidade ainda no estado anterior
+    spy.mockRestore();
+    const second = await w.confirmation.revertAsCoach('u1', { id: 'coach-1' }, 'h');
+    expect(second).toMatchObject({ status: 'reverted', applied: true });
+    expect(w.get('p').physicalIdentityStatus).toBe('ambiguous');
+    expect(w.counting()).toHaveLength(1);
+    expect(decisionsOf(w)).toHaveLength(1);
+    expect(decisionsOf(w)[0].processedAt).toBeDefined();
+    await expect(w.confirmation.revertAsCoach('u1', { id: 'coach-1' }, 'h')).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+// ---- Verificacao final (2): reversao com sessao materializada / feedback — nada em silencio, nada de dupla contagem ------------------------
+describe('reversao de "atividades diferentes" com feedback e sessao materializada', () => {
+  const FEEDBACK = { id: 'c-1', status: 'done', perceivedEffort: 6, distanceKm: 10 };
+  // Duas execucoes confirmadas como diferentes: p vinculada a uma sessao prescrita (com ou sem feedback); h e' a atividade adicional.
+  async function distinctPair(options: { prescribedFeedback?: boolean } = {}) {
+    const w = world();
+    const prescribed = w.addSession({ id: 's-prescrita', ...(options.prescribedFeedback ? { completion: { ...FEEDBACK } } : {}) });
+    await w.ingest(AMBIGUOUS_POLAR());
+    await w.ingest(AMBIGUOUS_HC());
+    await w.confirmation.resolveAsStudent('u1', { activityLogIds: ['p', 'h'], decision: 'distinct' });
+    expect(w.counting()).toHaveLength(2);
+    expect(w.get('p').executionClassification).toBe('corresponding'); // p cumpre a sessao prescrita
+    expect(w.get('h').executionClassification).toBe('alternative'); // h e' atividade adicional
+    return { w, prescribed };
+  }
+  // Sessao sintetica (materializada) com feedback do aluno para a atividade adicional.
+  const materialize = (w: ReturnType<typeof world>, activityLogId: string) =>
+    w.addSession({ id: `syn-${activityLogId}`, origin: 'device_extra', title: 'corrida (extra)', structure: { type: 'extra', source: 'device', activityLogId, provider: 'health_connect' }, completion: { id: `c-${activityLogId}`, status: 'done', perceivedEffort: 7, distanceKm: 10.35 } });
+  const snapshot = (w: ReturnType<typeof world>) => JSON.stringify([...w.sessions.values()]);
+  const linksSnapshot = (w: ReturnType<typeof world>) => JSON.stringify([...w.links.values()].map((l) => ({ ...l, createdAt: undefined })));
+
+  it('as DUAS tem registro do aluno (feedback na sessao prescrita + sessao materializada com feedback): a reversao e BLOQUEADA (409) e NADA muda — sem dupla contagem silenciosa', async () => {
+    const { w } = await distinctPair({ prescribedFeedback: true });
+    materialize(w, 'h');
+    const before = { sessions: snapshot(w), links: linksSnapshot(w), p: JSON.stringify(w.get('p')), h: JSON.stringify(w.get('h')), km: await w.km() };
+    const writesBefore = w.writes();
+    const error = await w.confirmation.revertAsCoach('u1', { id: 'coach-1' }, 'p').catch((e) => e);
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getResponse()).toMatchObject({ code: 'revert_blocked_by_student_records', activityLogIds: expect.arrayContaining(['p', 'h']) });
+    expect(w.writes()).toBe(writesBefore); // nenhuma escrita
+    expect(snapshot(w)).toBe(before.sessions); // sessoes (e feedbacks) intactas
+    expect(linksSnapshot(w)).toBe(before.links);
+    expect(JSON.stringify(w.get('p'))).toBe(before.p);
+    expect(JSON.stringify(w.get('h'))).toBe(before.h);
+    expect(decisionsOfEvidence(w.get('p').physicalIdentityEvidence)[0]).toMatchObject({ status: 'active', actorRole: 'student' }); // decisao segue ativa e rastreavel
+    expect(w.counting()).toHaveLength(2); // as duas execucoes continuam contando, coerentes com o que o aluno registrou
+    expect(await w.km()).toBe(before.km);
+  });
+
+  it('so a execucao vinculada tem feedback (a adicional nao): a reversao e permitida; a adicional volta a ficar preservada sem contar; feedback e sessao prescrita intactos', async () => {
+    const { w } = await distinctPair({ prescribedFeedback: true });
+    const sessionsBefore = snapshot(w);
+    const result = await w.confirmation.revertAsCoach('u1', { id: 'coach-1' }, 'p');
+    expect(result).toMatchObject({ status: 'reverted', applied: true, cleared: ['h'] });
+    expect(w.counting().map((r) => r.id)).toEqual(['p']); // uma execucao so'
+    expect(w.get('h').executionClassification ?? null).toBeNull();
+    expect(w.get('h').physicalIdentityStatus).toBe('ambiguous');
+    expect(snapshot(w)).toBe(sessionsBefore); // feedback e sessao prescrita preservados
+    expect(w.activeLinks()).toHaveLength(1);
+    expect(w.activeLinks()[0]).toMatchObject({ activityLogId: 'p', trainingSessionId: 's-prescrita' });
+    expect(await w.km()).toBe(10);
+    const week = await w.link.getWeekReconciliation('u1', new Date('2026-10-05T00:00:00Z'), new Date('2026-10-12T00:00:00Z'));
+    expect(week.alternativeActivities).toEqual([]); // a copia nao reaparece como atividade adicional
+    expect(decisionsOfEvidence(w.get('p').physicalIdentityEvidence)[0]).toMatchObject({ status: 'reverted', revertedBy: { role: 'coach', id: 'coach-1' } });
+  });
+
+  it('so a atividade adicional tem sessao materializada com feedback: ela e a que continua contando; a vinculacao automatica da outra e revogada (a sessao prescrita nao e tocada)', async () => {
+    const { w } = await distinctPair();
+    materialize(w, 'h');
+    const sessionsBefore = snapshot(w);
+    const result = await w.confirmation.revertAsCoach('u1', { id: 'coach-1' }, 'p');
+    expect(result).toMatchObject({ applied: true, cleared: ['p'] });
+    expect(w.counting().map((r) => r.id)).toEqual(['h']);
+    expect(w.get('h').executionClassification).toBe('alternative'); // a sessao materializada continua representada
+    expect([...w.links.values()].find((l) => l.activityLogId === 'p')).toMatchObject({ status: 'revoked', note: 'identity_decision_reverted' });
+    expect(w.activeLinks()).toHaveLength(0);
+    expect(snapshot(w)).toBe(sessionsBefore); // nenhuma sessao (prescrita ou sintetica) nem feedback alterados
+    expect(await w.km()).toBe(10.4); // uma execucao so': a da sessao materializada (10,35 km)
+    expect(w.tables.trainingSession.update).not.toHaveBeenCalled();
+    expect(w.tables.trainingSession.create).not.toHaveBeenCalled();
+  });
+
+  it('decisao manual (vinculo do aluno) numa e sessao materializada na outra: bloqueia — decisoes manuais sao respeitadas e rastreaveis', async () => {
+    const w = world();
+    const prescribed = w.addSession({ id: 's-prescrita' });
+    await w.ingest(AMBIGUOUS_POLAR());
+    await w.ingest(AMBIGUOUS_HC());
+    await w.link.linkManually({ trainingSessionId: prescribed.id, activityLogId: 'p', origin: 'student' });
+    await w.confirmation.resolveAsStudent('u1', { activityLogIds: ['p', 'h'], decision: 'distinct' });
+    materialize(w, 'h');
+    await expect(w.confirmation.revertAsCoach('u1', { id: 'coach-1' }, 'p')).rejects.toBeInstanceOf(ConflictException);
+    expect(w.activeLinks()[0]).toMatchObject({ origin: 'student', activityLogId: 'p' });
+    expect(w.counting()).toHaveLength(2);
+  });
+
+  it('reversao de "mesma atividade" nunca conflita com feedback: o evento ja contava uma vez e o feedback da sessao continua', async () => {
+    const w = world();
+    w.addSession({ id: 's-prescrita', completion: { ...FEEDBACK } });
+    await w.ingest(AMBIGUOUS_POLAR());
+    await w.ingest(AMBIGUOUS_HC());
+    await w.confirmation.resolveAsStudent('u1', { activityLogIds: ['p', 'h'], decision: 'same' });
+    const sessionsBefore = snapshot(w);
+    const result = await w.confirmation.revertAsCoach('u1', { id: 'coach-1' }, 'h');
+    expect(result).toMatchObject({ status: 'reverted', applied: true });
+    expect(w.counting()).toHaveLength(1);
+    expect(await w.km()).toBe(10);
+    expect(snapshot(w)).toBe(sessionsBefore);
+    expect(w.activeLinks()).toHaveLength(1);
   });
 });

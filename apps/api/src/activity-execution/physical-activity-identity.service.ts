@@ -128,7 +128,8 @@ export class PhysicalActivityIdentityService {
         for (const r of rows.values()) {
           for (const d of decisionsOfEvidence(r.physicalIdentityEvidence)) {
             const seen = decisionById.get(d.id);
-            if (!seen || (seen.status !== 'reverted' && d.status === 'reverted')) decisionById.set(d.id, d);
+            // copias divergentes: a revertida vence; entre as demais, a que ja' tem o carimbo de processamento
+            if (!seen || (seen.status !== 'reverted' && d.status === 'reverted') || (seen.status === d.status && !seen.processedAt && d.processedAt)) decisionById.set(d.id, d);
           }
         }
       };

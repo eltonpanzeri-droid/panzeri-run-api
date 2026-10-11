@@ -136,6 +136,9 @@ export interface PendingObservationView {
 
 export interface PendingIdentityView {
   key: string;
+  // 'pending' = aguardando a resposta do aluno; 'processing' = resposta JA' registrada, efeito (identidade + contabilizacao) ainda sendo concluido —
+  // o app NAO oferece botoes nesse estado e nao diz que as estatisticas ja' foram atualizadas.
+  status: 'pending' | 'processing';
   observations: PendingObservationView[];
 }
 
@@ -160,6 +163,13 @@ function observationView(row: PendingRow): PendingObservationView {
 }
 
 export function toPendingView(set: PendingSet): PendingIdentityView {
-  return { key: set.key, observations: set.members.map(observationView) };
+  return { key: set.key, status: 'pending', observations: set.members.map(observationView) };
+}
+
+// Resposta ja' registrada cujo efeito ainda nao foi concluido: mostra os registros envolvidos, sem acao.
+export function toProcessingView(observationIds: string[], rows: PendingRow[]): PendingIdentityView | null {
+  const members = rows.filter((r) => observationIds.includes(r.id)).sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime() || (a.id < b.id ? -1 : 1));
+  if (members.length < 2) return null;
+  return { key: members.map((m) => m.id).sort().join('|'), status: 'processing', observations: members.map(observationView) };
 }
 

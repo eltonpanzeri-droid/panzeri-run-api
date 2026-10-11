@@ -465,36 +465,62 @@ export class SessionExecutionLinkService {
     return classificationOf(plan);
   }
 
-  // Reversao de uma decisao humana "execucoes distintas" (10/2026): as observacoes voltam a ser um par AMBIGUO; se ambas estiverem contando por
-  // classificacao AUTOMATICA, so' uma continua (a que carrega o vinculo ativo; senao a mais antiga) — a outra volta a ficar preservada, sem contar
-  // (invariante da opcao B). Decisao humana e atividade ja' materializada com feedback do aluno NUNCA sao desfeitas aqui; nada e' apagado.
-  async normalizeAmbiguousCluster(activityLogIds: string[]): Promise<{ cleared: string[] }> {
+  // Observacao PROTEGIDA contra "des-contar": tem decisao humana, sessao sintetica materializada (feedback do aluno) ou vinculo ativo com sessao que ja'
+  // tem feedback (WorkoutCompletion). Des-contar uma assim deixaria o feedback contando por outro caminho (volume pela sessao/feedback), entao ela NUNCA e'
+  // des-contada em silencio. Nada aqui altera ou apaga sessao prescrita, sessao sintetica ou feedback.
+  private async isProtectedFromUncount(row: ActivityLog, activeLinks: Array<{ activityLogId: string; trainingSessionId: string }>): Promise<boolean> {
+    if (row.executionClassifiedBy === 'coach' || row.executionClassifiedBy === 'student') return true;
+    if (await this.findMaterializedSessionForActivities(row.userId, new Set([row.id]))) return true;
+    for (const link of activeLinks.filter((l) => l.activityLogId === row.id)) {
+      const session = await this.prisma.trainingSession.findUnique({ where: { id: link.trainingSessionId }, include: { completion: { select: { id: true } } } });
+      if (session?.completion) return true;
+    }
+    return false;
+  }
+
+  // SOMENTE LEITURA: se as observacoes (passando a contar como par ambiguo, como apos reverter uma decisao "execucoes distintas") deixariam DUAS ou mais
+  // contando sem poder des-contar nenhuma delas (ambas protegidas). Nesse caso a reversao e' bloqueada pelo chamador, antes de alterar qualquer coisa.
+  async previewUncount(activityLogIds: string[]): Promise<{ counting: string[]; protectedIds: string[]; conflict: boolean }> {
     const ids = [...new Set(activityLogIds)];
-    if (ids.length < 2) return { cleared: [] };
+    const rows = (await this.prisma.activityLog.findMany({ where: { id: { in: ids } } })).filter((r) => r.executionClassification === 'corresponding' || r.executionClassification === 'alternative');
+    const links = await this.prisma.sessionExecutionLink.findMany({ where: { activityLogId: { in: rows.map((r) => r.id) }, status: 'active' } });
+    const protectedIds: string[] = [];
+    for (const row of rows) if (await this.isProtectedFromUncount(row, links)) protectedIds.push(row.id);
+    return { counting: rows.map((r) => r.id), protectedIds, conflict: protectedIds.length >= 2 };
+  }
+
+  // Reversao de uma decisao humana "execucoes distintas" (10/2026): as observacoes voltam a ser um par AMBIGUO; se ambas estiverem contando por
+  // classificacao AUTOMATICA, so' uma continua (a protegida, se houver uma; senao a que carrega o vinculo ativo; senao a mais antiga) — a outra volta a
+  // ficar preservada, sem contar (invariante da opcao B). Se DUAS ou mais forem protegidas nada e' des-contado (o chamador ja' bloqueou a reversao).
+  async normalizeAmbiguousCluster(activityLogIds: string[]): Promise<{ cleared: string[]; conflict: string[] }> {
+    const ids = [...new Set(activityLogIds)];
+    if (ids.length < 2) return { cleared: [], conflict: [] };
     const first = await this.prisma.activityLog.findFirst({ where: { id: { in: ids } } });
-    if (!first) return { cleared: [] };
+    if (!first) return { cleared: [], conflict: [] };
     return this.withUserLock(first.userId, (service) => service.normalizeAmbiguousClusterLocked(ids, first.userId));
   }
 
-  private async normalizeAmbiguousClusterLocked(ids: string[], userId: string): Promise<{ cleared: string[] }> {
+  private async normalizeAmbiguousClusterLocked(ids: string[], userId: string): Promise<{ cleared: string[]; conflict: string[] }> {
     const rows = (await this.prisma.activityLog.findMany({ where: { id: { in: ids } } })).filter((r) => r.userId === userId && r.physicalIdentityStatus === 'ambiguous');
     const counting = rows.filter((r) => r.executionClassification === 'corresponding' || r.executionClassification === 'alternative');
-    if (counting.length <= 1) return { cleared: [] };
-    const isHuman = (r: ActivityLog) => r.executionClassifiedBy === 'coach' || r.executionClassifiedBy === 'student';
+    if (counting.length <= 1) return { cleared: [], conflict: [] };
     const links = await this.prisma.sessionExecutionLink.findMany({ where: { activityLogId: { in: counting.map((r) => r.id) }, status: { in: ['active', 'candidate'] } } });
-    const hasActiveLink = (r: ActivityLog) => links.some((l) => l.activityLogId === r.id && l.status === 'active');
-    const ordered = [...counting].sort((a, b) => Number(isHuman(b)) - Number(isHuman(a)) || Number(hasActiveLink(b)) - Number(hasActiveLink(a)) || a.startedAt.getTime() - b.startedAt.getTime() || (a.id < b.id ? -1 : 1));
+    const activeLinks = links.filter((l) => l.status === 'active');
+    const protectedRows: ActivityLog[] = [];
+    for (const row of counting) if (await this.isProtectedFromUncount(row, activeLinks)) protectedRows.push(row);
+    if (protectedRows.length >= 2) return { cleared: [], conflict: protectedRows.map((r) => r.id) };
+    const hasActiveLink = (r: ActivityLog) => activeLinks.some((l) => l.activityLogId === r.id);
+    const isProtected = (r: ActivityLog) => protectedRows.some((p) => p.id === r.id);
+    const ordered = [...counting].sort((a, b) => Number(isProtected(b)) - Number(isProtected(a)) || Number(hasActiveLink(b)) - Number(hasActiveLink(a)) || a.startedAt.getTime() - b.startedAt.getTime() || (a.id < b.id ? -1 : 1));
     const cleared: string[] = [];
     for (const row of ordered.slice(1)) {
-      if (isHuman(row)) continue; // decisao humana prevalece
-      if (await this.findMaterializedSessionForActivities(userId, new Set([row.id]))) continue; // ja' tem sessao sintetica (feedback do aluno): nao desfaz
       for (const link of links.filter((l) => l.activityLogId === row.id && l.origin === 'automatic')) {
         await this.prisma.sessionExecutionLink.update({ where: { id: link.id }, data: { status: 'revoked', revokedAt: new Date(), note: link.note ?? 'identity_decision_reverted' } });
       }
       await this.prisma.activityLog.update({ where: { id: row.id }, data: { executionClassification: null, executionClassifiedAt: null, executionClassifiedBy: null } });
       cleared.push(row.id);
     }
-    return { cleared };
+    return { cleared, conflict: [] };
   }
 
   // Resolucao HUMANA (aluno ou treinador): confirma que uma observacao de identidade ambigua e' uma execucao DISTINTA da vizinha — passa a contar
@@ -525,9 +551,11 @@ export class SessionExecutionLinkService {
   // canonica), reconcilia cada membro afetado com os servicos existentes — assim nenhuma execucao legitima fica sem classificacao nem com vinculo
   // defasado. So' o que MUDOU entra (a avaliacao informa os ids): reavaliar sem mudanca nao reprocessa nada. Observacoes do mesmo evento sao
   // reconciliadas uma vez (a reconciliacao e' por evento). Melhor esforco: nunca derruba a ingestao. `handledActivityLogId` ja' foi tratada pelo chamador.
-  async reconcileAffectedByIdentity(identity: Pick<PhysicalIdentityResult, 'affectedActivityLogIds'> | null | undefined, handledActivityLogId: string | null): Promise<void> {
+  // Devolve true quando TODAS as observacoes afetadas foram reconciliadas (false se alguma falhou — nunca lanca).
+  async reconcileAffectedByIdentity(identity: Pick<PhysicalIdentityResult, 'affectedActivityLogIds'> | null | undefined, handledActivityLogId: string | null): Promise<boolean> {
     const ids = [...new Set((identity?.affectedActivityLogIds ?? []).filter((id) => id !== handledActivityLogId))];
-    if (ids.length === 0) return;
+    if (ids.length === 0) return true;
+    let allOk = true;
     try {
       const handled = handledActivityLogId ? await this.prisma.activityLog.findUnique({ where: { id: handledActivityLogId } }) : null;
       const doneEvents = new Set<string>();
@@ -542,12 +570,15 @@ export class SessionExecutionLinkService {
           if (row.physicalIdentityStatus === 'ambiguous') await this.classify(row.id);
           else await this.reconcileEvent(row.id);
         } catch (error) {
+          allOk = false;
           this.logger.warn(`Falha ao reconciliar a atividade ${row.id} afetada por mudanca de identidade: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
     } catch (error) {
+      allOk = false;
       this.logger.warn(`Falha ao reconciliar atividades afetadas por mudanca de identidade: ${error instanceof Error ? error.message : String(error)}`);
     }
+    return allOk;
   }
 
   // Decide (SEM escrever) o que o Motor V1 faria para esta atividade. `memberIds` = ids das observacoes do MESMO evento fisico (so' a

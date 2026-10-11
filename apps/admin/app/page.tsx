@@ -5487,7 +5487,7 @@ type PhysicalCanonicalReasonView = {
   candidates?: Array<{ activityLogId: string; role: string; roleBasis: string }>;
 };
 
-type HumanDecisionView = { id: string; kind: 'same' | 'distinct'; actorRole: 'student' | 'coach'; decidedAt: string; status: 'active' | 'reverted'; state?: 'applied' | 'suspended'; stateReason?: string | null; revertedAt?: string | null };
+type HumanDecisionView = { id: string; kind: 'same' | 'distinct'; actorRole: 'student' | 'coach'; decidedAt: string; status: 'active' | 'reverted'; state?: 'applied' | 'suspended'; stateReason?: string | null; revertedAt?: string | null; processedAt?: string | null };
 function humanDecisionsOf(row: { physicalIdentityEvidence?: unknown }): HumanDecisionView[] {
   const list = (row.physicalIdentityEvidence as { humanDecisions?: unknown } | null | undefined)?.humanDecisions;
   return Array.isArray(list) ? (list as HumanDecisionView[]).filter((d) => d && typeof d.id === 'string') : [];
@@ -5712,7 +5712,7 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
   }
 
   // Resolucao humana da identidade fisica (decisao sobre a IDENTIDADE, nunca sobre os dados do dispositivo; fica registrada com autoria e horario).
-  const [identityActionById, setIdentityActionById] = React.useState<Record<string, 'loading' | 'error'>>({});
+  const [identityActionById, setIdentityActionById] = React.useState<Record<string, 'loading' | { error: string }>>({});
   async function identityAction(activityLogId: string, action: 'same' | 'distinct' | 'revert') {
     const question = action === 'same'
       ? 'Confirmar que TODAS as observações deste conjunto são a MESMA atividade? Ela passará a contar uma vez só (a observação canônica segue as regras de proveniência). Nenhum registro é apagado.'
@@ -5728,11 +5728,16 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
         headers: action === 'revert' ? { Authorization: 'Bearer ' + accessToken } : { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
         body: action === 'revert' ? undefined : JSON.stringify({ decision: action }),
       });
-      if (!response.ok) { setIdentityActionById((current) => ({ ...current, [activityLogId]: 'error' })); return; }
+      if (!response.ok) {
+        // O servidor explica o motivo (ex.: reversao bloqueada porque as duas atividades ja' tem registros do aluno) — mostrado sem alterar nada.
+        const detail = (await response.json().catch(() => ({}))) as { message?: string };
+        setIdentityActionById((current) => ({ ...current, [activityLogId]: { error: typeof detail.message === 'string' ? detail.message : 'Falha ao salvar a decisão.' } }));
+        return;
+      }
       setIdentityActionById((current) => { const next = { ...current }; delete next[activityLogId]; return next; });
       await load();
     } catch {
-      setIdentityActionById((current) => ({ ...current, [activityLogId]: 'error' }));
+      setIdentityActionById((current) => ({ ...current, [activityLogId]: { error: 'Falha ao salvar a decisão.' } }));
     }
   }
 
@@ -5881,15 +5886,15 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
               </button>
             </>
           ) : null}
-          {activeIdentityDecisions(row).length > 0 ? (
-            <button type="button" className="secondaryOutlineButton" disabled={identityActionById[row.id] === 'loading'} onClick={() => identityAction(row.id, 'revert')} title="Reverte a decisão humana ativa que envolve esta atividade (fica registrada como revertida).">
-              Reverter decisão de identidade
+          {activeIdentityDecisions(row).length > 0 || humanDecisionsOf(row).some((d) => d.status === 'reverted' && !d.processedAt) ? (
+            <button type="button" className="secondaryOutlineButton" disabled={identityActionById[row.id] === 'loading'} onClick={() => identityAction(row.id, 'revert')} title="Reverte a decisão humana ativa que envolve esta atividade (fica registrada como revertida). Se uma reversão anterior não terminou, conclui o processamento.">
+              {activeIdentityDecisions(row).length > 0 ? 'Reverter decisão de identidade' : 'Concluir reversão'}
             </button>
           ) : null}
-          {identityActionById[row.id] === 'error' ? <span className="extHint" style={{ color: '#b91c1c' }}>Falha ao salvar a decisão.</span> : null}
+          {typeof identityActionById[row.id] === 'object' ? <span className="extHint" style={{ color: '#b91c1c' }}>{(identityActionById[row.id] as { error: string }).error}</span> : null}
           {humanDecisionsOf(row).map((d) => (
             <span key={d.id} className="extHint" title={d.stateReason ?? undefined}>
-              decisão {d.status === 'reverted' ? 'revertida' : d.state === 'suspended' ? 'suspensa (evidência nova incompatível)' : 'ativa'}: <strong>{d.kind === 'same' ? 'mesma atividade' : 'atividades diferentes'}</strong> · {d.actorRole === 'student' ? 'aluno' : 'treinador'} · {extFmtDateTime(d.decidedAt)}{d.revertedAt ? ' · revertida em ' + extFmtDateTime(d.revertedAt) : ''}
+              decisão {d.status === 'reverted' ? 'revertida' : d.state === 'suspended' ? 'suspensa (evidência nova incompatível)' : 'ativa'}: <strong>{d.kind === 'same' ? 'mesma atividade' : 'atividades diferentes'}</strong> · {d.actorRole === 'student' ? 'aluno' : 'treinador'} · {extFmtDateTime(d.decidedAt)}{d.revertedAt ? ' · revertida em ' + extFmtDateTime(d.revertedAt) : ''}{d.processedAt ? '' : ' · atualizando (conclui sozinho ao reabrir)'}
             </span>
           ))}
           {reclassifyState === 'error' ? (

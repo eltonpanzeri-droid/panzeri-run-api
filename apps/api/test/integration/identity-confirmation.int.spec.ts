@@ -143,4 +143,90 @@ describe('confirmacao de identidade fisica (PostgreSQL real)', () => {
     expect(await counting(s.userId)).toBe(1);
     expect(await km(s.userId)).toBe(10);
   });
+
+  // ---- Verificacao final: efeito nao concluido e reversao com feedback/sessao materializada (PostgreSQL real) ----------------------------------
+  const completionsSnapshot = async (userId: string) => JSON.stringify(await prisma.workoutCompletion.findMany({ where: { userId }, orderBy: { id: 'asc' } }));
+  const decisionsOf = async (id: string) => decisionsOfEvidence((await fresh(id)).physicalIdentityEvidence);
+
+  it('efeito nao concluido (identidade/reconciliacao falham): decisao registrada uma vez, "em atualizacao" para o aluno, e a leitura seguinte reprocessa sozinha (filtro JSON real)', async () => {
+    const s = await student('reprocesso');
+    const { p, h } = await ambiguousPair(s.userId);
+    const spy = jest.spyOn(identity, 'evaluateSafely').mockResolvedValue(null);
+    const first = await confirmation.resolveAsStudent(s.userId, { activityLogIds: [p.id, h.id], decision: 'same' });
+    expect(first).toMatchObject({ applied: false, retried: false });
+    expect((await decisionsOf(p.id))[0].processedAt).toBeUndefined();
+    expect((await confirmation.pendingForStudent(s.userId))[0]).toMatchObject({ status: 'processing' });
+    const again = await confirmation.resolveAsStudent(s.userId, { activityLogIds: [p.id, h.id], decision: 'same' });
+    expect(again).toMatchObject({ retried: true, decisionId: first.decisionId });
+    expect(await decisionsOf(p.id)).toHaveLength(1);
+    spy.mockRestore();
+    expect(await confirmation.pendingForStudent(s.userId)).toEqual([]); // reprocessou sozinho
+    expect((await fresh(p.id)).physicalIdentityStatus).toBe('matched');
+    expect((await decisionsOf(p.id))[0].processedAt).toBeDefined();
+    expect(await counting(s.userId)).toBe(1);
+    expect(await km(s.userId)).toBe(10);
+
+    // identidade aplicada, so' a reconciliacao falha: as linhas deixam de ser "ambiguous" e mesmo assim a leitura as encontra e conclui
+    const t = await student('reprocesso-reconcilia');
+    const pair = await ambiguousPair(t.userId);
+    jest.spyOn(link, 'reconcileAffectedByIdentity').mockResolvedValueOnce(false);
+    const partial = await confirmation.resolveAsStudent(t.userId, { activityLogIds: [pair.p.id, pair.h.id], decision: 'distinct' });
+    expect(partial.applied).toBe(false);
+    expect((await fresh(pair.p.id)).physicalIdentityStatus).toBe('unique');
+    expect(await counting(t.userId)).toBe(1);
+    expect(await confirmation.pendingForStudent(t.userId)).toEqual([]);
+    expect((await decisionsOf(pair.p.id))[0].processedAt).toBeDefined();
+    expect(await counting(t.userId)).toBe(2);
+    expect(await decisionsOf(pair.p.id)).toHaveLength(1);
+  });
+
+  // Duas execucoes confirmadas como diferentes: p cumpre a sessao prescrita (com feedback do aluno); h e' a atividade adicional.
+  async function distinctWithFeedback(label: string, options: { materializeExtra: boolean }) {
+    const s = await student(label);
+    await prisma.trainingSession.deleteMany({ where: { id: s.sessionIds[1] } });
+    const day = new Date(Date.UTC(baseStart().getUTCFullYear(), baseStart().getUTCMonth(), baseStart().getUTCDate()));
+    await prisma.trainingSession.update({ where: { id: s.sessionIds[0] }, data: { scheduledDate: day } });
+    await prisma.workoutCompletion.create({ data: { userId: s.userId, sessionId: s.sessionIds[0], status: 'done', durationMin: 55, distanceKm: 10, perceivedEffort: 6, painFlag: 'none' } });
+    const { p, h } = await ambiguousPair(s.userId);
+    await confirmation.resolveAsStudent(s.userId, { activityLogIds: [p.id, h.id], decision: 'distinct' });
+    expect((await fresh(p.id)).executionClassification).toBe('corresponding');
+    expect((await fresh(h.id)).executionClassification).toBe('alternative');
+    let synthetic: { id: string } | null = null;
+    if (options.materializeExtra) {
+      const materialized = await link.materializeExtraActivity(h.id);
+      synthetic = materialized!.session;
+      await prisma.workoutCompletion.update({ where: { sessionId: synthetic.id }, data: { perceivedEffort: 7 } }); // feedback do aluno na atividade adicional
+    }
+    return { s, p, h, synthetic };
+  }
+
+  it('reversao com as DUAS execucoes registradas pelo aluno (feedback na sessao prescrita + sessao materializada com feedback): bloqueada (409), nada alterado, sem dupla contagem silenciosa', async () => {
+    const { s, p, h } = await distinctWithFeedback('rev-bloqueada', { materializeExtra: true });
+    const before = { sessions: await sessionsSnapshot(s.userId), completions: await completionsSnapshot(s.userId), km: await km(s.userId), count: await counting(s.userId) };
+    const error = await confirmation.revertAsCoach(s.userId, { id: 'coach-sintetico' }, p.id).catch((e) => e);
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getResponse()).toMatchObject({ code: 'revert_blocked_by_student_records' });
+    expect(await sessionsSnapshot(s.userId)).toBe(before.sessions);
+    expect(await completionsSnapshot(s.userId)).toBe(before.completions); // feedbacks intactos
+    expect(await km(s.userId)).toBe(before.km);
+    expect(await counting(s.userId)).toBe(before.count);
+    expect((await decisionsOf(h.id))[0]).toMatchObject({ status: 'active' }); // a decisao segue ativa e rastreavel
+  });
+
+  it('reversao quando so a execucao vinculada tem feedback: permitida; a adicional volta a ficar preservada sem contar; feedback e sessao prescrita preservados', async () => {
+    const { s, p, h } = await distinctWithFeedback('rev-permitida', { materializeExtra: false });
+    const before = { sessions: await sessionsSnapshot(s.userId), completions: await completionsSnapshot(s.userId) };
+    const result = await confirmation.revertAsCoach(s.userId, { id: 'coach-sintetico' }, p.id);
+    expect(result).toMatchObject({ status: 'reverted', applied: true, cleared: [h.id] });
+    expect(await counting(s.userId)).toBe(1);
+    expect((await fresh(h.id)).executionClassification).toBeNull();
+    expect((await fresh(h.id)).physicalIdentityStatus).toBe('ambiguous');
+    expect(await km(s.userId)).toBe(10);
+    expect(await sessionsSnapshot(s.userId)).toBe(before.sessions);
+    expect(await completionsSnapshot(s.userId)).toBe(before.completions);
+    const links = await prisma.sessionExecutionLink.findMany({ where: { userId: s.userId, status: 'active' } });
+    expect(links).toHaveLength(1);
+    expect(links[0].activityLogId).toBe(p.id);
+    expect((await decisionsOf(p.id))[0]).toMatchObject({ status: 'reverted', revertedBy: { role: 'coach', id: 'coach-sintetico' } });
+  });
 });

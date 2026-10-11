@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { HomeBorder, HomeColors, HomeRadius, HomeSpace, HomeTypography, formatMetric } from './homeTheme';
+import { HomeBorder, HomeColors, HomeRadius, HomeSpace, HomeTypography } from './homeTheme';
 
 // Atividades para confirmar (10/2026). EXCECAO, nunca etapa obrigatoria: o servidor ja' resolve sozinho (mesma atividade / atividades diferentes) sempre
 // que ha evidencia; so' aparece aqui o que ficou realmente ambiguo (par de registros muito parecidos). Nada de pop-up, nada bloqueia treinos, nenhuma
@@ -22,6 +22,8 @@ export interface PendingObservation {
 
 export interface PendingIdentity {
   key: string;
+  // 'pending' = aguardando a resposta; 'processing' = resposta ja' registrada, ainda atualizando as atividades (sem botoes; o servidor conclui sozinho).
+  status: 'pending' | 'processing';
   observations: PendingObservation[];
 }
 
@@ -33,6 +35,12 @@ export function formatPendingDateTime(observation: Pick<PendingObservation, 'sta
   const day = String(date.getDate()).padStart(2, '0');
   const month = String(date.getMonth() + 1).padStart(2, '0');
   return `${day}/${month} às ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+// Duas casas: aqui o aluno compara registros MUITO parecidos (ex.: 10,00 km x 10,35 km); arredondar para uma casa esconderia a diferenca.
+export function formatPendingKm(distanceMeters: number | null): string | null {
+  if (distanceMeters == null || !Number.isFinite(distanceMeters) || distanceMeters <= 0) return null;
+  return `${(distanceMeters / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} km`;
 }
 
 export function formatPendingDuration(durationSec: number | null): string | null {
@@ -62,7 +70,8 @@ export function usePendingIdentity(accessToken: string) {
 
 // Aviso discreto na tela inicial: uma linha, sem bloquear nada; leva a secao "Atividades para confirmar" do Historico.
 export function PendingIdentityNotice({ accessToken, onOpen }: { accessToken: string; onOpen: () => void }) {
-  const { pending } = usePendingIdentity(accessToken);
+  const { pending: all } = usePendingIdentity(accessToken);
+  const pending = all.filter((item) => item.status === 'pending'); // 'em atualizacao' nao pede nada ao aluno
   if (pending.length === 0) return null;
   return (
     <Pressable accessibilityRole="button" accessibilityLabel="Atividade aguardando confirmação" onPress={onOpen} style={styles.notice}>
@@ -76,7 +85,7 @@ export function PendingIdentityNotice({ accessToken, onOpen }: { accessToken: st
 }
 
 function ObservationCard({ observation }: { observation: PendingObservation }) {
-  const km = observation.distanceMeters != null && observation.distanceMeters > 0 ? `${formatMetric(observation.distanceMeters / 1000)} km` : null;
+  const km = formatPendingKm(observation.distanceMeters);
   const duration = formatPendingDuration(observation.durationSec);
   return (
     <View style={styles.observationCard}>
@@ -108,7 +117,9 @@ export function PendingIdentitySection({ accessToken, onResolved }: { accessToke
         body: JSON.stringify({ activityLogIds: item.observations.map((o) => o.activityLogId), decision }),
       });
       if (response.ok) {
-        setMessage('Obrigado! Registramos a sua resposta.');
+        const data = (await response.json().catch(() => ({}))) as { applied?: boolean };
+        // Nunca afirma que as estatisticas ja' foram atualizadas se o servidor ainda nao concluiu (applied=false): ele conclui sozinho e a secao mostra "atualizando".
+        setMessage(data.applied === false ? 'Registramos a sua resposta. Ainda estamos atualizando suas atividades — isso termina sozinho.' : 'Obrigado! Atualizamos suas atividades.');
         setOpenKey(null);
         onResolved?.();
       } else if (response.status === 409) {
@@ -133,6 +144,19 @@ export function PendingIdentitySection({ accessToken, onResolved }: { accessToke
       {pending.map((item) => {
         const first = item.observations[0];
         const open = openKey === item.key;
+        if (item.status === 'processing') {
+          return (
+            <View key={item.key} style={styles.pendingCard}>
+              <View style={styles.pendingRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pendingRowTitle}>{first.modalityLabel} · {formatPendingDateTime(first)}</Text>
+                  <Text style={styles.pendingRowSub}>Resposta registrada · atualizando suas atividades</Text>
+                </View>
+                <ActivityIndicator size="small" color={HomeColors.panzeriInteraction} />
+              </View>
+            </View>
+          );
+        }
         return (
           <View key={item.key} style={styles.pendingCard}>
             <Pressable accessibilityRole="button" onPress={() => setOpenKey(open ? null : item.key)} style={styles.pendingRow}>

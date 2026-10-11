@@ -80,7 +80,7 @@ export class CoachService {
   // transformar/recalcular nada. Substitui a necessidade de rodar SQL manual em producao pra
   // investigar uma atividade importada.
   async listExternalActivities(studentId: string) {
-    const logs = await this.prisma.activityLog.findMany({
+    const query = () => this.prisma.activityLog.findMany({
       where: { userId: studentId },
       orderBy: { startedAt: 'desc' },
       select: {
@@ -115,6 +115,9 @@ export class CoachService {
         rawActivity: { select: { receivedAt: true, sourceUpdatedAt: true } },
       },
     });
+    let logs = await query();
+    // Decisoes humanas de identidade ainda sem o efeito concluido (falha transitoria anterior) sao reprocessadas aqui, sem acao do treinador (idempotente).
+    if (this.identityConfirmation && (await this.identityConfirmation.healForCoachView(studentId, logs))) logs = await query();
     return logs.map(({ rawActivity, ...log }) => ({
       ...log,
       // Derivados so' para exibicao diagnostica (mesmas funcoes do matcher); o sport original segue em `sport`.
