@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { compareObservations, IdentityComparison, ObservedActivity, observerKeyOf } from './physical-activity-identity';
 import { CanonicalCandidateInput, selectCanonicalObservation } from './physical-canonical';
 import { resolveExplicitOverride } from './athlete-primary-source';
+import { activeDecisions, applyHumanDecision, decisionForPair, decisionsOfEvidence, HumanDecisionState, HumanIdentityDecision, pairKey } from './physical-identity-decisions';
 
 // Janela de busca de candidatos (so' performance — quem decide e' compareObservations; a janela larga tolera diferenca de fuso).
 const CANDIDATE_WINDOW_MS = 12 * 60 * 60 * 1000;
@@ -42,13 +43,20 @@ type Row = {
   physicalIdentityStatus: string | null;
   physicalCanonicalActivityLogId: string | null;
   physicalCanonicalReason: Prisma.JsonValue | null;
+  physicalIdentityEvidence: Prisma.JsonValue | null;
 };
 
 const SELECT = {
   id: true, userId: true, provider: true, sport: true, startedAt: true, durationSec: true, distanceMeters: true,
   caloriesKcal: true, avgHeartRateBpm: true, maxHeartRateBpm: true, cadenceAvg: true, powerAvgWatts: true, elevationGainMeters: true, hasRoute: true,
   providerMetrics: true, physicalEventId: true, physicalIdentityStatus: true, physicalCanonicalActivityLogId: true, physicalCanonicalReason: true,
+  physicalIdentityEvidence: true,
 } as const;
+
+// Assinatura estavel das decisoes humanas de uma observacao (id/estado/reversao), para detectar mudanca sem depender da ordem das chaves do JSON.
+function decisionSignature(list: HumanIdentityDecision[]): string {
+  return [...list].sort((a, b) => (a.id < b.id ? -1 : 1)).map((d) => `${d.id}:${d.status}:${d.state ?? ''}:${d.stateReason ?? ''}:${d.revertedAt ?? ''}`).join('|');
+}
 
 function toObserved(row: Row): ObservedActivity {
   const endedAtRaw = (row.providerMetrics as { endedAt?: unknown } | null)?.endedAt;
@@ -113,13 +121,43 @@ export class PhysicalActivityIdentityService {
         for (const row of extra) if (!rows.has(row.id)) rows.set(row.id, row);
       }
 
-      // Comparacoes par a par (n pequeno: so' o mesmo usuario na mesma janela).
+      // Decisoes HUMANAS (aluno/treinador) guardadas nas evidencias das observacoes: lidas antes de comparar. Reverter marca 'reverted' em todas as
+      // copias (se alguma copia aparecer revertida, vale a revertida). Observacoes citadas por uma decisao ativa entram na avaliacao mesmo fora da janela.
+      const decisionById = new Map<string, HumanIdentityDecision>();
+      const collectDecisions = () => {
+        for (const r of rows.values()) {
+          for (const d of decisionsOfEvidence(r.physicalIdentityEvidence)) {
+            const seen = decisionById.get(d.id);
+            if (!seen || (seen.status !== 'reverted' && d.status === 'reverted')) decisionById.set(d.id, d);
+          }
+        }
+      };
+      collectDecisions();
+      const referencedIds = new Set<string>();
+      for (const d of activeDecisions([...decisionById.values()])) for (const id of d.observationIds) if (!rows.has(id)) referencedIds.add(id);
+      if (referencedIds.size > 0) {
+        const referenced = (await tx.activityLog.findMany({ where: { userId: target.userId, id: { in: [...referencedIds] } }, select: SELECT })) as Row[];
+        for (const row of referenced) if (!rows.has(row.id)) rows.set(row.id, row);
+        collectDecisions();
+      }
+      const allDecisions = [...decisionById.values()];
+      const decisionStates = new Map<string, { state: HumanDecisionState; reason: string | null }>();
+
+      // Comparacoes par a par (n pequeno: so' o mesmo usuario na mesma janela). A decisao humana ajusta o veredito objetivo do par (ou fica suspensa).
       const observed = new Map([...rows.values()].map((r) => [r.id, toObserved(r)]));
       const ids = [...rows.keys()].sort();
       const verdicts = new Map<string, IdentityComparison>();
-      const key = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+      const key = pairKey;
       for (let i = 0; i < ids.length; i++) {
-        for (let j = i + 1; j < ids.length; j++) verdicts.set(key(ids[i], ids[j]), compareObservations(observed.get(ids[i])!, observed.get(ids[j])!));
+        for (let j = i + 1; j < ids.length; j++) {
+          const raw = compareObservations(observed.get(ids[i])!, observed.get(ids[j])!);
+          const adjusted = applyHumanDecision(raw, decisionForPair(allDecisions, ids[i], ids[j]));
+          verdicts.set(key(ids[i], ids[j]), adjusted.comparison);
+          if (adjusted.decision && adjusted.state) {
+            const previous = decisionStates.get(adjusted.decision.id);
+            if (!previous || (previous.state === 'applied' && adjusted.state === 'suspended')) decisionStates.set(adjusted.decision.id, { state: adjusted.state, reason: adjusted.stateReason });
+          }
+        }
       }
       const verdictOf = (a: string, b: string) => verdicts.get(key(a, b))!;
       const related = (id: string) => ids.filter((other) => other !== id && verdictOf(id, other).verdict !== 'distinct');
@@ -159,8 +197,14 @@ export class PhysicalActivityIdentityService {
       const claimedGroupIds = new Set<string>();
       for (const members of [...components.values()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
         if (members.length >= 2) {
-          const observers = members.map((id) => observed.get(id)!.observerKey);
-          const contested = new Set(observers).size !== observers.length;
+          // Contestado = dois registros do mesmo observador no mesmo componente — a nao ser que cada par de mesmo observador tenha sido confirmado
+          // como a MESMA execucao por decisao humana aplicada (ex.: treinador resolvendo um conjunto de tres).
+          let contested = false;
+          for (let i = 0; i < members.length && !contested; i++) {
+            for (let j = i + 1; j < members.length; j++) {
+              if (observed.get(members[i])!.observerKey === observed.get(members[j])!.observerKey && verdictOf(members[i], members[j]).reason !== 'human_decision_same') { contested = true; break; }
+            }
+          }
           if (contested) {
             for (const id of members) desired.set(id, { status: 'ambiguous', groupId: null, size: members.length });
             continue;
@@ -186,8 +230,13 @@ export class PhysicalActivityIdentityService {
         const row = rows.get(id)!;
         const want = desired.get(id)!;
         const isTarget = id === target.id;
+        // Decisoes humanas desta observacao (qualquer status — o historico e' preservado), com o estado desta avaliacao nas ativas.
+        const decisionsHere = allDecisions
+          .filter((d) => d.observationIds.includes(id))
+          .map((d) => (d.status === 'active' && decisionStates.has(d.id) ? { ...d, state: decisionStates.get(d.id)!.state, stateReason: decisionStates.get(d.id)!.reason } : d));
+        const decisionsChanged = decisionSignature(decisionsHere) !== decisionSignature(decisionsOfEvidence(row.physicalIdentityEvidence));
         if (row.physicalEventId !== want.groupId || row.physicalIdentityStatus !== want.status) affected.add(id);
-        if (!isTarget && row.physicalEventId === want.groupId && row.physicalIdentityStatus === want.status) continue;
+        if (!isTarget && !decisionsChanged && row.physicalEventId === want.groupId && row.physicalIdentityStatus === want.status) continue;
         const comparisons = related(id).map((other) => ({
           activityLogId: other, provider: rows.get(other)!.provider, verdict: verdictOf(id, other).verdict, reason: verdictOf(id, other).reason, criteria: verdictOf(id, other).evidence,
         }));
@@ -196,7 +245,7 @@ export class PhysicalActivityIdentityService {
           data: {
             physicalEventId: want.groupId,
             physicalIdentityStatus: want.status,
-            physicalIdentityEvidence: { version: 1, evaluatedAt: now.toISOString(), comparisons } as unknown as Prisma.InputJsonValue,
+            physicalIdentityEvidence: { version: 1, evaluatedAt: now.toISOString(), comparisons, ...(decisionsHere.length > 0 ? { humanDecisions: decisionsHere } : {}) } as unknown as Prisma.InputJsonValue,
             physicalIdentityEvaluatedAt: now,
           },
         });

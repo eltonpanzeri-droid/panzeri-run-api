@@ -3,6 +3,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-n
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { saoPauloDateString } from '../src/weekWindow';
+import { PendingIdentityNotice } from './PendingIdentity';
 import { FeelingDomain, FEELING_DOMAINS, SnapshotLite, rangeChip, trendChip, trendSentence } from './insights';
 import {
   HomeBorder,
@@ -241,6 +242,9 @@ export function HomeScreen({
           <Text style={styles.greetingSubtitle}>Veja como está sua semana.</Text>
         </View>
       </View>
+
+      {/* Aviso discreto (excecao): so' aparece quando ha atividade realmente ambigua aguardando confirmacao; nao bloqueia nada */}
+      <PendingIdentityNotice accessToken={accessToken} onOpen={onOpenHistory} />
 
       {/* Bloco 1 — Hoje */}
       <HeroToday

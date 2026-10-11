@@ -36,6 +36,7 @@ import { EvolutionMetricService } from '../evolution/evolution-metric.service';
 import type { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
+import { IdentityConfirmationService } from '../activity-execution/identity-confirmation.service';
 
 @Injectable()
 export class CoachService {
@@ -58,6 +59,8 @@ export class CoachService {
     private readonly sessionExecutionLink: SessionExecutionLinkService,
     // Opcional so' para testes antigos que constroem o servico sem ele; em producao e' sempre injetado.
     private readonly physicalIdentity?: PhysicalActivityIdentityService,
+    // Confirmacao de identidade fisica (aluno/treinador). Opcional so' para testes antigos; em producao e' sempre injetado.
+    private readonly identityConfirmation?: IdentityConfirmationService,
   ) {}
 
   // Passo 5 (continuacao) — lista leve de TODOS os alunos ativos (id/nome/codigo), sem paginacao —
@@ -214,12 +217,27 @@ export class CoachService {
     };
   }
 
-  // D1 (10/2026) — resolucao HUMANA de ambiguidade: o treinador confirma que esta observacao de identidade ambigua e' uma execucao DISTINTA da vizinha.
-  // Passa a contar por decisao humana (prevalece sobre a automacao). Nao une nem apaga registros; a identidade (derivada dos dados) nao muda.
-  async confirmDistinctExternalActivity(studentId: string, activityLogId: string) {
+  // Resolucao HUMANA de ambiguidade pelo treinador (10/2026): decisao sobre a IDENTIDADE (nao sobre os dados do dispositivo), gravada com autoria e
+  // horario. 'distinct' = esta observacao e' uma execucao diferente das demais do conjunto; 'same' = todo o conjunto e' uma execucao so'.
+  // A identidade e' reavaliada e so' o que mudou e' reconciliado (servicos existentes). Nunca altera sessoes prescritas.
+  async resolveExternalActivityIdentity(studentId: string, coachId: string, activityLogId: string, decision: unknown) {
+    if (!this.identityConfirmation) throw new NotFoundException('Servico de confirmacao de identidade indisponivel.');
     const log = await this.prisma.activityLog.findFirst({ where: { id: activityLogId, userId: studentId } });
     if (!log) throw new NotFoundException('Atividade externa nao encontrada para este aluno.');
-    return this.sessionExecutionLink.confirmDistinctActivity({ userId: studentId, activityLogId, origin: 'coach' });
+    if (decision !== 'same' && decision !== 'distinct') throw new BadRequestException('decision deve ser "same" ou "distinct".');
+    return this.identityConfirmation.resolveAsCoach(studentId, { id: coachId }, activityLogId, decision);
+  }
+
+  // Reverte uma decisao humana ativa (do aluno ou do treinador) que envolve esta observacao; nada e' apagado (fica 'reverted', com quem/quando).
+  async revertExternalActivityIdentity(studentId: string, coachId: string, activityLogId: string) {
+    if (!this.identityConfirmation) throw new NotFoundException('Servico de confirmacao de identidade indisponivel.');
+    return this.identityConfirmation.revertAsCoach(studentId, { id: coachId }, activityLogId);
+  }
+
+  // Indicadores minimos da qualidade da identidade fisica (so' leitura).
+  async identityQuality(days?: number) {
+    if (!this.identityConfirmation) throw new NotFoundException('Servico de confirmacao de identidade indisponivel.');
+    return this.identityConfirmation.quality(days);
   }
 
   // Avalia a identidade fisica (observacoes do mesmo evento) de TODO o historico de UM aluno. Idempotente; nao apaga nem altera

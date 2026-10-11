@@ -23,6 +23,7 @@ import { FeelingsDetailScreen } from './home/FeelingsDetailScreen';
 import { EvolutionObjectiveSections } from './home/EvolutionObjective';
 import type { FeelingDomain } from './home/insights';
 import { BottomNav, BottomNavTab } from './home/BottomNav';
+import { PendingIdentitySection } from './home/PendingIdentity';
 import { useFonts, BigShouldersDisplay_800ExtraBold } from '@expo-google-fonts/big-shoulders-display';
 // Public Sans e JetBrains Mono (identidade-visual-panzeri-run) entram aqui quando alguma tela
 // realmente passar a usar PRFonts.bodyRegular/bodyMedium/bodyBold/bodyExtraBold/data — ver
@@ -10257,6 +10258,8 @@ function DayCellMulti({ sessions, colIndex }: { sessions: HistorySessionMobile[]
 function HistoryCalendar({ accessToken, onNavigateToWeek }: { accessToken: string; onNavigateToWeek: (offset: number) => void }) {
   const [weeks, setWeeks] = useState<HistoryWeekMobile[]>([]);
   const [loading, setLoading] = useState(true);
+  // Recarrega as semanas quando o aluno responde uma "atividade para confirmar" (a contagem pode ter mudado).
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -10268,7 +10271,7 @@ function HistoryCalendar({ accessToken, onNavigateToWeek }: { accessToken: strin
       .then((d) => setWeeks(Array.isArray(d) ? d as HistoryWeekMobile[] : []))
       .catch(() => undefined)
       .finally(() => setLoading(false));
-  }, [accessToken]);
+  }, [accessToken, reloadKey]);
 
   // 10/09: legenda compacta em 2 linhas, acima do cabeçalho.
   const legendItems = [
@@ -10281,6 +10284,8 @@ function HistoryCalendar({ accessToken, onNavigateToWeek }: { accessToken: strin
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 48 }}>
+      {/* Atividades para confirmar (excecao): so' aparece com pendencia real de identidade; "responder depois" nao tira nada do lugar */}
+      <PendingIdentitySection accessToken={accessToken} onResolved={() => setReloadKey((k) => k + 1)} />
       <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
         <Text style={styles.sectionLabel}>Histórico de treinos</Text>
         <Text style={[styles.formHint, { marginBottom: 10 }]}>Toque em uma semana para ver e registrar feedback.</Text>

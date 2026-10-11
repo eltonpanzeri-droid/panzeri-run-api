@@ -411,10 +411,28 @@ export class CoachController {
     return this.coachService.reclassifyExternalActivity(studentId, activityLogId);
   }
 
-  // Resolucao humana de ambiguidade (D1, 10/2026): confirma que uma observacao de identidade ambigua e' uma execucao DISTINTA da vizinha.
-  @Post('students/:studentId/external-activities/:activityLogId/confirm-distinct')
-  confirmDistinctExternalActivity(@Param('studentId') studentId: string, @Param('activityLogId') activityLogId: string) {
-    return this.coachService.confirmDistinctExternalActivity(studentId, activityLogId);
+  // Resolucao humana da identidade fisica (10/2026): decision = 'same' (o conjunto e' uma execucao so') | 'distinct' (esta observacao e' outra execucao).
+  // Registra autoria/horario na evidencia de identidade e reconcilia so' o que mudou. Nunca altera sessoes prescritas.
+  @Post('students/:studentId/external-activities/:activityLogId/identity-decision')
+  resolveExternalActivityIdentity(
+    @CurrentUser() actor: CurrentUserPayload,
+    @Param('studentId') studentId: string,
+    @Param('activityLogId') activityLogId: string,
+    @Body() body: { decision?: unknown },
+  ) {
+    return this.coachService.resolveExternalActivityIdentity(studentId, actor.sub, activityLogId, body?.decision);
+  }
+
+  // Reverte a decisao humana ativa que envolve esta observacao (fica registrada como revertida, com quem/quando).
+  @Post('students/:studentId/external-activities/:activityLogId/identity-decision/revert')
+  revertExternalActivityIdentity(@CurrentUser() actor: CurrentUserPayload, @Param('studentId') studentId: string, @Param('activityLogId') activityLogId: string) {
+    return this.coachService.revertExternalActivityIdentity(studentId, actor.sub, activityLogId);
+  }
+
+  // Indicadores minimos da qualidade da identidade fisica (resolvidas sozinhas x ambiguas x confirmacoes) — so' leitura.
+  @Get('data/identity/quality')
+  identityQuality(@Query('days') days?: string) {
+    return this.coachService.identityQuality(days ? parseInt(days, 10) : undefined);
   }
 
   // Identidade fisica cross-provider (06/10/2026, Apple Etapa 2): agrupa, para UM aluno, observacoes de providers diferentes

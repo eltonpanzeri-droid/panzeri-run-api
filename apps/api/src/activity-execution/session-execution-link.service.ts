@@ -408,6 +408,7 @@ export class SessionExecutionLinkService {
     if (activity.physicalIdentityStatus === 'matched' && activity.physicalEventId) {
       const result = await this.reconcileEvent(activityLogId);
       if (result.classification) return result.classification;
+      if (result.outcome === 'skipped_identity_ambiguous') return null; // evento preservado por ambiguidade com outra observacao que ja' conta: nao classifica isoladamente
     }
     if (activity.executionClassification) {
       return activity.executionClassification as ExecutionClassification;
@@ -428,24 +429,27 @@ export class SessionExecutionLinkService {
     return this.classifyAmbiguousObservation(activity);
   }
 
-  // Observacoes do mesmo PAR AMBIGUO: mesmo aluno, identidade ainda 'ambiguous', e o veredito nao-distinto registrado na evidencia de identidade de um
-  // dos lados (a avaliacao grava os dois lados, mas um lado pode estar defasado — por isso olha-se a mencao em qualquer sentido).
-  private async ambiguityPeers(activity: ActivityLog): Promise<ActivityLog[]> {
+  // Observacoes em AMBIGUIDADE com esta: mesmo aluno e veredito registrado na evidencia de identidade de um dos lados (a avaliacao grava os dois
+  // lados, mas um lado pode estar defasado — por isso olha-se a mencao em qualquer sentido). Entre duas observacoes 'ambiguous' vale qualquer
+  // veredito nao-distinto; frente a uma observacao JA' em evento (matched/unique) so' o veredito 'ambiguous' conta (ex.: uma observacao divergente
+  // das duas fontes que concordam entre si). `exclude` = ids a ignorar (ex.: os proprios membros de um evento).
+  private async ambiguityPeers(activity: ActivityLog, exclude: Set<string> = new Set()): Promise<ActivityLog[]> {
     type Comparison = { activityLogId?: unknown; verdict?: unknown };
     const comparisonsOf = (row: { physicalIdentityEvidence?: unknown }): Comparison[] => {
       const evidence = row.physicalIdentityEvidence as { comparisons?: unknown } | null | undefined;
       return Array.isArray(evidence?.comparisons) ? (evidence.comparisons as Comparison[]) : [];
     };
-    const mentions = (row: { physicalIdentityEvidence?: unknown }, id: string) => comparisonsOf(row).some((c) => c.activityLogId === id && c.verdict !== 'distinct');
+    // Uma observacao 'unique' nao tem aresta de ambiguidade real (mencao so' em evidencia defasada de outro lado): nao conta como vizinha.
+    const eligible = (row: ActivityLog) => row.physicalIdentityStatus === 'ambiguous' || row.physicalIdentityStatus === 'matched';
+    const edge = (from: ActivityLog, to: ActivityLog) => eligible(from) && eligible(to) && comparisonsOf(from).some((c) => c.activityLogId === to.id && (c.verdict === 'ambiguous' || (c.verdict !== 'distinct' && from.physicalIdentityStatus === 'ambiguous' && to.physicalIdentityStatus === 'ambiguous')));
     const candidates = await this.prisma.activityLog.findMany({
       where: {
         userId: activity.userId,
-        physicalIdentityStatus: 'ambiguous',
         id: { not: activity.id },
         startedAt: { gte: new Date(activity.startedAt.getTime() - AMBIGUITY_PEER_WINDOW_MS), lte: new Date(activity.startedAt.getTime() + AMBIGUITY_PEER_WINDOW_MS) },
       },
     });
-    return candidates.filter((row) => row.userId === activity.userId && row.physicalIdentityStatus === 'ambiguous' && (mentions(activity, row.id) || mentions(row, activity.id)));
+    return candidates.filter((row) => row.userId === activity.userId && !exclude.has(row.id) && (edge(activity, row) || edge(row, activity)));
   }
 
   // D1 (opcao B): identidade ambigua = possivel duplicata, ainda nao comprovada. Se outra observacao do par JA' carrega uma execucao (vinculo ou
@@ -459,6 +463,38 @@ export class SessionExecutionLinkService {
     const plan = await this.planClassification(activity, new Set([activity.id, ...peers.map((peer) => peer.id)]));
     if (!options.dryRun) await this.applyPlan(activity, plan);
     return classificationOf(plan);
+  }
+
+  // Reversao de uma decisao humana "execucoes distintas" (10/2026): as observacoes voltam a ser um par AMBIGUO; se ambas estiverem contando por
+  // classificacao AUTOMATICA, so' uma continua (a que carrega o vinculo ativo; senao a mais antiga) — a outra volta a ficar preservada, sem contar
+  // (invariante da opcao B). Decisao humana e atividade ja' materializada com feedback do aluno NUNCA sao desfeitas aqui; nada e' apagado.
+  async normalizeAmbiguousCluster(activityLogIds: string[]): Promise<{ cleared: string[] }> {
+    const ids = [...new Set(activityLogIds)];
+    if (ids.length < 2) return { cleared: [] };
+    const first = await this.prisma.activityLog.findFirst({ where: { id: { in: ids } } });
+    if (!first) return { cleared: [] };
+    return this.withUserLock(first.userId, (service) => service.normalizeAmbiguousClusterLocked(ids, first.userId));
+  }
+
+  private async normalizeAmbiguousClusterLocked(ids: string[], userId: string): Promise<{ cleared: string[] }> {
+    const rows = (await this.prisma.activityLog.findMany({ where: { id: { in: ids } } })).filter((r) => r.userId === userId && r.physicalIdentityStatus === 'ambiguous');
+    const counting = rows.filter((r) => r.executionClassification === 'corresponding' || r.executionClassification === 'alternative');
+    if (counting.length <= 1) return { cleared: [] };
+    const isHuman = (r: ActivityLog) => r.executionClassifiedBy === 'coach' || r.executionClassifiedBy === 'student';
+    const links = await this.prisma.sessionExecutionLink.findMany({ where: { activityLogId: { in: counting.map((r) => r.id) }, status: { in: ['active', 'candidate'] } } });
+    const hasActiveLink = (r: ActivityLog) => links.some((l) => l.activityLogId === r.id && l.status === 'active');
+    const ordered = [...counting].sort((a, b) => Number(isHuman(b)) - Number(isHuman(a)) || Number(hasActiveLink(b)) - Number(hasActiveLink(a)) || a.startedAt.getTime() - b.startedAt.getTime() || (a.id < b.id ? -1 : 1));
+    const cleared: string[] = [];
+    for (const row of ordered.slice(1)) {
+      if (isHuman(row)) continue; // decisao humana prevalece
+      if (await this.findMaterializedSessionForActivities(userId, new Set([row.id]))) continue; // ja' tem sessao sintetica (feedback do aluno): nao desfaz
+      for (const link of links.filter((l) => l.activityLogId === row.id && l.origin === 'automatic')) {
+        await this.prisma.sessionExecutionLink.update({ where: { id: link.id }, data: { status: 'revoked', revokedAt: new Date(), note: link.note ?? 'identity_decision_reverted' } });
+      }
+      await this.prisma.activityLog.update({ where: { id: row.id }, data: { executionClassification: null, executionClassifiedAt: null, executionClassifiedBy: null } });
+      cleared.push(row.id);
+    }
+    return { cleared };
   }
 
   // Resolucao HUMANA (aluno ou treinador): confirma que uma observacao de identidade ambigua e' uma execucao DISTINTA da vizinha — passa a contar
@@ -753,7 +789,17 @@ export class SessionExecutionLinkService {
       for (const link of memberLinks.filter((l) => l.status === 'candidate')) revoke(link, 'resolved_by_active_link_in_same_event');
       quarantine();
     } else {
-      // 4) Sem vinculo ativo: recalcula o estado automatico da canonica com a semantica atual (preservando alternativa ja' materializada).
+      // 4) Sem vinculo ativo. Conjunto MISTO (D1): se uma observacao em ambiguidade com este evento (ex.: a terceira fonte, divergente das duas que
+      // concordam) JA' carrega uma execucao, este evento ainda nao classificado fica preservado, sem contar, ate a ambiguidade ser resolvida —
+      // senao a mesma execucao contaria duas vezes (a observacao ambigua e o evento).
+      if (members.every((m) => !m.executionClassification)) {
+        const neighbors: ActivityLog[] = [];
+        for (const member of members) neighbors.push(...(await this.ambiguityPeers(member, memberIds)));
+        if (neighbors.some((n) => n.executionClassification === 'corresponding' || n.executionClassification === 'alternative')) {
+          return { ...base, canonicalActivityLogId: canonical.id, classification: null, outcome: 'skipped_identity_ambiguous', changed: false, conflicts: 0 };
+        }
+      }
+      // Recalcula o estado automatico da canonica com a semantica atual (preservando alternativa ja' materializada).
       const materialized = await this.findMaterializedSessionForActivities(canonical.userId, memberIds);
       const current = (canonical.executionClassification as ExecutionClassification | null) ?? null;
       const alternativeInEvent = members.some((m) => m.executionClassification === 'alternative' && !isHumanOrigin(m.executionClassifiedBy));

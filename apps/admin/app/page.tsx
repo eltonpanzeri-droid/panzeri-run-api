@@ -5487,6 +5487,15 @@ type PhysicalCanonicalReasonView = {
   candidates?: Array<{ activityLogId: string; role: string; roleBasis: string }>;
 };
 
+type HumanDecisionView = { id: string; kind: 'same' | 'distinct'; actorRole: 'student' | 'coach'; decidedAt: string; status: 'active' | 'reverted'; state?: 'applied' | 'suspended'; stateReason?: string | null; revertedAt?: string | null };
+function humanDecisionsOf(row: { physicalIdentityEvidence?: unknown }): HumanDecisionView[] {
+  const list = (row.physicalIdentityEvidence as { humanDecisions?: unknown } | null | undefined)?.humanDecisions;
+  return Array.isArray(list) ? (list as HumanDecisionView[]).filter((d) => d && typeof d.id === 'string') : [];
+}
+function activeIdentityDecisions(row: { physicalIdentityEvidence?: unknown }): HumanDecisionView[] {
+  return humanDecisionsOf(row).filter((d) => d.status === 'active');
+}
+
 type ExternalActivityIdentitySummary = { evaluated: number; matchedEvents: number; ambiguous: number; unique: number };
 
 type ExternalActivitySample = {
@@ -5702,21 +5711,28 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
     }
   }
 
-  // Resolucao humana de ambiguidade: confirma que esta observacao e' uma execucao DISTINTA da vizinha (passa a contar por decisao do treinador).
-  const [confirmDistinctById, setConfirmDistinctById] = React.useState<Record<string, 'loading' | 'error' | 'done'>>({});
-  async function confirmDistinct(activityLogId: string) {
-    if (!window.confirm('Confirmar que esta é uma atividade DIFERENTE da outra observação ambígua? Ela passará a contar como uma execução própria (decisão do treinador). Nenhum registro é apagado ou unido.')) return;
-    setConfirmDistinctById((current) => ({ ...current, [activityLogId]: 'loading' }));
+  // Resolucao humana da identidade fisica (decisao sobre a IDENTIDADE, nunca sobre os dados do dispositivo; fica registrada com autoria e horario).
+  const [identityActionById, setIdentityActionById] = React.useState<Record<string, 'loading' | 'error'>>({});
+  async function identityAction(activityLogId: string, action: 'same' | 'distinct' | 'revert') {
+    const question = action === 'same'
+      ? 'Confirmar que TODAS as observações deste conjunto são a MESMA atividade? Ela passará a contar uma vez só (a observação canônica segue as regras de proveniência). Nenhum registro é apagado.'
+      : action === 'distinct'
+        ? 'Confirmar que esta observação é uma atividade DIFERENTE das demais do conjunto? Cada execução passará a contar uma vez. Nenhum registro é apagado ou unido.'
+        : 'Reverter a decisão de identidade ativa desta atividade? Ela fica registrada como revertida e as observações voltam a ser avaliadas pelo sistema.';
+    if (!window.confirm(question)) return;
+    setIdentityActionById((current) => ({ ...current, [activityLogId]: 'loading' }));
     try {
-      const response = await fetch(`${API_URL}/coach/students/${studentId}/external-activities/${activityLogId}/confirm-distinct`, {
+      const base = API_URL + '/coach/students/' + studentId + '/external-activities/' + activityLogId + '/identity-decision';
+      const response = await fetch(action === 'revert' ? base + '/revert' : base, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: action === 'revert' ? { Authorization: 'Bearer ' + accessToken } : { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: action === 'revert' ? undefined : JSON.stringify({ decision: action }),
       });
-      if (!response.ok) { setConfirmDistinctById((current) => ({ ...current, [activityLogId]: 'error' })); return; }
-      setConfirmDistinctById((current) => ({ ...current, [activityLogId]: 'done' }));
+      if (!response.ok) { setIdentityActionById((current) => ({ ...current, [activityLogId]: 'error' })); return; }
+      setIdentityActionById((current) => { const next = { ...current }; delete next[activityLogId]; return next; });
       await load();
     } catch {
-      setConfirmDistinctById((current) => ({ ...current, [activityLogId]: 'error' }));
+      setIdentityActionById((current) => ({ ...current, [activityLogId]: 'error' }));
     }
   }
 
@@ -5855,20 +5871,27 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
           >
             {reclassifyState === 'loading' ? 'Reclassificando...' : 'Reclassificar'}
           </button>
-          {row.physicalIdentityStatus === 'ambiguous' && !row.executionClassification ? (
+          {row.physicalIdentityStatus === 'ambiguous' ? (
             <>
-              <button
-                type="button"
-                className="secondaryOutlineButton"
-                disabled={confirmDistinctById[row.id] === 'loading'}
-                onClick={() => confirmDistinct(row.id)}
-                title="Identidade ambígua e ainda sem classificação: preservada, mas não conta enquanto outra observação do par já conta. Confirme só se for outra atividade."
-              >
-                {confirmDistinctById[row.id] === 'loading' ? 'Confirmando...' : 'Confirmar que é outra atividade'}
+              <button type="button" className="secondaryOutlineButton" disabled={identityActionById[row.id] === 'loading'} onClick={() => identityAction(row.id, 'distinct')} title="Identidade ambígua: confirma que esta observação é OUTRA atividade (cada execução conta uma vez). Decisão registrada com autoria e horário.">
+                {identityActionById[row.id] === 'loading' ? 'Salvando...' : 'Confirmar que é outra atividade'}
               </button>
-              {confirmDistinctById[row.id] === 'error' ? <span className="extHint" style={{ color: '#b91c1c' }}>Falha ao confirmar.</span> : null}
+              <button type="button" className="secondaryOutlineButton" disabled={identityActionById[row.id] === 'loading'} onClick={() => identityAction(row.id, 'same')} title="Identidade ambígua: confirma que TODO o conjunto é a mesma atividade (conta uma vez). Decisão registrada com autoria e horário.">
+                Confirmar que é a mesma atividade
+              </button>
             </>
           ) : null}
+          {activeIdentityDecisions(row).length > 0 ? (
+            <button type="button" className="secondaryOutlineButton" disabled={identityActionById[row.id] === 'loading'} onClick={() => identityAction(row.id, 'revert')} title="Reverte a decisão humana ativa que envolve esta atividade (fica registrada como revertida).">
+              Reverter decisão de identidade
+            </button>
+          ) : null}
+          {identityActionById[row.id] === 'error' ? <span className="extHint" style={{ color: '#b91c1c' }}>Falha ao salvar a decisão.</span> : null}
+          {humanDecisionsOf(row).map((d) => (
+            <span key={d.id} className="extHint" title={d.stateReason ?? undefined}>
+              decisão {d.status === 'reverted' ? 'revertida' : d.state === 'suspended' ? 'suspensa (evidência nova incompatível)' : 'ativa'}: <strong>{d.kind === 'same' ? 'mesma atividade' : 'atividades diferentes'}</strong> · {d.actorRole === 'student' ? 'aluno' : 'treinador'} · {extFmtDateTime(d.decidedAt)}{d.revertedAt ? ' · revertida em ' + extFmtDateTime(d.revertedAt) : ''}
+            </span>
+          ))}
           {reclassifyState === 'error' ? (
             <span className="extHint" style={{ color: '#b91c1c' }}>Falha ao reclassificar.</span>
           ) : reclassifyState && reclassifyState !== 'loading' ? (

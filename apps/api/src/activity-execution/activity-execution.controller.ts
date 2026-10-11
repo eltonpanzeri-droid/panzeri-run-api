@@ -3,6 +3,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { SessionExecutionLinkService } from './session-execution-link.service';
 import { ActivityDetailService } from './activity-detail.service';
+import { IdentityConfirmationService } from './identity-confirmation.service';
 
 // Visualizacao Prescrito x Realizado (02/10/2026) — endpoints do aluno sobre reconciliacao. Nunca
 // redecide classificacao/correspondencia aqui, so' delega pro service (ja testado) com checagem de
@@ -14,7 +15,22 @@ export class ActivityExecutionController {
   constructor(
     private readonly sessionExecutionLinkService: SessionExecutionLinkService,
     private readonly activityDetailService: ActivityDetailService,
+    private readonly identityConfirmation: IdentityConfirmationService,
   ) {}
+
+  // Atividades para confirmar (10/2026): so' o que o sistema NAO conseguiu decidir sozinho (identidade ambigua), pares recentes que o aluno pode
+  // esclarecer. Somente leitura; "responder depois" nao chama a API.
+  @Get('pending-identity')
+  pendingIdentity(@CurrentUser() user: CurrentUserPayload) {
+    return this.identityConfirmation.pendingForStudent(user.sub);
+  }
+
+  // O aluno responde: { activityLogIds: [a, b], decision: 'same' | 'distinct' }. A decisao e' aplicada no servidor (identidade, canonica,
+  // reconciliacao); resposta repetida/concorrente/ja resolvida recebe 409; atividade de outra conta recebe 404.
+  @Post('pending-identity/resolve')
+  resolvePendingIdentity(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
+    return this.identityConfirmation.resolveAsStudent(user.sub, body);
+  }
 
   // "Ver treino completo" (03/10/2026): detalhe canonico da execucao — resumo, Prescrito x Realizado,
   // parciais por km e serie amostrada pra grafico. Somente leitura, sempre com checagem de posse.

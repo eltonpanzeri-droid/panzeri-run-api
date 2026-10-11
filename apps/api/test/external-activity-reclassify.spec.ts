@@ -83,31 +83,42 @@ describe('CoachService.reclassifyExternalActivity', () => {
   });
 });
 
-describe('CoachService — D1 (confirmar atividade distinta) e D2 (troca de fonte primaria)', () => {
-  const withIdentity = (prisma: Record<string, unknown>, link: Record<string, unknown>, identity: Record<string, unknown>) =>
-    new CoachService(prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), link as never, identity as never);
+describe('CoachService — decisao humana de identidade (D1/identidade) e D2 (troca de fonte primaria)', () => {
+  const withServices = (prisma: Record<string, unknown>, link: Record<string, unknown>, identity: Record<string, unknown>, confirmation: Record<string, unknown>) =>
+    new CoachService(prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), link as never, identity as never, confirmation as never);
 
-  it('confirmDistinctExternalActivity: confere a posse do aluno e delega a decisao humana com origem "coach"', async () => {
+  it('resolveExternalActivityIdentity: confere a posse do aluno e delega a decisao com o id do treinador', async () => {
     const prisma = { activityLog: { findFirst: jest.fn().mockResolvedValue({ id: 'log-2', userId: 'student-1' }) } };
-    const link = { confirmDistinctActivity: jest.fn().mockResolvedValue({ activityLogId: 'log-2', classification: 'alternative', changed: true }) };
-    const result = await buildService(prisma, link).confirmDistinctExternalActivity('student-1', 'log-2');
+    const confirmation = { resolveAsCoach: jest.fn().mockResolvedValue({ status: 'resolved', decision: 'distinct' }) };
+    const result = await withServices(prisma, {}, {}, confirmation).resolveExternalActivityIdentity('student-1', 'coach-1', 'log-2', 'distinct');
     expect(prisma.activityLog.findFirst).toHaveBeenCalledWith({ where: { id: 'log-2', userId: 'student-1' } });
-    expect(link.confirmDistinctActivity).toHaveBeenCalledWith({ userId: 'student-1', activityLogId: 'log-2', origin: 'coach' });
-    expect(result).toMatchObject({ classification: 'alternative', changed: true });
+    expect(confirmation.resolveAsCoach).toHaveBeenCalledWith('student-1', { id: 'coach-1' }, 'log-2', 'distinct');
+    expect(result).toMatchObject({ status: 'resolved' });
   });
 
-  it('confirmDistinctExternalActivity: atividade de outro aluno nao e tocada', async () => {
-    const prisma = { activityLog: { findFirst: jest.fn().mockResolvedValue(null) } };
-    const link = { confirmDistinctActivity: jest.fn() };
-    await expect(buildService(prisma, link).confirmDistinctExternalActivity('student-1', 'log-de-outro')).rejects.toBeInstanceOf(NotFoundException);
-    expect(link.confirmDistinctActivity).not.toHaveBeenCalled();
+  it('resolveExternalActivityIdentity: atividade de outro aluno ou decisao invalida nao chegam ao servico', async () => {
+    const confirmation = { resolveAsCoach: jest.fn() };
+    const other = { activityLog: { findFirst: jest.fn().mockResolvedValue(null) } };
+    await expect(withServices(other, {}, {}, confirmation).resolveExternalActivityIdentity('student-1', 'coach-1', 'log-de-outro', 'same')).rejects.toBeInstanceOf(NotFoundException);
+    const own = { activityLog: { findFirst: jest.fn().mockResolvedValue({ id: 'log-2' }) } };
+    await expect(withServices(own, {}, {}, confirmation).resolveExternalActivityIdentity('student-1', 'coach-1', 'log-2', 'talvez')).rejects.toThrow(/same|distinct/);
+    expect(confirmation.resolveAsCoach).not.toHaveBeenCalled();
+  });
+
+  it('revertExternalActivityIdentity e identityQuality delegam ao servico (so leitura nos indicadores)', async () => {
+    const confirmation = { revertAsCoach: jest.fn().mockResolvedValue({ status: 'reverted' }), quality: jest.fn().mockResolvedValue({ windowDays: 90 }) };
+    const service = withServices({}, {}, {}, confirmation);
+    await expect(service.revertExternalActivityIdentity('student-1', 'coach-1', 'log-2')).resolves.toMatchObject({ status: 'reverted' });
+    expect(confirmation.revertAsCoach).toHaveBeenCalledWith('student-1', { id: 'coach-1' }, 'log-2');
+    await expect(service.identityQuality(30)).resolves.toMatchObject({ windowDays: 90 });
+    expect(confirmation.quality).toHaveBeenCalledWith(30);
   });
 
   it('setStudentPrimarySource: depois de recalcular a canonica, reconcilia os eventos afetados (D2) e devolve o resultado original', async () => {
     const recomputed = { events: 2, affectedActivityLogIds: ['a', 'b'] };
     const identity = { setPrimarySource: jest.fn().mockResolvedValue({ id: 'ps-1', provider: 'garmin', effectiveFrom: new Date('2026-01-01T00:00:00Z'), recomputed }) };
     const link = { reconcileAffectedByIdentity: jest.fn().mockResolvedValue(undefined) };
-    const result = await withIdentity({}, link, identity).setStudentPrimarySource('student-1', { provider: 'garmin' });
+    const result = await withServices({}, link, identity, {}).setStudentPrimarySource('student-1', { provider: 'garmin' });
     expect(identity.setPrimarySource).toHaveBeenCalledWith('student-1', 'garmin', expect.objectContaining({ origin: 'coach' }));
     expect(link.reconcileAffectedByIdentity).toHaveBeenCalledWith(recomputed, null);
     expect(result).toMatchObject({ id: 'ps-1', recomputed });

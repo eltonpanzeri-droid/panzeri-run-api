@@ -2744,3 +2744,12 @@ Ver ETAPA_ATIVIDADES_EXTERNAS_E_VINCULOS.md e RUNBOOK_CORRECAO_MUSCULACAO_30-09_
 
 ### 2026-10-10 — Rotina/entrevista/objetivo/relatos (local)
 Rotina salva por PUT /me/availability; WA fonte unica; nada regenera treinos entregues; objetivo atual unico; routine_observation/additional_info chegam ao Relator. Ver AJUSTE_ROTINA_ENTREVISTA_E_RELATOS.md.
+
+### 2026-10-11 — Check-in semanal rejeitado pela API (corrigido; 7bfb128)
+Desde 07/10 o status do check-in devolvia `additionalActivities` e o app reenviava o resumo inteiro; a API (forbidNonWhitelisted) respondia 400 e a aluna não conseguia gerar o treino. DTO passou a aceitar o campo; o app envia só os 4 números. Teste de regressão com o mesmo ValidationPipe da produção.
+
+### 2026-10-11 — Identidade física: origem do Health Connect, D1 (ambiguidade) e D2 (membros afetados) (bd04b4b, 6ec9fd1)
+`observerKeyOf`/`baseProvenanceProfile` reconhecem o canal Health Connect (app de origem + dispositivo gravador quando informado; nunca presume Galaxy Watch). D1: `classify()` não classifica a 2ª observação de um par ambíguo se a outra já conta; D2: a avaliação informa as observações afetadas e os adaptadores (Polar/Wahoo/Apple) e a troca de fonte primária reconciliam só o que mudou. Adaptador Health Connect ainda NÃO implementado.
+
+### 2026-10-12 — Confirmação de atividades ambíguas pelo aluno/treinador (local; sem deploy)
+Exceção, não etapa obrigatória: só o par de observações que o sistema não resolveu (identidade `ambiguous`) vira pendência; matched/unique nunca perguntam. Decisão humana gravada em `ActivityLog.physicalIdentityEvidence.humanDecisions` (autor, horário, pares, estado applied/suspended, reversão com quem/quando) — sem tabela nova; a avaliação de identidade lê e preserva (suspende "mesma atividade" se nova evidência objetiva for decisivamente contrária). Aluno: aviso discreto na Home + seção "Atividades para confirmar" no Histórico (só pares recentes; 3+ registros e conjunto misto ficam com o treinador). Treinador: decidir (mesma/outra), reverter e indicadores (`GET /coach/data/identity/quality`). Corrigido junto: conjunto misto (observação ambígua × evento já confirmado) contava duas vezes. Serviço: `IdentityConfirmationService`; modelo puro: `physical-identity-pending.ts`/`physical-identity-decisions.ts`.
