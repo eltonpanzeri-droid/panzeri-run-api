@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ActivityLog, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import type { PhysicalIdentityResult } from './physical-activity-identity.service';
 import { canonicalModality } from './canonical-modality';
 import { pickCanonicalPerEvent } from './canonical-observation';
 import { FORCE_SESSION_MODALITIES, WEAK_FORCE_ACTIVITY } from './activity-modality-map';
@@ -65,7 +66,7 @@ function isEventRepresentative(row: { id: string; physicalIdentityStatus?: strin
 
 export type EventReconciliationOutcome =
   | 'unchanged' | 'linked' | 'link_moved' | 'duplicate_links_collapsed' | 'candidates' | 'alternative'
-  | 'human_preserved' | 'kept_materialized_alternative' | 'skipped_identity_ambiguous' | 'skipped_no_canonical';
+  | 'human_preserved' | 'kept_materialized_alternative' | 'skipped_identity_ambiguous' | 'classified_ambiguous_identity' | 'skipped_no_canonical';
 
 export interface EventReconciliationResult {
   activityLogId: string;
@@ -265,8 +266,13 @@ function startOfLocalDay(startedAt: Date, utcOffsetMinutes: number | null): Date
   return new Date(`${localCalendarDate(startedAt, utcOffsetMinutes)}T00:00:00.000Z`);
 }
 
+// Janela de busca das observacoes que podem formar um par ambiguo (mesma da avaliacao de identidade, so' performance).
+const AMBIGUITY_PEER_WINDOW_MS = 12 * 60 * 60 * 1000;
+
 @Injectable()
 export class SessionExecutionLinkService {
+  private readonly logger = new Logger(SessionExecutionLinkService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   // Existencia, nunca contagem — e' assim que "mesma atividade por dois providers" ou "duas
@@ -393,7 +399,9 @@ export class SessionExecutionLinkService {
   // Idempotente: se a atividade ja' foi classificada (por este metodo ou por uma decisao manual),
   // NAO reclassifica sozinho — corrigir uma classificacao existente e' sempre uma acao explicita
   // (linkManually/markExtra/confirmCandidate), nunca um efeito colateral de rodar classify() de novo.
-  async classify(activityLogId: string): Promise<ExecutionClassification> {
+  // Retorna null quando a observacao tem identidade AMBIGUA e uma observacao do mesmo par ja' carrega uma execucao (D1, 10/2026): ela fica
+  // preservada e sem classificacao automatica ate a ambiguidade ser resolvida (identidade que se resolve ou confirmacao humana).
+  async classify(activityLogId: string): Promise<ExecutionClassification | null> {
     const activity = await this.prisma.activityLog.findUnique({ where: { id: activityLogId } });
     if (!activity) throw new NotFoundException('Atividade nao encontrada.');
     // 3B: observacao de um evento fisico com varias observacoes NAO e' reconciliada isoladamente — a unidade e' o PhysicalEvent.
@@ -404,9 +412,106 @@ export class SessionExecutionLinkService {
     if (activity.executionClassification) {
       return activity.executionClassification as ExecutionClassification;
     }
+    // D1: identidade ambigua = possivel duplicata da MESMA execucao. Mesma protecao do reconcileEvent, sob a trava por aluno.
+    if (activity.physicalIdentityStatus === 'ambiguous') {
+      return this.withUserLock(activity.userId, (service) => service.classifyAmbiguousLocked(activityLogId));
+    }
     const plan = await this.planClassification(activity, new Set([activity.id]));
     await this.applyPlan(activity, plan);
     return classificationOf(plan);
+  }
+
+  private async classifyAmbiguousLocked(activityLogId: string): Promise<ExecutionClassification | null> {
+    const activity = await this.prisma.activityLog.findUnique({ where: { id: activityLogId } });
+    if (!activity) throw new NotFoundException('Atividade nao encontrada.');
+    if (activity.physicalIdentityStatus !== 'ambiguous') return this.classify(activityLogId); // a identidade mudou enquanto esperava a trava
+    return this.classifyAmbiguousObservation(activity);
+  }
+
+  // Observacoes do mesmo PAR AMBIGUO: mesmo aluno, identidade ainda 'ambiguous', e o veredito nao-distinto registrado na evidencia de identidade de um
+  // dos lados (a avaliacao grava os dois lados, mas um lado pode estar defasado — por isso olha-se a mencao em qualquer sentido).
+  private async ambiguityPeers(activity: ActivityLog): Promise<ActivityLog[]> {
+    type Comparison = { activityLogId?: unknown; verdict?: unknown };
+    const comparisonsOf = (row: { physicalIdentityEvidence?: unknown }): Comparison[] => {
+      const evidence = row.physicalIdentityEvidence as { comparisons?: unknown } | null | undefined;
+      return Array.isArray(evidence?.comparisons) ? (evidence.comparisons as Comparison[]) : [];
+    };
+    const mentions = (row: { physicalIdentityEvidence?: unknown }, id: string) => comparisonsOf(row).some((c) => c.activityLogId === id && c.verdict !== 'distinct');
+    const candidates = await this.prisma.activityLog.findMany({
+      where: {
+        userId: activity.userId,
+        physicalIdentityStatus: 'ambiguous',
+        id: { not: activity.id },
+        startedAt: { gte: new Date(activity.startedAt.getTime() - AMBIGUITY_PEER_WINDOW_MS), lte: new Date(activity.startedAt.getTime() + AMBIGUITY_PEER_WINDOW_MS) },
+      },
+    });
+    return candidates.filter((row) => row.userId === activity.userId && row.physicalIdentityStatus === 'ambiguous' && (mentions(activity, row.id) || mentions(row, activity.id)));
+  }
+
+  // D1 (opcao B): identidade ambigua = possivel duplicata, ainda nao comprovada. Se outra observacao do par JA' carrega uma execucao (vinculo ou
+  // atividade adicional, automatica ou humana), esta NAO e' classificada automaticamente como uma segunda execucao (sem dupla contagem); fica
+  // preservada e passivel de resolucao. Se nenhuma carrega, UMA observacao e' classificada de forma conservadora, pelas regras atuais, tratando
+  // as vizinhas do par como a mesma execucao (nao como rivais). Nunca descarta, apaga nem une registros.
+  private async classifyAmbiguousObservation(activity: ActivityLog, options: { dryRun?: boolean } = {}): Promise<ExecutionClassification | null> {
+    if (activity.executionClassification) return activity.executionClassification as ExecutionClassification;
+    const peers = await this.ambiguityPeers(activity);
+    if (peers.some((peer) => peer.executionClassification === 'corresponding' || peer.executionClassification === 'alternative')) return null;
+    const plan = await this.planClassification(activity, new Set([activity.id, ...peers.map((peer) => peer.id)]));
+    if (!options.dryRun) await this.applyPlan(activity, plan);
+    return classificationOf(plan);
+  }
+
+  // Resolucao HUMANA (aluno ou treinador): confirma que uma observacao de identidade ambigua e' uma execucao DISTINTA da vizinha — passa a contar
+  // por decisao humana (prevalece sobre a automacao e e' estavel). A sessao ja' cumprida pela vizinha NAO e' reaproveitada: a atividade confirmada
+  // vincula-se a outra sessao compativel do dia ou, sem ela, e' atividade adicional. A identidade (derivada dos dados) nao e' alterada.
+  async confirmDistinctActivity(params: { userId: string; activityLogId: string; origin: 'student' | 'coach'; note?: string | null }) {
+    return this.withUserLock(params.userId, (service) => service.confirmDistinctLocked(params));
+  }
+
+  private async confirmDistinctLocked(params: { userId: string; activityLogId: string; origin: 'student' | 'coach'; note?: string | null }) {
+    const activity = await this.prisma.activityLog.findUnique({ where: { id: params.activityLogId } });
+    if (!activity || activity.userId !== params.userId) throw new NotFoundException('Atividade nao encontrada.');
+    if (activity.physicalIdentityStatus !== 'ambiguous') throw new BadRequestException('Esta atividade nao esta com identidade ambigua; nao ha o que confirmar.');
+    const current = activity.executionClassification;
+    if (current === 'corresponding' || current === 'alternative') {
+      return { activityLogId: activity.id, classification: current as ExecutionClassification, changed: false }; // ja' conta como execucao
+    }
+    const plan = await this.planClassification(activity, new Set([activity.id]));
+    if (plan.kind === 'link') {
+      await this.linkManually({ trainingSessionId: plan.session.id, activityLogId: activity.id, origin: params.origin, matchMethod: `${plan.matchMethod}_confirmed_distinct`, evidence: plan.evidence, note: params.note ?? null });
+      return { activityLogId: activity.id, classification: 'corresponding' as ExecutionClassification, changed: true };
+    }
+    await this.markExtra({ activityLogId: activity.id, origin: params.origin, note: params.note ?? null });
+    return { activityLogId: activity.id, classification: 'alternative' as ExecutionClassification, changed: true };
+  }
+
+  // D2 (10/2026): quando uma avaliacao de identidade altera o estado de observacoes alem da que chegou (evento desfeito, formado, ambiguo, nova
+  // canonica), reconcilia cada membro afetado com os servicos existentes — assim nenhuma execucao legitima fica sem classificacao nem com vinculo
+  // defasado. So' o que MUDOU entra (a avaliacao informa os ids): reavaliar sem mudanca nao reprocessa nada. Observacoes do mesmo evento sao
+  // reconciliadas uma vez (a reconciliacao e' por evento). Melhor esforco: nunca derruba a ingestao. `handledActivityLogId` ja' foi tratada pelo chamador.
+  async reconcileAffectedByIdentity(identity: Pick<PhysicalIdentityResult, 'affectedActivityLogIds'> | null | undefined, handledActivityLogId: string | null): Promise<void> {
+    const ids = [...new Set((identity?.affectedActivityLogIds ?? []).filter((id) => id !== handledActivityLogId))];
+    if (ids.length === 0) return;
+    try {
+      const handled = handledActivityLogId ? await this.prisma.activityLog.findUnique({ where: { id: handledActivityLogId } }) : null;
+      const doneEvents = new Set<string>();
+      if (handled?.physicalIdentityStatus === 'matched' && handled.physicalEventId) doneEvents.add(handled.physicalEventId);
+      const rows = (await this.prisma.activityLog.findMany({ where: { id: { in: ids } } })).sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime() || (a.id < b.id ? -1 : 1));
+      for (const row of rows) {
+        if (row.physicalIdentityStatus === 'matched' && row.physicalEventId) {
+          if (doneEvents.has(row.physicalEventId)) continue;
+          doneEvents.add(row.physicalEventId);
+        }
+        try {
+          if (row.physicalIdentityStatus === 'ambiguous') await this.classify(row.id);
+          else await this.reconcileEvent(row.id);
+        } catch (error) {
+          this.logger.warn(`Falha ao reconciliar a atividade ${row.id} afetada por mudanca de identidade: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Falha ao reconciliar atividades afetadas por mudanca de identidade: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   // Decide (SEM escrever) o que o Motor V1 faria para esta atividade. `memberIds` = ids das observacoes do MESMO evento fisico (so' a
@@ -540,7 +645,12 @@ export class SessionExecutionLinkService {
     let members: ActivityLog[] = [activity];
     let canonical: ActivityLog = activity;
     if (activity.physicalIdentityStatus === 'ambiguous') {
-      return { ...base, canonicalActivityLogId: null, classification: (activity.executionClassification as ExecutionClassification | null) ?? null, outcome: 'skipped_identity_ambiguous', changed: false, conflicts: 0 };
+      // D1: identidade ambigua nao e' reconciliada como evento. Ja' classificada: nada a fazer. Sem classificacao: so' e' classificada (de forma
+      // conservadora, uma unica observacao do par) se nenhuma outra observacao do par ja' carrega a execucao; senao fica preservada, sem contar.
+      const current = (activity.executionClassification as ExecutionClassification | null) ?? null;
+      if (current) return { ...base, canonicalActivityLogId: null, classification: current, outcome: 'skipped_identity_ambiguous', changed: false, conflicts: 0 };
+      const classified = await this.classifyAmbiguousObservation(activity, { dryRun: options.dryRun });
+      return { ...base, canonicalActivityLogId: null, classification: classified, outcome: classified ? 'classified_ambiguous_identity' : 'skipped_identity_ambiguous', changed: classified !== null, conflicts: 0 };
     }
     if (activity.physicalIdentityStatus === 'matched' && activity.physicalEventId) {
       const all = await this.prisma.activityLog.findMany({ where: { userId: activity.userId, physicalEventId: activity.physicalEventId } });

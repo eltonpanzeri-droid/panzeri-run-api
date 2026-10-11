@@ -67,8 +67,10 @@ export class AppleHealthIngestionService {
         // Identidade fisica cross-provider (Etapa 2) e, DEPOIS dela, a reconciliacao do EVENTO com a prescricao (3B): so' a observacao
         // canonica do evento carrega vinculo/classificacao. Best-effort — nunca derruba a ingestao.
         if (item.status === 'created' && item.activityLogId) {
-          await this.physicalIdentity?.evaluateSafely(item.activityLogId);
+          const identity = await this.physicalIdentity?.evaluateSafely(item.activityLogId);
           await this.reconcileSafely(item.activityLogId);
+          // D2: reconcilia as OUTRAS observacoes cuja identidade/canonica mudou nesta avaliacao (so' o que mudou).
+          await this.sessionExecutionLink?.reconcileAffectedByIdentity(identity, item.activityLogId);
         }
       } catch (error) {
         // Falha de um treino nunca derruba o lote inteiro nem vaza detalhe interno ao cliente.

@@ -136,7 +136,7 @@ function buildService(options: { failFirstCreateWithP2002?: boolean } = {}) {
     },
   };
   const prisma = { $transaction: jest.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)) };
-  return { service: new AppleHealthIngestionService(prisma as never), raws, logs, tx };
+  return { service: new AppleHealthIngestionService(prisma as never), raws, logs, tx, prisma };
 }
 
 describe('AppleHealthIngestionService', () => {
@@ -209,5 +209,25 @@ describe('AppleHealthIngestionService', () => {
     await expect(service.importWorkouts('user-1', {})).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.importWorkouts('user-1', { workouts: [] })).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.importWorkouts('user-1', { workouts: Array.from({ length: 51 }, () => workout()) })).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('AppleHealthIngestionService — D2 (reconciliar observacoes afetadas)', () => {
+  it('apos avaliar a identidade, reconcilia a observacao importada e depois as OUTRAS afetadas; reimportar o mesmo uuid nao reprocessa nada', async () => {
+    const ctx = buildService();
+    const identityResult = { activityLogId: 'log-2', status: 'matched', physicalEventId: 'ev-1', memberCount: 2, affectedActivityLogIds: ['outra', 'log-2'] };
+    const identity = { evaluateSafely: jest.fn(async () => identityResult) };
+    const link = { reconcileEvent: jest.fn(async () => ({})), reconcileAffectedByIdentity: jest.fn(async () => undefined) };
+    const service = new AppleHealthIngestionService(ctx.prisma as never, identity as never, link as never);
+    await service.importWorkouts('user-1', { workouts: [workout()] });
+    const logId = [...ctx.logs.values()][0].id;
+    expect(identity.evaluateSafely).toHaveBeenCalledWith(logId);
+    expect(link.reconcileEvent).toHaveBeenCalledWith(logId);
+    expect(link.reconcileAffectedByIdentity).toHaveBeenCalledWith(identityResult, logId);
+    expect(link.reconcileEvent.mock.invocationCallOrder[0]).toBeLessThan(link.reconcileAffectedByIdentity.mock.invocationCallOrder[0]);
+    await service.importWorkouts('user-1', { workouts: [workout()] }); // ja importado: nao avalia nem reconcilia de novo
+    expect(identity.evaluateSafely).toHaveBeenCalledTimes(1);
+    expect(link.reconcileEvent).toHaveBeenCalledTimes(1);
+    expect(link.reconcileAffectedByIdentity).toHaveBeenCalledTimes(1);
   });
 });

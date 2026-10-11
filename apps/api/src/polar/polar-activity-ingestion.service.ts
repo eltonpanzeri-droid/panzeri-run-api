@@ -281,7 +281,7 @@ export class PolarActivityIngestionService {
 
     // Identidade fisica cross-provider (Apple Etapa 2): so' agrupa observacoes do mesmo evento (nao classifica nem reconcilia).
     // Best-effort — nunca derruba a ingestao.
-    await this.physicalIdentity?.evaluateSafely(activityLog.id);
+    const identity = await this.physicalIdentity?.evaluateSafely(activityLog.id);
 
     // Samples (02/10/2026) — SEMPRE depois do resumo ja persistido com sucesso. Qualquer falha
     // aqui dentro e' so' logada, nunca propagada: a ActivityLog/RawExternalActivity do resumo ja
@@ -319,6 +319,9 @@ export class PolarActivityIngestionService {
     } catch (error) {
       this.logger.warn(`Falha ao notificar sincronizacao da atividade ${activityLog.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
+
+    // D2: se esta avaliacao mudou a identidade de OUTRAS observacoes (evento desfeito/formado/ambiguo, nova canonica), reconcilia-as (so' o que mudou).
+    await this.sessionExecutionLink.reconcileAffectedByIdentity(identity, activityLog.id);
   }
 
   // Busca os tipos de samples REALMENTE disponiveis pra esta atividade especifica (nunca assume

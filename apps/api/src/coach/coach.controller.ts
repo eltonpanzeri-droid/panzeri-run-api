@@ -411,6 +411,12 @@ export class CoachController {
     return this.coachService.reclassifyExternalActivity(studentId, activityLogId);
   }
 
+  // Resolucao humana de ambiguidade (D1, 10/2026): confirma que uma observacao de identidade ambigua e' uma execucao DISTINTA da vizinha.
+  @Post('students/:studentId/external-activities/:activityLogId/confirm-distinct')
+  confirmDistinctExternalActivity(@Param('studentId') studentId: string, @Param('activityLogId') activityLogId: string) {
+    return this.coachService.confirmDistinctExternalActivity(studentId, activityLogId);
+  }
+
   // Identidade fisica cross-provider (06/10/2026, Apple Etapa 2): agrupa, para UM aluno, observacoes de providers diferentes
   // que sao o mesmo evento fisico. Idempotente, nunca apaga/altera ActivityLog nem raw, nao classifica nem reconcilia.
   // 3B: reconcilia o historico do aluno por PhysicalEvent. SIMULACAO por padrao (dryRun true); so' grava com dryRun=false explicito.

@@ -45,7 +45,7 @@ function fixture(connectionOverrides: Row = {}) {
     }),
   };
   const wahoo = { getAccessToken: jest.fn(async () => 'access-token-PRIVADO') };
-  const link = { classify: jest.fn(async () => 'corresponding') };
+  const link = { classify: jest.fn(async () => 'corresponding'), reconcileAffectedByIdentity: jest.fn(async () => undefined) };
   const notifications = { notifyReconciliation: jest.fn(async () => undefined) };
   const identity = { evaluateSafely: jest.fn(async () => undefined) };
   const service = new WahooActivityIngestionService(prisma, wahoo as never, link as never, notifications as never, identity as never);
@@ -148,6 +148,17 @@ describe('sincronizacao de atividades Wahoo', () => {
     expect(calls.every((c) => c.url.startsWith('https://api.wahooligan.com/'))).toBe(true);
     expect(calls.every((c) => c.auth === 'Bearer access-token-PRIVADO')).toBe(true);
     expect(f.wahoo.getAccessToken).toHaveBeenCalledWith('user-a');
+  });
+
+  it('D2: depois de classificar a atividade importada, reconcilia as OUTRAS observacoes afetadas pela avaliacao de identidade (uma chamada, com o resultado dela)', async () => {
+    const f = fixture();
+    const identityResult = { activityLogId: 'log-1', status: 'ambiguous', physicalEventId: null, memberCount: 0, affectedActivityLogIds: ['log-1', 'outra-observacao'] };
+    f.identity.evaluateSafely.mockResolvedValueOnce(identityResult as never);
+    network({ pages: [[workout(900, '2026-10-08T10:34:01.000Z')]], summaries: { 900: () => json(200, summary()) } });
+    await f.service.sync('user-a');
+    expect(f.link.reconcileAffectedByIdentity).toHaveBeenCalledTimes(1);
+    expect(f.link.reconcileAffectedByIdentity).toHaveBeenCalledWith(identityResult, 'log-1');
+    expect(f.link.classify.mock.invocationCallOrder[0]).toBeLessThan(f.link.reconcileAffectedByIdentity.mock.invocationCallOrder[0]); // primeiro a observacao que chegou
   });
 
   it('idempotente: repetir o sync nao busca o resumo de novo, nao duplica e nao reclassifica', async () => {

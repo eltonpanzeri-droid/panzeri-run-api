@@ -5471,6 +5471,8 @@ type ExternalActivityRow = {
   physicalCanonicalReason?: PhysicalCanonicalReasonView | null;
   physicalIdentityEvidence?: unknown;
   physicalIdentityEvaluatedAt?: string | null;
+  executionClassification?: string | null;
+  executionClassifiedBy?: string | null;
   observerKey?: string;
   sportCanonical?: string | null;
   providerMetrics?: { source?: { name?: string; bundleId?: string; family?: string }; device?: { name?: string; manufacturer?: string; model?: string } } | null;
@@ -5552,7 +5554,8 @@ const EXT_OUTCOME_LABEL: Record<string, string> = {
   alternative: 'atividade adicional (sem prescrição)',
   human_preserved: 'decisão humana preservada',
   kept_materialized_alternative: 'alternativa já materializada preservada',
-  skipped_identity_ambiguous: 'ignorado: identidade ambígua',
+  skipped_identity_ambiguous: 'preservada sem contar: identidade ambígua (outra do par já conta)',
+  classified_ambiguous_identity: 'identidade ambígua: uma única observação do par classificada',
   skipped_no_canonical: 'ignorado: sem observação canônica',
 };
 const EXT_PROVIDER_LABEL: Record<string, string> = { polar: 'Polar', apple_health: 'Apple Health', strava: 'Strava', garmin: 'Garmin', coros: 'COROS' };
@@ -5699,6 +5702,24 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
     }
   }
 
+  // Resolucao humana de ambiguidade: confirma que esta observacao e' uma execucao DISTINTA da vizinha (passa a contar por decisao do treinador).
+  const [confirmDistinctById, setConfirmDistinctById] = React.useState<Record<string, 'loading' | 'error' | 'done'>>({});
+  async function confirmDistinct(activityLogId: string) {
+    if (!window.confirm('Confirmar que esta é uma atividade DIFERENTE da outra observação ambígua? Ela passará a contar como uma execução própria (decisão do treinador). Nenhum registro é apagado ou unido.')) return;
+    setConfirmDistinctById((current) => ({ ...current, [activityLogId]: 'loading' }));
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/external-activities/${activityLogId}/confirm-distinct`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) { setConfirmDistinctById((current) => ({ ...current, [activityLogId]: 'error' })); return; }
+      setConfirmDistinctById((current) => ({ ...current, [activityLogId]: 'done' }));
+      await load();
+    } catch {
+      setConfirmDistinctById((current) => ({ ...current, [activityLogId]: 'error' }));
+    }
+  }
+
   async function toggleRaw(activityLogId: string) {
     if (openRawId === activityLogId) { setOpenRawId(''); return; }
     setOpenRawId(activityLogId);
@@ -5834,6 +5855,20 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
           >
             {reclassifyState === 'loading' ? 'Reclassificando...' : 'Reclassificar'}
           </button>
+          {row.physicalIdentityStatus === 'ambiguous' && !row.executionClassification ? (
+            <>
+              <button
+                type="button"
+                className="secondaryOutlineButton"
+                disabled={confirmDistinctById[row.id] === 'loading'}
+                onClick={() => confirmDistinct(row.id)}
+                title="Identidade ambígua e ainda sem classificação: preservada, mas não conta enquanto outra observação do par já conta. Confirme só se for outra atividade."
+              >
+                {confirmDistinctById[row.id] === 'loading' ? 'Confirmando...' : 'Confirmar que é outra atividade'}
+              </button>
+              {confirmDistinctById[row.id] === 'error' ? <span className="extHint" style={{ color: '#b91c1c' }}>Falha ao confirmar.</span> : null}
+            </>
+          ) : null}
           {reclassifyState === 'error' ? (
             <span className="extHint" style={{ color: '#b91c1c' }}>Falha ao reclassificar.</span>
           ) : reclassifyState && reclassifyState !== 'loading' ? (

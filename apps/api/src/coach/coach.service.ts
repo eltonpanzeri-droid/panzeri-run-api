@@ -105,6 +105,9 @@ export class CoachService {
         physicalCanonicalReason: true,
         physicalIdentityEvidence: true,
         physicalIdentityEvaluatedAt: true,
+        // Estado de execucao atual (so' leitura): o painel so' oferece "confirmar que e' outra atividade" para ambigua ainda sem classificacao.
+        executionClassification: true,
+        executionClassifiedBy: true,
         providerMetrics: true,
         rawActivity: { select: { receivedAt: true, sourceUpdatedAt: true } },
       },
@@ -211,6 +214,14 @@ export class CoachService {
     };
   }
 
+  // D1 (10/2026) — resolucao HUMANA de ambiguidade: o treinador confirma que esta observacao de identidade ambigua e' uma execucao DISTINTA da vizinha.
+  // Passa a contar por decisao humana (prevalece sobre a automacao). Nao une nem apaga registros; a identidade (derivada dos dados) nao muda.
+  async confirmDistinctExternalActivity(studentId: string, activityLogId: string) {
+    const log = await this.prisma.activityLog.findFirst({ where: { id: activityLogId, userId: studentId } });
+    if (!log) throw new NotFoundException('Atividade externa nao encontrada para este aluno.');
+    return this.sessionExecutionLink.confirmDistinctActivity({ userId: studentId, activityLogId, origin: 'coach' });
+  }
+
   // Avalia a identidade fisica (observacoes do mesmo evento) de TODO o historico de UM aluno. Idempotente; nao apaga nem altera
   // ActivityLog/RawExternalActivity, nao classifica nem reconcilia. Ver PhysicalActivityIdentityService.
   async evaluateExternalActivityIdentity(studentId: string) {
@@ -246,7 +257,10 @@ export class CoachService {
       if (Number.isNaN(effectiveFrom.getTime())) throw new BadRequestException('effectiveFrom invalido (use ISO 8601).');
     }
     const note = typeof body.note === 'string' ? body.note.slice(0, 300) : undefined;
-    return this.physicalIdentity.setPrimarySource(studentId, provider, { effectiveFrom, origin: 'coach', note });
+    const result = await this.physicalIdentity.setPrimarySource(studentId, provider, { effectiveFrom, origin: 'coach', note });
+    // D2: a troca da canonica move o vinculo automatico dos eventos afetados (so' os que mudaram).
+    await this.sessionExecutionLink.reconcileAffectedByIdentity(result.recomputed, null);
+    return result;
   }
 
   // Passo 5 (continuacao, 25/09/2026) — todos os testes de 3km do aluno, sem o take:3 que o

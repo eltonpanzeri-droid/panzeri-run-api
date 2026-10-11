@@ -82,3 +82,34 @@ describe('CoachService.reclassifyExternalActivity', () => {
     expect(sessionExecutionLink.classify).toHaveBeenCalledTimes(2); // cada chamada delega — e' o classify() quem e' idempotente internamente
   });
 });
+
+describe('CoachService — D1 (confirmar atividade distinta) e D2 (troca de fonte primaria)', () => {
+  const withIdentity = (prisma: Record<string, unknown>, link: Record<string, unknown>, identity: Record<string, unknown>) =>
+    new CoachService(prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), link as never, identity as never);
+
+  it('confirmDistinctExternalActivity: confere a posse do aluno e delega a decisao humana com origem "coach"', async () => {
+    const prisma = { activityLog: { findFirst: jest.fn().mockResolvedValue({ id: 'log-2', userId: 'student-1' }) } };
+    const link = { confirmDistinctActivity: jest.fn().mockResolvedValue({ activityLogId: 'log-2', classification: 'alternative', changed: true }) };
+    const result = await buildService(prisma, link).confirmDistinctExternalActivity('student-1', 'log-2');
+    expect(prisma.activityLog.findFirst).toHaveBeenCalledWith({ where: { id: 'log-2', userId: 'student-1' } });
+    expect(link.confirmDistinctActivity).toHaveBeenCalledWith({ userId: 'student-1', activityLogId: 'log-2', origin: 'coach' });
+    expect(result).toMatchObject({ classification: 'alternative', changed: true });
+  });
+
+  it('confirmDistinctExternalActivity: atividade de outro aluno nao e tocada', async () => {
+    const prisma = { activityLog: { findFirst: jest.fn().mockResolvedValue(null) } };
+    const link = { confirmDistinctActivity: jest.fn() };
+    await expect(buildService(prisma, link).confirmDistinctExternalActivity('student-1', 'log-de-outro')).rejects.toBeInstanceOf(NotFoundException);
+    expect(link.confirmDistinctActivity).not.toHaveBeenCalled();
+  });
+
+  it('setStudentPrimarySource: depois de recalcular a canonica, reconcilia os eventos afetados (D2) e devolve o resultado original', async () => {
+    const recomputed = { events: 2, affectedActivityLogIds: ['a', 'b'] };
+    const identity = { setPrimarySource: jest.fn().mockResolvedValue({ id: 'ps-1', provider: 'garmin', effectiveFrom: new Date('2026-01-01T00:00:00Z'), recomputed }) };
+    const link = { reconcileAffectedByIdentity: jest.fn().mockResolvedValue(undefined) };
+    const result = await withIdentity({}, link, identity).setStudentPrimarySource('student-1', { provider: 'garmin' });
+    expect(identity.setPrimarySource).toHaveBeenCalledWith('student-1', 'garmin', expect.objectContaining({ origin: 'coach' }));
+    expect(link.reconcileAffectedByIdentity).toHaveBeenCalledWith(recomputed, null);
+    expect(result).toMatchObject({ id: 'ps-1', recomputed });
+  });
+});

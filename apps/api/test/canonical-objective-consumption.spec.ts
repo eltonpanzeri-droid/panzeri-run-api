@@ -148,14 +148,24 @@ describe('Health Connect — consumo canonico de volume, pace e cadencia', () =>
     expect((await evolution(rows).getSeries('aluno-1')).weeks[0].kmPercorridos).toBe(15);
   });
 
-  it('identidade AMBIGUA: so entram linhas ja classificadas; a observacao ambigua sem classificacao fica fora (nunca contada por palpite)', async () => {
-    const rows = asAmbiguous([log('polar-1', { distanceMeters: 10000 }), log('hc-1', { provider: 'health_connect', distanceMeters: 10300, executionClassification: null })]);
+  it('D1: par de identidade AMBIGUA com uma classificada e a outra preservada sem classificacao: distancia, pace e cadencia contam UMA vez (nada por palpite)', async () => {
+    const rows = asAmbiguous([log('polar-1', { distanceMeters: 10000, cadenceAvg: 172 }), log('hc-1', { provider: 'health_connect', distanceMeters: 10300, cadenceAvg: 150, executionClassification: null })]);
     expect((await evolution(rows).getSeries('aluno-1')).weeks[0].kmPercorridos).toBe(10);
-    expect(await reader(rows).getObservations('aluno-1', 'activity.cadenceAvg')).toHaveLength(1);
+    expect((await reader(rows).getObservations('aluno-1', 'activity.cadenceAvg')).map((o) => o.value)).toEqual([172]);
+    expect((await reader(rows).getObservations('aluno-1', 'activity.avgPaceSecondsKm'))).toHaveLength(1);
   });
 
-  it('LACUNA CONHECIDA (decisao de produto pendente): se DUAS observacoes de identidade ambigua estiverem ambas classificadas, cada uma conta (nao ha deduplicacao sem veredito matched)', async () => {
-    const rows = asAmbiguous([log('polar-1', { distanceMeters: 10000 }), log('hc-1', { provider: 'health_connect', distanceMeters: 10300 })]);
-    expect((await evolution(rows).getSeries('aluno-1')).weeks[0].kmPercorridos).toBe(20.3);
+  it('D1: par ambiguo CONFIRMADO como duas execucoes distintas por decisao humana: as duas contam (volume, pace e cadencia)', async () => {
+    const rows = asAmbiguous([
+      log('polar-1', { distanceMeters: 10000, cadenceAvg: 172 }),
+      log('hc-1', { provider: 'health_connect', distanceMeters: 5000, cadenceAvg: 160, executionClassification: 'alternative', executionClassifiedBy: 'coach' }),
+    ]);
+    expect((await evolution(rows).getSeries('aluno-1')).weeks[0].kmPercorridos).toBe(15);
+    expect((await reader(rows).getObservations('aluno-1', 'activity.cadenceAvg')).map((o) => o.value).sort()).toEqual([160, 172]);
+  });
+
+  it('D1: par ambiguo depois RESOLVIDO como uma unica execucao (matched, canonica Polar): volta a contar uma vez, sem perder a atividade', async () => {
+    const rows = asEvent('ev-r', 'polar-1', [log('polar-1', { distanceMeters: 10000 }), log('hc-1', { provider: 'health_connect', distanceMeters: 10300, executionClassification: null })]);
+    expect((await evolution(rows).getSeries('aluno-1')).weeks[0].kmPercorridos).toBe(10);
   });
 });

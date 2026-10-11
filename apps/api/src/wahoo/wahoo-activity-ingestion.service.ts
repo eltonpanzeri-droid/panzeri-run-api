@@ -221,7 +221,7 @@ export class WahooActivityIngestionService {
     });
 
     // Daqui em diante e' tudo melhor esforco: o resumo ja esta salvo e correto, e uma falha adiante nunca desfaz isso.
-    await this.physicalIdentity?.evaluateSafely(activityLog.id);
+    const identity = await this.physicalIdentity?.evaluateSafely(activityLog.id);
     let classification: string | null = null;
     try {
       classification = await this.sessionExecutionLink.classify(activityLog.id);
@@ -233,5 +233,7 @@ export class WahooActivityIngestionService {
     } catch (error) {
       this.logger.warn(`Falha ao notificar sincronizacao da atividade ${activityLog.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
+    // D2: reconcilia as OUTRAS observacoes cuja identidade/canonica mudou nesta avaliacao (so' o que mudou).
+    await this.sessionExecutionLink.reconcileAffectedByIdentity(identity, activityLog.id);
   }
 }

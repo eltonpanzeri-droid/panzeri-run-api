@@ -19,6 +19,10 @@ function fixture() {
           if (where.userId !== undefined && a.userId !== where.userId) return false;
           if (where.physicalEventId !== undefined && a.physicalEventId !== where.physicalEventId) return false;
           if (where.id?.not !== undefined && a.id === where.id.not) return false;
+          if (where.id?.in !== undefined && !where.id.in.includes(a.id)) return false;
+          if (typeof where.physicalIdentityStatus === 'string' && a.physicalIdentityStatus !== where.physicalIdentityStatus) return false;
+          if (where.startedAt?.gte !== undefined && a.startedAt < where.startedAt.gte) return false;
+          if (where.startedAt?.lte !== undefined && a.startedAt > where.startedAt.lte) return false;
           if (where.OR !== undefined && !where.OR.some((c: any) => a.executionClassification === c.executionClassification)) return false;
           return true;
         }),
@@ -277,11 +281,14 @@ describe('3B — reconcileEvent (PhysicalEvent <-> TrainingSession)', () => {
     expect(activeLinks()).toHaveLength(1);
   });
 
-  it('identidade ambigua nao e reconciliada automaticamente (evita contar a mesma execucao duas vezes)', async () => {
+  it('identidade ambigua com uma observacao do par JA classificada: a outra nao e reconciliada automaticamente (evita contar a mesma execucao duas vezes)', async () => {
     const f = fixture();
-    const a = f.addActivity({ physicalIdentityStatus: 'ambiguous' });
+    const first = f.addActivity({ provider: 'polar', physicalIdentityStatus: 'ambiguous', executionClassification: 'alternative', executionClassifiedBy: 'automatic' });
+    const second = f.addActivity({ provider: 'apple_health', physicalIdentityStatus: 'ambiguous', startedAt: new Date('2026-10-06T10:00:05Z') });
+    mutualEvidence(f.activityLogs, [first.id, second.id]);
     f.addSession();
-    expect(await f.service.reconcileEvent(a.id)).toMatchObject({ outcome: 'skipped_identity_ambiguous', changed: false });
+    expect(await f.service.reconcileEvent(second.id)).toMatchObject({ outcome: 'skipped_identity_ambiguous', changed: false });
+    expect(f.activityLogs.get(second.id).executionClassification).toBeNull();
     expect(f.activeLinks()).toHaveLength(0);
   });
 
@@ -313,6 +320,7 @@ function hcEventFixture() {
 }
 const markAmbiguous = (activityLogs: Map<string, any>, ids: string[]) => {
   for (const id of ids) Object.assign(activityLogs.get(id), { physicalEventId: null, physicalIdentityStatus: 'ambiguous', physicalCanonicalActivityLogId: null });
+  mutualEvidence(activityLogs, ids);
 };
 const sessionsSnapshot = (sessions: Map<string, any>) => JSON.stringify([...sessions.values()]);
 
@@ -446,41 +454,280 @@ describe('Health Connect — vinculos e transicoes de identidade', () => {
   });
 });
 
-// ---- LACUNAS CONHECIDAS (caracterizacao; decisao de produto pendente — NAO sao o comportamento desejado) -------------------------------------
-// Estes dois testes descrevem o que o codigo faz HOJE, para que a decisao seja tomada com evidencia. Se a decisao mudar o comportamento, estes
-// testes devem ser atualizados junto (nao sao uma especificacao).
-describe('Health Connect — lacunas conhecidas de classificacao (caracterizacao)', () => {
-  it('D1. classify() NAO tem a trava de identidade ambigua do reconcileEvent: a segunda observacao ambigua de um evento ja classificado e classificada por conta propria (Polar/Wahoo chamam classify)', async () => {
-    const f = fixture();
-    const hc = f.addActivity({ provider: 'health_connect', physicalIdentityStatus: 'ambiguous', executionClassification: 'alternative', executionClassifiedBy: 'automatic' });
-    const polar = f.addActivity({ provider: 'polar', physicalIdentityStatus: 'ambiguous', startedAt: new Date('2026-10-06T10:00:05Z') });
-    expect(await f.service.reconcileEvent(polar.id)).toMatchObject({ outcome: 'skipped_identity_ambiguous' }); // o reconcileEvent respeita a ambiguidade...
-    expect(f.activityLogs.get(polar.id).executionClassification).toBeNull();
-    expect(await f.service.classify(polar.id)).toBe('alternative'); // ...mas classify() (usado pela ingestao Polar/Wahoo) classifica a observacao ambigua
-    expect([hc, polar].filter((a) => f.activityLogs.get(a.id).executionClassification === 'alternative')).toHaveLength(2); // as duas contam como atividade adicional
+// ---- D1 (opcao B) — identidade AMBIGUA: uma execucao por par, sem bloquear atividade legitima -----------------------------------------------
+// Regra: observacao de identidade ambigua = possivel duplicata (nao comprovada). Se outra observacao do par ja' carrega uma execucao, esta NAO
+// e' classificada automaticamente como segunda execucao (fica preservada, sem contar, passivel de resolucao); se nenhuma carrega, UMA e'
+// classificada de forma conservadora. Humano (aluno/treinador) prevalece e pode confirmar que sao execucoes distintas.
+function mutualEvidence(activityLogs: Map<string, any>, ids: string[]) {
+  for (const id of ids) {
+    Object.assign(activityLogs.get(id), {
+      physicalIdentityEvidence: {
+        version: 1,
+        comparisons: ids.filter((other) => other !== id).map((other) => ({ activityLogId: other, provider: activityLogs.get(other).provider, verdict: 'ambiguous', reason: 'metric_divergence_at_same_time', criteria: [] })),
+      },
+    });
+  }
+}
+
+function ambiguousPair() {
+  const f = fixture();
+  const polar = f.addActivity({ provider: 'polar', physicalIdentityStatus: 'ambiguous' });
+  const hc = f.addActivity({ provider: 'health_connect', physicalIdentityStatus: 'ambiguous', startedAt: new Date('2026-10-06T10:00:02Z') });
+  mutualEvidence(f.activityLogs, [polar.id, hc.id]);
+  const classified = () => [polar, hc].filter((a) => ['corresponding', 'alternative'].includes(f.activityLogs.get(a.id).executionClassification));
+  return { ...f, polar, hc, classified };
+}
+
+describe('D1 — identidade ambigua: sem dupla contabilizacao e sem bloquear atividade legitima', () => {
+  it('par ambiguo com uma observacao JA classificada: a outra nao e classificada como segunda execucao (classify e reconcileEvent), registros preservados', async () => {
+    const f = ambiguousPair();
+    Object.assign(f.activityLogs.get(f.hc.id), { executionClassification: 'alternative', executionClassifiedBy: 'automatic' });
+    const before = sessionsSnapshot(f.sessions);
+    expect(await f.service.classify(f.polar.id)).toBeNull();
+    expect(await f.service.reconcileEvent(f.polar.id)).toMatchObject({ outcome: 'skipped_identity_ambiguous', changed: false });
+    expect(f.activityLogs.get(f.polar.id).executionClassification).toBeNull();
+    expect(f.activityLogs.get(f.hc.id).executionClassification).toBe('alternative'); // classificacao existente preservada
+    expect(f.classified()).toHaveLength(1);
+    expect(f.activityLogs.size).toBe(2); // nada apagado nem unido
+    expect(sessionsSnapshot(f.sessions)).toBe(before);
   });
 
-  it('D1b. mesma lacuna com sessao prescrita: a corrida ja vinculada pela copia vira tambem "atividade adicional" na observacao ambigua', async () => {
-    const f = fixture();
+  it('par ambiguo com uma observacao ja VINCULADA a sessao: a outra nao vira "atividade adicional" nem segundo vinculo (a sessao conta uma vez)', async () => {
+    const f = ambiguousPair();
     const session = f.addSession();
-    const hc = f.addActivity({ provider: 'health_connect', physicalIdentityStatus: 'ambiguous' });
-    await f.service.linkManually({ trainingSessionId: session.id, activityLogId: hc.id, origin: 'automatic' });
-    const polar = f.addActivity({ provider: 'polar', physicalIdentityStatus: 'ambiguous', startedAt: new Date('2026-10-06T10:00:05Z') });
-    expect(await f.service.classify(polar.id)).toBe('alternative');
-    expect(f.activeLinks()).toHaveLength(1); // a sessao segue cumprida uma vez, mas a mesma corrida aparece tambem como adicional
+    await f.service.linkManually({ trainingSessionId: session.id, activityLogId: f.hc.id, origin: 'automatic', matchMethod: 'automatic_single_candidate' });
+    const before = sessionsSnapshot(f.sessions);
+    expect(await f.service.classify(f.polar.id)).toBeNull();
+    expect(f.activeLinks()).toHaveLength(1);
+    expect(f.activeLinks()[0]).toMatchObject({ activityLogId: f.hc.id, trainingSessionId: session.id });
+    expect(f.activityLogs.get(f.polar.id).executionClassification).toBeNull();
+    expect(sessionsSnapshot(f.sessions)).toBe(before);
+    expect(f.prisma.trainingSession.update).not.toHaveBeenCalled();
   });
 
-  it('D2. evento desfeito (matched -> unique por atualizacao de dados): a observacao nao canonica, antes sem classificacao, fica sem classificacao ate alguem reconcilia-la', async () => {
+  it('par ambiguo inicialmente SEM classificacao: so a primeira e classificada (conservador, regras atuais); a segunda fica preservada — em qualquer ordem de chegada', async () => {
+    for (const order of [['polar', 'hc'], ['hc', 'polar']] as const) {
+      const f = ambiguousPair();
+      const session = f.addSession();
+      const byName = { polar: f.polar, hc: f.hc };
+      expect(await f.service.classify(byName[order[0]].id)).toBe('corresponding'); // unica sessao compativel do dia: o par e' tratado como a mesma execucao
+      expect(await f.service.classify(byName[order[1]].id)).toBeNull();
+      expect(f.classified()).toHaveLength(1);
+      expect(f.activeLinks()).toHaveLength(1);
+      expect(f.activeLinks()[0]).toMatchObject({ activityLogId: byName[order[0]].id, trainingSessionId: session.id });
+      expect(await f.service.classify(byName[order[1]].id)).toBeNull(); // idempotente
+      expect(f.classified()).toHaveLength(1);
+    }
+  });
+
+  it('par ambiguo sem classificacao e sem prescricao: uma unica atividade adicional (nao duas); via reconcileEvent (Apple) o resultado e o mesmo', async () => {
+    const f = ambiguousPair();
+    expect(await f.service.reconcileEvent(f.polar.id)).toMatchObject({ outcome: 'classified_ambiguous_identity', classification: 'alternative', changed: true });
+    expect(await f.service.reconcileEvent(f.hc.id)).toMatchObject({ outcome: 'skipped_identity_ambiguous', changed: false });
+    expect(f.classified()).toHaveLength(1);
+    expect(await f.service.reconcileEvent(f.polar.id)).toMatchObject({ outcome: 'skipped_identity_ambiguous', changed: false }); // idempotente
+  });
+
+  it('historico: reconciliar o historico de um par ambiguo classifica exatamente UMA observacao e a segunda execucao nao muda nada; dryRun nao grava', async () => {
+    const f = ambiguousPair();
+    f.addSession();
+    const dry = await f.service.reconcileUserHistory('u1', { dryRun: true });
+    expect(dry.dryRun).toBe(true);
+    expect(f.classified()).toHaveLength(0);
+    const first = await f.service.reconcileUserHistory('u1');
+    expect(first.changed).toBe(1);
+    expect(f.classified()).toHaveLength(1);
+    const second = await f.service.reconcileUserHistory('u1');
+    expect(second.changed).toBe(0);
+    expect(f.classified()).toHaveLength(1);
+  });
+
+  it('decisoes manuais tem prioridade: vinculo do aluno ou "adicional" do treinador numa observacao do par impedem a outra de ser classificada automaticamente', async () => {
+    const student = ambiguousPair();
+    const session = student.addSession();
+    await student.service.linkManually({ trainingSessionId: session.id, activityLogId: student.polar.id, origin: 'student' });
+    expect(await student.service.classify(student.hc.id)).toBeNull();
+    expect(student.activeLinks()).toHaveLength(1);
+    expect(student.activeLinks()[0]).toMatchObject({ origin: 'student', activityLogId: student.polar.id });
+    const coach = ambiguousPair();
+    await coach.service.markExtra({ activityLogId: coach.polar.id, origin: 'coach' });
+    expect(await coach.service.classify(coach.hc.id)).toBeNull();
+    expect(coach.activityLogs.get(coach.polar.id)).toMatchObject({ executionClassification: 'alternative', executionClassifiedBy: 'coach' });
+  });
+
+  it('so o par ambiguo bloqueia: outra atividade classificada que NAO e do par (ou cujo par ja foi resolvido) nao impede a classificacao', async () => {
+    const f = fixture();
+    const alone = f.addActivity({ provider: 'polar', physicalIdentityStatus: 'ambiguous' }); // ambigua sem par registrado (legado/sem evidencia)
+    f.addActivity({ provider: 'garmin', physicalIdentityStatus: 'unique', executionClassification: 'alternative', executionClassifiedBy: 'automatic', startedAt: new Date('2026-10-06T10:00:30Z') });
+    expect(await f.service.classify(alone.id)).toBe('alternative');
+    const g = ambiguousPair();
+    Object.assign(g.activityLogs.get(g.hc.id), { physicalIdentityStatus: 'unique', executionClassification: 'alternative', executionClassifiedBy: 'automatic' }); // o par foi resolvido: nao e mais ambiguo
+    expect(await g.service.classify(g.polar.id)).toBe('alternative'); // vizinha defasada na evidencia nao bloqueia
+  });
+
+  it('resolucao MANUAL confirmando duas atividades DISTINTAS: a bloqueada passa a contar por decisao humana, sem reaproveitar a sessao da outra; idempotente', async () => {
+    const f = ambiguousPair();
+    const session = f.addSession();
+    await f.service.linkManually({ trainingSessionId: session.id, activityLogId: f.polar.id, origin: 'automatic', matchMethod: 'automatic_single_candidate' });
+    expect(await f.service.classify(f.hc.id)).toBeNull();
+    const before = sessionsSnapshot(f.sessions);
+    const result = await f.service.confirmDistinctActivity({ userId: 'u1', activityLogId: f.hc.id, origin: 'coach' });
+    expect(result).toMatchObject({ classification: 'alternative', changed: true }); // a sessao ja' esta cumprida pela outra: esta e' atividade adicional
+    expect(f.activityLogs.get(f.hc.id)).toMatchObject({ executionClassification: 'alternative', executionClassifiedBy: 'coach' });
+    expect(f.activeLinks()).toHaveLength(1);
+    expect(f.activeLinks()[0]).toMatchObject({ activityLogId: f.polar.id, trainingSessionId: session.id });
+    expect(f.classified()).toHaveLength(2); // as duas execucoes contam, por decisao humana
+    expect(await f.service.confirmDistinctActivity({ userId: 'u1', activityLogId: f.hc.id, origin: 'coach' })).toMatchObject({ changed: false });
+    expect(await f.service.classify(f.hc.id)).toBe('alternative'); // classify nao desfaz a decisao
+    expect(await f.service.reconcileEvent(f.hc.id)).toMatchObject({ outcome: 'skipped_identity_ambiguous', classification: 'alternative' });
+    expect(sessionsSnapshot(f.sessions)).toBe(before);
+  });
+
+  it('confirmar distinta com OUTRA sessao compativel livre no dia: vincula a ela por decisao humana (nunca a sessao ja cumprida pela vizinha)', async () => {
+    const f = ambiguousPair();
+    const first = f.addSession({ title: 'Manha' });
+    await f.service.linkManually({ trainingSessionId: first.id, activityLogId: f.polar.id, origin: 'automatic' });
+    const second = f.addSession({ title: 'Noite' });
+    const result = await f.service.confirmDistinctActivity({ userId: 'u1', activityLogId: f.hc.id, origin: 'coach' });
+    expect(result).toMatchObject({ classification: 'corresponding', changed: true });
+    expect(f.activeLinks().map((l) => [l.activityLogId, l.trainingSessionId, l.origin]).sort()).toEqual([[f.hc.id, second.id, 'coach'], [f.polar.id, first.id, 'automatic']].sort());
+  });
+
+  it('confirmar distinta so vale para observacao de identidade ambigua do proprio aluno', async () => {
+    const f = fixture();
+    const unique = f.addActivity({ provider: 'polar', physicalIdentityStatus: 'unique' });
+    await expect(f.service.confirmDistinctActivity({ userId: 'u1', activityLogId: unique.id, origin: 'coach' })).rejects.toThrow(/ambigua/);
+    const g = ambiguousPair();
+    await expect(g.service.confirmDistinctActivity({ userId: 'outro', activityLogId: g.hc.id, origin: 'coach' })).rejects.toThrow(/nao encontrada/);
+  });
+
+  it('resolucao POSTERIOR confirmando uma unica atividade: a identidade vira matched, o vinculo acompanha a canonica e a copia nunca vira segunda execucao', async () => {
+    const f = ambiguousPair();
+    const session = f.addSession();
+    await f.service.classify(f.polar.id);
+    expect(await f.service.classify(f.hc.id)).toBeNull();
+    f.makeEvent('ev-resolved', [f.polar.id, f.hc.id], f.polar.id); // o dado se corrige: mesma execucao fisica
+    expect(await f.service.reconcileEvent(f.hc.id)).toMatchObject({ outcome: 'unchanged', canonicalActivityLogId: f.polar.id, changed: false });
+    expect(f.activeLinks()).toHaveLength(1);
+    expect(f.activityLogs.get(f.hc.id).executionClassification).toBeNull();
+    f.makeEvent('ev-resolved', [f.polar.id, f.hc.id], f.hc.id); // e a canonica passa a ser a outra observacao
+    expect(await f.service.reconcileEvent(f.polar.id)).toMatchObject({ outcome: 'link_moved', canonicalActivityLogId: f.hc.id });
+    expect(f.activeLinks()).toHaveLength(1);
+    expect(f.activeLinks()[0]).toMatchObject({ activityLogId: f.hc.id, trainingSessionId: session.id });
+  });
+});
+
+// ---- D2 — reconciliar os membros afetados quando a identidade muda ----------------------------------------------------------------------
+// reconcileAffectedByIdentity recebe o que a avaliacao de identidade informa ({affectedActivityLogIds}) e reconcilia so' o que mudou, uma vez por
+// evento, com os servicos existentes; a observacao que chegou (handled) ja' foi tratada pelo adaptador.
+describe('D2 — reconcileAffectedByIdentity apos mudanca de identidade', () => {
+  const split = (f: ReturnType<typeof hcEventFixture>) => {
+    for (const id of [f.polar.id, f.hc.id]) Object.assign(f.activityLogs.get(id), { physicalEventId: null, physicalIdentityStatus: 'unique', physicalCanonicalActivityLogId: null });
+  };
+  const writes = (f: ReturnType<typeof hcEventFixture>) =>
+    f.prisma.activityLog.update.mock.calls.length + f.prisma.sessionExecutionLink.create.mock.calls.length + f.prisma.sessionExecutionLink.update.mock.calls.length;
+
+  it('matched -> unique (evento desfeito): a observacao que ficara sem classificacao e reconciliada e passa a contar como execucao propria; a outra nao muda; idempotente', async () => {
+    const f = hcEventFixture();
+    const session = f.addSession();
+    await f.service.reconcileEvent(f.hc.id); // evento matched: so' a canonica (Polar) carrega o vinculo
+    expect(f.activityLogs.get(f.hc.id).executionClassification).toBeNull();
+    const before = sessionsSnapshot(f.sessions);
+    split(f); // atualizacao de dados: duas execucoes distintas
+    await f.service.classify(f.polar.id); // gatilho normal do adaptador (a observacao que chegou)
+    expect(f.activityLogs.get(f.hc.id).executionClassification).toBeNull(); // sem D2 ficaria assim para sempre
+    await f.service.reconcileAffectedByIdentity({ affectedActivityLogIds: [f.polar.id, f.hc.id] }, f.polar.id);
+    expect(f.activityLogs.get(f.hc.id)).toMatchObject({ executionClassification: 'alternative', executionClassifiedBy: 'automatic' }); // a sessao ja' estava cumprida pela Polar
+    expect(f.activeLinks()).toHaveLength(1);
+    expect(f.activeLinks()[0]).toMatchObject({ activityLogId: f.polar.id, trainingSessionId: session.id });
+    expect(sessionsSnapshot(f.sessions)).toBe(before);
+    const settled = writes(f);
+    await f.service.reconcileAffectedByIdentity({ affectedActivityLogIds: [f.polar.id, f.hc.id] }, f.polar.id); // reconciliacao repetida
+    expect(writes(f)).toBe(settled);
+  });
+
+  it('matched -> ambiguous: o par fica com uma unica execucao (vinculo existente preservado); a outra nao e classificada', async () => {
     const f = hcEventFixture();
     f.addSession();
-    await f.service.reconcileEvent(f.hc.id); // evento matched: so a canonica (Polar) carrega o vinculo; a copia fica sem classificacao
+    await f.service.reconcileEvent(f.hc.id);
+    markAmbiguous(f.activityLogs, [f.polar.id, f.hc.id]);
+    await f.service.reconcileAffectedByIdentity({ affectedActivityLogIds: [f.polar.id, f.hc.id] }, null);
+    expect(f.activeLinks()).toHaveLength(1);
+    expect(f.activeLinks()[0].activityLogId).toBe(f.polar.id);
     expect(f.activityLogs.get(f.hc.id).executionClassification).toBeNull();
-    // atualizacao de dados torna as duas corridas distintas: cada uma volta a ser um evento proprio
-    for (const id of [f.polar.id, f.hc.id]) Object.assign(f.activityLogs.get(id), { physicalEventId: null, physicalIdentityStatus: 'unique', physicalCanonicalActivityLogId: null });
-    // o gatilho normal da ingestao (classify da observacao que chegou) so alcanca ela mesma
-    await f.service.classify(f.polar.id);
-    expect(f.activityLogs.get(f.hc.id).executionClassification).toBeNull(); // execucao legitima fora do volume ate ser reconciliada
-    expect(await f.service.reconcileEvent(f.hc.id)).toMatchObject({ changed: true }); // recuperavel: reconciliar explicitamente a classifica
-    expect(f.activityLogs.get(f.hc.id).executionClassification).not.toBeNull();
+    expect(f.activityLogs.get(f.polar.id).executionClassification).toBe('corresponding');
+  });
+
+  it('ambiguous -> matched: reconcilia o evento UMA vez (mesmo com varios membros afetados) e o vinculo duplicado colapsa', async () => {
+    const f = ambiguousPair();
+    const s1 = f.addSession({ title: 'Longao' });
+    f.addSession({ title: 'Outra', distanceKm: 8 });
+    await f.service.linkManually({ trainingSessionId: s1.id, activityLogId: f.polar.id, origin: 'automatic' });
+    await f.service.confirmDistinctActivity({ userId: 'u1', activityLogId: f.hc.id, origin: 'coach' }); // execucao distinta confirmada pelo humano (vinculada a outra sessao do dia)
+    expect(f.activeLinks()).toHaveLength(2);
+    // os dados se corrigem e as duas passam a ser a MESMA execucao
+    f.makeEvent('ev-merged', [f.polar.id, f.hc.id], f.polar.id);
+    const spy = jest.spyOn(f.service, 'reconcileEvent');
+    await f.service.reconcileAffectedByIdentity({ affectedActivityLogIds: [f.polar.id, f.hc.id] }, null);
+    expect(spy).toHaveBeenCalledTimes(1); // um evento = uma reconciliacao
+    expect(f.activeLinks().filter((l) => l.origin === 'coach')).toHaveLength(1); // decisao humana prevalece sobre a automatica do mesmo evento
+    expect(f.activeLinks()).toHaveLength(1);
+
+  });
+
+  it('mudanca da canonica: o vinculo automatico acompanha sem segunda execucao; a observacao ja tratada pelo adaptador nao e reprocessada', async () => {
+    const f = hcEventFixture();
+    const session = f.addSession();
+    await f.service.reconcileEvent(f.polar.id);
+    f.makeEvent('ev-hc', [f.polar.id, f.hc.id], f.hc.id); // nova observacao canonica
+    const spy = jest.spyOn(f.service, 'reconcileEvent');
+    await f.service.reconcileAffectedByIdentity({ affectedActivityLogIds: [f.polar.id, f.hc.id] }, f.hc.id);
+    expect(spy).not.toHaveBeenCalled(); // ambos pertencem ao evento que o adaptador ja' reconciliou
+    await f.service.reconcileAffectedByIdentity({ affectedActivityLogIds: [f.polar.id, f.hc.id] }, null); // ex.: troca de fonte primaria
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(f.activeLinks()).toHaveLength(1);
+    expect(f.activeLinks()[0]).toMatchObject({ activityLogId: f.hc.id, trainingSessionId: session.id });
+  });
+
+  it('chegada tardia de outra fonte: nenhum vinculo extra e nenhuma segunda execucao; sem mudanca de identidade nada e lido nem escrito', async () => {
+    const f = fixture();
+    const polar = f.addActivity({ provider: 'polar' });
+    f.addSession();
+    await f.service.classify(polar.id);
+    const hc = f.addActivity({ provider: 'health_connect', startedAt: new Date('2026-10-06T10:00:02Z') });
+    f.makeEvent('ev-late', [polar.id, hc.id], polar.id);
+    await f.service.classify(hc.id); // adaptador: matched -> reconcileEvent do evento
+    await f.service.reconcileAffectedByIdentity({ affectedActivityLogIds: [polar.id, hc.id] }, hc.id);
+    expect(f.activeLinks()).toHaveLength(1);
+    expect(f.activityLogs.get(hc.id).executionClassification).toBeNull();
+    const reads = f.prisma.activityLog.findMany.mock.calls.length;
+    const updates = f.prisma.activityLog.update.mock.calls.length;
+    await f.service.reconcileAffectedByIdentity({ affectedActivityLogIds: [] }, hc.id); // reavaliacao sem mudanca: nada afetado
+    await f.service.reconcileAffectedByIdentity(null, hc.id);
+    expect(f.prisma.activityLog.findMany.mock.calls.length).toBe(reads);
+    expect(f.prisma.activityLog.update.mock.calls.length).toBe(updates);
+  });
+
+  it('vinculos e decisoes manuais sao preservados durante a reconciliacao dos afetados', async () => {
+    const f = hcEventFixture();
+    const session = f.addSession();
+    await f.service.linkManually({ trainingSessionId: session.id, activityLogId: f.polar.id, origin: 'student' });
+    await f.service.reconcileAffectedByIdentity({ affectedActivityLogIds: [f.polar.id, f.hc.id] }, null);
+    expect(f.activeLinks()).toHaveLength(1);
+    expect(f.activeLinks()[0]).toMatchObject({ origin: 'student', activityLogId: f.polar.id });
+    split(f);
+    await f.service.reconcileAffectedByIdentity({ affectedActivityLogIds: [f.polar.id, f.hc.id] }, null);
+    expect(f.activeLinks().filter((l) => l.origin === 'student')).toHaveLength(1); // a decisao do aluno segue de pe
+    expect(f.activityLogs.get(f.polar.id)).toMatchObject({ executionClassification: 'corresponding', executionClassifiedBy: 'student' });
+  });
+
+  it('falha ao reconciliar uma observacao nunca derruba a ingestao nem impede as demais', async () => {
+    const f = hcEventFixture();
+    f.addSession();
+    split(f);
+    const spy = jest.spyOn(f.service, 'reconcileEvent').mockRejectedValueOnce(new Error('falha simulada'));
+    await expect(f.service.reconcileAffectedByIdentity({ affectedActivityLogIds: [f.polar.id, f.hc.id] }, null)).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(f.prisma.trainingSession.update).not.toHaveBeenCalled();
   });
 });

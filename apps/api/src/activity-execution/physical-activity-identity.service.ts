@@ -17,6 +17,9 @@ export interface PhysicalIdentityResult {
   status: PhysicalIdentityStatus;
   physicalEventId: string | null;
   memberCount: number;
+  // D2 (10/2026): observacoes cujo estado de identidade (status/evento) ou observacao canonica MUDOU nesta avaliacao (inclui a avaliada, se mudou).
+  // Vazio numa reavaliacao sem mudanca: e' o que impede reprocessamento desnecessario. Quem classifica/reconcilia usa isto (nao esta camada).
+  affectedActivityLogIds: string[];
 }
 
 type Row = {
@@ -178,10 +181,12 @@ export class PhysicalActivityIdentityService {
 
       // Grava so' o que mudou (o alvo sempre atualiza evidencia/horario da avaliacao).
       const now = new Date();
+      const affected = new Set<string>();
       for (const id of clusterIds) {
         const row = rows.get(id)!;
         const want = desired.get(id)!;
         const isTarget = id === target.id;
+        if (row.physicalEventId !== want.groupId || row.physicalIdentityStatus !== want.status) affected.add(id);
         if (!isTarget && row.physicalEventId === want.groupId && row.physicalIdentityStatus === want.status) continue;
         const comparisons = related(id).map((other) => ({
           activityLogId: other, provider: rows.get(other)!.provider, verdict: verdictOf(id, other).verdict, reason: verdictOf(id, other).reason, criteria: verdictOf(id, other).evidence,
@@ -208,19 +213,23 @@ export class PhysicalActivityIdentityService {
         else if (want.status === 'unique') singles.push(row);
         else withoutIdentity.push(row);
       }
-      await this.applyCanonical(tx, target.userId, [...byGroup.values()], singles, withoutIdentity);
+      for (const id of await this.applyCanonical(tx, target.userId, [...byGroup.values()], singles, withoutIdentity)) affected.add(id);
 
       const mine = desired.get(target.id)!;
-      return { activityLogId, status: mine.status, physicalEventId: mine.groupId, memberCount: mine.status === 'matched' ? mine.size : 0 };
+      return { activityLogId, status: mine.status, physicalEventId: mine.groupId, memberCount: mine.status === 'matched' ? mine.size : 0, affectedActivityLogIds: [...affected].sort() };
     });
   }
 
   // Escolhe e grava a canonica de cada evento. Idempotente: so' escreve quando a canonica ou o motivo mudam. 'ambiguous' / sem identidade
   // ficam sem canonica (null) — ainda nao ha um evento fisico para representar.
-  private async applyCanonical(tx: Prisma.TransactionClient, userId: string, groups: Row[][], singles: Row[], withoutIdentity: Row[]) {
+  // Devolve os ids cuja observacao canonica MUDOU (D2); mudanca so' do motivo (auditoria) nao conta.
+  private async applyCanonical(tx: Prisma.TransactionClient, userId: string, groups: Row[][], singles: Row[], withoutIdentity: Row[]): Promise<Set<string>> {
+    const canonicalChanged = new Set<string>();
     const write = async (row: Row, canonicalId: string | null, reason: unknown) => {
-      const same = row.physicalCanonicalActivityLogId === canonicalId && JSON.stringify(row.physicalCanonicalReason ?? null) === JSON.stringify(reason ?? null);
+      const sameCanonical = row.physicalCanonicalActivityLogId === canonicalId;
+      const same = sameCanonical && JSON.stringify(row.physicalCanonicalReason ?? null) === JSON.stringify(reason ?? null);
       if (same) return;
+      if (!sameCanonical) canonicalChanged.add(row.id);
       await tx.activityLog.update({
         where: { id: row.id },
         data: { physicalCanonicalActivityLogId: canonicalId, physicalCanonicalReason: (reason === null ? Prisma.JsonNull : (reason as Prisma.InputJsonValue)) },
@@ -237,6 +246,7 @@ export class PhysicalActivityIdentityService {
       for (const row of members) await write(row, selection.canonicalId, reason);
     }
     for (const row of withoutIdentity) await write(row, null, null);
+    return canonicalChanged;
   }
 
   // Override EXCEPCIONAL (nao e' fluxo normal): registra um ecossistema que desempata entre gravadores nativos equivalentes A PARTIR de uma data
@@ -262,17 +272,20 @@ export class PhysicalActivityIdentityService {
         if (row.physicalIdentityStatus === 'matched' && row.physicalEventId) byGroup.set(row.physicalEventId, [...(byGroup.get(row.physicalEventId) ?? []), row]);
         else singles.push(row);
       }
-      await this.applyCanonical(tx, userId, [...byGroup.values()], singles, []);
-      return { events: byGroup.size + singles.length };
+      const canonicalChanged = await this.applyCanonical(tx, userId, [...byGroup.values()], singles, []);
+      // affectedActivityLogIds (D2): observacoes cuja canonica mudou — o vinculo automatico delas precisa acompanhar (reconciliacao por evento).
+      return { events: byGroup.size + singles.length, affectedActivityLogIds: [...canonicalChanged].sort() };
     });
   }
 
-  // Best-effort para os adapters de ingestao: falha de identidade NUNCA derruba a ingestao.
-  async evaluateSafely(activityLogId: string): Promise<void> {
+  // Best-effort para os adapters de ingestao: falha de identidade NUNCA derruba a ingestao. Devolve o resultado (ou null se falhou) para o chamador
+  // reconciliar as observacoes afetadas (D2).
+  async evaluateSafely(activityLogId: string): Promise<PhysicalIdentityResult | null> {
     try {
-      await this.evaluate(activityLogId);
+      return await this.evaluate(activityLogId);
     } catch (error) {
       this.logger.warn(`Falha ao avaliar identidade fisica da atividade ${activityLogId}: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
     }
   }
 

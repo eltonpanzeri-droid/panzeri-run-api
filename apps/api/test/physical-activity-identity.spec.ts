@@ -868,3 +868,95 @@ describe('Health Connect — identidade fisica e deduplicacao (servico em memori
     expect(ctx.partition()).toEqual([]);
   });
 });
+
+// ---- D2 — a avaliacao de identidade informa so' o que MUDOU (base para reconciliar apenas os membros afetados) ----------------------------
+// As observacoes chegam UMA A UMA (como na ingestao real): cada teste cria o servico so' com a primeira e acrescenta as demais ao banco depois.
+describe('D2 — evaluate devolve as observacoes afetadas (so o que mudou)', () => {
+  const affectedOf = async (ctx: ReturnType<typeof buildService>, id: string) => (await ctx.service.evaluate(id))!.affectedActivityLogIds;
+  const arrive = (ctx: ReturnType<typeof buildService>, r: Row) => { ctx.data.set(r.id, { ...r }); };
+
+  it('primeira chegada: so a propria observacao; reavaliar sem mudanca nao afeta ninguem (nenhum reprocessamento)', async () => {
+    const ctx = buildService([POLAR_RICH()]);
+    expect(await affectedOf(ctx, 'p')).toEqual(['p']);
+    expect(await affectedOf(ctx, 'p')).toEqual([]);
+    expect(await affectedOf(ctx, 'p')).toEqual([]);
+  });
+
+  it('chegada tardia que forma o evento afeta as duas; a repeticao do mesmo registro nao afeta nenhuma', async () => {
+    const ctx = buildService([POLAR_RICH()]);
+    await ctx.service.evaluate('p');
+    arrive(ctx, HC_POLAR_FLOW());
+    expect(await affectedOf(ctx, 'hp')).toEqual(['hp', 'p']);
+    expect(ctx.partition()).toEqual(['hp+p']);
+    expect(await affectedOf(ctx, 'hp')).toEqual([]);
+    expect(await affectedOf(ctx, 'p')).toEqual([]);
+  });
+
+  it('chegada de outra fonte SEM relacao (corrida em outro horario): afeta so a que chegou; a existente nao e reprocessada', async () => {
+    const ctx = buildService([POLAR_RICH()]);
+    await ctx.service.evaluate('p');
+    arrive(ctx, hcRow('h2', STRAVA_PKG, '2026-10-06T20:00:00Z', 34, 7.0));
+    expect(await affectedOf(ctx, 'h2')).toEqual(['h2']);
+  });
+
+  it('matched -> unique (evento desfeito por atualizacao de dados) afeta as duas, inclusive a que nao chegou agora', async () => {
+    const ctx = buildService([POLAR_RICH()]);
+    await ctx.service.evaluate('p');
+    arrive(ctx, HC_POLAR_FLOW());
+    await ctx.service.evaluate('hp');
+    expect(ctx.partition()).toEqual(['hp+p']);
+    ctx.data.get('hp')!.startedAt = new Date('2026-10-06T12:00:00Z'); // o registro e atualizado na origem: horario muito diferente
+    expect(await affectedOf(ctx, 'p')).toEqual(['hp', 'p']);
+    expect(ctx.partition()).toEqual([]);
+    expect(ctx.data.get('p')!.physicalIdentityStatus).toBe('unique');
+    expect(ctx.data.get('hp')!.physicalIdentityStatus).toBe('unique');
+    expect(await affectedOf(ctx, 'p')).toEqual([]); // estado assentado
+  });
+
+  it('matched -> ambiguous e ambiguous -> matched afetam as duas observacoes; depois de assentar nao afetam ninguem', async () => {
+    const ctx = buildService([POLAR_RICH()]);
+    await ctx.service.evaluate('p');
+    arrive(ctx, HC_POLAR_FLOW());
+    await ctx.service.evaluate('hp');
+    ctx.data.get('hp')!.distanceMeters = 9000;
+    expect(await affectedOf(ctx, 'hp')).toEqual(['hp', 'p']);
+    expect(ctx.data.get('p')!.physicalIdentityStatus).toBe('ambiguous');
+    expect(await affectedOf(ctx, 'hp')).toEqual([]);
+    ctx.data.get('hp')!.distanceMeters = 7010;
+    expect(await affectedOf(ctx, 'hp')).toEqual(['hp', 'p']);
+    expect(ctx.partition()).toEqual(['hp+p']);
+    expect(await affectedOf(ctx, 'hp')).toEqual([]);
+  });
+
+  it('mudanca da canonica: uma gravacao nativa tardia afeta os membros cuja canonica mudou', async () => {
+    const ctx = buildService([HC_POLAR_FLOW()]);
+    await ctx.service.evaluate('hp');
+    arrive(ctx, HC_STRAVA());
+    await ctx.service.evaluate('hx');
+    expect(ctx.partition()).toEqual(['hp+hx']);
+    const before = canonicalOf(ctx, 'hp');
+    arrive(ctx, HC_SAMSUNG_WATCH());
+    expect(await affectedOf(ctx, 'hs')).toEqual(['hp', 'hs', 'hx']);
+    expect(canonicalOf(ctx, 'hp')).toBe('hs');
+    expect(before).not.toBe('hs');
+    expect(await affectedOf(ctx, 'hs')).toEqual([]);
+  });
+
+  it('troca de fonte primaria (recalculo da canonica) informa os afetados e e idempotente', async () => {
+    const ctx = buildService([POLAR_RICH()]);
+    await ctx.service.evaluate('p');
+    arrive(ctx, GARMIN());
+    await ctx.service.evaluate('g');
+    expect(canonicalOf(ctx, 'p')).toBe('p'); // Polar mais completa
+    ctx.setPrimary('user-1', 'garmin', '2026-01-01T00:00:00Z');
+    expect((await ctx.service.recomputeCanonicalForUser('user-1')).affectedActivityLogIds).toEqual(['g', 'p']);
+    expect(canonicalOf(ctx, 'p')).toBe('g');
+    expect((await ctx.service.recomputeCanonicalForUser('user-1')).affectedActivityLogIds).toEqual([]);
+  });
+
+  it('evaluateSafely devolve o resultado (ou null se a avaliacao falhar, sem lancar)', async () => {
+    const ctx = buildService([POLAR_RICH()]);
+    expect(await ctx.service.evaluateSafely('p')).toMatchObject({ status: 'unique', affectedActivityLogIds: ['p'] });
+    expect(await ctx.service.evaluateSafely('inexistente')).toBeNull();
+  });
+});

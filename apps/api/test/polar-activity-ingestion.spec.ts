@@ -116,7 +116,7 @@ function fixture(connection: FakeConnection | null) {
   // Stub: o Motor de Reconciliacao (SessionExecutionLinkService.classify) tem testes proprios e
   // dedicados em reconciliation-v1.spec.ts. Aqui so' precisamos confirmar que ele e' ACIONADO apos
   // a ingestao sem quebrar o fluxo — nao reimplementamos a logica de classificacao de novo aqui.
-  const sessionExecutionLinkService = { classify: jest.fn(async () => 'corresponding') };
+  const sessionExecutionLinkService = { classify: jest.fn(async () => 'corresponding'), reconcileAffectedByIdentity: jest.fn(async () => undefined) };
   // Stub: a notificacao pos-sincronizacao tem testes proprios em activity-notification.spec.ts.
   const activityNotifications = { notifyReconciliation: jest.fn(async () => true) };
   const service = new PolarActivityIngestionService(
@@ -778,7 +778,7 @@ describe('PolarActivityIngestionService', () => {
 
       const polarService = { decryptAccessToken: jest.fn(() => 'plain-access-token') };
       const timeSeriesService = { normalizeFromRawSamples: jest.fn(async () => undefined) };
-      const failingSessionExecutionLink = { classify: jest.fn(async () => { throw new Error('falha simulada no motor'); }) };
+      const failingSessionExecutionLink = { classify: jest.fn(async () => { throw new Error('falha simulada no motor'); }), reconcileAffectedByIdentity: jest.fn(async () => undefined) };
       const serviceWithFailingClassify = new PolarActivityIngestionService(
         prisma as unknown as PrismaService,
         polarService as unknown as PolarService,

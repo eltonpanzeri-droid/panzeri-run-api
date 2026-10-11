@@ -215,6 +215,7 @@ describe('Health Connect — semana, historico e check-in', () => {
     };
     return new SessionExecutionLinkService(prisma as unknown as PrismaService);
   }
+  const ambiguous = (overrides: Record<string, unknown>) => act(String(overrides.id), { physicalIdentityStatus: 'ambiguous', physicalEventId: null, physicalCanonicalActivityLogId: null, ...overrides });
 
   it('15/13. vinculo na canonica Polar + copia do Health Connect: uma execucao; a copia nao reaparece como adicional nem candidata', async () => {
     const polar = act('polar-1', { ...ev('e1', 'polar-1'), executionClassification: 'corresponding' });
@@ -233,34 +234,48 @@ describe('Health Connect — semana, historico e check-in', () => {
     expect(result.alternativeActivities.map((a) => a.id)).toEqual(['polar-1', 'free-1']);
   });
 
-  it('check-in: atividade adicional Polar + Health Connect do mesmo evento conta UMA vez; evento diferente conta separado', async () => {
+  it('D1: par ambiguo (uma classificada, outra preservada sem classificacao): a semana mostra UMA atividade adicional; confirmada como distinta por humano, mostra as duas', async () => {
+    const polar = ambiguous({ id: 'polar-1', executionClassification: 'alternative' });
+    const hc = ambiguous({ id: 'hc-1', provider: 'health_connect', executionClassification: null });
+    expect((await week([polar, hc]).getWeekReconciliation('u1', ...range)).alternativeActivities.map((a) => a.id)).toEqual(['polar-1']);
+    const confirmed = ambiguous({ id: 'hc-1', provider: 'health_connect', executionClassification: 'alternative', executionClassifiedBy: 'coach' });
+    expect((await week([polar, confirmed]).getWeekReconciliation('u1', ...range)).alternativeActivities.map((a) => a.id)).toEqual(['polar-1', 'hc-1']);
+  });
+
+  it('check-in: atividade adicional Polar + Health Connect do mesmo evento conta UMA vez; evento diferente conta separado; par ambiguo conta uma (e duas se confirmado)', async () => {
     jest.useFakeTimers({ now: new Date('2026-10-02T15:00:00Z'), doNotFake: ['setTimeout', 'setInterval', 'setImmediate', 'clearTimeout', 'clearInterval', 'clearImmediate', 'nextTick', 'queueMicrotask'] });
     try {
+      const additional = async (rows: Array<Record<string, any>>) => {
+        const prisma = {
+          trainingPlan: { findFirst: jest.fn().mockResolvedValue({ id: 'plan-1', startDate: new Date('2026-09-28T00:00:00Z') }) },
+          weeklyCheckIn: { findFirst: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(0) },
+          weeklyAvailability: { findFirst: jest.fn().mockResolvedValue(null) },
+          trainingSession: { findMany: jest.fn().mockResolvedValue([]) },
+          activityLog: activityStore(rows),
+        };
+        return (await new WeeklyCheckInService(prisma as never, {} as never, {} as never).getStatus('u1')).summary!.additionalActivities;
+      };
       const polar = act('polar-1', { ...ev('e1', 'polar-1'), executionClassification: 'alternative', startedAt: new Date('2026-09-30T10:00:00Z') });
       const hc = act('hc-1', { ...ev('e1', 'polar-1'), provider: 'health_connect', executionClassification: 'alternative', startedAt: new Date('2026-09-30T10:00:01Z') });
       const other = act('hc-2', { provider: 'health_connect', executionClassification: 'alternative', startedAt: new Date('2026-10-01T10:00:00Z') });
-      const prisma = {
-        trainingPlan: { findFirst: jest.fn().mockResolvedValue({ id: 'plan-1', startDate: new Date('2026-09-28T00:00:00Z') }) },
-        weeklyCheckIn: { findFirst: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(0) },
-        weeklyAvailability: { findFirst: jest.fn().mockResolvedValue(null) },
-        trainingSession: { findMany: jest.fn().mockResolvedValue([]) },
-        activityLog: activityStore([polar, hc, other]),
-      };
-      const status = await new WeeklyCheckInService(prisma as never, {} as never, {} as never).getStatus('u1');
-      expect(status.summary!.additionalActivities).toBe(2);
+      expect(await additional([polar, hc, other])).toBe(2);
+      const ambiguousPolar = ambiguous({ id: 'a-1', executionClassification: 'alternative', startedAt: new Date('2026-09-30T10:00:00Z') });
+      const ambiguousHc = ambiguous({ id: 'a-2', provider: 'health_connect', executionClassification: null, startedAt: new Date('2026-09-30T10:00:01Z') });
+      expect(await additional([ambiguousPolar, ambiguousHc])).toBe(1);
+      expect(await additional([ambiguousPolar, { ...ambiguousHc, executionClassification: 'alternative', executionClassifiedBy: 'coach' }])).toBe(2);
     } finally {
       jest.useRealTimers();
     }
   });
 
-  it('historico: alternativas Polar + Health Connect do mesmo evento = um cartao', async () => {
-    const prisma = { trainingSession: { findMany: jest.fn().mockResolvedValue([]) }, sessionExecutionLink: { findMany: jest.fn().mockResolvedValue([]) }, activityLog: activityStore([
-      act('polar-1', { ...ev('e1', 'polar-1'), executionClassification: 'alternative' }),
-      act('hc-1', { ...ev('e1', 'polar-1'), provider: 'health_connect', executionClassification: 'alternative' }),
-    ]) };
-    const noop = {} as never;
-    const service = new TrainingPlansService(prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, traceStub());
-    const cards = (await service.getStudentHistory('u1')).flatMap((w) => w.sessions);
-    expect(cards.map((c) => c.id)).toEqual(['activity:polar-1']);
+  it('historico: alternativas Polar + Health Connect do mesmo evento = um cartao; par ambiguo com uma classificada = um cartao', async () => {
+    const build = (rows: Array<Record<string, any>>) => {
+      const prisma = { trainingSession: { findMany: jest.fn().mockResolvedValue([]) }, sessionExecutionLink: { findMany: jest.fn().mockResolvedValue([]) }, activityLog: activityStore(rows) };
+      const noop = {} as never;
+      return new TrainingPlansService(prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, traceStub());
+    };
+    const cards = async (rows: Array<Record<string, any>>) => (await build(rows).getStudentHistory('u1')).flatMap((w) => w.sessions).map((c) => c.id);
+    expect(await cards([act('polar-1', { ...ev('e1', 'polar-1'), executionClassification: 'alternative' }), act('hc-1', { ...ev('e1', 'polar-1'), provider: 'health_connect', executionClassification: 'alternative' })])).toEqual(['activity:polar-1']);
+    expect(await cards([ambiguous({ id: 'polar-1', executionClassification: 'alternative' }), ambiguous({ id: 'hc-1', provider: 'health_connect', executionClassification: null })])).toEqual(['activity:polar-1']);
   });
 });
