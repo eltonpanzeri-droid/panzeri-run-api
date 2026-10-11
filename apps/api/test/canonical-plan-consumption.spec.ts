@@ -198,3 +198,69 @@ describe('3C.2 — Weekly check-in: execucao objetiva x feedback subjetivo', () 
     expect(summary.additionalActivities).toBe(0);
   });
 });
+
+// ---- Health Connect (observacoes simuladas): semana, historico e check-in contam uma execucao por evento fisico ----------------------------
+describe('Health Connect — semana, historico e check-in', () => {
+  const range = [new Date('2026-09-28T00:00:00Z'), new Date('2026-10-05T00:00:00Z')] as const;
+
+  function week(activities: Array<Record<string, any>>, links: Array<Record<string, any>> = []) {
+    const prisma = {
+      activityLog: activityStore(activities),
+      sessionExecutionLink: {
+        findMany: jest.fn(async ({ where }: any) =>
+          links.filter((l) => where.activityLogId.in.includes(l.activityLogId) && where.status.in.includes(l.status)).map((l) => ({ ...l, trainingSession: { id: l.trainingSessionId, title: 'Longao', modality: 'corrida', scheduledDate: new Date('2026-09-30T00:00:00Z') } })),
+        ),
+      },
+      trainingSession: { findMany: jest.fn(async () => []) },
+    };
+    return new SessionExecutionLinkService(prisma as unknown as PrismaService);
+  }
+
+  it('15/13. vinculo na canonica Polar + copia do Health Connect: uma execucao; a copia nao reaparece como adicional nem candidata', async () => {
+    const polar = act('polar-1', { ...ev('e1', 'polar-1'), executionClassification: 'corresponding' });
+    const hc = act('hc-1', { ...ev('e1', 'polar-1'), provider: 'health_connect', distanceMeters: 10300 });
+    const result = await week([polar, hc], [{ id: 'l1', trainingSessionId: 's1', activityLogId: 'polar-1', status: 'active', origin: 'automatic', matchMethod: 'automatic_single_candidate' }]).getWeekReconciliation('u1', ...range);
+    expect([...result.activeLinkBySessionId.values()].map((l) => l.activityLog.id)).toEqual(['polar-1']);
+    expect(result.alternativeActivities).toEqual([]);
+    expect(result.pendingActivities).toEqual([]);
+  });
+
+  it('corrida adicional: Polar + Health Connect do mesmo evento = UM cartao; corrida adicional unica em outro dia continua aparecendo', async () => {
+    const polar = act('polar-1', { ...ev('e1', 'polar-1'), executionClassification: 'alternative' });
+    const hc = act('hc-1', { ...ev('e1', 'polar-1'), provider: 'health_connect', executionClassification: null });
+    const free = act('free-1', { startedAt: new Date('2026-10-01T10:00:00Z'), executionClassification: 'alternative' });
+    const result = await week([polar, hc, free]).getWeekReconciliation('u1', ...range);
+    expect(result.alternativeActivities.map((a) => a.id)).toEqual(['polar-1', 'free-1']);
+  });
+
+  it('check-in: atividade adicional Polar + Health Connect do mesmo evento conta UMA vez; evento diferente conta separado', async () => {
+    jest.useFakeTimers({ now: new Date('2026-10-02T15:00:00Z'), doNotFake: ['setTimeout', 'setInterval', 'setImmediate', 'clearTimeout', 'clearInterval', 'clearImmediate', 'nextTick', 'queueMicrotask'] });
+    try {
+      const polar = act('polar-1', { ...ev('e1', 'polar-1'), executionClassification: 'alternative', startedAt: new Date('2026-09-30T10:00:00Z') });
+      const hc = act('hc-1', { ...ev('e1', 'polar-1'), provider: 'health_connect', executionClassification: 'alternative', startedAt: new Date('2026-09-30T10:00:01Z') });
+      const other = act('hc-2', { provider: 'health_connect', executionClassification: 'alternative', startedAt: new Date('2026-10-01T10:00:00Z') });
+      const prisma = {
+        trainingPlan: { findFirst: jest.fn().mockResolvedValue({ id: 'plan-1', startDate: new Date('2026-09-28T00:00:00Z') }) },
+        weeklyCheckIn: { findFirst: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(0) },
+        weeklyAvailability: { findFirst: jest.fn().mockResolvedValue(null) },
+        trainingSession: { findMany: jest.fn().mockResolvedValue([]) },
+        activityLog: activityStore([polar, hc, other]),
+      };
+      const status = await new WeeklyCheckInService(prisma as never, {} as never, {} as never).getStatus('u1');
+      expect(status.summary!.additionalActivities).toBe(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('historico: alternativas Polar + Health Connect do mesmo evento = um cartao', async () => {
+    const prisma = { trainingSession: { findMany: jest.fn().mockResolvedValue([]) }, sessionExecutionLink: { findMany: jest.fn().mockResolvedValue([]) }, activityLog: activityStore([
+      act('polar-1', { ...ev('e1', 'polar-1'), executionClassification: 'alternative' }),
+      act('hc-1', { ...ev('e1', 'polar-1'), provider: 'health_connect', executionClassification: 'alternative' }),
+    ]) };
+    const noop = {} as never;
+    const service = new TrainingPlansService(prisma as never, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, traceStub());
+    const cards = (await service.getStudentHistory('u1')).flatMap((w) => w.sessions);
+    expect(cards.map((c) => c.id)).toEqual(['activity:polar-1']);
+  });
+});

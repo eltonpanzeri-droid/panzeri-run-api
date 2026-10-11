@@ -634,3 +634,237 @@ describe('Etapa 3A v2 — selecao canonica por evento', () => {
     for (const call of ctx.activityLog.update.mock.calls) for (const k of Object.keys((call[0] as any).data)) expect(allowed.has(k)).toBe(true);
   });
 });
+
+// ---- Preparo para o Health Connect (Android) — observacoes SIMULADAS (o adaptador ainda nao existe) ----------------------------------
+// Contrato de providerMetrics que o futuro adaptador deve gravar (e que os mecanismos compartilhados ja interpretam):
+//   { channel:'health_connect', source:{ packageName (metadata.dataOrigin), name }, device:{ manufacturer, model, name }|null,
+//     recordingMethod:'actively_recorded'|'automatically_recorded'|'manual_entry'|null, endedAt }
+// O Health Connect e' um CANAL: nunca prova quem gravou (app intermediario x app de origem x dispositivo gravador sao camadas distintas).
+const SAMSUNG_HEALTH = 'com.sec.android.app.shealth';
+const POLAR_FLOW_PKG = 'fi.polar.polarflow';
+const STRAVA_PKG = 'com.strava';
+const GARMIN_CONNECT_PKG = 'com.garmin.android.apps.connectmobile';
+const GALAXY_WATCH = { manufacturer: 'Samsung', model: 'SM-R960', name: 'Galaxy Watch6' };
+const GALAXY_PHONE = { manufacturer: 'Samsung', model: 'SM-S918B', name: 'Galaxy S23' };
+
+type HcOptions = { device?: Record<string, string> | null; method?: string | null; userId?: string; sport?: string | null };
+function hcRow(id: string, pkg: string, start: string, minutes: number, km: number | null, options: HcOptions = {}): Row {
+  const base = row(id, 'health_connect', null, start, minutes, km, options.userId ?? 'user-1', options.sport === undefined ? 'corrida' : options.sport);
+  return {
+    ...base,
+    providerMetrics: {
+      channel: 'health_connect', source: { packageName: pkg, name: pkg }, device: options.device ?? null, recordingMethod: options.method === undefined ? 'actively_recorded' : options.method,
+      endedAt: new Date(new Date(start).getTime() + minutes * 60000).toISOString(),
+    },
+  };
+}
+const HC_SAMSUNG_WATCH = (id = 'hs') => hcRow(id, SAMSUNG_HEALTH, '2026-10-06T09:00:05Z', 34, 7.0, { device: GALAXY_WATCH });
+const HC_POLAR_FLOW = (id = 'hp') => hcRow(id, POLAR_FLOW_PKG, '2026-10-06T09:00:12Z', 34, 7.01);
+const HC_STRAVA = (id = 'hx') => hcRow(id, STRAVA_PKG, '2026-10-06T09:00:18Z', 34, 7.02);
+
+describe('Health Connect — observador e proveniencia (mecanismos compartilhados)', () => {
+  it('observerKeyOf: app de origem + dispositivo gravador quando informado; Apple e provider direto seguem iguais', () => {
+    const watch = observerKeyOf('health_connect', HC_SAMSUNG_WATCH().providerMetrics);
+    const phone = observerKeyOf('health_connect', hcRow('x', SAMSUNG_HEALTH, '2026-10-06T09:00:00Z', 34, 7, { device: GALAXY_PHONE }).providerMetrics);
+    expect(watch).toBe(`health_connect:${SAMSUNG_HEALTH}|samsung/sm-r960`);
+    expect(phone).not.toBe(watch); // mesmo app, dispositivos diferentes = observadores diferentes (podem ser comparados)
+    expect(observerKeyOf('health_connect', HC_POLAR_FLOW().providerMetrics)).toBe(`health_connect:${POLAR_FLOW_PKG}`); // sem device: so o app
+    expect(observerKeyOf('health_connect', null)).toBe('health_connect:desconhecido');
+    expect(observerKeyOf('health_connect', { source: { name: 'App X' } })).toBe('health_connect:app x');
+    expect(observerKeyOf('polar', null)).toBe('polar');
+    expect(observerKeyOf('apple_health', { source: { bundleId: 'com.strava.stravaride' } })).toBe('apple_health:com.strava.stravaride');
+    expect(observerKeyOf('apple_health', { source: { bundleId: 'com.apple.health.X' }, device: APPLE_DEVICE })).toBe('apple_health:com.apple.health.x'); // device nao entra na chave Apple
+  });
+
+  it('o canal Health Connect NUNCA e gravador nativo por ser Health Connect (sem origem/dispositivo comprovados)', () => {
+    expect(baseProvenanceProfile('health_connect', null)).toMatchObject({ role: 'unknown', ecosystem: null, basis: 'third_party_app_source' });
+    expect(baseProvenanceProfile('health_connect', { source: { packageName: 'com.exemplo.app' } })).toMatchObject({ role: 'unknown', ecosystem: null });
+    expect(baseProvenanceProfile('health_connect', HC_POLAR_FLOW().providerMetrics)).toMatchObject({ role: 'unknown', ecosystem: 'polar', basis: 'third_party_app_source' });
+    expect(baseProvenanceProfile('health_connect', HC_STRAVA().providerMetrics)).toMatchObject({ role: 'unknown', ecosystem: 'strava' });
+    expect(baseProvenanceProfile('health_connect', hcRow('g', GARMIN_CONNECT_PKG, '2026-10-06T09:00:00Z', 34, 7).providerMetrics)).toMatchObject({ role: 'unknown', ecosystem: 'garmin' });
+  });
+
+  it('Samsung Health: so e gravador nativo com dispositivo Samsung gravando; sem device ou com entrada manual NAO se presume Galaxy Watch', () => {
+    expect(baseProvenanceProfile('health_connect', HC_SAMSUNG_WATCH().providerMetrics)).toMatchObject({ role: 'native_recorder', ecosystem: 'samsung', basis: 'samsung_device_recorded' });
+    expect(baseProvenanceProfile('health_connect', hcRow('a', SAMSUNG_HEALTH, '2026-10-06T09:00:00Z', 34, 7, { device: GALAXY_WATCH, method: 'automatically_recorded' }).providerMetrics).role).toBe('native_recorder');
+    const noDevice = hcRow('b', SAMSUNG_HEALTH, '2026-10-06T09:00:00Z', 34, 7);
+    expect(baseProvenanceProfile('health_connect', noDevice.providerMetrics)).toMatchObject({ role: 'unknown', ecosystem: 'samsung', basis: 'samsung_source_without_recording_device' });
+    const otherMaker = hcRow('c', SAMSUNG_HEALTH, '2026-10-06T09:00:00Z', 34, 7, { device: { manufacturer: 'Polar', model: 'Pacer Pro' } });
+    expect(baseProvenanceProfile('health_connect', otherMaker.providerMetrics)).toMatchObject({ role: 'unknown', basis: 'samsung_source_without_recording_device' }); // Samsung Health pode ter importado
+    const manual = hcRow('d', SAMSUNG_HEALTH, '2026-10-06T09:00:00Z', 34, 7, { device: GALAXY_WATCH, method: 'manual_entry' });
+    expect(baseProvenanceProfile('health_connect', manual.providerMetrics)).toMatchObject({ role: 'unknown', basis: 'manual_entry' });
+    const unknownMethod = hcRow('e', SAMSUNG_HEALTH, '2026-10-06T09:00:00Z', 34, 7, { device: GALAXY_WATCH, method: null });
+    expect(baseProvenanceProfile('health_connect', unknownMethod.providerMetrics).role).toBe('unknown'); // metodo ausente nao comprova gravacao
+  });
+
+  const candidate = (r: Row) => ({ id: r.id, provider: r.provider, providerMetrics: r.providerMetrics, durationSec: r.durationSec, distanceMeters: r.distanceMeters, caloriesKcal: null, avgHeartRateBpm: null, maxHeartRateBpm: null, cadenceAvg: null, powerAvgWatts: null, elevationGainMeters: null, hasRoute: null });
+
+  it('copia pelo Health Connect so vira relay com gravacao nativa DIRETA do mesmo ecossistema no evento (Polar Flow + Polar direto); Strava nunca', () => {
+    const withPolar = provenanceProfiles([candidate(POLAR()), candidate(HC_POLAR_FLOW())]);
+    expect(withPolar.get('hp')).toMatchObject({ role: 'relay', ecosystem: 'polar', basis: 'copy_of_native_in_same_event' });
+    expect(withPolar.get('p')!.role).toBe('native_recorder');
+    expect(provenanceProfiles([candidate(HC_POLAR_FLOW())]).get('hp')!.role).toBe('unknown'); // sozinha: indeterminada, nunca relay nem nativa
+    expect(provenanceProfiles([candidate(POLAR()), candidate(HC_STRAVA())]).get('hx')!.role).toBe('unknown'); // agregador nunca e promovido
+    expect(provenanceProfiles([candidate(POLAR()), candidate(HC_SAMSUNG_WATCH())]).get('hs')!.role).toBe('native_recorder'); // outro ecossistema nativo comprovado nao e copia da Polar
+    expect(provenanceProfiles([candidate(HC_SAMSUNG_WATCH()), candidate(HC_POLAR_FLOW())]).get('hp')!.role).toBe('unknown'); // sem Polar direto nao ha prova de copia
+  });
+
+  it('escolha da canonica nao depende da ordem: Polar direto vence a copia Polar Flow do Health Connect em todas as permutacoes', () => {
+    for (const order of permutations([candidate(POLAR()), candidate(HC_POLAR_FLOW()), candidate(HC_STRAVA())])) {
+      const selection = selectCanonicalObservation(order)!;
+      expect(selection.canonicalId).toBe('p');
+      expect(selection.reason.candidates.find((c) => c.activityLogId === 'hp')!.role).toBe('relay');
+    }
+  });
+});
+
+describe('Health Connect — identidade fisica e deduplicacao (servico em memoria, observacoes simuladas)', () => {
+  const eventOf = (ctx: ReturnType<typeof buildService>, id: string) => ctx.data.get(id)!.physicalEventId;
+  const statusOf = (ctx: ReturnType<typeof buildService>, id: string) => ctx.data.get(id)!.physicalIdentityStatus;
+
+  it('1. Polar direto + copia Apple Health: um evento, canonica Polar (referencia de comportamento ja existente)', async () => {
+    const ctx = buildService([POLAR_RICH(), HK_POLAR_FLOW()]);
+    await evaluateAll(ctx, ['p', 'pf']);
+    expect(ctx.partition()).toEqual(['p+pf']);
+    expect(canonicalOf(ctx, 'p')).toBe('p');
+  });
+
+  it('2. Polar direto + copia simulada pelo Health Connect (Polar Flow): um evento; canonica Polar; copia preservada e sem classificacao — em todas as ordens', async () => {
+    for (const order of permutations(['p', 'hp'])) {
+      const ctx = buildService([POLAR_RICH(), HC_POLAR_FLOW()]);
+      await evaluateAll(ctx, order);
+      expect(ctx.partition()).toEqual(['hp+p']);
+      expect(canonicalOf(ctx, 'hp')).toBe('p');
+      expect(canonicalOf(ctx, 'p')).toBe('p');
+      expect(roleOf(reasonOf(ctx, 'p'), 'hp')).toBe('relay');
+      expect(ctx.data.size).toBe(2); // nada excluido
+      expect(ctx.data.get('hp')!.executionClassification).toBeNull();
+    }
+  });
+
+  it('3. duas origens diferentes dentro do Health Connect (Samsung Health do relogio + Polar Flow): um evento; canonica = gravacao Samsung comprovada', async () => {
+    for (const order of permutations(['hs', 'hp'])) {
+      const ctx = buildService([HC_SAMSUNG_WATCH(), HC_POLAR_FLOW()]);
+      await evaluateAll(ctx, order);
+      expect(ctx.partition()).toEqual(['hp+hs']);
+      expect(canonicalOf(ctx, 'hp')).toBe('hs');
+      expect(roleOf(reasonOf(ctx, 'hs'), 'hs')).toBe('native_recorder');
+      expect(roleOf(reasonOf(ctx, 'hs'), 'hp')).toBe('unknown'); // sem Polar direto nao se afirma copia
+    }
+  });
+
+  it('3b. mesmo app (Samsung Health) com relogio e celular do mesmo treino: dispositivos distintos sao comparaveis e formam UM evento', async () => {
+    const ctx = buildService([HC_SAMSUNG_WATCH('w'), hcRow('ph', SAMSUNG_HEALTH, '2026-10-06T09:00:10Z', 34, 6.98, { device: GALAXY_PHONE })]);
+    await evaluateAll(ctx, ['w', 'ph']);
+    expect(ctx.partition()).toEqual(['ph+w']);
+  });
+
+  it('3c. mesma origem NAO significa mesma atividade: dois registros do mesmo app+dispositivo nunca se fundem, mesmo sobrepostos', async () => {
+    const ctx = buildService([HC_SAMSUNG_WATCH('a'), hcRow('b', SAMSUNG_HEALTH, '2026-10-06T09:00:30Z', 34, 7.0, { device: GALAXY_WATCH })]);
+    await evaluateAll(ctx, ['a', 'b']);
+    expect(ctx.partition()).toEqual([]);
+    expect(statusOf(ctx, 'a')).toBe('unique');
+    expect(statusOf(ctx, 'b')).toBe('unique');
+  });
+
+  it('3d. mesmo agregador NAO significa atividades diferentes nem iguais: Health Connect de manha e a noite = duas execucoes; mesmo horario de apps diferentes = uma', async () => {
+    const distinct = buildService([HC_STRAVA('m'), hcRow('n', GARMIN_CONNECT_PKG, '2026-10-06T21:00:00Z', 34, 7.0)]);
+    await evaluateAll(distinct, ['m', 'n']);
+    expect(distinct.partition()).toEqual([]);
+    const same = buildService([HC_STRAVA('m'), hcRow('n', GARMIN_CONNECT_PKG, '2026-10-06T09:00:30Z', 34, 7.0)]);
+    await evaluateAll(same, ['m', 'n']);
+    expect(same.partition()).toEqual(['m+n']);
+  });
+
+  it('4. reenvio do mesmo registro pela mesma fonte: reavaliar e idempotente (evento, canonica e motivo estaveis; nada excluido)', async () => {
+    const ctx = buildService([POLAR_RICH(), HC_POLAR_FLOW()]);
+    await evaluateAll(ctx, ['p', 'hp']);
+    const event = eventOf(ctx, 'p');
+    const reason = JSON.stringify(reasonOf(ctx, 'p'));
+    for (let i = 0; i < 3; i++) await ctx.service.evaluate('hp');
+    expect(ctx.partition()).toEqual(['hp+p']);
+    expect(eventOf(ctx, 'p')).toBe(event);
+    expect(JSON.stringify(reasonOf(ctx, 'p'))).toBe(reason);
+    expect(canonicalOf(ctx, 'hp')).toBe('p');
+    expect(ctx.data.size).toBe(2);
+  });
+
+  it('5. chegada tardia de outra observacao da mesma corrida entra no evento ja identificado, sem criar outro evento (todas as ordens)', async () => {
+    const baseline = buildService([POLAR_RICH(), HC_SAMSUNG_WATCH()]);
+    await evaluateAll(baseline, ['p', 'hs']);
+    const event = eventOf(baseline, 'p');
+    const late = buildService([POLAR_RICH(), HC_SAMSUNG_WATCH(), HC_STRAVA()]);
+    await evaluateAll(late, ['p', 'hs']);
+    expect(eventOf(late, 'p')).toBe(event);
+    await late.service.evaluate('hx');
+    expect(late.partition()).toEqual(['hs+hx+p']);
+    expect(eventOf(late, 'p')).toBe(event); // o grupo existente mantem o id
+    expect(new Set(['p', 'hs', 'hx'].map((id) => canonicalOf(late, id))).size).toBe(1); // uma unica canonica
+    const reference = buildService([POLAR_RICH(), HC_SAMSUNG_WATCH(), HC_STRAVA()]);
+    await evaluateAll(reference, ['hx', 'hs', 'p']);
+    expect(reference.partition()).toEqual(late.partition());
+    expect(canonicalOf(reference, 'p')).toBe(canonicalOf(late, 'p'));
+  });
+
+  it('6/7. atualizacao que transforma matched em ambiguous (e depois resolve): estado coerente nos dois sentidos, sem perder dados', async () => {
+    const ctx = buildService([POLAR_RICH(), HC_POLAR_FLOW()]);
+    await evaluateAll(ctx, ['p', 'hp']);
+    expect(ctx.partition()).toEqual(['hp+p']);
+    // o registro do Health Connect e atualizado na origem com uma distancia muito divergente no mesmo horario
+    ctx.data.get('hp')!.distanceMeters = 9000;
+    await ctx.service.evaluate('hp');
+    for (const id of ['p', 'hp']) {
+      expect(statusOf(ctx, id)).toBe('ambiguous');
+      expect(eventOf(ctx, id)).toBeNull();
+      expect(canonicalOf(ctx, id)).toBeNull();
+    }
+    expect(ctx.data.size).toBe(2);
+    expect(ctx.data.get('p')!.distanceMeters).toBe(7010); // nenhuma observacao foi alterada pela avaliacao
+    // a origem corrige a distancia: a identidade se resolve de volta
+    ctx.data.get('hp')!.distanceMeters = 7010;
+    await ctx.service.evaluate('hp');
+    expect(ctx.partition()).toEqual(['hp+p']);
+    expect(statusOf(ctx, 'p')).toBe('matched');
+    expect(canonicalOf(ctx, 'hp')).toBe('p');
+  });
+
+  it('8. duas corridas legitimas em horarios proximos continuam duas execucoes (sem sobreposicao), inclusive do mesmo app', async () => {
+    const polarThenHc = buildService([POLAR(), hcRow('h', STRAVA_PKG, '2026-10-06T09:50:00Z', 34, 7.0)]);
+    await evaluateAll(polarThenHc, ['p', 'h']);
+    expect(polarThenHc.partition()).toEqual([]);
+    expect(statusOf(polarThenHc, 'p')).toBe('unique');
+    expect(statusOf(polarThenHc, 'h')).toBe('unique');
+    const backToBack = buildService([hcRow('a', STRAVA_PKG, '2026-10-06T09:00:00Z', 30, 6.0), hcRow('b', STRAVA_PKG, '2026-10-06T09:35:00Z', 30, 6.0)]);
+    await evaluateAll(backToBack, ['a', 'b']);
+    expect(backToBack.partition()).toEqual([]);
+  });
+
+  it('9. divergencias: pequenas (<=1%) = mesmo evento; distancia relevante no mesmo horario = ambiguo; horario muito diferente = distinto', async () => {
+    const small = buildService([POLAR(), hcRow('h', POLAR_FLOW_PKG, '2026-10-06T09:00:40Z', 34, 7.01 * 1.005)]);
+    await evaluateAll(small, ['p', 'h']);
+    expect(small.partition()).toEqual(['h+p']);
+    const relevant = buildService([POLAR(), hcRow('h', STRAVA_PKG, '2026-10-06T09:00:10Z', 34, 7.01 * 1.06)]);
+    await evaluateAll(relevant, ['p', 'h']);
+    expect(statusOf(relevant, 'p')).toBe('ambiguous');
+    expect(statusOf(relevant, 'h')).toBe('ambiguous');
+    const farApart = buildService([POLAR(), hcRow('h', STRAVA_PKG, '2026-10-06T12:00:00Z', 34, 7.01)]);
+    await evaluateAll(farApart, ['p', 'h']);
+    expect(statusOf(farApart, 'p')).toBe('unique');
+  });
+
+  it('10. fusos: o instante com offset (-03:00) coincide com o UTC e agrupa; horario LOCAL lido como UTC (erro de adaptador) NAO e corrigido pela busca de +-12h', async () => {
+    const correct = buildService([POLAR(), hcRow('h', POLAR_FLOW_PKG, new Date('2026-10-06T06:00:00-03:00').toISOString(), 34, 7.01)]);
+    await evaluateAll(correct, ['p', 'h']);
+    expect(correct.partition()).toEqual(['h+p']);
+    const misread = buildService([POLAR(), hcRow('h', POLAR_FLOW_PKG, '2026-10-06T06:00:00Z', 34, 7.01)]); // 09:00Z gravado como 06:00Z (3 h de erro)
+    await evaluateAll(misread, ['p', 'h']);
+    expect(misread.partition()).toEqual([]); // limitacao conhecida: o adaptador PRECISA enviar instante com offset; o matcher nao adivinha fuso
+    expect(statusOf(misread, 'p')).toBe('unique');
+  });
+
+  it('usuarios diferentes nunca se fundem, mesmo com observacoes identicas vindas do Health Connect', async () => {
+    const ctx = buildService([HC_SAMSUNG_WATCH('a'), hcRow('b', POLAR_FLOW_PKG, '2026-10-06T09:00:10Z', 34, 7.0, { userId: 'user-2' })]);
+    await evaluateAll(ctx, ['a', 'b']);
+    expect(ctx.partition()).toEqual([]);
+  });
+});

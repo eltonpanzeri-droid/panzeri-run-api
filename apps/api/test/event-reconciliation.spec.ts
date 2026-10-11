@@ -300,3 +300,187 @@ describe('3B — reconcileEvent (PhysicalEvent <-> TrainingSession)', () => {
     expect(activityLogs.get(polar.id).executionClassification).toBeNull(); // a execucao conta uma vez
   });
 });
+
+// ---- Health Connect (observacoes simuladas): vinculos, atividade adicional e transicoes de identidade -----------------------------------
+// A reconciliacao so' conhece o EVENTO e sua canonica; o canal de origem (health_connect) nao muda nenhuma regra. Em todos os cenarios as
+// sessoes prescritas (TrainingSession) NAO podem ser criadas, alteradas, movidas nem excluidas: so' vinculos/classificacoes de execucao mudam.
+function hcEventFixture() {
+  const f = fixture();
+  const polar = f.addActivity({ provider: 'polar', sport: 'corrida' });
+  const hc = f.addActivity({ provider: 'health_connect', sport: 'corrida', startedAt: new Date('2026-10-06T10:00:02Z') });
+  f.makeEvent('ev-hc', [polar.id, hc.id], polar.id);
+  return { ...f, polar, hc };
+}
+const markAmbiguous = (activityLogs: Map<string, any>, ids: string[]) => {
+  for (const id of ids) Object.assign(activityLogs.get(id), { physicalEventId: null, physicalIdentityStatus: 'ambiguous', physicalCanonicalActivityLogId: null });
+};
+const sessionsSnapshot = (sessions: Map<string, any>) => JSON.stringify([...sessions.values()]);
+
+describe('Health Connect — vinculos e transicoes de identidade', () => {
+  it('11. corrida correspondente a sessao prescrita: UM vinculo, na canonica; a copia do Health Connect nao carrega vinculo nem classificacao; sessao intacta', async () => {
+    const { service, hc, polar, addSession, activeLinks, activityLogs, sessions, prisma } = hcEventFixture();
+    const session = addSession();
+    const before = sessionsSnapshot(sessions);
+    const result = await service.reconcileEvent(hc.id);
+    expect(result).toMatchObject({ outcome: 'linked', classification: 'corresponding', canonicalActivityLogId: polar.id });
+    expect(activeLinks()).toHaveLength(1);
+    expect(activeLinks()[0]).toMatchObject({ trainingSessionId: session.id, activityLogId: polar.id });
+    expect(activityLogs.get(hc.id).executionClassification).toBeNull();
+    expect(sessionsSnapshot(sessions)).toBe(before);
+    expect(prisma.trainingSession.update).not.toHaveBeenCalled();
+    expect(prisma.trainingSession.create).not.toHaveBeenCalled();
+  });
+
+  it('12/17. corrida adicional sem prescricao correspondente: uma atividade adicional so; nao vira execucao de outra sessao (outro dia) nem cria sessao', async () => {
+    const { service, hc, polar, addSession, activeLinks, activityLogs, sessions, prisma } = hcEventFixture();
+    addSession({ scheduledDate: new Date('2026-10-08T00:00:00Z') }); // prescrita em OUTRO dia: nao pode capturar esta corrida
+    const before = sessionsSnapshot(sessions);
+    expect(await service.reconcileEvent(hc.id)).toMatchObject({ outcome: 'alternative', classification: 'alternative', canonicalActivityLogId: polar.id });
+    expect(await service.reconcileEvent(polar.id)).toMatchObject({ outcome: 'unchanged', changed: false });
+    expect(activeLinks()).toHaveLength(0);
+    expect(activityLogs.get(polar.id).executionClassification).toBe('alternative');
+    expect(activityLogs.get(hc.id).executionClassification).toBeNull(); // conta uma vez
+    expect(sessionsSnapshot(sessions)).toBe(before);
+    expect(prisma.trainingSession.create).not.toHaveBeenCalled();
+  });
+
+  it('13. chegada tardia da copia do Health Connect depois de a corrida ja estar vinculada: nada muda; se a canonica mudar, o vinculo acompanha sem segunda execucao', async () => {
+    const f = fixture();
+    const polar = f.addActivity({ provider: 'polar' });
+    const session = f.addSession();
+    await f.service.reconcileEvent(polar.id); // ainda unique: vincula sozinha
+    expect(f.activeLinks()).toHaveLength(1);
+    const hc = f.addActivity({ provider: 'health_connect', startedAt: new Date('2026-10-06T10:00:02Z') });
+    f.makeEvent('ev-late', [polar.id, hc.id], polar.id); // a identidade avaliou: mesmo evento, canonica Polar
+    const createsBefore = f.prisma.sessionExecutionLink.create.mock.calls.length;
+    expect(await f.service.reconcileEvent(hc.id)).toMatchObject({ outcome: 'unchanged', changed: false });
+    expect(f.activeLinks()).toHaveLength(1);
+    expect(f.prisma.sessionExecutionLink.create.mock.calls.length).toBe(createsBefore);
+    f.makeEvent('ev-late', [polar.id, hc.id], hc.id); // nova evidencia: a canonica passa a ser a observacao do Health Connect
+    const moved = await f.service.reconcileEvent(polar.id);
+    expect(moved).toMatchObject({ outcome: 'link_moved', canonicalActivityLogId: hc.id });
+    expect(f.activeLinks()).toHaveLength(1);
+    expect(f.activeLinks()[0]).toMatchObject({ trainingSessionId: session.id, activityLogId: hc.id });
+    expect(f.activityLogs.get(polar.id).executionClassification).toBeNull();
+  });
+
+  it('6. matched -> ambiguous: o vinculo automatico existente fica (so na observacao que o carregava), nenhuma observacao ganha um segundo vinculo/classificacao e a sessao fica intacta', async () => {
+    const { service, hc, polar, addSession, activeLinks, activityLogs, sessions, prisma } = hcEventFixture();
+    const session = addSession();
+    await service.reconcileEvent(hc.id);
+    expect(activeLinks()).toHaveLength(1);
+    const link = { ...activeLinks()[0] };
+    const sessionsBefore = sessionsSnapshot(sessions);
+    // atualizacao de dados: o evento deixa de ser confirmado
+    markAmbiguous(activityLogs, [polar.id, hc.id]);
+    const linkWrites = () => prisma.sessionExecutionLink.create.mock.calls.length + prisma.sessionExecutionLink.update.mock.calls.length;
+    const writesBefore = linkWrites();
+    expect(await service.reconcileEvent(hc.id)).toMatchObject({ outcome: 'skipped_identity_ambiguous', changed: false });
+    expect(await service.reconcileEvent(polar.id)).toMatchObject({ outcome: 'skipped_identity_ambiguous', changed: false });
+    expect(linkWrites()).toBe(writesBefore); // nada reescrito, nada novo
+    expect(activeLinks()).toHaveLength(1);
+    expect(activeLinks()[0]).toMatchObject({ id: link.id, trainingSessionId: session.id, activityLogId: polar.id, status: 'active' });
+    expect(activityLogs.get(hc.id).executionClassification).toBeNull(); // a outra observacao NAO vira execucao nem atividade adicional
+    expect(sessionsSnapshot(sessions)).toBe(sessionsBefore);
+    expect(prisma.trainingSession.update).not.toHaveBeenCalled();
+  });
+
+  it('7. ambiguous -> matched: dois vinculos automaticos que viram o mesmo evento colapsam em UM (a execucao conta uma vez); sessoes nao sao tocadas', async () => {
+    const f = fixture();
+    const polar = f.addActivity({ provider: 'polar' });
+    const hc = f.addActivity({ provider: 'health_connect', startedAt: new Date('2026-10-06T10:00:02Z') });
+    const s1 = f.addSession({ title: 'Longao' });
+    const s2 = f.addSession({ title: 'Outra do dia', modality: 'corrida', distanceKm: 8 });
+    // estado legado: cada observacao foi vinculada isoladamente a uma sessao diferente (antes de o evento ser reconhecido)
+    f.links.set('l-polar', { id: 'l-polar', userId: 'u1', trainingSessionId: s1.id, activityLogId: polar.id, status: 'active', origin: 'automatic', note: null, createdAt: new Date(1000), revokedAt: null, supersededByLinkId: null });
+    f.links.set('l-hc', { id: 'l-hc', userId: 'u1', trainingSessionId: s2.id, activityLogId: hc.id, status: 'active', origin: 'automatic', note: null, createdAt: new Date(2000), revokedAt: null, supersededByLinkId: null });
+    Object.assign(f.activityLogs.get(polar.id), { executionClassification: 'corresponding', executionClassifiedBy: 'automatic' });
+    Object.assign(f.activityLogs.get(hc.id), { executionClassification: 'corresponding', executionClassifiedBy: 'automatic' });
+    const sessionsBefore = sessionsSnapshot(f.sessions);
+    f.makeEvent('ev-res', [polar.id, hc.id], polar.id); // a identidade se resolve: mesma execucao fisica
+    expect(await f.service.reconcileEvent(hc.id)).toMatchObject({ outcome: 'duplicate_links_collapsed', canonicalActivityLogId: polar.id });
+    expect(f.activeLinks()).toHaveLength(1);
+    expect(f.activeLinks()[0]).toMatchObject({ id: 'l-polar', trainingSessionId: s1.id });
+    expect(f.links.get('l-hc')).toMatchObject({ status: 'revoked', note: 'duplicate_of_same_physical_event' });
+    expect(f.activityLogs.get(hc.id).executionClassification).toBeNull();
+    expect(sessionsSnapshot(f.sessions)).toBe(sessionsBefore);
+    expect(f.prisma.trainingSession.update).not.toHaveBeenCalled();
+  });
+
+  it('14. decisao e vinculo manuais sao preservados na chegada tardia da copia do Health Connect (nenhum vinculo automatico e adicionado)', async () => {
+    const { service, hc, polar, addSession, activeLinks, links, prisma } = hcEventFixture();
+    const session = addSession();
+    await service.linkManually({ trainingSessionId: session.id, activityLogId: polar.id, origin: 'student' });
+    const before = { ...activeLinks()[0] };
+    const createsBefore = prisma.sessionExecutionLink.create.mock.calls.length;
+    expect(await service.reconcileEvent(hc.id)).toMatchObject({ outcome: 'human_preserved' });
+    expect(activeLinks()).toHaveLength(1);
+    expect(activeLinks()[0]).toMatchObject({ id: before.id, origin: 'student', trainingSessionId: session.id, activityLogId: polar.id });
+    expect(prisma.sessionExecutionLink.create.mock.calls.length).toBe(createsBefore);
+    expect([...links.values()].filter((l) => l.origin === 'automatic' && l.status === 'active')).toHaveLength(0);
+  });
+
+  it('14b. decisao humana de "atividade adicional" (coach) tambem prevalece sobre a chegada tardia e a transicao para ambiguo', async () => {
+    const { service, hc, polar, addSession, activityLogs, activeLinks, sessions } = hcEventFixture();
+    addSession();
+    Object.assign(activityLogs.get(polar.id), { executionClassification: 'alternative', executionClassifiedBy: 'coach' });
+    const before = sessionsSnapshot(sessions);
+    await service.reconcileEvent(hc.id);
+    markAmbiguous(activityLogs, [polar.id, hc.id]);
+    await service.reconcileEvent(hc.id);
+    expect(activityLogs.get(polar.id)).toMatchObject({ executionClassification: 'alternative', executionClassifiedBy: 'coach' });
+    expect(activeLinks()).toHaveLength(0);
+    expect(sessionsSnapshot(sessions)).toBe(before);
+  });
+
+  it('8. duas corridas legitimas no mesmo dia (Polar de manha, Health Connect a noite) e uma sessao: seguem distintas, candidatas, sem vinculo forcado', async () => {
+    const f = fixture();
+    const morning = f.addActivity({ provider: 'polar', startedAt: new Date('2026-10-06T09:00:00Z') });
+    const evening = f.addActivity({ provider: 'health_connect', startedAt: new Date('2026-10-06T21:00:00Z'), distanceMeters: 8000 });
+    f.addSession();
+    const before = sessionsSnapshot(f.sessions);
+    expect(await f.service.reconcileEvent(morning.id)).toMatchObject({ classification: 'ambiguous', outcome: 'candidates' });
+    expect(await f.service.reconcileEvent(evening.id)).toMatchObject({ classification: 'ambiguous', outcome: 'candidates' });
+    expect(f.activeLinks()).toHaveLength(0);
+    expect(sessionsSnapshot(f.sessions)).toBe(before);
+  });
+});
+
+// ---- LACUNAS CONHECIDAS (caracterizacao; decisao de produto pendente — NAO sao o comportamento desejado) -------------------------------------
+// Estes dois testes descrevem o que o codigo faz HOJE, para que a decisao seja tomada com evidencia. Se a decisao mudar o comportamento, estes
+// testes devem ser atualizados junto (nao sao uma especificacao).
+describe('Health Connect — lacunas conhecidas de classificacao (caracterizacao)', () => {
+  it('D1. classify() NAO tem a trava de identidade ambigua do reconcileEvent: a segunda observacao ambigua de um evento ja classificado e classificada por conta propria (Polar/Wahoo chamam classify)', async () => {
+    const f = fixture();
+    const hc = f.addActivity({ provider: 'health_connect', physicalIdentityStatus: 'ambiguous', executionClassification: 'alternative', executionClassifiedBy: 'automatic' });
+    const polar = f.addActivity({ provider: 'polar', physicalIdentityStatus: 'ambiguous', startedAt: new Date('2026-10-06T10:00:05Z') });
+    expect(await f.service.reconcileEvent(polar.id)).toMatchObject({ outcome: 'skipped_identity_ambiguous' }); // o reconcileEvent respeita a ambiguidade...
+    expect(f.activityLogs.get(polar.id).executionClassification).toBeNull();
+    expect(await f.service.classify(polar.id)).toBe('alternative'); // ...mas classify() (usado pela ingestao Polar/Wahoo) classifica a observacao ambigua
+    expect([hc, polar].filter((a) => f.activityLogs.get(a.id).executionClassification === 'alternative')).toHaveLength(2); // as duas contam como atividade adicional
+  });
+
+  it('D1b. mesma lacuna com sessao prescrita: a corrida ja vinculada pela copia vira tambem "atividade adicional" na observacao ambigua', async () => {
+    const f = fixture();
+    const session = f.addSession();
+    const hc = f.addActivity({ provider: 'health_connect', physicalIdentityStatus: 'ambiguous' });
+    await f.service.linkManually({ trainingSessionId: session.id, activityLogId: hc.id, origin: 'automatic' });
+    const polar = f.addActivity({ provider: 'polar', physicalIdentityStatus: 'ambiguous', startedAt: new Date('2026-10-06T10:00:05Z') });
+    expect(await f.service.classify(polar.id)).toBe('alternative');
+    expect(f.activeLinks()).toHaveLength(1); // a sessao segue cumprida uma vez, mas a mesma corrida aparece tambem como adicional
+  });
+
+  it('D2. evento desfeito (matched -> unique por atualizacao de dados): a observacao nao canonica, antes sem classificacao, fica sem classificacao ate alguem reconcilia-la', async () => {
+    const f = hcEventFixture();
+    f.addSession();
+    await f.service.reconcileEvent(f.hc.id); // evento matched: so a canonica (Polar) carrega o vinculo; a copia fica sem classificacao
+    expect(f.activityLogs.get(f.hc.id).executionClassification).toBeNull();
+    // atualizacao de dados torna as duas corridas distintas: cada uma volta a ser um evento proprio
+    for (const id of [f.polar.id, f.hc.id]) Object.assign(f.activityLogs.get(id), { physicalEventId: null, physicalIdentityStatus: 'unique', physicalCanonicalActivityLogId: null });
+    // o gatilho normal da ingestao (classify da observacao que chegou) so alcanca ela mesma
+    await f.service.classify(f.polar.id);
+    expect(f.activityLogs.get(f.hc.id).executionClassification).toBeNull(); // execucao legitima fora do volume ate ser reconciliada
+    expect(await f.service.reconcileEvent(f.hc.id)).toMatchObject({ changed: true }); // recuperavel: reconciliar explicitamente a classifica
+    expect(f.activityLogs.get(f.hc.id).executionClassification).not.toBeNull();
+  });
+});

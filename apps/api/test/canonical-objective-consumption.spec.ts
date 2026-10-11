@@ -121,3 +121,41 @@ describe('3C.1 — pickCanonicalPerEvent', () => {
     expect(picks.map((p) => p.row.id)).toEqual(['apple-1']);
   });
 });
+
+// ---- Health Connect (observacoes simuladas): os consumidores sao neutros ao canal — contam por evento fisico ------------------------------
+const asAmbiguous = (rows: Array<Record<string, unknown>>): Array<Record<string, any>> =>
+  rows.map((row) => ({ ...row, physicalIdentityStatus: 'ambiguous', physicalEventId: null, physicalCanonicalActivityLogId: null }));
+
+describe('Health Connect — consumo canonico de volume, pace e cadencia', () => {
+  it('13. Polar + copia do Health Connect (mesmo evento): distancia, pace e cadencia contam UMA vez, com os valores da canonica', async () => {
+    const rows = asEvent('ev-1', 'polar-1', [
+      log('polar-1', { distanceMeters: 10000, durationSec: 3000, cadenceAvg: 172 }),
+      log('hc-1', { provider: 'health_connect', distanceMeters: 10300, durationSec: 3090, cadenceAvg: 150, executionClassification: null }),
+    ]);
+    expect((await evolution(rows).getSeries('aluno-1')).weeks[0].kmPercorridos).toBe(10);
+    const pace = await reader(rows).getObservations('aluno-1', 'activity.avgPaceSecondsKm');
+    expect(pace.map((o) => o.value)).toEqual([300]);
+    expect((await reader(rows).getObservations('aluno-1', 'activity.cadenceAvg')).map((o) => o.value)).toEqual([172]);
+  });
+
+  it('chegada tardia: classificacao so na copia do Health Connect (canonica ainda sem classificacao) = uma observacao, dados da canonica', async () => {
+    const rows = asEvent('ev-1', 'polar-1', [log('polar-1', { distanceMeters: 10200, executionClassification: null }), log('hc-1', { provider: 'health_connect', distanceMeters: 10500 })]);
+    expect((await evolution(rows).getSeries('aluno-1')).weeks[0].kmPercorridos).toBe(10.2);
+  });
+
+  it('duas corridas legitimas em horarios diferentes (Polar e Health Connect): dois eventos, os dois contam', async () => {
+    const rows = [log('polar-1', { distanceMeters: 10000 }), log('hc-1', { provider: 'health_connect', distanceMeters: 5000, startedAt: new Date('2026-08-03T20:00:00Z') })];
+    expect((await evolution(rows).getSeries('aluno-1')).weeks[0].kmPercorridos).toBe(15);
+  });
+
+  it('identidade AMBIGUA: so entram linhas ja classificadas; a observacao ambigua sem classificacao fica fora (nunca contada por palpite)', async () => {
+    const rows = asAmbiguous([log('polar-1', { distanceMeters: 10000 }), log('hc-1', { provider: 'health_connect', distanceMeters: 10300, executionClassification: null })]);
+    expect((await evolution(rows).getSeries('aluno-1')).weeks[0].kmPercorridos).toBe(10);
+    expect(await reader(rows).getObservations('aluno-1', 'activity.cadenceAvg')).toHaveLength(1);
+  });
+
+  it('LACUNA CONHECIDA (decisao de produto pendente): se DUAS observacoes de identidade ambigua estiverem ambas classificadas, cada uma conta (nao ha deduplicacao sem veredito matched)', async () => {
+    const rows = asAmbiguous([log('polar-1', { distanceMeters: 10000 }), log('hc-1', { provider: 'health_connect', distanceMeters: 10300 })]);
+    expect((await evolution(rows).getSeries('aluno-1')).weeks[0].kmPercorridos).toBe(20.3);
+  });
+});

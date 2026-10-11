@@ -11,6 +11,7 @@
 // SessionExecutionLink.evidence. As tolerancias sao graduadas (forte/fraca) e escalam com a duracao; nenhuma e' "verdade universal".
 
 import { canonicalModality } from './canonical-modality';
+import { isChannelProvider, recordingDeviceIdOf, sourceIdOf, sourceNameOf } from './physical-canonical';
 
 export type IdentityVerdict = 'same' | 'ambiguous' | 'distinct';
 export type EvidenceLevel = 'strong' | 'weak' | 'no';
@@ -44,12 +45,15 @@ export interface IdentityComparison {
 
 // Observador = canal + origem informada. HealthKit pode relatar varias origens (Apple Watch, Strava...): cada bundle e' um
 // observador distinto. Provider direto (polar, garmin...) e' ele mesmo o observador.
+// Health Connect: o app de origem (dataOrigin) NAO basta — um mesmo app (ex.: Samsung Health) pode entregar o mesmo treino observado por dois
+// dispositivos (relogio e celular), que sao observadores distintos e podem ser comparados; por isso o dispositivo gravador, quando informado,
+// faz parte da chave. Sem device informado a chave e' so' o app (dois registros dele nunca sao o mesmo evento). Nunca se presume o dispositivo.
 export function observerKeyOf(provider: string, providerMetrics: unknown): string {
-  if (provider !== 'apple_health') return provider;
-  const source = (providerMetrics as { source?: { bundleId?: unknown; name?: unknown } } | null)?.source;
-  const bundle = typeof source?.bundleId === 'string' && source.bundleId ? source.bundleId : null;
-  const name = typeof source?.name === 'string' && source.name ? source.name : null;
-  return `apple_health:${(bundle ?? name ?? 'desconhecido').toLowerCase()}`;
+  if (!isChannelProvider(provider)) return provider;
+  const base = `${provider}:${sourceIdOf(providerMetrics) ?? sourceNameOf(providerMetrics) ?? 'desconhecido'}`;
+  if (provider !== 'health_connect') return base;
+  const device = recordingDeviceIdOf(providerMetrics);
+  return device ? `${base}|${device}` : base;
 }
 
 const RUNNING_SPORTS = new Set(['corrida', 'esteira']);

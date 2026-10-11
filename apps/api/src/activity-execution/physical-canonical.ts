@@ -59,22 +59,90 @@ export interface CanonicalSelection {
 // ActivityLog (isolamento), mas a regra fica pronta para quando/se houver observacao direta.
 const AGGREGATOR_PROVIDERS = new Set(['strava']);
 
-// Ecossistema da origem de uma observacao HealthKit, pelo bundle id (so' o que a provenance permite afirmar).
+// CANAIS agregadores no aparelho (o canal entrega registros escritos por OUTROS apps/dispositivos): o canal em si nunca prova quem gravou.
+// Cada um informa, em providerMetrics, a origem do registro: `source` ({bundleId|packageName, name}) e, quando existir, `device`.
+//  - apple_health: HKWorkout (source.bundleId; device do HealthKit);
+//  - health_connect (Android): ExerciseSessionRecord (source.packageName = metadata.dataOrigin, o app que ESCREVEU o registro no Health
+//    Connect; device = metadata.device; recordingMethod = metadata.recordingMethod). Tres camadas distintas, nunca fundidas: canal
+//    (provider), app de origem (source) e dispositivo gravador (device) — so' afirmadas quando o proprio dado permite.
+export const CHANNEL_PROVIDERS: ReadonlySet<string> = new Set(['apple_health', 'health_connect']);
+
+export function isChannelProvider(provider: string): boolean {
+  return CHANNEL_PROVIDERS.has(provider);
+}
+
+// Identificador estavel do app de origem informado pelo canal (bundle id no iOS, nome do pacote no Android), em minusculas.
+export function sourceIdOf(providerMetrics: unknown): string | null {
+  const source = (providerMetrics as { source?: { bundleId?: unknown; packageName?: unknown } } | null)?.source;
+  const id = typeof source?.bundleId === 'string' && source.bundleId ? source.bundleId : typeof source?.packageName === 'string' && source.packageName ? source.packageName : null;
+  return id ? id.toLowerCase() : null;
+}
+
+export function sourceNameOf(providerMetrics: unknown): string | null {
+  const name = (providerMetrics as { source?: { name?: unknown } } | null)?.source?.name;
+  return typeof name === 'string' && name ? name.toLowerCase() : null;
+}
+
+function deviceOf(providerMetrics: unknown): { name?: unknown; manufacturer?: unknown; model?: unknown } | null {
+  const device = (providerMetrics as { device?: unknown } | null)?.device;
+  return device && typeof device === 'object' ? (device as { name?: unknown; manufacturer?: unknown; model?: unknown }) : null;
+}
+
+// Identidade do dispositivo gravador informado pelo canal (fabricante/modelo), ou null quando o registro nao informa nenhum dos dois.
+export function recordingDeviceIdOf(providerMetrics: unknown): string | null {
+  const device = deviceOf(providerMetrics);
+  const manufacturer = typeof device?.manufacturer === 'string' ? device.manufacturer.trim().toLowerCase() : '';
+  const model = typeof device?.model === 'string' ? device.model.trim().toLowerCase() : '';
+  return manufacturer || model ? `${manufacturer}/${model}` : null;
+}
+
+type RecordingMethod = 'actively_recorded' | 'automatically_recorded' | 'manual_entry' | 'unknown';
+
+// Metodo de gravacao informado pelo canal (Health Connect: RECORDING_METHOD_*). Qualquer valor nao reconhecido e' 'unknown' (nunca presumido).
+export function recordingMethodOf(providerMetrics: unknown): RecordingMethod {
+  const method = (providerMetrics as { recordingMethod?: unknown } | null)?.recordingMethod;
+  return method === 'actively_recorded' || method === 'automatically_recorded' || method === 'manual_entry' ? method : 'unknown';
+}
+
+// Ecossistema da ORIGEM de uma observacao de canal, pelo id do app de origem (so' o que a provenance permite afirmar; app desconhecido = null).
+// Nomes de pacote Android: Samsung Health com.sec.android.app.shealth; Polar Flow fi.polar.polarflow; Garmin Connect
+// com.garmin.android.apps.connectmobile; Strava com.strava. Ampliar so' com pacote observado/documentado.
 export function ecosystemKeyOf(provider: string, providerMetrics: unknown): string | null {
-  if (provider !== 'apple_health') return provider;
-  const bundle = (providerMetrics as { source?: { bundleId?: unknown } } | null)?.source?.bundleId;
-  if (typeof bundle !== 'string') return null;
-  const id = bundle.toLowerCase();
-  if (id.startsWith('com.apple.')) return 'apple_health';
-  if (id.startsWith('com.polar.')) return 'polar';
+  if (!isChannelProvider(provider)) return provider;
+  const id = sourceIdOf(providerMetrics);
+  if (!id) return null;
+  if (provider === 'apple_health') {
+    if (id.startsWith('com.apple.')) return 'apple_health';
+    if (id.startsWith('com.polar.')) return 'polar';
+    if (id.startsWith('com.garmin.')) return 'garmin';
+    if (id.startsWith('com.strava.')) return 'strava';
+    return null;
+  }
+  if (id === 'com.sec.android.app.shealth') return 'samsung';
+  if (id.startsWith('fi.polar.') || id.startsWith('com.polar.')) return 'polar';
   if (id.startsWith('com.garmin.')) return 'garmin';
-  if (id.startsWith('com.strava.')) return 'strava';
+  if (id === 'com.strava' || id.startsWith('com.strava.')) return 'strava';
   return null;
 }
 
-function deviceOf(providerMetrics: unknown): { name?: unknown; manufacturer?: unknown } | null {
-  const device = (providerMetrics as { device?: unknown } | null)?.device;
-  return device && typeof device === 'object' ? (device as { name?: unknown; manufacturer?: unknown }) : null;
+// Health Connect (Android): o canal NUNCA prova quem gravou. Entrega registros de varios apps (Samsung Health, Polar Flow, Strava, Garmin...).
+//  - entrada manual nunca e' gravacao de dispositivo;
+//  - app Samsung Health so' vira gravador nativo com evidencia de dispositivo Samsung gravando (equivale ao Apple Watch no HealthKit): um
+//    registro do Samsung Health sem esse device pode ter sido importado de outro app — nao se presume Galaxy Watch;
+//  - app de terceiro (Polar Flow, Garmin, Strava, desconhecido): indeterminado; so' vira copia (relay) na 2a passada, com gravacao nativa
+//    direta do mesmo ecossistema no mesmo evento.
+function healthConnectProfile(providerMetrics: unknown): ProvenanceProfile {
+  const ecosystem = ecosystemKeyOf('health_connect', providerMetrics);
+  const method = recordingMethodOf(providerMetrics);
+  if (method === 'manual_entry') return { role: 'unknown', ecosystem, basis: 'manual_entry' };
+  if (ecosystem === 'samsung') {
+    const manufacturer = typeof deviceOf(providerMetrics)?.manufacturer === 'string' ? (deviceOf(providerMetrics)!.manufacturer as string).toLowerCase() : '';
+    const recordedByDevice = method === 'actively_recorded' || method === 'automatically_recorded';
+    return manufacturer.startsWith('samsung') && recordedByDevice
+      ? { role: 'native_recorder', ecosystem, basis: 'samsung_device_recorded' }
+      : { role: 'unknown', ecosystem, basis: 'samsung_source_without_recording_device' };
+  }
+  return { role: 'unknown', ecosystem, basis: 'third_party_app_source' };
 }
 
 // Hardware da Apple como gravador: fabricante Apple ou nome de Apple Watch/iPhone no device informado pelo HealthKit.
@@ -89,6 +157,7 @@ function isAppleRecordingDevice(providerMetrics: unknown): boolean {
 // Perfil de proveniencia de UMA observacao, so' com o que ela mesma informa (1a passada). A promocao a 'relay' depende do evento (ver
 // provenanceProfiles).
 export function baseProvenanceProfile(provider: string, providerMetrics: unknown): ProvenanceProfile {
+  if (provider === 'health_connect') return healthConnectProfile(providerMetrics);
   if (provider !== 'apple_health') {
     if (AGGREGATOR_PROVIDERS.has(provider)) return { role: 'unknown', ecosystem: provider, basis: 'aggregator_cannot_tell_recorder' };
     return { role: 'native_recorder', ecosystem: provider, basis: 'direct_provider_integration' };
@@ -109,11 +178,11 @@ export function baseProvenanceProfile(provider: string, providerMetrics: unknown
 export function provenanceProfiles(members: CanonicalCandidateInput[]): Map<string, ProvenanceProfile> {
   const profiles = new Map(members.map((m) => [m.id, baseProvenanceProfile(m.provider, m.providerMetrics)]));
   const nativeDirectEcosystems = new Set(
-    members.filter((m) => m.provider !== 'apple_health' && profiles.get(m.id)!.role === 'native_recorder').map((m) => profiles.get(m.id)!.ecosystem),
+    members.filter((m) => !isChannelProvider(m.provider) && profiles.get(m.id)!.role === 'native_recorder').map((m) => profiles.get(m.id)!.ecosystem),
   );
   for (const m of members) {
     const profile = profiles.get(m.id)!;
-    if (m.provider === 'apple_health' && profile.basis === 'third_party_app_source' && profile.ecosystem && profile.ecosystem !== 'strava' && nativeDirectEcosystems.has(profile.ecosystem)) {
+    if (isChannelProvider(m.provider) && profile.basis === 'third_party_app_source' && profile.ecosystem && profile.ecosystem !== 'strava' && nativeDirectEcosystems.has(profile.ecosystem)) {
       profiles.set(m.id, { role: 'relay', ecosystem: profile.ecosystem, basis: 'copy_of_native_in_same_event' });
     }
   }
