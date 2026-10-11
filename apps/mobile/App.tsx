@@ -10548,7 +10548,8 @@ function getUserIdFromAccessToken(accessToken: string): string | null {
 const REVENUECAT_ANDROID_API_KEY = (Constants.expoConfig?.extra?.revenueCatAndroidApiKey as string | undefined) ?? '';
 
 function isNativeStorePurchaseAvailable(): boolean {
-  return Platform.OS !== 'web' && REVENUECAT_ANDROID_API_KEY.length > 0;
+  // So' Android: a chave configurada e' do Google Play; no iOS nativo o SDK recusaria a chave e o aluno cairia no link do Asaas, como no PWA.
+  return Platform.OS === 'android' && REVENUECAT_ANDROID_API_KEY.length > 0;
 }
 
 let revenueCatConfiguredUserId: string | null = null;
