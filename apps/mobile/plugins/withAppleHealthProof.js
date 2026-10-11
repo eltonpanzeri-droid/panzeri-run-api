@@ -8,6 +8,9 @@ const IOS_DEPLOYMENT_TARGET = '17.0';
 const HEALTH_SHARE_TEXT =
   'O Panzeri Run le seus treinos de corrida do app Saude (inicio, fim, duracao e distancia). Os dados de treino que voce autorizar podem ser enviados ao Panzeri Run para sincronizacao e acompanhamento do seu treino.';
 
+const HEALTH_UPDATE_TEXT =
+  'O Panzeri Run nao grava registros de saude no app Saude. A Apple exige esta declaracao porque o app usa o HealthKit e pode, somente com a sua autorizacao, agendar no Apple Watch um treino planejado do seu programa de treino.';
+
 module.exports = function withAppleHealthProof(config) {
   config = withEntitlementsPlist(config, (c) => {
     c.modResults['com.apple.developer.healthkit'] = true;
@@ -16,6 +19,8 @@ module.exports = function withAppleHealthProof(config) {
 
   config = withInfoPlist(config, (c) => {
     c.modResults.NSHealthShareUsageDescription = c.modResults.NSHealthShareUsageDescription || HEALTH_SHARE_TEXT;
+    // A Apple (erro 90683) exige a chave quando o app usa HealthKit/WorkoutKit, mesmo sem gravar registros no Saude. O texto diz a verdade: nao grava.
+    c.modResults.NSHealthUpdateUsageDescription = c.modResults.NSHealthUpdateUsageDescription || HEALTH_UPDATE_TEXT;
     return c;
   });
 
