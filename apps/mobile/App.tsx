@@ -4815,7 +4815,15 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
         // Manda de volta os mesmos numeros que a tela de confirmacao mostrou (nao deixa o servidor
         // recalcular) — ver comentario em WeeklyCheckInService.submit sobre por que isso evita
         // divergencia entre o que o aluno confirmou e o que fica registrado.
-        body: JSON.stringify({ ...checkInGate.summary, ...scores, checkinVersion: 3 }),
+        // So' os quatro numeros que a API grava (o status tambem devolve campos informativos, ex.: additionalActivities, que nao devem voltar).
+        body: JSON.stringify({
+          asPrescribedSessions: checkInGate.summary.asPrescribedSessions,
+          changedModalitySessions: checkInGate.summary.changedModalitySessions,
+          differentSessions: checkInGate.summary.differentSessions,
+          missedSessions: checkInGate.summary.missedSessions,
+          ...scores,
+          checkinVersion: 3,
+        }),
       });
       if (!response.ok) {
         setStatus('Nao conseguimos registrar suas respostas agora. Tente de novo em instantes.');

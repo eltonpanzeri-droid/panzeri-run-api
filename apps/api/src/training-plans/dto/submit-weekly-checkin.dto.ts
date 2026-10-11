@@ -27,6 +27,13 @@ export class SubmitWeeklyCheckInDto {
   @Min(0)
   missedSessions!: number;
 
+  // Informativo (3C.2): o status devolve este numero e apps ja publicados reenviam o resumo inteiro; sem este campo a API
+  // (forbidNonWhitelisted) responderia 400 e o check-in nunca seria registrado. Aceito e ignorado: nao e' gravado nem usado.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  additionalActivities?: number;
+
   // Versao do formulario: 1 = 3 perguntas (legado), 2 = 15 perguntas (legado), 3 = 9 perguntas
   // (24/09/2026, atual). Opcional para backward compat com apps antigos ja publicados.
   @IsOptional()
