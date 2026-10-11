@@ -6,9 +6,9 @@ const none = new Set<string>();
 const byId = (list: ReturnType<typeof buildIntegrationsCatalog>, id: string) => list.find((entry) => entry.id === id)!;
 
 describe('catalogo de dispositivos e integracoes', () => {
-  it('lista os 7 fabricantes, sem ids duplicados', () => {
+  it('lista os 8 provedores, sem ids duplicados', () => {
     const ids = INTEGRATION_PROVIDERS.map((provider) => provider.id);
-    expect(ids).toEqual(['polar', 'strava', 'apple_watch', 'samsung', 'garmin', 'coros', 'wahoo']);
+    expect(ids).toEqual(['polar', 'strava', 'apple_watch', 'health_connect', 'samsung', 'garmin', 'coros', 'wahoo']);
     expect(new Set(ids).size).toBe(ids.length);
   });
 

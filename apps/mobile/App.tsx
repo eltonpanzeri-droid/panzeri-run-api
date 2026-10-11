@@ -7,6 +7,8 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { AppleHealthProofCard } from './src/appleHealthProof/AppleHealthProofCard';
 import { IntegrationsHub, IntegrationScreens } from './src/integrations/IntegrationsHub';
+import { HealthConnectCard } from './src/healthConnect/HealthConnectCard';
+import { useHealthConnectAutoSync } from './src/healthConnect/useHealthConnect';
 import { AppleWatchSendButton } from './src/appleWatchDelivery/AppleWatchSendButton';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -1627,6 +1629,8 @@ function AppInner() {
     journeyLinkVia = 'login';
     void linkJourneyToUser(accessToken, via);
   }, [accessToken]);
+  // Health Connect (Android): sincroniza ao abrir o app, so' se o aluno ja' autorizou e respeitando o intervalo minimo. No-op fora do Android.
+  useHealthConnectAutoSync(accessToken, API_URL);
 
   // 09/09: reseta o modulo de correcao sempre que o usuario navegar para fora de fixAnswers
   useEffect(() => {
@@ -9105,6 +9109,7 @@ function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessT
     wahoo: () => <WahooConnect accessToken={accessToken} />,
     // Prova tecnica Apple: so aparece no app nativo iOS com extra.appleHealthProof (o proprio card se autolimita).
     apple_watch: () => <AppleHealthProofCard accessToken={accessToken} apiUrl={API_URL} />,
+    health_connect: () => <HealthConnectCard accessToken={accessToken} apiUrl={API_URL} />,
   };
   return (
     <View style={styles.section}>

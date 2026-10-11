@@ -26,7 +26,12 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/brand/adaptive-icon-foreground.png",
         "backgroundColor": "#071827"
-      }
+      },
+      "permissions": [
+        "android.permission.health.READ_EXERCISE",
+        "android.permission.health.READ_DISTANCE",
+        "android.permission.health.READ_HEART_RATE"
+      ]
     },
     "web": {
       "name": "Panzeri Run",
@@ -48,7 +53,18 @@
     "plugins": [
       "expo-notifications",
       "expo-font",
-      "./plugins/withAppleHealthProof"
+      "./plugins/withAppleHealthProof",
+      "expo-health-connect",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26,
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36
+          }
+        }
+      ]
     ]
   }
 }

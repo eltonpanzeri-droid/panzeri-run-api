@@ -56,6 +56,16 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     capabilities: { receiveActivities: false, sendWorkouts: true },
   },
   {
+    id: 'health_connect',
+    name: 'Health Connect',
+    // Canal de entrada de atividades no Android (nao e' fabricante nem dispositivo): importa o que os aplicativos que o aluno ja' usa (Polar Flow, Samsung
+    // Health, entre outros) compartilham com o Health Connect, so' com a autorizacao do aluno. Nenhuma marca especifica e' prometida.
+    summary: 'Importa suas atividades dos aplicativos que compartilham dados com o Health Connect do Android, só com a sua autorização. A origem de cada atividade é preservada.',
+    availability: 'available',
+    platforms: ['android'],
+    capabilities: { receiveActivities: true, sendWorkouts: false },
+  },
+  {
     id: 'samsung',
     name: 'Samsung / Galaxy Watch',
     summary: 'Integração ainda não disponível.',

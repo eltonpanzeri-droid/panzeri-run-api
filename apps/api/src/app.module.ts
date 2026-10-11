@@ -13,6 +13,7 @@ import { StravaModule } from './strava/strava.module';
 import { PolarModule } from './polar/polar.module';
 import { WahooModule } from './wahoo/wahoo.module';
 import { AppleHealthModule } from './apple-health/apple-health.module';
+import { HealthConnectModule } from './health-connect/health-connect.module';
 import { TrainingPlansModule } from './training-plans/training-plans.module';
 import { WorkoutCompletionsModule } from './workout-completions/workout-completions.module';
 import { BillingModule } from './billing/billing.module';
@@ -53,6 +54,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     PolarModule,
     WahooModule,
     AppleHealthModule,
+    HealthConnectModule,
     ActivityExecutionModule,
     WorkoutDeliveryModule,
     ShoesModule,

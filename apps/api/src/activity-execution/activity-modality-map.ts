@@ -38,6 +38,29 @@ export function appleHealthModality(activityTypeRaw: unknown, activityType: unkn
   return modality === 'corrida' && isIndoor === true ? 'esteira' : modality;
 }
 
+// ── Health Connect (Android): ExerciseSessionRecord.exerciseType ───────────────────────────────────────────────────────
+// Valores NUMERICOS oficiais de ExerciseSessionRecord.EXERCISE_TYPE_* (documentacao do Android Health Connect; as mesmas constantes expostas por
+// react-native-health-connect como ExerciseType). So' codigos da tabela; codigo desconhecido => 'outra' (registrada, nunca descartada).
+const HEALTH_CONNECT_BY_TYPE: Record<number, ObservedModality> = {
+  56: 'corrida',      // RUNNING
+  57: 'esteira',      // RUNNING_TREADMILL
+  79: 'caminhada',    // WALKING
+  37: 'caminhada',    // HIKING
+  8: 'bike',          // BIKING
+  9: 'bike',          // BIKING_STATIONARY
+  73: 'natacao',      // SWIMMING_OPEN_WATER
+  74: 'natacao',      // SWIMMING_POOL
+  70: 'forca',        // STRENGTH_TRAINING
+  81: 'forca',        // WEIGHTLIFTING
+  36: 'funcional',    // HIGH_INTENSITY_INTERVAL_TRAINING
+  13: 'funcional',    // CALISTHENICS
+  10: 'funcional',    // BOOT_CAMP
+};
+
+export function healthConnectModality(exerciseType: unknown): ObservedModality {
+  return typeof exerciseType === 'number' && Number.isInteger(exerciseType) ? (HEALTH_CONNECT_BY_TYPE[exerciseType] ?? 'outra') : 'outra';
+}
+
 // ── Wahoo Cloud API (workout_type_id) ─────────────────────────────────────────────────────────────────────────────────
 const WAHOO_BY_ID: Record<number, ObservedModality> = {
   1: 'corrida', 3: 'corrida', 4: 'corrida', 67: 'corrida',        // RUNNING, RUNNING_TRACK, RUNNING_TRAIL, RUNNING_RACE
