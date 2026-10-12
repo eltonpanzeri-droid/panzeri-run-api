@@ -4997,6 +4997,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       const outcome = await purchaseNativeSubscription();
       if (outcome.status === 'success') {
         setBillingMessage('Pagamento confirmado! Atualizando seu acesso...');
+        await syncStoreAccess(accessToken);
         await loadPlan();
         setTimeout(() => { void loadPlan(); }, 4000);
       } else if (outcome.status === 'cancelled') {
@@ -5161,13 +5162,18 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
   const subscriptionOffer = (
     <View style={styles.formSection}>
       <Text style={styles.formSectionTitle}>Assinatura Panzeri Run</Text>
-      <Text style={styles.formHint}>{plan?.priceLabel ?? 'R$ 19,90 por mes'}. Plano mensal, sem fidelidade.</Text>
-      <Text style={styles.inputLabel}>CPF</Text>
-      <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
+      <StorePriceText style={styles.formHint} fallback={plan?.priceLabel ?? 'R$ 19,90 por mes'} suffix=". Plano mensal, sem fidelidade." />
+      {!isNativeStorePurchaseAvailable() ? (
+        <>
+          <Text style={styles.inputLabel}>CPF</Text>
+          <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
+        </>
+      ) : null}
       <Pressable style={[styles.primaryButton, isCheckingOut && styles.disabledButton]} disabled={isCheckingOut} onPress={openSubscriptionCheckout}>
         <Text style={styles.primaryButtonText}>{isCheckingOut ? 'Preparando pagamento...' : 'Ativar minha assinatura'}</Text>
         <Ionicons name="card" size={18} color={PRColors.mineral} />
       </Pressable>
+      <RestorePurchasesButton accessToken={accessToken} onDone={() => { void loadPlan(); }} />
       <Text style={styles.formHint}>O acesso aos treinos sera liberado assim que o pagamento for confirmado.</Text>
       <View style={styles.couponBox}>
         <Text style={styles.inputLabel}>Tenho um cupom</Text>
@@ -5288,13 +5294,18 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
         </View>
         <View style={styles.formSection}>
           <Text style={styles.formSectionTitle}>Assinatura Panzeri Run</Text>
-          <Text style={styles.formHint}>{plan.priceLabel ?? 'R$ 19,90 por mes'}. Plano mensal, sem fidelidade.</Text>
-          <Text style={styles.inputLabel}>CPF</Text>
-          <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
+          <StorePriceText style={styles.formHint} fallback={plan.priceLabel ?? 'R$ 19,90 por mes'} suffix=". Plano mensal, sem fidelidade." />
+          {!isNativeStorePurchaseAvailable() ? (
+            <>
+              <Text style={styles.inputLabel}>CPF</Text>
+              <TextInput style={styles.input} value={cpf} onChangeText={setCpf} placeholder="Somente numeros" keyboardType="number-pad" maxLength={14} />
+            </>
+          ) : null}
           <Pressable style={[styles.primaryButton, isCheckingOut && styles.disabledButton]} disabled={isCheckingOut} onPress={openSubscriptionCheckout}>
             <Text style={styles.primaryButtonText}>{isCheckingOut ? 'Preparando pagamento...' : 'Ativar minha assinatura'}</Text>
             <Ionicons name="card" size={18} color={PRColors.mineral} />
           </Pressable>
+          <RestorePurchasesButton accessToken={accessToken} onDone={() => { void loadPlan(); }} />
           <Text style={styles.formHint}>Seu treino ja esta preparado. Apos a confirmacao, o acesso e liberado para iniciar os treinos.</Text>
           <View style={styles.couponBox}>
             <Text style={styles.inputLabel}>Tenho um cupom</Text>
@@ -9606,6 +9617,7 @@ function Billing({ accessToken }: { accessToken: string }) {
       const outcome = await purchaseNativeSubscription();
       if (outcome.status === 'success') {
         setMessage('Pagamento confirmado! Atualizando seu acesso...');
+        await syncStoreAccess(accessToken);
         await loadBilling(false);
         setTimeout(() => { void loadBilling(false); }, 4000);
       } else if (outcome.status === 'cancelled') {
@@ -9769,7 +9781,7 @@ function Billing({ accessToken }: { accessToken: string }) {
       <Text style={styles.titleSmall}>{details?.planName ?? 'Panzeri Run - Plano mensal'}</Text>
       <View style={styles.formSection}>
         <Text style={styles.formSectionTitle}>Sua assinatura</Text>
-        <Text style={styles.reportText}>Valor: {details?.priceLabel ?? 'R$ 19,90 por mes'}</Text>
+        <StorePriceText style={styles.reportText} prefix="Valor: " fallback={details?.priceLabel ?? 'R$ 19,90 por mes'} />
         <Text style={styles.reportText}>Situacao: {details?.subscriptionContext?.statusMessage ?? (active ? 'Ativa' : details?.status === 'overdue' ? 'Pagamento pendente' : details?.status === 'canceled' ? 'Cancelada' : 'Aguardando ativacao')}</Text>
         <Text style={styles.reportText}>Pagamento: {paymentConfirmed ? 'Pagamento confirmado' : active ? 'Assinatura ativa' : 'Aguardando pagamento'}</Text>
         {details?.nextChargeAt ? <Text style={styles.reportText}>Proxima cobranca: {new Date(details.nextChargeAt).toLocaleDateString('pt-BR')}</Text> : null}
@@ -9802,7 +9814,7 @@ function Billing({ accessToken }: { accessToken: string }) {
         // open_checkout / reactivate: fluxo de checkout normal com CPF se necessário
         return (
           <View style={styles.formSection}>
-            {!details?.hasCpf ? (
+            {!details?.hasCpf && !isNativeStorePurchaseAvailable() ? (
               <>
                 <Text style={styles.formSectionTitle}>CPF</Text>
                 <Text style={styles.formHint}>Necessario para gerar a cobranca no Asaas.</Text>
@@ -9813,6 +9825,7 @@ function Billing({ accessToken }: { accessToken: string }) {
               <Text style={styles.primaryButtonText}>{isCheckingOut ? 'Preparando pagamento...' : ctaLabel}</Text>
               <Ionicons name="card" size={18} color={PRColors.mineral} />
             </Pressable>
+            <RestorePurchasesButton accessToken={accessToken} onDone={() => { void loadBilling(false); }} />
           </View>
         );
       })()}
@@ -10549,10 +10562,15 @@ function getUserIdFromAccessToken(accessToken: string): string | null {
 // extra.revenueCatAndroidApiKey — com isso vazio, todo o fluxo abaixo fica inerte de proposito
 // (sem key, nao tenta configurar nem comprar nada, so cai no link do Asaas como ja fazia).
 const REVENUECAT_ANDROID_API_KEY = (Constants.expoConfig?.extra?.revenueCatAndroidApiKey as string | undefined) ?? '';
+// Chave PUBLICA do SDK do RevenueCat para iOS (appl_...). Vazia => no iPhone nativo o fluxo da loja fica inerte (a build NAO deve sair sem ela).
+const REVENUECAT_IOS_API_KEY = (Constants.expoConfig?.extra?.revenueCatIosApiKey as string | undefined) ?? '';
+function revenueCatApiKey(): string {
+  return Platform.OS === 'ios' ? REVENUECAT_IOS_API_KEY : Platform.OS === 'android' ? REVENUECAT_ANDROID_API_KEY : '';
+}
 
 function isNativeStorePurchaseAvailable(): boolean {
   // So' Android: a chave configurada e' do Google Play; no iOS nativo o SDK recusaria a chave e o aluno cairia no link do Asaas, como no PWA.
-  return Platform.OS === 'android' && REVENUECAT_ANDROID_API_KEY.length > 0;
+  return revenueCatApiKey().length > 0;
 }
 
 let revenueCatConfiguredUserId: string | null = null;
@@ -10562,7 +10580,7 @@ async function configureRevenueCatIfNeeded(userId: string | null) {
   if (!isNativeStorePurchaseAvailable() || !userId || revenueCatConfiguredUserId === userId) return;
   try {
     if (!revenueCatConfiguredUserId) {
-      Purchases.configure({ apiKey: REVENUECAT_ANDROID_API_KEY, appUserID: userId });
+      Purchases.configure({ apiKey: revenueCatApiKey(), appUserID: userId });
     } else {
       await Purchases.logIn(userId);
     }
@@ -10605,6 +10623,76 @@ async function purchaseNativeSubscription(): Promise<NativePurchaseOutcome> {
     }
     return { status: 'error', message: purchasesError?.message || 'Nao foi possivel concluir a compra. Tente novamente.' };
   }
+}
+
+// O acesso NUNCA e' liberado so' pela confirmacao local do aparelho: depois de comprar/restaurar, o app pede ao SERVIDOR que valide no RevenueCat
+// (POST /billing/store/sync, usuario pelo token). Melhor esforco: o webhook do RevenueCat continua sendo a via principal.
+async function syncStoreAccess(accessToken: string): Promise<void> {
+  try {
+    await fetch(`${API_URL}/billing/store/sync`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+  } catch {
+    /* sem rede: o webhook ou a proxima abertura do app atualizam o acesso */
+  }
+}
+
+// "Restaurar compras" (exigido pela Apple): recupera a assinatura da conta Apple/Google e pede a validacao ao servidor.
+async function restoreNativePurchases(accessToken: string): Promise<{ status: 'restored' | 'none' | 'error'; message: string }> {
+  try {
+    const info = await Purchases.restorePurchases();
+    await syncStoreAccess(accessToken);
+    return info.activeSubscriptions.length > 0
+      ? { status: 'restored', message: 'Assinatura restaurada. Atualizando seu acesso...' }
+      : { status: 'none', message: 'Nenhuma assinatura ativa foi encontrada nesta conta da loja.' };
+  } catch {
+    return { status: 'error', message: 'Nao foi possivel restaurar agora. Tente novamente.' };
+  }
+}
+
+// Preco REAL da loja (exigencia da Apple: mostrar o preco que a loja vai cobrar). Fora do app nativo, ou se a loja nao responder, usa o texto do servidor.
+function StorePriceText({ fallback, prefix = '', suffix = '', style }: { fallback: string; prefix?: string; suffix?: string; style: object }) {
+  const [price, setPrice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isNativeStorePurchaseAvailable()) return;
+    let alive = true;
+    const load = () => Purchases.getOfferings().then((offerings) => {
+      const label = offerings.current?.availablePackages?.[0]?.product?.priceString;
+      if (alive && label) setPrice(`${label} por mes`);
+    });
+    load().catch(() => { setTimeout(() => { load().catch(() => undefined); }, 2000); });
+    return () => { alive = false; };
+  }, []);
+  return <Text style={style}>{prefix}{price ?? fallback}{suffix}</Text>;
+}
+
+function RestorePurchasesButton({ accessToken, onDone }: { accessToken: string; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  if (!isNativeStorePurchaseAvailable()) return null;
+  return (
+    <View style={{ gap: 6 }}>
+      <Pressable
+        disabled={busy}
+        accessibilityRole="button"
+        onPress={async () => {
+          if (busy) return;
+          setBusy(true);
+          const result = await restoreNativePurchases(accessToken);
+          setMessage(result.message);
+          setBusy(false);
+          if (result.status === 'restored') { onDone(); setTimeout(onDone, 4000); }
+        }}
+      >
+        <Text style={styles.termsLink}>{busy ? 'Restaurando...' : 'Restaurar compras'}</Text>
+      </Pressable>
+      {message ? <Text style={styles.formHint}>{message}</Text> : null}
+      {/* Apple 3.1.2: renovacao automatica, como cancelar e links dos documentos, junto da oferta. */}
+      <Text style={styles.formHint}>
+        Assinatura mensal com renovação automática, cobrada na sua conta {Platform.OS === 'ios' ? 'Apple' : 'Google Play'}. Para cancelar, {Platform.OS === 'ios' ? 'abra Ajustes > seu nome > Assinaturas' : 'abra a Google Play > Pagamentos e assinaturas > Assinaturas'}, pelo menos 24 horas antes da renovação.{' '}
+        <Text style={styles.termsLink} onPress={() => Linking.openURL(LEGAL_TERMS_URL)}>Termos de Uso</Text>{'  ·  '}
+        <Text style={styles.termsLink} onPress={() => Linking.openURL(LEGAL_PRIVACY_URL)}>Política de Privacidade</Text>
+      </Text>
+    </View>
+  );
 }
 
 async function restoreAuthSession(): Promise<AuthSession | null> {

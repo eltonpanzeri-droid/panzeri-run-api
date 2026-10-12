@@ -39,7 +39,7 @@ export const SUPPORT_EMAIL = 'eltonpanzeri@gmail.com';
 export function chargesAckText(subscription: DeletionInfo['subscription']): string {
   const { channel, pendingCharges } = subscription;
   if (channel === 'store') {
-    return 'Entendo que excluir a conta NÃO cancela a assinatura da loja e que a cobrança continuará até eu cancelá-la na Google Play, mesmo sem acesso ao aplicativo.';
+    return 'Entendo que excluir a conta NÃO cancela a assinatura da loja e que a cobrança continuará até eu cancelá-la na loja (App Store ou Google Play), mesmo sem acesso ao aplicativo.';
   }
   const issued = pendingCharges === 'no' ? '' : ' (inclusive as já emitidas e ainda em aberto)';
   return `Entendo que, se eu não cancelar a assinatura, as cobranças poderão continuar${issued} mesmo depois da exclusão e sem acesso ao aplicativo. Para cancelar depois, preciso falar com o responsável pelo Panzeri Run (${SUPPORT_EMAIL}).`;
@@ -52,6 +52,19 @@ export const PLAY_STORE_CANCEL_STEPS = [
   'Escolha "Panzeri Run" e toque em "Cancelar assinatura".',
 ];
 export const PLAY_SUBSCRIPTIONS_URL = 'https://play.google.com/store/account/subscriptions';
+export const APPLE_CANCEL_STEPS = [
+  'Abra o app Ajustes do iPhone.',
+  'Toque no seu nome (Apple ID) e depois em "Assinaturas".',
+  'Escolha "Panzeri Run" e toque em "Cancelar assinatura".',
+];
+export const APPLE_SUBSCRIPTIONS_URL = 'https://apps.apple.com/account/subscriptions';
+
+// Orientacao da loja certa conforme o aparelho: iPhone => Apple; Android => Google Play; web => as duas.
+export function storeCancelGuides(os: string): Array<{ store: string; steps: string[]; url: string; linkLabel: string }> {
+  const apple = { store: 'App Store', steps: APPLE_CANCEL_STEPS, url: APPLE_SUBSCRIPTIONS_URL, linkLabel: 'Abrir minhas assinaturas da App Store' };
+  const google = { store: 'Google Play', steps: PLAY_STORE_CANCEL_STEPS, url: PLAY_SUBSCRIPTIONS_URL, linkLabel: 'Abrir minhas assinaturas no Google Play' };
+  return os === 'ios' ? [apple] : os === 'android' ? [google] : [apple, google];
+}
 
 export function needsChargesChoice(info: DeletionInfo | null): boolean {
   return !!info && info.requiresChargesChoice;
@@ -60,7 +73,7 @@ export function needsChargesChoice(info: DeletionInfo | null): boolean {
 export function subscriptionNotice(info: DeletionInfo): string | null {
   const { channel, live, pendingCharges } = info.subscription;
   if (channel === 'none' || (live === 'no' && pendingCharges === 'no' && channel !== 'store')) return null;
-  if (channel === 'store') return 'Sua assinatura é feita pela loja de aplicativos (Google Play). Só você pode cancelá-la, na própria loja.';
+  if (channel === 'store') return 'Sua assinatura é feita pela loja de aplicativos (App Store ou Google Play). Só você pode cancelá-la, na própria loja.';
   if (live === 'unknown') return 'Não conseguimos confirmar agora se sua assinatura no Asaas está ativa. Por segurança, tratamos como possivelmente ativa.';
   if (live === 'no') return 'Sua assinatura no Asaas não está ativa, mas ainda há cobranças já emitidas em aberto.';
   return 'Você tem uma assinatura ativa no Asaas.';

@@ -1,6 +1,6 @@
-﻿import { Body, Controller, Get, Headers, Post, UseGuards } from '@nestjs/common';
+﻿import { Body, Controller, Get, Headers, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { SkipThrottle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { BillingService } from './billing.service';
 import { ApplyCouponDto } from './dto/apply-coupon.dto';
@@ -25,6 +25,13 @@ export class BillingController {
   createCheckout(@CurrentUser() user: CurrentUserPayload, @Body() dto: CreateCheckoutDto) {
     return this.billingService.createCheckout(user.sub, dto.cpf);
   }
+
+  // Assinatura comprada/restaurada pela loja (Apple/Google): o app pede ao SERVIDOR que valide no RevenueCat. O usuario vem sempre do token.
+  @UseGuards(AuthGuard('jwt'))
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('store/sync')
+  syncStore(@CurrentUser() user: CurrentUserPayload) { return this.billingService.syncStoreSubscription(user.sub); }
 
   @UseGuards(AuthGuard('jwt'))
   @Post('cancel')

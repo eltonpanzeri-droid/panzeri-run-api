@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { PRColors } from '../../theme/tokens';
 import {
   buildBody, canSubmit, ChargesChoice, CONFIRM_PHRASE, DeletionInfo, describeFailure, EXTERNAL_CHARGES_WARNING, IRREVERSIBLE_WARNING, needsChargesChoice,
-  chargesAckText, pendingChargesLines, PLAY_STORE_CANCEL_STEPS, PLAY_SUBSCRIPTIONS_URL, subscriptionNotice, WILL_BE_DELETED, WILL_BE_KEPT,
+  chargesAckText, pendingChargesLines, storeCancelGuides, subscriptionNotice, WILL_BE_DELETED, WILL_BE_KEPT,
 } from './logic';
 
 const DANGER = '#b91c1c';
@@ -112,10 +112,14 @@ export function DeleteAccountSection({ accessToken, apiUrl, onDeleted, onOpenBil
                 <Pressable style={styles.outline} onPress={onOpenBilling} accessibilityRole="button"><Text style={styles.outlineText}>Ver e cancelar minha assinatura antes</Text></Pressable>
               ) : null}
               {info.subscription.channel === 'store' ? (
-                <View style={{ gap: 4 }}>
-                  <Text style={styles.alertText}>Para cancelar pela loja:</Text>
-                  {PLAY_STORE_CANCEL_STEPS.map((step, index) => <Text key={step} style={styles.alertText}>{index + 1}. {step}</Text>)}
-                  <Pressable onPress={() => { void Linking.openURL(PLAY_SUBSCRIPTIONS_URL).catch(() => undefined); }} accessibilityRole="link"><Text style={styles.link}>Abrir minhas assinaturas no Google Play</Text></Pressable>
+                <View style={{ gap: 8 }}>
+                  {storeCancelGuides(Platform.OS).map((guide) => (
+                    <View key={guide.store} style={{ gap: 4 }}>
+                      <Text style={styles.alertText}>Para cancelar pela {guide.store}:</Text>
+                      {guide.steps.map((step, index) => <Text key={step} style={styles.alertText}>{index + 1}. {step}</Text>)}
+                      <Pressable onPress={() => { void Linking.openURL(guide.url).catch(() => undefined); }} accessibilityRole="link"><Text style={styles.link}>{guide.linkLabel}</Text></Pressable>
+                    </View>
+                  ))}
                 </View>
               ) : null}
               {choiceRequired ? (

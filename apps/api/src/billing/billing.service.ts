@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, forwardRef, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, forwardRef, Inject, Injectable, Logger, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService, formatStudentCode } from './telegram.service';
@@ -25,6 +25,20 @@ type AsaasPayment = {
   confirmedDate?: string | null;
 };
 type AsaasPaymentList = { data: AsaasPayment[]; totalCount?: number };
+// Evento do RevenueCat (Apple App Store e Google Play usam o MESMO formato; o app_user_id e' o nosso userId).
+type RevenueCatEvent = {
+  type?: string;
+  app_user_id?: string;
+  product_id?: string;
+  // 18/09 (CI-001, Fase 0 Data Layer): campos usados so para marcar firstPaidAt/firstPaidPaymentId na primeira compra.
+  transaction_id?: string;
+  original_transaction_id?: string;
+  purchased_at_ms?: number;
+  // TRANSFER (compra restaurada em OUTRA conta): ids de origem e destino.
+  transferred_from?: string[];
+  transferred_to?: string[];
+};
+type RevenueCatSubscription = { expires_date?: string | null; original_purchase_date?: string | null; store?: string; product_identifier?: string };
 export type SubscriptionExposure = {
   channel: 'asaas' | 'store' | 'none';
   live: 'yes' | 'no' | 'unknown';
@@ -780,6 +794,59 @@ export class BillingService {
     return { received: true };
   }
 
+  // VALIDACAO NO SERVIDOR da assinatura da loja (Apple/Google) consultando o RevenueCat com a chave SECRETA (nunca no app). O app chama depois de comprar
+  // ou restaurar; o resultado vai pelo MESMO tratamento do webhook (idempotente, precedencia de grants manuais, sem tocar em assinatura Asaas).
+  async syncStoreSubscription(userId: string): Promise<{ status: 'active' | 'inactive' | 'unchanged'; store: string | null }> {
+    const secret = this.config.get<string>('REVENUECAT_SECRET_API_KEY');
+    if (!secret) throw new ServiceUnavailableException('Validacao da assinatura da loja nao configurada.');
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { accountStatus: true, subscriptionStatus: true, subscriptionProvider: true } });
+    if (!user || user.accountStatus === 'deleted') return { status: 'unchanged', store: null };
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    let subscriptions: RevenueCatSubscription[];
+    try {
+      const response = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`, { headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' }, signal: controller.signal });
+      if (!response.ok) throw new BadGatewayException('Nao foi possivel validar a assinatura agora.');
+      const body = (await response.json()) as { subscriber?: { subscriptions?: Record<string, RevenueCatSubscription> } };
+      subscriptions = Object.values(body.subscriber?.subscriptions ?? {});
+    } catch (error) {
+      if (error instanceof BadGatewayException) throw error;
+      throw new BadGatewayException('Nao foi possivel validar a assinatura agora.');
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const now = Date.now();
+    const active = subscriptions.find((s) => !s.expires_date || new Date(s.expires_date).getTime() > now);
+    const hasAccess = ['active', 'manual_active', 'grace'].includes(user.subscriptionStatus);
+    if (active) {
+      if (hasAccess) return { status: 'active', store: active.store ?? null };
+      await this.handleRevenueCatEvent({
+        type: 'INITIAL_PURCHASE', app_user_id: userId, product_id: active.product_identifier,
+        purchased_at_ms: active.original_purchase_date ? new Date(active.original_purchase_date).getTime() : undefined,
+      });
+      return { status: 'active', store: active.store ?? null };
+    }
+    // Sem assinatura ativa na loja: so' revoga quem tinha acesso PELA LOJA (nunca assinante Asaas nem grant manual).
+    if (user.subscriptionProvider === 'revenuecat' && ['active', 'overdue'].includes(user.subscriptionStatus)) {
+      await this.handleRevenueCatEvent({ type: 'EXPIRATION', app_user_id: userId });
+      return { status: 'inactive', store: null };
+    }
+    return { status: 'unchanged', store: null };
+  }
+
+  private async handleRevenueCatTransfer(event: RevenueCatEvent) {
+    const ids = [...(event.transferred_from ?? []), ...(event.transferred_to ?? [])].filter((id) => typeof id === 'string' && !id.startsWith('$RCAnonymousID'));
+    if (!this.config.get<string>('REVENUECAT_SECRET_API_KEY')) {
+      await this.telegram.notifyCoach('AVISO: uma compra da loja foi TRANSFERIDA entre contas (restauracao) e a validacao automatica nao esta configurada (REVENUECAT_SECRET_API_KEY). Revise o acesso das contas envolvidas no RevenueCat.').catch(() => undefined);
+      return;
+    }
+    for (const id of new Set(ids)) {
+      await this.syncStoreSubscription(id).catch((error) => this.logger.warn(`Falha ao validar assinatura apos TRANSFER: ${(error as Error).message?.slice(0, 120)}`));
+    }
+  }
+
   private recordCancelFeedbackInTimeline(userId: string, feedbackText?: string) {
     void this.reportTimeline.record({
       userId,
@@ -990,19 +1057,7 @@ export class BillingService {
   // separada.
   async processRevenueCatWebhook(
     authHeader: string | undefined,
-    payload: {
-      event?: {
-        type?: string;
-        app_user_id?: string;
-        product_id?: string;
-        // 18/09 (CI-001, Fase 0 Data Layer): campos que o RevenueCat de fato envia no webhook,
-        // usados so para marcar firstPaidAt/firstPaidPaymentId na primeira compra — nao existiam
-        // no tipo antes porque nada aqui usava esses dados.
-        transaction_id?: string;
-        original_transaction_id?: string;
-        purchased_at_ms?: number;
-      };
-    },
+    payload: { event?: RevenueCatEvent },
   ) {
     const expectedSecret = this.config.get<string>('REVENUECAT_WEBHOOK_SECRET');
     const providedSecret = authHeader?.replace(/^Bearer\s+/i, '');
@@ -1010,7 +1065,17 @@ export class BillingService {
       throw new UnauthorizedException('Token de webhook invalido.');
     }
 
-    const event = payload.event;
+    return this.handleRevenueCatEvent(payload.event);
+  }
+
+  // Tratamento do evento (ja' autenticado). Separado para ser reutilizado pela validacao ativa (syncStoreSubscription) sem duplicar regra de assinatura.
+  private async handleRevenueCatEvent(event: RevenueCatEvent | undefined) {
+    // Compra restaurada em outra conta: o RevenueCat move o direito de uma conta para outra e avisa por TRANSFER (sem app_user_id). A concessao/remocao
+    // e' decidida pelo estado REAL no RevenueCat (validacao no servidor), conta por conta.
+    if (event?.type === 'TRANSFER') {
+      await this.handleRevenueCatTransfer(event);
+      return { received: true };
+    }
     const userId = event?.app_user_id;
     if (!userId) return { received: true };
 
