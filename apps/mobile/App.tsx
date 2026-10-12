@@ -2444,7 +2444,7 @@ function Login({
 
       const registerResponse = await fetch(`${API_URL}/auth/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(Platform.OS === 'ios' ? { 'X-Client-Platform': 'ios-app' } : {}) },
         body: JSON.stringify({
           name: name.trim(),
           email: cleanEmail,
@@ -5175,6 +5175,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       </Pressable>
       <RestorePurchasesButton accessToken={accessToken} onDone={() => { void loadPlan(); }} />
       <Text style={styles.formHint}>O acesso aos treinos sera liberado assim que o pagamento for confirmado.</Text>
+      {!iosStoreBuild() ? (
       <View style={styles.couponBox}>
         <Text style={styles.inputLabel}>Tenho um cupom</Text>
         <View style={styles.couponRow}>
@@ -5184,6 +5185,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
           </Pressable>
         </View>
       </View>
+      ) : null}
       {billingMessage ? <Text style={styles.statusMessage}>{billingMessage}</Text> : null}
     </View>
   );
@@ -5307,6 +5309,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
           </Pressable>
           <RestorePurchasesButton accessToken={accessToken} onDone={() => { void loadPlan(); }} />
           <Text style={styles.formHint}>Seu treino ja esta preparado. Apos a confirmacao, o acesso e liberado para iniciar os treinos.</Text>
+          {!iosStoreBuild() ? (
           <View style={styles.couponBox}>
             <Text style={styles.inputLabel}>Tenho um cupom</Text>
             <View style={styles.couponRow}>
@@ -5316,6 +5319,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
               </Pressable>
             </View>
           </View>
+          ) : null}
           {billingMessage ? <Text style={styles.statusMessage}>{billingMessage}</Text> : null}
         </View>
       </View>
@@ -9536,6 +9540,7 @@ function Billing({ accessToken }: { accessToken: string }) {
     canCancel: boolean;
     syncError?: boolean;
     hasCpf?: boolean;
+    storeManaged?: boolean;
     // 05/09: contexto semântico de assinatura — derivado pelo backend, elimina lógica duplicada
     // no app. Pode ser null em versões antigas da API (fallback para lógica anterior).
     subscriptionContext?: {
@@ -9717,6 +9722,16 @@ function Billing({ accessToken }: { accessToken: string }) {
 
   // 05/09: CTA orientado ao estado da assinatura — delega ao subscribe() quando o fluxo é de
   // checkout/reativação, abre a fatura pendente diretamente quando o estado é overdue.
+  // Quem ja tem acesso (ex.: assinatura do site) tambem pode VER a oferta da App Store — com aviso claro de que assinar de novo geraria outra cobranca.
+  // Permite a equipe da Apple testar a assinatura sem trocar a conta de demonstracao.
+  function previewStoreOffer() {
+    Alert.alert(
+      'Assinatura pela App Store',
+      'Voce ja tem acesso ativo. Assinar tambem pela App Store geraria uma segunda cobranca. Deseja ver a oferta mesmo assim?',
+      [{ text: 'Agora nao', style: 'cancel' }, { text: 'Ver oferta', onPress: () => { void subscribe(); } }],
+    );
+  }
+
   async function handleCta() {
     const ctx = details?.subscriptionContext;
     if (!ctx || ctx.ctaAction === 'open_checkout' || ctx.ctaAction === 'reactivate') {
@@ -9724,6 +9739,11 @@ function Billing({ accessToken }: { accessToken: string }) {
       return;
     }
     if (ctx.ctaAction === 'pay_overdue') {
+      if (iosStoreBuild()) {
+        // Quem assinou pelo site continua acessando; mas o app do iPhone nao leva a pagamento fora da App Store.
+        setMessage('Seu pagamento feito pelo site esta pendente. Para continuar no iPhone, fale com o treinador ou assine pela App Store.');
+        return;
+      }
       if (!ctx.actionUrl) {
         setMessage('Nao consegui obter o link da fatura. Atualize a situacao e tente novamente.');
         return;
@@ -9830,7 +9850,7 @@ function Billing({ accessToken }: { accessToken: string }) {
         );
       })()}
 
-      {!active ? (
+      {!active && !iosStoreBuild() ? (
         <View style={styles.formSection}>
           <Text style={styles.formSectionTitle}>Cupom de acesso</Text>
           <Text style={styles.formHint}>Use apenas se voce recebeu um cupom do treinador.</Text>
@@ -9844,8 +9864,13 @@ function Billing({ accessToken }: { accessToken: string }) {
       ) : null}
 
       {details?.canCancel && !cancelStep ? (
-        <Pressable style={styles.secondaryButton} onPress={() => setCancelStep('reason')}>
-          <Text style={styles.secondaryButtonText}>Cancelar assinatura</Text>
+        <Pressable style={styles.secondaryButton} onPress={() => { if (details?.storeManaged) { void openStoreSubscriptionManagement(setMessage); } else { setCancelStep('reason'); } }}>
+          <Text style={styles.secondaryButtonText}>{details?.storeManaged ? 'Gerenciar assinatura na loja' : 'Cancelar assinatura'}</Text>
+        </Pressable>
+      ) : null}
+      {iosStoreBuild() && active && !details?.storeManaged ? (
+        <Pressable accessibilityRole="button" onPress={previewStoreOffer}>
+          <Text style={styles.termsLink}>Ver assinatura pela App Store</Text>
         </Pressable>
       ) : null}
 
@@ -9946,9 +9971,13 @@ function Billing({ accessToken }: { accessToken: string }) {
         <Text style={styles.secondaryButtonText}>Atualizar situacao</Text>
       </Pressable>
       {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
-      <Text style={styles.formHint}>O pagamento e processado em ambiente seguro pelo Asaas via cartao de credito. A cobranca e renovada automaticamente todo mes.</Text>
+      {details?.storeManaged ? (
+        <Text style={styles.formHint}>A assinatura e cobrada pela {Platform.OS === 'ios' ? 'App Store' : Platform.OS === 'android' ? 'Google Play' : 'loja de aplicativos'} e renovada automaticamente todo mes. Para cancelar, use o botao acima.</Text>
+      ) : iosStoreBuild() ? null : (
+        <Text style={styles.formHint}>O pagamento e processado em ambiente seguro pelo Asaas via cartao de credito. A cobranca e renovada automaticamente todo mes.</Text>
+      )}
 
-      {history.length ? (
+      {history.length > 0 && !iosStoreBuild() && !details?.storeManaged ? (
         <View style={styles.formSection}>
           <Text style={styles.formSectionTitle}>Historico de faturas</Text>
           {history.map((payment) => (
@@ -10568,6 +10597,18 @@ function revenueCatApiKey(): string {
   return Platform.OS === 'ios' ? REVENUECAT_IOS_API_KEY : Platform.OS === 'android' ? REVENUECAT_ANDROID_API_KEY : '';
 }
 
+// iPhone nativo com a loja ativa: nenhuma contratacao/desbloqueio fora do In-App Purchase (Apple 3.1.1) — sem cupom e sem link de fatura do Asaas.
+const IOS_STORE_PRODUCT_ID = 'panzeri_run_mensal';
+function iosStoreBuild(): boolean {
+  return Platform.OS === 'ios' && isNativeStorePurchaseAvailable();
+}
+// Pacote da oferta atual: no iOS, o produto panzeri_run_mensal (nunca "o primeiro que vier"); sem ele, o primeiro (Android inalterado).
+function pickStorePackage(offerings: { current?: { availablePackages?: Array<{ product?: { identifier?: string } }> } | null }) {
+  const packages = offerings.current?.availablePackages ?? [];
+  if (Platform.OS === 'ios') return packages.find((pkg) => pkg.product?.identifier === IOS_STORE_PRODUCT_ID || pkg.product?.identifier?.startsWith(IOS_STORE_PRODUCT_ID)) ?? null;
+  return packages[0] ?? null;
+}
+
 function isNativeStorePurchaseAvailable(): boolean {
   // So' Android: a chave configurada e' do Google Play; no iOS nativo o SDK recusaria a chave e o aluno cairia no link do Asaas, como no PWA.
   return revenueCatApiKey().length > 0;
@@ -10610,11 +10651,11 @@ type NativePurchaseOutcome = { status: 'success' } | { status: 'cancelled' } | {
 async function purchaseNativeSubscription(): Promise<NativePurchaseOutcome> {
   try {
     const offerings = await Purchases.getOfferings();
-    const pkg = offerings.current?.availablePackages?.[0];
+    const pkg = pickStorePackage(offerings as never);
     if (!pkg) {
       return { status: 'error', message: 'Assinatura indisponivel no momento. Tente novamente mais tarde ou fale com o treinador.' };
     }
-    await Purchases.purchasePackage(pkg);
+    await Purchases.purchasePackage(pkg as never);
     return { status: 'success' };
   } catch (error) {
     const purchasesError = error as { userCancelled?: boolean | null; message?: string };
@@ -10655,7 +10696,7 @@ function StorePriceText({ fallback, prefix = '', suffix = '', style }: { fallbac
     if (!isNativeStorePurchaseAvailable()) return;
     let alive = true;
     const load = () => Purchases.getOfferings().then((offerings) => {
-      const label = offerings.current?.availablePackages?.[0]?.product?.priceString;
+      const label = (pickStorePackage(offerings as never) as { product?: { priceString?: string } } | null)?.product?.priceString;
       if (alive && label) setPrice(`${label} por mes`);
     });
     load().catch(() => { setTimeout(() => { load().catch(() => undefined); }, 2000); });
@@ -10693,6 +10734,21 @@ function RestorePurchasesButton({ accessToken, onDone }: { accessToken: string; 
       </Text>
     </View>
   );
+}
+
+// Assinatura comprada na loja so' pode ser cancelada na propria loja. Abre a gestao oficial (URL do RevenueCat quando disponivel).
+async function openStoreSubscriptionManagement(report: (message: string) => void): Promise<void> {
+  try {
+    let url: string | null = null;
+    if (isNativeStorePurchaseAvailable()) {
+      try { url = (await Purchases.getCustomerInfo()).managementURL ?? null; } catch { url = null; }
+    }
+    if (!url) url = Platform.OS === 'ios' ? 'https://apps.apple.com/account/subscriptions' : Platform.OS === 'android' ? 'https://play.google.com/store/account/subscriptions' : null;
+    if (!url) { report('Cancele pela loja em que assinou (App Store ou Google Play).'); return; }
+    await Linking.openURL(url);
+  } catch {
+    report('Nao consegui abrir a gestao de assinaturas. No iPhone: Ajustes > seu nome > Assinaturas. No Android: Google Play > Assinaturas.');
+  }
 }
 
 async function restoreAuthSession(): Promise<AuthSession | null> {

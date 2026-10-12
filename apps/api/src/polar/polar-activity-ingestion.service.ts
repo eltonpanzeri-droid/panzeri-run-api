@@ -7,6 +7,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { containsLocationPoints, isLocationSampleType } from './polar-location-filter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityTimeSeriesService } from '../activity-timeseries/activity-timeseries.service';
@@ -431,6 +432,11 @@ export class PolarActivityIngestionService {
     entry: { sampleType: string; url?: string; inlinePayload?: unknown },
     accessToken: string,
   ) {
+    // Nunca guardar localizacao (ver polar-location-filter.ts): ignora o tipo antes mesmo de buscar o dado.
+    if (isLocationSampleType(entry.sampleType)) {
+      this.logger.log(`Sample de localizacao "${entry.sampleType}" ignorado (o Panzeri Run nao armazena GPS).`);
+      return;
+    }
     let payload = entry.inlinePayload;
     const endpoint = entry.url ?? null;
 
@@ -458,6 +464,10 @@ export class PolarActivityIngestionService {
       }
     }
 
+    if (containsLocationPoints(payload)) {
+      this.logger.log(`Sample "${entry.sampleType}" continha coordenadas e foi ignorado (o Panzeri Run nao armazena GPS).`);
+      return;
+    }
     await this.writeIfStillAuthorized(userId, (tx) => tx.rawActivitySample.upsert({
       where: { activityLogId_provider_sampleType: { activityLogId, provider: 'polar', sampleType: entry.sampleType } },
       create: {

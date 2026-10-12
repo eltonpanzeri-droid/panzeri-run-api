@@ -11,6 +11,8 @@ import { LoginDto } from './dto/login.dto';
 import { AcquisitionAttributionDto, RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { MetaCapiService } from '../meta/meta-capi.service';
+import { Logger as NestLogger } from '@nestjs/common';
+import { isIosAppOrigin } from './client-origin';
 
 function hasAnyAttributionField(a: AcquisitionAttributionDto): boolean {
   return !!(a.source || a.medium || a.campaign || a.content || a.term || a.referrer || a.fbclid || a.gclid || a.sessionId || a._fbp || a._fbc);
@@ -18,6 +20,8 @@ function hasAnyAttributionField(a: AcquisitionAttributionDto): boolean {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new NestLogger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -25,7 +29,7 @@ export class AuthService {
     private readonly metaCapi: MetaCapiService,
   ) {}
 
-  async register(dto: RegisterDto, clientIp?: string, userAgent?: string) {
+  async register(dto: RegisterDto, clientIp?: string, userAgent?: string, clientPlatform?: string | string[]) {
     if (!dto.acceptedTerms) {
       throw new BadRequestException('Aceite de termos e LGPD e obrigatorio.');
     }
@@ -70,7 +74,10 @@ export class AuthService {
     }
 
     const registrationEventId = `reg_${user.id}`;
-    this.metaCapi.sendEvent({
+    // Primeira versao na App Store sem rastreamento publicitario: cadastro vindo do app iPhone NAO e' enviado a Meta (site e Android seguem iguais).
+    if (isIosAppOrigin(userAgent, clientPlatform)) {
+      this.logger.log('Meta CAPI ignorado: cadastro originado do aplicativo iPhone.');
+    } else this.metaCapi.sendEvent({
       eventName: 'CompleteRegistration',
       eventId: registrationEventId,
       userData: {

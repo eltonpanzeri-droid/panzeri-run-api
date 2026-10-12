@@ -202,9 +202,8 @@ function isFirstPurchaseTransition(prevStatus: string | null | undefined, studen
 const PLAN_PRICE = 19.9;
 const PLAN_DESCRIPTION = 'Panzeri Run - Plano mensal';
 // 26/08: assinatura comprada dentro do app nativo (Apple IAP / Google Play Billing), sempre
-// R$24,90 pra cobrir a comissao de 15-30% que a loja retem — preco diferente do Asaas (R$19,90)
-// de proposito, ver decisao do treinador em PRONTUARIO.md.
-const APP_STORE_PLAN_PRICE = 24.9;
+// R$19,90 (decisao do treinador em 12/10/2026: mesmo preco do Asaas; o valor real e' o configurado em cada loja). Usado so' no aviso ao treinador.
+const APP_STORE_PLAN_PRICE = 19.9;
 // Eventos do RevenueCat que dao acesso (compra inicial, renovacao, religou o auto-renew, trocou
 // de produto ainda dentro da mesma assinatura ativa). CANCELLATION nao entra aqui de proposito:
 // a aluna desligou o auto-renew mas continua com acesso ate o fim do periodo ja pago — so
@@ -295,6 +294,7 @@ export class BillingService {
           subscriptionStatus: true,
           subscriptionUpdatedAt: true,
           subscriptionCancelRequestedAt: true,
+          subscriptionProvider: true,
           studentCode: true,
           cpf: true,
           subscriptionManualOverride: true,
@@ -333,6 +333,8 @@ export class BillingService {
 
     return {
       provider: billing?.provider ?? 'asaas',
+      // Assinatura da loja (Apple/Google): so' a loja cancela. O app abre a gestao da loja em vez de chamar /billing/cancel.
+      storeManaged: user.subscriptionProvider === 'revenuecat',
       planName: PLAN_DESCRIPTION,
       priceLabel: 'R$ 19,90 por mes',
       status: appStatus,
@@ -662,6 +664,11 @@ export class BillingService {
   }
 
   async cancel(userId: string, reason?: string, feedbackText?: string, wouldReturn?: string) {
+    // Assinatura da loja NAO e' cancelada por aqui: marcar "cancelada" so' localmente tiraria o acesso e manteria a cobranca na Apple/Google.
+    const owner = await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionProvider: true } });
+    if (owner?.subscriptionProvider === 'revenuecat') {
+      throw new BadRequestException({ code: 'store_subscription', message: 'Esta assinatura e da loja de aplicativos. Cancele em Ajustes > seu nome > Assinaturas (iPhone) ou na Google Play (Android).' });
+    }
     const billing = await this.prisma.billingSubscription.findUnique({ where: { userId } });
     // 27/08: subscriptionCancelRequestedAt marca que foi a PROPRIA aluna que pediu, nos dois
     // caminhos abaixo — nunca e' sobrescrito por sync nenhum depois (ver comentario no schema).

@@ -7,7 +7,6 @@ import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { renderPrivacyPage, renderTermsPage } from '../legal/legal-content';
-import { renderStorePrivacyPage } from '../legal/privacy-panzeri-run';
 
 @Controller()
 export class AuthController {
@@ -23,7 +22,7 @@ export class AuthController {
     const clientIp = (Array.isArray(forwarded) ? forwarded[0] : typeof forwarded === 'string' ? forwarded : undefined)
       ?.split(',')[0]?.trim() ?? req.socket?.remoteAddress;
     const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : undefined;
-    return this.authService.register(dto, clientIp, userAgent);
+    return this.authService.register(dto, clientIp, userAgent, req.headers['x-client-platform']);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
@@ -140,10 +139,10 @@ export class AuthController {
     response.type('html').send(renderPrivacyPage());
   }
 
-  // Politica para as lojas (App Store/Google Play) com Apple Saude, Apple Watch e Health Connect. Aceita com e sem barra final.
+  // Endereco do rascunho anterior da politica: agora ha UMA politica so', na URL oficial cadastrada nas lojas.
   @Get('politica-de-privacidade-panzeri-run')
-  storePrivacyPolicyPage(@Res() response: { type: (value: string) => { send: (value: string) => void } }) {
-    response.type('html').send(renderStorePrivacyPage());
+  storePrivacyPolicyRedirect(@Res() response: { redirect: (status: number, url: string) => void }) {
+    response.redirect(301, '/politica-privacidade');
   }
 
   @UseGuards(AuthGuard('jwt'))

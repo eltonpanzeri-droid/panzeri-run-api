@@ -1,10 +1,10 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { renderStorePrivacyPage, PRIVACY_STORE_SECTIONS } from '../src/legal/privacy-panzeri-run';
+import { renderPrivacyPage, PRIVACY_SECTIONS } from '../src/legal/legal-content';
 
 // A politica das lojas descreve o que o codigo FAZ. Estes testes ligam as afirmacoes sensiveis a fatos do codigo, para o texto nao divergir da implementacao.
 const read = (p: string) => readFileSync(join(__dirname, '..', '..', p), 'utf8');
-const all = PRIVACY_STORE_SECTIONS.flatMap((s) => s.paragraphs).join('\n');
+const all = PRIVACY_SECTIONS.flatMap((s) => s.paragraphs).join('\n');
 
 describe('politica de privacidade das lojas', () => {
   it('Apple Saude: so leitura de treinos e distancia; nao le FC, rota, sono nem passos; nao grava', () => {
@@ -63,11 +63,18 @@ describe('politica de privacidade das lojas', () => {
     expect(all).not.toMatch(/ISO ?27001|certificad|100% seguro|nunca será|garantimos|vendemos|SSL|TLS/i);
   });
 
-  it('pagina HTML: titulo, sumario, todas as secoes, logo e contato; sem script', () => {
-    const html = renderStorePrivacyPage();
-    expect(html).toContain('<title>Política de Privacidade | Panzeri Run</title>');
-    for (const section of PRIVACY_STORE_SECTIONS) expect(html).toContain(`id="${section.id}"`);
-    expect(html).toContain('/landing-assets/panzeri-run-logo.png');
+  it('conteudo atualizado: Apple Saude, ViaCEP, sem GPS, sem Meta no iPhone', () => {
+    expect(PRIVACY_SECTIONS.map((section) => section.heading).join(' ')).toContain('Apple Saúde (HealthKit)');
+    expect(all).toContain('ViaCEP');
+    expect(all).toContain('não armazena coordenadas nem trajetos GPS');
+    expect(all).toContain('Cadastros feitos pelo aplicativo para iPhone não geram nenhum envio à Meta');
+    expect(all).not.toContain('rota (GPS), quando o serviço a disponibiliza');
+  });
+
+  it('pagina oficial (URL cadastrada nas lojas): titulo, secoes e contato; sem script', () => {
+    const html = renderPrivacyPage();
+    expect(html).toContain('Política de Privacidade');
+    for (const section of PRIVACY_SECTIONS) expect(html).toContain(section.heading.replace(/&/g, '&amp;'));
     expect(html).toContain('eltonpanzeri@gmail.com');
     expect(html).not.toMatch(/<script/i);
   });

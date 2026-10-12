@@ -91,6 +91,12 @@ describe('app: iOS usa a loja; Android e web inalterados', () => {
     expect(app.match(/await syncStoreAccess\(accessToken\);/g)).toHaveLength(3); // compra (2 telas) + restauracao
     expect(app.match(/<RestorePurchasesButton/g)?.length).toBeGreaterThanOrEqual(3);
     expect(app).toContain('product?.priceString');
+    // iOS: produto certo da oferta (nao 'o primeiro'), sem cupom e sem fatura do Asaas (Apple 3.1.1)
+    expect(app).toContain("IOS_STORE_PRODUCT_ID = 'panzeri_run_mensal'");
+    expect(app).toContain('pickStorePackage(offerings as never)');
+    expect(app).not.toContain('offerings.current?.availablePackages?.[0]');
+    expect(app.match(/!iosStoreBuild\(\)/g)?.length).toBeGreaterThanOrEqual(3); // cupom (3 telas)
+    expect(app).toMatch(/pay_overdue'\) \{\s+if \(iosStoreBuild\(\)\)/);
     expect(app).toContain('renovação automática'); // Apple 3.1.2
     expect(app).toContain('onPress={() => Linking.openURL(LEGAL_TERMS_URL)}');
     expect(app.match(/!isNativeStorePurchaseAvailable\(\) \? \(/g)?.length).toBeGreaterThanOrEqual(2);

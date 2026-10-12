@@ -8,8 +8,8 @@
 // legal, nao inventa prazo, base legal nem garantia de fornecedor. O que depende de contrato ou de
 // configuracao externa e' dito como tal.
 
-export const LEGAL_VERSION = '2026-10-09';
-export const LEGAL_UPDATED_LABEL = '9 de outubro de 2026';
+export const LEGAL_VERSION = '2026-10-12';
+export const LEGAL_UPDATED_LABEL = '12 de outubro de 2026';
 export const LEGAL_CONTACT = 'eltonpanzeri@gmail.com';
 export const LEGAL_PATHS = { terms: '/termos-de-uso', privacy: '/politica-privacidade' } as const;
 
@@ -31,13 +31,13 @@ export const DATA_CATEGORIES = [
 ];
 
 export const WEARABLE_INTRO =
-  'Você pode autorizar serviços externos compatíveis a compartilhar suas atividades com o Panzeri Run. Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo. Outros serviços poderão ser adicionados e, nesse caso, esta política será atualizada.';
+  'Você pode autorizar serviços externos compatíveis a compartilhar suas atividades com o Panzeri Run. Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo e, conforme o aparelho, com o Apple Saúde (iPhone) e o Health Connect (Android). Outros serviços poderão ser adicionados e, nesse caso, esta política será atualizada.';
 
 const WEARABLE_FIELDS = [
   'Dependendo do serviço e das permissões que você conceder, podem ser recebidos dados como:',
   '- data e horário, duração, distância e modalidade;',
   '- ritmo, frequência cardíaca, cadência, potência, elevação e calorias;',
-  '- rota (GPS), quando o serviço a disponibiliza;',
+  '- o Panzeri Run não armazena coordenadas nem trajetos GPS dos serviços conectados;',
   '- amostras e séries ao longo da atividade;',
   '- outros campos efetivamente fornecidos pelo serviço autorizado.',
   'Nem todo serviço fornece todos esses dados, e dados vindos de dispositivos podem conter erros ou limitações.',
@@ -75,7 +75,8 @@ export const THIRD_PARTIES = [
   '- Cloudflare (R2): armazenamento das cópias de segurança do banco de dados, que são criptografadas antes de sair do servidor.',
   '- Expo: entrega de notificações no aplicativo.',
   '- Telegram: canal interno de avisos do treinador sobre o acompanhamento dos alunos.',
-  '- Meta (Facebook): quando configurado, o servidor do Panzeri Run envia à Meta eventos de conversão para medir o resultado de campanhas de divulgação: um ao criar a conta e outro quando um pagamento é confirmado (com valor e moeda). Cada evento leva seu e-mail convertido em código (hash), os identificadores de navegador da Meta (quando existem) e um identificador do evento; o evento de cadastro leva também o endereço IP e o navegador usados. No fluxo atual, não são enviados à Meta dados de saúde, feedbacks, relatos nem conteúdo ou métricas de treino.',
+  '- Meta (Facebook): quando configurado, o servidor do Panzeri Run envia à Meta eventos de conversão para medir o resultado de campanhas de divulgação: um ao criar a conta e outro quando um pagamento é confirmado (com valor e moeda). Cada evento leva seu e-mail convertido em código (hash), os identificadores de navegador da Meta (quando existem) e um identificador do evento; o evento de cadastro leva também o endereço IP e o navegador usados. No fluxo atual, não são enviados à Meta dados de saúde, feedbacks, relatos nem conteúdo ou métricas de treino. Cadastros feitos pelo aplicativo para iPhone não geram nenhum envio à Meta.',
+  '- ViaCEP: ao preencher o CEP na entrevista, o aplicativo consulta esse serviço público para completar rua, bairro, cidade e estado; o CEP digitado é enviado a ele.',
   '- Infraestrutura de hospedagem do aplicativo e do banco de dados.',
 ];
 
@@ -94,41 +95,57 @@ const REQUEST_PARAGRAPHS = [
 // ─── Politica de Privacidade ────────────────────────────────────────────────────────────────────
 
 export const PRIVACY_SECTIONS: LegalSection[] = [
-  { id: 'controlador', heading: '1. Controlador dos dados', paragraphs: ['Elton Panzeri, responsável pelo Panzeri Run.'] },
   {
-    id: 'dados',
-    heading: '2. Dados que coletamos',
+    id: 'quem-somos',
+    heading: '1. Quem é o responsável',
     paragraphs: [
-      'Dados fornecidos por você ou gerados pelo uso do aplicativo:',
-      ...DATA_CATEGORIES,
-      'Dados de pagamento são processados pelo Asaas ou pela loja de aplicativos; não armazenamos dados de cartão.',
+      'Elton Panzeri é o responsável pelo Panzeri Run e o controlador dos dados pessoais tratados pelo aplicativo (versões para iPhone, Android e navegador).',
+      `Contato para qualquer assunto de privacidade: ${LEGAL_CONTACT}.`,
     ],
   },
-  { id: 'wearables', heading: '3. Serviços e dispositivos conectados', paragraphs: [WEARABLE_INTRO, ...WEARABLE_FIELDS, ...RAW_AND_DERIVED, STRAVA_PARAGRAPH, WAHOO_PARAGRAPH] },
+  { id: 'dados', heading: '2. Dados que tratamos', paragraphs: ['Dados fornecidos por você ou gerados pelo uso do aplicativo:', ...DATA_CATEGORIES, 'Dados de pagamento são processados pelo Asaas ou pela loja de aplicativos; não armazenamos dados de cartão.'] },
+  {
+    id: 'apple-saude',
+    heading: '3. Apple Saúde (HealthKit) — iPhone',
+    paragraphs: [
+      'Esta seção vale somente para o aplicativo do Panzeri Run instalado no iPhone. Ela não se aplica ao uso pelo navegador nem ao aplicativo Android.',
+      'Permissão: o Panzeri Run só acessa o app Saúde se você autorizar, na janela de permissão do próprio iOS. Pedimos apenas permissão de leitura. Não pedimos permissão para gravar e não gravamos nenhum dado no app Saúde. Você pode retirar a autorização a qualquer momento em Ajustes do iPhone > Saúde > Acesso a dados e dispositivos > Panzeri Run.',
+      'O que lemos: seus treinos de corrida registrados no app Saúde (até os 20 mais recentes de cada leitura) e, de cada um, a distância percorrida. Dos treinos recebemos: identificador do treino, tipo de atividade, início, fim, duração, distância, se foi em ambiente fechado, fuso horário e o nome do aplicativo e do dispositivo que registraram o treino. Não lemos frequência cardíaca, rota (GPS), sono, passos, calorias, peso, nutrição nem outros dados do app Saúde.',
+      'Quando os dados saem do seu aparelho: a leitura acontece no próprio iPhone. Os treinos só são enviados ao Panzeri Run quando você aciona a importação, na área Dispositivos e integrações do aplicativo. Não há envio automático em segundo plano.',
+      'Como usamos: os treinos importados são tratados como as atividades vindas de outros serviços conectados, descritas na seção 5: para mostrar a atividade, comparar o que foi prescrito com o que foi realizado, acompanhar sua evolução e personalizar seu treinamento. Resumos derivados dessas atividades podem fazer parte do contexto enviado à inteligência artificial, conforme a seção 7.',
+      'O que não fazemos: não usamos dados do Apple Saúde para publicidade ou marketing, não os enviamos à Meta e não os compartilhamos para fins de propaganda.',
+      'Apagar: não há, hoje, um botão no aplicativo para apagar somente os dados importados do Apple Saúde. Você pode pedir a exclusão deles pelo contato indicado na seção 13 ou excluir a conta inteira, no próprio aplicativo, como descrito na seção 13.',
+    ],
+  },
+  {
+    id: 'apple-watch',
+    heading: '4. Envio de treinos ao Apple Watch (WorkoutKit) — iPhone',
+    paragraphs: [
+      'Em treinos prescritos que o aplicativo consegue representar fielmente no Apple Watch, aparece o botão "Enviar ao Apple Watch". O envio só acontece quando você toca nele.',
+      'Para isso, o iOS pede uma autorização própria para agendar treinos. Com ela, o Panzeri Run entrega ao seu iPhone e ao seu Apple Watch o treino prescrito (a estrutura da sessão, como partes e distâncias) e o dia em que ele deve aparecer. Agendar um treino não significa que ele foi executado.',
+      'No servidor do Panzeri Run guardamos o registro dessa entrega (qual treino foi enviado, quando e com qual resultado), para não duplicar o envio. Este recurso não grava dados no app Saúde.',
+    ],
+  },
+  {
+    id: 'health-connect',
+    heading: '5. Health Connect — Android, e outros serviços conectados',
+    paragraphs: [
+      WEARABLE_INTRO,
+      'Health Connect (aplicativo Android): se você autorizar, o Panzeri Run lê do Health Connect as sessões de exercício, a distância e a frequência cardíaca durante cada sessão (somente leitura). De cada sessão recebemos: tipo de atividade, início, fim e duração, distância, frequência cardíaca média e máxima daquele treino, o aplicativo que gravou o registro, o dispositivo (quando o aplicativo informa) e o método de gravação. Não lemos rota (GPS), sono, passos isolados, calorias, peso nem nutrição, e não gravamos nada no Health Connect. O Panzeri Run sincroniza ao abrir o aplicativo e quando você toca em "Sincronizar agora"; não sincroniza continuamente em segundo plano. Ao desconectar, novas leituras são interrompidas, mas o histórico já importado não é apagado automaticamente. Você também pode revogar as permissões nos ajustes do Android.',
+      'Polar, Strava e Wahoo: você pode autorizar esses serviços a compartilhar suas atividades com o Panzeri Run. Dependendo do serviço e das permissões concedidas, podem ser recebidos data e horário, duração, distância, modalidade, ritmo, frequência cardíaca, cadência, potência, elevação, calorias, amostras ao longo da atividade (como frequência cardíaca e velocidade); o Panzeri Run não armazena coordenadas nem trajetos GPS desses serviços. Nem todo serviço fornece todos esses dados, e dados vindos de dispositivos podem conter erros ou limitações.',
+      ...RAW_AND_DERIVED,
+      STRAVA_PARAGRAPH,
+      WAHOO_PARAGRAPH,
+    ],
+  },
   {
     id: 'finalidades',
-    heading: '4. Para que usamos',
-    paragraphs: [
-      'Personalizar a prescrição de treinos; acompanhar evolução e segurança do aluno; processar pagamento da assinatura; comunicação sobre o serviço (e-mail, notificações).',
-    ],
+    heading: '6. Para que usamos',
+    paragraphs: ['Personalizar a prescrição de treinos; acompanhar evolução e segurança do aluno; processar pagamento da assinatura; comunicação sobre o serviço (e-mail, notificações).'],
   },
-  {
-    id: 'base-legal',
-    heading: '5. Base legal',
-    paragraphs: ['Execução de contrato (prestação do serviço) e consentimento explícito, para dados sensíveis de saúde.'],
-  },
-  { id: 'ia', heading: '6. Inteligência artificial', paragraphs: AI_PARAGRAPHS },
-  {
-    id: 'terceiros',
-    heading: '7. Compartilhamento e serviços de terceiros',
-    paragraphs: ['O Panzeri Run usa os seguintes serviços externos, cada um para a finalidade indicada:', ...THIRD_PARTIES],
-  },
-  {
-    id: 'desconexao',
-    heading: '8. Desconectar um serviço',
-    paragraphs: [DISCONNECT_PARAGRAPH, 'Depois de desconectar, novos dados daquele serviço não são mais recebidos. Para voltar a receber, é preciso autorizar a conexão novamente.'],
-  },
-  { id: 'exclusao-integracao', heading: '9. Excluir os dados de um serviço conectado', paragraphs: DELETE_PARAGRAPHS },
+  { id: 'ia', heading: '7. Inteligência artificial', paragraphs: AI_PARAGRAPHS },
+  { id: 'terceiros', heading: '8. Compartilhamento e serviços de terceiros', paragraphs: ['O Panzeri Run usa os seguintes serviços externos, cada um para a finalidade indicada:', ...THIRD_PARTIES] },
+  { id: 'desconexao', heading: '9. Desconectar um serviço e excluir os dados importados', paragraphs: [DISCONNECT_PARAGRAPH, ...DELETE_PARAGRAPHS] },
   { id: 'backup', heading: '10. Cópias de segurança', paragraphs: BACKUP_PARAGRAPHS },
   {
     id: 'retencao',
@@ -142,11 +159,15 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
   },
   {
     id: 'exclusao-conta',
-    heading: '13. Como pedir a exclusão da sua conta e dos seus dados',
+    heading: '13. Como excluir sua conta e seus dados',
     paragraphs: [
-      `Envie um e-mail para ${LEGAL_CONTACT}, do mesmo endereço cadastrado no Panzeri Run, com o assunto "Exclusão de conta". Confirmamos o pedido em até 5 dias úteis e concluímos a exclusão em até 15 dias.`,
-      'A conta é anonimizada de forma irreversível: nome, e-mail, CPF, telefone, endereço, data de nascimento e demais dados de perfil são removidos, o acesso deixa de ser possível e o e-mail poderá ser usado em um novo cadastro. São excluídos, no banco em operação, os dados de saúde e condicionamento físico, a entrevista, a rotina, os feedbacks e relatos, o registro do ciclo menstrual, o histórico de treinos prescritos e realizados, os dados importados de serviços conectados, as notificações, as mensagens trocadas com o treinador/agente de IA e as credenciais de acesso. As cópias de segurança seguem o descrito na seção 10.',
-      'Permanecem apenas registros de pagamento e de assinatura (valores, datas e identificadores do pagamento), o registro do uso de cupons e registros técnicos de auditoria, todos vinculados a um identificador técnico anônimo, sem nome, e-mail, CPF ou outros dados de identificação direta.',
+      'Pelo aplicativo: abra Privacidade e dados > Excluir minha conta. Para confirmar, o aplicativo pede a sua senha atual e que você digite EXCLUIR CONTA. A exclusão é definitiva: não é possível recuperar a conta nem os dados depois dela.',
+      'Assinatura e cobranças: excluir a conta NÃO cancela automaticamente cobranças feitas fora do Panzeri Run. Antes de excluir, o aplicativo mostra a situação da sua assinatura e não impede a exclusão por causa dela. Se a assinatura for pelo Asaas, o aplicativo também informa se já existem cobranças emitidas pendentes ou vencidas. Segundo a documentação do Asaas, cancelar (remover) a assinatura também remove as cobranças pendentes e vencidas ligadas a ela, e cobranças já pagas permanecem registradas e não são devolvidas; essa regra é do Asaas, não do Panzeri Run. Você pode escolher cancelar a assinatura junto com a exclusão, a seu pedido, ou excluir a conta sem cancelar; nesse caso as cobranças já emitidas continuam válidas, novas cobranças podem continuar sendo geradas até que a assinatura seja cancelada, e o responsável pelo Panzeri Run é avisado para poder tratar o caso. Para excluir sem cancelar, o aplicativo pede uma confirmação específica de que você entende isso. Se a assinatura for pela loja de aplicativos (Google Play), somente você pode cancelá-la, nas configurações da própria loja, e o aplicativo mostra como. Se, mesmo assim, uma cobrança chegar depois da exclusão, ela é registrada apenas como registro financeiro, sem identificação, e a conta não é reativada.',
+      `Por e-mail: se preferir, envie uma mensagem para ${LEGAL_CONTACT}, do mesmo endereço cadastrado no Panzeri Run, com o assunto "Exclusão de conta". Confirmamos o pedido em até 5 dias úteis e concluímos a exclusão em até 15 dias.`,
+      'O que acontece: a conta é anonimizada de forma irreversível. Nome, e-mail, CPF, telefone, endereço, data de nascimento e demais dados de perfil são removidos, o acesso deixa de ser possível e o e-mail poderá ser usado em um novo cadastro. São excluídos, no banco em operação, os dados de saúde e condicionamento físico, a entrevista, a rotina, os feedbacks e relatos, o registro do ciclo menstrual, o histórico de treinos prescritos e realizados, os dados importados de serviços conectados (incluindo Apple Saúde e Health Connect), as informações usadas pela inteligência artificial, as notificações, as mensagens trocadas com o treinador/agente de IA e as credenciais de acesso. Se você conectou Polar ou Wahoo, a autorização é revogada.',
+      'O que permanece: registros de pagamento e de assinatura (valores, datas e identificadores do pagamento), o registro do uso de cupons e registros técnicos de auditoria, todos vinculados a um identificador técnico anônimo, sem nome, e-mail, CPF ou outros dados de identificação direta.',
+      'Também guardamos, por 1 ano, um registro mínimo e criptografado da exclusão da conta (identificador interno e data), usado apenas para garantir que a exclusão seja mantida em uma eventual recuperação do banco de dados. As cópias de segurança seguem o descrito na seção 10.',
+      'Fora do Panzeri Run: serviços que você usa separadamente, como o Asaas, a loja de aplicativos, a Polar, a Wahoo e o Strava, mantêm seus próprios registros, conforme as políticas deles. Mensagens e e-mails que já foram enviados não podem ser apagados por nós.',
     ],
   },
   {
@@ -156,7 +177,6 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
   },
   { id: 'contato', heading: '15. Contato', paragraphs: [LEGAL_CONTACT] },
 ];
-
 // ─── Termos de Uso ─────────────────────────────────────────────────────────────────────────────
 
 export const TERMS_SECTIONS: LegalSection[] = [
