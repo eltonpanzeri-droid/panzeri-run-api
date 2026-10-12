@@ -22,7 +22,7 @@ export interface LegalSection {
 
 // ─── Blocos compartilhados (Politica, Termos e tela do app usam as MESMAS frases) ──────────────────
 
-const DATA_CATEGORIES = [
+export const DATA_CATEGORIES = [
   '- Cadastro e perfil: nome, e-mail, telefone, CPF, endereço, data de nascimento, sexo, altura e peso.',
   '- Entrevista e rotina: objetivos, disponibilidade semanal, histórico de treino, lesões e condições de saúde informadas.',
   '- Feedback de treino: esforço percebido, dor, sono, estresse, motivação, cansaço físico e mental, e suas observações.',
@@ -30,7 +30,7 @@ const DATA_CATEGORIES = [
   '- Treino: programa de treino, sessões prescritas e realizadas, histórico, métricas de evolução (como volume e aderência) e conquistas.',
 ];
 
-const WEARABLE_INTRO =
+export const WEARABLE_INTRO =
   'Você pode autorizar serviços externos compatíveis a compartilhar suas atividades com o Panzeri Run. Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo. Outros serviços poderão ser adicionados e, nesse caso, esta política será atualizada.';
 
 const WEARABLE_FIELDS = [
@@ -43,31 +43,31 @@ const WEARABLE_FIELDS = [
   'Nem todo serviço fornece todos esses dados, e dados vindos de dispositivos podem conter erros ou limitações.',
 ];
 
-const RAW_AND_DERIVED = [
+export const RAW_AND_DERIVED = [
   'O Panzeri Run guarda o registro recebido do serviço conectado tal como ele chegou e gera, a partir dele, informações derivadas para: mostrar a atividade, comparar o que foi prescrito com o que foi realizado, acompanhar sua evolução, manter seu histórico ao longo do tempo e personalizar seu treinamento.',
 ];
 
-const STRAVA_PARAGRAPH =
+export const STRAVA_PARAGRAPH =
   'Dados vindos do Strava são tratados à parte: aparecem somente para você, dentro do aplicativo; não são exibidos ao treinador nem a outros usuários, não são enviados à inteligência artificial e ficam guardados por até 7 dias desde a última atualização. Ao desconectar o Strava, a coleta é interrompida na hora e esses dados são apagados.';
 
-const WAHOO_PARAGRAPH =
+export const WAHOO_PARAGRAPH =
   'Wahoo: ao conectar, o Panzeri Run recebe o identificador da sua conta Wahoo e, a cada atividade gravada em um dispositivo ou aplicativo Wahoo, o resumo dela (como data, duração, distância, modalidade, calorias, frequência cardíaca média e elevação). A Wahoo não compartilha atividades de aplicativos de terceiros. As credenciais de acesso ficam guardadas de forma cifrada e são apagadas ao desconectar. Hoje o Panzeri Run apenas lê atividades da Wahoo; não envia treinos para ela.';
 
-const AI_PARAGRAPHS = [
+export const AI_PARAGRAPHS = [
   'O Panzeri Run usa serviços de inteligência artificial em funções do produto, como montar e ajustar o programa de treino, analisar a evolução, interpretar relatos escritos e apoiar o acompanhamento feito pelo treinador. O fornecedor utilizado hoje é a Anthropic.',
   'Para cada uma dessas funções, o Panzeri Run envia ao fornecedor, no momento da solicitação, as informações necessárias àquela função, como dados do seu perfil e da entrevista, sua rotina, seus feedbacks e relatos, e seu histórico e métricas de treino. Quando você conecta a Polar ou a Wahoo, resumos derivados das suas atividades (como volume, distância e ritmo) podem fazer parte desse contexto; dados do Strava nunca fazem. O conteúdo bruto recebido desses serviços (registros completos, séries de amostras e rotas) não faz parte do que o Panzeri Run envia à IA.',
   'Este texto descreve o que o Panzeri Run envia. As regras do fornecedor sobre guardar essas informações ou usá-las para treinar modelos dependem dos termos do próprio fornecedor, e o Panzeri Run não as afirma por ele.',
 ];
 
-const DISCONNECT_PARAGRAPH =
+export const DISCONNECT_PARAGRAPH =
   'Desconectar a Polar ou a Wahoo interrompe novas sincronizações e retira a autorização guardada no Panzeri Run (na Wahoo, a autorização também é revogada na própria Wahoo), mas não apaga automaticamente o histórico já importado. No Strava, desconectar também apaga os dados do Strava guardados.';
 
-const DELETE_PARAGRAPHS = [
+export const DELETE_PARAGRAPHS = [
   'Excluir os dados importados de um serviço é uma ação separada de desconectar. Para a Polar e para a Wahoo, você faz isso no próprio aplicativo (Privacidade e dados), depois de desconectar. Para o Strava, desconectar já apaga os dados do Strava guardados.',
   'São excluídos os dados que vieram exclusivamente do serviço (o registro recebido, a atividade, as amostras, as séries e os vínculos com os treinos). Informações que você mesmo forneceu ao Panzeri Run depois, como esforço percebido, dor, observações e escolha do tênis, podem permanecer, sem os valores que vieram do serviço.',
 ];
 
-const THIRD_PARTIES = [
+export const THIRD_PARTIES = [
   '- Anthropic: processamento por inteligência artificial, descrito acima.',
   '- Polar, Strava e Wahoo: serviços que você conecta, com suas próprias políticas.',
   '- Asaas, RevenueCat e as lojas de aplicativos (Google Play e App Store): cobrança e assinatura. Não armazenamos dados de cartão.',
@@ -79,15 +79,16 @@ const THIRD_PARTIES = [
   '- Infraestrutura de hospedagem do aplicativo e do banco de dados.',
 ];
 
-const BACKUP_PARAGRAPHS = [
+export const BACKUP_PARAGRAPHS = [
   'Mantemos cópias de segurança periódicas do banco de dados para recuperação em caso de falha. Elas contêm os dados da conta existentes no momento de cada cópia e ficam guardadas fora do banco em operação.',
   'Quando um dado é excluído do banco em operação, a remoção das cópias de segurança pode não ocorrer imediatamente: elas permanecem até serem substituídas ou descartadas pela nossa rotina, e não prometemos um prazo exato.',
   'Também mantemos, por 1 ano, um registro mínimo e criptografado das exclusões de dados de serviços conectados (identificador interno do usuário, tipo de exclusão e data), usado apenas para garantir que essas exclusões sejam mantidas em uma eventual recuperação do banco.',
 ];
 
 const REQUEST_PARAGRAPHS = [
-  'Pelo aplicativo você pode: ver os dados que informou nas telas de perfil e feedbacks, desconectar a Polar ou a Wahoo e excluir os dados importados delas, e desconectar o Strava (o que apaga os dados do Strava).',
-  `Os demais pedidos (acesso, correção, exclusão da conta, revogação de consentimento) são tratados manualmente: escreva para ${LEGAL_CONTACT}, do mesmo e-mail cadastrado. O procedimento e os prazos de exclusão de conta estão na Política de Privacidade.`,
+  'Pelo aplicativo você pode: ver os dados que informou nas telas de perfil e feedbacks, desconectar a Polar ou a Wahoo e excluir os dados importados delas, desconectar o Strava (o que apaga os dados do Strava) e excluir a sua conta e os seus dados (mais abaixo nesta tela, em "Excluir minha conta").',
+  'Excluir a conta não cancela automaticamente uma assinatura nem as cobranças já emitidas: antes de confirmar, o aplicativo mostra a situação da sua assinatura e o que fazer.',
+  `Os demais pedidos (acesso, correção, revogação de consentimento) são tratados manualmente: escreva para ${LEGAL_CONTACT}, do mesmo e-mail cadastrado. Se preferir, o pedido de exclusão da conta também pode ser feito por esse e-mail; o procedimento e os prazos estão na Política de Privacidade.`,
 ];
 
 // ─── Politica de Privacidade ────────────────────────────────────────────────────────────────────

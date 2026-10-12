@@ -11,7 +11,7 @@ import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constan
 
 type AsaasCustomer = { id: string };
 type AsaasCustomerList = { data: AsaasCustomer[] };
-type AsaasSubscription = { id: string; status: string; nextDueDate?: string | null };
+type AsaasSubscription = { id: string; status: string; nextDueDate?: string | null; deleted?: boolean };
 type AsaasSubscriptionList = { data: AsaasSubscription[] };
 type AsaasPayment = {
   id: string;
@@ -24,7 +24,14 @@ type AsaasPayment = {
   clientPaymentDate?: string | null;
   confirmedDate?: string | null;
 };
-type AsaasPaymentList = { data: AsaasPayment[] };
+type AsaasPaymentList = { data: AsaasPayment[]; totalCount?: number };
+export type SubscriptionExposure = {
+  channel: 'asaas' | 'store' | 'none';
+  live: 'yes' | 'no' | 'unknown';
+  // Cobrancas ja' emitidas (pendentes ou vencidas) que continuam validas se a assinatura NAO for removida. So' faz sentido no Asaas.
+  pendingCharges: 'yes' | 'no' | 'unknown';
+  asaasSubscriptionId: string | null;
+};
 type AsaasWebhookPayload = {
   event?: string;
   payment?: { id?: string; subscription?: string; status?: string; value?: number };
@@ -676,6 +683,103 @@ export class BillingService {
     return { status: 'canceled', message: 'Assinatura cancelada.' };
   }
 
+  // Exclusao de conta pelo proprio aluno (Apple 5.1.1(v)): situacao REAL da cobranca, consultando o Asaas (nao so' o status interno).
+  //  channel: 'asaas' (assinatura recorrente no Asaas) | 'store' (Google Play/App Store, gerida na loja) | 'none' (sem cobranca recorrente).
+  //  live: 'yes' | 'no' | 'unknown' (Asaas fora do ar ou nao configurado: tratado como possivel cobranca viva, nunca como "sem cobranca").
+  async getSubscriptionExposure(userId: string): Promise<SubscriptionExposure> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionProvider: true, subscriptionStatus: true, billingSubscription: { select: { externalSubscriptionId: true } } } });
+    if (!user) return { channel: 'none', live: 'no', pendingCharges: 'no', asaasSubscriptionId: null };
+    if (user.subscriptionProvider === 'revenuecat') {
+      // A loja e' a fonte de verdade e nao e' consultavel daqui: o estado interno e' o melhor indicio.
+      return { channel: 'store', live: ['active', 'grace', 'overdue'].includes(user.subscriptionStatus) ? 'yes' : 'no', pendingCharges: 'no', asaasSubscriptionId: null };
+    }
+    const subscriptionId = user.billingSubscription?.externalSubscriptionId ?? null;
+    if (!subscriptionId) return { channel: 'none', live: 'no', pendingCharges: 'no', asaasSubscriptionId: null };
+    try {
+      this.assertConfigured();
+      let subscription: AsaasSubscription;
+      try {
+        subscription = await this.asaasRequest<AsaasSubscription>(`/subscriptions/${subscriptionId}`);
+      } catch (error) {
+        // 404 = a assinatura nao existe mais no Asaas (removida): sem recorrencia e, segundo o Asaas, sem cobrancas pendentes/vencidas dela.
+        if ((error as { asaasStatus?: number }).asaasStatus === 404) return { channel: 'asaas', live: 'no', pendingCharges: 'no', asaasSubscriptionId: subscriptionId };
+        throw error;
+      }
+      const removed = subscription.deleted === true;
+      // Documentacao do Asaas (consultada em 11/10/2026): REMOVER a assinatura tambem exclui as cobrancas pendentes/vencidas dela; SUSPENDER (INACTIVE) so'
+      // para de gerar novas e deixa as existentes inalteradas. Por isso "assinatura nao ativa" NAO significa "sem cobranca": as cobrancas emitidas sao contadas.
+      return {
+        channel: 'asaas',
+        live: !removed && String(subscription.status).toUpperCase() === 'ACTIVE' ? 'yes' : 'no',
+        pendingCharges: removed ? 'no' : await this.openChargesState(subscriptionId),
+        asaasSubscriptionId: subscriptionId,
+      };
+    } catch {
+      return { channel: 'asaas', live: 'unknown', pendingCharges: 'unknown', asaasSubscriptionId: subscriptionId };
+    }
+  }
+
+  // Cobrancas ja' emitidas e ainda em aberto (pendentes ou vencidas) da assinatura. Nao conseguir consultar => 'unknown' (nunca "nao ha").
+  private async openChargesState(subscriptionId: string): Promise<'yes' | 'no' | 'unknown'> {
+    let unknown = false;
+    for (const status of ['PENDING', 'OVERDUE']) {
+      try {
+        const list = await this.asaasRequest<AsaasPaymentList>(`/payments?subscription=${subscriptionId}&status=${status}&limit=1`);
+        if ((list.totalCount ?? list.data?.length ?? 0) > 0) return 'yes';
+      } catch {
+        unknown = true;
+      }
+    }
+    return unknown ? 'unknown' : 'no';
+  }
+
+  // Cancelamento pedido EXPLICITAMENTE pelo aluno na tela de exclusao (mesmo efeito do cancelamento que ele ja' faz no app, sem questionario).
+  async cancelAsaasSubscriptionForAccountDeletion(userId: string): Promise<void> {
+    const billing = await this.prisma.billingSubscription.findUnique({ where: { userId } });
+    if (!billing?.externalSubscriptionId) return;
+    this.assertConfigured();
+    const path = `/subscriptions/${billing.externalSubscriptionId}`;
+    const response = await this.asaasRequest<{ deleted?: boolean }>(path, { method: 'DELETE' });
+    // CONFIRMACAO EFETIVA: o Asaas respondeu sucesso E (disse deleted=true OU uma nova consulta mostra a assinatura nao-ativa). Sem isso, lanca: a
+    // conta NAO e' excluida e o aluno pode tentar de novo ou escolher seguir sem cancelar. Uma resposta 2xx ambigua nunca e' tratada como cancelada.
+    if (response?.deleted !== true) {
+      let confirmed = false;
+      try {
+        const check = await this.asaasRequest<AsaasSubscription>(path);
+        confirmed = check.deleted === true || String(check.status).toUpperCase() !== 'ACTIVE';
+      } catch (error) {
+        confirmed = (error as { asaasStatus?: number }).asaasStatus === 404; // removida: ja' nao existe
+      }
+      if (!confirmed) throw new BadGatewayException('O Asaas nao confirmou o cancelamento da assinatura.');
+    }
+    // A partir daqui o cancelamento JA' esta confirmado fora: uma falha local nao pode ser reportada como falha de cancelamento (a exclusao da
+    // conta reaplica status canceled de qualquer forma).
+    try {
+      await this.updateStatus(userId, 'canceled', 'canceled');
+      await this.prisma.user.update({ where: { id: userId }, data: { subscriptionCancelRequestedAt: new Date() } });
+    } catch (error) {
+      this.logger.warn(`Cancelamento confirmado no Asaas, mas a atualizacao local falhou: ${(error as Error).message?.slice(0, 160)}`);
+    }
+  }
+
+  // Evento de cobranca para conta excluida: so' registro financeiro (anonimo) + aviso unico ao treinador, sem dado pessoal.
+  private async handleEventForDeletedAccount(billing: { id: string; userId: string; externalSubscriptionId: string | null }, payload: AsaasWebhookPayload) {
+    const appStatus = resolveAppStatusFromEvent(payload.event);
+    const providerStatus = (payload.payment?.status ?? 'unknown').toLowerCase();
+    await this.prisma.billingSubscription.update({ where: { id: billing.id }, data: { providerStatus } });
+    const paymentId = payload.payment?.id;
+    if (appStatus === 'active' && paymentId && payload.payment?.value != null) {
+      const alreadyRecorded = await this.prisma.billingEvent.findFirst({ where: { event: 'payment_confirmed', externalRef: paymentId }, select: { id: true } });
+      await this.recordConfirmedPayment(billing.id, billing.userId, paymentId, payload.payment.value, new Date(), false);
+      if (!alreadyRecorded) {
+        await this.telegram.notifyCoach(
+          `ALERTA: cobranca recebida de uma conta JA EXCLUIDA no Panzeri Run. Cancele a assinatura no Asaas (id ${billing.externalSubscriptionId ?? 'desconhecido'}) e avalie o estorno. Nenhuma acao foi tomada automaticamente.`,
+        ).catch(() => undefined);
+      }
+    }
+    return { received: true };
+  }
+
   private recordCancelFeedbackInTimeline(userId: string, feedbackText?: string) {
     void this.reportTimeline.record({
       userId,
@@ -726,6 +830,11 @@ export class BillingService {
 
     const billing = await this.prisma.billingSubscription.findUnique({ where: { externalSubscriptionId: subscriptionId } });
     if (!billing) return { received: true };
+
+    // Conta ja' excluida (anonimizada): a cobranca ainda pode chegar se a assinatura nao foi cancelada. NUNCA mexer no usuario excluido
+    // (status, notificacao, geracao de treino, e-mail, Meta): so' preserva o registro financeiro e avisa o treinador, que decide no Asaas.
+    const owner = await this.prisma.user.findUnique({ where: { id: billing.userId }, select: { accountStatus: true } });
+    if (owner?.accountStatus === 'deleted') return this.handleEventForDeletedAccount(billing, payload);
 
     const appStatus = resolveAppStatusFromEvent(payload.event);
     const current = (payload.payment?.status ?? 'unknown').toLowerCase();
@@ -905,6 +1014,13 @@ export class BillingService {
     const userId = event?.app_user_id;
     if (!userId) return { received: true };
 
+    // Conta excluida: assinatura de loja e' gerida pelo proprio usuario na loja; aqui nada e' alterado nem notificado.
+    const owner = await this.prisma.user.findUnique({ where: { id: userId }, select: { accountStatus: true } });
+    if (owner?.accountStatus === 'deleted') {
+      this.logger.warn('Evento RevenueCat recebido para conta excluida: ignorado (sem alteracao).');
+      return { received: true };
+    }
+
     // 27/08: CANCELLATION = a aluna desligou o auto-renew na loja (Apple/Google), mas continua
     // com acesso ate o fim do periodo ja pago — nao muda subscriptionStatus (so' EXPIRATION faz
     // isso, ver resolveAppStatusFromRevenueCatEvent). Mas e' um pedido real dela, entao marca
@@ -1078,6 +1194,7 @@ export class BillingService {
     const students = await this.prisma.user.findMany({
       where: {
         role: 'student',
+        accountStatus: { not: 'deleted' },
         subscriptionManualOverride: false,
         // 26/08: quem assinou pela loja (Apple/Google) e controlada pelo webhook do RevenueCat,
         // nunca por essa varredura do Asaas — os dois nunca devem decidir o status da mesma aluna.
@@ -1377,7 +1494,8 @@ export class BillingService {
     if (!response.ok) {
       const message = payload?.errors?.[0]?.description ?? 'O Asaas nao conseguiu processar a solicitacao.';
       this.logger.error(`[asaas] ${init.method ?? 'GET'} ${path} → ${response.status}: ${message}`);
-      throw new BadGatewayException(message);
+      // asaasStatus: permite distinguir "nao existe" (404) de "fora do ar" sem expor detalhe ao cliente.
+      throw Object.assign(new BadGatewayException(message), { asaasStatus: response.status });
     }
     return payload as T;
   }

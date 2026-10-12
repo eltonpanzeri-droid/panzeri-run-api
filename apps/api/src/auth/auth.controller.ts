@@ -7,6 +7,7 @@ import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { renderPrivacyPage, renderTermsPage } from '../legal/legal-content';
+import { renderStorePrivacyPage } from '../legal/privacy-panzeri-run';
 
 @Controller()
 export class AuthController {
@@ -137,6 +138,12 @@ export class AuthController {
   @Get('politica-privacidade')
   privacyPolicyPage(@Res() response: { type: (value: string) => { send: (value: string) => void } }) {
     response.type('html').send(renderPrivacyPage());
+  }
+
+  // Politica para as lojas (App Store/Google Play) com Apple Saude, Apple Watch e Health Connect. Aceita com e sem barra final.
+  @Get('politica-de-privacidade-panzeri-run')
+  storePrivacyPolicyPage(@Res() response: { type: (value: string) => { send: (value: string) => void } }) {
+    response.type('html').send(renderStorePrivacyPage());
   }
 
   @UseGuards(AuthGuard('jwt'))

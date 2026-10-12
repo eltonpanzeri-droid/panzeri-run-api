@@ -8,6 +8,7 @@ import Constants from 'expo-constants';
 import { AppleHealthProofCard } from './src/appleHealthProof/AppleHealthProofCard';
 import { IntegrationsHub, IntegrationScreens } from './src/integrations/IntegrationsHub';
 import { HealthConnectCard } from './src/healthConnect/HealthConnectCard';
+import { DeleteAccountSection } from './src/accountDeletion/DeleteAccountSection';
 import { useHealthConnectAutoSync } from './src/healthConnect/useHealthConnect';
 import { AppleWatchSendButton } from './src/appleWatchDelivery/AppleWatchSendButton';
 import Purchases from 'react-native-purchases';
@@ -2006,7 +2007,7 @@ function AppInner() {
               <DevicesIntegrationsScreen key={activeTab} accessToken={accessToken} initialProviderId={activeTab === 'strava' ? 'strava' : undefined} />
             )}
             {activeTab === 'billing' && <Billing accessToken={accessToken} />}
-            {activeTab === 'privacy' && <PrivacyDataScreen accessToken={accessToken} onOpenStrava={() => setActiveTab('strava')} />}
+            {activeTab === 'privacy' && <PrivacyDataScreen accessToken={accessToken} onOpenStrava={() => setActiveTab('strava')} onOpenBilling={() => setActiveTab('billing')} onAccountDeleted={logout} />}
             {activeTab === 'profile' && (
               <>
                 {/* 10/2026: a conexao Polar vive so' em 'Dispositivos e integrações' (e a gestao/exclusao em 'Privacidade e dados'). */}
@@ -9121,7 +9122,7 @@ function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessT
 // Privacidade e dados (05/10/2026): camada de transparencia e controle. NAO substitui Politica, Termos nem
 // consentimento. O texto vem de GET /legal/summary (mesma fonte canonica dos documentos publicos); as acoes
 // reutilizam PolarConnect (status/desconectar/excluir) e a aba do Strava.
-function PrivacyDataScreen({ accessToken, onOpenStrava }: { accessToken: string; onOpenStrava: () => void }) {
+function PrivacyDataScreen({ accessToken, onOpenStrava, onOpenBilling, onAccountDeleted }: { accessToken: string; onOpenStrava: () => void; onOpenBilling: () => void; onAccountDeleted: () => void }) {
   const [summary, setSummary] = useState<LegalSummary | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -9183,6 +9184,8 @@ function PrivacyDataScreen({ accessToken, onOpenStrava }: { accessToken: string;
       {block('terceiros', 'Terceiros e processamento')}
 
       {block('solicitacoes', 'Solicitações sobre meus dados')}
+
+      <DeleteAccountSection accessToken={accessToken} apiUrl={API_URL} onOpenBilling={onOpenBilling} onDeleted={onAccountDeleted} />
     </View>
   );
 }

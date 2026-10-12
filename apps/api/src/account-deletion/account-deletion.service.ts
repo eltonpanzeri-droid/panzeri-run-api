@@ -61,7 +61,7 @@ export class AccountDeletionService {
     private readonly wahoo?: WahooService,
   ) {}
 
-  async deleteAccount(studentId: string, confirmation: { confirmUserId?: string; confirmText?: string }, actor: { id: string; role: string }): Promise<AccountDeletionResult> {
+  async deleteAccount(studentId: string, confirmation: { confirmUserId?: string; confirmText?: string }, actor: { id: string; role: string }, options: { skipSubscriptionGuard?: boolean } = {}): Promise<AccountDeletionResult> {
     if (!this.ledger) throw new InternalServerErrorException('Exclusao indisponivel: ledger de tombstones nao configurado.');
     // 1. Identificar inequivocamente + 2. confirmacao explicita (id repetido e frase fixa).
     if (confirmation.confirmUserId !== studentId || confirmation.confirmText !== 'EXCLUIR CONTA') {
@@ -72,7 +72,9 @@ export class AccountDeletionService {
     if (user.accountStatus === 'deleted') return { status: 'already_deleted', deleted: {} };
     if (user.role !== 'student') throw new BadRequestException('Somente contas de aluno podem ser excluidas por esta operacao.');
     // Pre-condicao: o sistema nunca executa acao financeira — assinatura recorrente viva precisa ser cancelada antes.
-    if ((user.subscriptionStatus === 'active' || user.subscriptionStatus === 'grace') && !user.subscriptionManualOverride) {
+    // Rota do admin mantem a trava. A exclusao pelo PROPRIO aluno (self-account-deletion) passa skipSubscriptionGuard: o direito de excluir nao depende de
+    // cobranca; la' a situacao real no Asaas e' consultada e o aluno escolhe cancelar ou seguir ciente (ver SelfAccountDeletionService).
+    if (!options.skipSubscriptionGuard && (user.subscriptionStatus === 'active' || user.subscriptionStatus === 'grace') && !user.subscriptionManualOverride) {
       throw new ConflictException('A assinatura ainda esta ativa. Cancele a assinatura no Asaas/loja antes de excluir a conta (a exclusao nao executa acao financeira).');
     }
 
@@ -145,6 +147,11 @@ export class AccountDeletionService {
       });
 
       if (!alreadyDeleted) {
+        // Conta excluida nao tem acesso: nao pode continuar contando como assinante (listas e metricas do treinador filtram por subscriptionStatus).
+        // Isto NAO cancela nada fora do Panzeri Run (Asaas/loja): so' o estado local. A transicao fica registrada como as demais.
+        if (user.subscriptionStatus !== 'canceled') {
+          await db.billingEvent.create({ data: { userId, event: 'status_changed', prevStatus: user.subscriptionStatus, nextStatus: 'canceled', externalRef: 'account:deleted' } });
+        }
         // Identidade tecnica: e-mail aleatorio e irreversivel (nao derivado do original), dominio .invalid.
         await db.user.update({
           where: { id: userId },
@@ -155,7 +162,7 @@ export class AccountDeletionService {
             passwordHash: bcrypt.hashSync(randomBytes(32).toString('hex'), 4),
             name: 'Conta excluida',
             cpf: null, phone: null, birthDate: null, sex: null, heightCm: null, weightKg: null, address: null, education: null,
-            studentCode: null, accountStatus: 'deleted',
+            studentCode: null, accountStatus: 'deleted', subscriptionStatus: 'canceled', subscriptionManualOverride: false,
             cancelReason: null, cancelFeedbackText: null, cancelWouldReturn: null, subscriptionCancelRequestedAt: null,
             refreshTokenHash: null, expoPushToken: null, acquisitionAttribution: null,
             // Aceite juridico (termos, privacidade, aptidao fisica): sem finalidade de retencao definida, nao e' preservado.

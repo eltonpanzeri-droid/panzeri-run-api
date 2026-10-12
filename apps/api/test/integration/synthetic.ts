@@ -72,5 +72,9 @@ export async function cleanupStudents(prisma: PrismaClient, userIds: string[]): 
   await prisma.rawExternalActivity.deleteMany({ where });
   await prisma.trainingSession.deleteMany({ where });
   await prisma.trainingPlan.deleteMany({ where });
+  // Registros financeiros sao PRESERVADOS pela exclusao de conta (anonimizados): o helper de teste precisa limpa-los.
+  await prisma.billingEvent.deleteMany({ where });
+  await prisma.billingSubscription.deleteMany({ where });
+  await prisma.couponRedemption.deleteMany({ where });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
 }
