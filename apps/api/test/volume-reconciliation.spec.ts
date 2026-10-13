@@ -22,6 +22,14 @@ describe('Reconciliação histórica de volume', () => {
     expect(preserved).toMatchObject({ _volumeReconciliation: { original: { value: 100, evidence: { weekStart: '2026-09-07' } } } });
   });
 
+  it('é idempotente diante de ruído de ponto flutuante no banco', () => {
+    const series = { weeks: [], months: [], calculatedAt: '' } as never;
+    const candidate = { code: original.code, value: 50.18000000000001,
+      periodStart: original.periodStart, periodEnd: original.periodEnd, modality: 'corrida', evidence: original.evidence as Record<string, unknown> };
+    const award = { ...original, value: 50.18 };
+    expect(planVolumeReconciliation([award], [candidate], series, noUncertainty, catalog)[0].kind).toBe('keep');
+  });
+
   it('não retrata uma semana ambígua nem uma semana sem observações', () => {
     const series = { weeks: [{ weekStart: '2026-09-07', kmPercorridos: 20 }], months: [], calculatedAt: '' } as never;
     expect(planVolumeReconciliation([original], [], series, { weeks: new Set(['2026-09-07']), months: new Set() }, catalog)[0].kind).toBe('review');

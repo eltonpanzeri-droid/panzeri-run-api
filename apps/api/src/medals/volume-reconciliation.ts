@@ -143,6 +143,11 @@ function earlierUncertainty(candidate: UnlockCandidate, category: string, weeks:
   return [...weeks].some((week) => week <= date);
 }
 
+function differentValue(a: number | null, b: number | null): boolean {
+  if (a == null || b == null) return a !== b;
+  return Math.abs(a - b) > 0.000001;
+}
+
 export function planVolumeReconciliation(
   existing: ExistingVolumeAward[], candidates: UnlockCandidate[], series: EvolutionSeries,
   uncertainty: { weeks: Set<string>; months: Set<string> },
@@ -162,7 +167,7 @@ export function planVolumeReconciliation(
     } else if (candidate) {
       if (earlierUncertainty(candidate, award.category, uncertainty.weeks, uncertainty.months)) {
         actions.push({ kind: 'review', code: award.code, existing: award, candidate, reason: 'período anterior ou atual incerto' });
-      } else if (isRetractedVolumeEvidence(award.evidence) || award.value !== candidate.value ||
+      } else if (isRetractedVolumeEvidence(award.evidence) || differentValue(award.value, candidate.value) ||
                  day(award.periodStart) !== day(candidate.periodStart) || day(award.periodEnd) !== day(candidate.periodEnd)) {
         actions.push({ kind: 'update', code: award.code, existing: award, candidate, reason: 'alinhar concessão ao primeiro período comprovado' });
       } else {
