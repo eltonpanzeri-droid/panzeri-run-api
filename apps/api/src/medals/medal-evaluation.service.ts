@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EvolutionMetricService } from '../evolution/evolution-metric.service';
 import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
 import { GAP_RETURN_THRESHOLD_DAYS } from '../context-events/context-event-types';
-import { getMedalCategoryCatalog, MedalCategory, MedalDefinition } from './medal-catalog';
+import { getMedalCategoryCatalog, MedalCategory } from './medal-catalog';
 import {
   isoDate,
   mondayOf,
@@ -17,6 +17,7 @@ import {
   detectGapEpisodes,
   consecutiveWeeksFromReturn,
 } from './medal-evaluation.helpers';
+import { isRetractedVolumeEvidence, VOLUME_CATEGORIES, withVolumeReconciliation } from './volume-reconciliation';
 
 // Sistema de Medalhas (30/09/2026) — MedalEvaluationService NUNCA recalcula matemática que já
 // existe: lê `EvolutionMetricService` (volume/aderência) e faz queries mínimas e diretas só pro
@@ -42,7 +43,7 @@ const MEDAL_TRIGGER_CATEGORIES: Record<MedalTrigger, MedalCategory[]> = {
   // 'provas' fica de fora enquanto inativa (ver medal-catalog.ts).
 };
 
-interface UnlockCandidate {
+export interface UnlockCandidate {
   code: string;
   value: number | null;
   periodStart: Date | null;
@@ -79,6 +80,15 @@ export class MedalEvaluationService {
       this.logger.error(`Falha ao avaliar medalhas (trigger=${trigger}) para ${userId}: ${error instanceof Error ? error.message : error}`);
       return [];
     }
+  }
+
+  /** Prévia sem escrita, usada para reconciliar apenas medalhas de volume. */
+  async previewVolumeAwards(userId: string): Promise<UnlockCandidate[]> {
+    return [
+      ...(await this.evaluateVolumeSemanal(userId)),
+      ...(await this.evaluateSustentacaoVolume(userId)),
+      ...(await this.evaluateVolumeMensal(userId)),
+    ];
   }
 
   private async evaluateCategory(userId: string, category: MedalCategory): Promise<UnlockCandidate[]> {
@@ -129,32 +139,22 @@ export class MedalEvaluationService {
     return sessions.map((s) => ({ scheduledDate: s.scheduledDate, distanceKm: s.completion!.distanceKm!, sessionId: s.id, completionId: s.completion!.id }));
   }
 
-  /** Km REALIZADO por semana, corrida+esteira somadas (EvolutionMetricService já filtra por modalidade e já exclui extra da ADERÊNCIA mas inclui no volume — ver evolution-metric.service.ts). */
+  /** Km realizado de corrida/esteira: uma atividade canônica entra uma única vez. */
   private async getCombinedRunWeeklyKm(userId: string): Promise<Map<string, number>> {
-    const [corrida, esteira] = await Promise.all([
-      this.evolutionMetric.getSeriesByModality(userId, 'corrida'),
-      this.evolutionMetric.getSeriesByModality(userId, 'esteira'),
+    const [series, uncertainty] = await Promise.all([
+      this.evolutionMetric.getRunSeries(userId),
+      this.evolutionMetric.getRunMedalUncertainty(userId),
     ]);
-    const combined = new Map<string, number>();
-    for (const week of [...corrida.weeks, ...esteira.weeks]) {
-      if (week.kmPercorridos == null) continue;
-      combined.set(week.weekStart, (combined.get(week.weekStart) ?? 0) + week.kmPercorridos);
-    }
-    return combined;
+    return new Map(series.weeks.filter((week) => week.kmPercorridos != null && !uncertainty.weeks.has(week.weekStart)).map((week) => [week.weekStart, week.kmPercorridos!]));
   }
 
-  /** Mesma ideia, por mês-calendário. */
+  /** Mesma observação canônica, agrupada por mês-calendário. */
   private async getCombinedRunMonthlyKm(userId: string): Promise<Map<string, number>> {
-    const [corrida, esteira] = await Promise.all([
-      this.evolutionMetric.getSeriesByModality(userId, 'corrida'),
-      this.evolutionMetric.getSeriesByModality(userId, 'esteira'),
+    const [series, uncertainty] = await Promise.all([
+      this.evolutionMetric.getRunSeries(userId),
+      this.evolutionMetric.getRunMedalUncertainty(userId),
     ]);
-    const combined = new Map<string, number>();
-    for (const month of [...corrida.months, ...esteira.months]) {
-      if (month.kmPercorridos == null) continue;
-      combined.set(month.month, (combined.get(month.month) ?? 0) + month.kmPercorridos);
-    }
-    return combined;
+    return new Map(series.months.filter((month) => month.kmPercorridos != null && !uncertainty.months.has(month.month)).map((month) => [month.month, month.kmPercorridos!]));
   }
 
   // -----------------------------------------------------------------------------------------
@@ -500,14 +500,29 @@ export class MedalEvaluationService {
 
     const alreadyUnlocked = await this.prisma.userAchievement.findMany({
       where: { userId, achievementId: { in: achievements.map((a) => a.id) } },
-      select: { achievementId: true },
+      select: { id: true, achievementId: true, evidence: true, value: true, periodStart: true, periodEnd: true },
     });
+    const existingByAchievement = new Map(alreadyUnlocked.map((u) => [u.achievementId, u]));
     const unlockedIds = new Set(alreadyUnlocked.map((u) => u.achievementId));
 
     const newlyUnlocked: string[] = [];
     for (const candidate of candidates) {
       const achievement = byCode.get(candidate.code);
-      if (!achievement || unlockedIds.has(achievement.id)) continue;
+      if (!achievement) continue;
+      const existing = existingByAchievement.get(achievement.id);
+      if (existing && VOLUME_CATEGORIES.some((category) => category === achievement.category) && isRetractedVolumeEvidence(existing.evidence)) {
+        await this.prisma.userAchievement.update({
+          where: { id: existing.id },
+          data: {
+            value: candidate.value, periodStart: candidate.periodStart, periodEnd: candidate.periodEnd,
+            modality: candidate.modality,
+            evidence: withVolumeReconciliation(candidate.evidence as Prisma.JsonValue, 'active', existing, new Date().toISOString()),
+          },
+        });
+        newlyUnlocked.push(candidate.code);
+        continue;
+      }
+      if (unlockedIds.has(achievement.id)) continue;
       try {
         await this.prisma.userAchievement.create({
           data: {

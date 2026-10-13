@@ -3,8 +3,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EvolutionMetricService } from '../evolution/evolution-metric.service';
 import { MedalEvaluationService } from './medal-evaluation.service';
 import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
-import { MEDAL_CATALOG, MedalDefinition, getMedalCategoryCatalog } from './medal-catalog';
+import { MedalDefinition, getMedalCategoryCatalog } from './medal-catalog';
 import { isoDate, mondayOf, buildCompleteWeekList, isWeekClosed } from './medal-evaluation.helpers';
+import { isRetractedVolumeEvidence } from './volume-reconciliation';
 
 // Sistema de Medalhas (30/09/2026) — lado de LEITURA da API (etapa 5 do plano de implementação).
 // Nunca decide se uma medalha foi conquistada (isso é MedalEvaluationService, já persistido em
@@ -21,6 +22,7 @@ export interface UnlockedMedalView {
   grau: string;
   unit: string | null;
   unlockedAt: Date;
+  processedAt: Date;
   value: number | null;
   periodStart: Date | null;
   periodEnd: Date | null;
@@ -71,26 +73,36 @@ export class MedalsService {
       include: { achievement: true },
       orderBy: { unlockedAt: 'desc' },
     });
-    return rows.map((r) => ({
+    return rows.filter((r) => !isRetractedVolumeEvidence(r.evidence)).map((r) => ({
       code: r.achievement.code,
       category: r.achievement.category,
       name: r.achievement.name,
       description: r.achievement.description,
       grau: r.achievement.grau,
       unit: r.achievement.unit,
-      unlockedAt: r.unlockedAt,
+      unlockedAt: this.earnedAt(r.achievement.category, r.periodStart, r.periodEnd) ?? r.unlockedAt,
+      processedAt: r.unlockedAt,
       value: r.value,
       periodStart: r.periodStart,
       periodEnd: r.periodEnd,
       modality: r.modality,
-    }));
+    })).sort((a, b) => b.unlockedAt.getTime() - a.unlockedAt.getTime());
+  }
+
+  private earnedAt(category: string, periodStart: Date | null, periodEnd: Date | null): Date | null {
+    if (category === 'volume_semanal' && periodStart) return new Date(periodStart.getTime() + 7 * 86_400_000);
+    if (category === 'sustentacao_volume' && periodEnd) return new Date(periodEnd.getTime() + 7 * 86_400_000);
+    if (category === 'volume_mensal' && periodStart) {
+      return new Date(Date.UTC(periodStart.getUTCFullYear(), periodStart.getUTCMonth() + 1, 1));
+    }
+    return null;
   }
 
   async getProgress(userId: string): Promise<NextUpMedalView[]> {
     const unlockedCodes = new Set(
-      (await this.prisma.userAchievement.findMany({ where: { userId }, include: { achievement: { select: { code: true } } } })).map(
-        (u) => u.achievement.code,
-      ),
+      (await this.prisma.userAchievement.findMany({ where: { userId }, include: { achievement: { select: { code: true } } } }))
+        .filter((u) => !isRetractedVolumeEvidence(u.evidence))
+        .map((u) => u.achievement.code),
     );
 
     const [
@@ -231,16 +243,8 @@ export class MedalsService {
   }
 
   private async getCombinedRunWeeklyKm(userId: string): Promise<Map<string, number>> {
-    const [corrida, esteira] = await Promise.all([
-      this.evolutionMetric.getSeriesByModality(userId, 'corrida'),
-      this.evolutionMetric.getSeriesByModality(userId, 'esteira'),
-    ]);
-    const combined = new Map<string, number>();
-    for (const week of [...corrida.weeks, ...esteira.weeks]) {
-      if (week.kmPercorridos == null) continue;
-      combined.set(week.weekStart, (combined.get(week.weekStart) ?? 0) + week.kmPercorridos);
-    }
-    return combined;
+    const series = await this.evolutionMetric.getRunSeries(userId);
+    return new Map(series.weeks.filter((week) => week.kmPercorridos != null).map((week) => [week.weekStart, week.kmPercorridos!]));
   }
 
   private async getCurrentWeekKm(userId: string): Promise<number | null> {
@@ -250,16 +254,9 @@ export class MedalsService {
   }
 
   private async getCurrentMonthKm(userId: string): Promise<number | null> {
-    const [corrida, esteira] = await Promise.all([
-      this.evolutionMetric.getSeriesByModality(userId, 'corrida'),
-      this.evolutionMetric.getSeriesByModality(userId, 'esteira'),
-    ]);
+    const series = await this.evolutionMetric.getRunSeries(userId);
     const currentMonth = new Date().toISOString().slice(0, 7);
-    let total = 0;
-    for (const month of [...corrida.months, ...esteira.months]) {
-      if (month.month === currentMonth && month.kmPercorridos != null) total += month.kmPercorridos;
-    }
-    return total;
+    return series.months.find((month) => month.month === currentMonth)?.kmPercorridos ?? 0;
   }
 
   private async getBestSingleDistance(userId: string): Promise<number | null> {

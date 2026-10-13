@@ -39,6 +39,31 @@ function reader(rows: Array<Record<string, any>>) {
 }
 
 describe('3C.1 — Evolution: distancia objetiva por PhysicalEvent', () => {
+  it('serie de medalhas soma corrida e esteira manuais, mas cada evento importado apenas uma vez', async () => {
+    const rows = [
+      ...asEvent('ev-1', 'polar-1', [log('polar-1', { distanceMeters: 10200 }), log('apple-1', { provider: 'apple_health', distanceMeters: 10500 })]),
+      log('treadmill-1', { sport: 'esteira', distanceMeters: 5000, startedAt: new Date('2026-08-04T10:00:00Z') }),
+    ];
+    const completed = (id: string, modality: string, distanceKm: number) => ({
+      id, userId: 'aluno-1', scheduledDate: new Date('2026-08-05T00:00:00Z'), modality,
+      structure: {}, origin: 'agent', plan: { status: 'active' }, executionLinks: [],
+      completion: { status: 'done', completedAt: new Date('2026-08-05T12:00:00Z'), distanceKm },
+    });
+    const prisma = {
+      trainingSession: { findMany: jest.fn().mockResolvedValue([completed('run', 'corrida', 3), completed('treadmill', 'esteira', 4), completed('bike', 'bike', 40)]) },
+      activityLog: store(rows),
+    };
+    const series = await new EvolutionMetricService(prisma as never).getRunSeries('aluno-1');
+    expect(series.weeks[0].kmPercorridos).toBe(22.2);
+    expect(series.months[0].kmPercorridos).toBe(22.2);
+  });
+
+  it('medalha compara o km exato, sem arredondar 49,96 para o limiar de 50', async () => {
+    const series = await evolution([log('run-1', { distanceMeters: 49960 })]).getRunSeries('aluno-1');
+    expect(series.weeks[0].kmPercorridos).toBe(49.96);
+    expect(series.months[0].kmPercorridos).toBe(49.96);
+  });
+
   it('Polar + Apple do mesmo evento: a distancia conta UMA vez, com o valor da canonica (a outra observacao nao contamina)', async () => {
     const rows = asEvent('ev-1', 'polar-1', [log('polar-1', { distanceMeters: 10200 }), log('apple-1', { provider: 'apple_health', distanceMeters: 10500, executionClassification: 'corresponding' })]);
     const series = await evolution(rows).getSeries('aluno-1');

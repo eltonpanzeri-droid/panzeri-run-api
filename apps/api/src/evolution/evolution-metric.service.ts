@@ -198,7 +198,7 @@ export class EvolutionMetricService {
   // Volume semanal
   // -------------------------------------------------------------------------
 
-  private buildWeeklyVolumes(sessions: RawSessionData[], activities: RawRealizedActivity[], todayBR: ISODate): WeeklyVolume[] {
+  private buildWeeklyVolumes(sessions: RawSessionData[], activities: RawRealizedActivity[], todayBR: ISODate, roundKilometers = true): WeeklyVolume[] {
     const byWeek = new Map<
       ISODate,
       {
@@ -293,7 +293,7 @@ export class EvolutionMetricService {
           adherencePercent,
           coveragePercent,
           lowCoverageWarning: coveragePercent < 30,
-          kmPercorridos: b.kmCount > 0 ? round1(b.kmTotal) : null,
+          kmPercorridos: b.kmCount > 0 ? (roundKilometers ? round1(b.kmTotal) : b.kmTotal) : null,
           kmPrescritos: b.kmPrescritosCount > 0 ? round1(b.kmPrescritosTotal) : null,
           kmExtras: b.kmExtrasCount > 0 ? round1(b.kmExtrasTotal) : null,
         };
@@ -452,6 +452,7 @@ export class EvolutionMetricService {
     sessions: RawSessionData[],
     activities: RawRealizedActivity[],
     todayBR: ISODate,
+    roundKilometers = true,
   ): MonthlyAggregate[] {
     const byMonth = new Map<
       string,
@@ -498,7 +499,7 @@ export class EvolutionMetricService {
         sessoesSemRegistro: b.semRegistro,
         adherencePercent: calcAdherence(b.feitas, b.naoFeitas),
         coveragePercent: calcCoverage(b.feitas, b.naoFeitas, b.prescritas),
-        kmPercorridos: b.kmCount > 0 ? Math.round(b.kmTotal * 10) / 10 : null,
+        kmPercorridos: b.kmCount > 0 ? (roundKilometers ? Math.round(b.kmTotal * 10) / 10 : b.kmTotal) : null,
       }));
   }
 
@@ -601,5 +602,76 @@ export class EvolutionMetricService {
       months: this.buildMonthlyAggregates(sessions, activities, todayBR),
       calculatedAt: new Date().toISOString(),
     };
+  }
+
+  /** Volume de corrida/esteira sem repetir atividades que pertencem à mesma família. */
+  async getRunSeries(userId: string): Promise<EvolutionSeries> {
+    const todayBR = getTodayBR();
+    const [sessions, activities] = await Promise.all([
+      this.fetchRawSessions(userId),
+      this.fetchRealizedActivities(userId, 'corrida'),
+    ]);
+    const runSessions = sessions.filter((session) => {
+      const modality = canonicalModality(session.modality);
+      return modality === 'corrida' || modality === 'esteira';
+    });
+
+    return {
+      weeks: this.buildWeeklyVolumes(runSessions, activities, todayBR, false),
+      months: this.buildMonthlyAggregates(runSessions, activities, todayBR, false),
+      calculatedAt: new Date().toISOString(),
+    };
+  }
+
+  /** Períodos que não podem fundamentar uma nova medalha sem reconciliar as observações. */
+  async getRunMedalUncertainty(userId: string): Promise<{ weeks: Set<string>; months: Set<string> }> {
+    const [activities, sessions] = await Promise.all([
+      this.prisma.activityLog.findMany({
+        where: { userId, startedAt: { gte: TRAINING_INTELLIGENCE_DATA_CUTOFF } },
+        select: {
+          id: true, startedAt: true, utcOffsetMinutes: true, sport: true, distanceMeters: true,
+          executionClassification: true, physicalIdentityStatus: true, physicalCanonicalActivityLogId: true,
+        },
+      }),
+      this.prisma.trainingSession.findMany({
+        where: { userId, scheduledDate: { gte: TRAINING_INTELLIGENCE_DATA_CUTOFF }, modality: { in: ['corrida', 'esteira'] } },
+        select: {
+          scheduledDate: true, modality: true, completion: { select: { status: true, distanceKm: true } },
+          executionLinks: { where: { status: { in: ['active', 'candidate'] } }, select: { status: true } },
+        },
+      }),
+    ]);
+    const weeks = new Set<string>();
+    const months = new Set<string>();
+    const mark = (day: string) => { weeks.add(getWeekStart(day)); months.add(getMonth(day)); };
+    const runActivities = activities.filter((a) => {
+      const modality = canonicalModality(a.sport);
+      return (modality === 'corrida' || modality === 'esteira') && a.distanceMeters != null;
+    });
+    for (const activity of runActivities) {
+      if (activity.executionClassification === 'ambiguous' || activity.executionClassification == null ||
+          !['unique', 'matched'].includes(activity.physicalIdentityStatus ?? '') ||
+          (activity.physicalIdentityStatus === 'matched' && !activity.physicalCanonicalActivityLogId)) {
+        mark(localIsoDate(activity.startedAt, activity.utcOffsetMinutes));
+      }
+    }
+    for (const session of sessions) {
+      if (!session.completion || !['done', 'adjusted'].includes(session.completion.status) || session.completion.distanceKm == null ||
+          session.executionLinks.some((link) => link.status === 'active')) continue;
+      const day = session.scheduledDate.toISOString().slice(0, 10);
+      if (session.executionLinks.some((link) => link.status === 'candidate')) mark(day);
+      const sessionDay = Date.parse(`${day}T12:00:00Z`);
+      for (const activity of runActivities) {
+        const activityDay = localIsoDate(activity.startedAt, activity.utcOffsetMinutes);
+        if (Math.abs(Date.parse(`${activityDay}T12:00:00Z`) - sessionDay) <= 86_400_000 &&
+            activity.distanceMeters != null &&
+            Math.abs(activity.distanceMeters / 1000 - session.completion.distanceKm) <=
+              Math.max(0.5, 0.1 * Math.max(activity.distanceMeters / 1000, session.completion.distanceKm))) {
+          mark(day);
+          mark(activityDay);
+        }
+      }
+    }
+    return { weeks, months };
   }
 }

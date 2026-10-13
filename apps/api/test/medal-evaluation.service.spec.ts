@@ -19,13 +19,14 @@ function trainingSession(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function buildEvolutionMetric(sessions: unknown[]) {
-  const prisma = { trainingSession: { findMany: jest.fn().mockResolvedValue(sessions) }, activityLog: { findMany: jest.fn().mockResolvedValue([]) } };
+function buildEvolutionMetric(sessions: unknown[], activities: unknown[] = []) {
+  const prisma = { trainingSession: { findMany: jest.fn().mockResolvedValue(sessions) }, activityLog: { findMany: jest.fn().mockResolvedValue(activities) } };
   return new EvolutionMetricService(prisma as never);
 }
 
 function buildService(opts: {
   trainingSessions?: unknown[];
+  activities?: unknown[];
   workoutCompletionCount?: number;
   weeklyCheckIns?: unknown[];
   reassessmentCount?: number;
@@ -34,6 +35,7 @@ function buildService(opts: {
 }) {
   const {
     trainingSessions = [],
+    activities = [],
     workoutCompletionCount = 0,
     weeklyCheckIns = [],
     reassessmentCount = 0,
@@ -53,7 +55,7 @@ function buildService(opts: {
       create: userAchievementCreate,
     },
   };
-  const evolutionMetric = buildEvolutionMetric(trainingSessions);
+  const evolutionMetric = buildEvolutionMetric(trainingSessions, activities);
   const service = new MedalEvaluationService(prisma as never, evolutionMetric);
   return { service, prisma, userAchievementCreate };
 }
@@ -100,6 +102,35 @@ describe('MedalEvaluationService — treinos_concluidos (execução real, all-ti
     const prisma = { trainingSession: { findMany: jest.fn().mockRejectedValue(new Error('banco fora')) } };
     const service = new MedalEvaluationService(prisma as never, buildEvolutionMetric([]));
     await expect(service.evaluateForUser('aluno-1', 'workout_completed')).resolves.toEqual([]);
+  });
+});
+
+describe('MedalEvaluationService — volume canônico', () => {
+  it('uma corrida Polar + Apple não desbloqueia o dobro da distância', async () => {
+    const base = {
+      startedAt: new Date('2026-08-03T10:00:00Z'), utcOffsetMinutes: 0,
+      executionClassification: 'corresponding', sport: 'corrida',
+      physicalIdentityStatus: 'matched', physicalEventId: 'ev-1',
+      physicalCanonicalActivityLogId: 'polar-1',
+    };
+    const { service } = buildService({ activities: [
+      { ...base, id: 'polar-1', distanceMeters: 30200 },
+      { ...base, id: 'apple-1', distanceMeters: 30500 },
+    ] });
+    const awards = await service.previewVolumeAwards('aluno-1');
+    expect(awards.some((award) => award.code === 'volume_semanal_corrida_30km')).toBe(true);
+    expect(awards.some((award) => award.code === 'volume_semanal_corrida_50km')).toBe(false);
+  });
+
+  it('identidade física ambígua não concede medalha por palpite', async () => {
+    const { service } = buildService({ activities: [{
+      id: 'ambiguous-1', startedAt: new Date('2026-08-03T10:00:00Z'), utcOffsetMinutes: 0,
+      executionClassification: 'corresponding', sport: 'corrida', distanceMeters: 60000,
+      physicalIdentityStatus: 'ambiguous', physicalEventId: null,
+      physicalCanonicalActivityLogId: null,
+    }] });
+    const awards = await service.previewVolumeAwards('aluno-1');
+    expect(awards.filter((award) => award.code.startsWith('volume_') || award.code.startsWith('sustentacao_'))).toHaveLength(0);
   });
 });
 

@@ -138,6 +138,22 @@ describe('MedalsService.getProgress — sustentacao_volume usa streak ATUAL (nao
 });
 
 describe('MedalsService.getUnlocked', () => {
+  it('mostra a data em que a semana fechou e oculta concessões historicamente retraídas', async () => {
+    const period = new Date('2026-09-07T00:00:00Z');
+    const prisma = { userAchievement: { findMany: jest.fn().mockResolvedValue([
+      { achievement: { code: 'volume_semanal_corrida_50km', category: 'volume_semanal', name: '50km', description: '', grau: 'ouro', unit: 'km' },
+        unlockedAt: new Date('2026-10-01T00:00:00Z'), value: 50.2, periodStart: period, periodEnd: period, modality: 'corrida', evidence: { weekStart: '2026-09-07' } },
+      { achievement: { code: 'volume_semanal_corrida_100km', category: 'volume_semanal', name: '100km', description: '', grau: 'ouro', unit: 'km' },
+        unlockedAt: new Date('2026-10-01T00:00:00Z'), value: 100, periodStart: period, periodEnd: period, modality: 'corrida',
+        evidence: { weekStart: '2026-09-07', _volumeReconciliation: { status: 'retracted' } } },
+    ]) } };
+    const service = new MedalsService(prisma as never, {} as never, {} as never);
+    const unlocked = await service.getUnlocked('aluno-1');
+    expect(unlocked).toHaveLength(1);
+    expect(unlocked[0].unlockedAt.toISOString()).toBe('2026-09-14T00:00:00.000Z');
+    expect(unlocked[0].processedAt.toISOString()).toBe('2026-10-01T00:00:00.000Z');
+  });
+
   it('devolve as medalhas conquistadas com os dados de evidencia/execucao real preservados', async () => {
     const unlockedAt = new Date('2026-09-01T00:00:00Z');
     const prisma = {
