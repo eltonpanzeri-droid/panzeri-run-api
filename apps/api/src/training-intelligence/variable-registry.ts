@@ -86,6 +86,9 @@ export interface VariableDefinition {
    */
   missingPolicy: 'never_impute';
   /** Uma entrada por versao de instrumento (feedbackVersion / checkinVersion) que coleta esta variavel. */
+  // ATENCAO (14/10/2026): o leitor so' emite observacao de um completion se a versao dele estiver listada AQUI. O feedback V3 (01/10/2026) so' trocou a
+  // pergunta 12 (executionVsPrescribed -> executionBehavior); TODAS as demais colunas continuam gravadas como no V2. Toda variavel do V2 que o V3 mantem
+  // precisa listar a versao 3 — senao os registros V3 somem dos graficos/textos (foi o que aconteceu com cansaco e resposta pos-treino).
   versions: InstrumentVersionSpec[];
   /**
    * Se false, uma serie que misture observacoes de versoes diferentes carrega um aviso explicito
@@ -132,6 +135,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versions: [
       { version: 1, field: 'preSleepQuality', storageLocation: 'column' },
       { version: 2, field: 'preSleepQuality', storageLocation: 'column' },
+      { version: 3, field: 'preSleepQuality', storageLocation: 'column' },
     ],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
@@ -152,7 +156,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     allowedMathStrategy: 'ordinal_or_continuous_stats',
     missingPolicy: 'never_impute',
     relatedTable: { table: 'nightly_sleep_log', field: 'sleepDurationHoursEstimate' },
-    versions: [{ version: 2, field: 'sleepDurationHoursEstimate', storageLocation: 'column' }],
+    versions: [{ version: 2, field: 'sleepDurationHoursEstimate', storageLocation: 'column' }, { version: 3, field: 'sleepDurationHoursEstimate', storageLocation: 'column' }],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
     notes:
@@ -224,7 +228,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     allowedMathStrategy: 'ordinal_or_continuous_stats',
     missingPolicy: 'never_impute',
     relatedTable: { table: 'nightly_sleep_log', field: 'sleepInterruption' },
-    versions: [{ version: 2, field: 'sleepInterruption', storageLocation: 'column' }],
+    versions: [{ version: 2, field: 'sleepInterruption', storageLocation: 'column' }, { version: 3, field: 'sleepInterruption', storageLocation: 'column' }],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
     notes: 'A partir de 01/10/2026 pertence a UMA NOITE (NightlySleepLog), ver nota em workout.preSleepQuality.',
@@ -241,7 +245,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     allowedMathStrategy: 'ordinal_or_continuous_stats',
     missingPolicy: 'never_impute',
     relatedTable: { table: 'nightly_sleep_log', field: 'sleepDifficulty' },
-    versions: [{ version: 2, field: 'sleepDifficulty', storageLocation: 'column' }],
+    versions: [{ version: 2, field: 'sleepDifficulty', storageLocation: 'column' }, { version: 3, field: 'sleepDifficulty', storageLocation: 'column' }],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
     notes: 'A partir de 01/10/2026 pertence a UMA NOITE (NightlySleepLog), ver nota em workout.preSleepQuality.',
@@ -264,6 +268,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versions: [
       { version: 1, field: 'prePhysicalFatigue', storageLocation: 'column' },
       { version: 2, field: 'prePhysicalFatigue', storageLocation: 'column' },
+      { version: 3, field: 'prePhysicalFatigue', storageLocation: 'column' },
     ],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
@@ -279,7 +284,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     expectedFrequency: 'per_workout',
     allowedMathStrategy: 'ordinal_or_continuous_stats',
     missingPolicy: 'never_impute',
-    versions: [{ version: 2, field: 'preMentalFatigue', storageLocation: 'column' }],
+    versions: [{ version: 2, field: 'preMentalFatigue', storageLocation: 'column' }, { version: 3, field: 'preMentalFatigue', storageLocation: 'column' }],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
     notes: 'Pergunta nova a partir da v2 — sem equivalente na v1.',
@@ -299,6 +304,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versions: [
       { version: 1, field: 'preStressLevel', storageLocation: 'column' },
       { version: 2, field: 'preStressLevel', storageLocation: 'column' },
+      { version: 3, field: 'preStressLevel', storageLocation: 'column' },
     ],
     versionComparability: 'not_comparable_across_versions',
     excludeExtraSessions: false,
@@ -341,6 +347,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versions: [
       { version: 1, field: 'preMotivation', storageLocation: 'column' },
       { version: 2, field: 'preMotivation', storageLocation: 'column' },
+      { version: 3, field: 'preMotivation', storageLocation: 'column' },
     ],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
@@ -364,6 +371,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versions: [
       { version: 1, field: 'perceivedEffort', storageLocation: 'column' },
       { version: 2, field: 'perceivedEffort', storageLocation: 'column' },
+      { version: 3, field: 'perceivedEffort', storageLocation: 'column' },
     ],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
@@ -383,6 +391,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versions: [
       { version: 1, field: 'satisfactionElaboracao', storageLocation: 'column' },
       { version: 2, field: 'satisfactionElaboracao', storageLocation: 'column' },
+      { version: 3, field: 'satisfactionElaboracao', storageLocation: 'column' },
     ],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
@@ -447,7 +456,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     expectedFrequency: 'per_workout',
     allowedMathStrategy: 'ordinal_or_continuous_stats',
     missingPolicy: 'never_impute',
-    versions: [{ version: 2, field: 'postPhysicalFatigue', storageLocation: 'column' }],
+    versions: [{ version: 2, field: 'postPhysicalFatigue', storageLocation: 'column' }, { version: 3, field: 'postPhysicalFatigue', storageLocation: 'column' }],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
     notes:
@@ -465,7 +474,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     expectedFrequency: 'per_workout',
     allowedMathStrategy: 'ordinal_or_continuous_stats',
     missingPolicy: 'never_impute',
-    versions: [{ version: 2, field: 'postMentalFatigue', storageLocation: 'column' }],
+    versions: [{ version: 2, field: 'postMentalFatigue', storageLocation: 'column' }, { version: 3, field: 'postMentalFatigue', storageLocation: 'column' }],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
     notes: 'Pergunta nova a partir da v2 — sem equivalente na v1.',
@@ -484,6 +493,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versions: [
       { version: 1, storageLocation: 'details_json', detailsKey: 'postWorkoutMood' },
       { version: 2, field: 'emotionalExperienceDuring', storageLocation: 'column' },
+      { version: 3, field: 'emotionalExperienceDuring', storageLocation: 'column' },
     ],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
@@ -503,7 +513,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     expectedFrequency: 'per_workout',
     allowedMathStrategy: 'ordinal_or_continuous_stats',
     missingPolicy: 'never_impute',
-    versions: [{ version: 2, field: 'mentalStateChangePrePost', storageLocation: 'column' }],
+    versions: [{ version: 2, field: 'mentalStateChangePrePost', storageLocation: 'column' }, { version: 3, field: 'mentalStateChangePrePost', storageLocation: 'column' }],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
     notes: 'Pergunta nova a partir da v2 — nao redundante com emotionalExperienceDuring (mede mudanca, nao experiencia durante).',
@@ -520,6 +530,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versions: [
       { version: 1, field: 'painFlag', storageLocation: 'column' },
       { version: 2, field: 'painFlag', storageLocation: 'column' },
+      { version: 3, field: 'painFlag', storageLocation: 'column' },
     ],
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
