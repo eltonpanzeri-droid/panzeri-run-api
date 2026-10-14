@@ -5,6 +5,27 @@ import type { PhysicalIdentityResult } from './physical-activity-identity.servic
 import { canonicalModality } from './canonical-modality';
 import { pickCanonicalPerEvent } from './canonical-observation';
 import { FORCE_SESSION_MODALITIES, WEAK_FORCE_ACTIVITY } from './activity-modality-map';
+import { RecomputeOptions, RecomputeResult, prepareAnalysisRecompute, toRecomputeResult } from './analysis-recompute';
+import { DEFAULT_SYNC_LIMIT, processPendingReevaluation, readPending } from './pending-reevaluation';
+import { CorrectionKind, CorrectionOrigin, LinkChange, SessionEditChange, correctionHooks } from './correction-hooks';
+
+// Opcoes do ponto central pos-correcao: o que o chamador sabe sobre a correcao (quem, de que tipo, o que mais foi afetado).
+export interface CorrectionOptions extends RecomputeOptions {
+  activityLogIds?: string[];
+  kind?: CorrectionKind;
+  origin?: CorrectionOrigin;
+  actorId?: string | null;
+  completionsChanged?: boolean;
+  sessionEdit?: SessionEditChange;
+  absenceOfData?: boolean;
+  provider?: string;
+  affectedDates?: string[];
+  // Processa mesmo sem sessoes (ex.: exclusao de dados do provedor, que ja removeu os vinculos).
+  force?: boolean;
+}
+
+// Margem para o relogio entre o instante registrado antes da correcao e createdAt/revokedAt gravados por ela (recalcular a mais e' inofensivo: idempotente).
+const RECOMPUTE_CLOCK_MARGIN_MS = 30_000;
 
 // Fundacao Prescricao x Execucao (01/10/2026) + Motor de Reconciliacao V1 (02/10/2026). Fronteira
 // ONDE isto se conecta ao resto do sistema: TrainingSession (prescrita OU sintetica/extra) e
@@ -527,7 +548,10 @@ export class SessionExecutionLinkService {
   // por decisao humana (prevalece sobre a automacao e e' estavel). A sessao ja' cumprida pela vizinha NAO e' reaproveitada: a atividade confirmada
   // vincula-se a outra sessao compativel do dia ou, sem ela, e' atividade adicional. A identidade (derivada dos dados) nao e' alterada.
   async confirmDistinctActivity(params: { userId: string; activityLogId: string; origin: 'student' | 'coach'; note?: string | null }) {
-    return this.withUserLock(params.userId, (service) => service.confirmDistinctLocked(params));
+    const since = new Date();
+    const result = await this.withUserLock(params.userId, (service) => service.confirmDistinctLocked(params));
+    await this.recomputeAfterCorrection(params.userId, since, { origin: params.origin, actorId: params.origin === 'student' ? params.userId : null, kind: 'link_correction' });
+    return result;
   }
 
   private async confirmDistinctLocked(params: { userId: string; activityLogId: string; origin: 'student' | 'coach'; note?: string | null }) {
@@ -944,7 +968,8 @@ export class SessionExecutionLinkService {
     if (!candidate) throw new NotFoundException('Candidato de vinculo nao encontrado.');
     if (candidate.status !== 'candidate') throw new BadRequestException('Este vinculo nao e um candidato pendente.');
 
-    return this.linkManually({
+    const since = new Date();
+    const link = await this.linkManually({
       trainingSessionId: candidate.trainingSessionId,
       activityLogId: candidate.activityLogId,
       origin,
@@ -952,6 +977,8 @@ export class SessionExecutionLinkService {
       evidence: (candidate.evidence as EvidenceItem[] | null) ?? undefined,
       note: note ?? candidate.note,
     });
+    await this.recomputeAfterCorrection(candidate.userId, since, { origin: origin === 'automatic' ? 'system' : origin, actorId: origin === 'student' ? candidate.userId : null, kind: 'link_correction' });
+    return link;
   }
 
   // Wrapper exposto via HTTP (controller) pro ALUNO confirmar uma candidata. Checa posse ANTES de
@@ -1059,6 +1086,7 @@ export class SessionExecutionLinkService {
     if (!link) throw new NotFoundException('Vinculo nao encontrado.');
     if (link.status !== 'active') throw new BadRequestException('Vinculo ja nao esta ativo.');
 
+    const since = new Date();
     await this.prisma.sessionExecutionLink.update({
       where: { id: linkId },
       data: { status: 'revoked', revokedAt: new Date() },
@@ -1067,6 +1095,70 @@ export class SessionExecutionLinkService {
     const stillActive = await this.hasActiveLinkForActivity(link.activityLogId);
     if (!stillActive) {
       await this.setClassification(link.activityLogId, 'ambiguous', 'automatic');
+    }
+    await this.recomputeAfterCorrection(link.userId, since);
+  }
+
+  // Pos-correcao CENTRALIZADO (15/10/2026). Chamado depois de toda correcao feita por pessoa (aluno ou treinador), FORA da transacao e da trava por aluno:
+  // o recalculo le series temporais e nao pode segurar a trava nem estourar o tempo da transacao. Sequencia (sem corrida):
+  //   1. descobre o que mudou — historico de vinculos (createdAt/revokedAt >= since), sessoes informadas e sessoes ligadas as atividades informadas (e as
+  //      outras observacoes do mesmo evento fisico);
+  //   2. registra a pendencia DURAVEL das analises (CorrectionReevaluation) e marca o retrato vivo como desatualizado;
+  //   3. executa os ganchos (medalhas marcam o que reavaliar; Prontuario recebe o evento corretivo) — sempre ANTES de processar;
+  //   4. processa a pendencia (so' as sessoes mais recentes na hora; o resto continua pela linha duravel, pelo segundo plano e pelo varredor).
+  // Nao altera vinculos, classificacao, aderencia nem feedback, nao gera treino e nao aciona agentes de prescricao. Falha nunca desfaz a decisao ja gravada e
+  // nunca fica silenciosa (log de erro); a leitura descarta linha obsoleta e a pendencia segue registrada.
+  async recomputeAfterCorrection(userId: string, since: Date | null, options: CorrectionOptions = {}): Promise<RecomputeResult> {
+    const empty: RecomputeResult = { sessionIds: [], recomputedSessionIds: [], failedSessionIds: [], deferredSessionIds: [] };
+    try {
+      const ids = new Set<string>(options.sessionIds ?? []);
+      let changes: LinkChange[] = [];
+      if (since) {
+        const margin = new Date(since.getTime() - RECOMPUTE_CLOCK_MARGIN_MS);
+        changes = await this.prisma.sessionExecutionLink.findMany({
+          where: { userId, OR: [{ createdAt: { gte: margin } }, { revokedAt: { gte: margin } }] },
+          select: { id: true, trainingSessionId: true, activityLogId: true, status: true, origin: true, note: true, createdAt: true, revokedAt: true },
+        }).then((rows) => rows.map((row): LinkChange => ({ linkId: row.id, trainingSessionId: row.trainingSessionId, activityLogId: row.activityLogId, status: row.status, origin: row.origin, note: row.note, createdAt: row.createdAt, revokedAt: row.revokedAt })));
+        for (const entry of changes) ids.add(entry.trainingSessionId);
+      }
+      const activityIds = new Set<string>(changes.map((c) => c.activityLogId));
+      if (options.activityLogIds && options.activityLogIds.length > 0) {
+        // a observacao informada e as demais do mesmo evento fisico (a canonica pode ter mudado)
+        const observations = await this.prisma.activityLog.findMany({ where: { userId, id: { in: options.activityLogIds } }, select: { id: true, physicalEventId: true } });
+        const eventIds = [...new Set(observations.map((o) => o.physicalEventId).filter((id): id is string => id != null))];
+        const peers = eventIds.length > 0 ? await this.prisma.activityLog.findMany({ where: { userId, physicalEventId: { in: eventIds } }, select: { id: true } }) : [];
+        const related = [...new Set([...options.activityLogIds, ...peers.map((p) => p.id)])];
+        const linked = await this.prisma.sessionExecutionLink.findMany({ where: { userId, activityLogId: { in: related } }, select: { trainingSessionId: true } });
+        for (const entry of linked) ids.add(entry.trainingSessionId);
+        for (const id of related) activityIds.add(id);
+      }
+      if (ids.size === 0 && activityIds.size === 0 && !options.force) return empty;
+
+      const withSource = await prepareAnalysisRecompute(this.prisma, userId, [...ids], { forceSessionIds: options.forceSessionIds });
+
+      // Datas afetadas (escopo de semanas/meses para medalhas): sessoes e atividades.
+      const [sessionRows, activityRows] = await Promise.all([
+        ids.size > 0 ? this.prisma.trainingSession.findMany({ where: { id: { in: [...ids] }, userId }, select: { scheduledDate: true } }) : [],
+        activityIds.size > 0 ? this.prisma.activityLog.findMany({ where: { userId, id: { in: [...activityIds] } }, select: { startedAt: true, utcOffsetMinutes: true } }) : [],
+      ]);
+      const affectedDates = [
+        ...sessionRows.map((s) => s.scheduledDate.toISOString().slice(0, 10)),
+        ...activityRows.map((a) => localCalendarDate(a.startedAt, a.utcOffsetMinutes)),
+        ...(options.affectedDates ?? []),
+      ];
+
+      await correctionHooks.run({
+        userId, kind: options.kind ?? 'link_correction', origin: options.origin ?? 'system', actorId: options.actorId ?? null, at: new Date(), since,
+        sessionIds: [...ids], activityLogIds: [...activityIds], completionsChanged: options.completionsChanged === true, changes,
+        sessionEdit: options.sessionEdit, absenceOfData: options.absenceOfData, provider: options.provider, affectedDates: [...new Set(affectedDates)].sort(),
+      });
+
+      if (withSource.length === 0 && !(await readPending(this.prisma, userId))) return { ...empty, sessionIds: [...ids] };
+      const process = await processPendingReevaluation(this.prisma, userId, { syncLimit: options.syncLimit ?? DEFAULT_SYNC_LIMIT });
+      return toRecomputeResult([...ids], process);
+    } catch (error) {
+      this.logger.error(`Pos-correcao falhou (aluno ${userId}); a pendencia segue registrada e as leituras protegidas por analysis-validity: ${error instanceof Error ? error.message : String(error)}`);
+      return empty;
     }
   }
 
@@ -1196,7 +1288,11 @@ export class SessionExecutionLinkService {
     if (!modalitiesCompatible(session.modality, activity.sport) && !weakForceCompatible(session.modality, activity.sport)) {
       throw new BadRequestException('A modalidade desta atividade nao corresponde a este treino prescrito; ela continua registrada como atividade extra.');
     }
-    return this.withUserLock(userId, (service) => service.linkActivityToSessionLocked(activityLogId, trainingSessionId));
+    const since = new Date();
+    const result = await this.withUserLock(userId, (service) => service.linkActivityToSessionLocked(activityLogId, trainingSessionId));
+    // Atividade que ja tinha treino extra registrado: o registro de feedback dessa sessao foi movido ou removido (contagens de medalhas podem mudar).
+    await this.recomputeAfterCorrection(userId, since, { origin: 'student', actorId: userId, kind: 'link_correction', completionsChanged: result.syntheticRemoved });
+    return result;
   }
 
   private async linkActivityToSessionLocked(activityLogId: string, trainingSessionId: string) {
@@ -1216,7 +1312,9 @@ export class SessionExecutionLinkService {
     // Atividade extra ja' materializada (sessao sintetica com feedback proprio): o feedback e' preservado e a sessao sintetica sai do calendario.
     const synthetic = await this.findMaterializedSessionForActivities(activity.userId, memberIds);
     let feedbackMoved = false;
+    let syntheticRemoved = false;
     if (synthetic) {
+      syntheticRemoved = true;
       if ((await this.prisma.sessionExecutionLink.count({ where: { trainingSessionId: synthetic.id } })) > 0) {
         throw new BadRequestException('Esta atividade ja tem um registro de treino extra com vinculos proprios; peca ao treinador para corrigir.');
       }
@@ -1234,7 +1332,7 @@ export class SessionExecutionLinkService {
       trainingSessionId: session.id, activityLogId: canonical.id, origin: 'student', matchMethod: 'student_link',
       evidence: buildEvidence(session, canonical), note: 'Vinculado pelo aluno.',
     });
-    return { linkId: link.id, activityLogId: canonical.id, trainingSessionId: session.id, replacedActivityLogIds: replaced, feedbackMovedFromExtraSession: feedbackMoved };
+    return { linkId: link.id, activityLogId: canonical.id, trainingSessionId: session.id, replacedActivityLogIds: replaced, feedbackMovedFromExtraSession: feedbackMoved, syntheticRemoved };
   }
 
   // Treinos prescritos que o aluno pode escolher para esta atividade (mesma regra de validacao do vinculo: semana, tipo e modalidade). So' leitura.
@@ -1262,7 +1360,8 @@ export class SessionExecutionLinkService {
   async unlinkActivityAsStudent(userId: string, activityLogId: string, note?: string | null) {
     const activity = await this.prisma.activityLog.findUnique({ where: { id: activityLogId } });
     if (!activity || activity.userId !== userId) throw new NotFoundException('Atividade nao encontrada.');
-    return this.withUserLock(userId, async (service) => {
+    const since = new Date();
+    const result = await this.withUserLock(userId, async (service) => {
       const { canonical, members } = await service.eventOf(activity);
       const links = await service.prisma.sessionExecutionLink.findMany({ where: { activityLogId: { in: members.map((m) => m.id) }, status: 'active' } });
       if (links.length === 0) throw new BadRequestException('Esta atividade nao esta vinculada a um treino prescrito.');
@@ -1270,6 +1369,8 @@ export class SessionExecutionLinkService {
       if (!links.some((l) => l.activityLogId === canonical.id)) await service.markExtra({ activityLogId: canonical.id, origin: 'student', note: note ?? 'student_unlinked' });
       return { activityLogId: canonical.id, classification: 'alternative' as const, revokedLinkIds: links.map((l) => l.id) };
     });
+    await this.recomputeAfterCorrection(userId, since, { origin: 'student', actorId: userId, kind: 'link_correction' });
+    return result;
   }
 
   private async findMaterializedSession(userId: string, activityLogId: string) {

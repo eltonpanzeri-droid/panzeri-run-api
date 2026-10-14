@@ -420,6 +420,8 @@ interface WeekPlan {
   // Etapa 2.1: relatorio da semana anterior (entregue com ESTE programa) e relatorio curto de cada treino registrado.
   weeklyExecutionReport?: { id: string; weekStartDate: string; lines: string[] } | null;
   sessionReports?: Record<string, { lines: string[]; status: string; scenario: string | null }>;
+  // Treinos cujo relatorio esta em atualizacao depois de uma correcao de atividade (nao e definitivo ate terminar).
+  sessionReportsUpdating?: string[];
 }
 
 interface WeekByOffsetResponse extends Partial<WeekPlan> {
@@ -5609,7 +5611,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                         {/* 12/09: session.notes (texto IA: aquecimento/resfriamento) agora aparece dentro
                             do colapsivel da SessionPrescription em vez de sempre visivel aqui */}
                         <RealizedComparisonCard realized={session.realized} prescribedDistanceKm={session.distanceKm} prescribedDurationMin={session.durationMin} />
-                        <ExecutionReportCard title="Relatório do treino" lines={plan?.sessionReports?.[session.id]?.lines} />
+                        <ExecutionReportCard title="Relatório do treino" lines={plan?.sessionReports?.[session.id]?.lines} updating={Boolean(plan?.sessionReportsUpdating?.includes(session.id))} />
                         {session.realized ? <ActivityDetailButton activityLogId={session.realized.activityLogId} accessToken={accessToken} /> : null}
                         {session.realized ? <ActivityLinkControls activityLogId={session.realized.activityLogId} linked accessToken={accessToken} onChanged={loadPlan} /> : null}
                         {session.isAlternative && session.alternativeActivityLogId ? <ActivityLinkControls activityLogId={session.alternativeActivityLogId} linked={false} accessToken={accessToken} onChanged={loadPlan} /> : null}
@@ -10942,12 +10944,14 @@ function SessionCard({
 }
 
 // Etapa 2.1: relatorio deterministico (sem IA) — texto montado dos indicadores calculados; some quando nao ha linhas.
-function ExecutionReportCard({ title, lines }: { title: string; lines?: string[] | null }) {
-  if (!lines || lines.length === 0) return null;
+function ExecutionReportCard({ title, lines, updating }: { title: string; lines?: string[] | null; updating?: boolean }) {
+  const hasLines = Boolean(lines && lines.length > 0);
+  if (!hasLines && !updating) return null;
   return (
     <View style={{ gap: 4, padding: 12, borderRadius: 10, backgroundColor: '#eff6ff', marginVertical: 6 }}>
       <Text style={{ fontSize: 12, fontWeight: '700', color: '#1e3a8a' }}>{title.toUpperCase()}</Text>
-      {lines.map((line, index) => <Text key={index} style={{ fontSize: 14, color: '#0f172a' }}>{line}</Text>)}
+      {updating ? <Text style={{ fontSize: 12, fontWeight: '700', color: '#92400e' }}>Em atualização — uma correção recente ainda está sendo processada.</Text> : null}
+      {hasLines ? lines!.map((line, index) => <Text key={index} style={{ fontSize: 14, color: '#0f172a' }}>{line}</Text>) : null}
     </View>
   );
 }

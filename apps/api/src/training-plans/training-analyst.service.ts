@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ExecutionAnalysisService } from '../activity-execution/execution-analysis.service';
 import { EXECUTION_ANALYSIS_VERSION, SessionAnalysis } from '../activity-execution/execution-analysis';
 import { canonicalModality } from '../activity-execution/canonical-modality';
+import { AnalysisCorrectionRecord, LinkCorrection, findCorrectionsAffecting, findStaleAnalysisRowIds } from '../activity-execution/analysis-validity';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { WeeklyExecutionIndicators } from '../activity-execution/execution-report';
 import { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
@@ -58,12 +59,24 @@ export class TrainingAnalystService {
     });
     const existing = await this.prisma.sessionExecutionAnalysis.findMany({ where: { userId, trainingSessionId: { in: candidates.map((c) => c.id) }, algorithmVersion: EXECUTION_ANALYSIS_VERSION }, select: { trainingSessionId: true, indicators: true } });
     const ok = new Set(existing.filter((r) => { const a = r.indicators as { kind?: string; signature?: unknown }; return a?.kind !== 'run' || a.signature !== undefined; }).map((r) => r.trainingSessionId));
-    const todo = [...new Set([...extraSessionIds, ...candidates.map((c) => c.id).filter((id) => !ok.has(id))])].slice(0, BACKFILL_LIMIT + extraSessionIds.length);
+    // Linhas OBSOLETAS (vinculo corrigido depois do calculo; 15/10/2026) sao refeitas sempre, sem entrar no limite do backfill — e' a retentativa de qualquer
+    // recalculo pos-correcao que tenha falhado. Se continuarem obsoletas (falha de novo), loadRows as descarta.
+    const windowRows = await this.prisma.sessionExecutionAnalysis.findMany({ where: { userId, algorithmVersion: EXECUTION_ANALYSIS_VERSION, scheduledDate: { gte: since, lt: until } }, select: { id: true, trainingSessionId: true, activityLogId: true } });
+    const stale = await findStaleAnalysisRowIds(this.prisma, windowRows);
+    // So' refaz sessao que ainda tem fonte (feedback ou vinculo ativo): sessao sem nenhuma das duas nao ganha linha "sem registro" so' por ter perdido o
+    // vinculo — a linha obsoleta continua descartada pela leitura, sem virar "nao feita" falsa.
+    const candidateIds = new Set(candidates.map((c) => c.id));
+    const staleSessionIds = windowRows.filter((row) => stale.has(row.id) && candidateIds.has(row.trainingSessionId)).map((row) => row.trainingSessionId);
+    const backfill = candidates.map((c) => c.id).filter((id) => !ok.has(id)).slice(0, BACKFILL_LIMIT);
+    const todo = [...new Set([...extraSessionIds, ...staleSessionIds, ...backfill])];
     for (const id of todo) await this.executionAnalysis.analyzeSession(userId, id).catch((error) => this.logger.warn(`Analise da sessao ${id} falhou: ${error instanceof Error ? error.message : error}`));
   }
 
   private async loadRows(userId: string, since: Date, until: Date): Promise<AnalysisRow[]> {
-    const rows = await this.prisma.sessionExecutionAnalysis.findMany({ where: { userId, algorithmVersion: EXECUTION_ANALYSIS_VERSION, scheduledDate: { gte: since, lt: until } }, orderBy: { scheduledDate: 'asc' } });
+    const allRows = await this.prisma.sessionExecutionAnalysis.findMany({ where: { userId, algorithmVersion: EXECUTION_ANALYSIS_VERSION, scheduledDate: { gte: since, lt: until } }, orderBy: { scheduledDate: 'asc' } });
+    // Defesa de leitura: linha obsoleta que nao conseguiu ser refeita NAO entra como evidencia (nunca reutilizada em silencio).
+    const stale = await findStaleAnalysisRowIds(this.prisma, allRows.map((row) => ({ id: row.id, trainingSessionId: row.trainingSessionId, activityLogId: row.activityLogId })));
+    const rows = allRows.filter((row) => !stale.has(row.id));
     const sessions = await this.prisma.trainingSession.findMany({ where: { id: { in: rows.map((r) => r.trainingSessionId) } }, select: { id: true, origin: true } });
     const origin = new Map(sessions.map((s) => [s.id, s.origin]));
     return rows.map((r) => ({
@@ -139,7 +152,7 @@ export class TrainingAnalystService {
   }
 
   // Analise do conjunto para a geracao semanal. `previousWeek` = semana imediatamente anterior ao programa que vai ser gerado.
-  async buildForGeneration(userId: string, weekStart: Date, previousWeek: { startDate: Date; sessionIds: string[]; indicators: WeeklyExecutionIndicators | null } | null): Promise<AnalystDraft | null> {
+  async buildForGeneration(userId: string, weekStart: Date, previousWeek: { startDate: Date; sessionIds: string[]; indicators: WeeklyExecutionIndicators | null } | null, options: { persist?: boolean } = {}): Promise<AnalystDraft | null> {
     const asOf = day(new Date(weekStart.getTime() - 86_400_000));
     const since = new Date(weekStart.getTime() - WINDOW_DAYS * 86_400_000);
     const prevStart = previousWeek?.startDate ?? new Date(weekStart.getTime() - 7 * 86_400_000);
@@ -173,7 +186,8 @@ export class TrainingAnalystService {
     const longitudinal = analyzeLongitudinal({ asOf, rows, trends: trends.filter((t) => LONGITUDINAL_VARIABLES.includes(t.variableId)), rpeBySession });
 
     // persiste o indicador VIVO de cada sessao analisada (recalculado quando a fonte muda)
-    for (const [index, contract] of sessions.entries()) await this.upsertSession(userId, weekRows[index], contract).catch((error) => this.logger.warn(`Persistencia da analise da sessao falhou: ${error instanceof Error ? error.message : error}`));
+    // persist=false: recalculo SO' PARA LEITURA (regeneracao apos correcao de vinculo) — nao grava o retrato vivo.
+    if (options.persist !== false) for (const [index, contract] of sessions.entries()) await this.upsertSession(userId, weekRows[index], contract).catch((error) => this.logger.warn(`Persistencia da analise da sessao falhou: ${error instanceof Error ? error.message : error}`));
 
     const providers = [...new Set([week, longitudinal, ...sessions].flatMap((c) => c?.evidence.providers ?? []))].sort();
     return { asOf, week, longitudinal, sessions, promptEvidence: toPrescriberEvidence({ week, longitudinal, sessions }), providers, sessionIds: weekRows.map((r) => r.sessionId) };
@@ -201,15 +215,99 @@ export class TrainingAnalystService {
   }
 
   // Etapa 3 (ajuste 1): regeneracao de UM dia. Reaproveita o RETRATO entregue com o programa desta semana (semana anterior + evolucao, ja calculados na
-  // geracao semanal, com a data de referencia dela): nenhuma recomputacao, nenhuma escrita, nenhuma chamada de IA, e nada posterior a esse retrato entra.
+  // geracao semanal, com a data de referencia dela): nenhuma escrita do retrato, nenhuma chamada de IA, e nada posterior a esse retrato entra.
   // Retrato invalidado (exclusao de dados do provedor) ou ausente (programa anterior a 2.2) => null.
-  async forDayRegeneration(userId: string, planId: string, focus?: EvidenceFocus): Promise<{ promptEvidence: Record<string, unknown> | null; providers: string[] } | null> {
+  // Lote 3 (15/10/2026): se algum vinculo que o retrato toca foi CORRIGIDO depois dele, o retrato entregue (historico, intacto) NAO e' usado como evidencia
+  // atual. A evidencia e' RECALCULADA so' para leitura (opcao A: mesmas funcoes da geracao semanal, sem gravar retrato) e o que foi usado fica registrado em
+  // `correction` (vai ao pacote de evidencias). Se o recalculo falhar, o retrato antigo e' retirado (fail-closed): nada obsoleto segue ao Prescritor.
+  async forDayRegeneration(userId: string, planId: string, focus?: EvidenceFocus): Promise<{ promptEvidence: Record<string, unknown> | null; providers: string[]; correction: AnalysisCorrectionRecord | null } | null> {
     const rows = await this.prisma.trainingAnalysis.findMany({ where: { userId, deliveredWithPlanId: planId, status: 'active', scope: { in: ['week', 'longitudinal'] } } });
     const week = (rows.find((r) => r.scope === 'week')?.contract ?? null) as unknown as AnalysisContract | null;
     const longitudinal = (rows.find((r) => r.scope === 'longitudinal')?.contract ?? null) as unknown as AnalysisContract | null;
     if (!week && !longitudinal) return null;
-    const providers = [...new Set([week, longitudinal].flatMap((c) => c?.evidence.providers ?? []))].sort();
-    return { promptEvidence: toPrescriberEvidence({ week, longitudinal, sessions: [] }, focus), providers };
+
+    let corrections: LinkCorrection[] = [];
+    let correctionCheckFailed = false;
+    try {
+      const refs = rows.flatMap((r) => (r.contract ? [{ id: r.id, createdAt: r.computedAt, evidence: (r.contract as unknown as AnalysisContract).evidence }] : []));
+      const byRow = await findCorrectionsAffecting(this.prisma, userId, refs);
+      const seen = new Set<string>();
+      corrections = [...byRow.values()].flat()
+        .filter((c) => { const key = `${c.linkId}:${c.acao}`; if (seen.has(key)) return false; seen.add(key); return true; })
+        .sort((a, b) => a.quando.localeCompare(b.quando));
+    } catch (error) {
+      // Nao foi possivel verificar se ha correcoes: nao ha como garantir que o retrato e' atual — retira (fail-closed), nunca presume que esta valido.
+      correctionCheckFailed = true;
+      this.logger.error(`Analista (dia): verificacao de correcoes de vinculo falhou; retrato entregue retirado do Prescritor: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    if (corrections.length === 0 && !correctionCheckFailed) {
+      const providers = [...new Set([week, longitudinal].flatMap((c) => c?.evidence.providers ?? []))].sort();
+      return { promptEvidence: toPrescriberEvidence({ week, longitudinal, sessions: [] }, focus), providers, correction: null };
+    }
+
+    const touched = {
+      sessionIds: [...new Set(corrections.map((c) => c.trainingSessionId))],
+      activityLogIds: [...new Set(corrections.map((c) => c.activityLogId))],
+    };
+    let fresh: AnalystDraft | null = null;
+    let recalculated = false;
+    if (!correctionCheckFailed) {
+      try {
+        fresh = await this.recomputeForRead(userId, planId);
+        recalculated = true;
+      } catch (error) {
+        this.logger.error(`Analista (dia): recalculo para leitura apos correcao de vinculo falhou; retrato entregue retirado do Prescritor: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    const freshSessions = new Set([...(fresh?.week?.evidence.sessionIds ?? []), ...(fresh?.longitudinal.evidence.sessionIds ?? [])]);
+    const freshActivities = new Set([...(fresh?.week?.evidence.activityLogIds ?? []), ...(fresh?.longitudinal.evidence.activityLogIds ?? [])]);
+    const correction: AnalysisCorrectionRecord = {
+      recalculatedForRead: recalculated,
+      motivo: correctionCheckFailed
+        ? 'Nao foi possivel verificar correcoes de vinculo posteriores ao retrato entregue; o retrato foi retirado da evidencia.'
+        : recalculated
+          ? 'Vinculos de atividade foram corrigidos depois do retrato entregue; a evidencia foi recalculada para leitura com os vinculos atuais (retrato entregue preservado).'
+          : 'Vinculos de atividade foram corrigidos depois do retrato entregue e o recalculo falhou; o retrato foi retirado da evidencia.',
+      retratosEntregues: rows.map((r) => r.id),
+      correcoes: corrections.slice(0, 20),
+      usadasNaEvidenciaAtual: { sessionIds: touched.sessionIds.filter((id) => freshSessions.has(id)), activityLogIds: touched.activityLogIds.filter((id) => freshActivities.has(id)) },
+      retiradasDaEvidencia: { sessionIds: touched.sessionIds.filter((id) => !freshSessions.has(id)), activityLogIds: touched.activityLogIds.filter((id) => !freshActivities.has(id)) },
+    };
+    if (!fresh) return { promptEvidence: null, providers: [], correction };
+
+    const evidence = toPrescriberEvidence({ week: fresh.week, longitudinal: fresh.longitudinal, sessions: [] }, focus);
+    const promptEvidence = evidence
+      ? {
+          ...evidence,
+          correcaoDeVinculo: {
+            aviso: 'Os achados acima foram recalculados porque vinculos de atividades deste aluno foram corrigidos depois da geracao da semana. Vale a leitura atual; a anterior foi descartada.',
+            correcoes: corrections.slice(0, 5).map((c) => ({ quando: c.quando.slice(0, 10), acao: c.acao === 'vinculo_criado' ? 'atividade vinculada a um treino' : 'vinculo de atividade desfeito' })),
+          },
+        }
+      : null;
+    return { promptEvidence, providers: fresh.providers, correction };
+  }
+
+  // Recalcula, SO' PARA LEITURA, o retrato necessario a uma regeneracao: mesma semana, mesma semana anterior e mesmas funcoes da geracao semanal, com os vinculos
+  // ATUAIS. Nao grava retrato (entregue ou vivo); so' reanalisa sessoes (linhas derivadas idempotentes). A semana anterior vem do relatorio entregue com o programa.
+  private async recomputeForRead(userId: string, planId: string): Promise<AnalystDraft | null> {
+    const plan = await this.prisma.trainingPlan.findUnique({ where: { id: planId }, select: { userId: true, startDate: true } });
+    if (!plan || plan.userId !== userId) return null;
+    const weekStart = new Date(plan.startDate);
+    const report = await this.prisma.weeklyExecutionReport.findFirst({ where: { userId, deliveredWithPlanId: planId }, orderBy: { createdAt: 'desc' }, select: { analyzedPlanId: true, weekStartDate: true } });
+    let previousWeek: { startDate: Date; sessionIds: string[]; indicators: WeeklyExecutionIndicators | null } | null = null;
+    if (report?.analyzedPlanId) {
+      const previous = await this.prisma.trainingSession.findMany({ where: { planId: report.analyzedPlanId, userId }, select: { id: true, origin: true, modality: true } });
+      const sessionIds = previous.filter((s) => !['device_extra', 'student_extra'].includes(s.origin ?? '') && ANALYZED.includes(s.modality)).map((s) => s.id);
+      const prepared = await this.executionAnalysis.prepareWeeklyReport(userId, { startDate: report.weekStartDate, planId: report.analyzedPlanId, sessionIds }).catch((error) => {
+        this.logger.warn(`Relatorio da semana anterior (leitura) indisponivel: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+      });
+      previousWeek = { startDate: report.weekStartDate, sessionIds, indicators: prepared?.indicators ?? null };
+    }
+    return this.buildForGeneration(userId, weekStart, previousWeek, { persist: false });
   }
 
   // Etapa 3: texto para o Prontuario (evento TRAINING_ANALYSIS_FINDINGS). Null quando nao ha nada relevante OU quando e' identico ao ultimo registrado.
@@ -221,11 +319,30 @@ export class TrainingAnalystService {
     return last && body(last.content) === body(text) ? null : text;
   }
 
-  // Leitura para o painel do treinador/Prontuario.
+  // Leitura para o painel do treinador/Prontuario. Nada e' apagado nem escondido: cada linha vem ANOTADA com a sua atualidade, para que uma analise
+  // desatualizada por correcao de vinculo (status 'stale') ou um retrato entregue anterior a uma correcao nunca seja lido como se fosse a leitura atual.
+  //  - atualidade 'atual': retrato vivo valido. 'desatualizada_por_correcao_de_vinculo': retrato vivo marcado apos uma correcao (sera refeito na proxima geracao).
+  //  - 'retrato_entregue': historico do que o Prescritor recebeu; correcoesPosteriores = vinculos criados/revogados DEPOIS dele que tocam suas sessoes/atividades
+  //    (>0: nao e' a leitura atual; null: nao foi possivel verificar).
   async read(userId: string, query: { scope?: string; planId?: string; sessionId?: string; limit?: number }) {
-    return this.prisma.trainingAnalysis.findMany({
+    const rows = await this.prisma.trainingAnalysis.findMany({
       where: { userId, ...(query.scope ? { scope: query.scope } : {}), ...(query.planId ? { deliveredWithPlanId: query.planId } : {}), ...(query.sessionId ? { scope: 'session', refKey: query.sessionId } : {}) },
       orderBy: { periodEnd: 'desc' }, take: Math.min(query.limit ?? 30, 100),
+    });
+    const delivered = rows.filter((r) => r.deliveredWithPlanId != null && r.contract != null);
+    let corrections: Map<string, LinkCorrection[]> | null = null;
+    if (delivered.length > 0) {
+      try {
+        corrections = await findCorrectionsAffecting(this.prisma, userId, delivered.map((r) => ({ id: r.id, createdAt: r.computedAt, evidence: (r.contract as unknown as AnalysisContract).evidence })));
+      } catch (error) {
+        this.logger.warn(`Leitura de analises: nao foi possivel verificar correcoes posteriores aos retratos entregues: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return rows.map((r) => {
+      if (r.deliveredWithPlanId != null) {
+        return { ...r, atualidade: r.status === 'active' ? 'retrato_entregue' : 'retrato_invalidado', correcoesPosteriores: corrections ? (corrections.get(r.id)?.length ?? 0) : null };
+      }
+      return { ...r, atualidade: r.status === 'active' ? 'atual' : r.status === 'stale' ? 'desatualizada_por_correcao_de_vinculo' : 'invalidada', correcoesPosteriores: null };
     });
   }
 }

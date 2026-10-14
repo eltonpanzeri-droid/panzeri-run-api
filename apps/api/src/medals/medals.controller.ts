@@ -21,6 +21,18 @@ export class MedalsController {
     return this.medalsService.getUnlocked(user.sub);
   }
 
+  /** Conquistas revogadas (com momento e motivo) — o registro nunca e' apagado. */
+  @Get('revoked')
+  getRevoked(@CurrentUser() user: CurrentUserPayload) {
+    return this.medalsService.getRevoked(user.sub);
+  }
+
+  /** Historico de transicoes: concessao, revogacao, reativacao e ajuste, com o motivo de cada uma. */
+  @Get('history')
+  getHistory(@CurrentUser() user: CurrentUserPayload) {
+    return this.medalsService.getHistory(user.sub);
+  }
+
   @Get('progress')
   getProgress(@CurrentUser() user: CurrentUserPayload) {
     return this.medalsService.getProgress(user.sub);

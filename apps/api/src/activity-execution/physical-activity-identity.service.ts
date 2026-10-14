@@ -373,6 +373,8 @@ export class PhysicalActivityIdentityService {
       matchedEvents: new Set(grouped.map((row) => row.physicalEventId)).size,
       ambiguous: results.filter((r) => r.status === 'ambiguous').length,
       unique: results.filter((r) => r.status === 'unique').length,
+      // Observacoes cuja identidade ou observacao canonica MUDOU de fato nesta avaliacao (vazio = nada mudou: nenhum efeito posterior).
+      affectedActivityLogIds: [...new Set(results.flatMap((r) => r.affectedActivityLogIds))].sort(),
     };
   }
 }

@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EvolutionMetricService } from '../evolution/evolution-metric.service';
 import { MedalEvaluationService } from './medal-evaluation.service';
 import {
-  ExistingVolumeAward, planVolumeReconciliation, VOLUME_CATEGORIES,
+  ExistingVolumeAward, isAwardRevoked, planVolumeReconciliation, VOLUME_CATEGORIES,
   VolumeAction, withVolumeReconciliation,
 } from './volume-reconciliation';
 
@@ -44,7 +44,7 @@ async function main() {
         id: row.id, code: row.achievement.code, category: row.achievement.category,
         threshold: row.achievement.threshold, criteria: row.achievement.criteria,
         catalogVersion: row.achievement.ruleVersion, awardedVersion: row.ruleVersionAtUnlock,
-        value: row.value, periodStart: row.periodStart, periodEnd: row.periodEnd, evidence: row.evidence,
+        value: row.value, periodStart: row.periodStart, periodEnd: row.periodEnd, evidence: row.evidence, status: row.status,
       }));
       allActions.push(...planVolumeReconciliation(existing, candidates, series, uncertainty, catalog,
         { corrida: legacyCorrida, esteira: legacyEsteira })
@@ -70,11 +70,15 @@ async function main() {
           if (action.kind === 'create' && action.candidate) {
             const achievement = catalog.find((item) => item.code === action.code);
             if (!achievement) throw new Error('Medalha não encontrada no catálogo.');
-            await tx.userAchievement.create({ data: {
+            const created = await tx.userAchievement.create({ data: {
               userId: user.id, achievementId: achievement.id, value: action.candidate.value,
               periodStart: action.candidate.periodStart, periodEnd: action.candidate.periodEnd,
               modality: action.candidate.modality, evidence: action.candidate.evidence as Prisma.InputJsonValue,
               ruleVersionAtUnlock: achievement.ruleVersion,
+            } });
+            await tx.userAchievementTransition.create({ data: {
+              userAchievementId: created.id, userId: user.id, type: 'granted', at: new Date(checkedAt), trigger: 'volume_reconciliation', reason: 'conquista_comprovada_nao_registrada',
+              cause: { source: 'volume_reconciliation_cli', reason: action.reason }, after: { status: 'active', value: action.candidate.value }, ruleVersion: achievement.ruleVersion,
             } });
           } else if ((action.kind === 'update' || action.kind === 'retract') && action.existing) {
             const current = await tx.userAchievement.findUnique({ where: { id: action.existing.id } });
@@ -88,15 +92,31 @@ async function main() {
               value: current.value, periodStart: current.periodStart,
               periodEnd: current.periodEnd, evidence: current.evidence,
             };
+            // 15/10/2026: alem do marcador de retracao (mantido), grava o estado (status/revokedAt/revokedReason) e a transicao correspondente,
+            // para esta CLI e o novo modelo nao divergirem. Nada e apagado.
+            const at = new Date(checkedAt);
+            const snapshot = (status: string) => ({ status, value: current.value, periodStart: current.periodStart?.toISOString() ?? null, periodEnd: current.periodEnd?.toISOString() ?? null, evidence: current.evidence }) as unknown as Prisma.InputJsonValue;
             if (action.kind === 'retract') {
               await tx.userAchievement.update({ where: { id: current.id }, data: {
                 evidence: withVolumeReconciliation(current.evidence, 'retracted', original, checkedAt),
+                status: 'revoked', revokedAt: at, revokedReason: 'volume_reconciliation_retracted', statusChangedAt: at,
+              } });
+              await tx.userAchievementTransition.create({ data: {
+                userAchievementId: current.id, userId: user.id, type: 'revoked', at, trigger: 'volume_reconciliation', reason: 'volume_reconciliation_retracted',
+                cause: { source: 'volume_reconciliation_cli', reason: action.reason }, before: snapshot('active'), after: { status: 'revoked' }, ruleVersion: current.ruleVersionAtUnlock,
               } });
             } else if (action.candidate) {
+              const wasRevoked = isAwardRevoked({ evidence: current.evidence, status: current.status });
               await tx.userAchievement.update({ where: { id: current.id }, data: {
                 value: action.candidate.value, periodStart: action.candidate.periodStart,
                 periodEnd: action.candidate.periodEnd, modality: action.candidate.modality,
                 evidence: withVolumeReconciliation(action.candidate.evidence as Prisma.JsonValue, 'active', original, checkedAt),
+                ...(wasRevoked ? { status: 'active', revokedAt: null, revokedReason: null, statusChangedAt: at } : {}),
+              } });
+              await tx.userAchievementTransition.create({ data: {
+                userAchievementId: current.id, userId: user.id, type: wasRevoked ? 'reactivated' : 'adjusted', at, trigger: 'volume_reconciliation',
+                reason: wasRevoked ? 'criterio_voltou_a_ser_atendido' : 'periodo_ou_valor_diferente', cause: { source: 'volume_reconciliation_cli', reason: action.reason },
+                before: snapshot(wasRevoked ? 'revoked' : 'active'), after: { status: 'active', value: action.candidate.value }, ruleVersion: current.ruleVersionAtUnlock,
               } });
             }
           }

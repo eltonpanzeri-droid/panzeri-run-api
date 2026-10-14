@@ -14,6 +14,8 @@
 
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { canonicalModality } from '../activity-execution/canonical-modality';
+import { findStaleAnalysisRowIds } from '../activity-execution/analysis-validity';
+import { scheduleStaleHeal } from '../activity-execution/analysis-recompute';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
@@ -423,8 +425,13 @@ export class ObservationReaderService {
       where: { userId: athleteId, algorithmVersion: EXECUTION_ANALYSIS_VERSION, activityLogId: { not: null }, status: { in: ['analyzed', 'summary_only'] } },
       orderBy: { scheduledDate: 'asc' },
     });
+    // Defesa de leitura (15/10/2026): linha calculada com um vinculo que foi corrigido depois (e ainda nao recalculada) NAO e' evidencia atual.
+    const stale = await findStaleAnalysisRowIds(this.prisma, rows.map((row) => ({ id: row.id, trainingSessionId: row.trainingSessionId, activityLogId: row.activityLogId })));
+    // Linha obsoleta nao fica assim para sempre: a leitura dispara (em segundo plano, com intervalo minimo por aluno) o recalculo das sessoes que ainda tem fonte.
+    if (stale.size > 0) scheduleStaleHeal(this.prisma, athleteId, rows.filter((row) => stale.has(row.id)).map((row) => row.trainingSessionId));
     const observations: Observation[] = [];
     for (const row of rows) {
+      if (stale.has(row.id)) continue;
       const analysis = row.indicators as unknown as RunExecutionAnalysis;
       if (analysis?.kind !== 'run') continue;
       let value: number | null = null;

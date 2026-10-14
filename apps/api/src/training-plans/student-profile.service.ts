@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EvolutionAgentService } from '../reassessment/evolution-agent.service';
+import { correctionHooks, CorrectionContext } from '../activity-execution/correction-hooks';
+import { buildCorrectionEvents, CorrectionEventData, idsNeeded } from './correction-event';
 
 // Codigos de evento do prontuario. Cada gravacao e feita por codigo puro (zero custo de IA) nos
 // pontos reais do sistema onde algo acontece com o aluno — o agente de condensacao (EvolutionAgentService.
@@ -25,20 +27,63 @@ export const ProfileEventCode = {
   STUDENT_REPORT_ANALYZED: 'STUDENT_REPORT_ANALYZED',
   // Etapa 3 (10/2026): poucas linhas deterministicas do Analista de Treinos (capacidades demonstradas, mudancas entre sessoes semelhantes, padroes). Sem IA para gravar.
   TRAINING_ANALYSIS_FINDINGS: 'TRAINING_ANALYSIS_FINDINGS',
+  // 15/10/2026: correcao de vinculo atividade<->treino (aluno ou treinador) e edicao de treino pelo treinador em sessao com feedback/execucao. Texto deterministico
+  // (sem IA), sempre ACRESCENTADO: o registro anterior permanece como historico; a informacao corrigida prevalece (ver Condensador e Prescritor).
+  EXECUTION_LINK_CORRECTED: 'EXECUTION_LINK_CORRECTED',
 } as const;
+
+// Janela em que o mesmo evento (mesmo corpo) nao e' gravado de novo: protege contra o mesmo processamento acionado duas vezes (ex.: decisao de identidade).
+const CORRECTION_DEDUPE_WINDOW_MS = 10 * 60_000;
 
 // Limite defensivo (nunca rejeita a resposta, so trunca depois de parsear — mesmo padrao ja usado
 // no agente de prescricao para nao descartar uma resposta boa por causa de um campo de texto).
 const PROFILE_SUMMARY_HARD_LIMIT = 6000;
 
 @Injectable()
-export class StudentProfileService {
+export class StudentProfileService implements OnModuleInit {
   private readonly logger = new Logger(StudentProfileService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly evolutionAgent: EvolutionAgentService,
   ) {}
+
+  // Registra o gancho que acrescenta o evento corretivo ao Prontuario depois de uma correcao (idempotente, pelo nome).
+  onModuleInit(): void {
+    correctionHooks.register('prontuario', async (context) => { await this.recordCorrectionEvents(context); });
+  }
+
+  /**
+   * Evento EXECUTION_LINK_CORRECTED: so' quando algo mudou de FATO (estado final diferente do inicial) e nunca para exclusao de dados do provedor (ausencia de dado nao
+   * e' correcao). Operacao em massa gera UM evento resumido. Nunca apaga nem reescreve evento anterior. Medalhas nao entram aqui.
+   */
+  async recordCorrectionEvents(context: CorrectionContext): Promise<number> {
+    if (context.kind === 'provider_data_deleted') return 0;
+    const needed = idsNeeded(context);
+    if (needed.sessionIds.length === 0 && needed.activityIds.length === 0) return 0;
+    const [sessions, activities] = await Promise.all([
+      needed.sessionIds.length > 0 ? this.prisma.trainingSession.findMany({ where: { id: { in: needed.sessionIds }, userId: context.userId }, select: { id: true, title: true, scheduledDate: true, modality: true } }) : [],
+      needed.activityIds.length > 0 ? this.prisma.activityLog.findMany({ where: { id: { in: needed.activityIds }, userId: context.userId }, select: { id: true, startedAt: true, utcOffsetMinutes: true, sport: true, distanceMeters: true, durationSec: true } }) : [],
+    ]);
+    const data: CorrectionEventData = {
+      sessions: new Map(sessions.map((s) => [s.id, { title: s.title, scheduledDate: s.scheduledDate, modality: s.modality }])),
+      activities: new Map(activities.map((a) => [a.id, { startedAt: a.startedAt, utcOffsetMinutes: a.utcOffsetMinutes, sport: a.sport, distanceMeters: a.distanceMeters, durationSec: a.durationSec }])),
+    };
+    const events = buildCorrectionEvents(context, data);
+    if (events.length === 0) return 0;
+    const recent = await this.prisma.studentProfileEvent.findMany({
+      where: { userId: context.userId, code: ProfileEventCode.EXECUTION_LINK_CORRECTED, createdAt: { gte: new Date(context.at.getTime() - CORRECTION_DEDUPE_WINDOW_MS) } },
+      select: { content: true },
+    });
+    const bodies = new Set(recent.map((e) => e.content.split('\n').slice(1).join('\n')));
+    let written = 0;
+    for (const event of events) {
+      if (bodies.has(event.body)) continue;
+      await this.recordEvent(context.userId, ProfileEventCode.EXECUTION_LINK_CORRECTED, `${event.header}\n${event.body}`);
+      written++;
+    }
+    return written;
+  }
 
   // Grava uma linha no prontuario. Puro codigo, sem chamada de IA — zero custo.
   async recordEvent(userId: string, code: string, content: string): Promise<void> {

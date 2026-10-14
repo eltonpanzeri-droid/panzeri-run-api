@@ -57,6 +57,7 @@ function buildService(opts: {
     userAchievement: {
       findMany: jest.fn().mockResolvedValue(unlockedCodes.map((code) => ({ achievement: { code } }))),
     },
+    userAchievementTransition: { findMany: jest.fn().mockResolvedValue([]) },
     trainingPlan: { findFirst: jest.fn().mockResolvedValue(activePlan) },
   };
   const evolutionMetric = new EvolutionMetricService({ trainingSession: { findMany: jest.fn().mockResolvedValue(trainingSessions) }, activityLog: { findMany: jest.fn().mockResolvedValue([]) } } as never);
@@ -146,7 +147,7 @@ describe('MedalsService.getUnlocked', () => {
       { achievement: { code: 'volume_semanal_corrida_100km', category: 'volume_semanal', name: '100km', description: '', grau: 'ouro', unit: 'km' },
         unlockedAt: new Date('2026-10-01T00:00:00Z'), value: 100, periodStart: period, periodEnd: period, modality: 'corrida',
         evidence: { weekStart: '2026-09-07', _volumeReconciliation: { status: 'retracted' } } },
-    ]) } };
+    ]) }, userAchievementTransition: { findMany: jest.fn().mockResolvedValue([]) } };
     const service = new MedalsService(prisma as never, {} as never, {} as never);
     const unlocked = await service.getUnlocked('aluno-1');
     expect(unlocked).toHaveLength(1);
@@ -169,6 +170,7 @@ describe('MedalsService.getUnlocked', () => {
           },
         ]),
       },
+      userAchievementTransition: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const service = new MedalsService(prisma as never, {} as never, { evaluateForUser: jest.fn() } as never);
     const unlocked = await service.getUnlocked('aluno-1');

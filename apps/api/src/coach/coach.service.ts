@@ -34,6 +34,7 @@ import { ContextEventsService } from '../context-events/context-events.service';
 import { ReassessmentService } from '../reassessment/reassessment.service';
 import { EvolutionMetricService } from '../evolution/evolution-metric.service';
 import type { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
+import type { CorrectionOptions } from '../activity-execution/session-execution-link.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { IdentityConfirmationService } from '../activity-execution/identity-confirmation.service';
@@ -211,8 +212,10 @@ export class CoachService {
     if (!log) {
       throw new NotFoundException('Atividade externa nao encontrada para este aluno.');
     }
+    const since = new Date();
     const classification = await this.sessionExecutionLink.classify(activityLogId);
     const activeLink = await this.sessionExecutionLink.getActiveLinkForActivity(activityLogId);
+    await this.refreshAnalysesAfterCorrection(studentId, since, { kind: 'link_correction' });
     return {
       activityLogId,
       classification,
@@ -247,15 +250,35 @@ export class CoachService {
   // ActivityLog/RawExternalActivity, nao classifica nem reconcilia. Ver PhysicalActivityIdentityService.
   async evaluateExternalActivityIdentity(studentId: string) {
     if (!this.physicalIdentity) throw new NotFoundException('Servico de identidade fisica indisponivel.');
-    return this.physicalIdentity.evaluateUserHistory(studentId);
+    const result = await this.physicalIdentity.evaluateUserHistory(studentId);
+    // Efeito posterior SO' quando a identidade ou a observacao canonica mudou de fato; reavaliar sem mudanca nao reprocessa nada.
+    if (result.affectedActivityLogIds.length > 0) {
+      await this.refreshAnalysesAfterCorrection(studentId, null, { activityLogIds: result.affectedActivityLogIds, kind: 'identity_correction' });
+    }
+    return result;
+  }
+
+  // Ponto unico dos fluxos do treinador que alteram vinculos, identidade ou o treino de uma execucao: atualiza as analises derivadas (deterministicas, sem IA e
+  // SEM gerar treino) das sessoes afetadas. Roda depois da acao ja gravada e nunca a faz falhar — se algo falhar, a leitura descarta a linha obsoleta e a
+  // recuperacao a refaz (ver analysis-recompute.ts).
+  private async refreshAnalysesAfterCorrection(studentId: string, since: Date | null, options?: CorrectionOptions) {
+    try {
+      // Tudo aqui e' acao do treinador: origem 'coach' (o Prontuario registra quem fez).
+      return await this.sessionExecutionLink.recomputeAfterCorrection(studentId, since, { origin: 'coach', ...options });
+    } catch (error) {
+      this.logger.warn(`Atualizacao das analises apos correcao do treinador falhou (aluno ${studentId}): ${(error as Error).message}`);
+      return null;
+    }
   }
 
   // 3B: reconciliacao do HISTORICO de um aluno por PhysicalEvent (idempotente). dryRun (padrao) so' descreve o que mudaria, sem gravar
   // nada (nem a identidade). Com dryRun=false avalia a identidade fisica do aluno primeiro e depois reconcilia os eventos.
   async reconcileExternalActivityHistory(studentId: string, dryRun: boolean) {
     if (!this.physicalIdentity) throw new NotFoundException('Servico de identidade fisica indisponivel.');
+    const since = new Date();
     const identity = dryRun ? null : await this.physicalIdentity.evaluateUserHistory(studentId);
     const reconciliation = await this.sessionExecutionLink.reconcileUserHistory(studentId, { dryRun });
+    if (!dryRun) await this.refreshAnalysesAfterCorrection(studentId, since, { kind: 'bulk_reconcile', ...(identity ? { activityLogIds: identity.affectedActivityLogIds } : {}) });
     return { identity, reconciliation };
   }
 
@@ -278,9 +301,11 @@ export class CoachService {
       if (Number.isNaN(effectiveFrom.getTime())) throw new BadRequestException('effectiveFrom invalido (use ISO 8601).');
     }
     const note = typeof body.note === 'string' ? body.note.slice(0, 300) : undefined;
+    const since = new Date();
     const result = await this.physicalIdentity.setPrimarySource(studentId, provider, { effectiveFrom, origin: 'coach', note });
     // D2: a troca da canonica move o vinculo automatico dos eventos afetados (so' os que mudaram).
     await this.sessionExecutionLink.reconcileAffectedByIdentity(result.recomputed, null);
+    await this.refreshAnalysesAfterCorrection(studentId, since, { activityLogIds: result.recomputed.affectedActivityLogIds, kind: 'bulk_reconcile' });
     return result;
   }
 
@@ -654,6 +679,7 @@ export class CoachService {
       select: {
         id: true, modality: true, durationMin: true, distanceKm: true, structure: true, prescriptionHistory: true,
         completion: { select: { id: true } },
+        executionLinks: { where: { status: 'active' }, select: { id: true }, take: 1 },
       },
     });
     if (!session) {
@@ -698,7 +724,22 @@ export class CoachService {
       data.prescriptionHistory = [...historyArray, priorSnapshot] as unknown as Prisma.InputJsonValue;
     }
 
-    return this.prisma.trainingSession.update({ where: { id: sessionId }, data });
+    const updated = await this.prisma.trainingSession.update({ where: { id: sessionId }, data });
+    // Edicao material do treinador (modalidade, duracao, distancia, estrutura): a analise da execucao dessa sessao e' refeita (force: a modalidade nao entra na
+    // impressao digital). Sem feedback e sem vinculo nao ha execucao a reanalisar. Nao gera treino nem avisa agentes.
+    if (materialFieldsChanged) {
+      // Antes/depois EXATOS dos campos materiais (o Prontuario so' registra quando algo mudou de fato, e so' em sessao com feedback ou execucao vinculada).
+      const fields: Record<string, { before: unknown; after: unknown }> = {};
+      if (dto.modality !== undefined && dto.modality.trim() !== session.modality) fields.modality = { before: session.modality, after: dto.modality.trim() };
+      if (dto.durationMin !== undefined && (dto.durationMin || null) !== session.durationMin) fields.durationMin = { before: session.durationMin, after: dto.durationMin || null };
+      if (dto.distanceKm !== undefined && (dto.distanceKm || null) !== session.distanceKm) fields.distanceKm = { before: session.distanceKm, after: dto.distanceKm || null };
+      if (dto.structure !== undefined && JSON.stringify(dto.structure) !== JSON.stringify(session.structure)) fields.structure = { before: 'estrutura anterior', after: 'estrutura alterada' };
+      await this.refreshAnalysesAfterCorrection(studentId, null, {
+        sessionIds: [sessionId], forceSessionIds: [sessionId], kind: 'session_edit', force: true,
+        ...(Object.keys(fields).length > 0 ? { sessionEdit: { sessionId, fields, hasFeedback: Boolean(session.completion), hasActiveLink: session.executionLinks.length > 0 } } : {}),
+      });
+    }
+    return updated;
   }
 
   // Reparo de rollover de domingo (Roberta/Fernanda/Silvia, 27/09/2026) executado e confirmado em

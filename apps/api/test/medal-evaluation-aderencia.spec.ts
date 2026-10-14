@@ -24,11 +24,12 @@ function achievementRow(code: string) {
 }
 
 function buildService(sessions: unknown[], achievements: Array<{ id: string; code: string; ruleVersion: number }>) {
-  const userAchievementCreate = jest.fn().mockResolvedValue({});
+  const userAchievementCreate = jest.fn().mockResolvedValue({ id: 'ua-new', value: null, periodStart: null, periodEnd: null, evidence: {}, status: 'active' });
   const prisma = {
     trainingSession: { findMany: jest.fn().mockResolvedValue(sessions) },
     achievement: { findMany: jest.fn().mockResolvedValue(achievements) },
     userAchievement: { findMany: jest.fn().mockResolvedValue([]), create: userAchievementCreate },
+    userAchievementTransition: { create: jest.fn().mockResolvedValue({}) },
   };
   const evolutionMetric = new EvolutionMetricService({ trainingSession: { findMany: jest.fn().mockResolvedValue(sessions) }, activityLog: { findMany: jest.fn().mockResolvedValue([]) } } as never);
   const service = new MedalEvaluationService(prisma as never, evolutionMetric);

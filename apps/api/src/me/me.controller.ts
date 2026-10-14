@@ -8,6 +8,8 @@ import { UpdatePreferencesDto } from './dto/update-preferences.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { MeService } from './me.service';
 import { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { settlePendingReevaluation, viewOf } from '../activity-execution/pending-reevaluation';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('me')
@@ -15,6 +17,7 @@ export class MeController {
   constructor(
     private readonly meService: MeService,
     private readonly trainingIntelligenceQuery: TrainingIntelligenceQueryService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // Nova Home do aluno (30/09/2026) — mesma leitura canônica já usada pelo painel do treinador
@@ -22,8 +25,13 @@ export class MeController {
   // exposta ao próprio dono do dado. Nenhum cálculo novo: é a MESMA função, só com athleteId=o
   // próprio usuário autenticado (nunca outro aluno — não repassa nenhum id da URL).
   @Get('observations/:variableId')
-  getObservation(@CurrentUser() user: CurrentUserPayload, @Param('variableId') variableId: string) {
-    return this.trainingIntelligenceQuery.getVariableSnapshot(user.sub, variableId);
+  async getObservation(@CurrentUser() user: CurrentUserPayload, @Param('variableId') variableId: string) {
+    // Indicadores de execucao dependem de analises por sessao. Depois de uma correcao de atividade, tenta concluir a atualizacao pendente (orcamento curto) ANTES de
+    // ler; se ainda restar algo, a resposta traz provisional — o app mostra o dado como em atualizacao, nunca como definitivo.
+    const pending = variableId.startsWith('execution.') ? viewOf(await settlePendingReevaluation(this.prisma, user.sub, 1500)) : null;
+    const snapshot = await this.trainingIntelligenceQuery.getVariableSnapshot(user.sub, variableId);
+    if (!pending) return snapshot;
+    return { ...snapshot, provisional: pending.analysisSessions > 0 ? { reason: 'correction_pending' as const, sessions: pending.analysisSessions, since: pending.since } : null };
   }
 
   @Put('profile')

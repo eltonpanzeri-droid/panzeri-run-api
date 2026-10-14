@@ -217,6 +217,10 @@ export const ANALYST_EVIDENCE_INSTRUCTION =
 export const ANALYST_DAY_INSTRUCTION =
   'ANALISE TECNICA (analiseTecnicaDoAnalistaDeTreinos): achados deterministicos do Analista de Treinos entregues com o programa desta semana (retrato do inicio da semana, nao de hoje). Sao evidencia, nao ordem: capacidade demonstrada nao obriga a prescrever mais forte; decida pelo objetivo deste estimulo, pela resposta do aluno e pelas diretrizes. Distancia por repeticao, repeticoes, velocidade e recuperacao sao estimulos distintos e nao intercambiaveis. Cite-a em reasoning.basis (source analiseTecnicaDoAnalistaDeTreinos) so se pesou. Null = sem dados.';
 
+// 15/10/2026 — correcao de vinculo/atividade. Identica nos tres prompts (semana, dia de corrida, dia de forca): todos recebem o prontuario e os eventos ainda nao condensados.
+export const LINK_CORRECTION_INSTRUCTION =
+  'EVENTOS CORRETIVOS DO PRONTUARIO (codigo EXECUTION_LINK_CORRECTED em eventosDoProntuarioAindaNaoCondensados, ou trechos "Antes/agora" no resumo prontuarioDoAluno): registram que o aluno ou o treinador CORRIGIU o vinculo de uma atividade com um treino prescrito (ou o treinador editou um treino que ja tinha feedback). REGRA: a informacao corrigida (o "agora" / "Passa a valer") PREVALECE sobre qualquer interpretacao historica incompativel — achado antigo do Analista, trecho do prontuarioDoAluno, capacidade ou aderencia que dependiam da atribuicao anterior. O registro antigo continua existindo como HISTORICO (o que se acreditava ate a data da correcao), mas nao e fato atual: nao cite o estado anterior como se ainda valesse. Os dados estruturados atuais (historicoSemanal, athleteStateContext, relatorioDeExecucaoDaSemanaAnterior, analiseTecnicaDoAnalistaDeTreinos) JA refletem a correcao e sao a referencia factual: em conflito com texto, vale o dado estruturado; se analiseTecnicaDoAnalistaDeTreinos trouxer correcaoDeVinculo, os achados ja foram recalculados com a correcao. A correcao NAO e queixa, dor, desmotivacao nem mudanca de condicao fisica e, por si so, NAO e motivo para mudar volume ou intensidade; mantenha a ponderacao temporal habitual (informacao antiga, mesmo corrigida, pesa conforme a sua idade). Se varias correcoes se sucederam sobre a mesma atividade, vale a mais recente. Cite em rationale somente se a correcao mudou uma decisao sua.';
+
 export const REASONING_INSTRUCTION =
   'RACIOCINIO PARA AUDITORIA (campo reasoning de cada sessao; NAO e texto para o aluno): registre de forma OBJETIVA por que voce decidiu este treino. intent = o objetivo desta sessao em UMA frase (ate 160 caracteres). expected = o que voce espera obter/observar com ela (ate 160 caracteres). basis = ate 3 itens {source, note, decides}: source e o NOME do campo do contexto que mais pesou nesta decisao (use "outro" se nao houver um), note e UMA frase curta (ate 100 caracteres) dizendo como ele pesou e decides e a variavel da prescricao que esse fundamento sustentou (intensidade, volume, recuperacao, progressao, estrutura, manutencao ou outra; null se nao se aplica). E uma declaracao sua, nao uma prova: cite so o que realmente considerou, sem copiar relatos nem repetir numeros longos. Se nao houver o que declarar, devolva reasoning = null. Isto NAO muda nada no treino: prescreva exatamente como prescreveria sem este campo.';
 
@@ -355,6 +359,7 @@ export class PrescriptionAgentService {
       'INFORMACOES DO ALUNO POR TEXTO: relatosEstruturadosDoAluno (relatos do proprio aluno ja interpretados, cronologicos, o mais recente por ultimo — o mais recente prevalece sobre o mais antigo no mesmo assunto; RESOLVIDO encerra uma restricao anterior; PERSISTENTE_ATE_CONTRARIO vale ate um relato posterior dizer o contrario), relatosAindaNaoInterpretadosDoAluno e eventosDoProntuarioAindaNaoCondensados (texto bruto ainda nao interpretado: leia e nao ignore). Respeite RESTRICOES REAIS (equipamento, limite da esteira, local, saude); preferencias podem ser acomodadas sem sacrificar seguranca; dificuldade de execucao relatada e evidencia a ponderar. Um relato isolado nao vira regra permanente. lacunasDeContexto lista o que nao pode ser recuperado: a ausencia nao significa normalidade, seja conservador onde a parte faltante seria decisiva.',
       `Recomendacao (nao e uma regra rigida): evite prescrever pace de corrida mais lento que 8:30/km (${MAX_EASY_PACE_SECONDS_PER_KM} segundos por km) quando puder, porque abaixo disso a mecanica da corrida tende a piorar e se aproximar de uma caminhada. Se o ritmo confortavel real deste aluno estiver nessa faixa, considere usar uma parte "intervalada" alternando corrida de verdade com caminhada de verdade — mas a decisao final e sempre sua, pensando no aluno real.`,
       REASONING_INSTRUCTION,
+      LINK_CORRECTION_INSTRUCTION,
       ANALYST_DAY_INSTRUCTION,
     ].join('\n\n');
   }
@@ -835,6 +840,7 @@ export class PrescriptionAgentService {
       'O campo title de cada sessao NAO e mais exibido ao aluno nem ao treinador — o titulo mostrado e sempre o nome fixo da modalidade (Corrida/Fortalecimento para corredores/Musculacao), decidido em codigo. Preencha title com qualquer texto curto valido, sem gastar esforco pensando nele.',
       'Responda em portugues nos campos de texto (notes, rationale, durationJustification).',
       REASONING_INSTRUCTION,
+      LINK_CORRECTION_INSTRUCTION,
       EXECUTION_REPORT_INSTRUCTION,
       ANALYST_EVIDENCE_INSTRUCTION,
       'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida.',
@@ -1067,6 +1073,7 @@ export class PrescriptionAgentService {
       'O campo title NAO e mais exibido — o titulo mostrado e sempre o nome fixo da modalidade, decidido em codigo. Preencha com qualquer texto curto valido.',
       'Responda em portugues nos campos de texto (notes).',
       REASONING_INSTRUCTION,
+      LINK_CORRECTION_INSTRUCTION,
     ].join('\n\n');
   }
 

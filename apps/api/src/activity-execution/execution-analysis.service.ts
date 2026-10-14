@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NORMALIZATION_VERSION } from '../activity-timeseries/activity-timeseries.service';
 import { pickCanonicalPerEvent } from './canonical-observation';
+import { findStaleAnalysisRowIds } from './analysis-validity';
 import {
   analyzeRunExecution, analyzeStrengthExecution, EXECUTION_ANALYSIS_VERSION, NotDoneAnalysis, SessionAnalysis,
 } from './execution-analysis';
@@ -168,7 +169,10 @@ export class ExecutionAnalysisService {
       sessionIds.length === 0 ? [] : this.prisma.sessionExecutionAnalysis.findMany({ where: { userId, trainingSessionId: { in: sessionIds }, algorithmVersion: EXECUTION_ANALYSIS_VERSION } }),
     ]);
     const sessionReports: Record<string, { lines: string[]; status: string; scenario: string | null }> = {};
+    // Relatorio calculado com um vinculo que foi corrigido depois (e nao recalculado) nao e' mostrado como se fosse atual.
+    const stale = await findStaleAnalysisRowIds(this.prisma, rows.map((row) => ({ id: row.id, trainingSessionId: row.trainingSessionId, activityLogId: row.activityLogId })));
     for (const row of rows) {
+      if (stale.has(row.id)) continue;
       if (row.status === 'not_done' || row.status === 'no_data') continue;
       const analysis = row.indicators as unknown as SessionAnalysis;
       sessionReports[row.trainingSessionId] = { lines: renderSessionReport(analysis), status: row.status, scenario: analysis.kind === 'run' ? analysis.structure.scenario : null };
@@ -176,6 +180,8 @@ export class ExecutionAnalysisService {
     return {
       weeklyReport: weekly ? { id: weekly.id, weekStartDate: weekly.weekStartDate, lines: weekly.textLines as unknown as string[], createdAt: weekly.createdAt } : null,
       sessionReports,
+      // Sessoes cujo relatorio foi omitido por estar desatualizado (correcao de vinculo ainda sendo processada): o app mostra "em atualizacao".
+      staleSessionIds: rows.filter((row) => stale.has(row.id)).map((row) => row.trainingSessionId),
     };
   }
 }

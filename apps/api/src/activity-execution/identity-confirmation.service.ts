@@ -146,17 +146,26 @@ export class IdentityConfirmationService {
 
   // Conclui o EFEITO de uma decisao (criacao ou reversao) e SO' ENTAO grava o carimbo processedAt: identidade reavaliada + contabilizacao reconciliada
   // (na reversao, tambem volta a uma so' execucao contando). Idempotente: repetir nao duplica nada. Sem o carimbo a decisao segue "em processamento".
-  private async processDecision(userId: string, decision: Pick<HumanIdentityDecision, 'id' | 'status' | 'observationIds'>): Promise<{ ok: boolean; cleared: string[] }> {
+  private async processDecision(userId: string, decision: Pick<HumanIdentityDecision, 'id' | 'status' | 'observationIds'> & Partial<Pick<HumanIdentityDecision, 'actorRole' | 'actorId'>>): Promise<{ ok: boolean; cleared: string[] }> {
     let cleared: string[] = [];
-    const ok = await this.reevaluateAndReconcile(decision.observationIds);
-    if (!ok) return { ok: false, cleared };
-    if (decision.status === 'reverted') {
-      try {
-        cleared = (await this.link.normalizeAmbiguousCluster(decision.observationIds)).cleared;
-      } catch (error) {
-        this.logger.warn(`Falha ao normalizar o conjunto apos reverter decisao: ${error instanceof Error ? error.message : String(error)}`);
-        return { ok: false, cleared };
+    const since = new Date();
+    // Pos-correcao centralizado: a decisao humana pode ter refeito/desfeito vinculos (inclusive ao normalizar o conjunto na reversao); as analises das
+    // sessoes afetadas sao recalculadas ao fim, qualquer que seja o desfecho (nunca lanca).
+    try {
+      const ok = await this.reevaluateAndReconcile(decision.observationIds);
+      if (!ok) return { ok: false, cleared };
+      if (decision.status === 'reverted') {
+        try {
+          cleared = (await this.link.normalizeAmbiguousCluster(decision.observationIds)).cleared;
+        } catch (error) {
+          this.logger.warn(`Falha ao normalizar o conjunto apos reverter decisao: ${error instanceof Error ? error.message : String(error)}`);
+          return { ok: false, cleared };
+        }
       }
+    } finally {
+      await this.link.recomputeAfterCorrection(userId, since, {
+        kind: 'identity_correction', origin: decision.actorRole === 'coach' ? 'coach' : decision.actorRole === 'student' ? 'student' : 'system', actorId: decision.actorId ?? null, activityLogIds: decision.observationIds,
+      });
     }
     const processedAt = new Date().toISOString();
     await this.locked(userId, (tx) => this.patchDecisions(tx, userId, decision.observationIds, new Set([decision.id]), (d) => ({ ...d, processedAt })));

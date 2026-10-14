@@ -3,6 +3,7 @@ import { describeSessionShape } from './agent-context-format';
 import type { ContextGap } from './student-information-context';
 import type { MethodologyInput } from './training-methodology';
 import { getVariableDefinition } from '../training-intelligence/variable-registry';
+import type { AnalysisCorrectionRecord } from '../activity-execution/analysis-validity';
 
 // Rastreabilidade das prescricoes (Etapa 1.2a, 09/10/2026). Funcoes PURAS: montam o INDICE de evidencias e as decisoes
 // deterministicas. Nada aqui decide treino. O que a IA "declara" ter usado (intent/expected/basis) e' da 1.2b — aqui ficam
@@ -41,6 +42,8 @@ export interface EvidenceItem {
   // Itens de EXECUCAO (historico semanal, recorde, narrativas): quais campos/entradas do texto enviado a IA derivam de dispositivo e de quais provedores.
   // Indices e nomes de campo apenas — nunca valores.
   derivation?: ExecutionDerivation;
+  // Regeneracao apos correcao de vinculo (lote 3): quais correcoes foram consideradas e se a evidencia enviada foi recalculada (nunca valores de atividade).
+  correction?: AnalysisCorrectionRecord;
   // Provedores cujas exclusoes ja invalidaram partes deste item (a derivacao restante continua valendo para os demais provedores).
   invalidatedProviders?: string[];
 }
@@ -122,6 +125,8 @@ export interface EvidenceBuildInput {
   provenance?: ProviderProvenance;
   // Proveniencia dos VALORES DE EXECUCAO (historico semanal, recorde, narrativas de evolucao).
   executionProvenance?: ExecutionProvenance;
+  // Regeneracao de um dia apos correcao de vinculo: o que foi corrigido e usado (ou retirado) na evidencia do Analista.
+  analysisCorrection?: AnalysisCorrectionRecord | null;
 }
 
 function item(partial: Partial<EvidenceItem> & Pick<EvidenceItem, 'ref' | 'kind' | 'source' | 'label'>): EvidenceItem {
@@ -195,6 +200,13 @@ export function buildEvidenceIndex(p: EvidenceBuildInput): EvidenceItem[] {
   }
   if (p.executionProvenance && input.trainingAnalysis) {
     items.push(item({ ref: 'training_analysis', kind: 'training_analysis', source: 'TrainingAnalysis', label: 'Achados do Analista de Treinos', storage: 'reference_only', ...derivationParts({ kind: 'training_analysis', providers: p.executionProvenance.trainingAnalysis ?? [] }) }));
+  }
+  if (p.analysisCorrection) {
+    items.push(item({
+      ref: 'training_analysis_correction', kind: 'training_analysis_correction', source: 'SessionExecutionLink', label: 'Correcao de vinculo considerada na evidencia do Analista',
+      delivery: p.analysisCorrection.recalculatedForRead ? 'delivered' : 'absent', storage: 'complete', correction: p.analysisCorrection,
+      storageNote: p.analysisCorrection.motivo,
+    }));
   }
   if (p.executionProvenance && input.longestRunEver) {
     items.push(item({ ref: 'record:longest_run', kind: 'record_run', source: 'WorkoutCompletion', label: 'Maior longao ja registrado', storage: 'reference_only', ...derivationParts({ kind: 'longest_run', providers: p.executionProvenance.longestRun }) }));
@@ -407,7 +419,7 @@ export function classifyExecutionProvenance(
     evolutionReport: narrative,
     reassessmentEvolution: narrative,
     profileSummary: input.profile?.summaryMayCarryEvolutionNarrative ? narrative : [],
-    pendingProfileEvents: (input.profile?.pendingEventCodes ?? []).flatMap((code, index) => (code === 'REASSESSMENT_COMPLETED' || code === 'TRAINING_ANALYSIS_FINDINGS' ? [{ index, providers: narrative }] : [])),
+    pendingProfileEvents: (input.profile?.pendingEventCodes ?? []).flatMap((code, index) => (code === 'REASSESSMENT_COMPLETED' || code === 'TRAINING_ANALYSIS_FINDINGS' || code === 'EXECUTION_LINK_CORRECTED' ? [{ index, providers: narrative }] : [])),
   };
 }
 

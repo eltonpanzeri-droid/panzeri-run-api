@@ -11,6 +11,14 @@ export function isRetractedVolumeEvidence(evidence: Prisma.JsonValue): boolean {
   return !!marker && typeof marker === 'object' && !Array.isArray(marker) && marker.status === 'retracted';
 }
 
+// Leitura UNICA do estado de uma concessao (15/10/2026, etapa 1 do plano de revogacao). Hoje o unico sinal de "revogada" e' o marcador de retracao de
+// volume gravado em evidence (_volumeReconciliation). Quando existir a coluna status (etapa 4), ela entra aqui — 'revoked' — e o marcador continua valendo
+// durante a transicao: qualquer um dos dois sinais basta para a concessao NAO contar como conquistada. Toda tela, calculo de progresso e planejador
+// consulta ESTA funcao (nunca o marcador diretamente), para nao existirem dois criterios concorrentes.
+export function isAwardRevoked(award: { evidence: Prisma.JsonValue; status?: string | null }): boolean {
+  return award.status === 'revoked' || isRetractedVolumeEvidence(award.evidence);
+}
+
 export function withVolumeReconciliation(
   evidence: Prisma.JsonValue,
   status: 'active' | 'retracted',
@@ -52,6 +60,8 @@ export interface ExistingVolumeAward {
   periodStart: Date | null;
   periodEnd: Date | null;
   evidence: Prisma.JsonValue;
+  // Coluna de estado da concessao (etapa 4, ainda inexistente): quando presente, entra na leitura unica isAwardRevoked.
+  status?: string | null;
 }
 
 export type VolumeAction = {
@@ -62,9 +72,9 @@ export type VolumeAction = {
   reason: string;
 };
 
-const day = (date: Date | null): string | null => date?.toISOString().slice(0, 10) ?? null;
+export const day = (date: Date | null): string | null => date?.toISOString().slice(0, 10) ?? null;
 
-function awardPeriod(award: ExistingVolumeAward): string | null {
+export function awardPeriod(award: ExistingVolumeAward): string | null {
   const evidence = award.evidence && typeof award.evidence === 'object' && !Array.isArray(award.evidence)
     ? award.evidence : {};
   const key = award.category === 'volume_semanal' ? 'weekStart' : award.category === 'volume_mensal' ? 'month' : 'endWeek';
@@ -74,7 +84,7 @@ function awardPeriod(award: ExistingVolumeAward): string | null {
   return fromEvidence ?? (award.category === 'volume_mensal' ? stored?.slice(0, 7) ?? null : stored);
 }
 
-function uncertainInAwardPeriod(award: ExistingVolumeAward, weeks: Set<string>, months: Set<string>): boolean | null {
+export function uncertainInAwardPeriod(award: ExistingVolumeAward, weeks: Set<string>, months: Set<string>): boolean | null {
   const period = awardPeriod(award);
   if (!period) return null;
   if (award.category === 'volume_semanal') return weeks.has(period);
@@ -89,7 +99,7 @@ function uncertainInAwardPeriod(award: ExistingVolumeAward, weeks: Set<string>, 
   return false;
 }
 
-function periodHasEvidence(award: ExistingVolumeAward, series: EvolutionSeries): boolean {
+export function periodHasEvidence(award: ExistingVolumeAward, series: EvolutionSeries): boolean {
   const period = awardPeriod(award);
   if (!period) return false;
   if (award.category === 'volume_semanal') return series.weeks.some((week) => week.weekStart === period && week.kmPercorridos != null);
@@ -136,14 +146,14 @@ function matchesKnownDuplicate(award: ExistingVolumeAward, legacy: { corrida: Ev
   return false;
 }
 
-function earlierUncertainty(candidate: UnlockCandidate, category: string, weeks: Set<string>, months: Set<string>): boolean {
+export function earlierUncertainty(candidate: UnlockCandidate, category: string, weeks: Set<string>, months: Set<string>): boolean {
   const date = category === 'sustentacao_volume' ? day(candidate.periodEnd) : day(candidate.periodStart);
   if (!date) return true;
   if (category === 'volume_mensal') return [...months].some((month) => month < date.slice(0, 7));
   return [...weeks].some((week) => week <= date);
 }
 
-function differentValue(a: number | null, b: number | null): boolean {
+export function differentValue(a: number | null, b: number | null): boolean {
   if (a == null || b == null) return a !== b;
   return Math.abs(a - b) > 0.000001;
 }
@@ -167,7 +177,7 @@ export function planVolumeReconciliation(
     } else if (candidate) {
       if (earlierUncertainty(candidate, award.category, uncertainty.weeks, uncertainty.months)) {
         actions.push({ kind: 'review', code: award.code, existing: award, candidate, reason: 'período anterior ou atual incerto' });
-      } else if (isRetractedVolumeEvidence(award.evidence) || differentValue(award.value, candidate.value) ||
+      } else if (isAwardRevoked(award) || differentValue(award.value, candidate.value) ||
                  day(award.periodStart) !== day(candidate.periodStart) || day(award.periodEnd) !== day(candidate.periodEnd)) {
         actions.push({ kind: 'update', code: award.code, existing: award, candidate, reason: 'alinhar concessão ao primeiro período comprovado' });
       } else {
@@ -175,7 +185,7 @@ export function planVolumeReconciliation(
       }
     } else if (uncertainInAwardPeriod(award, uncertainty.weeks, uncertainty.months) !== false || !periodHasEvidence(award, series)) {
       actions.push({ kind: 'review', code: award.code, existing: award, reason: 'período incerto ou sem observações suficientes' });
-    } else if (isRetractedVolumeEvidence(award.evidence)) {
+    } else if (isAwardRevoked(award)) {
       actions.push({ kind: 'keep', code: award.code, existing: award, reason: 'retração já registrada' });
     } else if (!matchesKnownDuplicate(award, legacy)) {
       actions.push({ kind: 'review', code: award.code, existing: award, reason: 'causa da concessão não comprovada pelo cálculo duplicado anterior' });

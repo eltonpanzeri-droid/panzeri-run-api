@@ -154,6 +154,10 @@ export interface UnlockedMedalLite {
   unit: string | null;
   unlockedAt: string; // ISO
   value: number | null;
+  // 15/10/2026: estado vindo do servidor (correcao de atividades x conquistas). Opcionais: servidor antigo nao envia.
+  status?: 'active';
+  reactivatedAt?: string | null;
+  provisional?: boolean;
 }
 
 export interface TrajectoryEvent {

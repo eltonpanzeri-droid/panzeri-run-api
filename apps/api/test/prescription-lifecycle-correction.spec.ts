@@ -102,7 +102,8 @@ describe('CoachService.updateTrainingSession — protecao PRESCRICAO -> EXECUCAO
   function buildCoachService(session: Record<string, unknown>) {
     const prisma = {
       trainingSession: {
-        findFirst: jest.fn().mockResolvedValue(session),
+        // executionLinks: o servico agora tambem le se a sessao tem execucao vinculada (evento corretivo do Prontuario)
+        findFirst: jest.fn().mockResolvedValue({ executionLinks: [], ...session }),
         update: jest.fn().mockImplementation(({ data }: { data: unknown }) => Promise.resolve({ id: 's1', ...(data as object) })),
       },
       user: { findFirstOrThrow: jest.fn().mockResolvedValue({ id: 'student-1', role: 'student' }) },

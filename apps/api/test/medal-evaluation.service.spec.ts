@@ -43,7 +43,7 @@ function buildService(opts: {
     existingUnlocks = [],
   } = opts;
 
-  const userAchievementCreate = jest.fn().mockResolvedValue({});
+  const userAchievementCreate = jest.fn().mockResolvedValue({ id: 'ua-new', value: null, periodStart: null, periodEnd: null, evidence: {}, status: 'active' });
   const prisma = {
     trainingSession: { findMany: jest.fn().mockResolvedValue(trainingSessions) },
     workoutCompletion: { count: jest.fn().mockResolvedValue(workoutCompletionCount) },
@@ -54,6 +54,8 @@ function buildService(opts: {
       findMany: jest.fn().mockResolvedValue(existingUnlocks.map((achievementId) => ({ achievementId }))),
       create: userAchievementCreate,
     },
+    // 15/10/2026: toda concessao grava tambem a transicao 'granted' (historico)
+    userAchievementTransition: { create: jest.fn().mockResolvedValue({}) },
   };
   const evolutionMetric = buildEvolutionMetric(trainingSessions, activities);
   const service = new MedalEvaluationService(prisma as never, evolutionMetric);

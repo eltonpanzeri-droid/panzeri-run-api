@@ -2788,3 +2788,64 @@ Sequência do commit 261af5c. **Servidor:** `PATCH /me/target-races/:id` agora a
 
 ### 2026-10-14 — Indicadores de cansaço/resposta pós-treino paravam em 01/10 (feedback V3 descartado pelo leitor) — corrigido no servidor (SEM commit/deploy)
 **Causa confirmada:** `ObservationReaderService` só emite observação quando `completion.feedbackVersion` está listado em `VARIABLE_REGISTRY[...].versions`. O feedback V3 (01/10/2026) só trocou a pergunta 12 (`executionVsPrescribed` → `executionBehavior`); `WorkoutCompletionsService` grava no V3 as mesmas colunas do V2. Mas as variáveis `workout.*` só declaravam as versões 1 e 2 (apenas `executionBehavior` tinha a 3) — todo completion V3 era descartado (`if (!spec) continue`). Estresse (tabela própria `StressCheckin`) e ritmo (atividades) não passam por esse casamento, por isso seguiam até 14/10 e 13/10. **Correção:** versão 3 declarada, idêntica à 2, em 15 variáveis `workout.*` (exceto `executionVsPrescribed`, congelada, e `sleepScheduleIrregularity`, substituída). Textos interpretativos usam a mesma série (`GET /me/observations/:variableId`, consumo puro no app), então PWA e iOS corrigem só com o deploy da API, sem build. Nenhum dado do banco alterado. Sobreposição de datas nos gráficos: tarefa separada (não feita).
+
+**2026-10-15** — Correção de vínculo × análises derivadas (lotes 1 e 2, só local, sem commit/deploy). Achado: nenhuma correção
+de vínculo (vincular/desvincular/confirmar) recalculava `SessionExecutionAnalysis`, e os leitores (variáveis `execution.*`,
+Analista, relatório da sessão) usavam a linha antiga como evidência atual. Feito: (1) defesa de leitura fail-closed em
+`analysis-validity.ts` (linha cujo vínculo ativo atual diverge é descartada, nunca apagada); (2) `recomputeAfterCorrection` em
+`SessionExecutionLinkService`, chamado fora da transação após cada correção humana (inclui confirmação de identidade);
+reanalisa as sessões afetadas pelo próprio histórico de vínculos, não grava "não feita" para sessão sem feedback e sem
+vínculo, marca como `stale` só o retrato vivo do Analista e nunca toca retratos entregues, vínculos, classificação, aderência
+nem RPE. Falha de recálculo é logada (erro) e não desfaz a decisão do aluno. Pendente (não autorizado): `forDayRegeneration`
+e `WeeklyExecutionReport` reutilizam retrato entregue anterior à correção (opção A aprovada, recalcular só para leitura com
+rastreio da evidência corrigida); pergunta de atribuição do feedback no app (próximo build); filtrar/exibir `stale` em
+`TrainingAnalystService.read` (painel).
+
+**2026-10-15 (lote 3, só local, sem commit/deploy)** — Regeneração de um dia após correção de vínculo. `forDayRegeneration` agora compara o
+retrato entregue (`TrainingAnalysis` week/longitudinal, histórico intacto) com o histórico de vínculos: se um vínculo que o retrato toca
+(sessões/atividades da evidência) foi criado/revogado depois dele, a evidência é **recalculada só para leitura** (`recomputeForRead`:
+mesma semana do programa, semana anterior vinda do `WeeklyExecutionReport` entregue, `buildForGeneration(..., {persist:false})`) e o
+Prescritor recebe um aviso `correcaoDeVinculo`. Fail-closed: se o recálculo ou a verificação falhar, o retrato antigo é retirado (nada
+obsoleto segue). O pacote de evidências ganhou o item `training_analysis_correction` (correções consideradas, o que segue na evidência
+atual e o que saiu, e se foi recalculada). `TrainingAnalystService.read` anota cada linha com `atualidade` (`atual`,
+`desatualizada_por_correcao_de_vinculo`, `retrato_entregue` + `correcoesPosteriores`, `invalidada`) sem esconder nada. Prompts de sistema
+inalterados (congelados por hash). Testes de integração com banco não executados: não há PostgreSQL de teste isolado nesta máquina.
+Dois testes preexistentes seguem vermelhos e fora de escopo: `legal-content.spec.ts` (texto de `App.tsx`) e `analytics-instrumentation.spec.ts`
+(exports ausentes em billing/funnel).
+
+**2026-10-15 (etapas 1–3 do plano de medalhas/correções, só local, sem commit/deploy)** — (1) `isAwardRevoked` (volume-reconciliation.ts) é a leitura
+única do estado de uma medalha (marcador de retração de volume, e no futuro a coluna `status`); telas, progresso e reconciliação usam só ela.
+(2) `recomputeAfterCorrection` virou o ponto central (agora com `activityLogIds`, `sessionIds`, `forceSessionIds`) e `analysis-recompute.ts`
+refaz as análises deterministas das sessões afetadas: as mais recentes na hora (25), o resto em segundo plano; falha vai para nova tentativa;
+a leitura descarta linha obsoleta e agenda a recuperação (intervalo mínimo de 60 s por aluno); sessão sem feedback e sem vínculo nunca ganha linha
+"sem registro". Fluxos do treinador ligados: reclassify, reconcile-history (aplicado), primary-source, evaluate-identity (só se
+`affectedActivityLogIds` ≠ vazio — `evaluateUserHistory` agora devolve esse campo) e edição material de treino (force). Nenhum deles gera treino.
+(3) `medal-award-decision.ts`: função pura `planAwardReevaluation` (keep/create/adjust/revoke/reactivate/review por semântica de categoria,
+versão da regra, incerteza e escopo da correção); NÃO está ligada a nenhum fluxo e `allowRevocation` é falso por padrão (só recomenda 'review').
+Ordem pós-correção prevista (etapas 6–7, ainda não feitas): grava a decisão → marca reavaliação pendente → tenta reavaliar medalhas na própria
+requisição (usa só vínculos/feedbacks já gravados, não depende das análises) e recalcula análises em paralelo (massa em segundo plano) → limpa o
+marcador se nada mais recente → leituras de medalhas concluem a pendência antes de responder. Pendente por decisão do treinador: evento
+EXECUTION_LINK_CORRECTED (inclui edição de treino com feedback), medalhas na exclusão de dados de provedor (ausência de dado ≠ prova), histórico de
+transições e migrações (etapas 4–11 não autorizadas).
+
+**2026-10-15 (etapas 4–11 do plano de correções/medalhas, só local, sem commit/deploy/migração aplicada)** — Sistema de correções concluído e integrado.
+(a) **Migração** `20261015120000_medal_award_transitions_and_pending_reevaluation` (aditiva): colunas `status/statusChangedAt/revokedAt/revokedReason` em
+`UserAchievement`, tabelas `UserAchievementTransition` (histórico append-only: granted/revoked/reactivated/adjusted, com motivo, causa, antes/depois e versão da regra) e
+`CorrectionReevaluation` (pendência durável por aluno: sessões de análise + escopo de medalhas, versão, lease, tentativas); conversão idempotente das retrações de volume
+antigas (marcador mantido). **Não foi executada em banco algum** (validada só estruturalmente: `prisma validate`, `prisma migrate diff` e teste do arquivo).
+(b) **Medalhas**: `planAwardReevaluation` (decisão pura, por semântica de categoria, versão da regra e incerteza) + `applyAwardActions` (transacional, trava por aluno,
+CAS contra mudança no meio) + `MedalEvaluationService.reevaluateForPending`; só categorias afetadas; revoga só quando o critério deixa de ser atendido; mantém/ajusta quando
+outro treino/período/sequência comprova; reativa na mesma linha; exclusão de dados do provedor nunca revoga/ajusta (ausência ≠ prova). `GET /me/medals` ganhou `revoked` e
+`pending`; novos `GET /me/medals/revoked` e `/history`.
+(c) **Pendência durável** (sem fila em memória): ordem = correção gravada → ganchos marcam (`markPending`) → `processPendingReevaluation` (lease por CAS; só remove a linha se
+nenhuma marcação nova chegou) → leitura conclui pendência antes de responder (`settlePendingReevaluation`) ou devolve dado PROVISÓRIO; varredor a cada 2 min retoma o resto
+(inclusive após reinício). Nunca gera treino.
+(d) **Prontuário**: evento `EXECUTION_LINK_CORRECTED` (quem/quando/o que mudou/o que passa a valer/refs; resumo em massa; edição de treino pelo treinador com feedback);
+só com mudança efetiva; nunca para exclusão de dados; sem medalhas. (e) **Prompts** (consciente, hash-test atualizado): `LINK_CORRECTION_INSTRUCTION` nos 3 prompts do
+Prescritor e bloco no Condensador do Prontuário. (f) **App**: MedalsScreen com conquistadas/reativadas/revogadas (motivo)/em atualização + histórico; cartão do relatório de
+treino "em atualização" (`sessionReportsUpdating`). (g) Fluxos do treinador e exclusão de dados do provedor ligados ao ponto central; CLI de volume grava status/transições.
+**Falhas preexistentes mantidas, fora de escopo:** `legal-content.spec.ts` e `analytics-instrumentation.spec.ts`; `ios-store-compliance.spec.ts` é instável por tempo sob carga
+(passa isolado).
+
+### 2026-10-14 — Correções de atividades/medalhas: validação em PostgreSQL real e UI (pronta para publicar; NÃO publicada)
+Validado em PostgreSQL 17 descartável (127.0.0.1, bancos `_test`, sem produção): migração `20261015120000_medal_award_transitions_and_pending_reevaluation` aplica limpa, converte medalhas antigas retratadas para revogadas (uma transição cada), idempotente. Teste de integração `correction-medals.int.spec.ts` (3 testes) cobre concessão/revogação/reativação com histórico, correção sem gerar programa novo, pendência durável após reinício e concorrência; 12 suítes de integração existentes verdes. Tela de conquistas verificada no PWA local (conquistadas, reativada, em atualização, revogadas com motivo, histórico). PWA: service worker network-first/no-store, reabrir basta (não testado em iPhone real). Typecheck API e mobile verdes. Pendente: autorização de Elton para push, deploy da API (roda a migração) e do PWA; builds nativos depois.

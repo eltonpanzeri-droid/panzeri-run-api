@@ -31,7 +31,7 @@ export const ACCOUNT_DELETE_ORDER = [
   'rawActivitySample', 'activityTimeSeriesPoint', 'activityLog', 'rawExternalActivity', 'evolutionReport', 'reassessment',
   'studentDirective', 'studentObservation', 'coachChatMessage', 'passwordResetToken', 'loginLinkToken', 'userNotification',
   'messageLog', 'healthProfile', 'userPreferences', 'weeklyAvailability', 'fitnessTest', 'targetRace', 'painReport',
-  'menstrualProfile', 'menstrualCycleLog', 'menstrualDailyLog', 'userAchievement', 'challengeProgress', 'coachReport',
+  'menstrualProfile', 'menstrualCycleLog', 'menstrualDailyLog', 'userAchievementTransition', 'userAchievement', 'correctionReevaluation', 'challengeProgress', 'coachReport',
   'studentProfileEvent', 'studentProfile', 'studentReportEntry', 'onboardingInterview', 'shoe', 'stravaConnection',
   'athletePrimarySource', 'stravaActivity', 'stravaAnalysisCache', 'stravaOAuthAttempt', 'polarConnection', 'polarOAuthAttempt', 'wahooConnection', 'wahooOAuthAttempt', 'funnelEvent', 'freeTesterEmail',
 ] as const;

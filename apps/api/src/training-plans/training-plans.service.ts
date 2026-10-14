@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { collapseEqualRange, runPaceHeaderLabel } from './range-display';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { canonicalModality } from '../activity-execution/canonical-modality';
+import type { AnalysisCorrectionRecord } from '../activity-execution/analysis-validity';
+import { readPending } from '../activity-execution/pending-reevaluation';
 import { sleepDurationHoursEstimate } from '../workout-completions/workout-completions.service';
 import { runnerStrengthExercises } from './runner-strength-library';
 import { gymExerciseLibrary } from './gym-exercise-library';
@@ -271,7 +273,7 @@ export class TrainingPlansService {
     }
 
     try {
-      profileNarrativeDerived = ((await this.prisma.studentProfileEvent?.count?.({ where: { userId, code: { in: ['REASSESSMENT_COMPLETED', 'TRAINING_ANALYSIS_FINDINGS'] } } })) ?? 0) > 0;
+      profileNarrativeDerived = ((await this.prisma.studentProfileEvent?.count?.({ where: { userId, code: { in: ['REASSESSMENT_COMPLETED', 'TRAINING_ANALYSIS_FINDINGS', 'EXECUTION_LINK_CORRECTED'] } } })) ?? 0) > 0;
     } catch {
       profileNarrativeDerived = true;
     }
@@ -2030,7 +2032,7 @@ export class TrainingPlansService {
     // sem chamada de IA (so leitura): a condensacao do prontuario so roda na geracao semanal.
     const dayInformationContext = await this.loadStudentInformationContext(userId, { refreshProfile: false });
     // Etapa 3 (ajuste 1): mesmo retrato do Analista entregue com o programa deste dia (somente leitura; falha nao bloqueia).
-    let dayAnalysis: { promptEvidence: Record<string, unknown> | null; providers: string[] } | null = null;
+    let dayAnalysis: { promptEvidence: Record<string, unknown> | null; providers: string[]; correction: AnalysisCorrectionRecord | null } | null = null;
     if (this.analyst && !(session.modality === 'forca' || session.modality === 'fortalecimento_corredores')) {
       const shape = JSON.stringify(session.structure ?? {});
       const sessionKind = /repeatCount|intervalad/i.test(shape) ? 'intervalado' as const : /longo|long/i.test(session.title ?? '') ? 'continuo' as const : null;
@@ -2205,6 +2207,7 @@ export class TrainingPlansService {
           evolutionReport: latestEvolutionReport ? { id: latestEvolutionReport.id, createdAt: latestEvolutionReport.createdAt } : null,
           interviewCompletedAt: null, paceSource: null, contextGaps: dayInformationContext.gaps,
           provenance: dayProvenance, executionProvenance: dayExecution,
+          analysisCorrection: dayAnalysis?.correction ?? null,
         }),
         contextGaps: dayInformationContext.gaps,
         agentTrace: dayAgentTrace,
@@ -2861,7 +2864,7 @@ export class TrainingPlansService {
     plan: { id: string; sessions: Array<{ id: string; modality: string; origin: string | null; completion?: unknown | null }> },
     presented: T,
     reconciliation?: WeekReconciliation,
-  ): Promise<T & { weeklyExecutionReport?: unknown; sessionReports?: unknown }> {
+  ): Promise<T & { weeklyExecutionReport?: unknown; sessionReports?: unknown; sessionReportsUpdating?: string[] }> {
     if (!this.executionAnalysis || !('sessions' in presented)) return presented;
     try {
       const analyzable = new Set(['corrida', 'esteira', 'forca', 'fortalecimento_corredores']);
@@ -2869,7 +2872,11 @@ export class TrainingPlansService {
         .filter((session) => analyzable.has(session.modality) && !['device_extra', 'student_extra'].includes(session.origin ?? '') && (session.completion || reconciliation?.activeLinkBySessionId.has(session.id)))
         .map((session) => session.id);
       const extra = await this.executionAnalysis.presentationFor(userId, plan.id, plan.sessions.map((session) => session.id), candidates);
-      return { ...presented, weeklyExecutionReport: extra.weeklyReport, sessionReports: extra.sessionReports };
+      // Relatorio de treino em atualizacao (correcao de atividade ainda sendo processada): o app marca como provisorio em vez de mostrar dado antigo como definitivo.
+      const pending = await readPending(this.prisma, userId).catch(() => null);
+      const pendingIds = new Set(pending?.analysisSessionIds ?? []);
+      const updating = [...new Set([...(extra.staleSessionIds ?? []), ...plan.sessions.map((session) => session.id).filter((id) => pendingIds.has(id))])];
+      return { ...presented, weeklyExecutionReport: extra.weeklyReport, sessionReports: extra.sessionReports, sessionReportsUpdating: updating };
     } catch (error) {
       this.logger.warn(`Relatorios de execucao indisponiveis para o programa ${plan.id}: ${error instanceof Error ? error.message : error}`);
       return presented;

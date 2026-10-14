@@ -1680,14 +1680,66 @@ model UserAchievement {
   ruleVersionAtUnlock Int         @default(1)
   createdAt           DateTime    @default(now())
 
+  // 15/10/2026 — estado da concessao (correcao de atividades x medalhas). 'active' = conquistada; 'revoked' = o criterio deixou de ser atendido apos uma
+  // correcao (o registro NUNCA e' apagado: reativar atualiza ESTA linha, sem duplicar, e preserva unlockedAt). Compatibilidade: a retracao de volume antiga
+  // (evidence._volumeReconciliation.status = 'retracted') foi convertida para 'revoked' na migration e o marcador continua espelhado nas categorias de volume.
+  status              String      @default("active")
+  statusChangedAt     DateTime?
+  revokedAt           DateTime?
+  revokedReason       String?
+  transitions         UserAchievementTransition[]
+
   @@unique([userId, achievementId])
   @@index([userId, unlockedAt])
+  @@index([userId, status])
   // Etapa 8 (30/09/2026) — base pra inteligência gerencial futura (SISTEMA_DE_MEDALHAS.md seção
   // 18): "quantos alunos já conquistaram a medalha X" é uma consulta POR achievementId sozinho,
   // que o índice composto (userId, achievementId) acima não atende bem. Só o índice — nenhum
   // endpoint/agregação implementado ainda, por pedido explícito (preparar a base, não construir
   // o painel).
   @@index([achievementId])
+}
+
+// 15/10/2026 — historico APPEND-ONLY das transicoes de uma concessao: granted | revoked | reactivated | adjusted. Cada linha guarda quando, por que
+// (trigger/reason), a causa (ids dos vinculos/atividades/sessoes e quem corrigiu), o estado antes/depois (valor, periodo, evidencia) e a versao da regra.
+// Concessoes anteriores a esta tabela nao tem 'granted' (a concessao e' o proprio unlockedAt); retracoes antigas de volume foram migradas como 'revoked'.
+model UserAchievementTransition {
+  id                String          @id @default(uuid())
+  userAchievementId String
+  userAchievement   UserAchievement @relation(fields: [userAchievementId], references: [id], onDelete: Cascade)
+  userId            String
+  type              String
+  at                DateTime        @default(now())
+  trigger           String
+  reason            String?
+  cause             Json?
+  before            Json?
+  after             Json?
+  ruleVersion       Int
+
+  @@index([userAchievementId, at])
+  @@index([userId, at])
+}
+
+// 15/10/2026 — reavaliacao PENDENTE por aluno (durable: sobrevive a reinicio do servidor). Uma linha por aluno com o que ainda precisa ser atualizado depois
+// de uma correcao (analises de execucao por sessao e/ou medalhas). Quem le (medalhas, indicadores) enxerga a linha e marca o dado como provisorio. 'version'
+// sobe a cada nova marcacao; 'leaseUntil' impede processamento duplicado entre requisicoes/instancias. Derivada e descartavel: apagada quando tudo conclui.
+model CorrectionReevaluation {
+  userId             String    @id
+  version            Int       @default(1)
+  dirtySince         DateTime  @default(now())
+  analysisSessionIds Json      @default("[]")
+  forceSessionIds    Json      @default("[]")
+  medalsPending      Boolean   @default(false)
+  medalScope         Json?
+  leaseUntil         DateTime?
+  attempts           Int       @default(0)
+  lastAttemptAt      DateTime?
+  lastError          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([leaseUntil])
 }
 
 model Challenge {

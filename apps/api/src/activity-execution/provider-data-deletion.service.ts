@@ -2,6 +2,9 @@ import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TombstoneLedger } from '../backup/tombstone-ledger';
+import { correctionHooks } from './correction-hooks';
+import { processPendingReevaluation } from './pending-reevaluation';
+import { localCalendarDate } from './session-execution-link.service';
 import { AgentInputRedaction, EvidenceItem, executionActionsFor, invalidateDeclaredForProvider, isProviderDerivedVariable, packageMayContainProvider, redactAgentInputForProvider, redactEvidenceForProvider } from '../training-plans/prescription-trace';
 
 // Exclusao dos dados atribuiveis a UM provider de UM usuario (04/10/2026). Provider-agnostico: so'
@@ -67,6 +70,14 @@ export interface ProviderDataDeletionResult {
   weeklyReportsInvalidated?: number;
   // Etapa 2.2: contratos do Analista que usaram dados deste provedor (sessao viva apagada; semana/evolucao entregues invalidadas).
   analystContracts?: number;
+}
+
+// O que a exclusao afetou (NAO e' gravado em providerConnectionEvent.details): alimenta a atualizacao dos indicadores e a reavaliacao das medalhas.
+export interface ProviderDataDeletionAffected {
+  sessionIds: string[];
+  // Datas locais (YYYY-MM-DD) das atividades removidas.
+  dates: string[];
+  completionsChanged: boolean;
 }
 
 interface ActivityCopySource {
@@ -137,7 +148,10 @@ export class ProviderDataDeletionService {
     if (!this.ledger) throw new InternalServerErrorException('Exclusao indisponivel: ledger de tombstones nao configurado.');
     await this.ledger.record({ type: 'provider_data_deleted', userId, provider });
     try {
-      return await this.executeProviderDataDeletion(userId, provider);
+      const executed = await this.executeProviderDataDeletion(userId, provider);
+      const { affected, ...result } = executed as ProviderDataDeletionResult & { affected?: ProviderDataDeletionAffected };
+      await this.refreshAfterDeletion(userId, provider, affected);
+      return result;
     } catch (error) {
       this.logger.error(`Exclusao de dados do provider falhou apos o tombstone (${provider}): ${(error as Error).message?.slice(0, 200)}`);
       await this.prisma.providerConnectionEvent.create({
@@ -153,7 +167,7 @@ export class ProviderDataDeletionService {
     return this.prisma.$transaction(async (tx) => {
       const activities = await tx.activityLog.findMany({
         where: { userId, provider },
-        select: { id: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true },
+        select: { id: true, startedAt: true, utcOffsetMinutes: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true },
       });
       const activityIds = activities.map((a) => a.id);
       const activityById = new Map(activities.map((a) => [a.id, a]));
@@ -191,7 +205,7 @@ export class ProviderDataDeletionService {
       // Vinculos: o historico de substituicao aponta de uma linha para outra; solta as referencias
       // que apontam para linhas que serao apagadas antes de apagar (evita violar a FK).
       const links = activityIds.length === 0 ? [] : await tx.sessionExecutionLink.findMany({
-        where: { activityLogId: { in: activityIds } }, select: { id: true },
+        where: { activityLogId: { in: activityIds } }, select: { id: true, trainingSessionId: true },
       });
       const linkIds = links.map((l) => l.id);
       if (linkIds.length > 0) {
@@ -330,8 +344,28 @@ export class ProviderDataDeletionService {
       await tx.providerConnectionEvent.create({
         data: { userId, provider, type: 'data_deleted', details: result as unknown as Prisma.InputJsonValue },
       });
-      return result;
+      const affected: ProviderDataDeletionAffected = {
+        sessionIds: [...new Set([...links.map((l) => l.trainingSessionId), ...sessionsToDelete, ...sessionsToSanitize.map((item) => item.sessionId)])],
+        dates: [...new Set(activities.map((a) => localCalendarDate(a.startedAt, a.utcOffsetMinutes)))].sort(),
+        completionsChanged: completionsToDelete.length > 0 || sessionsToDelete.length > 0 || sessionsToSanitize.length > 0,
+      };
+      return { ...result, affected } as ProviderDataDeletionResult & { affected: ProviderDataDeletionAffected };
     }, { timeout: 60_000, maxWait: 10_000 });
+  }
+
+  // Depois da exclusao: os indicadores afetados sao atualizados e as medalhas REAVALIADAS — mas AUSENCIA DE DADO NAO E' PROVA de que uma conquista era invalida:
+  // com absenceOfData a reavaliacao nunca revoga nem ajusta (o que revogaria vira "revisar" e fica so' no log). Roda fora da transacao e nunca faz a exclusao falhar.
+  private async refreshAfterDeletion(userId: string, provider: string, affected: ProviderDataDeletionAffected | undefined): Promise<void> {
+    if (!affected) return;
+    try {
+      await correctionHooks.run({
+        userId, kind: 'provider_data_deleted', origin: 'system', actorId: null, at: new Date(), since: null, sessionIds: affected.sessionIds, activityLogIds: [],
+        completionsChanged: affected.completionsChanged, changes: [], absenceOfData: true, provider, affectedDates: affected.dates,
+      });
+      await processPendingReevaluation(this.prisma, userId);
+    } catch (error) {
+      this.logger.error(`Atualizacao dos indicadores apos a exclusao de dados (${provider}) falhou; a pendencia segue registrada: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   // Trilha de auditoria da desconexao (usada pelo adapter do provider).

@@ -5,7 +5,9 @@ import { MedalEvaluationService } from './medal-evaluation.service';
 import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
 import { MedalDefinition, getMedalCategoryCatalog } from './medal-catalog';
 import { isoDate, mondayOf, buildCompleteWeekList, isWeekClosed } from './medal-evaluation.helpers';
-import { isRetractedVolumeEvidence } from './volume-reconciliation';
+import { isAwardRevoked } from './volume-reconciliation';
+import { transitionReasonText, transitionTypeLabel } from './medal-transition-text';
+import { PendingView, settlePendingReevaluation, viewOf } from '../activity-execution/pending-reevaluation';
 
 // Sistema de Medalhas (30/09/2026) — lado de LEITURA da API (etapa 5 do plano de implementação).
 // Nunca decide se uma medalha foi conquistada (isso é MedalEvaluationService, já persistido em
@@ -27,6 +29,38 @@ export interface UnlockedMedalView {
   periodStart: Date | null;
   periodEnd: Date | null;
   modality: string | null;
+  // Conquistada agora ('active'); reativada = voltou depois de uma revogacao (reactivatedAt = quando); provisional = categoria em atualizacao depois de uma
+  // correcao (nao e' definitiva ate a reavaliacao terminar).
+  status: 'active';
+  reactivatedAt: Date | null;
+  provisional: boolean;
+}
+
+export interface RevokedMedalView {
+  code: string;
+  category: string;
+  name: string;
+  description: string;
+  grau: string;
+  unit: string | null;
+  unlockedAt: Date;
+  revokedAt: Date | null;
+  revokedReason: string | null;
+  reasonText: string;
+  // Categoria ainda em atualizacao: o estado pode mudar.
+  provisional: boolean;
+}
+
+export interface MedalHistoryEntry {
+  id: string;
+  code: string;
+  name: string;
+  grau: string;
+  type: string;
+  typeLabel: string;
+  at: Date;
+  reason: string | null;
+  reasonText: string;
 }
 
 export interface NextUpMedalView {
@@ -62,18 +96,30 @@ export class MedalsService {
    * de fechar). Reavaliação é best-effort: se falhar, a leitura ainda acontece normalmente.
    */
   async getSummary(userId: string) {
+    // Consistencia: antes de ler, tenta concluir a reavaliacao pendente (correcao de atividade) dentro de um orcamento curto. Se nao terminar, o estado devolvido
+    // marca as conquistas das categorias afetadas como provisorias (nunca como definitivas).
+    const pendingState = await settlePendingReevaluation(this.prisma, userId);
+    const pending = viewOf(pendingState);
     await this.medalEvaluation.evaluateForUser(userId, 'week_closed').catch(() => undefined);
-    const [unlocked, progress] = await Promise.all([this.getUnlocked(userId), this.getProgress(userId)]);
-    return { unlocked, progress };
+    const [unlocked, revoked, progress] = await Promise.all([this.getUnlocked(userId, pending), this.getRevoked(userId, pending), this.getProgress(userId)]);
+    return { unlocked, revoked, progress, pending };
   }
 
-  async getUnlocked(userId: string): Promise<UnlockedMedalView[]> {
+  async getUnlocked(userId: string, pending: PendingView = viewOf(null)): Promise<UnlockedMedalView[]> {
     const rows = await this.prisma.userAchievement.findMany({
       where: { userId },
       include: { achievement: true },
       orderBy: { unlockedAt: 'desc' },
     });
-    return rows.filter((r) => !isRetractedVolumeEvidence(r.evidence)).map((r) => ({
+    const active = rows.filter((r) => !isAwardRevoked({ evidence: r.evidence, status: r.status }));
+    const reactivations = active.length === 0 ? [] : await this.prisma.userAchievementTransition.findMany({
+      where: { userId, type: 'reactivated', userAchievementId: { in: active.map((r) => r.id) } },
+      orderBy: { at: 'desc' },
+    });
+    const reactivatedAt = new Map<string, Date>();
+    for (const t of reactivations) if (!reactivatedAt.has(t.userAchievementId)) reactivatedAt.set(t.userAchievementId, t.at);
+    const updating = new Set(pending.medalCategories);
+    return active.map((r) => ({
       code: r.achievement.code,
       category: r.achievement.category,
       name: r.achievement.name,
@@ -86,7 +132,51 @@ export class MedalsService {
       periodStart: r.periodStart,
       periodEnd: r.periodEnd,
       modality: r.modality,
+      status: 'active' as const,
+      reactivatedAt: reactivatedAt.get(r.id) ?? null,
+      provisional: updating.has(r.achievement.category),
     })).sort((a, b) => b.unlockedAt.getTime() - a.unlockedAt.getTime());
+  }
+
+  /** Conquistas revogadas (o registro nunca e' apagado): com o momento e o motivo da revogacao. */
+  async getRevoked(userId: string, pending: PendingView = viewOf(null)): Promise<RevokedMedalView[]> {
+    const rows = await this.prisma.userAchievement.findMany({ where: { userId }, include: { achievement: true }, orderBy: { unlockedAt: 'desc' } });
+    const revoked = rows.filter((r) => isAwardRevoked({ evidence: r.evidence, status: r.status }));
+    const updating = new Set(pending.medalCategories);
+    return revoked.map((r) => ({
+      code: r.achievement.code,
+      category: r.achievement.category,
+      name: r.achievement.name,
+      description: r.achievement.description,
+      grau: r.achievement.grau,
+      unit: r.achievement.unit,
+      unlockedAt: r.unlockedAt,
+      revokedAt: r.revokedAt ?? r.statusChangedAt ?? null,
+      revokedReason: r.revokedReason ?? null,
+      reasonText: transitionReasonText('revoked', r.revokedReason ?? null),
+      provisional: updating.has(r.achievement.category),
+    }));
+  }
+
+  /** Historico de transicoes (concessao, revogacao, reativacao, ajuste), mais recentes primeiro, com o motivo de cada uma. */
+  async getHistory(userId: string, limit = 100): Promise<MedalHistoryEntry[]> {
+    const rows = await this.prisma.userAchievementTransition.findMany({
+      where: { userId },
+      orderBy: { at: 'desc' },
+      take: Math.min(Math.max(limit, 1), 200),
+      include: { userAchievement: { include: { achievement: true } } },
+    });
+    return rows.map((t) => ({
+      id: t.id,
+      code: t.userAchievement.achievement.code,
+      name: t.userAchievement.achievement.name,
+      grau: t.userAchievement.achievement.grau,
+      type: t.type,
+      typeLabel: transitionTypeLabel(t.type),
+      at: t.at,
+      reason: t.reason,
+      reasonText: transitionReasonText(t.type, t.reason),
+    }));
   }
 
   private earnedAt(category: string, periodStart: Date | null, periodEnd: Date | null): Date | null {
@@ -101,7 +191,7 @@ export class MedalsService {
   async getProgress(userId: string): Promise<NextUpMedalView[]> {
     const unlockedCodes = new Set(
       (await this.prisma.userAchievement.findMany({ where: { userId }, include: { achievement: { select: { code: true } } } }))
-        .filter((u) => !isRetractedVolumeEvidence(u.evidence))
+        .filter((u) => !isAwardRevoked({ evidence: u.evidence, status: u.status }))
         .map((u) => u.achievement.code),
     );
 

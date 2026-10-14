@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EvolutionMetricService } from '../evolution/evolution-metric.service';
@@ -17,7 +17,11 @@ import {
   detectGapEpisodes,
   consecutiveWeeksFromReturn,
 } from './medal-evaluation.helpers';
-import { isRetractedVolumeEvidence, VOLUME_CATEGORIES, withVolumeReconciliation } from './volume-reconciliation';
+import { isAwardRevoked, VOLUME_CATEGORIES } from './volume-reconciliation';
+import { AwardAction, ExistingAward, planAwardReevaluation } from './medal-award-decision';
+import { applyAwardActions, ApplyResult } from './medal-award-persistence';
+import { correctionHooks, CorrectionContext, scopeOfDates } from '../activity-execution/correction-hooks';
+import { markPending, MedalProcessorResult, MedalScope, registerMedalProcessor } from '../activity-execution/pending-reevaluation';
 
 // Sistema de Medalhas (30/09/2026) — MedalEvaluationService NUNCA recalcula matemática que já
 // existe: lê `EvolutionMetricService` (volume/aderência) e faz queries mínimas e diretas só pro
@@ -43,6 +47,16 @@ const MEDAL_TRIGGER_CATEGORIES: Record<MedalTrigger, MedalCategory[]> = {
   // 'provas' fica de fora enquanto inativa (ver medal-catalog.ts).
 };
 
+// Categorias que uma correcao pode afetar (so' estas sao reavaliadas): as que dependem de vinculo/volume realizado sempre; as que dependem de linhas de feedback
+// (WorkoutCompletion) so' quando a correcao criou/moveu/apagou feedback; edicao de modalidade/distancia de treino mexe tambem em distancia unica e acumulado.
+// Check-ins e reavaliacoes nunca sao afetados por correcao de atividade.
+export function medalCategoriesFor(context: Pick<CorrectionContext, 'kind' | 'completionsChanged'>): MedalCategory[] {
+  const categories = new Set<MedalCategory>(['aderencia', 'volume_semanal', 'sustentacao_volume', 'volume_mensal']);
+  if (context.kind === 'session_edit' || context.completionsChanged) { categories.add('acumulado'); categories.add('distancia_unica'); }
+  if (context.completionsChanged) for (const category of ['treinos_concluidos', 'feedbacks', 'constancia', 'retomada'] as MedalCategory[]) categories.add(category);
+  return [...categories];
+}
+
 export interface UnlockCandidate {
   code: string;
   value: number | null;
@@ -55,13 +69,72 @@ export interface UnlockCandidate {
 const RUN_MODALITIES = ['corrida', 'esteira'];
 
 @Injectable()
-export class MedalEvaluationService {
+export class MedalEvaluationService implements OnModuleInit {
   private readonly logger = new Logger(MedalEvaluationService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly evolutionMetric: EvolutionMetricService,
   ) {}
+
+  // Registra, ao iniciar o modulo, (1) o gancho que marca o que reavaliar depois de uma correcao e (2) o processador da reavaliacao pendente. Nenhum dos dois gera
+  // treino nem aciona agente; so' reavalia medalhas. Registro idempotente (pelo nome).
+  onModuleInit(): void {
+    correctionHooks.register('medals', (context) => this.markReevaluation(context));
+    registerMedalProcessor((userId, scope) => this.reevaluateForPending(userId, scope));
+  }
+
+  /** Marca (de forma duravel) as categorias afetadas por uma correcao; o processamento acontece em processPendingReevaluation. */
+  async markReevaluation(context: CorrectionContext): Promise<void> {
+    const categories = medalCategoriesFor(context);
+    const scope = scopeOfDates(context.affectedDates);
+    await markPending(this.prisma, context.userId, {
+      medals: {
+        ...scope, countsChanged: context.completionsChanged, absenceOfData: context.absenceOfData === true, categories,
+        causes: [{
+          kind: context.kind, origin: context.origin, actorId: context.actorId, at: context.at.toISOString(), ...(context.provider ? { provider: context.provider } : {}),
+          sessionIds: context.sessionIds.slice(0, 20), activityLogIds: context.activityLogIds.slice(0, 20), linkIds: context.changes.map((c) => c.linkId).slice(0, 20),
+        }],
+      },
+    });
+  }
+
+  /**
+   * Reavalia SO' as categorias marcadas: revoga quando o criterio deixou de ser atendido, mantem/ajusta quando outro treino, periodo ou sequencia o comprova e
+   * reativa quando volta a ser atendido — respeitando versao da regra e incerteza (ver planAwardReevaluation). Ausencia de dado (exclusao de dados do provedor)
+   * nunca revoga nem ajusta. Escreve transicoes (historico) na mesma transacao. complete=false => ha conflito/falha: a pendencia continua registrada.
+   */
+  async reevaluateForPending(userId: string, scope: MedalScope): Promise<MedalProcessorResult> {
+    const categories = scope.categories.filter((c): c is MedalCategory => (c as string) !== 'provas');
+    if (categories.length === 0) return { complete: true };
+    const catalog = await this.prisma.achievement.findMany({ where: { category: { in: categories } } });
+    const candidates: UnlockCandidate[] = [];
+    for (const category of categories) candidates.push(...(await this.evaluateCategory(userId, category)));
+    const rows = await this.prisma.userAchievement.findMany({ where: { userId, achievement: { category: { in: categories } } }, include: { achievement: true } });
+    const hasVolume = categories.some((c) => (VOLUME_CATEGORIES as readonly string[]).includes(c));
+    const [uncertainty, series] = hasVolume ? await Promise.all([this.evolutionMetric.getRunMedalUncertainty(userId), this.evolutionMetric.getRunSeries(userId)]) : [undefined, undefined];
+
+    const actions = planAwardReevaluation({
+      existing: rows.map((row) => toExistingAward(row, row.achievement)),
+      candidates, evaluatedCategories: new Set<string>(categories),
+      catalog: catalog.map((a) => ({ code: a.code, category: a.category, active: a.active, ruleVersion: a.ruleVersion })),
+      scope: { weeks: new Set(scope.weeks), months: new Set(scope.months), countsChanged: scope.countsChanged },
+      uncertainty, series, allowRevocation: true, absenceOfData: scope.absenceOfData,
+    });
+    const last = scope.causes[scope.causes.length - 1];
+    const applied = await applyAwardActions(this.prisma, userId, actions, catalog.map((a) => ({ id: a.id, code: a.code, ruleVersion: a.ruleVersion })), {
+      trigger: typeof last?.kind === 'string' ? last.kind : 'correction',
+      cause: { causes: scope.causes.slice(-5), weeks: scope.weeks.slice(-8), months: scope.months.slice(-3), countsChanged: scope.countsChanged, absenceOfData: scope.absenceOfData },
+    });
+    this.logReevaluation(userId, applied);
+    return { complete: applied.conflicts.length === 0, error: applied.conflicts.length > 0 ? `conflito em ${applied.conflicts.join(', ')}` : undefined };
+  }
+
+  private logReevaluation(userId: string, applied: ApplyResult): void {
+    const parts = [`concedidas=${applied.granted.length}`, `revogadas=${applied.revoked.length}`, `reativadas=${applied.reactivated.length}`, `ajustadas=${applied.adjusted.length}`, `revisar=${applied.reviews.length}`, `conflitos=${applied.conflicts.length}`];
+    if (applied.revoked.length + applied.reactivated.length + applied.adjusted.length + applied.granted.length + applied.reviews.length + applied.conflicts.length === 0) return;
+    this.logger.log(`Reavaliacao de medalhas apos correcao (aluno ${userId}): ${parts.join(' ')}${applied.reviews.length > 0 ? ` | revisar: ${applied.reviews.map((r) => `${r.code}:${r.reason}`).join(', ')}` : ''}`);
+  }
 
   /**
    * Ponto de entrada único. Nunca lança — falha aqui jamais pode derrubar a ação real a que está
@@ -75,7 +148,7 @@ export class MedalEvaluationService {
       for (const category of categories) {
         candidates.push(...(await this.evaluateCategory(userId, category)));
       }
-      return await this.persistUnlocks(userId, candidates);
+      return await this.persistUnlocks(userId, candidates, trigger);
     } catch (error) {
       this.logger.error(`Falha ao avaliar medalhas (trigger=${trigger}) para ${userId}: ${error instanceof Error ? error.message : error}`);
       return [];
@@ -489,60 +562,41 @@ export class MedalEvaluationService {
   }
 
   // -----------------------------------------------------------------------------------------
-  // Persistência idempotente — nunca duplica (unique userId+achievementId), nunca falha o
-  // chamador por causa de uma corrida de concorrência (P2002 é esperado e silencioso aqui).
+  // Persistência idempotente dos gatilhos comuns — nunca duplica (unique userId+achievementId), nunca falha o
+  // chamador por causa de uma corrida de concorrência (P2002 é esperado e silencioso). Concede o que ainda
+  // não existe e REATIVA concessão revogada cujo critério voltou a ser atendido (qualquer categoria; antes só
+  // volume). Nunca revoga nem ajusta aqui: isso só acontece depois de uma correção (reevaluateForPending).
+  // Grava a transição (granted/reactivated) na mesma transação.
   // -----------------------------------------------------------------------------------------
-  private async persistUnlocks(userId: string, candidates: UnlockCandidate[]): Promise<string[]> {
+  private async persistUnlocks(userId: string, candidates: UnlockCandidate[], trigger: MedalTrigger): Promise<string[]> {
     if (candidates.length === 0) return [];
     const codes = [...new Set(candidates.map((c) => c.code))];
     const achievements = await this.prisma.achievement.findMany({ where: { code: { in: codes }, active: true } });
     const byCode = new Map(achievements.map((a) => [a.code, a]));
+    const existingRows = await this.prisma.userAchievement.findMany({ where: { userId, achievementId: { in: achievements.map((a) => a.id) } } });
+    const existingByAchievement = new Map(existingRows.map((u) => [u.achievementId, u]));
 
-    const alreadyUnlocked = await this.prisma.userAchievement.findMany({
-      where: { userId, achievementId: { in: achievements.map((a) => a.id) } },
-      select: { id: true, achievementId: true, evidence: true, value: true, periodStart: true, periodEnd: true },
-    });
-    const existingByAchievement = new Map(alreadyUnlocked.map((u) => [u.achievementId, u]));
-    const unlockedIds = new Set(alreadyUnlocked.map((u) => u.achievementId));
-
-    const newlyUnlocked: string[] = [];
+    const actions: AwardAction[] = [];
     for (const candidate of candidates) {
       const achievement = byCode.get(candidate.code);
       if (!achievement) continue;
       const existing = existingByAchievement.get(achievement.id);
-      if (existing && VOLUME_CATEGORIES.some((category) => category === achievement.category) && isRetractedVolumeEvidence(existing.evidence)) {
-        await this.prisma.userAchievement.update({
-          where: { id: existing.id },
-          data: {
-            value: candidate.value, periodStart: candidate.periodStart, periodEnd: candidate.periodEnd,
-            modality: candidate.modality,
-            evidence: withVolumeReconciliation(candidate.evidence as Prisma.JsonValue, 'active', existing, new Date().toISOString()),
-          },
-        });
-        newlyUnlocked.push(candidate.code);
+      if (existing) {
+        if (isAwardRevoked({ evidence: existing.evidence, status: existing.status })) {
+          actions.push({ kind: 'reactivate', code: candidate.code, reason: 'criterio_voltou_a_ser_atendido', existing: toExistingAward(existing, achievement), candidate });
+        }
         continue;
       }
-      if (unlockedIds.has(achievement.id)) continue;
-      try {
-        await this.prisma.userAchievement.create({
-          data: {
-            userId,
-            achievementId: achievement.id,
-            value: candidate.value,
-            periodStart: candidate.periodStart,
-            periodEnd: candidate.periodEnd,
-            modality: candidate.modality,
-            evidence: candidate.evidence as Prisma.InputJsonValue,
-            ruleVersionAtUnlock: achievement.ruleVersion,
-          },
-        });
-        unlockedIds.add(achievement.id); // evita segunda tentativa no mesmo lote
-        newlyUnlocked.push(candidate.code);
-      } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') continue; // já conquistada em corrida concorrente
-        throw error;
-      }
+      actions.push({ kind: 'create', code: candidate.code, reason: 'conquista_comprovada_nao_registrada', candidate });
     }
-    return newlyUnlocked;
+    const applied = await applyAwardActions(this.prisma, userId, actions, achievements.map((a) => ({ id: a.id, code: a.code, ruleVersion: a.ruleVersion })), { trigger, cause: { kind: 'trigger', trigger } });
+    return [...applied.granted, ...applied.reactivated];
   }
+}
+
+function toExistingAward(row: { id: string; value: number | null; periodStart: Date | null; periodEnd: Date | null; evidence: Prisma.JsonValue; ruleVersionAtUnlock: number; status: string }, achievement: { code: string; category: string; threshold: number | null; criteria: Prisma.JsonValue; ruleVersion: number }): ExistingAward {
+  return {
+    id: row.id, code: achievement.code, category: achievement.category, threshold: achievement.threshold, criteria: achievement.criteria, catalogVersion: achievement.ruleVersion,
+    awardedVersion: row.ruleVersionAtUnlock, value: row.value, periodStart: row.periodStart, periodEnd: row.periodEnd, evidence: row.evidence, status: row.status,
+  };
 }
