@@ -7,6 +7,8 @@ import { EvolutionAgentService } from '../reassessment/evolution-agent.service';
 // condenseProfile) e o unico lugar que gasta tokens, e so quando ha eventos novos acumulados.
 export const ProfileEventCode = {
   ONBOARDING_COMPLETED: 'ONBOARDING_COMPLETED',
+  // 14/10/2026: toda meta de prova cadastrada pela aluna e' registrada aqui (fato estruturado, gravado por codigo, sem IA).
+  TARGET_RACE_REGISTERED: 'TARGET_RACE_REGISTERED',
   WEEK_GENERATED: 'WEEK_GENERATED',
   WORKOUT_COMPLETED: 'WORKOUT_COMPLETED',
   DIRECTIVE_ADDED: 'DIRECTIVE_ADDED',

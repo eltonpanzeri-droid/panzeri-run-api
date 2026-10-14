@@ -9,6 +9,7 @@ import { AppleHealthProofCard } from './src/appleHealthProof/AppleHealthProofCar
 import { IntegrationsHub, IntegrationScreens } from './src/integrations/IntegrationsHub';
 import { HealthConnectCard } from './src/healthConnect/HealthConnectCard';
 import { DeleteAccountSection } from './src/accountDeletion/DeleteAccountSection';
+import { describeTargetRaceError, validateTargetTime } from './src/targetRace/messages';
 import { useHealthConnectAutoSync } from './src/healthConnect/useHealthConnect';
 import { AppleWatchSendButton } from './src/appleWatchDelivery/AppleWatchSendButton';
 import Purchases from 'react-native-purchases';
@@ -6689,6 +6690,8 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
     const isoDate = dateInputValueToIso(raceDateInput);
     if (!isoDate) { setMessage('Digite uma data valida no formato dia/mes/ano.'); return; }
     if (!distanceKm || distanceKm <= 0) { setMessage('Digite uma distancia valida em quilometros.'); return; }
+    const timeProblem = validateTargetTime(hours, minutes, seconds);
+    if (timeProblem) { setMessage(timeProblem); return; }
     setSaving(true);
     setMessage('');
     try {
@@ -6716,8 +6719,8 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
         }),
       });
       if (!response.ok) {
-        const data = await response.json().catch(() => ({} as { message?: string }));
-        setMessage(typeof data.message === 'string' ? data.message : 'Nao consegui salvar essa meta.');
+        const data = await response.json().catch(() => ({}));
+        setMessage(describeTargetRaceError(response.status, data));
         return;
       }
       setName('');
@@ -6742,7 +6745,7 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
       setMessage('Meta registrada! Vamos considerar essa prova no planejamento do seu treino.');
       await load();
     } catch {
-      setMessage('Nao consegui salvar essa meta.');
+      setMessage(describeTargetRaceError(0, null));
     } finally {
       setSaving(false);
     }

@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { PainReportsService } from '../pain-reports/pain-reports.service';
+import { ProfileEventCode, StudentProfileService } from '../training-plans/student-profile.service';
+import { formatRaceForProfile, formatRaceForTelegram, RaceSummary } from './target-race-messages';
 import { CreateTargetRaceDto } from './dto/create-target-race.dto';
 import { UpdateTargetRaceDto } from './dto/update-target-race.dto';
 
@@ -9,10 +11,13 @@ const dayNames = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 's
 
 @Injectable()
 export class TargetRacesService {
+  private readonly logger = new Logger(TargetRacesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly telegram: TelegramService,
     private readonly painReports: PainReportsService,
+    private readonly studentProfile: StudentProfileService,
   ) {}
 
   async list(userId: string) {
@@ -46,7 +51,11 @@ export class TargetRacesService {
         isFirstTimeAtDistance: dto.isFirstTimeAtDistance,
       },
     });
-    await this.alertIfRisky(userId, race).catch(() => undefined);
+    // Toda meta cadastrada: aviso ao treinador (Telegram) + registro no Prontuario. Nenhum dos dois pode derrubar o cadastro (a meta ja' esta salva).
+    await this.announceNewRace(userId, race).catch((error) => this.logger.warn(`Aviso de nova meta falhou para ${userId}: ${(error as Error).message?.slice(0, 160)}`));
+    await this.studentProfile
+      .recordEvent(userId, ProfileEventCode.TARGET_RACE_REGISTERED, formatRaceForProfile(race as RaceSummary))
+      .catch((error) => this.logger.warn(`Registro de nova meta no Prontuario falhou para ${userId}: ${(error as Error).message?.slice(0, 160)}`));
     return withComputedPace(race);
   }
 
@@ -123,7 +132,22 @@ export class TargetRacesService {
   // avisa o treinador que essa prova especifica merece um olhar. Reusa dados/calculos que ja
   // existem no sistema (nada de formula nova validando treino, so comparacao de fatos objetivos
   // pra decidir SE avisa, igual o padrao ja usado pelo alerta de dor/diretriz vencida).
+  // Alerta SO' de risco (usado na edicao de data/distancia): so' avisa quando ha motivo.
   private async alertIfRisky(userId: string, race: { id: string; name: string; raceDate: Date; distanceKm: number }) {
+    const { reasons, user } = await this.riskReasons(userId, race);
+    if (!reasons.length) return;
+    await this.telegram.notifyCoach(
+      `🏁 Prova alvo cadastrada merece um olhar.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nProva: ${race.name} — ${race.distanceKm}km em ${race.raceDate.toISOString().slice(0, 10)}\n\n${reasons.map((reason) => `• ${reason}`).join('\n')}\n\nSo um aviso — nao bloqueia nada, a prescricao segue normal.`,
+    );
+  }
+
+  // Nova meta (14/10/2026): SEMPRE avisa o treinador; quando ha motivo de risco, vai na mesma mensagem (nunca duas mensagens para a mesma meta).
+  private async announceNewRace(userId: string, race: RaceSummary & { id: string }) {
+    const { reasons, user } = await this.riskReasons(userId, race);
+    await this.telegram.notifyCoach(formatRaceForTelegram(race, { name: user.name, code: formatStudentCode(user.studentCode) }, reasons));
+  }
+
+  private async riskReasons(userId: string, race: { id: string; name: string; raceDate: Date; distanceKm: number }) {
     const reasons: string[] = [];
 
     const [user, availability, painSafety, longestRun] = await Promise.all([
@@ -164,11 +188,7 @@ export class TargetRacesService {
       reasons.push(`Ela esta com sinal de cautela ativo por dor recente (${painSafety.reason ?? 'sem detalhe'}) no momento em que cadastrou essa prova.`);
     }
 
-    if (!reasons.length) return;
-
-    await this.telegram.notifyCoach(
-      `🏁 Prova alvo cadastrada merece um olhar.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nProva: ${race.name} — ${race.distanceKm}km em ${race.raceDate.toISOString().slice(0, 10)}\n\n${reasons.map((reason) => `• ${reason}`).join('\n')}\n\nSo um aviso — nao bloqueia nada, a prescricao segue normal.`,
-    );
+    return { reasons, user };
   }
 }
 
