@@ -2042,6 +2042,7 @@ function AppInner() {
                 onSavedMeChange={setSavedMe}
                 onNameChange={setUserName}
                 onEditContactInfo={() => { setFixAnswersModule('Dados pessoais'); setActiveTab('fixAnswers'); }}
+                onOpenBilling={() => setActiveTab('billing')}
                 onLogout={logout}
               />
             )}
@@ -7302,7 +7303,7 @@ function MeusDados({ savedMe, onEditContactInfo, onBack }: { savedMe: MeResponse
         {savedMe?.birthDate ? (
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
             <Text style={styles.inputLabel}>Nascimento</Text>
-            <Text style={styles.reportText}>{formatFullDate(new Date(savedMe.birthDate))}</Text>
+            <Text style={styles.reportText}>{formatDateFromApi(savedMe.birthDate)}</Text>
           </View>
         ) : null}
       </View>
@@ -10091,6 +10092,7 @@ function ContaScreen({
   onSavedMeChange,
   onNameChange,
   onEditContactInfo,
+  onOpenBilling,
   onLogout,
 }: {
   accessToken: string;
@@ -10100,6 +10102,7 @@ function ContaScreen({
   onSavedMeChange: (me: MeResponse | null) => void;
   onNameChange: (name: string) => void;
   onEditContactInfo: () => void;
+  onOpenBilling: () => void;
   onLogout: () => void;
 }) {
   const [name, setName] = useState(userName);
@@ -10214,6 +10217,9 @@ function ContaScreen({
         <Ionicons name="log-out-outline" size={18} color={PRColors.mineral} />
         <Text style={styles.secondaryButtonText}>Sair da conta</Text>
       </Pressable>
+
+      {/* Exclusao de conta: tambem aqui (alem de Privacidade e dados), porque e' onde a aluna e a Apple procuram. Mesmo componente e mesmo fluxo. */}
+      <DeleteAccountSection accessToken={accessToken} apiUrl={API_URL} onOpenBilling={onOpenBilling} onDeleted={onLogout} />
     </View>
   );
 }
