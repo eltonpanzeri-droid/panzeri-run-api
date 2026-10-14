@@ -3,7 +3,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { ProfileEventCode, StudentProfileService } from '../training-plans/student-profile.service';
-import { formatRaceForProfile, formatRaceForTelegram, RaceSummary } from './target-race-messages';
+import {
+  describeRaceChanges, formatRaceChangeForProfile, formatRaceChangeForTelegram, formatRaceForProfile, formatRaceForTelegram, formatRaceRemovalForProfile, formatRaceRemovalForTelegram,
+  RaceState, RaceSummary,
+} from './target-race-messages';
 import { CreateTargetRaceDto } from './dto/create-target-race.dto';
 import { UpdateTargetRaceDto } from './dto/update-target-race.dto';
 
@@ -86,11 +89,10 @@ export class TargetRacesService {
         isFirstTimeAtDistance: dto.isFirstTimeAtDistance,
       },
     });
-    // So reavalia o alerta quando algo que pode mudar o risco de fato mudou (data ou distancia) —
-    // editar so as notas ou o questionario de contexto nao deveria gerar um novo aviso repetido.
-    if (dto.raceDate !== undefined || dto.distanceKm !== undefined) {
-      await this.alertIfRisky(userId, race).catch(() => undefined);
-    }
+    // Toda alteracao real (dados ou status): aviso ao treinador + Prontuario, numa mensagem so'. Reenvio sem mudanca nao avisa. Motivos de risco entram so' quando
+    // data ou distancia mudaram. A aluna nao recebe mensagem. Falhas aqui nunca desfazem a edicao.
+    const changes = describeRaceChanges(existing as RaceState, race as RaceState);
+    if (changes.length) await this.announceRaceChange(userId, existing as RaceState, race as RaceState & { id: string }, changes);
     return withComputedPace(race);
   }
 
@@ -98,6 +100,7 @@ export class TargetRacesService {
     const existing = await this.prisma.targetRace.findUnique({ where: { id: raceId } });
     if (!existing || existing.userId !== userId) throw new NotFoundException('Meta nao encontrada.');
     await this.prisma.targetRace.delete({ where: { id: raceId } });
+    await this.announceRaceRemoval(userId, existing as RaceState);
     return { removed: true };
   }
 
@@ -132,13 +135,31 @@ export class TargetRacesService {
   // avisa o treinador que essa prova especifica merece um olhar. Reusa dados/calculos que ja
   // existem no sistema (nada de formula nova validando treino, so comparacao de fatos objetivos
   // pra decidir SE avisa, igual o padrao ja usado pelo alerta de dor/diretriz vencida).
-  // Alerta SO' de risco (usado na edicao de data/distancia): so' avisa quando ha motivo.
-  private async alertIfRisky(userId: string, race: { id: string; name: string; raceDate: Date; distanceKm: number }) {
-    const { reasons, user } = await this.riskReasons(userId, race);
-    if (!reasons.length) return;
-    await this.telegram.notifyCoach(
-      `🏁 Prova alvo cadastrada merece um olhar.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nProva: ${race.name} — ${race.distanceKm}km em ${race.raceDate.toISOString().slice(0, 10)}\n\n${reasons.map((reason) => `• ${reason}`).join('\n')}\n\nSo um aviso — nao bloqueia nada, a prescricao segue normal.`,
-    );
+  private async announceRaceChange(userId: string, before: RaceState, after: RaceState & { id: string }, changes: string[]) {
+    try {
+      const riskMayChange = before.raceDate.getTime() !== after.raceDate.getTime() || before.distanceKm !== after.distanceKm;
+      const { reasons, user } = riskMayChange
+        ? await this.riskReasons(userId, after)
+        : { reasons: [] as string[], user: await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, studentCode: true } }) };
+      await this.telegram.notifyCoach(formatRaceChangeForTelegram(after, { name: user.name, code: formatStudentCode(user.studentCode) }, changes, reasons));
+    } catch (error) {
+      this.logger.warn(`Aviso de alteracao de meta falhou para ${userId}: ${(error as Error).message?.slice(0, 160)}`);
+    }
+    await this.studentProfile
+      .recordEvent(userId, ProfileEventCode.TARGET_RACE_CHANGED, formatRaceChangeForProfile(after, changes))
+      .catch((error) => this.logger.warn(`Registro de alteracao de meta no Prontuario falhou para ${userId}: ${(error as Error).message?.slice(0, 160)}`));
+  }
+
+  private async announceRaceRemoval(userId: string, race: RaceState) {
+    try {
+      const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, studentCode: true } });
+      await this.telegram.notifyCoach(formatRaceRemovalForTelegram(race, { name: user.name, code: formatStudentCode(user.studentCode) }));
+    } catch (error) {
+      this.logger.warn(`Aviso de remocao de meta falhou para ${userId}: ${(error as Error).message?.slice(0, 160)}`);
+    }
+    await this.studentProfile
+      .recordEvent(userId, ProfileEventCode.TARGET_RACE_REMOVED, formatRaceRemovalForProfile(race))
+      .catch((error) => this.logger.warn(`Registro de remocao de meta no Prontuario falhou para ${userId}: ${(error as Error).message?.slice(0, 160)}`));
   }
 
   // Nova meta (14/10/2026): SEMPRE avisa o treinador; quando ha motivo de risco, vai na mesma mensagem (nunca duas mensagens para a mesma meta).

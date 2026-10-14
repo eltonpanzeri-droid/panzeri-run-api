@@ -9,6 +9,9 @@ export const ProfileEventCode = {
   ONBOARDING_COMPLETED: 'ONBOARDING_COMPLETED',
   // 14/10/2026: toda meta de prova cadastrada pela aluna e' registrada aqui (fato estruturado, gravado por codigo, sem IA).
   TARGET_RACE_REGISTERED: 'TARGET_RACE_REGISTERED',
+  // Alteracao (dados ou status) e exclusao de uma meta de prova: tambem viram linhas do Prontuario.
+  TARGET_RACE_CHANGED: 'TARGET_RACE_CHANGED',
+  TARGET_RACE_REMOVED: 'TARGET_RACE_REMOVED',
   WEEK_GENERATED: 'WEEK_GENERATED',
   WORKOUT_COMPLETED: 'WORKOUT_COMPLETED',
   DIRECTIVE_ADDED: 'DIRECTIVE_ADDED',

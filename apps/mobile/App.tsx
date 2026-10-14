@@ -6650,6 +6650,8 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
   const [minutes, setMinutes] = useState('');
   const [seconds, setSeconds] = useState('');
   const [priority, setPriority] = useState('principal');
+  // Edicao de meta (14/10/2026): quando preenchido, o formulario salva por PATCH em vez de criar uma meta nova.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   // Questionario de contexto sobre a meta (pedido explicito do treinador, 10/08) — ajuda a IA a
@@ -6685,7 +6687,62 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
   const previewPace = distanceKm > 0 && totalSeconds > 0 ? formatPace(Math.round(totalSeconds / distanceKm)) : null;
   const previewSpeed = distanceKm > 0 && totalSeconds > 0 ? ((distanceKm / totalSeconds) * 3600).toFixed(2) : null;
 
-  async function createRace() {
+  function resetForm() {
+    setName('');
+    setRaceDateInput('');
+    setDistanceInput('');
+    setHours('');
+    setMinutes('');
+    setSeconds('');
+    setNotes('');
+    setPriority('principal');
+    setIsFirstTime(null);
+    setPerformanceIntent(null);
+    setSocialIntent(null);
+    setPersonalImportance(null);
+    setPerceivedDifficulty(null);
+    setDedicationWillingness(null);
+    setAchievementSatisfaction(null);
+    setConfidenceLevel(null);
+    setInjuryConcern(null);
+    setAdjustmentOpenness(null);
+    setAnxietyLevel(null);
+  }
+
+  // Abre o MESMO formulario ja preenchido com os dados da meta.
+  function startEdit(race: TargetRaceItem) {
+    setEditingId(race.id);
+    setName(race.name);
+    setRaceDateInput(formatDateFromApi(race.raceDate));
+    setDistanceInput(String(race.distanceKm).replace('.', ','));
+    const total = race.targetSeconds ?? 0;
+    setHours(total >= 3600 ? String(Math.floor(total / 3600)) : '');
+    setMinutes(Math.floor((total % 3600) / 60) > 0 ? String(Math.floor((total % 3600) / 60)) : '');
+    setSeconds(total % 60 > 0 ? String(total % 60) : '');
+    setPriority(race.priority === 'secundaria' ? 'secundaria' : 'principal');
+    setNotes(race.notes ?? '');
+    setIsFirstTime(race.isFirstTimeAtDistance);
+    setPerformanceIntent(race.performanceIntent);
+    setSocialIntent(race.socialIntent);
+    setPersonalImportance(race.personalImportance);
+    setPerceivedDifficulty(race.perceivedDifficulty);
+    setDedicationWillingness(race.dedicationWillingness);
+    setAchievementSatisfaction(race.achievementSatisfaction);
+    setConfidenceLevel(race.confidenceLevel);
+    setInjuryConcern(race.injuryConcern);
+    setAdjustmentOpenness(race.adjustmentOpenness);
+    setAnxietyLevel(race.anxietyLevel);
+    setMessage('');
+    setViewMode('form');
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    resetForm();
+    setMessage('');
+  }
+
+  async function saveRace() {
     if (!name.trim()) { setMessage('Digite o nome da prova.'); return; }
     const isoDate = dateInputValueToIso(raceDateInput);
     if (!isoDate) { setMessage('Digite uma data valida no formato dia/mes/ano.'); return; }
@@ -6695,27 +6752,29 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
     setSaving(true);
     setMessage('');
     try {
-      const response = await fetch(`${API_URL}/me/target-races`, {
-        method: 'POST',
+      // Na edicao, campo apagado vai como null (limpa o valor); na criacao, simplesmente nao vai.
+      const clear = editingId ? null : undefined;
+      const response = await fetch(editingId ? `${API_URL}/me/target-races/${editingId}` : `${API_URL}/me/target-races`, {
+        method: editingId ? 'PATCH' : 'POST',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(),
           raceDate: isoDate,
           distanceKm,
-          targetSeconds: totalSeconds > 0 ? totalSeconds : undefined,
+          targetSeconds: totalSeconds > 0 ? totalSeconds : clear,
           priority,
-          notes: notes.trim() || undefined,
-          isFirstTimeAtDistance: isFirstTime ?? undefined,
-          performanceIntent: performanceIntent ?? undefined,
-          socialIntent: socialIntent ?? undefined,
-          personalImportance: personalImportance ?? undefined,
-          perceivedDifficulty: perceivedDifficulty ?? undefined,
-          dedicationWillingness: dedicationWillingness ?? undefined,
-          achievementSatisfaction: achievementSatisfaction ?? undefined,
-          confidenceLevel: confidenceLevel ?? undefined,
-          injuryConcern: injuryConcern ?? undefined,
-          adjustmentOpenness: adjustmentOpenness ?? undefined,
-          anxietyLevel: anxietyLevel ?? undefined,
+          notes: notes.trim() || clear,
+          isFirstTimeAtDistance: isFirstTime ?? clear,
+          performanceIntent: performanceIntent ?? clear,
+          socialIntent: socialIntent ?? clear,
+          personalImportance: personalImportance ?? clear,
+          perceivedDifficulty: perceivedDifficulty ?? clear,
+          dedicationWillingness: dedicationWillingness ?? clear,
+          achievementSatisfaction: achievementSatisfaction ?? clear,
+          confidenceLevel: confidenceLevel ?? clear,
+          injuryConcern: injuryConcern ?? clear,
+          adjustmentOpenness: adjustmentOpenness ?? clear,
+          anxietyLevel: anxietyLevel ?? clear,
         }),
       });
       if (!response.ok) {
@@ -6723,26 +6782,11 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
         setMessage(describeTargetRaceError(response.status, data));
         return;
       }
-      setName('');
-      setRaceDateInput('');
-      setDistanceInput('');
-      setHours('');
-      setMinutes('');
-      setSeconds('');
-      setNotes('');
-      setPriority('principal');
-      setIsFirstTime(null);
-      setPerformanceIntent(null);
-      setSocialIntent(null);
-      setPersonalImportance(null);
-      setPerceivedDifficulty(null);
-      setDedicationWillingness(null);
-      setAchievementSatisfaction(null);
-      setConfidenceLevel(null);
-      setInjuryConcern(null);
-      setAdjustmentOpenness(null);
-      setAnxietyLevel(null);
-      setMessage('Meta registrada! Vamos considerar essa prova no planejamento do seu treino.');
+      const wasEditing = editingId !== null;
+      resetForm();
+      setEditingId(null);
+      setMessage(wasEditing ? 'Meta atualizada! Vamos considerar a mudanca no planejamento do seu treino.' : 'Meta registrada! Vamos considerar essa prova no planejamento do seu treino.');
+      if (wasEditing) setViewMode('timeline');
       await load();
     } catch {
       setMessage(describeTargetRaceError(0, null));
@@ -6759,7 +6803,7 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
         body: JSON.stringify({ status }),
       });
       if (!response.ok) {
-        setMessage('Nao consegui atualizar essa meta.');
+        setMessage(describeTargetRaceError(response.status, await response.json().catch(() => ({}))));
         return;
       }
       setMessage('Status da prova atualizado.');
@@ -6769,6 +6813,19 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
     }
   }
 
+  // Excluir exige confirmacao (um toque nao apaga mais). No navegador (PWA) Alert.alert nao tem garantia de aparecer: usa window.confirm.
+  function askRemove(race: TargetRaceItem) {
+    const text = `Remover a meta "${race.name}"? Essa acao nao pode ser desfeita.`;
+    if (Platform.OS === 'web') {
+      if (window.confirm(text)) void removeRace(race.id);
+      return;
+    }
+    Alert.alert('Remover meta', text, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Remover', style: 'destructive', onPress: () => { void removeRace(race.id); } },
+    ]);
+  }
+
   async function removeRace(raceId: string) {
     try {
       const response = await fetch(`${API_URL}/me/target-races/${raceId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } });
@@ -6776,6 +6833,7 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
         setMessage('Nao consegui remover essa meta.');
         return;
       }
+      if (editingId === raceId) cancelEdit();
       setMessage('Meta removida.');
       await load();
     } catch {
@@ -6891,12 +6949,19 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
                     </View>
                     {/* Ações rápidas */}
                     <View style={[styles.couponRow, { marginTop: 8 }]}>
+                      <Pressable style={styles.secondaryButton} onPress={() => startEdit(race)}>
+                        <Text style={styles.secondaryButtonText}>Editar</Text>
+                      </Pressable>
                       {race.status === 'em_andamento' ? (
                         <Pressable style={styles.secondaryButton} onPress={() => updateStatus(race.id, 'concluida')}>
                           <Text style={styles.secondaryButtonText}>Concluida</Text>
                         </Pressable>
-                      ) : null}
-                      <Pressable style={styles.secondaryButton} onPress={() => removeRace(race.id)}>
+                      ) : (
+                        <Pressable style={styles.secondaryButton} onPress={() => updateStatus(race.id, 'em_andamento')}>
+                          <Text style={styles.secondaryButtonText}>Reabrir</Text>
+                        </Pressable>
+                      )}
+                      <Pressable style={styles.secondaryButton} onPress={() => askRemove(race)}>
                         <Text style={styles.secondaryButtonText}>Remover</Text>
                       </Pressable>
                     </View>
@@ -6911,6 +6976,7 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
       {/* ── FORMULÁRIO DE NOVA META ── */}
       {viewMode === 'form' ? (
         <>
+          {editingId ? <Text style={styles.statusMessage}>Editando a meta "{name || 'sem nome'}". Altere o que precisar e toque em "Salvar alteracoes".</Text> : null}
           <Text style={styles.copyTight}>
             Registre a prova que voce esta buscando. Vamos usar isso como norte para montar seu treino — mas fatores que nao controlamos diretamente (sua rotina, alimentacao, sono e dedicacao) tambem influenciam o resultado final. Por isso, escolha uma meta realista com aquilo que voce esta disposto a se comprometer a treinar ate la. Nao garantimos o resultado, mas vamos trabalhar para chegar o mais perto possivel dele com seguranca.
           </Text>
@@ -6960,9 +7026,14 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
         <ScaleQuestion label="O quanto voce sente ansiedade ou nervosismo em relacao a essa prova?" value={anxietyLevel} onChange={setAnxietyLevel} />
 
         <TextInput style={styles.input} value={notes} onChangeText={setNotes} placeholder="Quer contar mais sobre essa prova? (opcional)" />
-        <Pressable style={styles.primaryButton} onPress={createRace} disabled={saving}>
-          <Text style={styles.primaryButtonText}>{saving ? 'Salvando...' : 'Salvar meta'}</Text>
+        <Pressable style={styles.primaryButton} onPress={saveRace} disabled={saving}>
+          <Text style={styles.primaryButtonText}>{saving ? 'Salvando...' : editingId ? 'Salvar alteracoes' : 'Salvar meta'}</Text>
         </Pressable>
+        {editingId ? (
+          <Pressable style={styles.secondaryButton} onPress={cancelEdit} disabled={saving}>
+            <Text style={styles.secondaryButtonText}>Cancelar edicao</Text>
+          </Pressable>
+        ) : null}
       </View>
           {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
           {loading ? <Text style={styles.statusMessage}>Carregando...</Text> : null}

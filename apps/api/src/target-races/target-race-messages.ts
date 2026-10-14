@@ -75,3 +75,54 @@ export function formatRaceForProfile(race: RaceSummary): string {
   if (race.notes?.trim()) parts.push(`Observacao da aluna: ${race.notes.trim()}`);
   return parts.join(' | ');
 }
+
+// ── Alteracao e exclusao (14/10/2026) ───────────────────────────────────────────────────────────────────────────────────────────────
+export interface RaceState extends RaceSummary {
+  status?: string | null;
+}
+
+const STATUS_LABEL: Record<string, string> = { em_andamento: 'em andamento', concluida: 'concluida', arquivada: 'arquivada' };
+
+const yesNo = (value: boolean | null | undefined) => (typeof value === 'boolean' ? (value ? 'sim' : 'nao') : 'nao informado');
+const timeOf = (seconds: number | null | undefined) => (seconds ? formatTargetTime(seconds) : 'sem tempo-alvo');
+const noteOf = (notes: string | null | undefined) => (notes?.trim() ? notes.trim() : '(vazio)');
+const scaleOf = (value: number | null | undefined) => (typeof value === 'number' ? `${value}/10` : 'nao informado');
+
+// Lista legivel do que mudou ("campo: antes -> depois"). Vazia quando nada mudou de fato (reenvio igual nao gera aviso).
+export function describeRaceChanges(before: RaceState, after: RaceState): string[] {
+  const changes: string[] = [];
+  const push = (label: string, from: string, to: string) => { if (from !== to) changes.push(`${label}: ${from} -> ${to}`); };
+  push('Nome', before.name, after.name);
+  push('Data', formatRaceDate(before.raceDate), formatRaceDate(after.raceDate));
+  push('Distancia', `${before.distanceKm} km`, `${after.distanceKm} km`);
+  push('Tempo-alvo', timeOf(before.targetSeconds), timeOf(after.targetSeconds));
+  push('Prioridade', before.priority === 'secundaria' ? 'secundaria' : 'principal', after.priority === 'secundaria' ? 'secundaria' : 'principal');
+  push('Status', STATUS_LABEL[before.status ?? ''] ?? String(before.status ?? ''), STATUS_LABEL[after.status ?? ''] ?? String(after.status ?? ''));
+  push('Primeira vez na distancia', yesNo(before.isFirstTimeAtDistance), yesNo(after.isFirstTimeAtDistance));
+  push('Observacao', noteOf(before.notes), noteOf(after.notes));
+  for (const [key, label] of SCALES) push(label, scaleOf(before[key] as number | null | undefined), scaleOf(after[key] as number | null | undefined));
+  return changes;
+}
+
+export function formatRaceChangeForTelegram(after: RaceState, student: { name: string; code: string }, changes: string[], riskReasons: string[]): string {
+  const statusChanged = changes.some((line) => line.startsWith('Status:'));
+  const parts = [
+    `${statusChanged ? '🔁 Status de meta de prova alterado' : '✏️ Meta de prova alterada'}\nAluno: ${student.name} (Cod. ${student.code})`,
+    `Prova: ${after.name} — ${after.distanceKm} km em ${formatRaceDate(after.raceDate)}`,
+    ...changes.map((line) => `• ${line}`),
+  ];
+  if (riskReasons.length) parts.push(`\n⚠️ Merece um olhar:\n${riskReasons.map((reason) => `• ${reason}`).join('\n')}\n\nSo um aviso — nao bloqueia nada, a prescricao segue normal.`);
+  return parts.join('\n');
+}
+
+export function formatRaceChangeForProfile(after: RaceState, changes: string[]): string {
+  return [`Meta de prova alterada pela aluna: ${after.name} — ${after.distanceKm} km em ${formatRaceDate(after.raceDate)}.`, ...changes].join(' | ');
+}
+
+export function formatRaceRemovalForTelegram(race: RaceState, student: { name: string; code: string }): string {
+  return `🗑️ Meta de prova removida pela aluna\nAluno: ${student.name} (Cod. ${student.code})\nProva: ${race.name} — ${race.distanceKm} km em ${formatRaceDate(race.raceDate)} (status antes: ${STATUS_LABEL[race.status ?? ''] ?? race.status ?? 'nao informado'})`;
+}
+
+export function formatRaceRemovalForProfile(race: RaceState): string {
+  return `Meta de prova removida pela aluna: ${race.name} — ${race.distanceKm} km em ${formatRaceDate(race.raceDate)} (status antes: ${STATUS_LABEL[race.status ?? ''] ?? race.status ?? 'nao informado'}).`;
+}
