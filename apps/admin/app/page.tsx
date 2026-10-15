@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
 import { Area, Bar, CartesianGrid, Cell, LabelList, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import TrainingIntelligenceStudio from './ti/studio';
+import { adaptiveChannel } from './ti/channel';
 import type { ExportProfile } from './ti/anonymous-export';
 
 const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
@@ -1543,18 +1544,24 @@ export default function AdminHome() {
             </div>
             {trainingEvolution && trainingEvolution.length ? (
               <ResponsiveContainer width="100%" height={280}>
-                <ComposedChart data={trainingEvolution}>
+                {/* 15/10/2026 (pedido de Elton): canal de tendencia (media das ultimas 8 semanas ± 2 desvios, precisa das 8) em volta da aderencia, colunas mais finas. */}
+                <ComposedChart data={(() => {
+                  const channel = trendChannel(trainingEvolution.map((row) => (row.adherencePercent == null ? null : row.adherencePercent)), 8, 8);
+                  return trainingEvolution.map((row, index) => ({ ...row, canal: channel[index] ? [channel[index]!.lower, Math.min(100, channel[index]!.upper)] : null, centro: channel[index]?.mean ?? null }));
+                })()} barCategoryGap="22%">
                   <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                   <XAxis dataKey="week" fontSize={11} />
                   <YAxis yAxisId="left" fontSize={12} allowDecimals={false} />
                   <YAxis yAxisId="right" orientation="right" fontSize={12} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
                   <Tooltip />
                   <Legend />
-                  <Bar yAxisId="left" dataKey="prescribed" name="Prescrito" fill="#c9c9c9" />
-                  <Bar yAxisId="left" dataKey="completed" name="Realizado" fill="#1a7f5a" />
-                  <Bar yAxisId="left" dataKey="missed" name="Não realizado" fill="#d9534f" />
-                  <Bar yAxisId="left" dataKey="extra" name="Extra" fill="#7aa8ff" />
+                  <Area yAxisId="right" type="monotone" dataKey="canal" name="Canal de tendência (aderência)" stroke="#6366f1" strokeOpacity={0.5} fill="#6366f1" fillOpacity={0.12} connectNulls={false} isAnimationActive={false} />
+                  <Bar yAxisId="left" dataKey="prescribed" name="Prescrito" fill="#c9c9c9" maxBarSize={14} />
+                  <Bar yAxisId="left" dataKey="completed" name="Realizado" fill="#1a7f5a" maxBarSize={14} />
+                  <Bar yAxisId="left" dataKey="missed" name="Não realizado" fill="#d9534f" maxBarSize={14} />
+                  <Bar yAxisId="left" dataKey="extra" name="Extra" fill="#7aa8ff" maxBarSize={14} />
                   <Line yAxisId="right" type="monotone" dataKey="adherencePercent" name="Aderência %" stroke="#e0a72d" strokeWidth={2} dot={false} />
+                  <Line yAxisId="right" type="monotone" dataKey="centro" name="Centro do canal (média de 8 semanas)" stroke="#6366f1" strokeWidth={1} strokeDasharray="3 3" dot={false} connectNulls={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             ) : <p className="formHintText">Carregando evolução de treino...</p>}
@@ -2065,15 +2072,6 @@ type ProspectsSeriesResponse = {
 function trailingMean(values: number[], size: number): Array<number | null> {
   return values.map((_, index) => (index + 1 < size ? null : values.slice(index + 1 - size, index + 1).reduce((sum, value) => sum + value, 0) / size));
 }
-function quantileOf(values: number[], q: number): number {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const position = (sorted.length - 1) * q;
-  const lower = Math.floor(position);
-  const upper = Math.ceil(position);
-  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
-}
-
 const PROSPECT_CHARTS: Array<{ series: keyof ProspectsSeriesResponse['series']; title: string; description: string; color: string }> = [
   { series: 'signups', title: 'Geral: novos cadastros por dia', description: 'Contas criadas por dia. Todo cadastro entra como prospecto; quem paga vira aluna e sai desta visão.', color: '#2f6fed' },
   { series: 'accessed', title: 'Só acessaram o app', description: 'Sessões que abriram o app e não terminaram em cadastro. São sessões, não pessoas.', color: '#8b5cf6' },
@@ -2117,12 +2115,15 @@ function MonthlyTrendChart({ rows, series, trendKey, trendAxis = 'left', money =
   const lastMonth = rows.length ? rows[rows.length - 1].month : new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
   const futureCount = Math.min(Math.max(3, 12 - rows.length), 9);
   const future = nextMonthsAfter(lastMonth, futureCount);
-  const trendValues = trendKey ? rows.map((row) => Number(row[trendKey] ?? 0)) : [];
-  const mm3 = trendKey ? trailingMean(trendValues, 3) : [];
-  const lower = trendKey ? quantileOf(trendValues, 0.25) : 0;
-  const upper = trendKey ? quantileOf(trendValues, 0.75) : 0;
+  // Canal de tendencia (regra unica do app): media da janela ± 2 desvios da mesma janela. Aqui a janela e' de 6 meses completos; o
+  // mes em andamento nao entra. A linha do meio do canal e' a propria media da janela.
+  const currentMonth = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+  const trendValues = trendKey ? rows.map((row) => (row.month >= currentMonth ? null : Number(row[trendKey] ?? 0))) : [];
+  const mm3 = trendKey ? trailingMean(trendValues.map((value) => value ?? 0), 3) : [];
+  const channel = trendKey ? trendChannel(trendValues, 6, 6) : [];
+  const hasChannel = channel.some((point) => point != null);
   const data = [
-    ...rows.map((row, index) => ({ ...row, label: monthLabelPt(row.month), mm3: mm3[index] })),
+    ...rows.map((row, index) => ({ ...row, label: monthLabelPt(row.month), mm3: row.month >= currentMonth ? null : mm3[index], canal: channel[index] ? [channel[index]!.lower, channel[index]!.upper] : null, centro: channel[index]?.mean ?? null })),
     ...future.map((month) => ({ month, label: monthLabelPt(month) })),
   ];
   const money2 = (value: unknown) => `R$ ${Number(value).toFixed(2).replace('.', ',')}`;
@@ -2132,7 +2133,7 @@ function MonthlyTrendChart({ rows, series, trendKey, trendAxis = 'left', money =
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
         {series.map((item) => <SeriesChip key={item.key} label={item.label} color={item.color} on={!hidden[item.key]} onClick={() => setHidden((current) => ({ ...current, [item.key]: !current[item.key] }))} />)}
         {trendKey ? <SeriesChip label="Média de 3 meses" color="#e0a72d" on={trend.media} onClick={() => setTrend((current) => ({ ...current, media: !current.media }))} /> : null}
-        {trendKey ? <SeriesChip label="Canal de tendência" color="#e0a72d" on={trend.canal} onClick={() => setTrend((current) => ({ ...current, canal: !current.canal }))} /> : null}
+        {trendKey ? <SeriesChip label={hasChannel ? 'Canal de tendência' : 'Canal de tendência (precisa de 6 meses completos)'} color="#6366f1" on={trend.canal && hasChannel} onClick={() => setTrend((current) => ({ ...current, canal: !current.canal }))} /> : null}
       </div>
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart data={data} barCategoryGap="28%">
@@ -2144,14 +2145,15 @@ function MonthlyTrendChart({ rows, series, trendKey, trendAxis = 'left', money =
             const def = series.find((item) => item.label === name);
             return value == null ? '—' : (name === 'Média de 3 meses' ? formatFor(trendAxis) : formatFor(def?.axis ?? 'left'))(typeof value === 'number' && name === 'Média de 3 meses' ? Math.round(value * 100) / 100 : value);
           }} />
-          {trendKey && trend.canal ? <ReferenceArea yAxisId={trendAxis} y1={lower} y2={upper} fill="#e0a72d" fillOpacity={0.16} ifOverflow="extendDomain" /> : null}
+          {trendKey && trend.canal && hasChannel ? <Area yAxisId={trendAxis} type="monotone" dataKey="canal" name="Canal de tendência" stroke="#6366f1" strokeOpacity={0.5} fill="#6366f1" fillOpacity={0.13} connectNulls={false} isAnimationActive={false} /> : null}
           {series.map((item) => item.kind === 'bar'
             ? <Bar key={item.key} yAxisId={item.axis ?? 'left'} dataKey={item.key} name={item.label} fill={item.color} maxBarSize={30} radius={[3, 3, 0, 0]} hide={!!hidden[item.key]} />
             : <Line key={item.key} yAxisId={item.axis ?? 'left'} type="monotone" dataKey={item.key} name={item.label} stroke={item.color} strokeWidth={2} dot strokeDasharray={item.dashed ? '5 4' : undefined} connectNulls={false} hide={!!hidden[item.key]} />)}
           {trendKey && trend.media ? <Line yAxisId={trendAxis} type="monotone" dataKey="mm3" name="Média de 3 meses" stroke="#dc2626" strokeWidth={2} dot={false} connectNulls={false} /> : null}
+          {trendKey && trend.canal && hasChannel ? <Line yAxisId={trendAxis} type="monotone" dataKey="centro" name="Centro do canal (média de 6 meses)" stroke="#6366f1" strokeWidth={1} strokeDasharray="3 3" dot={false} connectNulls={false} /> : null}
         </ComposedChart>
       </ResponsiveContainer>
-      {trendKey ? <p className="formHintText" style={{ marginTop: 4 }}>Canal de tendência (área amarela): onde a série costuma variar, entre os percentis 25 e 75 dos meses mostrados ({money ? formatMoney(Math.round(lower * 100)) : lower.toFixed(1).replace('.', ',')} a {money ? formatMoney(Math.round(upper * 100)) : upper.toFixed(1).replace('.', ',')}). Média móvel de 3 meses porque os dados são mensais.</p> : null}
+      {trendKey ? <p className="formHintText" style={{ marginTop: 4 }}>Canal de tendência (área roxa): média dos últimos 6 meses completos ± 2 desvios, com a linha tracejada no centro. Só aparece quando há 6 meses completos; o mês em andamento não entra. A linha vermelha é a média móvel de 3 meses.</p> : null}
     </div>
   );
 }
@@ -2172,9 +2174,10 @@ function ProspectChart({ dates, values, title, description, color, total }: { da
   const toggle = (key: keyof typeof show) => setShow((current) => ({ ...current, [key]: !current[key] }));
   const mm7 = trailingMean(values, 7);
   const mm21 = trailingMean(values, 21);
-  const lower = quantileOf(values, 0.25);
-  const upper = quantileOf(values, 0.75);
-  const chartData = dates.map((date, index) => ({ date: `${date.slice(8, 10)}/${date.slice(5, 7)}`, valor: values[index], mm7: mm7[index], mm21: mm21[index] }));
+  // Canal de tendencia (regra unica do app): media dos ultimos 21 dias ± 2 desvios dos mesmos 21 dias (a media e' a linha de 21 dias).
+  const channel = trendChannel(values, 21, 21);
+  const hasChannel = channel.some((point) => point != null);
+  const chartData = dates.map((date, index) => ({ date: `${date.slice(8, 10)}/${date.slice(5, 7)}`, valor: values[index], mm7: mm7[index], mm21: mm21[index], canal: channel[index] ? [channel[index]!.lower, channel[index]!.upper] : null }));
   return (
     <section className="chartCard" style={{ marginBottom: 0, minWidth: 0 }}>
       <h3 style={{ justifyContent: 'space-between' }}>
@@ -2186,7 +2189,7 @@ function ProspectChart({ dates, values, title, description, color, total }: { da
         <SeriesChip label="Por dia" color={color} on={show.valor} onClick={() => toggle('valor')} />
         <SeriesChip label="Média de 7 dias" color="#e0a72d" on={show.mm7} onClick={() => toggle('mm7')} />
         <SeriesChip label="Média de 21 dias" color="#dc2626" on={show.mm21} onClick={() => toggle('mm21')} />
-        <SeriesChip label="Canal de tendência" color="#e0a72d" on={show.canal} onClick={() => toggle('canal')} />
+        <SeriesChip label={hasChannel ? 'Canal de tendência' : 'Canal de tendência (precisa de 21 dias)'} color="#6366f1" on={show.canal && hasChannel} onClick={() => toggle('canal')} />
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <ComposedChart data={chartData} barCategoryGap="15%">
@@ -2194,13 +2197,13 @@ function ProspectChart({ dates, values, title, description, color, total }: { da
           <XAxis dataKey="date" fontSize={11} interval="preserveStartEnd" minTickGap={24} />
           <YAxis fontSize={12} allowDecimals={false} />
           <Tooltip formatter={(value: unknown, name: unknown) => (value == null ? '—' : typeof value === 'number' && String(name).startsWith('Média') ? value.toFixed(1) : String(value))} />
-          {show.canal ? <ReferenceArea y1={lower} y2={upper} fill="#e0a72d" fillOpacity={0.16} ifOverflow="extendDomain" /> : null}
+          {show.canal && hasChannel ? <Area type="monotone" dataKey="canal" name="Canal de tendência" stroke="#6366f1" strokeOpacity={0.5} fill="#6366f1" fillOpacity={0.13} connectNulls={false} isAnimationActive={false} /> : null}
           <Bar dataKey="valor" name="Por dia" fill={color} maxBarSize={16} radius={[2, 2, 0, 0]} hide={!show.valor} />
           <Line type="monotone" dataKey="mm7" name="Média de 7 dias" stroke="#e0a72d" strokeWidth={2} dot={false} connectNulls={false} hide={!show.mm7} />
           <Line type="monotone" dataKey="mm21" name="Média de 21 dias" stroke="#dc2626" strokeWidth={2} dot={false} connectNulls={false} hide={!show.mm21} />
         </ComposedChart>
       </ResponsiveContainer>
-      <p className="formHintText" style={{ marginTop: 4 }}>Canal de tendência (área amarela): onde o valor costuma variar, de {lower.toFixed(1).replace('.', ',')} a {upper.toFixed(1).replace('.', ',')} por dia (percentis 25 a 75 da janela).</p>
+      <p className="formHintText" style={{ marginTop: 4 }}>Canal de tendência (área roxa): média dos últimos 21 dias ± 2 desvios, centrado na linha de 21 dias. Só aparece a partir do 21º dia da janela.</p>
     </section>
   );
 }
@@ -4970,12 +4973,16 @@ function VariableChart({ snapshot, layers, contextEvents, menstrualRanges, heigh
   const mm60ByDate = new Map((snapshot.movingAverageSeries?.medium_60d ?? []).map((p) => [p.timestamp.slice(0, 10), p.value]));
   const mm200ByDate = new Map((snapshot.movingAverageSeries?.long_200d ?? []).map((p) => [p.timestamp.slice(0, 10), p.value]));
 
+  // Canal de tendencia (regra unica do app, ver ti/channel.ts): media da janela ± 2 desvios da mesma janela, no lugar da faixa habitual fixa.
+  const channelByDate = new Map(adaptiveChannel(snapshot.observations, dates.map((d) => Date.parse(`${d}T12:00:00.000Z`)), snapshot.variable.scale ?? null).map((point) => [new Date(point.at).toISOString().slice(0, 10), point]));
   const data = dates.map((d) => ({
     dateLabel: fmtDay(d),
     raw: rawByDate.get(d) ?? null,
     mm21: mm21ByDate.get(d) ?? null,
     mm60: mm60ByDate.get(d) ?? null,
     mm200: mm200ByDate.get(d) ?? null,
+    canal: channelByDate.get(d) ? [channelByDate.get(d)!.lower, channelByDate.get(d)!.upper] : null,
+    centro: channelByDate.get(d)?.mean ?? null,
   }));
 
   const scaleDomain: [number, number] | ['auto', 'auto'] = snapshot.variable.scale ? [snapshot.variable.scale.min, snapshot.variable.scale.max] : ['auto', 'auto'];
@@ -4987,8 +4994,11 @@ function VariableChart({ snapshot, layers, contextEvents, menstrualRanges, heigh
         <XAxis dataKey="dateLabel" fontSize={10} />
         <YAxis fontSize={10} domain={scaleDomain} />
         <Tooltip />
-        {layers.habitual && snapshot.habitualRange?.lower != null && snapshot.habitualRange?.upper != null && (
-          <ReferenceArea y1={snapshot.habitualRange.lower} y2={snapshot.habitualRange.upper} fill="#0ea5e9" fillOpacity={0.08} strokeOpacity={0} />
+        {layers.habitual && channelByDate.size > 1 && (
+          <Area type="monotone" dataKey="canal" name="Canal de tendência" stroke="#0ea5e9" strokeOpacity={0.45} fill="#0ea5e9" fillOpacity={0.12} connectNulls={false} isAnimationActive={false} />
+        )}
+        {layers.habitual && channelByDate.size > 1 && (
+          <Line type="monotone" dataKey="centro" name="Centro do canal" stroke="#0ea5e9" strokeWidth={1} strokeDasharray="3 3" dot={false} connectNulls={false} />
         )}
         {layers.excursions && (snapshot.excursions ?? []).map((exc, i) => (
           <ReferenceArea key={i} x1={fmtDay(exc.startTimestamp)} x2={fmtDay(exc.endTimestamp)}
@@ -5026,7 +5036,7 @@ function LayerToggleBar({ layers, onChange, hasExcursions, hasContextEvents, has
 }) {
   const items: Array<[keyof LayerToggles, string, keyof typeof MATH_GLOSSARY | null]> = [
     ['raw', 'Bruto', 'bruto'], ['mm21', 'MM21', 'mm21'], ['mm60', 'MM60', 'mm60'], ['mm200', 'MM200', 'mm200'],
-    ['baseline', 'Baseline', 'baseline'], ['habitual', 'Faixa habitual', 'faixaHabitual'],
+    ['baseline', 'Baseline', 'baseline'], ['habitual', 'Canal de tendência', 'faixaHabitual'],
     ['excursions', 'Excursões', 'excursao'], ['contextEvents', 'Eventos de contexto', null],
     ['menstrualCycle', 'Ciclo menstrual', null],
   ];
@@ -9860,7 +9870,7 @@ function WeeklyBarsChart({ rows, bars, base, inProgress, unit, height = 280, lin
   const complete = base.map((value, index) => (inProgress[index] ? null : value));
   const mm = (days: number) => base.map((_, index) => (inProgress[index] ? null : weeklyEquivalentMean(base, index, days)));
   const mm21 = mm(21); const mm60 = mm(60); const mm200 = mm(200);
-  const channel = trendChannel(complete, 8, 4);
+  const channel = trendChannel(complete, 8, 8);
   const known = complete.map((value, index) => ({ value, index })).filter((item): item is { value: number; index: number } => item.value != null);
   let regression: Array<number | null> = base.map(() => null);
   if (linearTrend && known.length >= 3) {
@@ -9871,7 +9881,7 @@ function WeeklyBarsChart({ rows, bars, base, inProgress, unit, height = 280, lin
     const intercept = meanY - slope * meanX;
     regression = base.map((_, index) => (inProgress[index] ? null : Math.max(0, intercept + slope * index)));
   }
-  const data = rows.map((row, index) => ({ ...row, mm21: mm21[index], mm60: mm60[index], mm200: mm200[index], canal: channel[index] ? [channel[index]!.lower, channel[index]!.upper] : null, tendencia: regression[index] }));
+  const data = rows.map((row, index) => ({ ...row, mm21: mm21[index], mm60: mm60[index], mm200: mm200[index], canal: channel[index] ? [channel[index]!.lower, channel[index]!.upper] : null, centro: channel[index]?.mean ?? null, tendencia: regression[index] }));
   const has = (series: Array<number | null | unknown>) => series.some((value) => value != null);
   const fmt = (value: unknown) => (typeof value === 'number' ? `${value.toFixed(1).replace('.', ',')} ${unit}` : '—');
   return (
@@ -9881,7 +9891,7 @@ function WeeklyBarsChart({ rows, bars, base, inProgress, unit, height = 280, lin
         <SeriesChip label={has(mm21) ? 'Média de 21 dias' : 'Média de 21 dias (sem histórico)'} color="#e0a72d" on={isOn('mm21') && has(mm21)} onClick={() => toggle('mm21')} />
         <SeriesChip label={has(mm60) ? 'Média de 60 dias' : 'Média de 60 dias (precisa de 9 semanas)'} color="#a855f7" on={isOn('mm60') && has(mm60)} onClick={() => toggle('mm60')} />
         <SeriesChip label={has(mm200) ? 'Média de 200 dias' : 'Média de 200 dias (precisa de 29 semanas)'} color="#ec4899" on={isOn('mm200') && has(mm200)} onClick={() => toggle('mm200')} />
-        <SeriesChip label={has(channel) ? 'Canal de tendência' : 'Canal de tendência (precisa de 4 semanas)'} color="#6366f1" on={isOn('canal') && has(channel)} onClick={() => toggle('canal')} />
+        <SeriesChip label={has(channel) ? 'Canal de tendência' : 'Canal de tendência (precisa de 8 semanas completas)'} color="#6366f1" on={isOn('canal') && has(channel)} onClick={() => toggle('canal')} />
         {linearTrend ? <SeriesChip label="Tendência linear" color="#8b5cf6" on={isOn('tendencia')} onClick={() => toggle('tendencia')} /> : null}
       </div>
       <ResponsiveContainer width="100%" height={height}>
@@ -9891,6 +9901,7 @@ function WeeklyBarsChart({ rows, bars, base, inProgress, unit, height = 280, lin
           <YAxis fontSize={12} allowDecimals={false} />
           <Tooltip formatter={(value: unknown, name: unknown) => (Array.isArray(value) ? `${fmt(value[0])} a ${fmt(value[1])}` : name === 'Média 21 dias' || name === 'Média 60 dias' || name === 'Média 200 dias' || name === 'Tendência linear' ? fmt(value) : (typeof value === 'number' ? (Number.isInteger(value) ? String(value) : fmt(value)) : '—'))} />
           {isOn('canal') && has(channel) ? <Area type="monotone" dataKey="canal" name="Canal de tendência" stroke="#6366f1" strokeOpacity={0.5} fill="#6366f1" fillOpacity={0.12} connectNulls={false} isAnimationActive={false} /> : null}
+          {isOn('canal') && has(channel) ? <Line type="monotone" dataKey="centro" name="Centro do canal (média de 8 semanas)" stroke="#6366f1" strokeWidth={1} strokeDasharray="3 3" dot={false} connectNulls={false} /> : null}
           {bars.map((bar) => (isOn(bar.key) ? <Bar key={bar.key} dataKey={bar.key} name={bar.label} fill={bar.color} maxBarSize={18} radius={[3, 3, 0, 0]} /> : null))}
           {isOn('mm21') ? <Line type="monotone" dataKey="mm21" name="Média 21 dias" stroke="#e0a72d" strokeWidth={2} dot={false} connectNulls={false} /> : null}
           {isOn('mm60') ? <Line type="monotone" dataKey="mm60" name="Média 60 dias" stroke="#a855f7" strokeWidth={2} dot={false} connectNulls={false} /> : null}
@@ -9899,7 +9910,7 @@ function WeeklyBarsChart({ rows, bars, base, inProgress, unit, height = 280, lin
         </ComposedChart>
       </ResponsiveContainer>
       <p className="formHintText" style={{ marginTop: 4 }}>
-        Colunas finas por semana. As médias de 21, 60 e 200 dias (em {unit} por semana equivalente) só aparecem com histórico completo; o canal de tendência é a média das últimas 8 semanas completas ± 2 desvios. A semana em andamento não entra nesses cálculos.
+        Colunas finas por semana. As médias de 21, 60 e 200 dias (em {unit} por semana equivalente) só aparecem com histórico completo; o canal de tendência é a média das últimas 8 semanas completas ± 2 desvios, com a linha tracejada no centro, e só aparece quando há essas 8 semanas. A semana em andamento não entra nesses cálculos.
       </p>
     </div>
   );
@@ -10509,7 +10520,7 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
     });
     const avg = sessions.reduce((s, x) => s + x.perceivedEffort!, 0) / sessions.length;
     // Canal de tendencia: media ± 2 desvios das ultimas 10 sessoes (precisa de 5), limitado a escala 1-10.
-    const sessionChannel = trendChannel(sorted.map((s) => s.perceivedEffort!), 10, 5, 1).map((point, i) => (point ? { i, lower: point.lower, upper: Math.min(10, point.upper) } : null)).filter((point): point is { i: number; lower: number; upper: number } => point != null);
+    const sessionChannel = trendChannel(sorted.map((s) => s.perceivedEffort!), 12, 12, 1).map((point, i) => (point ? { i, lower: point.lower, upper: Math.min(10, point.upper) } : null)).filter((point): point is { i: number; lower: number; upper: number } => point != null);
     const sessionChannelPath = sessionChannel.length > 1
       ? `M ${sessionChannel.map((p) => `${xFn(p.i)} ${yFn(p.upper)}`).join(' L ')} L ${[...sessionChannel].reverse().map((p) => `${xFn(p.i)} ${yFn(p.lower)}`).join(' L ')} Z`
       : '';
@@ -10620,7 +10631,7 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
   const intercept = meanY - slope * meanX;
   const trendPts = `${xFn(0)},${yFn(intercept)} ${xFn(n-1)},${yFn(intercept + slope*(n-1))}`;
   // Canal de tendencia semanal: media ± 2 desvios das ultimas 8 semanas (precisa de 4), limitado a escala 1-10; media movel de 3 semanas.
-  const weekChannel = trendChannel(weeks.map((w) => w.avg), 8, 4, 1).map((point, i) => (point ? { i, lower: point.lower, upper: Math.min(10, point.upper) } : null)).filter((point): point is { i: number; lower: number; upper: number } => point != null);
+  const weekChannel = trendChannel(weeks.map((w) => w.avg), 8, 8, 1).map((point, i) => (point ? { i, lower: point.lower, upper: Math.min(10, point.upper) } : null)).filter((point): point is { i: number; lower: number; upper: number } => point != null);
   const weekChannelPath = weekChannel.length > 1
     ? `M ${weekChannel.map((p) => `${xFn(p.i)} ${yFn(p.upper)}`).join(' L ')} L ${[...weekChannel].reverse().map((p) => `${xFn(p.i)} ${yFn(p.lower)}`).join(' L ')} Z`
     : '';
@@ -11080,7 +11091,7 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
     if (complete) for (let j = Math.max(0, index - CHANNEL_WEEKS + 1); j <= index; j += 1) if (!inProgress[j]) window.push(km[j]);
     let channel: [number, number] | null = null;
     let channelMean: number | null = null;
-    if (window.length >= 4) {
+    if (window.length >= CHANNEL_WEEKS) {
       const mean = window.reduce((sum, value) => sum + value, 0) / window.length;
       const deviation = Math.sqrt(window.reduce((sum, value) => sum + (value - mean) ** 2, 0) / window.length);
       channel = [Math.max(0, mean - 2 * deviation), mean + 2 * deviation];
@@ -11110,7 +11121,7 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
         <SeriesChip label={has('mm21') ? 'Média de 21 dias' : 'Média de 21 dias (sem histórico)'} color="#e0a72d" on={on.mm21 && has('mm21')} onClick={() => toggle('mm21')} />
         <SeriesChip label={has('mm60') ? 'Média de 60 dias' : 'Média de 60 dias (precisa de 9 semanas)'} color="#a855f7" on={on.mm60 && has('mm60')} onClick={() => toggle('mm60')} />
         <SeriesChip label={has('mm200') ? 'Média de 200 dias' : 'Média de 200 dias (precisa de 29 semanas)'} color="#ec4899" on={on.mm200 && has('mm200')} onClick={() => toggle('mm200')} />
-        <SeriesChip label={has('canal') ? 'Canal de tendência' : 'Canal de tendência (precisa de 4 semanas)'} color="#6366f1" on={on.canal && has('canal')} onClick={() => toggle('canal')} />
+        <SeriesChip label={has('canal') ? 'Canal de tendência' : 'Canal de tendência (precisa de 8 semanas completas)'} color="#6366f1" on={on.canal && has('canal')} onClick={() => toggle('canal')} />
       </div>
       <ResponsiveContainer width="100%" height={300}>
         <ComposedChart data={rows} barCategoryGap="28%">
@@ -11133,6 +11144,7 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
             );
           }} />
           {on.canal ? <Area type="monotone" dataKey="canal" name="Canal de tendência" stroke="#6366f1" strokeOpacity={0.5} fill="#6366f1" fillOpacity={0.12} connectNulls={false} isAnimationActive={false} /> : null}
+          {on.canal ? <Line type="monotone" dataKey="canalMedia" name="Centro do canal (média de 8 semanas)" stroke="#6366f1" strokeWidth={1} strokeDasharray="3 3" dot={false} connectNulls={false} /> : null}
           {on.colunas ? (
             <Bar dataKey="realizado" name="Realizado" maxBarSize={34} radius={[3, 3, 0, 0]}>
               {rows.map((row, index) => <Cell key={index} fill={row.color} />)}
@@ -11157,7 +11169,7 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
       </div>
       <p className="formHintText" style={{ marginTop: 6 }}>
         As cores são uma referência de acompanhamento do aumento de volume em relação à semana anterior: é uma entre muitas variáveis e não um veredito sobre a aluna. Queda de volume não recebe cor de alerta aqui.
-        As médias de 21, 60 e 200 dias usam o realizado (km por semana equivalente) e só aparecem quando há esse histórico completo. Canal de tendência: média das últimas 8 semanas completas ± 2 desvios, no estilo das bandas de Bollinger.
+        As médias de 21, 60 e 200 dias usam o realizado (km por semana equivalente) e só aparecem quando há esse histórico completo. Canal de tendência: média das últimas 8 semanas completas ± 2 desvios (linha tracejada no centro), no estilo das bandas de Bollinger; só aparece com essas 8 semanas.
       </p>
     </div>
   );
