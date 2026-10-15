@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
 import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import TrainingIntelligenceStudio from './ti/studio';
+import type { ExportProfile } from './ti/anonymous-export';
 
 const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
 const STUDENT_APP_URL = 'https://agenteselton-panzeri-run-app.hbljgk.easypanel.host';
@@ -3450,7 +3451,7 @@ function StudentPanel({
           <div className="evoStudio">
             <EvoSection defaultOpen wide icon="🧭" title="Volume, sono, esforço e dor no mesmo tempo"
               desc="Visão do Training Intelligence para esta aluna: escolha os indicadores com “+ Indicador”, mova a janela de datas e clique num dia para ver o painel do dia.">
-              <TrainingIntelligenceStudio key={student.id} accessToken={token} initialStudentId={student.id} />
+              <TrainingIntelligenceStudio key={student.id} accessToken={token} initialStudentId={student.id} exportProfile={exportProfileFor(student)} />
             </EvoSection>
           </div>
 
@@ -8315,6 +8316,24 @@ function ageFromAnswer(value: unknown): number | null {
   let age = now.getFullYear() - parts.y;
   if (now.getMonth() + 1 < parts.m || (now.getMonth() + 1 === parts.m && now.getDate() < parts.d)) age -= 1;
   return age >= 0 && age < 120 ? age : null;
+}
+
+/** Perfil anonimo para a exportacao do Training Intelligence: codigo, idade, sexo, altura e peso. Campo ausente sai como vazio, nunca inventado. */
+function exportProfileFor(student: StudentDetail): ExportProfile {
+  const answers = (student.interview?.answers ?? {}) as Record<string, unknown>;
+  const number = (value: unknown) => {
+    const parsed = Number(String(value ?? '').replace(',', '.'));
+    return Number.isFinite(parsed) && String(value ?? '').trim() !== '' ? parsed : null;
+  };
+  const height = number(answers.personal_height);
+  const weight = number(answers.personal_weight);
+  return {
+    studentCode: String(student.studentCode ?? ''),
+    ageYears: ageFromAnswer(answers.personal_birth_date),
+    sex: answers.personal_sex ? interviewValue('personal_sex', answers.personal_sex) : '',
+    heightCm: height == null ? null : height < 3 ? height * 100 : height,
+    weightKg: weight,
+  };
 }
 
 function InterviewAnswersView({ answers }: { answers: Record<string, unknown> }) {

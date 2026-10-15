@@ -3,6 +3,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { Activity, ArrowLeft, BarChart3, CalendarDays, Check, Clock3, Layers3, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { LongitudinalChart, type Comparison } from './longitudinal-chart';
+import { buildAnonymousExport, ExportProfile } from './anonymous-export';
 import { API_URL, COLORS, ChartConfig, ContextEvent, CustomPeriod, DEFAULT_LAYERS, DOMAINS, EVENT_TYPES, Layers, MODALITIES, PERIODS, SOURCES, Series, Snapshot, Student, Variable, displayVariable, compatibleAxes, selectableOverlayAxes, clampWindow, customPeriodRange, dateKey, dateLabel, defaultChartConfig, eventOverlaps, fmt, matchingStudents, observationsAt, seriesKey, seriesName, snapshotIsValid, time, windowFor } from './data';
 import './studio.css';
 
@@ -17,7 +18,7 @@ const MAX_SERIES = 10;
 const VOLUME_COMPLETED = 'training.volumeCompletedTotalKm';
 const VOLUME_PRESCRIBED = 'training.volumePrescribedKm';
 
-export default function TrainingIntelligenceStudio({ accessToken, initialStudentId = '', onStudentChange }: { accessToken?: string; initialStudentId?: string; onStudentChange?: (id: string) => void } = {}) {
+export default function TrainingIntelligenceStudio({ accessToken, initialStudentId = '', onStudentChange, exportProfile }: { accessToken?: string; initialStudentId?: string; onStudentChange?: (id: string) => void; exportProfile?: ExportProfile } = {}) {
   const embedded = Boolean(accessToken);
   const [localToken, setLocalToken] = React.useState<string | null>(null);
   const token = accessToken ?? localToken;
@@ -48,6 +49,8 @@ export default function TrainingIntelligenceStudio({ accessToken, initialStudent
   const [overlay, setOverlay] = React.useState(false);
   const [focusData, setFocusData] = React.useState(true);
   const [zoom, setZoom] = React.useState<[number, number] | null>(null);
+  const [exportOpen, setExportOpen] = React.useState(false);
+  const [exportMessage, setExportMessage] = React.useState('');
   const cache = React.useRef(new Map<string, Snapshot>());
   const snapshots = store.owner === studentId ? store.entries : EMPTY_SNAPSHOTS;
   const studentEvents = events.owner === studentId ? events.rows : [];
@@ -216,6 +219,38 @@ export default function TrainingIntelligenceStudio({ accessToken, initialStudent
   const currentEvents = cursor ? filteredEvents.filter((e) => eventOverlaps(e, [time(cursor), time(cursor)])) : filteredEvents;
 
   if (token === null) return <main className="ti-gate"><p>Carregando sessão…</p></main>;
+  function runExport(kind: 'csv' | 'text') {
+    if (!exportProfile) return;
+    const result = buildAnonymousExport({ profile: exportProfile, series: displayed, snapshots, legend, range, modalityName: (m) => MODALITIES[m] ?? m });
+    if (!result.rows) { setExportMessage('Não há observações no período mostrado para exportar.'); return; }
+    if (kind === 'csv') {
+      const blob = new Blob(['﻿' + result.csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = result.fileName;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setExportMessage(`Arquivo gerado com ${result.rows} linhas.`);
+    } else {
+      navigator.clipboard.writeText(result.text).then(
+        () => setExportMessage(`Resumo copiado (${result.rows} linhas). Cole na conversa com a outra IA.`),
+        () => setExportMessage('Não consegui copiar. Use o arquivo CSV.'),
+      );
+    }
+  }
+  const exportButton = exportProfile && loaded.length > 0 ? <button className="ti-outline" onClick={() => { setExportOpen((open) => !open); setExportMessage(''); }}>Exportar (anônimo)</button> : null;
+  const exportPanel = exportProfile && exportOpen && loaded.length > 0 ? (
+    <section className="ti-card" style={{ margin: '10px 0', padding: '12px 14px' }}>
+      <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>Exportar o que está na tela</h3>
+      <p className="ti-muted" style={{ margin: '0 0 8px' }}>Vai o período e os indicadores mostrados agora. A aluna aparece só pelo código ({exportProfile.studentCode}), com idade, sexo, altura e peso. Não vão nome, e-mail, CPF, telefone, endereço, data de nascimento exata nem textos livres.</p>
+      <p className="ti-caution" style={{ margin: '0 0 10px' }}>Este arquivo contém dado de saúde. Depois que ele sai do app, o cuidado com ele é seu.</p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button className="ti-primary" onClick={() => runExport('csv')}>Baixar CSV</button>
+        <button className="ti-outline" onClick={() => runExport('text')}>Copiar resumo em texto</button>
+        {exportMessage && <span role="status" className="ti-muted">{exportMessage}</span>}
+      </div>
+    </section>
+  ) : null;
   if (!token) return <main className="ti-gate"><div className="ti-gate-card"><Activity size={32}/><h1>Training Intelligence</h1><p>Entre no Admin para abrir a investigação.</p><Link href="/">Entrar no Admin</Link></div></main>;
   return <div className={`ti-app${embedded ? ' ti-app-embedded' : ''}`} data-theme={theme}>
     {!embedded && <aside className="ti-sidebar">
@@ -231,7 +266,7 @@ export default function TrainingIntelligenceStudio({ accessToken, initialStudent
       <div className="ti-page-head"><div><p className="ti-kicker">TRAINING INTELLIGENCE</p><h2>{tab === 'Visão geral' ? 'O atleta ao longo do tempo' : tab === 'Explorar' ? 'Explorar a trajetória' : tab === 'Comparar' ? 'Comparar indicadores' : tab === 'Timeline' ? 'Timeline integrada' : 'Histórico e evidências'}</h2><p className="ti-subtitle">{tab === 'Comparar' ? 'Escalas originais. Uma mesma janela temporal para investigar.' : 'Treinamento, percepção e contexto conectados pela mesma linha do tempo.'}</p></div><div className="ti-periods" aria-label="Período">{PERIODS.map((p) => <button key={p.id} className={period === p.id ? 'active' : ''} onClick={() => { setPeriod(p.id); setZoom(null); setCursor(''); }}>{p.label}</button>)}<button className={period === 'custom' ? 'active' : ''} onClick={() => setPicker('period')}>{period === 'custom' ? `${dateLabel(fullRange[0])}–${dateLabel(fullRange[1])}` : 'Personalizar'}</button></div></div>
       {error && <p role="alert" className="ti-error">{error}</p>}
       {student && <>
-        <div className="ti-investigation-bar"><div className="ti-selected-indicators">{series.map((s, i) => <div key={s.key} className={`ti-selected-chip ${s.visible ? '' : 'muted'}`}><button aria-pressed={s.visible} onClick={() => setSeries((current) => current.map((v) => v.key === s.key ? { ...v, visible: !v.visible } : v))}><span style={{ background: COLORS[i % COLORS.length] }}/>{seriesName(s, legend)}</button><button aria-label={`Remover ${seriesName(s, legend)}`} onClick={() => setSeries((current) => current.filter((v) => v.key !== s.key))}><X size={12}/></button></div>)}</div><div className="ti-add-actions"><button className="ti-primary" onClick={() => setPicker('indicator')}><Plus size={16}/>Indicador</button><button className="ti-outline" onClick={() => setPicker('event')}><Plus size={16}/>Evento</button></div></div>
+        <div className="ti-investigation-bar"><div className="ti-selected-indicators">{series.map((s, i) => <div key={s.key} className={`ti-selected-chip ${s.visible ? '' : 'muted'}`}><button aria-pressed={s.visible} onClick={() => setSeries((current) => current.map((v) => v.key === s.key ? { ...v, visible: !v.visible } : v))}><span style={{ background: COLORS[i % COLORS.length] }}/>{seriesName(s, legend)}</button><button aria-label={`Remover ${seriesName(s, legend)}`} onClick={() => setSeries((current) => current.filter((v) => v.key !== s.key))}><X size={12}/></button></div>)}</div><div className="ti-add-actions"><button className="ti-primary" onClick={() => setPicker('indicator')}><Plus size={16}/>Indicador</button><button className="ti-outline" onClick={() => setPicker('event')}><Plus size={16}/>Evento</button>{exportButton}</div></div>{exportPanel}
         {tab === 'Visão geral' && <section className="ti-metric-strip">{loaded.slice(0, 4).map((s) => { const snap = snapshots[s.key]; return <button key={s.key} onClick={() => { setTab('Explorar'); document.getElementById('ti-charts')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }}><span>{seriesName(s, legend)}</span><strong>{fmt(snap.current)}<small>{snap.variable.scale?.unit ?? ''}</small></strong><small>{snap.currentWeekContext?.isPartialWeek ? 'Semana em andamento' : snap.evidence.lastObservationAt ? `Último registro · ${dateLabel(snap.evidence.lastObservationAt)}` : 'Ainda sem registro'}{snap.baseline?.value != null ? ` · baseline ${fmt(snap.baseline.value)}` : ''}</small></button>; })}</section>}
         <div className="ti-layout"><div className="ti-content">
           <section className="ti-card ti-chart-stack" id="ti-charts"><div className="ti-section-head"><div><h3>{tab === 'Comparar' ? 'Painéis sincronizados por data' : 'Evolução recente'}</h3><p>{dateLabel(range[0], true)} — {dateLabel(range[1], true)} · escalas originais</p></div></div>
