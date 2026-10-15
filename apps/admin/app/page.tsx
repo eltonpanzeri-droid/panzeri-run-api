@@ -1947,7 +1947,7 @@ export default function AdminHome() {
           />
         ) : null}
 
-        {activeView === 'finance' ? <FinanceView finance={finance} evolution={monthlyEvolution} onRefresh={() => loadFinance()} accessToken={token} /> : null}
+        {activeView === 'finance' ? <FinanceView finance={finance} evolution={monthlyEvolution} onRefresh={() => loadFinance()} accessToken={token} onOpenGroup={goToStudentsFilteredByPayment} onOpenProspects={() => changeView('prospects')} /> : null}
 
         {activeView === 'funnel' ? <FunnelView report={funnelReport} loading={loadingFunnel} onRefresh={() => loadFunnel()} /> : null}
 
@@ -2380,15 +2380,15 @@ function DueDatesSection({ accessToken }: { accessToken: string }) {
   );
 }
 
-function FinanceView({ finance, evolution, onRefresh, accessToken }: { finance: FinanceResponse | null; evolution: MonthlyEvolutionPoint[] | null; onRefresh: () => void; accessToken: string }) {
+function FinanceView({ finance, evolution, onRefresh, accessToken, onOpenGroup, onOpenProspects }: { finance: FinanceResponse | null; evolution: MonthlyEvolutionPoint[] | null; onRefresh: () => void; accessToken: string; onOpenGroup: (group: 'confirmed' | 'courtesy' | 'overdue') => void; onOpenProspects: () => void }) {
   const currentMonthRevenueCents = evolution && evolution.length ? evolution[evolution.length - 1].revenueReceivedCents : null;
   return (
     <section className="panel fullPanel">
       <div className="panelHeader"><div><p className="eyebrow">Financeiro</p><h2>Resumo de assinaturas</h2></div><button className="secondaryButton" type="button" onClick={onRefresh}>Atualizar</button></div>
       <section className="stats financeStats">
         <Stat label="Com acesso em dia" value={String(finance?.activePlans ?? 0)} detail="pagantes + cortesias, sem atrasadas" />
-        <Stat label="Pagantes" value={String(finance?.payingPlans ?? 0)} detail="assinaturas cobradas" />
-        <Stat label="Cortesias" value={String(finance?.courtesyPlans ?? 0)} detail="cupons 100% ou manual" />
+        <Stat label="Pagantes" value={String(finance?.payingPlans ?? 0)} detail="assinaturas cobradas (clique para ver quem)" onClick={() => onOpenGroup('confirmed')} />
+        <Stat label="Cortesias" value={String(finance?.courtesyPlans ?? 0)} detail="cupons 100% ou manual (clique para ver quem)" onClick={() => onOpenGroup('courtesy')} />
         <Stat
           label="Receita recorrente (MRR)"
           value={formatMoney(finance?.estimatedMonthlyRevenueCents ?? 0)}
@@ -2404,8 +2404,8 @@ function FinanceView({ finance, evolution, onRefresh, accessToken }: { finance: 
       <div className="financeGrid">
         {/* 24/09: renomeado — "pendente" nunca teve compromisso de pagamento, e' Prospecto (ver
             GLOSSARIO_METRICAS.md), nao um problema de cobranca como Atrasado/Cancelado ao lado. */}
-        <Detail icon={<Flame size={18} />} label="Prospectos" value={String(finance?.pendingPlans ?? 0)} />
-        <Detail icon={<AlertTriangle size={18} />} label="Atrasados" value={String(finance?.overduePlans ?? 0)} />
+        <Detail icon={<Flame size={18} />} label="Prospectos" value={String(finance?.pendingPlans ?? 0)} onClick={onOpenProspects} />
+        <Detail icon={<AlertTriangle size={18} />} label="Atrasados" value={String(finance?.overduePlans ?? 0)} onClick={() => onOpenGroup('overdue')} />
         <Detail icon={<X size={18} />} label="Cancelados" value={String(finance?.canceledPlans ?? 0)} />
         <Detail icon={<Ticket size={18} />} label="Cupons criados" value={String(finance?.coupons.length ?? 0)} />
       </div>
@@ -7407,9 +7407,9 @@ function reportMetricLabel(key: string) {
   };
   return labels[key] ?? key;
 }
-function Detail({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+function Detail({ icon, label, value, onClick }: { icon: ReactNode; label: string; value: string; onClick?: () => void }) {
   return (
-    <div className="detailItem">
+    <div className={`detailItem${onClick ? ' statClickable' : ''}`} onClick={onClick} role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}>
       {icon}
       <span>{label}</span>
       <strong>{value}</strong>
