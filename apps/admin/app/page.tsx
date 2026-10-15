@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, AlertTriangle, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flag, Flame, Folder, Gauge, Info, LayoutDashboard, LogIn, Menu, Pin, PinOff, Plus, RefreshCw, Save, Search, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowUp, Bell, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flag, Flame, Folder, Gauge, Info, LayoutDashboard, LogIn, Menu, Moon, Pin, PinOff, Plus, RefreshCw, Save, Search, Sun, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
 import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -54,6 +54,18 @@ interface FunnelReport {
 }
 
 type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel' | 'raceCalendar' | 'trainingIntelligence';
+
+// 15/10/2026: visao por papel (plano de revitalizacao). Por enquanto so organiza o menu; o conteudo das
+// telas por papel vem nas proximas fases. 'tudo' mostra todas as areas.
+type Papel = 'tudo' | 'treinador' | 'coordenador' | 'empresario' | 'financeiro' | 'marketing';
+const PAPEIS: { valor: Papel; rotulo: string }[] = [
+  { valor: 'tudo', rotulo: 'Todas as áreas' },
+  { valor: 'treinador', rotulo: 'Treinador' },
+  { valor: 'coordenador', rotulo: 'Coordenador técnico' },
+  { valor: 'empresario', rotulo: 'Empresário' },
+  { valor: 'financeiro', rotulo: 'Financeiro' },
+  { valor: 'marketing', rotulo: 'Marketing' },
+];
 
 // 10/09: calendário global de provas alvo — retornado por GET /coach/races/calendar.
 interface RaceCalendarEntry {
@@ -405,6 +417,32 @@ interface CoachNotification {
 }
 
 export default function AdminHome() {
+  // 14/10/2026: tema claro/escuro. Comeca sempre claro; a escolha fica salva so neste navegador.
+  const [tema, setTema] = useState<'claro' | 'escuro'>('claro');
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem('panzeri-admin-tema') === 'escuro') setTema('escuro');
+    } catch { /* sem armazenamento: segue no tema claro */ }
+  }, []);
+  useEffect(() => {
+    document.documentElement.dataset.tema = tema;
+  }, [tema]);
+  const [papel, setPapel] = useState<Papel>('tudo');
+  useEffect(() => {
+    try {
+      const salvo = window.localStorage.getItem('panzeri-admin-papel');
+      if (PAPEIS.some((p) => p.valor === salvo)) setPapel(salvo as Papel);
+    } catch { /* sem armazenamento: mostra todas as areas */ }
+  }, []);
+  const escolherPapel = (novo: Papel) => {
+    setPapel(novo);
+    try { window.localStorage.setItem('panzeri-admin-papel', novo); } catch { /* ignora */ }
+  };
+  const alternarTema = () => {
+    const novo = tema === 'escuro' ? 'claro' : 'escuro';
+    setTema(novo);
+    try { window.localStorage.setItem('panzeri-admin-tema', novo); } catch { /* ignora */ }
+  };
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [token, setToken] = useState('');
@@ -1260,6 +1298,12 @@ export default function AdminHome() {
             </div>
           </div>
           <div className="topActions">
+            <select className="roleSelect" value={papel} onChange={(event) => escolherPapel(event.target.value as Papel)} aria-label="Visão por papel" title="Visão por papel">
+              {PAPEIS.map((p) => <option value={p.valor} key={p.valor}>{p.rotulo}</option>)}
+            </select>
+            <button className="iconButton" type="button" onClick={alternarTema} aria-label={tema === 'escuro' ? 'Usar tema claro' : 'Usar tema escuro'} title={tema === 'escuro' ? 'Usar tema claro' : 'Usar tema escuro'}>
+              {tema === 'escuro' ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
             {activeView !== 'dashboard' && activeView !== 'notifications' && activeView !== 'trainingIntelligence' ? <label className="searchBox">
               <Search size={18} />
               <input placeholder="Buscar por nome ou e-mail" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
@@ -1279,21 +1323,37 @@ export default function AdminHome() {
           </div>
         </header>
 
-        {menuOpen ? (
-          <nav className="compactMenu">
-            <button className={activeView === 'dashboard' ? 'active' : ''} type="button" onClick={() => changeView('dashboard')}><LayoutDashboard size={19} />Dashboard</button>
-            <button className={activeView === 'students' ? 'active' : ''} type="button" onClick={() => changeView('students')}><Users size={19} />Alunos{dashboard?.totals.students != null ? ` (${dashboard.totals.students})` : ''}</button>
-            <button className={activeView === 'prospects' ? 'active' : ''} type="button" onClick={() => changeView('prospects')}><Flame size={19} />Prospectos{prospects?.totals.total != null ? ` (${prospects.totals.total})` : ''}</button>
-            <button className={activeView === 'exStudents' ? 'active' : ''} type="button" onClick={() => changeView('exStudents')}><UserX size={19} />Ex-alunos{exStudents?.total != null ? ` (${exStudents.total})` : ''}</button>
-            <button className={activeView === 'weeks' ? 'active' : ''} type="button" onClick={() => changeView('weeks')}><CalendarDays size={19} />Semanas</button>
-            <button className={activeView === 'coupons' ? 'active' : ''} type="button" onClick={() => changeView('coupons')}><Ticket size={19} />Cupons</button>
-            <button className={activeView === 'finance' ? 'active' : ''} type="button" onClick={() => changeView('finance')}><CreditCard size={19} />Financeiro</button>
-            <button className={activeView === 'notifications' ? 'active' : ''} type="button" onClick={() => changeView('notifications')}><Bell size={19} />Notificacoes{notifications.length ? ` (${notifications.length})` : ''}</button>
-            <button className={activeView === 'funnel' ? 'active' : ''} type="button" onClick={() => changeView('funnel')}><TrendingUp size={19} />Funil</button>
-            <button className={activeView === 'raceCalendar' ? 'active' : ''} type="button" onClick={() => changeView('raceCalendar')}><Flag size={19} />Provas</button>
-            <button className={activeView === 'trainingIntelligence' ? 'active' : ''} type="button" onClick={() => changeView('trainingIntelligence')}><Activity size={19} />Training Intelligence</button>
-          </nav>
-        ) : null}
+        {menuOpen ? (() => {
+          // 15/10/2026: menu agrupado por area e filtrado pelo papel escolhido. "Semanas" saiu do menu a pedido
+          // de Elton: a tela era so um seletor de aluno + o mesmo painel da aluna (aba Semanas anteriores),
+          // nao guarda dado proprio; o codigo da view 'weeks' foi mantido (inalcancavel pelo menu) para reverter.
+          const itens: { area: string; view: AdminView; label: string; icon: ReactNode; papeis: Papel[] }[] = [
+            { area: 'Início', view: 'dashboard', label: 'Visão geral', icon: <LayoutDashboard size={19} />, papeis: ['treinador', 'coordenador', 'empresario', 'financeiro', 'marketing'] },
+            { area: 'Alunas', view: 'students', label: `Alunos${dashboard?.totals.students != null ? ` (${dashboard.totals.students})` : ''}`, icon: <Users size={19} />, papeis: ['treinador', 'coordenador'] },
+            { area: 'Alunas', view: 'prospects', label: `Prospectos${prospects?.totals.total != null ? ` (${prospects.totals.total})` : ''}`, icon: <Flame size={19} />, papeis: ['treinador', 'empresario', 'marketing'] },
+            { area: 'Alunas', view: 'exStudents', label: `Ex-alunos${exStudents?.total != null ? ` (${exStudents.total})` : ''}`, icon: <UserX size={19} />, papeis: ['treinador', 'empresario'] },
+            { area: 'Alunas', view: 'raceCalendar', label: 'Provas', icon: <Flag size={19} />, papeis: ['treinador', 'coordenador'] },
+            { area: 'Alunas', view: 'trainingIntelligence', label: 'Training Intelligence', icon: <Activity size={19} />, papeis: ['treinador', 'coordenador'] },
+            { area: 'Dinheiro', view: 'finance', label: 'Financeiro', icon: <CreditCard size={19} />, papeis: ['empresario', 'financeiro'] },
+            { area: 'Dinheiro', view: 'coupons', label: 'Cupons', icon: <Ticket size={19} />, papeis: ['empresario', 'financeiro', 'marketing'] },
+            { area: 'Crescimento', view: 'funnel', label: 'Funil', icon: <TrendingUp size={19} />, papeis: ['empresario', 'marketing'] },
+            { area: 'IA e sistema', view: 'notifications', label: `Notificações${notifications.length ? ` (${notifications.length})` : ''}`, icon: <Bell size={19} />, papeis: ['treinador', 'coordenador'] },
+          ];
+          const visiveis = itens.filter((item) => papel === 'tudo' || item.papeis.includes(papel));
+          const areas = visiveis.map((item) => item.area).filter((area, indice, todas) => todas.indexOf(area) === indice);
+          return (
+            <nav className="compactMenu">
+              {areas.map((area) => (
+                <React.Fragment key={area}>
+                  <span className="menuArea">{area}</span>
+                  {visiveis.filter((item) => item.area === area).map((item) => (
+                    <button key={item.view} className={activeView === item.view ? 'active' : ''} type="button" onClick={() => changeView(item.view)}>{item.icon}{item.label}</button>
+                  ))}
+                </React.Fragment>
+              ))}
+            </nav>
+          );
+        })() : null}
 
         {status ? <p className="statusText panelToast">{status}</p> : null}
 

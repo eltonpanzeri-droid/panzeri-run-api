@@ -30,6 +30,13 @@
   }
 }
 
+/* 14/10/2026: tema escuro PROVISORIO. O admin tem ~300 cores fixas no codigo; em vez de reescrever todas, o
+   tema escuro inverte as cores da pagina inteira (mantendo os matizes). As telas novas do redesenho usarao
+   tokens proprios de claro/escuro e dispensam isto. Para voltar ao claro: botao no topo. */
+html[data-tema="escuro"] {
+  filter: invert(0.9) hue-rotate(180deg);
+}
+
 body {
   zoom: var(--escala);
   margin: 0;
@@ -239,6 +246,28 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.roleSelect {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 0 10px;
+  font-weight: 700;
+}
+
+.menuArea {
+  padding: 8px 12px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.menuArea:first-child {
+  padding-top: 2px;
 }
 
 .eyebrow {
