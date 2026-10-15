@@ -3175,8 +3175,8 @@ function StudentPanel({
         <button type="button" className={detailTab === 'diretrizes' ? 'active' : ''} onClick={() => setDetailTab('diretrizes')}>Diretrizes</button>
         <button type="button" className={detailTab === 'semanas' ? 'active' : ''} onClick={() => setDetailTab('semanas')}>Semanas anteriores</button>
         <button type="button" className={detailTab === 'evolucao' ? 'active' : ''} onClick={() => setDetailTab('evolucao')}>Evolucao</button>
-        <button type="button" className={detailTab === 'contexto' ? 'active' : ''} onClick={() => setDetailTab('contexto')}>Contexto</button>
-        <button type="button" className={detailTab === 'timeline' ? 'active' : ''} onClick={() => setDetailTab('timeline')}>Timeline</button>
+        {/* 15/10/2026: abas "Contexto" e "Timeline" agora ficam dentro da Evolucao (secao "Registros e historico").
+            O codigo das duas abas foi mantido, inalcancavel pelos botoes, para reverter. */}
         <button type="button" className={detailTab === 'atividadesExternas' ? 'active' : ''} onClick={() => setDetailTab('atividadesExternas')}>Atividades externas</button>
         {student?.interview?.answers?.personal_sex === 'Feminino' && (
           <button type="button" className={detailTab === 'ciclo' ? 'active' : ''} onClick={() => setDetailTab('ciclo')}>Ciclo</button>
@@ -3532,6 +3532,18 @@ function StudentPanel({
 
           {/* ── REGISTROS ─────────────────────────────────────────────────── */}
           <GroupLabel label="Registros e histórico" />
+
+          {/* 15/10/2026 (Fase 4 lote 4.5, decisao de Elton): as abas soltas "Timeline" e "Contexto" foram para dentro
+              da Evolucao. Mesmos componentes (TimelineTab e ContextoTab), sem mudanca de dados nem de rotas. */}
+          <EvoSection icon="🕒" title="Linha do tempo de eventos"
+            desc="Sessões, feedbacks, eventos de contexto, reavaliações, relatórios, testes e provas em ordem cronológica. Contexto relatado é registro, nunca causa comprovada de uma mudança fisiológica próxima.">
+            <TimelineTab student={student} accessToken={token} />
+          </EvoSection>
+
+          <EvoSection icon="🧩" title="Contexto da aluna (eventos relatados)"
+            desc="Eventos de vida que podem explicar variações (viagem, trabalho, doença, mudança de rotina). Dá para registrar um novo evento aqui.">
+            <ContextoTab studentId={student.id} accessToken={token} onStatus={onStatus} />
+          </EvoSection>
 
           <EvoSection icon="💬" title="Comentários em texto" badge={commentCount > 0 ? commentCount : undefined}
             desc="Texto livre registrado pelo aluno após os treinos. Fonte qualitativa — revela motivação, dificuldades e contexto fora do plano.">
