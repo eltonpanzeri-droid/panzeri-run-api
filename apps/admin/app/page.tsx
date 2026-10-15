@@ -1947,7 +1947,7 @@ export default function AdminHome() {
           />
         ) : null}
 
-        {activeView === 'finance' ? <FinanceView finance={finance} evolution={monthlyEvolution} onRefresh={() => loadFinance()} /> : null}
+        {activeView === 'finance' ? <FinanceView finance={finance} evolution={monthlyEvolution} onRefresh={() => loadFinance()} accessToken={token} /> : null}
 
         {activeView === 'funnel' ? <FunnelView report={funnelReport} loading={loadingFunnel} onRefresh={() => loadFunnel()} /> : null}
 
@@ -2271,7 +2271,116 @@ function RaceCalendarView({ races, loading, onRefresh }: { races: RaceCalendarEn
   );
 }
 
-function FinanceView({ finance, evolution, onRefresh }: { finance: FinanceResponse | null; evolution: MonthlyEvolutionPoint[] | null; onRefresh: () => void }) {
+type DueDatesResponse = {
+  from: string; to: string; today: string; priceCents: number;
+  totals: { count: number; expectedCents: number };
+  days: Array<{ date: string; count: number; expectedCents: number; students: Array<{ id: string; studentCode: string; name: string; status: string }> }>;
+  overdueNow: Array<{ id: string; studentCode: string; name: string; status: string; dueDate: string | null; daysLate: number | null }>;
+  note: string;
+};
+
+function addDaysIso(day: string, days: number): string {
+  const date = new Date(`${day}T12:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function dayLabel(day: string): string {
+  return new Date(`${day}T12:00:00.000Z`).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+}
+
+/** 15/10/2026: calendario de vencimentos (somente leitura). Mostra quantas mensalidades vencem em cada dia dos proximos 30 dias e quem sao. */
+function DueDatesSection({ accessToken }: { accessToken: string }) {
+  const [from, setFrom] = useState('');
+  const [data, setData] = useState<DueDatesResponse | null>(null);
+  const [error, setError] = useState('');
+  const [picked, setPicked] = useState('');
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const query = from ? `?from=${from}&to=${addDaysIso(from, 29)}` : '';
+        const response = await fetch(`${API_URL}/coach/finance/due-dates${query}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!response.ok) throw new Error('falha');
+        const json = (await response.json()) as DueDatesResponse;
+        if (!cancelled) { setData(json); setError(''); }
+      } catch {
+        if (!cancelled) setError('Não consegui carregar os vencimentos.');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [accessToken, from]);
+
+  const allDays: string[] = [];
+  if (data) for (let day = data.from; day <= data.to && allDays.length < 130; day = addDaysIso(day, 1)) allDays.push(day);
+  const byDate = new Map((data?.days ?? []).map((d) => [d.date, d]));
+  const maxCount = Math.max(1, ...(data?.days ?? []).map((d) => d.count));
+  const chosen = picked ? byDate.get(picked) ?? { date: picked, count: 0, expectedCents: 0, students: [] } : null;
+
+  function choose(day: string) {
+    setPicked(day);
+    if (data && (day < data.from || day > data.to)) setFrom(day);
+  }
+
+  return (
+    <section className="chartCard">
+      <h3>
+        Vencimentos das mensalidades
+        <InfoIcon text="Quantas mensalidades vencem em cada dia, pelo vencimento registrado no Asaas. Quem paga pela loja não tem data de vencimento no sistema e não aparece. O valor é o de tabela, sem descontos." />
+      </h3>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 10 }}>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+          Ver o dia
+          <input type="date" value={picked} onChange={(event) => choose(event.target.value)} />
+        </label>
+        {data ? <span className="formHintText" style={{ margin: 0 }}>{data.totals.count} vencimento(s) de {dayLabel(data.from)} a {dayLabel(data.to)}, {formatMoney(data.totals.expectedCents)} de tabela</span> : null}
+        {from ? <button className="secondaryButton" type="button" onClick={() => { setFrom(''); setPicked(''); }}>Voltar para hoje</button> : null}
+      </div>
+      {error ? <p className="formHintText">{error}</p> : null}
+      {!data && !error ? <p className="formHintText">Carregando vencimentos...</p> : null}
+      {data ? (
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, overflowX: 'auto', paddingBottom: 6 }}>
+          {allDays.map((day) => {
+            const entry = byDate.get(day);
+            const count = entry?.count ?? 0;
+            const isPicked = picked === day;
+            return (
+              <button key={day} type="button" onClick={() => choose(day)} title={`${dayLabel(day)}: ${count} vencimento(s)`}
+                style={{ flex: '0 0 26px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, background: 'transparent', border: 0, padding: 0, cursor: 'pointer' }}>
+                <span style={{ fontSize: 11, fontWeight: 700, minHeight: 14 }}>{count || ''}</span>
+                <span style={{ width: 20, height: Math.max(3, Math.round((count / maxCount) * 70)), borderRadius: 3, background: count ? (isPicked ? '#115e59' : '#0f766e') : '#cbd5e1' }} />
+                <span style={{ fontSize: 10, color: isPicked ? '#115e59' : 'var(--muted)', fontWeight: isPicked ? 800 : 400 }}>{day.slice(8, 10)}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      {chosen ? (
+        <div style={{ marginTop: 10 }}>
+          <strong>{dayLabel(chosen.date)}: {chosen.count} vencimento(s), {formatMoney(chosen.expectedCents)} de tabela</strong>
+          {chosen.students.length ? chosen.students.map((student) => (
+            <p key={student.id} style={{ margin: '4px 0' }}>{student.name} <span style={{ color: 'var(--muted)' }}>({student.studentCode}{student.status === 'overdue' ? ', em atraso' : ''})</span></p>
+          )) : <p className="formHintText">Nenhuma mensalidade vence neste dia.</p>}
+        </div>
+      ) : <p className="formHintText" style={{ marginTop: 8 }}>Toque numa coluna ou escolha uma data para ver quem vence.</p>}
+      {data?.overdueNow.length ? (
+        <div style={{ marginTop: 14 }}>
+          <strong>Em atraso agora ({data.overdueNow.length})</strong>
+          {data.overdueNow.map((student) => (
+            <p key={student.id} style={{ margin: '4px 0' }}>
+              {student.name} <span style={{ color: 'var(--muted)' }}>({student.studentCode})</span>
+              {student.daysLate != null ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>{` · ${student.daysLate} dia(s) de atraso`}</span> : null}
+            </p>
+          ))}
+        </div>
+      ) : null}
+      {data ? <p className="formHintText" style={{ marginTop: 10 }}>{data.note}</p> : null}
+    </section>
+  );
+}
+
+function FinanceView({ finance, evolution, onRefresh, accessToken }: { finance: FinanceResponse | null; evolution: MonthlyEvolutionPoint[] | null; onRefresh: () => void; accessToken: string }) {
   const currentMonthRevenueCents = evolution && evolution.length ? evolution[evolution.length - 1].revenueReceivedCents : null;
   return (
     <section className="panel fullPanel">
@@ -2300,6 +2409,7 @@ function FinanceView({ finance, evolution, onRefresh }: { finance: FinanceRespon
         <Detail icon={<X size={18} />} label="Cancelados" value={String(finance?.canceledPlans ?? 0)} />
         <Detail icon={<Ticket size={18} />} label="Cupons criados" value={String(finance?.coupons.length ?? 0)} />
       </div>
+      <DueDatesSection accessToken={accessToken} />
       <section className="chartCard">
         <h3>
           Receita recebida por mês

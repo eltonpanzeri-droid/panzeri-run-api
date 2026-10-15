@@ -1875,6 +1875,80 @@ export class CoachService {
     };
   }
 
+  // 15/10/2026: calendario de vencimentos para o painel (somente leitura). BillingSubscription.nextChargeAt guarda
+  // o nextDueDate do Asaas ao meio-dia UTC daquele dia, entao a data do vencimento e' o ISO date do proprio valor
+  // (mesma regra de billing.service.ts, accessEndsAt) — sem deslocamento de fuso. Alunas pela loja (RevenueCat) nao
+  // tem data de vencimento exata no sistema e ficam de fora, sem inventar data. O valor e' o de tabela (R$ 19,90 por
+  // aluna), nao o cobrado de fato (cupons e descontos nao sao considerados).
+  async financeDueDates(input: { from?: string; to?: string }) {
+    const isDay = (value?: string) => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T12:00:00.000Z`)));
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const addDays = (day: string, days: number) => {
+      const date = new Date(`${day}T12:00:00.000Z`);
+      date.setUTCDate(date.getUTCDate() + days);
+      return date.toISOString().slice(0, 10);
+    };
+    const from = isDay(input.from) ? (input.from as string) : today;
+    let to = isDay(input.to) ? (input.to as string) : addDays(from, 30);
+    if (to < from) to = from;
+    const MAX_SPAN_DAYS = 120;
+    if (to > addDays(from, MAX_SPAN_DAYS)) to = addDays(from, MAX_SPAN_DAYS);
+
+    const select = {
+      nextChargeAt: true,
+      user: { select: { id: true, name: true, studentCode: true, subscriptionStatus: true } },
+    } as const;
+    const [upcoming, overdueRows] = await Promise.all([
+      this.prisma.billingSubscription.findMany({
+        where: {
+          provider: 'asaas',
+          nextChargeAt: { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T23:59:59.999Z`) },
+          user: { ...STUDENT_METRICS_POPULATION, subscriptionStatus: { in: [...CONFIRMED_STATUSES, OVERDUE_STATUS] } },
+        },
+        select,
+        orderBy: { nextChargeAt: 'asc' },
+      }),
+      this.prisma.billingSubscription.findMany({
+        where: { provider: 'asaas', user: { ...STUDENT_METRICS_POPULATION, subscriptionStatus: OVERDUE_STATUS } },
+        select,
+        orderBy: { nextChargeAt: 'asc' },
+      }),
+    ]);
+
+    const toStudent = (row: (typeof upcoming)[number]) => ({
+      id: row.user.id,
+      studentCode: formatStudentCode(row.user.studentCode),
+      name: row.user.name,
+      status: row.user.subscriptionStatus,
+    });
+    const byDay = new Map<string, ReturnType<typeof toStudent>[]>();
+    for (const row of upcoming) {
+      if (!row.nextChargeAt) continue;
+      const day = row.nextChargeAt.toISOString().slice(0, 10);
+      byDay.set(day, [...(byDay.get(day) ?? []), toStudent(row)]);
+    }
+    const days = [...byDay.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([date, students]) => ({ date, count: students.length, expectedCents: students.length * PRICE_PER_STUDENT_CENTS, students }));
+
+    const dayMs = 86400000;
+    const todayMs = Date.parse(`${today}T12:00:00.000Z`);
+    return {
+      from,
+      to,
+      today,
+      priceCents: PRICE_PER_STUDENT_CENTS,
+      totals: { count: upcoming.length, expectedCents: upcoming.length * PRICE_PER_STUDENT_CENTS },
+      days,
+      overdueNow: overdueRows.map((row) => ({
+        ...toStudent(row),
+        dueDate: row.nextChargeAt ? row.nextChargeAt.toISOString().slice(0, 10) : null,
+        daysLate: row.nextChargeAt ? Math.max(0, Math.round((todayMs - Date.parse(`${row.nextChargeAt.toISOString().slice(0, 10)}T12:00:00.000Z`)) / dayMs)) : null,
+      })),
+      note: 'Vencimentos do Asaas. Alunas que pagam pela loja não têm data de vencimento no sistema e não aparecem. Valor de tabela, sem descontos.',
+    };
+  }
+
   async dataCustomerSummary() {
     const since30 = new Date();
     since30.setDate(since30.getDate() - 30);

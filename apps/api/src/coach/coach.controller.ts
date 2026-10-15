@@ -134,6 +134,12 @@ export class CoachController {
     return this.coachService.finance();
   }
 
+  // 15/10/2026: calendario de vencimentos (somente leitura). from/to no formato AAAA-MM-DD; sem eles, hoje + 30 dias.
+  @Get('finance/due-dates')
+  financeDueDates(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.coachService.financeDueDates({ from, to });
+  }
+
   @Get('exercise-library')
   exerciseLibrary() {
     return this.coachService.exerciseLibrary();
