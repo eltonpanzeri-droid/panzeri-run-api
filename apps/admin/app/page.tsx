@@ -10101,17 +10101,17 @@ function TrainingCalendarDots({ history, onDayClick }: {
     <div style={{ overflowX: 'auto' }}>
       <div style={{ minWidth: 380 }}>
         {/* Header dos dias da semana */}
-        <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(7, 1fr)`, gap: '4px 4px', marginBottom: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(7, 1fr)`, gap: 0, marginBottom: 0, paddingBottom: 4 }}>
           <div />
           {WEEKDAYS.map((d) => (
-            <div key={d} style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{d}</div>
+            <div key={d} style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted)', fontWeight: 600, borderLeft: '1px solid var(--line)' }}>{d}</div>
           ))}
         </div>
         {/* Linhas de semana — mais recente no topo */}
         {[...weeks].reverse().map((week, wi) => {
           const weekLabel = `${week[0].getDate().toString().padStart(2, '0')}/${(week[0].getMonth() + 1).toString().padStart(2, '0')}`;
           return (
-            <div key={wi} style={{ display: 'grid', gridTemplateColumns: `52px repeat(7, 1fr)`, gap: '4px 4px', marginBottom: 8, alignItems: 'center' }}>
+            <div key={wi} style={{ display: 'grid', gridTemplateColumns: `52px repeat(7, 1fr)`, gap: 0, marginBottom: 0, alignItems: 'center', borderTop: '1px solid var(--line)', background: wi % 2 === 1 ? 'rgba(148, 163, 184, 0.08)' : 'transparent' }}>
               <div style={{ fontSize: 10, color: 'var(--muted)', textAlign: 'right', paddingRight: 8 }}>{weekLabel}</div>
               {week.map((day, di) => {
                 const dateStr = day.toISOString().slice(0, 10);
@@ -10120,7 +10120,7 @@ function TrainingCalendarDots({ history, onDayClick }: {
                 if (sessions.length === 0) {
                   // Sem treino — bolinha vazia discreta
                   return (
-                    <div key={di} style={{ display: 'flex', justifyContent: 'center' }}>
+                    <div key={di} style={{ display: 'flex', justifyContent: 'center', padding: '10px 0', borderLeft: '1px solid var(--line)' }}>
                       <div title={dateStr} style={{
                         width: DOT, height: DOT, borderRadius: '50%',
                         background: 'var(--line)', opacity: 0.18,
@@ -10145,7 +10145,7 @@ function TrainingCalendarDots({ history, onDayClick }: {
                 // planId associado ao dia (para navegar na aba Semanas anteriores)
                 const dayPlanId = dayPlanMap.get(dateStr) ?? '';
                 return (
-                  <div key={di} style={{ display: 'flex', justifyContent: 'center' }}>
+                  <div key={di} style={{ display: 'flex', justifyContent: 'center', padding: '10px 0', borderLeft: '1px solid var(--line)' }}>
                     <div style={{ position: 'relative', display: 'inline-block' }}>
                       <div
                         title={`${dateStr}\n${tooltipParts.join('\n')}${onDayClick ? '\n\nClique para ver o treino completo' : ''}`}
