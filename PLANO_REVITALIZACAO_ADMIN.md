@@ -26,7 +26,9 @@ Trocar o admin atual, que cresceu por acúmulo e não por desenho, por um painel
 | Menu | Enxugar (hoje 11 itens). "Semanas" sai do menu, com cuidado para não afetar a aba Semanas anteriores dentro de cada aluna. |
 | Evolução e Training Intelligence | Juntar em uma coisa só, dentro da Evolução de cada aluna. |
 | Carga semanal | Informação importante: mostrar a variação semanal do volume sempre à vista, não só no mouse. A semana em andamento não pode contar como queda. |
-| Acesso pelo celular | Painel online, sem precisar do terminal aberto. Prazo desejado: **domingo, 18/10/2026**. |
+| Acesso pelo celular | Painel online, sem precisar do terminal aberto. **É a ÚLTIMA etapa**, depois de todo o resto (decisão de Elton em 14/10/2026; substitui o desejo anterior de resolver até 18/10). |
+| Exportação: campos | Entram **idade, sexo e altura**. Peso entra por decisão minha (Elton delegou o resto), arredondado ao kg. Reversível. |
+| Delegação | Elton delegou ao Claude as pendências de menu, conteúdo da visão do Coordenador e limites iniciais. Ver seção 9. |
 
 ### O que fica, o que sai (a executar só na Fase 4)
 
@@ -72,14 +74,7 @@ Trocar o admin atual, que cresceu por acúmulo e não por desenho, por um painel
 
 Cada fase se divide em **lotes pequenos**, cada um com aprovação própria.
 
-### Trilha A — Painel acessível pelo celular (prazo: 18/10/2026) · risco ALTO (autenticação, dados de saúde e financeiros)
-- **A1 (só leitura):** como o login do admin funciona; com qual API o painel conversa; como o PWA do aluno é publicado no EasyPanel; qual endereço de produção existe, se houver.
-- **A2:** plano de publicação seguindo o modelo do PWA (app separado, nginx), login só de Elton, sessão que expira, sem credencial no código.
-- **A3 (aprovação explícita):** implementar e testar em ambiente local.
-- **A4:** teste no celular; Elton faz o deploy no EasyPanel.
-- **Aceitação:** abre no celular por HTTPS, só com login de Elton, sem terminal.
-- **Rollback:** desligar o app no EasyPanel; o `.bat` continua funcionando como hoje.
-- **Regra de prazo:** primeiro a segurança do login; o redesenho visual não entra nesta trilha.
+**Ordem de execução:** Fase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → **Trilha A (por último)**. Enquanto a Trilha A não for feita, o painel continua abrindo pelo `.bat` como hoje.
 
 ### Fase 0 — Fundação visual · risco MÉDIO
 Largura única e densidade corrigidas, tokens de design, tema claro/escuro, seletor de visão, menu enxuto, responsivo. O painel novo convive com o atual (rota ou flag).
@@ -111,10 +106,19 @@ Geração de programas (sucesso, falha, tentativas), decisões da IA contra o ex
 ### Fase 7 — Visão consolidada de Empresário/CEO
 Resumo entre os cômodos, metas e cenários. Só depois das demais.
 
+### Trilha A (ÚLTIMA) — Painel acessível pelo celular · risco ALTO (autenticação, dados de saúde e financeiros)
+Só começa depois das fases anteriores aprovadas. Quando chegar:
+- **A1 (só leitura):** como o login do admin funciona; com qual API o painel conversa; como o PWA do aluno é publicado no EasyPanel; qual endereço de produção existe, se houver.
+- **A2:** plano de publicação seguindo o modelo do PWA (app separado, nginx), login só de Elton, sessão que expira, sem credencial no código.
+- **A3 (aprovação explícita):** implementar e testar em ambiente local.
+- **A4:** teste no celular; Elton faz o deploy no EasyPanel.
+- **Aceitação:** abre no celular por HTTPS, só com login de Elton, sem terminal.
+- **Rollback:** desligar o app no EasyPanel; o `.bat` continua funcionando como hoje.
+
 ## 7. Exportação anônima (regra fixa)
 
 - Formatos: CSV/Excel do que está selecionado, imagem do gráfico, resumo em texto descrevendo dados, período e unidades.
-- Identificação: `studentCode` + idade em anos.
+- Identificação: `studentCode` + idade em anos + sexo + altura (cm) + peso (kg, arredondado).
 - Fora do arquivo: nome, e-mail, CPF, telefone, endereço, data de nascimento exata, qualquer texto livre com risco de identificar, localização detalhada.
 - Aviso na primeira exportação: o arquivo contém dado de saúde e, depois que sai do app, o controle é de Elton.
 - Texto livre (comentários) só entra tratado; se não puder ser tratado, fica de fora.
@@ -128,14 +132,16 @@ Resumo entre os cômodos, metas e cenários. Só depois das demais.
 - Publicar o admin online amplia a superfície de ataque.
 - A coluna "dados existem" do mapa de lentes vem do schema e não de auditoria.
 
-## 9. Decisões e pendências em aberto
+## 9. Decisões delegadas por Elton e pendências (14/10/2026)
 
-1. Menu final de 5 a 6 áreas (proposta acima) e o nome exato de cada visão.
-2. Conteúdo da visão do Coordenador técnico.
-3. Limites que definem "bem" e "mal" por visão (definidos por Elton).
-4. Se sexo, peso e altura entram na exportação.
-5. Quando começar a Fase 0 em relação à Trilha A.
-6. Revisão jurídica dos termos (pendência já registrada) antes de qualquer uso novo de dado sensível.
+Elton delegou ao Claude o que restava. Decidi assim, tudo ajustável quando ele quiser:
+
+1. **Menu final (6 itens):** Início (muda por visão) · Alunas · Dinheiro · Crescimento · IA e sistema · Ferramentas. Visões, com os nomes que ele usou: Treinador, Coordenador técnico, Empresário, Financeiro, Marketing.
+2. **Visão do Coordenador técnico (conteúdo inicial):** geração de programas (sucesso, falha, tentativas, semanas sem programa), decisões da IA contra o executado, intervenções do treinador, reavaliações pendentes, relatos e avisos pendentes, saúde do sistema (backups, rotinas, fila), integrações. Será mostrado como protótipo no início da Fase 6 para Elton corrigir.
+3. **Limites iniciais de "bem" e "mal" (provisórios, sempre visíveis e editáveis numa tela de configuração, a calibrar com casos reais):** sem treinar a partir de 10 dias = atenção, 14 dias ou mais = forte; aderência dos últimos 30 dias abaixo de 60% = atenção; atraso de pagamento de 1 dia ou mais = atenção, 7 dias ou mais = forte; tendência = fora da faixa habitual da própria aluna. A definição de cada limite aparece junto do número.
+4. **Exportação:** peso entra, arredondado ao kg (Elton listou só sexo e altura; peso é decisão minha, reversível).
+5. **Ordem:** a Trilha A (acesso pelo celular) é a última, por decisão dele. A Fase 0 é a primeira.
+6. **Em aberto, fora da decisão dele:** revisão jurídica dos termos (pendência já registrada) antes de qualquer uso novo de dado sensível, e a confirmação exata da causa das larguras diferentes entre telas (Fase 0).
 
 ## 10. Fora de escopo
 

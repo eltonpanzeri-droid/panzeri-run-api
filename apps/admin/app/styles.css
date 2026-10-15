@@ -18,7 +18,20 @@
   box-sizing: border-box;
 }
 
+/* 14/10/2026: escala unica do painel. O admin foi calibrado para ~85% de zoom do navegador; este valor
+   faz 100% parecer isso. Para ajustar o tamanho de tudo de uma vez, mude so --escala (1 = sem reducao). */
+:root {
+  --escala: 0.88;
+}
+
+@media (max-width: 900px) {
+  :root {
+    --escala: 1;
+  }
+}
+
 body {
+  zoom: var(--escala);
   margin: 0;
   background: var(--bg);
   color: var(--ink);
@@ -986,8 +999,10 @@ h3 {
    grid de 4 colunas do .detailPanel. */
 .detailPanel > .detailTabs,
 .detailPanel > .needsUpdateBanner,
-.detailPanel > .studentIdentityHeader {
+.detailPanel > .studentIdentityHeader,
+.detailPanel > .detailFull {
   grid-column: 1 / -1;
+  min-width: 0;
 }
 
 .studentIdentityHeader {
@@ -2322,8 +2337,9 @@ h3 {
   font-weight: 800;
 }
 
+/* 14/10/2026: sem limite proprio de largura; usa a mesma largura de .content (1500px) das outras telas. */
 .fullPanel {
-  max-width: 1120px;
+  max-width: none;
 }
 
 .couponCreateGrid {

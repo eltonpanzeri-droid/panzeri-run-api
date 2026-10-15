@@ -3191,7 +3191,7 @@ function StudentPanel({
         );
 
         return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div className="detailFull" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
 
           {/* ── FILTRO UNIVERSAL DE PERÍODO ──────────────────────────────────── */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 4px', flexWrap: 'wrap' }}>
@@ -3596,15 +3596,15 @@ function StudentPanel({
       ) : null}
 
       {detailTab === 'contexto' ? (
-        <ContextoTab studentId={student.id} accessToken={token} onStatus={onStatus} />
+        <div className="detailFull"><ContextoTab studentId={student.id} accessToken={token} onStatus={onStatus} /></div>
       ) : null}
 
       {detailTab === 'timeline' ? (
-        <TimelineTab student={student} accessToken={token} />
+        <div className="detailFull"><TimelineTab student={student} accessToken={token} /></div>
       ) : null}
 
       {detailTab === 'atividadesExternas' ? (
-        <AtividadesExternasTab studentId={student.id} accessToken={token} />
+        <div className="detailFull"><AtividadesExternasTab studentId={student.id} accessToken={token} /></div>
       ) : null}
 
       </section>
