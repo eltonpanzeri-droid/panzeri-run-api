@@ -2,14 +2,18 @@ import { CoachService } from '../src/coach/coach.service';
 
 // 15/10/2026: calendario de vencimentos (somente leitura). Garante populacao sem arquivadas, agrupamento
 // por dia pelo ISO date do nextChargeAt (meio-dia UTC), limites de intervalo e dias de atraso.
+// Correcao: "dias de atraso" vem do registro de mudanca para "overdue" (BillingEvent), nunca de nextChargeAt
+// (para quem esta em atraso o Asaas ja avancou nextChargeAt para o proximo vencimento).
 describe('CoachService.financeDueDates', () => {
-  const row = (name: string, nextChargeAt: string, status = 'active') => ({
+  const row = (name: string, nextChargeAt: string, status = 'active', id = `id-${name}`) => ({
     nextChargeAt: new Date(nextChargeAt),
-    user: { id: `id-${name}`, name, studentCode: 12, subscriptionStatus: status },
+    user: { id, name, studentCode: 12, subscriptionStatus: status },
   });
+  const daysAgo = (days: number) => new Date(Date.now() - days * 86400000);
 
-  function build(upcoming: unknown[], overdue: unknown[] = []) {
+  function build(upcoming: unknown[], overdue: unknown[] = [], events: unknown[] = []) {
     const calls: Array<{ where: any }> = [];
+    const eventCalls: any[] = [];
     const prisma = {
       billingSubscription: {
         findMany: jest.fn().mockImplementation((args: { where: any }) => {
@@ -17,12 +21,13 @@ describe('CoachService.financeDueDates', () => {
           return Promise.resolve(args.where.user.subscriptionStatus === 'overdue' ? overdue : upcoming);
         }),
       },
+      billingEvent: { findMany: jest.fn().mockImplementation((args: any) => { eventCalls.push(args); return Promise.resolve(events); }) },
     };
     const service = new CoachService(
       prisma as never, {} as never, {} as never, {} as never,
       {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
       {} as never, {} as never, {} as never, {} as never);
-    return { service, calls };
+    return { service, calls, eventCalls };
   }
 
   it('agrupa por dia, conta e usa o valor de tabela', async () => {
@@ -58,11 +63,32 @@ describe('CoachService.financeDueDates', () => {
     expect(invertido.to).toBe('2026-10-20');
   });
 
-  it('ignora datas invalidas e calcula dias de atraso', async () => {
-    const { service } = build([], [row('Dani', '2000-01-01T12:00:00.000Z', 'overdue')]);
+  it('ignora datas invalidas', async () => {
+    const { service } = build([]);
     const result = await service.financeDueDates({ from: 'lixo', to: '2026-13-99' });
     expect(result.from).toBe(result.today);
-    expect(result.overdueNow[0].daysLate).toBeGreaterThan(9000);
-    expect(result.overdueNow[0].studentCode).toBeTruthy();
+  });
+
+  it('dias de atraso vem do registro de mudanca para atrasado, nao de nextChargeAt', async () => {
+    // nextChargeAt no FUTURO (Asaas ja avancou o vencimento): o calculo antigo dava sempre 0 dia.
+    const futuro = new Date(Date.now() + 20 * 86400000).toISOString();
+    const { service, eventCalls } = build([], [
+      row('Dani', futuro, 'overdue', 'u-dani'),
+      row('Eva', futuro, 'overdue', 'u-eva'),
+      row('Fabi', futuro, 'overdue', 'u-fabi'),
+    ], [
+      { userId: 'u-dani', event: 'status_change', timestamp: daysAgo(12) },
+      { userId: 'u-dani', event: 'baseline_snapshot', timestamp: daysAgo(30) },
+      { userId: 'u-eva', event: 'baseline_snapshot', timestamp: daysAgo(30) },
+    ]);
+    const result = await service.financeDueDates({});
+    const byName = Object.fromEntries(result.overdueNow.map((o) => [o.name, o]));
+    expect(byName.Dani.precision).toBe('exata');
+    expect(byName.Dani.daysLate).toBeGreaterThanOrEqual(11);
+    expect(byName.Dani.daysLate).toBeLessThanOrEqual(13);
+    expect(byName.Eva).toMatchObject({ precision: 'antes_do_registro', daysLate: null, overdueSince: null });
+    expect(byName.Fabi).toMatchObject({ precision: 'sem_registro', daysLate: null });
+    expect(eventCalls[0].where.nextStatus).toBe('overdue');
+    expect(eventCalls[0].where.userId).toEqual({ in: ['u-dani', 'u-eva', 'u-fabi'] });
   });
 });

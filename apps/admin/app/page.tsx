@@ -100,6 +100,7 @@ interface ProspectRow {
   createdAt: string;
   level: 'quente' | 'morno' | 'frio';
   levelLabel: string;
+  stage?: 'signup' | 'interview' | 'checkout';
 }
 
 interface StudentRow {
@@ -469,7 +470,7 @@ export default function AdminHome() {
   const [trainingFilter, setTrainingFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
   const [studentListCollapsed, setStudentListCollapsed] = useState(false);
-  const [prospectSub, setProspectSub] = useState<ProspectSub>('geral');
+  const [prospectStage, setProspectStage] = useState<ProspectStageFilter>('todos');
   const [status, setStatus] = useState('');
   // 23/09: o aviso flutuante (panelToast, ex: "Painel atualizado.") ficava preso na tela ate a
   // proxima acao sobrescrever `status` ou o treinador recarregar a pagina. So' some sozinho DEPOIS
@@ -509,6 +510,7 @@ export default function AdminHome() {
   const [businessPeriod, setBusinessPeriod] = useState<{ months: number } | { from: string; to: string }>({ months: 6 });
   const [trainingPeriod, setTrainingPeriod] = useState<{ weeks: number } | { from: string; to: string }>({ weeks: 12 });
   const [prospects, setProspects] = useState<{ totals: { total: number; quente: number; morno: number; frio: number }; prospects: ProspectRow[] } | null>(null);
+  const prospectRows = (prospects?.prospects ?? []).filter((prospect) => prospectStage === 'todos' || prospect.stage === prospectStage);
   const [exStudents, setExStudents] = useState<{ total: number; exStudents: ExStudentRow[] } | null>(null);
   // 04/09: lista de testadores gratuitos (Play Store) que o proprio treinador gerencia aqui, sem
   // precisar pedir deploy de codigo pra cada pessoa nova — ver createCheckout em billing.service.ts.
@@ -1466,29 +1468,18 @@ export default function AdminHome() {
             </div>
             <p className="chartDesc">Confirmado, cortesia, atrasado, pendente e cancelado ao fim de cada mês. Clique numa barra para investigar.</p>
             {monthlyEvolution && monthlyEvolution.length ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <ComposedChart data={monthlyEvolution.map((m) => ({
-                  month: m.month,
-                  Confirmado: m.groups.confirmed,
-                  Cortesia: m.groups.courtesy,
-                  Atrasado: m.groups.overdue,
-                  Pendente: m.groups.pending,
-                  Cancelado: m.groups.canceled,
-                  coverage: m.coverage,
-                }))}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis dataKey="month" fontSize={12} />
-                  <YAxis fontSize={12} allowDecimals={false} />
-                  <Tooltip />
-                  <Legend />
-                  {/* 15/10/2026 (pedido de Elton): colunas lado a lado por status, em vez de empilhadas. */}
-                  <Bar dataKey="Confirmado" fill="#1a7f5a" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="Cortesia" fill="#7aa8ff" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="Atrasado" fill="#e0a72d" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="Pendente" fill="#c9c9c9" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="Cancelado" fill="#d9534f" radius={[3, 3, 0, 0]} />
-                </ComposedChart>
-              </ResponsiveContainer>
+              <MonthlyTrendChart
+                height={300}
+                trendKey="Confirmado"
+                rows={monthlyEvolution.map((m) => ({ month: m.month, Confirmado: m.groups.confirmed, Cortesia: m.groups.courtesy, Atrasado: m.groups.overdue, Pendente: m.groups.pending, Cancelado: m.groups.canceled }))}
+                series={[
+                  { key: 'Confirmado', label: 'Confirmado', kind: 'bar', color: '#1a7f5a' },
+                  { key: 'Cortesia', label: 'Cortesia', kind: 'bar', color: '#7aa8ff' },
+                  { key: 'Atrasado', label: 'Atrasado', kind: 'bar', color: '#e0a72d' },
+                  { key: 'Pendente', label: 'Pendente', kind: 'bar', color: '#c9c9c9' },
+                  { key: 'Cancelado', label: 'Cancelado', kind: 'bar', color: '#d9534f' },
+                ]}
+              />
             ) : <p className="formHintText">Carregando evolução mensal...</p>}
             {monthlyEvolution?.some((m) => m.coverage === 'partial' || m.coverage === 'insufficient') ? (
               <p className="formHintText">Meses marcados com cobertura parcial: o histórico de eventos de pagamento começou em 16/09/2026 — dados anteriores a essa data para alunas sem baseline confiável ficam registrados como parciais, nunca inventados.</p>
@@ -1504,15 +1495,12 @@ export default function AdminHome() {
             </h3>
             <p className="chartDesc">Usa o mesmo período selecionado no gráfico de Evolução de alunos acima.</p>
             {monthlyEvolution && monthlyEvolution.length ? (
-              <ResponsiveContainer width="100%" height={200}>
-                <ComposedChart data={monthlyEvolution.map((m) => ({ month: m.month, novosProspectos: m.newProspects }))}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis dataKey="month" fontSize={12} />
-                  <YAxis fontSize={12} allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="novosProspectos" name="Novos prospectos" fill="#7aa8ff" />
-                </ComposedChart>
-              </ResponsiveContainer>
+              <MonthlyTrendChart
+                height={240}
+                trendKey="novosProspectos"
+                rows={monthlyEvolution.map((m) => ({ month: m.month, novosProspectos: m.newProspects }))}
+                series={[{ key: 'novosProspectos', label: 'Novos prospectos', kind: 'bar', color: '#7aa8ff' }]}
+              />
             ) : <p className="formHintText">Carregando novos prospectos...</p>}
           </section>
         ) : null}
@@ -1524,16 +1512,13 @@ export default function AdminHome() {
               <InfoIcon text="Soma real de pagamentos confirmados (Asaas) recebidos naquele mês, vindo do log de BillingEvent. Não é projeção — RevenueCat (compra pela loja) não entra aqui porque não temos o valor exato repassado pela Apple/Google." />
             </h3>
             {monthlyEvolution && monthlyEvolution.length ? (
-              <ResponsiveContainer width="100%" height={220}>
-                {/* 15/10/2026 (pedido de Elton): colunas por mes, no mesmo estilo do grafico de alunos. */}
-                <ComposedChart data={monthlyEvolution.map((m) => ({ month: m.month, receita: m.revenueReceivedCents / 100 }))}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis dataKey="month" fontSize={12} />
-                  <YAxis fontSize={12} tickFormatter={(v) => `R$${v}`} />
-                  <Tooltip formatter={(value: unknown) => `R$ ${Number(value).toFixed(2)}`} />
-                  <Bar dataKey="receita" fill="#1a7f5a" radius={[3, 3, 0, 0]} name="Receita recebida" />
-                </ComposedChart>
-              </ResponsiveContainer>
+              <MonthlyTrendChart
+                height={260}
+                money
+                trendKey="receita"
+                rows={monthlyEvolution.map((m) => ({ month: m.month, receita: m.revenueReceivedCents / 100 }))}
+                series={[{ key: 'receita', label: 'Receita recebida', kind: 'bar', color: '#1a7f5a' }]}
+              />
             ) : <p className="formHintText">Carregando receita mensal...</p>}
           </section>
         ) : null}
@@ -1798,9 +1783,7 @@ export default function AdminHome() {
                   {isRunningProspectNurture ? 'Rodando...' : 'Rodar aquecimento agora'}
                 </button>
               </div>
-              <ProspectsSubmenu accessToken={token} sub={prospectSub} onSub={setProspectSub} />
-              {prospectSub === 'geral' ? (
-              <>
+              <ProspectsCharts accessToken={token} />
               <p className="formHintText">
                 Gente que criou conta no app mas ainda nao virou aluna de verdade — sem pagamento nenhum, nem cortesia liberada.
                 Nao consomem codigo de aluno nem aparecem na lista de Alunos. Ordenados do mais pra menos engajado.
@@ -1814,6 +1797,17 @@ export default function AdminHome() {
                 <Stat label="Morno" value={String(prospects?.totals.morno ?? 0)} detail="entrevista em andamento/concluida" />
                 <Stat label="Frio" value={String(prospects?.totals.frio ?? 0)} detail="nao respondeu nada ainda" />
               </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '4px 0 10px', alignItems: 'center' }} role="tablist" aria-label="Filtrar prospectos por situação">
+                <strong style={{ fontSize: 13, marginRight: 4 }}>Ver nomes por situação:</strong>
+                {([['todos', 'Todos'], ['signup', 'Só cadastraram'], ['interview', 'Responderam as perguntas iniciais'], ['checkout', 'Cobrança gerada e não pagou']] as Array<[ProspectStageFilter, string]>).map(([key, label]) => {
+                  const count = key === 'todos' ? (prospects?.prospects.length ?? 0) : (prospects?.prospects ?? []).filter((p) => p.stage === key).length;
+                  return (
+                    <button key={key} type="button" role="tab" aria-selected={prospectStage === key} className="secondaryButton"
+                      style={prospectStage === key ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : undefined}
+                      onClick={() => setProspectStage(key)}>{label} ({count})</button>
+                  );
+                })}
+              </div>
               <div className="table">
                 <div className="row header">
                   <span>Nome</span>
@@ -1822,7 +1816,7 @@ export default function AdminHome() {
                   <span>Nivel de interesse</span>
                   <span></span>
                 </div>
-                {(prospects?.prospects ?? []).map((prospect) => (
+                {prospectRows.map((prospect) => (
                   <div className="row" key={prospect.id} style={{ cursor: 'default' }}>
                     <span><strong>{prospect.name}</strong></span>
                     <span>{prospect.email}</span>
@@ -1842,9 +1836,8 @@ export default function AdminHome() {
                   </div>
                 ))}
                 {!prospects?.prospects.length ? <p className="formHintText">Nenhum prospecto no momento.</p> : null}
+                {prospects?.prospects.length && !prospectRows.length ? <p className="formHintText">Nenhum prospecto nesta situação.</p> : null}
               </div>
-              </>
-              ) : null}
             </div>
 
             <div className="panel">
@@ -2058,7 +2051,7 @@ function CouponsView({
   );
 }
 
-type ProspectSub = 'geral' | 'accessed' | 'signups' | 'interview' | 'checkout';
+type ProspectStageFilter = 'todos' | 'signup' | 'interview' | 'checkout';
 type ProspectsSeriesResponse = {
   days: number;
   dates: string[];
@@ -2081,16 +2074,164 @@ function quantileOf(values: number[], q: number): number {
   return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
 }
 
-const PROSPECT_SUBS: Array<{ key: ProspectSub; label: string; series: keyof ProspectsSeriesResponse['series']; title: string; description: string; color: string }> = [
-  { key: 'geral', label: 'Geral', series: 'signups', title: 'Novos cadastros por dia (visão geral)', description: 'Contas criadas por dia. Todo cadastro entra como prospecto; quem paga vira aluna e sai desta visão.', color: '#2f6fed' },
-  { key: 'accessed', label: 'Só acessaram', series: 'accessed', title: 'Só acessaram o app, sem criar conta', description: 'Sessões do app que não terminaram em cadastro. São sessões, não pessoas (a mesma pessoa pode gerar mais de uma).', color: '#8b5cf6' },
-  { key: 'signups', label: 'Cadastraram', series: 'signups', title: 'Fizeram o cadastro', description: 'Contas criadas por dia, de quem ainda não é aluna (ou já virou).', color: '#2f6fed' },
-  { key: 'interview', label: 'Responderam as perguntas iniciais', series: 'interview', title: 'Responderam as perguntas iniciais', description: 'Entrevista rápida concluída, por dia.', color: '#0d9488' },
-  { key: 'checkout', label: 'Cobrança gerada e não pagou', series: 'checkout', title: 'Cobrança gerada e não paga', description: 'Cobranças criadas, por dia, para quem segue pendente e nunca pagou. Quem pagou já virou aluna.', color: '#d97706' },
+const PROSPECT_CHARTS: Array<{ series: keyof ProspectsSeriesResponse['series']; title: string; description: string; color: string }> = [
+  { series: 'signups', title: 'Geral: novos cadastros por dia', description: 'Contas criadas por dia. Todo cadastro entra como prospecto; quem paga vira aluna e sai desta visão.', color: '#2f6fed' },
+  { series: 'accessed', title: 'Só acessaram o app', description: 'Sessões que abriram o app e não terminaram em cadastro. São sessões, não pessoas.', color: '#8b5cf6' },
+  { series: 'interview', title: 'Responderam as perguntas iniciais', description: 'Entrevista rápida concluída, por dia.', color: '#0d9488' },
+  { series: 'checkout', title: 'Cobrança gerada e não paga', description: 'Cobranças criadas por dia para quem segue pendente e nunca pagou. Quem pagou já virou aluna.', color: '#d97706' },
 ];
 
-/** 15/10/2026 (pedido de Elton): submenu de Prospectos com um grafico de colunas por etapa, media movel de 7 e 21 dias e faixa habitual. */
-function ProspectsSubmenu({ accessToken, sub, onSub }: { accessToken: string; sub: ProspectSub; onSub: (next: ProspectSub) => void }) {
+const MONTH_ABBR_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+function monthLabelPt(month: string): string {
+  const [year, number] = month.split('-');
+  return `${MONTH_ABBR_PT[Number(number) - 1] ?? number}/${year}`;
+}
+function nextMonthsAfter(lastMonth: string, count: number): string[] {
+  const [year, number] = lastMonth.split('-').map(Number);
+  const months: string[] = [];
+  for (let step = 1; step <= count; step += 1) {
+    const index = (number - 1) + step;
+    months.push(`${year + Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`);
+  }
+  return months;
+}
+
+type MonthlySeriesDef = { key: string; label: string; kind: 'bar' | 'line'; color: string; axis?: 'left' | 'right'; dashed?: boolean };
+
+/** 15/10/2026 (pedido de Elton): grafico mensal padrao do admin — colunas finas, meses no formato "ago/2026" incluindo meses futuros
+ *  em branco (sempre pelo menos 12 colunas de calendario), liga/desliga de cada serie para comparar e canal de tendencia
+ *  (media movel de 3 meses + faixa entre os percentis 25 e 75). Dados mensais nao comportam media de 7 e 21 dias; essas valem
+ *  para os graficos diarios (Prospectos). */
+function MonthlyTrendChart({ rows, series, trendKey, trendAxis = 'left', money = false, rightMoney = false, height = 280 }: {
+  rows: Array<{ month: string } & Record<string, number | string | null | undefined>>;
+  series: MonthlySeriesDef[];
+  trendKey?: string;
+  trendAxis?: 'left' | 'right';
+  money?: boolean;
+  rightMoney?: boolean;
+  height?: number;
+}) {
+  const [hidden, setHidden] = useState<Record<string, boolean>>({});
+  const [trend, setTrend] = useState({ media: true, canal: true });
+  const hasRight = series.some((item) => item.axis === 'right');
+  const lastMonth = rows.length ? rows[rows.length - 1].month : new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+  const futureCount = Math.min(Math.max(3, 12 - rows.length), 9);
+  const future = nextMonthsAfter(lastMonth, futureCount);
+  const trendValues = trendKey ? rows.map((row) => Number(row[trendKey] ?? 0)) : [];
+  const mm3 = trendKey ? trailingMean(trendValues, 3) : [];
+  const lower = trendKey ? quantileOf(trendValues, 0.25) : 0;
+  const upper = trendKey ? quantileOf(trendValues, 0.75) : 0;
+  const data = [
+    ...rows.map((row, index) => ({ ...row, label: monthLabelPt(row.month), mm3: mm3[index] })),
+    ...future.map((month) => ({ month, label: monthLabelPt(month) })),
+  ];
+  const money2 = (value: unknown) => `R$ ${Number(value).toFixed(2).replace('.', ',')}`;
+  const formatFor = (axis: 'left' | 'right') => ((axis === 'right' ? rightMoney : money) ? money2 : (value: unknown) => String(value));
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+        {series.map((item) => <SeriesChip key={item.key} label={item.label} color={item.color} on={!hidden[item.key]} onClick={() => setHidden((current) => ({ ...current, [item.key]: !current[item.key] }))} />)}
+        {trendKey ? <SeriesChip label="Média de 3 meses" color="#e0a72d" on={trend.media} onClick={() => setTrend((current) => ({ ...current, media: !current.media }))} /> : null}
+        {trendKey ? <SeriesChip label="Canal de tendência" color="#e0a72d" on={trend.canal} onClick={() => setTrend((current) => ({ ...current, canal: !current.canal }))} /> : null}
+      </div>
+      <ResponsiveContainer width="100%" height={height}>
+        <ComposedChart data={data} barCategoryGap="28%">
+          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+          <XAxis dataKey="label" fontSize={11} interval={0} angle={-30} textAnchor="end" height={46} />
+          <YAxis yAxisId="left" fontSize={12} allowDecimals={false} tickFormatter={money ? (value) => `R$${value}` : undefined} />
+          {hasRight ? <YAxis yAxisId="right" orientation="right" fontSize={12} tickFormatter={rightMoney ? (value) => `R$${value}` : undefined} /> : null}
+          <Tooltip formatter={(value: unknown, name: unknown) => {
+            const def = series.find((item) => item.label === name);
+            return value == null ? '—' : (name === 'Média de 3 meses' ? formatFor(trendAxis) : formatFor(def?.axis ?? 'left'))(typeof value === 'number' && name === 'Média de 3 meses' ? Math.round(value * 100) / 100 : value);
+          }} />
+          {trendKey && trend.canal ? <ReferenceArea yAxisId={trendAxis} y1={lower} y2={upper} fill="#e0a72d" fillOpacity={0.16} ifOverflow="extendDomain" /> : null}
+          {series.map((item) => item.kind === 'bar'
+            ? <Bar key={item.key} yAxisId={item.axis ?? 'left'} dataKey={item.key} name={item.label} fill={item.color} maxBarSize={30} radius={[3, 3, 0, 0]} hide={!!hidden[item.key]} />
+            : <Line key={item.key} yAxisId={item.axis ?? 'left'} type="monotone" dataKey={item.key} name={item.label} stroke={item.color} strokeWidth={2} dot strokeDasharray={item.dashed ? '5 4' : undefined} connectNulls={false} hide={!!hidden[item.key]} />)}
+          {trendKey && trend.media ? <Line yAxisId={trendAxis} type="monotone" dataKey="mm3" name="Média de 3 meses" stroke="#dc2626" strokeWidth={2} dot={false} connectNulls={false} /> : null}
+        </ComposedChart>
+      </ResponsiveContainer>
+      {trendKey ? <p className="formHintText" style={{ marginTop: 4 }}>Canal de tendência (área amarela): onde a série costuma variar, entre os percentis 25 e 75 dos meses mostrados ({money ? formatMoney(Math.round(lower * 100)) : lower.toFixed(1).replace('.', ',')} a {money ? formatMoney(Math.round(upper * 100)) : upper.toFixed(1).replace('.', ',')}). Média móvel de 3 meses porque os dados são mensais.</p> : null}
+    </div>
+  );
+}
+
+/** Botao liga/desliga de uma serie do grafico (faz o papel de legenda e de comparacao). */
+function SeriesChip({ label, color, on, onClick }: { label: string; color: string; on: boolean; onClick: () => void }) {
+  return (
+    <button type="button" aria-pressed={on} onClick={onClick}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 99, padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: on ? 'var(--accent-soft)' : 'transparent', color: on ? 'var(--ink)' : 'var(--muted)', opacity: on ? 1 : 0.7 }}>
+      <span style={{ width: 10, height: 10, borderRadius: 3, background: color, opacity: on ? 1 : 0.35 }} />{label}
+    </button>
+  );
+}
+
+/** Um grafico de colunas diarias com media movel de 7 e 21 dias e canal de tendencia (faixa entre os percentis 25 e 75 da janela). */
+function ProspectChart({ dates, values, title, description, color, total }: { dates: string[]; values: number[]; title: string; description: string; color: string; total: number }) {
+  const [show, setShow] = useState({ valor: true, mm7: true, mm21: true, canal: true });
+  const toggle = (key: keyof typeof show) => setShow((current) => ({ ...current, [key]: !current[key] }));
+  const mm7 = trailingMean(values, 7);
+  const mm21 = trailingMean(values, 21);
+  const lower = quantileOf(values, 0.25);
+  const upper = quantileOf(values, 0.75);
+  const chartData = dates.map((date, index) => ({ date: `${date.slice(8, 10)}/${date.slice(5, 7)}`, valor: values[index], mm7: mm7[index], mm21: mm21[index] }));
+  return (
+    <section className="chartCard" style={{ marginBottom: 0, minWidth: 0 }}>
+      <h3 style={{ justifyContent: 'space-between' }}>
+        <span>{title}</span>
+        <strong style={{ fontSize: 22 }}>{total}</strong>
+      </h3>
+      <p className="chartDesc" style={{ marginBottom: 8 }}>{description}</p>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+        <SeriesChip label="Por dia" color={color} on={show.valor} onClick={() => toggle('valor')} />
+        <SeriesChip label="Média de 7 dias" color="#e0a72d" on={show.mm7} onClick={() => toggle('mm7')} />
+        <SeriesChip label="Média de 21 dias" color="#dc2626" on={show.mm21} onClick={() => toggle('mm21')} />
+        <SeriesChip label="Canal de tendência" color="#e0a72d" on={show.canal} onClick={() => toggle('canal')} />
+      </div>
+      <ResponsiveContainer width="100%" height={220}>
+        <ComposedChart data={chartData} barCategoryGap="15%">
+          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+          <XAxis dataKey="date" fontSize={11} interval="preserveStartEnd" minTickGap={24} />
+          <YAxis fontSize={12} allowDecimals={false} />
+          <Tooltip formatter={(value: unknown, name: unknown) => (value == null ? '—' : typeof value === 'number' && String(name).startsWith('Média') ? value.toFixed(1) : String(value))} />
+          {show.canal ? <ReferenceArea y1={lower} y2={upper} fill="#e0a72d" fillOpacity={0.16} ifOverflow="extendDomain" /> : null}
+          <Bar dataKey="valor" name="Por dia" fill={color} maxBarSize={16} radius={[2, 2, 0, 0]} hide={!show.valor} />
+          <Line type="monotone" dataKey="mm7" name="Média de 7 dias" stroke="#e0a72d" strokeWidth={2} dot={false} connectNulls={false} hide={!show.mm7} />
+          <Line type="monotone" dataKey="mm21" name="Média de 21 dias" stroke="#dc2626" strokeWidth={2} dot={false} connectNulls={false} hide={!show.mm21} />
+        </ComposedChart>
+      </ResponsiveContainer>
+      <p className="formHintText" style={{ marginTop: 4 }}>Canal de tendência (área amarela): onde o valor costuma variar, de {lower.toFixed(1).replace('.', ',')} a {upper.toFixed(1).replace('.', ',')} por dia (percentis 25 a 75 da janela).</p>
+    </section>
+  );
+}
+
+/** Comparacao: a media de 7 dias das quatro etapas no mesmo grafico, com liga/desliga por etapa. */
+function ProspectsCompare({ dates, data }: { dates: string[]; data: ProspectsSeriesResponse['series'] }) {
+  const [on, setOn] = useState<Record<string, boolean>>({ signups: true, accessed: true, interview: true, checkout: true });
+  const means = Object.fromEntries(PROSPECT_CHARTS.map((chart) => [chart.series, trailingMean(data[chart.series], 7)]));
+  const chartData = dates.map((date, index) => ({ date: `${date.slice(8, 10)}/${date.slice(5, 7)}`, ...Object.fromEntries(PROSPECT_CHARTS.map((chart) => [chart.series, means[chart.series][index]])) }));
+  return (
+    <section className="chartCard" style={{ marginTop: 12, marginBottom: 0 }}>
+      <h3>Comparar as etapas (média de 7 dias)</h3>
+      <p className="chartDesc" style={{ marginBottom: 8 }}>Ligue e desligue as etapas para compará-las no mesmo período. "Só acessaram" conta sessões e costuma ser bem maior que as demais.</p>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+        {PROSPECT_CHARTS.map((chart) => <SeriesChip key={chart.series} label={chart.title} color={chart.color} on={on[chart.series]} onClick={() => setOn((current) => ({ ...current, [chart.series]: !current[chart.series] }))} />)}
+      </div>
+      <ResponsiveContainer width="100%" height={240}>
+        <ComposedChart data={chartData}>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+          <XAxis dataKey="date" fontSize={11} interval="preserveStartEnd" minTickGap={24} />
+          <YAxis fontSize={12} />
+          <Tooltip formatter={(value: unknown) => (typeof value === 'number' ? value.toFixed(1) : '—')} />
+          {PROSPECT_CHARTS.map((chart) => <Line key={chart.series} type="monotone" dataKey={chart.series} name={chart.title} stroke={chart.color} strokeWidth={2} dot={false} connectNulls={false} hide={!on[chart.series]} />)}
+        </ComposedChart>
+      </ResponsiveContainer>
+    </section>
+  );
+}
+
+/** 15/10/2026 (pedido de Elton): todos os graficos de prospectos juntos na tela, cada um com colunas por dia, media movel de 7 e 21 dias e canal de tendencia. */
+function ProspectsCharts({ accessToken }: { accessToken: string }) {
   const [days, setDays] = useState(90);
   const [data, setData] = useState<ProspectsSeriesResponse | null>(null);
   const [error, setError] = useState('');
@@ -2104,70 +2245,40 @@ function ProspectsSubmenu({ accessToken, sub, onSub }: { accessToken: string; su
         const json = (await response.json()) as ProspectsSeriesResponse;
         if (!cancelled) { setData(json); setError(''); }
       } catch {
-        if (!cancelled) setError('Não consegui carregar os gráficos de prospectos.');
+        if (!cancelled) setError('Não consegui carregar os gráficos de prospectos. Se a API acabou de ser atualizada, aguarde o deploy terminar e abra de novo.');
       }
     })();
     return () => { cancelled = true; };
   }, [accessToken, days]);
 
-  const current = PROSPECT_SUBS.find((item) => item.key === sub) ?? PROSPECT_SUBS[0];
-  const values = data?.series[current.series] ?? [];
-  const mm7 = trailingMean(values, 7);
-  const mm21 = trailingMean(values, 21);
-  const lower = quantileOf(values, 0.25);
-  const upper = quantileOf(values, 0.75);
-  const chartData = (data?.dates ?? []).map((date, index) => ({ date: `${date.slice(8, 10)}/${date.slice(5, 7)}`, valor: values[index], mm7: mm7[index], mm21: mm21[index] }));
   return (
     <div style={{ margin: '4px 0 16px' }}>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }} role="tablist" aria-label="Etapas dos prospectos">
-        {PROSPECT_SUBS.map((item) => (
-          <button key={item.key} type="button" role="tab" aria-selected={sub === item.key} className="secondaryButton"
-            style={sub === item.key ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : undefined}
-            onClick={() => onSub(item.key)}>
-            {item.label}{data && item.key !== 'geral' ? ` (${data.totals[item.series] ?? 0})` : ''}
-          </button>
-        ))}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+        <strong>Interesse ao longo do tempo</strong>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[30, 90, 180].map((value) => (
+            <button key={value} type="button" className="secondaryButton" aria-pressed={days === value}
+              style={days === value ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : undefined}
+              onClick={() => setDays(value)}>{value} dias</button>
+          ))}
+        </div>
       </div>
-      <section className="chartCard" style={{ marginBottom: 0 }}>
-        <div className="chartHeaderRow">
-          <h3>{current.title}</h3>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {[30, 90, 180].map((value) => (
-              <button key={value} type="button" className="secondaryButton" aria-pressed={days === value}
-                style={days === value ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : undefined}
-                onClick={() => setDays(value)}>{value} dias</button>
+      {error ? <p className="formHintText">{error}</p> : null}
+      {!data && !error ? <p className="formHintText">Carregando...</p> : null}
+      {data ? (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 12 }}>
+            {PROSPECT_CHARTS.map((chart) => (
+              <ProspectChart key={chart.series} dates={data.dates} values={data.series[chart.series]} title={chart.title} description={chart.description} color={chart.color} total={data.totals[chart.series] ?? 0} />
             ))}
           </div>
-        </div>
-        <p className="chartDesc">{current.description}</p>
-        {error ? <p className="formHintText">{error}</p> : null}
-        {!data && !error ? <p className="formHintText">Carregando...</p> : null}
-        {data ? (
-          <>
-            <ResponsiveContainer width="100%" height={260}>
-              <ComposedChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="date" fontSize={11} interval="preserveStartEnd" minTickGap={24} />
-                <YAxis fontSize={12} allowDecimals={false} />
-                <Tooltip formatter={(value: unknown, name: unknown) => (value == null ? '—' : typeof value === 'number' && String(name).startsWith('Média') ? value.toFixed(1) : String(value))} />
-                <Legend />
-                <ReferenceArea y1={lower} y2={upper} fill="#e0a72d" fillOpacity={0.15} ifOverflow="extendDomain" label={{ value: 'faixa habitual', fontSize: 10, position: 'insideTopRight' }} />
-                <Bar dataKey="valor" name="Por dia" fill={current.color} radius={[2, 2, 0, 0]} />
-                <Line type="monotone" dataKey="mm7" name="Média de 7 dias" stroke="#e0a72d" strokeWidth={2} dot={false} connectNulls={false} />
-                <Line type="monotone" dataKey="mm21" name="Média de 21 dias" stroke="#dc2626" strokeWidth={2} dot={false} connectNulls={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-            <p className="formHintText" style={{ marginTop: 6 }}>
-              Faixa habitual: entre o percentil 25 e o 75 dos valores diários desta janela ({lower.toFixed(1).replace('.', ',')} a {upper.toFixed(1).replace('.', ',')} por dia). Médias móveis aparecem a partir do 7º e do 21º dia da janela.
-            </p>
-            <p className="formHintText">{data.note}</p>
-          </>
-        ) : null}
-      </section>
+          <ProspectsCompare dates={data.dates} data={data.series} />
+          <p className="formHintText" style={{ marginTop: 8 }}>Colunas = valor do dia. Linhas = média móvel de 7 e de 21 dias (aparecem a partir do 7º e do 21º dia da janela). {data.note}</p>
+        </>
+      ) : null}
     </div>
   );
 }
-
 /** 15/10/2026 (Fase 7): panorama do negocio no topo da Visao geral. Usa so o que a tela ja carrega (totais e evolucao mensal);
  *  a variacao e' a diferenca contra o fim do mes anterior, dita como tal (o mes atual esta em andamento). Nenhum limite nem alerta. */
 function PanoramaSection({ totals, evolution, onOpenGroup, onOpenFinance }: {
@@ -2642,7 +2753,7 @@ type DueDatesResponse = {
   from: string; to: string; today: string; priceCents: number;
   totals: { count: number; expectedCents: number };
   days: Array<{ date: string; count: number; expectedCents: number; students: Array<{ id: string; studentCode: string; name: string; status: string }> }>;
-  overdueNow: Array<{ id: string; studentCode: string; name: string; status: string; dueDate: string | null; daysLate: number | null }>;
+  overdueNow: Array<{ id: string; studentCode: string; name: string; status: string; overdueSince: string | null; daysLate: number | null; precision: 'exata' | 'antes_do_registro' | 'sem_registro' }>;
   note: string;
 };
 
@@ -2737,7 +2848,9 @@ function DueDatesSection({ accessToken }: { accessToken: string }) {
           {data.overdueNow.map((student) => (
             <p key={student.id} style={{ margin: '4px 0' }}>
               {student.name} <span style={{ color: 'var(--muted)' }}>({student.studentCode})</span>
-              {student.daysLate != null ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>{` · ${student.daysLate} dia(s) de atraso`}</span> : null}
+              {student.precision === 'exata' && student.daysLate != null && student.overdueSince
+                ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>{` · atrasada desde ${dayLabel(student.overdueSince)} (${student.daysLate} dia(s))`}</span>
+                : <span style={{ color: 'var(--muted)' }}>{student.precision === 'antes_do_registro' ? ' · já estava atrasada antes de 16/09/2026 (data exata indisponível)' : ' · sem data de atraso registrada'}</span>}
             </p>
           ))}
         </div>
@@ -2783,15 +2896,13 @@ function FinanceView({ finance, evolution, onRefresh, accessToken, onOpenGroup, 
           <InfoIcon text="Soma de pagamentos confirmados (Asaas) por mês, do log de eventos de cobrança. É dinheiro que já entrou, não projeção." />
         </h3>
         {evolution && evolution.length ? (
-          <ResponsiveContainer width="100%" height={220}>
-            <ComposedChart data={evolution.map((m) => ({ month: m.month, receita: m.revenueReceivedCents / 100 }))}>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-              <XAxis dataKey="month" fontSize={12} />
-              <YAxis fontSize={12} tickFormatter={(v) => `R$${v}`} />
-              <Tooltip formatter={(value: unknown) => `R$ ${Number(value).toFixed(2)}`} />
-              <Bar dataKey="receita" fill="#1a7f5a" radius={[3, 3, 0, 0]} name="Receita recebida" />
-            </ComposedChart>
-          </ResponsiveContainer>
+          <MonthlyTrendChart
+            height={260}
+            money
+            trendKey="receita"
+            rows={evolution.map((m) => ({ month: m.month, receita: m.revenueReceivedCents / 100 }))}
+            series={[{ key: 'receita', label: 'Receita recebida', kind: 'bar', color: '#1a7f5a' }]}
+          />
         ) : <p className="formHintText">Carregando evolução de receita...</p>}
       </section>
       {evolution && evolution.length ? (() => {
@@ -2809,19 +2920,18 @@ function FinanceView({ finance, evolution, onRefresh, accessToken, onOpenGroup, 
               Recebido contra projetado, por mês
               <InfoIcon text="Projetado = pagantes no fim do mês × R$ 19,90. Recebido = pagamentos confirmados do Asaas no mês. A diferença não é erro nem prejuízo: vencimentos que ainda não ocorreram, atrasos e compras pela loja (sem valor exato) explicam parte dela." />
             </h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <ComposedChart data={rows.map((r) => ({ month: r.month, pagantes: r.payers, projetado: r.projectedCents / 100, recebido: r.receivedCents / 100 }))}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="month" fontSize={12} />
-                <YAxis yAxisId="left" fontSize={12} allowDecimals={false} />
-                <YAxis yAxisId="right" orientation="right" fontSize={12} tickFormatter={(v) => `R$${v}`} />
-                <Tooltip formatter={(value: unknown, name: unknown) => (name === 'Pagantes' ? String(value) : `R$ ${Number(value).toFixed(2)}`)} />
-                <Legend />
-                <Bar yAxisId="left" dataKey="pagantes" name="Pagantes" fill="#7aa8ff" />
-                <Line yAxisId="right" type="monotone" dataKey="projetado" name="Projetado" stroke="#e0a72d" strokeWidth={2} dot={false} strokeDasharray="5 4" />
-                <Line yAxisId="right" type="monotone" dataKey="recebido" name="Recebido" stroke="#1a7f5a" strokeWidth={2} dot />
-              </ComposedChart>
-            </ResponsiveContainer>
+            <MonthlyTrendChart
+              height={280}
+              rightMoney
+              trendKey="recebido"
+              trendAxis="right"
+              rows={rows.map((r) => ({ month: r.month, pagantes: r.payers, projetado: r.projectedCents / 100, recebido: r.receivedCents / 100 }))}
+              series={[
+                { key: 'pagantes', label: 'Pagantes', kind: 'bar', color: '#7aa8ff', axis: 'left' },
+                { key: 'projetado', label: 'Projetado', kind: 'line', color: '#e0a72d', axis: 'right', dashed: true },
+                { key: 'recebido', label: 'Recebido', kind: 'line', color: '#1a7f5a', axis: 'right' },
+              ]}
+            />
             <div style={{ overflowX: 'auto', marginTop: 8 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>

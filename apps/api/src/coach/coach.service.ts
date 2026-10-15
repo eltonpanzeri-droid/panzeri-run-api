@@ -1237,7 +1237,10 @@ export class CoachService {
         interviewCompletedAt: row.onboardingInterview?.quickIntakeCompletedAt,
         hasCheckoutUrl: Boolean(row.billingSubscription?.checkoutUrl),
       });
-      return { id: row.id, name: row.name, email: row.email, createdAt: row.createdAt, level, levelLabel };
+      // 15/10/2026 (pedido de Elton): etapa em que o prospecto parou, para filtrar a lista e casar com os graficos.
+      // checkout = cobranca gerada e nao paga; interview = respondeu as perguntas iniciais; signup = so criou a conta.
+      const stage: 'signup' | 'interview' | 'checkout' = row.billingSubscription?.checkoutUrl ? 'checkout' : row.onboardingInterview?.quickIntakeCompletedAt ? 'interview' : 'signup';
+      return { id: row.id, name: row.name, email: row.email, createdAt: row.createdAt, level, levelLabel, stage };
     });
 
     withLevel.sort((a, b) => levelRank[a.level] - levelRank[b.level] || b.createdAt.getTime() - a.createdAt.getTime());
@@ -1248,6 +1251,11 @@ export class CoachService {
         quente: withLevel.filter((p) => p.level === 'quente').length,
         morno: withLevel.filter((p) => p.level === 'morno').length,
         frio: withLevel.filter((p) => p.level === 'frio').length,
+        byStage: {
+          signup: withLevel.filter((p) => p.stage === 'signup').length,
+          interview: withLevel.filter((p) => p.stage === 'interview').length,
+          checkout: withLevel.filter((p) => p.stage === 'checkout').length,
+        },
       },
       prospects: withLevel,
     };
@@ -2102,8 +2110,30 @@ export class CoachService {
       .sort(([a], [b]) => (a < b ? -1 : 1))
       .map(([date, students]) => ({ date, count: students.length, expectedCents: students.length * PRICE_PER_STUDENT_CENTS, students }));
 
+    // 15/10/2026 (correcao, relato de Elton: "0 dia(s) de atraso" para todas): para quem esta em atraso, nextChargeAt ja e' o
+    // PROXIMO vencimento (o Asaas avanca a data), entao nao serve para contar atraso. O inicio do atraso vem do registro de
+    // mudancas de status (BillingEvent com nextStatus = 'overdue'). Quem ja estava em atraso antes do registro existir
+    // (16/09/2026) so tem o "baseline_snapshot" e fica sem data exata — nunca inventamos.
+    const overdueIds = overdueRows.map((row) => row.user.id);
+    const overdueEvents = overdueIds.length
+      ? await this.prisma.billingEvent.findMany({
+          where: { userId: { in: overdueIds }, nextStatus: OVERDUE_STATUS },
+          orderBy: { timestamp: 'desc' },
+          select: { userId: true, event: true, timestamp: true },
+        })
+      : [];
     const dayMs = 86400000;
     const todayMs = Date.parse(`${today}T12:00:00.000Z`);
+    const spDay = (date: Date) => date.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const overdueInfo = (userId: string) => {
+      const mine = overdueEvents.filter((event) => event.userId === userId);
+      const exact = mine.find((event) => event.event !== 'baseline_snapshot');
+      if (exact) {
+        const since = spDay(exact.timestamp);
+        return { overdueSince: since, daysLate: Math.max(0, Math.round((todayMs - Date.parse(`${since}T12:00:00.000Z`)) / dayMs)), precision: 'exata' as const };
+      }
+      return { overdueSince: null, daysLate: null, precision: (mine.length ? 'antes_do_registro' : 'sem_registro') as 'antes_do_registro' | 'sem_registro' };
+    };
     return {
       from,
       to,
@@ -2111,12 +2141,8 @@ export class CoachService {
       priceCents: PRICE_PER_STUDENT_CENTS,
       totals: { count: upcoming.length, expectedCents: upcoming.length * PRICE_PER_STUDENT_CENTS },
       days,
-      overdueNow: overdueRows.map((row) => ({
-        ...toStudent(row),
-        dueDate: row.nextChargeAt ? row.nextChargeAt.toISOString().slice(0, 10) : null,
-        daysLate: row.nextChargeAt ? Math.max(0, Math.round((todayMs - Date.parse(`${row.nextChargeAt.toISOString().slice(0, 10)}T12:00:00.000Z`)) / dayMs)) : null,
-      })),
-      note: 'Vencimentos do Asaas. Alunas que pagam pela loja não têm data de vencimento no sistema e não aparecem. Valor de tabela, sem descontos.',
+      overdueNow: overdueRows.map((row) => ({ ...toStudent(row), ...overdueInfo(row.user.id) })),
+      note: 'Vencimentos do Asaas. Alunas que pagam pela loja não têm data de vencimento no sistema e não aparecem. Valor de tabela, sem descontos. Dias de atraso contam a partir do registro de mudança para "atrasado"; para quem já estava atrasada antes de 16/09/2026 a data exata não existe.',
     };
   }
 
