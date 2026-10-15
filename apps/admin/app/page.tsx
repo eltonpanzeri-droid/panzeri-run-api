@@ -3442,6 +3442,18 @@ function StudentPanel({
             ))}
           </div>
 
+          {/* ── EVOLUÇÃO AO LONGO DO TEMPO (Training Intelligence embutido) ───────────────────────────
+              15/10/2026 (Fase 4 lote 4.3, plano de revitalização): o gráfico de volume e as séries do Intelligence
+              passam a aparecer aqui, na Evolução da aluna. O seletor de aluna do Intelligence fica oculto (a aluna é a
+              desta aba). A tela Training Intelligence do menu continua até o lote 4.7. */}
+          <GroupLabel label="Evolução ao longo do tempo" />
+          <div className="evoStudio">
+            <EvoSection defaultOpen wide icon="🧭" title="Volume, sono, esforço e dor no mesmo tempo"
+              desc="Visão do Training Intelligence para esta aluna: escolha os indicadores com “+ Indicador”, mova a janela de datas e clique num dia para ver o painel do dia.">
+              <TrainingIntelligenceStudio key={student.id} accessToken={token} initialStudentId={student.id} />
+            </EvoSection>
+          </div>
+
           {/* ── VISÃO GERAL ───────────────────────────────────────────────── */}
           <GroupLabel label="Visão geral do período" />
           <VisaoGeralSection sessions={filteredSessions} weeks={filteredWeeks} />
@@ -10489,7 +10501,8 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
 
   const maxKm = Math.max(...weeks.map((w) => Math.max(w.completedKm, w.prescribedKm)), 5);
   const topKm = Math.ceil(maxKm / 5) * 5; // arredonda para múltiplo de 5
-  const W = 620; const H = 170; const PL = 38; const PT = 10; const PB = 30; const PR = 10;
+  const W = 620; const H = 186; const PL = 38; const PT = 10; const PB = 46; const PR = 10;
+  const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
   const chartW = W - PL - PR;
   const chartH = H - PT - PB;
   const barW = Math.max(4, (chartW / weeks.length) * 0.60);
@@ -10559,11 +10572,26 @@ function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
         )}
         {/* X labels */}
         {xLabels.map(({ i, label }) => (
-          <text key={i} x={xFn(i)} y={H - 8} textAnchor="middle" fontSize={8.5} fill="var(--muted)">{label}</text>
+          <text key={i} x={xFn(i)} y={H - 22} textAnchor="middle" fontSize={8.5} fill="var(--muted)">{label}</text>
         ))}
+        {/* 15/10/2026 (pedido de Elton): variacao % do volume vs. semana anterior sempre visivel, sem precisar do mouse.
+            A semana em andamento nao e' comparada (ainda esta incompleta) — aparece como "em curso", nunca como queda. */}
+        {weeks.map((w, i) => {
+          const showEvery = weeks.length <= 14 || i % 2 === 0 || i === n - 1;
+          if (!showEvery) return null;
+          const inProgress = w.startDate.slice(0, 10) <= todayIso && addDaysIso(w.startDate.slice(0, 10), 6) >= todayIso;
+          const previous = weeks[i - 1];
+          let text = '';
+          if (inProgress) text = 'em curso';
+          else if (previous && previous.completedKm > 0) {
+            const pct = Math.round(((w.completedKm - previous.completedKm) / previous.completedKm) * 100);
+            text = `${pct > 0 ? '+' : pct < 0 ? '−' : ''}${Math.abs(pct)}%`;
+          }
+          return text ? <text key={`v${i}`} x={xFn(i)} y={H - 8} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="var(--ink)">{text}</text> : null;
+        })}
       </svg>
       <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap', alignItems: 'center' }}>
-        <span>Km realizados por semana (barra mostra a variação % vs. semana anterior ao passar o mouse)</span>
+        <span>Km realizados por semana. Abaixo de cada data: variação % do volume em relação à semana anterior (semana em andamento não é comparada).</span>
         {n >= 4 && <span style={{ marginLeft: 8 }}>
           <span style={{ display:'inline-block', width:16, height:2, background:'#6366f1', marginRight:4, verticalAlign:'middle', opacity:0.7 }} />Tendência
         </span>}

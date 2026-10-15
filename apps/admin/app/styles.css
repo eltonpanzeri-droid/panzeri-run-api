@@ -762,6 +762,11 @@ h3 {
   align-items: start;
 }
 
+/* O Training Intelligence embutido na Evolucao ja tem a aluna escolhida pela aba; esconde o seletor dele. */
+.evoStudio .ti-embedded-student {
+  display: none;
+}
+
 .studentTable .row {
   grid-template-columns: minmax(230px, 1.5fr) minmax(150px, 1fr) 80px 90px 140px 130px minmax(200px, 1.2fr) 40px;
 }
