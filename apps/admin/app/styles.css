@@ -662,7 +662,7 @@ h3 {
   background: var(--panel);
   padding: 12px;
   display: grid;
-  grid-template-columns: 1fr 1fr 160px 120px;
+  grid-template-columns: 1fr 1fr minmax(210px, 260px) 130px;
   gap: 8px;
   margin-bottom: 14px;
 }
@@ -750,6 +750,32 @@ h3 {
   background: var(--paper);
   color: var(--ink);
   cursor: pointer;
+}
+
+/* 15/10/2026: lista de alunas (so layout). Colunas com largura minima, para o nome e o objetivo nao quebrarem em
+   varias linhas e o cabecalho acompanhar as colunas. Abaixo de 1100px volta ao grid original (a janela rola). */
+.studentTable .row {
+  grid-template-columns: minmax(230px, 1.5fr) minmax(150px, 1fr) 80px 90px 140px 130px minmax(200px, 1.2fr) 40px;
+}
+
+.studentTable .row.header {
+  min-height: 0;
+  padding: 8px 12px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.studentTable .row.rowButton:hover {
+  border-color: var(--accent);
+}
+
+@media (max-width: 1100px) {
+  .studentTable .row {
+    grid-template-columns: 1.1fr 0.75fr 0.45fr 0.5fr 0.75fr 0.85fr 0.95fr 40px;
+  }
 }
 
 .billingCell {

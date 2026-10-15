@@ -1703,7 +1703,7 @@ export default function AdminHome() {
                 de cima tambem"). Mesmo componente com compact=true para nao ocupar espaco. */}
             <Pagination pagination={dashboard?.pagination} onPageChange={setPage} compact />
             {studentListCollapsed ? null : (
-            <div className="table">
+            <div className="table studentTable">
               <div className="row header">
                 <span>Aluno</span>
                 <span>Objetivo</span>
