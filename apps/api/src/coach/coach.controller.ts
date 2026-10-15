@@ -134,6 +134,12 @@ export class CoachController {
     return this.coachService.finance();
   }
 
+  // 15/10/2026: funil de pessoas lido do banco (somente leitura). days: 7, 30, 90...; sem days = desde sempre.
+  @Get('funnel/people')
+  signupFunnelPeople(@Query('days') days?: string) {
+    return this.coachService.signupFunnelPeople({ days: days ? Number(days) : undefined });
+  }
+
   // 15/10/2026: calendario de vencimentos (somente leitura). from/to no formato AAAA-MM-DD; sem eles, hoje + 30 dias.
   @Get('finance/due-dates')
   financeDueDates(@Query('from') from?: string, @Query('to') to?: string) {

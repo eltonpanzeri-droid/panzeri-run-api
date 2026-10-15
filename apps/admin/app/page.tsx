@@ -1335,7 +1335,10 @@ export default function AdminHome() {
             { area: 'Alunas', view: 'prospects', label: `Prospectos${prospects?.totals.total != null ? ` (${prospects.totals.total})` : ''}`, icon: <Flame size={19} />, papeis: ['treinador', 'empresario', 'marketing'] },
             { area: 'Alunas', view: 'exStudents', label: `Ex-alunos${exStudents?.total != null ? ` (${exStudents.total})` : ''}`, icon: <UserX size={19} />, papeis: ['treinador', 'empresario'] },
             { area: 'Alunas', view: 'raceCalendar', label: 'Provas', icon: <Flag size={19} />, papeis: ['treinador', 'coordenador'] },
-            { area: 'Alunas', view: 'trainingIntelligence', label: 'Training Intelligence', icon: <Activity size={19} />, papeis: ['treinador', 'coordenador'] },
+            // 15/10/2026 (Fase 4 lote 4.7, decisao de Elton): o Training Intelligence saiu do menu — agora vive dentro da
+            // Evolucao de cada aluna. A view 'trainingIntelligence' e o componente foram mantidos (sem botao) para reverter:
+            // basta recolocar o item abaixo.
+            // { area: 'Alunas', view: 'trainingIntelligence', label: 'Training Intelligence', icon: <Activity size={19} />, papeis: ['treinador', 'coordenador'] },
             { area: 'Dinheiro', view: 'finance', label: 'Financeiro', icon: <CreditCard size={19} />, papeis: ['empresario', 'financeiro'] },
             { area: 'Dinheiro', view: 'coupons', label: 'Cupons', icon: <Ticket size={19} />, papeis: ['empresario', 'financeiro', 'marketing'] },
             { area: 'Crescimento', view: 'funnel', label: 'Funil', icon: <TrendingUp size={19} />, papeis: ['empresario', 'marketing'] },
@@ -1951,7 +1954,7 @@ export default function AdminHome() {
 
         {activeView === 'finance' ? <FinanceView finance={finance} evolution={monthlyEvolution} onRefresh={() => loadFinance()} accessToken={token} onOpenGroup={goToStudentsFilteredByPayment} onOpenProspects={() => changeView('prospects')} /> : null}
 
-        {activeView === 'funnel' ? <FunnelView report={funnelReport} loading={loadingFunnel} onRefresh={() => loadFunnel()} /> : null}
+        {activeView === 'funnel' ? <FunnelView report={funnelReport} loading={loadingFunnel} onRefresh={() => loadFunnel()} accessToken={token} /> : null}
 
         {activeView === 'raceCalendar' ? <RaceCalendarView races={raceCalendar} loading={loadingRaceCalendar} onRefresh={() => loadRaceCalendar()} /> : null}
 
@@ -2035,7 +2038,89 @@ function CouponsView({
   );
 }
 
-function FunnelView({ report, loading, onRefresh }: { report: FunnelReport | null; loading: boolean; onRefresh: () => void }) {
+type PeopleFunnelResponse = {
+  days: number | null;
+  stages: Array<{ key: string; label: string; count: number; percentOfSignups: number | null }>;
+  stoppedAt: Record<string, Array<{ id: string; studentCode: string; name: string; daysSinceSignup: number; status: string }>>;
+  courtesy: number;
+  note: string;
+};
+
+/** 15/10/2026 (Fase 5): funil de PESSOAS lido do banco (cadastro, entrevista rapida, cobranca, pagamento), com lista de quem parou em cada etapa. */
+function PeopleFunnelSection({ accessToken }: { accessToken: string }) {
+  const [days, setDays] = useState<number>(30);
+  const [data, setData] = useState<PeopleFunnelResponse | null>(null);
+  const [error, setError] = useState('');
+  const [picked, setPicked] = useState('');
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_URL}/coach/funnel/people${days ? `?days=${days}` : ''}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!response.ok) throw new Error('falha');
+        const json = (await response.json()) as PeopleFunnelResponse;
+        if (!cancelled) { setData(json); setError(''); }
+      } catch {
+        if (!cancelled) setError('Não consegui carregar o funil de pessoas.');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [accessToken, days]);
+
+  const top = Math.max(1, data?.stages[0]?.count ?? 1);
+  const stoppedLabel: Record<string, string> = { signup: 'Pararam logo depois de criar a conta', interview: 'Fizeram a entrevista e não receberam a cobrança', checkout: 'Receberam a cobrança e não pagaram', paid: 'Pagaram' };
+  return (
+    <div style={{ padding: '0 24px 24px' }}>
+      <h3 style={{ margin: '0 0 4px' }}>Pessoas interessadas: do cadastro ao pagamento</h3>
+      <p style={{ margin: '0 0 10px', color: 'var(--muted)', fontSize: 13 }}>Lido do banco: cada pessoa conta uma vez, na etapa mais avançada que alcançou. Clique numa etapa para ver quem parou ali.</p>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        {([[7, '7 dias'], [30, '30 dias'], [90, '90 dias'], [0, 'Desde sempre']] as Array<[number, string]>).map(([value, label]) => (
+          <button key={value} type="button" className="secondaryButton" aria-pressed={days === value}
+            style={days === value ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : undefined}
+            onClick={() => { setDays(value); setPicked(''); }}>{label}</button>
+        ))}
+      </div>
+      {error ? <p className="formHintText">{error}</p> : null}
+      {!data && !error ? <p className="formHintText">Carregando...</p> : null}
+      {data ? (
+        <>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {data.stages.map((stage, index) => {
+              const previous = index > 0 ? data.stages[index - 1].count : null;
+              const lost = previous != null ? previous - stage.count : null;
+              return (
+                <button key={stage.key} type="button" onClick={() => setPicked(picked === stage.key ? '' : stage.key)}
+                  style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 220px) minmax(0, 1fr) 150px', gap: 12, alignItems: 'center', textAlign: 'left', background: picked === stage.key ? 'var(--accent-soft)' : 'transparent', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', color: 'var(--ink)' }}>
+                  <strong>{index + 1}. {stage.label}</strong>
+                  <span style={{ height: 18, background: 'var(--line)', borderRadius: 4, overflow: 'hidden' }}>
+                    <span style={{ display: 'block', height: '100%', width: `${Math.round((stage.count / top) * 100)}%`, minWidth: stage.count ? 3 : 0, background: 'var(--accent)' }} />
+                  </span>
+                  <span style={{ textAlign: 'right', fontWeight: 700 }}>
+                    {stage.count}{stage.percentOfSignups != null ? ` · ${stage.percentOfSignups}%` : ''}
+                    {lost ? <small style={{ display: 'block', fontWeight: 400, color: 'var(--muted)' }}>{lost} saíram antes desta etapa</small> : null}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="formHintText" style={{ marginTop: 8 }}>{data.courtesy} pessoa(s) com cortesia ficam de fora do funil.</p>
+          {picked ? (
+            <div style={{ marginTop: 10 }}>
+              <strong>{stoppedLabel[picked] ?? picked}: {data.stoppedAt[picked]?.length ?? 0}</strong>
+              {(data.stoppedAt[picked] ?? []).length ? (data.stoppedAt[picked] ?? []).map((person) => (
+                <p key={person.id} style={{ margin: '4px 0' }}>{person.name} <span style={{ color: 'var(--muted)' }}>({person.studentCode} · cadastro há {person.daysSinceSignup} dia(s))</span></p>
+              )) : <p className="formHintText">Ninguém parou nesta etapa neste período.</p>}
+            </div>
+          ) : null}
+          <p className="formHintText" style={{ marginTop: 10 }}>{data.note}</p>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function FunnelView({ report, loading, onRefresh, accessToken }: { report: FunnelReport | null; loading: boolean; onRefresh: () => void; accessToken: string }) {
   const top = report?.funnel[0]?.sessions ?? 1;
   return (
     <section className="panel fullPanel">
@@ -2044,12 +2129,15 @@ function FunnelView({ report, loading, onRefresh }: { report: FunnelReport | nul
         <button className="secondaryButton" type="button" onClick={onRefresh}>Atualizar</button>
       </div>
 
+      <PeopleFunnelSection accessToken={accessToken} />
+
       {loading ? <p style={{ padding: '24px', color: 'var(--muted)' }}>Carregando...</p> : null}
 
       {!loading && report ? (
         <>
+          <h3 style={{ padding: '0 24px', margin: '0 0 4px' }}>Visitas ao app (contagem de sessões)</h3>
           <p style={{ padding: '0 24px', color: 'var(--muted)', fontSize: 13, marginBottom: 8 }}>
-            Últimos {report.days} dias · {report.preCadastroDropoff} pessoa(s) abriram o app mas não criaram conta
+            Últimos {report.days} dias · {report.preCadastroDropoff} sessão(ões) abriram o app mas não criaram conta. Aqui cada número conta sessões de uso, não pessoas, e as etapas "Iniciou entrevista" e "Pagou" não são confiáveis por este caminho (o evento de pagamento só dispara se a aluna estiver com a tela de assinatura aberta). Para pessoas, use o funil acima.
           </p>
 
           {/* Funil de conversão */}

@@ -1380,6 +1380,64 @@ export class CoachService {
     };
   }
 
+  // 15/10/2026 (Fase 5 do plano de revitalizacao, decisao de Elton): funil de PESSOAS lido do banco, nao de sessoes de
+  // evento. Cada pessoa cadastrada no periodo e' contada uma vez, na etapa mais avancada que alcancou; "alcancou"
+  // inclui etapas posteriores (quem pagou conta como quem fez a entrevista), entao o funil nunca cresce de uma etapa
+  // para a seguinte. Somente leitura. Cortesia (acesso liberado sem pagamento) fica a parte e nunca conta como "pagou".
+  async signupFunnelPeople(input: { days?: number }) {
+    const days = Number.isFinite(input.days) && (input.days as number) > 0 ? Math.min(Math.floor(input.days as number), 3650) : 0;
+    const since = days ? new Date(Date.now() - days * 86400000) : null;
+    const users = await this.prisma.user.findMany({
+      where: { ...STUDENT_METRICS_POPULATION, ...(since ? { createdAt: { gte: since } } : {}) },
+      select: {
+        id: true,
+        name: true,
+        studentCode: true,
+        createdAt: true,
+        subscriptionStatus: true,
+        onboardingInterview: { select: { quickIntakeCompletedAt: true, completedAt: true } },
+        billingSubscription: { select: { checkoutUrl: true, firstPaidAt: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const STAGES = [
+      { key: 'signup', label: 'Criou a conta' },
+      { key: 'interview', label: 'Fez a entrevista rápida' },
+      { key: 'checkout', label: 'Recebeu a cobrança' },
+      { key: 'paid', label: 'Pagou' },
+    ] as const;
+    const now = Date.now();
+    const stoppedAt: Record<string, Array<{ id: string; studentCode: string; name: string; daysSinceSignup: number; status: string }>> = { signup: [], interview: [], checkout: [], paid: [] };
+    const reached = [0, 0, 0, 0];
+    let courtesy = 0;
+    for (const user of users) {
+      const isCourtesy = user.subscriptionStatus === COURTESY_STATUS;
+      if (isCourtesy) { courtesy += 1; continue; }
+      const paid = user.billingSubscription?.firstPaidAt != null || (CONFIRMED_STATUSES as readonly string[]).includes(user.subscriptionStatus ?? '') || user.subscriptionStatus === OVERDUE_STATUS;
+      const checkout = paid || Boolean(user.billingSubscription?.checkoutUrl);
+      const interview = checkout || user.onboardingInterview?.quickIntakeCompletedAt != null || user.onboardingInterview?.completedAt != null;
+      const stage = paid ? 3 : checkout ? 2 : interview ? 1 : 0;
+      for (let index = 0; index <= stage; index += 1) reached[index] += 1;
+      stoppedAt[STAGES[stage].key].push({
+        id: user.id,
+        studentCode: formatStudentCode(user.studentCode),
+        name: user.name,
+        daysSinceSignup: Math.max(0, Math.floor((now - user.createdAt.getTime()) / 86400000)),
+        status: user.subscriptionStatus ?? 'desconhecido',
+      });
+    }
+    const first = reached[0] || 1;
+    return {
+      days: days || null,
+      since,
+      stages: STAGES.map((stage, index) => ({ key: stage.key, label: stage.label, count: reached[index], percentOfSignups: reached[0] ? Math.round((reached[index] / first) * 100) : null })),
+      stoppedAt,
+      courtesy,
+      note: 'Pessoas cadastradas no período, contadas uma vez na etapa mais avançada que alcançaram. Quem tem cortesia fica de fora do funil. "Pagou" usa o primeiro pagamento confirmado e, para contas antigas sem essa data, o status atual de assinatura.',
+    };
+  }
+
   async student(studentId: string) {
     await this.assertStudent(studentId);
     // Deteccao pura (nenhuma escrita, nenhuma chamada de IA) — so pra AVISAR o treinador se o
