@@ -8838,6 +8838,8 @@ const PRE_SERIES: Array<{ key: PreWorkoutSeries; label: string; color: string; f
 // backend — as 4 variaveis continuam disponiveis individualmente (linhas abaixo), cada uma com sua
 // direcao real preservada. Um indice combinado, se algum dia fizer sentido, precisa nascer no
 // backend (Athlete State Snapshot), nao ser recriado aqui.
+// 15/10/2026: secao retirada da tela (plano de revitalizacao, Fase 4); mantida no arquivo so para reverter.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function PreWorkoutStateSection({ history }: { history: StudentDetail['history']; period?: number }) {
   const [active, setActive] = useState<Set<PreWorkoutSeries>>(new Set(['sono', 'cansaco', 'estresse', 'motivacao']));
   const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('sessao');
@@ -8976,6 +8978,8 @@ const EXP_SERIES: Array<{ key: ExpSeries; label: string; color: string; yOffset:
 ];
 const SAT_TO_5: Record<string, number> = { amei: 5, gostei: 4, neutro: 3, nao_gostei: 2, detestei: 1 };
 
+// 15/10/2026: secao retirada da tela (plano de revitalizacao, Fase 4); mantida no arquivo so para reverter.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ExperienciaTreinoSection({ history, onDayClick }: { history: StudentDetail['history']; period?: number; onDayClick?: (planId: string) => void }) {
   const [active, setActive] = useState<Set<ExpSeries>>(new Set(['elaboracao', 'execucao', 'sensacao', 'humor']));
   const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('sessao');
@@ -9305,6 +9309,8 @@ function getVarRange(v: RelVar): [number, number] {
   return v === 'rpe' ? [1, 10] : v === 'dor' ? [0, 3] : [1, 5];
 }
 
+// 15/10/2026: secao retirada da tela (plano de revitalizacao, Fase 4); mantida no arquivo so para reverter.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ExplorarRelacoesSection({ history }: { history: StudentDetail['history'] }) {
   const [varA, setVarA] = useState<RelVar>('cansaco');
   const [varB, setVarB] = useState<RelVar>('rpe');
