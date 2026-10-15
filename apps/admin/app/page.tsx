@@ -3663,34 +3663,28 @@ function StudentPanel({
         {student.interview?.updatedAt ? <p>Ultima atualizacao: {dateTimeLabel(student.interview.updatedAt)}</p> : null}
         {student.interview && Object.keys(student.interview.answers ?? {}).length ? (
           <div className="interviewAnswers">
-            {/* 09/09: grupo "Rotina semanal" removido daqui — a rotina tem aba propria
-                (detailTab === 'rotina') e exibi-la tambem aqui criava duplicacao para todos
-                os alunos que responderam o fluxo de rotina pelo app. */}
-            {groupInterviewAnswers(student.interview.answers).filter((group) => group.title !== 'Rotina semanal').map((group) => (
-              <details key={group.title} open={group.title === 'Objetivo'}>
-                <summary>{group.title}</summary>
-                <div className="interviewAnswerGrid">
-                  {group.items.map(([key, value]) => (
-                    <div className="interviewAnswerRow" key={key}>
-                      <span className="interviewAnswerLabel">{interviewLabel(key)}</span>
-                      <span className="interviewAnswerValue">
-                        {key === 'longest_distance_recent_time' ? (longestDistancePaceSummary(student.interview!.answers) ?? interviewValue(key, value)) : interviewValue(key, value)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            ))}
+            {/* 09/09: grupo "Rotina semanal" fica fora daqui — a rotina tem aba propria (detailTab === 'rotina').
+                15/10: apresentacao refeita em InterviewAnswersView (resumo, pontos de saude, unidades, barras,
+                dados pessoais mascarados). */}
+            <InterviewAnswersView answers={student.interview.answers} />
           </div>
         ) : <p>Nenhuma resposta registrada. A conclusao anterior era apenas uma compatibilidade da versao antiga.</p>}
-        <button className="secondaryButton" type="button" onClick={reopenInterview}>Liberar revisao da entrevista</button>
-        <div className="mergeBox">
-          <p className="formHintText">Aluno criou conta duplicada e preencheu a entrevista na outra? Informe o e-mail da conta duplicada para transferir os dados para esta conta selecionada.</p>
-          <div className="mergeRow">
-            <input value={mergeSourceEmail} onChange={(event) => setMergeSourceEmail(event.target.value)} placeholder="E-mail da conta duplicada" />
-            <button type="button" onClick={mergeFromDuplicate}>Mesclar para esta conta</button>
+        <details style={{ marginTop: 16, border: '1px solid var(--line)', borderRadius: 10, padding: '8px 12px' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Ações da entrevista (use com cuidado)</summary>
+          <div style={{ display: 'grid', gap: 12, marginTop: 10 }}>
+            <div>
+              <p className="formHintText">Libera a aluna para revisar a entrevista no app. Não apaga as respostas já dadas.</p>
+              <button className="secondaryButton" type="button" onClick={reopenInterview}>Liberar revisao da entrevista</button>
+            </div>
+            <div className="mergeBox">
+              <p className="formHintText">Aluno criou conta duplicada e preencheu a entrevista na outra? Informe o e-mail da conta duplicada para transferir os dados para esta conta selecionada.</p>
+              <div className="mergeRow">
+                <input value={mergeSourceEmail} onChange={(event) => setMergeSourceEmail(event.target.value)} placeholder="E-mail da conta duplicada" />
+                <button type="button" onClick={mergeFromDuplicate}>Mesclar para esta conta</button>
+              </div>
+            </div>
           </div>
-        </div>
+        </details>
       </section>
       </>
       ) : null}
@@ -8247,6 +8241,197 @@ function interviewValue(key: string, value: unknown) {
 }
 function listLabel(items: string[]) {
   return items.length ? items.join(', ') : 'Nao informado';
+}
+
+// ─── AVALIAÇÃO DA ALUNA: apresentação das respostas da entrevista (15/10/2026) ───────────────────
+// Só muda COMO as respostas aparecem (resumo, pontos de atenção, unidades, barras, dados pessoais
+// mascarados). Os rótulos e valores continuam vindo de interviewLabel/interviewValue; nada é gravado.
+
+const ANSWER_GROUP_TITLE_PT: Record<string, string> = {
+  'Experiencia com corrida': 'Experiência com corrida',
+  'Avaliacao fisica recente': 'Avaliação física recente',
+  'Habitos': 'Hábitos',
+  'Saude': 'Saúde',
+  'Autoavaliacao': 'Autoavaliação',
+  'Informacoes adicionais': 'Informações adicionais',
+  'Treinamento de forca': 'Treinamento de força',
+  'Dados pessoais': 'Dados pessoais',
+  'Objetivo': 'Objetivo',
+};
+const ANSWER_UNITS: Record<string, string> = {
+  personal_weight: 'kg', muscle_mass: 'kg', lean_mass: 'kg', fat_mass: 'kg', basal_metabolism: 'kcal', body_fat_percentage: '%',
+  waist_circumference: 'cm', abdomen_circumference: 'cm', hip_circumference: 'cm', arm_circumference: 'cm', thigh_circumference: 'cm', calf_circumference: 'cm',
+  weekly_running_km: 'km por semana', longest_distance: 'km', longest_distance_recent: 'km', second_longest_distance_recent: 'km', third_longest_distance_recent: 'km',
+  best_comfortable_pace: '/km',
+};
+const ANSWER_SENSITIVE_KEYS = new Set(['personal_cpf', 'personal_phone', 'personal_cep', 'personal_address', 'personal_address_street', 'personal_address_number', 'personal_address_complement', 'personal_address_neighborhood', 'personal_birth_date']);
+const ANSWER_ATTENTION_KEYS = ['current_pain', 'pain_regions', 'important_injury', 'injury_description', 'health_conditions', 'health_conditions_other', 'continuous_medications', 'medical_recommendation', 'diagnosed_running_conditions', 'diagnosed_running_conditions_other'];
+
+function answerText(key: string, answers: Record<string, unknown>): string {
+  const text = key === 'longest_distance_recent_time' ? (longestDistancePaceSummary(answers) ?? interviewValue(key, answers[key])) : interviewValue(key, answers[key]);
+  const unit = key === 'personal_height'
+    ? (/^\d+([.,]\d+)?$/.test(text.trim()) ? (Number(text.replace(',', '.')) < 3 ? 'm' : 'cm') : '')
+    : ANSWER_UNITS[key];
+  if (!unit) return text;
+  const plain = /^\d+([.,]\d+)?$/.test(text.trim()) || (key === 'best_comfortable_pace' && /^\d{1,2}:\d{2}$/.test(text.trim()));
+  return plain ? `${text} ${unit}` : text;
+}
+
+function answerMasked(key: string, text: string): string {
+  const digits = text.replace(/\D/g, '');
+  if (key === 'personal_cpf') return digits.length >= 2 ? `•••.•••.•••-${digits.slice(-2)}` : '•••';
+  if (key === 'personal_phone') return digits.length >= 4 ? `••••• ${digits.slice(-4)}` : '•••';
+  if (key === 'personal_birth_date') { const year = text.match(/(\d{4})/); return year ? `••/••/${year[1]}` : '••/••/••••'; }
+  return '••••••';
+}
+
+function ageFromAnswer(value: unknown): number | null {
+  const text = String(value ?? '');
+  const br = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const parts = br ? { d: +br[1], m: +br[2], y: +br[3] } : iso ? { d: +iso[3], m: +iso[2], y: +iso[1] } : null;
+  if (!parts) return null;
+  const now = new Date();
+  let age = now.getFullYear() - parts.y;
+  if (now.getMonth() + 1 < parts.m || (now.getMonth() + 1 === parts.m && now.getDate() < parts.d)) age -= 1;
+  return age >= 0 && age < 120 ? age : null;
+}
+
+function InterviewAnswersView({ answers }: { answers: Record<string, unknown> }) {
+  const [showPersonal, setShowPersonal] = useState(false);
+  const groups = groupInterviewAnswers(answers).filter((group) => group.title !== 'Rotina semanal');
+  const get = (title: string) => groups.find((group) => group.title === title)?.items ?? [];
+  const age = ageFromAnswer(answers.personal_birth_date);
+
+  const summary: Array<[string, string]> = [];
+  if (age != null) summary.push(['Idade', `${age} anos`]);
+  if (answers.personal_sex) summary.push(['Sexo', interviewValue('personal_sex', answers.personal_sex)]);
+  if (answers.personal_height) summary.push(['Altura', answerText('personal_height', answers)]);
+  if (answers.personal_weight) summary.push(['Peso', answerText('personal_weight', answers)]);
+  if (answers.weekly_running_km) summary.push(['Km semanal atual', answerText('weekly_running_km', answers)]);
+  if (answers.objective) summary.push(['Objetivo', interviewValue('objective', answers.objective)]);
+
+  const isEmptyAnswer = (text: string) => /^(nao informado|nenhum|nenhuma|nao|nunca\.?|nada)$/i.test(text.trim());
+  const attention = ANSWER_ATTENTION_KEYS
+    .filter((key) => answers[key] !== undefined && answers[key] !== null)
+    .map((key) => ({ key, label: interviewLabel(key), text: interviewValue(key, answers[key]) }))
+    .filter((item) => !isEmptyAnswer(item.text));
+
+  const ratings = get('Autoavaliacao').filter(([, value]) => Number.isFinite(Number(value)));
+  const bodyHighlightKeys = ['body_fat_percentage', 'lean_mass', 'fat_mass', 'basal_metabolism'];
+  const body = get('Avaliacao fisica recente').filter(([key]) => key !== 'personal_height' && key !== 'personal_weight');
+  const bodyHighlight = body.filter(([key]) => bodyHighlightKeys.includes(key));
+  const bodyOther = body.filter(([key]) => !bodyHighlightKeys.includes(key));
+
+  const fieldGrid = (items: Array<[string, unknown]>) => (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '10px 18px' }}>
+      {items.map(([key]) => (
+        <div key={key} style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{interviewLabel(key)}</div>
+          <div style={{ fontSize: 14, fontWeight: 600, overflowWrap: 'anywhere' }}>{answerText(key, answers)}</div>
+        </div>
+      ))}
+    </div>
+  );
+  const card = (title: string, children: ReactNode, extra?: ReactNode) => (
+    <section style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--paper)', padding: '12px 14px', minWidth: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <h4 style={{ margin: 0, fontSize: 14 }}>{ANSWER_GROUP_TITLE_PT[title] ?? title}</h4>{extra}
+      </div>
+      {children}
+    </section>
+  );
+
+  const generic = ['Saude', 'Experiencia com corrida', 'Treinamento de forca', 'Habitos', 'Informacoes adicionais']
+    .map((title) => ({ title, items: get(title) })).filter((group) => group.items.length);
+  const personal = get('Dados pessoais').filter(([key]) => key !== 'personal_height' && key !== 'personal_weight');
+
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      {summary.length ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+          {summary.map(([label, value]) => (
+            <div key={label} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--accent-soft)', padding: '10px 12px', minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{label}</div>
+              <div style={{ fontSize: label === 'Objetivo' ? 14 : 20, fontWeight: 800, overflowWrap: 'anywhere' }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {attention.length ? (
+        <section style={{ border: '1px solid #f59e0b', borderRadius: 10, background: 'var(--warn-soft)', padding: '12px 14px' }}>
+          <h4 style={{ margin: '0 0 8px', fontSize: 14 }}>Pontos de saúde informados na entrevista</h4>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {attention.map((item) => (
+              <span key={item.key} style={{ background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 8, padding: '4px 10px', fontSize: 13 }}>
+                <span style={{ color: 'var(--muted)' }}>{item.label}: </span><strong>{item.text}</strong>
+              </span>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, alignItems: 'start' }}>
+        {generic.map((group) => <React.Fragment key={group.title}>{card(group.title, fieldGrid(group.items))}</React.Fragment>)}
+
+        {body.length ? card('Avaliacao fisica recente', (
+          <div style={{ display: 'grid', gap: 12 }}>
+            {bodyHighlight.length ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8 }}>
+                {bodyHighlight.map(([key]) => (
+                  <div key={key} style={{ background: 'var(--panel)', borderRadius: 8, padding: '8px 10px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{interviewLabel(key)}</div>
+                    <div style={{ fontSize: 17, fontWeight: 800 }}>{answerText(key, answers)}</div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {bodyOther.length ? fieldGrid(bodyOther) : null}
+          </div>
+        )) : null}
+
+        {ratings.length ? card('Autoavaliacao', (
+          <div style={{ display: 'grid', gap: 7 }}>
+            {ratings.map(([key, value]) => {
+              const score = Math.max(0, Math.min(10, Number(value)));
+              return (
+                <div key={key} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1.3fr) minmax(80px, 2fr) 28px', gap: 8, alignItems: 'center', fontSize: 13 }}>
+                  <span style={{ overflowWrap: 'anywhere' }}>{interviewLabel(key).replace(/^Nota - /, '')}</span>
+                  <span style={{ height: 8, borderRadius: 4, background: 'var(--line)', overflow: 'hidden' }}>
+                    <span style={{ display: 'block', height: '100%', width: `${score * 10}%`, background: 'var(--accent)' }} />
+                  </span>
+                  <strong style={{ textAlign: 'right' }}>{score}</strong>
+                </div>
+              );
+            })}
+            <small style={{ color: 'var(--muted)' }}>Notas de 0 a 10 dadas pela própria aluna.</small>
+          </div>
+        )) : null}
+
+        {personal.length ? card('Dados pessoais', fieldGridPersonal(), (
+          <button type="button" className="secondaryButton" onClick={() => setShowPersonal((current) => !current)}>{showPersonal ? 'Ocultar' : 'Mostrar dados pessoais'}</button>
+        )) : null}
+      </div>
+    </div>
+  );
+
+  function fieldGridPersonal() {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '10px 18px' }}>
+        {personal.map(([key]) => {
+          const text = answerText(key, answers);
+          const value = ANSWER_SENSITIVE_KEYS.has(key) && !showPersonal ? answerMasked(key, text) : text;
+          return (
+            <div key={key} style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{interviewLabel(key)}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, overflowWrap: 'anywhere' }}>{value}</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 }
 
 function weekdayLabel(weekday: number) {
