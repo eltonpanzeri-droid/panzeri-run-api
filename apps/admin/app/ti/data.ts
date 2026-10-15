@@ -24,6 +24,27 @@ export type ChartConfig = { view: ChartView; labels: ChartLabels; layers: Layers
 export type Series = { key: string; variableId: string; modality: string; visible: boolean };
 export const API_URL = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host';
 export const COLORS = ['#1683ff', '#935be8', '#e7862f', '#0c9e9a', '#de5371', '#6972c3'];
+
+// 15/10/2026 (Fase 4 lote 4.4): so' NOME de exibicao. Quatro indicadores do registro chegam sem rotulo e apareciam
+// com o id tecnico; os demais rotulos vem sem acento. Nada aqui calcula ou altera dado.
+export const VARIABLE_LABELS_PT: Record<string, string> = {
+  'workout.bedtimeShiftDirection': 'mudança no horário de dormir (mais cedo ou mais tarde)',
+  'workout.wakeTimeShiftDirection': 'mudança no horário de acordar (mais cedo ou mais tarde)',
+  'workout.executionBehavior': 'como a aluna executou o treino',
+  'workout.painFlag': 'dor no treino',
+};
+const ACCENT_WORDS: Record<string, string> = {
+  cansaco: 'cansaço', percepcao: 'percepção', esforco: 'esforço', execucao: 'execução', interrupcao: 'interrupção', elaboracao: 'elaboração',
+  satisfacao: 'satisfação', horario: 'horário', mudanca: 'mudança', experiencia: 'experiência', relacao: 'relação', medio: 'médio', cadencia: 'cadência',
+  distancia: 'distância', frequencia: 'frequência', cardiaca: 'cardíaca', razao: 'razão', binario: 'binário', nao: 'não', ultimas: 'últimas', proxima: 'próxima',
+  exigencia: 'exigência', interferencia: 'interferência', adequacao: 'adequação', motivacao: 'motivação', proprio: 'próprio', observavel: 'observável',
+  diferenca: 'diferença', volume: 'volume', ritmo: 'ritmo', so: 'só', aderencia: 'aderência', cólica: 'cólica', duracao: 'duração', sessoes: 'sessões',
+};
+export function displayVariable(variable: Variable): Variable {
+  const base = VARIABLE_LABELS_PT[variable.id] ?? variable.constructLabel ?? variable.id;
+  const label = base.replace(/[A-Za-z]+/g, (word) => ACCENT_WORDS[word] ?? word);
+  return { ...variable, constructLabel: label };
+}
 export const DOMAINS: Record<string, string> = { sleep: 'Sono', physical_state: 'Estado físico', psychological_state: 'Estado psicológico', training_response: 'Resposta ao treino', pain_health: 'Dor e saúde', menstrual_cycle: 'Ciclo menstrual', training_load: 'Volume, aderência e carga' };
 export const EVENT_TYPES: Record<string, string> = { work: 'Trabalho', routine_change: 'Mudança de rotina', travel: 'Viagem', family_personal: 'Família e vida pessoal', health: 'Saúde', illness: 'Doença', pain_injury: 'Dor / lesão', sleep: 'Sono', other: 'Outro contexto' };
 export const SOURCES: Record<string, string> = { student_reported: 'Relato do aluno', coach_reported: 'Registro do treinador', reassessment: 'Reavaliação', return_after_gap: 'Retorno após lacuna', system_detected: 'Detectado pelo sistema' };

@@ -3,7 +3,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { Activity, ArrowLeft, BarChart3, CalendarDays, Check, Clock3, Layers3, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { LongitudinalChart, type Comparison } from './longitudinal-chart';
-import { API_URL, COLORS, ChartConfig, ContextEvent, CustomPeriod, DEFAULT_LAYERS, DOMAINS, EVENT_TYPES, Layers, MODALITIES, PERIODS, SOURCES, Series, Snapshot, Student, Variable, compatibleAxes, selectableOverlayAxes, clampWindow, customPeriodRange, dateKey, dateLabel, defaultChartConfig, eventOverlaps, fmt, matchingStudents, observationsAt, seriesKey, seriesName, snapshotIsValid, time, windowFor } from './data';
+import { API_URL, COLORS, ChartConfig, ContextEvent, CustomPeriod, DEFAULT_LAYERS, DOMAINS, EVENT_TYPES, Layers, MODALITIES, PERIODS, SOURCES, Series, Snapshot, Student, Variable, displayVariable, compatibleAxes, selectableOverlayAxes, clampWindow, customPeriodRange, dateKey, dateLabel, defaultChartConfig, eventOverlaps, fmt, matchingStudents, observationsAt, seriesKey, seriesName, snapshotIsValid, time, windowFor } from './data';
 import './studio.css';
 
 type Tab = 'Visão geral' | 'Explorar' | 'Comparar' | 'Timeline' | 'Histórico';
@@ -78,10 +78,11 @@ export default function TrainingIntelligenceStudio({ accessToken, initialStudent
         const [variables, people] = await Promise.all(responses.map((r) => r.json())) as [Variable[], Student[]];
         if (!Array.isArray(variables) || !Array.isArray(people)) throw new Error('Formato inesperado na lista de alunos ou indicadores.');
         if (controller.signal.aborted) return;
-        setLegend(variables); setStudents(people);
+        setLegend(variables.map(displayVariable)); setStudents(people);
         setError('');
         setStudentId((current) => current || (people.some((person) => person.id === initialStudentId) ? initialStudentId : people[0]?.id) || '');
-        const initial = ['training.volumeCompletedTotalKm', 'workout.preSleepQuality'].filter((id) => variables.some((v) => v.id === id));
+        // 15/10/2026: abre ja com volume, sono e esforco percebido (RPE); a dor tem secao propria na Evolucao.
+        const initial = ['training.volumeCompletedTotalKm', 'workout.preSleepQuality', 'workout.perceivedEffort'].filter((id) => variables.some((v) => v.id === id));
         setSeries((current) => current.length ? current : initial.map((id) => ({ key: seriesKey(id), variableId: id, modality: '', visible: true })));
       } catch (cause) { if (!controller.signal.aborted) setError(errorMessage(cause)); }
     })();
