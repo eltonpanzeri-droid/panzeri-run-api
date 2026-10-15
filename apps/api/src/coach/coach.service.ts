@@ -1380,6 +1380,61 @@ export class CoachService {
     };
   }
 
+  // 15/10/2026 (pedido de Elton, submenu Prospectos): series DIARIAS do interesse, para graficos com media movel. Somente leitura.
+  // accessed = sessoes que abriram o app e (na janela) nao criaram conta; signups = contas criadas; interview = entrevista rapida
+  // concluida; checkout = cobranca gerada por quem segue pendente e nunca pagou. Quem pagou vira aluna e sai desta visao.
+  // Dia = dia do calendario em Sao Paulo.
+  async prospectsSeries(input: { days?: number }) {
+    const requested = Number.isFinite(input.days) ? Math.floor(input.days as number) : 90;
+    const days = Math.min(Math.max(requested, 7), 365);
+    const dayKey = (date: Date) => date.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const today = dayKey(new Date());
+    const dates: string[] = [];
+    for (let offset = days - 1; offset >= 0; offset -= 1) {
+      const date = new Date(`${today}T12:00:00.000Z`);
+      date.setUTCDate(date.getUTCDate() - offset);
+      dates.push(date.toISOString().slice(0, 10));
+    }
+    const since = new Date(`${dates[0]}T00:00:00-03:00`);
+    const [users, interviews, checkouts, sessionEvents] = await Promise.all([
+      this.prisma.user.findMany({ where: { ...STUDENT_METRICS_POPULATION, createdAt: { gte: since } }, select: { createdAt: true } }),
+      this.prisma.onboardingInterview.findMany({ where: { quickIntakeCompletedAt: { gte: since }, user: STUDENT_METRICS_POPULATION }, select: { quickIntakeCompletedAt: true } }),
+      this.prisma.billingSubscription.findMany({
+        where: { createdAt: { gte: since }, checkoutUrl: { not: null }, firstPaidAt: null, user: { ...STUDENT_METRICS_POPULATION, subscriptionStatus: PENDING_STATUS } },
+        select: { createdAt: true },
+      }),
+      this.prisma.funnelEvent.groupBy({
+        by: ['sessionId', 'event'],
+        where: { event: { in: ['app_opened', 'signup_completed'] }, createdAt: { gte: since } },
+        _min: { createdAt: true },
+      }),
+    ]);
+
+    const index = new Map(dates.map((date, position) => [date, position]));
+    const empty = () => dates.map(() => 0);
+    const series = { accessed: empty(), signups: empty(), interview: empty(), checkout: empty() };
+    const add = (target: number[], date: Date | null | undefined) => {
+      if (!date) return;
+      const position = index.get(dayKey(date));
+      if (position !== undefined) target[position] += 1;
+    };
+    users.forEach((row) => add(series.signups, row.createdAt));
+    interviews.forEach((row) => add(series.interview, row.quickIntakeCompletedAt));
+    checkouts.forEach((row) => add(series.checkout, row.createdAt));
+    const signedUpSessions = new Set(sessionEvents.filter((row) => row.event === 'signup_completed').map((row) => row.sessionId));
+    sessionEvents
+      .filter((row) => row.event === 'app_opened' && !signedUpSessions.has(row.sessionId))
+      .forEach((row) => add(series.accessed, row._min.createdAt));
+
+    return {
+      days,
+      dates,
+      series,
+      totals: Object.fromEntries(Object.entries(series).map(([key, values]) => [key, values.reduce((sum, value) => sum + value, 0)])),
+      note: 'Contagem por dia (horário de São Paulo). "Só acessaram" são sessões do app sem cadastro, não pessoas. Quem pagou vira aluna e sai desta visão.',
+    };
+  }
+
   // 15/10/2026 (Fase 6 do plano de revitalizacao): visao "Programas e IA" para o treinador acompanhar a IA. Somente leitura,
   // so contagens e listas do que ja esta gravado (programas, travas de geracao, decisoes da IA, diretrizes, reavaliacoes).
   // Nenhum limite ou veredito: mostra o que existe e deixa a leitura para o treinador.

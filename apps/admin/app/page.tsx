@@ -1,9 +1,9 @@
 'use client';
 
-import { Activity, AlertTriangle, ArrowUp, Bell, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flag, Flame, Folder, Gauge, Info, LayoutDashboard, LogIn, Menu, Moon, Pin, PinOff, Plus, RefreshCw, Save, Search, Sun, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, Wrench, X } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowUp, Bell, CheckCircle2, ClipboardList, Dumbbell, Footprints, HeartPulse, Ruler, ShieldCheck, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flag, Flame, Folder, Gauge, Info, LayoutDashboard, LogIn, Menu, Moon, Pin, PinOff, Plus, RefreshCw, Save, Search, Sun, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, Wrench, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
-import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import TrainingIntelligenceStudio from './ti/studio';
 import type { ExportProfile } from './ti/anonymous-export';
 
@@ -469,6 +469,7 @@ export default function AdminHome() {
   const [trainingFilter, setTrainingFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
   const [studentListCollapsed, setStudentListCollapsed] = useState(false);
+  const [prospectSub, setProspectSub] = useState<ProspectSub>('geral');
   const [status, setStatus] = useState('');
   // 23/09: o aviso flutuante (panelToast, ex: "Painel atualizado.") ficava preso na tela ate a
   // proxima acao sobrescrever `status` ou o treinador recarregar a pagina. So' some sozinho DEPOIS
@@ -1480,11 +1481,12 @@ export default function AdminHome() {
                   <YAxis fontSize={12} allowDecimals={false} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="Confirmado" stackId="a" fill="#1a7f5a" />
-                  <Bar dataKey="Cortesia" stackId="a" fill="#7aa8ff" />
-                  <Bar dataKey="Atrasado" stackId="a" fill="#e0a72d" />
-                  <Bar dataKey="Pendente" stackId="a" fill="#c9c9c9" />
-                  <Bar dataKey="Cancelado" stackId="a" fill="#d9534f" />
+                  {/* 15/10/2026 (pedido de Elton): colunas lado a lado por status, em vez de empilhadas. */}
+                  <Bar dataKey="Confirmado" fill="#1a7f5a" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="Cortesia" fill="#7aa8ff" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="Atrasado" fill="#e0a72d" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="Pendente" fill="#c9c9c9" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="Cancelado" fill="#d9534f" radius={[3, 3, 0, 0]} />
                 </ComposedChart>
               </ResponsiveContainer>
             ) : <p className="formHintText">Carregando evolução mensal...</p>}
@@ -1523,13 +1525,14 @@ export default function AdminHome() {
             </h3>
             {monthlyEvolution && monthlyEvolution.length ? (
               <ResponsiveContainer width="100%" height={220}>
-                <AreaChart data={monthlyEvolution.map((m) => ({ month: m.month, receita: m.revenueReceivedCents / 100 }))}>
+                {/* 15/10/2026 (pedido de Elton): colunas por mes, no mesmo estilo do grafico de alunos. */}
+                <ComposedChart data={monthlyEvolution.map((m) => ({ month: m.month, receita: m.revenueReceivedCents / 100 }))}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                   <XAxis dataKey="month" fontSize={12} />
                   <YAxis fontSize={12} tickFormatter={(v) => `R$${v}`} />
                   <Tooltip formatter={(value: unknown) => `R$ ${Number(value).toFixed(2)}`} />
-                  <Area type="monotone" dataKey="receita" stroke="#1a7f5a" fill="#1a7f5a" fillOpacity={0.25} name="Receita recebida" />
-                </AreaChart>
+                  <Bar dataKey="receita" fill="#1a7f5a" radius={[3, 3, 0, 0]} name="Receita recebida" />
+                </ComposedChart>
               </ResponsiveContainer>
             ) : <p className="formHintText">Carregando receita mensal...</p>}
           </section>
@@ -1795,6 +1798,9 @@ export default function AdminHome() {
                   {isRunningProspectNurture ? 'Rodando...' : 'Rodar aquecimento agora'}
                 </button>
               </div>
+              <ProspectsSubmenu accessToken={token} sub={prospectSub} onSub={setProspectSub} />
+              {prospectSub === 'geral' ? (
+              <>
               <p className="formHintText">
                 Gente que criou conta no app mas ainda nao virou aluna de verdade — sem pagamento nenhum, nem cortesia liberada.
                 Nao consomem codigo de aluno nem aparecem na lista de Alunos. Ordenados do mais pra menos engajado.
@@ -1837,6 +1843,8 @@ export default function AdminHome() {
                 ))}
                 {!prospects?.prospects.length ? <p className="formHintText">Nenhum prospecto no momento.</p> : null}
               </div>
+              </>
+              ) : null}
             </div>
 
             <div className="panel">
@@ -2047,6 +2055,116 @@ function CouponsView({
         )) : <p>Nenhum cupom criado ainda.</p>}
       </div>
     </section>
+  );
+}
+
+type ProspectSub = 'geral' | 'accessed' | 'signups' | 'interview' | 'checkout';
+type ProspectsSeriesResponse = {
+  days: number;
+  dates: string[];
+  series: Record<'accessed' | 'signups' | 'interview' | 'checkout', number[]>;
+  totals: Record<string, number>;
+  note: string;
+};
+
+// Matematica de exibicao (descritiva, so para o grafico): media movel simples dos ultimos N dias e faixa habitual = entre o
+// percentil 25 e o 75 dos valores diarios da janela mostrada. Nao decide nada.
+function trailingMean(values: number[], size: number): Array<number | null> {
+  return values.map((_, index) => (index + 1 < size ? null : values.slice(index + 1 - size, index + 1).reduce((sum, value) => sum + value, 0) / size));
+}
+function quantileOf(values: number[], q: number): number {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const position = (sorted.length - 1) * q;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+}
+
+const PROSPECT_SUBS: Array<{ key: ProspectSub; label: string; series: keyof ProspectsSeriesResponse['series']; title: string; description: string; color: string }> = [
+  { key: 'geral', label: 'Geral', series: 'signups', title: 'Novos cadastros por dia (visão geral)', description: 'Contas criadas por dia. Todo cadastro entra como prospecto; quem paga vira aluna e sai desta visão.', color: '#2f6fed' },
+  { key: 'accessed', label: 'Só acessaram', series: 'accessed', title: 'Só acessaram o app, sem criar conta', description: 'Sessões do app que não terminaram em cadastro. São sessões, não pessoas (a mesma pessoa pode gerar mais de uma).', color: '#8b5cf6' },
+  { key: 'signups', label: 'Cadastraram', series: 'signups', title: 'Fizeram o cadastro', description: 'Contas criadas por dia, de quem ainda não é aluna (ou já virou).', color: '#2f6fed' },
+  { key: 'interview', label: 'Responderam as perguntas iniciais', series: 'interview', title: 'Responderam as perguntas iniciais', description: 'Entrevista rápida concluída, por dia.', color: '#0d9488' },
+  { key: 'checkout', label: 'Cobrança gerada e não pagou', series: 'checkout', title: 'Cobrança gerada e não paga', description: 'Cobranças criadas, por dia, para quem segue pendente e nunca pagou. Quem pagou já virou aluna.', color: '#d97706' },
+];
+
+/** 15/10/2026 (pedido de Elton): submenu de Prospectos com um grafico de colunas por etapa, media movel de 7 e 21 dias e faixa habitual. */
+function ProspectsSubmenu({ accessToken, sub, onSub }: { accessToken: string; sub: ProspectSub; onSub: (next: ProspectSub) => void }) {
+  const [days, setDays] = useState(90);
+  const [data, setData] = useState<ProspectsSeriesResponse | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_URL}/coach/prospects/series?days=${days}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!response.ok) throw new Error('falha');
+        const json = (await response.json()) as ProspectsSeriesResponse;
+        if (!cancelled) { setData(json); setError(''); }
+      } catch {
+        if (!cancelled) setError('Não consegui carregar os gráficos de prospectos.');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [accessToken, days]);
+
+  const current = PROSPECT_SUBS.find((item) => item.key === sub) ?? PROSPECT_SUBS[0];
+  const values = data?.series[current.series] ?? [];
+  const mm7 = trailingMean(values, 7);
+  const mm21 = trailingMean(values, 21);
+  const lower = quantileOf(values, 0.25);
+  const upper = quantileOf(values, 0.75);
+  const chartData = (data?.dates ?? []).map((date, index) => ({ date: `${date.slice(8, 10)}/${date.slice(5, 7)}`, valor: values[index], mm7: mm7[index], mm21: mm21[index] }));
+  return (
+    <div style={{ margin: '4px 0 16px' }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }} role="tablist" aria-label="Etapas dos prospectos">
+        {PROSPECT_SUBS.map((item) => (
+          <button key={item.key} type="button" role="tab" aria-selected={sub === item.key} className="secondaryButton"
+            style={sub === item.key ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : undefined}
+            onClick={() => onSub(item.key)}>
+            {item.label}{data && item.key !== 'geral' ? ` (${data.totals[item.series] ?? 0})` : ''}
+          </button>
+        ))}
+      </div>
+      <section className="chartCard" style={{ marginBottom: 0 }}>
+        <div className="chartHeaderRow">
+          <h3>{current.title}</h3>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {[30, 90, 180].map((value) => (
+              <button key={value} type="button" className="secondaryButton" aria-pressed={days === value}
+                style={days === value ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : undefined}
+                onClick={() => setDays(value)}>{value} dias</button>
+            ))}
+          </div>
+        </div>
+        <p className="chartDesc">{current.description}</p>
+        {error ? <p className="formHintText">{error}</p> : null}
+        {!data && !error ? <p className="formHintText">Carregando...</p> : null}
+        {data ? (
+          <>
+            <ResponsiveContainer width="100%" height={260}>
+              <ComposedChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="date" fontSize={11} interval="preserveStartEnd" minTickGap={24} />
+                <YAxis fontSize={12} allowDecimals={false} />
+                <Tooltip formatter={(value: unknown, name: unknown) => (value == null ? '—' : typeof value === 'number' && String(name).startsWith('Média') ? value.toFixed(1) : String(value))} />
+                <Legend />
+                <ReferenceArea y1={lower} y2={upper} fill="#e0a72d" fillOpacity={0.15} ifOverflow="extendDomain" label={{ value: 'faixa habitual', fontSize: 10, position: 'insideTopRight' }} />
+                <Bar dataKey="valor" name="Por dia" fill={current.color} radius={[2, 2, 0, 0]} />
+                <Line type="monotone" dataKey="mm7" name="Média de 7 dias" stroke="#e0a72d" strokeWidth={2} dot={false} connectNulls={false} />
+                <Line type="monotone" dataKey="mm21" name="Média de 21 dias" stroke="#dc2626" strokeWidth={2} dot={false} connectNulls={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+            <p className="formHintText" style={{ marginTop: 6 }}>
+              Faixa habitual: entre o percentil 25 e o 75 dos valores diários desta janela ({lower.toFixed(1).replace('.', ',')} a {upper.toFixed(1).replace('.', ',')} por dia). Médias móveis aparecem a partir do 7º e do 21º dia da janela.
+            </p>
+            <p className="formHintText">{data.note}</p>
+          </>
+        ) : null}
+      </section>
+    </div>
   );
 }
 
@@ -2666,13 +2784,13 @@ function FinanceView({ finance, evolution, onRefresh, accessToken, onOpenGroup, 
         </h3>
         {evolution && evolution.length ? (
           <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={evolution.map((m) => ({ month: m.month, receita: m.revenueReceivedCents / 100 }))}>
+            <ComposedChart data={evolution.map((m) => ({ month: m.month, receita: m.revenueReceivedCents / 100 }))}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
               <XAxis dataKey="month" fontSize={12} />
               <YAxis fontSize={12} tickFormatter={(v) => `R$${v}`} />
               <Tooltip formatter={(value: unknown) => `R$ ${Number(value).toFixed(2)}`} />
-              <Area type="monotone" dataKey="receita" stroke="#1a7f5a" fill="#1a7f5a" fillOpacity={0.25} name="Receita recebida" />
-            </AreaChart>
+              <Bar dataKey="receita" fill="#1a7f5a" radius={[3, 3, 0, 0]} name="Receita recebida" />
+            </ComposedChart>
           </ResponsiveContainer>
         ) : <p className="formHintText">Carregando evolução de receita...</p>}
       </section>
@@ -2894,7 +3012,7 @@ function StudentPanel({
   // 01/09: o painel virou abas em vez de uma pagina so' com tudo empilhado (pedido do treinador —
   // ver studentViewMode no componente pai pro contexto completo dessa mudanca). "Treinos" e' a aba
   // padrao por ser a mais usada no dia a dia.
-  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline' | 'atividadesExternas'>('treinos');
+  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'provas' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline' | 'atividadesExternas'>('treinos');
   // 11/09: período universal da aba Evolução — compartilhado por todos os gráficos e seções.
   // Padrão 12 semanas (~3 meses). Opções: 4/8/12/24/52/999(Tudo).
   const [evolPeriod, setEvolPeriod] = useState<4 | 8 | 12 | 24 | 52 | 999>(12);
@@ -3418,6 +3536,7 @@ function StudentPanel({
       <div className="detailTabs">
         <button type="button" className={detailTab === 'treinos' ? 'active' : ''} onClick={() => setDetailTab('treinos')}>Treinos</button>
         <button type="button" className={detailTab === 'cadastro' ? 'active' : ''} onClick={() => setDetailTab('cadastro')}>Cadastro</button>
+        <button type="button" className={detailTab === 'provas' ? 'active' : ''} onClick={() => setDetailTab('provas')}>Provas e objetivos</button>
         <button type="button" className={detailTab === 'avaliacao' ? 'active' : ''} onClick={() => setDetailTab('avaliacao')}>Avaliacao</button>
         <button type="button" className={detailTab === 'rotina' ? 'active' : ''} onClick={() => setDetailTab('rotina')}>Rotina</button>
         <button type="button" className={detailTab === 'diretrizes' ? 'active' : ''} onClick={() => setDetailTab('diretrizes')}>Diretrizes</button>
@@ -3438,6 +3557,39 @@ function StudentPanel({
         </div>
       ) : null}
 
+      {detailTab === 'provas' ? (
+        <div className="detailFull" style={{ display: 'grid', gap: 14 }}>
+          <section className="miniSection">
+            <h3>Objetivo</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
+              <div style={{ background: 'var(--accent-soft)', borderRadius: 10, padding: '12px 14px' }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>OBJETIVO PRINCIPAL</div>
+                <div style={{ fontSize: 17, fontWeight: 800 }}>{student.goal || (student.interview?.answers?.objective ? interviewValue('objective', student.interview.answers.objective) : 'Nao informado')}</div>
+              </div>
+            </div>
+          </section>
+          <section className="miniSection">
+            <h3>Provas alvo</h3>
+            {student.targetRaces?.length ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 10 }}>
+                {[...student.targetRaces].sort((a, b) => (a.status === 'em_andamento' ? 0 : 1) - (b.status === 'em_andamento' ? 0 : 1) || a.raceDate.localeCompare(b.raceDate)).map((race) => (
+                  <div key={race.id} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px', background: 'var(--paper)', opacity: race.status === 'em_andamento' ? 1 : 0.75 }}>
+                    <strong style={{ fontSize: 16 }}>{race.name}</strong>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', margin: '6px 0', fontSize: 14 }}>
+                      <span>{dateLabel(race.raceDate)}</span>
+                      <span>{race.distanceKm} km</span>
+                      {race.paceSecondsPerKm ? <span>pace alvo {paceLabel(race.paceSecondsPerKm)}</span> : null}
+                    </div>
+                    <span className={`status ${race.priority === 'principal' ? 'good' : 'warn'}`}>{race.priority === 'principal' ? 'Meta principal' : 'Meta secundaria'}</span>
+                    {race.status !== 'em_andamento' ? <small style={{ marginLeft: 8, color: 'var(--muted)' }}>{race.status}</small> : null}
+                  </div>
+                ))}
+              </div>
+            ) : <p className="formHintText">Nenhuma prova alvo registrada.</p>}
+          </section>
+        </div>
+      ) : null}
+
       {detailTab === 'cadastro' ? (
       <>
       <section className="miniSection">
@@ -3454,18 +3606,7 @@ function StudentPanel({
         <div className="interviewAnswerRow addressRow"><span className="interviewAnswerLabel">Endereco</span><span className="interviewAnswerValue">{student.address ?? 'Nao informado'}</span></div>
       </section>
 
-      {student.targetRaces?.length ? (
-        <section className="miniSection targetRaceHighlight">
-          <h3>Prova alvo</h3>
-          {student.targetRaces.filter((race) => race.status === 'em_andamento').map((race) => (
-            <div className="targetRaceCard" key={race.id}>
-              <strong>{race.name}</strong>
-              <span>{dateLabel(race.raceDate)} · {race.distanceKm} km{race.paceSecondsPerKm ? ` · pace alvo ${paceLabel(race.paceSecondsPerKm)}` : ''}</span>
-              <span className={`status ${race.priority === 'principal' ? 'good' : 'warn'}`}>{race.priority === 'principal' ? 'Meta principal' : 'Meta secundaria'}</span>
-            </div>
-          ))}
-        </section>
-      ) : null}
+      {/* 15/10/2026 (pedido de Elton): "Prova alvo" saiu do Cadastro e foi para a aba propria "Provas e objetivos". */}
 
       <section className="miniSection adminForm">
         <h3>Dados de acesso</h3>
@@ -8609,24 +8750,43 @@ function InterviewAnswersView({ answers }: { answers: Record<string, unknown> })
   const bodyHighlight = body.filter(([key]) => bodyHighlightKeys.includes(key));
   const bodyOther = body.filter(([key]) => !bodyHighlightKeys.includes(key));
 
+  const labelStyle = { fontSize: 10.5, color: 'var(--muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' } as const;
   const fieldGrid = (items: Array<[string, unknown]>) => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '10px 18px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '12px 20px' }}>
       {items.map(([key]) => (
         <div key={key} style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{interviewLabel(key)}</div>
-          <div style={{ fontSize: 14, fontWeight: 600, overflowWrap: 'anywhere' }}>{answerText(key, answers)}</div>
+          <div style={labelStyle}>{interviewLabel(key)}</div>
+          <div style={{ fontSize: 14.5, fontWeight: 700, overflowWrap: 'anywhere', marginTop: 2 }}>{answerText(key, answers)}</div>
         </div>
       ))}
     </div>
   );
-  const card = (title: string, children: ReactNode, extra?: ReactNode) => (
-    <section style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--paper)', padding: '12px 14px', minWidth: 0 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <h4 style={{ margin: 0, fontSize: 14 }}>{ANSWER_GROUP_TITLE_PT[title] ?? title}</h4>{extra}
-      </div>
-      {children}
-    </section>
-  );
+  // 15/10/2026 (pedido de Elton, melhoria estetica): cada grupo tem icone e cor propria no cabecalho.
+  const GROUP_LOOK: Record<string, { icon: ReactNode; color: string }> = {
+    'Saude': { icon: <HeartPulse size={16} />, color: '#dc2626' },
+    'Experiencia com corrida': { icon: <Footprints size={16} />, color: '#2563eb' },
+    'Treinamento de forca': { icon: <Dumbbell size={16} />, color: '#7c3aed' },
+    'Habitos': { icon: <ClipboardList size={16} />, color: '#0d9488' },
+    'Avaliacao fisica recente': { icon: <Ruler size={16} />, color: '#d97706' },
+    'Autoavaliacao': { icon: <Gauge size={16} />, color: '#0891b2' },
+    'Informacoes adicionais': { icon: <FileText size={16} />, color: '#64748b' },
+    'Dados pessoais': { icon: <ShieldCheck size={16} />, color: '#475569' },
+  };
+  const card = (title: string, children: ReactNode, extra?: ReactNode) => {
+    const look = GROUP_LOOK[title] ?? { icon: <FileText size={16} />, color: '#64748b' };
+    return (
+      <section style={{ border: '1px solid var(--line)', borderTop: `3px solid ${look.color}`, borderRadius: 12, background: 'var(--paper)', padding: '14px 16px', minWidth: 0, boxShadow: '0 1px 2px rgba(15, 23, 42, 0.06)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <span style={{ width: 28, height: 28, borderRadius: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `${look.color}1f`, color: look.color }}>{look.icon}</span>
+            <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>{ANSWER_GROUP_TITLE_PT[title] ?? title}</h4>
+          </div>
+          {extra}
+        </div>
+        {children}
+      </section>
+    );
+  };
 
   const generic = ['Saude', 'Experiencia com corrida', 'Treinamento de forca', 'Habitos', 'Informacoes adicionais']
     .map((title) => ({ title, items: get(title) })).filter((group) => group.items.length);
@@ -8637,9 +8797,9 @@ function InterviewAnswersView({ answers }: { answers: Record<string, unknown> })
       {summary.length ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
           {summary.map(([label, value]) => (
-            <div key={label} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--accent-soft)', padding: '10px 12px', minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{label}</div>
-              <div style={{ fontSize: label === 'Objetivo' ? 14 : 20, fontWeight: 800, overflowWrap: 'anywhere' }}>{value}</div>
+            <div key={label} style={{ border: '1px solid var(--line)', borderLeft: '4px solid var(--accent)', borderRadius: 12, background: 'var(--accent-soft)', padding: '12px 14px', minWidth: 0 }}>
+              <div style={labelStyle}>{label}</div>
+              <div style={{ fontSize: label === 'Objetivo' ? 15 : 24, lineHeight: 1.15, fontWeight: 800, overflowWrap: 'anywhere', marginTop: 2 }}>{value}</div>
             </div>
           ))}
         </div>
@@ -8684,8 +8844,8 @@ function InterviewAnswersView({ answers }: { answers: Record<string, unknown> })
               return (
                 <div key={key} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1.3fr) minmax(80px, 2fr) 28px', gap: 8, alignItems: 'center', fontSize: 13 }}>
                   <span style={{ overflowWrap: 'anywhere' }}>{interviewLabel(key).replace(/^Nota - /, '')}</span>
-                  <span style={{ height: 8, borderRadius: 4, background: 'var(--line)', overflow: 'hidden' }}>
-                    <span style={{ display: 'block', height: '100%', width: `${score * 10}%`, background: 'var(--accent)' }} />
+                  <span style={{ height: 10, borderRadius: 5, background: 'var(--line)', overflow: 'hidden' }}>
+                    <span style={{ display: 'block', height: '100%', width: `${score * 10}%`, background: 'linear-gradient(90deg, #0891b2, #22d3ee)', borderRadius: 5 }} />
                   </span>
                   <strong style={{ textAlign: 'right' }}>{score}</strong>
                 </div>

@@ -134,6 +134,12 @@ export class CoachController {
     return this.coachService.finance();
   }
 
+  // 15/10/2026: series diarias de prospectos (somente leitura). days: 7 a 365 (padrao 90).
+  @Get('prospects/series')
+  prospectsSeries(@Query('days') days?: string) {
+    return this.coachService.prospectsSeries({ days: days ? Number(days) : undefined });
+  }
+
   // 15/10/2026: visao "Programas e IA" (somente leitura).
   @Get('ai/overview')
   aiOverview() {

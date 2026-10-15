@@ -33,8 +33,57 @@
 /* 14/10/2026: tema escuro PROVISORIO. O admin tem ~300 cores fixas no codigo; em vez de reescrever todas, o
    tema escuro inverte as cores da pagina inteira (mantendo os matizes). As telas novas do redesenho usarao
    tokens proprios de claro/escuro e dispensam isto. Para voltar ao claro: botao no topo. */
+/* 15/10/2026 (pedido de Elton): contraste melhor. Inversao exata (invert 1 + hue-rotate 180 sao reversiveis), com
+   cores de base escolhidas para dar fundo azul-marinho (14,24,48), cards grafite (18,21,30), paineis internos
+   (24,29,42) e bordas azuladas (48,58,82). As cores de base abaixo sao o inverso exato desses alvos.
+   Detalhes "neon": o mesmo filtro aplicado de novo a um elemento devolve a cor original dele (inversao dupla),
+   entao esses poucos detalhes mostram a cor neon escrita aqui (ciano #19e3f0), sem passar pelo escurecimento. */
 html[data-tema="escuro"] {
-  filter: invert(0.9) hue-rotate(180deg);
+  filter: invert(1) hue-rotate(180deg);
+  --bg: #dee8ff;
+  --paper: #e7eaf3;
+  --panel: #dde2ef;
+  --line: #bcc6de;
+}
+
+html[data-tema="escuro"] .eyebrow,
+html[data-tema="escuro"] .iconButton,
+html[data-tema="escuro"] .detailTabs button.active,
+html[data-tema="escuro"] .compactMenu button.active {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+html[data-tema="escuro"] .eyebrow {
+  color: #19e3f0;
+}
+
+html[data-tema="escuro"] .iconButton,
+html[data-tema="escuro"] .detailTabs button.active {
+  background: #19e3f0;
+  color: #031014;
+  border-color: transparent;
+}
+
+html[data-tema="escuro"] .compactMenu button.active {
+  background: #0b3340;
+  color: #19e3f0;
+}
+
+html[data-tema="escuro"] .rowButton,
+html[data-tema="escuro"] .statClickable {
+  position: relative;
+}
+
+html[data-tema="escuro"] .rowButton:hover::after,
+html[data-tema="escuro"] .rowButton.selected::after,
+html[data-tema="escuro"] .statClickable:hover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid #19e3f0;
+  border-radius: 8px;
+  pointer-events: none;
+  filter: invert(1) hue-rotate(180deg);
 }
 
 body {
