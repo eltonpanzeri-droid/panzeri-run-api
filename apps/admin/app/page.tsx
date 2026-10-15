@@ -3,7 +3,7 @@
 import { Activity, AlertTriangle, ArrowUp, Bell, CheckCircle2, ClipboardList, Dumbbell, Footprints, HeartPulse, Ruler, ShieldCheck, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flag, Flame, Folder, Gauge, Info, LayoutDashboard, LogIn, Menu, Moon, Pin, PinOff, Plus, RefreshCw, Save, Search, Sun, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, Wrench, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
-import { Bar, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, Bar, CartesianGrid, Cell, LabelList, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import TrainingIntelligenceStudio from './ti/studio';
 import type { ExportProfile } from './ti/anonymous-export';
 
@@ -11044,116 +11044,136 @@ function LoadAnalysisSection({ weeks }: { weeks: WeekData[] }) {
   );
 }
 
-/** Barras com gridlines a cada 5km + linha de tendência. Cor única (26/09/2026: removida a
- * codificação por variação percentual "seguro/salto" — descreve carga, não risco). */
+// 15/10/2026 (pedido de Elton): a cor das colunas por variacao percentual (removida em 26/09/2026 por parecer veredito de risco)
+// voltou, agora como referencia de acompanhamento declarada como tal na propria tela.
+// Escala de acompanhamento do aumento de volume em relacao a semana anterior (definida por Elton em 15/10/2026).
+// E' referencia visual para o treinador: uma entre muitas variaveis, nunca um veredito sobre a aluna.
+const VOLUME_STEPS: Array<{ upTo: number; color: string; label: string }> = [
+  { upTo: 10, color: '#15803d', label: 'até 10%' },
+  { upTo: 20, color: '#84cc16', label: '10 a 20%' },
+  { upTo: 30, color: '#facc15', label: '20 a 30%' },
+  { upTo: 40, color: '#fb923c', label: '30 a 40%' },
+  { upTo: Infinity, color: '#dc2626', label: 'acima de 40%' },
+];
+function volumeStepColor(percent: number): string {
+  return (VOLUME_STEPS.find((step) => percent <= step.upTo) ?? VOLUME_STEPS[VOLUME_STEPS.length - 1]).color;
+}
+
+/** Media diaria dos ultimos `days` dias terminando no fim da semana `index`, expressa em km por semana (cada semana vale km/7 por dia).
+ *  Devolve null enquanto nao ha `days` dias de historico completo. */
+function weeklyEquivalentMean(kmByWeek: number[], index: number, days: number): number | null {
+  const fullWeeks = Math.floor(days / 7);
+  const remainder = days % 7;
+  const oldest = index - fullWeeks;
+  // 21 dias = 3 semanas inteiras (precisa de index-2 >= 0); 60 e 200 dias incluem uma fracao da semana mais antiga (precisa de index-fullWeeks >= 0).
+  if (index - (remainder > 0 ? fullWeeks : fullWeeks - 1) < 0) return null;
+  let sum = 0;
+  for (let step = 0; step < fullWeeks; step += 1) sum += kmByWeek[index - step];
+  if (remainder > 0) sum += (remainder / 7) * kmByWeek[oldest];
+  return sum / (days / 7);
+}
+
+/** Carga semanal: colunas com a cor da variacao contra a semana anterior (escala acima), linha do que foi realizado, linha do prescrito,
+ *  medias moveis de 21, 60 e 200 dias do realizado e canal de tendencia (media das ultimas 8 semanas ± 2 desvios, estilo bandas de Bollinger). */
 function LoadChartSemanal({ weeks }: { weeks: WeekData[] }) {
+  const [on, setOn] = useState({ colunas: true, real: true, prescrito: true, mm21: true, mm60: true, mm200: true, canal: true });
   if (weeks.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados.</p>;
-
-  function barColor(): string {
-  return '#3b82f6';
-  }
-
-  const maxKm = Math.max(...weeks.map((w) => Math.max(w.completedKm, w.prescribedKm)), 5);
-  const topKm = Math.ceil(maxKm / 5) * 5; // arredonda para múltiplo de 5
-  const W = 620; const H = 186; const PL = 38; const PT = 10; const PB = 46; const PR = 10;
+  const toggle = (key: keyof typeof on) => setOn((current) => ({ ...current, [key]: !current[key] }));
   const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-  const chartW = W - PL - PR;
-  const chartH = H - PT - PB;
-  const barW = Math.max(4, (chartW / weeks.length) * 0.60);
-  const gap = chartW / weeks.length;
-
-  const yFn = (km: number) => PT + chartH - (km / topKm) * chartH;
-  const xFn = (i: number) => PL + i * gap + gap / 2;
-
-  // Gridlines a cada 5km
-  const gridLines: number[] = [];
-  for (let km = 0; km <= topKm; km += 5) gridLines.push(km);
-
-  // Linha de tendência (regressão linear simples)
-  const n = weeks.length;
-  const meanX = (n - 1) / 2;
-  const meanY = weeks.reduce((s, w) => s + w.completedKm, 0) / n;
-  const slope = weeks.reduce((s, w, i) => s + (i - meanX) * (w.completedKm - meanY), 0)
-    / (weeks.reduce((s, _, i) => s + (i - meanX) ** 2, 0) || 1);
-  const intercept = meanY - slope * meanX;
-
-  const xLabels: { i: number; label: string }[] = [];
-  if (weeks.length <= 10) {
-    weeks.forEach((w, i) => xLabels.push({ i, label: w.startDate.slice(5, 10).replace('-', '/') }));
-  } else {
-    weeks.forEach((_, i) => {
-      if (i === 0 || i === n - 1 || i % Math.ceil(n / 8) === 0)
-        xLabels.push({ i, label: weeks[i].startDate.slice(5, 10).replace('-', '/') });
-    });
-  }
-
+  const km = weeks.map((week) => week.completedKm);
+  const inProgress = weeks.map((week) => week.startDate.slice(0, 10) <= todayIso && addDaysIso(week.startDate.slice(0, 10), 6) >= todayIso);
+  const CHANNEL_WEEKS = 8;
+  const rows = weeks.map((week, index) => {
+    const previous = index > 0 ? weeks[index - 1] : null;
+    const current = inProgress[index];
+    const percent = !current && previous && previous.completedKm > 0 ? ((week.completedKm - previous.completedKm) / previous.completedKm) * 100 : null;
+    const complete = !current;
+    const window: number[] = [];
+    if (complete) for (let j = Math.max(0, index - CHANNEL_WEEKS + 1); j <= index; j += 1) if (!inProgress[j]) window.push(km[j]);
+    let channel: [number, number] | null = null;
+    let channelMean: number | null = null;
+    if (window.length >= 4) {
+      const mean = window.reduce((sum, value) => sum + value, 0) / window.length;
+      const deviation = Math.sqrt(window.reduce((sum, value) => sum + (value - mean) ** 2, 0) / window.length);
+      channel = [Math.max(0, mean - 2 * deviation), mean + 2 * deviation];
+      channelMean = mean;
+    }
+    return {
+      label: `${week.startDate.slice(8, 10)}/${week.startDate.slice(5, 7)}`,
+      realizado: week.completedKm,
+      prescrito: week.prescribedKm,
+      percent,
+      percentLabel: current ? 'em curso' : percent == null ? '' : `${percent > 0 ? '+' : percent < 0 ? '−' : ''}${Math.abs(Math.round(percent))}%`,
+      color: current ? '#94a3b8' : percent == null ? '#64748b' : volumeStepColor(percent),
+      mm21: complete ? weeklyEquivalentMean(km, index, 21) : null,
+      mm60: complete ? weeklyEquivalentMean(km, index, 60) : null,
+      mm200: complete ? weeklyEquivalentMean(km, index, 200) : null,
+      canal: channel,
+      canalMedia: channelMean,
+    };
+  });
+  const has = (key: 'mm21' | 'mm60' | 'mm200' | 'canal') => rows.some((row) => row[key] != null);
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block', overflow: 'visible' }}>
-        {/* Gridlines a cada 5km */}
-        {gridLines.map((km) => (
-          <g key={km}>
-            <line x1={PL} y1={yFn(km)} x2={W - PR} y2={yFn(km)} stroke="var(--line)" strokeWidth={km === 0 ? 1 : 0.4} />
-            <text x={PL - 4} y={yFn(km) + 3.5} textAnchor="end" fontSize={8.5} fill="var(--muted)">{km}</text>
-          </g>
-        ))}
-        {/* Barras */}
-        {weeks.map((w, i) => {
-          const x = xFn(i);
-          const y = yFn(w.completedKm);
-          return (
-            <g key={i}>
-              <rect x={x - barW / 2} y={y} width={barW} height={Math.max(1, PT + chartH - y)}
-                fill={barColor()} rx={2}>
-                <title>{w.startDate}: {w.completedKm.toFixed(1)} km feito{weeks[i-1] ? ` (${((w.completedKm - weeks[i-1].completedKm) / (weeks[i-1].completedKm||1) * 100).toFixed(0)}% vs semana anterior)` : ''}</title>
-              </rect>
-              {/* Rótulo no topo da barra (se barra ≥ 14px) */}
-              {barW >= 14 && w.completedKm > 0 && (
-                <text x={x} y={y - 3} textAnchor="middle" fontSize={7.5} fontWeight={600} fill={barColor()}>
-                  {w.completedKm % 1 === 0 ? w.completedKm : w.completedKm.toFixed(1)}
-                </text>
-              )}
-            </g>
-          );
-        })}
-        {/* Linha de tendência — mínimo 4 semanas para evitar distorção por ponto zero isolado */}
-        {n >= 4 && (
-          <line
-            x1={xFn(0)} y1={yFn(Math.max(0, intercept))}
-            x2={xFn(n - 1)} y2={yFn(Math.max(0, intercept + slope * (n - 1)))}
-            stroke="#6366f1" strokeWidth={1.5} strokeDasharray="6,3" opacity={0.7}
-          />
-        )}
-        {/* X labels */}
-        {xLabels.map(({ i, label }) => (
-          <text key={i} x={xFn(i)} y={H - 22} textAnchor="middle" fontSize={8.5} fill="var(--muted)">{label}</text>
-        ))}
-        {/* 15/10/2026 (pedido de Elton): variacao % do volume vs. semana anterior sempre visivel, sem precisar do mouse.
-            A semana em andamento nao e' comparada (ainda esta incompleta) — aparece como "em curso", nunca como queda. */}
-        {weeks.map((w, i) => {
-          const showEvery = weeks.length <= 14 || i % 2 === 0 || i === n - 1;
-          if (!showEvery) return null;
-          const inProgress = w.startDate.slice(0, 10) <= todayIso && addDaysIso(w.startDate.slice(0, 10), 6) >= todayIso;
-          const previous = weeks[i - 1];
-          let text = '';
-          if (inProgress) text = 'em curso';
-          else if (previous && previous.completedKm > 0) {
-            const pct = Math.round(((w.completedKm - previous.completedKm) / previous.completedKm) * 100);
-            text = `${pct > 0 ? '+' : pct < 0 ? '−' : ''}${Math.abs(pct)}%`;
-          }
-          return text ? <text key={`v${i}`} x={xFn(i)} y={H - 8} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="var(--ink)">{text}</text> : null;
-        })}
-      </svg>
-      <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap', alignItems: 'center' }}>
-        <span>Km realizados por semana. Abaixo de cada data: variação % do volume em relação à semana anterior (semana em andamento não é comparada).</span>
-        {n >= 4 && <span style={{ marginLeft: 8 }}>
-          <span style={{ display:'inline-block', width:16, height:2, background:'#6366f1', marginRight:4, verticalAlign:'middle', opacity:0.7 }} />Tendência
-        </span>}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+        <SeriesChip label="Colunas: realizado (cor = variação)" color="#3b82f6" on={on.colunas} onClick={() => toggle('colunas')} />
+        <SeriesChip label="Linha do realizado" color="#22c55e" on={on.real} onClick={() => toggle('real')} />
+        <SeriesChip label="Linha do prescrito" color="#94a3b8" on={on.prescrito} onClick={() => toggle('prescrito')} />
+        <SeriesChip label={has('mm21') ? 'Média de 21 dias' : 'Média de 21 dias (sem histórico)'} color="#e0a72d" on={on.mm21 && has('mm21')} onClick={() => toggle('mm21')} />
+        <SeriesChip label={has('mm60') ? 'Média de 60 dias' : 'Média de 60 dias (precisa de 9 semanas)'} color="#a855f7" on={on.mm60 && has('mm60')} onClick={() => toggle('mm60')} />
+        <SeriesChip label={has('mm200') ? 'Média de 200 dias' : 'Média de 200 dias (precisa de 29 semanas)'} color="#ec4899" on={on.mm200 && has('mm200')} onClick={() => toggle('mm200')} />
+        <SeriesChip label={has('canal') ? 'Canal de tendência' : 'Canal de tendência (precisa de 4 semanas)'} color="#6366f1" on={on.canal && has('canal')} onClick={() => toggle('canal')} />
       </div>
+      <ResponsiveContainer width="100%" height={300}>
+        <ComposedChart data={rows} barCategoryGap="28%">
+          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+          <XAxis dataKey="label" fontSize={11} interval={0} />
+          <YAxis fontSize={12} unit=" km" />
+          <Tooltip content={({ active, payload }) => {
+            if (!active || !payload?.length) return null;
+            const row = payload[0].payload as (typeof rows)[number];
+            const fmt = (value: number | null | undefined) => (value == null ? '—' : `${value.toFixed(1).replace('.', ',')} km`);
+            return (
+              <div style={{ background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', fontSize: 12, color: 'var(--ink)' }}>
+                <strong>Semana de {row.label}</strong>
+                <div>Realizado: {fmt(row.realizado)}</div>
+                <div>Prescrito: {fmt(row.prescrito)}</div>
+                <div>Variação vs semana anterior: {row.percentLabel || '—'}</div>
+                <div>Média 21 dias: {fmt(row.mm21)} · 60 dias: {fmt(row.mm60)} · 200 dias: {fmt(row.mm200)}</div>
+                <div>Canal: {row.canal ? `${fmt(row.canal[0])} a ${fmt(row.canal[1])}` : '—'}</div>
+              </div>
+            );
+          }} />
+          {on.canal ? <Area type="monotone" dataKey="canal" name="Canal de tendência" stroke="#6366f1" strokeOpacity={0.5} fill="#6366f1" fillOpacity={0.12} connectNulls={false} isAnimationActive={false} /> : null}
+          {on.colunas ? (
+            <Bar dataKey="realizado" name="Realizado" maxBarSize={34} radius={[3, 3, 0, 0]}>
+              {rows.map((row, index) => <Cell key={index} fill={row.color} />)}
+              <LabelList dataKey="percentLabel" position="top" fontSize={10} fontWeight={700} fill="var(--ink)" />
+            </Bar>
+          ) : null}
+          {on.prescrito ? <Line type="monotone" dataKey="prescrito" name="Prescrito" stroke="#94a3b8" strokeWidth={2} strokeDasharray="6 4" dot={false} /> : null}
+          {on.real ? <Line type="monotone" dataKey="realizado" name="Linha do realizado" stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} /> : null}
+          {on.mm21 ? <Line type="monotone" dataKey="mm21" name="Média 21 dias" stroke="#e0a72d" strokeWidth={2} dot={false} connectNulls={false} /> : null}
+          {on.mm60 ? <Line type="monotone" dataKey="mm60" name="Média 60 dias" stroke="#a855f7" strokeWidth={2} dot={false} connectNulls={false} /> : null}
+          {on.mm200 ? <Line type="monotone" dataKey="mm200" name="Média 200 dias" stroke="#ec4899" strokeWidth={2} dot={false} connectNulls={false} /> : null}
+        </ComposedChart>
+      </ResponsiveContainer>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 6, fontSize: 12 }}>
+        <strong>Aumento contra a semana anterior:</strong>
+        {VOLUME_STEPS.map((step) => (
+          <span key={step.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 12, height: 12, borderRadius: 3, background: step.color }} />{step.label}
+          </span>
+        ))}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: '#94a3b8' }} />semana em curso</span>
+      </div>
+      <p className="formHintText" style={{ marginTop: 6 }}>
+        As cores são uma referência de acompanhamento do aumento de volume em relação à semana anterior: é uma entre muitas variáveis e não um veredito sobre a aluna. Queda de volume não recebe cor de alerta aqui.
+        As médias de 21, 60 e 200 dias usam o realizado (km por semana equivalente) e só aparecem quando há esse histórico completo. Canal de tendência: média das últimas 8 semanas completas ± 2 desvios, no estilo das bandas de Bollinger.
+      </p>
     </div>
   );
 }
-
 /**
  * Razão Aguda:Crônica (ACWR) — quanto a carga RECENTE representa frente à referência histórica do
  * próprio aluno (26/09/2026: removida a linguagem de "zona segura"/"zona de risco" — ACWR descreve
