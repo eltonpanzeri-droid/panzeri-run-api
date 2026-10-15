@@ -1380,6 +1380,64 @@ export class CoachService {
     };
   }
 
+  // 15/10/2026 (Fase 6 do plano de revitalizacao): visao "Programas e IA" para o treinador acompanhar a IA. Somente leitura,
+  // so contagens e listas do que ja esta gravado (programas, travas de geracao, decisoes da IA, diretrizes, reavaliacoes).
+  // Nenhum limite ou veredito: mostra o que existe e deixa a leitura para o treinador.
+  async aiOverview() {
+    const now = Date.now();
+    const weekAgo = new Date(now - 7 * 86400000);
+    const monthAgo = new Date(now - 30 * 86400000);
+    const withAccess = { ...STUDENT_METRICS_POPULATION, subscriptionStatus: { in: [...CONFIRMED_STATUSES, COURTESY_STATUS] } };
+    const [accessUsers, recentPlans, locks, decisions, activeDirectives, newDirectives, openReassessments] = await Promise.all([
+      this.prisma.user.findMany({
+        where: withAccess,
+        select: { id: true, name: true, studentCode: true, plans: { where: { status: { in: ['active', 'scheduled'] } }, select: { id: true } } },
+      }),
+      this.prisma.trainingPlan.findMany({ where: { createdAt: { gte: weekAgo }, user: STUDENT_METRICS_POPULATION }, select: { userId: true, createdAt: true, generatedBy: true } }),
+      this.prisma.trainingPlanGenerationLock.findMany({ select: { userId: true, startedAt: true } }),
+      this.prisma.prescriptionDecision.findMany({ where: { createdAt: { gte: weekAgo } }, select: { kind: true, traceStatus: true } }),
+      this.prisma.studentDirective.count({ where: { active: true, user: STUDENT_METRICS_POPULATION } }),
+      this.prisma.studentDirective.count({ where: { createdAt: { gte: monthAgo }, user: STUDENT_METRICS_POPULATION } }),
+      this.prisma.reassessment.findMany({ where: { completedAt: null, user: STUDENT_METRICS_POPULATION }, select: { userId: true, createdAt: true, user: { select: { name: true, studentCode: true } } }, orderBy: { createdAt: 'asc' }, take: 50 }),
+    ]);
+
+    const withoutProgram = accessUsers.filter((user) => user.plans.length === 0).map((user) => ({ id: user.id, studentCode: formatStudentCode(user.studentCode), name: user.name }));
+    const plansPerUser = new Map<string, number>();
+    const byGenerator: Record<string, number> = {};
+    const perDay: Record<string, number> = {};
+    for (const plan of recentPlans) {
+      plansPerUser.set(plan.userId, (plansPerUser.get(plan.userId) ?? 0) + 1);
+      byGenerator[plan.generatedBy] = (byGenerator[plan.generatedBy] ?? 0) + 1;
+      const day = plan.createdAt.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+      perDay[day] = (perDay[day] ?? 0) + 1;
+    }
+    const traceCounts: Record<string, number> = { complete: 0, partial: 0, absent: 0 };
+    const kindCounts: Record<string, number> = {};
+    for (const decision of decisions) {
+      traceCounts[decision.traceStatus] = (traceCounts[decision.traceStatus] ?? 0) + 1;
+      kindCounts[decision.kind] = (kindCounts[decision.kind] ?? 0) + 1;
+    }
+    return {
+      generatedAt: new Date(now),
+      studentsWithAccess: accessUsers.length,
+      withoutProgram: { count: withoutProgram.length, students: withoutProgram },
+      generation: {
+        programsLast7Days: recentPlans.length,
+        studentsWithRegeneration: [...plansPerUser.values()].filter((count) => count >= 2).length,
+        byGenerator,
+        perDay: Object.entries(perDay).sort(([a], [b]) => (a < b ? -1 : 1)).map(([date, count]) => ({ date, count })),
+        runningNow: locks.map((lock) => ({ userId: lock.userId, minutesRunning: Math.max(0, Math.round((now - lock.startedAt.getTime()) / 60000)) })),
+      },
+      decisionsLast7Days: { total: decisions.length, byTrace: traceCounts, byKind: kindCounts },
+      coach: { activeDirectives, directivesCreatedLast30Days: newDirectives },
+      openReassessments: {
+        count: openReassessments.length,
+        students: openReassessments.slice(0, 10).map((row) => ({ studentCode: formatStudentCode(row.user.studentCode), name: row.user.name, daysOpen: Math.max(0, Math.floor((now - row.createdAt.getTime()) / 86400000)) })),
+      },
+      note: 'Contagens do que está gravado no banco. "Sem programa ativo" considera alunas com acesso (pagantes e cortesias) sem programa ativo ou agendado. Nenhum limite ou alerta automático: a leitura é sua.',
+    };
+  }
+
   // 15/10/2026 (Fase 5 do plano de revitalizacao, decisao de Elton): funil de PESSOAS lido do banco, nao de sessoes de
   // evento. Cada pessoa cadastrada no periodo e' contada uma vez, na etapa mais avancada que alcancou; "alcancou"
   // inclui etapas posteriores (quem pagou conta como quem fez a entrevista), entao o funil nunca cresce de uma etapa

@@ -54,7 +54,7 @@ interface FunnelReport {
   }>;
 }
 
-type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel' | 'raceCalendar' | 'trainingIntelligence' | 'tools';
+type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel' | 'raceCalendar' | 'trainingIntelligence' | 'tools' | 'ai';
 
 // 15/10/2026: visao por papel (plano de revitalizacao). Por enquanto so organiza o menu; o conteudo das
 // telas por papel vem nas proximas fases. 'tudo' mostra todas as areas.
@@ -928,7 +928,7 @@ export default function AdminHome() {
     // porque nao faz mais sentido com lista e detalhe sendo dois modos separados. A view 'weeks'
     // ainda usa esse auto-carregamento (o seletor dela sempre espera alguem selecionado).
     if (view === 'students') setStudentViewMode('list');
-    if (view !== 'dashboard' && view !== 'students' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && view !== 'prospects' && view !== 'exStudents' && view !== 'trainingIntelligence' && view !== 'tools' && !selectedStudentId && dashboard?.students[0]) {
+    if (view !== 'dashboard' && view !== 'students' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && view !== 'prospects' && view !== 'exStudents' && view !== 'trainingIntelligence' && view !== 'tools' && view !== 'ai' && !selectedStudentId && dashboard?.students[0]) {
       void loadStudent(dashboard.students[0].id);
     }
   }
@@ -1295,7 +1295,7 @@ export default function AdminHome() {
             </button>
             <div>
               <p className="eyebrow">Painel do treinador</p>
-              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : activeView === 'trainingIntelligence' ? 'Training Intelligence' : activeView === 'tools' ? 'Ferramentas' : 'Financeiro'}</h1>
+              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : activeView === 'trainingIntelligence' ? 'Training Intelligence' : activeView === 'tools' ? 'Ferramentas' : activeView === 'ai' ? 'Programas e IA' : 'Financeiro'}</h1>
               <small className="apiVersion">API {apiVersion}</small>
             </div>
           </div>
@@ -1306,7 +1306,7 @@ export default function AdminHome() {
             <button className="iconButton" type="button" onClick={alternarTema} aria-label={tema === 'escuro' ? 'Usar tema claro' : 'Usar tema escuro'} title={tema === 'escuro' ? 'Usar tema claro' : 'Usar tema escuro'}>
               {tema === 'escuro' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            {activeView !== 'dashboard' && activeView !== 'notifications' && activeView !== 'trainingIntelligence' && activeView !== 'tools' ? <label className="searchBox">
+            {activeView !== 'dashboard' && activeView !== 'notifications' && activeView !== 'trainingIntelligence' && activeView !== 'tools' && activeView !== 'ai' ? <label className="searchBox">
               <Search size={18} />
               <input placeholder="Buscar por nome ou e-mail" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
             </label> : null}
@@ -1342,6 +1342,7 @@ export default function AdminHome() {
             { area: 'Dinheiro', view: 'finance', label: 'Financeiro', icon: <CreditCard size={19} />, papeis: ['empresario', 'financeiro'] },
             { area: 'Dinheiro', view: 'coupons', label: 'Cupons', icon: <Ticket size={19} />, papeis: ['empresario', 'financeiro', 'marketing'] },
             { area: 'Crescimento', view: 'funnel', label: 'Funil', icon: <TrendingUp size={19} />, papeis: ['empresario', 'marketing'] },
+            { area: 'IA e sistema', view: 'ai', label: 'Programas e IA', icon: <Gauge size={19} />, papeis: ['treinador', 'coordenador'] },
             { area: 'IA e sistema', view: 'notifications', label: `Notificações${notifications.length ? ` (${notifications.length})` : ''}`, icon: <Bell size={19} />, papeis: ['treinador', 'coordenador'] },
             { area: 'Ferramentas', view: 'tools', label: 'Ferramentas', icon: <Wrench size={19} />, papeis: ['coordenador', 'financeiro', 'empresario'] },
           ];
@@ -1408,6 +1409,15 @@ export default function AdminHome() {
               )) : <p>Nenhuma notificacao registrada.</p>}
             </div>
           </section>
+        ) : null}
+
+        {activeView === 'dashboard' ? (
+          <PanoramaSection
+            totals={dashboard?.totals ?? null}
+            evolution={monthlyEvolution}
+            onOpenGroup={goToStudentsFilteredByPayment}
+            onOpenFinance={() => changeView('finance')}
+          />
         ) : null}
 
         {activeView === 'dashboard' ? <section className="stats">
@@ -1952,6 +1962,8 @@ export default function AdminHome() {
           />
         ) : null}
 
+        {activeView === 'ai' ? <AiOverviewView accessToken={token} /> : null}
+
         {activeView === 'finance' ? <FinanceView finance={finance} evolution={monthlyEvolution} onRefresh={() => loadFinance()} accessToken={token} onOpenGroup={goToStudentsFilteredByPayment} onOpenProspects={() => changeView('prospects')} /> : null}
 
         {activeView === 'funnel' ? <FunnelView report={funnelReport} loading={loadingFunnel} onRefresh={() => loadFunnel()} accessToken={token} /> : null}
@@ -2034,6 +2046,153 @@ function CouponsView({
           </article>
         )) : <p>Nenhum cupom criado ainda.</p>}
       </div>
+    </section>
+  );
+}
+
+/** 15/10/2026 (Fase 7): panorama do negocio no topo da Visao geral. Usa so o que a tela ja carrega (totais e evolucao mensal);
+ *  a variacao e' a diferenca contra o fim do mes anterior, dita como tal (o mes atual esta em andamento). Nenhum limite nem alerta. */
+function PanoramaSection({ totals, evolution, onOpenGroup, onOpenFinance }: {
+  totals: { paymentConfirmed: number; paymentOverdue: number; paymentPending: number; courtesyAccess: number } | null;
+  evolution: MonthlyEvolutionPoint[] | null;
+  onOpenGroup: (group: 'confirmed' | 'courtesy' | 'overdue') => void;
+  onOpenFinance: () => void;
+}) {
+  if (!totals) return null;
+  const last = evolution && evolution.length >= 2 ? evolution[evolution.length - 1] : null;
+  const previous = evolution && evolution.length >= 2 ? evolution[evolution.length - 2] : null;
+  const delta = (current: number, before: number | undefined) => {
+    if (before == null) return null;
+    const diff = current - before;
+    return { text: `${diff > 0 ? '+' : diff < 0 ? '−' : ''}${Math.abs(diff)}`, tone: diff === 0 ? 'var(--muted)' : diff > 0 ? '#15803d' : '#b91c1c' };
+  };
+  const payingDelta = delta(totals.paymentConfirmed, previous?.groups.confirmed);
+  const overdueDelta = delta(totals.paymentOverdue, previous?.groups.overdue);
+  const canceledNow = last?.groups.canceled ?? null;
+  const canceledDelta = canceledNow != null ? delta(canceledNow, previous?.groups.canceled) : null;
+  const receivedCents = last?.revenueReceivedCents ?? null;
+  const projectedCents = totals.paymentConfirmed * 1990;
+  const tile = (label: string, value: string, hint: string, onClick: () => void, change: { text: string; tone: string } | null, tone?: string) => (
+    <button type="button" onClick={onClick}
+      style={{ textAlign: 'left', background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 10, padding: '14px 16px', cursor: 'pointer', color: 'var(--ink)', display: 'grid', gap: 4, minWidth: 0 }}>
+      <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>{label}</span>
+      <strong style={{ fontSize: 34, lineHeight: 1.1, color: tone ?? 'var(--ink)' }}>{value}</strong>
+      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+        {change ? <strong style={{ color: change.tone }}>{change.text} </strong> : null}{hint}
+      </span>
+    </button>
+  );
+  return (
+    <section style={{ marginBottom: 16 }}>
+      <p className="eyebrow" style={{ margin: '0 0 8px' }}>Panorama do negócio</p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+        {tile('Pagantes', String(totals.paymentConfirmed), previous ? 'vs fim do mês anterior · clique para ver quem' : 'clique para ver quem', () => onOpenGroup('confirmed'), payingDelta)}
+        {tile('Pagamento atrasado', String(totals.paymentOverdue), previous ? 'vs fim do mês anterior · clique para ver quem' : 'clique para ver quem', () => onOpenGroup('overdue'), overdueDelta, totals.paymentOverdue > 0 ? '#b45309' : undefined)}
+        {tile('Cancelamentos', canceledNow != null ? String(canceledNow) : '—', 'cancelados acumulados, vs fim do mês anterior · clique para o Financeiro', onOpenFinance, canceledDelta)}
+        {tile('Receita recebida este mês', receivedCents != null ? formatMoney(receivedCents) : '—', `projetado pelos pagantes: ${formatMoney(projectedCents)} · clique para o Financeiro`, onOpenFinance, null)}
+      </div>
+    </section>
+  );
+}
+
+type AiOverviewResponse = {
+  generatedAt: string;
+  studentsWithAccess: number;
+  withoutProgram: { count: number; students: Array<{ id: string; studentCode: string; name: string }> };
+  generation: { programsLast7Days: number; studentsWithRegeneration: number; byGenerator: Record<string, number>; perDay: Array<{ date: string; count: number }>; runningNow: Array<{ userId: string; minutesRunning: number }> };
+  decisionsLast7Days: { total: number; byTrace: Record<string, number>; byKind: Record<string, number> };
+  coach: { activeDirectives: number; directivesCreatedLast30Days: number };
+  openReassessments: { count: number; students: Array<{ studentCode: string; name: string; daysOpen: number }> };
+  note: string;
+};
+
+/** 15/10/2026 (Fase 6): visao "Programas e IA" (somente leitura): programas, geracao, decisoes da IA, diretrizes e reavaliacoes. */
+function AiOverviewView({ accessToken }: { accessToken: string }) {
+  const [data, setData] = useState<AiOverviewResponse | null>(null);
+  const [error, setError] = useState('');
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_URL}/coach/ai/overview`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!response.ok) throw new Error('falha');
+        const json = (await response.json()) as AiOverviewResponse;
+        if (!cancelled) { setData(json); setError(''); }
+      } catch {
+        if (!cancelled) setError('Não consegui carregar a visão de programas e IA.');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [accessToken, tick]);
+
+  const traceLabel: Record<string, string> = { complete: 'completo', partial: 'parcial', absent: 'ausente' };
+  const kindLabel: Record<string, string> = { week: 'da semana', session: 'de sessão' };
+  const maxDay = Math.max(1, ...(data?.generation.perDay ?? []).map((d) => d.count));
+  return (
+    <section className="panel fullPanel">
+      <div className="panelHeader">
+        <div><p className="eyebrow">IA e sistema</p><h2>Programas e IA</h2></div>
+        <button className="secondaryButton" type="button" onClick={() => setTick((n) => n + 1)}>Atualizar</button>
+      </div>
+      {error ? <p className="formHintText">{error}</p> : null}
+      {!data && !error ? <p className="formHintText">Carregando...</p> : null}
+      {data ? (
+        <>
+          <section className="stats">
+            <Stat label="Alunas com acesso" value={String(data.studentsWithAccess)} detail="pagantes e cortesias" />
+            <Stat label="Sem programa ativo" value={String(data.withoutProgram.count)} detail="com acesso e sem programa ativo ou agendado" />
+            <Stat label="Programas gerados" value={String(data.generation.programsLast7Days)} detail={`últimos 7 dias · ${data.generation.studentsWithRegeneration} aluna(s) com mais de uma geração`} />
+            <Stat label="Gerando agora" value={String(data.generation.runningNow.length)} detail={data.generation.runningNow.length ? `a mais antiga há ${Math.max(...data.generation.runningNow.map((r) => r.minutesRunning))} min` : 'nenhuma geração em andamento'} />
+          </section>
+
+          <section className="chartCard">
+            <h3>Programas gerados por dia (7 dias)</h3>
+            {data.generation.perDay.length ? (
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, minHeight: 90 }}>
+                {data.generation.perDay.map((day) => (
+                  <div key={day.date} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: '0 0 44px' }}>
+                    <strong style={{ fontSize: 12 }}>{day.count}</strong>
+                    <span style={{ width: 28, height: Math.max(4, Math.round((day.count / maxDay) * 60)), background: 'var(--accent)', borderRadius: 3 }} />
+                    <small style={{ color: 'var(--muted)' }}>{day.date.slice(8, 10)}/{day.date.slice(5, 7)}</small>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="formHintText">Nenhum programa gerado nos últimos 7 dias.</p>}
+            <p className="formHintText" style={{ marginTop: 8 }}>
+              Gerados por: {Object.entries(data.generation.byGenerator).map(([name, count]) => `${name} (${count})`).join(', ') || '—'}
+            </p>
+          </section>
+
+          <div className="financeGrid">
+            <Detail icon={<FileText size={18} />} label="Decisões da IA registradas (7 dias)" value={String(data.decisionsLast7Days.total)} />
+            <Detail icon={<CheckCircle2 size={18} />} label="Com raciocínio completo" value={String(data.decisionsLast7Days.byTrace.complete ?? 0)} />
+            <Detail icon={<Info size={18} />} label="Parcial / ausente" value={`${data.decisionsLast7Days.byTrace.partial ?? 0} / ${data.decisionsLast7Days.byTrace.absent ?? 0}`} />
+            <Detail icon={<Pin size={18} />} label="Diretrizes ativas" value={`${data.coach.activeDirectives} (${data.coach.directivesCreatedLast30Days} novas em 30 dias)`} />
+          </div>
+          {Object.keys(data.decisionsLast7Days.byKind).length ? (
+            <p className="formHintText" style={{ margin: '8px 0' }}>
+              Decisões por tipo: {Object.entries(data.decisionsLast7Days.byKind).map(([kind, count]) => `${kindLabel[kind] ?? kind} (${count})`).join(', ')} · raciocínio: {Object.entries(data.decisionsLast7Days.byTrace).map(([trace, count]) => `${traceLabel[trace] ?? trace} (${count})`).join(', ')}
+            </p>
+          ) : null}
+
+          <section className="miniSection">
+            <h3>Sem programa ativo ({data.withoutProgram.count})</h3>
+            {data.withoutProgram.students.length ? data.withoutProgram.students.map((student) => (
+              <p key={student.id} style={{ margin: '4px 0' }}>{student.name} <span style={{ color: 'var(--muted)' }}>({student.studentCode})</span></p>
+            )) : <p className="formHintText">Todas as alunas com acesso têm programa ativo ou agendado.</p>}
+          </section>
+
+          <section className="miniSection">
+            <h3>Reavaliações em aberto ({data.openReassessments.count})</h3>
+            {data.openReassessments.students.length ? data.openReassessments.students.map((student) => (
+              <p key={`${student.studentCode}-${student.daysOpen}`} style={{ margin: '4px 0' }}>{student.name} <span style={{ color: 'var(--muted)' }}>({student.studentCode} · aberta há {student.daysOpen} dia(s))</span></p>
+            )) : <p className="formHintText">Nenhuma reavaliação em aberto.</p>}
+          </section>
+          <p className="formHintText" style={{ marginTop: 8 }}>{data.note}</p>
+        </>
+      ) : null}
     </section>
   );
 }

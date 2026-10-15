@@ -134,6 +134,12 @@ export class CoachController {
     return this.coachService.finance();
   }
 
+  // 15/10/2026: visao "Programas e IA" (somente leitura).
+  @Get('ai/overview')
+  aiOverview() {
+    return this.coachService.aiOverview();
+  }
+
   // 15/10/2026: funil de pessoas lido do banco (somente leitura). days: 7, 30, 90...; sem days = desde sempre.
   @Get('funnel/people')
   signupFunnelPeople(@Query('days') days?: string) {
