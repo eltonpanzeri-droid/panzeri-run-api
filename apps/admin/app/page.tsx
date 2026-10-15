@@ -3449,36 +3449,38 @@ function StudentPanel({
           {/* ── TREINAMENTO ───────────────────────────────────────────────── */}
           <GroupLabel label="Treinamento" />
 
-          <EvoSection icon="📊" title="Volume semanal" badge={`${filteredWeeks.length} sem`}
+          <div className="evoGrid">
+          <EvoSection order={1} defaultOpen icon="📊" title="Volume semanal" badge={`${filteredWeeks.length} sem`}
             desc="Km completados por semana (barra) vs prescritos (linha tracejada). Linha roxa = tendência de evolução. Pra aprofundar (prescrito/realizado/extra separados, tendência, baseline, faixa habitual, comparar modalidades): Exploração Longitudinal → Volume, aderência e carga, mais abaixo.">
             <KmEvolutionChart weeks={filteredWeeks} period={999} />
             <EvolutionKeyNumbers weeks={allWeeks} period={evolPeriod} />
           </EvoSection>
 
-          <EvoSection icon="📅" title="Calendário de treinos" badge="8 sem"
+          <EvoSection order={5} wide defaultOpen icon="📅" title="Calendário de treinos" badge="8 sem"
             desc="Últimas 8 semanas. Cor = status do treino (feito / perdido / extra / sem registro / futuro — mesma paleta usada em todos os gráficos abaixo). Anel colorido = nível de esforço percebido. Ponto ciano no canto = dia com sessão extra. Clique em qualquer bolinha para ver o treino completo na aba Semanas anteriores.">
             <TrainingCalendarDots history={hist} onDayClick={handleCalendarDayClick} />
           </EvoSection>
 
-          <EvoSection icon="📋" title="Aderência aos treinos" badge={filteredWeeks.length > 0 ? `${filteredWeeks.length} sem` : undefined}
+          <EvoSection order={2} defaultOpen icon="📋" title="Aderência aos treinos" badge={filteredWeeks.length > 0 ? `${filteredWeeks.length} sem` : undefined}
             desc="% de treinos planejados que foram realizados por semana. As 5 categorias (prescrito/feito/perdido/sem registro/extra) são sempre mostradas separadas — nunca somadas escondendo o detalhe. Não existe uma meta universal — compare com o histórico e o baseline individual deste aluno, não com um número fixo. Pra ver numerador/denominador/coverage de cada ponto e a tendência ao longo do tempo: Exploração Longitudinal → Volume, aderência e carga.">
             <LoadChartAderencia weeks={filteredWeeks} history={hist} />
           </EvoSection>
 
-          <EvoSection icon="🗂️" title="Detalhamento por sessão" badge={`${filteredSessions.length} sessões`}
+          <EvoSection order={6} wide icon="🗂️" title="Detalhamento por sessão" badge={`${filteredSessions.length} sessões`}
             desc="Toda sessão do período, uma linha por sessão — sem agregação. Prescrito, feito, extra, perdido e sem registro aparecem lado a lado com km, ritmo, RPE, dor e comentário de cada treino individual. Ordenado da mais recente para a mais antiga.">
             <SessionDetailTable sessions={filteredSessions} />
           </EvoSection>
 
-          <EvoSection icon="📈" title="Carga semanal e relação aguda:crônica" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
+          <EvoSection order={3} defaultOpen icon="📈" title="Carga semanal e relação aguda:crônica" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
             desc="Carga Semanal é a série de volume realizado por semana. ACWR (Aguda:Crônica) é uma RELAÇÃO derivada dela — quanto a carga recente representa frente à referência histórica do próprio aluno. Descreve magnitude de variação, não segurança, risco ou correção — não responde sozinho 'está treinando certo?' ou 'precisa reduzir?'. Interprete sempre junto com RPE, sono, dor e contexto real do aluno. Composição completa (agudo/crônico/janelas/coverage) de cada ponto: Exploração Longitudinal → Volume, aderência e carga → relação carga aguda:crônica.">
             <LoadAnalysisSection weeks={filteredWeeks} />
           </EvoSection>
 
-          <EvoSection icon="💪" title="Esforço percebido (RPE)" badge={feedbackSessions > 0 ? `${feedbackSessions} treinos` : undefined}
+          <EvoSection order={4} defaultOpen icon="💪" title="Esforço percebido (RPE)" badge={feedbackSessions > 0 ? `${feedbackSessions} treinos` : undefined}
             desc="RPE 1–10 por sessão, semana ou mês. Filtre por modalidade. Clique nas bolinhas do calendário para ver o treino completo.">
             <EffortSection history={hist} period={evolPeriod} />
           </EvoSection>
+          </div>
 
           {/* ── ESTADO E RESPOSTA ─────────────────────────────────────────── */}
           <GroupLabel label="Estado e resposta ao treinamento" />
@@ -3489,7 +3491,7 @@ function StudentPanel({
               mantidos no arquivo para reverter. */}
 
 
-          <EvoSection icon="🩹" title="Dor ao longo do tempo" badge={sessionsWithV1Pain.length > 0 ? sessionsWithV1Pain.filter((s) => s.painFlag !== 'none').length : undefined}
+          <EvoSection defaultOpen icon="🩹" title="Dor ao longo do tempo" badge={sessionsWithV1Pain.length > 0 ? sessionsWithV1Pain.filter((s) => s.painFlag !== 'none').length : undefined}
             desc="Intensidade de dor por sessão (0 = sem dor, 1 = leve, 2 = moderada, 3 = forte). Episódios detalhados com quando a dor apareceu. Círculo maior = dor mais intensa. Dados de v1 (a partir de 11/09/2026) + observações antigas.">
             <DorLongitudinalSection history={hist} />
             {/* Mantém relatos históricos de texto para contexto */}
@@ -9675,11 +9677,13 @@ function TrainingCalendarDots({ history, onDayClick }: {
 // ─── EVOLUÇÃO: COMPONENTES BASE ─────────────────────────────────────────────
 
 /** Acordeon genérico para a aba Evolução. */
-function EvoSection({ icon, title, badge, desc, children }: {
+function EvoSection({ icon, title, badge, desc, children, defaultOpen, wide, order }: {
   icon: string; title: string; badge?: string | number; desc?: string; children: ReactNode;
+  /** 15/10/2026 (layout): abre a secao ja na primeira vez; wide ocupa a linha toda da grade; order define a posicao na grade. */
+  defaultOpen?: boolean; wide?: boolean; order?: number;
 }) {
   return (
-    <details style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--surface)', overflow: 'hidden' }}>
+    <details open={defaultOpen} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--surface)', overflow: 'hidden', minWidth: 0, ...(wide ? { gridColumn: '1 / -1' } : {}), ...(order != null ? { order } : {}) }}>
       <summary style={{
         cursor: 'pointer', padding: '13px 16px', display: 'flex', alignItems: 'center',
         gap: 10, listStyle: 'none', fontWeight: 600, fontSize: 14, userSelect: 'none',

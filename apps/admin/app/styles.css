@@ -754,6 +754,14 @@ h3 {
 
 /* 15/10/2026: lista de alunas (so layout). Colunas com largura minima, para o nome e o objetivo nao quebrarem em
    varias linhas e o cabecalho acompanhar as colunas. Abaixo de 1100px volta ao grid original (a janela rola). */
+/* 15/10/2026: grade da aba Evolucao — graficos principais lado a lado (uma coluna em telas estreitas). */
+.evoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
 .studentTable .row {
   grid-template-columns: minmax(230px, 1.5fr) minmax(150px, 1fr) 80px 90px 140px 130px minmax(200px, 1.2fr) 40px;
 }
