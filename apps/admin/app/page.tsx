@@ -376,6 +376,7 @@ interface CouponRow {
 }
 
 interface FinanceResponse {
+  priceCents: number;
   priceLabel: string;
   activePlans: number;
   payingPlans: number;
@@ -2427,6 +2428,65 @@ function FinanceView({ finance, evolution, onRefresh, accessToken, onOpenGroup, 
           </ResponsiveContainer>
         ) : <p className="formHintText">Carregando evolução de receita...</p>}
       </section>
+      {evolution && evolution.length ? (() => {
+        // 15/10/2026: recebido contra projetado, mes a mes. Projetado = pagantes no fim do mes x preco de tabela;
+        // recebido = pagamentos confirmados do Asaas no mes. Descritivo: a diferenca nao e' erro nem prejuizo
+        // (vencimentos ainda nao ocorridos, atrasos e compras pela loja entram na conta).
+        const currentMonth = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+        const rows = evolution.map((m) => {
+          const projectedCents = m.groups.confirmed * (finance?.priceCents ?? 1990);
+          return { month: m.month, payers: m.groups.confirmed, projectedCents, receivedCents: m.revenueReceivedCents, coverage: m.coverage, inProgress: m.month === currentMonth };
+        });
+        return (
+          <section className="chartCard">
+            <h3>
+              Recebido contra projetado, por mês
+              <InfoIcon text="Projetado = pagantes no fim do mês × R$ 19,90. Recebido = pagamentos confirmados do Asaas no mês. A diferença não é erro nem prejuízo: vencimentos que ainda não ocorreram, atrasos e compras pela loja (sem valor exato) explicam parte dela." />
+            </h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <ComposedChart data={rows.map((r) => ({ month: r.month, pagantes: r.payers, projetado: r.projectedCents / 100, recebido: r.receivedCents / 100 }))}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="month" fontSize={12} />
+                <YAxis yAxisId="left" fontSize={12} allowDecimals={false} />
+                <YAxis yAxisId="right" orientation="right" fontSize={12} tickFormatter={(v) => `R$${v}`} />
+                <Tooltip formatter={(value: unknown, name: unknown) => (name === 'Pagantes' ? String(value) : `R$ ${Number(value).toFixed(2)}`)} />
+                <Legend />
+                <Bar yAxisId="left" dataKey="pagantes" name="Pagantes" fill="#7aa8ff" />
+                <Line yAxisId="right" type="monotone" dataKey="projetado" name="Projetado" stroke="#e0a72d" strokeWidth={2} dot={false} strokeDasharray="5 4" />
+                <Line yAxisId="right" type="monotone" dataKey="recebido" name="Recebido" stroke="#1a7f5a" strokeWidth={2} dot />
+              </ComposedChart>
+            </ResponsiveContainer>
+            <div style={{ overflowX: 'auto', marginTop: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', color: 'var(--muted)' }}>
+                    <th style={{ padding: '4px 8px' }}>Mês</th>
+                    <th style={{ padding: '4px 8px' }}>Pagantes no fim do mês</th>
+                    <th style={{ padding: '4px 8px' }}>Projetado</th>
+                    <th style={{ padding: '4px 8px' }}>Recebido</th>
+                    <th style={{ padding: '4px 8px' }}>Diferença</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => {
+                    const diff = r.receivedCents - r.projectedCents;
+                    return (
+                      <tr key={r.month} style={{ borderTop: '1px solid var(--line)' }}>
+                        <td style={{ padding: '4px 8px' }}>{r.month}{r.inProgress ? ' (em andamento)' : ''}{r.coverage !== 'full' && r.coverage !== 'empty' ? ' · dado parcial' : ''}</td>
+                        <td style={{ padding: '4px 8px' }}>{r.payers}</td>
+                        <td style={{ padding: '4px 8px' }}>{formatMoney(r.projectedCents)}</td>
+                        <td style={{ padding: '4px 8px' }}>{formatMoney(r.receivedCents)}</td>
+                        <td style={{ padding: '4px 8px' }}>{diff === 0 ? '—' : `${diff > 0 ? '+' : '−'}${formatMoney(Math.abs(diff))}`}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="formHintText" style={{ marginTop: 8 }}>Meses marcados "dado parcial" têm histórico de status incompleto (o registro de eventos de pagamento começou em 16/09/2026). Recebido inclui só o Asaas; quem paga pela loja não tem valor exato.</p>
+          </section>
+        );
+      })() : null}
       <section className="miniSection">
         <h3>Cupons com uso</h3>
         {finance?.coupons.length ? finance.coupons.map((coupon) => (
