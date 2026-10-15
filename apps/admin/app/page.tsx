@@ -9829,142 +9829,107 @@ type WeekData = {
   extraSessions: number;
 };
 
-/** Volume semanal: 3 colunas por semana + linha de tendência.
- *
- *  ▪ Prescrito  (cinza #94a3b8) — km planejados pelo treinador
- *  ▪ Realizado  (verde #22c55e) — total de km completados na semana
- *  ▪ Extras     (ciano #06b6d4) — km realizados além do prescrito (treinos bônus ou avulsos)
- *  ▪ Tendência  (índigo #6366f1) — regressão linear sobre o volume realizado
- *
- *  Rótulo km visível no topo de TODAS as barras com valor > 0.
- */
-function KmEvolutionChart({ weeks, period }: { weeks: WeekData[]; period: number }) {
-  const visible = weeks.slice(period === 999 ? 0 : Math.max(0, weeks.length - period));
-  if (visible.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados suficientes para o período selecionado.</p>;
+/** Canal de tendencia estilo Bollinger sobre uma serie: media ± 2 desvios dos ultimos `size` valores validos (precisa de `minCount`). */
+function trendChannel(values: Array<number | null>, size: number, minCount: number, floor = 0): Array<{ lower: number; upper: number; mean: number } | null> {
+  return values.map((value, index) => {
+    if (value == null) return null;
+    const windowValues: number[] = [];
+    for (let j = Math.max(0, index - size + 1); j <= index; j += 1) { const other = values[j]; if (other != null) windowValues.push(other); }
+    if (windowValues.length < minCount) return null;
+    const mean = windowValues.reduce((sum, v) => sum + v, 0) / windowValues.length;
+    const deviation = Math.sqrt(windowValues.reduce((sum, v) => sum + (v - mean) ** 2, 0) / windowValues.length);
+    return { lower: Math.max(floor, mean - 2 * deviation), upper: mean + 2 * deviation, mean };
+  });
+}
 
-  const VW = 640; const VH = 220;
-  const ML = 44; const MR = 12; const MT = 24; const MB = 32;
-  const CW = VW - ML - MR; const CH = VH - MT - MB;
-
-  const maxKm = Math.max(...visible.flatMap((w) => [w.completedKm, w.prescribedKm]), 5);
-  const topKm = Math.ceil(maxKm / 5) * 5;
-
-  const n = visible.length;
-  const slotW = CW / n;
-  // 3 barras por slot: prescrito (esq), realizado (centro), extras (dir)
-  // largura de cada barra: máximo 14px, mínimo 3px
-  const bW = Math.max(3, Math.min(14, slotW * 0.28));
-
-  const xPre  = (i: number) => ML + i * slotW + slotW * 0.22; // prescrito — esquerda
-  const xReal = (i: number) => ML + i * slotW + slotW * 0.50; // realizado — centro
-  const xExt  = (i: number) => ML + i * slotW + slotW * 0.78; // extras    — direita
-  const xMid  = (i: number) => ML + i * slotW + slotW * 0.50; // label eixo X
-  const yV = (km: number) => MT + CH - (km / topKm) * CH;
-
-  // Linha de tendência: regressão linear sobre realizado
-  const meanX = (n - 1) / 2;
-  const meanY = visible.reduce((s, w) => s + w.completedKm, 0) / n;
-  const denom = visible.reduce((s, _, i) => s + (i - meanX) ** 2, 0);
-  const slope = denom !== 0 ? visible.reduce((s, w, i) => s + (i - meanX) * (w.completedKm - meanY), 0) / denom : 0;
-  const intercept = meanY - slope * meanX;
-  const ty0 = Math.max(0, intercept);
-  const ty1 = Math.max(0, intercept + slope * (n - 1));
-
-  const showLabel = bW >= 8;
-  const xLabels = n <= 12
-    ? visible.map((_, i) => i)
-    : [0, Math.floor(n / 4), Math.floor(n / 2), Math.floor(3 * n / 4), n - 1];
-
-  function fmtKm(v: number) { return v % 1 === 0 ? String(v) : v.toFixed(1); }
-
-  // Grid ticks
-  const gridTicks = [0];
-  const step = topKm <= 20 ? 5 : topKm <= 60 ? 10 : topKm <= 120 ? 20 : 30;
-  for (let km = step; km <= topKm; km += step) gridTicks.push(km);
-
+/** 15/10/2026 (pedido de Elton): grafico semanal padrao — colunas finas por serie, botoes liga/desliga, medias moveis de 21, 60 e 200 dias
+ *  e canal de tendencia (media das ultimas 8 semanas completas ± 2 desvios). As medias e o canal usam a serie `base`; a semana em
+ *  andamento nunca entra no calculo. */
+function WeeklyBarsChart({ rows, bars, base, inProgress, unit, height = 280, linearTrend = false }: {
+  rows: Array<{ label: string } & Record<string, number | string | null | undefined>>;
+  bars: Array<{ key: string; label: string; color: string }>;
+  base: number[];
+  inProgress: boolean[];
+  unit: string;
+  height?: number;
+  linearTrend?: boolean;
+}) {
+  const [off, setOff] = useState<Record<string, boolean>>({});
+  const isOn = (key: string) => !off[key];
+  const toggle = (key: string) => setOff((current) => ({ ...current, [key]: !current[key] }));
+  const complete = base.map((value, index) => (inProgress[index] ? null : value));
+  const mm = (days: number) => base.map((_, index) => (inProgress[index] ? null : weeklyEquivalentMean(base, index, days)));
+  const mm21 = mm(21); const mm60 = mm(60); const mm200 = mm(200);
+  const channel = trendChannel(complete, 8, 4);
+  const known = complete.map((value, index) => ({ value, index })).filter((item): item is { value: number; index: number } => item.value != null);
+  let regression: Array<number | null> = base.map(() => null);
+  if (linearTrend && known.length >= 3) {
+    const meanX = known.reduce((sum, item) => sum + item.index, 0) / known.length;
+    const meanY = known.reduce((sum, item) => sum + item.value, 0) / known.length;
+    const denominator = known.reduce((sum, item) => sum + (item.index - meanX) ** 2, 0) || 1;
+    const slope = known.reduce((sum, item) => sum + (item.index - meanX) * (item.value - meanY), 0) / denominator;
+    const intercept = meanY - slope * meanX;
+    regression = base.map((_, index) => (inProgress[index] ? null : Math.max(0, intercept + slope * index)));
+  }
+  const data = rows.map((row, index) => ({ ...row, mm21: mm21[index], mm60: mm60[index], mm200: mm200[index], canal: channel[index] ? [channel[index]!.lower, channel[index]!.upper] : null, tendencia: regression[index] }));
+  const has = (series: Array<number | null | unknown>) => series.some((value) => value != null);
+  const fmt = (value: unknown) => (typeof value === 'number' ? `${value.toFixed(1).replace('.', ',')} ${unit}` : '—');
   return (
-    <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', overflow: 'visible', display: 'block' }}>
-      {/* Grid horizontal */}
-      {gridTicks.map((km) => (
-        <g key={km}>
-          <line x1={ML} x2={VW - MR} y1={yV(km)} y2={yV(km)}
-            stroke="var(--line)" strokeWidth={km === 0 ? 1.2 : 0.5} />
-          <text x={ML - 5} y={yV(km) + 4} textAnchor="end" fontSize={9} fill="var(--muted)">{km}km</text>
-        </g>
-      ))}
-
-      {/* Barras */}
-      {visible.map((w, i) => {
-        const extraKm = w.extraKm ?? 0;
-        const regularKm = Math.max(0, w.completedKm - extraKm);
-        const bhPre  = Math.max(w.prescribedKm > 0 ? 1 : 0, (w.prescribedKm / topKm) * CH);
-        const bhReal = Math.max(regularKm > 0 ? 1 : 0, (regularKm / topKm) * CH);
-        const bhExt  = (extraKm / topKm) * CH;
-        return (
-          <g key={i}>
-            <title>{w.startDate}: prescrito {w.prescribedKm}km · realizado {w.completedKm}km{extraKm > 0 ? ` (${extraKm.toFixed(1)}km extra)` : ''}</title>
-
-            {/* Prescrito */}
-            {w.prescribedKm > 0 && (
-              <>
-                <rect x={xPre(i) - bW / 2} y={yV(w.prescribedKm)} width={bW} height={bhPre} rx={2} fill="#94a3b8" />
-                {showLabel && (
-                  <text x={xPre(i)} y={yV(w.prescribedKm) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#64748b">
-                    {fmtKm(w.prescribedKm)}
-                  </text>
-                )}
-              </>
-            )}
-
-            {/* Realizado (empilhado: verde = regular + ciano = extra no topo) */}
-            {w.completedKm > 0 && (
-              <>
-                {regularKm > 0 && (
-                  <rect x={xReal(i) - bW / 2} y={yV(regularKm)} width={bW} height={bhReal} rx={2} fill="#22c55e" />
-                )}
-                {extraKm > 0 && (
-                  <rect x={xReal(i) - bW / 2} y={yV(w.completedKm)} width={bW} height={(extraKm / topKm) * CH} rx={2} fill="#06b6d4" />
-                )}
-                {showLabel && (
-                  <text x={xReal(i)} y={yV(w.completedKm) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#16a34a">
-                    {fmtKm(w.completedKm)}
-                  </text>
-                )}
-              </>
-            )}
-
-            {/* Extras */}
-            {extraKm > 0 && (
-              <>
-                <rect x={xExt(i) - bW / 2} y={yV(extraKm)} width={bW} height={bhExt} rx={2} fill="#06b6d4" />
-                {showLabel && (
-                  <text x={xExt(i)} y={yV(extraKm) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#0891b2">
-                    {fmtKm(extraKm)}
-                  </text>
-                )}
-              </>
-            )}
-          </g>
-        );
-      })}
-
-      {/* Linha de tendência */}
-      {n >= 2 && (
-        <line x1={xReal(0)} y1={yV(ty0)} x2={xReal(n - 1)} y2={yV(ty1)}
-          stroke="#6366f1" strokeWidth={2} strokeLinecap="round" opacity={0.9} />
-      )}
-
-      {/* Labels eixo X */}
-      {xLabels.map((i) => (
-        <text key={i} x={xMid(i)} y={VH - 6} textAnchor="middle" fontSize={9} fill="var(--muted)">
-          {visible[i]?.startDate.slice(5).replace('-', '/')}
-        </text>
-      ))}
-    </svg>
+    <div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+        {bars.map((bar) => <SeriesChip key={bar.key} label={bar.label} color={bar.color} on={isOn(bar.key)} onClick={() => toggle(bar.key)} />)}
+        <SeriesChip label={has(mm21) ? 'Média de 21 dias' : 'Média de 21 dias (sem histórico)'} color="#e0a72d" on={isOn('mm21') && has(mm21)} onClick={() => toggle('mm21')} />
+        <SeriesChip label={has(mm60) ? 'Média de 60 dias' : 'Média de 60 dias (precisa de 9 semanas)'} color="#a855f7" on={isOn('mm60') && has(mm60)} onClick={() => toggle('mm60')} />
+        <SeriesChip label={has(mm200) ? 'Média de 200 dias' : 'Média de 200 dias (precisa de 29 semanas)'} color="#ec4899" on={isOn('mm200') && has(mm200)} onClick={() => toggle('mm200')} />
+        <SeriesChip label={has(channel) ? 'Canal de tendência' : 'Canal de tendência (precisa de 4 semanas)'} color="#6366f1" on={isOn('canal') && has(channel)} onClick={() => toggle('canal')} />
+        {linearTrend ? <SeriesChip label="Tendência linear" color="#8b5cf6" on={isOn('tendencia')} onClick={() => toggle('tendencia')} /> : null}
+      </div>
+      <ResponsiveContainer width="100%" height={height}>
+        <ComposedChart data={data} barCategoryGap="22%">
+          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+          <XAxis dataKey="label" fontSize={11} interval="preserveStartEnd" minTickGap={18} />
+          <YAxis fontSize={12} allowDecimals={false} />
+          <Tooltip formatter={(value: unknown, name: unknown) => (Array.isArray(value) ? `${fmt(value[0])} a ${fmt(value[1])}` : name === 'Média 21 dias' || name === 'Média 60 dias' || name === 'Média 200 dias' || name === 'Tendência linear' ? fmt(value) : (typeof value === 'number' ? (Number.isInteger(value) ? String(value) : fmt(value)) : '—'))} />
+          {isOn('canal') && has(channel) ? <Area type="monotone" dataKey="canal" name="Canal de tendência" stroke="#6366f1" strokeOpacity={0.5} fill="#6366f1" fillOpacity={0.12} connectNulls={false} isAnimationActive={false} /> : null}
+          {bars.map((bar) => (isOn(bar.key) ? <Bar key={bar.key} dataKey={bar.key} name={bar.label} fill={bar.color} maxBarSize={18} radius={[3, 3, 0, 0]} /> : null))}
+          {isOn('mm21') ? <Line type="monotone" dataKey="mm21" name="Média 21 dias" stroke="#e0a72d" strokeWidth={2} dot={false} connectNulls={false} /> : null}
+          {isOn('mm60') ? <Line type="monotone" dataKey="mm60" name="Média 60 dias" stroke="#a855f7" strokeWidth={2} dot={false} connectNulls={false} /> : null}
+          {isOn('mm200') ? <Line type="monotone" dataKey="mm200" name="Média 200 dias" stroke="#ec4899" strokeWidth={2} dot={false} connectNulls={false} /> : null}
+          {linearTrend && isOn('tendencia') ? <Line type="monotone" dataKey="tendencia" name="Tendência linear" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls={false} /> : null}
+        </ComposedChart>
+      </ResponsiveContainer>
+      <p className="formHintText" style={{ marginTop: 4 }}>
+        Colunas finas por semana. As médias de 21, 60 e 200 dias (em {unit} por semana equivalente) só aparecem com histórico completo; o canal de tendência é a média das últimas 8 semanas completas ± 2 desvios. A semana em andamento não entra nesses cálculos.
+      </p>
+    </div>
   );
 }
 
-/** Legenda + números-chave abaixo do gráfico. */
+/** Volume semanal: prescrito, realizado e extras em colunas finas, com medias de 21/60/200 dias, canal de tendencia e tendencia linear. */
+function KmEvolutionChart({ weeks, period }: { weeks: WeekData[]; period: number }) {
+  const visible = weeks.slice(period === 999 ? 0 : Math.max(0, weeks.length - period));
+  if (visible.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados suficientes para o período selecionado.</p>;
+  const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+  const inProgress = visible.map((week) => week.startDate.slice(0, 10) <= todayIso && addDaysIso(week.startDate.slice(0, 10), 6) >= todayIso);
+  const rows = visible.map((week) => {
+    const extra = week.extraKm ?? 0;
+    return { label: `${week.startDate.slice(8, 10)}/${week.startDate.slice(5, 7)}`, prescrito: week.prescribedKm, realizado: Math.max(0, week.completedKm - extra), extras: extra };
+  });
+  return (
+    <WeeklyBarsChart
+      rows={rows}
+      base={visible.map((week) => week.completedKm)}
+      inProgress={inProgress}
+      unit="km"
+      linearTrend
+      bars={[
+        { key: 'prescrito', label: 'Prescrito', color: '#94a3b8' },
+        { key: 'realizado', label: 'Realizado', color: '#22c55e' },
+        { key: 'extras', label: 'Extras', color: '#06b6d4' },
+      ]}
+    />
+  );
+}
 function EvolutionKeyNumbers({ weeks, period }: { weeks: WeekData[]; period: number }) {
   const visible = weeks.slice(period === 999 ? 0 : Math.max(0, weeks.length - period));
   const last4 = weeks.slice(Math.max(0, weeks.length - 4));
@@ -10483,6 +10448,14 @@ function matchesModality(modality: string, filter: string): boolean {
 function EffortSection({ history, period }: { history: StudentDetail['history']; period?: number }) {
   const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('semana');
   const [modalityFilter, setModalityFilter] = useState<string>('all');
+  // 15/10/2026 (pedido de Elton): canal de tendencia e media movel no lugar da zona fixa 4-6, com liga/desliga.
+  const [trendOn, setTrendOn] = useState({ canal: true, media: true });
+  const trendChips = (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 6px' }}>
+      <SeriesChip label="Média móvel" color="#6366f1" on={trendOn.media} onClick={() => setTrendOn((current) => ({ ...current, media: !current.media }))} />
+      <SeriesChip label="Canal de tendência" color="#6366f1" on={trendOn.canal} onClick={() => setTrendOn((current) => ({ ...current, canal: !current.canal }))} />
+    </div>
+  );
   const allSessions = flatFeedbackSessions(history).filter((s) => s.perceivedEffort != null);
   if (allSessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum esforço registrado ainda.</p>;
 
@@ -10535,6 +10508,11 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
       return slice.reduce((s, x) => s + x.perceivedEffort!, 0) / slice.length;
     });
     const avg = sessions.reduce((s, x) => s + x.perceivedEffort!, 0) / sessions.length;
+    // Canal de tendencia: media ± 2 desvios das ultimas 10 sessoes (precisa de 5), limitado a escala 1-10.
+    const sessionChannel = trendChannel(sorted.map((s) => s.perceivedEffort!), 10, 5, 1).map((point, i) => (point ? { i, lower: point.lower, upper: Math.min(10, point.upper) } : null)).filter((point): point is { i: number; lower: number; upper: number } => point != null);
+    const sessionChannelPath = sessionChannel.length > 1
+      ? `M ${sessionChannel.map((p) => `${xFn(p.i)} ${yFn(p.upper)}`).join(' L ')} L ${[...sessionChannel].reverse().map((p) => `${xFn(p.i)} ${yFn(p.lower)}`).join(' L ')} Z`
+      : '';
     const xLabels = sorted.length <= 10
       ? sorted.map((s, i) => ({ i, label: s.date.slice(5).replace('-', '/') }))
       : [0, Math.floor(sorted.length/3), Math.floor(2*sorted.length/3), sorted.length-1]
@@ -10542,6 +10520,7 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
     return (
       <div>
         <AggToggle value={aggBy} onChange={setAggBy} />
+        {trendChips}
         <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
           {[1,2,3,4,5,6,7,8,9,10].map((v) => (
             <g key={v}>
@@ -10549,13 +10528,13 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
               <text x={ML-3} y={yFn(v)+3.5} textAnchor="end" fontSize={8} fill="var(--muted)">{v}</text>
             </g>
           ))}
-          {/* Zona confort */}
-          <rect x={ML} y={yFn(6)} width={CW} height={yFn(4)-yFn(6)} fill="#fbbf2411" />
+          {/* Canal de tendência (substitui a zona fixa 4–6) */}
+          {trendOn.canal && sessionChannelPath ? <path d={sessionChannelPath} fill="#6366f1" fillOpacity={0.13} stroke="#6366f1" strokeOpacity={0.35} strokeWidth={1} /> : null}
           {/* Linha de tendência (média móvel) */}
-          <polyline
+          {trendOn.media ? <polyline
             points={movAvg.map((v, i) => `${xFn(i)},${yFn(v)}`).join(' ')}
             fill="none" stroke="#6366f1" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.7}
-          />
+          /> : null}
           {/* Pontos */}
           {sorted.map((s, i) => (
             <circle key={i} cx={xFn(i)} cy={yFn(s.perceivedEffort!)} r={5}
@@ -10640,6 +10619,13 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
   const slope = weeks.reduce((s,w,i)=>s+(i-meanX)*(w.avg-meanY),0) / weeks.reduce((s,_,i)=>s+(i-meanX)**2,0);
   const intercept = meanY - slope * meanX;
   const trendPts = `${xFn(0)},${yFn(intercept)} ${xFn(n-1)},${yFn(intercept + slope*(n-1))}`;
+  // Canal de tendencia semanal: media ± 2 desvios das ultimas 8 semanas (precisa de 4), limitado a escala 1-10; media movel de 3 semanas.
+  const weekChannel = trendChannel(weeks.map((w) => w.avg), 8, 4, 1).map((point, i) => (point ? { i, lower: point.lower, upper: Math.min(10, point.upper) } : null)).filter((point): point is { i: number; lower: number; upper: number } => point != null);
+  const weekChannelPath = weekChannel.length > 1
+    ? `M ${weekChannel.map((p) => `${xFn(p.i)} ${yFn(p.upper)}`).join(' L ')} L ${[...weekChannel].reverse().map((p) => `${xFn(p.i)} ${yFn(p.lower)}`).join(' L ')} Z`
+    : '';
+  const weekMean3 = weeks.map((_, i) => (i >= 2 ? (weeks[i].avg + weeks[i - 1].avg + weeks[i - 2].avg) / 3 : null));
+  const weekMean3Points = weekMean3.map((v, i) => (v == null ? null : `${xFn(i)},${yFn(v)}`)).filter((p): p is string => p != null).join(' ');
 
   const xLabels = weeks.length <= 10
     ? weeks.map((_,i)=>i)
@@ -10649,6 +10635,7 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
     <div>
       <AggToggle value={aggBy} onChange={setAggBy} />
       <FilterBar />
+      {trendChips}
       <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
         {[1,2,3,4,5,6,7,8,9,10].map((v) => (
           <g key={v}>
@@ -10656,8 +10643,8 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
             <text x={ML-3} y={yFn(v)+3.5} textAnchor="end" fontSize={8} fill="var(--muted)">{v}</text>
           </g>
         ))}
-        {/* Zona 4-6 moderado */}
-        <rect x={ML} y={yFn(6)} width={CW} height={yFn(4)-yFn(6)} fill="#fbbf2411" />
+        {/* Canal de tendência (substitui a zona fixa 4–6) */}
+        {trendOn.canal && weekChannelPath ? <path d={weekChannelPath} fill="#6366f1" fillOpacity={0.13} stroke="#6366f1" strokeOpacity={0.35} strokeWidth={1} /> : null}
         {/* Amplitude (linha min-max) */}
         {weeks.map((w,i) => (
           <line key={`r${i}`} x1={xFn(i)} x2={xFn(i)} y1={yFn(w.max)} y2={yFn(w.min)} stroke={effortColor(w.avg)} strokeWidth={2} opacity={0.2}/>
@@ -10678,6 +10665,7 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
         {n >= 3 && <line x1={xFn(0)} y1={yFn(intercept)} x2={xFn(n-1)} y2={yFn(intercept+slope*(n-1))}
           stroke="#6366f1" strokeWidth={1.5} strokeDasharray="6,3" opacity={0.6}/>}
         {n >= 3 && <polyline points={trendPts} fill="none"/>}
+        {trendOn.media && weekMean3Points.includes(' ') ? <polyline points={weekMean3Points} fill="none" stroke="#e0a72d" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.9} /> : null}
         {/* Labels eixo X */}
         {xLabels.map((i) => (
           <text key={i} x={xFn(i)} y={VH-4} textAnchor="middle" fontSize={8} fill="var(--muted)">
@@ -11350,27 +11338,12 @@ function LoadChartAderencia({ weeks, history }: {
     return { startDate: w.startDate, prescritos, feitos, perdidos, semReg, extras };
   });
 
-  const maxVal = Math.max(...barData.map((d) => Math.max(d.prescritos, d.feitos + d.extras, d.perdidos, d.semReg)), 1);
-
-  const VW = 620; const VH = 210;
-  const ML = 24; const MR = 8; const MT = 24; const MB = 36;
-  const CW = VW - ML - MR; const CH = VH - MT - MB;
-  const slotW = CW / barData.length;
-  const bW = Math.max(3, Math.min(13, slotW * 0.20));
-
-  // 4 bar positions per slot: prescrito, feito(+extra empilhado), perdido, sem registro
-  const xPre  = (i: number) => ML + i * slotW + slotW * 0.14;
-  const xFeit = (i: number) => ML + i * slotW + slotW * 0.38;
-  const xPerd = (i: number) => ML + i * slotW + slotW * 0.62;
-  const xSem  = (i: number) => ML + i * slotW + slotW * 0.86;
-  const xMid  = (i: number) => ML + i * slotW + slotW * 0.50;
-  const y0 = MT + CH;
-  const yV = (v: number) => MT + CH - (v / maxVal) * CH;
-
-  const showLabel = bW >= 8;
-  const xLabels = barData.length <= 12
-    ? barData.map((_, i) => i)
-    : [0, Math.floor(barData.length / 3), Math.floor(2 * barData.length / 3), barData.length - 1];
+  const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+  const inProgress = weeks.map((w) => w.startDate.slice(0, 10) <= todayIso && addDaysIso(w.startDate.slice(0, 10), 6) >= todayIso);
+  const rows = barData.map((d) => ({
+    label: `${d.startDate.slice(8, 10)}/${d.startDate.slice(5, 7)}`,
+    prescritos: d.prescritos, feitos: d.feitos, perdidos: d.perdidos, semRegistro: d.semReg, extras: d.extras,
+  }));
 
   return (
     <div>
@@ -11389,78 +11362,22 @@ function LoadChartAderencia({ weeks, history }: {
           ))}
         </div>
       )}
-
-      <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block', overflow: 'visible' }}>
-        {/* Baseline + gridlines */}
-        <line x1={ML} x2={VW - MR} y1={y0} y2={y0} stroke="var(--line)" strokeWidth={1} />
-        {Array.from({ length: maxVal }, (_, v) => v + 1).map((v) => (
-          <g key={v}>
-            <line x1={ML} x2={VW - MR} y1={yV(v)} y2={yV(v)} stroke="var(--line)" strokeWidth={0.4} />
-            <text x={ML - 4} y={yV(v) + 4} textAnchor="end" fontSize={9} fill="var(--muted)">{v}</text>
-          </g>
-        ))}
-
-        {/* Barras */}
-        {barData.map((d, i) => {
-          const bhPre   = (d.prescritos / maxVal) * CH;
-          const bhFeit  = (d.feitos     / maxVal) * CH;
-          const bhExtra = (d.extras     / maxVal) * CH;
-          const bhPerd  = (d.perdidos   / maxVal) * CH;
-          const bhSem   = (d.semReg     / maxVal) * CH;
-          return (
-            <g key={i}>
-              <title>{d.startDate}: {d.prescritos} prescritos · {d.feitos} feitos · {d.perdidos} perdidos · {d.semReg} sem registro{d.extras > 0 ? ` · ${d.extras} extra${d.extras > 1 ? 's' : ''}` : ''}</title>
-              {/* Prescrito */}
-              {d.prescritos > 0 && <rect x={xPre(i) - bW / 2} y={yV(d.prescritos)} width={bW} height={bhPre} rx={2} fill={EVOLUTION_COLORS.prescrito} opacity={0.75} />}
-              {showLabel && d.prescritos > 0 && (
-                <text x={xPre(i)} y={yV(d.prescritos) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#64748b">{d.prescritos}</text>
-              )}
-              {/* Feito */}
-              {d.feitos > 0 && <rect x={xFeit(i) - bW / 2} y={yV(d.feitos)} width={bW} height={bhFeit} rx={2} fill={EVOLUTION_COLORS.feito} />}
-              {/* Extra empilhado no topo do "feito" */}
-              {d.extras > 0 && <rect x={xFeit(i) - bW / 2} y={yV(d.feitos + d.extras)} width={bW} height={bhExtra} rx={2} fill={EVOLUTION_COLORS.extra} />}
-              {showLabel && (d.feitos + d.extras) > 0 && (
-                <text x={xFeit(i)} y={yV(d.feitos + d.extras) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700}
-                  fill={d.extras > 0 ? EVOLUTION_COLORS.extra : EVOLUTION_COLORS.feito}>
-                  {d.feitos}{d.extras > 0 ? `+${d.extras}` : ''}
-                </text>
-              )}
-              {/* Perdido */}
-              {d.perdidos > 0 && <rect x={xPerd(i) - bW / 2} y={yV(d.perdidos)} width={bW} height={bhPerd} rx={2} fill={EVOLUTION_COLORS.perdido} />}
-              {showLabel && d.perdidos > 0 && (
-                <text x={xPerd(i)} y={yV(d.perdidos) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill={EVOLUTION_COLORS.perdido}>{d.perdidos}</text>
-              )}
-              {/* Sem registro */}
-              {d.semReg > 0 && <rect x={xSem(i) - bW / 2} y={yV(d.semReg)} width={bW} height={bhSem} rx={2} fill={EVOLUTION_COLORS.semRegistro} />}
-              {showLabel && d.semReg > 0 && (
-                <text x={xSem(i)} y={yV(d.semReg) - 4} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#d97706">{d.semReg}</text>
-              )}
-            </g>
-          );
-        })}
-
-        {/* Labels eixo X */}
-        {xLabels.map((i) => (
-          <text key={i} x={xMid(i)} y={VH - 10} textAnchor="middle" fontSize={9} fill="var(--muted)">
-            {barData[i]?.startDate.slice(5, 10).replace('-', '/')}
-          </text>
-        ))}
-      </svg>
-
-      {/* Legenda */}
-      <div style={{ display: 'flex', gap: 14, fontSize: 11, color: 'var(--muted)', marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-        {([
-          ['prescrito', 'Prescritos'],
-          ['feito', 'Feitos'],
-          ['perdido', 'Perdidos'],
-          ['semRegistro', 'Sem registro'],
-          ['extra', 'Extras (além do plano)'],
-        ] as [keyof typeof EVOLUTION_COLORS, string][]).map(([key, l]) => (
-          <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: EVOLUTION_COLORS[key] }} />{l}
-          </span>
-        ))}
-      </div>
+      {/* 15/10/2026 (pedido de Elton): mesma logica dos demais graficos semanais — colunas finas, liga/desliga, medias de 21/60/200 dias
+          e canal de tendencia, calculados sobre as sessoes feitas por semana. */}
+      <WeeklyBarsChart
+        rows={rows}
+        base={barData.map((d) => d.feitos)}
+        inProgress={inProgress}
+        unit="sessões"
+        height={260}
+        bars={[
+          { key: 'prescritos', label: 'Prescritos', color: EVOLUTION_COLORS.prescrito },
+          { key: 'feitos', label: 'Feitos', color: EVOLUTION_COLORS.feito },
+          { key: 'perdidos', label: 'Perdidos', color: EVOLUTION_COLORS.perdido },
+          { key: 'semRegistro', label: 'Sem registro', color: EVOLUTION_COLORS.semRegistro },
+          ...(modFilter === 'all' ? [{ key: 'extras', label: 'Extras (além do plano)', color: EVOLUTION_COLORS.extra }] : []),
+        ]}
+      />
     </div>
   );
 }

@@ -11,7 +11,7 @@ type Tab = 'Visão geral' | 'Explorar' | 'Comparar' | 'Timeline' | 'Histórico';
 type Theme = 'light' | 'dark' | 'softblue' | 'graphite' | 'system';
 const TABS: Tab[] = ['Visão geral', 'Explorar', 'Comparar', 'Timeline', 'Histórico'];
 const ICONS = [BarChart3, Search, Layers3, Clock3, CalendarDays];
-const LAYER_LABELS: Array<[keyof Layers, string]> = [['raw', 'Bruto'], ['mm21', 'MM21'], ['mm60', 'MM60'], ['mm200', 'MM200'], ['baseline', 'Baseline'], ['habitual', 'Faixa habitual'], ['trend', 'Tendência'], ['events', 'Eventos']];
+const LAYER_LABELS: Array<[keyof Layers, string]> = [['raw', 'Bruto'], ['mm21', 'MM21'], ['mm60', 'MM60'], ['mm200', 'MM200'], ['baseline', 'Baseline'], ['habitual', 'Canal de tendência'], ['trend', 'Tendência'], ['events', 'Eventos']];
 const errorMessage = (cause: unknown) => cause instanceof Error ? cause.message : 'Não foi possível carregar os dados.';
 const EMPTY_SNAPSHOTS: Record<string, Snapshot> = {};
 const MAX_SERIES = 10;
