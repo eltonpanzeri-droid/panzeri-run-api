@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, AlertTriangle, ArrowUp, Bell, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flag, Flame, Folder, Gauge, Info, LayoutDashboard, LogIn, Menu, Moon, Pin, PinOff, Plus, RefreshCw, Save, Search, Sun, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowUp, Bell, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CreditCard, Eye, EyeOff, FileText, Flag, Flame, Folder, Gauge, Info, LayoutDashboard, LogIn, Menu, Moon, Pin, PinOff, Plus, RefreshCw, Save, Search, Sun, Ticket, Trash2, TrendingUp, UserRound, UserX, Users, Wrench, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
 import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -53,7 +53,7 @@ interface FunnelReport {
   }>;
 }
 
-type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel' | 'raceCalendar' | 'trainingIntelligence';
+type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel' | 'raceCalendar' | 'trainingIntelligence' | 'tools';
 
 // 15/10/2026: visao por papel (plano de revitalizacao). Por enquanto so organiza o menu; o conteudo das
 // telas por papel vem nas proximas fases. 'tudo' mostra todas as areas.
@@ -926,7 +926,7 @@ export default function AdminHome() {
     // porque nao faz mais sentido com lista e detalhe sendo dois modos separados. A view 'weeks'
     // ainda usa esse auto-carregamento (o seletor dela sempre espera alguem selecionado).
     if (view === 'students') setStudentViewMode('list');
-    if (view !== 'dashboard' && view !== 'students' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && view !== 'prospects' && view !== 'exStudents' && view !== 'trainingIntelligence' && !selectedStudentId && dashboard?.students[0]) {
+    if (view !== 'dashboard' && view !== 'students' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && view !== 'prospects' && view !== 'exStudents' && view !== 'trainingIntelligence' && view !== 'tools' && !selectedStudentId && dashboard?.students[0]) {
       void loadStudent(dashboard.students[0].id);
     }
   }
@@ -1293,7 +1293,7 @@ export default function AdminHome() {
             </button>
             <div>
               <p className="eyebrow">Painel do treinador</p>
-              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : activeView === 'trainingIntelligence' ? 'Training Intelligence' : 'Financeiro'}</h1>
+              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : activeView === 'trainingIntelligence' ? 'Training Intelligence' : activeView === 'tools' ? 'Ferramentas' : 'Financeiro'}</h1>
               <small className="apiVersion">API {apiVersion}</small>
             </div>
           </div>
@@ -1304,7 +1304,7 @@ export default function AdminHome() {
             <button className="iconButton" type="button" onClick={alternarTema} aria-label={tema === 'escuro' ? 'Usar tema claro' : 'Usar tema escuro'} title={tema === 'escuro' ? 'Usar tema claro' : 'Usar tema escuro'}>
               {tema === 'escuro' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            {activeView !== 'dashboard' && activeView !== 'notifications' && activeView !== 'trainingIntelligence' ? <label className="searchBox">
+            {activeView !== 'dashboard' && activeView !== 'notifications' && activeView !== 'trainingIntelligence' && activeView !== 'tools' ? <label className="searchBox">
               <Search size={18} />
               <input placeholder="Buscar por nome ou e-mail" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
             </label> : null}
@@ -1338,6 +1338,7 @@ export default function AdminHome() {
             { area: 'Dinheiro', view: 'coupons', label: 'Cupons', icon: <Ticket size={19} />, papeis: ['empresario', 'financeiro', 'marketing'] },
             { area: 'Crescimento', view: 'funnel', label: 'Funil', icon: <TrendingUp size={19} />, papeis: ['empresario', 'marketing'] },
             { area: 'IA e sistema', view: 'notifications', label: `Notificações${notifications.length ? ` (${notifications.length})` : ''}`, icon: <Bell size={19} />, papeis: ['treinador', 'coordenador'] },
+            { area: 'Ferramentas', view: 'tools', label: 'Ferramentas', icon: <Wrench size={19} />, papeis: ['coordenador', 'financeiro', 'empresario'] },
           ];
           const visiveis = itens.filter((item) => papel === 'tudo' || item.papeis.includes(papel));
           const areas = visiveis.map((item) => item.area).filter((area, indice, todas) => todas.indexOf(area) === indice);
@@ -1567,7 +1568,7 @@ export default function AdminHome() {
           </section>
         ) : null}
 
-        {activeView === 'dashboard' ? (
+        {activeView === 'tools' ? (
           <section className="miniSection">
             <h3>Gerar semana seguinte para todos os alunos</h3>
             <p>Dispara manualmente o mesmo processo que roda sozinho todo domingo 19h. Roda em segundo plano — pode levar bastante tempo com muitos alunos; falhas por aluno avisam no Telegram como sempre.</p>
@@ -1580,7 +1581,7 @@ export default function AdminHome() {
           </section>
         ) : null}
 
-        {activeView === 'dashboard' ? (
+        {activeView === 'tools' ? (
           <section className="miniSection">
             <h3>Sincronizar pagamentos com o Asaas</h3>
             <p>Verifica o status real de todos os alunos com assinatura Asaas de uma vez (pula contas de cortesia/liberacao manual). Use quando a API tiver ficado fora do ar e alunas pagantes ficarem presas na tela de assinatura.</p>
@@ -1590,7 +1591,7 @@ export default function AdminHome() {
           </section>
         ) : null}
 
-        {activeView === 'dashboard' ? (
+        {activeView === 'tools' ? (
           <section className="miniSection">
             <h3>Backup do banco de dados</h3>
             <p>Um backup criptografado e enviado todos os dias as 4h para o armazenamento seguro (retencao de 14 dias). Gerar um agora exige acesso de administrador.</p>
@@ -1600,7 +1601,7 @@ export default function AdminHome() {
           </section>
         ) : null}
 
-        {activeView === 'dashboard' ? (
+        {activeView === 'tools' ? (
           <section className="miniSection">
             <h3>Avisos automaticos por e-mail</h3>
             <p>Roda todo dia as 9h sozinho (pagamento pendente/atrasado, entrevista incompleta, reavaliacao vencida). Voce tambem pode rodar agora, pra testar ou adiantar.</p>
