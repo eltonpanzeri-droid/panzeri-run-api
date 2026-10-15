@@ -36,6 +36,12 @@ export const PAYMENT_GROUP_LABEL: Record<PaymentGroup, string> = {
   desconhecido: 'Desconhecido',
 };
 
+// 15/10/2026 (decisao de Elton, Fase 1 do plano de revitalizacao do admin): TODA metrica de contagem por
+// grupo de pagamento (Financeiro, resumo de negocio) usa a mesma populacao da Visao geral — alunas sem
+// contas arquivadas. Antes, finance() e dataBusinessSummary() contavam arquivadas tambem e o mesmo grupo
+// aparecia com numeros diferentes em telas diferentes (cortesia 9 x 10, atrasadas 10 x 12, prospectos 24 x 26).
+export const STUDENT_METRICS_POPULATION = { role: 'student', accountStatus: { not: 'archived' } } as const;
+
 // Preco atual por aluno pagante — unica fonte (ate existir plano com precos diferentes).
 export const PRICE_PER_STUDENT_CENTS = 1990;
 

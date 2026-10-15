@@ -2277,7 +2277,7 @@ function FinanceView({ finance, evolution, onRefresh }: { finance: FinanceRespon
     <section className="panel fullPanel">
       <div className="panelHeader"><div><p className="eyebrow">Financeiro</p><h2>Resumo de assinaturas</h2></div><button className="secondaryButton" type="button" onClick={onRefresh}>Atualizar</button></div>
       <section className="stats financeStats">
-        <Stat label="Planos ativos" value={String(finance?.activePlans ?? 0)} detail="pagos + cortesias" />
+        <Stat label="Com acesso em dia" value={String(finance?.activePlans ?? 0)} detail="pagantes + cortesias, sem atrasadas" />
         <Stat label="Pagantes" value={String(finance?.payingPlans ?? 0)} detail="assinaturas cobradas" />
         <Stat label="Cortesias" value={String(finance?.courtesyPlans ?? 0)} detail="cupons 100% ou manual" />
         <Stat

@@ -29,7 +29,7 @@ import { NotificationTriggersService } from '../messaging/notification-triggers.
 import { computeProspectLevel } from '../messaging/prospect-level';
 import { ProspectNurtureService } from '../messaging/prospect-nurture.service';
 import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.service';
-import { CONFIRMED_STATUSES, COURTESY_STATUS, OVERDUE_STATUS, PENDING_STATUS, PRICE_PER_STUDENT_CENTS, estimatedMrrCents } from './subscription-groups.util';
+import { CONFIRMED_STATUSES, COURTESY_STATUS, OVERDUE_STATUS, PENDING_STATUS, PRICE_PER_STUDENT_CENTS, STUDENT_METRICS_POPULATION, estimatedMrrCents } from './subscription-groups.util';
 import { ContextEventsService } from '../context-events/context-events.service';
 import { ReassessmentService } from '../reassessment/reassessment.service';
 import { EvolutionMetricService } from '../evolution/evolution-metric.service';
@@ -1719,7 +1719,7 @@ export class CoachService {
 
   async finance() {
     const [students, subscriptions, coupons] = await Promise.all([
-      this.prisma.user.groupBy({ by: ['subscriptionStatus'], where: { role: 'student' }, _count: true }),
+      this.prisma.user.groupBy({ by: ['subscriptionStatus'], where: STUDENT_METRICS_POPULATION, _count: true }),
       this.prisma.billingSubscription.findMany({ include: { user: { select: { id: true, name: true, email: true, subscriptionStatus: true } } } }),
       (this.prisma as any).coupon.findMany({ include: { redemptions: true } }),
     ]);
@@ -1931,7 +1931,7 @@ export class CoachService {
   async dataBusinessSummary() {
     const prisma = this.prisma as any;
     const [byStatus, firstPaidCount, recentBillingEvents] = await Promise.all([
-      this.prisma.user.groupBy({ by: ['subscriptionStatus'], where: { role: 'student' }, _count: true }),
+      this.prisma.user.groupBy({ by: ['subscriptionStatus'], where: STUDENT_METRICS_POPULATION, _count: true }),
       this.prisma.billingSubscription.count({ where: { firstPaidAt: { not: null } } }),
       prisma.billingEvent.findMany({
         // baseline_snapshot (foto do status no dia da instrumentacao, 1 por aluno) e' ancora tecnica

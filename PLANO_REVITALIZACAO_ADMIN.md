@@ -13,6 +13,8 @@ Este plano é só proposta. Nada aqui foi implementado. Cada fase e cada lote ex
 
 Trocar o admin atual, que cresceu por acúmulo e não por desenho, por um painel que mostre **cada dado de forma interativa e legível**, para Elton tirar as próprias conclusões. O painel não responde perguntas nem decide nada. Quem analisa é Elton, e quando quiser pode **levar os dados para fora** (outra IA, outro profissional, planilha).
 
+**Premissa (Elton, 15/10/2026):** existe **uma única pessoa** usando o painel, Elton. Treinador, Coordenador técnico, Empresário, Financeiro e Marketing não são usuários nem permissões: são **formas diferentes de ver os mesmos dados**, conforme o "chapéu" que ele está usando. Não há controle de acesso por papel nem vários logins.
+
 ## 2. Decisões já tomadas por Elton
 
 | Decisão | Detalhe |
@@ -96,6 +98,8 @@ Lista de alunas legível numa linha por aluna. Aba Avaliação refeita: cartão 
 Página única com eixo de tempo compartilhado: volume prescrito e realizado em cima; sono, estresse, motivação, RPE, fadiga e dor alinhados embaixo, com cursor que atravessa tudo. Clicar num dia abre treino, feedback, comentários e dor. Variação semanal do volume à vista, com a semana em andamento tratada à parte. Incorpora Timeline e Contexto; executa a lista de remoções da seção 2. Exportação anônima de qualquer seleção. Sinais de tendência contra a própria linha de base, com os fatos à vista.
 - **Processo:** Gauntlet Loop e revisão independente (saúde e dados pessoais).
 - **Rollback:** a Evolução antiga e o Intelligence permanecem até a aprovação final.
+
+> Decisão de Elton (15/10/2026): o funil serve para observar o comportamento de **quem está interessado** (abriu o app até pagar) e pertence às visões Marketing e Empresário. O acompanhamento de ativação pós-pagamento **não é importante na visão Treinador** (é uma questão de foco da visão, não de quem acessa).
 
 ### Fase 5 — Cômodo Marketing · depende da Fase 1
 Funil confiável com etapas em português e lista de quem parou onde, origem e conversão, cupons e cortesias, ativação.
