@@ -3483,15 +3483,10 @@ function StudentPanel({
           {/* ── ESTADO E RESPOSTA ─────────────────────────────────────────── */}
           <GroupLabel label="Estado e resposta ao treinamento" />
 
-          <EvoSection icon="🌙" title="Estado antes dos treinos" badge={filteredSessions.filter((s) => s.preSleepQuality != null).length > 0 ? `${filteredSessions.filter((s) => s.preSleepQuality != null).length} registros` : undefined}
-            desc="Quatro variáveis pré-treino (escala 1–5): sono, cansaço físico, estresse e motivação. Coletados a partir de 11/09/2026. Ligue/desligue cada série para comparar trajetórias.">
-            <PreWorkoutStateSection history={hist} period={evolPeriod} />
-          </EvoSection>
-
-          <EvoSection icon="⭐" title="Experiência com o treino" badge={feedbackSessions > 0 ? `${feedbackSessions} respostas` : undefined}
-            desc="Quatro dimensões: elaboração (como o treino foi montado), execução (como o aluno conseguiu fazer), sensação corporal e humor final (1–5). Zona verde = ótimo, amarela = ok, vermelha = atenção. Ver distribuição expande detalhes.">
-            <ExperienciaTreinoSection history={hist} period={evolPeriod} onDayClick={handleCalendarDayClick} />
-          </EvoSection>
+          {/* 15/10/2026 (decisao de Elton, plano de revitalizacao, Fase 4 lote 4.1): as secoes "Estado antes dos
+              treinos" e "Experiencia com o treino" (versoes antigas da Evolucao) saíram da tela; as versoes do
+              Training Intelligence sao as que ficam. Componentes PreWorkoutStateSection e ExperienciaTreinoSection
+              mantidos no arquivo para reverter. */}
 
 
           <EvoSection icon="🩹" title="Dor ao longo do tempo" badge={sessionsWithV1Pain.length > 0 ? sessionsWithV1Pain.filter((s) => s.painFlag !== 'none').length : undefined}
@@ -3509,9 +3504,8 @@ function StudentPanel({
           {/* ── ANÁLISE ───────────────────────────────────────────────────── */}
           <GroupLabel label="Análise e exploração" />
 
-          <EvoSection icon="🔍" title="Explorar relações" desc="Cruze duas variáveis numéricas em scatter plot. Cada ponto = uma sessão. Cor = modalidade. Hover para ver detalhes. Não interprete como causalidade — é ferramenta de investigação.">
-            <ExplorarRelacoesSection history={hist} />
-          </EvoSection>
+          {/* 15/10/2026 (decisao de Elton, Fase 4 lote 4.1): "Explorar relacoes" (dispersao) saiu da tela;
+              ExplorarRelacoesSection mantido no arquivo para reverter. */}
 
           <EvoSection icon="🕒" title="Timeline integrada" badge={allSessions.filter((s) => s.completionStatus !== 'sem_registro').length}
             desc="Todos os treinos em ordem cronológica inversa com estado pré-treino, RPE, satisfação, sensação final, dor e comentário de cada sessão num único card.">
