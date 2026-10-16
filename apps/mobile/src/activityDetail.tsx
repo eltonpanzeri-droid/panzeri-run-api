@@ -165,6 +165,8 @@ interface DetailChartProps {
   secondary?: { label: string; points: Array<{ x: number; y: number | null }> };
   // Faixa horizontal (ex.: faixa habitual individual) sobre toda a largura.
   band?: { lower: number; upper: number; label: string };
+  // 15/10/2026: canal de tendencia que ACOMPANHA a serie (media da janela ± 2 desvios), no lugar da faixa fixa nas telas da aluna.
+  channel?: { points: Array<{ x: number; lower: number; upper: number; mean: number }>; label: string };
   // Rotulo da serie principal na legenda.
   seriesLabel?: string;
 }
@@ -172,7 +174,7 @@ interface DetailChartProps {
 const HEIGHT = 190;
 const M = { left: 46, right: 10, top: 12, bottom: 24 };
 
-export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, bands, boundaries, formatX, yDomain, secondary, band, seriesLabel }: DetailChartProps) {
+export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, bands, boundaries, formatX, yDomain, secondary, band, channel, seriesLabel }: DetailChartProps) {
   const [width, setWidth] = useState(320);
   const [cursor, setCursor] = useState<number | null>(null);
 
@@ -189,6 +191,7 @@ export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, 
       }
     }
     if (band) { lo = Math.min(lo, band.lower); hi = Math.max(hi, band.upper); }
+    for (const c of channel?.points ?? []) { lo = Math.min(lo, c.lower); hi = Math.max(hi, c.upper); }
     for (const p of secondary?.points ?? []) {
       if (p.y != null) { lo = Math.min(lo, p.y); hi = Math.max(hi, p.y); }
     }
@@ -206,7 +209,7 @@ export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, 
     const xMin = real[0].x;
     const xMax = real[real.length - 1].x;
     return { yMin, yMax, xMin, xMax: xMax > xMin ? xMax : xMin + 1 };
-  }, [real, bands, band, secondary, yDomain]);
+  }, [real, bands, band, channel, secondary, yDomain]);
 
   if (!geometry) return null;
   const { yMin, yMax, xMin, xMax } = geometry;
@@ -268,6 +271,15 @@ export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, 
               <Rect x={M.left} y={Math.min(sy(band.lower), sy(band.upper))} width={plotW} height={Math.max(Math.abs(sy(band.lower) - sy(band.upper)), 2)} fill="#94a3b8" opacity={0.18} />
             </>
           ) : null}
+          {channel && channel.points.length > 1 ? (
+            <>
+              <Path
+                d={`M ${channel.points.map((c) => `${sx(c.x).toFixed(1)} ${sy(c.upper).toFixed(1)}`).join(' L ')} L ${[...channel.points].reverse().map((c) => `${sx(c.x).toFixed(1)} ${sy(c.lower).toFixed(1)}`).join(' L ')} Z`}
+                fill="#94a3b8" fillOpacity={0.2} stroke="#94a3b8" strokeOpacity={0.35} strokeWidth={1}
+              />
+              <Path d={`M ${channel.points.map((c) => `${sx(c.x).toFixed(1)} ${sy(c.mean).toFixed(1)}`).join(' L ')}`} fill="none" stroke="#94a3b8" strokeOpacity={0.6} strokeWidth={1} strokeDasharray="3,3" />
+            </>
+          ) : null}
           {(bands ?? []).map((b, i) => {
             if (b.yFast == null || b.ySlow == null) return null;
             const top = Math.min(sy(b.yFast), sy(b.ySlow));
@@ -313,6 +325,7 @@ export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, 
         {seriesLabel ? ` · linha azul: ${seriesLabel}` : ''}
         {secondary ? ` · tracejado: ${secondary.label}` : ''}
         {band ? ` · faixa cinza: ${band.label}` : ''}
+        {channel && channel.points.length > 1 ? ` · faixa cinza: ${channel.label}` : ''}
       </Text>
     </View>
   );

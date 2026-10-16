@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { saoPauloDateString } from '../src/weekWindow';
 import { PendingIdentityNotice } from './PendingIdentity';
 import { FeelingDomain, FEELING_DOMAINS, SnapshotLite, rangeChip, trendChip, trendSentence } from './insights';
+import { isWeekInProgress, threeWeekMean, trailingChannel } from './trendChannel';
 import {
   HomeBorder,
   HomeColors,
@@ -497,6 +498,8 @@ function ProgressSection({
   onOpenProgress: () => void;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
+  // 15/10/2026 (pedido de Elton): o que aparece no grafico pode ser ligado/desligado pela aluna.
+  const [show, setShow] = useState({ prescrito: true, media: true, faixa: true });
   if (loading) return <SkeletonBlock height={260} />;
   if (error || weeks.length === 0) {
     return (
@@ -517,12 +520,22 @@ function ProgressSection({
   const padding = { top: 14, right: 8, bottom: 26, left: 34 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
-  const maxRaw = Math.max(...weeks.map((w) => Math.max(w.kmPercorridos ?? 0, w.kmPrescritos ?? 0)), 1);
+  // Media das ultimas 3 semanas (21 dias) e "faixa habitual" (media das ultimas 8 semanas ± 2 desvios): so com semanas COMPLETAS; a semana
+  // em andamento nunca entra. Nada disso e' alerta nem meta: descreve o ritmo da propria aluna.
+  const todayIso = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  const kmValues = weeks.map((w) => (w.kmPercorridos == null || isWeekInProgress(w.weekStart, todayIso) ? null : w.kmPercorridos));
+  const mean3 = threeWeekMean(kmValues);
+  const channel = trailingChannel(kmValues, 8);
+  const hasMean = mean3.some((v) => v != null);
+  const hasChannel = channel.some((c) => c != null);
+  const maxRaw = Math.max(...weeks.map((w) => Math.max(w.kmPercorridos ?? 0, w.kmPrescritos ?? 0)), ...channel.map((c) => c?.upper ?? 0), 1);
   const yStep = maxRaw <= 10 ? 2 : maxRaw <= 30 ? 5 : maxRaw <= 60 ? 10 : 20;
   const maxValue = Math.ceil((maxRaw * 1.05) / yStep) * yStep;
   const yTicks = Array.from({ length: Math.floor(maxValue / yStep) + 1 }, (_, i) => i * yStep);
-  const step = plotWidth / weeks.length;
-  const barWidth = step * 0.5;
+  // Sempre ha espaco para pelo menos 12 semanas: com poucas semanas as colunas ficam finas e o resto do eixo fica livre para o que vem.
+  const slots = Math.max(weeks.length, 12);
+  const step = plotWidth / slots;
+  const barWidth = Math.min(step * 0.42, 12);
   const yOf = (km: number) => padding.top + plotHeight - (km / maxValue) * plotHeight;
 
   const linePoints = weeks.map((w, i) => ({ x: padding.left + step * i + step / 2, y: yOf(w.kmPrescritos ?? 0), has: w.kmPrescritos != null }));
@@ -566,6 +579,12 @@ function ProgressSection({
               </React.Fragment>
             );
           })}
+          {show.faixa && channel.filter((c) => c != null).length > 1 ? (() => {
+            const pts = channel.filter((c): c is NonNullable<typeof c> => c != null);
+            const cx = (index: number) => padding.left + step * index + step / 2;
+            const d = `M ${pts.map((c) => `${cx(c.index)} ${yOf(c.upper)}`).join(' L ')} L ${[...pts].reverse().map((c) => `${cx(c.index)} ${yOf(c.lower)}`).join(' L ')} Z`;
+            return <Path d={d} fill={HomeColors.panzeriAccent} fillOpacity={0.14} stroke={HomeColors.panzeriAccent} strokeOpacity={0.35} strokeWidth={1} />;
+          })() : null}
           {weeks.map((w, i) => {
             if (w.kmPercorridos == null) return null; // sem dado de km: ausencia, nunca barra de zero
             const km = w.kmPercorridos;
@@ -585,8 +604,18 @@ function ProgressSection({
               />
             );
           })}
-          {linePath ? <Path d={linePath} stroke={HomeColors.panzeriPrimary} strokeWidth={2} fill="none" /> : null}
-          {linePoints.map((p, i) => (p.has ? <Circle key={i} cx={p.x} cy={p.y} r={3} fill={HomeColors.panzeriPrimary} /> : null))}
+          {show.media && hasMean ? (() => {
+            let d = '';
+            let open = false;
+            mean3.forEach((v, i) => {
+              if (v == null) { open = false; return; }
+              d += `${open ? 'L' : 'M'} ${padding.left + step * i + step / 2} ${yOf(v)} `;
+              open = true;
+            });
+            return d ? <Path d={d} stroke="#d97706" strokeWidth={2} strokeDasharray="5,3" fill="none" /> : null;
+          })() : null}
+          {show.prescrito && linePath ? <Path d={linePath} stroke={HomeColors.panzeriPrimary} strokeWidth={2} fill="none" /> : null}
+          {show.prescrito ? linePoints.map((p, i) => (p.has ? <Circle key={i} cx={p.x} cy={p.y} r={3} fill={HomeColors.panzeriPrimary} /> : null)) : null}
           {/* Alvo de toque: coluna inteira de cada semana (nao so a barra, que pode ser minuscula). */}
           {weeks.map((w, i) => (
             <Rect
@@ -603,7 +632,9 @@ function ProgressSection({
       </View>
       <View style={styles.legendRow}>
         <View style={styles.legendItem}><View style={[styles.legendSwatch, { backgroundColor: HomeColors.panzeriAccent }]} /><Text style={styles.legendText}>Realizado (km)</Text></View>
-        <View style={styles.legendItem}><View style={[styles.legendLine, { backgroundColor: HomeColors.panzeriPrimary }]} /><Text style={styles.legendText}>Prescrito (km)</Text></View>
+        <Pressable onPress={() => setShow((c) => ({ ...c, prescrito: !c.prescrito }))} style={[styles.legendItem, { opacity: show.prescrito ? 1 : 0.4 }]}><View style={[styles.legendLine, { backgroundColor: HomeColors.panzeriPrimary }]} /><Text style={styles.legendText}>Prescrito (km)</Text></Pressable>
+        <Pressable onPress={() => hasMean && setShow((c) => ({ ...c, media: !c.media }))} style={[styles.legendItem, { opacity: show.media && hasMean ? 1 : 0.4 }]}><View style={[styles.legendLine, { backgroundColor: '#d97706' }]} /><Text style={styles.legendText}>{hasMean ? 'Média das últimas 3 semanas' : 'Média de 3 semanas (precisa de 3 semanas)'}</Text></Pressable>
+        <Pressable onPress={() => hasChannel && setShow((c) => ({ ...c, faixa: !c.faixa }))} style={[styles.legendItem, { opacity: show.faixa && hasChannel ? 1 : 0.4 }]}><View style={[styles.legendSwatch, { backgroundColor: HomeColors.panzeriAccent, opacity: 0.35 }]} /><Text style={styles.legendText}>{hasChannel ? 'Sua faixa habitual' : 'Sua faixa habitual (precisa de 8 semanas)'}</Text></Pressable>
       </View>
       {selectedWeek ? (
         <View style={styles.tooltipPanel}>
@@ -611,6 +642,8 @@ function ProgressSection({
           <Text style={styles.tooltipLine}>Prescrito: {formatMetric(selectedWeek.kmPrescritos)} km</Text>
           <Text style={styles.tooltipLine}>Realizado: {formatMetric(selectedWeek.kmPercorridos)} km</Text>
           {selectedWeek.kmExtras != null && selectedWeek.kmExtras > 0 ? <Text style={styles.tooltipLine}>Extra (incluído no realizado): {formatMetric(selectedWeek.kmExtras)} km</Text> : null}
+          {selected != null && mean3[selected] != null ? <Text style={styles.tooltipLine}>Média das últimas 3 semanas: {formatMetric(Math.round((mean3[selected] as number) * 10) / 10)} km</Text> : null}
+          {selected != null && channel[selected] ? <Text style={styles.tooltipLine}>Sua faixa habitual: {formatMetric(Math.round(channel[selected]!.lower * 10) / 10)} a {formatMetric(Math.round(channel[selected]!.upper * 10) / 10)} km</Text> : null}
           {selectedWeek.adherencePercent != null && <Text style={styles.tooltipLine}>Aderência: {selectedWeek.adherencePercent}%</Text>}
           <Text style={styles.tooltipLine}>Treinos: {selectedWeek.sessoesFeitas}/{selectedWeek.sessoesPrescritas}</Text>
         </View>
@@ -977,7 +1010,7 @@ const styles = StyleSheet.create({
   tooltipPanel: { backgroundColor: HomeColors.surfaceSecondary, borderRadius: HomeRadius.small, padding: HomeSpace.related, marginBottom: HomeSpace.small },
   tooltipTitle: { ...HomeTypography.bodyMedium, color: HomeColors.textPrimary, marginBottom: 4 },
   tooltipLine: { ...HomeTypography.body, color: HomeColors.textSecondary },
-  legendRow: { flexDirection: 'row', gap: HomeSpace.component, justifyContent: 'center', marginBottom: HomeSpace.small },
+  legendRow: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 6, gap: HomeSpace.component, justifyContent: 'center', marginBottom: HomeSpace.small },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendSwatch: { width: 10, height: 10, borderRadius: 2 },
   legendLine: { width: 14, height: 3, borderRadius: 2 },

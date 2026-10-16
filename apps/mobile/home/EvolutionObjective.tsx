@@ -7,11 +7,11 @@ import {
   WeekVolumeLite,
   describeVariable,
   formatPaceSeconds,
-  habitualBand,
   recentVsLastSentences,
   volumeSentences,
 } from './insights';
 import { formatDayLabel, movingAveragePoints, observationPoints } from './chartData';
+import { dayChannel } from './trendChannel';
 
 // Secoes da tela "Evolucao objetiva do treinamento" (04/10/2026) que se somam ao volume
 // prescrito/realizado/extra ja' existente em Progress (App.tsx): interpretacao em texto do volume,
@@ -65,7 +65,8 @@ function MetricCard({
   if (!snapshot || snapshot.evidence.n === 0) {
     return <Card title={title}><Text style={styles.muted}>{emptyText}</Text></Card>;
   }
-  const band = habitualBand(snapshot);
+  // 15/10/2026 (pedido de Elton): canal de tendencia que acompanha a serie, no lugar da faixa habitual fixa.
+  const channelPoints = dayChannel(points);
   const sentences = [...recentVsLastSentences(snapshot, { noun, fmt: descriptor.fmt }), ...describeVariable(snapshot, descriptor)];
   return (
     <Card title={title}>
@@ -79,7 +80,7 @@ function MetricCard({
           formatY={formatY}
           higherIsUp={higherIsUp}
           secondary={mm.length > 1 ? { label: 'média das últimas 3 semanas', points: mm } : undefined}
-          band={band}
+          channel={channelPoints.length > 1 ? { points: channelPoints, label: 'sua faixa habitual (onde seus treinos costumam ficar)' } : undefined}
           seriesLabel="cada treino"
         />
       ) : (

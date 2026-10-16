@@ -4,7 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { DetailChart } from '../src/activityDetail';
 import { HomeBorder, HomeColors, HomeRadius, HomeSpace, HomeTypography } from './homeTheme';
 import { fetchSnapshots } from './homeApi';
-import { FEELING_DOMAINS, FeelingDomain, SnapshotLite, DomainVariable, domainSentences, habitualBand, shiftLabel } from './insights';
+import { FEELING_DOMAINS, FeelingDomain, SnapshotLite, DomainVariable, domainSentences, shiftLabel } from './insights';
+import { dayChannel } from './trendChannel';
 import { formatDayLabel, formatDayLong, movingAveragePoints, observationPoints } from './chartData';
 
 // Telas de detalhe de "Como voce esta" (04/10/2026): Sono, Prontidao pre-treino, Percepcao de
@@ -50,7 +51,8 @@ function VariableBlock({ variable, snapshot }: { variable: DomainVariable; snaps
 
   const scale = snapshot.variable.scale;
   const fixedDomain = snapshot.variable.dataType === 'ordinal_scale' && scale ? { min: scale.min, max: scale.max } : undefined;
-  const showBand = habitualBand(snapshot);
+  // 15/10/2026 (pedido de Elton): a faixa habitual fixa deu lugar ao canal de tendencia, que acompanha o ritmo da propria aluna.
+  const channelPoints = dayChannel(points, scale && snapshot.variable.dataType === 'ordinal_scale' ? { min: scale.min, max: scale.max } : undefined);
 
   return (
     <View style={[styles.block, HomeBorder.card]}>
@@ -72,7 +74,7 @@ function VariableBlock({ variable, snapshot }: { variable: DomainVariable; snaps
           higherIsUp
           yDomain={fixedDomain}
           secondary={mm.length > 1 ? { label: 'média das últimas 3 semanas', points: mm } : undefined}
-          band={showBand}
+          channel={channelPoints.length > 1 ? { points: channelPoints, label: 'sua faixa habitual (onde seus registros costumam ficar)' } : undefined}
           seriesLabel="seus registros"
         />
       ) : (

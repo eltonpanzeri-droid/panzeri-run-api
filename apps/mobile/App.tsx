@@ -11,6 +11,7 @@ import { HealthConnectCard } from './src/healthConnect/HealthConnectCard';
 import { DeleteAccountSection } from './src/accountDeletion/DeleteAccountSection';
 import { describeTargetRaceError, validateTargetTime } from './src/targetRace/messages';
 import { useHealthConnectAutoSync } from './src/healthConnect/useHealthConnect';
+import { isWeekInProgress, trailingChannel } from './home/trendChannel';
 import { AppleWatchSendButton } from './src/appleWatchDelivery/AppleWatchSendButton';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -6210,7 +6211,13 @@ function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: 
   const svgW = paddingLeft + (n - 1) * spacing + paddingRight;
   const svgH = chartH + paddingBottom + paddingTop;
 
-  const maxKm = Math.max(...allValues, 0.1);
+  // 15/10/2026 (pedido de Elton): "sua faixa habitual" — canal que acompanha o percorrido (media das ultimas 8 semanas completas ± 2
+  // desvios). A semana em andamento nao entra; sem 8 semanas completas nao ha faixa. So apresentacao, nao e' meta nem alerta.
+  const todayIsoKm = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  const runSerie = activeSeries.find((s) => s.key === 'percorrido');
+  const channelKm = runSerie ? trailingChannel(runSerie.data.map((v, i) => (v == null || isWeekInProgress(weeks[i].weekStart, todayIsoKm) ? null : v)), 8) : [];
+  const channelPts = channelKm.filter((c): c is NonNullable<typeof c> => c != null);
+  const maxKm = Math.max(...allValues, ...channelPts.map((c) => c.upper), 0.1);
   const getX = (i: number) => paddingLeft + i * spacing;
   const getY = (km: number) => paddingTop + chartH - (km / maxKm) * (chartH - 4);
 
@@ -6224,6 +6231,7 @@ function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: 
   }));
 
   return (
+    <View>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
       <Svg width={svgW} height={svgH}>
         {/* Grade horizontal leve */}
@@ -6239,6 +6247,14 @@ function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: 
             {tick.label}
           </SvgText>
         ))}
+
+        {/* Faixa habitual (canal de tendência), atrás das linhas */}
+        {channelPts.length > 1 ? (
+          <Path
+            d={`M ${channelPts.map((c) => `${getX(c.index).toFixed(1)} ${getY(c.upper).toFixed(1)}`).join(' L ')} L ${[...channelPts].reverse().map((c) => `${getX(c.index).toFixed(1)} ${getY(c.lower).toFixed(1)}`).join(' L ')} Z`}
+            fill="#22c55e" fillOpacity={0.12} stroke="#22c55e" strokeOpacity={0.3} strokeWidth={1}
+          />
+        ) : null}
 
         {/* Séries */}
         {activeSeries.map((serie, si) => {
@@ -6302,6 +6318,10 @@ function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: 
         })}
       </Svg>
     </ScrollView>
+    {channelPts.length > 1 ? (
+      <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Faixa verde clara: sua faixa habitual, onde o que você percorre costuma ficar (média das últimas 8 semanas completas). Ela se ajusta com o tempo.</Text>
+    ) : null}
+    </View>
   );
 }
 
