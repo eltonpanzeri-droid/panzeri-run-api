@@ -22,12 +22,26 @@ const APPLE_TIMEOUT_MS = 8_000;
 
 export type AppleCredentials = { keyId: string; issuerId: string; privateKey: string; bundleId: string };
 
+// Normaliza a chave .p8 vinda de variavel de ambiente: aceita quebras de linha reais, "\n" literais, aspas ao redor e quebras viradas em espacos, e reconstroi o PEM
+// PKCS#8 (corpo base64 em linhas de 64 caracteres). Devolve null se nao houver corpo. (Caso real 18/10/2026: DECODER routines::unsupported com a chave colada no EasyPanel.)
+export function normalizeApplePrivateKey(raw: string): string | null {
+  const body = raw
+    .replace(/-----BEGIN [A-Z ]*-----/g, '')
+    .replace(/-----END [A-Z ]*-----/g, '')
+    .replace(/\\n/g, '')
+    .replace(/["'\s]/g, '');
+  if (!body) return null;
+  return `-----BEGIN PRIVATE KEY-----\n${(body.match(/.{1,64}/g) ?? []).join('\n')}\n-----END PRIVATE KEY-----`;
+}
+
 export function readAppleCredentials(get: (key: string) => string | undefined): AppleCredentials | null {
   const keyId = get('APPLE_IAP_KEY_ID')?.trim();
   const issuerId = get('APPLE_IAP_ISSUER_ID')?.trim();
   const rawKey = get('APPLE_IAP_PRIVATE_KEY');
   if (!keyId || !issuerId || !rawKey?.trim()) return null;
-  return { keyId, issuerId, privateKey: rawKey.replace(/\\n/g, '\n').trim(), bundleId: get('APPLE_BUNDLE_ID')?.trim() || 'com.panzerirun.app' };
+  const privateKey = normalizeApplePrivateKey(rawKey);
+  if (!privateKey) return null;
+  return { keyId, issuerId, privateKey, bundleId: get('APPLE_BUNDLE_ID')?.trim() || 'com.panzerirun.app' };
 }
 
 const b64url = (input: Buffer | string) => Buffer.from(input).toString('base64url');

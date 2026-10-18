@@ -20,8 +20,29 @@ describe('apple-store-status (modulo)', () => {
   it('credenciais: so existem com key id, issuer e chave; aceita "\\n" literais; bundle padrao', () => {
     expect(readAppleCredentials(() => undefined)).toBeNull();
     expect(readAppleCredentials((k) => ({ APPLE_IAP_KEY_ID: 'k', APPLE_IAP_ISSUER_ID: 'i' } as Record<string, string>)[k])).toBeNull();
-    const ok = readAppleCredentials((k) => ({ APPLE_IAP_KEY_ID: 'k', APPLE_IAP_ISSUER_ID: 'i', APPLE_IAP_PRIVATE_KEY: 'A\\nB' } as Record<string, string>)[k]);
-    expect(ok).toMatchObject({ keyId: 'k', issuerId: 'i', privateKey: 'A\nB', bundleId: 'com.panzerirun.app' });
+    const ok = readAppleCredentials((k) => ({ APPLE_IAP_KEY_ID: 'k', APPLE_IAP_ISSUER_ID: 'i', APPLE_IAP_PRIVATE_KEY: 'AB' } as Record<string, string>)[k]);
+    expect(ok).toMatchObject({ keyId: 'k', issuerId: 'i', bundleId: 'com.panzerirun.app' });
+    expect(readAppleCredentials((k) => ({ APPLE_IAP_KEY_ID: 'k', APPLE_IAP_ISSUER_ID: 'i', APPLE_IAP_PRIVATE_KEY: '-----BEGIN PRIVATE KEY----- -----END PRIVATE KEY-----' } as Record<string, string>)[k])).toBeNull();
+  });
+
+  it('chave .p8 colada de qualquer jeito no ambiente (caso real: DECODER unsupported): quebras reais, "\\n" literais, aspas, espacos no lugar das quebras e CRLF geram o MESMO JWT valido', () => {
+    const body = pem.replace(/-----[A-Z ]+-----/g, '').replace(/\s+/g, '');
+    const variants = [
+      pem,
+      pem.replace(/\n/g, '\\n'),
+      `"${pem.replace(/\n/g, '\\n')}"`,
+      `'${pem}'`,
+      pem.replace(/\n/g, ' '),
+      pem.replace(/\n/g, '\r\n'),
+      `  ${pem}  \n`,
+      `-----BEGIN PRIVATE KEY-----${body}-----END PRIVATE KEY-----`,
+    ];
+    for (const variant of variants) {
+      const credentials = readAppleCredentials((k) => ({ APPLE_IAP_KEY_ID: 'KEY123', APPLE_IAP_ISSUER_ID: 'issuer-abc', APPLE_IAP_PRIVATE_KEY: variant } as Record<string, string>)[k]);
+      expect(credentials).not.toBeNull();
+      const [h, p, s] = buildAppleJwt(credentials!, 1_800_000_000).split('.');
+      expect(verify('sha256', Buffer.from(`${h}.${p}`), { key: publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(s, 'base64url'))).toBe(true);
+    }
   });
 
   it('JWT ES256 valido: cabecalho/claims corretos e assinatura confere com a chave publica', () => {
@@ -101,8 +122,11 @@ describe('reconciliacao com a Apple como fonte da verdade', () => {
   it('Apple diz ativa (inclusive cancelada com acesso vigente, tolerancia e nova tentativa): mantem o acesso', async () => {
     for (const status of [1, 3, 4]) {
       const t = build(storeUser(), env(), rcLive, { status: 200, body: appleBody(status) });
+      const logs: string[] = [];
+      jest.spyOn((t.service as never as { logger: { log: (m: string) => void } }).logger, 'log').mockImplementation((m: string) => { logs.push(m); });
       await t.service.syncStoreSubscription('u1');
       expect(t.handle).not.toHaveBeenCalled();
+      expect(logs).toContainEqual(expect.stringContaining('veredito=active'));
     }
   });
 
@@ -116,7 +140,11 @@ describe('reconciliacao com a Apple como fonte da verdade', () => {
 
   it('sem credenciais da Apple: comportamento anterior, nenhuma chamada a Apple; assinatura que nao e da App Store ou sem id de transacao tambem nao consulta', async () => {
     const none = build(storeUser(), { REVENUECAT_SECRET_API_KEY: 'sk_teste' }, rcLive, { status: 200, body: appleBody(2) });
+    const noneLogs: string[] = [];
+    jest.spyOn((none.service as never as { logger: { log: (m: string) => void } }).logger, 'log').mockImplementation((m: string) => { noneLogs.push(m); });
     await none.service.syncStoreSubscription('u1');
+    await none.service.syncStoreSubscription('u1');
+    expect(noneLogs.filter((m) => m.includes('desativada'))).toHaveLength(1); // avisa uma vez so
     expect(appleCalls(none)).toHaveLength(0);
     expect(none.handle).not.toHaveBeenCalled();
     for (const sub of [{ p: { ...rcLive.p, store: 'play_store' } }, { p: { ...rcLive.p, store_transaction_id: null } }]) {

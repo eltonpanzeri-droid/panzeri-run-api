@@ -310,6 +310,7 @@ export class BillingService {
 
   // Controle de frequencia da reconciliacao com a loja na leitura (GET /billing/me), por aluno. Em memoria: reiniciar so libera uma consulta.
   private readonly storeReadSyncAt = new Map<string, number>();
+  private appleDisabledLogged = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -957,7 +958,14 @@ export class BillingService {
   // (nunca vira expiracao, e a Apple nunca concede acesso).
   private async appleConfirmsExpired(live: RevenueCatSubscription[], userId: string): Promise<boolean> {
     const credentials = readAppleCredentials((key) => this.config.get<string>(key));
-    if (!credentials || live.length === 0) return false;
+    if (!credentials) {
+      if (live.length > 0 && !this.appleDisabledLogged) {
+        this.appleDisabledLogged = true;
+        this.logger.log('Consulta direta a Apple desativada: variaveis APPLE_IAP_KEY_ID / APPLE_IAP_ISSUER_ID / APPLE_IAP_PRIVATE_KEY nao configuradas (ou vazias).');
+      }
+      return false;
+    }
+    if (live.length === 0) return false;
     const chosen = live[0];
     const transactionId = chosen.store_transaction_id;
     if (chosen.store !== 'app_store') return false;
@@ -967,6 +975,7 @@ export class BillingService {
     }
     try {
       const verdict = await fetchAppleSubscriptionVerdict(credentials, String(transactionId), chosen.is_sandbox);
+      this.logger.log(`Consulta a Apple concluida: veredito=${verdict} (userId=${userId}, sandbox=${String(chosen.is_sandbox)})`);
       if (verdict === 'expired') {
         this.logger.warn(`A Apple confirmou assinatura EXPIRADA, apesar de o RevenueCat mostrar vigente (RevenueCat desatualizado). userId=${userId}`);
         return true;
