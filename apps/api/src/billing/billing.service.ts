@@ -8,6 +8,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { MetaCapiService } from '../meta/meta-capi.service';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
+import { fetchAppleSubscriptionVerdict, readAppleCredentials } from './apple-store-status';
 
 type AsaasCustomer = { id: string };
 type AsaasCustomerList = { data: AsaasCustomer[] };
@@ -48,6 +49,9 @@ type RevenueCatSubscription = {
   // Renovacao automatica desligada na loja (acesso segue ate expires_date) e periodo de tolerancia de cobranca da Apple/Google.
   unsubscribe_detected_at?: string | null;
   grace_period_expires_date?: string | null;
+  // Usados na consulta direta a Apple (ver apple-store-status.ts): id da transacao mais recente e ambiente (Sandbox ou producao).
+  store_transaction_id?: string | null;
+  is_sandbox?: boolean;
 };
 // 18/10/2026: resultado da reconciliacao com a loja. 'expired' = a loja CONFIRMOU que todas as assinaturas venceram; 'absent' = o RevenueCat nao
 // tem nenhuma assinatura para a conta (NAO e' expiracao); falha de consulta nao vira resultado: lanca excecao e o ultimo estado e' preservado.
@@ -897,7 +901,15 @@ export class BillingService {
     if (!user || user.accountStatus === 'deleted') return { status: 'unchanged', store: null, outcome: 'ignored', accessEndsAt: null, renewalCanceled: false };
 
     const subscriptions = await this.fetchStoreSubscriptions(userId);
-    const { live, inGraceOnly, graceStore } = classifyStoreSubscriptions(subscriptions, Date.now());
+    const classified = classifyStoreSubscriptions(subscriptions, Date.now());
+    let live = classified.live;
+    let inGraceOnly = classified.inGraceOnly;
+    const graceStore = classified.graceStore;
+    // A Apple e' a fonte da verdade: se o RevenueCat diz 'vigente' mas a Apple confirma que expirou, vale a expiracao (RevenueCat desatualizado).
+    if (live.length > 0 && (await this.appleConfirmsExpired(live, userId))) {
+      live = [];
+      inGraceOnly = false;
+    }
     const hasAccess = ['active', 'manual_active', 'grace'].includes(user.subscriptionStatus);
     // Acesso pela loja: o provedor e' a loja, ou a pessoa ainda nao tem acesso (a compra da loja o concede).
     const storeOwned = user.subscriptionProvider === 'revenuecat' || !hasAccess;
@@ -938,6 +950,32 @@ export class BillingService {
       this.logger.warn(`RevenueCat nao retornou nenhuma assinatura para um aluno com acesso pela loja (userId=${userId}); acesso mantido (ausencia nao e' expiracao).`);
     }
     return { status: 'unchanged', store: null, outcome: confirmedExpired ? 'expired' : 'absent', accessEndsAt: null, renewalCanceled: false };
+  }
+
+  // Consulta direta a Apple (so' se as credenciais APPLE_IAP_* estiverem configuradas). Retorna true SOMENTE quando a Apple confirma expiracao/revogacao da
+  // assinatura vigente segundo o RevenueCat. Qualquer falha, resposta inconclusiva, credencial ausente ou assinatura que nao seja da App Store = false
+  // (nunca vira expiracao, e a Apple nunca concede acesso).
+  private async appleConfirmsExpired(live: RevenueCatSubscription[], userId: string): Promise<boolean> {
+    const credentials = readAppleCredentials((key) => this.config.get<string>(key));
+    if (!credentials || live.length === 0) return false;
+    const chosen = live[0];
+    const transactionId = chosen.store_transaction_id;
+    if (chosen.store !== 'app_store') return false;
+    if (!transactionId) {
+      this.logger.warn(`Consulta a Apple ignorada: o RevenueCat nao informou store_transaction_id para a assinatura vigente. userId=${userId}`);
+      return false;
+    }
+    try {
+      const verdict = await fetchAppleSubscriptionVerdict(credentials, String(transactionId), chosen.is_sandbox);
+      if (verdict === 'expired') {
+        this.logger.warn(`A Apple confirmou assinatura EXPIRADA, apesar de o RevenueCat mostrar vigente (RevenueCat desatualizado). userId=${userId}`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      this.logger.warn(`Consulta direta a Apple falhou (userId=${userId}): ${(error as Error).message?.slice(0, 120)}. Resultado do RevenueCat mantido.`);
+      return false;
+    }
   }
 
   // Melhor esforco: se falhar, o acesso nao muda e o proximo ciclo repete. Nunca toca em grants manuais nem em contas que nao sao da loja.
@@ -1261,6 +1299,7 @@ export class BillingService {
     try {
       const subscriptions = await this.fetchStoreSubscriptions(userId);
       const { live, inGraceOnly } = classifyStoreSubscriptions(subscriptions, Date.now());
+      if (live.length > 0 && (await this.appleConfirmsExpired(live, userId))) return 'expired'; // RevenueCat desatualizado: a Apple confirma a expiracao
       if (live.length > 0) {
         this.logger.warn(`EXPIRATION do RevenueCat ignorado: a loja mostra assinatura vigente (evento atrasado/fora de ordem). userId=${userId}`);
         return 'active';
