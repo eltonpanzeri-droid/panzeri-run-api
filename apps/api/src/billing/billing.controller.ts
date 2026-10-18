@@ -1,4 +1,4 @@
-﻿import { Body, Controller, Get, Headers, HttpCode, Post, UseGuards } from '@nestjs/common';
+﻿import { Body, Controller, Get, Headers, HttpCode, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
@@ -12,7 +12,8 @@ export class BillingController {
 
   @UseGuards(AuthGuard('jwt'))
   @Get('me')
-  getMine(@CurrentUser() user: CurrentUserPayload) { return this.billingService.getMine(user.sub); }
+  // force=1: botao "Atualizar situacao" (aceita uma consulta a loja com intervalo menor que a leitura automatica).
+  getMine(@CurrentUser() user: CurrentUserPayload, @Query('force') force?: string) { return this.billingService.getMine(user.sub, { force: force === '1' }); }
 
   // Historico de faturas do proprio aluno (pedido 16/08 — tela tipo "Historico de contas" da
   // Cemig, mes/valor/status). Mesma funcao usada pelo treinador em coach.controller.ts.
@@ -31,7 +32,10 @@ export class BillingController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(200)
   @Post('store/sync')
-  syncStore(@CurrentUser() user: CurrentUserPayload) { return this.billingService.syncStoreSubscription(user.sub); }
+  // auto=1: consulta automatica do app (abrir/voltar ao primeiro plano) — so' recupera quem ja era assinante da loja, sem avisos de pagamento. Compra/restauracao nao enviam auto.
+  syncStore(@CurrentUser() user: CurrentUserPayload, @Query('auto') auto?: string) {
+    return auto === '1' ? this.billingService.syncStoreSubscription(user.sub, { automatic: true }) : this.billingService.syncStoreSubscription(user.sub);
+  }
 
   @UseGuards(AuthGuard('jwt'))
   @Post('cancel')

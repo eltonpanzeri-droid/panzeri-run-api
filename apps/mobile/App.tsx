@@ -41,6 +41,7 @@ import {
   Modal,
   PanResponder,
   Platform,
+  AppState,
   Pressable,
   Linking,
   ScrollView,
@@ -1715,6 +1716,22 @@ function AppInner() {
     void AsyncStorage.removeItem(AUTH_SESSION_KEY);
     void logOutRevenueCatIfNeeded();
   }
+
+  // 18/10/2026: assinatura da loja reconciliada com o servidor ao abrir o app e ao voltar ao primeiro plano (o webhook sozinho pode falhar/atrasar e deixar
+  // uma assinatura vencida como ativa). Controle de frequencia: no maximo 1 consulta a cada 5 minutos por sessao; falha de rede nao altera nada.
+  const lastStoreSyncAtRef = useRef(0);
+  useEffect(() => {
+    if (!accessToken || !isNativeStorePurchaseAvailable()) return;
+    const syncIfDue = () => {
+      const now = Date.now();
+      if (now - lastStoreSyncAtRef.current < 5 * 60 * 1000) return;
+      lastStoreSyncAtRef.current = now;
+      void syncStoreAccess(accessToken, true);
+    };
+    syncIfDue();
+    const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') syncIfDue(); });
+    return () => subscription.remove();
+  }, [accessToken]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -5002,7 +5019,8 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
       const outcome = await purchaseNativeSubscription();
       if (outcome.status === 'success') {
         setBillingMessage('Pagamento confirmado! Atualizando seu acesso...');
-        await syncStoreAccess(accessToken);
+        const synced = await syncStoreAccess(accessToken);
+        if (!synced) setBillingMessage('Compra feita na loja, mas nao consegui confirmar seu acesso agora. Toque em Atualizar situacao em instantes.');
         await loadPlan();
         setTimeout(() => { void loadPlan(); }, 4000);
       } else if (outcome.status === 'cancelled') {
@@ -9666,7 +9684,7 @@ function Billing({ accessToken }: { accessToken: string }) {
   async function loadBilling(showConfirmation = false) {
     if (showConfirmation) setMessage('Consultando sua assinatura...');
     try {
-      const response = await fetchWithRetry(API_URL + '/billing/me', { headers: { Authorization: 'Bearer ' + accessToken } });
+      const response = await fetchWithRetry(API_URL + '/billing/me' + (showConfirmation ? '?force=1' : ''), { headers: { Authorization: 'Bearer ' + accessToken } });
       if (!response.ok) throw new Error();
       const data = await response.json();
       // Rastreamento: se o status mudou para ativo nesta atualizacao, e' o momento do pagamento.
@@ -9719,7 +9737,8 @@ function Billing({ accessToken }: { accessToken: string }) {
       const outcome = await purchaseNativeSubscription();
       if (outcome.status === 'success') {
         setMessage('Pagamento confirmado! Atualizando seu acesso...');
-        await syncStoreAccess(accessToken);
+        const synced = await syncStoreAccess(accessToken);
+        if (!synced) setMessage('Compra feita na loja, mas nao consegui confirmar seu acesso agora. Toque em Atualizar situacao em instantes.');
         await loadBilling(false);
         setTimeout(() => { void loadBilling(false); }, 4000);
       } else if (outcome.status === 'cancelled') {
@@ -9891,6 +9910,8 @@ function Billing({ accessToken }: { accessToken: string }) {
   // fica verdadeiro com um pagamento de verdade ou liberacao manual do treinador).
   const paymentConfirmed = details?.providerStatus === 'confirmed' || details?.providerStatus === 'received' || details?.providerStatus === 'received_in_cash';
   const needsPaymentSetup = !active;
+  // 18/10/2026: ativa, renovacao cancelada com acesso vigente e expirada sao estados distintos, vindos do servidor (nunca deduzidos so do status salvo).
+  const subscriptionState = details?.subscriptionContext?.state;
 
   return (
     <View style={styles.section}>
@@ -9900,8 +9921,8 @@ function Billing({ accessToken }: { accessToken: string }) {
         <Text style={styles.formSectionTitle}>Sua assinatura</Text>
         <StorePriceText style={styles.reportText} prefix="Valor: " fallback={details?.priceLabel ?? 'R$ 19,90 por mes'} />
         <Text style={styles.reportText}>Situacao: {details?.subscriptionContext?.statusMessage ?? (active ? 'Ativa' : details?.status === 'overdue' ? 'Pagamento pendente' : details?.status === 'canceled' ? 'Cancelada' : 'Aguardando ativacao')}</Text>
-        <Text style={styles.reportText}>Pagamento: {paymentConfirmed ? 'Pagamento confirmado' : active ? 'Assinatura ativa' : 'Aguardando pagamento'}</Text>
-        {details?.nextChargeAt ? <Text style={styles.reportText}>Proxima cobranca: {new Date(details.nextChargeAt).toLocaleDateString('pt-BR')}</Text> : null}
+        <Text style={styles.reportText}>Pagamento: {subscriptionState === 'cancellation_scheduled' ? 'Renovacao cancelada (acesso vigente)' : subscriptionState === 'ex_subscriber' && details?.storeManaged ? 'Assinatura expirada' : paymentConfirmed ? 'Pagamento confirmado' : active ? 'Assinatura ativa' : 'Aguardando pagamento'}</Text>
+        {details?.nextChargeAt && subscriptionState !== 'cancellation_scheduled' && subscriptionState !== 'ex_subscriber' ? <Text style={styles.reportText}>Proxima cobranca: {new Date(details.nextChargeAt).toLocaleDateString('pt-BR')}</Text> : null}
       </View>
 
       {/* 05/09: aviso contextual quando o estado da assinatura exige ação imediata (ex: overdue). */}
@@ -10770,11 +10791,13 @@ async function purchaseNativeSubscription(): Promise<NativePurchaseOutcome> {
 
 // O acesso NUNCA e' liberado so' pela confirmacao local do aparelho: depois de comprar/restaurar, o app pede ao SERVIDOR que valide no RevenueCat
 // (POST /billing/store/sync, usuario pelo token). Melhor esforco: o webhook do RevenueCat continua sendo a via principal.
-async function syncStoreAccess(accessToken: string): Promise<void> {
+// 18/10/2026: retorna se o SERVIDOR confirmou (HTTP 2xx). Resposta de erro (502/503 etc.) ou rede fora = false, para o app nao dizer que o acesso foi atualizado.
+async function syncStoreAccess(accessToken: string, automatic = false): Promise<boolean> {
   try {
-    await fetch(`${API_URL}/billing/store/sync`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+    const response = await fetch(`${API_URL}/billing/store/sync${automatic ? '?auto=1' : ''}`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+    return response.ok;
   } catch {
-    /* sem rede: o webhook ou a proxima abertura do app atualizam o acesso */
+    return false; // sem rede: o proximo ciclo (abrir o app, voltar ao primeiro plano, rotina do servidor) tenta de novo
   }
 }
 
@@ -10782,7 +10805,10 @@ async function syncStoreAccess(accessToken: string): Promise<void> {
 async function restoreNativePurchases(accessToken: string): Promise<{ status: 'restored' | 'none' | 'error'; message: string }> {
   try {
     const info = await Purchases.restorePurchases();
-    await syncStoreAccess(accessToken);
+    const synced = await syncStoreAccess(accessToken);
+    if (!synced && info.activeSubscriptions.length > 0) {
+      return { status: 'error', message: 'Encontramos sua assinatura na loja, mas nao consegui confirmar o acesso agora. Tente novamente em instantes.' };
+    }
     return info.activeSubscriptions.length > 0
       ? { status: 'restored', message: 'Assinatura restaurada. Atualizando seu acesso...' }
       : { status: 'none', message: 'Nenhuma assinatura ativa foi encontrada nesta conta da loja.' };

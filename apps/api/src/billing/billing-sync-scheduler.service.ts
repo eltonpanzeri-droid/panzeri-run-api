@@ -38,4 +38,24 @@ export class BillingSyncSchedulerService {
       this.isRunning = false;
     }
   }
+
+  // 18/10/2026: assinaturas da loja (Apple/Google) tem varredura propria, separada do Asaas — o webhook do RevenueCat pode falhar/atrasar e, sem isto,
+  // uma assinatura vencida ficava como ativa ate o aluno abrir o app. Mesma trava contra execucao sobreposta.
+  private isRunningStore = false;
+
+  @Cron(CronExpression.EVERY_6_HOURS)
+  async syncStoreSubscribers() {
+    if (this.isRunningStore) {
+      this.logger.warn('Reconciliacao de assinaturas da loja ainda estava rodando — pulando esta execucao.');
+      return;
+    }
+    this.isRunningStore = true;
+    try {
+      await this.billing.refreshAllStoreSubscriptions();
+    } catch (error) {
+      this.logger.warn(`Falha na reconciliacao periodica de assinaturas da loja: ${(error as Error).message}`);
+    } finally {
+      this.isRunningStore = false;
+    }
+  }
 }

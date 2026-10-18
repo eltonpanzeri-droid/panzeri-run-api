@@ -34,11 +34,51 @@ type RevenueCatEvent = {
   transaction_id?: string;
   original_transaction_id?: string;
   purchased_at_ms?: number;
+  // Interno (nunca vem do RevenueCat): evento sintetico de RECUPERACAO por reconciliacao automatica — restaura o acesso sem anunciar nova transacao financeira.
+  reconciliation_recovery?: boolean;
   // TRANSFER (compra restaurada em OUTRA conta): ids de origem e destino.
   transferred_from?: string[];
   transferred_to?: string[];
 };
-type RevenueCatSubscription = { expires_date?: string | null; original_purchase_date?: string | null; store?: string; product_identifier?: string };
+type RevenueCatSubscription = {
+  expires_date?: string | null;
+  original_purchase_date?: string | null;
+  store?: string;
+  product_identifier?: string;
+  // Renovacao automatica desligada na loja (acesso segue ate expires_date) e periodo de tolerancia de cobranca da Apple/Google.
+  unsubscribe_detected_at?: string | null;
+  grace_period_expires_date?: string | null;
+};
+// 18/10/2026: resultado da reconciliacao com a loja. 'expired' = a loja CONFIRMOU que todas as assinaturas venceram; 'absent' = o RevenueCat nao
+// tem nenhuma assinatura para a conta (NAO e' expiracao); falha de consulta nao vira resultado: lanca excecao e o ultimo estado e' preservado.
+type StoreReconcileResult = {
+  status: 'active' | 'inactive' | 'unchanged';
+  store: string | null;
+  outcome: 'active' | 'grace' | 'expired' | 'absent' | 'ignored';
+  accessEndsAt: Date | null;
+  renewalCanceled: boolean;
+};
+const STORE_READ_SYNC_TTL_MS = 60_000; // GET /billing/me automatico
+const STORE_READ_SYNC_FORCED_TTL_MS = 10_000; // botao "Atualizar situacao"
+const STORE_PERIODIC_SYNC_GAP_MS = 150; // folga entre consultas do lote ao RevenueCat
+
+// Classifica as assinaturas devolvidas pelo RevenueCat. Compartilhado pela reconciliacao e pela verificacao de EXPIRATION do webhook.
+// P3: data de expiracao/tolerancia presente mas ilegivel = resposta incompleta => lanca BadGateway (falha de validacao), nunca expiracao.
+function classifyStoreSubscriptions(subscriptions: RevenueCatSubscription[], now: number) {
+  const readDate = (value: string | null | undefined, fallback: number): number => {
+    if (value === undefined || value === null || value === '') return fallback;
+    const ms = new Date(value).getTime();
+    if (Number.isNaN(ms)) throw new BadGatewayException('Resposta do RevenueCat com data de expiracao invalida.');
+    return ms;
+  };
+  const expiryEnd = (s: RevenueCatSubscription) => readDate(s.expires_date, Number.POSITIVE_INFINITY);
+  const graceEnd = (s: RevenueCatSubscription) => readDate(s.grace_period_expires_date, 0);
+  for (const s of subscriptions) { expiryEnd(s); graceEnd(s); } // valida tudo antes de decidir qualquer coisa
+  // P1: so' expires_date no futuro e' periodo PAGO. A tolerancia de cobranca (grace) preserva o acesso, mas NAO e' pagamento recebido.
+  const live = subscriptions.filter((s) => expiryEnd(s) > now).sort((a, b) => expiryEnd(b) - expiryEnd(a));
+  const graceSub = live.length === 0 ? subscriptions.find((s) => graceEnd(s) > now) : undefined;
+  return { live, inGraceOnly: Boolean(graceSub), graceStore: graceSub?.store ?? null };
+}
 export type SubscriptionExposure = {
   channel: 'asaas' | 'store' | 'none';
   live: 'yes' | 'no' | 'unknown';
@@ -85,6 +125,7 @@ export function deriveSubscriptionContext(
     studentCode: number | null;
   },
   billing: { overdueInvoiceUrl: string | null; nextChargeAt: Date | null } | null,
+  options: { storeManaged?: boolean } = {},
 ): SubscriptionContext {
   const status = user.subscriptionStatus;
   const hasHadAccess = user.studentCode != null;
@@ -132,6 +173,7 @@ export function deriveSubscriptionContext(
   }
 
   if (status === 'canceled') {
+    // 18/10/2026: assinatura da loja vencida e dita como expirada (diferente de ativa e de cancelada com acesso vigente).
     return {
       state: 'ex_subscriber',
       hasHadAccess,
@@ -139,8 +181,8 @@ export function deriveSubscriptionContext(
       ctaAction: 'reactivate',
       actionUrl: null,
       accessEndsAt: null,
-      statusMessage: 'Acesso encerrado',
-      detailMessage: 'Seu acesso foi encerrado. Retome seu programa quando quiser.',
+      statusMessage: options.storeManaged ? 'Assinatura expirada' : 'Acesso encerrado',
+      detailMessage: options.storeManaged ? 'Sua assinatura da loja expirou. Assine novamente para retomar seu programa.' : 'Seu acesso foi encerrado. Retome seu programa quando quiser.',
     };
   }
 
@@ -262,6 +304,9 @@ export class BillingService {
     }
   }
 
+  // Controle de frequencia da reconciliacao com a loja na leitura (GET /billing/me), por aluno. Em memoria: reiniciar so libera uma consulta.
+  private readonly storeReadSyncAt = new Map<string, number>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
@@ -285,9 +330,9 @@ export class BillingService {
     });
   }
 
-  async getMine(userId: string) {
+  async getMine(userId: string, options: { force?: boolean } = {}) {
     const asaasConfigured = this.isConfigured();
-    const [user, billing] = await Promise.all([
+    const loadUserAndBilling = () => Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         select: {
@@ -302,11 +347,18 @@ export class BillingService {
       }),
       this.prisma.billingSubscription.findUnique({ where: { userId } }),
     ]);
+    let [user, billing] = await loadUserAndBilling();
+
+    // 18/10/2026: assinatura da loja (Apple/Google) e reconciliada com o RevenueCat na leitura (respeita a data real de expiracao). Se a consulta falhar,
+    // o ultimo estado conhecido e preservado e syncError=true faz o app NAO dizer que a situacao foi atualizada.
+    let syncError = false;
+    const storeRead = await this.reconcileStoreOnRead(userId, user, Boolean(options.force));
+    if (storeRead.failed) syncError = true;
+    if (storeRead.ran) [user, billing] = await loadUserAndBilling();
 
     let appStatus = user.subscriptionStatus;
     let providerStatus = billing?.providerStatus ?? null;
     let nextChargeAt = billing?.nextChargeAt ?? null;
-    let syncError = false;
 
     // Se o treinador liberou o acesso manualmente (ex: aluno pagou por um link avulso e o
     // treinador confirmou no painel), essa decisao nao pode ser desfeita sozinha so porque o
@@ -329,6 +381,7 @@ export class BillingService {
     const subscriptionContext = deriveSubscriptionContext(
       { subscriptionStatus: appStatus, subscriptionCancelRequestedAt: user.subscriptionCancelRequestedAt, studentCode: user.studentCode },
       latestBilling ? { overdueInvoiceUrl: latestBilling.overdueInvoiceUrl ?? null, nextChargeAt: latestBilling.nextChargeAt ?? null } : null,
+      { storeManaged: user.subscriptionProvider === 'revenuecat' },
     );
 
     return {
@@ -803,44 +856,163 @@ export class BillingService {
 
   // VALIDACAO NO SERVIDOR da assinatura da loja (Apple/Google) consultando o RevenueCat com a chave SECRETA (nunca no app). O app chama depois de comprar
   // ou restaurar; o resultado vai pelo MESMO tratamento do webhook (idempotente, precedencia de grants manuais, sem tocar em assinatura Asaas).
-  async syncStoreSubscription(userId: string): Promise<{ status: 'active' | 'inactive' | 'unchanged'; store: string | null }> {
+  async syncStoreSubscription(userId: string, options: { revokeWhenAbsent?: boolean; automatic?: boolean } = {}): Promise<{ status: 'active' | 'inactive' | 'unchanged'; store: string | null }> {
+    const result = await this.reconcileStoreSubscription(userId, options);
+    return { status: result.status, store: result.store };
+  }
+
+  // 18/10/2026 (assinatura Apple Sandbox expirada continuava "Ativa"): reconciliacao com tres desfechos DISTINTOS.
+  //  - falha de consulta (rede, 5xx, resposta sem "subscriber"): LANCA excecao; o chamador preserva o ultimo estado conhecido. Nunca vira expiracao.
+  //  - ausencia (o RevenueCat nao tem nenhuma assinatura para a conta): NAO revoga, salvo revokeWhenAbsent (origem de uma transferencia/restauracao).
+  //  - expiracao confirmada (existem assinaturas e TODAS venceram, sem tolerancia de cobranca vigente): revoga so' quem tem acesso PELA LOJA.
+  // Quando ha assinatura vigente grava a data real de fim do periodo e se a renovacao foi cancelada (acesso vigente ate la').
+  private async fetchStoreSubscriptions(userId: string): Promise<RevenueCatSubscription[]> {
     const secret = this.config.get<string>('REVENUECAT_SECRET_API_KEY');
     if (!secret) throw new ServiceUnavailableException('Validacao da assinatura da loja nao configurada.');
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { accountStatus: true, subscriptionStatus: true, subscriptionProvider: true } });
-    if (!user || user.accountStatus === 'deleted') return { status: 'unchanged', store: null };
-
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
-    let subscriptions: RevenueCatSubscription[];
     try {
       const response = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`, { headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' }, signal: controller.signal });
-      if (!response.ok) throw new BadGatewayException('Nao foi possivel validar a assinatura agora.');
+      if (!response.ok) throw new BadGatewayException(`Nao foi possivel validar a assinatura agora (RevenueCat HTTP ${response.status}).`);
       const body = (await response.json()) as { subscriber?: { subscriptions?: Record<string, RevenueCatSubscription> } };
-      subscriptions = Object.values(body.subscriber?.subscriptions ?? {});
+      if (!body || typeof body.subscriber !== 'object' || body.subscriber === null) throw new BadGatewayException('Resposta do RevenueCat sem dados do assinante.');
+      return Object.values(body.subscriber.subscriptions ?? {});
     } catch (error) {
       if (error instanceof BadGatewayException) throw error;
       throw new BadGatewayException('Nao foi possivel validar a assinatura agora.');
     } finally {
       clearTimeout(timeout);
     }
+  }
 
-    const now = Date.now();
-    const active = subscriptions.find((s) => !s.expires_date || new Date(s.expires_date).getTime() > now);
+  // options.automatic (leitura de /billing/me e rotina de 6h): alem de nunca tocar em Asaas/grant manual, so' RECUPERA acesso de quem JA era assinante da loja
+  // (provedor revenuecat, cancelada/pendente, sem override). Conta sem assinatura comprovada nunca ganha acesso por varredura automatica.
+  private async reconcileStoreSubscription(userId: string, options: { revokeWhenAbsent?: boolean; automatic?: boolean } = {}): Promise<StoreReconcileResult> {
+    const secret = this.config.get<string>('REVENUECAT_SECRET_API_KEY');
+    if (!secret) throw new ServiceUnavailableException('Validacao da assinatura da loja nao configurada.');
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { accountStatus: true, subscriptionStatus: true, subscriptionProvider: true, subscriptionManualOverride: true },
+    });
+    if (!user || user.accountStatus === 'deleted') return { status: 'unchanged', store: null, outcome: 'ignored', accessEndsAt: null, renewalCanceled: false };
+
+    const subscriptions = await this.fetchStoreSubscriptions(userId);
+    const { live, inGraceOnly, graceStore } = classifyStoreSubscriptions(subscriptions, Date.now());
     const hasAccess = ['active', 'manual_active', 'grace'].includes(user.subscriptionStatus);
-    if (active) {
-      if (hasAccess) return { status: 'active', store: active.store ?? null };
-      await this.handleRevenueCatEvent({
-        type: 'INITIAL_PURCHASE', app_user_id: userId, product_id: active.product_identifier,
-        purchased_at_ms: active.original_purchase_date ? new Date(active.original_purchase_date).getTime() : undefined,
-      });
-      return { status: 'active', store: active.store ?? null };
+    // Acesso pela loja: o provedor e' a loja, ou a pessoa ainda nao tem acesso (a compra da loja o concede).
+    const storeOwned = user.subscriptionProvider === 'revenuecat' || !hasAccess;
+
+    if (inGraceOnly) {
+      // Nem concede, nem revoga, nem promove overdue->active, nem notifica: o status financeiro fica exatamente como esta (ativo segue ativo; pendente segue pendente).
+      return { status: hasAccess ? 'active' : 'unchanged', store: graceStore, outcome: 'grace', accessEndsAt: null, renewalCanceled: false };
     }
-    // Sem assinatura ativa na loja: so' revoga quem tinha acesso PELA LOJA (nunca assinante Asaas nem grant manual).
-    if (user.subscriptionProvider === 'revenuecat' && ['active', 'overdue'].includes(user.subscriptionStatus)) {
+
+    if (live.length > 0) {
+      const chosen = live[0];
+      const accessEndsAt = chosen.expires_date ? new Date(chosen.expires_date) : null;
+      const renewalCanceled = Boolean(chosen.unsubscribe_detected_at);
+      if (!hasAccess) {
+        // Recuperacao: quem ja era assinante da loja (cancelada por evento fora de ordem/atrasado, ou pendente) volta a ativo por RENEWAL — nao e' 'primeira compra'.
+        const recoverable = user.subscriptionProvider === 'revenuecat' && ['canceled', 'overdue'].includes(user.subscriptionStatus) && !user.subscriptionManualOverride;
+        if (options.automatic && !recoverable) {
+          return { status: 'unchanged', store: chosen.store ?? null, outcome: 'active', accessEndsAt, renewalCanceled }; // varredura automatica nao concede acesso a quem nao e' assinante comprovado
+        }
+        await this.handleRevenueCatEvent({
+          type: recoverable ? 'RENEWAL' : 'INITIAL_PURCHASE', app_user_id: userId, product_id: chosen.product_identifier,
+          ...(recoverable && options.automatic ? { reconciliation_recovery: true } : {}),
+          purchased_at_ms: chosen.original_purchase_date && !Number.isNaN(new Date(chosen.original_purchase_date).getTime()) ? new Date(chosen.original_purchase_date).getTime() : undefined,
+        });
+      }
+      if (storeOwned) await this.persistStorePeriod(userId, accessEndsAt, renewalCanceled, chosen.unsubscribe_detected_at ?? null);
+      return { status: 'active', store: chosen.store ?? null, outcome: 'active', accessEndsAt, renewalCanceled };
+    }
+
+    // Sem assinatura vigente na loja: so' revoga quem tinha acesso PELA LOJA (nunca assinante Asaas nem grant manual).
+    const confirmedExpired = subscriptions.length > 0;
+    const canRevoke = user.subscriptionProvider === 'revenuecat' && ['active', 'overdue'].includes(user.subscriptionStatus) && !user.subscriptionManualOverride;
+    if (canRevoke && (confirmedExpired || options.revokeWhenAbsent)) {
       await this.handleRevenueCatEvent({ type: 'EXPIRATION', app_user_id: userId });
-      return { status: 'inactive', store: null };
+      return { status: 'inactive', store: null, outcome: confirmedExpired ? 'expired' : 'absent', accessEndsAt: null, renewalCanceled: false };
     }
-    return { status: 'unchanged', store: null };
+    if (!confirmedExpired && user.subscriptionProvider === 'revenuecat' && ['active', 'overdue'].includes(user.subscriptionStatus)) {
+      this.logger.warn(`RevenueCat nao retornou nenhuma assinatura para um aluno com acesso pela loja (userId=${userId}); acesso mantido (ausencia nao e' expiracao).`);
+    }
+    return { status: 'unchanged', store: null, outcome: confirmedExpired ? 'expired' : 'absent', accessEndsAt: null, renewalCanceled: false };
+  }
+
+  // Melhor esforco: se falhar, o acesso nao muda e o proximo ciclo repete. Nunca toca em grants manuais nem em contas que nao sao da loja.
+  private async persistStorePeriod(userId: string, accessEndsAt: Date | null, renewalCanceled: boolean, unsubscribeDetectedAt: string | null) {
+    try {
+      if (accessEndsAt) {
+        await this.prisma.billingSubscription.updateMany({ where: { userId }, data: { nextChargeAt: accessEndsAt, providerStatus: 'active' } });
+      }
+      await this.prisma.user.updateMany({
+        where: { id: userId, subscriptionProvider: 'revenuecat', subscriptionManualOverride: false, subscriptionCancelRequestedAt: renewalCanceled ? null : { not: null } },
+        data: { subscriptionCancelRequestedAt: renewalCanceled ? (unsubscribeDetectedAt && !Number.isNaN(new Date(unsubscribeDetectedAt).getTime()) ? new Date(unsubscribeDetectedAt) : new Date()) : null },
+      });
+    } catch (error) {
+      this.logger.warn(`Nao consegui gravar o periodo da assinatura da loja (userId=${userId}): ${(error as Error).message?.slice(0, 120)}`);
+    }
+  }
+
+  // Leitura do estado (GET /billing/me): reconcilia com a loja so' para quem tem acesso pela loja, com controle simples de frequencia por aluno.
+  // Retorna { ran, failed }: failed => manter o ultimo estado e NAO informar que a situacao foi atualizada.
+  private async reconcileStoreOnRead(userId: string, user: { subscriptionProvider: string | null; subscriptionStatus: string; subscriptionManualOverride: boolean }, force: boolean): Promise<{ ran: boolean; failed: boolean }> {
+    if (user.subscriptionProvider !== 'revenuecat' || user.subscriptionManualOverride || !['active', 'overdue', 'canceled'].includes(user.subscriptionStatus)) return { ran: false, failed: false };
+    // 18/10/2026 (P2): sem a chave nao ha como validar com a loja — isso e' FALHA de sincronizacao (estado preservado, app nao diz 'atualizada'), nunca sucesso silencioso.
+    if (!this.config.get<string>('REVENUECAT_SECRET_API_KEY')) {
+      this.logger.error(`Reconciliacao da assinatura da loja impossivel: REVENUECAT_SECRET_API_KEY nao configurada (userId=${userId}). Ultimo estado conhecido preservado.`);
+      return { ran: false, failed: true };
+    }
+    const now = Date.now();
+    const last = this.storeReadSyncAt.get(userId) ?? 0;
+    if (now - last < (force ? STORE_READ_SYNC_FORCED_TTL_MS : STORE_READ_SYNC_TTL_MS)) return { ran: false, failed: false };
+    this.storeReadSyncAt.set(userId, now);
+    if (this.storeReadSyncAt.size > 5000) {
+      for (const [id, at] of this.storeReadSyncAt) if (now - at > STORE_READ_SYNC_TTL_MS) this.storeReadSyncAt.delete(id);
+    }
+    try {
+      await this.reconcileStoreSubscription(userId, { automatic: true });
+      return { ran: true, failed: false };
+    } catch (error) {
+      this.storeReadSyncAt.delete(userId); // falha nao conta como consulta feita: a proxima tentativa pode repetir
+      this.logger.warn(`Falha ao reconciliar assinatura da loja na leitura (userId=${userId}): ${(error as Error).message?.slice(0, 160)}. Ultimo estado conhecido preservado.`);
+      return { ran: false, failed: true };
+    }
+  }
+
+  // Rotina periodica: reconcilia todos os alunos com acesso pela loja. Separada do Asaas (refreshAllPendingStudents) de proposito.
+  async refreshAllStoreSubscriptions() {
+    if (!this.config.get<string>('REVENUECAT_SECRET_API_KEY')) {
+      this.logger.error('Reconciliacao periodica das assinaturas da loja NAO executada: REVENUECAT_SECRET_API_KEY nao configurada.');
+      return { checked: 0, changed: 0, recovered: 0, failed: 0, skipped: true };
+    }
+    const students = await this.prisma.user.findMany({
+      where: {
+        role: 'student',
+        accountStatus: { not: 'deleted' },
+        subscriptionManualOverride: false,
+        subscriptionProvider: 'revenuecat',
+        subscriptionStatus: { in: ['active', 'overdue', 'canceled'] }, // canceled: recupera quem foi cancelado indevidamente (evento fora de ordem)
+      },
+      select: { id: true, subscriptionStatus: true },
+    });
+    let changed = 0;
+    let recovered = 0;
+    let failed = 0;
+    for (const student of students) {
+      try {
+        const result = await this.reconcileStoreSubscription(student.id, { automatic: true });
+        if (result.status === 'inactive') changed += 1;
+        if (student.subscriptionStatus === 'canceled' && result.status === 'active') recovered += 1;
+      } catch (error) {
+        failed += 1;
+        this.logger.warn(`Falha ao reconciliar assinatura da loja do aluno ${student.id}: ${(error as Error).message?.slice(0, 160)}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, STORE_PERIODIC_SYNC_GAP_MS));
+    }
+    this.logger.log(`Reconciliacao de assinaturas da loja concluida: ${students.length} verificado(s), ${changed} expirada(s), ${recovered} recuperada(s), ${failed} falha(s).`);
+    return { checked: students.length, changed, recovered, failed, skipped: false };
   }
 
   private async handleRevenueCatTransfer(event: RevenueCatEvent) {
@@ -850,7 +1022,7 @@ export class BillingService {
       return;
     }
     for (const id of new Set(ids)) {
-      await this.syncStoreSubscription(id).catch((error) => this.logger.warn(`Falha ao validar assinatura apos TRANSFER: ${(error as Error).message?.slice(0, 120)}`));
+      await this.syncStoreSubscription(id, { revokeWhenAbsent: true }).catch((error) => this.logger.warn(`Falha ao validar assinatura apos TRANSFER: ${(error as Error).message?.slice(0, 120)}`));
     }
   }
 
@@ -1072,7 +1244,42 @@ export class BillingService {
       throw new UnauthorizedException('Token de webhook invalido.');
     }
 
-    return this.handleRevenueCatEvent(payload.event);
+    // 18/10/2026: EXPIRATION atrasado/fora de ordem (ex.: chega depois de uma renovacao) nao pode revogar assinatura vigente. Antes de revogar, a loja e' consultada:
+    // vigente => ignora; expiracao confirmada => segue o tratamento normal; falha/resposta inconclusiva => preserva o estado e a rotina de 6h reconcilia depois.
+    // REFUND nao passa por aqui (regra propria, inalterada).
+    const event = payload.event;
+    if (event?.type === 'EXPIRATION' && event.app_user_id && !event.app_user_id.startsWith('$RCAnonymousID')) {
+      const verdict = await this.verifyExpirationWithStore(event.app_user_id);
+      if (verdict !== 'expired') {
+        return { received: true, expirationIgnored: verdict };
+      }
+    }
+    return this.handleRevenueCatEvent(event);
+  }
+
+  private async verifyExpirationWithStore(userId: string): Promise<'expired' | 'active' | 'grace' | 'absent' | 'inconclusive'> {
+    try {
+      const subscriptions = await this.fetchStoreSubscriptions(userId);
+      const { live, inGraceOnly } = classifyStoreSubscriptions(subscriptions, Date.now());
+      if (live.length > 0) {
+        this.logger.warn(`EXPIRATION do RevenueCat ignorado: a loja mostra assinatura vigente (evento atrasado/fora de ordem). userId=${userId}`);
+        return 'active';
+      }
+      if (inGraceOnly) {
+        this.logger.warn(`EXPIRATION do RevenueCat ignorado: assinatura em periodo de tolerancia de cobranca. userId=${userId}`);
+        return 'grace';
+      }
+      if (subscriptions.length === 0) {
+        this.logger.warn(`EXPIRATION do RevenueCat sem nenhuma assinatura na consulta (inconclusivo); estado preservado. userId=${userId}`);
+        return 'absent';
+      }
+      return 'expired';
+    } catch (error) {
+      const message = `EXPIRATION do RevenueCat nao confirmado (consulta falhou: ${(error as Error).message?.slice(0, 120)}); estado preservado ate a rotina periodica. userId=${userId}`;
+      if (error instanceof ServiceUnavailableException) this.logger.error(message);
+      else this.logger.warn(message);
+      return 'inconclusive';
+    }
   }
 
   // Tratamento do evento (ja' autenticado). Separado para ser reutilizado pela validacao ativa (syncStoreSubscription) sem duplicar regra de assinatura.
@@ -1167,7 +1374,7 @@ export class BillingService {
     });
     const statusActuallyChanged = updateResult.count > 0;
     if (statusActuallyChanged) {
-      await this.recordStatusTransition(userId, user.subscriptionStatus, appStatus, `revenuecat:${event?.type ?? ''}${event?.transaction_id ? `:${event.transaction_id}` : ''}`);
+      await this.recordStatusTransition(userId, user.subscriptionStatus, appStatus, `revenuecat:${event?.type ?? ''}${event?.reconciliation_recovery ? ':reconciliation' : ''}${event?.transaction_id ? `:${event.transaction_id}` : ''}`);
     }
 
     if (appStatus === 'active') {
@@ -1176,6 +1383,12 @@ export class BillingService {
         await this.assignStudentCodeIfNeeded(userId);
         const updatedUser = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { studentCode: true } });
         this.triggerFirstWeekGeneration(userId);
+        // 18/10/2026: recuperacao de acesso por reconciliacao NAO e' uma nova transacao financeira — sem 'Pagamento recebido' nem e-mail de confirmacao.
+        // Compras e renovacoes confirmadas (webhook e compra explicita pelo app) continuam notificando normalmente.
+        if (event?.reconciliation_recovery) {
+          this.logger.log(`Acesso recuperado por reconciliacao com a loja (userId=${userId}); notificacoes de pagamento nao enviadas.`);
+          return { received: true };
+        }
         await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run (loja)!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(updatedUser.studentCode)})\nE-mail: ${user.email}\nValor: R$ ${APP_STORE_PLAN_PRICE.toFixed(2).replace('.', ',')} via App Store / Google Play`);
         await this.messaging.sendEmail(userId, {
           trigger: 'payment_confirmed',
