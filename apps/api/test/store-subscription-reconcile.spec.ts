@@ -206,6 +206,15 @@ describe('P2 — chave RevenueCat ausente', () => {
     expect(app.split('const synced = await syncStoreAccess(accessToken);')).toHaveLength(4); // 3 usos: 2 compras + restauracao
     expect(app).toContain('nao consegui confirmar seu acesso agora');
   });
+
+  it('botao Atualizar situacao: assinante da loja manda o RevenueCat reler o recibo antes de consultar o servidor; falha nao diz atualizada', () => {
+    const app = readFileSync(join(__dirname, '..', '..', 'mobile', 'App.tsx'), 'utf8');
+    const load = app.slice(app.indexOf('async function loadBilling('), app.indexOf('async function loadHistory('));
+    expect(load).toContain('showConfirmation && details?.storeManaged && isNativeStorePurchaseAvailable()');
+    expect(load).toContain('Purchases.syncPurchasesForResult()');
+    expect(load.indexOf('syncPurchasesForResult')).toBeLessThan(load.indexOf('/billing/me'));
+    expect(load).toContain('data.syncError || storeRefreshFailed');
+  });
 });
 
 describe('P3 — data de expiracao invalida e FALHA de validacao', () => {

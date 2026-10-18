@@ -9693,6 +9693,19 @@ function Billing({ accessToken }: { accessToken: string }) {
 
   async function loadBilling(showConfirmation = false) {
     if (showConfirmation) setMessage('Consultando sua assinatura...');
+    // 18/10/2026: no botao 'Atualizar situacao', assinante da loja pede ANTES ao RevenueCat que releia o recibo na Apple — o RevenueCat pode estar com
+    // cancelamento/expiracao desatualizados (sem isso o servidor so repete o que ele sabe). Falha aqui nao bloqueia a consulta ao servidor, mas a tela nao diz 'atualizada'.
+    let storeRefreshFailed = false;
+    if (showConfirmation && details?.storeManaged && isNativeStorePurchaseAvailable()) {
+      try {
+        await Promise.race([
+          Purchases.syncPurchasesForResult(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000)),
+        ]);
+      } catch {
+        storeRefreshFailed = true;
+      }
+    }
     try {
       const response = await fetchWithRetry(API_URL + '/billing/me' + (showConfirmation ? '?force=1' : ''), { headers: { Authorization: 'Bearer ' + accessToken } });
       if (!response.ok) throw new Error();
@@ -9705,7 +9718,7 @@ function Billing({ accessToken }: { accessToken: string }) {
       }
       setDetails(data);
       if (showConfirmation) {
-        setMessage(data.syncError ? 'Mostrando a ultima situacao salva. Nao consegui atualizar agora.' : 'Situacao da assinatura atualizada.');
+        setMessage(data.syncError || storeRefreshFailed ? 'Mostrando a ultima situacao salva. Nao consegui atualizar agora.' : 'Situacao da assinatura atualizada.');
       }
     } catch {
       setMessage('Nao consegui consultar sua assinatura agora.');
