@@ -6,6 +6,7 @@ import { HomeBorder, HomeColors, HomeRadius, HomeSpace, HomeTypography } from '.
 import { fetchSnapshots } from './homeApi';
 import { FEELING_DOMAINS, FeelingDomain, SnapshotLite, DomainVariable, domainSentences, shiftLabel } from './insights';
 import { dayChannel } from './trendChannel';
+import { SourcesLink } from '../src/scientificSources/ScientificSourcesScreen';
 import { formatDayLabel, formatDayLong, movingAveragePoints, observationPoints } from './chartData';
 
 // Telas de detalhe de "Como voce esta" (04/10/2026): Sono, Prontidao pre-treino, Percepcao de
@@ -121,6 +122,7 @@ export function FeelingsDetailScreen({ accessToken, domain, onBack }: { accessTo
             <Text style={styles.disclaimer}>Descrição dos seus próprios registros, sem diagnóstico e sem relação de causa.</Text>
           </View>
           {cfg.variables.map((v) => <VariableBlock key={v.id} variable={v} snapshot={snapshots[v.id]} />)}
+          <SourcesLink themeIds={domain === 'sleep' ? ['ritmo-circadiano'] : ['neurociencia-comportamento']} />
         </>
       )}
     </View>

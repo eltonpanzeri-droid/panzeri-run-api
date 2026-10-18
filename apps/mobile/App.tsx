@@ -8,6 +8,8 @@ import Constants from 'expo-constants';
 import { AppleHealthProofCard } from './src/appleHealthProof/AppleHealthProofCard';
 import { IntegrationsHub, IntegrationScreens } from './src/integrations/IntegrationsHub';
 import { HealthConnectCard } from './src/healthConnect/HealthConnectCard';
+import { ScientificSourcesScreen, SourcesLink } from './src/scientificSources/ScientificSourcesScreen';
+import { registerSourcesOpener } from './src/scientificSources/sources';
 import { DeleteAccountSection } from './src/accountDeletion/DeleteAccountSection';
 import { describeTargetRaceError, validateTargetTime } from './src/targetRace/messages';
 import { useHealthConnectAutoSync } from './src/healthConnect/useHealthConnect';
@@ -81,7 +83,7 @@ type Screen = 'login' | 'app';
 // destinos orfaos desde que "Conta"/"Perfil" passaram a montar os mesmos componentes
 // (MeusDados/Anamnese) diretamente. 'billing' permanece: ainda e' destino de redirects reais do
 // funil de pagamento (quickIntake/billing_regularize).
-type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy' | 'devices';
+type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy' | 'devices' | 'fontes';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -1531,6 +1533,12 @@ function AppInner() {
   const [acceptedExerciseResponsibility, setAcceptedExerciseResponsibility] = useState(false);
   const [exerciseResponsibilityRequired, setExerciseResponsibilityRequired] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('home');
+  // 17/10/2026 (Apple 1.4.1): temas que a tela de fontes cientificas deve destacar ao abrir por link contextual (vazio = todos).
+  const [sourcesThemeIds, setSourcesThemeIds] = useState<string[]>([]);
+  useEffect(() => {
+    registerSourcesOpener((themeIds) => { setSourcesThemeIds(themeIds); setActiveTab('fontes'); });
+    return () => registerSourcesOpener(null);
+  }, []);
   // 03/10/2026 — deep link de notificacao pra um objeto especifico da aba Treinos (sessao ou atividade).
   const [weekDeepLink, setWeekDeepLink] = useState<WeekDeepLink | null>(null);
   const safeAreaInsets = useSafeAreaInsets();
@@ -2021,6 +2029,7 @@ function AppInner() {
             {activeTab === 'targetRace' && <TargetRaceScreen accessToken={accessToken} />}
             {activeTab === 'painReport' && <PainReportScreen accessToken={accessToken} />}
             {activeTab === 'shoes' && <ShoesScreen accessToken={accessToken} />}
+            {activeTab === 'fontes' && <ScientificSourcesScreen focusThemeIds={sourcesThemeIds} />}
             {activeTab === 'observations' && <ObservationsScreen accessToken={accessToken} />}
             {activeTab === 'ciclo' && <MenstrualCycleScreen accessToken={accessToken} />}
             {/* Etapa 2 (08/10/2026): 'strava' e rota antiga; abre o hub ja na tela do Strava (Privacidade ainda usa setActiveTab('strava')). */}
@@ -7679,6 +7688,7 @@ function PainReportScreen({ accessToken }: { accessToken: string }) {
       <Text style={styles.sectionLabel}>Relatar dor</Text>
       <Text style={styles.titleSmall}>Conte para a gente o que voce esta sentindo</Text>
       <Text style={styles.copyTight}>Use isto quando tiver uma dor que te preocupe ou incomode mais do que o normal. Para dor leve do dia a dia, o feedback logo apos cada treino ja e suficiente.</Text>
+      <SourcesLink themeIds={['lesoes-ligamentares-joelho']} label="Fontes científicas sobre lesões do joelho" />
 
       <View style={styles.formSection}>
         <Text style={styles.formSectionTitle}>Onde voce sente a dor?</Text>
@@ -10573,6 +10583,7 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     // de pagamento ainda usam 'billing').
     // 05/10/2026: transparencia e controle de dados como parte visivel do produto (area permanente).
     { id: 'privacy', label: 'Privacidade e dados', icon: 'shield-checkmark-outline' },
+    { id: 'fontes', label: 'Fontes científicas e metodologia', icon: 'book-outline' },
     { id: 'conta', label: 'Conta', icon: 'settings-outline' },
     // Ciclo menstrual: so visivel para alunas (sex=Feminino) — 11/09
     ...(isFeminino ? [{ id: 'ciclo' as Tab, label: 'Registrar ciclo menstrual', icon: 'medical-outline' as keyof typeof Ionicons.glyphMap }] : []),

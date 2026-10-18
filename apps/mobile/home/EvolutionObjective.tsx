@@ -12,6 +12,7 @@ import {
 } from './insights';
 import { formatDayLabel, movingAveragePoints, observationPoints } from './chartData';
 import { dayChannel } from './trendChannel';
+import { SourcesLink } from '../src/scientificSources/ScientificSourcesScreen';
 
 // Secoes da tela "Evolucao objetiva do treinamento" (04/10/2026) que se somam ao volume
 // prescrito/realizado/extra ja' existente em Progress (App.tsx): interpretacao em texto do volume,
@@ -133,6 +134,7 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
         higherIsUp
         emptyText="Ainda não há corridas com cadência fornecida pelo seu dispositivo."
       />
+      <SourcesLink themeIds={['intensidade-treinamento', 'rigidez-tendinea-economia-corrida']} />
     </View>
   );
 }

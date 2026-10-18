@@ -56,7 +56,9 @@ export function AppleHealthProofCard({ accessToken, apiUrl }: { accessToken: str
 
   const steps: Array<{ label: string; action: () => Promise<void> }> = [
     {
-      label: '1. Autorizar HealthKit (leitura de treinos)',
+      // 17/10/2026 (Apple 5.1.1(iv)): o botao que leva a tela nativa de permissao nao pode dizer "Autorizar"; so' "Continuar". A tela nativa do iOS e
+      // os tipos de dados pedidos nao mudaram.
+      label: '1. Continuar',
       action: async () => {
         log(`HealthKit disponivel no aparelho: ${isHealthDataAvailable() ? 'sim' : 'nao'}`);
         log(`Estado antes: ${await getHealthAuthorizationRequestStatus()}`);
@@ -84,7 +86,7 @@ export function AppleHealthProofCard({ accessToken, apiUrl }: { accessToken: str
       },
     },
     {
-      label: '3. Autorizar WorkoutKit (agendar no Relogio)',
+      label: '3. Continuar',
       action: async () => {
         log(`WorkoutKit: ${await requestWorkoutAuthorization()}`);
       },
@@ -149,6 +151,7 @@ export function AppleHealthProofCard({ accessToken, apiUrl }: { accessToken: str
     <View style={styles.card}>
       <Text style={styles.title}>Prova Apple Watch (Bloco 1)</Text>
       <Text style={styles.hint}>Teste tecnico. Os passos 1 a 6 ficam so neste aparelho. O passo 7 envia suas corridas lidas do Saude para a sua propria conta no Panzeri Run.</Text>
+      <Text style={styles.hint}>O passo 1 (leitura de treinos do app Saude) e o passo 3 (agendar corridas no Relogio) abrem a tela do proprio iOS, onde voce escolhe o que compartilhar. Se voce nao permitir, nada e lido nem agendado.</Text>
       {steps.map((step) => (
         <Pressable key={step.label} style={[styles.button, busy && styles.buttonDisabled]} disabled={busy} onPress={() => void run(step.label, step.action)}>
           <Text style={styles.buttonText}>{step.label}</Text>
