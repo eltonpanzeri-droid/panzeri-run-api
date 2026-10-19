@@ -29,7 +29,8 @@ export const BACKUP_RETENTION_DAYS = 14;
 // regra Strava permite no maximo 7. So' a ESTRUTURA dessas tabelas vai no dump; o conteudo e' omitido na origem.
 // Wahoo (08/10/2026): tokens OAuth rotativos (o refresh token de um backup ja' foi invalidado pela rotacao) e verifiers PKCE
 // nao entram nos dumps; apos uma restauracao o aluno reconecta (mesmo estado do fail-closed abaixo).
-export const BACKUP_EXCLUDED_TABLE_DATA = ['StravaActivity', 'StravaConnection', 'StravaAnalysisCache', 'TrainingExecutionInsight', 'StravaOAuthAttempt', 'StravaWebhookEvent', 'WahooConnection', 'WahooOAuthAttempt'];
+// ProviderInboundEvent (19/10/2026): fila transitoria de eventos de provedores novos; restaurar eventos antigos reprocessaria dado possivelmente ja' excluido.
+export const BACKUP_EXCLUDED_TABLE_DATA = ['StravaActivity', 'StravaConnection', 'StravaAnalysisCache', 'TrainingExecutionInsight', 'StravaOAuthAttempt', 'StravaWebhookEvent', 'WahooConnection', 'WahooOAuthAttempt', 'ProviderInboundEvent'];
 const BACKUP_SIZE_WARNING_BYTES = 20 * 1024 * 1024;
 
 export interface BackupResult {

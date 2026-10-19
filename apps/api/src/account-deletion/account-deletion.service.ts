@@ -33,7 +33,7 @@ export const ACCOUNT_DELETE_ORDER = [
   'messageLog', 'healthProfile', 'userPreferences', 'weeklyAvailability', 'fitnessTest', 'targetRace', 'painReport',
   'menstrualProfile', 'menstrualCycleLog', 'menstrualDailyLog', 'userAchievementTransition', 'userAchievement', 'correctionReevaluation', 'challengeProgress', 'coachReport',
   'studentProfileEvent', 'studentProfile', 'studentReportEntry', 'onboardingInterview', 'shoe', 'stravaConnection',
-  'athletePrimarySource', 'stravaActivity', 'stravaAnalysisCache', 'stravaOAuthAttempt', 'polarConnection', 'polarOAuthAttempt', 'wahooConnection', 'wahooOAuthAttempt', 'funnelEvent', 'freeTesterEmail',
+  'athletePrimarySource', 'stravaActivity', 'stravaAnalysisCache', 'stravaOAuthAttempt', 'polarConnection', 'polarOAuthAttempt', 'wahooConnection', 'wahooOAuthAttempt', 'providerInboundEvent', 'funnelEvent', 'freeTesterEmail',
 ] as const;
 
 // ── B: preservar anonimizado (so' o necessario para registro financeiro/auditoria; nenhum dado de identificacao) ─────

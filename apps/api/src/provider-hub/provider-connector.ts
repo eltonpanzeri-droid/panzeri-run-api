@@ -1,0 +1,106 @@
+// Central Universal de Integracoes — contrato de conector (Passo 1, 19/10/2026).
+//
+// Principio: um conector DECLARA so' o que o provedor de fato oferece. Todas as capacidades sao OPCIONAIS — nem todo provedor tem OAuth, webhook ou sync
+// pull, e alguns so' recebem dados empurrados. O restante do app nunca depende do formato de um fabricante: o conector converte para o dominio canonico
+// (RawExternalActivity/ActivityLog para atividades; futuramente observacoes de saude) e o resto do pipeline continua como esta.
+//
+// Fora de escopo deste contrato (de proposito): decidir o que PODE ser guardado. Cada conector filtra o payload ao que o contrato do provedor autoriza ANTES
+// de entregar o evento (webhook.extract) — a fila nao armazena campo nao aprovado. Consentimento do aluno nao elimina restricao contratual do provedor.
+
+// Categorias de dado que um conector pode trazer. A permissao/consentimento por categoria (futuro) se apoia neste vocabulario; declarar uma categoria
+// aqui NAO autoriza seu uso — so' informa o que o conector e' capaz de entregar.
+export const PROVIDER_DATA_CATEGORIES = ['activity', 'activity_route', 'sleep', 'resting_heart_rate', 'daily_activity', 'profile'] as const;
+export type ProviderDataCategory = (typeof PROVIDER_DATA_CATEGORIES)[number];
+
+// Evento ja' autenticado e filtrado, pronto para entrar na fila.
+export interface InboundEventDraft {
+  // Estavel e deterministico para o MESMO evento reenviado pelo provedor (ex.: id do resumo + tipo). Reenvio com a mesma chave nao vira dois trabalhos.
+  dedupeKey: string;
+  eventType: string;
+  // Identificador do usuario no provedor (nao e' o userId interno).
+  externalAccountId?: string | null;
+  // Payload JA' FILTRADO pelo conector ao que o contrato autoriza guardar.
+  payload: Record<string, unknown>;
+}
+
+// Evento como o processador o entrega ao conector.
+export interface InboundEventView {
+  id: string;
+  provider: string;
+  eventType: string;
+  userId: string | null;
+  externalAccountId: string | null;
+  payload: unknown;
+  attempt: number;
+}
+
+export type EventOutcome =
+  | { status: 'done' }
+  // Evento valido, mas que nao deve gerar dado (ex.: conexao revogada, usuario desconhecido, fora do escopo autorizado).
+  | { status: 'discard'; reason: string }
+  // Falha transitoria declarada: tenta de novo com espera crescente. Lancar excecao tem o mesmo efeito.
+  | { status: 'retry'; reason: string };
+
+export interface WebhookRequest {
+  headers: Record<string, string | string[] | undefined>;
+  // Corpo EXATAMENTE como recebido (necessario para qualquer verificacao de assinatura).
+  rawBody: string;
+}
+export type WebhookVerdict = { ok: true } | { ok: false; reason: string };
+
+export interface OAuthCapability {
+  // Cria a tentativa (state de uso unico etc.) e devolve a URL de autorizacao do provedor.
+  begin(input: { userId: string }): Promise<{ authorizationUrl: string }>;
+  // Conclui o retorno do provedor. Valida state e vincula a conta externa ao usuario interno.
+  complete(input: { query: Record<string, string | undefined> }): Promise<{ userId: string; externalAccountId: string }>;
+  // Renovacao de token, quando o provedor usa tokens renovaveis. Deve ser serializada por conexao pelo proprio conector.
+  refresh?(input: { userId: string }): Promise<void>;
+}
+
+export interface WebhookCapability {
+  // Autentica a requisicao. Fail-closed: sem prova de origem, { ok: false }. A fila so' recebe eventos de requisicoes aprovadas aqui.
+  verify(request: WebhookRequest): WebhookVerdict;
+  // Extrai e FILTRA os eventos da requisicao ja' autenticada. Nao faz chamada de rede nem processamento pesado (o provedor exige resposta rapida).
+  extract(request: WebhookRequest): InboundEventDraft[];
+}
+
+export interface EventProcessingCapability {
+  // Processa um evento da fila (download, normalizacao, gravacao no pipeline). Deve revalidar a conexao do aluno antes de gravar qualquer dado e ser
+  // idempotente (o mesmo evento pode ser entregue mais de uma vez).
+  handle(event: InboundEventView): Promise<EventOutcome>;
+}
+
+export interface SyncCapability {
+  // Busca ativa (pull): botao manual, rotina de seguranca ou backfill.
+  sync(input: { userId: string }): Promise<{ status: 'ok' | 'in_progress' | 'rate_limited' | 'not_connected'; imported?: number }>;
+}
+
+export interface RevocationCapability {
+  // Para a coleta futura e invalida credenciais (local primeiro; falha externa nao bloqueia). Nao apaga historico.
+  revoke(input: { userId: string }): Promise<void>;
+}
+
+export interface DataDeletionCapability {
+  // Apaga os dados deste provedor para este usuario (historico ja' coletado). Distinto de revogar.
+  deleteUserData(input: { userId: string }): Promise<void>;
+}
+
+export interface ProviderConnector {
+  // Slug minusculo estavel ('zepp'). E' a coluna "provider" em todo o dominio.
+  readonly id: string;
+  readonly displayName: string;
+  readonly categories?: readonly ProviderDataCategory[];
+  readonly oauth?: OAuthCapability;
+  readonly webhook?: WebhookCapability;
+  readonly events?: EventProcessingCapability;
+  readonly sync?: SyncCapability;
+  readonly revocation?: RevocationCapability;
+  readonly dataDeletion?: DataDeletionCapability;
+}
+
+export const CONNECTOR_CAPABILITY_KEYS = ['oauth', 'webhook', 'events', 'sync', 'revocation', 'dataDeletion'] as const;
+export type ConnectorCapabilityKey = (typeof CONNECTOR_CAPABILITY_KEYS)[number];
+
+export function capabilitiesOf(connector: ProviderConnector): ConnectorCapabilityKey[] {
+  return CONNECTOR_CAPABILITY_KEYS.filter((key) => connector[key] !== undefined);
+}

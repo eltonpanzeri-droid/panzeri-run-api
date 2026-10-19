@@ -12,6 +12,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { StravaModule } from './strava/strava.module';
 import { PolarModule } from './polar/polar.module';
 import { WahooModule } from './wahoo/wahoo.module';
+import { ProviderHubModule } from './provider-hub/provider-hub.module';
 import { AppleHealthModule } from './apple-health/apple-health.module';
 import { HealthConnectModule } from './health-connect/health-connect.module';
 import { TrainingPlansModule } from './training-plans/training-plans.module';
@@ -53,6 +54,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     StravaModule,
     PolarModule,
     WahooModule,
+    ProviderHubModule,
     AppleHealthModule,
     HealthConnectModule,
     ActivityExecutionModule,
