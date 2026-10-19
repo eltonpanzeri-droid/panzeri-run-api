@@ -30,7 +30,8 @@ export const BACKUP_RETENTION_DAYS = 14;
 // Wahoo (08/10/2026): tokens OAuth rotativos (o refresh token de um backup ja' foi invalidado pela rotacao) e verifiers PKCE
 // nao entram nos dumps; apos uma restauracao o aluno reconecta (mesmo estado do fail-closed abaixo).
 // ProviderInboundEvent (19/10/2026): fila transitoria de eventos de provedores novos; restaurar eventos antigos reprocessaria dado possivelmente ja' excluido.
-export const BACKUP_EXCLUDED_TABLE_DATA = ['StravaActivity', 'StravaConnection', 'StravaAnalysisCache', 'TrainingExecutionInsight', 'StravaOAuthAttempt', 'StravaWebhookEvent', 'WahooConnection', 'WahooOAuthAttempt', 'ProviderInboundEvent'];
+// ProviderConnection/ProviderOAuthAttempt (19/10/2026): tokens cifrados e states da Central Universal; apos restauracao o aluno reconecta (mesma regra da Wahoo).
+export const BACKUP_EXCLUDED_TABLE_DATA = ['StravaActivity', 'StravaConnection', 'StravaAnalysisCache', 'TrainingExecutionInsight', 'StravaOAuthAttempt', 'StravaWebhookEvent', 'WahooConnection', 'WahooOAuthAttempt', 'ProviderInboundEvent', 'ProviderConnection', 'ProviderOAuthAttempt'];
 const BACKUP_SIZE_WARNING_BYTES = 20 * 1024 * 1024;
 
 export interface BackupResult {

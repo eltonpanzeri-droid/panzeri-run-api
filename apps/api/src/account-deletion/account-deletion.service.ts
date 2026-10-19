@@ -5,6 +5,7 @@ import { canonicalizeEmail } from '../auth/auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PolarService } from '../polar/polar.service';
 import { WahooService } from '../wahoo/wahoo.service';
+import { ProviderConnectionService } from '../provider-hub/provider-connection.service';
 import { TombstoneLedger } from '../backup/tombstone-ledger';
 
 // Exclusao de conta (05/10/2026 — Bloco pre-Garmin 4). Decisao de Elton: ANONIMIZACAO IRREVERSIVEL do User +
@@ -33,7 +34,7 @@ export const ACCOUNT_DELETE_ORDER = [
   'messageLog', 'healthProfile', 'userPreferences', 'weeklyAvailability', 'fitnessTest', 'targetRace', 'painReport',
   'menstrualProfile', 'menstrualCycleLog', 'menstrualDailyLog', 'userAchievementTransition', 'userAchievement', 'correctionReevaluation', 'challengeProgress', 'coachReport',
   'studentProfileEvent', 'studentProfile', 'studentReportEntry', 'onboardingInterview', 'shoe', 'stravaConnection',
-  'athletePrimarySource', 'stravaActivity', 'stravaAnalysisCache', 'stravaOAuthAttempt', 'polarConnection', 'polarOAuthAttempt', 'wahooConnection', 'wahooOAuthAttempt', 'providerInboundEvent', 'funnelEvent', 'freeTesterEmail',
+  'athletePrimarySource', 'stravaActivity', 'stravaAnalysisCache', 'stravaOAuthAttempt', 'polarConnection', 'polarOAuthAttempt', 'wahooConnection', 'wahooOAuthAttempt', 'providerConnection', 'providerOAuthAttempt', 'providerInboundEvent', 'funnelEvent', 'freeTesterEmail',
 ] as const;
 
 // ── B: preservar anonimizado (so' o necessario para registro financeiro/auditoria; nenhum dado de identificacao) ─────
@@ -59,6 +60,7 @@ export class AccountDeletionService {
     private readonly ledger?: TombstoneLedger,
     private readonly polar?: PolarService,
     private readonly wahoo?: WahooService,
+    private readonly providerHub?: ProviderConnectionService,
   ) {}
 
   async deleteAccount(studentId: string, confirmation: { confirmUserId?: string; confirmText?: string }, actor: { id: string; role: string }, options: { skipSubscriptionGuard?: boolean } = {}): Promise<AccountDeletionResult> {
@@ -87,6 +89,10 @@ export class AccountDeletionService {
     }
     if (this.wahoo) {
       await this.wahoo.disconnect(studentId).catch(() => undefined);
+    }
+    // Provedores da Central Universal (Zepp...): mesma regra — encerra local primeiro; falha externa nao bloqueia.
+    if (this.providerHub) {
+      await this.providerHub.disconnectAll(studentId).catch(() => undefined);
     }
 
     // 5-7. Apagar A, anonimizar, preservar B, auditar — uma transacao.

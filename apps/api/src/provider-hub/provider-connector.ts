@@ -48,13 +48,28 @@ export interface WebhookRequest {
 }
 export type WebhookVerdict = { ok: true } | { ok: false; reason: string };
 
+export interface ProviderTokens {
+  accessToken: string;
+  // Null = o provedor nao devolveu (na renovacao, mantem o refresh token ja' guardado).
+  refreshToken: string | null;
+  // Null = o provedor nao informou a validade; o servico assume uma validade curta e conservadora.
+  expiresInSec: number | null;
+}
+
+// Protocolo OAuth do provedor (Passo 2). O conector so' fala o protocolo; state de uso unico, consentimento, cifra dos tokens, trava de renovacao,
+// unicidade da conta externa, desconexao e auditoria sao feitos UMA vez pelo ProviderConnectionService (para todos os provedores novos).
+// Erros: lance BadRequestException para recusa DEFINITIVA do provedor (codigo/refresh token invalido) e BadGatewayException para falha transitoria.
 export interface OAuthCapability {
-  // Cria a tentativa (state de uso unico etc.) e devolve a URL de autorizacao do provedor.
-  begin(input: { userId: string }): Promise<{ authorizationUrl: string }>;
-  // Conclui o retorno do provedor. Valida state e vincula a conta externa ao usuario interno.
-  complete(input: { query: Record<string, string | undefined> }): Promise<{ userId: string; externalAccountId: string }>;
-  // Renovacao de token, quando o provedor usa tokens renovaveis. Deve ser serializada por conexao pelo proprio conector.
-  refresh?(input: { userId: string }): Promise<void>;
+  // Porta de habilitacao do provedor (fail-closed). O userId vem sempre do JWT.
+  isEnabledFor(userId: string): boolean;
+  // Chave de cifra PROPRIA do provedor (32 bytes). Lanca ServiceUnavailableException se o provedor nao estiver configurado.
+  encryptionKey(): Buffer;
+  // URL de autorizacao ja' com o state. Nenhum dado do aluno entra na URL.
+  buildAuthorizationUrl(input: { state: string }): string;
+  // Troca o codigo (de uso unico: nunca repetir) e identifica a conta externa.
+  exchangeCode(input: { code: string }): Promise<ProviderTokens & { externalAccountId: string }>;
+  // Renovacao. Nao e' chamada para provedores sem refresh token.
+  refreshTokens(input: { refreshToken: string }): Promise<ProviderTokens>;
 }
 
 export interface WebhookCapability {
@@ -76,12 +91,13 @@ export interface SyncCapability {
 }
 
 export interface RevocationCapability {
-  // Para a coleta futura e invalida credenciais (local primeiro; falha externa nao bloqueia). Nao apaga historico.
-  revoke(input: { userId: string }): Promise<void>;
+  // Avisa o provedor DEPOIS de a conexao local ja' ter sido encerrada (o servico apaga os tokens locais primeiro). Melhor esforco: nunca lanca.
+  revoke(input: { accessToken: string }): Promise<'revoked' | 'not_registered' | 'failed'>;
 }
 
 export interface DataDeletionCapability {
-  // Apaga os dados deste provedor para este usuario (historico ja' coletado). Distinto de revogar.
+  // Limpeza ADICIONAL especifica do provedor (opcional). A exclusao padrao de atividades/series/vinculos por provedor ja' e' feita pelo
+  // ProviderDataDeletionService; isto cobre so' o que for exclusivo deste conector (ex.: tabelas de saude proprias, no futuro).
   deleteUserData(input: { userId: string }): Promise<void>;
 }
 

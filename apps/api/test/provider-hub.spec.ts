@@ -81,7 +81,7 @@ describe('ConnectorRegistry (capacidades opcionais)', () => {
 
   it('conector so com OAuth e conector so com sync coexistem; withCapability filtra', () => {
     const registry = new ConnectorRegistry();
-    const oauthOnly: ProviderConnector = { id: 'a_oauth', displayName: 'A', oauth: { begin: async () => ({ authorizationUrl: 'x' }), complete: async () => ({ userId: 'u', externalAccountId: 'e' }) } };
+    const oauthOnly: ProviderConnector = { id: 'a_oauth', displayName: 'A', oauth: { isEnabledFor: () => true, encryptionKey: () => Buffer.alloc(32), buildAuthorizationUrl: () => 'x', exchangeCode: async () => ({ accessToken: 'a', refreshToken: null, expiresInSec: null, externalAccountId: 'e' }), refreshTokens: async () => ({ accessToken: 'a', refreshToken: null, expiresInSec: null }) } };
     const syncOnly: ProviderConnector = { id: 'b_sync', displayName: 'B', sync: { sync: async () => ({ status: 'ok' }) } };
     registry.register(oauthOnly);
     registry.register(syncOnly);

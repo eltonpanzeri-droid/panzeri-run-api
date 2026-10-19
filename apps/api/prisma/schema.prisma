@@ -1220,6 +1220,49 @@ model ProviderInboundEvent {
   @@index([userId])
 }
 
+// Central Universal de Integracoes, Passo 2 (19/10/2026): conexao GENERICA por provedor, usada so' pelos provedores NOVOS (Polar/Wahoo/Strava seguem com as
+// tabelas proprias). Mesmos padroes de seguranca da Wahoo: state de uso unico guardado so' como hash, tokens cifrados (chave PROPRIA de cada provedor, no
+// conector), refresh serializado por lease, desconexao = disconnectedAt + tokens apagados (a linha permanece para auditoria).
+// Tentativa OAuth: "consent" guarda o consentimento dado no app ANTES de abrir o provedor ({ categories, version }); vira da conexao no callback.
+model ProviderOAuthAttempt {
+  stateHash  String    @id
+  provider   String
+  userId     String
+  consent    Json
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// externalAccountId = id do usuario no provedor (uma conta do provedor so' liga a UM aluno por provedor). grantedCategories/consentVersion/consentedAt
+// registram o consentimento INDIVIDUAL e ESPECIFICO por categoria (vocabulario PROVIDER_DATA_CATEGORIES); o provedor pode nao ter escopos proprios
+// (ex.: Zepp), entao este e' o registro autoritativo do que o aluno aceitou. collectFrom: a coleta so' olha dados a partir daqui (minimizacao).
+model ProviderConnection {
+  id                    String    @id @default(uuid())
+  userId                String
+  provider              String
+  externalAccountId     String
+  accessTokenEncrypted  String?
+  refreshTokenEncrypted String?
+  accessTokenExpiresAt  DateTime?
+  grantedCategories     Json
+  consentVersion        String
+  consentedAt           DateTime
+  refreshLockUntil      DateTime?
+  collectFrom           DateTime?
+  lastSyncCompletedAt   DateTime?
+  disconnectedAt        DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([provider, userId])
+  @@unique([provider, externalAccountId])
+  @@index([userId])
+}
+
 // Webhook de notificacao do provedor Polar (03/10/2026). Uma assinatura por aplicacao (nao por
 // aluno): a Polar devolve signature_secret_key UMA vez, na criacao — guardamos cifrado (mesma
 // chave de POLAR_TOKEN_ENCRYPTION_KEY dos tokens) pra verificar HMAC-SHA256 de cada evento
