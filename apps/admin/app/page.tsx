@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
 import { Area, Bar, CartesianGrid, Cell, LabelList, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import TrainingIntelligenceStudio from './ti/studio';
+import ZeppTestPanel from './zepp-test-panel';
 import { adaptiveChannel } from './ti/channel';
 import type { ExportProfile } from './ti/anonymous-export';
 
@@ -1622,6 +1623,9 @@ export default function AdminHome() {
             </button>
           </section>
         ) : null}
+
+        {/* 19/10/2026: pagina TEMPORARIA de teste da conexao Zepp/Amazfit (so' autenticacao; nada e' importado). Remover apos os testes. */}
+        {activeView === 'tools' ? <ZeppTestPanel apiUrl={API_URL} token={token} /> : null}
 
         {activeView === 'students' ? <section className="workArea">
           {/* 01/09: lista e detalhe viraram dois "modos" da mesma view (opcao B combinada com o

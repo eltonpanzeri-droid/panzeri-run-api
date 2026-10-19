@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { join, sep } from 'path';
 import { BadGatewayException, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ZEPP_AUTHORIZATION_URL, ZEPP_REFRESH_URL, ZEPP_REVOKE_URL, ZEPP_TOKEN_URL, ZeppOAuth, ZeppRevocation, zeppSettings } from '../src/zepp/zepp-oauth';
@@ -143,7 +143,7 @@ describe('Zepp: conector (nada de recebimento de dados ativado)', () => {
   it('declara SOMENTE oauth e revogacao: sem webhook, events nem sync', () => {
     const connector = buildZeppConnector(config());
     expect(connector.id).toBe('zepp');
-    expect(capabilitiesOf(connector)).toEqual(['oauth', 'revocation']);
+    expect(capabilitiesOf(connector)).toEqual(['consent', 'oauth', 'revocation']);
     expect(() => new ConnectorRegistry().register(connector)).not.toThrow();
   });
 
@@ -173,5 +173,61 @@ describe('exclusao de conta e backup cobrem a conexao generica', () => {
 
   it('tokens cifrados e states nao entram nos dumps de backup', () => {
     expect(BACKUP_EXCLUDED_TABLE_DATA).toEqual(expect.arrayContaining(['ProviderConnection', 'ProviderOAuthAttempt']));
+  });
+});
+
+describe('Zepp: texto de consentimento 1.0 e grupos', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { ZEPP_CONSENT } = require('../src/zepp/zepp-consent');
+  const { consentTextHash } = require('../src/provider-hub/provider-consent.service');
+  const all = JSON.stringify(ZEPP_CONSENT);
+
+  it('versao 1.0 de 19/10/2026, com a exclusao expressa de IA e a frase de confirmacao da minuta', () => {
+    expect(ZEPP_CONSENT.version).toBe('1.0');
+    expect(ZEPP_CONSENT.dateLabel).toBe('19/10/2026');
+    expect(ZEPP_CONSENT.title).toBe('Autorização para conectar Zepp/Amazfit ao Panzeri Run');
+    expect(all).toContain('O uso desses dados em análises por inteligência artificial não está autorizado por este consentimento.');
+    expect(ZEPP_CONSENT.acknowledgementText).toBe('Li as informações acima e autorizo a conexão da minha conta Zepp/Amazfit nas categorias selecionadas.');
+    expect(ZEPP_CONSENT.confirmButtonLabel).toBe('Conectar minha conta Zepp/Amazfit');
+    expect(consentTextHash(ZEPP_CONSENT)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('as finalidades autorizadas NAO incluem IA, treinamento de modelos nem nada alem do descrito', () => {
+    expect([...ZEPP_CONSENT.purposes].sort()).toEqual(['coach_view', 'history', 'indicators', 'plan_comparison', 'tracking']);
+    for (const forbidden of ['ai', 'ia', 'model_training', 'atlas']) expect(ZEPP_CONSENT.purposes).not.toContain(forbidden);
+  });
+
+  it('grupos: dados basicos obrigatorios; GPS depende de atividades; sono inclui FC de repouso; nenhum grupo concede categoria fora do conector', () => {
+    const byId = Object.fromEntries(ZEPP_CONSENT.groups.map((g: any) => [g.id, g]));
+    expect(byId.account).toMatchObject({ required: true, categories: ['profile'] });
+    expect(byId.activity).toMatchObject({ required: false, categories: ['activity'] });
+    expect(byId.route).toMatchObject({ required: false, categories: ['activity_route'], requires: ['activity'] });
+    expect(byId.sleep).toMatchObject({ required: false, categories: ['sleep', 'resting_heart_rate'] });
+    expect(() => new ConnectorRegistry().register(buildZeppConnector(config()))).not.toThrow(); // o registro valida categorias dos grupos
+  });
+});
+
+describe('Zepp: acesso restrito e unico ponto de acesso a conexao', () => {
+  it('toda rota autenticada exige coach/admin (alem do JWT); so o callback e publico', () => {
+    const source = readFileSync(join(__dirname, '..', 'src', 'zepp', 'zepp.controller.ts'), 'utf8');
+    const guarded = source.match(/@UseGuards\(AuthGuard\('jwt'\), RolesGuard\)\s+@Roles\('coach', 'admin'\)/g) ?? [];
+    expect(guarded).toHaveLength(5); // connect, consent, status, disconnect, data
+    const routes = source.match(/@(Get|Post|Delete)\('/g) ?? [];
+    expect(routes).toHaveLength(guarded.length + 1); // + callback
+    expect(source.indexOf("@Get('callback')")).toBeGreaterThan(-1);
+    expect(source.slice(source.indexOf("@Get('callback')") - 120, source.indexOf("@Get('callback')"))).not.toContain('AuthGuard');
+  });
+
+  it('apenas o servico de conexao e o de consentimento leem a tabela de conexoes (tokens nao saem por outro caminho)', () => {
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.ts') && /\.providerConnection\./.test(readFileSync(full, 'utf8')) && !/provider-hub\/(provider-connection|provider-consent)\.service\.ts$/.test(full.split(sep).join('/'))) offenders.push(full);
+      }
+    };
+    walk(join(__dirname, '..', 'src'));
+    expect(offenders).toEqual([]);
   });
 });

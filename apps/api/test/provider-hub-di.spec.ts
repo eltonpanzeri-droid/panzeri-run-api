@@ -22,7 +22,7 @@ describe('injecao de dependencias da Central Universal', () => {
     expect(moduleRef.get(ProviderInboundEventService, { strict: false })).toBeDefined();
     const connector = moduleRef.get(ConnectorRegistry, { strict: false }).get('zepp');
     expect(connector).toBeDefined();
-    expect(Object.keys(connector!).filter((k) => ['oauth', 'webhook', 'events', 'sync', 'revocation', 'dataDeletion'].includes(k)).sort()).toEqual(['oauth', 'revocation']);
+    expect(Object.keys(connector!).filter((k) => ['consent', 'oauth', 'webhook', 'events', 'sync', 'revocation', 'dataDeletion'].includes(k)).sort()).toEqual(['consent', 'oauth', 'revocation']);
     await moduleRef.close();
   }, 60_000);
 });

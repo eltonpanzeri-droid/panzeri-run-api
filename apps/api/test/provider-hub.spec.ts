@@ -4,8 +4,11 @@ import { ConnectorRegistry, LEGACY_PROVIDER_IDS } from '../src/provider-hub/conn
 import { capabilitiesOf, ProviderConnector } from '../src/provider-hub/provider-connector';
 import { backoffMs, LOCK_LEASE_MS, MAX_ATTEMPTS, ProviderInboundEventService } from '../src/provider-hub/provider-inbound-event.service';
 import { ProviderHubWorkerService } from '../src/provider-hub/provider-hub-worker.service';
+import { ProviderConsentService } from '../src/provider-hub/provider-consent.service';
 import { ACCOUNT_DELETE_ORDER } from '../src/account-deletion/account-deletion.service';
 import { BACKUP_EXCLUDED_TABLE_DATA } from '../src/backup/backup.service';
+
+const TEST_CONSENT = { version: '1', dateLabel: 'x', title: 't', intro: 'i', sections: [], groups: [{ id: 'g', label: 'g', description: 'd', required: true, categories: ['activity'] as const }], purposes: ['history'], acknowledgementText: 'a', confirmButtonLabel: 'c' };
 
 // ── Banco em memoria: reproduz so' o que a fila usa (where com OR/in/lte/lt, updateMany atomico, create com unicidade) ──
 type Row = Record<string, any>;
@@ -58,10 +61,18 @@ function makePrisma() {
       return { count: hit.length };
     },
   };
-  return { providerInboundEvent: table } as any;
+  const connections: Row[] = [];
+  const providerConnection = {
+    async findUnique({ where }: { where: Row }) {
+      const w = where.provider_userId ?? where.provider_externalAccountId;
+      const c = connections.find((x) => Object.entries(w).every(([k, v]) => x[k] === v));
+      return c ? { ...c } : null;
+    },
+  };
+  return { providerInboundEvent: table, providerConnection, connections } as any;
 }
 
-const draft = (key: string, extra: Partial<{ eventType: string; payload: Record<string, unknown> }> = {}) => ({ dedupeKey: key, eventType: extra.eventType ?? 'activity', payload: extra.payload ?? { id: key } });
+const draft = (key: string, extra: Partial<{ eventType: string; payload: Record<string, unknown> }> = {}) => ({ dedupeKey: key, eventType: extra.eventType ?? 'activity', category: 'activity' as const, payload: extra.payload ?? { id: key } });
 function setup(connector?: Partial<ProviderConnector>) {
   const prisma = makePrisma();
   const registry = new ConnectorRegistry();
@@ -81,7 +92,7 @@ describe('ConnectorRegistry (capacidades opcionais)', () => {
 
   it('conector so com OAuth e conector so com sync coexistem; withCapability filtra', () => {
     const registry = new ConnectorRegistry();
-    const oauthOnly: ProviderConnector = { id: 'a_oauth', displayName: 'A', oauth: { isEnabledFor: () => true, encryptionKey: () => Buffer.alloc(32), buildAuthorizationUrl: () => 'x', exchangeCode: async () => ({ accessToken: 'a', refreshToken: null, expiresInSec: null, externalAccountId: 'e' }), refreshTokens: async () => ({ accessToken: 'a', refreshToken: null, expiresInSec: null }) } };
+    const oauthOnly: ProviderConnector = { id: 'a_oauth', displayName: 'A', categories: ['activity'], consent: TEST_CONSENT, oauth: { isEnabledFor: () => true, encryptionKey: () => Buffer.alloc(32), buildAuthorizationUrl: () => 'x', exchangeCode: async () => ({ accessToken: 'a', refreshToken: null, expiresInSec: null, externalAccountId: 'e' }), refreshTokens: async () => ({ accessToken: 'a', refreshToken: null, expiresInSec: null }) } };
     const syncOnly: ProviderConnector = { id: 'b_sync', displayName: 'B', sync: { sync: async () => ({ status: 'ok' }) } };
     registry.register(oauthOnly);
     registry.register(syncOnly);
@@ -281,5 +292,65 @@ describe('rotina de processamento e isolamento dos provedores existentes', () =>
   it('exclusao de conta e backup cobrem a nova tabela', () => {
     expect(ACCOUNT_DELETE_ORDER).toContain('providerInboundEvent');
     expect(BACKUP_EXCLUDED_TABLE_DATA).toContain('ProviderInboundEvent');
+  });
+});
+
+describe('registro exige consentimento coerente', () => {
+  const oauth = { isEnabledFor: () => true, encryptionKey: () => Buffer.alloc(32), buildAuthorizationUrl: () => 'x', exchangeCode: async () => ({ accessToken: 'a', refreshToken: null, expiresInSec: null, externalAccountId: 'e' }), refreshTokens: async () => ({ accessToken: 'a', refreshToken: null, expiresInSec: null }) };
+  it('OAuth sem documento de consentimento nao registra (nada de consentimento presumido)', () => {
+    expect(() => new ConnectorRegistry().register({ id: 'sem_texto', displayName: 'x', categories: ['activity'], oauth })).toThrow(/sem documento de consentimento/);
+  });
+  it('grupo com categoria que o conector nao declara, grupos repetidos ou dependencia inexistente nao registram', () => {
+    const base = { id: 'novo2', displayName: 'x', oauth };
+    expect(() => new ConnectorRegistry().register({ ...base, categories: ['sleep'], consent: TEST_CONSENT })).toThrow(/nao declara/);
+    expect(() => new ConnectorRegistry().register({ ...base, categories: ['activity'], consent: { ...TEST_CONSENT, groups: [TEST_CONSENT.groups[0], TEST_CONSENT.groups[0]] } })).toThrow(/repetidos/);
+    expect(() => new ConnectorRegistry().register({ ...base, categories: ['activity'], consent: { ...TEST_CONSENT, groups: [{ ...TEST_CONSENT.groups[0], requires: ['nao_existe'] }] } })).toThrow(/inexistente/);
+  });
+});
+
+describe('fila: eventos so chegam ao conector com a categoria AUTORIZADA', () => {
+  function setupConsent() {
+    const prisma = makePrisma();
+    const registry = new ConnectorRegistry();
+    const handle = jest.fn(async () => ({ status: 'done' as const }));
+    registry.register({ id: 'novo', displayName: 'Novo', categories: ['activity', 'sleep'], consent: { ...TEST_CONSENT, groups: [{ ...TEST_CONSENT.groups[0], categories: ['activity'] }] }, events: { handle } });
+    const service = new ProviderInboundEventService(prisma, registry, new ProviderConsentService(prisma));
+    const connect = (over: Row = {}) => prisma.connections.push({ provider: 'novo', userId: 'u1', externalAccountId: 'ext-1', disconnectedAt: null, grantedCategories: ['activity'], grantedPurposes: ['history'], ...over });
+    return { prisma, service, handle, connect };
+  }
+  const ev = (category: any, extra: Row = {}) => ({ dedupeKey: 'k' + Math.random(), eventType: 'x', category, externalAccountId: 'ext-1', payload: { gps: 'secreto' }, ...extra });
+
+  it('categoria autorizada: o usuario e resolvido pela conta externa e o conector recebe o evento', async () => {
+    const s = setupConsent(); s.connect();
+    await s.service.record('novo', ev('activity'));
+    expect((await s.service.processDue(20, T0)).done).toBe(1);
+    expect(s.handle).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u1', externalAccountId: 'ext-1' }));
+  });
+
+  it('categoria NAO autorizada (ex.: sono quando so atividades foram marcadas): descartada, payload zerado, conector nunca chamado', async () => {
+    const s = setupConsent(); s.connect();
+    await s.service.record('novo', ev('sleep'));
+    expect((await s.service.processDue(20, T0)).discarded).toBe(1);
+    expect(s.handle).not.toHaveBeenCalled();
+    expect(s.prisma.providerInboundEvent.rows[0]).toMatchObject({ status: 'discarded', lastError: 'categoria nao autorizada pelo aluno', payload: {} });
+  });
+
+  it('conta desconectada, desconhecida ou usuario sem conexao: descartado (consentimento revogado vale na hora)', async () => {
+    const a = setupConsent(); a.connect({ disconnectedAt: new Date() });
+    await a.service.record('novo', ev('activity'));
+    expect((await a.service.processDue(20, T0)).discarded).toBe(1);
+    const b = setupConsent();
+    await b.service.record('novo', ev('activity', { externalAccountId: 'desconhecida' }));
+    expect((await b.service.processDue(20, T0)).discarded).toBe(1);
+    expect(a.handle).not.toHaveBeenCalled();
+    expect(b.handle).not.toHaveBeenCalled();
+  });
+
+  it('evento sem categoria e rejeitado na entrada; categoria vazia no banco e descartada no processamento', async () => {
+    const s = setupConsent(); s.connect();
+    await expect(s.service.record('novo', ev(undefined))).rejects.toThrow(/category/);
+    s.prisma.providerInboundEvent.rows.push({ id: 'x', provider: 'novo', dedupeKey: 'z', eventType: 'x', category: null, userId: 'u1', externalAccountId: null, payload: { a: 1 }, status: 'pending', attempts: 0, nextAttemptAt: T0, lockedUntil: null, updatedAt: T0 });
+    expect((await s.service.processDue(20, T0)).discarded).toBe(1);
+    expect(s.handle).not.toHaveBeenCalled();
   });
 });

@@ -1,17 +1,19 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderDataDeletionService } from '../activity-execution/provider-data-deletion.service';
 import { ConnectorRegistry } from './connector-registry';
 import { decryptSecret, encryptSecret, hashState, newState } from './provider-crypto';
 import { ProviderInboundEventService } from './provider-inbound-event.service';
-import { OAuthCapability, PROVIDER_DATA_CATEGORIES, ProviderConnector, ProviderDataCategory } from './provider-connector';
+import { consentTextHash, ProviderConsentService } from './provider-consent.service';
+import { ConsentCapability, OAuthCapability, ProviderConnector, ProviderDataCategory } from './provider-connector';
 
-// Conexao generica por provedor (Central Universal de Integracoes, Passo 2). Faz UMA vez, para todos os provedores novos, o que Polar/Wahoo/Strava fazem
-// cada um por conta propria: tentativa OAuth de uso unico (state so' como hash), consentimento por categoria, cifra dos tokens, renovacao serializada por
-// lease, unicidade da conta externa, desconexao local-primeiro, exclusao e auditoria. O conector so' implementa o protocolo (OAuthCapability).
+// Conexao generica por provedor (Central Universal de Integracoes, Passos 2 e 2b). Faz UMA vez, para todos os provedores novos, o que Polar/Wahoo/Strava fazem
+// cada um por conta propria: tentativa OAuth de uso unico (state so' como hash), consentimento explicito por grupo/categoria, cifra dos tokens, renovacao
+// serializada por lease, unicidade da conta externa, desconexao local-primeiro, exclusao e auditoria. O conector so' implementa o protocolo (OAuthCapability).
 // NAO toca Polar, Wahoo, Strava nem o pipeline de atividades.
 //
 // Este servico NAO recebe dado de treino/saude: so' conexao. Receber dados (webhook, download, importacao) e' outra etapa, com autorizacao propria.
+// O token so' sai daqui por getAccessToken(provider, userId, CATEGORIA): sem a categoria autorizada pelo aluno, nao ha token.
 
 export const STATE_TTL_MS = 10 * 60 * 1000;
 export const REFRESH_SKEW_MS = 5 * 60 * 1000;
@@ -21,27 +23,57 @@ const REFRESH_WAIT_MS = 500;
 // Quando o provedor nao informa a validade do token, assume-se uma validade curta: melhor renovar de mais do que usar token vencido.
 export const FALLBACK_TOKEN_TTL_SEC = 10 * 60;
 const MAX_TOKEN_TTL_SEC = 60 * 60 * 24 * 60;
-const CONSENT_VERSION_PATTERN = /^[A-Za-z0-9._-]{1,40}$/;
 
-export interface ConsentInput { categories: unknown; version: unknown }
-export interface ValidConsent { categories: ProviderDataCategory[]; version: string }
+// Pedido de conexao vindo do cliente. Nada aqui e' presumido: o aceite, a versao e o hash do texto exibido precisam ser enviados.
+export interface ConsentRequest { groups: unknown; acknowledged: unknown; version: unknown; textHash: unknown }
+export interface ValidConsent {
+  groups: string[];
+  categories: ProviderDataCategory[];
+  purposes: string[];
+  version: string;
+  textHash: string;
+}
 
 export type DisconnectResult = {
   status: 'disconnected' | 'already_disconnected' | 'not_connected';
   providerRevocation: 'revoked' | 'not_registered' | 'failed' | 'skipped';
 };
 
-export function validateConsent(connector: ProviderConnector, input: ConsentInput): ValidConsent {
-  const allowed = connector.categories ?? [];
-  if (!Array.isArray(input.categories) || input.categories.length === 0) throw new BadRequestException('Informe ao menos uma categoria de dado autorizada.');
-  const categories: ProviderDataCategory[] = [];
-  for (const raw of input.categories) {
-    if (typeof raw !== 'string' || !(PROVIDER_DATA_CATEGORIES as readonly string[]).includes(raw)) throw new BadRequestException('Categoria de dado desconhecida.');
-    if (!allowed.includes(raw as ProviderDataCategory)) throw new BadRequestException('Esta integracao nao oferece uma das categorias informadas.');
-    if (!categories.includes(raw as ProviderDataCategory)) categories.push(raw as ProviderDataCategory);
+// Valida o pedido contra o documento do conector. Seleciona SO' o que o aluno marcou (mais nada e' adicionado por padrao) e recusa selecao incompativel.
+export function resolveConsent(consent: ConsentCapability, input: ConsentRequest): ValidConsent {
+  if (input.acknowledged !== true) throw new BadRequestException('E necessario confirmar expressamente a autorizacao.');
+  const hash = consentTextHash(consent);
+  // Texto desatualizado (cliente com versao antiga em cache): o aluno precisa ver o texto vigente antes de autorizar.
+  if (input.version !== consent.version || input.textHash !== hash) throw new ConflictException('O texto de consentimento mudou. Leia a versao atual antes de autorizar.');
+  if (!Array.isArray(input.groups)) throw new BadRequestException('Selecione os grupos de dados autorizados.');
+  const selected: string[] = [];
+  for (const raw of input.groups) {
+    if (typeof raw !== 'string' || !consent.groups.some((g) => g.id === raw)) throw new BadRequestException('Grupo de dados desconhecido.');
+    if (!selected.includes(raw)) selected.push(raw);
   }
-  if (typeof input.version !== 'string' || !CONSENT_VERSION_PATTERN.test(input.version)) throw new BadRequestException('Versao do termo de consentimento invalida.');
-  return { categories, version: input.version };
+  for (const group of consent.groups) {
+    if (group.required && !selected.includes(group.id)) throw new BadRequestException('Falta um grupo de dados obrigatorio para vincular a conta.');
+    if (selected.includes(group.id) && (group.requires ?? []).some((r) => !selected.includes(r))) throw new BadRequestException('Selecao incompativel: um grupo depende de outro nao selecionado.');
+  }
+  const categories: ProviderDataCategory[] = [];
+  for (const group of consent.groups.filter((g) => selected.includes(g.id))) {
+    for (const category of group.categories) if (!categories.includes(category)) categories.push(category);
+  }
+  if (categories.length === 0) throw new BadRequestException('Selecione ao menos um grupo de dados.');
+  return { groups: selected, categories, purposes: [...consent.purposes], version: consent.version, textHash: hash };
+}
+
+// Descricao segura (sem detalhe do provedor) do motivo de uma falha de conexao, para auditoria e para a tela de teste.
+export function failureReason(error: unknown): string {
+  if (error instanceof ForbiddenException) return 'integracao_indisponivel';
+  if (error instanceof ConflictException) return 'conta_ou_conexao_ja_existente';
+  if (error instanceof BadRequestException) return 'recusada_pelo_provedor_ou_invalida';
+  if (error instanceof HttpException) return 'provedor_indisponivel';
+  return 'erro_inesperado';
+}
+
+function accountHint(externalAccountId: string): string {
+  return externalAccountId.length <= 4 ? '••••' : `••••${externalAccountId.slice(-4)}`;
 }
 
 @Injectable()
@@ -52,20 +84,35 @@ export class ProviderConnectionService {
     private readonly prisma: PrismaService,
     private readonly registry: ConnectorRegistry,
     private readonly events: ProviderInboundEventService,
+    private readonly consent: ProviderConsentService,
     private readonly providerData?: ProviderDataDeletionService,
   ) {}
 
-  private oauthFor(provider: string): { connector: ProviderConnector; oauth: OAuthCapability } {
+  private oauthFor(provider: string): { connector: ProviderConnector; oauth: OAuthCapability; consent: ConsentCapability } {
     const connector = this.registry.get(provider);
-    if (!connector?.oauth) throw new NotFoundException('Integracao desconhecida.');
-    return { connector, oauth: connector.oauth };
+    if (!connector?.oauth || !connector.consent) throw new NotFoundException('Integracao desconhecida.');
+    return { connector, oauth: connector.oauth, consent: connector.consent };
   }
 
-  async begin(provider: string, userId: string, consentInput: ConsentInput): Promise<{ url: string }> {
-    const { connector, oauth } = this.oauthFor(provider);
+  // Para a tela de teste explicar POR QUE nao da para conectar (sem expor valor de configuracao): habilitado para este usuario? configurado no servidor?
+  availability(provider: string, userId: string): { enabled: boolean; configured: boolean } {
+    const { oauth } = this.oauthFor(provider);
+    let configured = true;
+    try { oauth.encryptionKey(); } catch { configured = false; }
+    return { enabled: oauth.isEnabledFor(userId), configured };
+  }
+
+  // Documento de consentimento que o cliente deve exibir (texto, grupos, finalidades e o hash que precisa ser devolvido no pedido).
+  consentDocument(provider: string) {
+    const { consent } = this.oauthFor(provider);
+    return { ...consent, textHash: consentTextHash(consent) };
+  }
+
+  async begin(provider: string, userId: string, request: ConsentRequest): Promise<{ url: string }> {
+    const { oauth, consent: document } = this.oauthFor(provider);
     // Primeiro a porta de habilitacao: quem nao esta liberado nao descobre nem o estado da configuracao.
     if (!oauth.isEnabledFor(userId)) throw new ForbiddenException('Integracao indisponivel no momento.');
-    const consent = validateConsent(connector, consentInput);
+    const consent = resolveConsent(document, request);
     oauth.encryptionKey(); // falha cedo (503) se o provedor nao estiver configurado, antes de gravar tentativa
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
     if (!user) throw new BadRequestException('Usuario nao encontrado.');
@@ -93,18 +140,31 @@ export class ProviderConnectionService {
     if (consumed.count !== 1) throw new BadRequestException('Autorizacao invalida ou ja utilizada.');
     const attempt = await this.prisma.providerOAuthAttempt.findUnique({ where: { stateHash }, select: { userId: true, consent: true } });
     if (!attempt) throw new BadRequestException('Autorizacao invalida.');
-    const user = await this.prisma.user.findUnique({ where: { id: attempt.userId }, select: { id: true } });
+    // A partir daqui o dono da tentativa e' conhecido: falhas ficam na auditoria dele (so' o motivo, nunca codigo, state ou token).
+    try {
+      return await this.finishAuthorization(provider, oauth, attempt.userId, attempt.consent as unknown as ValidConsent, { code, error });
+    } catch (failure) {
+      await this.audit(attempt.userId, provider, 'connect_failed', { reason: failureReason(failure) });
+      throw failure;
+    }
+  }
+
+  private async finishAuthorization(provider: string, oauth: OAuthCapability, attemptUserId: string, consent: ValidConsent, result: { code?: unknown; error?: unknown }): Promise<'connected' | 'cancelled'> {
+    const { code, error } = result;
+    const user = await this.prisma.user.findUnique({ where: { id: attemptUserId }, select: { id: true } });
     if (!user) throw new BadRequestException('Usuario Panzeri Run nao encontrado.');
     // A habilitacao pode ter sido retirada depois que o fluxo comecou.
     if (!oauth.isEnabledFor(user.id)) throw new ForbiddenException('Integracao indisponivel no momento.');
 
     if (error !== undefined) {
       if (typeof error !== 'string' || code !== undefined) throw new BadRequestException('Resposta do provedor invalida.');
-      if (error === 'access_denied') return 'cancelled';
+      if (error === 'access_denied') {
+        await this.audit(user.id, provider, 'connect_cancelled', {});
+        return 'cancelled';
+      }
       throw new BadRequestException('O provedor nao concluiu a autorizacao.');
     }
     if (typeof code !== 'string' || !code || code.length > 2048) throw new BadRequestException('Codigo de autorizacao ausente ou invalido.');
-    const consent = attempt.consent as unknown as ValidConsent;
 
     // O code e' de uso unico: nunca repetir a troca, inclusive apos erro de rede.
     const key = oauth.encryptionKey();
@@ -124,7 +184,9 @@ export class ProviderConnectionService {
       refreshTokenEncrypted: token.refreshToken ? encryptSecret(token.refreshToken, key) : null,
       accessTokenExpiresAt: new Date(now.getTime() + this.ttlSec(token.expiresInSec) * 1000),
       grantedCategories: consent.categories as never,
+      grantedPurposes: consent.purposes as never,
       consentVersion: consent.version,
+      consentTextHash: consent.textHash,
       consentedAt: now,
       refreshLockUntil: null,
       // Minimizacao: a coleta comeca na conexao, nunca no historico anterior. Ampliar a janela e' decisao de produto futura (e depende do provedor).
@@ -143,27 +205,46 @@ export class ProviderConnectionService {
       if ((failure as { code?: string }).code === 'P2002') throw new ConflictException('Esta conta ja esta vinculada a outro usuario.');
       throw failure;
     }
-    await this.audit(user.id, provider, 'connected', { categories: consent.categories, consentVersion: consent.version });
+    await this.audit(user.id, provider, 'connected', { groups: consent.groups, categories: consent.categories, consentVersion: consent.version, consentTextHash: consent.textHash });
     return 'connected';
   }
 
-  // Leitura pura, sem chamada ao provedor.
+  // Leitura pura, sem chamada ao provedor. Nunca devolve token, segredo nem o identificador externo completo (so' as ultimas 4 posicoes, mascaradas).
   async status(provider: string, userId: string) {
     this.oauthFor(provider);
     const c = await this.prisma.providerConnection.findUnique({
       where: { provider_userId: { provider, userId } },
-      select: { createdAt: true, disconnectedAt: true, accessTokenEncrypted: true, grantedCategories: true, consentVersion: true, consentedAt: true, lastSyncCompletedAt: true },
+      select: { createdAt: true, disconnectedAt: true, accessTokenEncrypted: true, externalAccountId: true, grantedCategories: true, grantedPurposes: true, consentVersion: true, consentTextHash: true, consentedAt: true, lastSyncCompletedAt: true },
     });
+    const recent = await this.recentEvents(provider, userId);
     if (!c || c.disconnectedAt || !c.accessTokenEncrypted) {
-      return { connected: false, connectedAt: null, disconnectedAt: c?.disconnectedAt ?? null, lastSyncCompletedAt: null, consent: null };
+      return { connected: false, connectedAt: null, disconnectedAt: c?.disconnectedAt ?? null, lastSyncCompletedAt: null, account: null, consent: null, recent };
     }
-    return { connected: true, connectedAt: c.createdAt, disconnectedAt: null, lastSyncCompletedAt: c.lastSyncCompletedAt, consent: { categories: c.grantedCategories, version: c.consentVersion, consentedAt: c.consentedAt } };
+    return {
+      connected: true,
+      connectedAt: c.createdAt,
+      disconnectedAt: null,
+      lastSyncCompletedAt: c.lastSyncCompletedAt,
+      account: { hint: accountHint(c.externalAccountId) },
+      consent: { categories: c.grantedCategories, purposes: c.grantedPurposes, version: c.consentVersion, textHash: c.consentTextHash, consentedAt: c.consentedAt },
+      recent,
+    };
   }
 
-  // Token de acesso valido para uso imediato. Renova so' quando falta menos de REFRESH_SKEW_MS, serializado por conexao com uma trava (lease) no banco
-  // (sem transacao em volta da chamada de rede e segura entre instancias).
-  async getAccessToken(provider: string, userId: string): Promise<string> {
+  private async recentEvents(provider: string, userId: string) {
+    const rows = await this.prisma.providerConnectionEvent.findMany({ where: { provider, userId }, orderBy: { createdAt: 'desc' }, take: 10, select: { type: true, details: true, createdAt: true } }).catch(() => []);
+    // So' o motivo/resultado de cada evento: auditoria nunca guarda token, e aqui nao sai mais do que isso.
+    return rows.map((r: { type: string; details: unknown; createdAt: Date }) => {
+      const d = (r.details ?? {}) as Record<string, unknown>;
+      return { type: r.type, at: r.createdAt, reason: typeof d.reason === 'string' ? d.reason : null, providerRevocation: typeof d.providerRevocation === 'string' ? d.providerRevocation : null };
+    });
+  }
+
+  // Token de acesso valido para uso imediato, SOMENTE para uma categoria que o aluno autorizou (o consentimento e' verificado a cada chamada; desconectado
+  // ou categoria nao marcada => sem token). Renova so' quando falta menos de REFRESH_SKEW_MS, serializado por conexao com uma trava (lease) no banco.
+  async getAccessToken(provider: string, userId: string, category: ProviderDataCategory): Promise<string> {
     const { oauth } = this.oauthFor(provider);
+    await this.consent.assertAllowed(provider, userId, category);
     const key = oauth.encryptionKey();
     for (let attempt = 0; attempt < REFRESH_WAIT_ATTEMPTS; attempt++) {
       const c = await this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider, userId } } });
@@ -209,6 +290,7 @@ export class ProviderConnectionService {
     if (c && !c.disconnectedAt) throw new ConflictException('Desconecte a integracao antes de excluir os dados importados dela.');
     const result = await this.providerData.deleteProviderData(userId, provider);
     await connector.dataDeletion?.deleteUserData({ userId });
+    await this.audit(userId, provider, 'data_deleted', {});
     return result;
   }
 
@@ -317,4 +399,3 @@ export class ProviderConnectionService {
     }
   }
 }
-

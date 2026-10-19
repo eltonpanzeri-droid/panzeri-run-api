@@ -1204,6 +1204,8 @@ model ProviderInboundEvent {
   eventType         String
   userId            String?
   externalAccountId String?
+  // Categoria de dado do evento (PROVIDER_DATA_CATEGORIES). O processador so' entrega ao conector se o aluno autorizou esta categoria.
+  category          String?
   payload           Json
   status            String    @default("pending")
   attempts          Int       @default(0)
@@ -1250,6 +1252,10 @@ model ProviderConnection {
   accessTokenExpiresAt  DateTime?
   grantedCategories     Json
   consentVersion        String
+  // Hash (sha256) do texto EXATO apresentado (versao + secoes + grupos + finalidades) e finalidades autorizadas (a lista exclui o que o texto nao descreve,
+  // ex.: IA). Nulos so' em conexoes anteriores a este campo.
+  consentTextHash       String?
+  grantedPurposes       Json?
   consentedAt           DateTime
   refreshLockUntil      DateTime?
   collectFrom           DateTime?

@@ -18,6 +18,16 @@ export class ConnectorRegistry {
     if (this.connectors.has(id)) throw new Error(`Conector "${id}" ja' registrado.`);
     // Webhook sem processador deixaria eventos parados na fila para sempre.
     if (connector.webhook && !connector.events) throw new Error(`Conector "${id}" declara webhook sem a capacidade "events" para processar o que chega.`);
+    // Sem texto de consentimento nao ha conexao: nada de consentimento presumido.
+    if (connector.oauth && !connector.consent) throw new Error(`Conector "${id}" tem OAuth sem documento de consentimento.`);
+    if (connector.consent) {
+      const known = new Set(connector.consent.groups.map((g) => g.id));
+      if (known.size !== connector.consent.groups.length) throw new Error(`Conector "${id}" tem grupos de consentimento repetidos.`);
+      for (const g of connector.consent.groups) {
+        if (!g.categories.every((c) => (connector.categories ?? []).includes(c))) throw new Error(`Grupo "${g.id}" do conector "${id}" usa categoria que o conector nao declara.`);
+        if ((g.requires ?? []).some((r) => !known.has(r))) throw new Error(`Grupo "${g.id}" do conector "${id}" depende de grupo inexistente.`);
+      }
+    }
     this.connectors.set(id, connector);
   }
 

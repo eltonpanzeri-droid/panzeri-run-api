@@ -12,8 +12,38 @@
 export const PROVIDER_DATA_CATEGORIES = ['activity', 'activity_route', 'sleep', 'resting_heart_rate', 'daily_activity', 'profile'] as const;
 export type ProviderDataCategory = (typeof PROVIDER_DATA_CATEGORIES)[number];
 
+// ── Consentimento (Passo 2b) ────────────────────────────────────────────────────────────────────────────────────────
+// Um provedor com OAuth NAO conecta sem um documento de consentimento: o texto, os grupos selecionaveis e as finalidades vem do conector, sao servidos ao
+// cliente e o pedido de conexao precisa devolver versao + hash do texto exibido (nada de consentimento presumido). Cada grupo mapeia para categorias do
+// vocabulario PROVIDER_DATA_CATEGORIES; a categoria autorizada e' o que o resto do sistema consulta (ProviderConsentService) antes de acessar ou processar.
+export interface ConsentSection { heading: string | null; paragraphs?: string[]; bullets?: string[] }
+export interface ConsentGroup {
+  id: string;
+  label: string;
+  description: string;
+  // Dado minimo tecnicamente necessario para vincular a conta: aparece marcado e nao pode ser desmarcado (mas precisa ser enviado explicitamente).
+  required: boolean;
+  categories: readonly ProviderDataCategory[];
+  // Grupos que precisam estar selecionados junto (ex.: percurso GPS depende de atividades). Selecao incompativel e' recusada pelo servidor.
+  requires?: readonly string[];
+}
+export interface ConsentCapability {
+  version: string;
+  dateLabel: string;
+  title: string;
+  intro: string;
+  sections: ConsentSection[];
+  groups: ConsentGroup[];
+  // Finalidades que o texto descreve (a lista e' o teto: o que nao esta aqui, como IA, NAO esta autorizado).
+  purposes: readonly string[];
+  acknowledgementText: string;
+  confirmButtonLabel: string;
+}
+
 // Evento ja' autenticado e filtrado, pronto para entrar na fila.
 export interface InboundEventDraft {
+  // Categoria do dado do evento. Evento de categoria nao autorizada pelo aluno e' descartado sem chegar ao conector.
+  category: ProviderDataCategory;
   // Estavel e deterministico para o MESMO evento reenviado pelo provedor (ex.: id do resumo + tipo). Reenvio com a mesma chave nao vira dois trabalhos.
   dedupeKey: string;
   eventType: string;
@@ -106,6 +136,7 @@ export interface ProviderConnector {
   readonly id: string;
   readonly displayName: string;
   readonly categories?: readonly ProviderDataCategory[];
+  readonly consent?: ConsentCapability;
   readonly oauth?: OAuthCapability;
   readonly webhook?: WebhookCapability;
   readonly events?: EventProcessingCapability;
@@ -114,7 +145,7 @@ export interface ProviderConnector {
   readonly dataDeletion?: DataDeletionCapability;
 }
 
-export const CONNECTOR_CAPABILITY_KEYS = ['oauth', 'webhook', 'events', 'sync', 'revocation', 'dataDeletion'] as const;
+export const CONNECTOR_CAPABILITY_KEYS = ['consent', 'oauth', 'webhook', 'events', 'sync', 'revocation', 'dataDeletion'] as const;
 export type ConnectorCapabilityKey = (typeof CONNECTOR_CAPABILITY_KEYS)[number];
 
 export function capabilitiesOf(connector: ProviderConnector): ConnectorCapabilityKey[] {

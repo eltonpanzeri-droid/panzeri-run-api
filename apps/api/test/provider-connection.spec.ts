@@ -1,8 +1,9 @@
 import { BadGatewayException, BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConnectorRegistry } from '../src/provider-hub/connector-registry';
-import { OAuthCapability, ProviderConnector, ProviderTokens } from '../src/provider-hub/provider-connector';
+import { ConsentCapability, OAuthCapability, ProviderConnector, ProviderTokens } from '../src/provider-hub/provider-connector';
+import { consentTextHash, ProviderConsentService } from '../src/provider-hub/provider-consent.service';
 import { decryptSecret, hashState } from '../src/provider-hub/provider-crypto';
-import { FALLBACK_TOKEN_TTL_SEC, ProviderConnectionService, REFRESH_LEASE_MS, validateConsent } from '../src/provider-hub/provider-connection.service';
+import { FALLBACK_TOKEN_TTL_SEC, ProviderConnectionService, REFRESH_LEASE_MS, resolveConsent } from '../src/provider-hub/provider-connection.service';
 
 // ── Banco em memoria (so' o que o servico usa) ──
 type Row = Record<string, any>;
@@ -48,12 +49,27 @@ function makePrisma() {
       },
       updateMany: async ({ where, data }: Row) => { const hit = connections.filter((c) => matches(c, where)); hit.forEach((c) => Object.assign(c, data)); return { count: hit.length }; },
     },
-    providerConnectionEvent: { create: async ({ data }: Row) => { audit.push(data); } },
+    providerConnectionEvent: {
+      create: async ({ data }: Row) => { audit.push(data); },
+      findMany: async ({ where, take }: Row) => audit.filter((a) => a.userId === where.userId && a.provider === where.provider).slice(-take).reverse().map((a) => ({ type: a.type, details: a.details, createdAt: new Date() })),
+    },
   };
   return prisma;
 }
 
 const KEY = Buffer.alloc(32, 7);
+const CONSENT: ConsentCapability = {
+  version: '1.0', dateLabel: '19/10/2026', title: 'Titulo', intro: 'Intro', sections: [{ heading: 'Secao', paragraphs: ['Texto'] }],
+  groups: [
+    { id: 'account', label: 'Conta', description: 'd', required: true, categories: ['profile'] },
+    { id: 'activity', label: 'Atividades', description: 'd', required: false, categories: ['activity'] },
+    { id: 'route', label: 'GPS', description: 'd', required: false, categories: ['activity_route'], requires: ['activity'] },
+    { id: 'sleep', label: 'Sono', description: 'd', required: false, categories: ['sleep', 'resting_heart_rate'] },
+  ],
+  purposes: ['history', 'tracking'], acknowledgementText: 'Li e autorizo', confirmButtonLabel: 'Conectar',
+};
+const HASH = consentTextHash(CONSENT);
+const request = (over: Record<string, unknown> = {}) => ({ groups: ['account', 'activity'], acknowledged: true, version: '1.0', textHash: HASH, ...over });
 interface FakeProto extends OAuthCapability {
   enabled: boolean;
   exchange: jest.Mock;
@@ -76,66 +92,77 @@ function setup() {
   const prisma = makePrisma();
   const proto = makeProto();
   const revoke = jest.fn(async (): Promise<'revoked' | 'not_registered' | 'failed'> => 'revoked');
-  const connector: ProviderConnector = { id: 'novo', displayName: 'Novo', categories: ['activity', 'sleep'], oauth: proto, revocation: { revoke } };
+  const connector: ProviderConnector = { id: 'novo', displayName: 'Novo', categories: ['profile', 'activity', 'activity_route', 'sleep', 'resting_heart_rate'], consent: CONSENT, oauth: proto, revocation: { revoke } };
   const registry = new ConnectorRegistry();
   registry.register(connector);
   const events = { discardPendingForUser: jest.fn(async () => 0) } as any;
   const providerData = { deleteProviderData: jest.fn(async () => ({ provider: 'novo', activities: 2 })) } as any;
   class TestService extends ProviderConnectionService { protected sleep() { return new Promise<void>((r) => setTimeout(r, 20)); } }
-  const service = new TestService(prisma, registry, events, providerData);
+  const consentService = new ProviderConsentService(prisma);
+  const service = new TestService(prisma, registry, events, consentService, providerData);
   return { prisma, proto, revoke, events, providerData, service };
 }
-const consent = { categories: ['activity'], version: 'v1' };
 const stateOf = (url: string) => new URL(url).searchParams.get('state')!;
 
 async function connect(s: ReturnType<typeof setup>, userId = 'u1') {
-  const { url } = await s.service.begin('novo', userId, consent);
+  const { url } = await s.service.begin('novo', userId, request());
   return s.service.complete('novo', { state: stateOf(url), code: 'CODE' });
 }
 
-describe('validateConsent', () => {
-  const connector: ProviderConnector = { id: 'novo', displayName: 'N', categories: ['activity', 'sleep'] };
-  it('aceita categorias oferecidas pelo conector, sem duplicar', () => {
-    expect(validateConsent(connector, { categories: ['activity', 'activity', 'sleep'], version: 'v1.2' })).toEqual({ categories: ['activity', 'sleep'], version: 'v1.2' });
+describe('resolveConsent', () => {
+  it('seleciona SO o que foi marcado (obrigatorio incluido), sem duplicar, e devolve finalidades e hash', () => {
+    expect(resolveConsent(CONSENT, request({ groups: ['account', 'activity', 'activity'] }))).toEqual({ groups: ['account', 'activity'], categories: ['profile', 'activity'], purposes: ['history', 'tracking'], version: '1.0', textHash: HASH });
+    expect(resolveConsent(CONSENT, request({ groups: ['account', 'sleep'] })).categories).toEqual(['profile', 'sleep', 'resting_heart_rate']);
   });
-  it('recusa lista vazia, categoria desconhecida, categoria que o conector nao oferece e versao invalida', () => {
-    expect(() => validateConsent(connector, { categories: [], version: 'v1' })).toThrow(BadRequestException);
-    expect(() => validateConsent(connector, { categories: 'activity', version: 'v1' })).toThrow(BadRequestException);
-    expect(() => validateConsent(connector, { categories: ['inventada'], version: 'v1' })).toThrow(/desconhecida/);
-    expect(() => validateConsent(connector, { categories: ['resting_heart_rate'], version: 'v1' })).toThrow(/nao oferece/);
-    expect(() => validateConsent(connector, { categories: [1], version: 'v1' })).toThrow(BadRequestException);
-    for (const version of ['', 'a b', 'x'.repeat(41), 5, null]) expect(() => validateConsent(connector, { categories: ['activity'], version })).toThrow(/Versao/);
+  it('sem aceite expresso nada e presumido: acknowledged precisa ser exatamente true', () => {
+    for (const acknowledged of [false, undefined, 'true', 1, null]) expect(() => resolveConsent(CONSENT, request({ acknowledged }))).toThrow(/confirmar expressamente/);
+  });
+  it('texto desatualizado ou adulterado (versao ou hash diferentes) => 409, o aluno precisa ver o texto vigente', () => {
+    expect(() => resolveConsent(CONSENT, request({ version: '0.9' }))).toThrow(ConflictException);
+    expect(() => resolveConsent(CONSENT, request({ textHash: 'x'.repeat(64) }))).toThrow(ConflictException);
+    expect(() => resolveConsent(CONSENT, request({ textHash: undefined }))).toThrow(ConflictException);
+    // mudar qualquer parte do texto muda o hash
+    expect(consentTextHash({ ...CONSENT, intro: 'Outra' })).not.toBe(HASH);
+    expect(consentTextHash({ ...CONSENT, purposes: [...CONSENT.purposes, 'ai'] })).not.toBe(HASH);
+  });
+  it('recusa grupo desconhecido, ausencia do obrigatorio, selecao incompativel (GPS sem atividades) e lista invalida', () => {
+    expect(() => resolveConsent(CONSENT, request({ groups: ['account', 'inventado'] }))).toThrow(/desconhecido/);
+    expect(() => resolveConsent(CONSENT, request({ groups: ['activity'] }))).toThrow(/obrigatorio/);
+    expect(() => resolveConsent(CONSENT, request({ groups: ['account', 'route'] }))).toThrow(/incompativel/);
+    expect(resolveConsent(CONSENT, request({ groups: ['account', 'activity', 'route'] })).categories).toContain('activity_route');
+    expect(() => resolveConsent(CONSENT, request({ groups: 'account' }))).toThrow(BadRequestException);
+    expect(() => resolveConsent(CONSENT, request({ groups: [1] }))).toThrow(BadRequestException);
   });
 });
 
 describe('ProviderConnectionService.begin', () => {
   it('provedor desconhecido ou sem OAuth: 404', async () => {
     const s = setup();
-    await expect(s.service.begin('inexistente', 'u1', consent)).rejects.toThrow(NotFoundException);
+    await expect(s.service.begin('inexistente', 'u1', request())).rejects.toThrow(NotFoundException);
   });
 
   it('fail-closed: sem habilitacao nao grava tentativa nem revela configuracao', async () => {
     const s = setup();
     s.proto.enabled = false;
-    await expect(s.service.begin('novo', 'u1', consent)).rejects.toThrow(ForbiddenException);
+    await expect(s.service.begin('novo', 'u1', request())).rejects.toThrow(ForbiddenException);
     expect(s.prisma.attempts).toHaveLength(0);
   });
 
   it('guarda so o HASH do state; o state bruto vai so na URL', async () => {
     const s = setup();
-    const { url } = await s.service.begin('novo', 'u1', consent);
+    const { url } = await s.service.begin('novo', 'u1', request());
     const state = stateOf(url);
     expect(state).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(JSON.stringify(s.prisma.attempts)).not.toContain(state);
-    expect(s.prisma.attempts[0]).toMatchObject({ stateHash: hashState(state), provider: 'novo', userId: 'u1', consent });
+    expect(s.prisma.attempts[0]).toMatchObject({ stateHash: hashState(state), provider: 'novo', userId: 'u1', consent: { groups: ['account', 'activity'], categories: ['profile', 'activity'], version: '1.0', textHash: HASH } });
   });
 
   it('ja conectado: 409; apos desconectar, pode conectar de novo', async () => {
     const s = setup();
     await connect(s);
-    await expect(s.service.begin('novo', 'u1', consent)).rejects.toThrow(ConflictException);
+    await expect(s.service.begin('novo', 'u1', request())).rejects.toThrow(ConflictException);
     await s.service.disconnect('novo', 'u1');
-    await expect(s.service.begin('novo', 'u1', consent)).resolves.toHaveProperty('url');
+    await expect(s.service.begin('novo', 'u1', request())).resolves.toHaveProperty('url');
   });
 });
 
@@ -144,25 +171,25 @@ describe('ProviderConnectionService.complete', () => {
     const s = setup();
     expect(await connect(s)).toBe('connected');
     const c = s.prisma.connections[0];
-    expect(c).toMatchObject({ userId: 'u1', provider: 'novo', externalAccountId: 'ext-1', grantedCategories: ['activity'], consentVersion: 'v1', disconnectedAt: null });
+    expect(c).toMatchObject({ userId: 'u1', provider: 'novo', externalAccountId: 'ext-1', grantedCategories: ['profile', 'activity'], grantedPurposes: ['history', 'tracking'], consentVersion: '1.0', consentTextHash: HASH, disconnectedAt: null });
     expect(c.accessTokenEncrypted).not.toContain('AT1');
     expect(decryptSecret(c.accessTokenEncrypted, KEY)).toBe('AT1');
     expect(decryptSecret(c.refreshTokenEncrypted, KEY)).toBe('RT1');
     expect(c.collectFrom).toEqual(c.consentedAt);
-    expect(s.prisma.audit[0]).toMatchObject({ userId: 'u1', provider: 'novo', type: 'connected', details: { categories: ['activity'], consentVersion: 'v1' } });
+    expect(s.prisma.audit[0]).toMatchObject({ userId: 'u1', provider: 'novo', type: 'connected', details: { groups: ['account', 'activity'], categories: ['profile', 'activity'], consentVersion: '1.0', consentTextHash: HASH } });
     expect(JSON.stringify(s.prisma.audit)).not.toMatch(/AT1|RT1|CODE/);
   });
 
   it('state de uso unico: reutilizar, expirar, formato invalido ou de outro provedor => 400 e nada conectado', async () => {
     const s = setup();
-    const { url } = await s.service.begin('novo', 'u1', consent);
+    const { url } = await s.service.begin('novo', 'u1', request());
     const state = stateOf(url);
     await s.service.complete('novo', { state, code: 'C' });
     await expect(s.service.complete('novo', { state, code: 'C' })).rejects.toThrow(BadRequestException);
     expect(s.proto.exchange).toHaveBeenCalledTimes(1);
 
     const s2 = setup();
-    const { url: url2 } = await s2.service.begin('novo', 'u1', consent);
+    const { url: url2 } = await s2.service.begin('novo', 'u1', request());
     s2.prisma.attempts[0].expiresAt = new Date(Date.now() - 1000);
     await expect(s2.service.complete('novo', { state: stateOf(url2), code: 'C' })).rejects.toThrow(BadRequestException);
     await expect(s2.service.complete('novo', { state: 'curto', code: 'C' })).rejects.toThrow(BadRequestException);
@@ -173,7 +200,7 @@ describe('ProviderConnectionService.complete', () => {
 
   it('o aluno cancelou no provedor: nada conectado e o state ja foi consumido', async () => {
     const s = setup();
-    const { url } = await s.service.begin('novo', 'u1', consent);
+    const { url } = await s.service.begin('novo', 'u1', request());
     expect(await s.service.complete('novo', { state: stateOf(url), error: 'access_denied' })).toBe('cancelled');
     expect(s.prisma.connections).toHaveLength(0);
     await expect(s.service.complete('novo', { state: stateOf(url), code: 'C' })).rejects.toThrow(BadRequestException);
@@ -181,16 +208,16 @@ describe('ProviderConnectionService.complete', () => {
 
   it('erro diferente de cancelamento, ou erro junto com code => 400 sem trocar codigo', async () => {
     const s = setup();
-    const { url } = await s.service.begin('novo', 'u1', consent);
+    const { url } = await s.service.begin('novo', 'u1', request());
     await expect(s.service.complete('novo', { state: stateOf(url), error: 'server_error' })).rejects.toThrow(BadRequestException);
-    const { url: url2 } = await s.service.begin('novo', 'u1', consent);
+    const { url: url2 } = await s.service.begin('novo', 'u1', request());
     await expect(s.service.complete('novo', { state: stateOf(url2), error: 'access_denied', code: 'C' })).rejects.toThrow(BadRequestException);
     expect(s.proto.exchange).not.toHaveBeenCalled();
   });
 
   it('habilitacao retirada no meio do fluxo => 403 sem trocar codigo', async () => {
     const s = setup();
-    const { url } = await s.service.begin('novo', 'u1', consent);
+    const { url } = await s.service.begin('novo', 'u1', request());
     s.proto.enabled = false;
     await expect(s.service.complete('novo', { state: stateOf(url), code: 'C' })).rejects.toThrow(ForbiddenException);
     expect(s.proto.exchange).not.toHaveBeenCalled();
@@ -234,7 +261,7 @@ describe('ProviderConnectionService.getAccessToken', () => {
   it('token valido: devolve sem renovar', async () => {
     const s = setup();
     await connect(s);
-    expect(await s.service.getAccessToken('novo', 'u1')).toBe('AT1');
+    expect(await s.service.getAccessToken('novo', 'u1', 'activity')).toBe('AT1');
     expect(s.proto.refresh).not.toHaveBeenCalled();
   });
 
@@ -244,7 +271,7 @@ describe('ProviderConnectionService.getAccessToken', () => {
     s.prisma.connections[0].accessTokenExpiresAt = new Date(Date.now() + 1000);
     let release!: () => void;
     s.proto.refresh.mockImplementation(() => new Promise((resolve) => { release = () => resolve({ accessToken: 'AT2', refreshToken: 'RT2', expiresInSec: 3600 }); }));
-    const calls = Promise.all([1, 2, 3, 4].map(() => s.service.getAccessToken('novo', 'u1')));
+    const calls = Promise.all([1, 2, 3, 4].map(() => s.service.getAccessToken('novo', 'u1', 'activity')));
     await new Promise((r) => setTimeout(r, 40));
     release();
     expect(await calls).toEqual(['AT2', 'AT2', 'AT2', 'AT2']);
@@ -261,7 +288,7 @@ describe('ProviderConnectionService.getAccessToken', () => {
     await connect(s);
     s.prisma.connections[0].accessTokenExpiresAt = new Date(Date.now() + 1000);
     s.proto.refresh.mockResolvedValueOnce({ accessToken: 'AT2', refreshToken: null, expiresInSec: null });
-    await s.service.getAccessToken('novo', 'u1');
+    await s.service.getAccessToken('novo', 'u1', 'activity');
     expect(decryptSecret(s.prisma.connections[0].refreshTokenEncrypted, KEY)).toBe('RT1');
   });
 
@@ -270,7 +297,7 @@ describe('ProviderConnectionService.getAccessToken', () => {
     await connect(s);
     s.prisma.connections[0].accessTokenExpiresAt = new Date(Date.now() + 1000);
     s.proto.refresh.mockRejectedValueOnce(new BadRequestException('recusou'));
-    await expect(s.service.getAccessToken('novo', 'u1')).rejects.toThrow(ConflictException);
+    await expect(s.service.getAccessToken('novo', 'u1', 'activity')).rejects.toThrow(ConflictException);
     expect(s.prisma.connections[0]).toMatchObject({ accessTokenEncrypted: null, refreshTokenEncrypted: null });
     expect(s.prisma.connections[0].disconnectedAt).toBeInstanceOf(Date);
     expect(s.events.discardPendingForUser).toHaveBeenCalledWith('novo', 'u1');
@@ -282,7 +309,7 @@ describe('ProviderConnectionService.getAccessToken', () => {
     await connect(s);
     s.prisma.connections[0].accessTokenExpiresAt = new Date(Date.now() + 1000);
     s.proto.refresh.mockRejectedValueOnce(new BadGatewayException('fora do ar'));
-    await expect(s.service.getAccessToken('novo', 'u1')).rejects.toThrow(BadGatewayException);
+    await expect(s.service.getAccessToken('novo', 'u1', 'activity')).rejects.toThrow(BadGatewayException);
     expect(s.prisma.connections[0].disconnectedAt).toBeNull();
     expect(s.prisma.connections[0].refreshTokenEncrypted).not.toBeNull();
     expect(s.prisma.connections[0].refreshLockUntil).toBeNull();
@@ -293,7 +320,7 @@ describe('ProviderConnectionService.getAccessToken', () => {
     await connect(s);
     s.prisma.connections[0].accessTokenExpiresAt = new Date(Date.now() + 1000);
     s.prisma.connections[0].refreshLockUntil = new Date(Date.now() - 1);
-    expect(await s.service.getAccessToken('novo', 'u1')).toBe('AT2');
+    expect(await s.service.getAccessToken('novo', 'u1', 'activity')).toBe('AT2');
     expect(REFRESH_LEASE_MS).toBeGreaterThan(0);
   });
 
@@ -302,8 +329,8 @@ describe('ProviderConnectionService.getAccessToken', () => {
     s.proto.exchange.mockResolvedValueOnce({ accessToken: 'AT1', refreshToken: null, expiresInSec: 1, externalAccountId: 'ext-1' });
     await connect(s);
     s.prisma.connections[0].accessTokenExpiresAt = new Date(Date.now() + 1000);
-    await expect(s.service.getAccessToken('novo', 'u1')).rejects.toThrow(/expirou/);
-    await expect(s.service.getAccessToken('novo', 'u1')).rejects.toThrow(ConflictException);
+    await expect(s.service.getAccessToken('novo', 'u1', 'activity')).rejects.toThrow(/expirou/);
+    await expect(s.service.getAccessToken('novo', 'u1', 'activity')).rejects.toThrow(ConflictException);
   });
 });
 
@@ -362,7 +389,77 @@ describe('ProviderConnectionService.disconnect / deleteData / status', () => {
     expect(await s.service.status('novo', 'u1')).toMatchObject({ connected: false, consent: null });
     await connect(s);
     const status = await s.service.status('novo', 'u1');
-    expect(status).toMatchObject({ connected: true, consent: { categories: ['activity'], version: 'v1' } });
+    expect(status).toMatchObject({ connected: true, account: { hint: '••••xt-1' }, consent: { categories: ['profile', 'activity'], version: '1.0', textHash: HASH } });
     expect(JSON.stringify(status)).not.toMatch(/AT1|RT1|ext-1|Encrypted/);
+  });
+});
+
+describe('consentimento APLICADO (nao basta registrar)', () => {
+  it('token so sai para categoria autorizada: outra categoria => 403 e o provedor nem e consultado', async () => {
+    const s = setup();
+    await connect(s); // autorizou conta + atividades
+    s.prisma.connections[0].accessTokenExpiresAt = new Date(Date.now() + 1000); // venceria => renovaria
+    await expect(s.service.getAccessToken('novo', 'u1', 'sleep')).rejects.toThrow(ForbiddenException);
+    await expect(s.service.getAccessToken('novo', 'u1', 'activity_route')).rejects.toThrow(ForbiddenException);
+    expect(s.proto.refresh).not.toHaveBeenCalled();
+    expect(await s.service.getAccessToken('novo', 'u1', 'activity')).toBe('AT2');
+  });
+
+  it('desconectado: nenhuma categoria vale mais (consentimento revogado), nem token', async () => {
+    const s = setup();
+    await connect(s);
+    await s.service.disconnect('novo', 'u1');
+    await expect(s.service.getAccessToken('novo', 'u1', 'activity')).rejects.toThrow(ConflictException);
+    expect(await new ProviderConsentService(s.prisma).isAllowed('novo', 'u1', 'activity')).toBe(false);
+  });
+
+  it('finalidades: so as do texto; IA e qualquer outra NAO estao autorizadas', async () => {
+    const s = setup();
+    await connect(s);
+    const consent = new ProviderConsentService(s.prisma);
+    expect(await consent.isAllowed('novo', 'u1', 'activity', 'history')).toBe(true);
+    expect(await consent.isAllowed('novo', 'u1', 'activity', 'ai')).toBe(false);
+    expect(await consent.isAllowed('novo', 'u1', 'activity', 'treinar_modelo')).toBe(false);
+    await expect(consent.assertAllowed('novo', 'u1', 'activity', 'ai')).rejects.toThrow(ForbiddenException);
+    expect(await consent.isAllowed('novo', 'u1', 'sleep')).toBe(false);
+    expect(await consent.isAllowed('novo', 'u2', 'activity')).toBe(false); // outro usuario nunca herda
+  });
+
+  it('falhas e cancelamento ficam na auditoria com MOTIVO seguro (sem code, state nem token) e aparecem no status', async () => {
+    const s = setup();
+    s.proto.exchange.mockRejectedValueOnce(new BadRequestException('recusou segredo-do-provedor'));
+    const { url } = await s.service.begin('novo', 'u1', request());
+    await expect(s.service.complete('novo', { state: stateOf(url), code: 'CODIGO-SECRETO' })).rejects.toThrow(BadRequestException);
+    const { url: url2 } = await s.service.begin('novo', 'u1', request());
+    expect(await s.service.complete('novo', { state: stateOf(url2), error: 'access_denied' })).toBe('cancelled');
+    expect(s.prisma.audit.map((a: Row) => [a.type, a.details.reason ?? null])).toEqual([['connect_failed', 'recusada_pelo_provedor_ou_invalida'], ['connect_cancelled', null]]);
+    expect(JSON.stringify(s.prisma.audit)).not.toMatch(/CODIGO-SECRETO|segredo-do-provedor|AT1|RT1/);
+    const status = await s.service.status('novo', 'u1');
+    expect(status.recent.map((r: Row) => r.type)).toEqual(['connect_cancelled', 'connect_failed']);
+    expect(JSON.stringify(status)).not.toMatch(/CODIGO|segredo/);
+  });
+
+  it('o documento de consentimento servido ao cliente traz o hash que o pedido precisa devolver', () => {
+    const s = setup();
+    const doc = s.service.consentDocument('novo');
+    expect(doc.textHash).toBe(HASH);
+    expect(doc.groups.find((g) => g.id === 'account')?.required).toBe(true);
+    expect(() => s.service.consentDocument('inexistente')).toThrow(NotFoundException);
+  });
+
+  it('pedido de conexao sem aceite, com texto antigo ou selecao incompativel nao grava tentativa', async () => {
+    const s = setup();
+    await expect(s.service.begin('novo', 'u1', request({ acknowledged: false }))).rejects.toThrow(BadRequestException);
+    await expect(s.service.begin('novo', 'u1', request({ textHash: 'antigo' }))).rejects.toThrow(ConflictException);
+    await expect(s.service.begin('novo', 'u1', request({ groups: ['account', 'route'] }))).rejects.toThrow(BadRequestException);
+    expect(s.prisma.attempts).toHaveLength(0);
+  });
+
+  it('exclusao de dados e desconexao ficam auditadas', async () => {
+    const s = setup();
+    await connect(s);
+    await s.service.disconnect('novo', 'u1');
+    await s.service.deleteData('novo', 'u1');
+    expect(s.prisma.audit.map((a: Row) => a.type)).toEqual(['connected', 'disconnected', 'data_deleted']);
   });
 });

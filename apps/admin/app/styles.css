@@ -2817,3 +2817,16 @@ h3 {
   .extToolbar { padding: 12px; }
 }
 .extDangerButton { border-color: var(--danger); color: var(--danger); }
+
+/* 19/10/2026 — pagina temporaria de teste da Zepp/Amazfit (zepp-test-panel.tsx) */
+.zeppPanel h4, .zeppPanel h5 { margin: 12px 0 6px; }
+.zeppActions { margin: 8px 0; }
+.zeppAlert { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--ink); border-radius: 8px; padding: 8px 10px; font-weight: 600; }
+.zeppMessage { border-left: 3px solid var(--accent); padding: 4px 10px; color: var(--ink); }
+.zeppStatusBox { display: grid; gap: 8px; margin-top: 8px; }
+.zeppConsentText { max-height: 260px; overflow: auto; border: 1px solid var(--line, #d7dde6); border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.5; }
+.zeppConsentText ul { margin: 4px 0 8px 18px; padding: 0; }
+.zeppGroups { display: grid; gap: 8px; margin: 6px 0 10px; }
+.zeppGroup { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+.zeppGroup input { margin-top: 3px; }
+.zeppRecent ul { margin: 4px 0 0 18px; padding: 0; font-size: 13px; }

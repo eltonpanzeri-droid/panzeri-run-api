@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConnectorRegistry } from './connector-registry';
+import { ProviderConsentService } from './provider-consent.service';
 import { EventOutcome, InboundEventDraft } from './provider-connector';
 
 // Caixa de entrada duravel de eventos de provedores (Passo 1). Fluxo: o webhook autentica -> record() grava e o endpoint responde -> processDue() (rotina)
@@ -39,10 +40,12 @@ export class ProviderInboundEventService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly registry: ConnectorRegistry,
+    // Consentimento por categoria (Passo 2b). Ausente => sem verificacao (so' os testes do Passo 1 constroem assim); no app real o modulo sempre injeta.
+    private readonly consent?: ProviderConsentService,
   ) {}
 
   async record(provider: string, draft: InboundEventDraft, userId?: string | null): Promise<RecordResult> {
-    if (!provider || !draft.dedupeKey || !draft.eventType) throw new Error('Evento invalido: provider, dedupeKey e eventType sao obrigatorios.');
+    if (!provider || !draft.dedupeKey || !draft.eventType || !draft.category) throw new Error('Evento invalido: provider, dedupeKey, eventType e category sao obrigatorios.');
     if (draft.dedupeKey.length > DEDUPE_KEY_MAX) throw new Error('dedupeKey longa demais.');
     try {
       const row = await this.prisma.providerInboundEvent.create({
@@ -50,6 +53,7 @@ export class ProviderInboundEventService {
           provider,
           dedupeKey: draft.dedupeKey,
           eventType: draft.eventType,
+          category: draft.category,
           userId: userId ?? null,
           externalAccountId: draft.externalAccountId ?? null,
           payload: draft.payload as Prisma.InputJsonValue,
@@ -97,12 +101,27 @@ export class ProviderInboundEventService {
   }
 
   private async runHandler(
-    event: { id: string; provider: string; eventType: string; userId: string | null; externalAccountId: string | null; payload: Prisma.JsonValue; attempts: number },
+    event: { id: string; provider: string; eventType: string; category: string | null; userId: string | null; externalAccountId: string | null; payload: Prisma.JsonValue; attempts: number },
     now: Date,
   ): Promise<'done' | 'discarded' | 'retried' | 'dead'> {
-    const handler = this.registry.get(event.provider)?.events;
+    const connector = this.registry.get(event.provider);
+    const handler = connector?.events;
     let outcome: EventOutcome;
-    if (!handler) {
+    // Consentimento: provedor com documento de consentimento so' entrega ao conector eventos de categoria AUTORIZADA por um aluno com conexao ativa.
+    // Fail-closed: sem categoria, conta desconhecida/desconectada ou categoria nao marcada => descarta (payload zerado), nunca processa.
+    let resolvedUserId = event.userId;
+    let denied: string | null = null;
+    if (connector?.consent && this.consent) {
+      if (!event.category) denied = 'evento sem categoria de dado';
+      else {
+        resolvedUserId = event.userId ?? (event.externalAccountId ? await this.consent.resolveActiveUserId(event.provider, event.externalAccountId) : null);
+        if (!resolvedUserId) denied = 'conta desconhecida ou desconectada';
+        else if (!(await this.consent.isAllowed(event.provider, resolvedUserId, event.category))) denied = 'categoria nao autorizada pelo aluno';
+      }
+    }
+    if (denied) {
+      outcome = { status: 'discard', reason: denied };
+    } else if (!handler) {
       outcome = { status: 'retry', reason: `nenhum conector com processamento de eventos registrado para "${event.provider}"` };
     } else {
       try {
@@ -110,7 +129,7 @@ export class ProviderInboundEventService {
           id: event.id,
           provider: event.provider,
           eventType: event.eventType,
-          userId: event.userId,
+          userId: resolvedUserId,
           externalAccountId: event.externalAccountId,
           payload: event.payload,
           attempt: event.attempts,

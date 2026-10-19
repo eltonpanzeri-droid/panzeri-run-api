@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
+import { Roles } from '../common/roles.decorator';
+import { RolesGuard } from '../common/roles.guard';
 import { ProviderConnectionService } from '../provider-hub/provider-connection.service';
 import { ZEPP_PROVIDER_ID } from './zepp.connector';
 
@@ -23,24 +25,36 @@ export class ZeppController {
     private readonly config: ConfigService,
   ) {}
 
-  // Todas as rotas autenticadas usam SOMENTE o usuario do JWT; nenhum userId vem do cliente.
-  // O app envia o consentimento (categorias + versao do termo) ANTES de abrir a Zepp; fica registrado na conexao.
+  // Todas as rotas autenticadas usam SOMENTE o usuario do JWT; nenhum userId vem do cliente. Nesta fase de TESTE ficam restritas a coach/admin (alem da
+  // porta ZEPP_ENABLED_USER_IDS): a conta conectada e sempre a do proprio usuario logado, nunca a de outro aluno. Abrir para alunos exige nova decisao.
+  // O cliente envia o aceite expresso + grupos marcados + versao/hash do texto exibido ANTES de abrir a Zepp; o servidor valida e registra.
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('coach', 'admin')
   @Post('connect')
   @HttpCode(200)
-  connect(@CurrentUser() user: CurrentUserPayload, @Body() body: { categories?: unknown; consentVersion?: unknown }) {
-    return this.connections.begin(ZEPP_PROVIDER_ID, user.sub, { categories: body?.categories, version: body?.consentVersion });
+  connect(@CurrentUser() user: CurrentUserPayload, @Body() body: { groups?: unknown; acknowledged?: unknown; consentVersion?: unknown; consentTextHash?: unknown }) {
+    return this.connections.begin(ZEPP_PROVIDER_ID, user.sub, { groups: body?.groups, acknowledged: body?.acknowledged, version: body?.consentVersion, textHash: body?.consentTextHash });
   }
 
-  @UseGuards(AuthGuard('jwt'))
+  // Texto, grupos e finalidades que o cliente DEVE exibir antes de pedir a conexao (o pedido devolve versao + hash do que foi exibido).
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('coach', 'admin')
+  @Get('consent')
+  consent() {
+    return this.connections.consentDocument(ZEPP_PROVIDER_ID);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('coach', 'admin')
   @Get('status')
-  status(@CurrentUser() user: CurrentUserPayload) {
-    return this.connections.status(ZEPP_PROVIDER_ID, user.sub);
+  async status(@CurrentUser() user: CurrentUserPayload) {
+    return { ...(await this.connections.status(ZEPP_PROVIDER_ID, user.sub)), availability: this.connections.availability(ZEPP_PROVIDER_ID, user.sub) };
   }
 
   // Para a coleta na hora e revoga a autorizacao na Zepp. Nao apaga nada alem das credenciais.
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('coach', 'admin')
   @Post('disconnect')
   @HttpCode(200)
   disconnect(@CurrentUser() user: CurrentUserPayload) {
@@ -48,7 +62,8 @@ export class ZeppController {
   }
 
   // Excluir os dados importados da Zepp do proprio aluno (exige estar desconectado).
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('coach', 'admin')
   @Delete('data')
   deleteData(@CurrentUser() user: CurrentUserPayload) {
     return this.connections.deleteData(ZEPP_PROVIDER_ID, user.sub);
