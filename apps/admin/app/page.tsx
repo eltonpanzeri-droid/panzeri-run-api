@@ -147,6 +147,8 @@ interface StudentDetail {
   } | null;
   needsUpdate?: boolean;
   needsUpdateReason?: string | null;
+  // 19/10/2026: geracao de semana em andamento (lida da trava no servidor).
+  generation?: { inProgress: boolean; startedAt: string | null } | null;
   generationBlocked?: boolean;
   birthDate?: string | null;
   heightCm?: number | null;
@@ -3092,6 +3094,13 @@ function Pagination({
   );
 }
 
+function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return minutes > 0 ? `${minutes}min ${String(seconds).padStart(2, '0')}s` : `${seconds}s`;
+}
+
 function StudentPanel({
   student,
   token,
@@ -3129,6 +3138,27 @@ function StudentPanel({
   // 11/09: período universal da aba Evolução — compartilhado por todos os gráficos e seções.
   // Padrão 12 semanas (~3 meses). Opções: 4/8/12/24/52/999(Tudo).
   const [evolPeriod, setEvolPeriod] = useState<4 | 8 | 12 | 24 | 52 | 999>(12);
+  // 19/10/2026: indicador de geracao da semana. localGeneratingSince = clique neste painel (imediato); serverGeneratingSince = trava no servidor (vale tambem se o
+  // aluno disparou ou se a pagina foi recarregada). Nao ha porcentagem real da IA: a barra e' indeterminada e o tempo decorrido e' o que mostra que segue rodando.
+  const [localGeneratingSince, setLocalGeneratingSince] = useState<number | null>(null);
+  const [generationNow, setGenerationNow] = useState(() => Date.now());
+  const serverGeneratingSince = student?.generation?.inProgress && student.generation.startedAt ? Date.parse(student.generation.startedAt) : null;
+  const generatingSince = localGeneratingSince ?? serverGeneratingSince;
+  const onRefreshRef = useRef(onRefresh);
+  useEffect(() => {
+    onRefreshRef.current = onRefresh;
+  }, [onRefresh]);
+  useEffect(() => {
+    if (!generatingSince) return;
+    const timer = setInterval(() => setGenerationNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [generatingSince]);
+  useEffect(() => {
+    // geracao iniciada fora deste clique: consulta o servidor ate a trava sumir
+    if (!serverGeneratingSince || localGeneratingSince) return;
+    const timer = setInterval(() => { void onRefreshRef.current(); }, 8000);
+    return () => clearInterval(timer);
+  }, [serverGeneratingSince, localGeneratingSince]);
 
   useEffect(() => {
     setEditName(student?.name ?? '');
@@ -3366,6 +3396,7 @@ function StudentPanel({
       'Quer TAMBEM alterar o treino de HOJE especificamente? O aluno pode ja estar vendo ou ter comecado esse treino. Clique OK para incluir hoje, ou Cancelar para manter hoje como esta (recomendado).',
     );
     onStatus('Gerando nova semana de treinos...');
+    setLocalGeneratingSince(Date.now());
     try {
       const response = await fetch(`${API_URL}/coach/students/${student.id}/plan/regenerate-week`, {
         method: 'POST',
@@ -3381,6 +3412,8 @@ function StudentPanel({
       onStatus('Nova semana de treinos gerada.');
     } catch {
       onStatus('Nao consegui conectar com a API.');
+    } finally {
+      setLocalGeneratingSince(null);
     }
   }
 
@@ -3663,10 +3696,17 @@ function StudentPanel({
         )}
       </div>
 
-      {student.needsUpdate ? (
-        <div className="needsUpdateBanner">
-          <strong>Este aluno precisa de atualizacao de treino.</strong>
-          <span>{student.needsUpdateReason ?? 'Os dados usados na ultima geracao nao batem mais com o que esta salvo agora.'} Use "Refazer nova semana de treinos" na aba Treinos quando quiser aplicar.</span>
+      {/* 19/10/2026 (pedido do treinador): o aviso amarelo 'precisa de atualizacao de treino' saiu desta tela — a informacao ja existe em outro local. needsUpdate/needsUpdateReason
+          continuam vindo da API. Para reverter, restaurar o bloco .needsUpdateBanner daqui. */}
+      {generatingSince ? (
+        <div className="generatingBanner" role="status" aria-live="polite">
+          <div className="generatingBannerRow">
+            <span className="generatingSpinner" aria-hidden="true" />
+            <strong>Gerando a nova semana de treinos...</strong>
+            <span className="generatingElapsed">{formatElapsed(generationNow - generatingSince)}</span>
+          </div>
+          <div className="generatingBar" aria-hidden="true"><div /></div>
+          <span>A IA costuma levar de 2 a 4 minutos. Voce pode continuar usando o painel; ao terminar, a tela atualiza sozinha.</span>
         </div>
       ) : null}
 

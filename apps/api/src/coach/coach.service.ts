@@ -1569,6 +1569,10 @@ export class CoachService {
       this.logger.warn(`checkPlanFreshness falhou para o aluno ${studentId} (nao bloqueante): ${(error as Error).message}`);
       return { needsUpdate: false, reason: null };
     });
+    // 19/10/2026: leitura PURA da trava de geracao (a mesma que generateWeek cria e apaga) — o painel mostra 'gerando...' mesmo que a geracao tenha sido
+    // disparada pelo aluno ou antes de recarregar a pagina. Trava mais velha que o teto de uma geracao (10 min) e' tratada como morta.
+    const generationLock = await this.prisma.trainingPlanGenerationLock.findUnique({ where: { userId: studentId } }).catch(() => null);
+    const generationInProgress = Boolean(generationLock && Date.now() - generationLock.startedAt.getTime() < 10 * 60 * 1000);
     const student = await (this.prisma.user as any).findFirstOrThrow({
       where: { id: studentId, role: 'student' },
       include: {
@@ -1630,6 +1634,7 @@ export class CoachService {
         : null,
       needsUpdate: planFreshness.needsUpdate,
       needsUpdateReason: planFreshness.reason,
+      generation: { inProgress: generationInProgress, startedAt: generationInProgress && generationLock ? generationLock.startedAt.toISOString() : null },
       // true exatamente quando o aluno esgotou as tentativas de "Gerar treino da semana" sozinho
       // e voce ja foi avisado por Telegram (ver alertCoachAttemptsExhausted em
       // training-plans.service.ts) — usado so pra decidir se mostra o botao "Liberar mais uma

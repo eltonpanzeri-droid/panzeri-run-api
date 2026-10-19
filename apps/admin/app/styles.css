@@ -1116,6 +1116,7 @@ h3 {
    grid de 4 colunas do .detailPanel. */
 .detailPanel > .detailTabs,
 .detailPanel > .needsUpdateBanner,
+.detailPanel > .generatingBanner,
 .detailPanel > .studentIdentityHeader,
 .detailPanel > .detailFull {
   grid-column: 1 / -1;
@@ -1552,6 +1553,80 @@ h3 {
   display: grid;
   gap: 3px;
   margin-bottom: 10px;
+}
+
+/* 19/10/2026: indicador de geracao da semana (circulo girando + barra indeterminada + tempo decorrido) */
+.generatingBanner {
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.generatingBannerRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.generatingBannerRow strong {
+  font-size: 13px;
+}
+
+.generatingElapsed {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.generatingBanner > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.generatingSpinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  border-top-color: transparent;
+  animation: generatingSpin 0.8s linear infinite;
+  flex: none;
+}
+
+.generatingBar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.18);
+  overflow: hidden;
+}
+
+.generatingBar > div {
+  height: 100%;
+  width: 35%;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: generatingSlide 1.4s ease-in-out infinite;
+}
+
+@keyframes generatingSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes generatingSlide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .generatingSpinner,
+  .generatingBar > div { animation-duration: 3s; }
 }
 
 .needsUpdateBanner strong {
