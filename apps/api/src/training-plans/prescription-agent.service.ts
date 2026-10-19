@@ -102,12 +102,12 @@ const AiSessionPartsSchema = z.array(AiSessionPartSchema).min(1).max(6);
 
 // Etapa 1.2b — raciocinio tecnico DECLARADO (objetivo, resultado esperado, fundamentos). Sem .max() em nenhum campo de texto e sem limite de itens:
 // o tamanho e controlado em CODIGO (normalizeDeclaredReasoning trunca) — nunca rejeita a resposta inteira por texto longo (licao dos incidentes
-// de 28/07, 16/08 e 04/09). 'source' e um enum fechado (campos do contexto), entao a IA nao inventa nomes. nullable (e nao optional): a chave
+// de 28/07, 16/08 e 04/09). 'source'/'decides' sao string (19/10/2026: o enum fechado rejeitava a semana INTEIRA por um valor fora da lista — caso Eduarda); o vocabulario vai na description e normalizeDeclaredReasoning mapeia o desconhecido para 'outro'/null. nullable (e nao optional): a chave
 // vem sempre, e null quando nao ha o que declarar.
 export const AiReasoningSchema = z.object({
   intent: z.string(),
   expected: z.string(),
-  basis: z.array(z.object({ source: z.enum(BASIS_SOURCES), note: z.string(), decides: z.enum(DECISION_VARIABLES).nullish() })),
+  basis: z.array(z.object({ source: z.string().describe('Um destes valores: ' + BASIS_SOURCES.join(', ')), note: z.string(), decides: z.string().nullish().describe('Um destes valores: ' + DECISION_VARIABLES.join(', ') + ', ou null') })),
 });
 
 // Corpo da decisao de UM dia de corrida (regeneracao isolada): partes + raciocinio declarado.
