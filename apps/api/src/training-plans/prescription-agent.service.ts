@@ -272,14 +272,18 @@ export class PrescriptionAgentService {
   }
 
   // `trace` (opcional): recebe o registro EXATO do que foi enviado a IA (Etapa 1.2a). Nunca altera prompt, modelo nem resultado.
-  async proposeWeeklyDecision(input: MethodologyInput, evidence: PaceEvidence, trace?: AgentCallTrace[]): Promise<WeeklyMethodologyDecision | null> {
+  async proposeWeeklyDecision(input: MethodologyInput, evidence: PaceEvidence, trace?: AgentCallTrace[], failure?: AiFailureInfo): Promise<WeeklyMethodologyDecision | null> {
     if (!this.client) {
       this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado. Nenhum treino sera gerado por regra fixa no lugar disso.');
+      if (failure) failure.reason = 'ANTHROPIC_API_KEY nao configurada no servidor';
       return null;
     }
 
     const runSlots = computeRunSlots(input.availability);
-    if (!runSlots.length) return null;
+    if (!runSlots.length) {
+      if (failure) failure.reason = 'a rotina salva nao tem nenhum dia de corrida';
+      return null;
+    }
 
     // UMA tentativa so (02/08, ordem explicita do treinador — incidente real de custo: com 2
     // tentativas por aluno multiplicadas por todos os alunos do cron de domingo, uma rejeicao
@@ -287,7 +291,7 @@ export class PrescriptionAgentService {
     // gerar nada. Se falhar, quem chama (generateWeek) ja avisa o treinador pelo Telegram e para
     // por ali — sem regra fixa no lugar (nao ha motor deterministico de fallback), o proprio
     // treinador decide gerar de novo pelo painel quando quiser.
-    return this.attemptDecision(input, evidence, 'medium', trace);
+    return this.attemptDecision(input, evidence, 'medium', trace, failure);
   }
 
   // Usado quando o treinador regenera UM dia de forca/fortalecimento isolado (sem regenerar a
@@ -431,6 +435,7 @@ export class PrescriptionAgentService {
     evidence: PaceEvidence,
     effort: 'high' | 'medium' = 'high',
     trace?: AgentCallTrace[],
+    failure?: AiFailureInfo,
   ): Promise<WeeklyMethodologyDecision | null> {
     const client = this.client;
     if (!client) return null;
@@ -540,6 +545,7 @@ export class PrescriptionAgentService {
         const repaired = await this.repairStrengthSessions(input, strengthValidation.missingSlots, trace);
         if (!repaired) {
           this.logger.warn('Reparo avulso dos dias de forca tambem falhou — descartando esta tentativa.');
+          if (failure) failure.reason = briefReason(`faltaram dias de forca/fortalecimento na resposta (${strengthValidation.missingSlots.map((s) => `${s.weekday}:${s.modality}`).join(',')}) e o reparo avulso tambem falhou`);
           return null;
         }
         strengthSessions = [...strengthSessions, ...repaired];
@@ -567,10 +573,12 @@ export class PrescriptionAgentService {
           .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
           .map((block) => block.text)
           .join('');
+        if (failure) failure.reason = briefReason(`${describeAiError(error)} | stop_reason=${lastSnapshot.stop_reason} output_tokens=${lastSnapshot.usage?.output_tokens}`);
         this.logger.warn(
           `Falha ao gerar decisao com o agente de IA: ${describeAiError(error)} | stop_reason=${lastSnapshot.stop_reason} output_tokens=${lastSnapshot.usage?.output_tokens} texto_bruto_chars=${rawText.length} texto_bruto_fim="${rawText.slice(-300)}"`,
         );
       } else {
+        if (failure) failure.reason = briefReason(describeAiError(error));
         this.logger.warn(`Falha ao gerar decisao com o agente de IA: ${describeAiError(error)}`);
       }
       return null;
@@ -1111,6 +1119,13 @@ function formatSecondsPerKm(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   const remaining = Math.round(seconds % 60);
   return `${minutes}:${remaining.toString().padStart(2, '0')}/km`;
+}
+
+// 19/10/2026: motivo da falha da geracao semanal, devolvido por referencia para o chamador (generateWeek) colocar no aviso do Telegram — o log do EasyPanel
+// nao e' confiavel para investigar (mostra janela antiga). Nunca contem chave, prompt nem texto de aluno: so' a causa tecnica, truncada.
+export type AiFailureInfo = { reason?: string };
+function briefReason(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 300);
 }
 
 // Sem isso, uma resposta da IA rejeitada pelo Zod (schema invalido, resposta cortada por

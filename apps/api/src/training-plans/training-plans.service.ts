@@ -22,7 +22,7 @@ import {
   parseMmSsToSeconds,
   isCurrentlyRunning,
 } from './training-methodology';
-import { PrescriptionAgentService, PaceEvidence } from './prescription-agent.service';
+import { PrescriptionAgentService, PaceEvidence, AiFailureInfo } from './prescription-agent.service';
 import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
@@ -1114,15 +1114,17 @@ export class TrainingPlansService {
     };
     await this.reportDegradedContext(userId, user.name, user.studentCode, contextGaps);
     const agentTrace: AgentCallTrace[] = [];
-    const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput, paceEvidence, agentTrace);
+    const aiFailure: AiFailureInfo = {};
+    const aiDecision = await this.prescriptionAgent.proposeWeeklyDecision(methodologyInput, paceEvidence, agentTrace, aiFailure);
     if (!aiDecision) {
+      const failureReason = aiFailure.reason ?? 'motivo nao identificado (sem detalhe retornado pelo agente)';
       // O treinador foi explicito: a prescricao TEM que vir de raciocinio real da IA, nunca de
       // um motor de regras fixas — o motor antigo nao lia diretiva nenhuma nem pace especifico e
       // sempre prescrevia quase a mesma coisa, o que ele classificou como inaceitavel para alunas
       // ativas. Por isso, se a IA falhar mesmo apos as tentativas internas, NAO geramos um plano
       // com regra fixa: preferimos deixar o plano atual intacto e alertar o treinador na hora,
       // para ele intervir manualmente, em vez de dar ao aluno um treino ruim silenciosamente.
-      this.logger.error(`Falha ao gerar semana de treino com IA para o aluno ${userId} apos tentativas — nenhum plano de regra fixa sera usado no lugar.`);
+      this.logger.error(`Falha ao gerar semana de treino com IA para o aluno ${userId} apos tentativas — nenhum plano de regra fixa sera usado no lugar. Motivo: ${failureReason}`);
       this.recentAiFailures.set(userId, Date.now());
       // Persistido (nao so em memoria) pra dar visibilidade permanente no painel do treinador (ver
       // statusFromSummary em coach.service.ts) — antes disso a falha so aparecia no Telegram na
@@ -1130,7 +1132,7 @@ export class TrainingPlansService {
       // sabendo que aquela aluna ficou sem semana gerada por causa disso.
       await this.prisma.user.update({ where: { id: userId }, data: { lastPlanGenerationFailedAt: new Date() } }).catch(() => null);
       await this.telegram.notifyCoach(
-        `⚠️ Falha ao gerar treino com IA para um aluno.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nO programa NAO foi atualizado — verifique a chave da IA (ANTHROPIC_API_KEY) e os logs do EasyPanel, e gere novamente manualmente pelo painel. Novas tentativas automaticas para este aluno ficam pausadas por alguns minutos para nao gastar chamadas de IA repetidas.`,
+        `⚠️ Falha ao gerar treino com IA para um aluno.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nO programa NAO foi atualizado.\nMotivo: ${failureReason}\nGere novamente pelo painel depois da pausa. Novas tentativas automaticas para este aluno ficam pausadas por alguns minutos para nao gastar chamadas de IA repetidas.`,
       );
       throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
     }
