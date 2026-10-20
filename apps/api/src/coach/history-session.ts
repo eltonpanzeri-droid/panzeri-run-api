@@ -19,9 +19,7 @@ export function mapHistorySession(session: any) {
     completionStatus: objective.linked ? 'done' : (session.completion?.status ?? 'sem_registro'),
     executedByDevice: objective.linked,
     completedAt: session.completion?.completedAt ?? null,
-    completedDurationMin: objective.linked ? (objective.durationMin ?? session.completion?.durationMin ?? null) : (session.completion?.durationMin ?? null),
-    completedDistanceKm: objective.linked ? (objective.distanceKm ?? session.completion?.distanceKm ?? null) : (session.completion?.distanceKm ?? null),
-    completedPaceSecondsKm: objective.linked ? (objective.paceSecondsKm ?? session.completion?.avgPaceSecondsKm ?? null) : (session.completion?.avgPaceSecondsKm ?? null),
+    ...completedMetrics(session),
     perceivedEffort: session.completion?.perceivedEffort ?? null,
     satisfactionElaboracao: session.completion?.satisfactionElaboracao ?? null,
     satisfaction: session.completion?.satisfaction ?? null,
@@ -61,5 +59,5 @@ export function mapHistorySession(session: any) {
     painTiming: session.completion?.painTiming ?? null,
     feedbackVersion: session.completion?.feedbackVersion ?? null,
   };
-}import { objectiveExecutionOf } from './objective-execution';
+}import { completedMetrics, objectiveExecutionOf } from './objective-execution';
 

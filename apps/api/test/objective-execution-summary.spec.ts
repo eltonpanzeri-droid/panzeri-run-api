@@ -60,3 +60,24 @@ describe('execucao objetiva no resumo e no historico do painel', () => {
     expect(mapHistorySession(session('z', '2026-10-14'))).toMatchObject({ completionStatus: 'sem_registro', executedByDevice: false, completedDistanceKm: null });
   });
 });
+
+describe('treino marcado "nao fiz" nao soma km (Duane, semana 12/10)', () => {
+  const week = [
+    session('a', '2026-10-13', { distanceKm: 9.5, completion: { status: 'adjusted', distanceKm: 8, durationMin: 50 } }),
+    session('b', '2026-10-15', { distanceKm: 8.4, completion: { status: 'missed', distanceKm: 8.4, durationMin: 50 } }),
+    session('c', '2026-10-16', { distanceKm: 5.5, completion: { status: 'missed', distanceKm: 5.5 } }),
+    session('d', '2026-10-18', { distanceKm: 11.5, completion: { status: 'done', distanceKm: 12 } }),
+  ];
+
+  it('realizado = so feito/ajustado (20,0 km), prescrito intacto (34,9 km)', () => {
+    const summary = summarizeSessions(week as never);
+    expect(summary.completedKm).toBe(20);
+    expect(summary.prescribedKm).toBe(34.9);
+    expect(summary.missedSessions).toBe(2);
+  });
+
+  it('historico: "nao fiz" nao mostra km/tempo realizados', () => {
+    expect(mapHistorySession(week[1])).toMatchObject({ completionStatus: 'missed', completedDistanceKm: null, completedDurationMin: null });
+    expect(mapHistorySession(week[0])).toMatchObject({ completionStatus: 'adjusted', completedDistanceKm: 8 });
+  });
+});

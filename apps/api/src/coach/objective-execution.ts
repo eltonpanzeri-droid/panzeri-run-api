@@ -35,3 +35,17 @@ export function objectiveExecutionOf(session: { executionLinks?: LinkedActivityL
   const paceSecondsKm = hasMeters && hasSeconds && meters > 0 && seconds > 0 ? Math.round(seconds / (meters / 1000)) : null;
   return { linked: true, distanceKm, durationMin, paceSecondsKm };
 }
+
+// Tempo/distancia/pace "realizados" de uma sessao para o painel: relogio vinculado prevalece; sem vinculo, so' o feedback FEITO/AJUSTADO. Treino marcado "nao fiz" nao tem
+// realizado (o formulario da aluna guarda o km prescrito como rascunho; ele nao e' o que foi corrido).
+export function completedMetrics(session: { executionLinks?: LinkedActivityLike[] | null; completion?: { status?: string | null; durationMin?: number | null; distanceKm?: number | null; avgPaceSecondsKm?: number | null } | null }) {
+  const objective = objectiveExecutionOf(session);
+  const completion = session.completion ?? null;
+  const counted = completion != null && (completion.status === 'done' || completion.status === 'adjusted');
+  const own = counted ? completion : null;
+  return {
+    completedDurationMin: objective.linked ? (objective.durationMin ?? own?.durationMin ?? null) : (own?.durationMin ?? null),
+    completedDistanceKm: objective.linked ? (objective.distanceKm ?? own?.distanceKm ?? null) : (own?.distanceKm ?? null),
+    completedPaceSecondsKm: objective.linked ? (objective.paceSecondsKm ?? own?.avgPaceSecondsKm ?? null) : (own?.avgPaceSecondsKm ?? null),
+  };
+}

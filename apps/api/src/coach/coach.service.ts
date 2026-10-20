@@ -1,4 +1,4 @@
-﻿import { objectiveExecutionOf } from './objective-execution';
+﻿import { completedMetrics, objectiveExecutionOf } from './objective-execution';
 import { ActivityDetailService } from '../activity-execution/activity-detail.service';
 import { buildStudentCalendar, mondayOf, normalizeCalendarRange, CalendarLinkedActivity } from './student-calendar';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
@@ -1803,9 +1803,7 @@ export class CoachService {
               satisfactionCapacidade: session.completion?.satisfactionCapacidade ?? null,
               satisfactionCarga: session.completion?.satisfactionCarga ?? null,
               feedback: session.completion?.notes ?? null,
-              completedDurationMin: objectiveExecutionOf(session).durationMin ?? session.completion?.durationMin ?? null,
-              completedDistanceKm: objectiveExecutionOf(session).distanceKm ?? session.completion?.distanceKm ?? null,
-              completedPaceSecondsKm: objectiveExecutionOf(session).paceSecondsKm ?? session.completion?.avgPaceSecondsKm ?? null,
+              ...completedMetrics(session),
               completedAt: session.completion?.completedAt ?? null,
               // walkingReasons: motivos de caminhada/parada, multi-select (14/09/2026)
               walkingReasons: session.completion?.details != null && typeof session.completion.details === 'object'
@@ -2531,7 +2529,14 @@ export function summarizeSessions(sessions: Array<{ scheduledDate: Date; duratio
   const unregisteredSessions = eligible.filter((session) => !session.completion && !linked(session)).length;
   const differentSessions = eligible.filter((session) => !linked(session) && session.completion?.status === 'adjusted').length;
   const prescribedKm = round(sessions.reduce((total, session) => total + (session.distanceKm ?? 0), 0));
-  const completedKm = round(sessions.reduce((total, session) => total + (objectiveExecutionOf(session).distanceKm ?? session.completion?.distanceKm ?? 0), 0));
+  // Km realizado: relogio vinculado; senao so' o que a aluna registrou como FEITO/AJUSTADO. Treino marcado "nao fiz" nunca soma km (o formulario guarda o km prescrito como
+  // rascunho e ele vazava para o realizado: Duane, semana 12/10 mostrava 33,9 km em vez de 20,0).
+  const completedKm = round(sessions.reduce((total, session) => {
+    const objective = objectiveExecutionOf(session);
+    if (objective.linked) return total + (objective.distanceKm ?? session.completion?.distanceKm ?? 0);
+    const counted = session.completion?.status === 'done' || session.completion?.status === 'adjusted';
+    return total + (counted ? (session.completion?.distanceKm ?? 0) : 0);
+  }, 0));
   // Aderência: feito ÷ (feito + não feito). Sem registro não entra no denominador — não sabemos se foi feito.
   const adherenceDenominator = completedSessions + missedSessions;
 
