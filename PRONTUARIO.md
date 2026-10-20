@@ -2940,3 +2940,7 @@ Versão 1.0, build 8 (commit 03ed6fe) reenviada às ~20:00 BRT. Conta de revisã
 
 ### 2026-10-20 — Painel: gráfico de Esforço percebido (RPE) com filtro de modalidade em todas as visões (local)
 - Filtro de modalidade agora também em "Por sessão" (antes só Semana/Mês). Média móvel, canal de tendência, tendência linear e média geral são calculados SÓ com a modalidade filtrada (legenda explícita). "Por mês" ganhou média móvel de 3 meses e canal (6 meses, mín. 4). Só admin (`EffortSection`), sem API.
+
+### 2026-10-20 — Aviso da Supabase (Data API, 30/10/2026): sem ação para o Panzeri Run
+- Verificação somente leitura: nenhuma referência a Supabase/supabase-js/PostgREST/GraphQL no repositório (api, admin, mobile, tools, docs, dependências). Todo acesso ao banco é Prisma → PostgreSQL via `DATABASE_URL` (PostgreSQL do EasyPanel). Migrations sem GRANT/RLS. Nada alterado.
+- Pendente de conferência de Elton: se o aviso veio de projeto da Supabase de OUTRO app (Estúdio Panzeri Fitness, PANZ FIT, Leo), checar naquele repositório.
