@@ -332,6 +332,27 @@ export class ProviderConnectionService {
     return { status: 'disconnected', providerRevocation };
   }
 
+  // Registro/consulta de eventos de auditoria por conexao (ex.: pedido de historico ja' feito). Nunca guarda token.
+  async recordEvent(provider: string, userId: string, type: string, details: Record<string, unknown>): Promise<void> {
+    // Propaga a falha (diferente de audit()): quem usa isto como marca de "ja' feito" precisa saber se a marca nao foi gravada.
+    await this.prisma.providerConnectionEvent.create({ data: { userId, provider, type, details: details as never } });
+  }
+
+  async hasEvent(provider: string, userId: string, type: string): Promise<boolean> {
+    const row = await this.prisma.providerConnectionEvent.findFirst({ where: { provider, userId, type }, select: { id: true } });
+    return row !== null;
+  }
+
+  // O PROVEDOR avisou que o aluno revogou a autorizacao (ex.: Zepp authorizationChange/delete): encerra so' o lado LOCAL (tokens apagados, eventos pendentes descartados).
+  // Nao chama o provedor de volta (ele ja' revogou). Idempotente; conta desconhecida ou ja' desconectada => nada a fazer.
+  async handleRemoteRevocation(provider: string, externalAccountId: string): Promise<'closed' | 'nothing'> {
+    const userId = await this.consent.resolveActiveUserId(provider, externalAccountId);
+    if (!userId) return 'nothing';
+    const closed = await this.closeLocally(provider, userId);
+    if (closed) await this.audit(userId, provider, 'revoked_by_provider', { source: 'authorization_change' });
+    return closed ? 'closed' : 'nothing';
+  }
+
   // Exclusao de conta: encerra todas as conexoes do usuario (falha de um provedor nao bloqueia os demais).
   async disconnectAll(userId: string): Promise<void> {
     const rows = await this.prisma.providerConnection.findMany({ where: { userId, disconnectedAt: null }, select: { provider: true } });

@@ -30,7 +30,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 const PURPOSE_LABELS: Record<string, string> = {
   history: 'Histórico de atividades', tracking: 'Acompanhar evolução e treinamento', plan_comparison: 'Comparar com os treinos prescritos', indicators: 'Indicadores', coach_view: 'Acompanhamento pelo treinador',
-  history_backfill: 'Importar até 30 dias anteriores à conexão', ai_external: 'Análises por IA com fornecedores externos', ai_internal: 'Análises por IA internas',
+  history_backfill: 'Importar até 30 dias anteriores à conexão', ai_external: 'Análises por IA com fornecedores externos', ai_internal: 'Análises por IA internas', watch_delivery: 'Enviar treinos ao relógio',
 };
 const EVENT_LABELS: Record<string, string> = {
   purposes_granted: 'Finalidade opcional autorizada', purposes_revoked: 'Finalidade opcional retirada',

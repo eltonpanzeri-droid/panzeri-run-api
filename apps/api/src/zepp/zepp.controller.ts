@@ -7,6 +7,7 @@ import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { ProviderConnectionService } from '../provider-hub/provider-connection.service';
 import { ZEPP_PROVIDER_ID } from './zepp.connector';
+import { ZeppWorkoutPublisherService } from './zepp-workout-publisher.service';
 
 interface HtmlResponse {
   status: (code: number) => HtmlResponse;
@@ -23,6 +24,7 @@ export class ZeppController {
   constructor(
     private readonly connections: ProviderConnectionService,
     private readonly config: ConfigService,
+    private readonly workouts: ZeppWorkoutPublisherService,
   ) {}
 
   // Todas as rotas autenticadas usam SOMENTE o usuario do JWT; nenhum userId vem do cliente. Nesta fase de TESTE ficam restritas a coach/admin (alem da
@@ -78,6 +80,35 @@ export class ZeppController {
   @Delete('data')
   deleteData(@CurrentUser() user: CurrentUserPayload) {
     return this.connections.deleteData(ZEPP_PROVIDER_ID, user.sub);
+  }
+
+  // Treinos no relogio (Lote 2) — estado, sincronizacao agora e retirada EXPLICITA. Sempre do proprio usuario logado; o envio so' acontece com a finalidade
+  // `watch_delivery` concedida, `ZEPP_WORKOUT_PUBLISH_ENABLED=true` e o perfil de unidades da Workout V2 confirmado pela Zepp.
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('coach', 'admin')
+  @Get('workouts/status')
+  workoutsStatus(@CurrentUser() user: CurrentUserPayload) {
+    return this.workouts.status(user.sub);
+  }
+
+  @Throttle({ default: { limit: 6, ttl: 60_000 } })
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('coach', 'admin')
+  @Post('workouts/sync')
+  @HttpCode(200)
+  workoutsSync(@CurrentUser() user: CurrentUserPayload) {
+    return this.workouts.reconcile(user.sub);
+  }
+
+  // Retira os treinos do relogio (envia a janela VAZIA, que apaga na Zepp). Unico caminho manual de lista vazia: exige confirmacao expressa no corpo.
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('coach', 'admin')
+  @Post('workouts/clear')
+  @HttpCode(200)
+  workoutsClear(@CurrentUser() user: CurrentUserPayload, @Body() body: { confirm?: unknown }) {
+    if (body?.confirm !== true) throw new HttpException('Confirme a retirada dos treinos do relogio (confirm: true).', 400);
+    return this.workouts.clearWindow(user.sub);
   }
 
   // A Zepp redireciona o navegador para esta rota HTTPS publica (redirect cadastrado no console da Zepp).

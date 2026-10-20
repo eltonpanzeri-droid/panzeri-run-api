@@ -472,6 +472,10 @@ export class ObservationReaderService {
         }
       } else if (definition.variableId === 'activity.cadenceAvg') {
         if (log.cadenceAvg != null && log.cadenceAvg > 0) value = log.cadenceAvg;
+      } else if (definition.variableId === 'activity.powerAvgWatts') {
+        if (log.powerAvgWatts != null && log.powerAvgWatts > 0) value = log.powerAvgWatts;
+      } else if (definition.variableId === 'activity.elevationGainMeters') {
+        if (log.elevationGainMeters != null && log.elevationGainMeters >= 0) value = log.elevationGainMeters;
       }
       if (value == null) continue; // ausencia — nunca vira zero
       observations.push({

@@ -126,8 +126,9 @@ describe('invariantes da trava de envio externo', () => {
     for (const file of allFiles) expect(readFileSync(file, 'utf8')).not.toMatch(/ZEPP_EXTERNAL_AI_ENABLED\s*=\s*['"]?true/i);
   });
 
-  it('o conector Zepp nao declara webhook, eventos nem sync: nenhum dado da Zepp e importado neste lote', () => {
+  it('o conector Zepp nunca declara a capacidade webhook (o recebimento e o controlador com segredo) e so declara eventos/sync quando recebe os servicos', () => {
     const connector = read('zepp/zepp.connector.ts');
-    expect(connector).not.toMatch(/webhook:|events:|sync:/);
+    expect(connector).not.toMatch(/webhook:/);
+    expect(connector).toContain('deps.events');
   });
 });

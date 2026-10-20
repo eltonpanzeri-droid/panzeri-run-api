@@ -1543,6 +1543,12 @@ model ActivityTimeSeriesPoint {
   speedKmh       Float?
   distanceMeters Float?
   cadenceSpm     Int?
+  // Lote 3 Zepp (20/10/2026): vindos do FIT autorizado. Latitude/longitude so' existem com a autorizacao "Percursos e GPS"; altitude e potencia com "Sensores das
+  // atividades". Nulos para provedores/atividades sem esses dados (nunca zero por padrao).
+  latitude        Float?
+  longitude       Float?
+  elevationMeters Float?
+  powerWatts      Int?
 
   normalizationVersion Int
 

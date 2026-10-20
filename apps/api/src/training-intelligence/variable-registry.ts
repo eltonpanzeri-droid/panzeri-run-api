@@ -948,6 +948,41 @@ VARIABLE_REGISTRY['activity.cadenceAvg'] = {
     'ActivityLog.cadenceAvg (media da serie canonica, ignorando leituras 0 = sem sinal de movimento). So entram atividades de corrida com cadencia valida fornecida pelo dispositivo — sem cadencia, a atividade nao gera observacao.',
 };
 
+VARIABLE_REGISTRY['activity.powerAvgWatts'] = {
+  variableId: 'activity.powerAvgWatts',
+  domain: 'training_load',
+  dataType: 'numeric_continuous',
+  constructLabel: 'potencia media da corrida (watts)',
+  scale: { min: 0, max: 2500, unit: 'W' },
+  direction: 'not_directional',
+  source: 'activity_objective',
+  expectedFrequency: 'per_workout',
+  allowedMathStrategy: 'ordinal_or_continuous_stats',
+  missingPolicy: 'never_impute',
+  versions: [{ version: 1, storageLocation: 'column', field: 'powerAvgWatts' }],
+  versionComparability: 'comparable_across_versions',
+  excludeExtraSessions: false,
+  notes:
+    'ActivityLog.powerAvgWatts (potencia media informada pelo dispositivo, ex.: FIT da Zepp com autorizacao de sensores). So entram atividades de corrida com potencia valida (> 0) — sem potencia, a atividade nao gera observacao. Potencia de relogios diferentes NAO e comparavel entre si: a observacao carrega o provedor.',
+};
+VARIABLE_REGISTRY['activity.elevationGainMeters'] = {
+  variableId: 'activity.elevationGainMeters',
+  domain: 'training_load',
+  dataType: 'numeric_continuous',
+  constructLabel: 'ganho de elevacao da corrida (metros acumulados de subida)',
+  scale: { min: 0, max: 20000, unit: 'm' },
+  direction: 'not_directional',
+  source: 'activity_objective',
+  expectedFrequency: 'per_workout',
+  allowedMathStrategy: 'ordinal_or_continuous_stats',
+  missingPolicy: 'never_impute',
+  versions: [{ version: 1, storageLocation: 'column', field: 'elevationGainMeters' }],
+  versionComparability: 'comparable_across_versions',
+  excludeExtraSessions: false,
+  notes:
+    'ActivityLog.elevationGainMeters (subida acumulada informada pelo dispositivo). Zero e valor valido (percurso plano); ausente quando o dispositivo/aluno nao forneceu (nunca imputado). Altimetros diferentes divergem: a observacao carrega o provedor.',
+};
+
 // Etapa 2.1 — indicadores de execucao que alimentam as janelas longitudinais (21/60/200 dias). Escolhidos pelos padroes pedidos, nao por quantidade:
 //  - volume sistematicamente abaixo do prescrito mesmo com sessoes concluidas => distanceCompletionRatio
 //  - evolucao da aderencia as intensidades => timeInBandPct

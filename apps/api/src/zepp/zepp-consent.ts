@@ -1,6 +1,6 @@
 import { ConsentCapability } from '../provider-hub/provider-connector';
 
-// Texto de consentimento Zepp/Amazfit — MINUTA FUNCIONAL versao 1.1 (19/10/2026). NAO e' documento juridicamente aprovado: antes da disponibilizacao geral aos
+// Texto de consentimento Zepp/Amazfit — MINUTA FUNCIONAL versao 1.2 (20/10/2026). NAO e' documento juridicamente aprovado: antes da disponibilizacao geral aos
 // alunos precisa de revisao juridica (LGPD: controlador, contato do titular, retencao, compartilhamentos, transferencia internacional, demais informacoes
 // obrigatorias) e, para o envio a fornecedores externos de IA, de atualizacao das informacoes de privacidade e contato previo com a Zepp.
 // Qualquer alteracao de texto/grupos/finalidades muda o hash e EXIGE nova versao: a conexao registra a versao e o hash do que o aluno viu.
@@ -10,11 +10,14 @@ import { ConsentCapability } from '../provider-hub/provider-connector';
 //  - entrou o grupo "Sensores das atividades" (FC, cadencia, altitude, potencia do treino) como categoria propria e opcional;
 //  - passos/atividade diaria saíram (Daily Events indisponiveis); o texto cobre so' o que a Zepp entrega hoje (atividades concluidas e sono);
 //  - entraram duas finalidades OPCIONAIS e separadas: importar ate 30 dias de historico e analises por IA com fornecedores externos.
+// Mudancas da 1.1 para a 1.2 (20/10/2026): entrou a finalidade OPCIONAL e separada `watch_delivery` (enviar meus treinos ao relogio pela Workout API da Zepp), com a
+// secao 2.4; as secoes seguintes foram renumeradas. Nada mais mudou (grupos e demais finalidades iguais). Conexoes feitas com a 1.1 continuam validas para o que ja
+// autorizaram; o envio de treinos so' passa a valer quando o aluno conceder `watch_delivery` sobre o texto 1.2 (POST /zepp/purposes).
 // O que cada grupo AUTORIZA aqui e' o teto do que o Panzeri Run pode vir a acessar; nada disso e' importado hoje (recebimento de dados desligado). A restricao
 // por grupo e' aplicada pelo Panzeri Run (ProviderConsentService / AiDataEligibility), porque a Zepp nao tem escopos por categoria.
 export const ZEPP_CONSENT: ConsentCapability = {
-  version: '1.1',
-  dateLabel: '19/10/2026',
+  version: '1.2',
+  dateLabel: '20/10/2026',
   title: 'Autorização para conectar Zepp/Amazfit ao Panzeri Run',
   intro: 'Ao conectar minha conta Zepp/Amazfit ao Panzeri Run, autorizo o aplicativo a acessar e utilizar os dados disponibilizados pela Zepp, dentro das categorias que eu selecionar e das permissões efetivamente concedidas pelo serviço.',
   sections: [
@@ -56,7 +59,16 @@ export const ZEPP_CONSENT: ConsentCapability = {
       ],
     },
     {
-      heading: '2.4. Como meus dados serão protegidos?',
+      heading: '2.4. Envio de treinos ao meu relógio (autorização opcional e separada)',
+      paragraphs: [
+        'Esta autorização é opcional, é independente da conexão e pode ser concedida ou retirada por mim a qualquer momento, sem precisar desconectar a Zepp.',
+        'Se eu autorizar, o Panzeri Run poderá enviar à Zepp os treinos de corrida prescritos para mim nos próximos dias, para que apareçam no aplicativo da Zepp e possam ser sincronizados com meu relógio Amazfit para execução guiada.',
+        'O que é enviado é a descrição técnica do treino (nome do treino, data, etapas, distâncias ou tempos e ritmos-alvo). Não são enviados meu nome, dados de saúde, relatos meus nem comentários do treinador. A Zepp mantém esses treinos conforme as próprias regras de sincronização, que cobrem uma janela de sete dias.',
+        'Se eu não autorizar, continuo usando os treinos no aplicativo do Panzeri Run normalmente. Ao retirar a autorização ou desconectar a conta, o Panzeri Run deixa de enviar treinos e a Zepp remove da minha conta os treinos já sincronizados.',
+      ],
+    },
+    {
+      heading: '2.5. Como meus dados serão protegidos?',
       paragraphs: [
         'O Panzeri Run utilizará mecanismos de segurança para proteger a conexão e os dados recebidos.',
         'As credenciais de acesso à Zepp serão armazenadas de forma cifrada. O aplicativo não solicitará minha senha da conta Zepp diretamente.',
@@ -65,7 +77,7 @@ export const ZEPP_CONSENT: ConsentCapability = {
       ],
     },
     {
-      heading: '2.5. Posso desconectar minha conta?',
+      heading: '2.6. Posso desconectar minha conta?',
       paragraphs: [
         'Sim. Poderei solicitar a desconexão da Zepp/Amazfit a qualquer momento.',
         'A desconexão interromperá o acesso futuro pela integração, mas não significará necessariamente a exclusão automática de dados que já tenham sido importados.',
@@ -73,14 +85,14 @@ export const ZEPP_CONSENT: ConsentCapability = {
       ],
     },
     {
-      heading: '2.6. O que acontece se eu não autorizar?',
+      heading: '2.7. O que acontece se eu não autorizar?',
       paragraphs: [
         'A conexão Zepp/Amazfit é opcional.',
         'A recusa não impede a utilização das demais funcionalidades do Panzeri Run que não dependam dessa integração.',
       ],
     },
     {
-      heading: '2.7. Minha autorização',
+      heading: '2.8. Minha autorização',
       paragraphs: ['Ao selecionar as categorias desejadas e confirmar a conexão, declaro que:'],
       bullets: [
         'Recebi informações sobre quais dados poderão ser acessados e para quais finalidades.',
@@ -144,6 +156,13 @@ export const ZEPP_CONSENT: ConsentCapability = {
       label: 'Análises por IA com fornecedores externos',
       description: 'Permite o envio dos dados das categorias selecionadas, e de informações calculadas a partir deles, a fornecedores externos de inteligência artificial (seção 2.3). Você pode retirar a qualquer momento.',
       external: true,
+      changeableAfterConnect: true,
+    },
+    {
+      id: 'watch_delivery',
+      label: 'Enviar meus treinos ao relógio',
+      description: 'Permite que o Panzeri Run envie à Zepp os treinos de corrida prescritos para você, para execução guiada no relógio Amazfit (seção 2.4). Você pode retirar a qualquer momento.',
+      external: false,
       changeableAfterConnect: true,
     },
   ],

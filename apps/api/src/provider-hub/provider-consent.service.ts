@@ -1,4 +1,5 @@
 import { ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConsentCapability } from './provider-connector';
@@ -43,6 +44,37 @@ export class ProviderConsentService {
     const c = await this.load(provider, userId);
     if (!c || c.disconnectedAt) throw new ConflictException('A integracao nao esta conectada.');
     if (!(await this.isAllowed(provider, userId, category, purpose))) throw new ForbiddenException('Categoria ou finalidade nao autorizada pelo aluno.');
+  }
+
+  // Retrato do consentimento VIGENTE (null = sem conexao ativa). Usado antes de baixar/gravar dado: categorias e finalidades autorizadas e a data a partir da qual
+  // o Panzeri Run pode coletar (collectFrom: nada anterior e' aceito, exceto o historico de ate 30 dias que o aluno tenha autorizado).
+  async snapshot(provider: string, userId: string): Promise<{ categories: string[]; purposes: string[]; collectFrom: Date | null } | null> {
+    const c = await this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider, userId } }, select: { disconnectedAt: true, grantedCategories: true, grantedPurposes: true, collectFrom: true } });
+    if (!c || c.disconnectedAt) return null;
+    return {
+      categories: Array.isArray(c.grantedCategories) ? (c.grantedCategories as string[]) : [],
+      purposes: Array.isArray(c.grantedPurposes) ? (c.grantedPurposes as string[]) : [],
+      collectFrom: c.collectFrom ?? null,
+    };
+  }
+
+  // Executa a GRAVACAO de dado coletado com a linha da conexao travada em modo compartilhado (a desconexao/revogacao espera a escrita terminar e uma escrita
+  // que comece depois dela nao encontra conexao ativa). As categorias sao relidas AQUI, dentro da trava: o que o aluno retirou no meio do processamento nao e gravado.
+  // Devolve null (nada gravado) se a conexao nao esta mais ativa.
+  async writeWhileAuthorized<T>(provider: string, userId: string, write: (tx: Prisma.TransactionClient, granted: { categories: string[]; purposes: string[] }) => Promise<T>): Promise<T | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ grantedCategories: unknown; grantedPurposes: unknown }>>`SELECT "grantedCategories", "grantedPurposes" FROM "ProviderConnection" WHERE "provider" = ${provider} AND "userId" = ${userId} AND "disconnectedAt" IS NULL FOR SHARE`;
+      if (rows.length === 0) return null;
+      const categories = Array.isArray(rows[0].grantedCategories) ? (rows[0].grantedCategories as string[]) : [];
+      const purposes = Array.isArray(rows[0].grantedPurposes) ? (rows[0].grantedPurposes as string[]) : [];
+      return write(tx, { categories, purposes });
+    }, { timeout: 60_000 });
+  }
+
+  // Alunos com conexao ATIVA que concederam uma finalidade (ex.: rotina de envio de treinos ao relogio). So' ids internos; nenhum token sai daqui.
+  async userIdsWithPurpose(provider: string, purpose: string): Promise<string[]> {
+    const rows = await this.prisma.providerConnection.findMany({ where: { provider, disconnectedAt: null, grantedPurposes: { array_contains: purpose } }, select: { userId: true } });
+    return rows.map((row) => row.userId);
   }
 
   // Eventos de provedor chegam com o id EXTERNO da conta; so' conexoes ativas resolvem para um usuario.

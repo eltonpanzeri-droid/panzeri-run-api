@@ -147,10 +147,10 @@ describe('Zepp: conector (nada de recebimento de dados ativado)', () => {
     expect(() => new ConnectorRegistry().register(connector)).not.toThrow();
   });
 
-  it('o codigo da Zepp nao grava atividade nem saude: nenhuma referencia ao pipeline de atividades', () => {
+  it('so os servicos de gravacao e de vinculo exato da Zepp tocam o pipeline de atividades (ActivityLog, raw, serie, vinculo); o FIT original nunca e gravado', () => {
     const dir = join(__dirname, '..', 'src', 'zepp');
-    for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts'))) {
-      expect(readFileSync(join(dir, file), 'utf8')).not.toMatch(/activityLog|rawExternalActivity|rawActivitySample|activityTimeSeries|SessionExecutionLink|webhook\(/i);
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts') && !['zepp-activity-ingestion.service.ts', 'zepp-exact-link.service.ts'].includes(f))) {
+      expect(readFileSync(join(dir, file), 'utf8')).not.toMatch(/activityLog|rawExternalActivity|rawActivitySample|activityTimeSeries|SessionExecutionLink|\bwebhook\(/i);
     }
   });
 
@@ -183,8 +183,8 @@ describe('Zepp: texto de consentimento 1.1 e grupos', () => {
   const all = JSON.stringify(ZEPP_CONSENT);
 
   it('versao 1.1 de 19/10/2026, com IA como autorizacao opcional e separada, e a frase de confirmacao da minuta', () => {
-    expect(ZEPP_CONSENT.version).toBe('1.1');
-    expect(ZEPP_CONSENT.dateLabel).toBe('19/10/2026');
+    expect(ZEPP_CONSENT.version).toBe('1.2');
+    expect(ZEPP_CONSENT.dateLabel).toBe('20/10/2026');
     expect(ZEPP_CONSENT.title).toBe('Autorização para conectar Zepp/Amazfit ao Panzeri Run');
     expect(all).toContain('Este consentimento, por si só, não autoriza análises por inteligência artificial nem o envio dos dados a fornecedores externos.');
     expect(all).toContain('2.3. Análises por inteligência artificial (autorização opcional e separada)');
@@ -200,9 +200,12 @@ describe('Zepp: texto de consentimento 1.1 e grupos', () => {
     for (const forbidden of ['ai', 'ia', 'ai_external', 'ai_internal', 'model_training', 'atlas']) expect(ZEPP_CONSENT.purposes).not.toContain(forbidden);
     // IA externa e importacao de historico sao OPCIONAIS e separadas; so' a IA externa pode ser mudada depois da conexao
     const optional = Object.fromEntries(ZEPP_CONSENT.optionalPurposes.map((p: any) => [p.id, p]));
-    expect(Object.keys(optional).sort()).toEqual(['ai_external', 'history_backfill']);
+    expect(Object.keys(optional).sort()).toEqual(['ai_external', 'history_backfill', 'watch_delivery']);
     expect(optional.ai_external).toMatchObject({ external: true, changeableAfterConnect: true });
     expect(optional.history_backfill).toMatchObject({ external: false, changeableAfterConnect: false });
+    // envio de treinos ao relogio (consentimento 1.2): opcional, separado, nao e' envio a terceiro alem da propria Zepp e pode ser retirado depois
+    expect(optional.watch_delivery).toMatchObject({ external: false, changeableAfterConnect: true });
+    expect(ZEPP_CONSENT.purposes).not.toContain('watch_delivery');
   });
 
   it('grupos: dados basicos obrigatorios; GPS e sensores dependem de atividades; sono sem FC de repouso; nenhum grupo concede categoria fora do conector', () => {
@@ -220,7 +223,7 @@ describe('Zepp: acesso restrito e unico ponto de acesso a conexao', () => {
   it('toda rota autenticada exige coach/admin (alem do JWT); so o callback e publico', () => {
     const source = readFileSync(join(__dirname, '..', 'src', 'zepp', 'zepp.controller.ts'), 'utf8');
     const guarded = source.match(/@UseGuards\(AuthGuard\('jwt'\), RolesGuard\)\s+@Roles\('coach', 'admin'\)/g) ?? [];
-    expect(guarded).toHaveLength(6); // connect, purposes, consent, status, disconnect, data
+    expect(guarded).toHaveLength(9); // connect, purposes, consent, status, disconnect, data + workouts/status, workouts/sync, workouts/clear (Lote 2)
     const routes = source.match(/@(Get|Post|Delete)\('/g) ?? [];
     expect(routes).toHaveLength(guarded.length + 1); // + callback
     expect(source.indexOf("@Get('callback')")).toBeGreaterThan(-1);

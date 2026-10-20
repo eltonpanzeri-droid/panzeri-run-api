@@ -14,7 +14,7 @@ import { AiDataEligibility } from '../src/ai-governance/ai-data-eligibility.serv
 
 // Injecao de dependencias dos modulos novos (a unica coisa que so aparecia no boot real). O Prisma e' substituido: nada conecta a banco algum.
 describe('injecao de dependencias da Central Universal', () => {
-  it('ProviderHubModule + ZeppModule resolvem; o conector Zepp e registrado so com oauth e revogacao', async () => {
+  it('ProviderHubModule + ZeppModule resolvem; o conector Zepp e registrado com consentimento, oauth, revogacao e processamento de eventos e pedido de historico (sem webhook generico)', async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }), ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]), ProviderHubModule, ZeppModule, AiQueueModule],
     })
@@ -26,7 +26,7 @@ describe('injecao de dependencias da Central Universal', () => {
     expect(moduleRef.get(ProviderInboundEventService, { strict: false })).toBeDefined();
     const connector = moduleRef.get(ConnectorRegistry, { strict: false }).get('zepp');
     expect(connector).toBeDefined();
-    expect(Object.keys(connector!).filter((k) => ['consent', 'oauth', 'webhook', 'events', 'sync', 'revocation', 'dataDeletion'].includes(k)).sort()).toEqual(['consent', 'oauth', 'revocation']);
+    expect(Object.keys(connector!).filter((k) => ['consent', 'oauth', 'webhook', 'events', 'sync', 'revocation', 'dataDeletion'].includes(k)).sort()).toEqual(['consent', 'events', 'oauth', 'revocation', 'sync']);
     // Governanca de IA: a fila unica de chamadas a fornecedores externos recebe o guarda (sem ele as chamadas nao seriam protegidas) e a elegibilidade usa o MESMO registro de conectores
     const queue = moduleRef.get(AiQueueService, { strict: false }) as unknown as { egress?: unknown };
     expect(queue.egress).toBeInstanceOf(AiEgressGuard);
