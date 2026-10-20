@@ -8370,25 +8370,6 @@ function sleepDurationCategoryLabel(value: string) {
   return labels[value] ?? value;
 }
 
-// 19/08: satisfacao virou 4 perguntas separadas (elaboracao/fazer/capacidade/carga) em vez de uma
-// so vaga — resume as que tiverem resposta numa unica linha compacta pro historico de semana.
-function satisfactionDimensionsLine(session: {
-  satisfactionElaboracao?: string | null;
-  satisfaction?: string | null;
-  satisfactionCapacidade?: string | null;
-  satisfactionCarga?: string | null;
-  executionVsPrescribed?: number | null;
-}) {
-  const parts: string[] = [];
-  if (session.satisfactionElaboracao) parts.push(`Elaboracao: ${satisfactionLabel(session.satisfactionElaboracao)}`);
-  if (session.satisfaction) parts.push(`Fazer: ${satisfactionLabel(session.satisfaction)}`);
-  // executionVsPrescribed (v2) substitui satisfactionCapacidade (v1) — nunca ambos na mesma sessao.
-  if (session.executionVsPrescribed) parts.push(`Execucao vs. prescrito: ${executionVsPrescribedLabel(session.executionVsPrescribed)}`);
-  else if (session.satisfactionCapacidade) parts.push(`Como conseguiu: ${satisfactionLabel(session.satisfactionCapacidade)}`);
-  if (session.satisfactionCarga) parts.push(`Carga: ${cargaLabel(session.satisfactionCarga)}`);
-  return parts.length ? ` | ${parts.join(' | ')}` : '';
-}
-
 // executionVsPrescribed: 3 = fez como prescrito (referencia, nao "neutro"). Nunca interpretar 5
 // como "melhor execucao" — e' so' mais que o prescrito.
 function executionVsPrescribedLabel(value: number) {

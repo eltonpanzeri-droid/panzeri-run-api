@@ -141,7 +141,6 @@ const dayNumber = (iso: string) => String(Number(iso.slice(8, 10)));
 const dateBr = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 const km = (value: number | null | undefined) => (value == null ? null : `${Number.isInteger(value) ? value : value.toFixed(1).replace('.', ',')} km`);
 const minutes = (value: number | null | undefined) => (value == null ? null : `${Math.round(value)} min`);
-const paceText = (seconds: number | null | undefined) => (seconds ? `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}/km` : null);
 
 function chipText(session: CalendarSession): string {
   const planned = km(session.distanceKm) ?? minutes(session.durationMin) ?? '';
