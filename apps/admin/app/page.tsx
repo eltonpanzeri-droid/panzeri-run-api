@@ -6,6 +6,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Area, Bar, CartesianGrid, Cell, LabelList, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import TrainingIntelligenceStudio from './ti/studio';
 import ZeppTestPanel from './zepp-test-panel';
+import StudentCalendar from './student-calendar';
+import type { CalendarSession } from './student-calendar';
 import { adaptiveChannel } from './ti/channel';
 import type { ExportProfile } from './ti/anonymous-export';
 
@@ -3122,7 +3124,7 @@ function StudentPanel({
   const [editStatus, setEditStatus] = useState('active');
   const [subscriptionStatus, setSubscriptionStatus] = useState('pending');
   const [inviteText, setInviteText] = useState('');
-  const [expandedHistoryId, setExpandedHistoryId] = useState('');
+  const [calendarFocus, setCalendarFocus] = useState<{ date: string; nonce: number } | null>(null);
   const [justAddedSessionId, setJustAddedSessionId] = useState('');
   const [mergeSourceEmail, setMergeSourceEmail] = useState('');
   const [messageText, setMessageText] = useState('');
@@ -3171,7 +3173,7 @@ function StudentPanel({
     setSubscriptionStatus(student?.subscriptionStatus ?? 'pending');
     setNewPassword('');
     setInviteText('');
-    setExpandedHistoryId('');
+    setCalendarFocus(null);
     setMessageText('');
     setChatMessages([]);
     setChatInput('');
@@ -3949,7 +3951,8 @@ function StudentPanel({
         const sessionsWithV1Pain = allSessions.filter((s) => s.painFlag != null && (s.completionStatus === 'done' || s.completionStatus === 'adjusted'));
 
         const handleCalendarDayClick = (planId: string) => {
-          setExpandedHistoryId(planId);
+          const clicked = (student.history ?? []).find((plan) => plan.id === planId);
+          if (clicked) setCalendarFocus({ date: String(clicked.startDate).slice(0, 10), nonce: Date.now() });
           setDetailTab('semanas');
         };
 
@@ -4354,32 +4357,14 @@ function StudentPanel({
       ) : null}
 
       {detailTab === 'semanas' ? (
-      <section className="miniSection">
-        <h3>Historico de semanas</h3>
-        {student.history?.length ? (
-          student.history.map((plan) => (
-            <div className="historyWeek" key={plan.id}>
-              <button className="historyWeekButton" type="button" onClick={() => setExpandedHistoryId((current) => current === plan.id ? '' : plan.id)}>
-                <span><strong>{dateLabel(plan.startDate)} - {plan.name}</strong><small>{plan.summary.adherencePercent != null ? `${plan.summary.adherencePercent}% aderencia` : 'sem dado de aderencia ainda'} | {plan.summary.completedSessions}/{plan.summary.prescribedSessions} treinos | {plan.summary.completedKm}/{plan.summary.prescribedKm} km</small></span>
-                <span>{expandedHistoryId === plan.id ? 'Recolher' : 'Abrir semana'}</span>
-              </button>
-              {expandedHistoryId === plan.id ? (
-                <div className="historySessions">
-                  {plan.sessions?.map((session) => (
-                    <article className="historySession" key={session.id}>
-                      <div><strong>{weekdayLabel(session.weekday)} {dateLabel(session.date)} - {session.title}</strong><span>{modalityLabel(session.modality)} | {Math.round((session.completedDurationMin ?? session.durationMin) ?? 0)} min {(session.completedDistanceKm ?? session.distanceKm) ? `| ${session.completedDistanceKm ?? session.distanceKm} km` : ''}</span></div>
-                      <AdminPrescription structure={session.structure} notes={session.notes} />
-                      <p className="historyExecution">{completionLabel(session.completionStatus)}{session.perceivedEffort ? ` | PSE ${session.perceivedEffort}/10` : ''}{satisfactionDimensionsLine(session)}{session.feedback ? ` | ${session.feedback}` : ''}</p>
-                    </article>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ))
-        ) : (
-          <p>Sem historico registrado.</p>
-        )}
-      </section>
+        <StudentCalendar
+          apiUrl={API_URL}
+          token={token}
+          studentId={student.id}
+          focusDate={calendarFocus?.date ?? null}
+          focusNonce={calendarFocus?.nonce}
+          renderSessionCard={(session) => <HistorySessionCard session={session} />}
+        />
       ) : null}
 
       {detailTab === 'ciclo' ? (
@@ -7045,6 +7030,106 @@ function CicloTab({ studentId, accessToken }: { studentId: string; accessToken: 
   );
 }
 
+// Painel "Realizado pelo aluno" (resposta ao treino). Usado na aba Treinos (EditableSession) e no calendario de semanas anteriores (HistorySessionCard).
+function SessionExecutionPanel({ session }: { session: NonNullable<StudentDetail['plan']>['sessions'][number] }) {
+  return (
+  <div className={`executionPanel ${session.completionStatus === 'sem_registro' ? 'emptyExecution' : ''}`}>
+    <strong>Realizado pelo aluno</strong>
+    {session.completionStatus === 'sem_registro' ? <span>Sem registro</span> : (
+      <>
+        <span>
+          {session.completedDurationMin ? `${session.completedDurationMin} min` : 'Tempo nao informado'}
+          {session.completedDistanceKm ? ` | ${session.completedDistanceKm} km` : ''}
+          {session.completedPaceSecondsKm ? ` | ${paceLabel(session.completedPaceSecondsKm)}` : ''}
+        </span>
+        {/* Bloco SONO — pergunta 1 (v1/v2) + perguntas 2-5 (v2, 24/09/2026) */}
+        {(session.preSleepQuality || session.sleepDurationCategory || session.sleepScheduleIrregularity || session.sleepInterruption || session.sleepDifficulty) && (
+          <span style={{ borderTop: '1px solid #e5e7eb', paddingTop: 4, marginTop: 2 }}>
+            <strong>Sono:</strong> qualidade {scale5Label(session.preSleepQuality, 'Muito ruim', 'Excelente')}
+            {session.sleepDurationCategory ? ` · duracao ${sleepDurationCategoryLabel(session.sleepDurationCategory)}` : ''}
+            {session.sleepScheduleIrregularity ? ` · irregularidade ${session.sleepScheduleIrregularity}/5` : ''}
+            {session.sleepInterruption ? ` · interrompido ${session.sleepInterruption}/5` : ''}
+            {session.sleepDifficulty ? ` · dificuldade p/dormir ${session.sleepDifficulty}/5` : ''}
+          </span>
+        )}
+        {/* Bloco ESTADO ANTES DO TREINO — cansaco fisico (v1/v2) + mental (v2) + estresse/motivacao */}
+        {(session.prePhysicalFatigue || session.preMentalFatigue || session.preStressLevel || session.preMotivation) && (
+          <span>
+            <strong>Antes do treino:</strong> cansaco fisico {scale5Label(session.prePhysicalFatigue, 'Muito baixo', 'Muito alto')}
+            {session.preMentalFatigue ? ` · cansaco mental ${session.preMentalFatigue}/5` : ''}
+            {' · estresse '}{scale5Label(session.preStressLevel, 'Muito baixo', 'Muito alto')}
+            {' · vontade de treinar '}{scale5Label(session.preMotivation, 'Muito baixa', 'Muito alta')}
+          </span>
+        )}
+        {/* Esforco e satisfacoes */}
+        <span>{session.perceivedEffort ? `PSE ${session.perceivedEffort}/10` : 'PSE nao informada'}</span>
+        {session.satisfactionElaboracao && <span>Elaboracao do treino: {satisfactionLabel(session.satisfactionElaboracao)}</span>}
+        {/* executionVsPrescribed (v2) substitui satisfactionCapacidade (v1) — nunca ambos preenchidos */}
+        {session.executionVsPrescribed ? <span>Execucao vs. prescrito: {executionVsPrescribedLabel(session.executionVsPrescribed)}</span>
+          : session.satisfactionCapacidade ? <span>Como se saiu: {satisfactionLabel(session.satisfactionCapacidade)}</span> : null}
+        {/* Campos historicos — so mostrar se preenchidos (clientes pre-v1) */}
+        {session.satisfaction && <span>Fazer o treino: {satisfactionLabel(session.satisfaction)}</span>}
+        {session.satisfactionCarga && <span>Carga: {cargaLabel(session.satisfactionCarga)}</span>}
+        {/* Caminhada/parada */}
+        {session.walkingReasons && session.walkingReasons.length > 0 && (
+          <span>Caminhada/parada: {session.walkingReasons.join(' · ')}</span>
+        )}
+        {/* Bloco RESPOSTA AO TREINO — pos-treino v2 substitui v1 (postPhysicalFatigue no lugar
+            de postWorkoutFeeling; emotionalExperienceDuring no lugar de postWorkoutMood) */}
+        {session.postPhysicalFatigue ? <span>Cansaco fisico provocado: {session.postPhysicalFatigue}/5</span>
+          : session.postWorkoutFeeling ? <span>Corpo ao terminar: {scale5Label(session.postWorkoutFeeling, 'Exausto / no limite', 'Cheio de energia')}</span> : null}
+        {session.postMentalFatigue && <span>Cansaco mental provocado: {session.postMentalFatigue}/5</span>}
+        {session.emotionalExperienceDuring ? <span>Experiencia emocional durante: {session.emotionalExperienceDuring}/5</span>
+          : session.postWorkoutMood ? <span>Emocional ao terminar: {scale5Label(session.postWorkoutMood, 'Frustrado / chateado', 'Orgulhoso / muito feliz')}</span> : null}
+        {session.mentalStateChangePrePost && <span>Mudanca mental pre→pos: {session.mentalStateChangePrePost}/5</span>}
+        {/* Dor */}
+        {session.painFlag === 'none' && <span>Sem dor ou desconforto</span>}
+        {session.painFlag && session.painFlag !== 'none' && (
+          <span>Dor {painFlagLabel(session.painFlag)}{session.painTiming ? ` — ${painTimingLabel(session.painTiming)}` : ''}</span>
+        )}
+        {/* Comentario */}
+        {session.feedback && <span>"{session.feedback}"</span>}
+      </>
+    )}
+  </div>
+  );
+}
+
+// Cartao SOMENTE LEITURA de um treino do historico (mesmo visual da aba Treinos, sem editar/excluir): prescrito + o que foi feito + resposta da aluna.
+function HistorySessionCard({ session }: { session: CalendarSession }) {
+  const asPlanSession = session as unknown as NonNullable<StudentDetail['plan']>['sessions'][number];
+  const statusLabel = session.status === 'feito' ? 'Feito' : session.status === 'ajustado' ? 'Ajustado' : session.status === 'nao_feito' ? 'Nao feito' : session.status === 'futuro' ? 'A fazer' : 'Sem registro';
+  const statusClass = session.status === 'feito' ? 'execution-done' : session.status === 'ajustado' ? 'execution-adjusted' : session.status === 'nao_feito' ? 'execution-missed' : 'execution-sem_registro';
+  const execution = session.execution;
+  return (
+    <div className="sessionEditor" style={{ borderLeft: `4px solid ${modalityAccentColor(session.modality)}` }}>
+      <div className="sessionEditorHeader">
+        <span className={`executionStatus ${statusClass}`}>{statusLabel}</span>
+        {session.kind === 'extra_relogio' ? <span className="calKindTag">Extra do relogio</span> : null}
+        {session.kind === 'extra_aluno' ? <span className="calKindTag">Extra da aluna</span> : null}
+      </div>
+      <div className="sessionOverview">
+        <strong>{session.title}</strong>
+        <span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''}</span>
+      </div>
+      <AdminPrescription structure={session.structure} notes={session.notes} />
+      {execution ? (
+        <div className="executionPanel">
+          <strong>Registrado pelo relogio ({execution.provider})</strong>
+          <span>
+            {execution.durationMin != null ? `${Math.round(execution.durationMin)} min` : 'Tempo nao informado'}
+            {execution.distanceKm != null ? ` | ${Number(execution.distanceKm.toFixed(2))} km` : ''}
+            {execution.avgPaceSecondsKm ? ` | ${paceLabel(execution.avgPaceSecondsKm)}` : ''}
+            {execution.avgHeartRateBpm ? ` | ${execution.avgHeartRateBpm} bpm` : ''}
+          </span>
+          {!session.hasFeedback ? <span>A aluna ainda nao respondeu o feedback deste treino.</span> : null}
+        </div>
+      ) : null}
+      {session.hasFeedback || !execution ? <SessionExecutionPanel session={asPlanSession} /> : null}
+    </div>
+  );
+}
+
 function EditableSession({
   session,
   studentId,
@@ -7214,65 +7299,7 @@ function EditableSession({
         <span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''}</span>
       </div>
       <AdminPrescription structure={session.structure} notes={session.notes} />
-      <div className={`executionPanel ${session.completionStatus === 'sem_registro' ? 'emptyExecution' : ''}`}>
-        <strong>Realizado pelo aluno</strong>
-        {session.completionStatus === 'sem_registro' ? <span>Sem registro</span> : (
-          <>
-            <span>
-              {session.completedDurationMin ? `${session.completedDurationMin} min` : 'Tempo nao informado'}
-              {session.completedDistanceKm ? ` | ${session.completedDistanceKm} km` : ''}
-              {session.completedPaceSecondsKm ? ` | ${paceLabel(session.completedPaceSecondsKm)}` : ''}
-            </span>
-            {/* Bloco SONO — pergunta 1 (v1/v2) + perguntas 2-5 (v2, 24/09/2026) */}
-            {(session.preSleepQuality || session.sleepDurationCategory || session.sleepScheduleIrregularity || session.sleepInterruption || session.sleepDifficulty) && (
-              <span style={{ borderTop: '1px solid #e5e7eb', paddingTop: 4, marginTop: 2 }}>
-                <strong>Sono:</strong> qualidade {scale5Label(session.preSleepQuality, 'Muito ruim', 'Excelente')}
-                {session.sleepDurationCategory ? ` · duracao ${sleepDurationCategoryLabel(session.sleepDurationCategory)}` : ''}
-                {session.sleepScheduleIrregularity ? ` · irregularidade ${session.sleepScheduleIrregularity}/5` : ''}
-                {session.sleepInterruption ? ` · interrompido ${session.sleepInterruption}/5` : ''}
-                {session.sleepDifficulty ? ` · dificuldade p/dormir ${session.sleepDifficulty}/5` : ''}
-              </span>
-            )}
-            {/* Bloco ESTADO ANTES DO TREINO — cansaco fisico (v1/v2) + mental (v2) + estresse/motivacao */}
-            {(session.prePhysicalFatigue || session.preMentalFatigue || session.preStressLevel || session.preMotivation) && (
-              <span>
-                <strong>Antes do treino:</strong> cansaco fisico {scale5Label(session.prePhysicalFatigue, 'Muito baixo', 'Muito alto')}
-                {session.preMentalFatigue ? ` · cansaco mental ${session.preMentalFatigue}/5` : ''}
-                {' · estresse '}{scale5Label(session.preStressLevel, 'Muito baixo', 'Muito alto')}
-                {' · vontade de treinar '}{scale5Label(session.preMotivation, 'Muito baixa', 'Muito alta')}
-              </span>
-            )}
-            {/* Esforco e satisfacoes */}
-            <span>{session.perceivedEffort ? `PSE ${session.perceivedEffort}/10` : 'PSE nao informada'}</span>
-            {session.satisfactionElaboracao && <span>Elaboracao do treino: {satisfactionLabel(session.satisfactionElaboracao)}</span>}
-            {/* executionVsPrescribed (v2) substitui satisfactionCapacidade (v1) — nunca ambos preenchidos */}
-            {session.executionVsPrescribed ? <span>Execucao vs. prescrito: {executionVsPrescribedLabel(session.executionVsPrescribed)}</span>
-              : session.satisfactionCapacidade ? <span>Como se saiu: {satisfactionLabel(session.satisfactionCapacidade)}</span> : null}
-            {/* Campos historicos — so mostrar se preenchidos (clientes pre-v1) */}
-            {session.satisfaction && <span>Fazer o treino: {satisfactionLabel(session.satisfaction)}</span>}
-            {session.satisfactionCarga && <span>Carga: {cargaLabel(session.satisfactionCarga)}</span>}
-            {/* Caminhada/parada */}
-            {session.walkingReasons && session.walkingReasons.length > 0 && (
-              <span>Caminhada/parada: {session.walkingReasons.join(' · ')}</span>
-            )}
-            {/* Bloco RESPOSTA AO TREINO — pos-treino v2 substitui v1 (postPhysicalFatigue no lugar
-                de postWorkoutFeeling; emotionalExperienceDuring no lugar de postWorkoutMood) */}
-            {session.postPhysicalFatigue ? <span>Cansaco fisico provocado: {session.postPhysicalFatigue}/5</span>
-              : session.postWorkoutFeeling ? <span>Corpo ao terminar: {scale5Label(session.postWorkoutFeeling, 'Exausto / no limite', 'Cheio de energia')}</span> : null}
-            {session.postMentalFatigue && <span>Cansaco mental provocado: {session.postMentalFatigue}/5</span>}
-            {session.emotionalExperienceDuring ? <span>Experiencia emocional durante: {session.emotionalExperienceDuring}/5</span>
-              : session.postWorkoutMood ? <span>Emocional ao terminar: {scale5Label(session.postWorkoutMood, 'Frustrado / chateado', 'Orgulhoso / muito feliz')}</span> : null}
-            {session.mentalStateChangePrePost && <span>Mudanca mental pre→pos: {session.mentalStateChangePrePost}/5</span>}
-            {/* Dor */}
-            {session.painFlag === 'none' && <span>Sem dor ou desconforto</span>}
-            {session.painFlag && session.painFlag !== 'none' && (
-              <span>Dor {painFlagLabel(session.painFlag)}{session.painTiming ? ` — ${painTimingLabel(session.painTiming)}` : ''}</span>
-            )}
-            {/* Comentario */}
-            {session.feedback && <span>"{session.feedback}"</span>}
-          </>
-        )}
-      </div>
+      <SessionExecutionPanel session={session} />
       {isEditing ? (
         <div className="editOverlay" role="dialog" aria-modal="true" aria-label="Editar treino">
           <div className="editDialog">

@@ -2830,3 +2830,49 @@ h3 {
 .zeppGroup { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
 .zeppGroup input { margin-top: 3px; }
 .zeppRecent ul { margin: 4px 0 0 18px; padding: 0; font-size: 13px; }
+
+/* Calendario do aluno (aba Semanas anteriores) — 20/10/2026 */
+.calendarTab { display: grid; gap: 12px; }
+.calToolbar { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; }
+.calModes { display: inline-flex; border: 1px solid var(--line, #d9dee7); border-radius: 8px; overflow: hidden; }
+.calModes button { border: 0; background: transparent; padding: 7px 14px; cursor: pointer; font: inherit; }
+.calModes button.active { background: #1f6feb; color: #fff; }
+.calNav { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.calNav strong { min-width: 150px; text-align: center; text-transform: capitalize; }
+.calLegend { display: flex; flex-wrap: wrap; gap: 6px; }
+.calChip { display: block; width: 100%; text-align: left; border: 0; border-radius: 6px; padding: 3px 6px; margin-top: 3px; font-size: 11.5px; line-height: 1.25; cursor: pointer; color: #1b2430; background: #e5e7eb; }
+.calLegend .calChip { width: auto; cursor: default; margin-top: 0; }
+.calChip.status-feito { background: #c9efd3; }
+.calChip.status-ajustado { background: #ffe9a8; }
+.calChip.status-nao_feito { background: #f8c9c9; }
+.calChip.status-sem_registro { background: #e5e7eb; }
+.calChip.status-futuro { background: #dbe8fb; }
+.calChip.kind-extra { box-shadow: inset 3px 0 0 #7c3aed; }
+.calChip.kind-pending { background: #fff; border: 1px dashed #9aa4b2; }
+.calMonth { border: 1px solid var(--line, #d9dee7); border-radius: 8px; overflow-x: auto; }
+.calMonthHead, .calMonthRow { display: grid; grid-template-columns: repeat(7, minmax(110px, 1fr)) minmax(140px, 1.1fr); }
+.calMonthHead div { padding: 6px 8px; font-weight: 600; font-size: 12px; background: rgba(127, 127, 127, 0.08); }
+.calDay { min-height: 92px; padding: 4px 6px; border-top: 1px solid var(--line, #d9dee7); border-left: 1px solid var(--line, #d9dee7); cursor: pointer; }
+.calDay:first-child { border-left: 0; }
+.calDayOutside { opacity: 0.45; }
+.calDayToday { background: rgba(31, 111, 235, 0.07); }
+.calDayNumber { font-size: 12px; font-weight: 600; opacity: 0.75; }
+.calSummaryCell { cursor: default; }
+.calWeekSummary { display: grid; gap: 2px; font-size: 12px; }
+.calWeekWrap { display: grid; gap: 10px; }
+.calWeekBoard { display: grid; grid-template-columns: repeat(7, minmax(240px, 1fr)); gap: 8px; overflow-x: auto; }
+.calWeekColumn { border: 1px solid var(--line, #d9dee7); border-radius: 8px; padding: 8px; display: grid; gap: 8px; align-content: start; }
+.calWeekColumnHead { display: flex; justify-content: space-between; }
+.calList { display: grid; gap: 14px; }
+.calListWeek { border: 1px solid var(--line, #d9dee7); border-radius: 8px; padding: 10px; display: grid; gap: 10px; }
+.calListWeekHead { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; }
+.calListCards { display: grid; gap: 10px; }
+.calListDay { margin: 0 0 4px; font-weight: 600; text-transform: capitalize; }
+.calActivity { border: 1px dashed #9aa4b2; border-radius: 8px; padding: 6px 8px; font-size: 13px; display: grid; gap: 2px; }
+.calActivityExtra { border-color: #7c3aed; }
+.calOverlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; align-items: flex-start; justify-content: center; padding: 24px 12px; overflow-y: auto; z-index: 50; }
+.calDialog { background: var(--panel, #fff); color: inherit; border-radius: 12px; width: min(760px, 100%); padding: 16px; display: grid; gap: 12px; }
+.calDialogHeader { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.calDialogHeader h3 { margin: 0; text-transform: capitalize; }
+.calDialogBody { display: grid; gap: 12px; }
+.calKindTag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #ede9fe; color: #5b21b6; }

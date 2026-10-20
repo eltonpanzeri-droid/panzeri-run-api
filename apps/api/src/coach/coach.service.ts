@@ -1,4 +1,7 @@
-﻿import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+﻿import { buildStudentCalendar, mondayOf, normalizeCalendarRange, CalendarLinkedActivity } from './student-calendar';
+import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
+import { mapHistorySession } from './history-session';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
@@ -11,7 +14,7 @@ import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
 import { CreateManualSessionDto } from './dto/create-manual-session.dto';
-import { TrainingPlansService, hasSubscriptionAccess } from '../training-plans/training-plans.service';
+import { TrainingPlansService, hasSubscriptionAccess, todayInSaoPaulo } from '../training-plans/training-plans.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { SendStudentMessageDto } from './dto/send-student-message.dto';
 import { runnerStrengthExercises } from '../training-plans/runner-strength-library';
@@ -80,6 +83,61 @@ export class CoachService {
   // gravado em ActivityLog/RawExternalActivity, sem criar vinculo com TrainingSession, sem
   // transformar/recalcular nada. Substitui a necessidade de rodar SQL manual em producao pra
   // investigar uma atividade importada.
+  // Calendario do aluno (aba "Semanas anteriores"): SO' LEITURA. Sessoes do periodo pela mesma regra de semana do historico que a IA usa, status por precedencia
+  // objetiva, atividades fora do programa (extras/a confirmar) e o resumo de cada semana. Nunca escreve, nunca chama IA e nao altera o historico das outras abas.
+  async calendar(studentId: string, fromRaw: unknown, toRaw: unknown) {
+    await this.assertStudent(studentId);
+    const range = normalizeCalendarRange(fromRaw, toRaw);
+    const today = todayInSaoPaulo().toISOString().slice(0, 10);
+    if (range.empty) return { from: range.from, to: range.to, today, sessions: [], activities: [], weeks: [] };
+
+    const plans = await this.prisma.trainingPlan.findMany({
+      where: { userId: studentId, startDate: { gte: new Date(`${mondayOf(range.from)}T00:00:00Z`), lte: new Date(`${range.to}T23:59:59Z`) } },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        sessions: {
+          orderBy: { scheduledDate: 'asc' },
+          include: {
+            completion: true,
+            executionLinks: {
+              where: { status: 'active' },
+              select: { activityLog: { select: { id: true, provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, physicalIdentityStatus: true, physicalEventId: true, physicalCanonicalActivityLogId: true, executionClassification: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    // A observacao exibida de um evento fisico e' a CANONICA (3A); as demais observacoes do mesmo evento nao aparecem como atividades separadas.
+    const linkRows = plans.flatMap((plan) => plan.sessions.flatMap((session) => session.executionLinks.map((link) => link.activityLog)));
+    const linkPicks = await pickCanonicalPerEvent(linkRows, (ids) => this.prisma.activityLog.findMany({ where: { userId: studentId, id: { in: ids } } }));
+    const canonicalById = new Map<string, CalendarLinkedActivity>();
+    for (const pick of linkPicks) for (const member of pick.members) canonicalById.set(member.id, pick.row);
+
+    // Atividades fora do programa (alternativas) e ainda sem decisao (ambiguas/nao processadas); janela larga pelo fuso, filtro exato pelo dia local na montagem.
+    const rows = await this.prisma.activityLog.findMany({
+      where: {
+        userId: studentId,
+        startedAt: { gte: new Date(Date.parse(`${range.from}T00:00:00Z`) - 86_400_000), lt: new Date(Date.parse(`${range.to}T00:00:00Z`) + 2 * 86_400_000) },
+        OR: [{ executionClassification: { in: ['alternative', 'ambiguous'] } }, { executionClassification: null }],
+      },
+      select: { id: true, provider: true, startedAt: true, utcOffsetMinutes: true, sport: true, durationSec: true, distanceMeters: true, avgHeartRateBpm: true, executionClassification: true, physicalEventId: true, physicalIdentityStatus: true, physicalCanonicalActivityLogId: true },
+    });
+    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId: studentId, id: { in: ids } }, select: { id: true, provider: true, startedAt: true, utcOffsetMinutes: true, sport: true, durationSec: true, distanceMeters: true, avgHeartRateBpm: true, executionClassification: true, physicalEventId: true, physicalIdentityStatus: true, physicalCanonicalActivityLogId: true } }));
+    const activities = picks.map((pick) => ({ ...pick.row, executionClassification: pick.representedBy.executionClassification }));
+
+    const built = buildStudentCalendar({
+      plans: plans as never,
+      from: range.from,
+      to: range.to,
+      today,
+      canonicalById,
+      activities,
+      summarize: (sessions) => summarizeSessions(sessions as never),
+    });
+    return { from: range.from, to: range.to, today, ...built };
+  }
+
   async listExternalActivities(studentId: string) {
     const query = () => this.prisma.activityLog.findMany({
       where: { userId: studentId },
@@ -1791,62 +1849,7 @@ export class CoachService {
         startDate: historyPlan.startDate,
         endDate: historyPlan.endDate,
         summary: summarizeSessions(historyPlan.sessions),
-        sessions: historyPlan.sessions.map((session: any) => ({
-          id: session.id,
-          date: session.scheduledDate,
-          weekday: session.weekday,
-          title: session.title,
-          modality: session.modality,
-          durationMin: session.durationMin,
-          distanceKm: session.distanceKm,
-          zone: session.intensityZone,
-          structure: session.structure,
-          notes: [session.notes, session.recommendations].filter(Boolean).join(' '),
-          routineMismatchNote: session.routineMismatchNote,
-          completionStatus: session.completion?.status ?? 'sem_registro',
-          completedAt: session.completion?.completedAt ?? null,
-          completedDurationMin: session.completion?.durationMin ?? null,
-          completedDistanceKm: session.completion?.distanceKm ?? null,
-          completedPaceSecondsKm: session.completion?.avgPaceSecondsKm ?? null,
-          perceivedEffort: session.completion?.perceivedEffort ?? null,
-          satisfactionElaboracao: session.completion?.satisfactionElaboracao ?? null,
-          satisfaction: session.completion?.satisfaction ?? null,
-          satisfactionCapacidade: session.completion?.satisfactionCapacidade ?? null,
-          satisfactionCarga: session.completion?.satisfactionCarga ?? null,
-          feedback: session.completion?.notes ?? null,
-          // Feedback v1 — bloco 1: estado pre-treino
-          preSleepQuality: session.completion?.preSleepQuality ?? null,
-          prePhysicalFatigue: session.completion?.prePhysicalFatigue ?? null,
-          preStressLevel: session.completion?.preStressLevel ?? null,
-          preMotivation: session.completion?.preMotivation ?? null,
-          // Feedback v1 — bloco 2: experiencia
-          postWorkoutFeeling: session.completion?.postWorkoutFeeling ?? null,
-          // postWorkoutMood fica em details (campo sem migration propria — 12/09/2026)
-          postWorkoutMood: session.completion?.details != null && typeof session.completion.details === 'object'
-            ? (Number((session.completion.details as Record<string, unknown>).postWorkoutMood) || null)
-            : null,
-          // Feedback v2 (24/09/2026)
-          sleepDurationCategory: session.completion?.sleepDurationCategory ?? null,
-          sleepScheduleIrregularity: session.completion?.sleepScheduleIrregularity ?? null,
-          sleepInterruption: session.completion?.sleepInterruption ?? null,
-          sleepDifficulty: session.completion?.sleepDifficulty ?? null,
-          preMentalFatigue: session.completion?.preMentalFatigue ?? null,
-          executionVsPrescribed: session.completion?.executionVsPrescribed ?? null,
-          postPhysicalFatigue: session.completion?.postPhysicalFatigue ?? null,
-          postMentalFatigue: session.completion?.postMentalFatigue ?? null,
-          emotionalExperienceDuring: session.completion?.emotionalExperienceDuring ?? null,
-          mentalStateChangePrePost: session.completion?.mentalStateChangePrePost ?? null,
-          // walkingReasons: motivos de caminhada/parada, multi-select (14/09/2026)
-          walkingReasons: session.completion?.details != null && typeof session.completion.details === 'object'
-            ? (Array.isArray((session.completion.details as Record<string, unknown>).walkingReasons)
-              ? (session.completion.details as Record<string, unknown>).walkingReasons as string[]
-              : null)
-            : null,
-          // Feedback v1 — bloco 3: dor
-          painFlag: session.completion?.painFlag ?? null,
-          painTiming: session.completion?.painTiming ?? null,
-          feedbackVersion: session.completion?.feedbackVersion ?? null,
-        })),
+        sessions: historyPlan.sessions.map(mapHistorySession),
       })),
     };
   }

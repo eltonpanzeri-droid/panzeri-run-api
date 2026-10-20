@@ -397,6 +397,12 @@ export class CoachController {
   // Diagnostico Admin-only (01/10/2026) — observabilidade de integracoes externas (Polar hoje,
   // Strava/Garmin/COROS depois). So' leitura do que ja existe em ActivityLog/RawExternalActivity,
   // sem matching, sem transformacao nova. Ver CoachService.listExternalActivities/getExternalActivityRaw.
+  // Calendario do aluno (so' leitura): sessoes, atividades fora do programa e resumo por semana de um periodo (maximo de 70 dias, a partir de 01/08/2026).
+  @Get('students/:studentId/calendar')
+  calendar(@Param('studentId') studentId: string, @Query('from') from: string, @Query('to') to: string) {
+    return this.coachService.calendar(studentId, from, to);
+  }
+
   @Get('students/:studentId/external-activities')
   listExternalActivities(@Param('studentId') studentId: string) {
     return this.coachService.listExternalActivities(studentId);
