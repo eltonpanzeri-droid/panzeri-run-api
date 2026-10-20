@@ -1,4 +1,5 @@
-﻿import { ActivityDetailService } from '../activity-execution/activity-detail.service';
+﻿import { objectiveExecutionOf } from './objective-execution';
+import { ActivityDetailService } from '../activity-execution/activity-detail.service';
 import { buildStudentCalendar, mondayOf, normalizeCalendarRange, CalendarLinkedActivity } from './student-calendar';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { mapHistorySession } from './history-session';
@@ -1122,7 +1123,7 @@ export class CoachService {
           where: { status: 'active', startDate: weekStart },
           orderBy: { createdAt: 'desc' },
           take: 1,
-          include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
+          include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true, executionLinks: ACTIVE_LINK_DISTANCE_INCLUDE } } },
         },
         billingSubscription: true,
         // Conta TODOS os planos (ativo ou arquivado) — usado so pra saber se a aluna ja teve
@@ -1658,7 +1659,7 @@ export class CoachService {
           orderBy: { createdAt: 'desc' },
           // 10/09: ampliado de 8 para 16 semanas para cobrir ~4 meses de histórico nos gráficos do admin.
           take: 16,
-          include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true } } },
+          include: { sessions: { orderBy: { scheduledDate: 'asc' }, include: { completion: true, executionLinks: ACTIVE_LINK_DISTANCE_INCLUDE } } },
         },
         coachReports: { orderBy: { createdAt: 'desc' }, take: 20 },
         reassessments: {
@@ -1795,16 +1796,16 @@ export class CoachService {
               pace: session.paceMinSec,
               sessionType: session.sessionType,
               structure: session.structure,
-              completionStatus: session.completion?.status ?? 'sem_registro',
+              completionStatus: objectiveExecutionOf(session).linked ? 'done' : (session.completion?.status ?? 'sem_registro'),
               perceivedEffort: session.completion?.perceivedEffort ?? null,
               satisfactionElaboracao: session.completion?.satisfactionElaboracao ?? null,
               satisfaction: session.completion?.satisfaction ?? null,
               satisfactionCapacidade: session.completion?.satisfactionCapacidade ?? null,
               satisfactionCarga: session.completion?.satisfactionCarga ?? null,
               feedback: session.completion?.notes ?? null,
-              completedDurationMin: session.completion?.durationMin ?? null,
-              completedDistanceKm: session.completion?.distanceKm ?? null,
-              completedPaceSecondsKm: session.completion?.avgPaceSecondsKm ?? null,
+              completedDurationMin: objectiveExecutionOf(session).durationMin ?? session.completion?.durationMin ?? null,
+              completedDistanceKm: objectiveExecutionOf(session).distanceKm ?? session.completion?.distanceKm ?? null,
+              completedPaceSecondsKm: objectiveExecutionOf(session).paceSecondsKm ?? session.completion?.avgPaceSecondsKm ?? null,
               completedAt: session.completion?.completedAt ?? null,
               // walkingReasons: motivos de caminhada/parada, multi-select (14/09/2026)
               walkingReasons: session.completion?.details != null && typeof session.completion.details === 'object'
@@ -2512,21 +2513,25 @@ function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex');
 }
 
-export function summarizeSessions(sessions: Array<{ scheduledDate: Date; durationMin: number | null; distanceKm: number | null; completion: { status: string; distanceKm: number | null } | null }>) {
+// Vinculos ativos com a atividade do relogio (so' o que o resumo precisa): execucao objetiva prevalece sobre o feedback digitado (ver objective-execution.ts).
+export const ACTIVE_LINK_DISTANCE_INCLUDE = { where: { status: 'active' }, select: { activityLog: { select: { id: true, distanceMeters: true, durationSec: true } } } } as const;
+
+export function summarizeSessions(sessions: Array<{ scheduledDate: Date; durationMin: number | null; distanceKm: number | null; completion: { status: string; distanceKm: number | null } | null; executionLinks?: Array<{ activityLog: { id?: string; distanceMeters: number | null; durationSec: number | null } }> | null }>) {
   const today = new Date();
   today.setUTCHours(23, 59, 59, 999);
   const prescribedSessions = sessions.length;
   const eligible = sessions.filter((session) => session.scheduledDate <= today);
   const eligibleSessions = eligible.length;
-  const completedSessions = eligible.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted').length;
+  const linked = (session: (typeof sessions)[number]) => objectiveExecutionOf(session).linked;
+  const completedSessions = eligible.filter((session) => linked(session) || session.completion?.status === 'done' || session.completion?.status === 'adjusted').length;
   // 09/09: separar missed (aluno marcou "não fiz" explicitamente) de sem registro (completion===null,
   // aluno não interagiu — pode ter feito sem registrar). Antes ambos iam para missedSessions, gerando
   // contagem de faltas inflada. SEM REGISTRO ≠ NÃO FEITO. Ver [[unregistered_vs_missed_sessions]].
-  const missedSessions = eligible.filter((session) => session.completion?.status === 'missed').length;
-  const unregisteredSessions = eligible.filter((session) => !session.completion).length;
-  const differentSessions = eligible.filter((session) => session.completion?.status === 'adjusted').length;
+  const missedSessions = eligible.filter((session) => !linked(session) && session.completion?.status === 'missed').length;
+  const unregisteredSessions = eligible.filter((session) => !session.completion && !linked(session)).length;
+  const differentSessions = eligible.filter((session) => !linked(session) && session.completion?.status === 'adjusted').length;
   const prescribedKm = round(sessions.reduce((total, session) => total + (session.distanceKm ?? 0), 0));
-  const completedKm = round(sessions.reduce((total, session) => total + (session.completion?.distanceKm ?? 0), 0));
+  const completedKm = round(sessions.reduce((total, session) => total + (objectiveExecutionOf(session).distanceKm ?? session.completion?.distanceKm ?? 0), 0));
   // Aderência: feito ÷ (feito + não feito). Sem registro não entra no denominador — não sabemos se foi feito.
   const adherenceDenominator = completedSessions + missedSessions;
 

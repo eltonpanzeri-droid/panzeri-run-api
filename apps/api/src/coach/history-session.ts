@@ -2,6 +2,8 @@
 // historico (aba Evolucao) e o calendario (aba Semanas anteriores) mostrarem exatamente os mesmos dados.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function mapHistorySession(session: any) {
+  // Execucao objetiva vinculada prevalece (mesma regra do restante do sistema); sem vinculo, o feedback da aluna como sempre.
+  const objective = objectiveExecutionOf(session);
   return {
     id: session.id,
     date: session.scheduledDate,
@@ -14,11 +16,12 @@ export function mapHistorySession(session: any) {
     structure: session.structure,
     notes: [session.notes, session.recommendations].filter(Boolean).join(' '),
     routineMismatchNote: session.routineMismatchNote,
-    completionStatus: session.completion?.status ?? 'sem_registro',
+    completionStatus: objective.linked ? 'done' : (session.completion?.status ?? 'sem_registro'),
+    executedByDevice: objective.linked,
     completedAt: session.completion?.completedAt ?? null,
-    completedDurationMin: session.completion?.durationMin ?? null,
-    completedDistanceKm: session.completion?.distanceKm ?? null,
-    completedPaceSecondsKm: session.completion?.avgPaceSecondsKm ?? null,
+    completedDurationMin: objective.linked ? (objective.durationMin ?? session.completion?.durationMin ?? null) : (session.completion?.durationMin ?? null),
+    completedDistanceKm: objective.linked ? (objective.distanceKm ?? session.completion?.distanceKm ?? null) : (session.completion?.distanceKm ?? null),
+    completedPaceSecondsKm: objective.linked ? (objective.paceSecondsKm ?? session.completion?.avgPaceSecondsKm ?? null) : (session.completion?.avgPaceSecondsKm ?? null),
     perceivedEffort: session.completion?.perceivedEffort ?? null,
     satisfactionElaboracao: session.completion?.satisfactionElaboracao ?? null,
     satisfaction: session.completion?.satisfaction ?? null,
@@ -58,4 +61,5 @@ export function mapHistorySession(session: any) {
     painTiming: session.completion?.painTiming ?? null,
     feedbackVersion: session.completion?.feedbackVersion ?? null,
   };
-}
+}import { objectiveExecutionOf } from './objective-execution';
+
