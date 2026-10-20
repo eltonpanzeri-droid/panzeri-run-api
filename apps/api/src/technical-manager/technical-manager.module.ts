@@ -1,3 +1,4 @@
+import { AiGovernanceModule } from '../ai-governance/ai-governance.module';
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AiQueueModule } from '../common/ai-queue.module';
@@ -6,7 +7,7 @@ import { TechnicalManagerController } from './technical-manager.controller';
 import { TechnicalManagerAgentService } from './technical-manager-agent.service';
 
 @Module({
-  imports: [PrismaModule, AiQueueModule, TrainingPlansModule],
+  imports: [PrismaModule, AiQueueModule, TrainingPlansModule, AiGovernanceModule],
   controllers: [TechnicalManagerController],
   providers: [TechnicalManagerAgentService],
 })

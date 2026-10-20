@@ -30,6 +30,9 @@ import { PrescriptionTraceService } from './prescription-trace.service';
 import { ExecutionAnalysisService, WeeklyReportDraft } from '../activity-execution/execution-analysis.service';
 import { AnalystDraft, TrainingAnalystService } from './training-analyst.service';
 import { toPrescriberEvidence } from './training-analyst';
+import { runWithAiScope, aiBlockedProviders } from '../ai-governance/ai-scope';
+import { AiDataEligibility } from '../ai-governance/ai-data-eligibility.service';
+import { neutralizePlansForAi, neutralizeSessionsForAi, SessionForAi } from '../ai-governance/ai-session-filter';
 import { AgentCallTrace, buildEvidenceIndex, DeclaredReasoning, declaredKey, SessionForTrace, sourceProvidersOf } from './prescription-trace';
 import {
   ContextGap, describeError, formatObservationForAgent, formatPendingProfileEvent, selectHistoryWeeks, selectRelevantReportEntries,
@@ -183,6 +186,10 @@ function recordedSessionsOf<S extends { scheduledDate: Date; completion: unknown
     .sort((a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime());
 }
 
+// Selects das sessoes de recorde (maior longao e sessoes perto do recorde). Extraidos para constantes para a versao "neutralizada para IA" usar exatamente o mesmo formato.
+const RECORD_RUN_SELECT = { scheduledDate: true, origin: true, structure: true, completion: { select: { status: true, distanceKm: true, durationMin: true, avgHeartRate: true, maxHeartRate: true, avgPaceSecondsKm: true, satisfaction: true, details: true } }, executionLinks: { where: { status: 'active' }, select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } } } } satisfies Prisma.TrainingSessionSelect;
+const NEAR_RECORD_SELECT = { scheduledDate: true, origin: true, structure: true, completion: { select: { status: true, distanceKm: true, durationMin: true, avgHeartRate: true, maxHeartRate: true, avgPaceSecondsKm: true, details: true } }, executionLinks: { where: { status: 'active' }, select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } } } } satisfies Prisma.TrainingSessionSelect;
+
 @Injectable()
 export class TrainingPlansService {
   private readonly logger = new Logger(TrainingPlansService.name);
@@ -217,7 +224,24 @@ export class TrainingPlansService {
     @Optional() private readonly executionAnalysis?: ExecutionAnalysisService,
     // Etapa 2.2: Analista de Treinos (deterministico, sem IA). Opcional de proposito: e' evidencia adicional e nunca bloqueia a geracao.
     @Optional() private readonly analyst?: TrainingAnalystService,
+    // Governanca de dados para IA (Central Universal, Lote 1): define quais provedores NAO podem alimentar os agentes deste aluno. Opcional so' para os testes
+    // que constroem o servico sem Nest; no app o modulo sempre injeta, e sem escopo as chamadas de IA com dado de dispositivo falham fechadas (AiEgressGuard).
+    @Optional() private readonly aiEligibility?: AiDataEligibility,
   ) {}
+
+  // Executa `fn` dentro do escopo de IA deste aluno: leitores que alimentam prompts passam a tratar como inexistentes os dados dos provedores nao autorizados.
+  private async withAiScope<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+    if (!this.aiEligibility) return fn();
+    const scope = await this.aiEligibility.scopeFor(userId, 'external_ai');
+    return runWithAiScope(scope, fn);
+  }
+
+  // Recorde/perto do recorde com provedor bloqueado: o candidato escolhido no banco pode ser copia de uma atividade bloqueada. Busca mais candidatos, neutraliza
+  // e escolhe entre os que ainda tem distancia. Sem provedor bloqueado devolve exatamente o que a consulta original trouxe.
+  private firstWithDistanceForAi<T extends SessionForAi>(raw: T | null, candidates: T[]): T | null {
+    if (aiBlockedProviders().length === 0) return raw;
+    return neutralizeSessionsForAi(candidates).find((s) => (s.completion as { distanceKm?: number | null } | null)?.distanceKm != null) ?? null;
+  }
 
   // Garante, ANTES de gastar uma chamada de IA, que o servico de rastreabilidade esta presente (protege tambem contra stubs/configuracao incompleta).
   private requireTrace(): PrescriptionTraceService {
@@ -641,7 +665,7 @@ export class TrainingPlansService {
   ) {
     await this.acquireGenerationLock(userId);
     try {
-      return await this.generateWeekLocked(userId, weeklyOverride, options);
+      return await this.withAiScope(userId, () => this.generateWeekLocked(userId, weeklyOverride, options));
     } finally {
       await this.prisma.trainingPlanGenerationLock.delete({ where: { userId } }).catch(() => undefined);
     }
@@ -724,7 +748,7 @@ export class TrainingPlansService {
     // semana-ALVO da geracao (weekStart, so' calculada mais abaixo depois do rollover de domingo),
     // nunca da semana do relogio no momento da chamada. Movido pra logo apos weekStart existir
     // (ver comentario la). Ver PRONTUARIO.md pra causa raiz completa.
-    const [user, latestTest, availability, onboarding, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRaces, latestReassessment, activeObservations, longestRunSession] = await Promise.all([
+    const [user, latestTest, availability, onboarding, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRaces, latestReassessment, activeObservations, longestRunSessionRaw] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         include: {
@@ -768,9 +792,19 @@ export class TrainingPlansService {
           completion: { status: { in: ['done', 'adjusted'] }, distanceKm: { not: null } },
         },
         orderBy: { completion: { distanceKm: 'desc' } },
-        select: { scheduledDate: true, origin: true, structure: true, completion: { select: { status: true, distanceKm: true, durationMin: true, avgHeartRate: true, maxHeartRate: true, avgPaceSecondsKm: true, satisfaction: true, details: true } }, executionLinks: { where: { status: 'active' }, select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } } } },
+        select: RECORD_RUN_SELECT,
       }),
     ]);
+
+    // Central Universal (Lote 1): com provedor bloqueado para IA, o recorde e' reescolhido entre candidatos neutralizados.
+    const longestRunSession = aiBlockedProviders().length === 0
+      ? longestRunSessionRaw
+      : this.firstWithDistanceForAi(longestRunSessionRaw, await this.prisma.trainingSession.findMany({
+        where: { userId, modality: { in: ['corrida', 'esteira'] }, completion: { status: { in: ['done', 'adjusted'] }, distanceKm: { not: null } } },
+        orderBy: { completion: { distanceKm: 'desc' } },
+        take: 25,
+        select: RECORD_RUN_SELECT,
+      }));
 
     // Passo 3 (25/09/2026): ultimo Evolution Report VALIDO do aluno (nunca recalculado aqui — so'
     // le o que ReassessmentService.complete() ja persistiu). Null quando o aluno nunca fez
@@ -890,12 +924,14 @@ export class TrainingPlansService {
     // outro historico — nao deveria depender do dia em que a chamada acontece.
     // Etapa 1.1 (09/10/2026): busca margem de planos (uma semana regenerada tem varios) e o historico considera
     // SEMANAS, nao planos — ver selectHistoryWeeks.
-    const previousPlans = await this.prisma.trainingPlan.findMany({
+    const previousPlansRaw = await this.prisma.trainingPlan.findMany({
       where: { userId, startDate: { lt: weekStart } },
       orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
       take: 24,
       include: { sessions: { include: { completion: { include: { shoeUsage: true } }, executionLinks: { where: { status: 'active' }, select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } } } } } },
     });
+    // Central Universal (Lote 1): historico enviado a IA sem os dados de provedores nao autorizados (copias do relogio anuladas, extras do relogio removidos).
+    const previousPlans = neutralizePlansForAi(previousPlansRaw);
     // Injeta o dia da prova (secao 5 do fechamento do Passo 2) — precisa vir DEPOIS do weekStart
     // final (inclusive do rollover acima) e ANTES de qualquer uso de availableDays dai pra frente
     // (trainingWeekdays, methodologyInput.availability, geracao das sessoes).
@@ -981,7 +1017,7 @@ export class TrainingPlansService {
     // so traz os treinos concluidos nas ultimas 10 semanas que chegaram perto (>=50%) do recorde,
     // pra IA fazer essa leitura sozinha (ver regra no prompt de sistema).
     const recordDistanceKm = longestRunSession?.completion?.distanceKm ?? null;
-    const recentSessionsNearRecord = recordDistanceKm != null && recordDistanceKm >= 8
+    const recentSessionsNearRecordRaw = recordDistanceKm != null && recordDistanceKm >= 8
       ? await this.prisma.trainingSession.findMany({
           where: {
             userId,
@@ -990,10 +1026,13 @@ export class TrainingPlansService {
             scheduledDate: { gte: addDays(startOfWeek(new Date()), -70) },
           },
           orderBy: { completion: { distanceKm: 'desc' } },
-          take: 5,
-          select: { scheduledDate: true, origin: true, structure: true, completion: { select: { status: true, distanceKm: true, durationMin: true, avgHeartRate: true, maxHeartRate: true, avgPaceSecondsKm: true, details: true } }, executionLinks: { where: { status: 'active' }, select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } } } },
+          take: aiBlockedProviders().length > 0 ? 25 : 5,
+          select: NEAR_RECORD_SELECT,
         })
       : [];
+    const recentSessionsNearRecord = aiBlockedProviders().length === 0
+      ? recentSessionsNearRecordRaw
+      : neutralizeSessionsForAi(recentSessionsNearRecordRaw).filter((s) => s.completion?.distanceKm != null).slice(0, 5);
     // Passo 2/6 da integracao Training Intelligence (25/09/2026, auditoria aprovada): Snapshot ->
     // Compact Agent Context -> prompt. REGRA DURA: falha aqui NUNCA pode bloquear a geracao semanal
     // (mesmo padrao ja usado pra studentProfileSummary logo acima) — o campo so fica null e o resto
@@ -1981,6 +2020,10 @@ export class TrainingPlansService {
   }
 
   async regenerateSession(userId: string, sessionId: string, options?: { allowToday?: boolean }) {
+    return this.withAiScope(userId, () => this.regenerateSessionInner(userId, sessionId, options));
+  }
+
+  private async regenerateSessionInner(userId: string, sessionId: string, options?: { allowToday?: boolean }) {
     const session = await this.prisma.trainingSession.findFirst({
       where: { id: sessionId, userId },
       include: { completion: { select: { id: true } } },
@@ -2464,6 +2507,7 @@ export class TrainingPlansService {
     });
     // 3C.2: um evento fisico = uma execucao. O dado exibido de uma sessao vinculada e' o da observacao CANONICA do evento (3A); todas as
     // observacoes do evento contam como "ja' vinculadas" (nao reaparecem como atividade alternativa).
+    // ai-scope: nao-ia (historico mostrado ao proprio aluno em GET /me/history — nunca enviado a IA; a IA usa previousPlans, neutralizado acima)
     const linkedPicks = await pickCanonicalPerEvent(
       activeLinks.map((l) => l.activityLog),
       (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }),
@@ -2476,6 +2520,7 @@ export class TrainingPlansService {
     // Atividades 'alternative' sem sessao sintetica: tambem foram realizadas e entram no historico
     // (card proprio), mas nunca como cumprimento de uma prescricao. As ja materializadas aparecem
     // pela propria sessao 'device_extra' (com completion sintetica) — nao entram de novo aqui.
+    // ai-scope: nao-ia (atividades alternativas exibidas ao proprio aluno no historico; a IA le as extras pelo Analista de Treinos, sob escopo)
     const alternativeLogs = await this.prisma.activityLog.findMany({
       where: { userId, executionClassification: 'alternative' },
     });
@@ -2497,6 +2542,7 @@ export class TrainingPlansService {
     };
 
     // Atividade alternativa: um cartao por EVENTO (observacao canonica), com a modalidade pela representacao canonica.
+    // ai-scope: nao-ia (mesmo historico do aluno acima)
     const alternativePicks = await pickCanonicalPerEvent(alternativeLogs, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
     for (const { row: log, members } of alternativePicks) {
       if (members.some((m) => linkedActivityIds.has(m.id) || materializedActivityIds.has(m.id)) || linkedActivityIds.has(log.id) || materializedActivityIds.has(log.id)) continue;

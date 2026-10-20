@@ -138,8 +138,11 @@ describe('contratos de saida estruturada do Prescritor (semana, dia de corrida, 
     expect(AiRunDaySchema.safeParse({ parts: [part], reasoning }).success).toBe(true);
     expect(AiStrengthSessionSchema.safeParse({ ...strength, reasoning }).success).toBe(true);
     expect(AiWeeklyDecisionSchema.safeParse({ sessions: [{ ...run, reasoning }], strengthSessions: [{ ...strength, reasoning: null }], recommendation: 'r', rationale: ['a'] }).success).toBe(true);
-    // fonte fora do vocabulario e rejeitada pela saida estruturada (a IA nao inventa nomes): garantia do enum
-    expect(AiRunDaySchema.safeParse({ parts: [part], reasoning: { intent: 'a', expected: 'b', basis: [{ source: 'invencao', note: 'c' }] } }).success).toBe(false);
+    // 19/10/2026 (caso Eduarda): fonte/variavel fora do vocabulario NAO derruba mais a resposta inteira — o schema aceita texto e normalizeDeclaredReasoning
+    // troca o desconhecido por 'outro' (o vocabulario continua no description do schema enviado a IA).
+    const invented = AiRunDaySchema.safeParse({ parts: [part], reasoning: { intent: 'a', expected: 'b', basis: [{ source: 'invencao', note: 'c', decides: 'categoria_nova' }] } });
+    expect(invented.success).toBe(true);
+    expect(normalizeDeclaredReasoning(invented.success ? invented.data.reasoning : null)?.basis[0].source).toBe('outro');
   });
 
   it('a montagem das decisoes normaliza o raciocinio (truncado) e preserva o resto da prescricao', () => {

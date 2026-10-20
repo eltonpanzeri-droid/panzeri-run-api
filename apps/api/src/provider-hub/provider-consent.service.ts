@@ -8,7 +8,7 @@ import { ConsentCapability } from './provider-connector';
 export function consentTextHash(consent: ConsentCapability): string {
   const canonical = JSON.stringify({
     version: consent.version, dateLabel: consent.dateLabel, title: consent.title, intro: consent.intro, sections: consent.sections, groups: consent.groups,
-    purposes: consent.purposes, acknowledgementText: consent.acknowledgementText, confirmButtonLabel: consent.confirmButtonLabel,
+    purposes: consent.purposes, optionalPurposes: consent.optionalPurposes, acknowledgementText: consent.acknowledgementText, confirmButtonLabel: consent.confirmButtonLabel,
   });
   return createHash('sha256').update(canonical).digest('hex');
 }

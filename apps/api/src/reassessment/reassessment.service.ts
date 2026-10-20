@@ -1,4 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { runWithAiScope } from '../ai-governance/ai-scope';
+import { AiDataEligibility } from '../ai-governance/ai-data-eligibility.service';
+import { neutralizePlansForAi } from '../ai-governance/ai-session-filter';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EvolutionAgentService } from './evolution-agent.service';
@@ -28,6 +31,8 @@ export class ReassessmentService {
     private readonly athleteStateSnapshot: AthleteStateSnapshotService,
     private readonly reportTimeline: ReportTimelineService,
     private readonly medalEvaluation: MedalEvaluationService,
+    // Governanca de dados para IA (Central Universal, Lote 1). Opcional so' para os testes que constroem o servico sem Nest; no app o modulo sempre injeta.
+    @Optional() private readonly aiEligibility?: AiDataEligibility,
   ) {}
 
   async state(userId: string) {
@@ -97,7 +102,7 @@ export class ReassessmentService {
         where: { userId },
         orderBy: { startDate: 'desc' },
         take: 8,
-        include: { sessions: { include: { completion: true } } },
+        include: { sessions: { include: { completion: true, executionLinks: { where: { status: 'active' }, select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } } } } } },
       }),
     ]);
 
@@ -156,7 +161,12 @@ export class ReassessmentService {
     );
     const fitnessTrajectory = buildFitnessTestTrajectory(fitnessTests);
 
+    // Central Universal (Lote 1): tudo que alimenta o Agente de Evolucao (retrato do estado + historico de execucao) e' montado dentro do escopo de IA.
+    const aiScope = this.aiEligibility ? await this.aiEligibility.scopeFor(userId, 'external_ai') : null;
+    const runAi = <T>(fn: () => Promise<T>): Promise<T> => (aiScope ? runWithAiScope(aiScope, fn) : fn());
+    const { snapshot, report } = await runAi(async () => {
     const snapshot = await this.athleteStateSnapshot.getSnapshot(userId).catch(() => null);
+    const aiPlans = neutralizePlansForAi(plans);
 
     const report = await this.evolutionAgent.analyze({
       studentName: user.name,
@@ -165,12 +175,14 @@ export class ReassessmentService {
       fitnessTests: fitnessTrajectory,
       latestReassessmentExclusiveAnswers: extractExclusiveAnswers(asAnswerObject(completed.answers)),
       athleteStateSnapshot: snapshot?.compact ?? null,
-      executionHistory: plans.map((plan) => ({
+      executionHistory: aiPlans.map((plan) => ({
         weekStart: plan.startDate.toISOString().slice(0, 10),
         prescribedSessions: plan.sessions.length,
         completedSessions: plan.sessions.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted').length,
         actualKm: Number(plan.sessions.reduce((total, session) => total + (session.completion?.distanceKm ?? 0), 0).toFixed(2)),
       })),
+    });
+    return { snapshot, report };
     });
 
     if (!report) return completed;

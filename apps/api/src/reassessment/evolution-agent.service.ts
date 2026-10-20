@@ -87,6 +87,7 @@ export class EvolutionAgentService {
           system: [{ type: 'text', text: this.buildSystemPrompt(), ...cacheControlFor('prontuario') }],
           messages: [{ role: 'user', content: JSON.stringify(input, null, 2) }],
         }),
+        { agent: 'prontuario', deviceData: true },
       );
       logAiUsage(this.logger, { agent: 'prontuario', model: AI_MODELS.HAIKU_5_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: cacheTtlLabel('prontuario') });
 
@@ -115,6 +116,7 @@ export class EvolutionAgentService {
           system: [{ type: 'text', text: this.buildProfileCondensationSystemPrompt(), ...cacheControlFor('prontuario_condensacao') }],
           messages: [{ role: 'user', content: this.buildProfileCondensationUserPrompt(input) }],
         }),
+        { agent: 'prontuario_condensacao', deviceData: true },
       );
       logAiUsage(this.logger, { agent: 'prontuario_condensacao', model: AI_MODELS.HAIKU_5_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: cacheTtlLabel('prontuario_condensacao') });
 

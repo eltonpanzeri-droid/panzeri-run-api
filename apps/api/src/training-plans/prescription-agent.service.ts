@@ -341,6 +341,7 @@ export class PrescriptionAgentService {
           system: [{ type: 'text', text: runSystem, ...cacheControlFor('treinador_dia_corrida') }],
           messages: [{ role: 'user', content: runUser }],
         }),
+        { agent: 'treinador_dia_corrida', deviceData: true },
       );
       logAiUsage(this.logger, { agent: 'treinador_dia_corrida', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: cacheTtlLabel('treinador_dia_corrida') });
       const parsed = response.parsed_output;
@@ -414,6 +415,7 @@ export class PrescriptionAgentService {
           system: [{ type: 'text', text: strengthSystem, ...cacheControlFor('treinador_dia_forca') }],
           messages: [{ role: 'user', content: strengthUser }],
         }),
+        { agent: 'treinador_dia_forca', deviceData: true },
       );
       logAiUsage(this.logger, { agent: 'treinador_dia_forca', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: cacheTtlLabel('treinador_dia_forca') });
       const parsed = response.parsed_output;
@@ -505,7 +507,7 @@ export class PrescriptionAgentService {
           lastSnapshot = snapshot;
         });
         return stream.finalMessage();
-      });
+      }, { agent: 'treinador_semana', deviceData: true });
 
       const parsed = response.parsed_output;
       if (!parsed) return null;

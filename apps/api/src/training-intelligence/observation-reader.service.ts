@@ -12,6 +12,7 @@
 //   observacao carrega instrumentVersion, e o consumidor (endpoint) decide o que fazer com isso.
 // - Sempre e' possivel voltar ao registro original (sessionId/checkinId ficam no context).
 
+import { aiActivityWhere, aiBlockedProviders } from '../ai-governance/ai-scope';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { canonicalModality } from '../activity-execution/canonical-modality';
 import { findStaleAnalysisRowIds } from '../activity-execution/analysis-validity';
@@ -422,7 +423,10 @@ export class ObservationReaderService {
   // atualizadas depois de uma sincronizacao tardia: a leitura sempre usa a linha mais recente (a mesma por sessao). Sem valor => ausencia, nunca zero.
   private async readExecutionAnalysisVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
     const rows = await this.prisma.sessionExecutionAnalysis.findMany({
-      where: { userId: athleteId, algorithmVersion: EXECUTION_ANALYSIS_VERSION, activityLogId: { not: null }, status: { in: ['analyzed', 'summary_only'] } },
+      where: {
+        userId: athleteId, algorithmVersion: EXECUTION_ANALYSIS_VERSION, activityLogId: { not: null }, status: { in: ['analyzed', 'summary_only'] },
+        ...(aiBlockedProviders().length > 0 ? { OR: [{ provider: null }, { provider: { notIn: [...aiBlockedProviders()] } }] } : {}),
+      },
       orderBy: { scheduledDate: 'asc' },
     });
     // Defesa de leitura (15/10/2026): linha calculada com um vinculo que foi corrigido depois (e ainda nao recalculada) NAO e' evidencia atual.
@@ -454,10 +458,10 @@ export class ObservationReaderService {
 
   private async readActivityObjectiveVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
     const rows = await this.prisma.activityLog.findMany({
-      where: { userId: athleteId, executionClassification: { in: ['corresponding', 'alternative'] } },
+      where: { userId: athleteId, executionClassification: { in: ['corresponding', 'alternative'] }, ...aiActivityWhere() },
       orderBy: { startedAt: 'asc' },
     });
-    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId: athleteId, id: { in: ids } } }));
+    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId: athleteId, id: { in: ids }, ...aiActivityWhere() } }));
     const logs = picks.map((pick) => pick.row).filter((log) => canonicalModality(log.sport) === 'corrida').sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
     const observations: Observation[] = [];
     for (const log of logs) {

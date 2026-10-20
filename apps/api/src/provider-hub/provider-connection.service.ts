@@ -6,6 +6,7 @@ import { decryptSecret, encryptSecret, hashState, newState } from './provider-cr
 import { ProviderInboundEventService } from './provider-inbound-event.service';
 import { consentTextHash, ProviderConsentService } from './provider-consent.service';
 import { ConsentCapability, OAuthCapability, ProviderConnector, ProviderDataCategory } from './provider-connector';
+import { AiDataEligibility } from '../ai-governance/ai-data-eligibility.service';
 
 // Conexao generica por provedor (Central Universal de Integracoes, Passos 2 e 2b). Faz UMA vez, para todos os provedores novos, o que Polar/Wahoo/Strava fazem
 // cada um por conta propria: tentativa OAuth de uso unico (state so' como hash), consentimento explicito por grupo/categoria, cifra dos tokens, renovacao
@@ -25,10 +26,11 @@ export const FALLBACK_TOKEN_TTL_SEC = 10 * 60;
 const MAX_TOKEN_TTL_SEC = 60 * 60 * 24 * 60;
 
 // Pedido de conexao vindo do cliente. Nada aqui e' presumido: o aceite, a versao e o hash do texto exibido precisam ser enviados.
-export interface ConsentRequest { groups: unknown; acknowledged: unknown; version: unknown; textHash: unknown }
+export interface ConsentRequest { groups: unknown; purposes?: unknown; acknowledged: unknown; version: unknown; textHash: unknown }
 export interface ValidConsent {
   groups: string[];
   categories: ProviderDataCategory[];
+  // Finalidades obrigatorias + as opcionais que o aluno marcou (nada opcional e' presumido).
   purposes: string[];
   version: string;
   textHash: string;
@@ -40,7 +42,7 @@ export type DisconnectResult = {
 };
 
 // Valida o pedido contra o documento do conector. Seleciona SO' o que o aluno marcou (mais nada e' adicionado por padrao) e recusa selecao incompativel.
-export function resolveConsent(consent: ConsentCapability, input: ConsentRequest): ValidConsent {
+export function resolveConsent(consent: ConsentCapability, input: ConsentRequest, options: { isLocked?: (purposeId: string) => boolean } = {}): ValidConsent {
   if (input.acknowledged !== true) throw new BadRequestException('E necessario confirmar expressamente a autorizacao.');
   const hash = consentTextHash(consent);
   // Texto desatualizado (cliente com versao antiga em cache): o aluno precisa ver o texto vigente antes de autorizar.
@@ -60,7 +62,22 @@ export function resolveConsent(consent: ConsentCapability, input: ConsentRequest
     for (const category of group.categories) if (!categories.includes(category)) categories.push(category);
   }
   if (categories.length === 0) throw new BadRequestException('Selecione ao menos um grupo de dados.');
-  return { groups: selected, categories, purposes: [...consent.purposes], version: consent.version, textHash: hash };
+  const optional = resolveOptionalPurposes(consent, input.purposes ?? [], options.isLocked);
+  return { groups: selected, categories, purposes: [...consent.purposes, ...optional], version: consent.version, textHash: hash };
+}
+
+// Finalidades opcionais marcadas: so' ids que o documento oferece; a que envia dados a fornecedor externo nao pode ser concedida enquanto o provedor estiver
+// BLOQUEADO para isso (consentimento dado sobre um uso que ainda nao existe nao seria informado).
+function resolveOptionalPurposes(consent: ConsentCapability, raw: unknown, isLocked?: (purposeId: string) => boolean): string[] {
+  if (!Array.isArray(raw)) throw new BadRequestException('Finalidades opcionais invalidas.');
+  const out: string[] = [];
+  for (const id of raw) {
+    const option = consent.optionalPurposes.find((p) => p.id === id);
+    if (typeof id !== 'string' || !option) throw new BadRequestException('Finalidade opcional desconhecida.');
+    if (option.external && (isLocked?.(id) ?? true)) throw new ConflictException('Esta finalidade ainda nao esta disponivel.');
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
 }
 
 // Descricao segura (sem detalhe do provedor) do motivo de uma falha de conexao, para auditoria e para a tela de teste.
@@ -86,7 +103,13 @@ export class ProviderConnectionService {
     private readonly events: ProviderInboundEventService,
     private readonly consent: ProviderConsentService,
     private readonly providerData?: ProviderDataDeletionService,
+    // Estado da trava de envio externo (por provedor). Ausente => tratado como TRAVADO (fail-closed).
+    private readonly eligibility?: AiDataEligibility,
   ) {}
+
+  private externalLocked(provider: string): (purposeId: string) => boolean {
+    return () => !(this.eligibility?.isExternalAiUnlocked(provider) ?? false);
+  }
 
   private oauthFor(provider: string): { connector: ProviderConnector; oauth: OAuthCapability; consent: ConsentCapability } {
     const connector = this.registry.get(provider);
@@ -105,14 +128,14 @@ export class ProviderConnectionService {
   // Documento de consentimento que o cliente deve exibir (texto, grupos, finalidades e o hash que precisa ser devolvido no pedido).
   consentDocument(provider: string) {
     const { consent } = this.oauthFor(provider);
-    return { ...consent, textHash: consentTextHash(consent) };
+    return { ...consent, textHash: consentTextHash(consent), locked: Object.fromEntries(consent.optionalPurposes.filter((p) => p.external).map((p) => [p.id, this.externalLocked(provider)(p.id)])) };
   }
 
   async begin(provider: string, userId: string, request: ConsentRequest): Promise<{ url: string }> {
     const { oauth, consent: document } = this.oauthFor(provider);
     // Primeiro a porta de habilitacao: quem nao esta liberado nao descobre nem o estado da configuracao.
     if (!oauth.isEnabledFor(userId)) throw new ForbiddenException('Integracao indisponivel no momento.');
-    const consent = resolveConsent(document, request);
+    const consent = resolveConsent(document, request, { isLocked: this.externalLocked(provider) });
     oauth.encryptionKey(); // falha cedo (503) se o provedor nao estiver configurado, antes de gravar tentativa
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
     if (!user) throw new BadRequestException('Usuario nao encontrado.');
@@ -189,8 +212,9 @@ export class ProviderConnectionService {
       consentTextHash: consent.textHash,
       consentedAt: now,
       refreshLockUntil: null,
-      // Minimizacao: a coleta comeca na conexao, nunca no historico anterior. Ampliar a janela e' decisao de produto futura (e depende do provedor).
-      collectFrom: now,
+      // Minimizacao: a coleta comeca na conexao, nunca no historico anterior — SALVO se o aluno autorizou, separadamente, importar ate 30 dias anteriores
+      // (finalidade opcional history_backfill). A importacao em si e' de outro lote; aqui so' fica registrada a janela autorizada.
+      collectFrom: consent.purposes.includes('history_backfill') ? new Date(now.getTime() - 30 * 86_400_000) : now,
       lastSyncCompletedAt: null,
       disconnectedAt: null,
     };
@@ -205,8 +229,42 @@ export class ProviderConnectionService {
       if ((failure as { code?: string }).code === 'P2002') throw new ConflictException('Esta conta ja esta vinculada a outro usuario.');
       throw failure;
     }
-    await this.audit(user.id, provider, 'connected', { groups: consent.groups, categories: consent.categories, consentVersion: consent.version, consentTextHash: consent.textHash });
+    await this.audit(user.id, provider, 'connected', { groups: consent.groups, categories: consent.categories, purposes: consent.purposes, consentVersion: consent.version, consentTextHash: consent.textHash });
     return 'connected';
+  }
+
+  // Concede ou revoga, SEPARADAMENTE e sem reconectar, finalidades opcionais marcadas como alteraveis depois da conexao (ex.: analise por IA externa).
+  // Revogar vale na hora e nunca exige aceite; conceder exige o aceite expresso sobre o texto vigente (versao + hash) e respeita a trava do provedor.
+  // Cada mudanca fica auditada com a versao/hash do texto a que se refere. O consentimento original da conexao nao e' reescrito.
+  async updatePurposes(provider: string, userId: string, input: { grant?: unknown; revoke?: unknown; acknowledged?: unknown; version?: unknown; textHash?: unknown }) {
+    const { consent: document } = this.oauthFor(provider);
+    const grant = input.grant === undefined ? [] : input.grant;
+    const revoke = input.revoke === undefined ? [] : input.revoke;
+    if (!Array.isArray(grant) || !Array.isArray(revoke)) throw new BadRequestException('Finalidades invalidas.');
+    const changeable = (id: unknown) => document.optionalPurposes.find((p) => p.id === id && p.changeableAfterConnect);
+    if ([...grant, ...revoke].some((id) => !changeable(id))) throw new BadRequestException('Finalidade desconhecida ou nao alteravel depois da conexao.');
+    if (grant.some((id) => revoke.includes(id))) throw new BadRequestException('Uma finalidade nao pode ser concedida e revogada juntas.');
+    const c = await this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider, userId } }, select: { disconnectedAt: true, grantedPurposes: true } });
+    if (!c || c.disconnectedAt) throw new ConflictException('A integracao nao esta conectada.');
+    let purposes = Array.isArray(c.grantedPurposes) ? [...(c.grantedPurposes as string[])] : [];
+    const granted: string[] = [];
+    if (grant.length > 0) {
+      if (input.acknowledged !== true) throw new BadRequestException('E necessario confirmar expressamente a autorizacao.');
+      const hash = consentTextHash(document);
+      if (input.version !== document.version || input.textHash !== hash) throw new ConflictException('O texto de consentimento mudou. Leia a versao atual antes de autorizar.');
+      const locked = this.externalLocked(provider);
+      for (const id of grant as string[]) {
+        if (changeable(id)?.external && locked(id)) throw new ConflictException('Esta finalidade ainda nao esta disponivel.');
+        if (!purposes.includes(id)) { purposes.push(id); granted.push(id); }
+      }
+    }
+    const revoked = (revoke as string[]).filter((id) => purposes.includes(id));
+    purposes = purposes.filter((id) => !revoked.includes(id));
+    const updated = await this.prisma.providerConnection.updateMany({ where: { provider, userId, disconnectedAt: null }, data: { grantedPurposes: purposes as never } });
+    if (updated.count !== 1) throw new ConflictException('A integracao nao esta conectada.');
+    if (granted.length > 0) await this.audit(userId, provider, 'purposes_granted', { purposes: granted, consentVersion: document.version, consentTextHash: consentTextHash(document) });
+    if (revoked.length > 0) await this.audit(userId, provider, 'purposes_revoked', { purposes: revoked });
+    return { purposes };
   }
 
   // Leitura pura, sem chamada ao provedor. Nunca devolve token, segredo nem o identificador externo completo (so' as ultimas 4 posicoes, mascaradas).

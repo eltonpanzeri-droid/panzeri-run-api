@@ -1,3 +1,4 @@
+import { AiGovernanceModule } from '../ai-governance/ai-governance.module';
 import { Module, forwardRef } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AiQueueModule } from '../common/ai-queue.module';
@@ -25,7 +26,7 @@ import { TrainingAnalysisController } from './training-analysis.controller';
 import { ShoesModule } from '../shoes/shoes.module';
 
 @Module({
-  imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, forwardRef(() => BillingModule), StudentProfileModule, NotificationsModule, MenstrualCycleModule, TrainingIntelligenceModule, ReassessmentModule, ReporterModule, MedalsModule, ActivityExecutionModule, ShoesModule],
+  imports: [PrismaModule, AiQueueModule, PainReportsModule, TargetRacesModule, forwardRef(() => BillingModule), StudentProfileModule, NotificationsModule, MenstrualCycleModule, TrainingIntelligenceModule, ReassessmentModule, ReporterModule, MedalsModule, ActivityExecutionModule, ShoesModule, AiGovernanceModule],
   controllers: [TrainingPlansController, PrescriptionTraceController, TrainingAnalysisController],
   providers: [TrainingPlansService, PrescriptionAgentService, PrescriptionTraceService, TrainingAnalystService, WeeklyPlanSchedulerService, DirectiveExpiryNotifierService, WeeklyCheckInService],
   exports: [TrainingPlansService, StudentProfileModule, WeeklyPlanSchedulerService],

@@ -1,4 +1,7 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { runWithAiScope } from '../ai-governance/ai-scope';
+import { AiDataEligibility } from '../ai-governance/ai-data-eligibility.service';
+import { neutralizeSessionsForAi } from '../ai-governance/ai-session-filter';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
@@ -28,6 +31,8 @@ export class TechnicalManagerAgentService {
     private readonly aiQueue: AiQueueService,
     private readonly trainingPlans: TrainingPlansService,
     private readonly studentProfile: StudentProfileService,
+    // Governanca de dados para IA (Central Universal, Lote 1). Opcional so' para os testes que constroem o servico sem Nest; no app o modulo sempre injeta.
+    @Optional() private readonly aiEligibility?: AiDataEligibility,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     this.client = apiKey ? new Anthropic({ apiKey }) : null;
@@ -100,7 +105,10 @@ export class TechnicalManagerAgentService {
       );
 
       const tools = this.buildTools(studentId);
-      reply = await this.aiQueue.run(() => this.runConversation(student.name, messages, tools));
+      // Central Universal (Lote 1): o contexto do aluno que a IA consulta nas ferramentas e' montado dentro do escopo de IA do aluno.
+      const scope = this.aiEligibility ? await this.aiEligibility.scopeFor(studentId, 'external_ai') : null;
+      const converse = () => this.aiQueue.run(() => this.runConversation(student.name, messages, tools), { agent: 'gerente_tecnico', deviceData: true });
+      reply = await (scope ? runWithAiScope(scope, converse) : converse());
     } catch (error) {
       this.logger.error(
         `Falha no chat do gerente tecnico para studentId=${studentId}: ${(error as Error)?.message ?? String(error)}`,
@@ -320,8 +328,8 @@ export class TechnicalManagerAgentService {
       })),
       planoAtivo: activePlan ? {
         nome: activePlan.name,
-        sessoes: activePlan.sessions.length,
-        concluidas: activePlan.sessions.filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted').length,
+        sessoes: neutralizeSessionsForAi(activePlan.sessions).length,
+        concluidas: neutralizeSessionsForAi(activePlan.sessions).filter((session) => session.completion?.status === 'done' || session.completion?.status === 'adjusted').length,
       } : null,
       diretrizesAtivas: directives.map((directive) => ({ id: directive.id, conteudo: directive.content, desde: directive.createdAt.toISOString().slice(0, 10) })),
     };

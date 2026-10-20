@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { AiEgressGuard } from '../ai-governance/ai-egress.guard';
 
 // Limite de chamadas simultaneas a IA (Claude) em toda a aplicacao. Se muitos alunos pedirem
 // treino/reavaliacao ao mesmo tempo, o excesso espera na fila em vez de disparar tudo de uma vez
@@ -31,13 +32,25 @@ const TASK_TIMEOUT_MS = 600_000;
 // tempo razoavel, em vez de deixar o aluno pendurado indefinidamente.
 const QUEUE_WAIT_TIMEOUT_MS = 120_000;
 
+export interface AiCallOptions {
+  agent: string;
+  deviceData: boolean;
+}
+
 @Injectable()
 export class AiQueueService {
   private readonly logger = new Logger(AiQueueService.name);
   private active = 0;
   private readonly waiting: Array<{ resolve: () => void; timedOut: boolean }> = [];
 
-  async run<T>(task: () => Promise<T>): Promise<T> {
+  // Opcional so' para os testes que constroem a fila sem Nest; no app o modulo sempre injeta (AiQueueModule importa AiGovernanceModule).
+  constructor(@Optional() private readonly egress?: AiEgressGuard) {}
+
+  // Toda chamada a fornecedor externo de IA declara o agente e se recebe dados de dispositivo. Dados de dispositivo exigem um escopo de IA valido
+  // (ver ai-governance/ai-egress.guard.ts) — a verificacao acontece ANTES de ocupar vaga na fila e de qualquer envio. Agentes sem dado de dispositivo
+  // (Relator e Gerente Tecnico) declaram deviceData:false; um teste estrutural garante que seus arquivos nao leem dado de dispositivo.
+  async run<T>(task: () => Promise<T>, options: AiCallOptions): Promise<T> {
+    if (options.deviceData) await this.egress?.assertDeviceData(options.agent);
     await this.acquire();
     try {
       return await this.withTimeout(task());

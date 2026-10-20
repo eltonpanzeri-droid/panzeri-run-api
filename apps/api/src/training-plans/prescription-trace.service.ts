@@ -247,6 +247,8 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
 
   // Execucao observada de uma sessao (registro do aluno + atividade objetiva canonica do evento fisico), COM os instantes que permitem
   // atribui-la a uma versao: createdAt do registro e startedAt da atividade. Sessao inexistente (apagada) => sem execucao.
+  // ai-scope: nao-ia (visao do TREINADOR sobre a execucao de uma sessao na trilha de rastreabilidade; nunca enviada a IA. As leituras de proveniencia deste arquivo
+  // so' gravam NOMES de provedores para auditoria do que foi enviado.)
   async executionOf(userId: string, sessionId: string) {
     const session = await this.prisma.trainingSession.findFirst({
       where: { id: sessionId, userId },

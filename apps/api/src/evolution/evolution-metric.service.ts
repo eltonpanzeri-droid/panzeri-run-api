@@ -1,3 +1,5 @@
+import { aiActivityWhere } from '../ai-governance/ai-scope';
+import { neutralizeSessionsForAi } from '../ai-governance/ai-session-filter';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
@@ -81,7 +83,7 @@ export class EvolutionMetricService {
     // Corte de data centralizado em training-history-policy.ts (25/09/2026) — antes ficava so'
     // aqui; agora ObservationReaderService usa a MESMA constante, pra nunca discordar sobre o que
     // conta como historico esportivo real.
-    const sessions = await this.prisma.trainingSession.findMany({
+    const sessionsAll = await this.prisma.trainingSession.findMany({
       where: {
         userId,
         scheduledDate: { gte: TRAINING_INTELLIGENCE_DATA_CUTOFF },
@@ -92,11 +94,13 @@ export class EvolutionMetricService {
         plan: { select: { status: true } },
         executionLinks: {
           where: { status: 'active' },
-          select: { activityLog: { select: { distanceMeters: true } } },
+          select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } },
         },
       },
       orderBy: { scheduledDate: 'asc' },
     });
+    // Central Universal (Lote 1): dentro de um escopo de IA, as series partem de sessoes sem os dados de provedores nao autorizados. Fora de escopo e' a mesma lista.
+    const sessions = neutralizeSessionsForAi(sessionsAll);
 
     // Sessoes de planos arquivados sem completion sao fantasmas de regeneracao
     // (plano novo foi gerado, sessoes do plano antigo ficam no banco mas nao foram
@@ -154,10 +158,12 @@ export class EvolutionMetricService {
         userId,
         executionClassification: { in: ['corresponding', 'alternative'] },
         startedAt: { gte: TRAINING_INTELLIGENCE_DATA_CUTOFF },
+        ...aiActivityWhere(),
       },
       select,
     });
-    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } }, select }));
+    // Mesmo filtro no carregamento da canonica: se a canonica do evento e' de provedor bloqueado, a observacao elegivel lida passa a representar o evento.
+    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids }, ...aiActivityWhere() }, select }));
     // (10/2026) Volume em KM e' km de CORRIDA: sem modalidade pedida, so' corrida/esteira entram (bike, natacao, caminhada etc. continuam registradas
     // como atividades extras, mas nunca viram km de corrida). Com modalidade pedida, vale aquela modalidade (corrida inclui esteira).
     const wantedRaw = sport ? (canonicalModality(sport) ?? sport) : null;
@@ -625,6 +631,7 @@ export class EvolutionMetricService {
 
   /** Períodos que não podem fundamentar uma nova medalha sem reconciliar as observações. */
   async getRunMedalUncertainty(userId: string): Promise<{ weeks: Set<string>; months: Set<string> }> {
+    // ai-scope: nao-ia (incerteza de volume para MEDALHAS — regra de produto do aluno, nunca enviada a IA)
     const [activities, sessions] = await Promise.all([
       this.prisma.activityLog.findMany({
         where: { userId, startedAt: { gte: TRAINING_INTELLIGENCE_DATA_CUTOFF } },

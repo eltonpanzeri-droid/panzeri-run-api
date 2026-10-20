@@ -293,9 +293,11 @@ export class WeeklyCheckInService {
     const weekEnd = new Date(planStart.getTime() + 7 * 24 * 60 * 60 * 1000);
     const dayAfterToday = new Date(today.getTime() + 24 * 60 * 60 * 1000);
     const rangeEnd = weekEnd.getTime() < dayAfterToday.getTime() ? weekEnd : dayAfterToday;
+    // ai-scope: nao-ia (contagem do check-in que o PROPRIO aluno confirma na tela; a IA recebe o check-in confirmado pelo aluno, ver comentario de limitacao no relatorio do Lote 1)
     const rows = await this.prisma.activityLog.findMany({
       where: { userId, executionClassification: 'alternative', startedAt: { gte: planStart, lt: rangeEnd } },
     });
+    // ai-scope: nao-ia (idem acima)
     const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
     return picks.length;
   }

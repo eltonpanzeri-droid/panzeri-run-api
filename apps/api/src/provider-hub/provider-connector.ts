@@ -9,7 +9,7 @@
 
 // Categorias de dado que um conector pode trazer. A permissao/consentimento por categoria (futuro) se apoia neste vocabulario; declarar uma categoria
 // aqui NAO autoriza seu uso — so' informa o que o conector e' capaz de entregar.
-export const PROVIDER_DATA_CATEGORIES = ['activity', 'activity_route', 'sleep', 'resting_heart_rate', 'daily_activity', 'profile'] as const;
+export const PROVIDER_DATA_CATEGORIES = ['activity', 'activity_route', 'activity_sensors', 'sleep', 'resting_heart_rate', 'daily_activity', 'profile'] as const;
 export type ProviderDataCategory = (typeof PROVIDER_DATA_CATEGORIES)[number];
 
 // ── Consentimento (Passo 2b) ────────────────────────────────────────────────────────────────────────────────────────
@@ -27,6 +27,15 @@ export interface ConsentGroup {
   // Grupos que precisam estar selecionados junto (ex.: percurso GPS depende de atividades). Selecao incompativel e' recusada pelo servidor.
   requires?: readonly string[];
 }
+// Finalidade OPCIONAL e especifica, escolhida separadamente das obrigatorias. "external" = envio a fornecedor externo (ex.: IA). "changeableAfterConnect" =
+// pode ser concedida/revogada depois de conectado, sem reconectar (as demais so' no momento da conexao).
+export interface ConsentPurposeOption {
+  id: string;
+  label: string;
+  description: string;
+  external: boolean;
+  changeableAfterConnect: boolean;
+}
 export interface ConsentCapability {
   version: string;
   dateLabel: string;
@@ -34,8 +43,10 @@ export interface ConsentCapability {
   intro: string;
   sections: ConsentSection[];
   groups: ConsentGroup[];
-  // Finalidades que o texto descreve (a lista e' o teto: o que nao esta aqui, como IA, NAO esta autorizado).
+  // Finalidades OBRIGATORIAS que o texto descreve (a lista e' o teto: o que nao esta aqui, como IA, NAO esta autorizado).
   purposes: readonly string[];
+  // Finalidades opcionais, cada uma com autorizacao propria (ex.: ai_external, history_backfill).
+  optionalPurposes: readonly ConsentPurposeOption[];
   acknowledgementText: string;
   confirmButtonLabel: string;
 }

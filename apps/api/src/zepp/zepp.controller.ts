@@ -33,8 +33,19 @@ export class ZeppController {
   @Roles('coach', 'admin')
   @Post('connect')
   @HttpCode(200)
-  connect(@CurrentUser() user: CurrentUserPayload, @Body() body: { groups?: unknown; acknowledged?: unknown; consentVersion?: unknown; consentTextHash?: unknown }) {
-    return this.connections.begin(ZEPP_PROVIDER_ID, user.sub, { groups: body?.groups, acknowledged: body?.acknowledged, version: body?.consentVersion, textHash: body?.consentTextHash });
+  connect(@CurrentUser() user: CurrentUserPayload, @Body() body: { groups?: unknown; purposes?: unknown; acknowledged?: unknown; consentVersion?: unknown; consentTextHash?: unknown }) {
+    return this.connections.begin(ZEPP_PROVIDER_ID, user.sub, { groups: body?.groups, purposes: body?.purposes ?? [], acknowledged: body?.acknowledged, version: body?.consentVersion, textHash: body?.consentTextHash });
+  }
+
+  // Concede/revoga finalidades opcionais (ex.: analise por IA externa) SEM reconectar. Revogar nao exige aceite; conceder exige o aceite sobre o texto vigente
+  // e so' funciona quando o provedor esta liberado para a finalidade (hoje o envio externo de dados da Zepp esta BLOQUEADO).
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('coach', 'admin')
+  @Post('purposes')
+  @HttpCode(200)
+  purposes(@CurrentUser() user: CurrentUserPayload, @Body() body: { grant?: unknown; revoke?: unknown; acknowledged?: unknown; consentVersion?: unknown; consentTextHash?: unknown }) {
+    return this.connections.updatePurposes(ZEPP_PROVIDER_ID, user.sub, { grant: body?.grant, revoke: body?.revoke, acknowledged: body?.acknowledged, version: body?.consentVersion, textHash: body?.consentTextHash });
   }
 
   // Texto, grupos e finalidades que o cliente DEVE exibir antes de pedir a conexao (o pedido devolve versao + hash do que foi exibido).

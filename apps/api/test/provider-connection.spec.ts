@@ -66,10 +66,15 @@ const CONSENT: ConsentCapability = {
     { id: 'route', label: 'GPS', description: 'd', required: false, categories: ['activity_route'], requires: ['activity'] },
     { id: 'sleep', label: 'Sono', description: 'd', required: false, categories: ['sleep', 'resting_heart_rate'] },
   ],
-  purposes: ['history', 'tracking'], acknowledgementText: 'Li e autorizo', confirmButtonLabel: 'Conectar',
+  purposes: ['history', 'tracking'],
+  optionalPurposes: [
+    { id: 'history_backfill', label: 'Historico', description: 'd', external: false, changeableAfterConnect: false },
+    { id: 'ai_external', label: 'IA externa', description: 'd', external: true, changeableAfterConnect: true },
+  ],
+  acknowledgementText: 'Li e autorizo', confirmButtonLabel: 'Conectar',
 };
 const HASH = consentTextHash(CONSENT);
-const request = (over: Record<string, unknown> = {}) => ({ groups: ['account', 'activity'], acknowledged: true, version: '1.0', textHash: HASH, ...over });
+const request = (over: Record<string, unknown> = {}) => ({ groups: ['account', 'activity'], purposes: [] as string[], acknowledged: true, version: '1.0', textHash: HASH, ...over });
 interface FakeProto extends OAuthCapability {
   enabled: boolean;
   exchange: jest.Mock;
@@ -99,8 +104,10 @@ function setup() {
   const providerData = { deleteProviderData: jest.fn(async () => ({ provider: 'novo', activities: 2 })) } as any;
   class TestService extends ProviderConnectionService { protected sleep() { return new Promise<void>((r) => setTimeout(r, 20)); } }
   const consentService = new ProviderConsentService(prisma);
-  const service = new TestService(prisma, registry, events, consentService, providerData);
-  return { prisma, proto, revoke, events, providerData, service };
+  // Estado da trava de envio externo controlavel pelo teste (padrao: TRAVADO, como em producao).
+  const eligibility = { unlocked: false, isExternalAiUnlocked() { return this.unlocked; } };
+  const service = new TestService(prisma, registry, events, consentService, providerData, eligibility as never);
+  return { prisma, proto, revoke, events, providerData, service, eligibility };
 }
 const stateOf = (url: string) => new URL(url).searchParams.get('state')!;
 
@@ -112,6 +119,7 @@ async function connect(s: ReturnType<typeof setup>, userId = 'u1') {
 describe('resolveConsent', () => {
   it('seleciona SO o que foi marcado (obrigatorio incluido), sem duplicar, e devolve finalidades e hash', () => {
     expect(resolveConsent(CONSENT, request({ groups: ['account', 'activity', 'activity'] }))).toEqual({ groups: ['account', 'activity'], categories: ['profile', 'activity'], purposes: ['history', 'tracking'], version: '1.0', textHash: HASH });
+    expect(resolveConsent(CONSENT, request({ purposes: ['history_backfill'] })).purposes).toEqual(['history', 'tracking', 'history_backfill']);
     expect(resolveConsent(CONSENT, request({ groups: ['account', 'sleep'] })).categories).toEqual(['profile', 'sleep', 'resting_heart_rate']);
   });
   it('sem aceite expresso nada e presumido: acknowledged precisa ser exatamente true', () => {

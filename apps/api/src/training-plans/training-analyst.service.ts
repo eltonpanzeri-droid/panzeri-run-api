@@ -1,3 +1,4 @@
+import { aiActivityWhere, isProviderBlockedForAi } from '../ai-governance/ai-scope';
 import { createHash } from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -79,10 +80,21 @@ export class TrainingAnalystService {
     const rows = allRows.filter((row) => !stale.has(row.id));
     const sessions = await this.prisma.trainingSession.findMany({ where: { id: { in: rows.map((r) => r.trainingSessionId) } }, select: { id: true, origin: true } });
     const origin = new Map(sessions.map((s) => [s.id, s.origin]));
-    return rows.map((r) => ({
-      sessionId: r.trainingSessionId, scheduledDate: day(r.scheduledDate), modality: r.modality, isExtra: ['device_extra', 'student_extra'].includes(origin.get(r.trainingSessionId) ?? ''),
-      activityLogId: r.activityLogId, provider: r.provider, analysis: r.indicators as unknown as SessionAnalysis,
+    const mapped = await Promise.all(rows.map(async (r) => {
+      let { activityLogId, provider, indicators } = { activityLogId: r.activityLogId, provider: r.provider, indicators: r.indicators };
+      // Central Universal (Lote 1): a linha persistida e' a completa; para a IA, a analise e' refeita sem os dados de provedor bloqueado (e nunca gravada).
+      if (isProviderBlockedForAi(r.provider)) {
+        const neutral = await this.executionAnalysis.analyzeSession(userId, r.trainingSessionId, { forAi: true }).catch(() => null);
+        if (!neutral) return null;
+        ({ activityLogId, provider } = neutral);
+        indicators = neutral.analysis as unknown as typeof r.indicators;
+      }
+      return {
+        sessionId: r.trainingSessionId, scheduledDate: day(r.scheduledDate), modality: r.modality, isExtra: ['device_extra', 'student_extra'].includes(origin.get(r.trainingSessionId) ?? ''),
+        activityLogId, provider, analysis: indicators as unknown as SessionAnalysis,
+      };
     }));
+    return mapped.filter((row): row is NonNullable<typeof row> => row !== null);
   }
 
   private async loadFeedback(userId: string, sessionIds: string[]): Promise<Map<string, FeedbackInput>> {
@@ -123,8 +135,8 @@ export class TrainingAnalystService {
   private async loadOtherActivities(userId: string, from: Date, to: Date): Promise<{ items: Array<{ modality: string; count: number; minutes: number }>; providers: string[]; activityLogIds: string[] }> {
     const providers = new Set<string>();
     const activityLogIds: string[] = [];
-    const rows = await this.prisma.activityLog.findMany({ where: { userId, executionClassification: 'alternative', startedAt: { gte: from, lt: to } } });
-    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
+    const rows = await this.prisma.activityLog.findMany({ where: { userId, executionClassification: 'alternative', startedAt: { gte: from, lt: to }, ...aiActivityWhere() } });
+    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids }, ...aiActivityWhere() } }));
     const byModality = new Map<string, { count: number; minutes: number }>();
     for (const { row } of picks) {
       const modality = canonicalModality(row.sport) ?? 'outra';

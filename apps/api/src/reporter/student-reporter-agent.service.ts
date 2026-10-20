@@ -88,6 +88,8 @@ export class StudentReporterAgentService {
           system: [{ type: 'text', text: this.buildSystemPrompt(), ...cacheControlFor('relator') }],
           messages: [{ role: 'user', content: JSON.stringify(input, null, 2) }],
         }),
+        // Relato de texto livre do aluno: nenhum dado de dispositivo (teste estrutural em ai-governance-structure.spec.ts).
+        { agent: 'relator', deviceData: false },
       );
       logAiUsage(this.logger, {
         agent: 'relator',

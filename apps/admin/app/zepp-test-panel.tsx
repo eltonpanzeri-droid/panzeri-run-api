@@ -10,8 +10,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 interface ConsentGroup { id: string; label: string; description: string; required: boolean; requires?: string[] }
 interface ConsentSection { heading: string | null; paragraphs?: string[]; bullets?: string[] }
+interface PurposeOption { id: string; label: string; description: string; external: boolean; changeableAfterConnect: boolean }
 interface ConsentDocument {
   version: string; dateLabel: string; title: string; intro: string; sections: ConsentSection[]; groups: ConsentGroup[]; purposes: string[];
+  optionalPurposes: PurposeOption[]; locked: Record<string, boolean>;
   acknowledgementText: string; confirmButtonLabel: string; textHash: string;
 }
 interface RecentEvent { type: string; at: string; reason: string | null; providerRevocation: string | null }
@@ -24,12 +26,14 @@ interface ZeppStatus {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  profile: 'Dados básicos da conta', activity: 'Atividades físicas', activity_route: 'Percursos e GPS', sleep: 'Sono', resting_heart_rate: 'Frequência cardíaca de repouso',
+  profile: 'Dados básicos da conta', activity: 'Atividades físicas', activity_sensors: 'Sensores das atividades', activity_route: 'Percursos e GPS', sleep: 'Sono e recuperação',
 };
 const PURPOSE_LABELS: Record<string, string> = {
   history: 'Histórico de atividades', tracking: 'Acompanhar evolução e treinamento', plan_comparison: 'Comparar com os treinos prescritos', indicators: 'Indicadores', coach_view: 'Acompanhamento pelo treinador',
+  history_backfill: 'Importar até 30 dias anteriores à conexão', ai_external: 'Análises por IA com fornecedores externos', ai_internal: 'Análises por IA internas',
 };
 const EVENT_LABELS: Record<string, string> = {
+  purposes_granted: 'Finalidade opcional autorizada', purposes_revoked: 'Finalidade opcional retirada',
   connected: 'Conta conectada', disconnected: 'Conta desconectada', connect_cancelled: 'Autorização cancelada na Zepp', connect_failed: 'Falha ao conectar',
   token_refresh_rejected: 'A Zepp recusou a renovação — conexão encerrada', token_expired_without_refresh: 'Conexão expirou sem renovação possível', data_deleted: 'Dados importados excluídos',
 };
@@ -49,6 +53,9 @@ export default function ZeppTestPanel({ apiUrl, token }: { apiUrl: string; token
   const [doc, setDoc] = useState<ConsentDocument | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [acknowledged, setAcknowledged] = useState(false);
+  // Finalidades OPCIONAIS marcadas ao conectar (nada e' marcado por padrao) e aceite separado para autorizar IA depois de conectado.
+  const [selectedPurposes, setSelectedPurposes] = useState<string[]>([]);
+  const [purposeAck, setPurposeAck] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>('');
 
@@ -103,7 +110,7 @@ export default function ZeppTestPanel({ apiUrl, token }: { apiUrl: string; token
     setBusy(true);
     setMessage('');
     try {
-      const r = await call('/zepp/connect', 'POST', { groups: selected, acknowledged: true, consentVersion: doc.version, consentTextHash: doc.textHash });
+      const r = await call('/zepp/connect', 'POST', { groups: selected, purposes: selectedPurposes, acknowledged: true, consentVersion: doc.version, consentTextHash: doc.textHash });
       if (!r.ok) { setMessage(explain(r.status, r.data)); return; }
       const url = (r.data as { url?: string }).url;
       if (!url) { setMessage('A API não devolveu o endereço de autorização.'); return; }
@@ -114,6 +121,20 @@ export default function ZeppTestPanel({ apiUrl, token }: { apiUrl: string; token
     } finally {
       setBusy(false);
     }
+  };
+
+  const changePurpose = async (id: string, action: 'grant' | 'revoke') => {
+    if (!doc) return;
+    if (action === 'revoke' && !window.confirm('Retirar esta autorização? O envio futuro cessa; o que já foi enviado não pode ser desfeito junto ao fornecedor.')) return;
+    setBusy(true);
+    try {
+      const r = await call('/zepp/purposes', 'POST', action === 'grant'
+        ? { grant: [id], acknowledged: true, consentVersion: doc.version, consentTextHash: doc.textHash }
+        : { revoke: [id] });
+      setMessage(r.ok ? (action === 'grant' ? 'Autorização registrada.' : 'Autorização retirada.') : explain(r.status, r.data));
+      setPurposeAck(false);
+      await refresh();
+    } finally { setBusy(false); }
   };
 
   const disconnect = async () => {
@@ -165,6 +186,33 @@ export default function ZeppTestPanel({ apiUrl, token }: { apiUrl: string; token
           <p>Autorização: versão {status.consent?.version} em {formatDate(status.consent?.consentedAt ?? null)}</p>
           <p>Categorias autorizadas: {(status.consent?.categories ?? []).map((c) => CATEGORY_LABELS[c] ?? c).join(', ') || '—'}</p>
           <p>Finalidades: {(status.consent?.purposes ?? []).map((p) => PURPOSE_LABELS[p] ?? p).join(', ') || '—'}. <strong>Inteligência artificial: não autorizada.</strong></p>
+          {doc ? (
+            <div className="zeppGroups">
+              <h5>Finalidades opcionais</h5>
+              {doc.optionalPurposes.filter((p) => p.changeableAfterConnect).map((option) => {
+                const granted = (status.consent?.purposes ?? []).includes(option.id);
+                const locked = option.external && doc.locked?.[option.id] !== false;
+                return (
+                  <div key={option.id} className="zeppGroup">
+                    <span>
+                      <strong>{option.label}</strong> — {granted ? 'autorizada' : 'não autorizada'}
+                      <br /><span className="formHintText">{option.description}</span>
+                      {locked && !granted ? <><br /><em>Indisponível por enquanto: nenhum dado da Zepp é enviado a fornecedores externos de IA.</em></> : null}
+                      <br />
+                      {granted ? (
+                        <button className="secondaryButton" type="button" disabled={busy} onClick={() => void changePurpose(option.id, 'revoke')}>Retirar autorização</button>
+                      ) : (
+                        <>
+                          <label><input type="checkbox" checked={purposeAck} disabled={busy || locked} onChange={(event) => setPurposeAck(event.target.checked)} /> Li a seção 2.3 do texto e autorizo.</label>{' '}
+                          <button className="secondaryButton" type="button" disabled={busy || locked || !purposeAck} onClick={() => void changePurpose(option.id, 'grant')}>Autorizar</button>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
           <button className="secondaryButton" type="button" disabled={busy} onClick={() => void disconnect()}>Desconectar</button>
         </div>
       ) : (
@@ -194,6 +242,27 @@ export default function ZeppTestPanel({ apiUrl, token }: { apiUrl: string; token
                       <span>
                         <strong>{group.label}</strong> {group.required ? <em>(obrigatório para vincular a conta)</em> : <em>(opcional)</em>}
                         <br /><span className="formHintText">{group.description}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <h5>Finalidades opcionais</h5>
+              <div className="zeppGroups">
+                {doc.optionalPurposes.map((option) => {
+                  const locked = option.external && doc.locked?.[option.id] !== false;
+                  return (
+                    <label key={option.id} className="zeppGroup">
+                      <input
+                        type="checkbox"
+                        checked={selectedPurposes.includes(option.id)}
+                        disabled={busy || locked}
+                        onChange={() => setSelectedPurposes((current) => (current.includes(option.id) ? current.filter((id) => id !== option.id) : [...current, option.id]))}
+                      />
+                      <span>
+                        <strong>{option.label}</strong> <em>(opcional)</em>
+                        <br /><span className="formHintText">{option.description}</span>
+                        {locked ? <><br /><em>Indisponível por enquanto: nenhum dado da Zepp é enviado a fornecedores externos de IA.</em></> : null}
                       </span>
                     </label>
                   );

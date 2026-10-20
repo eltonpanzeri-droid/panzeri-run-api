@@ -1905,6 +1905,9 @@ model StudentProfileEvent {
   content      String
   createdAt    DateTime  @default(now())
   summarizedAt DateTime?
+  // Provedores de dispositivo de cujos dados o texto deriva (Central Universal, Lote 1). Nulo = nao derivado de dispositivo (ou anterior a este campo). Evento cujo
+  // provedor esta bloqueado para IA nao e' condensado nem entregue ao Prescritor; continua visivel para pessoas.
+  sourceProviders Json?
 
   @@index([userId, summarizedAt])
 }

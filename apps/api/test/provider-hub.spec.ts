@@ -8,7 +8,7 @@ import { ProviderConsentService } from '../src/provider-hub/provider-consent.ser
 import { ACCOUNT_DELETE_ORDER } from '../src/account-deletion/account-deletion.service';
 import { BACKUP_EXCLUDED_TABLE_DATA } from '../src/backup/backup.service';
 
-const TEST_CONSENT = { version: '1', dateLabel: 'x', title: 't', intro: 'i', sections: [], groups: [{ id: 'g', label: 'g', description: 'd', required: true, categories: ['activity'] as const }], purposes: ['history'], acknowledgementText: 'a', confirmButtonLabel: 'c' };
+const TEST_CONSENT = { version: '1', dateLabel: 'x', title: 't', intro: 'i', sections: [], groups: [{ id: 'g', label: 'g', description: 'd', required: true, categories: ['activity'] as const }], purposes: ['history'], optionalPurposes: [], acknowledgementText: 'a', confirmButtonLabel: 'c' };
 
 // ── Banco em memoria: reproduz so' o que a fila usa (where com OR/in/lte/lt, updateMany atomico, create com unicidade) ──
 type Row = Record<string, any>;

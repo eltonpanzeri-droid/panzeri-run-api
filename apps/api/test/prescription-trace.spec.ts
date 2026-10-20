@@ -70,9 +70,9 @@ describe('injecao e protecao', () => {
     const types = Reflect.getMetadata('design:paramtypes', TrainingPlansService) as unknown[];
     // 2.1 acrescentou ExecutionAnalysisService (opcional) DEPOIS da rastreabilidade: a trilha continua a ultima dependencia OBRIGATORIA.
     const traceIndex = types.indexOf(PrescriptionTraceService);
-    expect(traceIndex).toBe(types.length - 3); // depois dela, os opcionais: ExecutionAnalysisService (2.1) e TrainingAnalystService (2.2)
+    expect(traceIndex).toBe(types.length - 4); // depois dela, os opcionais: ExecutionAnalysisService (2.1), TrainingAnalystService (2.2) e AiDataEligibility (Central Universal, Lote 1)
     expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService) ?? []).not.toContain(traceIndex);
-    expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService)).toEqual(expect.arrayContaining([types.length - 1, types.length - 2]));
+    expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService)).toEqual(expect.arrayContaining([types.length - 1, types.length - 2, types.length - 3]));
     expect(Reflect.getMetadata('__guards__', PrescriptionTraceController)).toHaveLength(2); // JWT + RolesGuard
     expect(Reflect.getMetadata('roles', PrescriptionTraceController)).toEqual(['coach', 'admin']);
     expect(Reflect.getMetadata('path', PrescriptionTraceController)).toBe('coach');

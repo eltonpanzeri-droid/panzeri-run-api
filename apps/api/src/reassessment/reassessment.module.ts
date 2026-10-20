@@ -1,3 +1,4 @@
+import { AiGovernanceModule } from '../ai-governance/ai-governance.module';
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AiQueueModule } from '../common/ai-queue.module';
@@ -10,7 +11,7 @@ import { ReporterModule } from '../reporter/reporter.module';
 import { MedalsModule } from '../medals/medals.module';
 
 @Module({
-  imports: [PrismaModule, AiQueueModule, StudentProfileModule, TrainingIntelligenceModule, ReporterModule, EvolutionAgentModule, MedalsModule],
+  imports: [PrismaModule, AiQueueModule, StudentProfileModule, TrainingIntelligenceModule, ReporterModule, EvolutionAgentModule, MedalsModule, AiGovernanceModule],
   controllers: [ReassessmentController],
   providers: [ReassessmentService],
   exports: [ReassessmentService],

@@ -2,6 +2,8 @@ import { createHash } from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { aiActivityWhere, aiBlockedProviders } from '../ai-governance/ai-scope';
+import { neutralizeSessionsForAi } from '../ai-governance/ai-session-filter';
 import { NORMALIZATION_VERSION } from '../activity-timeseries/activity-timeseries.service';
 import { pickCanonicalPerEvent } from './canonical-observation';
 import { findStaleAnalysisRowIds } from './analysis-validity';
@@ -40,19 +42,28 @@ export class ExecutionAnalysisService {
 
   // Analisa UMA sessao e grava/atualiza a linha de indicadores (idempotente: so' recalcula quando a fonte mudou). Devolve null para modalidades que esta
   // etapa nao analisa.
-  async analyzeSession(userId: string, sessionId: string, options: { force?: boolean } = {}): Promise<{ analysis: SessionAnalysis; activityLogId: string | null; provider: string | null; kind: 'run' | 'strength' } | null> {
-    const session = await this.prisma.trainingSession.findFirst({
+  async analyzeSession(userId: string, sessionId: string, options: { force?: boolean; forAi?: boolean } = {}): Promise<{ analysis: SessionAnalysis; activityLogId: string | null; provider: string | null; kind: 'run' | 'strength' } | null> {
+    const loaded = await this.prisma.trainingSession.findFirst({
       where: { id: sessionId, userId },
       include: { completion: true, executionLinks: { where: { status: 'active' }, include: { activityLog: true } } },
     });
-    if (!session) return null;
+    if (!loaded) return null;
+    // Visao para IA (Central Universal, Lote 1): a mesma analise, calculada como se os dados dos provedores bloqueados nao existissem (vinculos removidos, copias
+    // do relogio no feedback anuladas, sessao sintetica do relogio descartada). Resultado NUNCA gravado: a linha persistida continua sendo a completa.
+    const forAi = options.forAi === true && aiBlockedProviders().length > 0;
+    let session = loaded;
+    if (forAi) {
+      const [neutral] = neutralizeSessionsForAi([loaded]);
+      if (!neutral) return null;
+      session = neutral;
+    }
     const kind = RUN.has(session.modality) ? 'run' : STRENGTH.has(session.modality) ? 'strength' : null;
     if (!kind) return null;
     // Atividades por iniciativa do aluno/relogio (sem prescricao correspondente): analisadas SO' como assinatura do estimulo (Etapa 2.2); nada e comparado com prescricao.
     const isExtra = EXTRA_ORIGINS.has(session.origin ?? '');
     if (isExtra && kind !== 'run') return null;
 
-    const picks = await pickCanonicalPerEvent(session.executionLinks.map((link) => link.activityLog), (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
+    const picks = await pickCanonicalPerEvent(session.executionLinks.map((link) => link.activityLog), (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids }, ...(forAi ? aiActivityWhere() : {}) } }));
     const activity = picks[0]?.row ?? null;
     // Impressao digital da serie SEM carregar os pontos (contagem e extremos): a serie completa so' e' lida quando a analise precisa ser recalculada.
     const seriesWhere = activity ? { activityLogId: activity.id, normalizationVersion: NORMALIZATION_VERSION } : null;
@@ -68,7 +79,7 @@ export class ExecutionAnalysisService {
       s: [session.distanceKm, session.durationMin, this.fingerprint(session.structure)],
     });
     const existing = await this.prisma.sessionExecutionAnalysis.findUnique({ where: { trainingSessionId_algorithmVersion: { trainingSessionId: sessionId, algorithmVersion: EXECUTION_ANALYSIS_VERSION } } });
-    if (existing && existing.sourceFingerprint === fingerprint && !options.force) {
+    if (!forAi && existing && existing.sourceFingerprint === fingerprint && !options.force) {
       return { analysis: existing.indicators as unknown as SessionAnalysis, activityLogId: existing.activityLogId, provider: existing.provider, kind };
     }
 
@@ -97,10 +108,12 @@ export class ExecutionAnalysisService {
       userId, trainingSessionId: sessionId, activityLogId: activity?.id ?? null, provider: activity?.provider ?? null, modality: session.modality,
       scheduledDate: session.scheduledDate, algorithmVersion: EXECUTION_ANALYSIS_VERSION, status, sourceFingerprint: fingerprint, indicators: analysis as unknown as Prisma.InputJsonValue,
     };
-    await this.prisma.sessionExecutionAnalysis.upsert({
-      where: { trainingSessionId_algorithmVersion: { trainingSessionId: sessionId, algorithmVersion: EXECUTION_ANALYSIS_VERSION } },
-      create: data, update: { ...data, computedAt: new Date() },
-    });
+    if (!forAi) {
+      await this.prisma.sessionExecutionAnalysis.upsert({
+        where: { trainingSessionId_algorithmVersion: { trainingSessionId: sessionId, algorithmVersion: EXECUTION_ANALYSIS_VERSION } },
+        create: data, update: { ...data, computedAt: new Date() },
+      });
+    }
     return { analysis, activityLogId: activity?.id ?? null, provider: activity?.provider ?? null, kind };
   }
 
@@ -124,7 +137,17 @@ export class ExecutionAnalysisService {
     if (inputs.length === 0) return null;
     const weekStartDate = week.startDate.toISOString().slice(0, 10);
     const indicators = buildWeeklyExecutionIndicators(weekStartDate, inputs);
-    return { weekStartDate: week.startDate, analyzedPlanId: week.planId, indicators, textLines: renderWeeklyReport(indicators), promptIndicators: this.toPromptIndicators(indicators) };
+    // Relatorio persistido/mostrado a pessoas = completo. O que vai ao Prescritor (promptIndicators) = visao para IA (sem provedores bloqueados), quando ha' algum.
+    let promptIndicators = this.toPromptIndicators(indicators);
+    if (aiBlockedProviders().length > 0) {
+      const aiInputs: WeeklySessionInput[] = [];
+      for (const input of inputs) {
+        const neutral = await this.analyzeSession(userId, input.sessionId, { forAi: true }).catch(() => null);
+        if (neutral) aiInputs.push({ ...input, kind: neutral.kind, analysis: neutral.analysis, activityLogId: neutral.activityLogId, provider: neutral.provider });
+      }
+      promptIndicators = this.toPromptIndicators(buildWeeklyExecutionIndicators(weekStartDate, aiInputs));
+    }
+    return { weekStartDate: week.startDate, analyzedPlanId: week.planId, indicators, textLines: renderWeeklyReport(indicators), promptIndicators };
   }
 
   // Forma compacta enviada ao Prescritor: so' numeros e contagens (sem ids de fonte nem texto do aluno).

@@ -23,6 +23,8 @@ export class ConnectorRegistry {
     if (connector.consent) {
       const known = new Set(connector.consent.groups.map((g) => g.id));
       if (known.size !== connector.consent.groups.length) throw new Error(`Conector "${id}" tem grupos de consentimento repetidos.`);
+      const optionalIds = connector.consent.optionalPurposes.map((p) => p.id);
+      if (new Set(optionalIds).size !== optionalIds.length || optionalIds.some((id) => connector.consent!.purposes.includes(id))) throw new Error(`Conector "${id}" tem finalidades opcionais repetidas ou iguais as obrigatorias.`);
       for (const g of connector.consent.groups) {
         if (!g.categories.every((c) => (connector.categories ?? []).includes(c))) throw new Error(`Grupo "${g.id}" do conector "${id}" usa categoria que o conector nao declara.`);
         if ((g.requires ?? []).some((r) => !known.has(r))) throw new Error(`Grupo "${g.id}" do conector "${id}" depende de grupo inexistente.`);

@@ -1,3 +1,4 @@
+import { aiBlockedProviders } from '../ai-governance/ai-scope';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EvolutionAgentService } from '../reassessment/evolution-agent.service';
@@ -63,7 +64,8 @@ export class StudentProfileService implements OnModuleInit {
     if (needed.sessionIds.length === 0 && needed.activityIds.length === 0) return 0;
     const [sessions, activities] = await Promise.all([
       needed.sessionIds.length > 0 ? this.prisma.trainingSession.findMany({ where: { id: { in: needed.sessionIds }, userId: context.userId }, select: { id: true, title: true, scheduledDate: true, modality: true } }) : [],
-      needed.activityIds.length > 0 ? this.prisma.activityLog.findMany({ where: { id: { in: needed.activityIds }, userId: context.userId }, select: { id: true, startedAt: true, utcOffsetMinutes: true, sport: true, distanceMeters: true, durationSec: true } }) : [],
+      // ai-scope: nao-ia (escrita do evento do prontuario: aqui o texto e' montado e a PROVENIENCIA (provedores) e' gravada junto; a leitura para IA filtra por ela — visibleToAi)
+      needed.activityIds.length > 0 ? this.prisma.activityLog.findMany({ where: { id: { in: needed.activityIds }, userId: context.userId }, select: { id: true, provider: true, startedAt: true, utcOffsetMinutes: true, sport: true, distanceMeters: true, durationSec: true } }) : [],
     ]);
     const data: CorrectionEventData = {
       sessions: new Map(sessions.map((s) => [s.id, { title: s.title, scheduledDate: s.scheduledDate, modality: s.modality }])),
@@ -76,19 +78,21 @@ export class StudentProfileService implements OnModuleInit {
       select: { content: true },
     });
     const bodies = new Set(recent.map((e) => e.content.split('\n').slice(1).join('\n')));
+    // Proveniencia: o texto cita dados das atividades lidas aqui — os provedores delas marcam o evento (retido da IA se algum for bloqueado).
+    const providers = [...new Set(activities.map((a) => a.provider))].sort();
     let written = 0;
     for (const event of events) {
       if (bodies.has(event.body)) continue;
-      await this.recordEvent(context.userId, ProfileEventCode.EXECUTION_LINK_CORRECTED, `${event.header}\n${event.body}`);
+      await this.recordEvent(context.userId, ProfileEventCode.EXECUTION_LINK_CORRECTED, `${event.header}\n${event.body}`, providers);
       written++;
     }
     return written;
   }
 
   // Grava uma linha no prontuario. Puro codigo, sem chamada de IA — zero custo.
-  async recordEvent(userId: string, code: string, content: string): Promise<void> {
+  async recordEvent(userId: string, code: string, content: string, sourceProviders?: string[]): Promise<void> {
     await this.prisma.studentProfileEvent.create({
-      data: { userId, code, content },
+      data: { userId, code, content, ...(sourceProviders && sourceProviders.length > 0 ? { sourceProviders } : {}) },
     });
   }
 
@@ -107,10 +111,10 @@ export class StudentProfileService implements OnModuleInit {
   // Leitura SEM IA (usada na regeneracao de um unico dia): resumo atual + eventos ainda nao condensados.
   async loadProfileContext(userId: string): Promise<ProfileRefreshResult> {
     const existing = await this.prisma.studentProfile.findUnique({ where: { userId } });
-    const pendingEvents = await this.prisma.studentProfileEvent.findMany({
+    const pendingEvents = visibleToAi(await this.prisma.studentProfileEvent.findMany({
       where: { userId, summarizedAt: null },
       orderBy: { createdAt: 'asc' },
-    });
+    }));
     return { summary: existing?.summary ?? '', pendingEvents: pendingEvents.map(toPendingEvent), status: pendingEvents.length === 0 ? 'nothing_pending' : 'not_attempted' };
   }
 
@@ -120,10 +124,11 @@ export class StudentProfileService implements OnModuleInit {
   // Prescritor em texto bruto.
   async refreshProfileDetailed(userId: string): Promise<ProfileRefreshResult> {
     const existing = await this.prisma.studentProfile.findUnique({ where: { userId } });
-    const pendingEvents = await this.prisma.studentProfileEvent.findMany({
+    // Eventos derivados de provedor bloqueado para IA ficam de fora (nao condensados, nao entregues, nao marcados como condensados).
+    const pendingEvents = visibleToAi(await this.prisma.studentProfileEvent.findMany({
       where: { userId, summarizedAt: null },
       orderBy: { createdAt: 'asc' },
-    });
+    }));
 
     if (pendingEvents.length === 0) {
       return { summary: existing?.summary ?? '', pendingEvents: [], status: 'nothing_pending' };
@@ -179,6 +184,13 @@ export interface ProfileRefreshResult {
   // Eventos que NAO entraram no resumo (falha da condensacao ou leitura sem IA).
   pendingEvents: PendingProfileEvent[];
   status: 'ok' | 'nothing_pending' | 'failed' | 'not_attempted';
+}
+
+// Mantem so' os eventos que a IA pode receber no escopo atual (fora de escopo: todos). Provedores vem de StudentProfileEvent.sourceProviders.
+function visibleToAi<T extends { sourceProviders?: unknown }>(events: T[]): T[] {
+  const blocked = aiBlockedProviders();
+  if (blocked.length === 0) return events;
+  return events.filter((event) => !(Array.isArray(event.sourceProviders) && (event.sourceProviders as unknown[]).some((p) => typeof p === 'string' && blocked.includes(p))));
 }
 
 function toPendingEvent(event: { id: string; code: string; content: string; createdAt: Date }): PendingProfileEvent {
