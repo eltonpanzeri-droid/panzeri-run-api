@@ -398,6 +398,12 @@ export class CoachController {
   // Strava/Garmin/COROS depois). So' leitura do que ja existe em ActivityLog/RawExternalActivity,
   // sem matching, sem transformacao nova. Ver CoachService.listExternalActivities/getExternalActivityRaw.
   // Calendario do aluno (so' leitura): sessoes, atividades fora do programa e resumo por semana de um periodo (maximo de 70 dias, a partir de 01/08/2026).
+  // Detalhe de uma atividade do relogio do aluno (parciais, grafico, prescrito x realizado, relatorio). So' leitura.
+  @Get('students/:studentId/activities/:activityLogId/detail')
+  activityDetail(@Param('studentId') studentId: string, @Param('activityLogId') activityLogId: string) {
+    return this.coachService.activityDetailForStudent(studentId, activityLogId);
+  }
+
   @Get('students/:studentId/calendar')
   calendar(@Param('studentId') studentId: string, @Query('from') from: string, @Query('to') to: string) {
     return this.coachService.calendar(studentId, from, to);

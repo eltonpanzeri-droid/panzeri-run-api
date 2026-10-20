@@ -4364,6 +4364,7 @@ function StudentPanel({
           focusDate={calendarFocus?.date ?? null}
           focusNonce={calendarFocus?.nonce}
           renderSessionCard={(session) => <HistorySessionCard session={session} />}
+          renderSessionDetail={(session) => <HistorySessionDetail session={session} studentId={student.id} token={token} />}
         />
       ) : null}
 
@@ -7128,6 +7129,187 @@ function HistorySessionCard({ session }: { session: CalendarSession }) {
       {session.hasFeedback || !execution ? <SessionExecutionPanel session={asPlanSession} /> : null}
     </div>
   );
+}
+
+// Detalhe do treino do relogio (rota do treinador que reutiliza o servico do "Ver treino completo" da aluna). So' formato de leitura do que a API ja devolve.
+interface ActivityDetailView {
+  provider: string;
+  summary: { distanceKm: number | null; durationSec: number | null; avgPaceSecondsKm: number | null; avgHeartRateBpm: number | null; maxHeartRateBpm: number | null; cadenceAvg: number | null; caloriesKcal: number | null };
+  executionSummary: null | {
+    distance: { prescribedKm: number | null; realizedKm: number | null; deltaKm: number | null };
+    duration: { prescribedSec: number | null; realizedSec: number | null; deltaSec: number | null };
+    pace: { prescribedFastSecondsKm: number | null; prescribedSlowSecondsKm: number | null; realizedSecondsKm: number | null };
+    segments: Array<{ index: number; label: string; prescribedDistanceKm: number; realizedDistanceKm: number | null; prescribedPaceFastSecondsKm: number | null; prescribedPaceSlowSecondsKm: number | null; realizedPaceSecondsKm: number | null }>;
+  };
+  report: null | { lines: string[] };
+  splits: Array<{ kmIndex: number; isPartial: boolean; distanceKm: number; durationSec: number; paceSecondsKm: number | null; avgHeartRateBpm: number | null; avgCadenceSpm: number | null; segmentIndex: number | null }>;
+  chart: Array<{ offsetSec: number; distanceMeters: number | null; heartRateBpm: number | null; speedKmh: number | null }>;
+  chartAxis: 'distance' | 'time';
+}
+
+function paceRange(fast: number | null, slow: number | null) {
+  if (fast == null && slow == null) return '—';
+  return fast != null && slow != null && fast !== slow ? `${paceLabel(fast)} a ${paceLabel(slow)}` : paceLabel((fast ?? slow) as number);
+}
+
+// Painel do dia (Fase 3 do calendario): sub-abas sobre UM treino. Prescrito x Realizado / Resposta da aluna / Analise / Relogio.
+function HistorySessionDetail({ session, studentId, token }: { session: CalendarSession; studentId: string; token: string }) {
+  const asPlanSession = session as unknown as NonNullable<StudentDetail['plan']>['sessions'][number];
+  const execution = session.execution;
+  const [tab, setTab] = useState<'comparacao' | 'resposta' | 'analise' | 'relogio'>('comparacao');
+  const [detail, setDetail] = useState<ActivityDetailView | null>(null);
+  const [detailState, setDetailState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const needsDetail = Boolean(execution) && tab !== 'resposta';
+
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!execution || !needsDetail || detail) return;
+    let cancelled = false;
+    setDetailState('loading');
+    fetch(`${API_URL}/coach/students/${studentId}/activities/${execution.activityLogId}/detail`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('detail');
+        const body = (await response.json()) as ActivityDetailView;
+        if (!cancelled) { setDetail(body); setDetailState('idle'); }
+      })
+      .catch(() => { if (!cancelled) setDetailState('error'); });
+    return () => { cancelled = true; };
+  }, [execution?.activityLogId, needsDetail, attempt, studentId, token]);
+
+  const tabs: Array<{ key: typeof tab; label: string; disabled?: boolean }> = [
+    { key: 'comparacao', label: 'Prescrito x Realizado' },
+    { key: 'resposta', label: 'Resposta da aluna' },
+    { key: 'analise', label: 'Analise', disabled: !execution },
+    { key: 'relogio', label: 'Relogio', disabled: !execution },
+  ];
+  const loadingOrError = detailState === 'loading' ? <p className="formHintText">Carregando o treino do relogio…</p> : detailState === 'error' ? <p className="zeppAlert" role="alert">Nao consegui carregar o detalhe do relogio. <button type="button" className="secondaryButton" onClick={() => setAttempt((n) => n + 1)}>Tentar de novo</button></p> : null;
+
+  return (
+    <div className="historyDetail">
+      <div className="historyDetailTitle">
+        <strong>{session.title}</strong>
+        <span>{modalityLabel(session.modality)} | {statusWord(session.status)}</span>
+      </div>
+      <div className="historyDetailTabs" role="tablist">
+        {tabs.map((item) => (
+          <button key={item.key} type="button" role="tab" aria-selected={tab === item.key} disabled={item.disabled} className={tab === item.key ? 'active' : ''} onClick={() => setTab(item.key)}>{item.label}</button>
+        ))}
+      </div>
+
+      {tab === 'comparacao' ? (
+        <div className="historyDetailBody">
+          <div className="sessionOverview">
+            <strong>Prescrito</strong>
+            <span>{session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''}{session.zone ? ` | ${session.zone}` : ''}</span>
+          </div>
+          <AdminPrescription structure={session.structure} notes={session.notes} />
+          {execution ? (
+            <div className="executionPanel">
+              <strong>Realizado (relogio {execution.provider})</strong>
+              <span>
+                {execution.durationMin != null ? `${Math.round(execution.durationMin)} min` : 'Tempo nao informado'}
+                {execution.distanceKm != null ? ` | ${Number(execution.distanceKm.toFixed(2))} km` : ''}
+                {execution.avgPaceSecondsKm ? ` | ${paceLabel(execution.avgPaceSecondsKm)}` : ''}
+                {execution.avgHeartRateBpm ? ` | ${execution.avgHeartRateBpm} bpm` : ''}
+              </span>
+            </div>
+          ) : (
+            <SessionExecutionPanel session={asPlanSession} />
+          )}
+          {loadingOrError}
+          {detail?.executionSummary?.segments?.length ? (
+            <table className="historyDetailTable">
+              <thead><tr><th>Bloco</th><th>Dist. prescrita</th><th>Dist. feita</th><th>Pace prescrito</th><th>Pace feito</th></tr></thead>
+              <tbody>
+                {detail.executionSummary.segments.map((segment) => (
+                  <tr key={segment.index}>
+                    <td>{segment.label}</td>
+                    <td>{segment.prescribedDistanceKm} km</td>
+                    <td>{segment.realizedDistanceKm != null ? `${Number(segment.realizedDistanceKm.toFixed(2))} km` : '—'}</td>
+                    <td>{paceRange(segment.prescribedPaceFastSecondsKm, segment.prescribedPaceSlowSecondsKm)}</td>
+                    <td>{segment.realizedPaceSecondsKm ? paceLabel(segment.realizedPaceSecondsKm) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : detail?.executionSummary ? (
+            <p className="formHintText">
+              Pace prescrito: {paceRange(detail.executionSummary.pace.prescribedFastSecondsKm, detail.executionSummary.pace.prescribedSlowSecondsKm)} | feito: {detail.executionSummary.pace.realizedSecondsKm ? paceLabel(detail.executionSummary.pace.realizedSecondsKm) : '—'}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {tab === 'resposta' ? (
+        <div className="historyDetailBody">
+          {session.hasFeedback ? <SessionExecutionPanel session={asPlanSession} /> : <p className="formHintText">{session.status === 'futuro' ? 'Treino ainda nao aconteceu.' : 'A aluna nao respondeu o feedback deste treino.'}</p>}
+        </div>
+      ) : null}
+
+      {tab === 'analise' ? (
+        <div className="historyDetailBody">
+          {loadingOrError}
+          {detail?.report?.lines?.length ? <ul className="historyDetailReport">{detail.report.lines.map((line, index) => <li key={index}>{line}</li>)}</ul> : detailState === 'idle' && detail ? <p className="formHintText">Sem relatorio de execucao para este treino.</p> : null}
+        </div>
+      ) : null}
+
+      {tab === 'relogio' ? (
+        <div className="historyDetailBody">
+          {loadingOrError}
+          {detail ? (
+            <>
+              <p className="formHintText">
+                {detail.provider} | {detail.summary.distanceKm != null ? `${Number(detail.summary.distanceKm.toFixed(2))} km` : 'sem distancia'}
+                {detail.summary.durationSec != null ? ` | ${Math.round(detail.summary.durationSec / 60)} min` : ''}
+                {detail.summary.avgPaceSecondsKm ? ` | ${paceLabel(detail.summary.avgPaceSecondsKm)}` : ''}
+                {detail.summary.avgHeartRateBpm ? ` | FC media ${detail.summary.avgHeartRateBpm} bpm` : ''}
+                {detail.summary.maxHeartRateBpm ? ` | max ${detail.summary.maxHeartRateBpm}` : ''}
+                {detail.summary.cadenceAvg ? ` | cadencia ${Math.round(detail.summary.cadenceAvg)} spm` : ''}
+                {detail.summary.caloriesKcal ? ` | ${Math.round(detail.summary.caloriesKcal)} kcal` : ''}
+              </p>
+              {detail.chart.length > 1 ? (
+                <div style={{ width: '100%', height: 220 }}>
+                  <ResponsiveContainer>
+                    <LineChart data={detail.chart.map((point) => ({ x: detail.chartAxis === 'distance' ? Number(((point.distanceMeters ?? 0) / 1000).toFixed(2)) : Math.round(point.offsetSec / 60), hr: point.heartRateBpm, speed: point.speedKmh }))}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="x" unit={detail.chartAxis === 'distance' ? ' km' : ' min'} />
+                      <YAxis yAxisId="hr" width={40} />
+                      <YAxis yAxisId="speed" orientation="right" width={40} />
+                      <Tooltip />
+                      <Legend />
+                      <Line yAxisId="hr" type="monotone" dataKey="hr" name="FC (bpm)" stroke="#dc2626" dot={false} connectNulls />
+                      <Line yAxisId="speed" type="monotone" dataKey="speed" name="Velocidade (km/h)" stroke="#1f6feb" dot={false} connectNulls />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : <p className="formHintText">Sem serie de dados do relogio para este treino.</p>}
+              {detail.splits.length ? (
+                <table className="historyDetailTable">
+                  <thead><tr><th>Km</th><th>Dist.</th><th>Tempo</th><th>Pace</th><th>FC</th><th>Cad.</th></tr></thead>
+                  <tbody>
+                    {detail.splits.map((split) => (
+                      <tr key={split.kmIndex}>
+                        <td>{split.kmIndex}{split.isPartial ? ' (parcial)' : ''}</td>
+                        <td>{Number(split.distanceKm.toFixed(2))} km</td>
+                        <td>{Math.floor(split.durationSec / 60)}:{String(Math.round(split.durationSec % 60)).padStart(2, '0')}</td>
+                        <td>{split.paceSecondsKm ? paceLabel(split.paceSecondsKm) : '—'}</td>
+                        <td>{split.avgHeartRateBpm ?? '—'}</td>
+                        <td>{split.avgCadenceSpm ? Math.round(split.avgCadenceSpm) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function statusWord(status: CalendarSession['status']) {
+  return status === 'feito' ? 'Feito' : status === 'ajustado' ? 'Ajustado' : status === 'nao_feito' ? 'Nao feito' : status === 'futuro' ? 'A fazer' : 'Sem registro';
 }
 
 function EditableSession({

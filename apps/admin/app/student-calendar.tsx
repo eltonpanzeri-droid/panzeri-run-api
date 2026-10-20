@@ -159,7 +159,7 @@ function chipTitle(session: CalendarSession): string {
   return parts.join(' · ');
 }
 
-export default function StudentCalendar({ apiUrl, token, studentId, focusDate, focusNonce, renderSessionCard }: {
+export default function StudentCalendar({ apiUrl, token, studentId, focusDate, focusNonce, renderSessionCard, renderSessionDetail }: {
   apiUrl: string;
   token: string;
   studentId: string;
@@ -167,6 +167,8 @@ export default function StudentCalendar({ apiUrl, token, studentId, focusDate, f
   focusDate?: string | null;
   focusNonce?: number;
   renderSessionCard: (session: CalendarSession) => ReactNode;
+  // Painel completo do dia (sub-abas Prescrito x Realizado / Resposta / Analise / Relogio). Se ausente, o dia mostra o mesmo cartao das outras visoes.
+  renderSessionDetail?: (session: CalendarSession) => ReactNode;
 }) {
   const todayGuess = new Date().toISOString().slice(0, 10);
   const [mode, setMode] = useState<Mode>('mes');
@@ -266,7 +268,7 @@ export default function StudentCalendar({ apiUrl, token, studentId, focusDate, f
         </div>
         {(sessionsByDay.get(selectedDay) ?? []).length === 0 && (activitiesByDay.get(selectedDay) ?? []).length === 0 ? <p className="formHintText">Nada neste dia.</p> : null}
         <div className="calDialogBody">
-          {(sessionsByDay.get(selectedDay) ?? []).map((session) => <div key={session.id}>{renderSessionCard(session)}</div>)}
+          {(sessionsByDay.get(selectedDay) ?? []).map((session) => <div key={session.id}>{(renderSessionDetail ?? renderSessionCard)(session)}</div>)}
           {(activitiesByDay.get(selectedDay) ?? []).length > 0 ? (
             <div className="calActivityBlock">
               <h4>Atividades do relógio fora do programa</h4>

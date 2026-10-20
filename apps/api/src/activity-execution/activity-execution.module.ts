@@ -20,6 +20,6 @@ import { ActivityTimeSeriesModule } from '../activity-timeseries/activity-timese
   imports: [PrismaModule, NotificationsModule, ActivityTimeSeriesModule, TombstoneModule],
   controllers: [ActivityExecutionController],
   providers: [SessionExecutionLinkService, ActivityDetailService, ActivityNotificationService, ProviderDataDeletionService, PhysicalActivityIdentityService, ExecutionAnalysisService, IdentityConfirmationService, PendingReevaluationSweeperService],
-  exports: [SessionExecutionLinkService, ActivityNotificationService, ProviderDataDeletionService, PhysicalActivityIdentityService, ExecutionAnalysisService, IdentityConfirmationService],
+  exports: [ActivityDetailService, SessionExecutionLinkService, ActivityNotificationService, ProviderDataDeletionService, PhysicalActivityIdentityService, ExecutionAnalysisService, IdentityConfirmationService],
 })
 export class ActivityExecutionModule {}

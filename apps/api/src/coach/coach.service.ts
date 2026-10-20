@@ -1,4 +1,5 @@
-﻿import { buildStudentCalendar, mondayOf, normalizeCalendarRange, CalendarLinkedActivity } from './student-calendar';
+﻿import { ActivityDetailService } from '../activity-execution/activity-detail.service';
+import { buildStudentCalendar, mondayOf, normalizeCalendarRange, CalendarLinkedActivity } from './student-calendar';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { mapHistorySession } from './history-session';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
@@ -65,6 +66,8 @@ export class CoachService {
     private readonly physicalIdentity?: PhysicalActivityIdentityService,
     // Confirmacao de identidade fisica (aluno/treinador). Opcional so' para testes antigos; em producao e' sempre injetado.
     private readonly identityConfirmation?: IdentityConfirmationService,
+    // Detalhe do treino do relogio no painel do dia (Fase 3 do calendario). Opcional so' para testes antigos; em producao e' sempre injetado.
+    private readonly activityDetail?: ActivityDetailService,
   ) {}
 
   // Passo 5 (continuacao) — lista leve de TODOS os alunos ativos (id/nome/codigo), sem paginacao —
@@ -136,6 +139,14 @@ export class CoachService {
       summarize: (sessions) => summarizeSessions(sessions as never),
     });
     return { from: range.from, to: range.to, today, ...built };
+  }
+
+  // Detalhe do treino do relogio para o treinador (painel do dia do calendario): MESMO servico do "Ver treino completo" da aluna, com a posse checada pelo
+  // proprio studentId (atividade de outra conta => 404). Leitura; o unico efeito e' o cache idempotente da serie/analise que o servico ja faz.
+  async activityDetailForStudent(studentId: string, activityLogId: string) {
+    await this.assertStudent(studentId);
+    if (!this.activityDetail) throw new NotFoundException('Detalhe de atividade indisponivel.');
+    return this.activityDetail.getDetail(studentId, activityLogId);
   }
 
   async listExternalActivities(studentId: string) {

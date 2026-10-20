@@ -2876,3 +2876,15 @@ h3 {
 .calDialogHeader h3 { margin: 0; text-transform: capitalize; }
 .calDialogBody { display: grid; gap: 12px; }
 .calKindTag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #ede9fe; color: #5b21b6; }
+
+/* Painel do dia do calendario (Fase 3) — 20/10/2026 */
+.historyDetail { border: 1px solid var(--line, #d9dee7); border-radius: 10px; padding: 10px; display: grid; gap: 10px; }
+.historyDetailTitle { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; }
+.historyDetailTabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.historyDetailTabs button { border: 1px solid var(--line, #d9dee7); background: transparent; border-radius: 999px; padding: 5px 12px; cursor: pointer; font: inherit; color: inherit; }
+.historyDetailTabs button.active { background: #1f6feb; color: #fff; border-color: #1f6feb; }
+.historyDetailTabs button:disabled { opacity: 0.4; cursor: not-allowed; }
+.historyDetailBody { display: grid; gap: 10px; }
+.historyDetailTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.historyDetailTable th, .historyDetailTable td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line, #d9dee7); }
+.historyDetailReport { margin: 0; padding-left: 18px; display: grid; gap: 4px; }

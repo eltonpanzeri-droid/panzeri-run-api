@@ -188,3 +188,27 @@ describe('CoachService.calendar e a rota', () => {
     expect(out.weeks[0].summary).toEqual(summarizeSessions([session('a', '2026-10-13', { completion: { status: 'done', distanceKm: 8 } })] as never));
   });
 });
+
+describe('CoachService.activityDetailForStudent e a rota', () => {
+  const proto = CoachService.prototype as unknown as Row;
+
+  it('usa o studentId como dono da atividade (outra conta => o servico responde 404) e confere o aluno antes', async () => {
+    const getDetail = jest.fn(async (_u: string, _a: string) => ({ ok: true }));
+    const self = { assertStudent: jest.fn(async () => undefined), activityDetail: { getDetail } };
+    const out = await proto.activityDetailForStudent.call(self, 'aluno1', 'act9');
+    expect(out).toEqual({ ok: true });
+    expect(self.assertStudent).toHaveBeenCalledWith('aluno1');
+    expect(getDetail).toHaveBeenCalledWith('aluno1', 'act9');
+  });
+
+  it('sem o servico de detalhe injetado: 404, nunca erro generico', async () => {
+    const self = { assertStudent: jest.fn(async () => undefined), activityDetail: undefined };
+    await expect(proto.activityDetailForStudent.call(self, 'a', 'b')).rejects.toThrow('indisponivel');
+  });
+
+  it('a rota GET existe sob a protecao de coach/admin', () => {
+    expect(Reflect.getMetadata('path', CoachController.prototype.activityDetail)).toBe('students/:studentId/activities/:activityLogId/detail');
+    expect(Reflect.getMetadata('method', CoachController.prototype.activityDetail)).toBe(0);
+    expect(Reflect.getMetadata('roles', CoachController)).toEqual(['coach', 'admin']);
+  });
+});
