@@ -11060,6 +11060,16 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState('');
   const headers = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+  // Na web/PWA a confirmacao e' feita DENTRO do app (window.confirm no PWA do iPhone pode deixar a tela sem responder ao toque depois do dialogo nativo).
+  const [pendingConfirm, setPendingConfirm] = React.useState<{ title: string; message: string; resolve: (ok: boolean) => void } | null>(null);
+  function ask(title: string, message: string): Promise<boolean> {
+    if (Platform.OS !== 'web') return confirmAsync(title, message);
+    return new Promise((resolve) => setPendingConfirm({ title, message, resolve }));
+  }
+  function answer(ok: boolean) {
+    pendingConfirm?.resolve(ok);
+    setPendingConfirm(null);
+  }
 
   async function openOptions() {
     setBusy(true);
@@ -11098,13 +11108,24 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
 
   async function choose(option: NonNullable<typeof options>[number]) {
     const replaces = option.linkedToAnotherActivity ? '\n\nEsse treino já tinha outra atividade vinculada; ela passará a ser uma atividade extra.' : '';
-    const ok = await confirmAsync('Vincular atividade', `Confirma que esta atividade foi o treino "${option.title}" de ${option.isoDate.split('-').reverse().join('/')}? O seu feedback desse treino será mantido.${replaces}`);
+    const ok = await ask('Vincular atividade', `Confirma que esta atividade foi o treino "${option.title}" de ${option.isoDate.split('-').reverse().join('/')}? O seu feedback desse treino será mantido.${replaces}`);
     if (ok) await post('link', { trainingSessionId: option.id });
   }
 
   async function unlink() {
-    const ok = await confirmAsync('Desfazer vínculo', 'Esta atividade deixará de ser contada como esse treino e passará a ser uma atividade extra. O feedback do treino será mantido.');
+    const ok = await ask('Desfazer vínculo', 'Esta atividade deixará de ser contada como esse treino e passará a ser uma atividade extra. O feedback do treino será mantido.');
     if (ok) await post('unlink', {});
+  }
+
+  if (pendingConfirm) {
+    return (
+      <View style={{ gap: 8, marginTop: 6 }}>
+        <Text style={{ fontSize: 14, fontWeight: '700' }}>{pendingConfirm.title}</Text>
+        <Text style={{ fontSize: 13, color: '#475569' }}>{pendingConfirm.message}</Text>
+        <Pressable style={styles.secondaryOutlineButton} onPress={() => answer(true)}><Text style={styles.secondaryOutlineButtonText}>Confirmar</Text></Pressable>
+        <Pressable style={styles.secondaryOutlineButton} onPress={() => answer(false)}><Text style={styles.secondaryOutlineButtonText}>Cancelar</Text></Pressable>
+      </View>
+    );
   }
 
   return (
