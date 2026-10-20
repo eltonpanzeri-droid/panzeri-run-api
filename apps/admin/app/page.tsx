@@ -10719,9 +10719,10 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
   const CW = VW - ML - MR, CH = VH - MT - MB;
   const yFn = (v: number) => MT + CH - ((v - 1) / 9) * CH;
 
-  // Filtros de modalidade + agregação
+  // Filtros de modalidade + agregação. Media movel, canal, tendencia e media geral sao SEMPRE calculados so' com as sessoes da modalidade escolhida (nao do agregado).
+  const scopeLabel = MODALITY_FILTERS.find((f) => f.key === modalityFilter)?.label.replace(/^S+s/, '') ?? 'todas';
   const FilterBar = () => (
-    <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
       {MODALITY_FILTERS.map((f) => {
         const count = allSessions.filter((s) =>
           s.date >= cutoff && matchesModality(s.modality, f.key)
@@ -10739,6 +10740,7 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
           </button>
         );
       })}
+      {modalityFilter !== 'all' ? <span style={{ fontSize: 10, color: 'var(--muted)' }}>média, canal e tendência calculados só com {scopeLabel}</span> : null}
     </div>
   );
 
@@ -10765,6 +10767,7 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
     return (
       <div>
         <AggToggle value={aggBy} onChange={setAggBy} />
+        <FilterBar />
         {trendChips}
         <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
           {[1,2,3,4,5,6,7,8,9,10].map((v) => (
@@ -10814,10 +10817,17 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
     const gap = CW / months.length;
     const barW = Math.max(8, Math.min(40, gap * 0.65));
     const xFn = (i: number) => ML + i * gap + gap / 2;
+    // Canal de tendencia mensal: media ± 2 desvios dos ultimos 6 meses (precisa de 4); media movel de 3 meses. Sempre so' da modalidade filtrada.
+    const monthChannel = trendChannel(months.map((m) => m.avg), 6, 4, 1).map((point, i) => (point ? { i, lower: point.lower, upper: Math.min(10, point.upper) } : null)).filter((point): point is { i: number; lower: number; upper: number } => point != null);
+    const monthChannelPath = monthChannel.length > 1
+      ? `M ${monthChannel.map((p) => `${xFn(p.i)} ${yFn(p.upper)}`).join(' L ')} L ${[...monthChannel].reverse().map((p) => `${xFn(p.i)} ${yFn(p.lower)}`).join(' L ')} Z`
+      : '';
+    const monthMean3Points = months.map((_, i) => (i >= 2 ? `${xFn(i)},${yFn((months[i].avg + months[i - 1].avg + months[i - 2].avg) / 3)}` : null)).filter((p): p is string => p != null).join(' ');
     return (
       <div>
         <AggToggle value={aggBy} onChange={setAggBy} />
         <FilterBar />
+        {trendChips}
         <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
           {[1,3,5,7,8,10].map((v) => (
             <g key={v}>
@@ -10825,6 +10835,7 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
               <text x={ML-3} y={yFn(v)+3.5} textAnchor="end" fontSize={8} fill="var(--muted)">{v}</text>
             </g>
           ))}
+          {trendOn.canal && monthChannelPath ? <path d={monthChannelPath} fill="#6366f1" fillOpacity={0.13} stroke="#6366f1" strokeOpacity={0.35} strokeWidth={1} /> : null}
           {months.map((m, i) => (
             <g key={i}>
               {/* Barra min-max (amplitude) */}
@@ -10838,6 +10849,7 @@ function EffortSection({ history, period }: { history: StudentDetail['history'];
               </text>
             </g>
           ))}
+          {trendOn.media && monthMean3Points.includes(' ') ? <polyline points={monthMean3Points} fill="none" stroke="#e0a72d" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.9} /> : null}
         </svg>
         <EffortLegend sessions={sessions} />
       </div>
