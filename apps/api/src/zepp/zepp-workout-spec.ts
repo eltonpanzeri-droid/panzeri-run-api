@@ -91,9 +91,11 @@ export interface ZeppTranslationContext {
 const DEFAULT_MAX_NAME_LENGTH = 60;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+// Conversao SO' na montagem do payload da Zepp. m/s e' unidade de COMUNICACAO entre sistemas: o aluno ve' sempre min/km (a prescricao guarda o ritmo em s/km e e' dela que a
+// tela le'; este valor convertido nunca chega a interface, ao Atlas nem ao aluno). Sem arredondamento (5:00/km -> 1000/300 = 3,3333... m/s): arredondar criaria diferenca
+// artificial entre o ritmo prescrito e o enviado.
 function paceToTarget(seconds: number, unit: NonNullable<ZeppWorkoutProfile['paceUnit']>): number {
-  const value = unit === 'sec_per_km' ? seconds : unit === 'min_per_km' ? seconds / 60 : 1000 / seconds;
-  return Math.round(value * 1000) / 1000;
+  return unit === 'sec_per_km' ? seconds : unit === 'min_per_km' ? seconds / 60 : 1000 / seconds;
 }
 
 export function translateToZeppWorkout(workout: CanonicalWorkout, context: ZeppTranslationContext, profile: ZeppWorkoutProfile = ZEPP_PROFILE_UNCONFIRMED): ZeppTranslationResult {

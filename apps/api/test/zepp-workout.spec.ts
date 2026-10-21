@@ -40,13 +40,30 @@ describe('tradutor Zepp (CanonicalWorkout -> Workout V2)', () => {
     const distance = translateToZeppWorkout(canonical(continuous), ctx, ZEPP_WORKOUT_PROFILE);
     expect(distance.ok).toBe(true);
     if (!distance.ok) return;
-    // 5:30/km = 3,0303 m/s ; 5:45/km = 2,8986 m/s => faixa baixa = ritmo mais lento = MENOR velocidade
-    expect(distance.workout.steps[0]).toEqual({ type: 'WorkoutStep', stepOrder: 1, intensity: 'ACTIVE', durationType: 'DISTANCE', durationValue: 8000, targetType: 'PACE_LAP', targetValueLow: 2.899, targetValueHigh: 3.03 });
+    // 5:30/km = 3,0303... m/s ; 5:45/km = 2,8985... m/s => faixa baixa = ritmo mais lento = MENOR velocidade (valores exatos, sem arredondar)
+    expect(distance.workout.steps[0]).toEqual({ type: 'WorkoutStep', stepOrder: 1, intensity: 'ACTIVE', durationType: 'DISTANCE', durationValue: 8000, targetType: 'PACE_LAP', targetValueLow: 1000 / 345, targetValueHigh: 1000 / 330 });
     const time = translateToZeppWorkout(canonical(timeBased), ctx, ZEPP_WORKOUT_PROFILE);
     expect(time.ok && time.workout.steps[0]).toMatchObject({ durationType: 'TIME', durationValue: 1800, targetType: 'PACE_LAP' });
     const odd = { type: 'run', blocks: [{ durationType: 'distance', distanceValue: 0.4106, distanceUnit: 'km', paceRange: '5:30/km a 5:45/km' }, { durationType: 'time', durationMin: 12.34, paceRange: '6:00/km a 6:20/km' }] };
     const rounded = translateToZeppWorkout(canonical(odd), ctx, ZEPP_WORKOUT_PROFILE);
     if (rounded.ok) for (const step of rounded.workout.steps as any[]) expect(Number.isInteger(step.durationValue)).toBe(true);
+  });
+
+  it('m/s e so unidade de comunicacao: 5:00/km vira ~3,333 m/s SEM arredondar e volta exatamente a 5:00/km (nenhuma diferenca artificial entre prescrito e enviado)', () => {
+    const exact = { type: 'run', blocks: [{ durationType: 'time', durationMin: 30, paceRange: '4:30/km a 5:00/km' }] };
+    const result = translateToZeppWorkout(canonical(exact), ctx, ZEPP_WORKOUT_PROFILE);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const step = result.workout.steps[0] as any;
+    expect(step.targetValueLow).toBe(1000 / 300); // 5:00/km = 3,3333333333333335 m/s, cheio
+    expect(step.targetValueHigh).toBe(1000 / 270); // 4:30/km
+    expect(step.targetValueLow).not.toBe(3.333);
+    // ida e volta: o ritmo que o aluno le (s/km) e' recuperado sem erro mensuravel
+    expect(Math.abs(1000 / step.targetValueLow - 300)).toBeLessThan(1e-9);
+    expect(Math.abs(1000 / step.targetValueHigh - 270)).toBeLessThan(1e-9);
+    // o ritmo prescrito NAO e' alterado pela traducao (continua s/km no CanonicalWorkout)
+    const canon = canonical(exact) as any;
+    expect(canon.items[0].pace.prescribed).toMatchObject({ fastSecPerKm: 270, slowSecPerKm: 300 });
   });
 
   it('perfil real: o que a Zepp NAO confirmou segue recusado (pace unico, passo sem meta) — nenhum valor inventado', () => {
@@ -100,7 +117,7 @@ describe('tradutor Zepp (CanonicalWorkout -> Workout V2)', () => {
     const km = translateToZeppWorkout(canonical(continuous), ctx, { ...HYPOTHETICAL, distanceUnit: 'km', paceUnit: 'min_per_km' });
     expect(km.ok && km.workout.steps[0]).toMatchObject({ durationValue: 8, targetValueLow: 5.5, targetValueHigh: 5.75 });
     const speed = translateToZeppWorkout(canonical(continuous), ctx, { ...HYPOTHETICAL, paceUnit: 'm_per_s' });
-    expect(speed.ok && speed.workout.steps[0]).toMatchObject({ targetValueLow: 2.899, targetValueHigh: 3.03 }); // numericamente ascendente
+    expect(speed.ok && speed.workout.steps[0]).toMatchObject({ targetValueLow: 1000 / 345, targetValueHigh: 1000 / 330 }); // numericamente ascendente, sem arredondar
   });
 
   it('caminhada FORA de uma etapa de recuperacao e passo sem pace (sem tipo de "sem meta" confirmado) sao recusados, nunca enviados como corrida', () => {
@@ -413,6 +430,23 @@ describe('protecoes estruturais do envio', () => {
     expect(publisher).not.toMatch(/polar|wahoo|strava|apple/i);
     const translator = read('zepp/zepp-workout-spec.ts');
     expect(translator).not.toMatch(/from '@nestjs|from '\.\.\/prisma|fetch\(/);
+  });
+
+  it('m/s nunca aparece em interface: nenhuma tela do app do aluno nem do painel do treinador escreve velocidade em m/s (o aluno ve sempre min/km)', () => {
+    const roots = [join(__dirname, '..', '..', 'mobile'), join(__dirname, '..', '..', 'admin', 'app')];
+    const skip = new Set(['node_modules', '.next', '.next-build', 'dist', 'android', 'ios', '.expo']);
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of require('node:fs').readdirSync(dir, { withFileTypes: true })) {
+        if (skip.has(entry.name)) continue;
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) { walk(path); continue; }
+        if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+        if (/\bm\/s\b|\bm_per_s\b|PACE_LAP|targetValue(Low|High)/.test(readFileSync(path, 'utf8'))) offenders.push(path);
+      }
+    };
+    for (const root of roots) walk(root);
+    expect(offenders).toEqual([]);
   });
 
   it('o perfil real so tem o que a Zepp confirmou (metros e m/s); o resto continua nulo e nenhuma enumeracao foi inventada', () => {
