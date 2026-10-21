@@ -10882,21 +10882,27 @@ function storePeriodLabel(iso: string | null | undefined): string | null {
 }
 async function loadStorePlanViews(): Promise<StorePlanView[]> {
   const offerings = await Purchases.getOfferings();
-  const pkg = pickStorePackage(offerings as never) as { identifier?: string; product?: { identifier?: string; title?: string; priceString?: string; subscriptionPeriod?: string | null; introPrice?: { priceString?: string; price?: number; periodNumberOfUnits?: number; periodUnit?: string; cycles?: number } | null } } | null;
+  const pkg = pickStorePackage(offerings as never) as { identifier?: string; packageType?: string; product?: { identifier?: string; title?: string; priceString?: string; subscriptionPeriod?: string | null; defaultOption?: { billingPeriod?: { unit?: string; value?: number } | null } | null; introPrice?: { priceString?: string; price?: number; periodNumberOfUnits?: number; periodUnit?: string; cycles?: number } | null } } | null;
   const product = pkg?.product;
   if (!pkg || !product?.priceString) return [];
   // O Google devolve o titulo com o nome do app entre parenteses; o nome do plano e' so' a primeira parte.
   const name = (product.title ?? '').replace(/s*([^)]*)s*$/, '').trim() || 'Panzeri Run';
   const intro = product.introPrice;
+  // Periodo da cobranca: o ISO da loja (P1M) e' o caminho normal; se o iOS devolver nulo, usa o proprio produto cadastrado (tipo do pacote, opcao padrao ou o id "mensal").
+  // A Apple exige o periodo junto do preco, entao a tela nunca fica sem ele quando o produto e' mensal.
+  const optionPeriod = product.defaultOption?.billingPeriod;
+  const periodLabel = storePeriodLabel(product.subscriptionPeriod)
+    ?? (optionPeriod?.unit === 'MONTH' && optionPeriod.value ? storePeriodLabel(`P${optionPeriod.value}M`) : null)
+    ?? (pkg.packageType === 'MONTHLY' || /mensal|monthly/i.test(product.identifier ?? '') ? 'por mês' : null);
   const units: Record<string, [string, string]> = { DAY: ['dia', 'dias'], WEEK: ['semana', 'semanas'], MONTH: ['mês', 'meses'], YEAR: ['ano', 'anos'] };
   let introLabel: string | null = null;
   if (intro && intro.periodNumberOfUnits && intro.periodUnit && units[intro.periodUnit]) {
     const unit = units[intro.periodUnit][intro.periodNumberOfUnits === 1 ? 0 : 1];
     introLabel = intro.price === 0
-      ? `Teste gratuito de ${intro.periodNumberOfUnits} ${unit}, depois ${product.priceString}${storePeriodLabel(product.subscriptionPeriod) ? ` ${storePeriodLabel(product.subscriptionPeriod)}` : ''}.`
+      ? `Teste gratuito de ${intro.periodNumberOfUnits} ${unit}, depois ${product.priceString}${periodLabel ? ` ${periodLabel}` : ''}.`
       : `Oferta de introdução: ${intro.priceString ?? ''} por ${intro.periodNumberOfUnits} ${unit}.`;
   }
-  return [{ id: product.identifier ?? pkg.identifier ?? 'store-plan', name, priceString: product.priceString, periodLabel: storePeriodLabel(product.subscriptionPeriod), introLabel }];
+  return [{ id: product.identifier ?? pkg.identifier ?? 'store-plan', name, priceString: product.priceString, periodLabel, introLabel }];
 }
 
 // Tela de assinatura da loja usada nos tres pontos de compra (Semana, programa travado e Cobranca). Reaproveita o handler de compra e o restaurar que ja existiam.
