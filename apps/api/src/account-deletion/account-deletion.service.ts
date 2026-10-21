@@ -29,7 +29,7 @@ export const ACCOUNT_DELETE_ORDER = [
   'weeklyExecutionReport', 'sessionExecutionAnalysis', 'trainingAnalysis',
   'shoeUsage', 'workoutDelivery', 'sessionExecutionLink', 'workoutCompletion', 'trainingSession', 'weeklyCheckIn',
   'trainingExecutionInsight', 'trainingPlan', 'trainingPlanGenerationLock', 'nightlySleepLog', 'stressCheckin', 'contextEvent',
-  'wearableSleepSummary', 'wearableDailySummary', 'wearableHrvSummary', 'rawActivitySample', 'activityTimeSeriesPoint', 'activityLog', 'rawExternalActivity', 'evolutionReport', 'reassessment',
+  'wearableSleepSummary', 'wearableDailySummary', 'wearableHrvSummary', 'wearableMetricRecord', 'rawActivitySample', 'activityTimeSeriesPoint', 'activityLog', 'rawExternalActivity', 'evolutionReport', 'reassessment',
   'studentDirective', 'studentObservation', 'coachChatMessage', 'passwordResetToken', 'loginLinkToken', 'userNotification',
   'messageLog', 'healthProfile', 'userPreferences', 'weeklyAvailability', 'fitnessTest', 'targetRace', 'painReport',
   'menstrualProfile', 'menstrualCycleLog', 'menstrualDailyLog', 'userAchievementTransition', 'userAchievement', 'correctionReevaluation', 'challengeProgress', 'coachReport',

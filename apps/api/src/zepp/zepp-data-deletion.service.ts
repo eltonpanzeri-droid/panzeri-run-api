@@ -15,6 +15,7 @@ export class ZeppDataDeletionService implements DataDeletionCapability {
     await this.prisma.wearableSleepSummary.deleteMany({ where: { provider: ZEPP_PROVIDER_ID, userId: input.userId } });
     await this.prisma.wearableDailySummary.deleteMany({ where: { provider: ZEPP_PROVIDER_ID, userId: input.userId } });
     await this.prisma.wearableHrvSummary.deleteMany({ where: { provider: ZEPP_PROVIDER_ID, userId: input.userId } });
+    await this.prisma.wearableMetricRecord.deleteMany({ where: { provider: ZEPP_PROVIDER_ID, userId: input.userId } });
     await this.prisma.workoutDelivery.deleteMany({ where: { provider: ZEPP_WORKOUT_PROVIDER, trainingSession: { userId: input.userId } } });
     await this.prisma.providerInboundEvent.deleteMany({ where: { provider: ZEPP_PROVIDER_ID, userId: input.userId } });
   }

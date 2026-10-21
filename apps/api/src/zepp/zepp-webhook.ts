@@ -53,6 +53,10 @@ export interface ZeppSleepRecord extends ZeppHealthBase {
   validation: string | null;
   // Maior fim entre os segmentos de etapas (null quando a Zepp nao informou segmentos): o fim da noite nunca e' calculado por estimativa.
   endTimeSec: number | null;
+  // Campos do evento preservados como a Zepp enviou (pontuacoes detalhadas; deslocamentos, em segundos, dos dados de respiracao e SpO2 do sono).
+  sleepScores: unknown;
+  respirationOffsetSec: number | null;
+  spo2OffsetSec: number | null;
   levels: Record<string, Array<{ startTimeSec: number; endTimeSec: number }>> | null;
   naps: Array<{ durationSec: number; startTimeSec: number; validation: string | null; offsetSec: number | null }> | null;
 }
@@ -74,6 +78,28 @@ export interface ZeppHrvRecord extends ZeppHealthBase {
 }
 export type ZeppHealthRecord = ZeppSleepRecord | ZeppDailyRecord | ZeppHrvRecord;
 
+// Indicadores que a Zepp JA' PREVE mas ainda nao envia ("Upcoming": SpO2, temperatura da pele, composicao corporal, nutricao, carga de estilo de vida). Receptor generico: os campos chegam
+// com os nomes e unidades originais e sao guardados todos (nada util e' descartado, nada e' inventado). So' viram dado com a categoria autorizada pelo aluno.
+export const ZEPP_METRIC_KINDS = [
+  { key: 'pulseOx', kind: 'pulse_ox' },
+  { key: 'skinTemp', kind: 'skin_temperature' },
+  { key: 'bodyComps', kind: 'body_composition' },
+  { key: 'nutrition', kind: 'nutrition' },
+  { key: 'hybridCharge', kind: 'lifestyle_load' },
+] as const;
+export type ZeppMetricKind = (typeof ZEPP_METRIC_KINDS)[number]['kind'];
+export interface ZeppMetricRecord {
+  userId: string;
+  metricKind: ZeppMetricKind;
+  calendarDate: string | null;
+  startTimeSec: number;
+  startOffsetSec: number | null;
+  providerSummaryId: string | null;
+  // Estavel por resumo: summaryId do provedor ou tipo + inicio. Nunca nulo.
+  identityKey: string;
+  values: Record<string, unknown>;
+}
+
 export interface ZeppAuthorizationChange {
   userId: string;
   changeType: string;
@@ -82,6 +108,7 @@ export interface ZeppAuthorizationChange {
 export interface ZeppWebhookContent {
   activityFiles: ZeppActivityFileRecord[];
   healthRecords: ZeppHealthRecord[];
+  metricRecords: ZeppMetricRecord[];
   authorizationChanges: ZeppAuthorizationChange[];
   // Quantos itens vieram invalidos/desconhecidos e foram ignorados (nunca lanca por causa de um item).
   ignored: number;
@@ -103,14 +130,14 @@ const MAX_HRV_JSON_BYTES = 20_000;
 const numIn = (value: unknown, min: number, max: number): number | null => (typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : null);
 const intIn = (value: unknown, min: number, max: number): number | null => { const n = numIn(value, min, max); return n === null ? null : Math.round(n); };
 
-function sanitizeJson(value: unknown, depth = 0): unknown {
+function sanitizeJson(value: unknown, depth = 0, maxString = 60): unknown {
   if (value === null || typeof value === 'number' || typeof value === 'boolean') return typeof value === 'number' && !Number.isFinite(value) ? null : value;
-  if (typeof value === 'string') return value.length <= 60 ? value : null;
-  if (depth >= 4) return null;
-  if (Array.isArray(value)) return value.slice(0, 1500).map((item) => sanitizeJson(item, depth + 1));
+  if (typeof value === 'string') return value.length <= maxString ? value : null;
+  if (depth >= 5) return null;
+  if (Array.isArray(value)) return value.slice(0, 1500).map((item) => sanitizeJson(item, depth + 1, maxString));
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 200)) if (/^[A-Za-z0-9_.:-]{1,40}$/.test(key)) out[key] = sanitizeJson(item, depth + 1);
+    for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 200)) if (/^[A-Za-z0-9_.:-]{1,40}$/.test(key)) out[key] = sanitizeJson(item, depth + 1, maxString);
     return out;
   }
   return null;
@@ -163,6 +190,9 @@ function parseSleep(record: Record<string, unknown>): ZeppSleepRecord | null {
     scoreQualifier: score ? str(score.qualifierKey, 40) : null,
     validation: str(record.validation, 40),
     endTimeSec,
+    sleepScores: record.sleepScores && typeof record.sleepScores === 'object' ? ((cleaned) => (JSON.stringify(cleaned).length <= MAX_HRV_JSON_BYTES ? cleaned : null))(sanitizeJson(record.sleepScores)) : null,
+    respirationOffsetSec: intIn(record.timeOffsetSleepRespiration, -172_800, 172_800),
+    spo2OffsetSec: intIn(record.timeOffsetSleepSpo2, -172_800, 172_800),
     levels: Object.keys(levels).length > 0 ? levels : null,
     naps: naps.length > 0 ? naps : null,
   };
@@ -196,6 +226,28 @@ function parseHrv(record: Record<string, unknown>): ZeppHrvRecord | null {
   return { ...base, kind: 'hrv', durationSec: intIn(record.durationInSeconds, 0, 172_800), lastNightAvg, hrvValues };
 }
 
+const MAX_METRIC_JSON_BYTES = 60_000;
+function parseMetric(kind: ZeppMetricKind, record: Record<string, unknown>): ZeppMetricRecord | null {
+  const userId = str(record.userId, 100);
+  const startTimeSec = intIn(record.startTimeInSeconds ?? record.measurementTimeInSeconds, 946_684_800, 4_102_444_800);
+  if (!userId || !USER_ID.test(userId) || startTimeSec === null) return null;
+  const rawSummary = typeof record.summaryId === 'string' || typeof record.summaryId === 'number' ? String(record.summaryId) : null;
+  const providerSummaryId = rawSummary && rawSummary.length <= 100 ? rawSummary : null;
+  const { userId: _userId, ...rest } = record;
+  const values = sanitizeJson(rest, 0, 200) as Record<string, unknown>;
+  if (JSON.stringify(values).length > MAX_METRIC_JSON_BYTES) return null;
+  return {
+    userId,
+    metricKind: kind,
+    calendarDate: typeof record.calendarDate === 'string' && CALENDAR_DATE.test(record.calendarDate) ? record.calendarDate : null,
+    startTimeSec,
+    startOffsetSec: intIn(record.startTimeOffsetInSeconds ?? record.measurementTimeOffsetInSeconds, -64_800, 64_800),
+    providerSummaryId,
+    identityKey: providerSummaryId ?? `${kind}:${startTimeSec}`,
+    values,
+  };
+}
+
 const HEALTH_PARSERS: Array<{ key: 'sleeps' | 'dailies' | 'hrv'; parse: (record: Record<string, unknown>) => ZeppHealthRecord | null }> = [
   { key: 'sleeps', parse: parseSleep },
   { key: 'dailies', parse: parseDaily },
@@ -207,7 +259,7 @@ export function parseZeppWebhook(rawBody: string): ZeppWebhookContent {
   let outer: unknown;
   try { outer = JSON.parse(rawBody); } catch { throw new ZeppWebhookParseError('Corpo nao e JSON.'); }
   if (!Array.isArray(outer) || outer.length > MAX_RECORDS) throw new ZeppWebhookParseError('Corpo deve ser um array de strings JSON.');
-  const result: ZeppWebhookContent = { activityFiles: [], healthRecords: [], authorizationChanges: [], ignored: 0 };
+  const result: ZeppWebhookContent = { activityFiles: [], healthRecords: [], metricRecords: [], authorizationChanges: [], ignored: 0 };
   for (const item of outer) {
     let parsed: unknown = null;
     if (typeof item === 'string') { try { parsed = JSON.parse(item); } catch { parsed = null; } }
@@ -237,6 +289,14 @@ export function parseZeppWebhook(rawBody: string): ZeppWebhookContent {
       for (const entry of (event[healthKey.key] as unknown[]).slice(0, MAX_RECORDS)) {
         const parsedRecord = entry && typeof entry === 'object' && !Array.isArray(entry) ? healthKey.parse(entry as Record<string, unknown>) : null;
         if (parsedRecord) result.healthRecords.push(parsedRecord); else result.ignored += 1;
+      }
+      continue;
+    }
+    const metricKey = ZEPP_METRIC_KINDS.find((metric) => Array.isArray(event[metric.key]));
+    if (metricKey) {
+      for (const entry of (event[metricKey.key] as unknown[]).slice(0, MAX_RECORDS)) {
+        const parsedRecord = entry && typeof entry === 'object' && !Array.isArray(entry) ? parseMetric(metricKey.kind, entry as Record<string, unknown>) : null;
+        if (parsedRecord) result.metricRecords.push(parsedRecord); else result.ignored += 1;
       }
       continue;
     }
@@ -277,6 +337,17 @@ export function toInboundDrafts(content: ZeppWebhookContent): InboundEventDraft[
       eventType: `${kind}_summary`,
       externalAccountId: userId,
       payload: payload as Record<string, unknown>,
+    });
+  }
+  for (const metric of content.metricRecords) {
+    const { userId, ...payload } = metric;
+    const hash = createHash('sha256').update(JSON.stringify(payload)).digest('hex').slice(0, 16);
+    drafts.push({
+      category: metric.metricKind,
+      dedupeKey: `metric:${metric.metricKind}:${userId}:${metric.identityKey}:${hash}`.slice(0, 200),
+      eventType: 'metric_summary',
+      externalAccountId: userId,
+      payload: payload as unknown as Record<string, unknown>,
     });
   }
   for (const change of content.authorizationChanges) {

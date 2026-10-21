@@ -73,7 +73,7 @@ describe('webhook: sono, diario e HRV (formato oficial)', () => {
     expect(drafts('hrv', hrvRecord())[0]).toMatchObject({ category: 'hrv', eventType: 'hrv_summary' });
     expect(s1.payload).not.toHaveProperty('userId');
     expect(s1.payload).not.toHaveProperty('kind');
-    expect(ZEPP_HEALTH_EVENT_TYPES).toEqual(['sleep_summary', 'daily_summary', 'hrv_summary']);
+    expect(ZEPP_HEALTH_EVENT_TYPES).toEqual(['sleep_summary', 'daily_summary', 'hrv_summary', 'metric_summary']);
   });
 });
 
@@ -101,13 +101,13 @@ describe('receptor do webhook: saude entra pela MESMA URL, 204 rapido, e o teste
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------
 function makeHealth(opts: { categories?: string[]; collectFrom?: Date | null; snapshot?: unknown; lockCategories?: string[] | null } = {}) {
-  const rows: Record<string, any[]> = { sleep: [], daily: [], hrv: [] };
+  const rows: Record<string, any[]> = { sleep: [], daily: [], hrv: [], metric: [] };
   const upsert = (kind: string) => jest.fn(async ({ where, create, update }: any) => {
     const key = JSON.stringify(where);
     const existing = rows[kind].find((r) => r.key === key);
     if (existing) Object.assign(existing, update); else rows[kind].push({ key, ...create });
   });
-  const tx = { wearableSleepSummary: { upsert: upsert('sleep') }, wearableDailySummary: { upsert: upsert('daily') }, wearableHrvSummary: { upsert: upsert('hrv') } };
+  const tx = { wearableSleepSummary: { upsert: upsert('sleep') }, wearableDailySummary: { upsert: upsert('daily') }, wearableHrvSummary: { upsert: upsert('hrv') }, wearableMetricRecord: { upsert: upsert('metric') } };
   const categories = opts.categories ?? ['profile', 'sleep', 'hrv', 'daily_activity', 'resting_heart_rate'];
   const snapshot = opts.snapshot === undefined ? { categories, purposes: [], collectFrom: opts.collectFrom === undefined ? new Date('2026-10-01T00:00:00Z') : opts.collectFrom } : opts.snapshot;
   const consent = {
@@ -178,7 +178,7 @@ describe('processamento de saude e recuperacao (consentimento por categoria, ide
     const health = { handle: jest.fn(async () => ({ status: 'done' as const })) };
     const router = new ZeppActivityEventService({} as any, {} as any, {} as any, {} as any, undefined, health as any);
     for (const type of ZEPP_HEALTH_EVENT_TYPES) expect(await router.handle({ id: 'e', provider: 'zepp', eventType: type, userId: 'u1', externalAccountId: 'zx', payload: {}, attempt: 1 })).toEqual({ status: 'done' });
-    expect(health.handle).toHaveBeenCalledTimes(3);
+    expect(health.handle).toHaveBeenCalledTimes(4);
     const alone = new ZeppActivityEventService({} as any, {} as any, {} as any, {} as any);
     expect(await alone.handle({ id: 'e', provider: 'zepp', eventType: 'sleep_summary', userId: 'u1', externalAccountId: 'zx', payload: {}, attempt: 1 })).toMatchObject({ status: 'discard' });
   });
@@ -186,9 +186,9 @@ describe('processamento de saude e recuperacao (consentimento por categoria, ide
   it('excluir os dados da Zepp apaga tambem os resumos de saude do provedor (e so deste aluno)', async () => {
     const calls: Array<[string, unknown]> = [];
     const del = (name: string) => ({ deleteMany: jest.fn(async (args: unknown) => { calls.push([name, args]); return { count: 1 }; }) });
-    const prisma: any = { wearableSleepSummary: del('sleep'), wearableDailySummary: del('daily'), wearableHrvSummary: del('hrv'), workoutDelivery: del('delivery'), providerInboundEvent: del('events') };
+    const prisma: any = { wearableSleepSummary: del('sleep'), wearableDailySummary: del('daily'), wearableHrvSummary: del('hrv'), wearableMetricRecord: del('metric'), workoutDelivery: del('delivery'), providerInboundEvent: del('events') };
     await new ZeppDataDeletionService(prisma).deleteUserData({ userId: 'u1' });
-    for (const name of ['sleep', 'daily', 'hrv']) expect(calls.find(([n]) => n === name)![1]).toEqual({ where: { provider: 'zepp', userId: 'u1' } });
+    for (const name of ['sleep', 'daily', 'hrv', 'metric']) expect(calls.find(([n]) => n === name)![1]).toEqual({ where: { provider: 'zepp', userId: 'u1' } });
   });
 });
 
@@ -304,5 +304,82 @@ describe('Atlas: variaveis de saude e recuperacao (observacoes rastreaveis, sem 
       expect(await read('wearable.sleepScore')).toEqual([]);
       expect(await read('wearable.dailySteps')).toEqual([]);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------
+// Campos preservados e receptores prontos para as categorias que a Zepp ja' preve ("Upcoming"): SpO2, temperatura da pele, composicao corporal, nutricao, carga de estilo de vida.
+const pulseOx = { userId: 'zx', summaryId: 'pulseOx-1792540800', calendarDate: '2026-10-21', startTimeInSeconds: 1792540800, startTimeOffsetInSeconds: -10800, durationInSeconds: 0, timeOffsetPulseOxValues: { '0': 97 }, onDemand: true };
+const skinTemp = { userId: 'zx', summaryId: 'skinTemp-1792540800', calendarDate: '2026-10-21', avgDeviationCelsius: -0.3, durationInSeconds: 0, startTimeInSeconds: 1792540800, startTimeOffsetInSeconds: -10800 };
+const bodyComps = { userId: 'zx', summaryId: 'bc-1', measurementTimeInSeconds: 1792540800, measurementTimeOffsetInSeconds: -10800, weightInGrams: 70500, bodyMassIndex: 22.4, bodyFatInPercent: 14.2 };
+const nutrition = { userId: 'zx', summaryId: 'nu-1', calendarDate: '2026-10-21', startTimeInSeconds: 1792540800, startTimeOffsetInSeconds: -10800, nutritionItems: [{ recordId: 'r1', startTimeInSeconds: 1792540800, foodName: 'Banana', energy: 89, carbohydrates: 23, measuredAmount: 100, measurementUnit: { code: 1, label: 'gram' } }] };
+const hybridCharge = { userId: 'zx', summaryId: 'hc-1', calendarDate: '2026-10-21', startTimeInSeconds: 1792540800, durationInSeconds: 3600, startTimeOffsetInSeconds: -10800, lifeloadItems: [{ recordId: 'l1', startTimeInSeconds: 1792540800, endTimeInSeconds: 1792544400, category: { code: 1, label: 'Work' }, item: { code: 2, label: 'Meeting' }, lifeload: { code: 3, label: 'High' } }] };
+
+describe('receptores prontos para as categorias previstas pela Zepp (campos originais preservados, nada inventado)', () => {
+  it('SpO2, temperatura da pele, composicao corporal, nutricao e carga de estilo de vida sao lidos com os nomes e unidades ORIGINAIS e entram na fila na categoria certa', () => {
+    const cases: Array<[string, unknown, string, string]> = [
+      ['pulseOx', pulseOx, 'pulse_ox', 'timeOffsetPulseOxValues'],
+      ['skinTemp', skinTemp, 'skin_temperature', 'avgDeviationCelsius'],
+      ['bodyComps', bodyComps, 'body_composition', 'weightInGrams'],
+      ['nutrition', nutrition, 'nutrition', 'nutritionItems'],
+      ['hybridCharge', hybridCharge, 'lifestyle_load', 'lifeloadItems'],
+    ];
+    for (const [key, record, kind, field] of cases) {
+      const content = parseZeppWebhook(body(key, record));
+      expect(content.metricRecords).toHaveLength(1);
+      const [draft] = toInboundDrafts(content);
+      expect(draft).toMatchObject({ category: kind, eventType: 'metric_summary', externalAccountId: 'zx' });
+      expect(draft.payload).toMatchObject({ metricKind: kind, providerSummaryId: (record as any).summaryId, identityKey: (record as any).summaryId });
+      expect(Object.keys((draft.payload as any).values)).toContain(field); // campo original preservado
+      expect((draft.payload as any).values).not.toHaveProperty('userId');
+    }
+    expect((parseZeppWebhook(body('bodyComps', bodyComps)).metricRecords[0] as any).values).toMatchObject({ weightInGrams: 70500, bodyMassIndex: 22.4, bodyFatInPercent: 14.2 }); // gramas, kg/m2 e % como a Zepp envia
+    expect(parseZeppWebhook(body('bodyComps', bodyComps)).metricRecords[0]).toMatchObject({ calendarDate: null, startTimeSec: 1792540800, startOffsetSec: -10800 }); // sem data de calendario: nao e inventada
+  });
+
+  it('sem summaryId a identidade e tipo + inicio; registro sem usuario ou sem horario e ignorado', () => {
+    const noId = parseZeppWebhook(body('pulseOx', { ...pulseOx, summaryId: undefined })).metricRecords[0];
+    expect(noId.identityKey).toBe('pulse_ox:1792540800');
+    expect(noId.providerSummaryId).toBeNull();
+    const bad = parseZeppWebhook(body('skinTemp', { ...skinTemp, userId: 'x y' }, { ...skinTemp, startTimeInSeconds: 'x' }));
+    expect(bad.metricRecords).toHaveLength(0);
+    expect(bad.ignored).toBe(2);
+  });
+
+  it('so grava com a categoria autorizada pelo aluno (hoje nenhum grupo de consentimento a oferece); autorizada, grava os campos originais e regrava o mesmo resumo sem duplicar', async () => {
+    const denied = makeHealth();
+    const draft = toInboundDrafts(parseZeppWebhook(body('pulseOx', pulseOx)))[0];
+    expect(await denied.service.handle(denied.event('metric_summary', draft.payload))).toMatchObject({ status: 'discard', reason: 'categoria nao autorizada pelo aluno' });
+    expect(denied.rows.metric).toHaveLength(0);
+    const granted = makeHealth({ categories: ['profile', 'pulse_ox', 'nutrition'] });
+    expect(await granted.service.handle(granted.event('metric_summary', draft.payload))).toEqual({ status: 'done' });
+    await granted.service.handle(granted.event('metric_summary', draft.payload));
+    expect(granted.rows.metric).toHaveLength(1);
+    expect(granted.rows.metric[0]).toMatchObject({ userId: 'u1', provider: 'zepp', metricKind: 'pulse_ox', identityKey: 'pulseOx-1792540800', values: { timeOffsetPulseOxValues: { '0': 97 }, onDemand: true } });
+    const food = toInboundDrafts(parseZeppWebhook(body('nutrition', nutrition)))[0];
+    await granted.service.handle(granted.event('metric_summary', food.payload));
+    expect(granted.rows.metric[1].values.nutritionItems[0]).toMatchObject({ foodName: 'Banana', energy: 89, measurementUnit: { code: 1, label: 'gram' } });
+    expect(await granted.service.handle(granted.event('metric_summary', { ...draft.payload as object, metricKind: 'mood' }))).toMatchObject({ status: 'discard' }); // tipo desconhecido
+  });
+
+  it('o evento de sono preserva pontuacoes detalhadas e os deslocamentos de respiracao e SpO2 que a Zepp enviar (nada util e descartado)', async () => {
+    const record = sleepRecord({ sleepScores: { deep: { value: 80 }, rem: { value: 55 } }, timeOffsetSleepRespiration: 120, timeOffsetSleepSpo2: 300 });
+    const parsed = parseZeppWebhook(body('sleeps', record)).healthRecords[0] as any;
+    expect(parsed).toMatchObject({ sleepScores: { deep: { value: 80 }, rem: { value: 55 } }, respirationOffsetSec: 120, spo2OffsetSec: 300 });
+    const t = makeHealth();
+    const { type, payload } = t.payloadOf('sleeps', record);
+    await t.service.handle(t.event(type, payload));
+    expect(t.rows.sleep[0]).toMatchObject({ sleepScores: { deep: { value: 80 }, rem: { value: 55 } }, respirationOffsetSec: 120, spo2OffsetSec: 300 });
+    const plain = parseZeppWebhook(body('sleeps', sleepRecord())).healthRecords[0] as any;
+    expect(plain).toMatchObject({ sleepScores: null, respirationOffsetSec: null, spo2OffsetSec: null }); // ausente => nulo
+  });
+
+  it('o conector declara as categorias previstas e o receptor nao exige grupo de consentimento para existir (o grupo e acrescentado quando houver texto)', () => {
+    const connector = buildZeppConnector({ get: () => undefined } as unknown as ConfigService);
+    for (const category of ['pulse_ox', 'skin_temperature', 'body_composition', 'nutrition', 'lifestyle_load']) {
+      expect(PROVIDER_DATA_CATEGORIES).toContain(category);
+      expect(connector.categories).toContain(category);
+      expect(ZEPP_CONSENT.groups.flatMap((g) => g.categories as readonly string[])).not.toContain(category); // nenhuma autorizacao oferecida ainda: nada e gravado
+    }
   });
 });

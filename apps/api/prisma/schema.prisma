@@ -1297,6 +1297,11 @@ model WearableSleepSummary {
   endTimeSec         Int?
   levels             Json?
   naps               Json?
+  // Campos do evento de sono que o Panzeri Run ainda nao interpreta, preservados como a Zepp enviou (nada util e' descartado): pontuacoes detalhadas e
+  // deslocamentos (segundos) dos dados de respiracao e SpO2 do sono, quando informados.
+  sleepScores        Json?
+  respirationOffsetSec Int?
+  spo2OffsetSec      Int?
   providerSummaryId  String?
   receivedAt         DateTime @default(now())
   updatedAt          DateTime @updatedAt
@@ -1344,6 +1349,30 @@ model WearableHrvSummary {
 
   @@unique([userId, provider, calendarDate, startTimeSec])
   @@index([userId, calendarDate])
+}
+
+// Indicadores de saude que o provedor ja' PREVE mas ainda nao envia (Zepp: SpO2, temperatura da pele, composicao corporal, nutricao, carga de estilo de vida — todos "Upcoming" na
+// documentacao): receptor GENERICO e provider-neutro. Guarda os campos EXATAMENTE como o provedor enviou (nomes e unidades originais, sanitizados), sem descartar nada util e sem inventar
+// valor ausente. So' grava com a categoria autorizada pelo aluno; nenhum grupo de consentimento oferece essas categorias ainda, entao nada e' gravado ate' esse texto existir.
+// Quando um indicador ganhar tela/analise, ele sai daqui para uma tabela propria sem perder o historico.
+model WearableMetricRecord {
+  id                String   @id @default(uuid())
+  userId            String
+  provider          String
+  // pulse_ox | skin_temperature | body_composition | nutrition | lifestyle_load
+  metricKind        String
+  calendarDate      String?
+  startTimeSec      Int
+  startOffsetSec    Int?
+  providerSummaryId String?
+  // Identidade estavel do resumo: summaryId do provedor ou, na falta dele, o tipo + inicio. Nunca nulo (unicidade).
+  identityKey       String
+  values            Json
+  receivedAt        DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([userId, provider, metricKind, identityKey])
+  @@index([userId, metricKind, startTimeSec])
 }
 
 // Webhook de notificacao do provedor Polar (03/10/2026). Uma assinatura por aplicacao (nao por

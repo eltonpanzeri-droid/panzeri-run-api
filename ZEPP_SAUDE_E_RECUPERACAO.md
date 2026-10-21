@@ -28,9 +28,12 @@ Regras que valem para todas: o evento de **sono não traz FC de repouso** (ela s
 - IA: dado de saúde só entra quando a **categoria** está autorizada **e** o Atlas foi autorizado **e** `ZEPP_EXTERNAL_AI_ENABLED` está ligada. Retirar a categoria no meio da geração aborta a chamada. Sem escopo = bloqueado (fail-closed). Observações levam provedor, resumo de origem e dia.
 - Exclusão dos dados Zepp e da conta apagam os três resumos novos.
 
-## 3. Migration pendente (1)
+## 3. Migrations (2, ambas aditivas)
 
-`20261021200000_wearable_health_summaries` — cria `WearableSleepSummary`, `WearableDailySummary`, `WearableHrvSummary` (3 tabelas novas, índices; nenhuma tabela existente é alterada). Aplicada pela subida da API (`prisma migrate deploy`). Antes: backup recente.
+1. `20261021200000_wearable_health_summaries` — cria `WearableSleepSummary`, `WearableDailySummary`, `WearableHrvSummary` (commit 61a0d8e, ja enviado ao GitHub; se a API subiu depois dele, a subida (`prisma migrate deploy`) ja a aplicou — confirmar com a consulta de verificacao).
+2. `20261021210000_wearable_metric_records_and_sleep_extras` — NOVA: acrescenta 3 colunas ao sono (`sleepScores`, `respirationOffsetSec`, `spo2OffsetSec`) e cria `WearableMetricRecord` (receptor generico dos indicadores que a Zepp ja preve: SpO2, temperatura da pele, composicao corporal, nutricao, carga de estilo de vida). Nenhuma tabela existente perde nada.
+
+Consulta de verificacao (so leitura): `SELECT migration_name, finished_at FROM _prisma_migrations WHERE migration_name LIKE '20261021%' ORDER BY 1;`. Backup antes de publicar.
 
 ## 4. Cadastro dos callbacks no portal da Zepp (ação sua)
 
@@ -56,3 +59,10 @@ A documentação pública **não descreve a tela** de cadastro de callbacks ("Co
 2. `ZEPP_*` + `ZEPP_WEBHOOK_SECRET` + `PROVIDER_HUB_WORKER_ENABLED=true` + `ZEPP_WORKOUT_PUBLISH_ENABLED=true` + `ZEPP_BACKFILL_ENABLED=true` + `ZEPP_ENABLED_USER_IDS=*`.
 3. Cadastrar os callbacks (seção 4).
 4. Atlas: só quando você decidir, `ZEPP_EXTERNAL_AI_ENABLED=true`.
+
+## 7. Callbacks "Unconfigured": o que fazer (a documentação pública não descreve a tela)
+
+1. No Developer Console (console.zepp.com) abra **My Service → My Apps → Panzeri Run** e procure a seção de callbacks (nomes possíveis: *Callback*, *Webhook*, *Data Push*). Cadastre a mesma URL do webhook (seção 4) em Activity, Sleep, HRV (e Daily, se existir).
+2. Se os campos estiverem somente leitura, não existirem ou o portal recusar a URL, a configuração depende da Zepp (o serviço é do tipo *Health Data Collaboration*). Envie ao Jeff Fu / open-api-support@zepp.com (a URL com o segredo só por canal privado, nunca no e-mail aberto):
+
+> Hello Jeff, our Data Access service "Panzeri Run" is Approved with Push Data enabled, but the callbacks for Activity, Sleep and HRV still show "Unconfigured" in the console. Where do we set the callback URL for each event type, or can your team configure them for us? Our endpoint is HTTPS, accepts POST text/plain (array of JSON strings), returns 204, and handles duplicates; one URL serves all event types (we route by payload key: activityFiles, sleeps, hrv, dailies, authorizationChange). We will share the exact URL privately. Also please confirm: (1) HRV is not listed under "Requested Data Items" — can it be added? (2) Daily Events is marked "[Upcoming]" — is it already delivered in production for our service? (3) Which event types will actually be pushed to us today?

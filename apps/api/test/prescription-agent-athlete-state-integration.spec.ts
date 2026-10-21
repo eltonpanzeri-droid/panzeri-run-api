@@ -76,7 +76,7 @@ function withVariable(
   domainKey: 'sleepRecovery' | 'physicalState' | 'psychologicalState' | 'trainingResponse' | 'behavior',
   variableId: string,
   variable: CompactVariableState,
-  legend: CompactAgentContext['variableLegend'][string] = { direction: 'higher_is_more_of_construct', constructLabel: 'x', scale: { min: 1, max: 5 } },
+  legend: CompactAgentContext['variableLegend'][string] = { direction: 'higher_is_more_of_construct', constructLabel: 'x', scale: { min: 1, max: 5 }, evidenceKind: 'self_report' },
 ): CompactAgentContext {
   return {
     ...context,
@@ -115,10 +115,10 @@ describe('Integracao Athlete State Snapshot -> prompt do prescription-agent', ()
     const context = withVariable(
       emptyCompactContext(), 'psychologicalState', 'workout.preStressLevel',
       fullVariable({ current: 4 }),
-      { constructLabel: 'nivel de estresse', direction: 'higher_is_more_of_construct', scale: { min: 1, max: 5 } },
+      { constructLabel: 'nivel de estresse', direction: 'higher_is_more_of_construct', scale: { min: 1, max: 5 }, evidenceKind: 'self_report' },
     );
     const prompt = callBuildUserPrompt(service, baseInput({ athleteStateContext: context }));
-    expect(prompt.athleteStateContext.variableLegend['workout.preStressLevel']).toEqual({ constructLabel: 'nivel de estresse', direction: 'higher_is_more_of_construct', scale: { min: 1, max: 5 } });
+    expect(prompt.athleteStateContext.variableLegend['workout.preStressLevel']).toEqual({ constructLabel: 'nivel de estresse', direction: 'higher_is_more_of_construct', scale: { min: 1, max: 5 }, evidenceKind: 'self_report' });
     expect(prompt.athleteStateContext.variables['workout.preStressLevel'].current).toBe(4);
   });
 

@@ -54,6 +54,8 @@ import type {
   DomainAvailability,
 } from './athlete-state-snapshot.service';
 import type { VariableSnapshotResponse } from './training-intelligence-query.service';
+import { evidenceKindOf, getVariableDefinition, type EvidenceKind } from './variable-registry';
+import type { PairedEvidence } from './paired-evidence';
 
 export interface CompactExcursionSummary {
   direction: 'above' | 'below';
@@ -137,6 +139,8 @@ export interface VariableLegendEntry {
   constructLabel?: string;
   scale?: { min: number; max: number; unit?: string };
   direction: string;
+  /** Natureza da evidencia: percepcao do aluno | medicao do aparelho | estimativa do aparelho | pontuacao do fabricante | calculo do sistema (nunca tratar como o mesmo tipo de fato). */
+  evidenceKind: EvidenceKind;
 }
 
 export interface CompactVariableDomainRef {
@@ -170,6 +174,8 @@ export interface CompactAgentContext {
   behavior: Omit<BehaviorDomainState, 'variables'> & CompactVariableDomainRef;
   lifeContext: LifeContextDomainState;
   systemDynamics: SystemDynamicsDomainState;
+  /** Relato do aluno x medicao do aparelho no MESMO dia (esforco percebido x FC/ritmo/potencia; sono percebido x sono do relogio). Ver paired-evidence.ts. Ausente quando nao ha nenhum par. */
+  pairedEvidence?: PairedEvidence;
   evidenceQuality: {
     variablesWithData: number;
     variablesWithoutData: number;
@@ -284,7 +290,7 @@ function registerVariable(
 ): void {
   if (!(id in pool)) {
     pool[id] = compactVariable(entry);
-    legend[id] = { constructLabel: entry.variable.constructLabel, scale: entry.variable.scale, direction: entry.variable.direction };
+    legend[id] = { constructLabel: entry.variable.constructLabel, scale: entry.variable.scale, direction: entry.variable.direction, evidenceKind: (() => { const definition = getVariableDefinition(id); return definition ? evidenceKindOf(definition) : 'self_report'; })() };
   }
 }
 
@@ -357,6 +363,7 @@ export function buildCompactAgentContext(snapshot: AthleteStateSnapshotV1): Comp
     },
     lifeContext: snapshot.domains.lifeContext,
     systemDynamics: snapshot.domains.systemDynamics,
+    ...(snapshot.pairedEvidence && (snapshot.pairedEvidence.effortVsDevice.length > 0 || snapshot.pairedEvidence.sleepPerceivedVsDevice.length > 0) ? { pairedEvidence: snapshot.pairedEvidence } : {}),
     evidenceQuality: snapshot.evidenceQuality.overall,
   };
 }

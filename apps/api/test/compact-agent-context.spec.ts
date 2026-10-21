@@ -92,7 +92,7 @@ describe('buildCompactAgentContext', () => {
   it('CORRECAO 1a: semantica (constructLabel/scale/direction) fica na legenda, nao repetida por variavel', () => {
     const snap = snapshot({ physicalState: { availability: 'available', variables: { 'workout.prePhysicalFatigue': variableEntry({ current: 3, evidence: { n: 5, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [2], comparabilityWarning: null } }) } } });
     const compact = buildCompactAgentContext(snap);
-    expect(compact.variableLegend['workout.prePhysicalFatigue']).toEqual({ constructLabel: 'cansaco fisico', scale: { min: 1, max: 5 }, direction: 'higher_is_more_of_construct' });
+    expect(compact.variableLegend['workout.prePhysicalFatigue']).toEqual({ constructLabel: 'cansaco fisico', scale: { min: 1, max: 5 }, direction: 'higher_is_more_of_construct', evidenceKind: 'self_report' });
     expect(compact.variables['workout.prePhysicalFatigue']).not.toHaveProperty('constructLabel');
     expect(compact.variables['workout.prePhysicalFatigue']).not.toHaveProperty('scale');
     expect(compact.variables['workout.prePhysicalFatigue']).not.toHaveProperty('direction');

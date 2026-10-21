@@ -27,6 +27,7 @@ import type { AdherenceSummary, ConsistencyStreak, ModalityBreakdown, WeeklyVolu
 import { TrainingIntelligenceQueryService, VariableSnapshotResponse } from './training-intelligence-query.service';
 import { ContextEventsService } from '../context-events/context-events.service';
 import { EXECUTION_ANALYSIS_VARIABLE_IDS } from './variable-registry';
+import { buildPairedEvidence, EMPTY_PAIRED_EVIDENCE, type PairedEvidence } from './paired-evidence';
 
 export type DomainAvailability = 'available' | 'partial' | 'unavailable';
 
@@ -176,6 +177,8 @@ export interface AthleteStateSnapshotV1 {
   athleteId: string;
   generatedAt: string;
   compact: Record<string, unknown>;
+  // 21/10/2026: relato do aluno x medicao do aparelho no mesmo dia (esforco percebido x FC/ritmo/potencia; sono percebido x sono do relogio). Provider-neutro; ver paired-evidence.ts.
+  pairedEvidence?: PairedEvidence;
   domains: {
     training: TrainingDomainState;
     trainingLoad: VariableBasedDomainState;
@@ -366,10 +369,14 @@ export class AthleteStateSnapshotService {
       systemDynamics,
     };
 
+    // Melhor esforco: falha no pareamento nunca derruba o snapshot (a IA segue com as fontes separadas).
+    const pairedEvidence = await buildPairedEvidence(this.prisma as never, athleteId).catch(() => ({ ...EMPTY_PAIRED_EVIDENCE }));
+
     return {
       athleteId,
       generatedAt: new Date().toISOString(),
       compact: this.buildCompact(domains),
+      pairedEvidence,
       domains,
       evidenceQuality,
     };

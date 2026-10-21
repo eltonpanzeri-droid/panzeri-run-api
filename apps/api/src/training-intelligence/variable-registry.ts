@@ -55,6 +55,14 @@ export type VariableSource =
 
 export type MathStrategy = 'ordinal_or_continuous_stats' | 'categorical_frequency';
 
+// NATUREZA da evidencia (21/10/2026): a IA precisa distinguir o que o aluno PERCEBE do que o aparelho MEDE ou ESTIMA e do que o sistema CALCULA — nunca tratar tudo como o mesmo tipo de fato.
+//  self_report          percepcao ou relato do aluno (questionarios: esforco percebido, sono percebido, estresse, dor, fadiga...)
+//  device_measurement   medicao do sensor do aparelho (FC, cadencia, potencia, elevacao, HRV, FC de repouso, passos)
+//  device_estimate      estimativa do algoritmo do aparelho (etapas e duracao do sono, calorias ativas)
+//  manufacturer_score   pontuacao calculada pelo fabricante (ex.: pontuacao de sono)
+//  system_calculation   derivado deterministico do Panzeri Run a partir de prescricao/execucao (volume, aderencia, analise de execucao)
+export type EvidenceKind = 'self_report' | 'device_measurement' | 'device_estimate' | 'manufacturer_score' | 'system_calculation';
+
 /**
  * Onde e como um dado instrumento (versao de questionario) coleta esta variavel.
  * `field` quando e' uma coluna do Prisma; `storageLocation: 'details_json'` + `detailsKey` quando
@@ -116,7 +124,25 @@ export interface VariableDefinition {
    * dormir/acordar) tem `versions: []`.
    */
   relatedTable?: { table: 'nightly_sleep_log' | 'stress_checkin'; field: string };
+  /** Natureza da evidencia (ver EvidenceKind). Ausente = derivada da fonte (evidenceKindOf). */
+  evidenceKind?: EvidenceKind;
   notes?: string;
+}
+
+// Natureza efetiva de uma variavel: a declarada ou, na falta, a que a FONTE implica. Fonte de aluno = percepcao; leitura direta de atividade do aparelho = medicao do aparelho; analise e carga
+// semanal = calculo do sistema.
+export function evidenceKindOf(definition: VariableDefinition): EvidenceKind {
+  if (definition.evidenceKind) return definition.evidenceKind;
+  switch (definition.source) {
+    case 'wearable_health':
+    case 'activity_objective':
+      return 'device_measurement';
+    case 'session_execution_analysis':
+    case 'weekly_training_load':
+      return 'system_calculation';
+    default:
+      return 'self_report';
+  }
 }
 
 export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
@@ -1028,6 +1054,22 @@ wearable('wearable.dailySteps', 'training_load', 'per_day', 'passos do dia infor
   'WearableDailySummary.steps (evento DIARIO da Zepp). Soma do dia, nao distingue treino de movimento cotidiano.');
 wearable('wearable.dailyActiveKcal', 'training_load', 'per_day', 'calorias ativas do dia informadas pelo relogio (kcal)', { min: 0, max: 50000, unit: 'kcal' }, 'activeKilocalories',
   'WearableDailySummary.activeKilocalories (evento DIARIO da Zepp). Estimativa do FABRICANTE do relogio, nao medicao direta de gasto energetico.');
+
+// Natureza de cada indicador do relogio (nao e' inferencia nossa sobre o dado: e' o tipo de informacao que o proprio aparelho produz).
+const WEARABLE_KINDS: Record<string, EvidenceKind> = {
+  'wearable.sleepDurationMin': 'device_estimate',
+  'wearable.sleepDeepMin': 'device_estimate',
+  'wearable.sleepLightMin': 'device_estimate',
+  'wearable.sleepRemMin': 'device_estimate',
+  'wearable.sleepAwakeMin': 'device_estimate',
+  'wearable.napTotalMin': 'device_estimate',
+  'wearable.sleepScore': 'manufacturer_score',
+  'wearable.hrvLastNightAvg': 'device_measurement',
+  'wearable.restingHeartRateBpm': 'device_measurement',
+  'wearable.dailySteps': 'device_measurement',
+  'wearable.dailyActiveKcal': 'device_estimate',
+};
+for (const [id, kind] of Object.entries(WEARABLE_KINDS)) VARIABLE_REGISTRY[id].evidenceKind = kind;
 
 // Etapa 2.1 — indicadores de execucao que alimentam as janelas longitudinais (21/60/200 dias). Escolhidos pelos padroes pedidos, nao por quantidade:
 //  - volume sistematicamente abaixo do prescrito mesmo com sessoes concluidas => distanceCompletionRatio
