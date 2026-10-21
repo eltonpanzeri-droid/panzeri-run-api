@@ -56,6 +56,8 @@ export class ZeppWebhookController {
   async receive(@Param('secret') secret: string, @Req() request: { body?: unknown } & AsyncIterable<Buffer | string>): Promise<void> {
     if (!this.secretMatches(secret)) throw new NotFoundException();
     const raw = await readBodyText(request, ZEPP_WEBHOOK_MAX_BYTES);
+    // Teste de cadastro do portal da Zepp (pode chamar a URL sem corpo): com o segredo certo, corpo vazio e' apenas confirmado (2xx), sem nenhum trabalho e sem gravar nada.
+    if (raw.trim() === '') return;
     let content;
     try { content = parseZeppWebhook(raw); }
     catch (error) {

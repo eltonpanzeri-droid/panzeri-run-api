@@ -104,7 +104,7 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     id: 'zepp',
     name: 'Zepp / Amazfit',
     // Recebe as atividades do Amazfit (FIT) e, se o aluno autorizar, envia treinos de corrida ao relogio. Em validacao: so' aparece para quem foi habilitado.
-    summary: 'Conecte seu Amazfit para acompanhar seus treinos e, se quiser, receber seus treinos de corrida no relógio. Cada autorização é opcional e separada. Recurso em validação.',
+    summary: 'Conecte seu Amazfit para acompanhar seus treinos, seu sono e sua recuperação e, se quiser, receber seus treinos de corrida no relógio. Cada autorização é opcional e separada. Recurso em validação.',
     availability: 'available',
     platforms: ALL_PLATFORMS,
     capabilities: { receiveActivities: true, sendWorkouts: true },

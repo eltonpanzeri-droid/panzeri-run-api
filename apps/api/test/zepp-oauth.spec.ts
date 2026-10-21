@@ -184,16 +184,16 @@ describe('Zepp: textos de consentimento 2.0, grupos e telas por finalidade', () 
   const optional = Object.fromEntries(ZEPP_CONSENT.optionalPurposes.map((p: any) => [p.id, p]));
 
   it('tela da conexao 2.0: titulo, descricao, frase obrigatoria e botao exatamente como aprovados; nada vem marcado', () => {
-    expect(ZEPP_CONSENT.version).toBe('2.0');
-    expect(ZEPP_CONSENT.dateLabel).toBe('20/10/2026');
+    expect(ZEPP_CONSENT.version).toBe('2.1');
+    expect(ZEPP_CONSENT.dateLabel).toBe('21/10/2026');
     expect(ZEPP_CONSENT.title).toBe('Conecte seu Amazfit ao Panzeri Run');
     expect(ZEPP_CONSENT.intro).toBe('Conecte sua conta Zepp ao Panzeri Run para acompanhar seus treinos em um só lugar.');
-    expect(all).toContain('Com sua autorização, poderemos receber informações das atividades registradas pelo seu Amazfit, como distância, duração, ritmo, frequência cardíaca, cadência, potência, elevação e percurso GPS, conforme os dados disponíveis no dispositivo e as permissões concedidas.');
-    expect(all).toContain('Essas informações serão utilizadas para acompanhar sua evolução, comparar os treinos planejados com os realizados e personalizar seu treinamento.');
-    expect(ZEPP_CONSENT.acknowledgementText).toBe('Autorizo o Panzeri Run a acessar e utilizar os dados de atividades que eu selecionar na conexão com a Zepp, para acompanhamento e gestão do meu treinamento.');
+    expect(all).toContain('Com sua autorização, poderemos receber informações das atividades registradas pelo seu Amazfit (como distância, duração, ritmo, frequência cardíaca, cadência, potência, elevação e percurso GPS), do seu sono e recuperação (etapas do sono, cochilos, pontuação de sono e variabilidade da frequência cardíaca, a HRV) e da sua saúde diária (passos, distância, calorias ativas e frequência cardíaca de repouso), conforme os dados disponíveis no dispositivo e as permissões concedidas.');
+    expect(all).toContain('Essas informações serão utilizadas para acompanhar sua evolução, comparar os treinos planejados com os realizados, entender como você se recupera e personalizar seu treinamento. Elas não substituem avaliação médica.');
+    expect(ZEPP_CONSENT.acknowledgementText).toBe('Autorizo o Panzeri Run a acessar e utilizar os dados que eu selecionar na conexão com a Zepp, para acompanhamento e gestão do meu treinamento e da minha recuperação.');
     expect(optional.history_backfill.label).toBe('Autorizo a importação das minhas atividades anteriores, limitada aos últimos 30 dias e ao período permitido pela Zepp.');
     expect(ZEPP_CONSENT.confirmButtonLabel).toBe('Conectar minha conta Zepp');
-    expect(all).not.toMatch(/repouso|sono/i); // nao se pede consentimento de um uso que nao existe
+    expect(all).toMatch(/sono/i); // 2.1: sono, saude diaria e HRV agora existem (grupos proprios, independentes das atividades)
     expect(consentTextHash(ZEPP_CONSENT)).toMatch(/^[0-9a-f]{64}$/);
   });
 
@@ -211,7 +211,7 @@ describe('Zepp: textos de consentimento 2.0, grupos e telas por finalidade', () 
   it('tela do Atlas: Anthropic nomeada, transferencia internacional, limitacoes, recusa sem prejuizo e proibicao de uso derivado; autorizacao propria e externa', () => {
     const screen = optional.ai_external.screen;
     const text = screen.paragraphs.join(' ');
-    expect(screen).toMatchObject({ version: '1.0', title: 'Personalize seus treinos com o Atlas', buttonLabel: 'Autorizar análise com Atlas' });
+    expect(screen).toMatchObject({ version: '1.1', title: 'Personalize seus treinos com o Atlas', buttonLabel: 'Autorizar análise com Atlas' });
     expect(screen.checkboxText).toBe('Autorizo o Panzeri Run a utilizar meus dados Zepp/Amazfit autorizados para análises personalizadas com o Atlas, incluindo o envio dos dados necessários à Anthropic para processamento por inteligência artificial, conforme a Política de Privacidade.');
     expect(text).toContain('Anthropic');
     expect(text).toContain('transferência internacional de dados, conforme descrito na Política de Privacidade');
@@ -238,7 +238,10 @@ describe('Zepp: textos de consentimento 2.0, grupos e telas por finalidade', () 
     expect(byId.activity).toMatchObject({ required: false, categories: ['activity'] });
     expect(byId.route).toMatchObject({ required: false, categories: ['activity_route'], requires: ['activity'] });
     expect(byId.sensors).toMatchObject({ required: false, categories: ['activity_sensors'], requires: ['activity'] });
-    expect(byId.sleep).toBeUndefined();
+    expect(byId.sleep).toMatchObject({ required: false, categories: ['sleep'] });
+    expect(byId.daily).toMatchObject({ required: false, categories: ['daily_activity', 'resting_heart_rate'] });
+    expect(byId.hrv).toMatchObject({ required: false, categories: ['hrv'] });
+    for (const id of ['sleep', 'daily', 'hrv']) expect(byId[id].requires).toBeUndefined(); // independentes das atividades
     expect(ZEPP_CONSENT.groups.filter((g: any) => g.required).map((g: any) => g.id)).toEqual(['account']);
     expect(() => new ConnectorRegistry().register(buildZeppConnector(config()))).not.toThrow(); // o registro valida categorias dos grupos
   });

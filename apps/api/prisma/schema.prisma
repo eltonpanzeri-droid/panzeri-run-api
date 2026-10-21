@@ -1272,6 +1272,80 @@ model ProviderConnection {
   @@index([userId])
 }
 
+// Saude e recuperacao vindas de relogios (Zepp/Amazfit, 21/10/2026). Resumos que o PROVEDOR mede e entrega (nunca estimados nem preenchidos pelo Panzeri Run): campo ausente = nulo,
+// nunca zero. Um registro por (aluno, provedor, dia local, inicio): a Zepp pode reenviar o mesmo resumo (duplicidade) e a regravacao atualiza os mesmos valores. So' sao guardados quando
+// o aluno autorizou a categoria correspondente (sono / diario / hrv) — ver ZeppHealthEventService. userId simples (sem relacao), como ProviderConnection; exclusao da conta em ACCOUNT_DELETE_ORDER.
+model WearableSleepSummary {
+  id                 String   @id @default(uuid())
+  userId             String
+  provider           String
+  // Dia local do resumo (yyyy-MM-dd) e inicio em epoch (segundos) + deslocamento do fuso, exatamente como a Zepp informa.
+  calendarDate       String
+  startTimeSec       Int
+  startOffsetSec     Int
+  durationSec        Int?
+  deepSleepSec       Int?
+  lightSleepSec      Int?
+  remSleepSec        Int?
+  awakeSec           Int?
+  napTotalSec        Int?
+  unmeasurableSec    Int?
+  scoreValue         Int?
+  scoreQualifier     String?
+  validation         String?
+  // Fim da noite: so' quando os segmentos de etapas o informam (maior fim entre os segmentos); nunca calculado por estimativa.
+  endTimeSec         Int?
+  levels             Json?
+  naps               Json?
+  providerSummaryId  String?
+  receivedAt         DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([userId, provider, calendarDate, startTimeSec])
+  @@index([userId, calendarDate])
+}
+
+model WearableDailySummary {
+  id                 String   @id @default(uuid())
+  userId             String
+  provider           String
+  calendarDate       String
+  startTimeSec       Int
+  startOffsetSec     Int
+  durationSec        Int?
+  steps              Int?
+  distanceMeters     Float?
+  activeKilocalories Float?
+  // FC de repouso do DIA (evento diario). O evento de SONO nao traz FC de repouso e este campo nunca e' preenchido a partir dele.
+  restingHeartRateBpm Int?
+  stepsGoal          Int?
+  providerSummaryId  String?
+  receivedAt         DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([userId, provider, calendarDate, startTimeSec])
+  @@index([userId, calendarDate])
+}
+
+model WearableHrvSummary {
+  id                 String   @id @default(uuid())
+  userId             String
+  provider           String
+  calendarDate       String
+  startTimeSec       Int
+  startOffsetSec     Int
+  durationSec        Int?
+  // Media de HRV da noite anterior, na unidade que a Zepp informa (a documentacao da Zepp nao a especifica: o Panzeri Run nao a converte nem a presume).
+  lastNightAvg       Float
+  hrvValues          Json?
+  providerSummaryId  String?
+  receivedAt         DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([userId, provider, calendarDate, startTimeSec])
+  @@index([userId, calendarDate])
+}
+
 // Webhook de notificacao do provedor Polar (03/10/2026). Uma assinatura por aplicacao (nao por
 // aluno): a Polar devolve signature_secret_key UMA vez, na criacao — guardamos cifrado (mesma
 // chave de POLAR_TOKEN_ENCRYPTION_KEY dos tokens) pra verificar HMAC-SHA256 de cada evento

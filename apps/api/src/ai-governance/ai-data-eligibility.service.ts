@@ -24,6 +24,9 @@ import { AiDestination, AiScope } from './ai-scope';
 // so' entra com a autorizacao propria, separada, sobre o texto vigente. Alterar esta lista e' uma decisao de produto/juridica.
 export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string[] = ['zepp'];
 
+// Categorias de saude e recuperacao (autorizadas uma a uma pelo aluno). Cada par provedor:categoria e' avaliado separadamente no escopo de IA.
+export const HEALTH_AI_CATEGORIES = ['sleep', 'hrv', 'daily_activity', 'resting_heart_rate'] as const;
+
 export const AI_PURPOSE_BY_DESTINATION: Record<AiDestination, string> = { internal_ai: 'ai_internal', external_ai: 'ai_external' };
 
 export type EligibilityReason =
@@ -83,6 +86,15 @@ export class AiDataEligibility {
       if (LEGACY_PROVIDER_IDS.includes(provider) || blocked.has(provider)) continue;
       if (!(await this.decide(userId, provider, { category, destination })).allowed) blocked.add(provider);
     }
-    return { userId, destination, blocked: [...blocked].sort(), computedAt: Date.now() };
+    // Saude e recuperacao: cada categoria exige a propria autorizacao do aluno (alem da finalidade de IA e da liberacao do provedor).
+    const blockedHealth = new Set<string>();
+    for (const connector of this.registry.list()) {
+      if (!connector.consent) continue;
+      for (const healthCategory of HEALTH_AI_CATEGORIES) {
+        if (!(connector.categories ?? []).includes(healthCategory)) continue;
+        if (!(await this.decide(userId, connector.id, { category: healthCategory, destination })).allowed) blockedHealth.add(`${connector.id}:${healthCategory}`);
+      }
+    }
+    return { userId, destination, blocked: [...blocked].sort(), blockedHealth: [...blockedHealth].sort(), computedAt: Date.now() };
   }
 }

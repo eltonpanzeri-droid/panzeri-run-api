@@ -105,10 +105,10 @@ describe('iPhone nativo: nada do Asaas e oferta acessivel para a revisao', () =>
     expect(app).toContain(') : iosStoreBuild() ? null : (');
     expect(app).toContain('history.length > 0 && !iosStoreBuild() && !details?.storeManaged');
   });
-  it('quem ja tem acesso pode VER a oferta da App Store, com aviso de segunda cobranca; so no iPhone nativo e so para nao-assinantes da loja', () => {
-    expect(app).toContain('{iosStoreBuild() && active && !details?.storeManaged ? (');
-    expect(app).toContain('Ver assinatura pela App Store');
-    expect(app).toContain('geraria uma segunda cobranca');
+  it('quem ja tem acesso (inclusive assinante da loja) pode VER a tela de assinatura em "Ver planos e precos", com aviso de nova cobranca antes de comprar; so no iPhone nativo', () => {
+    expect(app).toContain('{iosStoreBuild() && active ? (');
+    expect(app).toContain('Ver planos e preços');
+    expect(app).toContain('pode gerar outra cobranca');
     expect(app).toContain("onPress: () => { void subscribe(); }");
   });
   it('app so para iPhone (sem iPad); Bundle ID, versao e produto intactos', () => {

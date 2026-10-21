@@ -12,7 +12,7 @@
 //   observacao carrega instrumentVersion, e o consumidor (endpoint) decide o que fazer com isso.
 // - Sempre e' possivel voltar ao registro original (sessionId/checkinId ficam no context).
 
-import { aiActivityWhere, aiBlockedProviders } from '../ai-governance/ai-scope';
+import { aiActivityWhere, aiBlockedProviders, isHealthBlockedForAi } from '../ai-governance/ai-scope';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { canonicalModality } from '../activity-execution/canonical-modality';
 import { findStaleAnalysisRowIds } from '../activity-execution/analysis-validity';
@@ -58,6 +58,9 @@ export interface Observation {
     // Metrica objetiva por atividade (04/10/2026) — rastro ate o ActivityLog de origem.
     activityLogId?: string;
     provider?: string;
+    // Saude e recuperacao medidas por relogio (21/10/2026): rastro ate o resumo de origem (sono/HRV/diario) e o dia local que ele informou.
+    wearableRecordId?: string;
+    calendarDate?: string;
     acuteValue?: number;
     chronicValue?: number;
     acuteWindowDays?: number;
@@ -172,7 +175,7 @@ export class ObservationReaderService {
   // valor de um dia com duas sessoes dependia da ordem devolvida pelo banco.
   async getObservations(athleteId: string, variableId: string): Promise<Observation[]> {
     const observations = await this.readObservations(athleteId, variableId);
-    const tieBreak = (o: Observation) => o.context.sessionId ?? o.context.workoutCompletionId ?? o.context.checkinId ?? o.context.nightlySleepLogId ?? o.context.stressCheckinId ?? o.context.activityLogId ?? '';
+    const tieBreak = (o: Observation) => o.context.sessionId ?? o.context.workoutCompletionId ?? o.context.checkinId ?? o.context.nightlySleepLogId ?? o.context.stressCheckinId ?? o.context.activityLogId ?? o.context.wearableRecordId ?? '';
     return [...observations].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime() || (tieBreak(a) < tieBreak(b) ? -1 : tieBreak(a) > tieBreak(b) ? 1 : 0));
   }
 
@@ -201,6 +204,9 @@ export class ObservationReaderService {
     }
     if (definition.source === 'activity_objective') {
       return this.readActivityObjectiveVariable(athleteId, definition);
+    }
+    if (definition.source === 'wearable_health') {
+      return this.readWearableHealthVariable(athleteId, definition);
     }
     return this.readCheckinVariable(athleteId, definition);
   }
@@ -451,6 +457,51 @@ export class ObservationReaderService {
       observations.push({
         athleteId, variableId: definition.variableId, value, timestamp: row.scheduledDate, source: 'session_execution_analysis', instrumentVersion: row.algorithmVersion,
         context: { sessionId: row.trainingSessionId, modality: row.modality, activityLogId: row.activityLogId ?? undefined, provider: row.provider ?? undefined },
+      });
+    }
+    return observations;
+  }
+
+  // Saude e recuperacao medidas por relogio (21/10/2026). UMA observacao por resumo e por campo que a Zepp realmente informou — campo ausente nao gera observacao (nunca zero, nunca
+  // estimativa). Dentro de um escopo de IA, so' entra o que o aluno autorizou na categoria correspondente (sono / saude diaria / HRV) e na finalidade do Atlas; o resto e' tratado como inexistente.
+  private async readWearableHealthVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
+    const SEC_TO_MIN = 1 / 60;
+    type Spec = { table: 'sleep' | 'daily' | 'hrv'; category: string; pick: (row: any) => number | null | undefined };
+    const specs: Record<string, Spec> = {
+      'wearable.sleepDurationMin': { table: 'sleep', category: 'sleep', pick: (r) => (r.durationSec != null ? r.durationSec * SEC_TO_MIN : null) },
+      'wearable.sleepDeepMin': { table: 'sleep', category: 'sleep', pick: (r) => (r.deepSleepSec != null ? r.deepSleepSec * SEC_TO_MIN : null) },
+      'wearable.sleepLightMin': { table: 'sleep', category: 'sleep', pick: (r) => (r.lightSleepSec != null ? r.lightSleepSec * SEC_TO_MIN : null) },
+      'wearable.sleepRemMin': { table: 'sleep', category: 'sleep', pick: (r) => (r.remSleepSec != null ? r.remSleepSec * SEC_TO_MIN : null) },
+      'wearable.sleepAwakeMin': { table: 'sleep', category: 'sleep', pick: (r) => (r.awakeSec != null ? r.awakeSec * SEC_TO_MIN : null) },
+      'wearable.napTotalMin': { table: 'sleep', category: 'sleep', pick: (r) => (r.napTotalSec != null ? r.napTotalSec * SEC_TO_MIN : null) },
+      'wearable.sleepScore': { table: 'sleep', category: 'sleep', pick: (r) => r.scoreValue },
+      'wearable.hrvLastNightAvg': { table: 'hrv', category: 'hrv', pick: (r) => r.lastNightAvg },
+      'wearable.restingHeartRateBpm': { table: 'daily', category: 'resting_heart_rate', pick: (r) => r.restingHeartRateBpm },
+      'wearable.dailySteps': { table: 'daily', category: 'daily_activity', pick: (r) => r.steps },
+      'wearable.dailyActiveKcal': { table: 'daily', category: 'daily_activity', pick: (r) => r.activeKilocalories },
+    };
+    const spec = specs[definition.variableId];
+    if (!spec) return [];
+    const where = { userId: athleteId };
+    const orderBy = { startTimeSec: 'asc' as const };
+    const rows: any[] = spec.table === 'sleep'
+      ? await this.prisma.wearableSleepSummary.findMany({ where, orderBy })
+      : spec.table === 'hrv'
+        ? await this.prisma.wearableHrvSummary.findMany({ where, orderBy })
+        : await this.prisma.wearableDailySummary.findMany({ where, orderBy });
+    const observations: Observation[] = [];
+    for (const row of rows) {
+      if (isHealthBlockedForAi(row.provider, spec.category)) continue;
+      const value = spec.pick(row);
+      if (value == null || !Number.isFinite(value)) continue; // ausencia — nunca vira zero
+      observations.push({
+        athleteId,
+        variableId: definition.variableId,
+        value,
+        timestamp: new Date(row.startTimeSec * 1000),
+        source: 'wearable_health',
+        instrumentVersion: 1,
+        context: { provider: row.provider, wearableRecordId: row.id, calendarDate: row.calendarDate },
       });
     }
     return observations;

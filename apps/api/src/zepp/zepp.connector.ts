@@ -21,7 +21,7 @@ export function buildZeppConnector(config: ConfigService, deps: ZeppConnectorDep
   return {
     id: ZEPP_PROVIDER_ID,
     displayName: 'Zepp / Amazfit',
-    categories: ['activity', 'activity_route', 'activity_sensors', 'sleep', 'profile'],
+    categories: ['activity', 'activity_route', 'activity_sensors', 'sleep', 'hrv', 'resting_heart_rate', 'daily_activity', 'profile'],
     consent: ZEPP_CONSENT,
     oauth: new ZeppOAuth(config),
     revocation: new ZeppRevocation(),

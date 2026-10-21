@@ -20,6 +20,9 @@ export interface AiScope {
   readonly destination: AiDestination;
   // Provedores cujos dados NAO podem entrar nesta chamada de IA para este aluno.
   readonly blocked: readonly string[];
+  // Dados de SAUDE e RECUPERACAO (sono, HRV, diario, FC de repouso) sao autorizados por categoria: aqui ficam os pares "provedor:categoria" que NAO podem alimentar a IA
+  // (categoria nao autorizada, finalidade do Atlas nao concedida, provedor nao liberado...). Ausente = escopo montado antes deste campo: tratado como TUDO bloqueado (fail-closed).
+  readonly blockedHealth?: readonly string[];
   readonly computedAt: number;
 }
 
@@ -40,6 +43,16 @@ export function aiBlockedProviders(): readonly string[] {
 export function isProviderBlockedForAi(provider: string | null | undefined): boolean {
   if (!provider) return false;
   return aiBlockedProviders().includes(provider);
+}
+
+// Dado de saude de um provedor numa categoria pode entrar na IA? Fora de escopo (telas, painel) nada muda. Dentro de escopo: bloqueado se o provedor inteiro esta bloqueado, se o par
+// provedor:categoria esta bloqueado ou se o escopo nao avaliou saude (fail-closed).
+export function isHealthBlockedForAi(provider: string, category: string): boolean {
+  const scope = storage.getStore();
+  if (!scope) return false;
+  if (scope.blocked.includes(provider)) return true;
+  if (scope.blockedHealth === undefined) return true;
+  return scope.blockedHealth.includes(`${provider}:${category}`);
 }
 
 // Fragmento de filtro para consultas a ActivityLog. Vazio fora de escopo (ou sem provedor bloqueado): a consulta fica identica a de antes.

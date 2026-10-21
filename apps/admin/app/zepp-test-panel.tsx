@@ -26,7 +26,7 @@ interface ZeppStatus {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  profile: 'Dados básicos da conta', activity: 'Atividades físicas', activity_sensors: 'Sensores das atividades', activity_route: 'Percursos e GPS', sleep: 'Sono e recuperação',
+  profile: 'Dados básicos da conta', activity: 'Atividades físicas', activity_sensors: 'Sensores das atividades', activity_route: 'Percursos e GPS', sleep: 'Sono e recuperação', hrv: 'HRV', daily_activity: 'Passos e calorias do dia', resting_heart_rate: 'FC de repouso',
 };
 const PURPOSE_LABELS: Record<string, string> = {
   history: 'Histórico de atividades', tracking: 'Acompanhar evolução e treinamento', plan_comparison: 'Comparar com os treinos prescritos', indicators: 'Indicadores', coach_view: 'Acompanhamento pelo treinador',

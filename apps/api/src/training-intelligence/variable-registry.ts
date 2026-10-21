@@ -48,7 +48,10 @@ export type VariableSource =
   | 'activity_objective'
   // 11/10/2026 (Etapa 2.1) — indicador DERIVADO da analise deterministica de execucao (SessionExecutionAnalysis): uma linha por sessao analisada, com
   // atividade do relogio. Nunca depende de feedback do aluno; a fonte e' a comparacao prescrito x serie temporal.
-  | 'session_execution_analysis';
+  | 'session_execution_analysis'
+  // 21/10/2026 — resumo de SAUDE/RECUPERACAO medido por relogio e entregue pelo provedor (sono, HRV, FC de repouso, diario): WearableSleepSummary/WearableHrvSummary/WearableDailySummary.
+  // Nunca estimado nem preenchido pelo Panzeri Run; uma linha = uma observacao; so' entra na IA quando a categoria foi autorizada (ver isHealthBlockedForAi).
+  | 'wearable_health';
 
 export type MathStrategy = 'ordinal_or_continuous_stats' | 'categorical_frequency';
 
@@ -982,6 +985,49 @@ VARIABLE_REGISTRY['activity.elevationGainMeters'] = {
   notes:
     'ActivityLog.elevationGainMeters (subida acumulada informada pelo dispositivo). Zero e valor valido (percurso plano); ausente quando o dispositivo/aluno nao forneceu (nunca imputado). Altimetros diferentes divergem: a observacao carrega o provedor.',
 };
+
+// ---------------------------------------------------------------------------------------------
+// Saude e recuperacao medidas por relogio (21/10/2026, Zepp/Amazfit). Fonte: WearableSleepSummary / WearableHrvSummary / WearableDailySummary (o que a Zepp mede e entrega; ausente = sem
+// observacao, nunca zero). Sao indicadores DESCRITIVOS de recuperacao: nao sao diagnostico, nao sao comparaveis entre marcas de relogio (a observacao carrega o provedor) e so' alimentam a IA
+// com a autorizacao da categoria (sono / saude diaria / HRV) E da finalidade do Atlas.
+// ---------------------------------------------------------------------------------------------
+const WEARABLE_COMMON = {
+  dataType: 'numeric_continuous' as const,
+  direction: 'not_directional' as const,
+  source: 'wearable_health' as const,
+  allowedMathStrategy: 'ordinal_or_continuous_stats' as const,
+  missingPolicy: 'never_impute' as const,
+  versionComparability: 'comparable_across_versions' as const,
+  excludeExtraSessions: false,
+};
+function wearable(
+  variableId: string,
+  domain: VariableDomain,
+  frequency: 'per_night' | 'per_day',
+  constructLabel: string,
+  scale: { min: number; max: number; unit: string },
+  field: string,
+  notes: string,
+): void {
+  VARIABLE_REGISTRY[variableId] = { ...WEARABLE_COMMON, variableId, domain, expectedFrequency: frequency, constructLabel, scale, versions: [{ version: 1, storageLocation: 'column', field }], notes };
+}
+const SLEEP_NOTE = 'WearableSleepSummary (evento de sono da Zepp). Valor informado pelo relogio para a noite, em minutos (segundos da Zepp / 60, sem arredondar); campo que a Zepp nao informou nao gera observacao. Descritivo, nao diagnostico.';
+wearable('wearable.sleepDurationMin', 'sleep', 'per_night', 'duracao do sono da noite informada pelo relogio (minutos)', { min: 0, max: 2880, unit: 'min' }, 'durationSec', SLEEP_NOTE);
+wearable('wearable.sleepDeepMin', 'sleep', 'per_night', 'sono profundo da noite (minutos)', { min: 0, max: 2880, unit: 'min' }, 'deepSleepSec', SLEEP_NOTE);
+wearable('wearable.sleepLightMin', 'sleep', 'per_night', 'sono leve da noite (minutos)', { min: 0, max: 2880, unit: 'min' }, 'lightSleepSec', SLEEP_NOTE);
+wearable('wearable.sleepRemMin', 'sleep', 'per_night', 'sono REM da noite (minutos)', { min: 0, max: 2880, unit: 'min' }, 'remSleepSec', SLEEP_NOTE);
+wearable('wearable.sleepAwakeMin', 'sleep', 'per_night', 'tempo acordado durante a noite (minutos)', { min: 0, max: 2880, unit: 'min' }, 'awakeSec', SLEEP_NOTE);
+wearable('wearable.napTotalMin', 'sleep', 'per_night', 'total de cochilos do dia informado pelo relogio (minutos)', { min: 0, max: 2880, unit: 'min' }, 'napTotalSec', SLEEP_NOTE);
+wearable('wearable.sleepScore', 'sleep', 'per_night', 'pontuacao de sono calculada e informada pelo relogio (0 a 100; valor MAIOR = pontuacao maior do fabricante)', { min: 0, max: 100, unit: 'pontos' }, 'scoreValue',
+  'WearableSleepSummary.scoreValue (overallSleepScore.value da Zepp). E a pontuacao do FABRICANTE, nao uma medida do Panzeri Run; escalas de marcas diferentes nao sao comparaveis.');
+wearable('wearable.hrvLastNightAvg', 'physical_state', 'per_night', 'media de HRV da noite informada pelo relogio (unidade da Zepp, nao especificada na documentacao)', { min: 0, max: 100000, unit: 'unidade Zepp' }, 'lastNightAvg',
+  'WearableHrvSummary.lastNightAvg. A Zepp nao especifica a unidade: o Panzeri Run nao a converte nem a presume; compare apenas a tendencia do PROPRIO aluno no MESMO relogio. Descritivo, nao diagnostico.');
+wearable('wearable.restingHeartRateBpm', 'physical_state', 'per_day', 'frequencia cardiaca de repouso do dia informada pelo relogio (bpm)', { min: 20, max: 250, unit: 'bpm' }, 'restingHeartRateBpm',
+  'WearableDailySummary.restingHeartRateBpm (evento DIARIO da Zepp). O evento de sono NAO fornece FC de repouso e ela nunca e derivada dele; ausente quando o relogio nao mediu.');
+wearable('wearable.dailySteps', 'training_load', 'per_day', 'passos do dia informados pelo relogio', { min: 0, max: 300000, unit: 'passos' }, 'steps',
+  'WearableDailySummary.steps (evento DIARIO da Zepp). Soma do dia, nao distingue treino de movimento cotidiano.');
+wearable('wearable.dailyActiveKcal', 'training_load', 'per_day', 'calorias ativas do dia informadas pelo relogio (kcal)', { min: 0, max: 50000, unit: 'kcal' }, 'activeKilocalories',
+  'WearableDailySummary.activeKilocalories (evento DIARIO da Zepp). Estimativa do FABRICANTE do relogio, nao medicao direta de gasto energetico.');
 
 // Etapa 2.1 — indicadores de execucao que alimentam as janelas longitudinais (21/60/200 dias). Escolhidos pelos padroes pedidos, nao por quantidade:
 //  - volume sistematicamente abaixo do prescrito mesmo com sessoes concluidas => distanceCompletionRatio

@@ -11,20 +11,24 @@ import { ConsentCapability } from '../provider-hub/provider-connector';
 //  3. ANALISE COM O ATLAS / Anthropic (finalidade `ai_external`, tela propria): opcional, depois de conectar. Recusar nao impede conectar nem usar o que nao depende de IA externa.
 //     O envio so' funciona quando o provedor estiver LIBERADO no servidor (trava de IA externa); ate la a tela existe, mas a autorizacao nao pode ser concedida.
 //
+// 2.1 (21/10/2026): voltam os grupos de SAUDE, agora implementados — "Sono e recuperacao" (evento de sono), "Saude diaria" (passos, distancia, calorias ativas e FC de repouso do evento
+// diario) e "HRV" (evento de HRV). Cada um e' autorizacao propria e independente das atividades. Nenhuma caixa vem marcada; o app oferece o atalho "Marcar todos" (acao do aluno).
+// O Atlas (tela v1.1) passa a citar sono, recuperacao e HRV; so' entra o que o aluno autorizou.
+//
 // Mudancas da 1.2 para a 2.0 (20/10/2026): textos novos; saiu o grupo "Sono e recuperacao" (nao implementado; nao se pede consentimento de um uso que nao existe); o grupo de
 // atividades deixou de ser obrigatorio na conexao (o aluno escolhe); o historico passou a poder ser concedido tambem depois de conectar; `watch_delivery` e `ai_external`
 // ganharam tela propria e nao podem mais ser marcadas na conexao.
 export const ZEPP_CONSENT: ConsentCapability = {
-  version: '2.0',
-  dateLabel: '20/10/2026',
+  version: '2.1',
+  dateLabel: '21/10/2026',
   title: 'Conecte seu Amazfit ao Panzeri Run',
   intro: 'Conecte sua conta Zepp ao Panzeri Run para acompanhar seus treinos em um só lugar.',
   sections: [
     {
       heading: null,
       paragraphs: [
-        'Com sua autorização, poderemos receber informações das atividades registradas pelo seu Amazfit, como distância, duração, ritmo, frequência cardíaca, cadência, potência, elevação e percurso GPS, conforme os dados disponíveis no dispositivo e as permissões concedidas.',
-        'Essas informações serão utilizadas para acompanhar sua evolução, comparar os treinos planejados com os realizados e personalizar seu treinamento.',
+        'Com sua autorização, poderemos receber informações das atividades registradas pelo seu Amazfit (como distância, duração, ritmo, frequência cardíaca, cadência, potência, elevação e percurso GPS), do seu sono e recuperação (etapas do sono, cochilos, pontuação de sono e variabilidade da frequência cardíaca, a HRV) e da sua saúde diária (passos, distância, calorias ativas e frequência cardíaca de repouso), conforme os dados disponíveis no dispositivo e as permissões concedidas.',
+        'Essas informações serão utilizadas para acompanhar sua evolução, comparar os treinos planejados com os realizados, entender como você se recupera e personalizar seu treinamento. Elas não substituem avaliação médica.',
       ],
     },
     {
@@ -79,6 +83,27 @@ export const ZEPP_CONSENT: ConsentCapability = {
       categories: ['activity_route'],
       requires: ['activity'],
     },
+    {
+      id: 'sleep',
+      label: 'Sono e recuperação',
+      description: 'Duração e etapas do sono (profundo, leve, REM e acordado), horários, cochilos e pontuação de sono, quando o seu relógio os medir.',
+      required: false,
+      categories: ['sleep'],
+    },
+    {
+      id: 'daily',
+      label: 'Saúde diária',
+      description: 'Passos, distância e calorias ativas do dia e frequência cardíaca de repouso, quando o seu relógio os medir.',
+      required: false,
+      categories: ['daily_activity', 'resting_heart_rate'],
+    },
+    {
+      id: 'hrv',
+      label: 'Variabilidade da frequência cardíaca (HRV)',
+      description: 'HRV medida pelo seu relógio (média da noite), quando disponível.',
+      required: false,
+      categories: ['hrv'],
+    },
   ],
   // Finalidades OBRIGATORIAS descritas no texto da conexao. 'ai_external', 'ai_internal', 'watch_delivery' e qualquer outra NAO estao aqui => nao autorizadas por este consentimento.
   purposes: ['history', 'tracking', 'plan_comparison', 'indicators', 'coach_view'],
@@ -118,13 +143,13 @@ export const ZEPP_CONSENT: ConsentCapability = {
       external: true,
       changeableAfterConnect: true,
       screen: {
-        version: '1.0',
-        dateLabel: '20/10/2026',
+        version: '1.1',
+        dateLabel: '21/10/2026',
         title: 'Personalize seus treinos com o Atlas',
         paragraphs: [
           'O Atlas é a inteligência artificial utilizada pelo Panzeri Run para ajudar a analisar seu treinamento e orientar a personalização das próximas sessões.',
-          'Com sua autorização, o Atlas poderá utilizar informações dos seus treinos registrados pelo Amazfit para avaliar como você respondeu às sessões planejadas.',
-          'Essa análise poderá considerar distância, ritmo, frequência cardíaca, cadência, potência, elevação, histórico de treinamento e outros indicadores disponíveis e autorizados.',
+          'Com sua autorização, o Atlas poderá utilizar as informações que você autorizou compartilhar do seu Amazfit — treinos, sono, HRV, frequência cardíaca de repouso e saúde diária — para avaliar como você respondeu às sessões planejadas e como está se recuperando.',
+          'Essa análise poderá considerar distância, ritmo, frequência cardíaca, cadência, potência, elevação, sono e sua evolução, HRV, frequência cardíaca de repouso, histórico de treinamento e outros indicadores disponíveis e autorizados. Só entram os grupos de dados que você autorizou na conexão; o que você não autorizou não é usado.',
           'Para realizar essas análises, o Panzeri Run poderá transmitir os dados necessários à Anthropic, empresa fornecedora da tecnologia de inteligência artificial utilizada pelo Atlas. Esse processamento poderá envolver transferência internacional de dados, conforme descrito na Política de Privacidade.',
           'Os resultados serão utilizados para apoiar o acompanhamento da sua evolução e as decisões de treinamento. As análises automatizadas podem apresentar limitações e não substituem avaliação médica.',
           'A recusa desta autorização não impede você de conectar o Amazfit nem de usar as funcionalidades que não dependam do processamento externo por inteligência artificial. Se você não autorizar, os dados Zepp não serão enviados à Anthropic, nem diretamente nem por meio de relatórios ou informações derivados deles.',
@@ -135,6 +160,6 @@ export const ZEPP_CONSENT: ConsentCapability = {
       },
     },
   ],
-  acknowledgementText: 'Autorizo o Panzeri Run a acessar e utilizar os dados de atividades que eu selecionar na conexão com a Zepp, para acompanhamento e gestão do meu treinamento.',
+  acknowledgementText: 'Autorizo o Panzeri Run a acessar e utilizar os dados que eu selecionar na conexão com a Zepp, para acompanhamento e gestão do meu treinamento e da minha recuperação.',
   confirmButtonLabel: 'Conectar minha conta Zepp',
 };

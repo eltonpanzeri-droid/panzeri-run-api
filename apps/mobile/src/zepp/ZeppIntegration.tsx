@@ -43,6 +43,9 @@ const ITEM_LABEL: Record<string, string> = {
   activity: 'Importação de atividades',
   sensors: 'Frequência cardíaca, cadência, potência e elevação',
   route: 'Percurso GPS',
+  sleep: 'Sono e recuperação',
+  daily: 'Saúde diária',
+  hrv: 'Variabilidade da frequência cardíaca (HRV)',
   [HISTORY]: 'Importação do histórico (30 dias)',
   [WATCH]: 'Envio de treinos ao relógio',
   [ATLAS]: 'Análise pelo Atlas com a Anthropic',
@@ -52,6 +55,9 @@ const REVOKE_EFFECT: Record<string, string> = {
   activity: 'Os novos dados de atividades (e os grupos que dependem delas) deixam de ser importados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
   sensors: 'Frequência cardíaca, cadência, potência e elevação das novas atividades deixam de ser guardadas. O que já foi importado continua guardado até você pedir a exclusão.',
   route: 'O percurso GPS das novas atividades deixa de ser guardado. O que já foi importado continua guardado até você pedir a exclusão.',
+  sleep: 'Os novos dados de sono (etapas, horários, cochilos e pontuação) deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
+  daily: 'Passos, distância, calorias ativas e frequência cardíaca de repouso dos novos dias deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
+  hrv: 'Os novos dados de HRV deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
   [HISTORY]: 'Não será feita nova importação de atividades anteriores. O que já foi importado continua guardado até você pedir a exclusão.',
   [WATCH]: 'O Panzeri Run deixa de enviar treinos e remove da sua conta Zepp os treinos já enviados. Seus treinos continuam disponíveis no aplicativo.',
   [ATLAS]: 'Seus dados Zepp deixam de ser usados pelo Atlas, e os resultados de inteligência artificial já gerados com eles serão invalidados ou atualizados, respeitadas as obrigações legais de conservação. O que já foi enviado à Anthropic não pode ser desfeito junto a ela.',
@@ -363,6 +369,9 @@ export function ZeppIntegration({ accessToken, apiUrl, variant = 'screen', priva
               {row('route', 'group', groupState('route')?.granted ?? false, { indent: true })}
             </>
           ) : null}
+          {row('sleep', 'group', groupState('sleep')?.granted ?? false)}
+          {row('daily', 'group', groupState('daily')?.granted ?? false)}
+          {row('hrv', 'group', groupState('hrv')?.granted ?? false)}
           {row(HISTORY, 'purpose', history2?.granted ?? false, { sub: history2?.grantedAt ? `desde ${dateBr(history2.grantedAt)}` : undefined })}
           {row(WATCH, 'purpose', watch?.granted ?? false, { sub: watch?.grantedAt ? `desde ${dateBr(watch.grantedAt)} · versão ${watch.grantedVersion}` : undefined, needsNew: watch?.needsNewAuthorization, available: watch?.available })}
           {row(ATLAS, 'purpose', atlas?.granted ?? false, { sub: atlas?.grantedAt ? `desde ${dateBr(atlas.grantedAt)} · versão ${atlas.grantedVersion}` : undefined, needsNew: atlas?.needsNewAuthorization, available: atlas?.available })}
@@ -387,7 +396,7 @@ export function ZeppIntegration({ accessToken, apiUrl, variant = 'screen', priva
       {confirmDelete ? (
         <View style={styles.confirmBox}>
           <Text style={styles.permLabel}>Antes de excluir, saiba o que acontece</Text>
-          <Text style={styles.body}>O que será apagado: o registro das atividades recebidas da Zepp, as amostras e séries (inclusive o percurso GPS), os vínculos dessas atividades com os seus treinos, o registro dos treinos enviados ao relógio e os indicadores e relatórios derivados desses dados. Se a conta estiver conectada, ela será desconectada primeiro.</Text>
+          <Text style={styles.body}>O que será apagado: o registro das atividades recebidas da Zepp, as amostras e séries (inclusive o percurso GPS), os vínculos dessas atividades com os seus treinos, os resumos de sono, saúde diária e HRV, o registro dos treinos enviados ao relógio e os indicadores e relatórios derivados desses dados. Se a conta estiver conectada, ela será desconectada primeiro.</Text>
           <Text style={styles.body}>O que pode ser mantido: as informações que você mesmo registrou (como esforço percebido, dor e observações, sem os valores que vieram da Zepp); registros de pagamento e de auditoria, sem identificação direta; um registro mínimo e criptografado da exclusão, guardado por 1 ano; e as cópias de segurança, que são substituídas pela nossa rotina sem prazo exato (conforme a Política de Privacidade).</Text>
           <Text style={styles.body}>Consequências: as atividades da Zepp deixam de aparecer no seu histórico, na comparação entre treinos planejados e realizados e nos gráficos de volume e aderência. Treinos que estavam vinculados a elas voltam a aparecer como sem registro. Não é possível desfazer.</Text>
           <Primary label="Excluir os dados da Zepp" onPress={() => void requestDeletion()} busy={busy === 'delete'} />
@@ -406,6 +415,7 @@ export function ZeppIntegration({ accessToken, apiUrl, variant = 'screen', priva
 
   // ── Conexao ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   if (!permissions.connected) {
+    const selectableGroupIds = doc.groups.filter((group) => !group.required).map((group) => group.id);
     const toggle = (id: string) => setSelectedGroups((current) => {
       if (current.includes(id)) {
         // retirar "Atividades" retira sensores e GPS, que dependem dela
@@ -427,6 +437,13 @@ export function ZeppIntegration({ accessToken, apiUrl, variant = 'screen', priva
           ))}
           <Text style={styles.permLabel}>Quais dados você quer compartilhar?</Text>
           <Text style={styles.hint}>A identificação da conta é necessária apenas para vincular a conexão. Os demais grupos são opcionais e começam desmarcados.</Text>
+          {/* Atalho do ALUNO (nada vem marcado): marca ou desmarca todos os grupos disponiveis de uma vez. As autorizacoes do relogio e do Atlas continuam separadas, depois de conectar. */}
+          <Pressable
+            onPress={() => setSelectedGroups(selectedGroups.length === selectableGroupIds.length ? [] : selectableGroupIds)}
+            accessibilityRole="button"
+          >
+            <Text style={styles.link}>{selectedGroups.length === selectableGroupIds.length ? 'Desmarcar todos os grupos' : 'Marcar todos os grupos'}</Text>
+          </Pressable>
           {doc.groups.filter((group) => !group.required).map((group) => {
             const dependsOn = group.requires ?? [];
             const blockedBy = dependsOn.some((id) => !selectedGroups.includes(id));
@@ -452,9 +469,9 @@ export function ZeppIntegration({ accessToken, apiUrl, variant = 'screen', priva
         {reviewCard}
         <Text style={styles.cardTitle}>Conta Zepp conectada</Text>
         <Text style={styles.body}>
-          {groupState('activity')?.granted
-            ? 'Suas atividades registradas no Amazfit chegam ao Panzeri Run conforme as autorizações abaixo.'
-            : 'Sua conta está conectada, mas a importação de atividades não está autorizada. Autorize em “Privacidade e permissões” quando quiser.'}
+          {['activity', 'sleep', 'daily', 'hrv'].some((id) => groupState(id)?.granted)
+            ? 'Os dados do seu Amazfit que você autorizou chegam ao Panzeri Run conforme as autorizações abaixo.'
+            : 'Sua conta está conectada, mas nenhum grupo de dados está autorizado. Autorize em “Privacidade e permissões” quando quiser.'}
         </Text>
         {messageView}
       </View>

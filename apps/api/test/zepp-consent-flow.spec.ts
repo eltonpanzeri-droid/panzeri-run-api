@@ -71,7 +71,7 @@ function setup() {
   const prisma = makePrisma();
   // copia profunda: os testes que "mudam o texto" nao podem afetar os demais
   const consent = JSON.parse(JSON.stringify(ZEPP_CONSENT));
-  const connector: ProviderConnector = { id: 'zepp', displayName: 'Zepp', categories: ['activity', 'activity_route', 'activity_sensors', 'sleep', 'profile'], consent, oauth: proto, revocation: { revoke: async () => 'revoked' } };
+  const connector: ProviderConnector = { id: 'zepp', displayName: 'Zepp', categories: ['activity', 'activity_route', 'activity_sensors', 'sleep', 'hrv', 'resting_heart_rate', 'daily_activity', 'profile'], consent, oauth: proto, revocation: { revoke: async () => 'revoked' } };
   const registry = new ConnectorRegistry();
   registry.register(connector);
   const events = { discardPendingForUser: jest.fn(async () => 0) } as any;
@@ -130,7 +130,7 @@ describe('conexao Zepp 2.0: nada marcado, nada presumido', () => {
   it('a conexao registra o consentimento auditavel: aluno, versao, hash, data e decisao', async () => {
     const s = setup();
     await connect(s, { purposes: ['history_backfill'] });
-    expect(s.prisma.audit[0]).toMatchObject({ userId: 'u1', provider: 'zepp', type: 'connected', details: expect.objectContaining({ decision: 'granted', consentVersion: '2.0', consentTextHash: s.doc().hash }) });
+    expect(s.prisma.audit[0]).toMatchObject({ userId: 'u1', provider: 'zepp', type: 'connected', details: expect.objectContaining({ decision: 'granted', consentVersion: '2.1', consentTextHash: s.doc().hash }) });
     expect(s.prisma.connections[0].consentedAt).toBeInstanceOf(Date);
   });
 });
@@ -202,7 +202,7 @@ describe('Atlas / Anthropic: autorizacao propria, bloqueada ate a liberacao, e r
     await expect(grantScreen(s, 'ai_external', { acknowledged: undefined })).rejects.toThrow(BadRequestException);
     await expect(s.service.updatePurposes('zepp', 'u1', { grant: ['ai_external', 'watch_delivery'], acknowledged: true, version: s.screen('ai_external').version, textHash: s.screen('ai_external').hash })).rejects.toThrow(/uma finalidade por vez/);
     await grantScreen(s, 'ai_external');
-    expect(s.prisma.connections[0].purposeConsents.ai_external).toMatchObject({ version: '1.0', textHash: s.screen('ai_external').hash });
+    expect(s.prisma.connections[0].purposeConsents.ai_external).toMatchObject({ version: '1.1', textHash: s.screen('ai_external').hash });
     expect((await s.service.permissions('zepp', 'u1')).purposes.find((p) => p.id === 'ai_external')).toMatchObject({ granted: true, available: true });
   });
 
@@ -282,22 +282,22 @@ describe('mudanca material do texto da CONEXAO exige reconfirmacao', () => {
     const s = setup();
     await connect(s, { groups: ['account', 'activity', 'sensors'] });
     expect(await s.consentService.isAllowed('zepp', 'u1', 'activity')).toBe(true);
-    s.consent.version = '2.1';
+    s.consent.version = '2.2';
     s.consent.sections.push({ heading: 'Novo compartilhamento', paragraphs: ['Mudanca material.'] });
     expect(await s.consentService.isAllowed('zepp', 'u1', 'activity')).toBe(false);
     expect(await s.consentService.isAllowed('zepp', 'u1', 'activity_sensors')).toBe(false);
     expect(await s.consentService.isAllowed('zepp', 'u1', 'profile')).toBe(true); // revogar/desconectar/enviar treinos continuam possiveis
     expect((await s.consentService.snapshot('zepp', 'u1'))!.categories).toEqual(['profile']);
     const view = await s.service.permissions('zepp', 'u1');
-    expect(view.consent).toMatchObject({ needsReview: true, grantedVersion: '2.0', version: '2.1' });
+    expect(view.consent).toMatchObject({ needsReview: true, grantedVersion: '2.1', version: '2.2' });
     expect(view.groups.find((g) => g.id === 'activity')!.granted).toBe(false);
-    await expect(s.service.reconfirm('zepp', 'u1', { acknowledged: true, version: '2.0', textHash: s.doc().hash })).rejects.toThrow(ConflictException);
+    await expect(s.service.reconfirm('zepp', 'u1', { acknowledged: true, version: '2.1', textHash: s.doc().hash })).rejects.toThrow(ConflictException);
     await expect(s.service.reconfirm('zepp', 'u1', { acknowledged: false, version: s.doc().version, textHash: s.doc().hash })).rejects.toThrow(BadRequestException);
     await s.service.reconfirm('zepp', 'u1', { acknowledged: true, version: s.doc().version, textHash: s.doc().hash });
     expect(await s.consentService.isAllowed('zepp', 'u1', 'activity')).toBe(true);
     expect(s.prisma.connections[0].grantedCategories).toEqual(['profile', 'activity', 'activity_sensors']); // nada novo foi autorizado
     expect((await s.service.permissions('zepp', 'u1')).consent.needsReview).toBe(false);
-    expect(s.prisma.audit.at(-1)).toMatchObject({ type: 'connected', details: expect.objectContaining({ reconfirmed: true, consentVersion: '2.1' }) });
+    expect(s.prisma.audit.at(-1)).toMatchObject({ type: 'connected', details: expect.objectContaining({ reconfirmed: true, consentVersion: '2.2' }) });
   });
 });
 
@@ -309,7 +309,7 @@ describe('painel de permissoes e historico de decisoes', () => {
     await s.service.updatePurposes('zepp', 'u1', { revoke: ['history_backfill'] });
     const view = await s.service.permissions('zepp', 'u1');
     expect(view.connected).toBe(true);
-    expect(view.groups.map((g) => [g.id, g.granted])).toEqual([['account', true], ['activity', true], ['sensors', false], ['route', false]]);
+    expect(view.groups.map((g) => [g.id, g.granted])).toEqual([['account', true], ['activity', true], ['sensors', false], ['route', false], ['sleep', false], ['daily', false], ['hrv', false]]);
     const byId = Object.fromEntries(view.purposes.map((p) => [p.id, p]));
     expect(byId.history_backfill.granted).toBe(false);
     expect(byId.watch_delivery.granted).toBe(true);

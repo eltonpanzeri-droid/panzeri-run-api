@@ -8,6 +8,7 @@ import { readZeppFit, ZeppFitError } from './zepp-fit';
 import { ZeppActivityIngestionService } from './zepp-activity-ingestion.service';
 import { isAllowedCallbackUrl } from './zepp-webhook';
 import { ZeppBackfillService } from './zepp-backfill.service';
+import { ZEPP_HEALTH_EVENT_TYPES, ZeppHealthEventService } from './zepp-health-events.service';
 
 // Processador dos eventos da Zepp na fila duravel (Lote 3). A fila ja' garante: idempotencia por chave, reivindicacao com trava, espera crescente, limite de
 // tentativas e o descarte de eventos de aluno sem conexao/categoria autorizada ANTES de chegar aqui. Este servico faz o resto:
@@ -26,11 +27,14 @@ export class ZeppActivityEventService implements EventProcessingCapability {
     private readonly downloader: ZeppFitDownloader,
     private readonly ingestion: ZeppActivityIngestionService,
     private readonly backfill?: ZeppBackfillService,
+    private readonly health?: ZeppHealthEventService,
   ) {}
 
   async handle(event: InboundEventView): Promise<EventOutcome> {
     if (event.eventType === 'authorization_change') return this.handleAuthorizationChange(event);
     if (event.eventType === 'activity_file') return this.handleActivityFile(event);
+    // Sono, diario e HRV (push, sem download): processador proprio.
+    if ((ZEPP_HEALTH_EVENT_TYPES as readonly string[]).includes(event.eventType)) return this.health ? this.health.handle(event) : { status: 'discard', reason: 'processador de saude indisponivel' };
     return { status: 'discard', reason: 'tipo de evento desconhecido' };
   }
 

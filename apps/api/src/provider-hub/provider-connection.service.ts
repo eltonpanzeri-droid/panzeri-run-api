@@ -19,6 +19,8 @@ import { AiDataEligibility } from '../ai-governance/ai-data-eligibility.service'
 export const STATE_TTL_MS = 10 * 60 * 1000;
 export const REFRESH_SKEW_MS = 5 * 60 * 1000;
 export const REFRESH_LEASE_MS = 30 * 1000;
+// Categorias cujo grupo, ao ser retirado, invalida os artefatos de IA derivados do provedor: atividades e saude/recuperacao (sono, HRV, diario, FC de repouso).
+const INVALIDATING_CATEGORIES: readonly string[] = ['activity', 'sleep', 'hrv', 'daily_activity', 'resting_heart_rate'];
 const REFRESH_WAIT_ATTEMPTS = 8;
 const REFRESH_WAIT_MS = 500;
 // Quando o provedor nao informa a validade do token, assume-se uma validade curta: melhor renovar de mais do que usar token vencido.
@@ -340,7 +342,8 @@ export class ProviderConnectionService {
     if (grantedIds.length > 0) await this.audit(userId, provider, 'groups_updated', { decision: 'granted', groups: grantedIds, consentVersion: document.version, consentTextHash: consentTextHash(document) });
     if (revokedIds.length > 0) await this.audit(userId, provider, 'groups_updated', { decision: 'revoked', groups: revokedIds });
     // Importacao de atividades retirada: eventos pendentes dessas categorias deixam de virar dado (a fila ja' descarta por categoria) e os artefatos de IA derivados saem de validade.
-    if (revokedIds.some((id) => known(id)?.categories.includes('activity' as ProviderDataCategory))) await this.invalidateAiArtifacts(userId, provider, 'import_revoked');
+    // Atividades E saude/recuperacao (sono, HRV, diario, FC de repouso): retirar o grupo que alimenta a IA invalida os artefatos de IA derivados do provedor. Sensores e GPS isolados nao (como antes).
+    if (revokedIds.some((id) => (known(id)?.categories ?? []).some((category) => INVALIDATING_CATEGORIES.includes(category)))) await this.invalidateAiArtifacts(userId, provider, 'import_revoked');
     return { groups: [...selected], categories };
   }
 

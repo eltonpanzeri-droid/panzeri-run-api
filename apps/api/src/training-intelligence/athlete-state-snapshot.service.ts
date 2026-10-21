@@ -206,8 +206,25 @@ const SLEEP_RECOVERY_VARIABLES = [
   'workout.wakeTimeShiftDirection',
   'workout.sleepInterruption',
   'workout.sleepDifficulty',
+  // 21/10/2026: sono MEDIDO pelo relogio (Zepp/Amazfit), quando o aluno autorizou. Ausente => dominio segue so com o que o aluno relata; nunca estimado.
+  'wearable.sleepDurationMin',
+  'wearable.sleepDeepMin',
+  'wearable.sleepLightMin',
+  'wearable.sleepRemMin',
+  'wearable.sleepAwakeMin',
+  'wearable.sleepScore',
+  'wearable.napTotalMin',
 ];
-const PHYSICAL_STATE_VARIABLES = ['workout.prePhysicalFatigue', 'workout.postPhysicalFatigue', 'checkin.bodyResponseVsNormal'];
+// 21/10/2026: recuperacao MEDIDA pelo relogio (HRV da noite, FC de repouso, passos e calorias ativas do dia) ao lado do que o aluno relata. Descritivo, nunca diagnostico.
+const PHYSICAL_STATE_VARIABLES = [
+  'workout.prePhysicalFatigue',
+  'workout.postPhysicalFatigue',
+  'checkin.bodyResponseVsNormal',
+  'wearable.hrvLastNightAvg',
+  'wearable.restingHeartRateBpm',
+  'wearable.dailySteps',
+  'wearable.dailyActiveKcal',
+];
 const PSYCHOLOGICAL_STATE_VARIABLES = [
   'workout.preMentalFatigue',
   'workout.postMentalFatigue',

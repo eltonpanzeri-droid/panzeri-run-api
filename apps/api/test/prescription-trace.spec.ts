@@ -17,12 +17,14 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
   // Hashes do texto de cada prompt de sistema, calculados no commit 54b5427 (antes da 1.2a). Se alguem alterar um prompt, este teste
   // falha de proposito: a mudanca precisa ser consciente (1.2b atualiza estes hashes junto com o pedido de aprovacao).
   const FROZEN = {
-    stable: '0c67d61ad437bd0bdd5f44ad2511780da276bce8c42d2920283bd0cb41021522',
+    // 21/10/2026 (regra do treinador, aprovada por Elton): a metodologia passou a mandar SEMPRE pausa ativa extremamente leve (nunca passiva), para o treino poder ir ao relogio.
+    // Muda o texto de conhecimento de metodologia (prompts stable e strength); o prompt da corrida por sessao nao muda.
+    stable: '1d4f754392ff8ed918c0bb81d2be3c30213f7a3eb02c0815fb4cfd1b1a4498e4',
     safetyOff: '90845a73c34035ad1ae2cdd755ff5c3acd966196e01159ca6640f9257e70af58',
     safetyOn: '4d827cdb6a2977afa4cd38e6838bf968b48ff564fe4655b6aec818b5b089c09b',
     safetyRemove: '8e865b48162c93abcc974f533fc525d97abaa53ac555cf5463762fec6907f987',
     run: '857b1ae58a7ce8d54cf4b4dfd71a48b1eed5ff1ea33048a8ed67204ccc41d762',
-    strength: '527325c2ae8515610edb7fea1838572e9cbe28bf6c7dea6ca5389a349158c4f9',
+    strength: 'f1ed5573d1dbc273789f9c7dcfdc3971447868ed4b02efb3275b46669de67351',
   };
   const service = new PrescriptionAgentService({ get: () => undefined } as never, {} as never) as unknown as Record<string, (...args: unknown[]) => string>;
 

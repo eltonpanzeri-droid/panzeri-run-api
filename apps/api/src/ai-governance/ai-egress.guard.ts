@@ -40,7 +40,9 @@ export class AiEgressGuard {
     if (now - scope.computedAt > MAX_SCOPE_AGE_MS) return this.block(agent, 'stale_scope', scope.userId, []);
     const fresh = await this.eligibility.scopeFor(scope.userId, scope.destination);
     const newlyBlocked = fresh.blocked.filter((provider) => !scope.blocked.includes(provider));
-    if (newlyBlocked.length > 0) return this.block(agent, 'consent_changed', scope.userId, newlyBlocked);
+    // Categoria de saude retirada no meio da geracao (sono, HRV, diario...): a chamada tambem e' abortada.
+    const newlyBlockedHealth = (fresh.blockedHealth ?? []).filter((pair) => !(scope.blockedHealth ?? []).includes(pair));
+    if (newlyBlocked.length > 0 || newlyBlockedHealth.length > 0) return this.block(agent, 'consent_changed', scope.userId, [...newlyBlocked, ...newlyBlockedHealth]);
   }
 
   private async block(agent: string, reason: EgressBlockReason, userId: string | undefined, providers: readonly string[]): Promise<never> {
