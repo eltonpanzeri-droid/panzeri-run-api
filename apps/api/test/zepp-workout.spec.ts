@@ -449,6 +449,24 @@ describe('protecoes estruturais do envio', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('o app do aluno mostra ritmo SEMPRE em min/km: nenhum texto de interface em km/h (prescricao so com velocidade e convertida para pace)', () => {
+    const mobile = join(__dirname, '..', '..', 'mobile');
+    const skip = new Set(['node_modules', '.expo', 'android', 'ios', 'dist']);
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of require('node:fs').readdirSync(dir, { withFileTypes: true })) {
+        if (skip.has(entry.name)) continue;
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) { walk(path); continue; }
+        if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+        const code = readFileSync(path, 'utf8').split('\n').filter((line) => !line.trim().startsWith('//')).join('\n');
+        if (code.includes('km/h')) offenders.push(path);
+      }
+    };
+    walk(mobile);
+    expect(offenders).toEqual([]);
+  });
+
   it('o perfil real so tem o que a Zepp confirmou (metros e m/s); o resto continua nulo e nenhuma enumeracao foi inventada', () => {
     expect(ZEPP_WORKOUT_PROFILE).toEqual({ ...ZEPP_PROFILE_UNCONFIRMED, distanceUnit: 'm', paceUnit: 'm_per_s' });
     const translator = read('zepp/zepp-workout-spec.ts');

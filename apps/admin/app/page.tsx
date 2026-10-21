@@ -7270,15 +7270,16 @@ function HistorySessionDetail({ session, studentId, token }: { session: Calendar
               {detail.chart.length > 1 ? (
                 <div style={{ width: '100%', height: 220 }}>
                   <ResponsiveContainer>
-                    <LineChart data={detail.chart.map((point) => ({ x: detail.chartAxis === 'distance' ? Number(((point.distanceMeters ?? 0) / 1000).toFixed(2)) : Math.round(point.offsetSec / 60), hr: point.heartRateBpm, speed: point.speedKmh }))}>
+                    <LineChart data={detail.chart.map((point) => ({ x: detail.chartAxis === 'distance' ? Number(((point.distanceMeters ?? 0) / 1000).toFixed(2)) : Math.round(point.offsetSec / 60), hr: point.heartRateBpm, pace: point.speedKmh != null && point.speedKmh > 0 ? 3600 / point.speedKmh : null }))}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="x" unit={detail.chartAxis === 'distance' ? ' km' : ' min'} />
                       <YAxis yAxisId="hr" width={40} />
-                      <YAxis yAxisId="speed" orientation="right" width={40} />
-                      <Tooltip />
+                      {/* Ritmo SEMPRE em min/km (nunca velocidade): eixo invertido, mais rapido = mais alto. */}
+                      <YAxis yAxisId="pace" orientation="right" width={56} reversed domain={['auto', 'auto']} tickFormatter={(value: number) => paceLabel(Math.round(value)).replace('/km', '')} />
+                      <Tooltip formatter={(value, name) => (name === 'Ritmo (min/km)' && typeof value === 'number' ? paceLabel(Math.round(value)) : value)} />
                       <Legend />
                       <Line yAxisId="hr" type="monotone" dataKey="hr" name="FC (bpm)" stroke="#dc2626" dot={false} connectNulls />
-                      <Line yAxisId="speed" type="monotone" dataKey="speed" name="Velocidade (km/h)" stroke="#1f6feb" dot={false} connectNulls />
+                      <Line yAxisId="pace" type="monotone" dataKey="pace" name="Ritmo (min/km)" stroke="#1f6feb" dot={false} connectNulls />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>

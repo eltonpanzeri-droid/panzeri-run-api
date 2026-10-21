@@ -6743,7 +6743,6 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
   const distanceKm = Number(distanceInput.replace(',', '.'));
   const totalSeconds = Number(hours || '0') * 3600 + Number(minutes || '0') * 60 + Number(seconds || '0');
   const previewPace = distanceKm > 0 && totalSeconds > 0 ? formatPace(Math.round(totalSeconds / distanceKm)) : null;
-  const previewSpeed = distanceKm > 0 && totalSeconds > 0 ? ((distanceKm / totalSeconds) * 3600).toFixed(2) : null;
 
   function resetForm() {
     setName('');
@@ -7049,7 +7048,7 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
           <TextInput style={[styles.input, styles.couponInput]} value={minutes} onChangeText={setMinutes} placeholder="Min" keyboardType="number-pad" maxLength={2} />
           <TextInput style={[styles.input, styles.couponInput]} value={seconds} onChangeText={setSeconds} placeholder="Seg" keyboardType="number-pad" maxLength={2} />
         </View>
-        {previewPace ? <Text style={styles.formHint}>Isso equivale a um pace de {previewPace} ({previewSpeed} km/h).</Text> : null}
+        {previewPace ? <Text style={styles.formHint}>Isso equivale a um pace de {previewPace}.</Text> : null}
         <Text style={styles.inputLabel}>Prioridade</Text>
         <View style={styles.answerList}>
           {[option('Principal', 'principal'), option('Secundaria', 'secundaria')].map((item) => (
@@ -11477,8 +11476,7 @@ function SessionPrescription({
     );
   }
 
-  const mainPace = structure.paceRange;
-  const mainSpeed = structure.speedRange ?? speedRangeFromPace(mainPace) ?? (structure.speedKmh ? `${formatDecimal(structure.speedKmh)} km/h` : null);
+  const mainPace = structure.paceRange ?? paceRangeFromSpeedText(structure.speedRange) ?? (structure.speedKmh ? paceFromSpeed(structure.speedKmh) : undefined);
   const runBlocks: NonNullable<Extract<SessionStructure, { type: 'run' }>['blocks']> = structure.blocks?.length
     ? structure.blocks
     : [{
@@ -11488,8 +11486,6 @@ function SessionPrescription({
         distanceValue: structure.distanceKm ?? session.distanceKm ?? undefined,
         distanceUnit: 'km',
         paceRange: mainPace,
-        speedKmh: structure.speedKmh,
-        speedRange: mainSpeed,
       }];
 
   return (
@@ -11540,8 +11536,7 @@ function SessionPrescription({
                 return (
                   <Text style={styles.prescriptionText} key={`${step.label}-${index}`}>
                     - {step.label}{step.pausaType === 'ativa' ? ' (pausa ativa' + (step.activityType ? `, ${step.activityType}` : '') + ')' : step.activityType ? ` (${step.activityType})` : ''} por {step.distanceValue}{step.distanceUnit ?? 'km'}
-                    {step.paceRange ? ` - Pace (${collapseEqualRange(step.paceRange)})` : ''}
-                    {step.speedRange ? ` | Velocidade (${collapseEqualRange(step.speedRange)})` : ''}
+                    {stepPaceText(step) ? ` - Pace (${stepPaceText(step)})` : ''}
                     {step.durationRange ? ` - completar entre ${collapseEqualRange(step.durationRange)}` : ''}
                   </Text>
                 );
@@ -11549,9 +11544,8 @@ function SessionPrescription({
             </View>
           );
         }
-        const pace = block.paceRange ? collapseEqualRange(block.paceRange) : block.paceRange;
-        const speedRaw = block.speedRange ?? speedRangeFromPace(pace) ?? (block.speedKmh ? `${formatDecimal(block.speedKmh)} km/h` : null);
-        const speed = speedRaw ? collapseEqualRange(speedRaw) : speedRaw;
+        const paceRaw = block.paceRange ?? paceRangeFromSpeedText(block.speedRange) ?? (block.speedKmh ? paceFromSpeed(block.speedKmh) : null);
+        const pace = paceRaw ? collapseEqualRange(paceRaw) : paceRaw;
         return (
           <View style={styles.runBlock} key={block.label}>
             <View style={styles.runBlockHeader}>
@@ -11561,7 +11555,6 @@ function SessionPrescription({
             <View style={styles.runBlockMetrics}>
               <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Distancia</Text>{'\n'}{runBlockDistanceLabel(block)}</Text>
               <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Pace</Text>{'\n'}{pace ?? '-'}</Text>
-              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Velocidade</Text>{'\n'}{speed ?? '-'}</Text>
             </View>
             {block.rpe ? <Text style={styles.prescriptionText}>Percepcao de esforco: {rpeLabel(block.rpe)}</Text> : null}
             {block.guidance ? <Text style={styles.prescriptionText}>{block.guidance}</Text> : null}
@@ -13814,7 +13807,7 @@ function calculateThreeKmMetrics(totalSeconds: number): ThreeKmMetrics {
   return {
     pace: formatPace(paceSeconds),
     vo2max: vo2max.toFixed(1),
-    vvo2: `${vvo2.toFixed(1)} km/h`,
+    vvo2: paceFromSpeed(vvo2),
     zones: {
       z1: paceFromSpeed(vvo2 * 0.55),
       z2: `${paceFromSpeed(vvo2 * 0.65)} a ${paceFromSpeed(vvo2 * 0.55)}`,
@@ -13855,17 +13848,18 @@ function rpeLabel(value: string) {
   return labels[value] ?? value;
 }
 
-function speedRangeFromPace(pace: string | null | undefined) {
-  if (!pace) return null;
-  const matches = [...pace.matchAll(/(\d+):(\d{2})/g)];
-  if (!matches.length) return null;
-  const speeds = matches
-    .map((match) => 3600 / (Number(match[1]) * 60 + Number(match[2])))
-    .filter(Number.isFinite)
-    .sort((left, right) => left - right);
-  if (!speeds.length) return null;
-  if (speeds.length === 1) return `${formatDecimal(speeds[0])} km/h`;
-  return `${formatDecimal(speeds[0])} a ${formatDecimal(speeds[speeds.length - 1])} km/h`;
+// Ritmo SEMPRE em min/km para o aluno: uma prescricao que so' traz velocidade (ex.: esteira, "10,7 a 11,5") e' convertida para pace na apresentacao (faixa do mais rapido ao mais lento).
+function paceRangeFromSpeedText(speed: string | null | undefined): string | undefined {
+  if (!speed) return undefined;
+  const speeds = [...speed.matchAll(/(\d+(?:[.,]\d+)?)/g)].map((match) => Number(match[1].replace(',', '.'))).filter((value) => Number.isFinite(value) && value > 0);
+  if (!speeds.length) return undefined;
+  const seconds = speeds.map((value) => Math.round(3600 / value)).sort((left, right) => left - right);
+  return seconds.length === 1 || seconds[0] === seconds[seconds.length - 1] ? formatPace(seconds[0]) : `${formatPace(seconds[0])} a ${formatPace(seconds[seconds.length - 1])}`;
+}
+
+function stepPaceText(step: { paceRange?: string | null; speedRange?: string | null }): string | undefined {
+  const raw = step.paceRange ?? paceRangeFromSpeedText(step.speedRange);
+  return raw ? collapseEqualRange(raw) : undefined;
 }
 
 // Apresentacao: "5:45/km a 5:45/km" -> "5:45/km"; "10.4 a 10.4 km/h" -> "10.4 km/h"; faixa real (valores diferentes) fica como esta.
