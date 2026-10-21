@@ -7,6 +7,7 @@ import { Area, Bar, CartesianGrid, Cell, LabelList, ComposedChart, Legend, Line,
 import TrainingIntelligenceStudio from './ti/studio';
 import ZeppTestPanel from './zepp-test-panel';
 import StudentCalendar from './student-calendar';
+import StudentIntegrations from './student-integrations';
 import type { CalendarSession } from './student-calendar';
 import { adaptiveChannel } from './ti/channel';
 import type { ExportProfile } from './ti/anonymous-export';
@@ -3140,7 +3141,7 @@ function StudentPanel({
   // 01/09: o painel virou abas em vez de uma pagina so' com tudo empilhado (pedido do treinador —
   // ver studentViewMode no componente pai pro contexto completo dessa mudanca). "Treinos" e' a aba
   // padrao por ser a mais usada no dia a dia.
-  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'provas' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline' | 'atividadesExternas'>('treinos');
+  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'provas' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline' | 'atividadesExternas' | 'integracoes'>('treinos');
   // 11/09: período universal da aba Evolução — compartilhado por todos os gráficos e seções.
   // Padrão 12 semanas (~3 meses). Opções: 4/8/12/24/52/999(Tudo).
   const [evolPeriod, setEvolPeriod] = useState<4 | 8 | 12 | 24 | 52 | 999>(12);
@@ -3697,6 +3698,7 @@ function StudentPanel({
         {/* 15/10/2026: abas "Contexto" e "Timeline" agora ficam dentro da Evolucao (secao "Registros e historico").
             O codigo das duas abas foi mantido, inalcancavel pelos botoes, para reverter. */}
         <button type="button" className={detailTab === 'atividadesExternas' ? 'active' : ''} onClick={() => setDetailTab('atividadesExternas')}>Atividades externas</button>
+        <button type="button" className={detailTab === 'integracoes' ? 'active' : ''} onClick={() => setDetailTab('integracoes')}>Integracoes</button>
         {student?.interview?.answers?.personal_sex === 'Feminino' && (
           <button type="button" className={detailTab === 'ciclo' ? 'active' : ''} onClick={() => setDetailTab('ciclo')}>Ciclo</button>
         )}
@@ -4380,6 +4382,9 @@ function StudentPanel({
         <div className="detailFull"><TimelineTab student={student} accessToken={token} /></div>
       ) : null}
 
+      {detailTab === 'integracoes' ? (
+        <div className="detailFull"><StudentIntegrations studentId={student.id} accessToken={token} apiUrl={API_URL} /></div>
+      ) : null}
       {detailTab === 'atividadesExternas' ? (
         <div className="detailFull"><AtividadesExternasTab studentId={student.id} accessToken={token} /></div>
       ) : null}

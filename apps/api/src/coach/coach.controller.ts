@@ -6,6 +6,7 @@ import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { CoachService } from './coach.service';
 import { BusinessIntelligenceService } from './business-intelligence.service';
+import { StudentIntegrationsService } from './student-integrations.service';
 import { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
 import { AthleteStateSnapshotService } from '../training-intelligence/athlete-state-snapshot.service';
 import { parseDashboardQuery } from './dashboard-query.util';
@@ -34,6 +35,7 @@ export class CoachController {
     private readonly accountDeletion: AccountDeletionService,
     private readonly contextEvents: ContextEventsService,
     private readonly reassessmentService: ReassessmentService,
+    private readonly studentIntegrations: StudentIntegrationsService,
   ) {}
 
   // Passo 4 (25/09/2026) — caminho manual do treinador pra registrar um ContextEvent (viagem,
@@ -407,6 +409,13 @@ export class CoachController {
   @Get('students/:studentId/calendar')
   calendar(@Param('studentId') studentId: string, @Query('from') from: string, @Query('to') to: string) {
     return this.coachService.calendar(studentId, from, to);
+  }
+
+  // 21/10/2026 — Aluno > Integracoes: so' CONSULTA do estado real das integracoes (conexao, categorias autorizadas, o que de fato chegou, falhas, autorizacao do Atlas).
+  // O treinador nunca concede consentimento nem conecta/desconecta por aqui; nenhum token ou segredo e' devolvido.
+  @Get('students/:studentId/integrations')
+  integrations(@Param('studentId') studentId: string) {
+    return this.studentIntegrations.forStudent(studentId);
   }
 
   @Get('students/:studentId/external-activities')

@@ -2888,3 +2888,30 @@ h3 {
 .historyDetailTable { width: 100%; border-collapse: collapse; font-size: 13px; }
 .historyDetailTable th, .historyDetailTable td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line, #d9dee7); }
 .historyDetailReport { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+
+/* Aluno > Integracoes (21/10/2026) — somente leitura */
+.integrationsTab { display: grid; gap: 14px; }
+.integrationsIntro, .integrationsFooter { color: var(--muted); font-size: 13px; margin: 0; }
+.integrationsEmpty { color: var(--muted); padding: 16px; border: 1px dashed var(--line); border-radius: 8px; margin: 0; }
+.integrationCard { border: 1px solid var(--line); border-radius: 10px; background: var(--paper); padding: 14px; display: grid; gap: 12px; }
+.integrationCard header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.integrationCard h3 { margin: 0; font-size: 16px; }
+.integrationBadge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
+.integrationBadge.ok { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.integrationBadge.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.integrationBadge.bad { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+.integrationFacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 16px; margin: 0; }
+.integrationFacts dt { font-size: 12px; color: var(--muted); }
+.integrationFacts dd { margin: 0; font-size: 14px; }
+.integrationFacts small, .integrationTable small, .integrationFailures small, .integrationAtlas small { color: var(--muted); }
+.integrationWarnings { margin: 0; padding: 8px 10px 8px 26px; background: var(--warn-soft); color: var(--warn); border-radius: 8px; font-size: 13px; }
+.integrationTableWrap { overflow-x: auto; }
+.integrationTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.integrationTable th, .integrationTable td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+.integrationTable th { font-size: 12px; color: var(--muted); border-top: 0; }
+.integrationTable small { display: block; }
+.integrationNone { color: var(--muted); }
+.integrationAtlas { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 4px; font-size: 13px; }
+.integrationAtlas p, .integrationNote { margin: 0; color: var(--muted); font-size: 12px; }
+.integrationFailures ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
+.integrationsTab button { cursor: pointer; }
