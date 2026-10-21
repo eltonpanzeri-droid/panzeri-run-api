@@ -8,6 +8,7 @@ import Constants from 'expo-constants';
 import { AppleHealthProofCard } from './src/appleHealthProof/AppleHealthProofCard';
 import { IntegrationsHub, IntegrationScreens } from './src/integrations/IntegrationsHub';
 import { ZeppIntegration } from './src/zepp/ZeppIntegration';
+import { StoreSubscriptionPaywall, type StorePlanView } from './src/subscription/StoreSubscriptionPaywall';
 import { HealthConnectCard } from './src/healthConnect/HealthConnectCard';
 import { ScientificSourcesScreen, SourcesLink } from './src/scientificSources/ScientificSourcesScreen';
 import { registerSourcesOpener } from './src/scientificSources/sources';
@@ -5192,7 +5193,9 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
     .sort((left, right) => left.isoDate.localeCompare(right.isoDate))
     .map((group) => ({ ...group, sessions: group.sessions.slice().sort((left, right) => modalityOrderRank(left.modality) - modalityOrderRank(right.modality)) }));
 
-  const subscriptionOffer = (
+  const subscriptionOffer = isNativeStorePurchaseAvailable() ? (
+    <StoreSubscriptionOffer accessToken={accessToken} busy={isCheckingOut} message={billingMessage} onSubscribe={openSubscriptionCheckout} onRefresh={() => { void loadPlan(); }} />
+  ) : (
     <View style={styles.formSection}>
       <Text style={styles.formSectionTitle}>Assinatura Panzeri Run</Text>
       <StorePriceText style={styles.formHint} fallback={plan?.priceLabel ?? 'R$ 19,90 por mes'} suffix=". Plano mensal, sem fidelidade." />
@@ -5327,6 +5330,9 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
           <Text style={styles.coachTitle}>Seu programa personalizado esta pronto</Text>
           <Text style={styles.coachText}>Com base na sua entrevista, ja montamos sua semana inicial. Ative sua assinatura para liberar o treino completo e comecar hoje.</Text>
         </View>
+        {isNativeStorePurchaseAvailable() ? (
+          <StoreSubscriptionOffer accessToken={accessToken} busy={isCheckingOut} message={billingMessage} onSubscribe={openSubscriptionCheckout} onRefresh={() => { void loadPlan(); }} />
+        ) : (
         <View style={styles.formSection}>
           <Text style={styles.formSectionTitle}>Assinatura Panzeri Run</Text>
           <StorePriceText style={styles.formHint} fallback={plan.priceLabel ?? 'R$ 19,90 por mes'} suffix=". Plano mensal, sem fidelidade." />
@@ -5355,6 +5361,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
           ) : null}
           {billingMessage ? <Text style={styles.statusMessage}>{billingMessage}</Text> : null}
         </View>
+        )}
       </View>
     );
   }
@@ -9976,7 +9983,10 @@ function Billing({ accessToken }: { accessToken: string }) {
             </View>
           );
         }
-        // open_checkout / reactivate: fluxo de checkout normal com CPF se necessário
+        // open_checkout / reactivate: no app da loja, a tela de assinatura da Apple 3.1.2(c) (beneficios, plano real, renovacao, links); na web, o fluxo normal com CPF.
+        if (isNativeStorePurchaseAvailable()) {
+          return <StoreSubscriptionOffer accessToken={accessToken} busy={isCheckingOut} message={message} onSubscribe={handleCta} onRefresh={() => { void loadBilling(false); }} />;
+        }
         return (
           <View style={styles.formSection}>
             {!details?.hasCpf && !isNativeStorePurchaseAvailable() ? (
@@ -10859,6 +10869,51 @@ function StorePriceText({ fallback, prefix = '', suffix = '', style }: { fallbac
     return () => { alive = false; };
   }, []);
   return <Text style={style}>{prefix}{price ?? fallback}{suffix}</Text>;
+}
+
+// Planos reais da loja para a tela de assinatura (Apple 3.1.2(c)): nome, preco e periodo vem do produto devolvido pelo StoreKit/Play via RevenueCat, nada fixo no codigo.
+// So' entra o pacote que o fluxo de compra existente consegue comprar (pickStorePackage) — a tela nunca mostra um plano que o botao nao compra.
+function storePeriodLabel(iso: string | null | undefined): string | null {
+  const match = /^P(d+)([DWMY])$/.exec(iso ?? '');
+  if (!match) return null;
+  const n = Number(match[1]);
+  const unit = { D: ['dia', 'dias'], W: ['semana', 'semanas'], M: ['mês', 'meses'], Y: ['ano', 'anos'] }[match[2] as 'D' | 'W' | 'M' | 'Y'];
+  return n === 1 ? `por ${unit[0]}` : `a cada ${n} ${unit[1]}`;
+}
+async function loadStorePlanViews(): Promise<StorePlanView[]> {
+  const offerings = await Purchases.getOfferings();
+  const pkg = pickStorePackage(offerings as never) as { identifier?: string; product?: { identifier?: string; title?: string; priceString?: string; subscriptionPeriod?: string | null; introPrice?: { priceString?: string; price?: number; periodNumberOfUnits?: number; periodUnit?: string; cycles?: number } | null } } | null;
+  const product = pkg?.product;
+  if (!pkg || !product?.priceString) return [];
+  // O Google devolve o titulo com o nome do app entre parenteses; o nome do plano e' so' a primeira parte.
+  const name = (product.title ?? '').replace(/s*([^)]*)s*$/, '').trim() || 'Panzeri Run';
+  const intro = product.introPrice;
+  const units: Record<string, [string, string]> = { DAY: ['dia', 'dias'], WEEK: ['semana', 'semanas'], MONTH: ['mês', 'meses'], YEAR: ['ano', 'anos'] };
+  let introLabel: string | null = null;
+  if (intro && intro.periodNumberOfUnits && intro.periodUnit && units[intro.periodUnit]) {
+    const unit = units[intro.periodUnit][intro.periodNumberOfUnits === 1 ? 0 : 1];
+    introLabel = intro.price === 0
+      ? `Teste gratuito de ${intro.periodNumberOfUnits} ${unit}, depois ${product.priceString}${storePeriodLabel(product.subscriptionPeriod) ? ` ${storePeriodLabel(product.subscriptionPeriod)}` : ''}.`
+      : `Oferta de introdução: ${intro.priceString ?? ''} por ${intro.periodNumberOfUnits} ${unit}.`;
+  }
+  return [{ id: product.identifier ?? pkg.identifier ?? 'store-plan', name, priceString: product.priceString, periodLabel: storePeriodLabel(product.subscriptionPeriod), introLabel }];
+}
+
+// Tela de assinatura da loja usada nos tres pontos de compra (Semana, programa travado e Cobranca). Reaproveita o handler de compra e o restaurar que ja existiam.
+function StoreSubscriptionOffer({ accessToken, busy, message, onSubscribe, onRefresh }: { accessToken: string; busy: boolean; message?: string; onSubscribe: () => void; onRefresh: () => void }) {
+  return (
+    <StoreSubscriptionPaywall
+      store={Platform.OS === 'ios' ? 'apple' : 'google'}
+      loadPlans={loadStorePlanViews}
+      onSubscribe={onSubscribe}
+      busy={busy}
+      message={message}
+      restore={() => restoreNativePurchases(accessToken)}
+      onRestored={onRefresh}
+      onOpenTerms={() => { void Linking.openURL(LEGAL_TERMS_URL); }}
+      onOpenPrivacy={() => { void Linking.openURL(LEGAL_PRIVACY_URL); }}
+    />
+  );
 }
 
 function RestorePurchasesButton({ accessToken, onDone }: { accessToken: string; onDone: () => void }) {
