@@ -33,7 +33,7 @@ export function paywallTexts(store: 'apple' | 'google') {
   const storeName = store === 'apple' ? 'App Store' : 'Google Play';
   return {
     title: 'Seu treinamento começa aqui',
-    subtitle: 'Um plano de corrida personalizado para você evoluir com organização, acompanhamento e consistência.',
+    subtitle: 'Um plano de corrida personalizado para você treinar com organização, consistência e evolução.',
     benefitsHeading: 'O que você recebe na assinatura',
     planHeading: 'Plano',
     renewal: `A assinatura é renovada automaticamente ao final de cada período, salvo cancelamento. Você pode gerenciar ou cancelar a renovação nas configurações da sua conta ${account}.`,
