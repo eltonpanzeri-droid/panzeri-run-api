@@ -9695,6 +9695,8 @@ function Billing({ accessToken }: { accessToken: string }) {
   // 11/09: fluxo multi-etapas de cancelamento (pesquisa de saída).
   // cancelStep=null → botão "Cancelar assinatura"; 'reason'→'feedback'→'return' → confirma.
   const [cancelStep, setCancelStep] = useState<'reason' | 'feedback' | 'return' | null>(null);
+  // 21/10/2026: quem ja tem assinatura (inclusive pela loja) pode abrir "Ver planos e precos" e ver a tela de assinatura da Apple; o revisor nunca fica sem ve-la.
+  const [showPlans, setShowPlans] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelFeedbackText, setCancelFeedbackText] = useState('');
   const [cancelWouldReturn, setCancelWouldReturn] = useState('');
@@ -9877,8 +9879,8 @@ function Billing({ accessToken }: { accessToken: string }) {
   function previewStoreOffer() {
     Alert.alert(
       'Assinatura pela App Store',
-      'Voce ja tem acesso ativo. Assinar tambem pela App Store geraria uma segunda cobranca. Deseja ver a oferta mesmo assim?',
-      [{ text: 'Agora nao', style: 'cancel' }, { text: 'Ver oferta', onPress: () => { void subscribe(); } }],
+      'Voce ja tem acesso ativo. Assinar de novo pela App Store pode gerar outra cobranca. Deseja continuar mesmo assim?',
+      [{ text: 'Agora nao', style: 'cancel' }, { text: 'Continuar', onPress: () => { void subscribe(); } }],
     );
   }
 
@@ -10023,10 +10025,13 @@ function Billing({ accessToken }: { accessToken: string }) {
           <Text style={styles.secondaryButtonText}>{details?.storeManaged ? 'Gerenciar assinatura na loja' : 'Cancelar assinatura'}</Text>
         </Pressable>
       ) : null}
-      {iosStoreBuild() && active && !details?.storeManaged ? (
-        <Pressable accessibilityRole="button" onPress={previewStoreOffer}>
-          <Text style={styles.termsLink}>Ver assinatura pela App Store</Text>
-        </Pressable>
+      {iosStoreBuild() && active ? (
+        <View style={{ gap: 12 }}>
+          <Pressable accessibilityRole="button" onPress={() => setShowPlans((current) => !current)}>
+            <Text style={styles.termsLink}>{showPlans ? 'Ocultar planos e preços' : 'Ver planos e preços'}</Text>
+          </Pressable>
+          {showPlans ? <StoreSubscriptionOffer accessToken={accessToken} busy={isCheckingOut} message={message} onSubscribe={previewStoreOffer} onRefresh={() => { void loadBilling(false); }} /> : null}
+        </View>
       ) : null}
 
       {/* 11/09: pesquisa de saída — fluxo de 3 etapas antes de confirmar o cancelamento */}
