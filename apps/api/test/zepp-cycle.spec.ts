@@ -251,9 +251,6 @@ describe('backfill inicial de 30 dias (so com autorizacao do aluno)', () => {
 });
 
 describe('caminho ate o Atlas com dados sinteticos (elegibilidade e procedencia do Lote 1)', () => {
-  const approved = EXTERNAL_AI_APPROVED_PROVIDERS as string[];
-  afterEach(() => { const i = approved.indexOf('zepp'); if (i >= 0) approved.splice(i, 1); });
-
   // Autorizacao registrada sobre o texto VIGENTE da tela do Atlas (versao + hash), como a API grava ao conceder.
   const atlas = ZEPP_CONSENT.optionalPurposes.find((p) => p.id === 'ai_external')!;
   const currentRecord = { ai_external: { version: atlas.screen!.version, textHash: purposeTextHash(atlas), grantedAt: '2026-10-20T12:00:00.000Z' } };
@@ -267,22 +264,20 @@ describe('caminho ate o Atlas com dados sinteticos (elegibilidade e procedencia 
     return new AiDataEligibility(prisma, registry, { get: (k: string) => env[k] } as unknown as ConfigService);
   }
 
-  it('dado REAL da Zepp continua bloqueado para a IA externa: constante vazia mesmo com finalidade concedida e variavel ligada', async () => {
-    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual([]);
-    const eligibility = setup(['history', 'ai_external'], { ZEPP_EXTERNAL_AI_ENABLED: 'true' });
+  it('Atlas liberado em 21/10/2026: a Zepp esta na lista, mas SEM a variavel ZEPP_EXTERNAL_AI_ENABLED no servidor o dado continua bloqueado (segunda trava)', async () => {
+    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual(['zepp']);
+    const eligibility = setup(['history', 'ai_external'], {});
     expect(await eligibility.decide('u1', 'zepp', { category: 'activity', destination: 'external_ai' })).toEqual({ allowed: false, reason: 'provider_locked' });
     expect((await eligibility.scopeFor('u1', 'external_ai')).blocked).toEqual(['zepp']);
   });
 
-  it('com a trava hipoteticamente aberta (so no teste) o dado e liberado APENAS com a finalidade `ai_external` concedida', async () => {
-    approved.push('zepp');
+  it('com a variavel ligada, o dado e liberado APENAS com a finalidade `ai_external` concedida', async () => {
     const env = { ZEPP_EXTERNAL_AI_ENABLED: 'true' };
     expect((await setup(['history'], env).decide('u1', 'zepp', { category: 'activity', destination: 'external_ai' })).reason).toBe('purpose_not_granted');
     expect(await setup(['history', 'ai_external'], env).decide('u1', 'zepp', { category: 'activity', destination: 'external_ai' })).toEqual({ allowed: true, reason: 'allowed' });
   });
 
   it('autorizacao dada sobre um texto que depois mudou (ou sem registro de versao) NAO vale: exige nova autorizacao', async () => {
-    approved.push('zepp');
     const env = { ZEPP_EXTERNAL_AI_ENABLED: 'true' };
     const outdated = { ai_external: { ...currentRecord.ai_external, version: '0.9' } };
     const changedHash = { ai_external: { ...currentRecord.ai_external, textHash: 'a'.repeat(64) } };

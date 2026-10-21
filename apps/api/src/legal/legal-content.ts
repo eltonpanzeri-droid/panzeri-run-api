@@ -8,8 +8,8 @@
 // legal, nao inventa prazo, base legal nem garantia de fornecedor. O que depende de contrato ou de
 // configuracao externa e' dito como tal.
 
-export const LEGAL_VERSION = '2026-10-20';
-export const LEGAL_UPDATED_LABEL = '20 de outubro de 2026';
+export const LEGAL_VERSION = '2026-10-21';
+export const LEGAL_UPDATED_LABEL = '21 de outubro de 2026';
 export const LEGAL_CONTACT = 'eltonpanzeri@gmail.com';
 export const LEGAL_PATHS = { terms: '/termos-de-uso', privacy: '/politica-privacidade' } as const;
 
@@ -54,8 +54,8 @@ export const WAHOO_PARAGRAPH =
   'Wahoo: ao conectar, o Panzeri Run recebe o identificador da sua conta Wahoo e, a cada atividade gravada em um dispositivo ou aplicativo Wahoo, o resumo dela (como data, duração, distância, modalidade, calorias, frequência cardíaca média e elevação). A Wahoo não compartilha atividades de aplicativos de terceiros. As credenciais de acesso ficam guardadas de forma cifrada e são apagadas ao desconectar. Hoje o Panzeri Run apenas lê atividades da Wahoo; não envia treinos para ela.';
 
 // ─── Zepp/Amazfit e Atlas (20/10/2026) ─────────────────────────────────────────────────────────────────
-// Descreve o que o codigo FAZ. Itens que dependem de contrato, de configuracao externa ou de decisao juridica ainda nao tomada sao ditos como tais (nada de prazo, mecanismo
-// de transferencia ou garantia contratual inventados). O envio de dados Zepp a Anthropic fica BLOQUEADO no sistema ate esses itens serem confirmados e publicados aqui.
+// Descreve o que o codigo FAZ. Nada de prazo, mecanismo de transferencia ou garantia contratual inventados. Em 21/10/2026 Elton considerou resolvidas as pendencias juridicas e
+// liberou o envio de dados Zepp a Anthropic (com autorizacao propria do aluno): o texto afirma so' o que e' fato (empresa estrangeira, transferencia internacional, regras do fornecedor).
 export const ZEPP_PARAGRAPHS = [
   'A Zepp (Zepp Health) é o serviço dos relógios Amazfit, que você pode conectar ao Panzeri Run por escolha sua. A conexão está em validação e é opcional. Existem quatro autorizações separadas, cada uma com texto próprio, que você concede ou não de forma independente — nenhuma vem marcada e nenhuma é presumida a partir de outra: (1) importar as atividades dos grupos de dados que você selecionar; (2) importar até 30 dias de atividades anteriores à conexão; (3) enviar seus treinos de corrida ao relógio; (4) usar seus dados Zepp/Amazfit em análises personalizadas com o Atlas, o que inclui enviar os dados necessários à Anthropic (seção 7A).',
   'Dados que recebemos da Zepp, conforme os grupos que você autorizar e o que o seu relógio medir: o identificador da conta Zepp (apenas para vincular a conexão); atividades (data e horário, distância, duração, ritmo, calorias, modalidade e o nome do dispositivo); frequência cardíaca, cadência, potência e elevação registradas durante a atividade; e o percurso GPS. Recebemos esses dados do arquivo de cada atividade que a Zepp envia ao Panzeri Run. Atividades digitadas manualmente na Zepp não são importadas.',
@@ -73,7 +73,7 @@ export const ATLAS_PARAGRAPHS = [
   'Dados da Zepp/Amazfit só entram nas análises do Atlas se você conceder a autorização específica, separada e opcional do Atlas. Sem essa autorização, os dados Zepp não são enviados à Anthropic — nem diretamente nem por meio de relatórios ou informações derivados deles. Recusar não impede conectar o Amazfit, enviar treinos ao relógio nem usar as funções que não dependam desse processamento.',
   'Com a autorização, o Panzeri Run envia à Anthropic os dados necessários à análise, sob a forma de resumos e indicadores derivados das suas atividades (como distância, ritmo, frequência cardíaca, cadência, potência, elevação e histórico), apenas nos grupos que você autorizou. O arquivo original, as séries completas de amostras e as coordenadas do percurso não fazem parte do que o Panzeri Run envia à IA.',
   'As análises automatizadas podem apresentar limitações e erros, o acompanhamento é feito sob supervisão técnica do treinador e elas não substituem avaliação médica.',
-  'A Anthropic é uma empresa estrangeira, e esse envio pode configurar transferência internacional de dados. O instrumento jurídico que ampara essa transferência e as garantias contratuais com a Anthropic (incluindo as regras sobre guardar os dados e sobre usá-los para treinar modelos) ainda estão sendo confirmados para este uso e serão informados nesta política antes de qualquer envio de dados da Zepp/Amazfit à Anthropic. Até lá, esses dados não são enviados e a autorização do Atlas não pode ser concedida.',
+  'A Anthropic é uma empresa estrangeira, e esse envio configura transferência internacional de dados. As regras da Anthropic sobre guardar essas informações ou usá-las para treinar modelos dependem dos termos do próprio fornecedor, e o Panzeri Run não as afirma por ele.',
 ];
 
 export const AI_PARAGRAPHS = [

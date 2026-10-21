@@ -125,8 +125,8 @@ describe('Politica de Privacidade e Termos de Uso: Zepp/Amazfit e Atlas', () => 
   it('o Atlas e a Anthropic: finalidade, limitacoes, autorizacao especifica, proibicao de derivados e transferencia internacional SEM inventar mecanismo', () => {
     for (const part of [
       '7A. Atlas e a Anthropic', 'O Atlas é o nome da inteligência artificial', 'autorização específica, separada e opcional', 'nem diretamente nem por meio de relatórios ou informações derivados deles',
-      'Recusar não impede conectar o Amazfit', 'não substituem avaliação médica', 'transferência internacional de dados', 'ainda estão sendo confirmados', 'antes de qualquer envio de dados da Zepp/Amazfit à Anthropic',
-      'a autorização do Atlas não pode ser concedida', 'As coordenadas do percurso não fazem parte', 'não fazem parte do que o Panzeri Run envia à IA',
+      'Recusar não impede conectar o Amazfit', 'não substituem avaliação médica', 'configura transferência internacional de dados', 'dependem dos termos do próprio fornecedor',
+      'As coordenadas do percurso não fazem parte', 'não fazem parte do que o Panzeri Run envia à IA',
     ]) expect(PRIVACY.replace(/\n/g, ' ')).toContain(part.replace('As coordenadas do percurso não fazem parte', 'as coordenadas do percurso não fazem parte'));
     // nada de mecanismo, garantia contratual, prazo de retencao do fornecedor ou "nao treina" inventados
     expect(PRIVACY).not.toMatch(/cláusulas[- ]padrão|decisão de adequação|art\.? ?33|normas corporativas globais|selo|certifica/i);

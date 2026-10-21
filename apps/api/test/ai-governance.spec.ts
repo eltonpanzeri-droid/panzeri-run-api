@@ -48,9 +48,8 @@ function setup(env: Record<string, string> = {}) {
 afterEach(() => { const approved = EXTERNAL_AI_APPROVED_PROVIDERS as string[]; const i = approved.indexOf('novo'); if (i >= 0) approved.splice(i, 1); });
 
 describe('trava de envio externo (tripwire)', () => {
-  it('a lista de provedores liberados para IA externa esta VAZIA no codigo — liberar e uma decisao revisada, nao um efeito colateral', () => {
-    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual([]);
-    expect(EXTERNAL_AI_APPROVED_PROVIDERS).not.toContain('zepp');
+  it('a lista de provedores liberados para IA externa so tem a Zepp (liberada por Elton em 21/10/2026) — liberar outro e uma decisao revisada, nao um efeito colateral', () => {
+    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual(['zepp']);
   });
 });
 

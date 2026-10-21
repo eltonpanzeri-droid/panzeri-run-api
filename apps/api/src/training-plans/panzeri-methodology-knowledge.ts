@@ -57,7 +57,8 @@ Treinos intervalados (alternam estimulo e pausa) podem variar em:
 - Comprimento de cada repeticao — repeticoes curtas (200-600m, tipicamente mais rapidas) ou longas
   (1000-2000m, tipicamente mais lentas).
 - Intensidade de cada repeticao — no maximo que o aluno sustenta naquela distancia, ou acima disso.
-- Tipo de pausa — ativa (trote/caminhada leve entre series) ou passiva (parado).
+- Tipo de pausa — SEMPRE ativa e extremamente leve (caminhada ou trote bem leve entre series). Regra do treinador (21/10/2026): nao prescreva pausa passiva (parado); onde
+  uma pausa passiva seria usada, prescreva uma pausa ativa extremamente leve, sempre com o ritmo (faixa de pace) bem leve indicado, para que o treino possa ser enviado ao relogio.
 
 Um treino tambem pode misturar metodos em etapas diferentes dentro da mesma sessao.
 

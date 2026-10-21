@@ -19,9 +19,10 @@ import { AiDestination, AiScope } from './ai-scope';
 //
 // Revogar a finalidade tem efeito imediato: o escopo e' recalculado a cada geracao e reconferido na hora da chamada (AiEgressGuard).
 
-// Provedores da Central cujo envio a fornecedores externos de IA foi regularizado (condicoes do provedor, politica de privacidade e consentimento valido).
-// MANTER VAZIA ate a confirmacao formal da Zepp e a atualizacao das informacoes de privacidade. Alterar esta lista e' uma decisao de produto/juridica.
-export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string[] = [];
+// Provedores da Central cujo envio a fornecedores externos de IA foi liberado. 'zepp' foi LIBERADO por Elton em 21/10/2026 ("manda ver no Atlas"; condicoes do provedor,
+// politica de privacidade e consentimento tratados como resolvidos por ele). Continua valendo a SEGUNDA trava: a variavel ZEPP_EXTERNAL_AI_ENABLED precisa estar ligada no servidor, e cada aluno
+// so' entra com a autorizacao propria, separada, sobre o texto vigente. Alterar esta lista e' uma decisao de produto/juridica.
+export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string[] = ['zepp'];
 
 export const AI_PURPOSE_BY_DESTINATION: Record<AiDestination, string> = { internal_ai: 'ai_internal', external_ai: 'ai_external' };
 
