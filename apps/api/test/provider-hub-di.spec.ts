@@ -26,7 +26,7 @@ describe('injecao de dependencias da Central Universal', () => {
     expect(moduleRef.get(ProviderInboundEventService, { strict: false })).toBeDefined();
     const connector = moduleRef.get(ConnectorRegistry, { strict: false }).get('zepp');
     expect(connector).toBeDefined();
-    expect(Object.keys(connector!).filter((k) => ['consent', 'oauth', 'webhook', 'events', 'sync', 'revocation', 'dataDeletion'].includes(k)).sort()).toEqual(['consent', 'events', 'oauth', 'revocation', 'sync']);
+    expect(Object.keys(connector!).filter((k) => ['consent', 'oauth', 'webhook', 'events', 'sync', 'revocation', 'dataDeletion'].includes(k)).sort()).toEqual(['consent', 'dataDeletion', 'events', 'oauth', 'revocation', 'sync']);
     // Governanca de IA: a fila unica de chamadas a fornecedores externos recebe o guarda (sem ele as chamadas nao seriam protegidas) e a elegibilidade usa o MESMO registro de conectores
     const queue = moduleRef.get(AiQueueService, { strict: false }) as unknown as { egress?: unknown };
     expect(queue.egress).toBeInstanceOf(AiEgressGuard);

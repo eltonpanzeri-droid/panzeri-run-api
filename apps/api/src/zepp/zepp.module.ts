@@ -16,13 +16,14 @@ import { ZeppActivityIngestionService } from './zepp-activity-ingestion.service'
 import { ZeppActivityEventService } from './zepp-activity-events.service';
 import { ZeppExactLinkService } from './zepp-exact-link.service';
 import { ZeppBackfillClient, ZeppBackfillService } from './zepp-backfill.service';
+import { ZeppDataDeletionService } from './zepp-data-deletion.service';
 
 // Zepp/Amazfit — Passo 2 da Central Universal de Integracoes: conexao OAuth. Fica inerte ate a Zepp ser configurada (ZEPP_*) E o usuario liberado
 // (ZEPP_ENABLED_USER_IDS, fail-closed). Nao recebe dado de treino.
 @Module({
   imports: [ProviderHubModule, PrismaModule, WorkoutDeliveryModule, ActivityExecutionModule],
   controllers: [ZeppController, ZeppWebhookController],
-  providers: [ZeppWorkoutClient, ZeppWorkoutPublisherService, ZeppWorkoutSchedulerService, ZeppFitDownloader, ZeppExactLinkService, ZeppActivityIngestionService, ZeppActivityEventService, ZeppBackfillClient, ZeppBackfillService],
+  providers: [ZeppWorkoutClient, ZeppWorkoutPublisherService, ZeppWorkoutSchedulerService, ZeppFitDownloader, ZeppExactLinkService, ZeppActivityIngestionService, ZeppActivityEventService, ZeppBackfillClient, ZeppBackfillService, ZeppDataDeletionService],
   exports: [ZeppWorkoutPublisherService],
 })
 export class ZeppModule implements OnModuleInit {
@@ -31,9 +32,10 @@ export class ZeppModule implements OnModuleInit {
     private readonly config: ConfigService,
     private readonly activityEvents: ZeppActivityEventService,
     private readonly backfill: ZeppBackfillService,
+    private readonly dataDeletion: ZeppDataDeletionService,
   ) {}
 
   onModuleInit() {
-    this.registry.register(buildZeppConnector(this.config, { events: this.activityEvents, sync: this.backfill }));
+    this.registry.register(buildZeppConnector(this.config, { events: this.activityEvents, sync: this.backfill, dataDeletion: this.dataDeletion }));
   }
 }

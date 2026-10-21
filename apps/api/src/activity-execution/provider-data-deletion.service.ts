@@ -72,6 +72,18 @@ export interface ProviderDataDeletionResult {
   analystContracts?: number;
 }
 
+// Resultado da invalidacao dos artefatos de IA ligados a um provedor (so' contagens; nunca conteudo).
+export interface AiArtifactInvalidationResult {
+  provider: string;
+  evidenceRedacted: number;
+  agentInputsRedacted: number;
+  declaredReasoningInvalidated: number;
+  weeklyReportsInvalidated: number;
+  analystSnapshotsInvalidated: number;
+  evolutionReportsInvalidated: number;
+  profileSummaryReset: boolean;
+}
+
 // O que a exclusao afetou (NAO e' gravado em providerConnectionEvent.details): alimenta a atualizacao dos indicadores e a reavaliacao das medalhas.
 export interface ProviderDataDeletionAffected {
   sessionIds: string[];
@@ -350,6 +362,106 @@ export class ProviderDataDeletionService {
         completionsChanged: completionsToDelete.length > 0 || sessionsToDelete.length > 0 || sessionsToSanitize.length > 0,
       };
       return { ...result, affected } as ProviderDataDeletionResult & { affected: ProviderDataDeletionAffected };
+    }, { timeout: 60_000, maxWait: 10_000 });
+  }
+
+  // Revogacao da autorizacao de IA (ou desconexao / retirada da importacao): invalida, SEM apagar nenhuma atividade, os artefatos DERIVADOS que alimentaram ou foram gerados
+  // pela IA com dados do provedor — o texto exato enviado a IA (agentInput) e o indice de evidencias perdem os agregados do provedor, o raciocinio declarado que se apoiou neles
+  // sai, relatorios semanais e retratos do Analista ENTREGUES ao Prescritor sao invalidados, relatorios de evolucao e o resumo do prontuario gerados depois do primeiro dado do
+  // provedor sao invalidados/refeitos. Indicadores deterministicos vivos (ex.: analise de execucao da sessao) NAO sao tocados: nao sao saida de IA e os dados continuam do aluno.
+  // Registros de pagamento/auditoria e o historico de decisoes permanecem (marcador auditavel, sem o conteudo removido): obrigacoes de conservacao continuam valendo.
+  // Idempotente. Mesma logica de redacao da exclusao de dados (funcoes compartilhadas de prescription-trace), sem alterar o fluxo de exclusao.
+  async invalidateAiArtifacts(userId: string, provider: string): Promise<AiArtifactInvalidationResult> {
+    return this.prisma.$transaction(async (tx) => {
+      let weeklyReportsInvalidated = 0;
+      const weeklyReports = await tx.weeklyExecutionReport?.findMany({ where: { userId, status: 'active' }, select: { id: true, sources: true, invalidatedProviders: true } }) ?? [];
+      for (const report of weeklyReports) {
+        const providers = (report.sources as { providers?: string[] } | null)?.providers ?? [];
+        if (!providers.includes(provider)) continue;
+        await tx.weeklyExecutionReport.update({
+          where: { id: report.id },
+          data: { status: 'invalidated', indicators: {}, textLines: [], invalidatedProviders: [...new Set([...(Array.isArray(report.invalidatedProviders) ? report.invalidatedProviders as string[] : []), provider])] },
+        });
+        weeklyReportsInvalidated++;
+      }
+
+      // Retratos do Analista entregues ao Prescritor (semana/evolucao, ou qualquer um ja' entregue com um programa). A analise VIVA de sessao nunca entregue fica.
+      let analystSnapshotsInvalidated = 0;
+      const analyses = await tx.trainingAnalysis?.findMany({ where: { userId, status: 'active' }, select: { id: true, scope: true, deliveredWithPlanId: true, sources: true, invalidatedProviders: true } }) ?? [];
+      for (const analysis of analyses) {
+        const providers = (analysis.sources as { providers?: string[] } | null)?.providers ?? [];
+        if (!providers.includes(provider)) continue;
+        if (analysis.scope === 'session' && analysis.deliveredWithPlanId === null) continue;
+        await tx.trainingAnalysis.update({
+          where: { id: analysis.id },
+          data: { status: 'invalidated', contract: {}, invalidatedProviders: [...new Set([...(Array.isArray(analysis.invalidatedProviders) ? analysis.invalidatedProviders as string[] : []), provider])] },
+        });
+        analystSnapshotsInvalidated++;
+      }
+
+      let evidenceRedacted = 0;
+      let agentInputsRedacted = 0;
+      const packages = await tx.prescriptionEvidencePackage?.findMany({
+        where: { userId }, select: { id: true, schemaVersion: true, evidence: true, agentInput: true, sourceProviders: true, agentInputRedactions: true },
+      }) ?? [];
+      for (const pkg of packages) {
+        const legacy = pkg.schemaVersion < 2 || !Array.isArray(pkg.sourceProviders);
+        if (!legacy && !packageMayContainProvider(pkg.sourceProviders, provider, pkg.evidence)) continue;
+        const { evidence, redacted } = redactEvidenceForProvider(pkg.evidence, provider, { assumeAll: legacy });
+        const variableIds = Array.isArray(pkg.sourceProviders) ? providerVariableIds(pkg.evidence, provider) : null;
+        const input = pkg.agentInput === null ? { agentInput: null, redaction: null } : redactAgentInputForProvider(pkg.agentInput, provider, new Date(), variableIds, legacy ? 'all' : executionActionsFor(pkg.evidence, provider));
+        if (redacted === 0 && input.redaction === null) continue;
+        const marker: AgentInputRedaction & { evidenceItemsRedacted: number; agentInputAlreadyPurged: boolean } = {
+          ...(input.redaction ?? { provider, at: new Date().toISOString(), reason: 'ai_authorization_revoked' as const, removedVariableIds: [], removedExecutionFields: [], callsChanged: 0, callsUnparseableRemoved: 0 }),
+          reason: 'ai_authorization_revoked',
+          evidenceItemsRedacted: redacted,
+          agentInputAlreadyPurged: pkg.agentInput === null,
+        };
+        const previousMarkers = Array.isArray(pkg.agentInputRedactions) ? pkg.agentInputRedactions : [];
+        await tx.prescriptionEvidencePackage.update({
+          where: { id: pkg.id },
+          data: {
+            evidence: evidence as unknown as Prisma.InputJsonValue,
+            ...(input.redaction ? { agentInput: input.agentInput as Prisma.InputJsonValue } : {}),
+            agentInputRedactions: [...previousMarkers, marker] as unknown as Prisma.InputJsonValue,
+          },
+        });
+        evidenceRedacted += redacted;
+        if (input.redaction) agentInputsRedacted++;
+      }
+
+      let declaredReasoningInvalidated = 0;
+      const declaredDecisions = await tx.prescriptionDecision?.findMany({ where: { userId, NOT: { basis: { equals: Prisma.DbNull } } }, select: { id: true, basis: true } }) ?? [];
+      for (const decision of declaredDecisions) {
+        const outcome = invalidateDeclaredForProvider(decision.basis, provider);
+        if (!outcome.changed) continue;
+        await tx.prescriptionDecision.update({
+          where: { id: decision.id },
+          data: { basis: outcome.basis as unknown as Prisma.InputJsonValue, intent: null, expected: Prisma.DbNull, traceStatus: 'partial' },
+        });
+        declaredReasoningInvalidated++;
+      }
+
+      // Artefatos SEM registro de proveniencia por provedor (relatorio de evolucao, resumo do prontuario): conservador — os criados DEPOIS do primeiro dado do provedor "podem conter".
+      const firstActivity = await tx.activityLog.findFirst({ where: { userId, provider }, orderBy: { startedAt: 'asc' }, select: { createdAt: true } });
+      let evolutionReportsInvalidated = 0;
+      let profileSummaryReset = false;
+      if (firstActivity) {
+        const evolution = await tx.evolutionReport?.updateMany({ where: { userId, invalidatedAt: null, createdAt: { gte: firstActivity.createdAt } }, data: { invalidatedAt: new Date() } });
+        evolutionReportsInvalidated = evolution?.count ?? 0;
+        // Eventos do prontuario derivados do provedor que ja' foram condensados no resumo: o resumo e' descartado e os eventos voltam a ficar pendentes — o proximo resumo e'
+        // refeito so' com o que a IA pode receber (eventos do provedor sem autorizacao ficam de fora, ver StudentProfileService).
+        const condensed = await tx.studentProfileEvent?.findMany({ where: { userId, summarizedAt: { not: null }, NOT: { sourceProviders: { equals: Prisma.DbNull } } }, select: { id: true, sourceProviders: true } }) ?? [];
+        if (condensed.some((event) => Array.isArray(event.sourceProviders) && (event.sourceProviders as unknown[]).includes(provider))) {
+          await tx.studentProfile?.updateMany({ where: { userId }, data: { summary: '' } });
+          await tx.studentProfileEvent.updateMany({ where: { userId }, data: { summarizedAt: null } });
+          profileSummaryReset = true;
+        }
+      }
+
+      const result: AiArtifactInvalidationResult = { provider, evidenceRedacted, agentInputsRedacted, declaredReasoningInvalidated, weeklyReportsInvalidated, analystSnapshotsInvalidated, evolutionReportsInvalidated, profileSummaryReset };
+      await tx.providerConnectionEvent.create({ data: { userId, provider, type: 'ai_artifacts_invalidated', details: result as unknown as Prisma.InputJsonValue } });
+      return result;
     }, { timeout: 60_000, maxWait: 10_000 });
   }
 

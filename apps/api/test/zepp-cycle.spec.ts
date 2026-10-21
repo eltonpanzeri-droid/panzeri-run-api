@@ -13,6 +13,8 @@ import { buildZeppConnector } from '../src/zepp/zepp.connector';
 import { AiDataEligibility, EXTERNAL_AI_APPROVED_PROVIDERS } from '../src/ai-governance/ai-data-eligibility.service';
 import { aiActivityWhere, runWithAiScope } from '../src/ai-governance/ai-scope';
 import { ConnectorRegistry } from '../src/provider-hub/connector-registry';
+import { purposeTextHash } from '../src/provider-hub/provider-consent.service';
+import { ZEPP_CONSENT } from '../src/zepp/zepp-consent';
 import { ObservationReaderService } from '../src/training-intelligence/observation-reader.service';
 import { VARIABLE_REGISTRY } from '../src/training-intelligence/variable-registry';
 
@@ -175,11 +177,14 @@ describe('caminho ate o Atlas com dados sinteticos (elegibilidade e procedencia 
   const approved = EXTERNAL_AI_APPROVED_PROVIDERS as string[];
   afterEach(() => { const i = approved.indexOf('zepp'); if (i >= 0) approved.splice(i, 1); });
 
-  function setup(grantedPurposes: string[], env: Record<string, string> = {}) {
+  // Autorizacao registrada sobre o texto VIGENTE da tela do Atlas (versao + hash), como a API grava ao conceder.
+  const atlas = ZEPP_CONSENT.optionalPurposes.find((p) => p.id === 'ai_external')!;
+  const currentRecord = { ai_external: { version: atlas.screen!.version, textHash: purposeTextHash(atlas), grantedAt: '2026-10-20T12:00:00.000Z' } };
+  function setup(grantedPurposes: string[], env: Record<string, string> = {}, purposeConsents: unknown = currentRecord) {
     const registry = new ConnectorRegistry();
     registry.register(buildZeppConnector({ get: () => undefined } as unknown as ConfigService));
     const prisma: any = {
-      providerConnection: { findUnique: async () => ({ disconnectedAt: null, grantedCategories: ['profile', 'activity', 'activity_sensors'], grantedPurposes }) },
+      providerConnection: { findUnique: async () => ({ disconnectedAt: null, grantedCategories: ['profile', 'activity', 'activity_sensors'], grantedPurposes, purposeConsents }) },
       activityLog: { findMany: async () => [{ provider: 'zepp' }] },
     };
     return new AiDataEligibility(prisma, registry, { get: (k: string) => env[k] } as unknown as ConfigService);
@@ -197,6 +202,16 @@ describe('caminho ate o Atlas com dados sinteticos (elegibilidade e procedencia 
     const env = { ZEPP_EXTERNAL_AI_ENABLED: 'true' };
     expect((await setup(['history'], env).decide('u1', 'zepp', { category: 'activity', destination: 'external_ai' })).reason).toBe('purpose_not_granted');
     expect(await setup(['history', 'ai_external'], env).decide('u1', 'zepp', { category: 'activity', destination: 'external_ai' })).toEqual({ allowed: true, reason: 'allowed' });
+  });
+
+  it('autorizacao dada sobre um texto que depois mudou (ou sem registro de versao) NAO vale: exige nova autorizacao', async () => {
+    approved.push('zepp');
+    const env = { ZEPP_EXTERNAL_AI_ENABLED: 'true' };
+    const outdated = { ai_external: { ...currentRecord.ai_external, version: '0.9' } };
+    const changedHash = { ai_external: { ...currentRecord.ai_external, textHash: 'a'.repeat(64) } };
+    for (const records of [outdated, changedHash, null, {}]) {
+      expect((await setup(['history', 'ai_external'], env, records).decide('u1', 'zepp', { category: 'activity', destination: 'external_ai' })).reason).toBe('purpose_not_granted');
+    }
   });
 
   it('dentro do escopo de IA a leitura de atividades exclui o provedor bloqueado (o Atlas nunca le dado Zepp sem autorizacao)', async () => {
@@ -227,7 +242,7 @@ describe('caminho ate o Atlas com dados sinteticos (elegibilidade e procedencia 
 
 describe('o Panzeri Run segue com TODAS as integracoes existentes intactas', () => {
   it('Polar, Wahoo, Strava, Apple Health e Health Connect nao referenciam nada novo da Zepp', () => {
-    for (const dir of ['polar', 'wahoo', 'strava', 'apple-health', 'health-connect', 'integrations']) {
+    for (const dir of ['polar', 'wahoo', 'strava', 'apple-health', 'health-connect']) {
       const base = join(__dirname, '..', 'src', dir);
       for (const file of require('node:fs').readdirSync(base).filter((f: string) => f.endsWith('.ts'))) {
         expect(readFileSync(join(base, file), 'utf8')).not.toMatch(/zepp/i);

@@ -4,7 +4,7 @@ import { ProviderDataDeletionService } from '../activity-execution/provider-data
 import { ConnectorRegistry } from './connector-registry';
 import { decryptSecret, encryptSecret, hashState, newState } from './provider-crypto';
 import { ProviderInboundEventService } from './provider-inbound-event.service';
-import { consentTextHash, ProviderConsentService } from './provider-consent.service';
+import { consentTextHash, isConnectionConsentCurrent, isPurposeCurrent, ProviderConsentService, purposeTextHash } from './provider-consent.service';
 import { ConsentCapability, OAuthCapability, ProviderConnector, ProviderDataCategory } from './provider-connector';
 import { AiDataEligibility } from '../ai-governance/ai-data-eligibility.service';
 
@@ -32,6 +32,8 @@ export interface ValidConsent {
   categories: ProviderDataCategory[];
   // Finalidades obrigatorias + as opcionais que o aluno marcou (nada opcional e' presumido).
   purposes: string[];
+  // Versao/hash do texto sobre o qual cada finalidade OPCIONAL concedida na conexao foi aceita (so' as sem tela propria; as com tela propria nao se concedem aqui).
+  purposeConsents: Record<string, { version: string; textHash: string }>;
   version: string;
   textHash: string;
 }
@@ -63,7 +65,8 @@ export function resolveConsent(consent: ConsentCapability, input: ConsentRequest
   }
   if (categories.length === 0) throw new BadRequestException('Selecione ao menos um grupo de dados.');
   const optional = resolveOptionalPurposes(consent, input.purposes ?? [], options.isLocked);
-  return { groups: selected, categories, purposes: [...consent.purposes, ...optional], version: consent.version, textHash: hash };
+  const purposeConsents = Object.fromEntries(optional.map((id) => [id, { version: consent.version, textHash: hash }]));
+  return { groups: selected, categories, purposes: [...consent.purposes, ...optional], purposeConsents, version: consent.version, textHash: hash };
 }
 
 // Finalidades opcionais marcadas: so' ids que o documento oferece; a que envia dados a fornecedor externo nao pode ser concedida enquanto o provedor estiver
@@ -74,6 +77,8 @@ function resolveOptionalPurposes(consent: ConsentCapability, raw: unknown, isLoc
   for (const id of raw) {
     const option = consent.optionalPurposes.find((p) => p.id === id);
     if (typeof id !== 'string' || !option) throw new BadRequestException('Finalidade opcional desconhecida.');
+    // Finalidade com tela propria (envio de treinos ao relogio, analise por IA) NUNCA e' concedida junto com a conexao: o aluno a autoriza depois, na tela dela.
+    if (option.screen) throw new BadRequestException('Esta autorizacao tem tela propria e so pode ser concedida depois de conectar.');
     if (option.external && (isLocked?.(id) ?? true)) throw new ConflictException('Esta finalidade ainda nao esta disponivel.');
     if (!out.includes(id)) out.push(id);
   }
@@ -128,7 +133,7 @@ export class ProviderConnectionService {
   // Documento de consentimento que o cliente deve exibir (texto, grupos, finalidades e o hash que precisa ser devolvido no pedido).
   consentDocument(provider: string) {
     const { consent } = this.oauthFor(provider);
-    return { ...consent, textHash: consentTextHash(consent), locked: Object.fromEntries(consent.optionalPurposes.filter((p) => p.external).map((p) => [p.id, this.externalLocked(provider)(p.id)])) };
+    return { ...consent, textHash: consentTextHash(consent), purposeHashes: Object.fromEntries(consent.optionalPurposes.map((p) => [p.id, purposeTextHash(p)])), locked: Object.fromEntries(consent.optionalPurposes.filter((p) => p.external).map((p) => [p.id, this.externalLocked(provider)(p.id)])) };
   }
 
   async begin(provider: string, userId: string, request: ConsentRequest): Promise<{ url: string }> {
@@ -208,6 +213,7 @@ export class ProviderConnectionService {
       accessTokenExpiresAt: new Date(now.getTime() + this.ttlSec(token.expiresInSec) * 1000),
       grantedCategories: consent.categories as never,
       grantedPurposes: consent.purposes as never,
+      purposeConsents: Object.fromEntries(Object.entries(consent.purposeConsents ?? {}).map(([id, value]) => [id, { ...value, grantedAt: now.toISOString() }])) as never,
       consentVersion: consent.version,
       consentTextHash: consent.textHash,
       consentedAt: now,
@@ -229,13 +235,14 @@ export class ProviderConnectionService {
       if ((failure as { code?: string }).code === 'P2002') throw new ConflictException('Esta conta ja esta vinculada a outro usuario.');
       throw failure;
     }
-    await this.audit(user.id, provider, 'connected', { groups: consent.groups, categories: consent.categories, purposes: consent.purposes, consentVersion: consent.version, consentTextHash: consent.textHash });
+    await this.audit(user.id, provider, 'connected', { groups: consent.groups, categories: consent.categories, purposes: consent.purposes, optionalGranted: Object.keys(consent.purposeConsents ?? {}), consentVersion: consent.version, consentTextHash: consent.textHash, decision: 'granted' });
     return 'connected';
   }
 
-  // Concede ou revoga, SEPARADAMENTE e sem reconectar, finalidades opcionais marcadas como alteraveis depois da conexao (ex.: analise por IA externa).
-  // Revogar vale na hora e nunca exige aceite; conceder exige o aceite expresso sobre o texto vigente (versao + hash) e respeita a trava do provedor.
-  // Cada mudanca fica auditada com a versao/hash do texto a que se refere. O consentimento original da conexao nao e' reescrito.
+  // Concede ou revoga, SEPARADAMENTE e sem reconectar, finalidades opcionais alteraveis depois da conexao (ex.: envio de treinos ao relogio, analise por IA, historico).
+  // Revogar vale na hora e nunca exige aceite; conceder exige o aceite expresso sobre o texto VIGENTE DA PROPRIA FINALIDADE (versao + hash da tela dela, ou do documento da conexao
+  // quando a finalidade nao tem tela propria) e respeita a trava do provedor. O registro por finalidade (versao, hash, data) fica em purposeConsents e cada decisao na auditoria
+  // (aluno, finalidade, versao, data, decisao). Revogar uma finalidade de envio externo invalida os artefatos de IA derivados do provedor.
   async updatePurposes(provider: string, userId: string, input: { grant?: unknown; revoke?: unknown; acknowledged?: unknown; version?: unknown; textHash?: unknown }) {
     const { consent: document } = this.oauthFor(provider);
     const grant = input.grant === undefined ? [] : input.grant;
@@ -244,27 +251,182 @@ export class ProviderConnectionService {
     const changeable = (id: unknown) => document.optionalPurposes.find((p) => p.id === id && p.changeableAfterConnect);
     if ([...grant, ...revoke].some((id) => !changeable(id))) throw new BadRequestException('Finalidade desconhecida ou nao alteravel depois da conexao.');
     if (grant.some((id) => revoke.includes(id))) throw new BadRequestException('Uma finalidade nao pode ser concedida e revogada juntas.');
-    const c = await this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider, userId } }, select: { disconnectedAt: true, grantedPurposes: true } });
+    const c = await this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider, userId } }, select: { disconnectedAt: true, grantedPurposes: true, purposeConsents: true, collectFrom: true } });
     if (!c || c.disconnectedAt) throw new ConflictException('A integracao nao esta conectada.');
     let purposes = Array.isArray(c.grantedPurposes) ? [...(c.grantedPurposes as string[])] : [];
+    const records: Record<string, { version: string; textHash: string; grantedAt: string }> = { ...((c.purposeConsents as Record<string, { version: string; textHash: string; grantedAt: string }> | null) ?? {}) };
     const granted: string[] = [];
+    const now = new Date();
     if (grant.length > 0) {
       if (input.acknowledged !== true) throw new BadRequestException('E necessario confirmar expressamente a autorizacao.');
-      const hash = consentTextHash(document);
-      if (input.version !== document.version || input.textHash !== hash) throw new ConflictException('O texto de consentimento mudou. Leia a versao atual antes de autorizar.');
+      const expectations = (grant as string[]).map((id) => {
+        const option = changeable(id)!;
+        return option.screen ? { version: option.screen.version, textHash: purposeTextHash(option) } : { version: document.version, textHash: consentTextHash(document) };
+      });
+      // Uma tela por vez: cada finalidade com tela propria tem o seu texto; misturar versoes de textos diferentes numa so confirmacao nao comprova o que o aluno leu.
+      if (expectations.some((e) => e.version !== expectations[0].version || e.textHash !== expectations[0].textHash)) throw new BadRequestException('Autorize uma finalidade por vez, na tela dela.');
+      if (input.version !== expectations[0].version || input.textHash !== expectations[0].textHash) throw new ConflictException('O texto de consentimento mudou. Leia a versao atual antes de autorizar.');
       const locked = this.externalLocked(provider);
       for (const id of grant as string[]) {
         if (changeable(id)?.external && locked(id)) throw new ConflictException('Esta finalidade ainda nao esta disponivel.');
-        if (!purposes.includes(id)) { purposes.push(id); granted.push(id); }
+        // Finalidade ja concedida mas sobre texto desatualizado: a nova autorizacao a renova.
+        const alreadyCurrent = purposes.includes(id) && isPurposeCurrent(document, id, records);
+        if (!alreadyCurrent) {
+          if (!purposes.includes(id)) purposes.push(id);
+          records[id] = { version: expectations[0].version, textHash: expectations[0].textHash, grantedAt: now.toISOString() };
+          granted.push(id);
+        }
       }
     }
     const revoked = (revoke as string[]).filter((id) => purposes.includes(id));
     purposes = purposes.filter((id) => !revoked.includes(id));
-    const updated = await this.prisma.providerConnection.updateMany({ where: { provider, userId, disconnectedAt: null }, data: { grantedPurposes: purposes as never } });
+    for (const id of revoked) delete records[id];
+    // Historico autorizado depois de conectar: a janela de coleta passa a incluir ate 30 dias anteriores (nunca mais que isso, nunca reduz uma janela ja existente).
+    const backfillFrom = granted.includes('history_backfill') ? new Date(now.getTime() - 30 * 86_400_000) : null;
+    const collectFrom = backfillFrom && (!c.collectFrom || c.collectFrom > backfillFrom) ? backfillFrom : undefined;
+    const updated = await this.prisma.providerConnection.updateMany({
+      where: { provider, userId, disconnectedAt: null },
+      data: { grantedPurposes: purposes as never, purposeConsents: records as never, ...(collectFrom ? { collectFrom } : {}) },
+    });
     if (updated.count !== 1) throw new ConflictException('A integracao nao esta conectada.');
-    if (granted.length > 0) await this.audit(userId, provider, 'purposes_granted', { purposes: granted, consentVersion: document.version, consentTextHash: consentTextHash(document) });
-    if (revoked.length > 0) await this.audit(userId, provider, 'purposes_revoked', { purposes: revoked });
+    for (const id of granted) await this.audit(userId, provider, 'purposes_granted', { purposes: [id], decision: 'granted', consentVersion: records[id].version, consentTextHash: records[id].textHash });
+    for (const id of revoked) await this.audit(userId, provider, 'purposes_revoked', { purposes: [id], decision: 'revoked' });
+    // Retirar a finalidade que envia dados a fornecedor externo: os artefatos de IA derivados do provedor deixam de valer.
+    if (revoked.some((id) => document.optionalPurposes.find((p) => p.id === id)?.external)) await this.invalidateAiArtifacts(userId, provider, 'external_purpose_revoked');
     return { purposes };
+  }
+
+  // Concede ou revoga, depois de conectar, GRUPOS de dados (importacao de atividades, sensores, percurso GPS). Conceder exige o aceite expresso sobre o texto vigente da conexao;
+  // revogar nunca exige aceite, vale na hora (a fila descarta eventos de categoria retirada) e, se a categoria 'activity' sair, os artefatos de IA derivados do provedor sao invalidados.
+  // Revogar um grupo revoga tambem os que dependem dele. O grupo obrigatorio (identificacao da conta) so' sai desconectando.
+  async updateGroups(provider: string, userId: string, input: { grant?: unknown; revoke?: unknown; acknowledged?: unknown; version?: unknown; textHash?: unknown }) {
+    const { consent: document } = this.oauthFor(provider);
+    const grant = input.grant === undefined ? [] : input.grant;
+    const revoke = input.revoke === undefined ? [] : input.revoke;
+    if (!Array.isArray(grant) || !Array.isArray(revoke)) throw new BadRequestException('Grupos invalidos.');
+    const known = (id: unknown) => document.groups.find((g) => g.id === id);
+    if ([...grant, ...revoke].some((id) => !known(id))) throw new BadRequestException('Grupo de dados desconhecido.');
+    if (grant.some((id) => revoke.includes(id))) throw new BadRequestException('Um grupo nao pode ser concedido e revogado juntos.');
+    if ((revoke as string[]).some((id) => known(id)?.required)) throw new BadRequestException('Este grupo e necessario para manter a conexao. Para retira-lo, desconecte a conta.');
+    const c = await this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider, userId } }, select: { disconnectedAt: true, grantedCategories: true } });
+    if (!c || c.disconnectedAt) throw new ConflictException('A integracao nao esta conectada.');
+    const currentCategories = new Set(Array.isArray(c.grantedCategories) ? (c.grantedCategories as string[]) : []);
+    const selected = new Set(document.groups.filter((g) => g.categories.every((category) => currentCategories.has(category))).map((g) => g.id));
+    const before = new Set(selected);
+    if (grant.length > 0) {
+      if (input.acknowledged !== true) throw new BadRequestException('E necessario confirmar expressamente a autorizacao.');
+      const hash = consentTextHash(document);
+      if (input.version !== document.version || input.textHash !== hash) throw new ConflictException('O texto de consentimento mudou. Leia a versao atual antes de autorizar.');
+      for (const id of grant as string[]) selected.add(id);
+    }
+    for (const id of revoke as string[]) selected.delete(id);
+    // Quem depende de um grupo retirado sai junto; quem entrou sem a dependencia e' recusado.
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const group of document.groups) {
+        if (selected.has(group.id) && (group.requires ?? []).some((r) => !selected.has(r))) {
+          if ((grant as string[]).includes(group.id)) throw new BadRequestException('Selecao incompativel: um grupo depende de outro nao autorizado.');
+          selected.delete(group.id);
+          changed = true;
+        }
+      }
+    }
+    const categories: ProviderDataCategory[] = [];
+    for (const group of document.groups.filter((g) => selected.has(g.id))) for (const category of group.categories) if (!categories.includes(category)) categories.push(category);
+    const updated = await this.prisma.providerConnection.updateMany({ where: { provider, userId, disconnectedAt: null }, data: { grantedCategories: categories as never } });
+    if (updated.count !== 1) throw new ConflictException('A integracao nao esta conectada.');
+    const grantedIds = [...selected].filter((id) => !before.has(id));
+    const revokedIds = [...before].filter((id) => !selected.has(id));
+    if (grantedIds.length > 0) await this.audit(userId, provider, 'groups_updated', { decision: 'granted', groups: grantedIds, consentVersion: document.version, consentTextHash: consentTextHash(document) });
+    if (revokedIds.length > 0) await this.audit(userId, provider, 'groups_updated', { decision: 'revoked', groups: revokedIds });
+    // Importacao de atividades retirada: eventos pendentes dessas categorias deixam de virar dado (a fila ja' descarta por categoria) e os artefatos de IA derivados saem de validade.
+    if (revokedIds.some((id) => known(id)?.categories.includes('activity' as ProviderDataCategory))) await this.invalidateAiArtifacts(userId, provider, 'import_revoked');
+    return { groups: [...selected], categories };
+  }
+
+  // Reconfirmacao do texto da CONEXAO apos uma mudanca material: o aluno le a versao vigente e confirma de novo, SEM mudar o que ja autorizou (nenhum grupo e' adicionado).
+  // Enquanto nao reconfirma, as categorias de dados (alem da identificacao da conta) nao valem (ver isConnectionConsentCurrent).
+  async reconfirm(provider: string, userId: string, input: { acknowledged?: unknown; version?: unknown; textHash?: unknown }) {
+    const { consent: document } = this.oauthFor(provider);
+    if (input.acknowledged !== true) throw new BadRequestException('E necessario confirmar expressamente a autorizacao.');
+    const hash = consentTextHash(document);
+    if (input.version !== document.version || input.textHash !== hash) throw new ConflictException('O texto de consentimento mudou. Leia a versao atual antes de confirmar.');
+    const now = new Date();
+    const updated = await this.prisma.providerConnection.updateMany({ where: { provider, userId, disconnectedAt: null }, data: { consentVersion: document.version, consentTextHash: hash, consentedAt: now } });
+    if (updated.count !== 1) throw new ConflictException('A integracao nao esta conectada.');
+    await this.audit(userId, provider, 'connected', { reconfirmed: true, decision: 'granted', consentVersion: document.version, consentTextHash: hash });
+    return { version: document.version };
+  }
+
+  // Painel de permissoes do aluno: o estado de CADA autorizacao, separado, com versao/data e se esta valendo sobre o texto atual — mais o historico auditavel das decisoes.
+  async permissions(provider: string, userId: string) {
+    const { consent: document } = this.oauthFor(provider);
+    const c = await this.prisma.providerConnection.findUnique({
+      where: { provider_userId: { provider, userId } },
+      select: { disconnectedAt: true, accessTokenEncrypted: true, grantedCategories: true, grantedPurposes: true, purposeConsents: true, consentVersion: true, consentTextHash: true, consentedAt: true },
+    });
+    const connected = Boolean(c && !c.disconnectedAt && c.accessTokenEncrypted);
+    const categories = new Set(connected && Array.isArray(c!.grantedCategories) ? (c!.grantedCategories as string[]) : []);
+    const purposes = connected && Array.isArray(c!.grantedPurposes) ? (c!.grantedPurposes as string[]) : [];
+    const records = (connected ? c!.purposeConsents : null) as Record<string, { version: string; textHash: string; grantedAt: string }> | null;
+    const locked = this.externalLocked(provider);
+    return {
+      connected,
+      // needsReview: o texto da conexao mudou depois da autorizacao — a importacao fica suspensa ate o aluno reconfirmar o texto vigente.
+      consent: { version: document.version, textHash: consentTextHash(document), grantedVersion: connected ? c!.consentVersion : null, grantedAt: connected ? c!.consentedAt : null, needsReview: connected && !isConnectionConsentCurrent(document, c!) },
+      groups: document.groups.map((group) => ({ id: group.id, label: group.label, required: group.required, requires: group.requires ?? [], granted: connected && group.categories.every((category) => categories.has(category)) && (group.categories.every((category) => category === 'profile') || isConnectionConsentCurrent(document, c!)) })),
+      purposes: document.optionalPurposes.map((option) => {
+        const listed = purposes.includes(option.id);
+        const current = listed && isPurposeCurrent(document, option.id, records);
+        return {
+          id: option.id,
+          label: option.label,
+          external: option.external,
+          changeableAfterConnect: option.changeableAfterConnect,
+          hasOwnScreen: Boolean(option.screen),
+          granted: current,
+          // Concedida antes de uma mudanca material do texto: nao vale ate nova autorizacao.
+          needsNewAuthorization: listed && !current,
+          grantedAt: records?.[option.id]?.grantedAt ?? null,
+          grantedVersion: records?.[option.id]?.version ?? null,
+          currentVersion: option.screen?.version ?? document.version,
+          // Disponibilidade operacional (hoje, o envio externo a IA esta travado enquanto o provedor nao for regularizado).
+          available: option.external ? !locked(option.id) : true,
+        };
+      }),
+      log: await this.consentLog(provider, userId),
+    };
+  }
+
+  // Historico auditavel das decisoes do aluno (concedeu/retirou, qual item, qual versao do texto, quando). So' metadados; nunca token nem dado de treino.
+  async consentLog(provider: string, userId: string) {
+    const rows = await this.prisma.providerConnectionEvent.findMany({
+      where: { provider, userId, type: { in: ['connected', 'purposes_granted', 'purposes_revoked', 'groups_updated'] } },
+      orderBy: { createdAt: 'desc' },
+      take: 40,
+      select: { type: true, details: true, createdAt: true },
+    }).catch(() => []);
+    const out: Array<{ at: Date; decision: 'granted' | 'revoked'; kind: 'connection' | 'purpose' | 'group'; id: string | null; version: string | null }> = [];
+    for (const row of rows as Array<{ type: string; details: unknown; createdAt: Date }>) {
+      const d = (row.details ?? {}) as { purposes?: unknown; groups?: unknown; decision?: unknown; consentVersion?: unknown };
+      const decision = d.decision === 'revoked' || row.type === 'purposes_revoked' ? 'revoked' : 'granted';
+      const version = typeof d.consentVersion === 'string' ? d.consentVersion : null;
+      if (row.type === 'connected') { out.push({ at: row.createdAt, decision: 'granted', kind: 'connection', id: null, version }); continue; }
+      const ids = (row.type === 'groups_updated' ? d.groups : d.purposes) as unknown;
+      for (const id of Array.isArray(ids) ? (ids as unknown[]) : []) if (typeof id === 'string') out.push({ at: row.createdAt, decision, kind: row.type === 'groups_updated' ? 'group' : 'purpose', id, version });
+    }
+    return out;
+  }
+
+  // Artefatos de IA derivados do provedor deixam de valer (melhor esforco: nunca desfaz a revogacao ja gravada; a falha fica auditada e registrada em log).
+  private async invalidateAiArtifacts(userId: string, provider: string, trigger: string): Promise<void> {
+    if (!this.providerData) return;
+    try {
+      await this.providerData.invalidateAiArtifacts(userId, provider);
+    } catch (error) {
+      this.logger.error(`Invalidacao dos artefatos de IA (${provider}, ${trigger}) falhou: ${error instanceof Error ? error.message.slice(0, 160) : 'erro'}`);
+      await this.audit(userId, provider, 'ai_artifacts_invalidation_failed', { trigger });
+    }
   }
 
   // Leitura pura, sem chamada ao provedor. Nunca devolve token, segredo nem o identificador externo completo (so' as ultimas 4 posicoes, mascaradas).
@@ -328,7 +490,8 @@ export class ProviderConnectionService {
     const closed = await this.closeLocally(provider, userId);
     if (!closed) return { status: 'already_disconnected', providerRevocation: 'skipped' };
     const providerRevocation = await this.revokeRemotely(connector, oauth, c);
-    await this.audit(userId, provider, 'disconnected', { providerRevocation });
+    await this.audit(userId, provider, 'disconnected', { providerRevocation, decision: 'revoked' });
+    await this.invalidateAiArtifacts(userId, provider, 'disconnected');
     return { status: 'disconnected', providerRevocation };
   }
 
@@ -349,7 +512,10 @@ export class ProviderConnectionService {
     const userId = await this.consent.resolveActiveUserId(provider, externalAccountId);
     if (!userId) return 'nothing';
     const closed = await this.closeLocally(provider, userId);
-    if (closed) await this.audit(userId, provider, 'revoked_by_provider', { source: 'authorization_change' });
+    if (closed) {
+      await this.audit(userId, provider, 'revoked_by_provider', { source: 'authorization_change', decision: 'revoked' });
+      await this.invalidateAiArtifacts(userId, provider, 'revoked_by_provider');
+    }
     return closed ? 'closed' : 'nothing';
   }
 

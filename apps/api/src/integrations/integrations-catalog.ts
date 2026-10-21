@@ -100,6 +100,17 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     requiresEnv: ['WAHOO_CLIENT_ID', 'WAHOO_CLIENT_SECRET', 'WAHOO_REDIRECT_URI', 'WAHOO_TOKEN_ENCRYPTION_KEY'],
     requiresAllowlist: true,
   },
+  {
+    id: 'zepp',
+    name: 'Zepp / Amazfit',
+    // Recebe as atividades do Amazfit (FIT) e, se o aluno autorizar, envia treinos de corrida ao relogio. Em validacao: so' aparece para quem foi habilitado.
+    summary: 'Conecte seu Amazfit para acompanhar seus treinos e, se quiser, receber seus treinos de corrida no relógio. Cada autorização é opcional e separada. Recurso em validação.',
+    availability: 'available',
+    platforms: ALL_PLATFORMS,
+    capabilities: { receiveActivities: true, sendWorkouts: true },
+    requiresEnv: ['ZEPP_CLIENT_ID', 'ZEPP_CLIENT_SECRET', 'ZEPP_REDIRECT_URI', 'ZEPP_TOKEN_ENCRYPTION_KEY'],
+    requiresAllowlist: true,
+  },
 ];
 
 export interface IntegrationCatalogEntry extends Omit<IntegrationProvider, 'requiresEnv' | 'requiresAllowlist'> {

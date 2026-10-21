@@ -155,7 +155,7 @@ describe('Zepp: conector (nada de recebimento de dados ativado)', () => {
   });
 
   it('Polar, Wahoo, Strava e o pipeline de atividades nao dependem da Zepp nem da conexao generica', () => {
-    for (const d of ['polar', 'wahoo', 'strava', 'activity-execution', 'apple-health', 'health-connect', 'integrations']) {
+    for (const d of ['polar', 'wahoo', 'strava', 'activity-execution', 'apple-health', 'health-connect']) {
       const base = join(__dirname, '..', 'src', d);
       for (const file of readdirSync(base).filter((f) => f.endsWith('.ts'))) {
         expect(readFileSync(join(base, file), 'utf8')).not.toMatch(/zepp|ProviderConnection\b|provider-connection/i);
@@ -176,56 +176,82 @@ describe('exclusao de conta e backup cobrem a conexao generica', () => {
   });
 });
 
-describe('Zepp: texto de consentimento 1.1 e grupos', () => {
+describe('Zepp: textos de consentimento 2.0, grupos e telas por finalidade', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { ZEPP_CONSENT } = require('../src/zepp/zepp-consent');
-  const { consentTextHash } = require('../src/provider-hub/provider-consent.service');
+  const { consentTextHash, purposeTextHash } = require('../src/provider-hub/provider-consent.service');
   const all = JSON.stringify(ZEPP_CONSENT);
+  const optional = Object.fromEntries(ZEPP_CONSENT.optionalPurposes.map((p: any) => [p.id, p]));
 
-  it('versao 1.1 de 19/10/2026, com IA como autorizacao opcional e separada, e a frase de confirmacao da minuta', () => {
-    expect(ZEPP_CONSENT.version).toBe('1.2');
+  it('tela da conexao 2.0: titulo, descricao, frase obrigatoria e botao exatamente como aprovados; nada vem marcado', () => {
+    expect(ZEPP_CONSENT.version).toBe('2.0');
     expect(ZEPP_CONSENT.dateLabel).toBe('20/10/2026');
-    expect(ZEPP_CONSENT.title).toBe('Autorização para conectar Zepp/Amazfit ao Panzeri Run');
-    expect(all).toContain('Este consentimento, por si só, não autoriza análises por inteligência artificial nem o envio dos dados a fornecedores externos.');
-    expect(all).toContain('2.3. Análises por inteligência artificial (autorização opcional e separada)');
-    // a 1.1 nao promete o que a Zepp informou nao existir hoje
-    expect(all).not.toMatch(/repouso/i);
-    expect(ZEPP_CONSENT.acknowledgementText).toBe('Li as informações acima e autorizo a conexão da minha conta Zepp/Amazfit nas categorias selecionadas.');
-    expect(ZEPP_CONSENT.confirmButtonLabel).toBe('Conectar minha conta Zepp/Amazfit');
+    expect(ZEPP_CONSENT.title).toBe('Conecte seu Amazfit ao Panzeri Run');
+    expect(ZEPP_CONSENT.intro).toBe('Conecte sua conta Zepp ao Panzeri Run para acompanhar seus treinos em um só lugar.');
+    expect(all).toContain('Com sua autorização, poderemos receber informações das atividades registradas pelo seu Amazfit, como distância, duração, ritmo, frequência cardíaca, cadência, potência, elevação e percurso GPS, conforme os dados disponíveis no dispositivo e as permissões concedidas.');
+    expect(all).toContain('Essas informações serão utilizadas para acompanhar sua evolução, comparar os treinos planejados com os realizados e personalizar seu treinamento.');
+    expect(ZEPP_CONSENT.acknowledgementText).toBe('Autorizo o Panzeri Run a acessar e utilizar os dados de atividades que eu selecionar na conexão com a Zepp, para acompanhamento e gestão do meu treinamento.');
+    expect(optional.history_backfill.label).toBe('Autorizo a importação das minhas atividades anteriores, limitada aos últimos 30 dias e ao período permitido pela Zepp.');
+    expect(ZEPP_CONSENT.confirmButtonLabel).toBe('Conectar minha conta Zepp');
+    expect(all).not.toMatch(/repouso|sono/i); // nao se pede consentimento de um uso que nao existe
     expect(consentTextHash(ZEPP_CONSENT)).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('as finalidades autorizadas NAO incluem IA, treinamento de modelos nem nada alem do descrito', () => {
-    expect([...ZEPP_CONSENT.purposes].sort()).toEqual(['coach_view', 'history', 'indicators', 'plan_comparison', 'tracking']);
-    for (const forbidden of ['ai', 'ia', 'ai_external', 'ai_internal', 'model_training', 'atlas']) expect(ZEPP_CONSENT.purposes).not.toContain(forbidden);
-    // IA externa e importacao de historico sao OPCIONAIS e separadas; so' a IA externa pode ser mudada depois da conexao
-    const optional = Object.fromEntries(ZEPP_CONSENT.optionalPurposes.map((p: any) => [p.id, p]));
-    expect(Object.keys(optional).sort()).toEqual(['ai_external', 'history_backfill', 'watch_delivery']);
-    expect(optional.ai_external).toMatchObject({ external: true, changeableAfterConnect: true });
-    expect(optional.history_backfill).toMatchObject({ external: false, changeableAfterConnect: false });
-    // envio de treinos ao relogio (consentimento 1.2): opcional, separado, nao e' envio a terceiro alem da propria Zepp e pode ser retirado depois
+  it('tela do envio de treinos ao relogio: texto, caixa e botao aprovados; versao e hash proprios', () => {
+    const screen = optional.watch_delivery.screen;
+    expect(screen).toMatchObject({ version: '1.0', title: 'Receba seus treinos no relógio', buttonLabel: 'Autorizar envio de treinos' });
+    expect(screen.checkboxText).toBe('Autorizo o Panzeri Run a enviar e atualizar meus treinos programados na minha conta Zepp para sincronização com meu Amazfit.');
+    expect(screen.paragraphs[0]).toBe('O Panzeri Run pode enviar seus treinos de corrida para o aplicativo Zepp, permitindo sincronizá-los com um relógio Amazfit compatível.');
+    expect(screen.paragraphs.join(' ')).toContain('Quando seu treinador atualizar uma prescrição, o Panzeri Run poderá atualizar os treinos enviados à Zepp.');
+    expect(screen.paragraphs.join(' ')).toContain('não é presumida a partir da conexão com a Zepp');
     expect(optional.watch_delivery).toMatchObject({ external: false, changeableAfterConnect: true });
-    expect(ZEPP_CONSENT.purposes).not.toContain('watch_delivery');
+    expect(purposeTextHash(optional.watch_delivery)).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('grupos: dados basicos obrigatorios; GPS e sensores dependem de atividades; sono sem FC de repouso; nenhum grupo concede categoria fora do conector', () => {
+  it('tela do Atlas: Anthropic nomeada, transferencia internacional, limitacoes, recusa sem prejuizo e proibicao de uso derivado; autorizacao propria e externa', () => {
+    const screen = optional.ai_external.screen;
+    const text = screen.paragraphs.join(' ');
+    expect(screen).toMatchObject({ version: '1.0', title: 'Personalize seus treinos com o Atlas', buttonLabel: 'Autorizar análise com Atlas' });
+    expect(screen.checkboxText).toBe('Autorizo o Panzeri Run a utilizar meus dados Zepp/Amazfit autorizados para análises personalizadas com o Atlas, incluindo o envio dos dados necessários à Anthropic para processamento por inteligência artificial, conforme a Política de Privacidade.');
+    expect(text).toContain('Anthropic');
+    expect(text).toContain('transferência internacional de dados, conforme descrito na Política de Privacidade');
+    expect(text).toContain('não substituem avaliação médica');
+    expect(text).toContain('A recusa desta autorização não impede você de conectar o Amazfit');
+    expect(text).toContain('nem diretamente nem por meio de relatórios ou informações derivados deles');
+    expect(optional.ai_external).toMatchObject({ external: true, changeableAfterConnect: true });
+    expect(purposeTextHash(optional.ai_external)).not.toBe(purposeTextHash(optional.watch_delivery));
+  });
+
+  it('as finalidades obrigatorias NAO incluem IA, envio de treinos, treinamento de modelos nem nada alem do descrito; mudar o texto de uma tela muda o hash dela', () => {
+    expect([...ZEPP_CONSENT.purposes].sort()).toEqual(['coach_view', 'history', 'indicators', 'plan_comparison', 'tracking']);
+    for (const forbidden of ['ai', 'ia', 'ai_external', 'ai_internal', 'model_training', 'atlas', 'watch_delivery']) expect(ZEPP_CONSENT.purposes).not.toContain(forbidden);
+    expect(Object.keys(optional).sort()).toEqual(['ai_external', 'history_backfill', 'watch_delivery']);
+    expect(optional.history_backfill).toMatchObject({ external: false, changeableAfterConnect: true });
+    expect(optional.history_backfill.screen).toBeUndefined(); // o texto do historico faz parte da tela da conexao
+    const changed = { ...optional.ai_external, screen: { ...optional.ai_external.screen, paragraphs: [...optional.ai_external.screen.paragraphs, 'novo'] } };
+    expect(purposeTextHash(changed)).not.toBe(purposeTextHash(optional.ai_external));
+  });
+
+  it('grupos: so a identificacao da conta e obrigatoria; sensores e GPS dependem de atividades; nenhum grupo concede categoria fora do conector', () => {
     const byId = Object.fromEntries(ZEPP_CONSENT.groups.map((g: any) => [g.id, g]));
     expect(byId.account).toMatchObject({ required: true, categories: ['profile'] });
     expect(byId.activity).toMatchObject({ required: false, categories: ['activity'] });
     expect(byId.route).toMatchObject({ required: false, categories: ['activity_route'], requires: ['activity'] });
     expect(byId.sensors).toMatchObject({ required: false, categories: ['activity_sensors'], requires: ['activity'] });
-    expect(byId.sleep).toMatchObject({ required: false, categories: ['sleep'] });
+    expect(byId.sleep).toBeUndefined();
+    expect(ZEPP_CONSENT.groups.filter((g: any) => g.required).map((g: any) => g.id)).toEqual(['account']);
     expect(() => new ConnectorRegistry().register(buildZeppConnector(config()))).not.toThrow(); // o registro valida categorias dos grupos
   });
 });
 
 describe('Zepp: acesso restrito e unico ponto de acesso a conexao', () => {
-  it('toda rota autenticada exige coach/admin (alem do JWT); so o callback e publico', () => {
+  it('toda rota autenticada exige o JWT do proprio usuario (aluno inclusive; a porta ZEPP_ENABLED_USER_IDS continua fail-closed); so o callback e publico', () => {
     const source = readFileSync(join(__dirname, '..', 'src', 'zepp', 'zepp.controller.ts'), 'utf8');
-    const guarded = source.match(/@UseGuards\(AuthGuard\('jwt'\), RolesGuard\)\s+@Roles\('coach', 'admin'\)/g) ?? [];
-    expect(guarded).toHaveLength(9); // connect, purposes, consent, status, disconnect, data + workouts/status, workouts/sync, workouts/clear (Lote 2)
+    const guarded = source.match(/@UseGuards\(AuthGuard\('jwt'\)\)/g) ?? [];
+    expect(guarded).toHaveLength(12); // connect, purposes, groups, reconfirm, permissions, consent, status, disconnect, data + workouts/status, workouts/sync, workouts/clear
     const routes = source.match(/@(Get|Post|Delete)\('/g) ?? [];
     expect(routes).toHaveLength(guarded.length + 1); // + callback
+    expect(source).not.toMatch(/user\.sub\s*=|body\??\.userId|query\.userId/); // nenhum userId vem do cliente
     expect(source.indexOf("@Get('callback')")).toBeGreaterThan(-1);
     expect(source.slice(source.indexOf("@Get('callback')") - 120, source.indexOf("@Get('callback')"))).not.toContain('AuthGuard');
   });
@@ -236,7 +262,7 @@ describe('Zepp: acesso restrito e unico ponto de acesso a conexao', () => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const full = join(dir, entry.name);
         if (entry.isDirectory()) walk(full);
-        else if (entry.name.endsWith('.ts') && /\.providerConnection\./.test(readFileSync(full, 'utf8')) && !/(provider-hub\/(provider-connection|provider-consent)\.service\.ts|ai-governance\/ai-data-eligibility\.service\.ts)$/.test(full.split(sep).join('/'))) offenders.push(full);
+        else if (entry.name.endsWith('.ts') && /\.providerConnection\./.test(readFileSync(full, 'utf8')) && !/(provider-hub\/(provider-connection|provider-consent)\.service\.ts|ai-governance\/ai-data-eligibility\.service\.ts|integrations\/integrations\.service\.ts)$/.test(full.split(sep).join('/'))) offenders.push(full);
       }
     };
     walk(join(__dirname, '..', 'src'));

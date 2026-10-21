@@ -101,7 +101,7 @@ function setup() {
   const registry = new ConnectorRegistry();
   registry.register(connector);
   const events = { discardPendingForUser: jest.fn(async () => 0) } as any;
-  const providerData = { deleteProviderData: jest.fn(async () => ({ provider: 'novo', activities: 2 })) } as any;
+  const providerData = { deleteProviderData: jest.fn(async () => ({ provider: 'novo', activities: 2 })), invalidateAiArtifacts: jest.fn(async () => ({ provider: 'novo' })) } as any;
   class TestService extends ProviderConnectionService { protected sleep() { return new Promise<void>((r) => setTimeout(r, 20)); } }
   const consentService = new ProviderConsentService(prisma);
   // Estado da trava de envio externo controlavel pelo teste (padrao: TRAVADO, como em producao).
@@ -118,7 +118,7 @@ async function connect(s: ReturnType<typeof setup>, userId = 'u1') {
 
 describe('resolveConsent', () => {
   it('seleciona SO o que foi marcado (obrigatorio incluido), sem duplicar, e devolve finalidades e hash', () => {
-    expect(resolveConsent(CONSENT, request({ groups: ['account', 'activity', 'activity'] }))).toEqual({ groups: ['account', 'activity'], categories: ['profile', 'activity'], purposes: ['history', 'tracking'], version: '1.0', textHash: HASH });
+    expect(resolveConsent(CONSENT, request({ groups: ['account', 'activity', 'activity'] }))).toEqual({ groups: ['account', 'activity'], categories: ['profile', 'activity'], purposes: ['history', 'tracking'], purposeConsents: {}, version: '1.0', textHash: HASH });
     expect(resolveConsent(CONSENT, request({ purposes: ['history_backfill'] })).purposes).toEqual(['history', 'tracking', 'history_backfill']);
     expect(resolveConsent(CONSENT, request({ groups: ['account', 'sleep'] })).categories).toEqual(['profile', 'sleep', 'resting_heart_rate']);
   });

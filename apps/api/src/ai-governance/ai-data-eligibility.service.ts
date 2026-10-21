@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConnectorRegistry, LEGACY_PROVIDER_IDS } from '../provider-hub/connector-registry';
+import { isConnectionConsentCurrent, isPurposeCurrent } from '../provider-hub/provider-consent.service';
 import { AiDestination, AiScope } from './ai-scope';
 
 // Elegibilidade de dados para IA (Central Universal de Integracoes, Lote 1). UMA regra, universal, por (usuario, provedor, categoria, destino):
@@ -56,13 +57,15 @@ export class AiDataEligibility {
     if (options.destination === 'external_ai' && !this.isExternalAiUnlocked(provider)) return { allowed: false, reason: 'provider_locked' };
     const connection = await this.prisma.providerConnection.findUnique({
       where: { provider_userId: { provider, userId } },
-      select: { disconnectedAt: true, grantedCategories: true, grantedPurposes: true },
+      select: { disconnectedAt: true, grantedCategories: true, grantedPurposes: true, purposeConsents: true, consentVersion: true, consentTextHash: true },
     });
     if (!connection || connection.disconnectedAt) return { allowed: false, reason: 'not_connected' };
     const categories = Array.isArray(connection.grantedCategories) ? (connection.grantedCategories as unknown[]) : [];
-    if (!categories.includes(options.category)) return { allowed: false, reason: 'category_not_granted' };
+    if (!categories.includes(options.category) || (options.category !== 'profile' && !isConnectionConsentCurrent(connector.consent, connection))) return { allowed: false, reason: 'category_not_granted' };
     const purposes = Array.isArray(connection.grantedPurposes) ? (connection.grantedPurposes as unknown[]) : [];
-    if (!purposes.includes(AI_PURPOSE_BY_DESTINATION[options.destination])) return { allowed: false, reason: 'purpose_not_granted' };
+    const purposeId = AI_PURPOSE_BY_DESTINATION[options.destination];
+    // A autorizacao so' vale sobre o texto vigente: texto alterado depois => nova autorizacao (fail-closed).
+    if (!purposes.includes(purposeId) || !isPurposeCurrent(connector.consent, purposeId, connection.purposeConsents)) return { allowed: false, reason: 'purpose_not_granted' };
     return { allowed: true, reason: 'allowed' };
   }
 

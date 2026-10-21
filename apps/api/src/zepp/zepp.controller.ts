@@ -3,8 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
-import { Roles } from '../common/roles.decorator';
-import { RolesGuard } from '../common/roles.guard';
 import { ProviderConnectionService } from '../provider-hub/provider-connection.service';
 import { ZEPP_PROVIDER_ID } from './zepp.connector';
 import { ZeppWorkoutPublisherService } from './zepp-workout-publisher.service';
@@ -27,12 +25,11 @@ export class ZeppController {
     private readonly workouts: ZeppWorkoutPublisherService,
   ) {}
 
-  // Todas as rotas autenticadas usam SOMENTE o usuario do JWT; nenhum userId vem do cliente. Nesta fase de TESTE ficam restritas a coach/admin (alem da
-  // porta ZEPP_ENABLED_USER_IDS): a conta conectada e sempre a do proprio usuario logado, nunca a de outro aluno. Abrir para alunos exige nova decisao.
-  // O cliente envia o aceite expresso + grupos marcados + versao/hash do texto exibido ANTES de abrir a Zepp; o servidor valida e registra.
+  // Todas as rotas autenticadas usam SOMENTE o usuario do JWT; nenhum userId vem do cliente: a conta conectada e' sempre a do proprio usuario logado, nunca a de outro.
+  // Abertas ao aluno (tela Configuracoes > Integracoes > Zepp/Amazfit), mas FAIL-CLOSED: so' funcionam para quem esta em ZEPP_ENABLED_USER_IDS (porta de habilitacao do conector).
+  // O cliente envia o aceite expresso + grupos marcados + versao/hash do texto exibido ANTES de abrir a Zepp; o servidor valida e registra. Nada vem pre-marcado nem e' presumido.
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('coach', 'admin')
+  @UseGuards(AuthGuard('jwt'))
   @Post('connect')
   @HttpCode(200)
   connect(@CurrentUser() user: CurrentUserPayload, @Body() body: { groups?: unknown; purposes?: unknown; acknowledged?: unknown; consentVersion?: unknown; consentTextHash?: unknown }) {
@@ -42,32 +39,56 @@ export class ZeppController {
   // Concede/revoga finalidades opcionais (ex.: analise por IA externa) SEM reconectar. Revogar nao exige aceite; conceder exige o aceite sobre o texto vigente
   // e so' funciona quando o provedor esta liberado para a finalidade (hoje o envio externo de dados da Zepp esta BLOQUEADO).
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('coach', 'admin')
+  @UseGuards(AuthGuard('jwt'))
   @Post('purposes')
   @HttpCode(200)
-  purposes(@CurrentUser() user: CurrentUserPayload, @Body() body: { grant?: unknown; revoke?: unknown; acknowledged?: unknown; consentVersion?: unknown; consentTextHash?: unknown }) {
-    return this.connections.updatePurposes(ZEPP_PROVIDER_ID, user.sub, { grant: body?.grant, revoke: body?.revoke, acknowledged: body?.acknowledged, version: body?.consentVersion, textHash: body?.consentTextHash });
+  async purposes(@CurrentUser() user: CurrentUserPayload, @Body() body: { grant?: unknown; revoke?: unknown; acknowledged?: unknown; consentVersion?: unknown; consentTextHash?: unknown }) {
+    const result = await this.connections.updatePurposes(ZEPP_PROVIDER_ID, user.sub, { grant: body?.grant, revoke: body?.revoke, acknowledged: body?.acknowledged, version: body?.consentVersion, textHash: body?.consentTextHash });
+    // Retirou o envio de treinos: o publicador remove os treinos da conta Zepp agora (nao espera a rotina periodica). Nunca desfaz a revogacao ja gravada.
+    if (Array.isArray(body?.revoke) && body.revoke.includes('watch_delivery')) void this.workouts.reconcile(user.sub).catch(() => undefined);
+    return result;
+  }
+
+  // Concede/revoga GRUPOS de dados (atividades, sensores, percurso GPS) depois de conectar. Revogar nao exige aceite e vale na hora; conceder exige o aceite sobre o texto vigente.
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @UseGuards(AuthGuard('jwt'))
+  @Post('groups')
+  @HttpCode(200)
+  groups(@CurrentUser() user: CurrentUserPayload, @Body() body: { grant?: unknown; revoke?: unknown; acknowledged?: unknown; consentVersion?: unknown; consentTextHash?: unknown }) {
+    return this.connections.updateGroups(ZEPP_PROVIDER_ID, user.sub, { grant: body?.grant, revoke: body?.revoke, acknowledged: body?.acknowledged, version: body?.consentVersion, textHash: body?.consentTextHash });
+  }
+
+  // Reconfirma o texto da conexao apos uma mudanca material (sem mudar o que o aluno ja autorizou).
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseGuards(AuthGuard('jwt'))
+  @Post('reconfirm')
+  @HttpCode(200)
+  reconfirm(@CurrentUser() user: CurrentUserPayload, @Body() body: { acknowledged?: unknown; consentVersion?: unknown; consentTextHash?: unknown }) {
+    return this.connections.reconfirm(ZEPP_PROVIDER_ID, user.sub, { acknowledged: body?.acknowledged, version: body?.consentVersion, textHash: body?.consentTextHash });
+  }
+
+  // Painel "Privacidade e permissoes": estado de cada autorizacao (importacao, historico, envio de treinos, Atlas), versao/data, disponibilidade e o historico de decisoes.
+  @UseGuards(AuthGuard('jwt'))
+  @Get('permissions')
+  permissions(@CurrentUser() user: CurrentUserPayload) {
+    return this.connections.permissions(ZEPP_PROVIDER_ID, user.sub);
   }
 
   // Texto, grupos e finalidades que o cliente DEVE exibir antes de pedir a conexao (o pedido devolve versao + hash do que foi exibido).
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('coach', 'admin')
+  @UseGuards(AuthGuard('jwt'))
   @Get('consent')
   consent() {
     return this.connections.consentDocument(ZEPP_PROVIDER_ID);
   }
 
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('coach', 'admin')
+  @UseGuards(AuthGuard('jwt'))
   @Get('status')
   async status(@CurrentUser() user: CurrentUserPayload) {
     return { ...(await this.connections.status(ZEPP_PROVIDER_ID, user.sub)), availability: this.connections.availability(ZEPP_PROVIDER_ID, user.sub) };
   }
 
   // Para a coleta na hora e revoga a autorizacao na Zepp. Nao apaga nada alem das credenciais.
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('coach', 'admin')
+  @UseGuards(AuthGuard('jwt'))
   @Post('disconnect')
   @HttpCode(200)
   disconnect(@CurrentUser() user: CurrentUserPayload) {
@@ -75,8 +96,7 @@ export class ZeppController {
   }
 
   // Excluir os dados importados da Zepp do proprio aluno (exige estar desconectado).
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('coach', 'admin')
+  @UseGuards(AuthGuard('jwt'))
   @Delete('data')
   deleteData(@CurrentUser() user: CurrentUserPayload) {
     return this.connections.deleteData(ZEPP_PROVIDER_ID, user.sub);
@@ -84,16 +104,14 @@ export class ZeppController {
 
   // Treinos no relogio (Lote 2) — estado, sincronizacao agora e retirada EXPLICITA. Sempre do proprio usuario logado; o envio so' acontece com a finalidade
   // `watch_delivery` concedida, `ZEPP_WORKOUT_PUBLISH_ENABLED=true` e o perfil de unidades da Workout V2 confirmado pela Zepp.
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('coach', 'admin')
+  @UseGuards(AuthGuard('jwt'))
   @Get('workouts/status')
   workoutsStatus(@CurrentUser() user: CurrentUserPayload) {
     return this.workouts.status(user.sub);
   }
 
   @Throttle({ default: { limit: 6, ttl: 60_000 } })
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('coach', 'admin')
+  @UseGuards(AuthGuard('jwt'))
   @Post('workouts/sync')
   @HttpCode(200)
   workoutsSync(@CurrentUser() user: CurrentUserPayload) {
@@ -102,8 +120,7 @@ export class ZeppController {
 
   // Retira os treinos do relogio (envia a janela VAZIA, que apaga na Zepp). Unico caminho manual de lista vazia: exige confirmacao expressa no corpo.
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('coach', 'admin')
+  @UseGuards(AuthGuard('jwt'))
   @Post('workouts/clear')
   @HttpCode(200)
   workoutsClear(@CurrentUser() user: CurrentUserPayload, @Body() body: { confirm?: unknown }) {

@@ -10,11 +10,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 interface ConsentGroup { id: string; label: string; description: string; required: boolean; requires?: string[] }
 interface ConsentSection { heading: string | null; paragraphs?: string[]; bullets?: string[] }
-interface PurposeOption { id: string; label: string; description: string; external: boolean; changeableAfterConnect: boolean }
+interface PurposeOption { id: string; label: string; description: string; external: boolean; changeableAfterConnect: boolean; screen?: { version: string } }
 interface ConsentDocument {
   version: string; dateLabel: string; title: string; intro: string; sections: ConsentSection[]; groups: ConsentGroup[]; purposes: string[];
   optionalPurposes: PurposeOption[]; locked: Record<string, boolean>;
-  acknowledgementText: string; confirmButtonLabel: string; textHash: string;
+  acknowledgementText: string; confirmButtonLabel: string; textHash: string; purposeHashes?: Record<string, string>;
 }
 interface RecentEvent { type: string; at: string; reason: string | null; providerRevocation: string | null }
 interface ZeppStatus {
@@ -129,7 +129,7 @@ export default function ZeppTestPanel({ apiUrl, token }: { apiUrl: string; token
     setBusy(true);
     try {
       const r = await call('/zepp/purposes', 'POST', action === 'grant'
-        ? { grant: [id], acknowledged: true, consentVersion: doc.version, consentTextHash: doc.textHash }
+        ? (() => { const option = doc.optionalPurposes.find((p) => p.id === id); return option?.screen ? { grant: [id], acknowledged: true, consentVersion: option.screen.version, consentTextHash: doc.purposeHashes?.[id] } : { grant: [id], acknowledged: true, consentVersion: doc.version, consentTextHash: doc.textHash }; })()
         : { revoke: [id] });
       setMessage(r.ok ? (action === 'grant' ? 'Autorização registrada.' : 'Autorização retirada.') : explain(r.status, r.data));
       setPurposeAck(false);
@@ -249,7 +249,7 @@ export default function ZeppTestPanel({ apiUrl, token }: { apiUrl: string; token
               </div>
               <h5>Finalidades opcionais</h5>
               <div className="zeppGroups">
-                {doc.optionalPurposes.map((option) => {
+                {doc.optionalPurposes.filter((option) => !option.screen).map((option) => {
                   const locked = option.external && doc.locked?.[option.id] !== false;
                   return (
                     <label key={option.id} className="zeppGroup">

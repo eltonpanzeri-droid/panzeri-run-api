@@ -6,9 +6,9 @@ const none = new Set<string>();
 const byId = (list: ReturnType<typeof buildIntegrationsCatalog>, id: string) => list.find((entry) => entry.id === id)!;
 
 describe('catalogo de dispositivos e integracoes', () => {
-  it('lista os 8 provedores, sem ids duplicados', () => {
+  it('lista os 9 provedores, sem ids duplicados', () => {
     const ids = INTEGRATION_PROVIDERS.map((provider) => provider.id);
-    expect(ids).toEqual(['polar', 'strava', 'apple_watch', 'health_connect', 'samsung', 'garmin', 'coros', 'wahoo']);
+    expect(ids).toEqual(['polar', 'strava', 'apple_watch', 'health_connect', 'samsung', 'garmin', 'coros', 'wahoo', 'zepp']);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
@@ -108,21 +108,23 @@ describe('GET /me/integrations: autenticacao e escopo', () => {
       polarConnection: { findUnique: async (args: any) => { calls.push({ model: 'polar', args }); return { disconnectedAt: null }; } },
       stravaConnection: { findUnique: async (args: any) => { calls.push({ model: 'strava', args }); return { id: 'x' }; } },
       wahooConnection: { findUnique: async (args: any) => { calls.push({ model: 'wahoo', args }); return { disconnectedAt: null }; } },
+      providerConnection: { findUnique: async (args: any) => { calls.push({ model: 'zepp', args }); return { disconnectedAt: null }; } },
     };
     const config = { get: (key: string) => (key.endsWith('CLIENT_ID') ? 'segredo-nao-pode-sair' : undefined) };
     const service = new IntegrationsService(prisma, config);
     const result = await service.catalog('aluno-A');
-    expect(calls.map((call) => call.args.where)).toEqual([{ userId: 'aluno-A' }, { userId: 'aluno-A' }, { userId: 'aluno-A' }]);
+    expect(calls.map((call) => call.args.where)).toEqual([{ userId: 'aluno-A' }, { userId: 'aluno-A' }, { userId: 'aluno-A' }, { provider_userId: { provider: 'zepp', userId: 'aluno-A' } }]);
     expect(calls[0].args.select).toEqual({ disconnectedAt: true });
     expect(calls[1].args.select).toEqual({ id: true });
     expect(calls[2].args.select).toEqual({ disconnectedAt: true });
+    expect(calls[3].args.select).toEqual({ disconnectedAt: true }); // Zepp: so' o estado, nunca token
     const body = JSON.stringify(result);
     expect(body).not.toContain('segredo-nao-pode-sair');
     expect(body).not.toMatch(/token|secret|aluno-A|athleteId|polarUserId/i);
   });
 
   it('WAHOO_ENABLED_USER_IDS=* + credenciais completas: a Wahoo fica disponivel para QUALQUER aluno; sem a lista ou sem credencial, nao', async () => {
-    const prisma = { polarConnection: { findUnique: async () => null }, stravaConnection: { findUnique: async () => null }, wahooConnection: { findUnique: async () => null } };
+    const prisma = { polarConnection: { findUnique: async () => null }, stravaConnection: { findUnique: async () => null }, wahooConnection: { findUnique: async () => null }, providerConnection: { findUnique: async () => null } };
     const full: Record<string, string> = { POLAR_CLIENT_ID: 'p', STRAVA_CLIENT_ID: 's', WAHOO_CLIENT_ID: 'w', WAHOO_CLIENT_SECRET: 'w', WAHOO_REDIRECT_URI: 'w', WAHOO_TOKEN_ENCRYPTION_KEY: 'w' };
     const wahooFor = async (env: Record<string, string>, user: string) => {
       const service = new IntegrationsService(prisma, { get: (k: string) => env[k] });

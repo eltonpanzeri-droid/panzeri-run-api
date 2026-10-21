@@ -8,8 +8,8 @@
 // legal, nao inventa prazo, base legal nem garantia de fornecedor. O que depende de contrato ou de
 // configuracao externa e' dito como tal.
 
-export const LEGAL_VERSION = '2026-10-12';
-export const LEGAL_UPDATED_LABEL = '12 de outubro de 2026';
+export const LEGAL_VERSION = '2026-10-20';
+export const LEGAL_UPDATED_LABEL = '20 de outubro de 2026';
 export const LEGAL_CONTACT = 'eltonpanzeri@gmail.com';
 export const LEGAL_PATHS = { terms: '/termos-de-uso', privacy: '/politica-privacidade' } as const;
 
@@ -31,13 +31,13 @@ export const DATA_CATEGORIES = [
 ];
 
 export const WEARABLE_INTRO =
-  'Você pode autorizar serviços externos compatíveis a compartilhar suas atividades com o Panzeri Run. Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo e, conforme o aparelho, com o Apple Saúde (iPhone) e o Health Connect (Android). Outros serviços poderão ser adicionados e, nesse caso, esta política será atualizada.';
+  'Você pode autorizar serviços externos compatíveis a compartilhar suas atividades com o Panzeri Run. Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo e, conforme o aparelho, com o Apple Saúde (iPhone) e o Health Connect (Android). Em validação, há também a conexão com a Zepp/Amazfit (seção 5A). Outros serviços poderão ser adicionados e, nesse caso, esta política será atualizada.';
 
 const WEARABLE_FIELDS = [
   'Dependendo do serviço e das permissões que você conceder, podem ser recebidos dados como:',
   '- data e horário, duração, distância e modalidade;',
   '- ritmo, frequência cardíaca, cadência, potência, elevação e calorias;',
-  '- o Panzeri Run não armazena coordenadas nem trajetos GPS dos serviços conectados;',
+  '- o Panzeri Run não armazena coordenadas nem trajetos GPS dos serviços conectados, exceto o percurso GPS do Amazfit, que só é guardado se você o autorizar na conexão com a Zepp (seção 5A);',
   '- amostras e séries ao longo da atividade;',
   '- outros campos efetivamente fornecidos pelo serviço autorizado.',
   'Nem todo serviço fornece todos esses dados, e dados vindos de dispositivos podem conter erros ou limitações.',
@@ -52,6 +52,29 @@ export const STRAVA_PARAGRAPH =
 
 export const WAHOO_PARAGRAPH =
   'Wahoo: ao conectar, o Panzeri Run recebe o identificador da sua conta Wahoo e, a cada atividade gravada em um dispositivo ou aplicativo Wahoo, o resumo dela (como data, duração, distância, modalidade, calorias, frequência cardíaca média e elevação). A Wahoo não compartilha atividades de aplicativos de terceiros. As credenciais de acesso ficam guardadas de forma cifrada e são apagadas ao desconectar. Hoje o Panzeri Run apenas lê atividades da Wahoo; não envia treinos para ela.';
+
+// ─── Zepp/Amazfit e Atlas (20/10/2026) ─────────────────────────────────────────────────────────────────
+// Descreve o que o codigo FAZ. Itens que dependem de contrato, de configuracao externa ou de decisao juridica ainda nao tomada sao ditos como tais (nada de prazo, mecanismo
+// de transferencia ou garantia contratual inventados). O envio de dados Zepp a Anthropic fica BLOQUEADO no sistema ate esses itens serem confirmados e publicados aqui.
+export const ZEPP_PARAGRAPHS = [
+  'A Zepp (Zepp Health) é o serviço dos relógios Amazfit, que você pode conectar ao Panzeri Run por escolha sua. A conexão está em validação e é opcional. Existem quatro autorizações separadas, cada uma com texto próprio, que você concede ou não de forma independente — nenhuma vem marcada e nenhuma é presumida a partir de outra: (1) importar as atividades dos grupos de dados que você selecionar; (2) importar até 30 dias de atividades anteriores à conexão; (3) enviar seus treinos de corrida ao relógio; (4) usar seus dados Zepp/Amazfit em análises personalizadas com o Atlas, o que inclui enviar os dados necessários à Anthropic (seção 7A).',
+  'Dados que recebemos da Zepp, conforme os grupos que você autorizar e o que o seu relógio medir: o identificador da conta Zepp (apenas para vincular a conexão); atividades (data e horário, distância, duração, ritmo, calorias, modalidade e o nome do dispositivo); frequência cardíaca, cadência, potência e elevação registradas durante a atividade; e o percurso GPS. Recebemos esses dados do arquivo de cada atividade que a Zepp envia ao Panzeri Run. Atividades digitadas manualmente na Zepp não são importadas.',
+  'O arquivo original da atividade não é guardado: lemos o arquivo na hora, guardamos apenas os dados extraídos dos grupos que você autorizou e descartamos o restante. Os dados de sensores só são guardados se você autorizar esse grupo; o percurso GPS (coordenadas) só é guardado se você autorizar o grupo de percurso, e fica associado à atividade.',
+  'Dados que enviamos à Zepp: somente se você autorizar o envio de treinos ao relógio, o Panzeri Run envia à sua conta Zepp os treinos de corrida programados para os próximos dias — nome do treino, data, etapas (distância ou tempo) e ritmos-alvo. Não enviamos seu nome, dados de saúde, relatos seus nem comentários do treinador. A Zepp mantém e sincroniza esses treinos com o relógio conforme as próprias regras (uma janela de sete dias). Se você retirar a autorização ou desconectar a conta, o Panzeri Run deixa de enviar treinos e os treinos já enviados deixam de existir na sua conta Zepp.',
+  'Como usamos esses dados: para mostrar suas atividades, comparar o que foi prescrito com o que foi realizado, acompanhar sua evolução, manter seu histórico, personalizar seu treinamento e permitir que seu treinador acompanhe seu treino. Os dados recebidos da Zepp e de outros serviços ficam separados por origem, e a origem de cada dado é preservada.',
+  'Seu controle: em Configurações → Integrações → Zepp/Amazfit → Privacidade e permissões você vê o estado de cada autorização e pode retirar qualquer uma quando quiser, desconectar a conta e pedir a exclusão dos dados da Zepp. Registramos cada decisão sua — qual autorização, a versão do texto, a data e se foi concedida ou retirada. Se o texto de uma autorização mudar de forma relevante, pedimos uma nova autorização; enquanto você não a conceder, ela não vale.',
+  'Ao retirar a importação, a coleta de novos dados daquele grupo é interrompida na hora; os dados já importados permanecem até você pedir a exclusão deles. Ao retirar a autorização do Atlas, o uso futuro cessa e os resultados de inteligência artificial já gerados com seus dados Zepp são invalidados ou atualizados, respeitadas as obrigações legais de conservação.',
+  'Desconectar a conta Zepp interrompe novas importações e envios, revoga a autorização na Zepp (o que remove da sua conta Zepp os treinos que o Panzeri Run havia enviado) e invalida os resultados de IA derivados desses dados; não apaga automaticamente o que já foi importado. A exclusão dos dados da Zepp é uma ação separada: apaga o registro recebido, a atividade, as amostras e séries (incluindo o percurso GPS), os vínculos com os treinos, o registro dos treinos enviados e os indicadores e relatórios derivados. Permanecem as informações que você mesmo forneceu (como esforço percebido, dor e observações), os registros de pagamento e de auditoria sem identificação direta, o registro mínimo e criptografado da exclusão, mantido por 1 ano, e as cópias de segurança (seção 10).',
+  'Retenção: hoje não há exclusão automática por prazo para os dados da Zepp. Eles ficam guardados enquanto a conexão estiver ativa e até você pedir a exclusão ou excluir a conta. Não definimos um prazo adicional de retenção; se isso mudar, esta política será atualizada.',
+];
+
+export const ATLAS_PARAGRAPHS = [
+  'O Atlas é o nome da inteligência artificial usada pelo Panzeri Run para apoiar a prescrição e a análise do seu treinamento (seção 7). A tecnologia é fornecida pela Anthropic.',
+  'Dados da Zepp/Amazfit só entram nas análises do Atlas se você conceder a autorização específica, separada e opcional do Atlas. Sem essa autorização, os dados Zepp não são enviados à Anthropic — nem diretamente nem por meio de relatórios ou informações derivados deles. Recusar não impede conectar o Amazfit, enviar treinos ao relógio nem usar as funções que não dependam desse processamento.',
+  'Com a autorização, o Panzeri Run envia à Anthropic os dados necessários à análise, sob a forma de resumos e indicadores derivados das suas atividades (como distância, ritmo, frequência cardíaca, cadência, potência, elevação e histórico), apenas nos grupos que você autorizou. O arquivo original, as séries completas de amostras e as coordenadas do percurso não fazem parte do que o Panzeri Run envia à IA.',
+  'As análises automatizadas podem apresentar limitações e erros, o acompanhamento é feito sob supervisão técnica do treinador e elas não substituem avaliação médica.',
+  'A Anthropic é uma empresa estrangeira, e esse envio pode configurar transferência internacional de dados. O instrumento jurídico que ampara essa transferência e as garantias contratuais com a Anthropic (incluindo as regras sobre guardar os dados e sobre usá-los para treinar modelos) ainda estão sendo confirmados para este uso e serão informados nesta política antes de qualquer envio de dados da Zepp/Amazfit à Anthropic. Até lá, esses dados não são enviados e a autorização do Atlas não pode ser concedida.',
+];
 
 export const AI_PARAGRAPHS = [
   'O Panzeri Run usa serviços de inteligência artificial em funções do produto, como montar e ajustar o programa de treino, analisar a evolução, interpretar relatos escritos e apoiar o acompanhamento feito pelo treinador. O fornecedor utilizado hoje é a Anthropic.',
@@ -68,8 +91,9 @@ export const DELETE_PARAGRAPHS = [
 ];
 
 export const THIRD_PARTIES = [
-  '- Anthropic: processamento por inteligência artificial, descrito acima.',
+  '- Anthropic: tecnologia de inteligência artificial usada pelo Atlas e pelas demais funções de IA, descrita acima.',
   '- Polar, Strava e Wahoo: serviços que você conecta, com suas próprias políticas.',
+  '- Zepp Health (Zepp/Amazfit): serviço que você conecta para o Panzeri Run receber suas atividades e, se você autorizar, enviar treinos ao seu relógio, com política própria.',
   '- Asaas, RevenueCat e as lojas de aplicativos (Google Play e App Store): cobrança e assinatura. Não armazenamos dados de cartão.',
   '- Resend: envio dos e-mails do serviço (como cadastro, recuperação de senha e avisos).',
   '- Cloudflare (R2): armazenamento das cópias de segurança do banco de dados, que são criptografadas antes de sair do servidor.',
@@ -138,12 +162,14 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
       WAHOO_PARAGRAPH,
     ],
   },
+  { id: 'zepp-amazfit', heading: '5A. Zepp/Amazfit: importar atividades e enviar treinos ao relógio', paragraphs: ZEPP_PARAGRAPHS },
   {
     id: 'finalidades',
     heading: '6. Para que usamos',
     paragraphs: ['Personalizar a prescrição de treinos; acompanhar evolução e segurança do aluno; processar pagamento da assinatura; comunicação sobre o serviço (e-mail, notificações).'],
   },
   { id: 'ia', heading: '7. Inteligência artificial', paragraphs: AI_PARAGRAPHS },
+  { id: 'atlas', heading: '7A. Atlas e a Anthropic com dados da Zepp/Amazfit', paragraphs: ATLAS_PARAGRAPHS },
   { id: 'terceiros', heading: '8. Compartilhamento e serviços de terceiros', paragraphs: ['O Panzeri Run usa os seguintes serviços externos, cada um para a finalidade indicada:', ...THIRD_PARTIES] },
   { id: 'desconexao', heading: '9. Desconectar um serviço e excluir os dados importados', paragraphs: [DISCONNECT_PARAGRAPH, ...DELETE_PARAGRAPHS] },
   { id: 'backup', heading: '10. Cópias de segurança', paragraphs: BACKUP_PARAGRAPHS },
@@ -155,7 +181,10 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
   {
     id: 'direitos',
     heading: '12. Seus direitos',
-    paragraphs: ['Acesso, correção, exclusão, portabilidade e revogação do consentimento a qualquer momento, mediante solicitação ao contato abaixo. Parte do controle já pode ser exercida no aplicativo, na área Privacidade e dados.'],
+    paragraphs: [
+      'A Lei Geral de Proteção de Dados (LGPD) garante a você, entre outros direitos: confirmar que tratamos seus dados; acessar e corrigir seus dados; pedir a anonimização, o bloqueio ou a eliminação de dados desnecessários, excessivos ou tratados em desconformidade; pedir a portabilidade; pedir a eliminação dos dados tratados com base no seu consentimento; saber com quem compartilhamos seus dados; saber que pode não dar o consentimento e quais as consequências; e revogar o consentimento a qualquer momento.',
+      `Como exercer: parte do controle já está no aplicativo, na área Privacidade e dados e, para a Zepp/Amazfit, em Privacidade e permissões. Para os demais pedidos, escreva para ${LEGAL_CONTACT}, do mesmo e-mail cadastrado, que é o canal do responsável pelo tratamento.`,
+    ],
   },
   {
     id: 'exclusao-conta',
@@ -212,11 +241,20 @@ export const TERMS_SECTIONS: LegalSection[] = [
       '- Conectar um serviço externo (como Polar, Strava ou Wahoo) depende da sua autorização, que você pode retirar a qualquer momento.',
       '- O Panzeri Run usa os dados desses serviços como parte do acompanhamento e da personalização do seu treino, conforme a Política de Privacidade.',
       '- Dados vindos de dispositivos podem conter erros ou limitações, e a disponibilidade da integração pode depender do próprio serviço, que pode mudar ou ficar indisponível.',
+      '- A integração com a Zepp/Amazfit (importar atividades e enviar treinos ao relógio) depende da disponibilidade e da compatibilidade dos serviços e dos aparelhos Zepp/Amazfit, que podem mudar, ficar indisponíveis ou não comportar todos os recursos de um treino. Cada autorização dessa integração é opcional e pode ser retirada a qualquer momento.',
       '- Desconectar a Polar ou a Wahoo não apaga automaticamente o histórico já importado; a exclusão desses dados é uma ação separada, descrita na Política de Privacidade. Desconectar o Strava apaga os dados do Strava guardados, e esses dados só aparecem para o próprio aluno.',
     ],
   },
-  { id: 'alteracoes', heading: '7. Alterações', paragraphs: [`Estes termos podem ser atualizados; alterações relevantes serão comunicadas dentro do aplicativo. Versão de ${LEGAL_UPDATED_LABEL}.`] },
-  { id: 'contato', heading: '8. Contato', paragraphs: [`Dúvidas: ${LEGAL_CONTACT}`] },
+  {
+    id: 'atlas',
+    heading: '7. Atlas e inteligência artificial',
+    paragraphs: [
+      'O Atlas é a inteligência artificial que apoia a prescrição e a análise do treinamento no Panzeri Run, sob supervisão técnica do treinador responsável.',
+      'As recomendações e análises do Atlas têm limitações, podem conter erros e não substituem avaliação médica nem o seu julgamento sobre como você se sente a cada sessão. O uso dos seus dados da Zepp/Amazfit pelo Atlas depende de uma autorização específica, que você pode conceder ou não e retirar quando quiser.',
+    ],
+  },
+  { id: 'alteracoes', heading: '8. Alterações', paragraphs: [`Estes termos podem ser atualizados; alterações relevantes serão comunicadas dentro do aplicativo. Versão de ${LEGAL_UPDATED_LABEL}.`] },
+  { id: 'contato', heading: '9. Contato', paragraphs: [`Dúvidas: ${LEGAL_CONTACT}`] },
 ];
 
 // ─── Resumo para a tela "Privacidade e dados" do app (mesmas frases dos documentos) ─────────────
@@ -230,6 +268,8 @@ export const LEGAL_SUMMARY = {
     { id: 'dados', title: 'Seus dados', paragraphs: ['Estes são os tipos de dado que o Panzeri Run usa para personalizar e acompanhar seu treino:', ...DATA_CATEGORIES] },
     { id: 'integracoes', title: 'Dispositivos e integrações', paragraphs: [WEARABLE_INTRO, ...WEARABLE_FIELDS, ...RAW_AND_DERIVED, STRAVA_PARAGRAPH, WAHOO_PARAGRAPH] },
     { id: 'ia', title: 'Inteligência Artificial', paragraphs: AI_PARAGRAPHS },
+    { id: 'zepp', title: 'Zepp/Amazfit', paragraphs: ZEPP_PARAGRAPHS },
+    { id: 'atlas', title: 'Atlas e Anthropic', paragraphs: ATLAS_PARAGRAPHS },
     { id: 'gerenciar', title: 'Gerenciar dados da integração', paragraphs: [DISCONNECT_PARAGRAPH, ...DELETE_PARAGRAPHS, ...BACKUP_PARAGRAPHS.slice(1, 2)] },
     { id: 'terceiros', title: 'Terceiros e processamento', paragraphs: ['O Panzeri Run usa estes serviços externos, cada um para a finalidade indicada:', ...THIRD_PARTIES] },
     { id: 'solicitacoes', title: 'Solicitações sobre meus dados', paragraphs: REQUEST_PARAGRAPHS },

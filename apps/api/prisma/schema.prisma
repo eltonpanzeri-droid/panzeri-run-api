@@ -1256,6 +1256,9 @@ model ProviderConnection {
   // ex.: IA). Nulos so' em conexoes anteriores a este campo.
   consentTextHash       String?
   grantedPurposes       Json?
+  // Por finalidade OPCIONAL concedida: { <id>: { version, textHash, grantedAt } } — versao/hash do texto sobre o qual o aluno autorizou (consentimento 2.0). Uma finalidade
+  // com tela propria so' vale se este registro bate com o texto vigente. Nulo em conexoes anteriores (finalidades sem tela propria valem pela presenca em grantedPurposes).
+  purposeConsents       Json?
   consentedAt           DateTime
   refreshLockUntil      DateTime?
   collectFrom           DateTime?

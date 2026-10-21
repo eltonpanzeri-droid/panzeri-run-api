@@ -29,12 +29,25 @@ export interface ConsentGroup {
 }
 // Finalidade OPCIONAL e especifica, escolhida separadamente das obrigatorias. "external" = envio a fornecedor externo (ex.: IA). "changeableAfterConnect" =
 // pode ser concedida/revogada depois de conectado, sem reconectar (as demais so' no momento da conexao).
+// Tela de autorizacao PROPRIA de uma finalidade opcional (ex.: enviar treinos ao relogio, analise por IA). Cada uma tem texto, versao e hash proprios: uma mudanca
+// material no texto/compartilhamento exige NOVA autorizacao dessa finalidade (a anterior deixa de valer) e ela nunca e' concedida junto com a conexao.
+export interface PurposeScreen {
+  version: string;
+  dateLabel: string;
+  title: string;
+  paragraphs: string[];
+  // Frase da caixa de selecao (nunca vem marcada) e rotulo do botao.
+  checkboxText: string;
+  buttonLabel: string;
+}
 export interface ConsentPurposeOption {
   id: string;
   label: string;
   description: string;
   external: boolean;
   changeableAfterConnect: boolean;
+  // Com `screen`, a finalidade so' e' concedida pela tela propria, depois de conectar. Sem `screen`, o texto da finalidade faz parte do documento da conexao.
+  screen?: PurposeScreen;
 }
 export interface ConsentCapability {
   version: string;

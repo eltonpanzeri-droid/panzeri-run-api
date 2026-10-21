@@ -7,6 +7,7 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { AppleHealthProofCard } from './src/appleHealthProof/AppleHealthProofCard';
 import { IntegrationsHub, IntegrationScreens } from './src/integrations/IntegrationsHub';
+import { ZeppIntegration } from './src/zepp/ZeppIntegration';
 import { HealthConnectCard } from './src/healthConnect/HealthConnectCard';
 import { ScientificSourcesScreen, SourcesLink } from './src/scientificSources/ScientificSourcesScreen';
 import { registerSourcesOpener } from './src/scientificSources/sources';
@@ -9251,6 +9252,8 @@ function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessT
     // Prova tecnica Apple: so aparece no app nativo iOS com extra.appleHealthProof (o proprio card se autolimita).
     apple_watch: () => <AppleHealthProofCard accessToken={accessToken} apiUrl={API_URL} />,
     health_connect: () => <HealthConnectCard accessToken={accessToken} apiUrl={API_URL} />,
+    // Zepp/Amazfit (consentimento 2.0): conexao, autorizacoes separadas (importar, historico, enviar treinos, Atlas) e Privacidade e permissoes.
+    zepp: () => <ZeppIntegration accessToken={accessToken} apiUrl={API_URL} privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />,
   };
   return (
     <View style={styles.section}>
@@ -9308,6 +9311,7 @@ function PrivacyDataScreen({ accessToken, onOpenStrava, onOpenBilling, onAccount
         <>
           <PolarConnect accessToken={accessToken} variant="manage" />
           <WahooConnect accessToken={accessToken} variant="manage" />
+          <ZeppIntegration accessToken={accessToken} apiUrl={API_URL} variant="manage" privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />
         </>
       ))}
 

@@ -709,7 +709,7 @@ export function redactEvidenceForProvider(evidence: unknown, provider: string, o
 export interface AgentInputRedaction {
   provider: string;
   at: string;
-  reason: 'provider_data_deleted';
+  reason: 'provider_data_deleted' | 'ai_authorization_revoked';
   // So' metadados: quais variaveis e em quantas chamadas — nunca o conteudo removido.
   removedVariableIds: string[];
   // Campos/posicoes de VALORES DE EXECUCAO removidos (ex.: historicoSemanal[2026-09-28].completedRunMinutes) — nomes e indices, nunca valores.

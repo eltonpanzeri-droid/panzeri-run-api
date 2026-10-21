@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { EventProcessingCapability, ProviderConnector, SyncCapability } from '../provider-hub/provider-connector';
+import { DataDeletionCapability, EventProcessingCapability, ProviderConnector, SyncCapability } from '../provider-hub/provider-connector';
 import { ZeppOAuth, ZeppRevocation } from './zepp-oauth';
 import { ZEPP_CONSENT } from './zepp-consent';
 
@@ -14,6 +14,7 @@ export interface ZeppConnectorDeps {
   // Lote 3: processamento dos eventos da fila (download do FIT, leitura, gravacao) e pedido de historico (backfill). Opcionais: sem eles o conector so' conecta.
   events?: EventProcessingCapability;
   sync?: SyncCapability;
+  dataDeletion?: DataDeletionCapability;
 }
 
 export function buildZeppConnector(config: ConfigService, deps: ZeppConnectorDeps = {}): ProviderConnector {
@@ -26,5 +27,6 @@ export function buildZeppConnector(config: ConfigService, deps: ZeppConnectorDep
     revocation: new ZeppRevocation(),
     ...(deps.events ? { events: deps.events } : {}),
     ...(deps.sync ? { sync: deps.sync } : {}),
+    ...(deps.dataDeletion ? { dataDeletion: deps.dataDeletion } : {}),
   };
 }
