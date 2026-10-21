@@ -7,6 +7,7 @@ import { ZeppFitDownloader } from './zepp-fit-downloader';
 import { readZeppFit, ZeppFitError } from './zepp-fit';
 import { ZeppActivityIngestionService } from './zepp-activity-ingestion.service';
 import { isAllowedCallbackUrl } from './zepp-webhook';
+import { ZeppBackfillService } from './zepp-backfill.service';
 
 // Processador dos eventos da Zepp na fila duravel (Lote 3). A fila ja' garante: idempotencia por chave, reivindicacao com trava, espera crescente, limite de
 // tentativas e o descarte de eventos de aluno sem conexao/categoria autorizada ANTES de chegar aqui. Este servico faz o resto:
@@ -24,6 +25,7 @@ export class ZeppActivityEventService implements EventProcessingCapability {
     private readonly connections: ProviderConnectionService,
     private readonly downloader: ZeppFitDownloader,
     private readonly ingestion: ZeppActivityIngestionService,
+    private readonly backfill?: ZeppBackfillService,
   ) {}
 
   async handle(event: InboundEventView): Promise<EventOutcome> {
@@ -40,10 +42,24 @@ export class ZeppActivityEventService implements EventProcessingCapability {
     return { status: 'done' };
   }
 
+  private async recoverUnavailableFit(userId: string, summaryId: string, startMs: number | null, kind: string): Promise<EventOutcome> {
+    const unavailable: EventOutcome = { status: 'discard', reason: `arquivo indisponivel (${kind})` };
+    if (!this.backfill) return unavailable;
+    const result = await this.backfill.requestRecovery(userId, { summaryId, startTimeInSeconds: startMs !== null ? Math.floor(startMs / 1000) : null });
+    switch (result.status) {
+      case 'requested': return { status: 'discard', reason: `arquivo indisponivel (${kind}); recuperacao pelo Backfill solicitada` };
+      case 'already_requested': return { status: 'discard', reason: `arquivo indisponivel (${kind}); recuperacao ja solicitada antes` };
+      case 'in_progress':
+      case 'rate_limited': return { status: 'retry', reason: `recuperacao pelo Backfill adiada (${result.status})` };
+      case 'failed': return result.kind === 'network' || result.kind === 'server' ? { status: 'retry', reason: `recuperacao pelo Backfill falhou (${result.kind})` } : unavailable;
+      default: return unavailable; // disabled / not_connected / not_authorized: sem autorizacao ou sem Backfill ligado, nada e' recuperado
+    }
+  }
+
   private async handleActivityFile(event: InboundEventView): Promise<EventOutcome> {
     const userId = event.userId;
     if (!userId) return { status: 'discard', reason: 'conta desconhecida' };
-    const payload = (event.payload ?? {}) as { summaryId?: unknown; callbackURL?: unknown; activityType?: unknown; deviceName?: unknown; startTimeInSeconds?: unknown; activityId?: unknown; manual?: unknown; publishedWorkoutId?: unknown };
+    const payload = (event.payload ?? {}) as { summaryId?: unknown; callbackURL?: unknown; activityType?: unknown; deviceName?: unknown; startTimeInSeconds?: unknown; activityId?: unknown; manual?: unknown };
     if (typeof payload.summaryId !== 'string' || !isAllowedCallbackUrl(payload.callbackURL)) return { status: 'discard', reason: 'evento de atividade invalido' };
     // "manual" = a pessoa digitou a atividade no aplicativo da Zepp: nao e' execucao objetiva medida pelo relogio.
     if (payload.manual === true) return { status: 'discard', reason: 'atividade manual nao e execucao objetiva' };
@@ -64,9 +80,10 @@ export class ZeppActivityEventService implements EventProcessingCapability {
       switch (downloaded.kind) {
         case 'expired':
         case 'not_found':
-          // O token do link e' de uso unico e vale 24 h: nao ha como baixar de novo por este evento (um novo pedido de historico/backfill reentrega o arquivo).
-          this.logger.warn(`FIT Zepp indisponivel (${downloaded.kind}) para o evento ${event.id}; descartado.`);
-          return { status: 'discard', reason: `arquivo indisponivel (${downloaded.kind})` };
+          // O token do link e' de uso unico e vale 24 h: nao ha como baixar de novo por este evento. A atividade e' RECUPERADA pelo Backfill API (a Zepp reentrega pelo mesmo
+          // webhook, com link novo; a gravacao e' idempotente por summaryId), respeitando as autorizacoes do aluno.
+          this.logger.warn(`FIT Zepp indisponivel (${downloaded.kind}) para o evento ${event.id}.`);
+          return this.recoverUnavailableFit(userId, payload.summaryId, startMs, downloaded.kind);
         case 'forbidden':
         case 'bad_request':
         case 'invalid_url':
@@ -92,7 +109,6 @@ export class ZeppActivityEventService implements EventProcessingCapability {
       activityId: typeof payload.activityId === 'string' ? payload.activityId : null,
       activityType: typeof payload.activityType === 'string' ? payload.activityType : null,
       deviceName: typeof payload.deviceName === 'string' ? payload.deviceName : null,
-      publishedWorkoutId: typeof payload.publishedWorkoutId === 'string' ? payload.publishedWorkoutId : null,
       source: 'webhook',
     }, fit);
     if (!result.written) return { status: 'discard', reason: 'conexao encerrada ou categoria retirada durante o processamento' };

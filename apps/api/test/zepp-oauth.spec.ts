@@ -149,7 +149,7 @@ describe('Zepp: conector (nada de recebimento de dados ativado)', () => {
 
   it('so os servicos de gravacao e de vinculo exato da Zepp tocam o pipeline de atividades (ActivityLog, raw, serie, vinculo); o FIT original nunca e gravado', () => {
     const dir = join(__dirname, '..', 'src', 'zepp');
-    for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts') && !['zepp-activity-ingestion.service.ts', 'zepp-exact-link.service.ts'].includes(f))) {
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts') && !['zepp-activity-ingestion.service.ts'].includes(f))) {
       expect(readFileSync(join(dir, file), 'utf8')).not.toMatch(/activityLog|rawExternalActivity|rawActivitySample|activityTimeSeries|SessionExecutionLink|\bwebhook\(/i);
     }
   });

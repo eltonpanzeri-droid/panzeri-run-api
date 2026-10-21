@@ -14,7 +14,9 @@ import { buildZeppWindowBody, zeppWindow, zeppWindowHash } from './zepp-workout-
 import { ZeppPublishResult, ZeppWorkoutClient } from './zepp-workout-client';
 
 // Publicacao de treinos estruturados na Zepp/Amazfit (Lote 2): TrainingSession -> CanonicalWorkout -> treino V2 -> WorkoutDelivery (provider 'zepp_workout_v2').
-// Reaproveita o WorkoutDelivery existente (cada tentativa e' uma linha; 'sent' = a Zepp ACEITOU a janela; nunca 'delivered_to_device', pois a API nao confirma o relogio).
+// Reaproveita o WorkoutDelivery existente (cada tentativa e' uma linha; 'sent' = a API da Zepp ACEITOU a janela; nunca 'delivered_to_device', pois a API nao confirma o relogio).
+// A Zepp CONFIRMOU (21/10/2026) que NAO estende a janela sozinha: a janela completa e' REPUBLICADA todo dia (mesmo sem mudanca) e a cada alteracao. Cada aceite da API e'
+// carimbado em providerMetadata (windowAcceptedAt/windowAcceptedDate) — registra que a API aceitou, nunca que o relogio recebeu o treino.
 //
 // Modelo: RECONCILIACAO. Em vez de eventos espalhados pelo codigo de geracao, `reconcile(userId)` compara, sempre a partir do banco, o que DEVERIA estar no relogio
 // (sessoes de corrida prescritas dos proximos 7 dias, traduziveis, ainda nao feitas) com o que a Zepp ACEITOU por ultimo (WorkoutDelivery ativa). Igual => nada a
@@ -48,6 +50,8 @@ export type ReconcileResult =
   | { status: 'not_connected' }
   | { status: 'unchanged'; workouts: number; skipped: SkippedReason[] }
   | { status: 'published'; workouts: number; skipped: SkippedReason[] }
+  // Sem nenhuma mudanca nos treinos: a janela completa foi republicada so' porque a Zepp nao a estende sozinha (rotina diaria).
+  | { status: 'republished'; workouts: number; skipped: SkippedReason[] }
   | { status: 'cleared'; reason: string }
   | { status: 'clear_required'; skipped: SkippedReason[] }
   | { status: 'failed'; kind: string; message: string };
@@ -59,8 +63,16 @@ function todayInSaoPauloIso(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 }
 
+// Unidades confirmadas (distancia e pace). Os demais campos do perfil (passo sem meta, pace unico, limites) NAO bloqueiam o envio: cada passo que depende de um deles e'
+// recusado individualmente, com motivo, e so' esse treino deixa de ser enviado.
 export function profileIsConfirmed(profile: ZeppWorkoutProfile): boolean {
-  return profile.distanceUnit !== null && profile.paceUnit !== null && profile.noTargetType !== null && profile.singlePaceAsEqualBounds !== null;
+  return profile.distanceUnit !== null && profile.paceUnit !== null;
+}
+
+// Carimbo do ultimo aceite da janela pela API (data local de Sao Paulo). Presente em TODAS as entregas ativas apos cada publicacao aceita.
+function acceptedDateOf(row: { providerMetadata: unknown }): string | null {
+  const value = (row.providerMetadata as { windowAcceptedDate?: unknown } | null)?.windowAcceptedDate;
+  return typeof value === 'string' ? value : null;
 }
 
 @Injectable()
@@ -125,7 +137,9 @@ export class ZeppWorkoutPublisherService {
       window: zeppWindow(today),
       eligible: desired.items.length,
       skipped: desired.skipped,
-      onWatch: active.length,
+      // "aceito pela Zepp" = a API aceitou a janela; NAO significa que o relogio ja' recebeu (a API nao confirma isso).
+      acceptedByZepp: active.length,
+      windowAcceptedToday: active.length > 0 && active.every((row) => acceptedDateOf(row) === today),
       inSync: this.sameSet(desired.items, active),
     };
   }
@@ -149,11 +163,20 @@ export class ZeppWorkoutPublisherService {
       return this.clearNow(userId, 'autorizacao_retirada');
     }
 
+    // A Zepp nao estende a janela sozinha (confirmado em 21/10/2026): mesmo sem nenhuma mudanca, a janela COMPLETA e' republicada uma vez por dia.
+    let dailyRepublish = false;
     for (let pass = 0; pass < MAX_PASSES; pass += 1) {
       const desired = await this.computeDesired(userId, today);
       const active = await this.activeRows(userId, today);
-      if (this.sameSet(desired.items, active)) return { status: pass === 0 ? 'unchanged' : 'published', workouts: desired.items.length, skipped: desired.skipped };
+      const inSync = this.sameSet(desired.items, active);
+      const acceptedToday = active.every((row) => acceptedDateOf(row) === today);
+      if (inSync && (desired.items.length === 0 || acceptedToday)) {
+        if (pass === 0) return { status: 'unchanged', workouts: desired.items.length, skipped: desired.skipped };
+        return { status: dailyRepublish ? 'republished' : 'published', workouts: desired.items.length, skipped: desired.skipped };
+      }
+      // Lista vazia NUNCA e' enviada aqui (apagaria tudo na Zepp): sem treino elegivel o treinador decide (clear_required).
       if (desired.items.length === 0) return { status: 'clear_required', skipped: desired.skipped };
+      if (pass === 0 && inSync) dailyRepublish = true;
 
       const outcome = await this.publish(userId, today, desired.items, active);
       if (!outcome.ok) return { status: 'failed', kind: outcome.kind, message: outcome.message };
@@ -204,11 +227,29 @@ export class ZeppWorkoutPublisherService {
     }
     const stillDesired = new Set(items.map((item) => item.sessionId));
     for (const row of created) await this.deliveries.markSent(row.id, { externalWorkoutId: row.externalWorkoutId });
+    const keptIds: string[] = [];
     for (const row of active) {
       const superseded = changed.some((item) => item.sessionId === row.trainingSessionId);
       if (superseded || !stillDesired.has(row.trainingSessionId)) await this.deliveries.markCanceled(row.id).catch(() => undefined);
+      else keptIds.push(row.id);
     }
+    // Carimbo do aceite da API em TODAS as entregas que seguem valendo (novas e mantidas): e' ele que dispensa a republicacao ate' o proximo dia.
+    await this.stampAcceptance([...created.map((row) => row.id), ...keptIds], today, windowHash);
     return { ok: true };
+  }
+
+  // Registra que a API da Zepp ACEITOU a janela (data local e instante). Nao diz que o relogio recebeu. Falha aqui nao desfaz o envio: no pior caso a janela e' republicada.
+  private async stampAcceptance(ids: string[], today: string, windowHash: string) {
+    const acceptedAt = new Date().toISOString();
+    for (const id of ids) {
+      try {
+        const row = await this.prisma.workoutDelivery.findUnique({ where: { id }, select: { providerMetadata: true } });
+        const metadata = (row?.providerMetadata && typeof row.providerMetadata === 'object' ? row.providerMetadata : {}) as Record<string, unknown>;
+        await this.prisma.workoutDelivery.update({ where: { id }, data: { providerMetadata: { ...metadata, windowAcceptedAt: acceptedAt, windowAcceptedDate: today, windowHash } as unknown as Prisma.InputJsonValue } });
+      } catch (error) {
+        this.logger.warn(`Nao consegui registrar o aceite da janela Zepp (entrega ${id}): ${(error as Error).message}`);
+      }
+    }
   }
 
   private async clearNow(userId: string, reason: string): Promise<ReconcileResult> {

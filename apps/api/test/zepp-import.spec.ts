@@ -21,7 +21,7 @@ const HYPOTHETICAL_CADENCE_PROFILE = { runningCadenceMultiplier: 2 }; // hipotet
 describe('webhook da Zepp: parser do formato oficial', () => {
   it('le o exemplo da documentacao (array de strings JSON com activityFiles)', () => {
     const content = parseZeppWebhook(activityBody(record()));
-    expect(content.activityFiles).toEqual([{ userId: '4aacafe82427c251df9c9592d0c06768', summaryId: '10010727180-file', callbackURL: CALLBACK, activityType: 'OUTDOOR_RUN', deviceName: 'Amazfit GTR 4', startTimeInSeconds: 1617717902, activityId: '10010727180', manual: false, publishedWorkoutId: null }]);
+    expect(content.activityFiles).toEqual([{ userId: '4aacafe82427c251df9c9592d0c06768', summaryId: '10010727180-file', callbackURL: CALLBACK, activityType: 'OUTDOOR_RUN', deviceName: 'Amazfit GTR 4', startTimeInSeconds: 1617717902, activityId: '10010727180', manual: false }]);
     expect(content.ignored).toBe(0);
   });
 
@@ -63,7 +63,7 @@ describe('webhook da Zepp: parser do formato oficial', () => {
     expect(content.authorizationChanges).toEqual([{ userId: '1188969166', changeType: 'delete', eventTime: 1785822275955 }]);
     const drafts = toInboundDrafts(content);
     expect(drafts.map((d) => [d.eventType, d.category, d.dedupeKey])).toEqual([
-      ['activity_file', 'activity', 'activity:10010727180-file'],
+      ['activity_file', 'activity', expect.stringMatching(/^activity:10010727180-file:[0-9a-f]{16}$/)],
       ['authorization_change', 'profile', 'auth:1188969166:delete:1785822275955'],
     ]);
     expect(toInboundDrafts(content).map((d) => d.dedupeKey)).toEqual(drafts.map((d) => d.dedupeKey)); // reenvio => mesma chave
@@ -92,7 +92,7 @@ describe('receptor HTTP do webhook', () => {
     const { controller, events } = make(`${'z'.repeat(40)}, ${SECRET}`);
     await controller.receive(SECRET, req(activityBody(record(), record({ userId: 'desconhecida', summaryId: '9-file' }))));
     expect(events.record).toHaveBeenCalledTimes(1);
-    expect((events.record.mock.calls as any[])[0][1]).toMatchObject({ eventType: 'activity_file', dedupeKey: 'activity:10010727180-file' });
+    expect((events.record.mock.calls as any[])[0][1]).toMatchObject({ eventType: 'activity_file', dedupeKey: expect.stringMatching(/^activity:10010727180-file:[0-9a-f]{16}$/) });
     expect((events.record.mock.calls as any[])[0][2]).toBe('u1');
   });
 

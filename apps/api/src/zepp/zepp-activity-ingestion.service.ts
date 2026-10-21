@@ -9,7 +9,6 @@ import { NORMALIZATION_VERSION } from '../activity-timeseries/activity-timeserie
 import { ZEPP_PROVIDER_ID } from './zepp.connector';
 import { ZeppFitActivity } from './zepp-fit';
 import { applyZeppConsent } from './zepp-fit-consent';
-import { ZeppExactLinkService } from './zepp-exact-link.service';
 
 // Gravacao de uma atividade da Zepp no pipeline existente (Lote 3): RawExternalActivity -> ActivityLog -> serie temporal -> identidade fisica -> classificacao/vinculo.
 // Mesma esteira da Polar (nada de logica de correspondencia nova); o que muda e' a ORIGEM (FIT normalizado) e a regra de consentimento por campo.
@@ -24,8 +23,6 @@ export interface ZeppIngestMeta {
   activityId: string | null;
   activityType: string | null;
   deviceName: string | null;
-  // Identificador EXATO do treino publicado, quando a Zepp o devolver (ZEPP_EXECUTED_WORKOUT_ID_FIELD). null = nao informado.
-  publishedWorkoutId?: string | null;
   source: 'webhook' | 'backfill';
 }
 
@@ -41,7 +38,6 @@ export class ZeppActivityIngestionService {
     private readonly sessionExecutionLink: SessionExecutionLinkService,
     private readonly activityNotifications: ActivityNotificationService,
     private readonly physicalIdentity?: PhysicalActivityIdentityService,
-    private readonly exactLink?: ZeppExactLinkService,
   ) {}
 
   async ingest(userId: string, meta: ZeppIngestMeta, fit: ZeppFitActivity): Promise<ZeppIngestResult> {
@@ -119,11 +115,8 @@ export class ZeppActivityIngestionService {
 
     // Pipeline existente (todos best-effort: a atividade ja' esta salva e correta; nenhuma falha daqui desfaz a gravacao).
     const identity = await this.physicalIdentity?.evaluateSafely(written.activityLogId);
-    // Identificador exato do treino publicado (so' existe se a Zepp confirmar o campo): vincula ANTES da classificacao automatica; sem ele, segue o mecanismo existente.
-    if (meta.publishedWorkoutId && this.exactLink) {
-      try { await this.exactLink.tryLink(userId, written.activityLogId, meta.publishedWorkoutId); }
-      catch (error) { this.logger.warn(`Vinculo exato da atividade Zepp ${written.activityLogId} falhou: ${error instanceof Error ? error.message : String(error)}`); }
-    }
+    // A Zepp confirmou (21/10/2026) que o evento e o FIT NAO trazem o workoutId publicado: nao existe vinculo "exato" por identificador. A associacao com o treino prescrito
+    // e' SEMPRE a do mecanismo existente (data, modalidade, horario e caracteristicas da sessao): automatica = inferida (origin 'automatic'); confirmada so' pelo aluno/treinador.
     let classification: string | null = null;
     try {
       classification = await this.sessionExecutionLink.classify(written.activityLogId);

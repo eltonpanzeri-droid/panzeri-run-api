@@ -4,11 +4,10 @@ import { ConfigService } from '@nestjs/config';
 import { buildSyntheticFit } from './helpers/synthetic-fit';
 import { readZeppFit } from '../src/zepp/zepp-fit';
 import { parseZeppWebhook, toInboundDrafts } from '../src/zepp/zepp-webhook';
-import { ZeppExactLinkService } from '../src/zepp/zepp-exact-link.service';
 import { ZeppActivityIngestionService } from '../src/zepp/zepp-activity-ingestion.service';
-import { BACKFILL_EVENT, ZeppBackfillService, BackfillHttpResult } from '../src/zepp/zepp-backfill.service';
+import { BACKFILL_EVENT, FIT_RECOVERY_EVENT_PREFIX, ZeppBackfillService, BackfillHttpResult } from '../src/zepp/zepp-backfill.service';
+import { ZeppActivityEventService } from '../src/zepp/zepp-activity-events.service';
 import { ZEPP_EXECUTED_WORKOUT_ID_FIELD } from '../src/zepp/zepp-workout-profile';
-import { ZEPP_WORKOUT_PROVIDER } from '../src/zepp/zepp-workout-publisher.service';
 import { buildZeppConnector } from '../src/zepp/zepp.connector';
 import { AiDataEligibility, EXTERNAL_AI_APPROVED_PROVIDERS } from '../src/ai-governance/ai-data-eligibility.service';
 import { aiActivityWhere, runWithAiScope } from '../src/ai-governance/ai-scope';
@@ -22,71 +21,149 @@ const CALLBACK = 'https://api-open.zepp.com/api/activity/file?id=10010727180&tok
 const record = (over: Record<string, unknown> = {}) => ({ userId: 'zx', summaryId: '10010727180-file', fileType: 'FIT', callbackURL: CALLBACK, activityType: 'OUTDOOR_RUN', deviceName: 'Amazfit', startTimeInSeconds: 1760778000, activityId: 10010727180, manual: false, ...over });
 const body = (...records: unknown[]) => JSON.stringify([JSON.stringify({ activityFiles: records })]);
 
-describe('vinculo exato com o treino publicado (so quando a Zepp confirmar o campo)', () => {
-  it('hoje o campo NAO esta confirmado: o parser ignora qualquer id e nenhum vinculo exato e tentado', () => {
+describe('vinculo prescrito x executado SEM depender do workoutId publicado (confirmado pela Zepp em 21/10/2026)', () => {
+  it('o evento e o FIT nao trazem o workoutId: o campo e permanentemente nulo e o parser nunca extrai identificador de treino publicado', () => {
     expect(ZEPP_EXECUTED_WORKOUT_ID_FIELD).toBeNull();
-    const content = parseZeppWebhook(body(record({ workoutId: 123456 })), { publishedWorkoutIdField: ZEPP_EXECUTED_WORKOUT_ID_FIELD });
-    expect(content.activityFiles[0].publishedWorkoutId).toBeNull();
+    const content = parseZeppWebhook(body(record({ workoutId: 123456, publishedWorkoutId: 'x' })));
+    expect(content.activityFiles[0]).not.toHaveProperty('publishedWorkoutId');
     expect(toInboundDrafts(content)[0].payload).not.toHaveProperty('publishedWorkoutId');
+    expect(JSON.stringify(toInboundDrafts(content)[0].payload)).not.toContain('123456');
   });
 
-  it('com o campo hipoteticamente confirmado, o id viaja no evento (e so ele; campo invalido e ignorado)', () => {
-    const ok = parseZeppWebhook(body(record({ workoutId: 123456 })), { publishedWorkoutIdField: 'workoutId' });
-    expect(ok.activityFiles[0].publishedWorkoutId).toBe('123456');
-    expect(toInboundDrafts(ok)[0].payload).toMatchObject({ publishedWorkoutId: '123456' });
-    expect(parseZeppWebhook(body(record({ workoutId: 1 })), { publishedWorkoutIdField: 'a.b; DROP' }).activityFiles[0].publishedWorkoutId).toBeNull();
-    expect(parseZeppWebhook(body(record({ workoutId: { x: 1 } })), { publishedWorkoutIdField: 'workoutId' }).activityFiles[0].publishedWorkoutId).toBeNull();
-  });
-
-  function makeLink(opts: { activity?: any; delivery?: any; session?: any } = {}) {
-    const activity = opts.activity === undefined ? { id: 'a1', userId: 'u1', executionClassification: null, physicalIdentityStatus: 'unique' } : opts.activity;
-    const prisma: any = {
-      activityLog: { findUnique: jest.fn(async () => activity) },
-      workoutDelivery: { findFirst: jest.fn(async () => (opts.delivery === undefined ? { trainingSessionId: 's1' } : opts.delivery)) },
-      trainingSession: { findFirst: jest.fn(async () => (opts.session === undefined ? { id: 's1', executionLinks: [] } : opts.session)) },
-    };
-    const links = { linkManually: jest.fn(async () => ({ id: 'l1' })) };
-    return { service: new ZeppExactLinkService(prisma, links as any), prisma, links };
-  }
-
-  it('vincula com o treino cujo workoutId foi publicado (automatico, metodo zepp_workout_id) so dentro do proprio aluno e de entregas aceitas pela Zepp', async () => {
-    const t = makeLink();
-    expect(await t.service.tryLink('u1', 'a1', '123456')).toBe('linked');
-    expect(t.links.linkManually).toHaveBeenCalledWith(expect.objectContaining({ trainingSessionId: 's1', activityLogId: 'a1', origin: 'automatic', matchMethod: 'zepp_workout_id', confidence: 'exact' }));
-    const where = t.prisma.workoutDelivery.findFirst.mock.calls[0][0].where;
-    expect(where).toMatchObject({ provider: ZEPP_WORKOUT_PROVIDER, externalWorkoutId: '123456', status: { in: ['sent', 'canceled'] }, trainingSession: { userId: 'u1' } });
-  });
-
-  it('nao sobrescreve nada: atividade ja decidida, treino ja vinculado a outra atividade, identidade com varias observacoes, id desconhecido, atividade de outro aluno', async () => {
-    expect(await makeLink({ activity: { id: 'a1', userId: 'u1', executionClassification: 'alternative', physicalIdentityStatus: 'unique' } }).service.tryLink('u1', 'a1', '1')).toBe('already_decided');
-    expect(await makeLink({ session: { id: 's1', executionLinks: [{ id: 'x' }] } }).service.tryLink('u1', 'a1', '1')).toBe('session_taken');
-    for (const status of ['matched', 'ambiguous']) {
-      const t = makeLink({ activity: { id: 'a1', userId: 'u1', executionClassification: null, physicalIdentityStatus: status } });
-      expect(await t.service.tryLink('u1', 'a1', '1')).toBe('identity_pending');
-      expect(t.links.linkManually).not.toHaveBeenCalled();
+  it('o vinculo exato por identificador nao existe mais (nenhum codigo gera confianca "exact" nem matchMethod zepp_workout_id)', () => {
+    const dir = join(__dirname, '..', 'src', 'zepp');
+    const files = require('node:fs').readdirSync(dir).filter((f: string) => f.endsWith('.ts'));
+    expect(files).not.toContain('zepp-exact-link.service.ts');
+    for (const file of files) {
+      const text = readFileSync(join(dir, file), 'utf8');
+      expect(text).not.toMatch(/matchMethod:s*.zepp_workout_id./);
+      expect(text).not.toMatch(/confidence:\s*'exact'/);
     }
-    expect(await makeLink({ delivery: null }).service.tryLink('u1', 'a1', '999')).toBe('no_delivery');
-    expect(await makeLink({ activity: { id: 'a1', userId: 'outro', executionClassification: null } }).service.tryLink('u1', 'a1', '1')).toBe('not_found');
   });
 
-  it('a ingestao so tenta o vinculo exato quando o evento traz o id, ANTES de classificar, e uma falha nao derruba a gravacao', async () => {
-    const order: string[] = [];
+  it('a ingestao so classifica pelo mecanismo existente (data, modalidade, horario, caracteristicas): vinculo automatico = inferido, nunca certeza', async () => {
     const tx: any = {
       rawExternalActivity: { upsert: async () => ({ id: 'raw1' }) },
       activityLog: { upsert: async () => ({ id: 'log1' }) },
       activityTimeSeriesPoint: { deleteMany: async () => ({ count: 0 }), createMany: async () => ({ count: 0 }) },
     };
     const consent = { writeWhileAuthorized: async (_p: string, _u: string, write: any) => write(tx, { categories: ['profile', 'activity'], purposes: [] }) };
-    const link = { classify: jest.fn(async () => { order.push('classify'); return 'corresponding'; }), reconcileAffectedByIdentity: async () => undefined };
-    const exact = { tryLink: jest.fn(async () => { order.push('exact'); throw new Error('falha'); }) };
-    const service = new ZeppActivityIngestionService({} as any, consent as any, link as any, { notifyReconciliation: async () => undefined } as any, { evaluateSafely: async () => undefined } as any, exact as any);
+    const link = { classify: jest.fn(async () => 'corresponding'), linkManually: jest.fn(), reconcileAffectedByIdentity: async () => undefined };
+    const service = new ZeppActivityIngestionService({} as any, consent as any, link as any, { notifyReconciliation: async () => undefined } as any, { evaluateSafely: async () => undefined } as any);
     const fit = await readZeppFit(buildSyntheticFit({ seconds: 10 }));
     const meta = { summaryId: 's', activityId: null, activityType: null, deviceName: null, source: 'webhook' as const };
-    expect(await service.ingest('u1', { ...meta, publishedWorkoutId: '123456' }, fit)).toMatchObject({ written: true, classification: 'corresponding' });
-    expect(order).toEqual(['exact', 'classify']);
-    order.length = 0;
-    await service.ingest('u1', meta, fit);
-    expect(order).toEqual(['classify']); // sem id no evento: nenhum vinculo exato
+    expect(await service.ingest('u1', meta, fit)).toMatchObject({ written: true, classification: 'corresponding' });
+    expect(link.classify).toHaveBeenCalledTimes(1);
+    expect(link.linkManually).not.toHaveBeenCalled(); // nenhum vinculo por identificador fora do mecanismo de classificacao
+  });
+
+  it('idempotencia da fila: o mesmo arquivo (mesmo link) e o mesmo evento; um link NOVO para o mesmo summaryId (reentrega do Backfill) e um evento novo', () => {
+    const key = (callback: string) => toInboundDrafts(parseZeppWebhook(body(record({ callbackURL: callback }))))[0].dedupeKey;
+    const a = 'https://api-open.zepp.com/api/activity/file?id=1&token=aaaa';
+    const b = 'https://api-open.zepp.com/api/activity/file?id=1&token=bbbb';
+    expect(key(a)).toBe(key(a));
+    expect(key(a)).not.toBe(key(b));
+    expect(key(a)).toMatch(/^activity:10010727180-file:[0-9a-f]{16}$/);
+    expect(key(a)).not.toContain('aaaa'); // o token do link nunca vai para a chave
+  });
+});
+
+describe('importacao FIT: link expirado ou nao reutilizavel e recuperado pelo Backfill API', () => {
+  const NOW = new Date('2026-10-21T12:00:00Z');
+  const START = Math.floor(new Date('2026-10-21T08:00:00Z').getTime() / 1000);
+  function makeRecovery(opts: { enabled?: boolean; snapshot?: any; done?: boolean; result?: BackfillHttpResult } = {}) {
+    const snapshot = opts.snapshot === undefined ? { categories: ['profile', 'activity'], purposes: [], collectFrom: new Date('2026-10-01T00:00:00Z') } : opts.snapshot;
+    const consent = { snapshot: jest.fn(async () => snapshot) };
+    const recorded: any[] = [];
+    const connections = {
+      hasEvent: jest.fn(async (_p: string, _u: string, type: string) => opts.done === true || recorded.some((r) => r.type === type)),
+      recordEvent: jest.fn(async (_p: string, userId: string, type: string, details: any) => { recorded.push({ userId, type, details }); }),
+      getAccessToken: jest.fn(async () => 'token-secreto'),
+    };
+    const client = { request: jest.fn(async (): Promise<BackfillHttpResult> => opts.result ?? { ok: true, requestId: 'rec-1' }) };
+    const config = { get: (k: string) => (k === 'ZEPP_BACKFILL_ENABLED' ? ((opts.enabled ?? true) ? 'true' : 'false') : undefined) } as unknown as ConfigService;
+    return { service: new ZeppBackfillService(consent as any, connections as any, client as any, config), connections, client, recorded };
+  }
+
+  it('pede ao Backfill uma janela ESTREITA em torno da atividade, uma unica vez por atividade, e so depois do aceite grava a marca', async () => {
+    const t = makeRecovery();
+    expect(await t.service.requestRecovery('u1', { summaryId: 'abc-file', startTimeInSeconds: START }, NOW)).toEqual({ status: 'requested' });
+    const [, startSec, endSec] = t.client.request.mock.calls[0] as unknown as [string, number, number];
+    expect(startSec).toBe(START - 60);
+    expect(endSec).toBe(Math.floor(NOW.getTime() / 1000)); // 12 h depois do inicio passaria de agora: limitado a agora
+    const older = makeRecovery();
+    const OLD = START - 3 * 86400;
+    await older.service.requestRecovery("u1", { summaryId: "old-file", startTimeInSeconds: OLD }, NOW);
+    const [, oStart, oEnd] = older.client.request.mock.calls[0] as unknown as [string, number, number];
+    expect([oStart, oEnd]).toEqual([OLD - 60, OLD + 12 * 3600]); // atividade antiga: janela de 12 h depois do inicio
+    expect(endSec - startSec).toBeLessThan(2_592_000);
+    expect(t.recorded).toEqual([{ userId: 'u1', type: FIT_RECOVERY_EVENT_PREFIX + 'abc-file', details: expect.objectContaining({ requestId: 'rec-1' }) }]);
+    expect(await t.service.requestRecovery('u1', { summaryId: 'abc-file', startTimeInSeconds: START }, NOW)).toEqual({ status: 'already_requested' });
+    expect(t.client.request).toHaveBeenCalledTimes(1); // o link recuperado que expire de novo nao gera laco
+  });
+
+  it('respeita as autorizacoes: desligado, sem conexao, sem a categoria Atividades ou atividade anterior ao periodo autorizado => nada e pedido', async () => {
+    expect(await makeRecovery({ enabled: false }).service.requestRecovery('u1', { summaryId: 'a', startTimeInSeconds: START }, NOW)).toEqual({ status: 'disabled' });
+    expect(await makeRecovery({ snapshot: null }).service.requestRecovery('u1', { summaryId: 'a', startTimeInSeconds: START }, NOW)).toEqual({ status: 'not_connected' });
+    const noActivity = makeRecovery({ snapshot: { categories: ['profile'], purposes: [], collectFrom: null } });
+    expect(await noActivity.service.requestRecovery('u1', { summaryId: 'a', startTimeInSeconds: START }, NOW)).toEqual({ status: 'not_authorized' });
+    const before = makeRecovery({ snapshot: { categories: ['profile', 'activity'], purposes: [], collectFrom: new Date('2026-10-21T10:00:00Z') } });
+    expect(await before.service.requestRecovery('u1', { summaryId: 'a', startTimeInSeconds: START }, NOW)).toEqual({ status: 'not_authorized' });
+    for (const t of [noActivity, before]) expect(t.client.request).not.toHaveBeenCalled();
+  });
+
+  it('nao exige a finalidade opcional de historico: recupera atividade NOVA ja autorizada (periodo >= collectFrom)', async () => {
+    const t = makeRecovery({ snapshot: { categories: ['profile', 'activity'], purposes: [], collectFrom: new Date('2026-10-21T00:00:00Z') } });
+    expect(await t.service.requestRecovery('u1', { summaryId: 'a', startTimeInSeconds: START }, NOW)).toEqual({ status: 'requested' });
+  });
+
+  it('429 e falhas NAO marcam como feito (a fila tenta de novo); simultaneo no mesmo aluno responde in_progress', async () => {
+    const limited = makeRecovery({ result: { ok: false, kind: 'rate_limited', httpStatus: 429 } });
+    expect(await limited.service.requestRecovery('u1', { summaryId: 'a', startTimeInSeconds: START }, NOW)).toEqual({ status: 'rate_limited' });
+    expect(limited.recorded).toHaveLength(0);
+    const failed = makeRecovery({ result: { ok: false, kind: 'network', httpStatus: null } });
+    expect(await failed.service.requestRecovery('u1', { summaryId: 'a', startTimeInSeconds: START }, NOW)).toMatchObject({ status: 'failed', kind: 'network' });
+    expect(failed.recorded).toHaveLength(0);
+    const slow = makeRecovery();
+    const [x, y] = await Promise.all([slow.service.requestRecovery('u1', { summaryId: 'a', startTimeInSeconds: START }, NOW), slow.service.requestRecovery('u1', { summaryId: 'b', startTimeInSeconds: START }, NOW)]);
+    expect([x.status, y.status].sort()).toEqual(['in_progress', 'requested']);
+  });
+
+  function makeEvents(download: any, recovery: any) {
+    const consent = { snapshot: async () => ({ categories: ['profile', 'activity'], purposes: [], collectFrom: new Date('2026-10-01T00:00:00Z') }) };
+    const connections = { getAccessToken: async () => 'tok', handleRemoteRevocation: async () => 'closed' };
+    const downloader = { download: jest.fn(async () => download) };
+    const ingestion = { ingest: jest.fn() };
+    const backfill = { requestRecovery: jest.fn(async () => recovery) };
+    const service = new ZeppActivityEventService(consent as any, connections as any, downloader as any, ingestion as any, backfill as any);
+    const event: any = { id: 'e1', userId: 'u1', eventType: 'activity_file', payload: { summaryId: 'abc-file', callbackURL: CALLBACK, startTimeInSeconds: START, manual: false } };
+    return { service, event, backfill, ingestion };
+  }
+
+  it('link expirado (410) ou inexistente (404): pede a recuperacao ao Backfill com o summaryId e o horario da atividade; nunca grava nada do evento antigo', async () => {
+    for (const kind of ['expired', 'not_found']) {
+      const t = makeEvents({ ok: false, kind, httpStatus: kind === 'expired' ? 410 : 404 }, { status: 'requested' });
+      const outcome = await t.service.handle(t.event);
+      expect(outcome).toMatchObject({ status: 'discard' });
+      expect((outcome as any).reason).toContain('recuperacao pelo Backfill solicitada');
+      expect(t.backfill.requestRecovery).toHaveBeenCalledWith('u1', { summaryId: 'abc-file', startTimeInSeconds: START });
+      expect(t.ingestion.ingest).not.toHaveBeenCalled();
+    }
+  });
+
+  it('recuperacao adiada (429/ocupado) volta para a fila; sem autorizacao ou Backfill desligado, descarta sem pedir nada', async () => {
+    for (const status of ['rate_limited', 'in_progress']) {
+      const t = makeEvents({ ok: false, kind: 'expired', httpStatus: 410 }, { status });
+      expect(await t.service.handle(t.event)).toMatchObject({ status: 'retry' });
+    }
+    for (const status of ['disabled', 'not_authorized', 'not_connected', 'already_requested']) {
+      const t = makeEvents({ ok: false, kind: 'expired', httpStatus: 410 }, { status });
+      expect(await t.service.handle(t.event)).toMatchObject({ status: 'discard' });
+    }
+    const failedNetwork = makeEvents({ ok: false, kind: 'expired', httpStatus: 410 }, { status: 'failed', kind: 'network', httpStatus: null });
+    expect(await failedNetwork.service.handle(failedNetwork.event)).toMatchObject({ status: 'retry' });
+    const failedAuth = makeEvents({ ok: false, kind: 'expired', httpStatus: 410 }, { status: 'failed', kind: 'auth', httpStatus: 401 });
+    expect(await failedAuth.service.handle(failedAuth.event)).toMatchObject({ status: 'discard' });
   });
 });
 

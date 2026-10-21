@@ -5,7 +5,6 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { ProviderInboundEventService } from '../provider-hub/provider-inbound-event.service';
 import { ProviderConsentService } from '../provider-hub/provider-consent.service';
 import { ZEPP_PROVIDER_ID } from './zepp.connector';
-import { ZEPP_EXECUTED_WORKOUT_ID_FIELD } from './zepp-workout-profile';
 import { parseZeppWebhook, toInboundDrafts, ZEPP_WEBHOOK_MAX_BYTES, ZeppWebhookParseError } from './zepp-webhook';
 
 // Receptor do webhook da Zepp (Lote 3): publico por necessidade (a Zepp nao assina nem usa JWT). Autenticacao = SEGREDO LONGO no caminho da URL
@@ -58,7 +57,7 @@ export class ZeppWebhookController {
     if (!this.secretMatches(secret)) throw new NotFoundException();
     const raw = await readBodyText(request, ZEPP_WEBHOOK_MAX_BYTES);
     let content;
-    try { content = parseZeppWebhook(raw, { publishedWorkoutIdField: ZEPP_EXECUTED_WORKOUT_ID_FIELD }); }
+    try { content = parseZeppWebhook(raw); }
     catch (error) {
       if (error instanceof ZeppWebhookParseError) throw new BadRequestException('Corpo invalido.');
       throw error;

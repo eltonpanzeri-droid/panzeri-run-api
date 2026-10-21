@@ -14,7 +14,6 @@ import { ZeppWebhookController } from './zepp-webhook.controller';
 import { ZeppFitDownloader } from './zepp-fit-downloader';
 import { ZeppActivityIngestionService } from './zepp-activity-ingestion.service';
 import { ZeppActivityEventService } from './zepp-activity-events.service';
-import { ZeppExactLinkService } from './zepp-exact-link.service';
 import { ZeppBackfillClient, ZeppBackfillService } from './zepp-backfill.service';
 import { ZeppDataDeletionService } from './zepp-data-deletion.service';
 
@@ -23,7 +22,7 @@ import { ZeppDataDeletionService } from './zepp-data-deletion.service';
 @Module({
   imports: [ProviderHubModule, PrismaModule, WorkoutDeliveryModule, ActivityExecutionModule],
   controllers: [ZeppController, ZeppWebhookController],
-  providers: [ZeppWorkoutClient, ZeppWorkoutPublisherService, ZeppWorkoutSchedulerService, ZeppFitDownloader, ZeppExactLinkService, ZeppActivityIngestionService, ZeppActivityEventService, ZeppBackfillClient, ZeppBackfillService, ZeppDataDeletionService],
+  providers: [ZeppWorkoutClient, ZeppWorkoutPublisherService, ZeppWorkoutSchedulerService, ZeppFitDownloader, ZeppActivityIngestionService, ZeppActivityEventService, ZeppBackfillClient, ZeppBackfillService, ZeppDataDeletionService],
   exports: [ZeppWorkoutPublisherService],
 })
 export class ZeppModule implements OnModuleInit {

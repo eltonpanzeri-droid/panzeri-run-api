@@ -111,19 +111,20 @@ export function translateToZeppWorkout(workout: CanonicalWorkout, context: ZeppT
   const translateStep = (step: CanonicalStep, path: string, intensity: ZeppIntensity, stepOrder: number): ZeppV2Step | null => {
     const before = refusals.length;
 
-    // Caminhada: a Zepp nao informou como representa-la dentro de um treino de corrida — nao e' enviada como corrida (seria prescricao errada).
-    if (step.activity === 'walk') refuse('walk_not_representable', 'Passo de caminhada explicito: a Zepp ainda nao informou como representa-lo; o treino nao e enviado.', path, true);
+    // Caminhada: a Zepp confirmou (21/10/2026) que a recuperacao caminhando e' uma etapa de RECUPERACAO dentro de um treino de corrida. Caminhada fora de uma etapa de
+    // recuperacao nao tem representacao confirmada e NAO e' enviada como corrida (seria prescricao errada).
+    if (step.activity === 'walk' && step.role !== 'recovery') refuse('walk_outside_recovery', 'Caminhada fora de uma etapa de recuperacao: so e enviada a recuperacao caminhando dentro de treino de corrida.', path);
 
     let durationType: 'TIME' | 'DISTANCE' = 'TIME';
     let durationValue = 0;
     if (step.goal.type === 'time') {
-      durationValue = step.goal.seconds; // documentado: segundos
+      durationValue = Math.round(step.goal.seconds); // segundos, inteiro (confirmado pela Zepp em 21/10/2026)
       if (!Number.isFinite(durationValue) || durationValue <= 0) refuse('duration_invalid', 'Duracao do passo invalida.', path);
     } else if (step.goal.type === 'distance') {
       durationType = 'DISTANCE';
       if (!profile.distanceUnit) refuse('distance_unit_unconfirmed', 'Unidade de durationValue por distancia ainda nao confirmada pela Zepp.', path, true);
       else if (!Number.isFinite(step.goal.meters) || step.goal.meters <= 0) refuse('distance_invalid', 'Distancia do passo invalida.', path);
-      else durationValue = Math.round((profile.distanceUnit === 'm' ? step.goal.meters : step.goal.meters / 1000) * 1000) / 1000;
+      else durationValue = profile.distanceUnit === 'm' ? Math.round(step.goal.meters) : Math.round((step.goal.meters / 1000) * 1000) / 1000; // metros inteiros (confirmado em 21/10/2026)
     } else {
       refuse('goal_open_not_supported', 'Passo sem meta de duracao/distancia; a Zepp exige durationType e durationValue.', path);
     }

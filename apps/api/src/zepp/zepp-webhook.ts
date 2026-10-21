@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { InboundEventDraft } from '../provider-hub/provider-connector';
 
 // Webhook da Zepp (Lote 3, 20/10/2026). Formato oficial (devopen.zepp.com): POST `text/plain`, corpo = ARRAY JSON de STRINGS; cada string e' um objeto JSON.
@@ -31,8 +32,6 @@ export interface ZeppActivityFileRecord {
   startTimeInSeconds: number | null;
   activityId: string | null;
   manual: boolean;
-  // So' preenchido quando a Zepp confirmar o campo que devolve o workoutId publicado (ZEPP_EXECUTED_WORKOUT_ID_FIELD).
-  publishedWorkoutId: string | null;
 }
 export interface ZeppAuthorizationChange {
   userId: string;
@@ -56,7 +55,7 @@ export function isAllowedCallbackUrl(value: unknown): value is string {
 
 const str = (value: unknown, max = 200): string | null => (typeof value === 'string' && value.length > 0 && value.length <= max ? value : null);
 
-export function parseZeppWebhook(rawBody: string, options: { publishedWorkoutIdField?: string | null } = {}): ZeppWebhookContent {
+export function parseZeppWebhook(rawBody: string): ZeppWebhookContent {
   if (typeof rawBody !== 'string' || rawBody.length === 0 || Buffer.byteLength(rawBody, 'utf8') > ZEPP_WEBHOOK_MAX_BYTES) throw new ZeppWebhookParseError('Corpo ausente ou grande demais.');
   let outer: unknown;
   try { outer = JSON.parse(rawBody); } catch { throw new ZeppWebhookParseError('Corpo nao e JSON.'); }
@@ -82,7 +81,6 @@ export function parseZeppWebhook(rawBody: string, options: { publishedWorkoutIdF
           startTimeInSeconds: typeof record.startTimeInSeconds === 'number' && Number.isFinite(record.startTimeInSeconds) ? record.startTimeInSeconds : null,
           activityId: typeof record.activityId === 'number' || typeof record.activityId === 'string' ? String(record.activityId).slice(0, 40) : null,
           manual: record.manual === true,
-          publishedWorkoutId: options.publishedWorkoutIdField && /^[A-Za-z0-9_]{1,60}$/.test(options.publishedWorkoutIdField) && (typeof record[options.publishedWorkoutIdField] === 'number' || typeof record[options.publishedWorkoutIdField] === 'string') ? String(record[options.publishedWorkoutIdField]).slice(0, 40) : null,
         });
       }
       continue;
@@ -105,10 +103,12 @@ export function toInboundDrafts(content: ZeppWebhookContent): InboundEventDraft[
   for (const file of content.activityFiles) {
     drafts.push({
       category: 'activity',
-      dedupeKey: `activity:${file.summaryId}`,
+      // O mesmo arquivo reenviado (mesma callbackURL) e' o MESMO evento; um novo link para o mesmo summaryId (ex.: reentrega do Backfill depois que o link anterior expirou)
+      // e' um evento NOVO, senao a recuperacao seria engolida pela linha antiga ja' descartada. A gravacao continua idempotente por summaryId.
+      dedupeKey: `activity:${file.summaryId}:${createHash('sha256').update(file.callbackURL).digest('hex').slice(0, 16)}`,
       eventType: 'activity_file',
       externalAccountId: file.userId,
-      payload: { summaryId: file.summaryId, callbackURL: file.callbackURL, activityType: file.activityType, deviceName: file.deviceName, startTimeInSeconds: file.startTimeInSeconds, activityId: file.activityId, manual: file.manual, ...(file.publishedWorkoutId ? { publishedWorkoutId: file.publishedWorkoutId } : {}) },
+      payload: { summaryId: file.summaryId, callbackURL: file.callbackURL, activityType: file.activityType, deviceName: file.deviceName, startTimeInSeconds: file.startTimeInSeconds, activityId: file.activityId, manual: file.manual },
     });
   }
   for (const change of content.authorizationChanges) {

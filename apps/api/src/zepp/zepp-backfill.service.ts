@@ -14,6 +14,10 @@ import { ZEPP_PROVIDER_ID } from './zepp.connector';
 // 50/h, espera apos 429 e nenhum retry imediato. O que a Zepp devolver anterior ao periodo autorizado e' descartado no processamento do evento.
 export const ZEPP_BACKFILL_URL = 'https://api-open.zepp.com/wellness-api/rest/backfill/activities';
 export const BACKFILL_EVENT = 'backfill_requested';
+// Recuperacao de UMA atividade cujo link do FIT expirou ou nao pode ser reutilizado (uso unico, 24 h): um pedido ESTREITO ao Backfill, uma unica vez por atividade.
+export const FIT_RECOVERY_EVENT_PREFIX = 'fit_recovery_requested:';
+const RECOVERY_WINDOW_AFTER_START_SEC = 12 * 3600;
+const RECOVERY_UNKNOWN_START_LOOKBACK_SEC = 48 * 3600;
 const MAX_RANGE_SEC = 2_592_000;
 const HOURLY_BUDGET = 40; // a Zepp permite 50/h por aplicacao: sobra margem para outros usos
 const TIMEOUT_MS = 20_000;
@@ -22,6 +26,10 @@ export type BackfillResult =
   | { status: 'requested'; requestId: string | null }
   | { status: 'already_requested' }
   | { status: 'disabled' | 'not_connected' | 'not_authorized' | 'rate_limited' | 'in_progress' }
+  | { status: 'failed'; kind: 'auth' | 'forbidden' | 'bad_request' | 'server' | 'network'; httpStatus: number | null };
+
+export type RecoveryResult =
+  | { status: 'requested' | 'already_requested' | 'disabled' | 'not_connected' | 'not_authorized' | 'rate_limited' | 'in_progress' }
   | { status: 'failed'; kind: 'auth' | 'forbidden' | 'bad_request' | 'server' | 'network'; httpStatus: number | null };
 
 export type BackfillHttpResult = { ok: true; requestId: string | null } | { ok: false; kind: 'rate_limited' | 'auth' | 'forbidden' | 'bad_request' | 'server' | 'network'; httpStatus: number | null };
@@ -105,6 +113,52 @@ export class ZeppBackfillService implements SyncCapability {
       return { status: 'requested', requestId: result.requestId };
     } finally {
       this.inFlight.delete(userId);
+    }
+  }
+
+  // Recupera UMA atividade pelo Backfill API quando o link do FIT expirou (410/404) ou nao pode ser reutilizado. A Zepp reentrega pelo MESMO webhook, com link novo, e a gravacao
+  // e' idempotente por summaryId. Regras:
+  //  - nao e' o "historico inicial" (finalidade opcional history_backfill): so' recupera atividade que o aluno JA autorizou coletar (categoria Atividades e periodo >= collectFrom);
+  //  - um pedido por atividade (marca em ProviderConnectionEvent so' apos o aceite 202) — o link recuperado que expire de novo nao gera laco;
+  //  - janela estreita (inicio - 1 min ate' 12 h depois), nunca anterior ao periodo autorizado e dentro do teto de 30 dias; mesmo teto de 40 pedidos/h do historico.
+  async requestRecovery(userId: string, activity: { summaryId: string; startTimeInSeconds: number | null }, now: Date = new Date()): Promise<RecoveryResult> {
+    if (!this.isEnabled()) return { status: 'disabled' };
+    const flightKey = `${userId}#recovery`;
+    if (this.inFlight.has(flightKey)) return { status: 'in_progress' };
+    this.inFlight.add(flightKey);
+    try {
+      const snapshot = await this.consent.snapshot(ZEPP_PROVIDER_ID, userId);
+      if (!snapshot) return { status: 'not_connected' };
+      if (!snapshot.categories.includes('activity')) return { status: 'not_authorized' };
+      const collectFromSec = snapshot.collectFrom ? Math.floor(snapshot.collectFrom.getTime() / 1000) : 0;
+      if (activity.startTimeInSeconds !== null && activity.startTimeInSeconds < collectFromSec) return { status: 'not_authorized' };
+      const eventType = `${FIT_RECOVERY_EVENT_PREFIX}${activity.summaryId}`;
+      if (await this.connections.hasEvent(ZEPP_PROVIDER_ID, userId, eventType)) return { status: 'already_requested' };
+
+      const hourAgo = now.getTime() - 3_600_000;
+      while (this.sent.length > 0 && this.sent[0] < hourAgo) this.sent.shift();
+      if (this.sent.length >= HOURLY_BUDGET) return { status: 'rate_limited' };
+
+      const nowSec = Math.floor(now.getTime() / 1000);
+      const anchor = activity.startTimeInSeconds ?? nowSec - RECOVERY_UNKNOWN_START_LOOKBACK_SEC;
+      const startSec = Math.min(Math.max(anchor - 60, collectFromSec, nowSec - MAX_RANGE_SEC + 60), nowSec - 1);
+      const endSec = Math.max(Math.min(nowSec, anchor + RECOVERY_WINDOW_AFTER_START_SEC), startSec + 1);
+
+      let token: string;
+      try { token = await this.connections.getAccessToken(ZEPP_PROVIDER_ID, userId, 'activity'); }
+      catch { return { status: 'failed', kind: 'auth', httpStatus: null }; }
+
+      this.sent.push(now.getTime());
+      const result = await this.client.request(token, startSec, endSec);
+      if (!result.ok) {
+        if (result.kind === 'rate_limited') return { status: 'rate_limited' };
+        this.logger.warn(`Pedido de recuperacao de atividade Zepp falhou (${result.kind}).`);
+        return { status: 'failed', kind: result.kind, httpStatus: result.httpStatus };
+      }
+      await this.connections.recordEvent(ZEPP_PROVIDER_ID, userId, eventType, { requestId: result.requestId, startSec, endSec });
+      return { status: 'requested' };
+    } finally {
+      this.inFlight.delete(flightKey);
     }
   }
 

@@ -58,6 +58,18 @@ Texto enviado à Zepp (`workoutName`/`description`): só o necessário para a ex
 7. Rotina diária: a página diz que a janela dos 7 dias seguintes sincroniza todo dia — o Panzeri Run precisa reenviar a janela diariamente, ou a Zepp só reenvia ao relógio o que já recebeu?
 8. Treino já executado dentro da janela e reenviado: é removido, mantido ou duplicado?
 
+#### 3.4.1 Respostas oficiais da Zepp (Jeff Fu, recebidas em 21/10/2026) e o que mudou no código
+| Tema | Resposta | Onde está no código |
+|---|---|---|
+| Unidades | tempo em segundos; distância em metros; pace como **velocidade em m/s** (maior = mais rápido); FC em BPM; potência em watts; duração/distância/FC/potência/cadência/repetições preferencialmente inteiros; velocidade pode ter decimais | `zepp-workout-profile.ts` (`distanceUnit 'm'`, `paceUnit 'm_per_s'`), arredondamento inteiro em `zepp-workout-spec.ts` |
+| `workoutDate` | `AAAA-MM-DD`, data local do atleta | `scheduledDate` (data local gravada na sessão) |
+| Recuperação caminhando | etapa de **recuperação** dentro do treino de corrida | `intensity RECOVERY/REST`; caminhada fora de recuperação é recusada (`walk_outside_recovery`) |
+| Janela de 7 dias | a Zepp **não** estende sozinha | republicação diária da janela completa (`reconcile` → `republished`), carimbo `windowAcceptedAt/Date` em `WorkoutDelivery.providerMetadata` |
+| `workoutId` na atividade | o Activity Event e o FIT **não** trazem | removido o vínculo "exato" por identificador (`ZeppExactLinkService`); associação só pelo mecanismo existente |
+| URL do FIT expirada | recuperar pelo Backfill API | `ZeppBackfillService.requestRecovery`, chamado pelo processador de eventos em 410/404 |
+
+**Ainda não confirmado (nada foi inventado):** como expressar etapa **sem meta** (o schema exige `targetType` e `targetValueLow/High` e não lista valor "sem meta"), pace único (low = high), limites de passos/nome/aninhamento. Passos que dependem disso são recusados individualmente (`no_target_unconfirmed`, `single_pace_bounds_unconfirmed`); só esse treino deixa de ser enviado.
+
 ### 3.5 Janela móvel de 7 dias (regras da API)
 - Corpo: `startDate`, `endDate` (**exatamente 6 dias depois**), `workouts[]`; cada treino dentro da janela.
 - **Toda atualização reenvia a janela inteira** (mesmo mudando um treino). Dia sem treino = omitido.

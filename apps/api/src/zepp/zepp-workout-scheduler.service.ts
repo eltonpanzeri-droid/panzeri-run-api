@@ -7,7 +7,8 @@ import { WATCH_DELIVERY_PURPOSE, ZEPP_WORKOUT_PROVIDER, ZeppWorkoutPublisherServ
 
 // Rotina de reconciliacao dos treinos no relogio (Lote 2). A cada 30 minutos reconcilia, um aluno por vez, quem tem a conexao Zepp ativa COM a finalidade
 // `watch_delivery` e quem ainda tem entrega ativa (para cancelar localmente apos desconexao/revogacao). Cobre sozinha: treino novo gerado, editado, removido,
-// rotina trocada e a janela que anda a cada dia. Desligada ate `ZEPP_WORKOUT_PUBLISH_ENABLED=true`. Falha de um aluno nunca interrompe os demais nem a geracao de treino.
+// rotina trocada e a janela que anda a cada dia: a Zepp NAO estende a janela sozinha (confirmado em 21/10/2026), entao o publicador REPUBLICA a janela completa uma vez por
+// dia mesmo sem mudanca (o primeiro ciclo depois da virada do dia local). Desligada ate `ZEPP_WORKOUT_PUBLISH_ENABLED=true`. Falha de um aluno nunca interrompe os demais nem a geracao de treino.
 @Injectable()
 export class ZeppWorkoutSchedulerService {
   private readonly logger = new Logger(ZeppWorkoutSchedulerService.name);
@@ -39,7 +40,7 @@ export class ZeppWorkoutSchedulerService {
       for (const userId of userIds) {
         try {
           const result = await this.publisher.reconcile(userId);
-          if (result.status === 'published' || result.status === 'cleared') published += 1;
+          if (result.status === 'published' || result.status === 'republished' || result.status === 'cleared') published += 1;
           if (result.status === 'failed') failed += 1;
         } catch (error) {
           failed += 1;

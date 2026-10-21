@@ -9,7 +9,8 @@ import { ZEPP_WORKOUT_PROFILE } from '../src/zepp/zepp-workout-profile';
 import { ZeppController } from '../src/zepp/zepp.controller';
 import { ZeppPublishResult } from '../src/zepp/zepp-workout-client';
 
-// PERFIL HIPOTETICO, so' para testar as conversoes. NAO e' o que a Zepp confirmou (a Zepp ainda nao respondeu): o perfil real fica em zepp-workout-profile.ts.
+// PERFIL HIPOTETICO, so' para testar as conversoes de outras unidades e do que a Zepp NAO confirmou (passo sem meta, pace unico). O perfil REAL (confirmado pela Zepp em
+// 21/10/2026: metros e velocidade em m/s) fica em zepp-workout-profile.ts e tem testes proprios abaixo.
 const HYPOTHETICAL: ZeppWorkoutProfile = { distanceUnit: 'm', paceUnit: 'sec_per_km', noTargetType: 'NO_TARGET_HYPOTHETICAL', singlePaceAsEqualBounds: true, maxNameLength: null, maxStepsPerWorkout: null };
 
 const continuous = { type: 'run', blocks: [{ durationType: 'distance', distanceValue: 8, distanceUnit: 'km', paceRange: '5:30/km a 5:45/km' }] };
@@ -25,14 +26,34 @@ const ctx = { workoutId: 123456, title: 'Corrida leve', scheduledDate: '2026-10-
 const canonical = (structure: unknown) => buildCanonicalWorkout({ id: 's1', modality: 'corrida', structure });
 
 describe('tradutor Zepp (CanonicalWorkout -> Workout V2)', () => {
-  it('perfil real NAO confirmado: passo por distancia e por pace e recusado, sem enviar valor inventado', () => {
+  it('perfil sem confirmacao: passo por distancia e por pace e recusado, sem enviar valor inventado', () => {
     const result = translateToZeppWorkout(canonical(continuous), ctx, ZEPP_PROFILE_UNCONFIRMED);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.refusals.map((r) => r.code)).toEqual(expect.arrayContaining(['distance_unit_unconfirmed', 'pace_unit_unconfirmed']));
     expect(result.refusals.every((r) => r.pendingZeppAnswer)).toBe(true);
-    expect(profileIsConfirmed(ZEPP_WORKOUT_PROFILE)).toBe(false); // hoje nada e' confirmado
-    expect(translateToZeppWorkout(canonical(continuous), ctx, ZEPP_WORKOUT_PROFILE).ok).toBe(false);
+    expect(profileIsConfirmed(ZEPP_PROFILE_UNCONFIRMED)).toBe(false);
+  });
+
+  it('perfil REAL (Zepp, 21/10/2026): distancia em metros inteiros, tempo em segundos inteiros e pace como VELOCIDADE em m/s (maior = mais rapido)', () => {
+    expect(profileIsConfirmed(ZEPP_WORKOUT_PROFILE)).toBe(true);
+    const distance = translateToZeppWorkout(canonical(continuous), ctx, ZEPP_WORKOUT_PROFILE);
+    expect(distance.ok).toBe(true);
+    if (!distance.ok) return;
+    // 5:30/km = 3,0303 m/s ; 5:45/km = 2,8986 m/s => faixa baixa = ritmo mais lento = MENOR velocidade
+    expect(distance.workout.steps[0]).toEqual({ type: 'WorkoutStep', stepOrder: 1, intensity: 'ACTIVE', durationType: 'DISTANCE', durationValue: 8000, targetType: 'PACE_LAP', targetValueLow: 2.899, targetValueHigh: 3.03 });
+    const time = translateToZeppWorkout(canonical(timeBased), ctx, ZEPP_WORKOUT_PROFILE);
+    expect(time.ok && time.workout.steps[0]).toMatchObject({ durationType: 'TIME', durationValue: 1800, targetType: 'PACE_LAP' });
+    const odd = { type: 'run', blocks: [{ durationType: 'distance', distanceValue: 0.4106, distanceUnit: 'km', paceRange: '5:30/km a 5:45/km' }, { durationType: 'time', durationMin: 12.34, paceRange: '6:00/km a 6:20/km' }] };
+    const rounded = translateToZeppWorkout(canonical(odd), ctx, ZEPP_WORKOUT_PROFILE);
+    if (rounded.ok) for (const step of rounded.workout.steps as any[]) expect(Number.isInteger(step.durationValue)).toBe(true);
+  });
+
+  it('perfil real: o que a Zepp NAO confirmou segue recusado (pace unico, passo sem meta) — nenhum valor inventado', () => {
+    expect(ZEPP_WORKOUT_PROFILE).toEqual({ ...ZEPP_PROFILE_UNCONFIRMED, distanceUnit: 'm', paceUnit: 'm_per_s' });
+    const single = translateToZeppWorkout(canonical(interval), ctx, ZEPP_WORKOUT_PROFILE);
+    expect(single.ok).toBe(false);
+    if (!single.ok) expect(single.refusals.map((r) => r.code)).toContain('single_pace_bounds_unconfirmed');
   });
 
   it('por tempo, a duracao e documentada em segundos, mas a meta de pace ainda depende da unidade (recusa)', () => {
@@ -82,11 +103,11 @@ describe('tradutor Zepp (CanonicalWorkout -> Workout V2)', () => {
     expect(speed.ok && speed.workout.steps[0]).toMatchObject({ targetValueLow: 2.899, targetValueHigh: 3.03 }); // numericamente ascendente
   });
 
-  it('caminhada explicita e passo sem pace (sem tipo de "sem meta" confirmado) sao recusados, nunca enviados como corrida', () => {
+  it('caminhada FORA de uma etapa de recuperacao e passo sem pace (sem tipo de "sem meta" confirmado) sao recusados, nunca enviados como corrida', () => {
     const walk = { type: 'run', blocks: [{ durationType: 'distance', distanceValue: 1, distanceUnit: 'km', activityType: 'caminhada', paceRange: '9:00/km' }] };
     const walkResult = translateToZeppWorkout(canonical(walk), ctx, HYPOTHETICAL);
     expect(walkResult.ok).toBe(false);
-    if (!walkResult.ok) expect(walkResult.refusals.map((r) => r.code)).toContain('walk_not_representable');
+    if (!walkResult.ok) expect(walkResult.refusals.map((r) => r.code)).toContain('walk_outside_recovery');
     const passive = { type: 'run', blocks: [{ repeatCount: 3, steps: [
       { durationType: 'distance', distanceValue: 400, distanceUnit: 'm', paceRange: '4:10/km a 4:20/km' },
       { durationType: 'time', durationMin: 1, pausaType: 'passiva' },
@@ -94,6 +115,27 @@ describe('tradutor Zepp (CanonicalWorkout -> Workout V2)', () => {
     expect(translateToZeppWorkout(canonical(passive), ctx, { ...HYPOTHETICAL, noTargetType: null }).ok).toBe(false);
     const ok = translateToZeppWorkout(canonical(passive), ctx, HYPOTHETICAL);
     expect(ok.ok && (ok.workout.steps[0] as any).steps[1]).toMatchObject({ intensity: 'REST', durationType: 'TIME', durationValue: 60, targetType: 'NO_TARGET_HYPOTHETICAL' });
+  });
+
+  it('recuperacao CAMINHANDO dentro de treino de corrida vira etapa RECOVERY (perfil real); sem pace prescrito continua dependendo do "sem meta" nao confirmado', () => {
+    const withPace = { type: 'run', blocks: [{ repeatCount: 4, steps: [
+      { durationType: 'distance', distanceValue: 400, distanceUnit: 'm', paceRange: '4:00/km a 4:10/km' },
+      { durationType: 'distance', distanceValue: 200, distanceUnit: 'm', pausaType: 'ativa', activityType: 'caminhada', paceRange: '9:00/km a 10:00/km' },
+    ] }] };
+    const ok = translateToZeppWorkout(canonical(withPace), ctx, ZEPP_WORKOUT_PROFILE);
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      const repeat = ok.workout.steps[0] as any;
+      expect(repeat.steps.map((s: any) => s.intensity)).toEqual(['INTERVAL', 'RECOVERY']);
+      expect(repeat.steps[1]).toMatchObject({ durationType: 'DISTANCE', durationValue: 200, targetType: 'PACE_LAP' });
+    }
+    const noPace = { type: 'run', blocks: [{ repeatCount: 4, steps: [
+      { durationType: 'distance', distanceValue: 400, distanceUnit: 'm', paceRange: '4:00/km a 4:10/km' },
+      { durationType: 'time', durationMin: 2, pausaType: 'ativa', activityType: 'caminhada' },
+    ] }] };
+    const refused = translateToZeppWorkout(canonical(noPace), ctx, ZEPP_WORKOUT_PROFILE);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.refusals.map((r) => r.code)).toContain('no_target_unconfirmed');
   });
 
   it('so corrida: musculacao e estrutura nao-corrida sao recusadas; nome longo e encurtado; specHash muda com o conteudo mas nao com o workoutId', () => {
@@ -161,12 +203,12 @@ function makePublisher(options: { enabled?: boolean; profile?: ZeppWorkoutProfil
   };
   const posts: any[] = [];
   const client = { publish: jest.fn(async (_token: string, body: any): Promise<ZeppPublishResult> => { posts.push(JSON.parse(JSON.stringify(body))); return options.publish ? options.publish(body) : { ok: true }; }) };
-  const state = { connected: options.connected ?? true, authorized: options.authorized ?? true };
+  const state = { connected: options.connected ?? true, authorized: options.authorized ?? true, today: options.today ?? '2026-10-20' };
   const consent = { isAllowed: jest.fn(async (_p: string, _u: string, _c: string, purpose?: string) => (purpose === WATCH_DELIVERY_PURPOSE ? state.connected && state.authorized : state.connected)) };
   const connections = { getAccessToken: jest.fn(async () => 'token-secreto') };
   const config = { get: (key: string) => (key === 'ZEPP_WORKOUT_PUBLISH_ENABLED' ? ((options.enabled ?? true) ? 'true' : 'false') : undefined) };
   const service = new ZeppWorkoutPublisherService(prisma, new WorkoutDeliveryService(prisma), connections as any, consent as any, client as any, config as any, {
-    profile: options.profile ?? HYPOTHETICAL, today: () => options.today ?? '2026-10-20', nextWorkoutId: async () => seq++,
+    profile: options.profile ?? HYPOTHETICAL, today: () => state.today, nextWorkoutId: async () => seq++,
   });
   const addSession = (id: string, date: string, structure: unknown = continuous, extra: Row = {}) => {
     const row = { id, userId: 'u1', scheduledDate: new Date(`${date}T00:00:00Z`), modality: 'corrida', origin: null, title: `Treino ${id}`, distanceKm: null, structure, plan: { status: 'active' }, completion: null, executionLinks: [], ...extra };
@@ -296,6 +338,54 @@ describe('publicador Zepp (reconciliacao da janela)', () => {
     expect(t.posts).toHaveLength(1);
   });
 
+  it('a Zepp NAO estende a janela sozinha: mesmo sem mudanca, a janela COMPLETA e republicada uma vez por dia (mesmos workoutIds, sem entregas novas)', async () => {
+    const t = makePublisher();
+    t.addSession('a', '2026-10-21');
+    t.addSession('b', '2026-10-23', interval);
+    expect(await t.service.reconcile('u1')).toMatchObject({ status: 'published', workouts: 2 });
+    expect(await t.service.reconcile('u1')).toMatchObject({ status: 'unchanged', workouts: 2 }); // mesmo dia: nada a fazer
+    expect(t.posts).toHaveLength(1);
+    t.state.today = '2026-10-21'; // virou o dia local
+    expect(await t.service.reconcile('u1')).toMatchObject({ status: 'republished', workouts: 2 });
+    expect(t.posts).toHaveLength(2);
+    expect(t.posts[1]).toMatchObject({ startDate: '2026-10-21', endDate: '2026-10-27' });
+    expect(t.posts[1].workouts.map((w: any) => w.workoutId)).toEqual([1000, 1001]); // a janela inteira, com os mesmos ids
+    expect(t.deliveries).toHaveLength(2); // nenhuma entrega nova: so' o carimbo do novo aceite
+    expect(t.deliveries.every((d) => d.status === 'sent' && d.providerMetadata.windowAcceptedDate === '2026-10-21' && typeof d.providerMetadata.windowAcceptedAt === 'string')).toBe(true);
+    expect(await t.service.reconcile('u1')).toMatchObject({ status: 'unchanged', workouts: 2 }); // no mesmo dia nao republica de novo
+    expect(t.posts).toHaveLength(2);
+  });
+
+  it('republicacao diaria: falha da Zepp nao marca como aceito (tenta de novo); sem treinos elegiveis nunca envia lista vazia', async () => {
+    let fail = false;
+    const t = makePublisher({ publish: () => (fail ? { ok: false, kind: 'server', httpStatus: 500, code: -99, message: 'falhou' } : { ok: true }) });
+    t.addSession('a', '2026-10-21');
+    await t.service.reconcile('u1');
+    t.state.today = '2026-10-21';
+    fail = true;
+    expect(await t.service.reconcile('u1')).toMatchObject({ status: 'failed', kind: 'server' });
+    expect(t.deliveries[0].providerMetadata.windowAcceptedDate).toBe('2026-10-20'); // continua o ultimo aceite real
+    fail = false;
+    expect(await t.service.reconcile('u1')).toMatchObject({ status: 'republished' });
+    // dia seguinte, o unico treino ja passou: nada elegivel => nao envia janela vazia
+    t.state.today = '2026-10-22';
+    const before = t.posts.length;
+    expect(await t.service.reconcile('u1')).toMatchObject({ status: 'unchanged', workouts: 0 });
+    expect(t.posts).toHaveLength(before);
+  });
+
+  it('o aceite da API fica registrado como "enviado" e NUNCA como recebido no relogio', async () => {
+    const t = makePublisher();
+    t.addSession('a', '2026-10-21');
+    await t.service.reconcile('u1');
+    t.state.today = '2026-10-21';
+    await t.service.reconcile('u1');
+    expect(t.deliveries.some((d) => d.status === 'delivered_to_device')).toBe(false);
+    const status = await t.service.status('u1');
+    expect(status).toMatchObject({ acceptedByZepp: 1, windowAcceptedToday: true });
+    expect(status).not.toHaveProperty('onWatch');
+  });
+
   it('sessao ja realizada, extra do relogio e distancia inconsistente nao sao enviadas', async () => {
     const t = makePublisher();
     t.addSession('feita', '2026-10-21', continuous, { executionLinks: [{ id: 'l' }] });
@@ -325,7 +415,10 @@ describe('protecoes estruturais do envio', () => {
     expect(translator).not.toMatch(/from '@nestjs|from '\.\.\/prisma|fetch\(/);
   });
 
-  it('o perfil real continua nao confirmado ate a resposta da Zepp (nenhum valor inventado)', () => {
-    expect(ZEPP_WORKOUT_PROFILE).toEqual(ZEPP_PROFILE_UNCONFIRMED);
+  it('o perfil real so tem o que a Zepp confirmou (metros e m/s); o resto continua nulo e nenhuma enumeracao foi inventada', () => {
+    expect(ZEPP_WORKOUT_PROFILE).toEqual({ ...ZEPP_PROFILE_UNCONFIRMED, distanceUnit: 'm', paceUnit: 'm_per_s' });
+    const translator = read('zepp/zepp-workout-spec.ts');
+    // intensities do schema publicado; nenhum valor fora da lista documentada
+    expect(translator).toMatch(/ZEPP_DOCUMENTED_INTENSITIES = \['WARMUP', 'COOLDOWN', 'INTERVAL', 'REST', 'RECOVERY', 'ACTIVE'\]/);
   });
 });
