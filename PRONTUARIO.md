@@ -3065,3 +3065,24 @@ Pedido do Elton: encerrar a integração Zepp de ponta a ponta antes da central 
 
 ### 22/10/2026 — Cartão "Treinos no relógio" da Zepp (código pronto, vale após o próximo build Android; no PWA vale pelo deploy)
 - `WatchWorkoutsCard` em `ZeppIntegration.tsx`: último envio aceito (`lastAcceptedAt`, novo em `GET /zepp/workouts/status`), contagem de treinos enviados/aguardando, motivo quando não há treino de corrida programado e botão "Sincronizar agora" (`POST /zepp/workouts/sync`). Aviso fixo: aceite da Zepp ≠ relógio recebeu; a aluna sincroniza o relógio no app da Zepp. Item 4 da lista do próximo build: implementado.
+
+### 22/10/2026 — Primeira publicação REAL de treino na Zepp confirmada (Roberta) + limite do Amazfit Active Edge
+- **Confirmado com dado real:** o treino publicado pelo Panzeri Run aparece no app da Zepp da Roberta em *Meu calendário de treinamento → Agenda → "Plano de treinamento de terceiros"* como "Corrida 4 km · 22/10" (4,00 km, alerta de ritmo 07'00"–07'20"/km): nome, data, distância e pace corretos.
+- **Limite do lado da Zepp:** o modelo dela, **Amazfit Active Edge**, aparece em *Meus dispositivos* como **"Não suportado"** e o treino NÃO é sincronizado ao relógio. Não é falha do Panzeri Run. Pergunta a fazer ao Jeff Fu: quais modelos aceitam treinos estruturados via Workout API (para avisar a aluna antes de conectar). Enquanto isso a aluna segue o treino pelo app.
+- O treino também aparece na tela do Panzeri Run; "aceito pela Zepp" continua não significando "relógio recebeu".
+
+### 22/10/2026 — ESCOPO DEFINIDO do próximo build Android (build 13) — NÃO gerar antes de implementar tudo e Elton mandar
+**Build 12 (já enviado por Elton à Play Console em 22/10; declaração de apps de saúde em análise no Google) contém:** Health Connect com autorização por categoria (todas as categorias + histórico), foto de perfil, nome do treino Zepp "Corrida km · data". **NÃO contém:** itens 1–5 abaixo.
+
+**Escopo do build 13 (somar tudo):**
+1. Health Connect — **percurso GPS** (ExerciseRoute; permissão por sessão; gravar latitude/longitude em `ActivityTimeSeriesPoint` como a Zepp; `hasRoute`). *A implementar.*
+2. Health Connect — **leitura em segundo plano** (`READ_HEALTH_DATA_IN_BACKGROUND` + tarefa em segundo plano). *A implementar; só validável em aparelho real; avisar Elton quando o 1º dado real chegar.*
+3. Zepp — destaque "Conectado — falta autorizar" + cartão "Falta pouco" (commit 7ff75bf). *Pronto no código.*
+4. Zepp — cartão "Treinos no relógio" com último envio e botão **Sincronizar agora** (commit d9dd105). *Pronto no código.*
+5. Cartão **Samsung / Galaxy Watch** passa a apontar para o Health Connect (os dados da Samsung chegam por ele). *A implementar.*
+6. **Garmin e COROS:** esconder ou manter "Indisponível"? *Decisão de Elton pendente.*
+7. **Formulário da Play Console** atualizado com `READ_EXERCISE_ROUTES` e `READ_HEALTH_DATA_IN_BACKGROUND` (e manifesto) junto com o build 13.
+8. Fora do escopo (limite técnico): temperatura da pele (a biblioteca `react-native-health-connect@3.5.3` não oferece o tipo).
+- **Antes de dar o build por pronto:** testar com Galaxy Watch real (Samsung Health → compartilhar com Health Connect ligado); gates (tsc, lint, testes) e revisão independente do que mexer em permissão/saúde; só então gerar UM build e subir.
+- **Regra:** ao receber "gera o build", conferir esta lista e avisar Elton do que ficaria de fora ANTES de gerar.
+- **Decisão de Elton (22/10/2026), item 6 do build 13:** Garmin e COROS continuam como "Indisponível" (manter). Escopo do build 13 FECHADO; implementação dos itens 1, 2, 5 e 7 só quando Elton disser "vai".
