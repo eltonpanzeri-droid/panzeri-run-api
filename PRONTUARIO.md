@@ -3051,3 +3051,14 @@ Pedido do Elton: encerrar a integração Zepp de ponta a ponta antes da central 
 ### 22/10/2026 — Autorizações opcionais da Zepp ficavam escondidas (2 de 2 alunas conectaram sem passar por elas)
 - **Problema (relato de Elton, alunas Duane e outra):** conectavam a Zepp e nunca davam a autorização de envio de treinos ao relógio nem a do Atlas; as telas existiam, mas ficavam abaixo da dobra e nada as destacava.
 - **Correção (código local, sem build):** `GET /me/integrations` devolve `pendingAuthorizations` (Zepp conectada sem `watch_delivery`/`ai_external` vigentes); a lista "Dispositivos e integrações" mostra "Conectado — falta autorizar" em cor de alerta + "Pendente: … Toque para autorizar"; a tela da Zepp abre com o cartão "Falta pouco para terminar". As autorizações continuam em telas próprias e opcionais (nada é presumido nem concedido junto com a conexão). Valem no PWA após o deploy; no app Android só no próximo build.
+
+### 22/10/2026 — Lista do PRÓXIMO build Android (Elton: "tudo junto num build só, quando eu mandar")
+1. Percurso GPS do Health Connect (ainda NÃO implementado).
+2. Leitura em segundo plano do Health Connect (ainda NÃO implementada; avisar Elton quando o 1º dado real chegar).
+3. Destaque das autorizações opcionais pendentes da Zepp ("Conectado — falta autorizar" + cartão "Falta pouco"): JÁ implementado no código; só falta o build (no PWA vale após o deploy).
+- Junto com o build: atualizar o formulário da Play Console (rota GPS e segundo plano) e só gastar build quando Elton mandar.
+
+### 22/10/2026 — Envio de treinos à Zepp na hora (gatilhos) — caso Roberta
+- **Problema:** autorizar o envio de treinos não publicava nada; só a rotina de 30 min (e a Roberta não achou nada no Zepp). O app também não tem botão "Sincronizar agora" (a rota `POST /zepp/workouts/sync` existe, o app nunca foi ligado a ela).
+- **Correção (só API, sem build):** `requestZeppWorkoutSync(userId, motivo)` (`zepp/zepp-workout-trigger.ts`, sem injeção) chamado depois de gravar em: autorização do envio (`grant`, ~0,5 s), geração semanal, regeneração de dia, reagendamento, edição/remoção do treinador e abertura do app (`GET /training-plans/current`, máx. 1 vez/5 min por aluna). O `ZeppWorkoutSchedulerService` agrupa pedidos, só age para quem tem conexão + `watch_delivery`, e nunca atrasa/derruba quem chamou. A rotina de 30 min continua como rede de segurança.
+- **Lista do próximo build Android (item 4):** cartão "Treinos no relógio" com último envio / "nenhum treino enviado ainda (sem corrida programada)" + botão "Sincronizar agora".

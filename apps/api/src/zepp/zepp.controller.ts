@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpException, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { requestZeppWorkoutSync } from './zepp-workout-trigger';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
@@ -46,6 +47,8 @@ export class ZeppController {
     const result = await this.connections.updatePurposes(ZEPP_PROVIDER_ID, user.sub, { grant: body?.grant, revoke: body?.revoke, acknowledged: body?.acknowledged, version: body?.consentVersion, textHash: body?.consentTextHash });
     // Retirou o envio de treinos: o publicador remove os treinos da conta Zepp agora (nao espera a rotina periodica). Nunca desfaz a revogacao ja gravada.
     if (Array.isArray(body?.revoke) && body.revoke.includes('watch_delivery')) void this.workouts.reconcile(user.sub).catch(() => undefined);
+    // Autorizou o envio de treinos: publica na hora (sem esperar a rotina de 30 minutos).
+    if (Array.isArray(body?.grant) && body.grant.includes('watch_delivery')) requestZeppWorkoutSync(user.sub, 'grant');
     return result;
   }
 

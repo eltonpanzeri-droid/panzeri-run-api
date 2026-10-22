@@ -1,4 +1,5 @@
 ﻿import { completedMetrics, objectiveExecutionOf } from './objective-execution';
+import { requestZeppWorkoutSync } from '../zepp/zepp-workout-trigger';
 import { ActivityDetailService } from '../activity-execution/activity-detail.service';
 import { buildStudentCalendar, mondayOf, normalizeCalendarRange, CalendarLinkedActivity } from './student-calendar';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
@@ -795,6 +796,7 @@ export class CoachService {
     }
 
     const updated = await this.prisma.trainingSession.update({ where: { id: sessionId }, data });
+    requestZeppWorkoutSync(studentId, 'session_edited'); // treinador editou: reenvia ao relogio (so' para quem autorizou)
     // Edicao material do treinador (modalidade, duracao, distancia, estrutura): a analise da execucao dessa sessao e' refeita (force: a modalidade nao entra na
     // impressao digital). Sem feedback e sem vinculo nao ha execucao a reanalisar. Nao gera treino nem avisa agentes.
     if (materialFieldsChanged) {
@@ -833,6 +835,7 @@ export class CoachService {
       throw new BadRequestException('Esse treino ja foi registrado pela aluna — nao da pra excluir, so editar.');
     }
     await this.prisma.trainingSession.delete({ where: { id: sessionId } });
+    requestZeppWorkoutSync(studentId, 'session_removed');
     return { message: 'Treino excluido.' };
   }
 

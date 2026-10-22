@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { requestZeppWorkoutSync } from '../zepp/zepp-workout-trigger';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { collapseEqualRange, runPaceHeaderLabel } from './range-display';
@@ -665,7 +666,9 @@ export class TrainingPlansService {
   ) {
     await this.acquireGenerationLock(userId);
     try {
-      return await this.withAiScope(userId, () => this.generateWeekLocked(userId, weeklyOverride, options));
+      const generated = await this.withAiScope(userId, () => this.generateWeekLocked(userId, weeklyOverride, options));
+      requestZeppWorkoutSync(userId, 'plan_generated'); // depois de gravar; disparo-e-esquece (so' age para quem autorizou o envio ao relogio)
+      return generated;
     } finally {
       await this.prisma.trainingPlanGenerationLock.delete({ where: { userId } }).catch(() => undefined);
     }
@@ -2016,11 +2019,14 @@ export class TrainingPlansService {
       where: { id: session.id },
       data: { scheduledDate: newDate, weekday: targetWeekday },
     });
+    requestZeppWorkoutSync(session.userId, 'session_rescheduled');
     return { rescheduled: true };
   }
 
   async regenerateSession(userId: string, sessionId: string, options?: { allowToday?: boolean }) {
-    return this.withAiScope(userId, () => this.regenerateSessionInner(userId, sessionId, options));
+    const regenerated = await this.withAiScope(userId, () => this.regenerateSessionInner(userId, sessionId, options));
+    requestZeppWorkoutSync(userId, 'session_regenerated');
+    return regenerated;
   }
 
   private async regenerateSessionInner(userId: string, sessionId: string, options?: { allowToday?: boolean }) {

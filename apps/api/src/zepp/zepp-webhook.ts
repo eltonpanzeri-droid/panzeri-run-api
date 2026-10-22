@@ -233,6 +233,7 @@ function parseMetric(kind: ZeppMetricKind, record: Record<string, unknown>): Zep
   if (!userId || !USER_ID.test(userId) || startTimeSec === null) return null;
   const rawSummary = typeof record.summaryId === 'string' || typeof record.summaryId === 'number' ? String(record.summaryId) : null;
   const providerSummaryId = rawSummary && rawSummary.length <= 100 ? rawSummary : null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { userId: _userId, ...rest } = record;
   const values = sanitizeJson(rest, 0, 200) as Record<string, unknown>;
   if (JSON.stringify(values).length > MAX_METRIC_JSON_BYTES) return null;

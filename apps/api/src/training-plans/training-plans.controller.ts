@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { requestZeppWorkoutSync } from '../zepp/zepp-workout-trigger';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { TrainingPlansService } from './training-plans.service';
@@ -20,6 +21,7 @@ export class TrainingPlansController {
 
   @Get('current')
   current(@CurrentUser() user: CurrentUserPayload) {
+    requestZeppWorkoutSync(user.sub, 'app_open'); // a tela do treino abre ao entrar no app: confere se ha algo a enviar ao relogio (no maximo a cada 5 min por aluna)
     return this.trainingPlansService.current(user.sub);
   }
 
