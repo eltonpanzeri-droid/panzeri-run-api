@@ -2382,3 +2382,14 @@ model TrainingAnalysis {
   @@index([deliveredWithPlanId])
   @@index([userId, periodEnd])
 }
+
+// Foto de perfil do aluno (21/10/2026). UMA linha por aluno = a referencia central da imagem (painel e app leem daqui; nada e' copiado para outros cadastros). JPEG ja' reduzido e
+// comprimido pelo app (<= 60 KB), guardado no proprio banco para nao criar um segundo armazenamento. Privado: so' o proprio aluno e o treinador/admin leem, por rota autenticada.
+// Apagada junto com a conta (ACCOUNT_DELETE_ORDER).
+model UserProfilePhoto {
+  userId    String   @id
+  data      Bytes
+  mimeType  String
+  byteSize  Int
+  updatedAt DateTime @updatedAt
+}

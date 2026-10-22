@@ -262,3 +262,35 @@ describe('carregamento (consulta real ao banco, so leitura)', () => {
     }
   });
 });
+
+describe('envio de treinos ao relogio: diagnostico em camadas (sem alterar nenhum estado)', () => {
+  const watchOf = (zeppRow: NonNullable<IntegrationsRaw['zepp']>, zeppWatch?: IntegrationsRaw['zeppWatch']) => category(find(buildStudentIntegrations('a1', raw({ zepp: zeppRow, zeppWatch }), NOW, false), 'zepp')!, 'watch_delivery');
+  const check = (c: ReturnType<typeof watchOf>, label: string) => c.checks!.find((k) => k.label.startsWith(label))!;
+
+  it('conectou mas NUNCA concedeu a finalidade propria: nao autorizada, com a causa exata (a conexao nao autoriza o envio)', () => {
+    const c = watchOf(zepp({ grantedPurposes: ['history', 'tracking'], purposeConsents: null }), { publishingEnabled: true, unitProfileConfirmed: true });
+    expect(c.authorized).toBe(false);
+    expect(check(c, 'Autorização da aluna')).toMatchObject({ ok: false });
+    expect(check(c, 'Autorização da aluna').detail).toContain('ainda não concedeu');
+    expect(check(c, 'Publicador')).toMatchObject({ ok: true });
+    expect(check(c, 'Conexão')).toMatchObject({ ok: true });
+    expect(check(c, 'Aplicativo habilitado pela Zepp').ok).toBeNull(); // nao verificavel pelo painel: nunca presumido
+  });
+
+  it('autorizou sobre texto antigo: distingue de "nunca autorizou"; autorizou: ok; nunca vira autorizada por outra via', () => {
+    const stale = watchOf(zepp({ purposeConsents: purposeRecords({ watch_delivery: { version: '0.1', textHash: 'x', grantedAt: '2026-10-01T00:00:00.000Z' } }) }));
+    expect(stale.authorized).toBe(false);
+    expect(check(stale, 'Autorização da aluna').detail).toContain('texto antigo');
+    const ok = watchOf(zepp());
+    expect(ok.authorized).toBe(true);
+    expect(check(ok, 'Autorização da aluna')).toMatchObject({ ok: true });
+  });
+
+  it('autorizacao individual e configuracao do servidor sao camadas independentes: publicador desligado ou perfil nao confirmado aparecem como bloqueio proprio', () => {
+    const c = watchOf(zepp(), { publishingEnabled: false, unitProfileConfirmed: false });
+    expect(c.authorized).toBe(true); // a aluna autorizou: isso nao e rebaixado por causa da configuracao
+    expect(check(c, 'Publicador')).toMatchObject({ ok: false });
+    expect(check(c, 'Perfil de unidades')).toMatchObject({ ok: false });
+    expect(watchOf(zepp()).checks!.find((k) => k.label.startsWith('Publicador'))!.ok).toBeNull(); // sem informacao: nao inventa
+  });
+});

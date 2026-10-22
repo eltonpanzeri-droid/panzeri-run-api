@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { UpdateAvailabilityDto } from './dto/update-availability.dto';
@@ -7,6 +7,7 @@ import { UpdateHealthDto } from './dto/update-health.dto';
 import { UpdatePreferencesDto } from './dto/update-preferences.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { MeService } from './me.service';
+import { ProfilePhotoService } from '../profile-photo/profile-photo.service';
 import { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { settlePendingReevaluation, viewOf } from '../activity-execution/pending-reevaluation';
@@ -18,7 +19,24 @@ export class MeController {
     private readonly meService: MeService,
     private readonly trainingIntelligenceQuery: TrainingIntelligenceQueryService,
     private readonly prisma: PrismaService,
+    private readonly profilePhoto: ProfilePhotoService,
   ) {}
+
+  // Foto de perfil (21/10/2026): o aluno gerencia SOMENTE a propria (id sempre do token, nunca da URL).
+  @Get('photo')
+  getPhoto(@CurrentUser() user: CurrentUserPayload) {
+    return this.profilePhoto.get(user.sub);
+  }
+
+  @Put('photo')
+  setPhoto(@CurrentUser() user: CurrentUserPayload, @Body() body: { imageBase64?: unknown }) {
+    return this.profilePhoto.set(user.sub, body?.imageBase64);
+  }
+
+  @Delete('photo')
+  deletePhoto(@CurrentUser() user: CurrentUserPayload) {
+    return this.profilePhoto.remove(user.sub);
+  }
 
   // Nova Home do aluno (30/09/2026) — mesma leitura canônica já usada pelo painel do treinador
   // (`CoachController` → `TrainingIntelligenceQueryService.getVariableSnapshot`), agora também

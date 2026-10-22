@@ -28,6 +28,8 @@
     "expo-device": "~8.0.10",
     "expo-font": "~14.0.12",
     "expo-health-connect": "0.1.1",
+    "expo-image-manipulator": "~14.0.8",
+    "expo-image-picker": "~17.0.11",
     "expo-notifications": "~0.32.17",
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "^3.0.9",

@@ -2890,28 +2890,77 @@ h3 {
 .historyDetailReport { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 
 /* Aluno > Integracoes (21/10/2026) — somente leitura */
-.integrationsTab { display: grid; gap: 14px; }
-.integrationsIntro, .integrationsFooter { color: var(--muted); font-size: 13px; margin: 0; }
+.integrationsTab { display: grid; gap: 16px; }
+.integrationsHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.integrationsHead h3 { margin: 0 0 4px; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+.integrationsHead p { margin: 0; color: var(--muted); font-size: 14px; max-width: 62ch; line-height: 1.45; }
+.integrationsCounters { display: flex; gap: 10px; }
+.integrationsCounters span { padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); font-size: 13px; color: var(--muted); display: grid; text-align: center; }
+.integrationsCounters strong { font-size: 20px; color: var(--ink); line-height: 1.1; }
+.integrationsCounters .attn { border-color: transparent; background: var(--warn-soft); color: var(--warn); }
+.integrationsCounters .attn strong { color: var(--warn); }
 .integrationsEmpty { color: var(--muted); padding: 16px; border: 1px dashed var(--line); border-radius: 8px; margin: 0; }
-.integrationCard { border: 1px solid var(--line); border-radius: 10px; background: var(--paper); padding: 14px; display: grid; gap: 12px; }
-.integrationCard header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.integrationCard h3 { margin: 0; font-size: 16px; }
-.integrationBadge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
+.integrationsFooter { color: var(--muted); font-size: 13px; margin: 0; }
+.integrationsGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+@media (max-width: 860px) { .integrationsGrid { grid-template-columns: minmax(0, 1fr); } }
+
+.integrationCard { border: 1px solid var(--line); border-radius: 14px; background: var(--paper); padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.integrationCard:not(.live) { background: var(--panel); }
+.integrationCard:not(.live) .integrationLogo { filter: grayscale(1); opacity: 0.55; }
+.integrationCard:not(.live) h3 { color: var(--muted); }
+.integrationCard.live { border-color: var(--accent); box-shadow: 0 1px 0 rgba(15, 118, 110, 0.15), 0 4px 14px rgba(15, 118, 110, 0.08); }
+.integrationCard.live.tone-bad { border-color: var(--danger); box-shadow: 0 4px 14px rgba(185, 28, 28, 0.08); }
+.integrationCard.live.tone-warn { border-color: var(--warn); box-shadow: 0 4px 14px rgba(180, 83, 9, 0.08); }
+.integrationCard header { display: flex; align-items: center; gap: 12px; }
+.integrationLogo { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 20px; overflow: hidden; }
+.integrationLogo img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.integrationTitle { display: grid; gap: 4px; min-width: 0; }
+.integrationTitle h3 { margin: 0; font-size: 16px; }
+.integrationBadge { display: inline-flex; align-items: center; gap: 4px; width: fit-content; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
 .integrationBadge.ok { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .integrationBadge.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
 .integrationBadge.bad { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
-.integrationFacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 16px; margin: 0; }
+.integrationQuiet { margin: 0; color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.integrationSummary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.integrationSummary > div { display: grid; gap: 1px; padding: 10px 12px; border-radius: 10px; background: var(--panel); }
+.integrationSummary small { font-size: 12px; color: var(--muted); }
+.integrationSummary strong { font-size: 15px; }
+.integrationSummary em { font-size: 12px; color: var(--muted); font-style: normal; }
+.integrationAlert { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px; display: flex; gap: 8px; line-height: 1.4; }
+.integrationAlert svg { flex: 0 0 auto; margin-top: 2px; }
+.integrationAlert.bad { background: var(--danger-soft); color: var(--danger); }
+.integrationToggle { justify-self: start; background: none; border: 0; padding: 2px 0; color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.integrationToggle .flip { transform: rotate(180deg); }
+.integrationDetails { display: grid; gap: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.integrationFacts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0; }
 .integrationFacts dt { font-size: 12px; color: var(--muted); }
 .integrationFacts dd { margin: 0; font-size: 14px; }
-.integrationFacts small, .integrationTable small, .integrationFailures small, .integrationAtlas small { color: var(--muted); }
 .integrationWarnings { margin: 0; padding: 8px 10px 8px 26px; background: var(--warn-soft); color: var(--warn); border-radius: 8px; font-size: 13px; }
-.integrationTableWrap { overflow-x: auto; }
-.integrationTable { width: 100%; border-collapse: collapse; font-size: 13px; }
-.integrationTable th, .integrationTable td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; }
-.integrationTable th { font-size: 12px; color: var(--muted); border-top: 0; }
-.integrationTable small { display: block; }
-.integrationNone { color: var(--muted); }
-.integrationAtlas { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 4px; font-size: 13px; }
-.integrationAtlas p, .integrationNote { margin: 0; color: var(--muted); font-size: 12px; }
-.integrationFailures ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
-.integrationsTab button { cursor: pointer; }
+.integrationCategories { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.integrationCategories li, .integrationAtlas { display: flex; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+.integrationCategories li.has { border-color: var(--accent-soft); background: rgba(204, 251, 241, 0.25); }
+.integrationCategories li > div, .integrationAtlas > div { display: grid; gap: 3px; min-width: 0; }
+.integrationCategories small, .integrationAtlas small, .integrationFailures small { color: var(--muted); font-weight: 400; }
+.integrationCategories em, .integrationAtlas em { color: var(--muted); font-size: 12px; font-style: normal; }
+.integrationAtlas p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.catIcon { flex: 0 0 30px; width: 30px; height: 30px; border-radius: 8px; background: var(--panel); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
+.integrationCategories li.has .catIcon { background: var(--accent-soft); color: var(--accent); }
+.catReceived { color: var(--ink); }
+.integrationFailures ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 13px; }
+.integrationFailures li { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.integrationsTab button { font-family: inherit; }
+.integrationsFooter button { background: none; border: 0; color: var(--accent); font-weight: 600; cursor: pointer; padding: 0; }
+
+/* Foto de perfil do aluno (21/10/2026) */
+.studentAvatar { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; border-radius: 50%; overflow: hidden; background: var(--accent-soft); color: var(--accent); font-weight: 700; letter-spacing: 0.02em; user-select: none; }
+.studentAvatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.studentNameCell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.studentNameCell > span:last-child { min-width: 0; }
+.studentIdentityHeader h2 { display: flex; align-items: center; gap: 12px; }
+
+.integrationChecks { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.integrationChecks li { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; }
+.integrationChecks li > span:first-child { flex: 0 0 18px; width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11px; background: var(--panel); color: var(--muted); }
+.integrationChecks li.ok > span:first-child { background: var(--accent-soft); color: var(--accent); }
+.integrationChecks li.bad > span:first-child { background: var(--danger-soft); color: var(--danger); }
+.integrationChecks small { display: block; color: var(--muted); font-weight: 400; }

@@ -8,6 +8,7 @@ import TrainingIntelligenceStudio from './ti/studio';
 import ZeppTestPanel from './zepp-test-panel';
 import StudentCalendar from './student-calendar';
 import StudentIntegrations from './student-integrations';
+import StudentAvatar from './student-avatar';
 import type { CalendarSession } from './student-calendar';
 import { adaptiveChannel } from './ti/channel';
 import type { ExportProfile } from './ti/anonymous-export';
@@ -111,6 +112,7 @@ interface ProspectRow {
 interface StudentRow {
   id: string;
   studentCode: string;
+  photoUpdatedAt?: string | null;
   name: string;
   email: string;
   goal: string;
@@ -1734,9 +1736,12 @@ export default function AdminHome() {
               </div>
               {(dashboard?.students ?? []).map((student) => (
                 <div className={`row rowButton ${selectedStudentId === student.id ? 'selected' : ''}`} key={student.id} onClick={() => goToStudent(student.id)}>
-                  <span>
-                    <strong>{student.name} <small className="studentCodeTag">Cod. {student.studentCode}</small></strong>
-                    <small>{student.email}</small>
+                  <span className="studentNameCell">
+                    <StudentAvatar studentId={student.id} name={student.name} accessToken={token} apiUrl={API_URL} photoUpdatedAt={student.photoUpdatedAt ?? null} size={36} />
+                    <span>
+                      <strong>{student.name} <small className="studentCodeTag">Cod. {student.studentCode}</small></strong>
+                      <small>{student.email}</small>
+                    </span>
                   </span>
                   <span>{student.goal}</span>
                   <span>{student.adherencePercent}%</span>
@@ -3676,7 +3681,7 @@ function StudentPanel({
           momento — feedback direto dele depois da 1ª versao das abas. Foi pra dentro da aba Cadastro. */}
       <div className="studentIdentityHeader">
         <p className="eyebrow">Aluno selecionado</p>
-        <h2>{student.name} <small className="studentCodeTag">Cod. {student.studentCode}</small></h2>
+        <h2><StudentAvatar studentId={student.id} name={student.name} accessToken={token} apiUrl={API_URL} size={52} /><span>{student.name} <small className="studentCodeTag">Cod. {student.studentCode}</small></span></h2>
       </div>
 
       {/* 01/09: o resto do painel virou abas (pedido do treinador — antes era uma pagina so' com

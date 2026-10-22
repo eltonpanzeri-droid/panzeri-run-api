@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { isConnectionConsentCurrent, isPurposeCurrent } from '../provider-hub/provider-consent.service';
 import { ZEPP_CONSENT } from '../zepp/zepp-consent';
 import { EXTERNAL_AI_APPROVED_PROVIDERS } from '../ai-governance/ai-data-eligibility.service';
+import { profileIsConfirmed } from '../zepp/zepp-workout-publisher.service';
+import { ZEPP_WORKOUT_PROFILE } from '../zepp/zepp-workout-profile';
 
 // Painel do treinador — Aluno > Integracoes (21/10/2026). SOMENTE CONSULTA do estado REAL das integracoes da aluna, reaproveitando as tabelas de conexao e de recebimento que ja existem
 // (nenhum segundo sistema de integracoes, nenhum fluxo de conexao alterado). Distingue CONTA CONECTADA de DADO EFETIVAMENTE RECEBIDO: "conectada" vem da conexao; "recebeu dados" vem dos
@@ -34,6 +36,14 @@ export interface IntegrationCategoryView {
   lastAt: string | null;
   count: number | null;
   note?: string;
+  // Diagnostico por camadas (hoje so' no envio de treinos ao relogio): cada verificacao com o seu proprio resultado (true/false; null = nao verificavel pelo painel).
+  checks?: IntegrationCheckView[];
+}
+
+export interface IntegrationCheckView {
+  label: string;
+  ok: boolean | null;
+  detail: string;
 }
 
 export interface IntegrationFailureView {
@@ -94,6 +104,8 @@ export interface IntegrationsRaw {
   zepp_daily: ReceiptStat;
   zepp_resting_hr: ReceiptStat;
   zepp_hrv: ReceiptStat;
+  // Configuracao tecnica do publicador de treinos (servidor), lida do ambiente; ausente (testes antigos) => nao informada.
+  zeppWatch?: { publishingEnabled: boolean; unitProfileConfirmed: boolean };
   zeppLastProcessedEventAt: Date | null;
   zeppWorkoutLastAcceptedAt: Date | null;
   inboundFailures: Array<{ provider: string; eventType: string; status: string; lastError: string | null; updatedAt: Date }>;
@@ -206,6 +218,21 @@ function zeppEntry(raw: IntegrationsRaw, now: Date, externalAiUnlocked: boolean)
     lastAt: iso(receipt.lastAt), count: receipt.count,
   });
   const watchAuthorized = active && purposes.has('watch_delivery') && isPurposeCurrent(ZEPP_CONSENT, 'watch_delivery', z!.purposeConsents);
+  // Envio de treinos ao relogio: camadas SEPARADAS. A Zepp nao usa escopos no OAuth (so' o login da aluna); a autorizacao de enviar treinos e' a finalidade propria
+  // 'watch_delivery' (tela separada, depois de conectar) — a conexao sozinha NUNCA a concede.
+  const watchPurposeGranted = purposes.has('watch_delivery');
+  const watchChecks: IntegrationCheckView[] = [
+    { label: 'Aplicativo habilitado pela Zepp', ok: null, detail: 'Habilitação do Panzeri Run junto à Zepp (contrato). O painel não consegue consultá-la; o primeiro envio real a confirma.' },
+    { label: 'Publicador ligado no servidor', ok: raw.zeppWatch ? raw.zeppWatch.publishingEnabled : null, detail: raw.zeppWatch ? (raw.zeppWatch.publishingEnabled ? 'ZEPP_WORKOUT_PUBLISH_ENABLED está ligada.' : 'ZEPP_WORKOUT_PUBLISH_ENABLED está desligada: nenhum treino é enviado a ninguém.') : 'Não informado.' },
+    { label: 'Perfil de unidades da Workout V2', ok: raw.zeppWatch ? raw.zeppWatch.unitProfileConfirmed : null, detail: raw.zeppWatch ? (raw.zeppWatch.unitProfileConfirmed ? 'Confirmado.' : 'Não confirmado: o envio permanece bloqueado.') : 'Não informado.' },
+    { label: 'Conexão da aluna ativa', ok: active && !expired, detail: !z ? 'A aluna não conectou a Zepp.' : !active ? 'A aluna desconectou a Zepp.' : expired ? 'A autorização com a Zepp expirou; a aluna precisa reconectar.' : 'Conectada.' },
+    {
+      label: 'Autorização da aluna para enviar treinos', ok: z ? watchAuthorized : null,
+      detail: !z ? 'Sem conexão.' : watchAuthorized ? 'A aluna autorizou “Enviar meus treinos ao relógio”.'
+        : !watchPurposeGranted ? 'A aluna ainda não concedeu a autorização própria “Enviar meus treinos ao relógio” (tela separada, oferecida depois de conectar). Conectar a Zepp, por si só, não autoriza o envio.'
+          : 'A autorização foi dada sobre um texto antigo; a aluna precisa autorizar de novo na tela atual.',
+    },
+  ];
   const categories: IntegrationCategoryView[] = [
     category('activity', 'Atividades', ['activity'], activity),
     category('activity_sensors', 'Frequência cardíaca, cadência, potência e elevação', ['activity_sensors'], stat(raw.zepp_activity_sensors)),
@@ -216,7 +243,7 @@ function zeppEntry(raw: IntegrationsRaw, now: Date, externalAiUnlocked: boolean)
     category('hrv', 'Variabilidade da frequência cardíaca (HRV)', ['hrv'], stat(raw.zepp_hrv)),
     {
       id: 'watch_delivery', label: 'Envio de treinos ao relógio', direction: 'envia', authorized: z ? watchAuthorized : null,
-      lastAt: iso(raw.zeppWorkoutLastAcceptedAt), count: null, note: 'Mostra o último envio aceito pela Zepp; isso não confirma que o relógio já recebeu o treino.',
+      lastAt: iso(raw.zeppWorkoutLastAcceptedAt), count: null, note: 'Mostra o último envio aceito pela Zepp; isso não confirma que o relógio já recebeu o treino.', checks: watchChecks,
     },
   ];
 
@@ -331,6 +358,7 @@ export class StudentIntegrationsService {
       zeppWorkoutLastAcceptedAt: acceptedAt,
       inboundFailures: failedEvents,
       zeppWorkoutFailures: failedDeliveries,
+      zeppWatch: { publishingEnabled: this.config.get<string>('ZEPP_WORKOUT_PUBLISH_ENABLED')?.trim().toLowerCase() === 'true', unitProfileConfirmed: profileIsConfirmed(ZEPP_WORKOUT_PROFILE) },
     };
     const externalAiUnlocked = EXTERNAL_AI_APPROVED_PROVIDERS.includes('zepp') && this.config.get<string>('ZEPP_EXTERNAL_AI_ENABLED')?.trim().toLowerCase() === 'true';
     return buildStudentIntegrations(studentId, raw, now, externalAiUnlocked);

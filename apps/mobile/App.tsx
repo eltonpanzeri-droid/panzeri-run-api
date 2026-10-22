@@ -23,6 +23,7 @@ import { parseJourneyFromSearch, resolveJourney } from './src/journey';
 import { STRAVA_BUTTON_HEIGHT, STRAVA_BUTTON_WIDTH, STRAVA_COMPATIBLE_LOGO, STRAVA_CONNECT_BUTTON } from './src/stravaBrand';
 import { planStartsInFuture, saoPauloDateString } from './src/weekWindow';
 import { ActivityDetailBody, type ActivityDetail } from './src/activityDetail';
+import { Avatar, ProfilePhotoCard, useProfilePhoto } from './src/profilePhoto/ProfilePhoto';
 import { BrandMark } from './theme/BrandMark';
 import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
@@ -1558,6 +1559,8 @@ function AppInner() {
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
   const [accessToken, setAccessToken] = useState('');
+  // Foto de perfil (21/10/2026): uma so', do servidor; cabecalho e Perfil leem este mesmo estado.
+  const { uri: profilePhotoUri, setUri: setProfilePhotoUri } = useProfilePhoto(API_URL, accessToken);
   const [refreshToken, setRefreshToken] = useState('');
   const [anamneseRoutine, setAnamneseRoutine] = useState<RoutineDay[]>(cloneRoutine(defaultRoutineDays));
   const [savedMe, setSavedMe] = useState<MeResponse | null>(null);
@@ -1839,7 +1842,7 @@ function AppInner() {
       )}
       {screen === 'app' && (
         <View style={styles.appShell}>
-          <AppHeader userEmail={userEmail} userName={userName} objective={savedMe?.preferences?.mainGoal} onOpenMenu={() => setMenuOpen((open) => !open)} />
+          <AppHeader userEmail={userEmail} userName={userName} photoUri={profilePhotoUri} objective={savedMe?.preferences?.mainGoal} onOpenMenu={() => setMenuOpen((open) => !open)} />
           <AppMenu
             visible={menuOpen}
             activeTab={activeTab}
@@ -2042,6 +2045,7 @@ function AppInner() {
             {activeTab === 'privacy' && <PrivacyDataScreen accessToken={accessToken} onOpenStrava={() => setActiveTab('strava')} onOpenBilling={() => setActiveTab('billing')} onAccountDeleted={logout} />}
             {activeTab === 'profile' && (
               <>
+                <ProfilePhotoCard apiUrl={API_URL} accessToken={accessToken} name={userName} uri={profilePhotoUri} onChange={setProfilePhotoUri} />
                 {/* 10/2026: a conexao Polar vive so' em 'Dispositivos e integrações' (e a gestao/exclusao em 'Privacidade e dados'). */}
                 <Anamnese
                   accessToken={accessToken}
@@ -2693,10 +2697,11 @@ function ExerciseResponsibility({ accessToken, onAccepted }: { accessToken: stri
   );
 }
 
-function AppHeader({ userEmail, userName, objective, onOpenMenu }: { userEmail: string; userName: string; objective?: string | null; onOpenMenu: () => void }) {
+function AppHeader({ userEmail, userName, photoUri, objective, onOpenMenu }: { userEmail: string; userName: string; photoUri: string | null; objective?: string | null; onOpenMenu: () => void }) {
   return (
     <View style={styles.appHeader}>
-      <View>
+      <View style={{ marginRight: 12 }}><Avatar uri={photoUri} name={userName} size={48} /></View>
+      <View style={{ flex: 1 }}>
         <View style={styles.headerBrandRow}>
           <BrandMark size={14} color={PRColors.ocean} />
           <Text style={styles.headerOverline}>Panzeri Run</Text>

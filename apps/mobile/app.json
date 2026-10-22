@@ -54,6 +54,14 @@
     "plugins": [
       "expo-notifications",
       "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "O Panzeri Run acessa suas fotos apenas para você escolher a foto do seu perfil.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
       "./plugins/withAppleHealthProof",
       "expo-health-connect",
       [

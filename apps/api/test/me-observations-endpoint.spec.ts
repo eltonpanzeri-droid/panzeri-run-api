@@ -7,7 +7,7 @@ import { MeController } from '../src/me/me.controller';
 describe('MeController.getObservation', () => {
   it('chama getVariableSnapshot com o proprio userId (nunca um id da URL/outro aluno)', async () => {
     const getVariableSnapshot = jest.fn().mockResolvedValue({ mathApplicable: true });
-    const controller = new MeController({} as never, { getVariableSnapshot } as never, {} as never);
+    const controller = new MeController({} as never, { getVariableSnapshot } as never, {} as never, {} as never);
     const result = await controller.getObservation({ sub: 'aluno-1' } as never, 'workout.preSleepQuality');
     expect(getVariableSnapshot).toHaveBeenCalledWith('aluno-1', 'workout.preSleepQuality');
     expect(result).toEqual({ mathApplicable: true });
@@ -24,7 +24,7 @@ describe('MeController.getObservation: dados em atualizacao (provisorios)', () =
     const getVariableSnapshot = jest.fn().mockResolvedValue(snapshot);
     // a pendencia nao consegue concluir aqui (sem acesso a sessoes): permanece registrada
     const prisma: any = { correctionReevaluation: { findUnique: jest.fn(async () => ({ ...pendingRow })), updateMany: jest.fn(async () => ({ count: 1 })) } };
-    const controller = new MeController({} as never, { getVariableSnapshot } as never, prisma);
+    const controller = new MeController({} as never, { getVariableSnapshot } as never, prisma, {} as never);
     const result = await controller.getObservation({ sub: 'aluno-1' } as never, 'execution.timeInBandPct');
     expect(result).toMatchObject({ mathApplicable: true, provisional: { reason: 'correction_pending', sessions: 2 } });
   });
@@ -32,14 +32,14 @@ describe('MeController.getObservation: dados em atualizacao (provisorios)', () =
   it('execution.* sem pendencia: provisional = null (dado definitivo)', async () => {
     const getVariableSnapshot = jest.fn().mockResolvedValue(snapshot);
     const prisma: any = { correctionReevaluation: { findUnique: jest.fn(async () => null) } };
-    const controller = new MeController({} as never, { getVariableSnapshot } as never, prisma);
+    const controller = new MeController({} as never, { getVariableSnapshot } as never, prisma, {} as never);
     expect(await controller.getObservation({ sub: 'aluno-1' } as never, 'execution.timeInBandPct')).toMatchObject({ provisional: null });
   });
 
   it('variavel comum (fadiga, RPE...) nao consulta a pendencia e devolve o mesmo formato de antes', async () => {
     const getVariableSnapshot = jest.fn().mockResolvedValue(snapshot);
     const prisma: any = { correctionReevaluation: { findUnique: jest.fn() } };
-    const controller = new MeController({} as never, { getVariableSnapshot } as never, prisma);
+    const controller = new MeController({} as never, { getVariableSnapshot } as never, prisma, {} as never);
     expect(await controller.getObservation({ sub: 'aluno-1' } as never, 'workout.perceivedEffort')).toEqual(snapshot);
     expect(prisma.correctionReevaluation.findUnique).not.toHaveBeenCalled();
   });

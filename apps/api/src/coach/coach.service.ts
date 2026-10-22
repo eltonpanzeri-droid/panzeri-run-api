@@ -1193,7 +1193,11 @@ export class CoachService {
     const filteredRows = input.trainingStatus
       ? allRows.filter((row) => row.status === input.trainingStatus)
       : allRows;
-    const pageRows = filteredRows.slice((input.page - 1) * input.pageSize, input.page * input.pageSize);
+    const pagedRows = filteredRows.slice((input.page - 1) * input.pageSize, input.page * input.pageSize);
+    // Foto de perfil: so' a VERSAO (para o painel buscar/atualizar o cache); os bytes nunca vao na listagem.
+    const photoRows = pagedRows.length > 0 ? await this.prisma.userProfilePhoto.findMany({ where: { userId: { in: pagedRows.map((row) => row.id) } }, select: { userId: true, updatedAt: true } }) : [];
+    const photoVersionByUser = new Map(photoRows.map((row) => [row.userId, row.updatedAt.toISOString()]));
+    const pageRows = pagedRows.map((row) => ({ ...row, photoUpdatedAt: photoVersionByUser.get(row.id) ?? null }));
 
     return {
       totals: {
