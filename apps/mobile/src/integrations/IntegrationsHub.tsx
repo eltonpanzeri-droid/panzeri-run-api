@@ -12,6 +12,8 @@ export type IntegrationAvailability = 'available' | 'preparing' | 'unavailable';
 export type IntegrationPlatform = 'web' | 'android' | 'ios_native';
 
 export interface IntegrationCatalogEntry {
+  // Autorizacoes opcionais ainda nao dadas (ex.: "envio de treinos ao relógio"): destacadas na lista para a aluna nao deixar de passar por elas.
+  pendingAuthorizations?: string[];
   id: string;
   name: string;
   summary: string;
@@ -37,12 +39,12 @@ function currentPlatform(): IntegrationPlatform {
 function availabilityLabel(entry: IntegrationCatalogEntry) {
   if (entry.availability === 'preparing') return 'Em validação';
   if (entry.availability === 'unavailable') return 'Indisponível no momento';
-  if (entry.connection.state === 'connected') return 'Conectado';
+  if (entry.connection.state === 'connected') return entry.pendingAuthorizations?.length ? 'Conectado — falta autorizar' : 'Conectado';
   return 'Não conectado';
 }
 
 function badgeColor(entry: IntegrationCatalogEntry) {
-  if (entry.availability === 'available' && entry.connection.state === 'connected') return PRColors.success;
+  if (entry.availability === 'available' && entry.connection.state === 'connected') return entry.pendingAuthorizations?.length ? PRColors.warning : PRColors.success;
   if (entry.availability === 'available') return PRColors.ocean;
   return PRColors.slate;
 }
@@ -167,6 +169,7 @@ export function IntegrationsHub({
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={styles.cardTitle}>{entry.name}</Text>
             <Text style={[styles.badgeText, { color: badgeColor(entry) }]}>{availabilityLabel(entry)}</Text>
+            {entry.pendingAuthorizations?.length ? <Text style={styles.hint}>Pendente: {entry.pendingAuthorizations.join(' e ')}. Toque para autorizar.</Text> : null}
           </View>
           <Ionicons name="chevron-forward" size={20} color={PRColors.slate} />
         </Pressable>

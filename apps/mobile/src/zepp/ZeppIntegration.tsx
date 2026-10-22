@@ -463,8 +463,15 @@ export function ZeppIntegration({ accessToken, apiUrl, variant = 'screen', priva
   }
 
   // ── Conectado ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  const pendingOptional = [!watch?.granted ? 'envio de treinos ao relógio' : null, !atlas?.granted ? 'análise com o Atlas' : null].filter((x): x is string => x !== null);
   return (
     <View style={{ gap: 16 }}>
+      {pendingOptional.length > 0 ? (
+        <View style={[styles.card, { borderColor: PRColors.warning }]}>
+          <Text style={[styles.cardTitle, { color: PRColors.warning }]}>Falta pouco para terminar</Text>
+          <Text style={styles.body}>Sua conta está conectada. Ainda faltam duas autorizações opcionais, cada uma na sua tela logo abaixo: {pendingOptional.join(' e ')}. Sem elas, o Panzeri Run não envia treinos ao seu relógio nem usa seus dados na análise personalizada.</Text>
+        </View>
+      ) : null}
       <View style={styles.card}>
         {reviewCard}
         <Text style={styles.cardTitle}>Conta Zepp conectada</Text>

@@ -117,7 +117,7 @@ describe('GET /me/integrations: autenticacao e escopo', () => {
     expect(calls[0].args.select).toEqual({ disconnectedAt: true });
     expect(calls[1].args.select).toEqual({ id: true });
     expect(calls[2].args.select).toEqual({ disconnectedAt: true });
-    expect(calls[3].args.select).toEqual({ disconnectedAt: true }); // Zepp: so' o estado, nunca token
+    expect(calls[3].args.select).toEqual({ disconnectedAt: true, grantedPurposes: true, purposeConsents: true }); // Zepp: so' estado e autorizacoes (para destacar o que falta), nunca token
     const body = JSON.stringify(result);
     expect(body).not.toContain('segredo-nao-pode-sair');
     expect(body).not.toMatch(/token|secret|aluno-A|athleteId|polarUserId/i);
@@ -142,5 +142,29 @@ describe('GET /me/integrations: autenticacao e escopo', () => {
   it('o servico nao referencia campos sensiveis das tabelas de conexao', () => {
     const source = readFileSync(join(__dirname, '../src/integrations/integrations.service.ts'), 'utf8');
     expect(source).not.toMatch(/accessToken|refreshToken|athleteId|polarUserId|wahooUserId|stravaActivity|rawExternalActivity/);
+  });
+});
+
+describe('GET /me/integrations: destaca autorizacoes opcionais pendentes (22/10/2026)', () => {
+  const { IntegrationsService } = require('../src/integrations/integrations.service');
+  const env = { ZEPP_CLIENT_ID: 'x', ZEPP_CLIENT_SECRET: 'x', ZEPP_REDIRECT_URI: 'x', ZEPP_TOKEN_ENCRYPTION_KEY: 'x', ZEPP_ENABLED_USER_IDS: '*' } as Record<string, string>;
+  const catalogFor = async (zepp: unknown) => {
+    const prisma = { polarConnection: { findUnique: async () => null }, stravaConnection: { findUnique: async () => null }, wahooConnection: { findUnique: async () => null }, providerConnection: { findUnique: async () => zepp } };
+    return (await new IntegrationsService(prisma, { get: (k: string) => env[k] }).catalog('aluno-A')).providers.find((p: any) => p.id === 'zepp');
+  };
+
+  it('conectada sem as telas proprias: lista o que falta; nao conectada: nada pendente', async () => {
+    expect((await catalogFor({ disconnectedAt: null, grantedPurposes: ['history', 'tracking'], purposeConsents: null })).pendingAuthorizations).toEqual(['envio de treinos ao relógio', 'análise com o Atlas']);
+    expect((await catalogFor(null)).pendingAuthorizations).toBeUndefined();
+    expect((await catalogFor({ disconnectedAt: new Date(), grantedPurposes: [], purposeConsents: null })).pendingAuthorizations).toBeUndefined();
+  });
+
+  it('autorizacao dada sobre o texto vigente sai da lista; texto antigo volta a ser pendente', async () => {
+    const { ZEPP_CONSENT } = require('../src/zepp/zepp-consent');
+    const { purposeTextHash } = require('../src/provider-hub/provider-consent.service');
+    const watch = ZEPP_CONSENT.optionalPurposes.find((p: any) => p.id === 'watch_delivery');
+    const record = { version: watch.screen.version, textHash: purposeTextHash(watch), grantedAt: '2026-10-22T12:00:00.000Z' };
+    expect((await catalogFor({ disconnectedAt: null, grantedPurposes: ['watch_delivery'], purposeConsents: { watch_delivery: record } })).pendingAuthorizations).toEqual(['análise com o Atlas']);
+    expect((await catalogFor({ disconnectedAt: null, grantedPurposes: ['watch_delivery'], purposeConsents: { watch_delivery: { ...record, version: '0.1' } } })).pendingAuthorizations).toEqual(['envio de treinos ao relógio', 'análise com o Atlas']);
   });
 });
