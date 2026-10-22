@@ -925,6 +925,8 @@ export default function AdminHome() {
   }
 
   function changeView(view: AdminView) {
+    // 22/10/2026: a busca por nome so' vale na tela em que foi digitada. Trocar de tela zera a busca; antes ela continuava aplicada em segredo (o campo some no Panorama) e filtrava os totais.
+    if (view !== activeView) { setQuery(''); setPage(1); }
     setActiveView(view);
     setMenuOpen(false);
     if (view === 'coupons') void loadCoupons();
