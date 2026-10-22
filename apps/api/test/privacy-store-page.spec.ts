@@ -29,9 +29,11 @@ describe('politica de privacidade das lojas', () => {
     expect(all).toContain('O envio só acontece quando você toca nele');
   });
 
-  it('Health Connect: permissoes de leitura de exercicio, distancia e FC; sem segundo plano (coerente com o app)', () => {
+  it('Health Connect: leitura por categoria autorizada (somente leitura, sem escrita, sem rota GPS e sem segundo plano por enquanto) e coerente com o app', () => {
     const app = JSON.parse(read('mobile/app.json')) as { expo: { android: { permissions: string[] } } };
-    expect(app.expo.android.permissions.filter((p) => p.includes('health.'))).toHaveLength(3);
+    const hc = app.expo.android.permissions.filter((p) => p.includes('health.'));
+    for (const required of ['READ_EXERCISE', 'READ_DISTANCE', 'READ_HEART_RATE', 'READ_SLEEP']) expect(hc).toContain('android.permission.health.' + required);
+    expect(hc.some((p) => /WRITE_|BACKGROUND|ROUTES/.test(p))).toBe(false);
     expect(all).toContain('não sincroniza continuamente em segundo plano');
   });
 

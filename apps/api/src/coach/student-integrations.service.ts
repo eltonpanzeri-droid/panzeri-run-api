@@ -6,6 +6,7 @@ import { ZEPP_CONSENT } from '../zepp/zepp-consent';
 import { EXTERNAL_AI_APPROVED_PROVIDERS } from '../ai-governance/ai-data-eligibility.service';
 import { profileIsConfirmed } from '../zepp/zepp-workout-publisher.service';
 import { ZEPP_WORKOUT_PROFILE } from '../zepp/zepp-workout-profile';
+import { HEALTH_CONNECT_CONSENT } from '../health-connect/health-connect-consent';
 
 // Painel do treinador — Aluno > Integracoes (21/10/2026). SOMENTE CONSULTA do estado REAL das integracoes da aluna, reaproveitando as tabelas de conexao e de recebimento que ja existem
 // (nenhum segundo sistema de integracoes, nenhum fluxo de conexao alterado). Distingue CONTA CONECTADA de DADO EFETIVAMENTE RECEBIDO: "conectada" vem da conexao; "recebeu dados" vem dos
@@ -106,6 +107,9 @@ export interface IntegrationsRaw {
   zepp_hrv: ReceiptStat;
   // Configuracao tecnica do publicador de treinos (servidor), lida do ambiente; ausente (testes antigos) => nao informada.
   zeppWatch?: { publishingEnabled: boolean; unitProfileConfirmed: boolean };
+  // Health Connect (22/10/2026): autorizacoes gravadas no servidor (a conexao em si e' do aparelho) e o que chegou, por CATEGORIA de consentimento. Ausente => so' o que ja' existia (dados sem registro).
+  healthConnect?: { createdAt: Date; disconnectedAt: Date | null; grantedCategories: unknown; grantedPurposes: unknown; purposeConsents: unknown; consentVersion: string | null; consentTextHash: string | null } | null;
+  hcReceipts?: Record<string, ReceiptStat>;
   zeppLastProcessedEventAt: Date | null;
   zeppWorkoutLastAcceptedAt: Date | null;
   inboundFailures: Array<{ provider: string; eventType: string; status: string; lastError: string | null; updatedAt: Date }>;
@@ -278,6 +282,49 @@ function zeppEntry(raw: IntegrationsRaw, now: Date, externalAiUnlocked: boolean)
   };
 }
 
+// Health Connect: so' aparece com as autorizacoes quando o aluno ja' registrou alguma (senao segue o caso "dados sem registro de conexao"). Conectada = autorizacoes ativas no servidor.
+function healthConnectEntry(raw: IntegrationsRaw, externalAiUnlocked: boolean): StudentIntegrationView | null {
+  const h = raw.healthConnect;
+  if (!h) return null;
+  const active = !h.disconnectedAt;
+  const granted = new Set<string>(Array.isArray(h.grantedCategories) ? (h.grantedCategories as unknown[]).filter((c): c is string => typeof c === 'string') : []);
+  const purposes = new Set<string>(Array.isArray(h.grantedPurposes) ? (h.grantedPurposes as unknown[]).filter((c): c is string => typeof c === 'string') : []);
+  const consentCurrent = isConnectionConsentCurrent(HEALTH_CONNECT_CONSENT, h);
+  const receipts = raw.hcReceipts ?? {};
+  const activity = raw.activityByProvider.health_connect ?? EMPTY;
+  const categories: IntegrationCategoryView[] = HEALTH_CONNECT_CONSENT.groups.map((group) => {
+    const stats = group.categories.map((c) => (c === 'activity' ? activity : stat(receipts[c])));
+    const lastAt = stats.reduce<Date | null>((latest, st) => (st.lastAt && (!latest || st.lastAt > latest) ? st.lastAt : latest), null);
+    return {
+      id: group.id, label: group.label, direction: 'recebe' as const,
+      authorized: active && consentCurrent && group.categories.every((c) => granted.has(c)),
+      lastAt: iso(lastAt), count: stats.reduce((sum, st) => sum + st.count, 0),
+    };
+  });
+  const lastAt = categories.reduce<string | null>((latest, c) => (c.lastAt && (!latest || c.lastAt > latest) ? c.lastAt : latest), null);
+  const warnings: string[] = ['A conexão com o Health Connect fica no celular da aluna: aqui aparecem as autorizações registradas no servidor e os dados que de fato chegaram.'];
+  if (active && !consentCurrent) warnings.push('O texto das autorizações mudou: o compartilhamento está suspenso até a aluna confirmar o texto atualizado no aplicativo.');
+  if (active && consentCurrent && !categories.some((c) => c.authorized)) warnings.push('A aluna não autorizou nenhuma categoria de dados: nada é recebido.');
+  const pending = categories.filter((c) => c.authorized && c.count === 0).map((c) => c.label);
+  if (pending.length > 0) warnings.push(`Autorizadas, mas ainda sem dados recebidos: ${pending.join('; ')}. Isso é esperado enquanto o aplicativo, o relógio ou o Android ainda não disponibilizam ou sincronizam essas categorias.`);
+  const record = (h.purposeConsents as Record<string, { grantedAt?: string }> | null)?.ai_external;
+  const aiListed = active && purposes.has('ai_external');
+  const aiCurrent = aiListed && isPurposeCurrent(HEALTH_CONNECT_CONSENT, 'ai_external', h.purposeConsents);
+  const state: IntegrationState = active ? 'connected' : 'disconnected';
+  return {
+    provider: 'health_connect', name: PROVIDER_NAME.health_connect, state, stateLabel: active ? 'Autorizações registradas' : STATE_LABEL.disconnected,
+    connectedSince: iso(h.createdAt), disconnectedAt: iso(h.disconnectedAt), lastSyncAt: lastAt, lastSyncBasis: lastAt ? 'ultimo_dado_recebido' : null,
+    categories,
+    atlas: {
+      applies: true, authorized: aiCurrent, needsNewAuthorization: Boolean(aiListed && !aiCurrent), since: aiCurrent && record?.grantedAt ? record.grantedAt : null, systemEnabled: externalAiUnlocked,
+      note: aiCurrent ? (externalAiUnlocked ? 'A aluna autorizou o uso dos dados do Health Connect pelo Atlas (autorização separada).' : 'A aluna autorizou o uso pelo Atlas, mas o envio a IA externa ainda não está ligado no sistema: nada é enviado.')
+        : aiListed ? 'A autorização do Atlas foi dada sobre uma versão anterior do texto e precisa ser renovada: hoje não vale.'
+        : 'A aluna não autorizou o uso dos dados do Health Connect pelo Atlas: esses dados não são enviados à IA.',
+    },
+    failures: [], warnings,
+  };
+}
+
 function stravaEntry(raw: IntegrationsRaw): StudentIntegrationView | null {
   if (!raw.strava) return null;
   return {
@@ -290,8 +337,8 @@ function stravaEntry(raw: IntegrationsRaw): StudentIntegrationView | null {
   };
 }
 
-export function buildStudentIntegrations(studentId: string, raw: IntegrationsRaw, now: Date, externalAiUnlocked: boolean): StudentIntegrationsResult {
-  const entries = [zeppEntry(raw, now, externalAiUnlocked), stravaEntry(raw), legacyEntry('polar', raw, now), legacyEntry('wahoo', raw, now), legacyEntry('apple_health', raw, now), legacyEntry('health_connect', raw, now)]
+export function buildStudentIntegrations(studentId: string, raw: IntegrationsRaw, now: Date, externalAiUnlocked: boolean, healthConnectAiUnlocked = false): StudentIntegrationsResult {
+  const entries = [zeppEntry(raw, now, externalAiUnlocked), stravaEntry(raw), legacyEntry('polar', raw, now), legacyEntry('wahoo', raw, now), legacyEntry('apple_health', raw, now), healthConnectEntry(raw, healthConnectAiUnlocked) ?? legacyEntry('health_connect', raw, now)]
     .filter((entry): entry is StudentIntegrationView => entry !== null);
   return { studentId, generatedAt: now.toISOString(), integrations: entries };
 }
@@ -340,6 +387,28 @@ export class StudentIntegrationsService {
       this.prisma.workoutDelivery.findMany({ where: { provider: 'zepp_workout_v2', status: 'failed', requestedAt: { gte: since7 }, trainingSession: { userId } }, orderBy: { requestedAt: 'desc' }, take: 20, select: { errorMessage: true, failedAt: true, requestedAt: true } }),
     ]);
 
+    // Health Connect: autorizacoes (so' colunas de estado) e o que chegou por categoria.
+    const hcWhere = { userId, provider: 'health_connect' };
+    const hcSensorsWhere = { userId, provider: 'health_connect', OR: [{ avgHeartRateBpm: { not: null } }, { cadenceAvg: { not: null } }, { powerAvgWatts: { not: null } }, { elevationGainMeters: { not: null } }] };
+    const [hcRow, hcSensorsRow, hcSensorsCount, hcSleep, hcDaily, hcResting, hcHrv, hcMetrics] = await Promise.all([
+      this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider: 'health_connect', userId } }, select: { createdAt: true, disconnectedAt: true, grantedCategories: true, grantedPurposes: true, purposeConsents: true, consentVersion: true, consentTextHash: true } }),
+      this.prisma.activityLog.findFirst({ where: hcSensorsWhere, orderBy: { startedAt: 'desc' }, select: { rawActivity: { select: { receivedAt: true } } } }),
+      this.prisma.activityLog.count({ where: hcSensorsWhere }),
+      agg(this.prisma.wearableSleepSummary.aggregate({ where: hcWhere, _max: { receivedAt: true }, _count: true })),
+      agg(this.prisma.wearableDailySummary.aggregate({ where: { ...hcWhere, OR: [{ steps: { not: null } }, { distanceMeters: { not: null } }, { activeKilocalories: { not: null } }] }, _max: { receivedAt: true }, _count: true })),
+      agg(this.prisma.wearableDailySummary.aggregate({ where: { ...hcWhere, restingHeartRateBpm: { not: null } }, _max: { receivedAt: true }, _count: true })),
+      agg(this.prisma.wearableHrvSummary.aggregate({ where: hcWhere, _max: { receivedAt: true }, _count: true })),
+      this.prisma.wearableMetricRecord.groupBy({ by: ['metricKind'], where: hcWhere, _max: { receivedAt: true }, _count: { _all: true } }),
+    ]);
+    const metricStat = (...kinds: string[]): ReceiptStat => {
+      const rows = hcMetrics.filter((m) => kinds.includes(m.metricKind));
+      return { lastAt: rows.reduce<Date | null>((latest, m) => (m._max.receivedAt && (!latest || m._max.receivedAt > latest) ? m._max.receivedAt : latest), null), count: rows.reduce((sum, m) => sum + m._count._all, 0) };
+    };
+    const hcReceipts: Record<string, ReceiptStat> = {
+      activity_sensors: { lastAt: hcSensorsRow?.rawActivity.receivedAt ?? null, count: hcSensorsCount }, sleep: hcSleep, daily_activity: hcDaily, resting_heart_rate: hcResting, hrv: hcHrv,
+      vo2_max: metricStat('vo2_max'), body_composition: metricStat('body_composition'), pulse_ox: metricStat('pulse_ox'), skin_temperature: metricStat('skin_temperature'), respiratory_rate: metricStat('respiratory_rate'), nutrition: metricStat('nutrition', 'hydration'),
+    };
+
     const accepted = (lastDelivery?.providerMetadata as { windowAcceptedAt?: unknown } | null)?.windowAcceptedAt;
     const acceptedAt = typeof accepted === 'string' && !Number.isNaN(new Date(accepted).getTime()) ? new Date(accepted) : lastDelivery?.sentAt ?? null;
     const raw: IntegrationsRaw = {
@@ -354,6 +423,7 @@ export class StudentIntegrationsService {
       zepp_activity_sensors: { lastAt: sensorsRow?.rawActivity.receivedAt ?? null, count: sensorsCount },
       zepp_activity_route: { lastAt: routeRow?.rawActivity.receivedAt ?? null, count: routeCount },
       zepp_sleep: sleep, zepp_daily: daily, zepp_resting_hr: restingHr, zepp_hrv: hrv,
+      healthConnect: hcRow, hcReceipts,
       zeppLastProcessedEventAt: lastEvent?.processedAt ?? null,
       zeppWorkoutLastAcceptedAt: acceptedAt,
       inboundFailures: failedEvents,
@@ -361,6 +431,7 @@ export class StudentIntegrationsService {
       zeppWatch: { publishingEnabled: this.config.get<string>('ZEPP_WORKOUT_PUBLISH_ENABLED')?.trim().toLowerCase() === 'true', unitProfileConfirmed: profileIsConfirmed(ZEPP_WORKOUT_PROFILE) },
     };
     const externalAiUnlocked = EXTERNAL_AI_APPROVED_PROVIDERS.includes('zepp') && this.config.get<string>('ZEPP_EXTERNAL_AI_ENABLED')?.trim().toLowerCase() === 'true';
-    return buildStudentIntegrations(studentId, raw, now, externalAiUnlocked);
+    const healthConnectAiUnlocked = EXTERNAL_AI_APPROVED_PROVIDERS.includes('health_connect') && this.config.get<string>('HEALTH_CONNECT_EXTERNAL_AI_ENABLED')?.trim().toLowerCase() === 'true';
+    return buildStudentIntegrations(studentId, raw, now, externalAiUnlocked, healthConnectAiUnlocked);
   }
 }

@@ -104,6 +104,17 @@ export function normalizeHealthConnectExercise(input: unknown, now: Date = new D
   const rawSamples = asFiniteNumber(e.heartRateSampleCount);
   const heartRateSampleCount = rawSamples !== null && rawSamples >= 0 && Number.isInteger(rawSamples) ? rawSamples : null;
 
+  // Velocidade, potencia, cadencia, elevacao e calorias da sessao (22/10/2026): escalares que o app resume dos registros da MESMA origem dentro da sessao; ausente/invalido => null.
+  const bounded = (value: unknown, max: number) => {
+    const n = asFiniteNumber(value);
+    return n !== null && n >= 0 && n <= max ? n : null;
+  };
+  const sensors = {
+    speedAvgMps: bounded(e.speedAvgMps, 100), speedMaxMps: bounded(e.speedMaxMps, 100), powerAvgWatts: bounded(e.powerAvgWatts, 5000), powerMaxWatts: bounded(e.powerMaxWatts, 10000),
+    cadenceAvgPerMin: bounded(e.cadenceAvgPerMin, 400), elevationGainMeters: bounded(e.elevationGainMeters, 20000),
+  };
+  const energy = { activeKilocalories: bounded(e.activeKilocalories, 50000), totalKilocalories: bounded(e.totalKilocalories, 50000) };
+
   // Fuso: offset em segundos informado pelo Health Connect (startZoneOffset.totalSeconds). Ausente => null (nunca adivinhado).
   const offsetSeconds = asFiniteNumber(e.startZoneOffsetSeconds);
   const utcOffsetMinutes = offsetSeconds !== null && Math.abs(offsetSeconds) <= 18 * 3600 ? Math.round(offsetSeconds / 60) : null;
@@ -140,6 +151,8 @@ export function normalizeHealthConnectExercise(input: unknown, now: Date = new D
         avgHeartRateBpm,
         maxHeartRateBpm,
         heartRateSampleCount,
+        ...sensors,
+        ...energy,
       },
       activity: { startedAt, utcOffsetMinutes, durationSec, distanceMeters, avgHeartRateBpm, maxHeartRateBpm, sport },
       providerMetrics: {
@@ -155,6 +168,8 @@ export function normalizeHealthConnectExercise(input: unknown, now: Date = new D
         endedAt: endedAt.toISOString(),
         startZoneOffsetSeconds: offsetSeconds,
         heartRate: heartRateSampleCount === null ? null : { sampleCount: heartRateSampleCount },
+        sensors: Object.values(sensors).every((v) => v === null) ? null : sensors,
+        energy: Object.values(energy).every((v) => v === null) ? null : energy,
       },
     },
   };

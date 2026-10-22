@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { NotFoundException } from '@nestjs/common';
 import { buildStudentIntegrations, describeFailure, IntegrationsRaw, StudentIntegrationsService, STATE_LABEL } from '../src/coach/student-integrations.service';
 import { ZEPP_CONSENT } from '../src/zepp/zepp-consent';
+import { HEALTH_CONNECT_CONSENT } from '../src/health-connect/health-connect-consent';
 import { consentTextHash, purposeTextHash } from '../src/provider-hub/provider-consent.service';
 
 // Painel do treinador: Aluno > Integracoes (21/10/2026). Consulta do estado REAL, sem inventar conexao nem sincronizacao, distinguindo conta conectada de dado recebido, sem expor segredos e
@@ -225,12 +226,12 @@ describe('carregamento (consulta real ao banco, so leitura)', () => {
       polarConnection: { findUnique: jest.fn(async () => null) },
       wahooConnection: { findUnique: jest.fn(async () => null) },
       stravaConnection: { findUnique: jest.fn(async () => null) },
-      providerConnection: { findUnique: jest.fn(async () => ({ ...zepp(), accessTokenExpiresAt: D('2026-10-22T10:00:00Z'), refreshTokenEncrypted: 'cifrado' })) },
+      providerConnection: { findUnique: jest.fn(async ({ where }: any) => (where.provider_userId.provider === 'zepp' ? { ...zepp(), accessTokenExpiresAt: D('2026-10-22T10:00:00Z'), refreshTokenEncrypted: 'cifrado' } : null)) },
       rawExternalActivity: { groupBy: jest.fn(async () => [{ provider: 'zepp', _max: { receivedAt: D('2026-10-21T18:00:00Z') }, _count: { _all: 2 } }]) },
       activityLog: { findFirst: jest.fn(async () => ({ rawActivity: { receivedAt: D('2026-10-21T18:00:00Z') } })), count: jest.fn(async () => 2) },
       wearableSleepSummary: { aggregate: agg(D('2026-10-21T09:00:00Z'), 1) },
       wearableDailySummary: { aggregate: agg(null, 0) },
-      wearableHrvSummary: { aggregate: agg(null, 0) },
+      wearableHrvSummary: { aggregate: agg(null, 0) }, wearableMetricRecord: { groupBy: jest.fn(async () => []) },
       providerInboundEvent: { findFirst: jest.fn(async () => ({ processedAt: D('2026-10-21T18:01:00Z') })), findMany: jest.fn(async () => []) },
       workoutDelivery: { findFirst: jest.fn(async () => ({ providerMetadata: { windowAcceptedAt: '2026-10-21T00:05:00.000Z' }, sentAt: D('2026-10-20T00:00:00Z') })), findMany: jest.fn(async () => []) },
       ...over,
@@ -292,5 +293,42 @@ describe('envio de treinos ao relogio: diagnostico em camadas (sem alterar nenhu
     expect(check(c, 'Publicador')).toMatchObject({ ok: false });
     expect(check(c, 'Perfil de unidades')).toMatchObject({ ok: false });
     expect(watchOf(zepp()).checks!.find((k) => k.label.startsWith('Publicador'))!.ok).toBeNull(); // sem informacao: nao inventa
+  });
+});
+
+describe('Health Connect no painel: autorizacoes registradas x dados que de fato chegaram (22/10/2026)', () => {
+  const NOWH = new Date('2026-10-22T12:00:00Z');
+  const hcRow = (over: Record<string, unknown> = {}) => ({ createdAt: new Date('2026-10-22T10:00:00Z'), disconnectedAt: null, grantedCategories: ['activity', 'sleep', 'hrv'], grantedPurposes: ['history', 'tracking'], purposeConsents: {}, consentVersion: HEALTH_CONNECT_CONSENT.version, consentTextHash: consentTextHash(HEALTH_CONNECT_CONSENT), ...over });
+  const hcEntry = (rawOver: Partial<IntegrationsRaw>, unlocked = false) => find(buildStudentIntegrations('a1', raw(rawOver), NOWH, false, unlocked), 'health_connect');
+
+  it('sem registro de autorizacao: segue o caso antigo (so aparece se ja chegaram dados, sem inventar conexao)', () => {
+    expect(hcEntry({})).toBeUndefined();
+    expect(hcEntry({ activityByProvider: { health_connect: { lastAt: D('2026-10-20T10:00:00Z'), count: 2 } } })).toMatchObject({ state: 'data_only' });
+  });
+
+  it('com autorizacoes: categorias autorizadas x recebidas separadas; autorizada sem dado avisa; nao autorizada nao conta como recebida', () => {
+    const entry = hcEntry({ healthConnect: hcRow() as never, hcReceipts: { sleep: { lastAt: D('2026-10-22T08:00:00Z'), count: 3 } }, activityByProvider: { health_connect: { lastAt: D('2026-10-21T09:00:00Z'), count: 2 } } })!;
+    expect(entry).toMatchObject({ state: 'connected', stateLabel: 'Autorizações registradas', lastSyncBasis: 'ultimo_dado_recebido', lastSyncAt: '2026-10-22T08:00:00.000Z' });
+    expect(category(entry, 'exercise')).toMatchObject({ authorized: true, count: 2 });
+    expect(category(entry, 'sleep')).toMatchObject({ authorized: true, count: 3 });
+    expect(category(entry, 'hrv')).toMatchObject({ authorized: true, count: 0 });
+    expect(category(entry, 'fitness')).toMatchObject({ authorized: false, count: 0 });
+    expect(entry.warnings.join(' ')).toContain('Autorizadas, mas ainda sem dados recebidos: Variabilidade da frequência cardíaca (HRV)');
+    expect(entry.warnings.join(' ')).toContain('fica no celular da aluna');
+  });
+
+  it('Atlas separado: autorizado + liberado / autorizado sem liberacao no sistema / nunca autorizou; retirou tudo = desconectada', () => {
+    const atlas = HEALTH_CONNECT_CONSENT.optionalPurposes.find((p) => p.id === 'ai_external')!;
+    const granted = hcRow({ grantedPurposes: ['history', 'ai_external'], purposeConsents: { ai_external: { version: atlas.screen!.version, textHash: purposeTextHash(atlas), grantedAt: '2026-10-22T11:00:00.000Z' } } });
+    expect(hcEntry({ healthConnect: granted as never }, true)!.atlas).toMatchObject({ authorized: true, systemEnabled: true, since: '2026-10-22T11:00:00.000Z' });
+    expect(hcEntry({ healthConnect: granted as never }, false)!.atlas.note).toContain('ainda não está ligado');
+    expect(hcEntry({ healthConnect: hcRow() as never })!.atlas).toMatchObject({ authorized: false });
+    expect(hcEntry({ healthConnect: hcRow({ disconnectedAt: new Date('2026-10-22T11:30:00Z') }) as never })).toMatchObject({ state: 'disconnected' });
+  });
+
+  it('texto das autorizacoes mudou: nada vale como autorizado e o painel avisa', () => {
+    const entry = hcEntry({ healthConnect: hcRow({ consentVersion: '0.9' }) as never })!;
+    expect(entry.categories.every((c) => c.authorized === false)).toBe(true);
+    expect(entry.warnings.join(' ')).toContain('suspenso');
   });
 });

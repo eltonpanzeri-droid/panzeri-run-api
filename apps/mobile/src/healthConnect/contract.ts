@@ -4,7 +4,10 @@
 // ActivityLog -> identidade fisica / canonica / reconciliacao / confirmacao ja' existentes. O app NAO classifica, NAO deduplica e NAO decide nada de
 // treino: so' le, resume (distancia e FC da MESMA origem, dentro da sessao) e envia. Dado ausente fica null; nunca se inventa metrica.
 
-// Somente leitura e somente o necessario na primeira versao (nada de rota GPS, sono, passos, calorias, peso ou nutricao).
+import type { ExerciseExtras } from './healthRecords';
+
+// Conjunto MINIMO (exercicio, distancia e FC), usado quando nao ha consulta de autorizacoes. Desde 22/10/2026 as demais categorias (sono, passos, calorias, VO2 max, composicao corporal...)
+// seguem as autorizacoes da aluna (ver categories.ts); esta lista nao e' mais um limite do produto.
 export const HC_RECORD_TYPES = ['ExerciseSession', 'Distance', 'HeartRate'] as const;
 export type HcRecordType = (typeof HC_RECORD_TYPES)[number];
 // Sem ExerciseSession nao ha o que importar (insuficiente). Distancia e FC sao opcionais: sem elas a sessao e' importada sem essas metricas.
@@ -21,7 +24,7 @@ export const MIN_AUTO_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 export const BATCH_SIZE = 50;
 const SESSION_TOLERANCE_MS = 60 * 1000;
 
-export type HealthConnectStatus = 'not_connected' | 'connected' | 'syncing' | 'done' | 'insufficient_permissions' | 'unavailable' | 'error';
+export type HealthConnectStatus = 'not_connected' | 'connected' | 'syncing' | 'done' | 'insufficient_permissions' | 'unavailable' | 'error' | 'needs_consent';
 export type SdkStatus = 'available' | 'update_required' | 'unavailable';
 
 // ---- Textos de estado exibidos ao aluno (UI) ----------------------------------------------------------------------------------------
@@ -33,6 +36,7 @@ export const STATUS_LABEL: Record<HealthConnectStatus, string> = {
   insufficient_permissions: 'Permissões insuficientes',
   unavailable: 'Health Connect indisponível',
   error: 'Erro de sincronização',
+  needs_consent: 'Autorizações pendentes',
 };
 
 export function formatLastSync(iso: string | null): string | null {
@@ -77,6 +81,15 @@ export interface ExercisePayload {
   avgHeartRateBpm: number | null;
   maxHeartRateBpm: number | null;
   heartRateSampleCount: number | null;
+  // Velocidade, potencia, cadencia, elevacao e calorias da sessao (22/10/2026), resumidos dos registros da MESMA origem dentro da sessao; ausentes => null.
+  speedAvgMps?: number | null;
+  speedMaxMps?: number | null;
+  powerAvgWatts?: number | null;
+  powerMaxWatts?: number | null;
+  cadenceAvgPerMin?: number | null;
+  elevationGainMeters?: number | null;
+  activeKilocalories?: number | null;
+  totalKilocalories?: number | null;
 }
 
 export interface ImportResponse {
@@ -124,7 +137,7 @@ export function summarizeHeartRate(records: HcRawHeartRate[], session: Pick<HcRa
 }
 
 // Monta o payload de UMA sessao. Sessao sem id de registro nao e' enviavel (sem chave de idempotencia): devolve null.
-export function buildExercisePayload(session: HcRawSession, distance: HcRawDistance[] | null, heartRate: HcRawHeartRate[] | null): ExercisePayload | null {
+export function buildExercisePayload(session: HcRawSession, distance: HcRawDistance[] | null, heartRate: HcRawHeartRate[] | null, extras?: Partial<ExerciseExtras>): ExercisePayload | null {
   const meta = session.metadata ?? {};
   if (!meta.id || typeof meta.id !== 'string') return null;
   const device = meta.device;
@@ -145,6 +158,7 @@ export function buildExercisePayload(session: HcRawSession, distance: HcRawDista
     avgHeartRateBpm: hr.avg,
     maxHeartRateBpm: hr.max,
     heartRateSampleCount: hr.count,
+    ...(extras ?? {}),
   };
 }
 

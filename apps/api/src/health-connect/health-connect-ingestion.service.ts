@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
+import { HealthConnectConsentService } from './health-connect-consent.service';
 import { HEALTH_CONNECT_CHANNEL, HEALTH_CONNECT_PAYLOAD_SCHEMA, HEALTH_CONNECT_PROVIDER, normalizeHealthConnectExercise, NormalizedHealthConnectExercise } from './health-connect-normalizer';
 
 export const MAX_EXERCISES_PER_BATCH = 50;
@@ -55,6 +56,8 @@ export class HealthConnectIngestionService {
     // Opcionais so' para testes que constroem o servico sem eles; em producao sao sempre injetados.
     private readonly physicalIdentity?: PhysicalActivityIdentityService,
     private readonly sessionExecutionLink?: SessionExecutionLinkService,
+    // Autorizacoes do aluno (22/10/2026). Opcional so' para testes antigos; em producao e' sempre injetado e a ingestao e' fail-closed.
+    private readonly consent?: HealthConnectConsentService,
   ) {}
 
   async importExercises(userId: string, body: unknown): Promise<HealthConnectImportResult> {
@@ -62,8 +65,24 @@ export class HealthConnectIngestionService {
     if (!Array.isArray(exercises) || exercises.length === 0) throw new BadRequestException('Informe exercises (lista nao vazia).');
     if (exercises.length > MAX_EXERCISES_PER_BATCH) throw new BadRequestException(`No maximo ${MAX_EXERCISES_PER_BATCH} registros por envio.`);
 
+    // Sem a categoria "Exercicios" autorizada nada e' guardado. Sensores (FC, potencia, cadencia, elevacao) sao categoria propria: sem ela esses campos nao entram.
+    let sensorsAllowed = true;
+    if (this.consent) {
+      const allowed = await this.consent.allowedCategories(userId);
+      if (!allowed.has('activity')) throw new ForbiddenException('Autorizacao de exercicios ausente: o aluno ainda nao autorizou este compartilhamento.');
+      sensorsAllowed = allowed.has('activity_sensors');
+    }
+
     const items: HealthConnectImportItemResult[] = [];
-    for (const input of exercises) {
+    for (const rawInput of exercises) {
+      const input = sensorsAllowed || !rawInput || typeof rawInput !== 'object'
+        ? rawInput
+        : { ...(rawInput as Record<string, unknown>), avgHeartRateBpm: null, maxHeartRateBpm: null, heartRateSampleCount: null, powerAvgWatts: null, powerMaxWatts: null, cadenceAvgPerMin: null, elevationGainMeters: null };
+      // Retirada no meio do lote: a autorizacao de exercicios e' relida antes de cada registro (janela minima).
+      if (this.consent && !(await this.consent.isAllowed(userId, 'activity'))) {
+        items.push({ recordId: typeof (input as { recordId?: unknown })?.recordId === 'string' ? (input as { recordId: string }).recordId : null, status: 'rejected', reason: 'autorizacao_encerrada' });
+        continue;
+      }
       const normalized = normalizeHealthConnectExercise(input);
       if (!normalized.ok) {
         const recordId = typeof (input as { recordId?: unknown })?.recordId === 'string' ? (input as { recordId: string }).recordId : null;

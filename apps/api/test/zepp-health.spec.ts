@@ -230,13 +230,13 @@ describe('IA: saude e recuperacao so entram com a categoria E o Atlas autorizado
   it('o escopo bloqueia, por categoria, o que o aluno nao autorizou (e tudo se o Atlas nao foi autorizado ou a variavel esta desligada)', async () => {
     expect(EXTERNAL_AI_APPROVED_PROVIDERS).toContain('zepp');
     const partial = await eligibility(['profile', 'activity', 'sleep'], ['ai_external']).scopeFor('u1', 'external_ai');
-    expect(partial.blockedHealth).toEqual(['zepp:daily_activity', 'zepp:hrv', 'zepp:resting_heart_rate']); // sono liberado; HRV e diario nao
+    expect((partial.blockedHealth ?? []).filter((p: string) => /^zepp:(sleep|hrv|daily_activity|resting_heart_rate)$/.test(p))).toEqual(['zepp:daily_activity', 'zepp:hrv', 'zepp:resting_heart_rate']); // sono liberado; HRV e diario nao
     const all = await eligibility(['profile', 'activity', 'sleep', 'hrv', 'daily_activity', 'resting_heart_rate'], ['ai_external']).scopeFor('u1', 'external_ai');
-    expect(all.blockedHealth).toEqual([]);
+    expect((all.blockedHealth ?? []).filter((p: string) => /^zepp:(sleep|hrv|daily_activity|resting_heart_rate)$/.test(p))).toEqual([]);
     const noAtlas = await eligibility(['profile', 'activity', 'sleep', 'hrv', 'daily_activity', 'resting_heart_rate'], []).scopeFor('u1', 'external_ai');
-    expect(noAtlas.blockedHealth).toEqual(['zepp:daily_activity', 'zepp:hrv', 'zepp:resting_heart_rate', 'zepp:sleep']);
+    expect((noAtlas.blockedHealth ?? []).filter((p: string) => /^zepp:(sleep|hrv|daily_activity|resting_heart_rate)$/.test(p))).toEqual(['zepp:daily_activity', 'zepp:hrv', 'zepp:resting_heart_rate', 'zepp:sleep']);
     const off = await eligibility(['profile', 'sleep'], ['ai_external'], {}).scopeFor('u1', 'external_ai');
-    expect(off.blockedHealth).toContain('zepp:sleep');
+    expect((off.blockedHealth ?? []).filter((p: string) => /^zepp:(sleep|hrv|daily_activity|resting_heart_rate)$/.test(p))).toContain('zepp:sleep');
     expect(off.blocked).toContain('zepp');
   });
 

@@ -48,17 +48,18 @@ function setup(env: Record<string, string> = {}) {
 afterEach(() => { const approved = EXTERNAL_AI_APPROVED_PROVIDERS as string[]; const i = approved.indexOf('novo'); if (i >= 0) approved.splice(i, 1); });
 
 describe('trava de envio externo (tripwire)', () => {
-  it('a lista de provedores liberados para IA externa so tem a Zepp (liberada por Elton em 21/10/2026) — liberar outro e uma decisao revisada, nao um efeito colateral', () => {
-    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual(['zepp']);
+  it('a lista de provedores liberados para IA externa so tem Zepp (21/10/2026) e Health Connect (22/10/2026), ambos liberados por Elton — liberar outro e uma decisao revisada, nao um efeito colateral', () => {
+    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual(['zepp', 'health_connect']);
   });
 });
 
 describe('AiDataEligibility.decide', () => {
   const external = { category: 'activity', destination: 'external_ai' as const };
 
-  it('provedores legados: comportamento atual preservado (elegiveis)', async () => {
+  it('provedores legados: comportamento atual preservado (elegiveis) — exceto o Health Connect, que desde 22/10/2026 exige a autorizacao do aluno', async () => {
     const { eligibility } = setup();
-    for (const provider of LEGACY_PROVIDER_IDS) expect(await eligibility.decide('u1', provider, external)).toEqual({ allowed: true, reason: 'legacy_provider_unchanged' });
+    expect(await eligibility.decide('u1', 'health_connect', external)).toEqual({ allowed: false, reason: 'provider_locked' });
+    for (const provider of LEGACY_PROVIDER_IDS.filter((p) => p !== 'health_connect')) expect(await eligibility.decide('u1', provider, external)).toEqual({ allowed: true, reason: 'legacy_provider_unchanged' });
   });
 
   it('provedor desconhecido (nem legado nem conector): bloqueado, fail-closed', async () => {
@@ -113,15 +114,15 @@ describe('AiDataEligibility.scopeFor', () => {
     prisma.logs.push({ userId: 'u1', provider: 'polar' }, { userId: 'u1', provider: 'garmin' }, { userId: 'u2', provider: 'outro' });
     const scope = await eligibility.scopeFor('u1');
     expect(scope).toMatchObject({ userId: 'u1', destination: 'external_ai' });
-    expect(scope.blocked).toEqual(['garmin', 'novo']);
-    expect((await eligibility.scopeFor('u2')).blocked).toEqual(['novo', 'outro']);
+    expect(scope.blocked).toEqual(['garmin', 'health_connect', 'novo']);
+    expect((await eligibility.scopeFor('u2')).blocked).toEqual(['health_connect', 'novo', 'outro']);
   });
 
   it('sem nenhum provedor da Central e so com legados: nada bloqueado (nenhuma mudanca de comportamento)', async () => {
     const prisma = makePrisma();
     prisma.logs.push({ userId: 'u1', provider: 'polar' }, { userId: 'u1', provider: 'wahoo' }, { userId: 'u1', provider: 'apple_health' }, { userId: 'u1', provider: 'health_connect' });
     const eligibility = new AiDataEligibility(prisma, new ConnectorRegistry(), { get: () => undefined } as unknown as ConfigService);
-    expect((await eligibility.scopeFor('u1')).blocked).toEqual([]);
+    expect((await eligibility.scopeFor('u1')).blocked).toEqual(['health_connect']); // so o Health Connect (sem autorizacao do aluno); Polar, Wahoo e Apple Health seguem como antes
   });
 });
 
@@ -175,7 +176,7 @@ describe('AiEgressGuard', () => {
     const { guard, eligibility, connect, unlock, prisma } = setup({ NOVO_EXTERNAL_AI_ENABLED: 'true' });
     unlock(); connect();
     const scope = await eligibility.scopeFor('u1');
-    expect(scope.blocked).toEqual([]);
+    expect(scope.blocked).toEqual(['health_connect']); // Health Connect sem autorizacao do aluno (nao e mais "legado elegivel")
     prisma.connections[0].grantedPurposes = ['history']; // aluno revoga a IA enquanto a geracao roda
     const err = await inScope(scope, () => guard.assertDeviceData('treinador_semana')).catch((e) => e);
     expect(err).toBeInstanceOf(AiEgressBlockedError);

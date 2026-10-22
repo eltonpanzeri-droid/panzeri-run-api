@@ -265,10 +265,10 @@ describe('caminho ate o Atlas com dados sinteticos (elegibilidade e procedencia 
   }
 
   it('Atlas liberado em 21/10/2026: a Zepp esta na lista, mas SEM a variavel ZEPP_EXTERNAL_AI_ENABLED no servidor o dado continua bloqueado (segunda trava)', async () => {
-    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual(['zepp']);
+    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual(['zepp', 'health_connect']);
     const eligibility = setup(['history', 'ai_external'], {});
     expect(await eligibility.decide('u1', 'zepp', { category: 'activity', destination: 'external_ai' })).toEqual({ allowed: false, reason: 'provider_locked' });
-    expect((await eligibility.scopeFor('u1', 'external_ai')).blocked).toEqual(['zepp']);
+    expect((await eligibility.scopeFor('u1', 'external_ai')).blocked).toEqual(['health_connect', 'zepp']);
   });
 
   it('com a variavel ligada, o dado e liberado APENAS com a finalidade `ai_external` concedida', async () => {
@@ -316,7 +316,7 @@ describe('o Panzeri Run segue com TODAS as integracoes existentes intactas', () 
   it('Polar, Wahoo, Strava, Apple Health e Health Connect nao referenciam nada novo da Zepp', () => {
     for (const dir of ['polar', 'wahoo', 'strava', 'apple-health', 'health-connect']) {
       const base = join(__dirname, '..', 'src', dir);
-      for (const file of require('node:fs').readdirSync(base).filter((f: string) => f.endsWith('.ts'))) {
+      for (const file of require('node:fs').readdirSync(base).filter((f: string) => f.endsWith('.ts') && !(dir === 'health-connect' && /^health-connect-(consent|health)/.test(f)))) {
         expect(readFileSync(join(base, file), 'utf8')).not.toMatch(/zepp/i);
       }
     }

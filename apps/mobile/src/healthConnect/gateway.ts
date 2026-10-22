@@ -2,6 +2,7 @@
 // Todo o resto do fluxo (sync.ts) depende apenas da interface HealthConnectGateway.
 import { Platform } from 'react-native';
 import { HC_PERMISSIONS, HcRawDistance, HcRawHeartRate, HcRawSession, SdkStatus } from './contract';
+import type { DayAggregate } from './healthRecords';
 import type { HealthConnectGateway } from './sync';
 
 type HcLib = typeof import('react-native-health-connect');
@@ -46,9 +47,13 @@ export function createNativeHealthConnectGateway(): HealthConnectGateway {
       const granted = await lib().getGrantedPermissions();
       return granted.filter((item) => item.accessType === 'read').map((item) => item.recordType as string);
     },
-    async requestPermissions() {
-      const granted = await lib().requestPermission(HC_PERMISSIONS.map((item) => ({ ...item })));
-      return granted.filter((item) => item.accessType === 'read').map((item) => item.recordType as string);
+    // Sem argumentos: o conjunto minimo antigo (exercicio, distancia, FC). Com a lista de tipos: so' o que a aluna autorizou no consentimento do Panzeri Run.
+    async requestPermissions(recordTypes?: string[], includeHistory?: boolean) {
+      const request = recordTypes
+        ? [...recordTypes.map((recordType) => ({ accessType: 'read' as const, recordType })), ...(includeHistory ? [{ accessType: 'read' as const, recordType: 'ReadHealthDataHistory' }] : [])]
+        : HC_PERMISSIONS.map((item) => ({ ...item }));
+      const granted = await lib().requestPermission(request as never);
+      return (granted as Array<{ accessType: string; recordType: string }>).filter((item) => item.accessType === 'read').map((item) => item.recordType as string);
     },
     async revokeAllPermissions() {
       await lib().revokeAllPermissions();
@@ -64,6 +69,28 @@ export function createNativeHealthConnectGateway(): HealthConnectGateway {
     async readHeartRate(range, dataOrigin) {
       const records = await readAll((pageToken) => lib().readRecords('HeartRate', { timeRangeFilter: filter(range), dataOriginFilter: dataOrigin ? [dataOrigin] : undefined, pageSize: PAGE_SIZE, pageToken }));
       return records as unknown as HcRawHeartRate[];
+    },
+    // Leitura generica de qualquer tipo de registro (so' e' chamada para tipos que a aluna autorizou e o Android liberou).
+    async readAny(recordType, range, dataOrigin) {
+      const records = await readAll((pageToken) => lib().readRecords(recordType as never, { timeRangeFilter: filter(range), dataOriginFilter: dataOrigin ? [dataOrigin] : undefined, pageSize: PAGE_SIZE, pageToken }) as never);
+      return records as unknown[];
+    },
+    // Totais do DIA calculados pelo proprio Health Connect (ele ja' evita contar duas vezes o mesmo passo gravado por celular e relogio).
+    async aggregateDay(range, granted): Promise<DayAggregate> {
+      const hc = lib();
+      const timeRangeFilter = filter(range);
+      const safe = async <T,>(type: string, run: () => Promise<T>): Promise<T | null> => (granted.includes(type) ? run().catch(() => null) : null);
+      const steps = await safe('Steps', () => hc.aggregateRecord({ recordType: 'Steps', timeRangeFilter }));
+      const distance = await safe('Distance', () => hc.aggregateRecord({ recordType: 'Distance', timeRangeFilter }));
+      const active = await safe('ActiveCaloriesBurned', () => hc.aggregateRecord({ recordType: 'ActiveCaloriesBurned', timeRangeFilter }));
+      const total = await safe('TotalCaloriesBurned', () => hc.aggregateRecord({ recordType: 'TotalCaloriesBurned', timeRangeFilter }));
+      const n = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+      return {
+        steps: n((steps as { COUNT_TOTAL?: number } | null)?.COUNT_TOTAL),
+        distanceMeters: n((distance as { DISTANCE?: { inMeters?: number } } | null)?.DISTANCE?.inMeters),
+        activeKilocalories: n((active as { ACTIVE_CALORIES_TOTAL?: { inKilocalories?: number } } | null)?.ACTIVE_CALORIES_TOTAL?.inKilocalories),
+        totalKilocalories: n((total as { BASAL_CALORIES_TOTAL?: unknown; ENERGY_TOTAL?: { inKilocalories?: number } } | null)?.ENERGY_TOTAL?.inKilocalories),
+      };
     },
   };
 }

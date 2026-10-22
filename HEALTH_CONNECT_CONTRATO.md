@@ -48,3 +48,20 @@ Corpo: `{ exercises: ExercisePayload[] }` (1–50). Usuário **sempre** do token
 
 ## 8. Google Play (passo manual do Elton)
 Antes de publicar: preencher na Play Console o formulário de declaração de **Health Connect** (permissões de leitura de exercício, distância e frequência cardíaca) e conferir a Política de Privacidade (texto jurídico segue pendente de revisão de advogado — não alterado aqui). Texto sugerido para a declaração: "O app lê sessões de exercício, distância e frequência cardíaca do Health Connect, somente com autorização explícita do aluno, para exibir e analisar seus treinos realizados. Não lê nem grava outros dados de saúde, não usa para publicidade e não vende dados. O aluno pode desconectar a qualquer momento."
+
+## 9. Ampliação (22/10/2026) — todas as categorias, com autorização por categoria
+Decisão de Elton: pegar **todos** os dados de treino e saúde possíveis e perguntar **todas** as autorizações já agora; só se deixa de lado o que o Google/Samsung proibirem explicitamente.
+- **Autorização (servidor):** `GET /health-connect/consent` (texto, grupos, hashes), `GET /health-connect/permissions`, `POST /health-connect/consent/groups|purposes|reconfirm`, `DELETE /health-connect/consent`. Registro em `ProviderConnection` (provider `health_connect`, sem token). Mesma semântica da Zepp: nada marcado, texto vigente (versão + hash), Atlas (`ai_external`) separado e travado por `HEALTH_CONNECT_EXTERNAL_AI_ENABLED`, revogação vale na hora e invalida artefatos de IA.
+- **Grupos:** exercícios; sensores (FC, potência, cadência, elevação); percurso GPS; sono; saúde diária; FC de repouso; HRV; VO₂ máx; composição corporal; SpO₂/temperatura da pele/respiração; nutrição e hidratação; + histórico além de 30 dias (finalidade opcional).
+- **Recebimento:** exercícios (`POST /health-connect/exercises`) exigem `activity`; sensores e escalares de velocidade/potência/cadência/elevação/calorias só com `activity_sensors`/`activity`. Saúde: `POST /health-connect/health-records` (sono, dia, HRV, indicadores) nas tabelas `Wearable*` já existentes (provider `health_connect`), só para a categoria autorizada.
+- **App:** o Android só é acionado **depois** das autorizações e **só** para os tipos das categorias autorizadas (`categories.ts`); sem conseguir consultar as autorizações, nada é lido.
+- **IA:** o Health Connect deixou de ser "legado elegível": só chega ao Atlas o que a aluna autorizou (categoria + Atlas) **e** com a trava do sistema ligada.
+
+### Pendências desta ampliação (honestas)
+| Item | Estado |
+|---|---|
+| Leitura de percurso GPS (`ExerciseRoute`) | ⏳ autorização já é perguntada; leitura exige permissão especial por sessão — não implementada |
+| Temperatura da pele | ⏳ autorização perguntada; a biblioteca atual (`react-native-health-connect@3.5.3`) não oferece o tipo |
+| **Leitura em segundo plano** (`READ_HEALTH_DATA_IN_BACKGROUND`) | ⏳ **OBRIGAÇÃO REGISTRADA:** implementar assim que o primeiro dado real do Health Connect chegar (avisar Elton) |
+| Validação em aparelho real (Galaxy Watch / Samsung Health) | ⏳ nenhuma validação com dado real ainda |
+| Novo build Android + declaração na Play Console | ⏳ manual do Elton (ver `HEALTH_CONNECT_PLAY_CONSOLE.md`) |

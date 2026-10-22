@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConnectorRegistry, LEGACY_PROVIDER_IDS } from '../provider-hub/connector-registry';
+import { ConsentCapability } from '../provider-hub/provider-connector';
+import { HEALTH_CONNECT_CONSENT, HEALTH_CONNECT_PROVIDER_ID } from '../health-connect/health-connect-consent';
 import { isConnectionConsentCurrent, isPurposeCurrent } from '../provider-hub/provider-consent.service';
 import { AiDestination, AiScope } from './ai-scope';
 
@@ -22,10 +24,21 @@ import { AiDestination, AiScope } from './ai-scope';
 // Provedores da Central cujo envio a fornecedores externos de IA foi liberado. 'zepp' foi LIBERADO por Elton em 21/10/2026 ("manda ver no Atlas"; condicoes do provedor,
 // politica de privacidade e consentimento tratados como resolvidos por ele). Continua valendo a SEGUNDA trava: a variavel ZEPP_EXTERNAL_AI_ENABLED precisa estar ligada no servidor, e cada aluno
 // so' entra com a autorizacao propria, separada, sobre o texto vigente. Alterar esta lista e' uma decisao de produto/juridica.
-export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string[] = ['zepp'];
+// 'health_connect' LIBERADO por Elton em 22/10/2026 (Atlas com a autorizacao propria do aluno, tambem para o Health Connect); a segunda trava continua sendo HEALTH_CONNECT_EXTERNAL_AI_ENABLED.
+export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string[] = ['zepp', 'health_connect'];
+
+// Provedores cuja conexao e' do APARELHO (sem OAuth/conector na Central) mas que tem consentimento por categoria/finalidade gravado em ProviderConnection. Para estes, o antigo atalho
+// "provedor legado = elegivel como antes" NAO vale: a IA so' recebe o que o aluno autorizou (Health Connect, 22/10/2026).
+export const DEVICE_CONSENT_PROVIDERS: Readonly<Record<string, ConsentCapability>> = { [HEALTH_CONNECT_PROVIDER_ID]: HEALTH_CONNECT_CONSENT };
+
+// Trava dupla do envio externo, reutilizavel fora do servico de elegibilidade (ex.: tela de autorizacoes).
+export function externalAiUnlockedFor(provider: string, config: { get<T = string>(key: string): T | undefined }): boolean {
+  if (!EXTERNAL_AI_APPROVED_PROVIDERS.includes(provider)) return false;
+  return config.get<string>(`${provider.toUpperCase()}_EXTERNAL_AI_ENABLED`)?.trim().toLowerCase() === 'true';
+}
 
 // Categorias de saude e recuperacao (autorizadas uma a uma pelo aluno). Cada par provedor:categoria e' avaliado separadamente no escopo de IA.
-export const HEALTH_AI_CATEGORIES = ['sleep', 'hrv', 'daily_activity', 'resting_heart_rate'] as const;
+export const HEALTH_AI_CATEGORIES = ['sleep', 'hrv', 'daily_activity', 'resting_heart_rate', 'vo2_max', 'body_composition', 'pulse_ox', 'skin_temperature', 'respiratory_rate', 'nutrition'] as const;
 
 export const AI_PURPOSE_BY_DESTINATION: Record<AiDestination, string> = { internal_ai: 'ai_internal', external_ai: 'ai_external' };
 
@@ -50,13 +63,13 @@ export class AiDataEligibility {
 
   // Trava dupla do envio externo (ver cabecalho). Lida a cada decisao.
   isExternalAiUnlocked(provider: string): boolean {
-    if (!EXTERNAL_AI_APPROVED_PROVIDERS.includes(provider)) return false;
-    return this.config.get<string>(`${provider.toUpperCase()}_EXTERNAL_AI_ENABLED`)?.trim().toLowerCase() === 'true';
+    return externalAiUnlockedFor(provider, this.config);
   }
 
   async decide(userId: string, provider: string, options: { category: string; destination: AiDestination }): Promise<EligibilityDecision> {
-    if (LEGACY_PROVIDER_IDS.includes(provider)) return { allowed: true, reason: 'legacy_provider_unchanged' };
-    const connector = this.registry.get(provider);
+    const deviceConsent = DEVICE_CONSENT_PROVIDERS[provider];
+    if (!deviceConsent && LEGACY_PROVIDER_IDS.includes(provider)) return { allowed: true, reason: 'legacy_provider_unchanged' };
+    const connector = deviceConsent ? { consent: deviceConsent } : this.registry.get(provider);
     if (!connector?.consent) return { allowed: false, reason: 'unknown_provider' };
     if (options.destination === 'external_ai' && !this.isExternalAiUnlocked(provider)) return { allowed: false, reason: 'provider_locked' };
     const connection = await this.prisma.providerConnection.findUnique({
@@ -77,19 +90,18 @@ export class AiDataEligibility {
   // tenha gravado atividades para o aluno (fail-closed).
   async scopeFor(userId: string, destination: AiDestination = 'external_ai', category = 'activity'): Promise<AiScope> {
     const blocked = new Set<string>();
-    for (const connector of this.registry.list()) {
-      if (!connector.consent) continue;
+    const consentProviders = [...this.registry.list().filter((c) => c.consent).map((c) => ({ id: c.id, categories: c.categories as readonly string[] | undefined })), ...Object.entries(DEVICE_CONSENT_PROVIDERS).map(([id, consent]) => ({ id, categories: consent.groups.flatMap((g) => g.categories as readonly string[]) as readonly string[] | undefined }))];
+    for (const connector of consentProviders) {
       if (!(await this.decide(userId, connector.id, { category, destination })).allowed) blocked.add(connector.id);
     }
     const seen = await this.prisma.activityLog.findMany({ where: { userId }, distinct: ['provider'], select: { provider: true } });
     for (const { provider } of seen) {
-      if (LEGACY_PROVIDER_IDS.includes(provider) || blocked.has(provider)) continue;
+      if ((LEGACY_PROVIDER_IDS.includes(provider) && !DEVICE_CONSENT_PROVIDERS[provider]) || blocked.has(provider)) continue;
       if (!(await this.decide(userId, provider, { category, destination })).allowed) blocked.add(provider);
     }
     // Saude e recuperacao: cada categoria exige a propria autorizacao do aluno (alem da finalidade de IA e da liberacao do provedor).
     const blockedHealth = new Set<string>();
-    for (const connector of this.registry.list()) {
-      if (!connector.consent) continue;
+    for (const connector of consentProviders) {
       for (const healthCategory of HEALTH_AI_CATEGORIES) {
         if (!(connector.categories ?? []).includes(healthCategory)) continue;
         if (!(await this.decide(userId, connector.id, { category: healthCategory, destination })).allowed) blockedHealth.add(`${connector.id}:${healthCategory}`);

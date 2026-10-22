@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { PRColors } from '../../theme/tokens';
 import { formatLastSync, HealthConnectStatus, STATUS_LABEL } from './contract';
+import { HealthConnectConsent } from './HealthConnectConsent';
 import { useHealthConnectSync } from './useHealthConnect';
 
 // Tela do Health Connect dentro de "Dispositivos e integracoes". Conectar pede a autorizacao ao Android; Sincronizar agora le e envia; Desconectar para
@@ -35,7 +36,7 @@ export function HealthConnectCard({ accessToken, apiUrl }: { accessToken: string
     setLastSyncAt(result.lastSyncAt);
     setStatus(result.status === 'skipped' ? 'connected' : result.status);
     setNote(result.status === 'done'
-      ? `${result.created + result.updated} atividade(s) nova(s) ou atualizada(s); ${result.alreadyImported} já estavam importadas.${result.missingOptional.length ? ' Alguns dados opcionais não estão autorizados.' : ''}`
+      ? `${result.created + result.updated} atividade(s) nova(s) ou atualizada(s); ${result.alreadyImported} já estavam importadas.${result.healthStored ? ` ${result.healthStored} registro(s) de saúde recebido(s).` : ''}${result.missingOptional.length ? ' Alguns dados opcionais não estão autorizados.' : ''}${result.failedCategories.length ? ' Algumas categorias não puderam ser lidas agora e serão tentadas de novo.' : ''}`
       : null);
   };
 
@@ -47,6 +48,16 @@ export function HealthConnectCard({ accessToken, apiUrl }: { accessToken: string
     setBusy(false);
     setStatus(result.status);
     if (result.status === 'connected') await runSync();
+  };
+
+  // Depois de salvar as autorizacoes no Panzeri Run: pede ao Android SO' as permissoes das categorias marcadas e sincroniza. Sem nenhuma categoria marcada, nada e' pedido.
+  const onConsentSaved = async () => {
+    if (!sync) return;
+    const result = await sync.connect();
+    if (!mounted.current) return;
+    setStatus(result.status);
+    if (result.status === 'connected') await runSync();
+    else await refresh();
   };
 
   const disconnect = async () => {
@@ -62,9 +73,10 @@ export function HealthConnectCard({ accessToken, apiUrl }: { accessToken: string
   if (!sync) return <Text style={styles.hint}>Disponível somente no app Android.</Text>;
   const connected = status === 'connected' || status === 'done' || status === 'syncing' || status === 'error' || status === 'insufficient_permissions';
   const last = formatLastSync(lastSyncAt);
-  const color = status === 'error' || status === 'insufficient_permissions' || status === 'unavailable' ? '#b91c1c' : status === 'not_connected' ? PRColors.slate : PRColors.success;
+  const color = status === 'error' || status === 'insufficient_permissions' || status === 'unavailable' ? '#b91c1c' : status === 'not_connected' || status === 'needs_consent' ? PRColors.slate : PRColors.success;
 
   return (
+    <View style={{ gap: 16 }}>
     <View style={styles.card}>
       <View style={styles.header}>
         <Text style={styles.title}>Estado</Text>
@@ -74,10 +86,11 @@ export function HealthConnectCard({ accessToken, apiUrl }: { accessToken: string
       <Text style={styles.hint}>{last ? `Última sincronização: ${last}` : 'Nenhuma sincronização concluída ainda.'}</Text>
       {note ? <Text style={styles.hint}>{note}</Text> : null}
       {status === 'unavailable' ? <Text style={styles.hint}>Instale ou atualize o Health Connect na Google Play para usar esta integração.</Text> : null}
-      {status === 'insufficient_permissions' ? <Text style={styles.hint}>Autorize a leitura de sessões de exercício para importar suas atividades.</Text> : null}
+      {status === 'insufficient_permissions' ? <Text style={styles.hint}>Permita no Android a leitura dos dados que você autorizou abaixo para que cheguem ao Panzeri Run.</Text> : null}
+      {status === 'needs_consent' ? <Text style={styles.hint}>Escolha abaixo o que você quer compartilhar. Só depois disso o Android pede as permissões.</Text> : null}
       {status === 'error' ? <Text style={styles.hint}>Não foi possível sincronizar agora. Suas atividades não foram perdidas; tente novamente.</Text> : null}
       {!connected && status !== 'unavailable' ? (
-        <Pressable style={[styles.primary, busy && styles.disabled]} disabled={busy} onPress={connect} accessibilityRole="button"><Text style={styles.primaryText}>Conectar Health Connect</Text></Pressable>
+        <Pressable style={[styles.primary, busy && styles.disabled]} disabled={busy} onPress={connect} accessibilityRole="button"><Text style={styles.primaryText}>Permitir no Android</Text></Pressable>
       ) : null}
       {status === 'insufficient_permissions' ? (
         <Pressable style={styles.secondary} onPress={connect} accessibilityRole="button"><Text style={styles.secondaryText}>Autorizar novamente</Text></Pressable>
@@ -89,6 +102,8 @@ export function HealthConnectCard({ accessToken, apiUrl }: { accessToken: string
         <Pressable style={[styles.secondary, busy && styles.disabled]} disabled={busy} onPress={disconnect} accessibilityRole="button"><Text style={styles.secondaryText}>Desconectar</Text></Pressable>
       ) : null}
       <Pressable onPress={() => { void Linking.openSettings().catch(() => undefined); }} accessibilityRole="link"><Text style={styles.link}>Gerenciar permissões no Android</Text></Pressable>
+    </View>
+    <HealthConnectConsent apiUrl={apiUrl} accessToken={accessToken} onSaved={onConsentSaved} />
     </View>
   );
 }

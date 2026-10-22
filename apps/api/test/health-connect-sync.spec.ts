@@ -236,7 +236,7 @@ describe('Health Connect (cliente): utilitarios', () => {
   it('textos de estado exatamente como especificado e data de ultima sincronizacao formatada', () => {
     expect(STATUS_LABEL).toEqual({
       not_connected: 'Não conectado', connected: 'Conectado', syncing: 'Sincronizando...', done: 'Sincronização concluída',
-      insufficient_permissions: 'Permissões insuficientes', unavailable: 'Health Connect indisponível', error: 'Erro de sincronização',
+      insufficient_permissions: 'Permissões insuficientes', unavailable: 'Health Connect indisponível', error: 'Erro de sincronização', needs_consent: 'Autorizações pendentes',
     });
     expect(formatLastSync(null)).toBeNull();
     expect(formatLastSync('lixo')).toBeNull();
