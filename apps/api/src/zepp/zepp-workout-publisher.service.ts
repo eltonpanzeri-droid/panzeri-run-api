@@ -129,7 +129,10 @@ export class ZeppWorkoutPublisherService {
     const active = await this.activeRows(userId, today);
     const connected = await this.consent.isAllowed(ZEPP_PROVIDER_ID, userId, 'profile');
     const authorized = connected && (await this.consent.isAllowed(ZEPP_PROVIDER_ID, userId, 'profile', WATCH_DELIVERY_PURPOSE));
+    // Instante do ultimo aceite da janela pela Zepp (carimbado em todas as entregas ativas); nulo se nada foi aceito ainda.
+    const acceptedStamps = active.map((row) => (row.providerMetadata as { windowAcceptedAt?: unknown } | null)?.windowAcceptedAt).filter((v): v is string => typeof v === 'string').sort();
     return {
+      lastAcceptedAt: acceptedStamps.length > 0 ? acceptedStamps[acceptedStamps.length - 1] : null,
       publishingEnabled: this.isPublishingEnabled(),
       unitProfileConfirmed: profileIsConfirmed(this.profile),
       connected,

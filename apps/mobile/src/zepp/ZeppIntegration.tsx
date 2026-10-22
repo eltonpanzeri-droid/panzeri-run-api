@@ -89,6 +89,65 @@ function Outline({ label, onPress, danger, disabled }: { label: string; onPress:
   );
 }
 
+// Cartao "Treinos no relogio" (22/10/2026): mostra o que foi (ou nao) enviado a Zepp e o motivo, e permite sincronizar agora (POST /zepp/workouts/sync, rota que ja existia).
+// A aceitacao pela Zepp NAO confirma que o relogio ja' recebeu: a aluna precisa sincronizar o relogio no app da Zepp.
+interface WorkoutStatus { publishingEnabled: boolean; connected: boolean; watchDeliveryAuthorized: boolean; eligible: number; skipped: Array<{ reason: string }>; acceptedByZepp: number; lastAcceptedAt: string | null }
+const SKIP_TEXT: Record<string, string> = {
+  sessao_extra: 'treinos extras não são enviados', modalidade_nao_suportada: 'só treinos de corrida são enviados', estrutura_nao_suportada: 'treino sem a estrutura de corrida',
+  sessao_ja_realizada: 'treino que você já fez',
+};
+function WatchWorkoutsCard({ accessToken, apiUrl, grantedAt }: { accessToken: string; apiUrl: string; grantedAt: string | null }) {
+  const [status, setStatus] = useState<WorkoutStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const headers = { Authorization: `Bearer ${accessToken}` };
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch(`${apiUrl}/zepp/workouts/status`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (response.ok) setStatus((await response.json()) as WorkoutStatus);
+    } catch { /* sem o estado, o cartao mostra so' o botao */ }
+  }, [apiUrl, accessToken]);
+  useEffect(() => { void load(); }, [load]);
+
+  async function syncNow() {
+    if (busy) return;
+    setBusy(true); setMessage(null);
+    try {
+      const response = await fetch(`${apiUrl}/zepp/workouts/sync`, { method: 'POST', headers });
+      if (!response.ok) { setMessage({ ok: false, text: 'Não foi possível sincronizar agora. Tente de novo em alguns minutos.' }); return; }
+      const result = (await response.json()) as { status: string; workouts?: number };
+      const text = result.status === 'published' || result.status === 'republished' ? `${result.workouts ?? 0} treino(s) enviado(s) à Zepp. Abra o app da Zepp e sincronize o relógio para recebê-los.`
+        : result.status === 'unchanged' ? 'Tudo já estava enviado à Zepp. Se o relógio ainda não mostra, sincronize-o no app da Zepp.'
+        : result.status === 'disabled' ? 'O envio de treinos ainda não está disponível.'
+        : result.status === 'failed' ? 'A Zepp não aceitou o envio agora. Tente de novo em alguns minutos.'
+        : 'Nada para enviar agora.';
+      setMessage({ ok: result.status !== 'failed' && result.status !== 'disabled', text });
+      await load();
+    } catch {
+      setMessage({ ok: false, text: 'Não foi possível sincronizar agora. Verifique a conexão e tente de novo.' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const reasons = status ? [...new Set(status.skipped.map((s) => SKIP_TEXT[s.reason]).filter(Boolean))] : [];
+  const summary = !status ? null
+    : !status.publishingEnabled ? 'O envio de treinos ainda não está disponível.'
+    : status.acceptedByZepp > 0 ? `${status.acceptedByZepp} treino(s) enviado(s) à Zepp${status.lastAcceptedAt ? `. Último envio: ${dateBr(status.lastAcceptedAt)}` : ''}. Sincronize o relógio no app da Zepp para recebê-los.`
+    : status.eligible > 0 ? `${status.eligible} treino(s) de corrida aguardando envio. Toque em “Sincronizar agora”.`
+    : 'Nenhum treino enviado ainda: não há treino de corrida programado para enviar agora.';
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>Treinos no relógio</Text>
+      <Text style={styles.body}>Envio de treinos autorizado desde {dateBr(grantedAt)}. Você pode retirar em “Privacidade e permissões”.</Text>
+      {summary ? <Text style={styles.body}>{summary}</Text> : null}
+      {reasons.length > 0 && status && status.eligible === 0 ? <Text style={styles.hint}>Não enviados: {reasons.join('; ')}.</Text> : null}
+      {message ? <Text style={[styles.hint, { color: message.ok ? PRColors.success : PRColors.danger }]}>{message.text}</Text> : null}
+      <Primary label="Sincronizar agora" onPress={() => void syncNow()} busy={busy} />
+    </View>
+  );
+}
+
 function dateBr(value: string | null): string {
   if (!value) return '';
   const date = new Date(value);
@@ -482,7 +541,7 @@ export function ZeppIntegration({ accessToken, apiUrl, variant = 'screen', priva
         </Text>
         {messageView}
       </View>
-      {!watch?.granted ? purposeCard(WATCH) : <View style={styles.card}><Text style={styles.cardTitle}>Treinos no relógio</Text><Text style={styles.body}>Envio de treinos autorizado desde {dateBr(watch.grantedAt)}. Você pode retirar em “Privacidade e permissões”.</Text></View>}
+      {!watch?.granted ? purposeCard(WATCH) : <WatchWorkoutsCard accessToken={accessToken} apiUrl={apiUrl} grantedAt={watch.grantedAt} />}
       {!atlas?.granted ? purposeCard(ATLAS) : <View style={styles.card}><Text style={styles.cardTitle}>Atlas</Text><Text style={styles.body}>Análise com o Atlas autorizada desde {dateBr(atlas.grantedAt)}. Você pode retirar em “Privacidade e permissões”.</Text></View>}
       {permissionsSection}
     </View>

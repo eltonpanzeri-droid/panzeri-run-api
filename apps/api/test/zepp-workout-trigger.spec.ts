@@ -111,3 +111,24 @@ describe('os gatilhos estao ligados nos pontos certos (depois de gravar) e a rot
     }
   });
 });
+
+describe('cartao "Treinos no relogio" da Zepp no app (22/10/2026)', () => {
+  const app = readFileSync(join(__dirname, '..', '..', 'mobile', 'src', 'zepp', 'ZeppIntegration.tsx'), 'utf8');
+  const publisher = readFileSync(join(__dirname, '..', 'src', 'zepp', 'zepp-workout-publisher.service.ts'), 'utf8');
+
+  it('tem o botao "Sincronizar agora" ligado a rota que ja existia, mostra o ultimo envio e o motivo quando nao ha treino, e so usa o estado do proprio usuario', () => {
+    expect(app).toContain('function WatchWorkoutsCard');
+    expect(app).toContain("label=\"Sincronizar agora\"");
+    expect(app).toContain('/zepp/workouts/sync');
+    expect(app).toContain('/zepp/workouts/status');
+    expect(app).toContain('Último envio:');
+    expect(app).toContain('não há treino de corrida programado para enviar agora');
+    expect(app).toContain('<WatchWorkoutsCard accessToken={accessToken} apiUrl={apiUrl} grantedAt={watch.grantedAt} />');
+    expect(app.toLowerCase()).toContain('sincronize o relógio no app da zepp'); // aceite da Zepp nao confirma que o relogio recebeu
+  });
+
+  it('o estado devolve o instante do ultimo aceite da Zepp (nulo se nada foi aceito)', () => {
+    expect(publisher).toContain('lastAcceptedAt: acceptedStamps.length > 0');
+    expect(publisher).toContain('windowAcceptedAt');
+  });
+});
