@@ -4,7 +4,6 @@ import { ConfigModule } from '@nestjs/config';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
-import { LegacyConsentModule } from './legacy-consent/legacy-consent.module';
 import { CoachModule } from './coach/coach.module';
 import { FitnessTestsModule } from './fitness-tests/fitness-tests.module';
 import { MeModule } from './me/me.module';
@@ -36,6 +35,9 @@ import { ActivityExecutionModule } from './activity-execution/activity-execution
 import { WorkoutDeliveryModule } from './workout-delivery/workout-delivery.module';
 import { ShoesModule } from './shoes/shoes.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+// ATENCAO (incidente 22/10/2026): este modulo importa ActivityExecutionModule; registrado no INICIO da lista ele mudava a ordem de carregamento dos arquivos e criava uma dependencia
+// circular (TrainingPlansService nao resolvia NotificationsService) — a API nao subia. Mantenha-o por ULTIMO nos imports.
+import { LegacyConsentModule } from './legacy-consent/legacy-consent.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -49,7 +51,6 @@ import { ScheduleModule } from '@nestjs/schedule';
     ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
-    LegacyConsentModule,
     CoachModule,
     MeModule,
     NotificationsModule,
@@ -65,6 +66,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     WorkoutDeliveryModule,
     ShoesModule,
     IntegrationsModule,
+    LegacyConsentModule,
     TrainingPlansModule,
     WorkoutCompletionsModule,
     BillingModule,

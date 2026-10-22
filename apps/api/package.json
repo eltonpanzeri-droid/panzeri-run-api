@@ -17,7 +17,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:migrate:deploy": "prisma migrate deploy",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "smoke:boot": "node scripts/boot-smoke.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
