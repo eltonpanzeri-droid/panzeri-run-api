@@ -83,8 +83,17 @@ export type ZeppTranslationResult =
 
 export interface ZeppTranslationContext {
   workoutId: number;
-  title: string;
+  // Distancia PRESCRITA da sessao (campo existente, em km); nula/ausente => o nome omite a distancia (nunca estimada).
+  distanceKm?: number | null;
   scheduledDate: string; // YYYY-MM-DD
+}
+
+// Nome exibido no relogio (22/10/2026, pedido do treinador): "Corrida 11 km · 25/10" — so' tipo, distancia prescrita e data, para achar o treino depois. Sem nome de aluna, codigo ou texto da IA.
+// A distancia e' so' FORMATADA (virgula decimal, 1 casa), nunca calculada.
+export function zeppWorkoutName(distanceKm: number | null | undefined, scheduledDate: string): string {
+  const [, month, day] = scheduledDate.split('-');
+  const km = typeof distanceKm === 'number' && Number.isFinite(distanceKm) && distanceKm > 0 ? ` ${(Math.round(distanceKm * 10) / 10).toString().replace('.', ',')} km` : '';
+  return `Corrida${km} · ${day}/${month}`;
 }
 
 // Conservador e NAO prescritivo: so' encurta o NOME exibido no relogio quando a Zepp nao confirmou o limite.
@@ -195,9 +204,8 @@ export function translateToZeppWorkout(workout: CanonicalWorkout, context: ZeppT
   if (steps.length === 0 && refusals.length === 0) refuse('nothing_to_translate', 'Nenhum passo traduzivel.', 'items');
   if (refusals.length > 0) return { ok: false, refusals };
 
-  const title = context.title.replace(/\s+/g, ' ').trim();
   const maxName = profile.maxNameLength ?? DEFAULT_MAX_NAME_LENGTH;
-  const workoutName = (title || 'Treino').slice(0, maxName);
+  const workoutName = zeppWorkoutName(context.distanceKm, context.scheduledDate).slice(0, maxName);
 
   const translated: ZeppV2Workout = { workoutId: context.workoutId, workoutDate: context.scheduledDate, sport: 'RUNNING', workoutName, steps };
   // Identidade do CONTEUDO enviado (sem workoutId): mudar passo, valor, nome ou data muda o hash => a publicacao e' refeita.

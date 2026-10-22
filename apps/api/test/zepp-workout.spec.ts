@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildCanonicalWorkout } from '../src/training-plans/canonical-workout';
-import { translateToZeppWorkout, ZEPP_PROFILE_UNCONFIRMED, ZeppWorkoutProfile } from '../src/zepp/zepp-workout-spec';
+import { translateToZeppWorkout, zeppWorkoutName, ZEPP_PROFILE_UNCONFIRMED, ZeppWorkoutProfile } from '../src/zepp/zepp-workout-spec';
 import { buildZeppWindowBody, EmptyZeppWindowRefused, zeppWindow } from '../src/zepp/zepp-workout-window';
 import { profileIsConfirmed, ZeppWorkoutPublisherService, WATCH_DELIVERY_PURPOSE, ZEPP_WORKOUT_PROVIDER } from '../src/zepp/zepp-workout-publisher.service';
 import { WorkoutDeliveryService } from '../src/workout-delivery/workout-delivery.service';
@@ -22,7 +22,7 @@ const interval = {
   ] }],
 };
 const timeBased = { type: 'run', blocks: [{ durationType: 'time', durationMin: 30, paceRange: '6:00/km a 6:20/km' }] };
-const ctx = { workoutId: 123456, title: 'Corrida leve', scheduledDate: '2026-10-22' };
+const ctx = { workoutId: 123456, distanceKm: 8 as number | null, scheduledDate: '2026-10-22' };
 const canonical = (structure: unknown) => buildCanonicalWorkout({ id: 's1', modality: 'corrida', structure });
 
 describe('tradutor Zepp (CanonicalWorkout -> Workout V2)', () => {
@@ -86,7 +86,7 @@ describe('tradutor Zepp (CanonicalWorkout -> Workout V2)', () => {
     const result = translateToZeppWorkout(canonical(continuous), ctx, HYPOTHETICAL);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.workout).toMatchObject({ workoutId: 123456, workoutDate: '2026-10-22', sport: 'RUNNING', workoutName: 'Corrida leve' });
+    expect(result.workout).toMatchObject({ workoutId: 123456, workoutDate: '2026-10-22', sport: 'RUNNING', workoutName: 'Corrida 8 km · 22/10' });
     expect(result.workout.steps).toEqual([
       { type: 'WorkoutStep', stepOrder: 1, intensity: 'ACTIVE', durationType: 'DISTANCE', durationValue: 8000, targetType: 'PACE_LAP', targetValueLow: 330, targetValueHigh: 345 },
     ]);
@@ -157,8 +157,8 @@ describe('tradutor Zepp (CanonicalWorkout -> Workout V2)', () => {
 
   it('so corrida: musculacao e estrutura nao-corrida sao recusadas; nome longo e encurtado; specHash muda com o conteudo mas nao com o workoutId', () => {
     expect(translateToZeppWorkout(buildCanonicalWorkout({ id: 'x', modality: 'forca', structure: { type: 'strength' } }), ctx, HYPOTHETICAL).ok).toBe(false);
-    const long = translateToZeppWorkout(canonical(continuous), { ...ctx, title: 'x'.repeat(200) }, HYPOTHETICAL);
-    expect(long.ok && long.workout.workoutName.length).toBe(60);
+    const long = translateToZeppWorkout(canonical(continuous), ctx, { ...HYPOTHETICAL, maxNameLength: 10 });
+    expect(long.ok && long.workout.workoutName.length).toBe(10);
     const a = translateToZeppWorkout(canonical(continuous), ctx, HYPOTHETICAL);
     const b = translateToZeppWorkout(canonical(continuous), { ...ctx, workoutId: 999 }, HYPOTHETICAL);
     const c = translateToZeppWorkout(canonical({ ...continuous, blocks: [{ ...continuous.blocks[0], distanceValue: 9 }] }), ctx, HYPOTHETICAL);
@@ -472,5 +472,25 @@ describe('protecoes estruturais do envio', () => {
     const translator = read('zepp/zepp-workout-spec.ts');
     // intensities do schema publicado; nenhum valor fora da lista documentada
     expect(translator).toMatch(/ZEPP_DOCUMENTED_INTENSITIES = \['WARMUP', 'COOLDOWN', 'INTERVAL', 'REST', 'RECOVERY', 'ACTIVE'\]/);
+  });
+});
+
+describe('nome do treino no relogio: Corrida + km + data (22/10/2026)', () => {
+  it('formata tipo, distancia prescrita e data; sem distancia, so a data; nunca estima', () => {
+    expect(zeppWorkoutName(11, '2026-10-25')).toBe('Corrida 11 km · 25/10');
+    expect(zeppWorkoutName(10.5, '2026-10-25')).toBe('Corrida 10,5 km · 25/10');
+    expect(zeppWorkoutName(6.04, '2026-10-23')).toBe('Corrida 6 km · 23/10');
+    for (const none of [null, undefined, 0, -3, NaN]) expect(zeppWorkoutName(none as never, '2026-10-23')).toBe('Corrida · 23/10');
+  });
+
+  it('a data do nome e a mesma enviada em workoutDate; nome novo muda a identidade do conteudo (republica uma vez)', () => {
+    const a = translateToZeppWorkout(canonical(continuous), ctx, HYPOTHETICAL);
+    const b = translateToZeppWorkout(canonical(continuous), { ...ctx, distanceKm: 9 }, HYPOTHETICAL);
+    expect(a.ok && b.ok).toBe(true);
+    if (a.ok && b.ok) {
+      expect(a.workout.workoutName.endsWith('22/10')).toBe(true);
+      expect(a.workout.workoutDate).toBe('2026-10-22');
+      expect(a.specHash).not.toBe(b.specHash);
+    }
   });
 });

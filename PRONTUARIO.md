@@ -3033,3 +3033,6 @@ Pedido do Elton: encerrar a integração Zepp de ponta a ponta antes da central 
 
 ### 21/10/2026 — Integrações: envio de treinos ao relógio em camadas (caso Duane)
 - "Não autorizada" na linha de envio de treinos é a autorização INDIVIDUAL da aluna (finalidade própria `watch_delivery`, tela separada depois de conectar); o OAuth da Zepp não tem escopos, então nada a verificar ali e a conexão nunca autoriza o envio. O painel usa o mesmo predicado do publicador. Agora a linha mostra o diagnóstico por camadas: habilitação Zepp (não consultável), publicador ligado, perfil de unidades, conexão/token e autorização da aluna (nunca concedeu x texto antigo x ok). Nenhum estado é alterado.
+
+### 22/10/2026 — Nome do treino enviado à Zepp: "Corrida 11 km · 25/10"
+- Pedido do treinador: simplificar para tipo + distância prescrita + data (sem código, sem nome de aluna, sem texto da IA). `zeppWorkoutName()` em `zepp-workout-spec.ts`; distância só formatada (campo `distanceKm` da sessão), omitida se ausente. Caso Duane: payload enviado tinha `workoutDate` correto (2026-10-25) e nome "Corrida"; "Letícia" e o dia adiantado vieram do lado da Zepp (hipótese: fuso do servidor da Zepp; aguardando prints da aluna/resposta da Zepp). Treinos já publicados são reenviados uma vez com o nome novo.

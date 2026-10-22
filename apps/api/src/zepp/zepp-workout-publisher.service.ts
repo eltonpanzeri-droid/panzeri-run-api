@@ -337,7 +337,7 @@ export class ZeppWorkoutPublisherService {
 
       const canonical = buildCanonicalWorkout({ id: session.id, modality: session.modality, structure: session.structure });
       const existingWorkoutId = idBySession.get(session.id) ?? null;
-      const translation = translateToZeppWorkout(canonical, { workoutId: existingWorkoutId ?? 1, title: session.title, scheduledDate: session.scheduledDate.toISOString().slice(0, 10) }, this.profile);
+      const translation = translateToZeppWorkout(canonical, { workoutId: existingWorkoutId ?? 1, distanceKm: session.distanceKm, scheduledDate: session.scheduledDate.toISOString().slice(0, 10) }, this.profile);
       if (!translation.ok) {
         const first: ZeppTranslationRefusal = translation.refusals[0];
         skip(first.code, translation.refusals.every((refusal) => refusal.pendingZeppAnswer));
