@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConnectorRegistry, LEGACY_PROVIDER_IDS } from '../provider-hub/connector-registry';
 import { ConsentCapability } from '../provider-hub/provider-connector';
 import { HEALTH_CONNECT_CONSENT, HEALTH_CONNECT_PROVIDER_ID } from '../health-connect/health-connect-consent';
+import { isLegacyConsentProvider, LEGACY_CONSENT_DOCUMENTS, LEGACY_CONSENT_PROVIDERS } from '../legacy-consent/legacy-consent';
 import { isConnectionConsentCurrent, isPurposeCurrent } from '../provider-hub/provider-consent.service';
 import { AiDestination, AiScope } from './ai-scope';
 
@@ -67,15 +68,24 @@ export class AiDataEligibility {
   }
 
   async decide(userId: string, provider: string, options: { category: string; destination: AiDestination }): Promise<EligibilityDecision> {
-    const deviceConsent = DEVICE_CONSENT_PROVIDERS[provider];
+    // Polar/Wahoo ja' conectadas (22/10/2026): enquanto a aluna NAO decidiu sobre o Atlas (sem registro) vale o comportamento anterior; quando decide, vale a escolha dela. Sem trava de ambiente
+    // (o fluxo anterior ja' enviava resumos a IA sem ela): a trava so' existe para os provedores novos.
+    const legacyDoc = isLegacyConsentProvider(provider) ? LEGACY_CONSENT_DOCUMENTS[provider] : undefined;
+    const deviceConsent = DEVICE_CONSENT_PROVIDERS[provider] ?? legacyDoc;
     if (!deviceConsent && LEGACY_PROVIDER_IDS.includes(provider)) return { allowed: true, reason: 'legacy_provider_unchanged' };
     const connector = deviceConsent ? { consent: deviceConsent } : this.registry.get(provider);
     if (!connector?.consent) return { allowed: false, reason: 'unknown_provider' };
-    if (options.destination === 'external_ai' && !this.isExternalAiUnlocked(provider)) return { allowed: false, reason: 'provider_locked' };
+    if (options.destination === 'external_ai' && !legacyDoc && !this.isExternalAiUnlocked(provider)) return { allowed: false, reason: 'provider_locked' };
     const connection = await this.prisma.providerConnection.findUnique({
       where: { provider_userId: { provider, userId } },
       select: { disconnectedAt: true, grantedCategories: true, grantedPurposes: true, purposeConsents: true, consentVersion: true, consentTextHash: true },
     });
+    if (!connection && legacyDoc) {
+      // Sem registro = a aluna ainda nao decidiu (comportamento anterior). MAS a linha mora numa tabela que o backup NAO guarda: se ela ja' tinha RECUSADO e a linha sumiu (restauracao),
+      // a ultima decisao fica na auditoria (preservada) e a recusa continua valendo — nunca volta a enviar dados a IA sem ela saber.
+      const last = await this.prisma.providerConnectionEvent?.findFirst?.({ where: { userId, provider, type: { in: ['purposes_granted', 'purposes_revoked'] } }, orderBy: { createdAt: 'desc' }, select: { type: true } });
+      return last?.type === 'purposes_revoked' ? { allowed: false, reason: 'purpose_not_granted' } : { allowed: true, reason: 'legacy_provider_unchanged' };
+    }
     if (!connection || connection.disconnectedAt) return { allowed: false, reason: 'not_connected' };
     const categories = Array.isArray(connection.grantedCategories) ? (connection.grantedCategories as unknown[]) : [];
     if (!categories.includes(options.category) || (options.category !== 'profile' && !isConnectionConsentCurrent(connector.consent, connection))) return { allowed: false, reason: 'category_not_granted' };
@@ -90,7 +100,7 @@ export class AiDataEligibility {
   // tenha gravado atividades para o aluno (fail-closed).
   async scopeFor(userId: string, destination: AiDestination = 'external_ai', category = 'activity'): Promise<AiScope> {
     const blocked = new Set<string>();
-    const consentProviders = [...this.registry.list().filter((c) => c.consent).map((c) => ({ id: c.id, categories: c.categories as readonly string[] | undefined })), ...Object.entries(DEVICE_CONSENT_PROVIDERS).map(([id, consent]) => ({ id, categories: consent.groups.flatMap((g) => g.categories as readonly string[]) as readonly string[] | undefined }))];
+    const consentProviders = [...this.registry.list().filter((c) => c.consent).map((c) => ({ id: c.id, categories: c.categories as readonly string[] | undefined })), ...Object.entries(DEVICE_CONSENT_PROVIDERS).map(([id, consent]) => ({ id, categories: consent.groups.flatMap((g) => g.categories as readonly string[]) as readonly string[] | undefined })), ...LEGACY_CONSENT_PROVIDERS.map((id) => ({ id: id as string, categories: undefined as readonly string[] | undefined }))];
     for (const connector of consentProviders) {
       if (!(await this.decide(userId, connector.id, { category, destination })).allowed) blocked.add(connector.id);
     }

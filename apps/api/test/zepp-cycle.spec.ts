@@ -258,7 +258,7 @@ describe('caminho ate o Atlas com dados sinteticos (elegibilidade e procedencia 
     const registry = new ConnectorRegistry();
     registry.register(buildZeppConnector({ get: () => undefined } as unknown as ConfigService));
     const prisma: any = {
-      providerConnection: { findUnique: async () => ({ disconnectedAt: null, grantedCategories: ['profile', 'activity', 'activity_sensors'], grantedPurposes, purposeConsents }) },
+      providerConnection: { findUnique: async ({ where }: any) => (where.provider_userId.provider === 'zepp' ? { disconnectedAt: null, grantedCategories: ['profile', 'activity', 'activity_sensors'], grantedPurposes, purposeConsents } : null) }, // so' a Zepp tem registro (Polar/Wahoo sem decisao seguem como antes)
       activityLog: { findMany: async () => [{ provider: 'zepp' }] },
     };
     return new AiDataEligibility(prisma, registry, { get: (k: string) => env[k] } as unknown as ConfigService);

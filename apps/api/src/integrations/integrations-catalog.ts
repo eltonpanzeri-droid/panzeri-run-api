@@ -68,10 +68,11 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   {
     id: 'samsung',
     name: 'Samsung / Galaxy Watch',
-    summary: 'Integração ainda não disponível.',
-    availability: 'unavailable',
+    // 22/10/2026: os dados do Samsung Health e do Galaxy Watch chegam pelo Health Connect (confirmado pela Samsung). Este cartao leva a aluna para a MESMA tela do Health Connect.
+    summary: 'Os dados do seu Galaxy Watch e do Samsung Health chegam ao Panzeri Run pelo Health Connect do Android. Conecte por aqui e, no app Samsung Health, ligue o compartilhamento com o Health Connect.',
+    availability: 'available',
     platforms: ['android'],
-    capabilities: { receiveActivities: false, sendWorkouts: false },
+    capabilities: { receiveActivities: true, sendWorkouts: false },
   },
   {
     id: 'garmin',

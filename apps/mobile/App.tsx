@@ -24,6 +24,8 @@ import { STRAVA_BUTTON_HEIGHT, STRAVA_BUTTON_WIDTH, STRAVA_COMPATIBLE_LOGO, STRA
 import { planStartsInFuture, saoPauloDateString } from './src/weekWindow';
 import { ActivityDetailBody, type ActivityDetail } from './src/activityDetail';
 import { Avatar, ProfilePhotoCard, useProfilePhoto } from './src/profilePhoto/ProfilePhoto';
+import { LegacyAtlasConsentCard } from './src/legacyConsent/LegacyAtlasConsentCard';
+import { disableBackgroundSync } from './src/healthConnect/backgroundTask';
 import { BrandMark } from './theme/BrandMark';
 import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
@@ -1707,6 +1709,24 @@ function AppInner() {
     return () => clearInterval(timer);
   }, [refreshToken, userEmail, userName]);
 
+  // 22/10/2026: a tarefa em segundo plano do Health Connect pode renovar a sessao (e grava a nova em AsyncStorage). Ao voltar para o primeiro plano o app
+  // RELE a sessao gravada: sem isso ele manteria o refresh token antigo ja' trocado e acabaria deslogado.
+  useEffect(() => {
+    if (!refreshToken) return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      AsyncStorage.getItem(AUTH_SESSION_KEY).then((raw) => {
+        if (!raw) return;
+        const stored = JSON.parse(raw) as Partial<AuthSession>;
+        if (stored.refreshToken && stored.accessToken && stored.refreshToken !== refreshToken) {
+          setAccessToken(stored.accessToken);
+          setRefreshToken(stored.refreshToken);
+        }
+      }).catch(() => undefined);
+    });
+    return () => subscription.remove();
+  }, [refreshToken]);
+
   function applyAuthSession(session: AuthSession) {
     setUserEmail(session.email);
     setUserName(session.name);
@@ -1727,6 +1747,7 @@ function AppInner() {
     setMenuOpen(false);
     setScreen('login');
     void AsyncStorage.removeItem(AUTH_SESSION_KEY);
+    void disableBackgroundSync(); // sair da conta encerra a leitura em segundo plano deste aparelho
     void logOutRevenueCatIfNeeded();
   }
 
@@ -9257,12 +9278,15 @@ function WahooConnect({ accessToken, variant = 'screen' }: { accessToken: string
 // Fabricante sem entrada aqui (Samsung, Garmin, COROS) so mostra o texto de indisponibilidade do catalogo.
 function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessToken: string; initialProviderId?: string }) {
   const screens: IntegrationScreens = {
-    polar: () => <PolarConnect accessToken={accessToken} variant="profile" />,
+    // Polar/Wahoo ja' conectadas: o pedido do Atlas aparece logo abaixo (so' para quem esta conectada); sem resposta, nada muda.
+    polar: () => (<><PolarConnect accessToken={accessToken} variant="profile" /><LegacyAtlasConsentCard provider="polar" apiUrl={API_URL} accessToken={accessToken} /></>),
     strava: () => <StravaSync accessToken={accessToken} />,
-    wahoo: () => <WahooConnect accessToken={accessToken} />,
+    wahoo: () => (<><WahooConnect accessToken={accessToken} /><LegacyAtlasConsentCard provider="wahoo" apiUrl={API_URL} accessToken={accessToken} /></>),
     // Prova tecnica Apple: so aparece no app nativo iOS com extra.appleHealthProof (o proprio card se autolimita).
     apple_watch: () => <AppleHealthProofCard accessToken={accessToken} apiUrl={API_URL} />,
     health_connect: () => <HealthConnectCard accessToken={accessToken} apiUrl={API_URL} />,
+    // Samsung / Galaxy Watch: os dados chegam pelo Health Connect, entao o cartao abre a MESMA tela (22/10/2026).
+    samsung: () => <HealthConnectCard accessToken={accessToken} apiUrl={API_URL} />,
     // Zepp/Amazfit (consentimento 2.0): conexao, autorizacoes separadas (importar, historico, enviar treinos, Atlas) e Privacidade e permissoes.
     zepp: () => <ZeppIntegration accessToken={accessToken} apiUrl={API_URL} privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />,
   };

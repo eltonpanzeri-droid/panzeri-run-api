@@ -7,6 +7,7 @@ import { AppState, Platform } from 'react-native';
 import { ExercisePayload, ImportResponse, userIdFromAccessToken } from './contract';
 import { createNativeHealthConnectGateway } from './gateway';
 import type { HealthRecordPayload } from './healthRecords';
+import type { RoutePayload } from './route';
 import { AuthorizedCategories, createHealthConnectSync, SyncStore } from './sync';
 
 const store: SyncStore = {
@@ -32,9 +33,8 @@ export async function fetchAuthorizedCategories(apiUrl: string, accessToken: str
   return { categories, history: perms.purposes.some((p) => p.id === 'history_backfill' && p.granted) };
 }
 
-export function useHealthConnectSync(accessToken: string | null | undefined, apiUrl: string) {
-  return useMemo(() => {
-    if (Platform.OS !== 'android' || !accessToken) return null;
+// Monta o orquestrador de um aluno (usado pela tela, pela sincronizacao ao abrir e pela tarefa em SEGUNDO PLANO).
+export function buildHealthConnectSync(accessToken: string, apiUrl: string) {
     const userId = userIdFromAccessToken(accessToken);
     if (!userId) return null;
     return createHealthConnectSync({
@@ -60,7 +60,22 @@ export function useHealthConnectSync(accessToken: string | null | undefined, api
         if (!response.ok) throw new Error(`health-connect-api-${response.status}`);
         return (await response.json()) as { stored: number; rejected: number; items?: Array<{ status: string; reason?: string }> };
       },
+      async postRoutes(items: RoutePayload[]) {
+        const response = await fetch(`${apiUrl}/health-connect/routes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ routes: items }),
+        });
+        if (!response.ok) throw new Error(`health-connect-api-${response.status}`);
+        return (await response.json()) as { stored: number; rejected: number; items?: Array<{ recordId: string; status: string; reason?: string }> };
+      },
     });
+}
+
+export function useHealthConnectSync(accessToken: string | null | undefined, apiUrl: string) {
+  return useMemo(() => {
+    if (Platform.OS !== 'android' || !accessToken) return null;
+    return buildHealthConnectSync(accessToken, apiUrl);
   }, [accessToken, apiUrl]);
 }
 

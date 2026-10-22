@@ -165,15 +165,18 @@ export class HealthConnectConsentService {
       await this.audit(userId, 'connected', { groups: [...selected], categories, purposes: document.purposes, consentVersion: document.version, consentTextHash: hash, decision: 'granted' });
       return { groups: [...selected], categories };
     }
+    const grantedIds = [...selected].filter((id) => !before.has(id));
+    const revokedIds = [...before].filter((id) => !selected.has(id));
+    // Apagar ANTES de gravar a revogacao: se o apagamento falhar, a revogacao nao fica registrada e a nova tentativa refaz tudo (nunca sobra localizacao/sensor sem autorizacao).
+    // Retirar os SENSORES (FC, potencia, cadencia, elevacao) apaga esses campos ja' guardados: eles ficam dentro de atividades que continuam autorizadas e, sem isto, seguiriam alcancando a IA.
+    if (revokedIds.some((id) => (known(id)?.categories ?? []).includes('activity_sensors'))) await this.scrubSensorData(userId);
+    // Retirar o PERCURSO GPS (ou os exercicios, de que ele depende) apaga os pontos de localizacao ja guardados.
+    if (revokedIds.some((id) => (known(id)?.categories ?? []).some((c) => c === 'activity_route' || c === 'activity'))) await this.scrubRouteData(userId);
     // Atualizacao CONDICIONAL ao que foi lido: duas alteracoes simultaneas nao se sobrescrevem (a segunda recebe conflito e refaz), entao uma revogacao nunca se perde.
     const updated = await this.prisma.providerConnection.updateMany({ where: { provider: HEALTH_CONNECT_PROVIDER_ID, userId, disconnectedAt: null, grantedCategories: { equals: (row as Row).grantedCategories as Prisma.InputJsonValue } }, data: { grantedCategories: categories as never } });
     if (updated.count !== 1) throw new ConflictException('Suas autorizacoes mudaram ao mesmo tempo. Tente de novo.');
-    const grantedIds = [...selected].filter((id) => !before.has(id));
-    const revokedIds = [...before].filter((id) => !selected.has(id));
     if (grantedIds.length > 0) await this.audit(userId, 'groups_updated', { decision: 'granted', groups: grantedIds, consentVersion: document.version, consentTextHash: hash });
     if (revokedIds.length > 0) await this.audit(userId, 'groups_updated', { decision: 'revoked', groups: revokedIds });
-    // Retirar os SENSORES (FC, potencia, cadencia, elevacao) apaga esses campos ja' guardados: eles ficam dentro de atividades que continuam autorizadas e, sem isto, seguiriam alcancando a IA.
-    if (revokedIds.some((id) => (known(id)?.categories ?? []).includes('activity_sensors'))) await this.scrubSensorData(userId);
     if (revokedIds.some((id) => (known(id)?.categories ?? []).some((c) => INVALIDATING_CATEGORIES.includes(c)))) await this.invalidateAi(userId, 'import_revoked');
     return { groups: [...selected], categories };
   }
@@ -240,6 +243,9 @@ export class HealthConnectConsentService {
 
   // Retira TODAS as autorizacoes de uma vez. Nao apaga o que ja foi importado (a exclusao e' outro pedido) e invalida os artefatos de IA derivados.
   async withdrawAll(userId: string) {
+    // Retirar tudo tambem apaga a LOCALIZACAO (percurso GPS) ja' guardada, antes de gravar a retirada (retry seguro).
+    const row = await this.load(userId);
+    if (this.active(row)) await this.scrubRouteData(userId);
     const updated = await this.prisma.providerConnection.updateMany({
       where: { provider: HEALTH_CONNECT_PROVIDER_ID, userId, disconnectedAt: null },
       data: { disconnectedAt: new Date(), grantedCategories: [] as never, grantedPurposes: [] as never, purposeConsents: {} as never },
@@ -262,9 +268,18 @@ export class HealthConnectConsentService {
     }, { timeout: 60_000 });
   }
 
+  // Apaga os pontos de localizacao (percurso GPS) das atividades do Health Connect e marca as atividades como sem percurso.
+  async scrubRouteData(userId: string): Promise<void> {
+    await this.prisma.activityTimeSeriesPoint.deleteMany({ where: { provider: HEALTH_CONNECT_PROVIDER_ID, latitude: { not: null }, activityLog: { userId } } });
+    await this.prisma.activityLog.updateMany({ where: { userId, provider: HEALTH_CONNECT_PROVIDER_ID, hasRoute: true }, data: { hasRoute: false } });
+    await this.audit(userId, 'route_data_scrubbed', {});
+  }
+
   // Apaga dos registros do Health Connect os campos de SENSOR (FC, potencia, cadencia, elevacao): nas colunas da atividade, no resumo do provedor e no bruto recebido.
   async scrubSensorData(userId: string): Promise<void> {
     await this.prisma.activityLog.updateMany({ where: { userId, provider: HEALTH_CONNECT_PROVIDER_ID }, data: { avgHeartRateBpm: null, maxHeartRateBpm: null, cadenceAvg: null, powerAvgWatts: null, elevationGainMeters: null } });
+    // A altitude dos pontos do percurso e' sensor (categoria propria): sai junto.
+    await this.prisma.activityTimeSeriesPoint.updateMany({ where: { provider: HEALTH_CONNECT_PROVIDER_ID, elevationMeters: { not: null }, activityLog: { userId } }, data: { elevationMeters: null } });
     const logs = await this.prisma.activityLog.findMany({ where: { userId, provider: HEALTH_CONNECT_PROVIDER_ID, providerMetrics: { not: Prisma.DbNull } }, select: { id: true, providerMetrics: true } });
     for (const log of logs) {
       const metrics = log.providerMetrics && typeof log.providerMetrics === 'object' && !Array.isArray(log.providerMetrics) ? { ...(log.providerMetrics as Record<string, unknown>) } : null;

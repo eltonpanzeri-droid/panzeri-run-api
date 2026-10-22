@@ -4,6 +4,7 @@ import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { HealthConnectIngestionService } from './health-connect-ingestion.service';
 import { HealthConnectConsentService } from './health-connect-consent.service';
 import { HealthConnectHealthService } from './health-connect-health.service';
+import { HealthConnectRouteService } from './health-connect-route.service';
 
 // O app Android envia as sessoes de exercicio lidas no aparelho (so' as que o aluno autorizou). O usuario vem SEMPRE do JWT.
 @Controller('health-connect')
@@ -12,7 +13,16 @@ export class HealthConnectController {
     private readonly ingestion: HealthConnectIngestionService,
     private readonly consent: HealthConnectConsentService,
     private readonly health: HealthConnectHealthService,
+    private readonly routes: HealthConnectRouteService,
   ) {}
+
+  // Percurso GPS das atividades (so' com a categoria autorizada; pontos compactos).
+  @UseGuards(AuthGuard('jwt'))
+  @HttpCode(200)
+  @Post('routes')
+  importRoutes(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
+    return this.routes.importRoutes(user.sub, body);
+  }
 
   // Sono, saude diaria, HRV e indicadores (so' o que o aluno autorizou).
   @UseGuards(AuthGuard('jwt'))

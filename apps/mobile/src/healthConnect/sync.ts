@@ -13,6 +13,7 @@ import {
   HealthConnectStatus, ImportResponse, ExercisePayload, LOOKBACK_DAYS, MIN_AUTO_SYNC_INTERVAL_MS, OVERLAP_MS, SdkStatus,
 } from './contract';
 import { recordTypesFor } from './categories';
+import { buildRoutePayload, HcLocation, MAX_ROUTES_PER_POST, routeKind, RoutePayload } from './route';
 import {
   buildBodyFat, buildBoneMass, buildDailyEnergyRecord, buildDailyRecord, buildHydration, buildLeanMass, buildNutrition, buildOxygen, buildRespiration, buildSleepRecord, buildVo2Max, buildWaterMass,
   buildWeight, chunkBySize, DayAggregate, enumerateLocalDays, localDateOf, EMPTY_EXTRAS, ExerciseExtras, HealthRecordPayload, hrvRecordsByDay, restingHeartRateByDay, sumElevationGain, sumEnergy, summarizeCadence,
@@ -32,6 +33,10 @@ export interface HealthConnectGateway {
   // Leitura generica e totais do dia (opcionais: so' o gateway nativo as oferece; os testes antigos nao precisam implementa-las).
   readAny?(recordType: string, range: { start: Date; end: Date }, dataOrigin: string | null): Promise<unknown[]>;
   aggregateDay?(range: { start: Date; end: Date }, grantedTypes: string[]): Promise<DayAggregate>;
+  // Percurso GPS de um exercicio e acesso em segundo plano (opcionais: so' o gateway nativo os oferece).
+  getExerciseRoute?(session: HcRawSession, interactive: boolean): Promise<HcLocation[] | 'denied'>;
+  hasBackgroundAccess?(): Promise<boolean>;
+  requestBackgroundAccess?(): Promise<boolean>;
 }
 
 export interface SyncStore {
@@ -51,6 +56,8 @@ export interface SyncDeps {
   postExercises(items: ExercisePayload[]): Promise<ImportResponse>;
   // Saude (sono, dia, HRV, indicadores): so' existe quando o app consulta as autorizacoes.
   postHealthRecords?(items: HealthRecordPayload[]): Promise<{ stored: number; rejected: number; items?: Array<{ status: string; reason?: string }> }>;
+  // Percurso GPS (so' com a categoria autorizada): pontos compactos por exercicio.
+  postRoutes?(items: RoutePayload[]): Promise<{ stored: number; rejected: number; items?: Array<{ recordId: string; status: string; reason?: string }> }>;
   // Autorizacoes vigentes da aluna no servidor. Se lancar erro, nada e' lido.
   getAuthorizedCategories?(): Promise<AuthorizedCategories>;
   store: SyncStore;
@@ -83,6 +90,8 @@ export interface ConnectionView {
 
 const EMPTY: Omit<SyncResult, 'status' | 'lastSyncAt'> = { sent: 0, created: 0, updated: 0, alreadyImported: 0, rejected: 0, missingOptional: [], healthSent: 0, healthStored: 0, failedCategories: [] };
 const HISTORY_LOOKBACK_DAYS = 365;
+const ROUTES_DONE_MAX = 300; // lembra os exercicios cujo percurso ja' foi enviado (evita pedir confirmacao de novo)
+const INTERACTIVE_ROUTE_PROMPTS_MAX = 5; // numa sincronizacao manual, no maximo 5 janelas de confirmacao do Android
 const HEALTH_BATCH = 100;
 const HEALTH_BATCH_MAX_BYTES = 60_000; // folga sob o limite de ~100 KB do corpo no servidor
 const DAILY_RECOMPUTE_DAYS = 7; // incremental: os ultimos 7 dias do agregado diario sao recalculados (dado que chega atrasado)
@@ -239,7 +248,45 @@ export function createHealthConnectSync(deps: SyncDeps) {
     return { records, failed };
   }
 
-  async function run(): Promise<SyncResult> {
+  async function idList(name: string): Promise<string[]> {
+    try { const parsed = JSON.parse((await store.get(key(name))) ?? '[]'); return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []; } catch { return []; }
+  }
+  const saveIds = (name: string, ids: Iterable<string>, max: number) => store.set(key(name), JSON.stringify([...ids].slice(-max)));
+
+  // Percurso GPS dos exercicios enviados nesta rodada. Falha aqui NAO derruba o resto: a categoria vai para failedCategories e o marcador fica onde estava.
+  // Fila local do percurso: "done" (ja' enviado), "pending" (o Android exigia confirmacao e a leitura nao era interativa: fica esperando o proximo toque em Sincronizar agora) e "denied"
+  // (a aluna/o Android negou aquele exercicio: nao se pergunta de novo).
+  async function syncRoutes(candidates: HcRawSession[], interactive: boolean): Promise<{ serverRetry: boolean }> {
+    if (!hc.getExerciseRoute || !deps.postRoutes) return { serverRetry: false };
+    const done = new Set(await idList('routesDone'));
+    const denied = new Set(await idList('routesDenied'));
+    const pending = new Set(await idList('routesPending'));
+    const payloads: RoutePayload[] = [];
+    let prompts = 0;
+    for (const session of candidates) {
+      const id = session.metadata?.id;
+      if (!id || done.has(id) || denied.has(id)) continue;
+      const needsPrompt = routeKind(session.exerciseRoute?.type) === 'consent';
+      if (needsPrompt && (!interactive || prompts >= INTERACTIVE_ROUTE_PROMPTS_MAX)) { pending.add(id); continue; }
+      if (needsPrompt) prompts += 1;
+      const locations = await hc.getExerciseRoute(session, interactive);
+      if (locations === 'denied') { denied.add(id); pending.delete(id); continue; }
+      const payload = buildRoutePayload(id, session.startTime, locations);
+      if (payload) payloads.push(payload);
+    }
+    let serverRetry = false;
+    for (const batch of chunkBySize(payloads, HEALTH_BATCH_MAX_BYTES, MAX_ROUTES_PER_POST)) {
+      const response = await deps.postRoutes(batch);
+      if (response.items?.some((item) => item.reason === 'falha_ao_gravar')) serverRetry = true;
+      for (const item of response.items ?? []) if (item.status === 'stored') { done.add(item.recordId); pending.delete(item.recordId); }
+    }
+    await saveIds('routesDone', done, ROUTES_DONE_MAX);
+    await saveIds('routesDenied', denied, ROUTES_DONE_MAX);
+    await saveIds('routesPending', pending, 100);
+    return { serverRetry };
+  }
+
+  async function run(interactive = false): Promise<SyncResult> {
     const startedAt = now();
     const last = await lastSyncAt();
     if ((await hc.getSdkStatus()) !== 'available') return { ...EMPTY, status: 'unavailable', lastSyncAt: last };
@@ -263,6 +310,8 @@ export function createHealthConnectSync(deps: SyncDeps) {
       const lookbackStart = new Date(startedAt.getTime() - historyDays * 24 * 60 * 60 * 1000);
 
       let payloads: ExercisePayload[] = [];
+      let sessionsSent: HcRawSession[] = [];
+      let sessionsInWindow: HcRawSession[] = [];
       const exercisesAllowed = auth ? auth.categories.has('activity') && granted.includes('ExerciseSession') : true;
       if (exercisesAllowed) {
         // Le TODAS as sessoes da janela (barato) e envia so' as novas/modificadas: assim uma sessao antiga editada depois na origem tambem e' reenviada.
@@ -273,6 +322,8 @@ export function createHealthConnectSync(deps: SyncDeps) {
           return !modified || Number.isNaN(modified.getTime()) || modified.getTime() >= modifiedSince.getTime();
         });
         payloads = await exercisePayloads(toSend, granted, auth);
+        sessionsSent = toSend;
+        sessionsInWindow = sessions;
       }
 
       const totals = { created: 0, updated: 0, alreadyImported: 0, rejected: 0 };
@@ -285,6 +336,21 @@ export function createHealthConnectSync(deps: SyncDeps) {
         totals.updated += response.updated ?? 0;
         totals.alreadyImported += response.alreadyImported ?? 0;
         totals.rejected += response.rejected ?? 0;
+      }
+
+      // Percurso GPS dos exercicios desta rodada (so' com a categoria autorizada).
+      let routeFailed = false;
+      if (auth && !auth.categories.has('activity_route')) {
+        // Percurso nao autorizado (ou retirado): a fila local e' zerada, para reautorizar depois reenviar tudo do zero.
+        await Promise.all(['routesDone', 'routesDenied', 'routesPending'].map((name) => store.remove(key(name))));
+      } else if (auth?.categories.has('activity_route') && exercisesAllowed) {
+        try {
+          // Na leitura interativa tambem revisita os exercicios que ficaram esperando a confirmacao do Android.
+          const pendingIds = new Set(await idList('routesPending'));
+          const candidates = [...new Map([...sessionsSent, ...sessionsInWindow.filter((s) => s.metadata?.id && pendingIds.has(s.metadata.id))].map((s) => [s.metadata?.id ?? '', s])).values()];
+          const routes = await syncRoutes(candidates, interactive);
+          if (routes.serverRetry) serverRetry = true;
+        } catch { routeFailed = true; }
       }
 
       // Saude: janela incremental (desde a ultima sincronizacao, com sobreposicao) ou a janela inicial.
@@ -301,6 +367,7 @@ export function createHealthConnectSync(deps: SyncDeps) {
       }
 
       // So' agora o marcador avanca (todos os lotes foram aceitos). Categorias que FALHARAM na leitura mantem o marcador onde estava: a proxima rodada as relê.
+      if (routeFailed) failedCategories = [...failedCategories, 'activity_route'];
       if (serverRetry) failedCategories = [...failedCategories, 'envio_ao_servidor'];
       if (failedCategories.length === 0) await store.set(key('cursor'), startedAt.toISOString());
       const finished = now().toISOString();
@@ -313,10 +380,11 @@ export function createHealthConnectSync(deps: SyncDeps) {
   }
 
   // Sincronizacao manual/automatica com trava: chamadas simultaneas compartilham a mesma execucao.
-  function syncNow(): Promise<SyncResult> {
+  // interactive = toque do aluno em "Sincronizar agora": so' nele o Android pode abrir a janela de confirmacao do percurso GPS.
+  function syncNow(options: { interactive?: boolean } = {}): Promise<SyncResult> {
     const running = inFlight.get(userId);
     if (running) return running;
-    const promise = run().finally(() => { inFlight.delete(userId); });
+    const promise = run(options.interactive === true).finally(() => { inFlight.delete(userId); });
     inFlight.set(userId, promise);
     return promise;
   }

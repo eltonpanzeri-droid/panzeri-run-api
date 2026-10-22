@@ -40,6 +40,7 @@ function fakeDb() {
       findMany: jest.fn(async ({ where }: any) => activityLogs.filter((l) => l.userId === where.userId && l.provider === where.provider && l.providerMetrics)),
       update: jest.fn(async ({ where, data }: any) => { Object.assign(activityLogs.find((l) => l.id === where.id), data); return {}; }),
     },
+    activityTimeSeriesPoint: { deleteMany: jest.fn(async () => ({ count: 0 })), updateMany: jest.fn(async () => ({ count: 0 })) },
     rawExternalActivity: {
       findMany: jest.fn(async ({ where }: any) => rawActivities.filter((r) => r.userId === where.userId && r.provider === where.provider)),
       update: jest.fn(async ({ where, data }: any) => { Object.assign(rawActivities.find((r) => r.id === where.id), data); return {}; }),
@@ -316,6 +317,25 @@ describe('revisao independente (22/10/2026): sensores retirados, lock, conflito,
     expect(providerData.deleteProviderData).toHaveBeenCalledWith('u1', 'health_connect');
     expect(db.deleted.sort()).toEqual(['daily', 'hrv', 'metric', 'sleep']);
     expect(db.events.some((e) => e.type === 'data_deleted')).toBe(true);
+  });
+
+  it('achado 4: "Retirar tudo" tambem apaga a localizacao; o apagamento vem ANTES da revogacao (se falhar, a revogacao nao fica gravada e o retry refaz)', async () => {
+    const { db, consent } = await granted(['exercise', 'exercise_route'], false);
+    await consent.withdrawAll('u1');
+    expect(db.raw.activityTimeSeriesPoint.deleteMany).toHaveBeenCalledWith({ where: { provider: 'health_connect', latitude: { not: null }, activityLog: { userId: 'u1' } } });
+    const failing = await granted(['exercise', 'exercise_route'], false);
+    failing.db.raw.activityTimeSeriesPoint.deleteMany = jest.fn(async () => { throw new Error('banco indisponivel'); });
+    await expect(failing.consent.updateGroups('u1', { revoke: ['exercise_route'] })).rejects.toThrow('banco indisponivel');
+    expect(await failing.consent.isAllowed('u1', 'activity_route')).toBe(true); // a revogacao NAO ficou gravada pela metade
+    failing.db.raw.activityTimeSeriesPoint.deleteMany = jest.fn(async () => ({ count: 1 }));
+    await failing.consent.updateGroups('u1', { revoke: ['exercise_route'] }); // o retry conclui
+    expect(await failing.consent.isAllowed('u1', 'activity_route')).toBe(false);
+  });
+
+  it('achado 2: retirar os sensores tambem zera a altitude dos pontos de GPS', async () => {
+    const { db, consent } = await granted(['exercise', 'exercise_sensors', 'exercise_route'], false);
+    await consent.updateGroups('u1', { revoke: ['exercise_sensors'] });
+    expect(db.raw.activityTimeSeriesPoint.updateMany).toHaveBeenCalledWith({ where: { provider: 'health_connect', elevationMeters: { not: null }, activityLog: { userId: 'u1' } }, data: { elevationMeters: null } });
   });
 
   it('baixo: tipos herdados do prototipo (constructor, __proto__) sao tipo desconhecido; chaves perigosas nao entram em values', () => {

@@ -82,7 +82,7 @@ describe('ingestao Health Connect', () => {
     const guards = Reflect.getMetadata('__guards__', HealthConnectController.prototype.importExercises) as unknown[];
     expect(guards).toHaveLength(1);
     const importExercises = jest.fn(async () => ({ created: 0 }));
-    const controller = new HealthConnectController({ importExercises } as never, {} as never, {} as never);
+    const controller = new HealthConnectController({ importExercises } as never, {} as never, {} as never, {} as never);
     await controller.importExercises({ sub: 'user-do-token' } as never, { userId: 'outro-usuario', exercises: [item()] });
     expect(importExercises).toHaveBeenCalledWith('user-do-token', expect.objectContaining({ userId: 'outro-usuario' }));
   });

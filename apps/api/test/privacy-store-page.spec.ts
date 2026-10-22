@@ -29,12 +29,12 @@ describe('politica de privacidade das lojas', () => {
     expect(all).toContain('O envio só acontece quando você toca nele');
   });
 
-  it('Health Connect: leitura por categoria autorizada (somente leitura, sem escrita, sem rota GPS e sem segundo plano por enquanto) e coerente com o app', () => {
+  it('Health Connect: leitura por categoria autorizada (somente leitura, sem nenhuma escrita; segundo plano e percurso GPS so com a permissao da aluna) e coerente com o app', () => {
     const app = JSON.parse(read('mobile/app.json')) as { expo: { android: { permissions: string[] } } };
     const hc = app.expo.android.permissions.filter((p) => p.includes('health.'));
     for (const required of ['READ_EXERCISE', 'READ_DISTANCE', 'READ_HEART_RATE', 'READ_SLEEP']) expect(hc).toContain('android.permission.health.' + required);
-    expect(hc.some((p) => /WRITE_|BACKGROUND|ROUTES/.test(p))).toBe(false);
-    expect(all).toContain('não sincroniza continuamente em segundo plano');
+    expect(hc.some((p) => /WRITE_/.test(p))).toBe(false);
+    expect(all).toContain('sincroniza periodicamente em segundo plano');
   });
 
   it('exclusao de conta: o texto descreve o que o app e a API realmente fazem (senha, frase, cobranca externa, tombstone de 365 dias)', () => {

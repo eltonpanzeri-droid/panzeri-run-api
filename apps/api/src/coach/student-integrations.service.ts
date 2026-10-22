@@ -7,6 +7,7 @@ import { EXTERNAL_AI_APPROVED_PROVIDERS } from '../ai-governance/ai-data-eligibi
 import { profileIsConfirmed } from '../zepp/zepp-workout-publisher.service';
 import { ZEPP_WORKOUT_PROFILE } from '../zepp/zepp-workout-profile';
 import { HEALTH_CONNECT_CONSENT } from '../health-connect/health-connect-consent';
+import { LEGACY_CONSENT_DOCUMENTS } from '../legacy-consent/legacy-consent';
 
 // Painel do treinador — Aluno > Integracoes (21/10/2026). SOMENTE CONSULTA do estado REAL das integracoes da aluna, reaproveitando as tabelas de conexao e de recebimento que ja existem
 // (nenhum segundo sistema de integracoes, nenhum fluxo de conexao alterado). Distingue CONTA CONECTADA de DADO EFETIVAMENTE RECEBIDO: "conectada" vem da conexao; "recebeu dados" vem dos
@@ -110,6 +111,8 @@ export interface IntegrationsRaw {
   // Health Connect (22/10/2026): autorizacoes gravadas no servidor (a conexao em si e' do aparelho) e o que chegou, por CATEGORIA de consentimento. Ausente => so' o que ja' existia (dados sem registro).
   healthConnect?: { createdAt: Date; disconnectedAt: Date | null; grantedCategories: unknown; grantedPurposes: unknown; purposeConsents: unknown; consentVersion: string | null; consentTextHash: string | null } | null;
   hcReceipts?: Record<string, ReceiptStat>;
+  // Decisao da aluna sobre o Atlas para Polar/Wahoo ja' conectadas (so' existe depois que ela responde).
+  legacyConsent?: Partial<Record<'polar' | 'wahoo', { disconnectedAt: Date | null; grantedPurposes: unknown; purposeConsents: unknown } | null>>;
   zeppLastProcessedEventAt: Date | null;
   zeppWorkoutLastAcceptedAt: Date | null;
   inboundFailures: Array<{ provider: string; eventType: string; status: string; lastError: string | null; updatedAt: Date }>;
@@ -193,9 +196,29 @@ function legacyEntry(provider: 'polar' | 'wahoo' | 'apple_health' | 'health_conn
     lastSyncAt: iso(completed ?? receipt.lastAt),
     lastSyncBasis: completed ? 'sincronizacao_concluida' : receipt.lastAt ? 'ultimo_dado_recebido' : null,
     categories: [{ id: 'activity', label: 'Atividades (corridas e treinos)', direction: 'recebe', authorized: connection ? !connection.disconnectedAt : null, lastAt: iso(receipt.lastAt), count: receipt.count, ...(connection ? {} : { note: 'Sem registro de autorização no servidor.' }) }],
-    atlas: noAtlasRule(LEGACY_ATLAS_NOTE),
+    atlas: legacyAtlasView(provider, raw),
     failures,
     warnings,
+  };
+}
+
+// Atlas para Polar/Wahoo: sem decisao da aluna = comportamento anterior; com decisao = o que ela escolheu (autorizou, nao autorizou/retirou, ou texto desatualizado).
+function legacyAtlasView(provider: 'polar' | 'wahoo' | 'apple_health' | 'health_connect', raw: IntegrationsRaw): IntegrationAtlasView {
+  if (provider !== 'polar' && provider !== 'wahoo') return noAtlasRule(LEGACY_ATLAS_NOTE);
+  const row = raw.legacyConsent?.[provider];
+  if (!row || row.disconnectedAt) {
+    return { ...noAtlasRule(LEGACY_ATLAS_NOTE), note: 'A aluna ainda não respondeu sobre o uso pelo Atlas. Enquanto isso vale o comportamento anterior (resumos derivados das atividades podem compor o contexto da IA, como informado na Política). Ela vê o pedido em Dispositivos e integrações.' };
+  }
+  const doc = LEGACY_CONSENT_DOCUMENTS[provider];
+  const purposes = Array.isArray(row.grantedPurposes) ? (row.grantedPurposes as unknown[]) : [];
+  const listed = purposes.includes('ai_external');
+  const current = listed && isPurposeCurrent(doc, 'ai_external', row.purposeConsents);
+  const record = (row.purposeConsents as Record<string, { grantedAt?: string }> | null)?.ai_external;
+  return {
+    applies: true, authorized: current, needsNewAuthorization: listed && !current, since: current && record?.grantedAt ? record.grantedAt : null, systemEnabled: null,
+    note: current ? 'A aluna autorizou o uso das atividades pelo Atlas (autorização separada da importação).'
+      : listed ? 'A autorização do Atlas foi dada sobre uma versão anterior do texto e precisa ser renovada: hoje não vale.'
+      : 'A aluna NÃO autorizou o uso pelo Atlas: as atividades desse provedor não são enviadas à IA (a importação continua).',
   };
 }
 
@@ -409,6 +432,12 @@ export class StudentIntegrationsService {
       vo2_max: metricStat('vo2_max'), body_composition: metricStat('body_composition'), pulse_ox: metricStat('pulse_ox'), skin_temperature: metricStat('skin_temperature'), respiratory_rate: metricStat('respiratory_rate'), nutrition: metricStat('nutrition', 'hydration'),
     };
 
+    // Decisao sobre o Atlas (so' colunas de estado): existe apenas depois que a aluna respondeu.
+    const [polarConsentRow, wahooConsentRow] = await Promise.all([
+      this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider: 'polar', userId } }, select: { disconnectedAt: true, grantedPurposes: true, purposeConsents: true } }),
+      this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider: 'wahoo', userId } }, select: { disconnectedAt: true, grantedPurposes: true, purposeConsents: true } }),
+    ]);
+
     const accepted = (lastDelivery?.providerMetadata as { windowAcceptedAt?: unknown } | null)?.windowAcceptedAt;
     const acceptedAt = typeof accepted === 'string' && !Number.isNaN(new Date(accepted).getTime()) ? new Date(accepted) : lastDelivery?.sentAt ?? null;
     const raw: IntegrationsRaw = {
@@ -423,7 +452,7 @@ export class StudentIntegrationsService {
       zepp_activity_sensors: { lastAt: sensorsRow?.rawActivity.receivedAt ?? null, count: sensorsCount },
       zepp_activity_route: { lastAt: routeRow?.rawActivity.receivedAt ?? null, count: routeCount },
       zepp_sleep: sleep, zepp_daily: daily, zepp_resting_hr: restingHr, zepp_hrv: hrv,
-      healthConnect: hcRow, hcReceipts,
+      healthConnect: hcRow, hcReceipts, legacyConsent: { polar: polarConsentRow, wahoo: wahooConsentRow },
       zeppLastProcessedEventAt: lastEvent?.processedAt ?? null,
       zeppWorkoutLastAcceptedAt: acceptedAt,
       inboundFailures: failedEvents,

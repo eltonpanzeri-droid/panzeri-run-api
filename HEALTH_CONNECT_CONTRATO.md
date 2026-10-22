@@ -65,3 +65,10 @@ Decisão de Elton: pegar **todos** os dados de treino e saúde possíveis e perg
 | **Leitura em segundo plano** (`READ_HEALTH_DATA_IN_BACKGROUND`) | ⏳ **OBRIGAÇÃO REGISTRADA:** implementar assim que o primeiro dado real do Health Connect chegar (avisar Elton) |
 | Validação em aparelho real (Galaxy Watch / Samsung Health) | ⏳ nenhuma validação com dado real ainda |
 | Novo build Android + declaração na Play Console | ⏳ manual do Elton (ver `HEALTH_CONNECT_PLAY_CONSOLE.md`) |
+
+### Atualização 22/10/2026 (build 13): percurso GPS, segundo plano, Samsung
+- **Percurso GPS:** implementado. O app lê a rota do exercício (dados já na sessão, ou a confirmação por exercício do Android SÓ no toque em "Sincronizar agora"; nunca em segundo plano), reduz a no máximo 2000 pontos por amostragem uniforme e envia a `POST /health-connect/routes`. O servidor só grava com `activity_route` + `activity` autorizados (lock de leitura na autorização), em `ActivityTimeSeriesPoint` (latitude/longitude), e retirar o grupo apaga os pontos. GPS nunca vai à IA.
+- **Segundo plano:** implementado (`expo-background-task` + `READ_HEALTH_DATA_IN_BACKGROUND`). Só Android; só roda com o acesso do Android concedido pela aluna; usa o MESMO sync (autorizações conferidas no servidor a cada execução; não interativo). NUNCA renova a sessão (o servidor guarda um refresh token por aluna e a troca não é atômica): usa só o access token vigente (12 h, renovado pelo app ao abrir); vencido, pula e a sincronização acontece quando a aluna abre o app. Limite conhecido: sem abrir o app por mais de 12 h o segundo plano fica parado até a próxima abertura (melhorar exigiria um token próprio de sincronização no servidor).
+- **Texto de autorização v1.1:** cita segundo plano e percurso GPS (quem autorizou a v1.0 precisa reconfirmar).
+- **Samsung / Galaxy Watch:** o cartão abre a mesma tela do Health Connect; a aluna precisa ligar, no app Samsung Health, o compartilhamento com o Health Connect.
+- **Ainda sem validação em aparelho real** (Galaxy Watch + Samsung Health): rota, segundo plano e todas as categorias foram testados só com dados sintéticos.

@@ -19,11 +19,14 @@ export class IntegrationsService {
   ) {}
 
   async catalog(userId: string) {
-    const [polar, strava, wahoo, zepp] = await Promise.all([
+    const [polar, strava, wahoo, zepp, polarDecision, wahooDecision] = await Promise.all([
       this.prisma.polarConnection.findUnique({ where: { userId }, select: { disconnectedAt: true } }),
       this.prisma.stravaConnection.findUnique({ where: { userId }, select: { id: true } }),
       this.prisma.wahooConnection.findUnique({ where: { userId }, select: { disconnectedAt: true } }),
       this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider: 'zepp', userId } }, select: { disconnectedAt: true, grantedPurposes: true, purposeConsents: true } }),
+      // Polar/Wahoo ja' conectadas: a decisao sobre o Atlas so' existe depois que a aluna responde (ver legacy-consent).
+      this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider: 'polar', userId } }, select: { disconnectedAt: true } }),
+      this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider: 'wahoo', userId } }, select: { disconnectedAt: true } }),
     ]);
     const connectedProviderIds = new Set<string>();
     if (polar && !polar.disconnectedAt) connectedProviderIds.add('polar');
@@ -42,7 +45,13 @@ export class IntegrationsService {
     if (isEnabledFor(this.config.get<string>('ZEPP_ENABLED_USER_IDS'), userId)) allowedProviderIds.add('zepp');
     const granted = new Set<string>(zepp && !zepp.disconnectedAt && Array.isArray(zepp.grantedPurposes) ? (zepp.grantedPurposes as unknown[]).filter((p): p is string => typeof p === 'string') : []);
     const zeppPending = zepp && !zepp.disconnectedAt ? Object.keys(ZEPP_PENDING_LABELS).filter((id) => !(granted.has(id) && isPurposeCurrent(ZEPP_CONSENT, id, zepp.purposeConsents))).map((id) => ZEPP_PENDING_LABELS[id]) : [];
-    const providers = buildIntegrationsCatalog({ configuredEnv, connectedProviderIds, allowedProviderIds }).map((entry) => (entry.id === 'zepp' && zeppPending.length > 0 ? { ...entry, pendingAuthorizations: zeppPending } : entry));
+    // Polar/Wahoo conectadas e SEM decisao registrada sobre o Atlas: destaca na lista (a aluna que ja' estava conectada nunca tinha visto essa autorizacao).
+    const atlasPending = (id: string, decision: { disconnectedAt: Date | null } | null) => (connectedProviderIds.has(id) && !(decision && !decision.disconnectedAt) ? ['análise com o Atlas'] : []);
+    const providers = buildIntegrationsCatalog({ configuredEnv, connectedProviderIds, allowedProviderIds }).map((entry) => {
+      if (entry.id === 'zepp' && zeppPending.length > 0) return { ...entry, pendingAuthorizations: zeppPending };
+      const pending = entry.id === 'polar' ? atlasPending('polar', polarDecision) : entry.id === 'wahoo' ? atlasPending('wahoo', wahooDecision) : [];
+      return pending.length > 0 ? { ...entry, pendingAuthorizations: pending } : entry;
+    });
     return { providers };
   }
 }

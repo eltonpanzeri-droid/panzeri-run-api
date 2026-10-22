@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
+import { LegacyConsentModule } from './legacy-consent/legacy-consent.module';
 import { CoachModule } from './coach/coach.module';
 import { FitnessTestsModule } from './fitness-tests/fitness-tests.module';
 import { MeModule } from './me/me.module';
@@ -48,6 +49,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
+    LegacyConsentModule,
     CoachModule,
     MeModule,
     NotificationsModule,

@@ -3,6 +3,7 @@
 import { Platform } from 'react-native';
 import { HC_PERMISSIONS, HcRawDistance, HcRawHeartRate, HcRawSession, SdkStatus } from './contract';
 import type { DayAggregate } from './healthRecords';
+import { HcLocation, routeKind } from './route';
 import type { HealthConnectGateway } from './sync';
 
 type HcLib = typeof import('react-native-health-connect');
@@ -69,6 +70,33 @@ export function createNativeHealthConnectGateway(): HealthConnectGateway {
     async readHeartRate(range, dataOrigin) {
       const records = await readAll((pageToken) => lib().readRecords('HeartRate', { timeRangeFilter: filter(range), dataOriginFilter: dataOrigin ? [dataOrigin] : undefined, pageSize: PAGE_SIZE, pageToken }));
       return records as unknown as HcRawHeartRate[];
+    },
+    // Percurso GPS de UM exercicio. Com os pontos ja' na sessao (tipo DATA) le direto; se o Android exigir confirmacao (CONSENT_REQUIRED), so' pergunta quando a leitura e' interativa
+    // (toque em "Sincronizar agora"): em segundo plano ou ao abrir o app nunca aparece janela surpresa.
+    // Devolve 'denied' quando a aluna recusa (ou o Android nega) o acesso daquele exercicio: nao e' erro da sincronizacao e nao se pergunta de novo.
+    async getExerciseRoute(session, interactive): Promise<HcLocation[] | 'denied'> {
+      const route = session.exerciseRoute;
+      const kind = routeKind(route?.type);
+      if (kind === 'data' && Array.isArray(route?.route) && route!.route!.length > 0) return route!.route as HcLocation[];
+      const recordId = session.metadata?.id;
+      if (kind === 'consent' && interactive && recordId) {
+        try {
+          const granted = await lib().requestExerciseRoute(recordId);
+          return (granted?.route ?? []) as unknown as HcLocation[];
+        } catch {
+          return 'denied';
+        }
+      }
+      return [];
+    },
+    // Acesso para ler em SEGUNDO PLANO (permissao propria do Android; so' a aluna concede, em janela do sistema).
+    async hasBackgroundAccess() {
+      const granted = await lib().getGrantedPermissions();
+      return (granted as Array<{ recordType: string }>).some((item) => item.recordType === 'BackgroundAccessPermission');
+    },
+    async requestBackgroundAccess() {
+      const granted = await lib().requestPermission([{ accessType: 'read', recordType: 'BackgroundAccessPermission' }] as never);
+      return (granted as Array<{ recordType: string }>).some((item) => item.recordType === 'BackgroundAccessPermission');
     },
     // Leitura generica de qualquer tipo de registro (so' e' chamada para tipos que a aluna autorizou e o Android liberou).
     async readAny(recordType, range, dataOrigin) {

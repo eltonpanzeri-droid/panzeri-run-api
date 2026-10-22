@@ -3,6 +3,8 @@ import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'r
 import { PRColors } from '../../theme/tokens';
 import { formatLastSync, HealthConnectStatus, STATUS_LABEL } from './contract';
 import { HealthConnectConsent } from './HealthConnectConsent';
+import { createNativeHealthConnectGateway } from './gateway';
+import { disableBackgroundSync, enableBackgroundSync, isBackgroundSyncRegistered } from './backgroundTask';
 import { useHealthConnectSync } from './useHealthConnect';
 
 // Tela do Health Connect dentro de "Dispositivos e integracoes". Conectar pede a autorizacao ao Android; Sincronizar agora le e envia; Desconectar para
@@ -13,7 +15,35 @@ export function HealthConnectCard({ accessToken, apiUrl }: { accessToken: string
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Leitura em segundo plano: 'on' = acesso do Android concedido E tarefa registrada.
+  const [background, setBackground] = useState<'unknown' | 'on' | 'off'>('unknown');
   const mounted = useRef(true);
+
+  const refreshBackground = useCallback(async () => {
+    try {
+      const access = (await createNativeHealthConnectGateway().hasBackgroundAccess?.()) ?? false;
+      const registered = await isBackgroundSyncRegistered();
+      if (mounted.current) setBackground(access && registered ? 'on' : 'off');
+    } catch { if (mounted.current) setBackground('off'); }
+  }, []);
+  useEffect(() => { void refreshBackground(); }, [refreshBackground]);
+
+  const allowBackground = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const granted = (await createNativeHealthConnectGateway().requestBackgroundAccess?.()) ?? false;
+      if (granted) { await enableBackgroundSync(); setNote('Leitura em segundo plano ligada. O Android decide os horários: em geral a cada algumas horas, com bateria e rede disponíveis.'); }
+      else setNote('O Android não liberou a leitura em segundo plano. Você pode tentar de novo quando quiser.');
+    } catch { setNote('Não foi possível ligar a leitura em segundo plano agora.'); }
+    finally { setBusy(false); await refreshBackground(); }
+  };
+  const stopBackground = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await disableBackgroundSync(); setNote('Leitura em segundo plano desligada. O Panzeri Run volta a ler só quando você abre o aplicativo.'); }
+    finally { setBusy(false); await refreshBackground(); }
+  };
 
   const refresh = useCallback(async () => {
     if (!sync) return;
@@ -30,7 +60,8 @@ export function HealthConnectCard({ accessToken, apiUrl }: { accessToken: string
     if (!sync || busy) return;
     setBusy(true);
     setStatus('syncing');
-    const result = await sync.syncNow();
+    // Toque em "Sincronizar agora": unico caso em que o Android pode abrir a janela de confirmacao do percurso GPS de um exercicio.
+    const result = await sync.syncNow({ interactive: true });
     if (!mounted.current) return;
     setBusy(false);
     setLastSyncAt(result.lastSyncAt);
@@ -64,6 +95,7 @@ export function HealthConnectCard({ accessToken, apiUrl }: { accessToken: string
     if (!sync || busy) return;
     setBusy(true);
     await sync.disconnect();
+    await disableBackgroundSync(); // sem conexao nao ha o que ler em segundo plano
     if (!mounted.current) return;
     setBusy(false);
     setNote('Desconectado. As atividades já importadas continuam no seu histórico. Para remover também a permissão do Android, use os ajustes do Health Connect.');
@@ -86,6 +118,7 @@ export function HealthConnectCard({ accessToken, apiUrl }: { accessToken: string
       <Text style={styles.hint}>{last ? `Última sincronização: ${last}` : 'Nenhuma sincronização concluída ainda.'}</Text>
       {note ? <Text style={styles.hint}>{note}</Text> : null}
       {status === 'unavailable' ? <Text style={styles.hint}>Instale ou atualize o Health Connect na Google Play para usar esta integração.</Text> : null}
+      <Text style={styles.hint}>Usa Galaxy Watch ou Samsung Health? No app Samsung Health, abra Configurações → Health Connect e ligue o compartilhamento dos dados. Sem isso o Health Connect fica vazio.</Text>
       {status === 'insufficient_permissions' ? <Text style={styles.hint}>Permita no Android a leitura dos dados que você autorizou abaixo para que cheguem ao Panzeri Run.</Text> : null}
       {status === 'needs_consent' ? <Text style={styles.hint}>Escolha abaixo o que você quer compartilhar. Só depois disso o Android pede as permissões.</Text> : null}
       {status === 'error' ? <Text style={styles.hint}>Não foi possível sincronizar agora. Suas atividades não foram perdidas; tente novamente.</Text> : null}
@@ -100,6 +133,14 @@ export function HealthConnectCard({ accessToken, apiUrl }: { accessToken: string
       ) : null}
       {connected ? (
         <Pressable style={[styles.secondary, busy && styles.disabled]} disabled={busy} onPress={disconnect} accessibilityRole="button"><Text style={styles.secondaryText}>Desconectar</Text></Pressable>
+      ) : null}
+      {connected ? (
+        <View style={{ gap: 6 }}>
+          <Text style={styles.hint}>{background === 'on' ? 'Leitura em segundo plano: ligada. Os dados chegam mesmo sem abrir o aplicativo.' : 'Leitura em segundo plano: desligada. Hoje os dados só chegam quando você abre o aplicativo.'}</Text>
+          {background === 'on'
+            ? <Pressable style={[styles.secondary, busy && styles.disabled]} disabled={busy} onPress={stopBackground} accessibilityRole="button"><Text style={styles.secondaryText}>Desligar leitura em segundo plano</Text></Pressable>
+            : <Pressable style={[styles.secondary, busy && styles.disabled]} disabled={busy} onPress={allowBackground} accessibilityRole="button"><Text style={styles.secondaryText}>Permitir leitura em segundo plano</Text></Pressable>}
+        </View>
       ) : null}
       <Pressable onPress={() => { void Linking.openSettings().catch(() => undefined); }} accessibilityRole="link"><Text style={styles.link}>Gerenciar permissões no Android</Text></Pressable>
     </View>

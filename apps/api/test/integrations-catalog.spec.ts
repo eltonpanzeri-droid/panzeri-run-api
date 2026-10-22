@@ -43,9 +43,17 @@ describe('catalogo de dispositivos e integracoes', () => {
     expect(apple.connection.state).toBe('not_applicable');
   });
 
-  it('Samsung, Garmin e COROS: indisponiveis, sem capacidades nem conexao', () => {
+  it('Samsung / Galaxy Watch: disponivel no Android e leva ao Health Connect (os dados da Samsung chegam por ele)', () => {
+    const entry = byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set() }), 'samsung');
+    expect(entry.availability).toBe('available');
+    expect(entry.platforms).toEqual(['android']);
+    expect(entry.capabilities).toEqual({ receiveActivities: true, sendWorkouts: false });
+    expect(entry.summary).toContain('Health Connect');
+  });
+
+  it('Garmin e COROS: indisponiveis, sem capacidades nem conexao (mantidos assim por decisao de Elton em 22/10/2026)', () => {
     const catalog = buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set(['garmin']) });
-    for (const id of ['samsung', 'garmin', 'coros']) {
+    for (const id of ['garmin', 'coros']) {
       const entry = byId(catalog, id);
       expect(entry.availability).toBe('unavailable');
       expect(entry.connection.state).toBe('not_applicable');
@@ -113,7 +121,7 @@ describe('GET /me/integrations: autenticacao e escopo', () => {
     const config = { get: (key: string) => (key.endsWith('CLIENT_ID') ? 'segredo-nao-pode-sair' : undefined) };
     const service = new IntegrationsService(prisma, config);
     const result = await service.catalog('aluno-A');
-    expect(calls.map((call) => call.args.where)).toEqual([{ userId: 'aluno-A' }, { userId: 'aluno-A' }, { userId: 'aluno-A' }, { provider_userId: { provider: 'zepp', userId: 'aluno-A' } }]);
+    expect(calls.map((call) => call.args.where)).toEqual([{ userId: 'aluno-A' }, { userId: 'aluno-A' }, { userId: 'aluno-A' }, { provider_userId: { provider: 'zepp', userId: 'aluno-A' } }, { provider_userId: { provider: 'polar', userId: 'aluno-A' } }, { provider_userId: { provider: 'wahoo', userId: 'aluno-A' } }]); // + decisoes sobre o Atlas (Polar/Wahoo), so' estado
     expect(calls[0].args.select).toEqual({ disconnectedAt: true });
     expect(calls[1].args.select).toEqual({ id: true });
     expect(calls[2].args.select).toEqual({ disconnectedAt: true });

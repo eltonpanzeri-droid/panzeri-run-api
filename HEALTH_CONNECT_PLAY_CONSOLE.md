@@ -16,6 +16,13 @@ Preencher em **Play Console → Política do app → Apps de saúde → Health C
 | READ_NUTRITION, READ_HYDRATION | Nutrição e hidratação que a aluna já registra em outro aplicativo |
 | READ_HEALTH_DATA_HISTORY | Importar, se a aluna autorizar, dados anteriores aos últimos 30 dias |
 
-**Ainda NÃO declarar (o app não usa nesta versão):** escrita de qualquer tipo, `READ_EXERCISE_ROUTES` (percurso GPS) e `READ_HEALTH_DATA_IN_BACKGROUND` — entram em versão futura, junto com a leitura correspondente.
+**Build 13 (22/10/2026) — acrescentar ao formulário:**
+
+| Permissão / uso | Texto para colar |
+|---|---|
+| `READ_HEALTH_DATA_IN_BACKGROUND` | `Optional: lets the app read the data the athlete has already authorized while the app is closed (periodic background sync), so training and recovery data reach the coach without the athlete having to open the app. The athlete grants this in a separate Android prompt and can turn it off in the app at any time. The app checks the athlete's per-category consent on our server on every background run.` |
+| Percurso GPS (leitura de `ExerciseRoute` pela confirmação por exercício do Android, sob `READ_EXERCISE`) | Acrescente à justificativa de `READ_EXERCISE`: `When the athlete authorizes the "GPS route" group and confirms access in Android for a specific exercise, the app also reads that exercise's route to show where the run happened. Routes are never sent to third parties or to AI.` |
+
+**Continua FORA do formulário:** qualquer permissão de **escrita**. O app só lê.
 
 Confira também: Política de Privacidade (seção 5) atualizada e publicada; declaração de segurança de dados da Play (dados de saúde e condicionamento coletados, criptografados em trânsito, exclusão a pedido).

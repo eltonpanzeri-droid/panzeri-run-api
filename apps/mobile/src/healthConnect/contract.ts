@@ -61,6 +61,8 @@ export interface HcRawSession {
   startTime: string;
   endTime: string;
   startZoneOffset?: { id?: string; totalSeconds: number } | null;
+  // Percurso GPS (so' lido se a aluna autorizou o grupo): DATA traz os pontos; CONSENT_REQUIRED exige a confirmacao do Android para aquele exercicio.
+  exerciseRoute?: { type?: string | number; route?: Array<{ time: string; latitude: number; longitude: number; altitude?: { inMeters?: number } | null }> } | null;
 }
 export interface HcRawDistance { metadata?: HcMetadata; startTime: string; endTime: string; distance: { inMeters: number } }
 export interface HcRawHeartRate { metadata?: HcMetadata; startTime: string; endTime: string; samples: Array<{ time: string; beatsPerMinute: number }> }
@@ -170,8 +172,8 @@ export function classifyError(error: unknown): 'permission' | 'unavailable' | 'o
   return 'other';
 }
 
-// "sub" do JWT, so' para NAMESPACE do estado local (nunca para autorizar nada: o servidor valida o token). Decodificador base64url manual (sem dependencias).
-export function userIdFromAccessToken(token: string): string | null {
+// Corpo (payload) de um JWT, so' para LER campos publicos (sub, exp). Decodificador base64url manual (sem dependencias). NUNCA autoriza nada: o servidor valida o token.
+export function jwtPayload(token: string): Record<string, unknown> | null {
   const part = token.split('.')[1];
   if (!part) return null;
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -190,9 +192,21 @@ export function userIdFromAccessToken(token: string): string | null {
     }
   }
   try {
-    const json = JSON.parse(decodeURIComponent(bytes.map((b) => '%' + b.toString(16).padStart(2, '0')).join(''))) as { sub?: unknown };
-    return typeof json.sub === 'string' && json.sub ? json.sub : null;
+    const json = JSON.parse(decodeURIComponent(bytes.map((b) => '%' + b.toString(16).padStart(2, '0')).join(''))) as unknown;
+    return json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
   } catch {
     return null;
   }
+}
+
+// "sub" do JWT, so' para NAMESPACE do estado local (nunca para autorizar nada: o servidor valida o token).
+export function userIdFromAccessToken(token: string): string | null {
+  const sub = jwtPayload(token)?.sub;
+  return typeof sub === 'string' && sub ? sub : null;
+}
+
+// Instante (ms) em que o access token vence, ou null se nao der para ler. Usado pela tarefa em segundo plano para decidir se precisa renovar a sessao.
+export function accessTokenExpiresAtMs(token: string): number | null {
+  const exp = jwtPayload(token)?.exp;
+  return typeof exp === 'number' && Number.isFinite(exp) ? exp * 1000 : null;
 }
