@@ -367,3 +367,48 @@ export function buildCompactAgentContext(snapshot: AthleteStateSnapshotV1): Comp
     evidenceQuality: snapshot.evidenceQuality.overall,
   };
 }
+
+// ── Teto de tamanho (22/10/2026) ─────────────────────────────────────────────────────────────────────────────────
+// Os dados de relogio/integracoes (variaveis wearable.* e a evidencia pareada com o aparelho) COMPLEMENTAM o treino; nunca podem impedir que ele seja gerado nem afogar a IA
+// em informacao. Se o contexto passar do teto, esses dados saem por inteiro (nada e' cortado pela metade, nada e' estimado) e quem chama registra a lacuna e avisa o treinador.
+// Os demais dados (entrevista, historico, registros, check-in, dor) NUNCA sao removidos por este teto. Valor inicial: ~50% acima dos 27-30 KB medidos antes das integracoes;
+// calibrar com o tamanho real das alunas com Health Connect (AI_CONTEXT_MAX_CHARS).
+export const DEFAULT_AI_CONTEXT_MAX_CHARS = 45_000;
+
+export function aiContextMaxChars(env: Record<string, string | undefined> = process.env): number {
+  const parsed = Number(env.AI_CONTEXT_MAX_CHARS);
+  return Number.isFinite(parsed) && parsed >= 5_000 ? Math.floor(parsed) : DEFAULT_AI_CONTEXT_MAX_CHARS;
+}
+
+const isIntegrationVariable = (id: string) => id.startsWith('wearable.');
+
+export interface LimitedCompactContext {
+  context: CompactAgentContext;
+  /** true quando os dados de integracoes foram omitidos por exceder o teto. */
+  integrationDataOmitted: boolean;
+  sizeChars: number;
+  maxChars: number;
+}
+
+export function limitCompactAgentContext(context: CompactAgentContext, maxChars: number = aiContextMaxChars()): LimitedCompactContext {
+  const sizeChars = JSON.stringify(context).length;
+  if (sizeChars <= maxChars) return { context, integrationDataOmitted: false, sizeChars, maxChars };
+  const hasIntegrationData = Object.keys(context.variables).some(isIntegrationVariable) || context.pairedEvidence !== undefined;
+  if (!hasIntegrationData) return { context, integrationDataOmitted: false, sizeChars, maxChars }; // grande por outro motivo: nada de integracao para tirar
+  const variables = Object.fromEntries(Object.entries(context.variables).filter(([id]) => !isIntegrationVariable(id)));
+  const variableLegend = Object.fromEntries(Object.entries(context.variableLegend).filter(([id]) => !isIntegrationVariable(id)));
+  const ref = <T extends { variableIds: string[] }>(domain: T): T => ({ ...domain, variableIds: domain.variableIds.filter((id) => !isIntegrationVariable(id)) });
+  const { pairedEvidence: _omitted, ...rest } = context;
+  const limited: CompactAgentContext = {
+    ...rest,
+    variables,
+    variableLegend,
+    trainingLoad: ref(context.trainingLoad),
+    sleepRecovery: ref(context.sleepRecovery),
+    physicalState: ref(context.physicalState),
+    psychologicalState: ref(context.psychologicalState),
+    trainingResponse: ref(context.trainingResponse),
+    behavior: ref(context.behavior),
+  };
+  return { context: limited, integrationDataOmitted: true, sizeChars, maxChars };
+}

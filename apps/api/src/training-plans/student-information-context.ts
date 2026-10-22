@@ -7,6 +7,7 @@
 
 export type ContextGapSource =
   | 'estado_do_atleta'
+  | 'dados_das_integracoes'
   | 'ciclo_menstrual'
   | 'relatorio_de_evolucao'
   | 'prontuario'

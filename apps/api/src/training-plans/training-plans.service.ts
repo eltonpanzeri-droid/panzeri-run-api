@@ -44,7 +44,7 @@ import { StudentProfileService, ProfileEventCode } from './student-profile.servi
 import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.service';
 import { AthleteStateSnapshotService } from '../training-intelligence/athlete-state-snapshot.service';
 import { ReassessmentService } from '../reassessment/reassessment.service';
-import { buildCompactAgentContext } from '../training-intelligence/compact-agent-context';
+import { buildCompactAgentContext, limitCompactAgentContext } from '../training-intelligence/compact-agent-context';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 import { SessionExecutionLinkService, WeekReconciliation, localCalendarDate } from '../activity-execution/session-execution-link.service';
@@ -1044,7 +1044,14 @@ export class TrainingPlansService {
     const nearRecordSessions = recentSessionsNearRecord.filter((session): session is typeof session & { completion: { distanceKm: number; details: unknown } } => session.completion?.distanceKm != null);
     const athleteStateContextBase = await this.athleteStateSnapshot
       .getSnapshot(userId)
-      .then((snapshot) => buildCompactAgentContext(snapshot))
+      .then((snapshot) => {
+        // Teto de tamanho (22/10/2026): dados de relogio/integracoes saem por inteiro se o contexto estourar; o treino e' gerado com o resto e o treinador e' avisado (lacuna 'degradado' -> Telegram).
+        const limited = limitCompactAgentContext(buildCompactAgentContext(snapshot));
+        if (limited.integrationDataOmitted) {
+          contextGaps.push({ source: 'dados_das_integracoes', severity: 'degradado', reason: `contexto com ${limited.sizeChars} caracteres, acima do teto de ${limited.maxChars}`, effect: 'Os dados vindos de relogios e integracoes (sono, HRV, FC de repouso, atividade diaria medidos pelo aparelho) NAO foram lidos nesta geracao; decida com os demais dados (entrevista, historico, registros, check-in) e NAO cite nem suponha valores do aparelho.' });
+        }
+        return limited.context;
+      })
       .catch((error) => {
         this.logger.warn(`Falha ao gerar Athlete State Snapshot para ${userId}, seguindo sem ele: ${error instanceof Error ? error.message : error}`);
         contextGaps.push({ source: 'estado_do_atleta', severity: 'degradado', reason: describeError(error), effect: 'O estado longitudinal do atleta (sono, fadiga, recuperacao, carga, dor) NAO pode ser recuperado; decida com cautela sobre a progressao.' });
