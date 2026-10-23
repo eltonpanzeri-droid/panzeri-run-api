@@ -100,7 +100,7 @@ export function sourceDisplayName(key: string): string {
 const METHOD_NOTE: Record<IndicatorId, (key: string) => string | null> = {
   sleep: () => null,
   hrv: (key) => (key === 'polar'
-    ? 'HRV médio da noite (Nightly Recharge) informado pela Polar. Não é a mesma medida da Zepp nem do Health Connect: compare apenas com a própria aluna nesta mesma fonte.'
+    ? 'HRV (RMSSD, em milissegundos) das primeiras horas de sono, calculado pela Polar no Nightly Recharge. A unidade é a do RMSSD; a documentação da API não a declara, mas as faixas observadas são compatíveis. Não é a mesma medida da Zepp (média da noite) nem do Health Connect (média do dia): compare apenas com a própria aluna nesta mesma fonte.'
     : key === 'zepp'
     ? 'Média de HRV da noite anterior informada pela Zepp. A Zepp não especifica a unidade; compare apenas com a própria aluna nesta mesma fonte.'
     : key.startsWith('health_connect')

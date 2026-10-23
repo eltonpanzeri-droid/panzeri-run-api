@@ -55,7 +55,7 @@ function unitText(id: TabId, source: string | null): string {
   if (id === 'restingHr') return 'bpm';
   if (id === 'steps') return 'passos';
   if (id === 'activeKcal') return 'kcal';
-  if (id === 'hrv') return source?.startsWith('health_connect') ? 'ms' : ''; // Zepp: unidade nao especificada pela fonte (dita na nota do indicador)
+  if (id === 'hrv') return source?.startsWith('health_connect') || source === 'polar' ? 'ms' : ''; // Zepp: unidade nao especificada pela fonte (dita na nota do indicador); Polar e Health Connect: RMSSD em ms
   return '';
 }
 const fmtValue = (id: TabId, value: number | null | undefined, source: string | null) => {

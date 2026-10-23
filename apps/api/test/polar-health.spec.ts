@@ -169,6 +169,18 @@ describe('mapeamento Polar -> tabelas de saude', () => {
     expect(mapPolarSleep(null)).toBeNull();
   });
 
+  it('FORMATOS REAIS observados no diagnostico (23/10/2026): inicio do sono com milissegundos, atividade sem campo date e start_time sem segundos', () => {
+    const real = mapPolarSleep({ ...sleep, sleep_start_time: '2026-10-21T23:10:00.000-03:00', sleep_end_time: '2026-10-22T06:40:00.000-03:00' })!;
+    expect(real.startOffsetSec).toBe(-10800);
+    expect(real.endTimeSec! - real.startTimeSec).toBe(27000);
+    expect(mapPolarDailyActivity({ start_time: '2026-10-22T00:00', end_time: '2026-10-22T23:59:59', steps: 3648, calories: 2640, active_calories: 745, distance_from_steps: 2506.25, active_duration: 'PT03H20M' })).toMatchObject({ calendarDate: '2026-10-22', steps: 3648, activeKilocalories: 745, distanceMeters: 2506.25 });
+  });
+
+  it('noite SEM etapas medidas (leve, profundo e REM todos zero): e ausencia de medicao, nao uma noite de zero minutos — nao e gravada', () => {
+    expect(mapPolarSleep({ ...sleep, light_sleep: 0, deep_sleep: 0, rem_sleep: 0, sleep_score: 0, total_interruption_duration: 0 })).toBeNull();
+    expect(mapPolarSleep({ ...sleep, light_sleep: 0, deep_sleep: 0, rem_sleep: 3000 })!.durationSec).toBe(3000); // zero em UMA etapa e' valido
+  });
+
   it('Nightly Recharge: HRV medio da noite vira lastNightAvg (sem converter unidade); sem HRV => ignorado', () => {
     const m = mapPolarNightlyRecharge({ date: '2026-10-22', heart_rate_variability_avg: 58.3, hrv_samples: { '00:05': 60 }, ans_charge: 4 })!;
     expect(m).toMatchObject({ calendarDate: '2026-10-22', lastNightAvg: 58.3, startOffsetSec: 0, providerSummaryId: 'polar:nightly-recharge:2026-10-22' });

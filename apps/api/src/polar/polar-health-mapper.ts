@@ -52,6 +52,9 @@ export function mapPolarSleep(item: unknown): MappedSleep | null {
   const stages = [light, deep, rem];
   // A Polar nao envia uma "duracao total": o tempo DORMINDO e' a soma das etapas que ela informa (leve + profundo + REM). So' existe quando as tres foram informadas.
   const durationSec = stages.every((v) => v != null) ? (light as number) + (deep as number) + (rem as number) : null;
+  // Diagnostico real da Polar (23/10/2026): ha noites na lista com leve, profundo e REM todos ZERO (e pontuacao 0) e um intervalo inicio-fim longo — o relogio nao mediu sono nessa janela. Zero em todas as
+  // etapas nao e' "dormiu zero": e' AUSENCIA de medicao, entao o registro nao e' gravado (nunca vira uma noite de 0 minutos).
+  if (durationSec === 0) return null;
   return {
     calendarDate, startTimeSec: start.epochSec, startOffsetSec: start.offsetSec, endTimeSec: end ? end.epochSec : null,
     durationSec, deepSleepSec: deep, lightSleepSec: light, remSleepSec: rem,
