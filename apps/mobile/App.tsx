@@ -1151,6 +1151,10 @@ function computePaceFromInputs(durationMinValue: string, distanceKmValue: string
   const secondsPerKm = (durationMinutes * 60) / distanceKm;
   return Number.isFinite(secondsPerKm) && secondsPerKm > 0 ? formatPaceMinSec(secondsPerKm) : '';
 }
+// Treino extra (23/10/2026): sessao criada pela propria aluna ou materializada de uma atividade do relogio. Nao e' "como planejado": tem cartao e resposta proprios.
+function isExtraSession(session: { structure?: { type?: string } | null }): boolean {
+  return session.structure?.type === 'extra';
+}
 const RUNNING_CONDITIONS_TRACKED = [
   ['itb', 'Sindrome da banda iliotibial (joelho do corredor)'], ['patelofemoral', 'Sindrome da dor patelofemoral'],
   ['condromalacia', 'Condromalacia patelar'], ['tendinopatia_patelar', 'Tendinopatia patelar (joelho do saltador)'],
@@ -5597,8 +5601,14 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                 // Atividade alternativa (Feedback de Atividade Alternativa, 02/10/2026) usa cor
                 // neutra, NUNCA vermelho/amarelo de "erro"/"nao feito" — e' so' uma classificacao
                 // objetiva, nao um veredito sobre o aluno.
-                const cardStatusStyle = session.isAlternative
+                // Atividade alternativa JA com feedback de "treino extra" feito: verde escuro (feito, mas fora da rotina planejada).
+                const alternativeDone = Boolean(session.isAlternative && (session.completion?.status === 'done' || session.completion?.status === 'adjusted'));
+                const cardStatusStyle = alternativeDone
+                  ? { backgroundColor: '#dcfce7', borderColor: '#15803d', borderWidth: 2 }
+                  : session.isAlternative
                   ? { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }
+                  : isExtraSession(session) && (sessionStatus === 'done' || sessionStatus === 'adjusted' || (hasRealized && sessionStatus !== 'missed'))
+                  ? { backgroundColor: '#dcfce7', borderColor: '#15803d', borderWidth: 2 } // verde escuro: feito, mas fora da rotina planejada
                   : sessionStatus === 'done' || sessionStatus === 'adjusted' || (hasRealized && sessionStatus !== 'missed')
                   ? { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }
                   : sessionStatus === 'missed'
@@ -5645,7 +5655,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                           <>
                             <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Atividade alternativa</Text>
                             {session.completion ? (
-                              <Text style={styles.sessionStatusDone}>✓ Feedback registrado</Text>
+                              <Text style={[styles.sessionStatusDone, alternativeDone && { color: '#14532d', fontWeight: '800' }]}>{alternativeDone ? '✓ Treino extra realizado' : '✓ Feedback registrado'}</Text>
                             ) : (
                               <Text style={{ fontSize: 12, color: '#1769AA', fontWeight: '600' }}>Registrar feedback</Text>
                             )}
@@ -5654,7 +5664,7 @@ function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpen
                         ) : sessionStatus === 'missed' ? (
                           <Text style={styles.sessionStatusMissed}>✗ Não feito</Text>
                         ) : sessionStatus === 'done' || sessionStatus === 'adjusted' || hasRealized ? (
-                          <Text style={styles.sessionStatusDone}>✓ Realizado</Text>
+                          <Text style={[styles.sessionStatusDone, isExtraSession(session) && { color: '#14532d', fontWeight: '800' }]}>{isExtraSession(session) ? '✓ Treino extra realizado' : '✓ Realizado'}</Text>
                         ) : isPastUnregistered ? (
                           <Text style={{ fontSize: 12, color: '#92400e', fontWeight: '600' }}>⚠ Sem registro</Text>
                         ) : null}
@@ -12586,7 +12596,7 @@ function CompletionForm({
         <View style={styles.completionRegisteredBanner}>
           <Ionicons name="checkmark-circle" size={15} color="#187A55" />
           <Text style={styles.completionRegisteredText}>
-            {draft.status === 'done' ? 'Feito como planejado' : draft.status === 'adjusted' ? 'Fiz, mas mudei o treino' : 'Nao feito'}
+            {draft.status === 'done' ? (isExtraSession(session) ? 'Treino extra' : 'Feito como planejado') : draft.status === 'adjusted' ? 'Fiz, mas mudei o treino' : 'Nao feito'}
             {draft.completedDate ? ` em ${draft.completedDate}` : ''} — treinador pode acompanhar.
           </Text>
         </View>
@@ -12595,11 +12605,13 @@ function CompletionForm({
       <View pointerEvents={locked ? 'none' : 'auto'}>
         {/* Seletor de status — sempre visivel */}
         <View style={styles.completionStatusRow}>
-          {[
-            { label: 'Fiz como estava planejado', value: 'done' },
-            { label: 'Fiz, mas mudei o treino', value: 'adjusted' },
-            { label: 'Nao fiz', value: 'missed' },
-          ].map((opt) => (
+          {(isExtraSession(session)
+            ? [{ label: 'Esse foi um treino extra', value: 'done' }, { label: 'Nao fiz', value: 'missed' }]
+            : [
+              { label: 'Fiz como estava planejado', value: 'done' },
+              { label: 'Fiz, mas mudei o treino', value: 'adjusted' },
+              { label: 'Nao fiz', value: 'missed' },
+            ]).map((opt) => (
             <Pressable
               key={opt.value}
               style={[styles.completionChip, draft.status === opt.value && styles.completionChipActive]}
@@ -13403,6 +13415,10 @@ function dateInputValueToIso(value: string): string | null {
 // aluno redigitar o que o relogio ja mediu. null em qualquer campo do realized vira string vazia
 // aqui (nunca um zero fabricado). Reutilizado tanto pro draft novo quanto pra reabertura de um
 // feedback ja salvo (ambos preferem o dado objetivo sobre qualquer coisa digitada antes).
+// Mesma regra de "corrida" do formulario (isRun): tipo 'run', ou modalidade corrida/esteira (sessoes extras tem type 'extra').
+function isRunSession(session: WeekPlanSession): boolean {
+  return session.structure?.type === 'run' || session.modality === 'corrida' || session.modality === 'esteira';
+}
 function realizedExecMetrics(session: WeekPlanSession): { durationMin: string; distanceKm: string; avgPace: string } | null {
   const realized = session.realized;
   if (!realized) return null;
@@ -13447,7 +13463,7 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     feedbackVersion: 2,
     durationMin: realized ? realized.durationMin : session.durationMin ? String(session.durationMin) : '',
     distanceKm: realized ? realized.distanceKm : session.distanceKm ? String(session.distanceKm) : '',
-    avgPace: realized ? realized.avgPace : '',
+    avgPace: realized ? realized.avgPace : isRunSession(session) ? computePaceFromInputs(session.durationMin ? String(session.durationMin) : '', session.distanceKm ? String(session.distanceKm) : '') : '',
     notes: '',
     loadsText: '',
     pacingMode: '',
@@ -13510,7 +13526,7 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     // de defaultCompletionDraft, aplicada tambem ao reabrir um feedback ja existente (03/10/2026).
     durationMin: realized ? realized.durationMin : completion.durationMin ? String(completion.durationMin) : '',
     distanceKm: realized ? realized.distanceKm : completion.distanceKm ? String(completion.distanceKm) : '',
-    avgPace: realized ? realized.avgPace : completion.avgPaceSecondsKm ? paceSecondsToInput(completion.avgPaceSecondsKm) : '',
+    avgPace: realized ? realized.avgPace : completion.avgPaceSecondsKm ? paceSecondsToInput(completion.avgPaceSecondsKm) : isRunSession(session) ? computePaceFromInputs(completion.durationMin ? String(completion.durationMin) : '', completion.distanceKm ? String(completion.distanceKm) : '') : '',
     notes: completion.notes ?? '',
     loadsText: completion.details?.loadsText ?? '',
     pacingMode: completion.details?.pacingMode ?? '',
