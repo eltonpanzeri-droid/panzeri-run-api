@@ -28,6 +28,7 @@ import { TrainingIntelligenceQueryService, VariableSnapshotResponse } from './tr
 import { ContextEventsService } from '../context-events/context-events.service';
 import { EXECUTION_ANALYSIS_VARIABLE_IDS } from './variable-registry';
 import { buildPairedEvidence, EMPTY_PAIRED_EVIDENCE, type PairedEvidence } from './paired-evidence';
+import { MAX_SECONDARY_SOURCES } from './wearable-source';
 
 export type DomainAvailability = 'available' | 'partial' | 'unavailable';
 
@@ -39,6 +40,13 @@ export interface VariableStateEntry extends Omit<VariableSnapshotResponse, 'obse
    * Cada entrada é o MESMO getVariableSnapshot canônico, só filtrado — nunca uma segunda matemática.
    */
   byModality?: Record<string, Omit<VariableSnapshotResponse, 'observations'>>;
+  /**
+   * Quebra por FONTE (22/10/2026) — presente so' quando a variavel e' nao comparavel entre fontes e ha mais de uma fonte com dado. As estatisticas do proprio entry sao as da fonte
+   * principal (selectedSource); aqui estao as DEMAIS fontes, cada uma pelo MESMO getVariableSnapshot canonico filtrado — nunca uma segunda matematica, nunca fontes misturadas.
+   */
+  bySource?: Record<string, Omit<VariableSnapshotResponse, 'observations'>>;
+  /** Quantas fontes secundarias ficaram SEM detalhe por causa do teto (MAX_SECONDARY_SOURCES). Ausente = nenhuma omitida. */
+  omittedSecondarySources?: number;
 }
 
 interface BaseDomainState {
@@ -318,9 +326,26 @@ export class AthleteStateSnapshotService {
         if (withEvidence.length > 0) byModality = Object.fromEntries(withEvidence);
       }
 
+      let bySource: Record<string, Omit<VariableSnapshotResponse, 'observations'>> | undefined;
+      let omittedSecondarySources = 0;
+      if (rest.availableSources && rest.availableSources.length > 1) {
+        const allOthers = rest.availableSources.filter((source) => source.key !== rest.selectedSource); // ja' em ordem de relevancia
+        const others = allOthers.slice(0, MAX_SECONDARY_SOURCES);
+        omittedSecondarySources = allOthers.length - others.length;
+        const perSource = await Promise.all(
+          others.map(async (source) => {
+            const srcRest = Object.fromEntries(Object.entries(await this.trainingIntelligenceQuery.getVariableSnapshot(athleteId, variableId, undefined, source.key)).filter(([field]) => field !== 'observations')) as Omit<VariableSnapshotResponse, 'observations'>;
+            return [source.key, srcRest] as const;
+          }),
+        );
+        if (perSource.length > 0) bySource = Object.fromEntries(perSource);
+      }
+
       const entry: VariableStateEntry = {
         ...rest,
         byModality,
+        bySource,
+        ...(omittedSecondarySources > 0 ? { omittedSecondarySources } : {}),
         traceRef: { variableId, endpoint: `/coach/students/${athleteId}/observations/${variableId}` },
       };
       variableCache.set(variableId, entry);
@@ -370,7 +395,7 @@ export class AthleteStateSnapshotService {
     };
 
     // Melhor esforco: falha no pareamento nunca derruba o snapshot (a IA segue com as fontes separadas).
-    const pairedEvidence = await buildPairedEvidence(this.prisma as never, athleteId).catch(() => ({ ...EMPTY_PAIRED_EVIDENCE }));
+    const pairedEvidence = await buildPairedEvidence(this.prisma as never, athleteId, new Date(), { sleepSourceKey: variableCache.get('wearable.sleepDurationMin')?.selectedSource ?? null }).catch(() => ({ ...EMPTY_PAIRED_EVIDENCE }));
 
     return {
       athleteId,

@@ -1,4 +1,5 @@
 import { isHealthBlockedForAi, isProviderBlockedForAi } from '../ai-governance/ai-scope';
+import { chooseMainSource, isSourceSegmentationEnabled, sourceKeyOf } from './wearable-source';
 
 // Evidencia PAREADA (21/10/2026): relato do aluno x medicao do aparelho, lado a lado, para o Atlas (agente existente) analisar as duas fontes JUNTAS:
 //   - esforco percebido (1-10, relato do aluno) x o que o aparelho registrou na MESMA sessao (FC media, ritmo medio, potencia, cadencia);
@@ -42,6 +43,10 @@ export interface SleepPerceivedDevicePair {
     remMin: number | null;
     awakeMin: number | null;
     score: number | null;
+    // So' quando a MESMA fonte tem mais de uma sessao de sono no dia: a duracao acima e' a da sessao principal (a maior), NAO necessariamente a noite inteira.
+    sourceKey?: string;
+    additionalSessions?: number;
+    durationScope?: string;
     // duracao e etapas = estimativa do algoritmo do relogio; pontuacao = calculo do fabricante.
     durationAndStagesKind: 'device_estimate';
     scoreKind: 'manufacturer_score';
@@ -72,7 +77,7 @@ export interface PairedEvidenceDb {
   wearableSleepSummary: { findMany(args: unknown): Promise<any[]> };
 }
 
-export async function buildPairedEvidence(db: PairedEvidenceDb, userId: string, now: Date = new Date()): Promise<PairedEvidence> {
+export async function buildPairedEvidence(db: PairedEvidenceDb, userId: string, now: Date = new Date(), options: { sleepSourceKey?: string | null } = {}): Promise<PairedEvidence> {
   const since = new Date(now.getTime() - PAIR_WINDOW_DAYS * 86_400_000);
 
   // Esforco percebido x aparelho (atividade vinculada e ATIVA da mesma sessao).
@@ -129,12 +134,37 @@ export async function buildPairedEvidence(db: PairedEvidenceDb, userId: string, 
   const sleepPerceivedVsDevice: SleepPerceivedDevicePair[] = [];
   if (perceivedByDate.size > 0) {
     const summaries = await db.wearableSleepSummary.findMany({ where: { userId, calendarDate: { in: [...perceivedByDate.keys()] } }, orderBy: { calendarDate: 'desc' } });
+    const allowed = summaries.filter((summary) => !isHealthBlockedForAi(summary.provider, 'sleep'));
+    const keyOf = (row: any) => sourceKeyOf(row.provider, row.providerSummaryId);
+    const sourceKeys = new Set(allowed.map(keyOf));
+    const segmented = isSourceSegmentationEnabled();
+    const multiSource = segmented && sourceKeys.size > 1;
     const bestByDate = new Map<string, any>();
-    for (const summary of summaries) {
-      if (isHealthBlockedForAi(summary.provider, 'sleep')) continue;
-      const current = bestByDate.get(summary.calendarDate);
-      // Mais de um resumo no mesmo dia: o de maior duracao (noite principal).
-      if (!current || (summary.durationSec ?? 0) > (current.durationSec ?? 0)) bestByDate.set(summary.calendarDate, summary);
+    const extraSessionsByDate = new Map<string, number>();
+    if (!segmented) {
+      // Separacao por fonte DESLIGADA (WEARABLE_SOURCE_SEGMENTATION_ENABLED=false): comportamento anterior, identico.
+      for (const summary of allowed) {
+        const current = bestByDate.get(summary.calendarDate);
+        // Mais de um resumo no mesmo dia: o de maior duracao (noite principal).
+        if (!current || (summary.durationSec ?? 0) > (current.durationSec ?? 0)) bestByDate.set(summary.calendarDate, summary);
+      }
+    } else {
+      // Fonte PRINCIPAL da aluna para o sono (a mesma da serie do Atlas); sem informacao, a de mais cobertura/atualidade entre as linhas. Um dia SEM linha dessa fonte e' PULADO:
+      // nunca se troca de fonte num dia (isso misturaria metodos de medicao diferentes na mesma lista). Dentro da fonte, a MAIOR sessao e' a principal — NAO e' a duracao
+      // total da noite (limitacao explicita: sono dividido so' sera interpretado com dado real do Health Connect). Nada e' somado nem estimado.
+      const mainKey = options.sleepSourceKey
+        ?? chooseMainSource([...sourceKeys].map((key) => ({ key, timestamps: allowed.filter((row) => keyOf(row) === key).map((row) => new Date((row.startTimeSec ?? 0) * 1000)) })), null, now);
+      const byDate = new Map<string, any[]>();
+      for (const row of allowed) {
+        if (keyOf(row) !== mainKey) continue;
+        const list = byDate.get(row.calendarDate);
+        if (list) list.push(row);
+        else byDate.set(row.calendarDate, [row]);
+      }
+      for (const [date, list] of byDate) {
+        bestByDate.set(date, [...list].sort((a, b) => (b.durationSec ?? -1) - (a.durationSec ?? -1))[0]); // estavel: empate = primeira linha lida (como antes)
+        extraSessionsByDate.set(date, list.length - 1);
+      }
     }
     for (const date of [...perceivedByDate.keys()].sort().reverse()) {
       const summary = bestByDate.get(date);
@@ -145,6 +175,8 @@ export async function buildPairedEvidence(db: PairedEvidenceDb, userId: string, 
         perceived: { kind: 'self_report', sleepQuality: perceived.sleepQuality ?? null, sleepQualityScale: '1-5 (5 = excelente)', sleepDurationCategory: perceived.sleepDurationCategory ?? null },
         device: {
           provider: summary.provider,
+          // So' quando ha mais de uma fonte de sono: o provedor sozinho nao distingue apps diferentes dentro do Health Connect.
+          ...(multiSource ? { sourceKey: keyOf(summary) } : {}),
           calendarDate: summary.calendarDate,
           durationMin: minutes(summary.durationSec),
           deepMin: minutes(summary.deepSleepSec),
@@ -152,6 +184,9 @@ export async function buildPairedEvidence(db: PairedEvidenceDb, userId: string, 
           remMin: minutes(summary.remSleepSec),
           awakeMin: minutes(summary.awakeSec),
           score: summary.scoreValue ?? null,
+          ...((extraSessionsByDate.get(date) ?? 0) > 0
+            ? { additionalSessions: extraSessionsByDate.get(date), durationScope: 'duracao da sessao principal da fonte (a maior do dia); NAO e necessariamente a duracao total da noite' }
+            : {}),
           durationAndStagesKind: 'device_estimate',
           scoreKind: 'manufacturer_score',
         },

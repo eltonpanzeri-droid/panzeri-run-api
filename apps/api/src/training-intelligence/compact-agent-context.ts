@@ -132,6 +132,15 @@ export interface CompactVariableState {
    * unica vez por modalidade, nunca uma segunda matematica.
    */
   byModality?: Record<string, Omit<CompactVariableState, 'byModality'>>;
+  /**
+   * 22/10/2026 — presentes SO' quando ha mais de uma fonte de aparelho com dado nesta variavel (dados de relogio/Health Connect). As estatisticas deste objeto sao SOMENTE da
+   * `mainSource`; `otherSources` traz cada outra fonte com a sua propria estatistica. Fontes diferentes usam metodos de medicao diferentes e NUNCA sao misturadas nem comparadas:
+   * diferenca entre fontes nao e' mudanca fisiologica.
+   */
+  mainSource?: string;
+  otherSources?: Record<string, Omit<CompactVariableState, 'byModality' | 'otherSources' | 'mainSource' | 'omittedOtherSources'>>;
+  /** Fontes secundarias que existem mas ficaram sem estatistica no contexto (teto de fontes). Ausente = nenhuma. */
+  omittedOtherSources?: number;
 }
 
 /** Semantica ESTATICA da variavel (nunca muda por observacao) — uma entrada por variableId, nunca repetida por dominio. */
@@ -192,11 +201,13 @@ export interface CompactAgentContext {
   menstrualCycle?: import('../menstrual-cycle/menstrual-cycle.service').AgentMenstrualCycleContext;
 }
 
-type CompactableSnapshot = Omit<VariableSnapshotResponse, 'observations'> & {
+export type CompactableSnapshot = Omit<VariableSnapshotResponse, 'observations'> & {
   byModality?: Record<string, Omit<VariableSnapshotResponse, 'observations'>>;
+  bySource?: Record<string, Omit<VariableSnapshotResponse, 'observations'>>;
+  omittedSecondarySources?: number;
 };
 
-function compactVariable(entry: CompactableSnapshot): CompactVariableState {
+export function compactVariable(entry: CompactableSnapshot): CompactVariableState {
   // Quebra por modalidade: cada uma passa pela MESMA funcao (recursivo), nunca uma segunda
   // matematica ou compressao diferente. So' existe quando o Snapshot ja filtrou por evidencia real.
   const byModality = entry.byModality
@@ -243,6 +254,10 @@ function compactVariable(entry: CompactableSnapshot): CompactVariableState {
     entry.baseline?.isPartialWindow || Object.values(entry.movingAverages ?? {}).some((m) => m.isPartialWindow),
   );
 
+  const otherSources = entry.bySource && Object.keys(entry.bySource).length > 0
+    ? Object.fromEntries(Object.entries(entry.bySource).map(([source, snap]) => [source, compactVariable(snap)]))
+    : undefined;
+
   return {
     current: entry.current,
     trend: {
@@ -275,6 +290,7 @@ function compactVariable(entry: CompactableSnapshot): CompactVariableState {
       isPartialWindow: anyPartialWindow,
     },
     ...(byModality ? { byModality } : {}),
+    ...(otherSources ? { mainSource: entry.selectedSource ?? undefined, otherSources, ...(entry.omittedSecondarySources ? { omittedOtherSources: entry.omittedSecondarySources } : {}) } : {}),
   };
 }
 
@@ -398,7 +414,8 @@ export function limitCompactAgentContext(context: CompactAgentContext, maxChars:
   const variables = Object.fromEntries(Object.entries(context.variables).filter(([id]) => !isIntegrationVariable(id)));
   const variableLegend = Object.fromEntries(Object.entries(context.variableLegend).filter(([id]) => !isIntegrationVariable(id)));
   const ref = <T extends { variableIds: string[] }>(domain: T): T => ({ ...domain, variableIds: domain.variableIds.filter((id) => !isIntegrationVariable(id)) });
-  const { pairedEvidence: _omitted, ...rest } = context;
+  const rest = { ...context };
+  delete rest.pairedEvidence;
   const limited: CompactAgentContext = {
     ...rest,
     variables,

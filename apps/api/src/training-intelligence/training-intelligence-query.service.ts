@@ -19,6 +19,7 @@ import {
   HistoricalReturnBehavior,
 } from './longitudinal-dynamics.service';
 import { getVariableDefinition, VariableDefinition } from './variable-registry';
+import { isSourceSegmentationEnabled, rankSources, type SourceActivity } from './wearable-source';
 
 export interface VariableSnapshotResponse {
   variable: {
@@ -92,6 +93,13 @@ export interface VariableSnapshotResponse {
   }>;
   /** Modalidades presentes no historico COMPLETO (nao filtrado) desta variavel — pra montar o seletor. Vazio quando a variavel nao tem dimensao de modalidade (ex: checkin.* semanal). */
   availableModalities: string[];
+  /**
+   * 22/10/2026 — presentes SO' quando a variavel e' 'not_comparable' entre fontes (crossSourceComparability) E ha mais de uma fonte com dado. Todas as estatisticas desta resposta
+   * usam apenas `selectedSource`; as demais fontes tem a sua propria resposta (ver bySource no Athlete State Snapshot). Fontes nunca sao misturadas numa serie.
+   */
+  availableSources?: Array<{ key: string; n: number; lastObservationAt: string | null }>;
+  mainSource?: string | null;
+  selectedSource?: string | null;
   evidence: {
     n: number;
     observedSpan: { from: string | null; to: string | null };
@@ -132,13 +140,16 @@ export class TrainingIntelligenceQueryService {
    * os dois numa unica media/baseline seria uma composicao silenciosa). Variaveis sem dimensao de
    * modalidade (ex: checkin.* semanal, sem context.modality) ignoram o filtro.
    */
-  async getVariableSnapshot(athleteId: string, variableId: string, modalities?: string[]): Promise<VariableSnapshotResponse> {
+  async getVariableSnapshot(athleteId: string, variableId: string, modalities?: string[], sourceKey?: string): Promise<VariableSnapshotResponse> {
     const definition = getVariableDefinition(variableId);
     if (!definition) {
       throw new NotFoundException(`Variavel desconhecida no VariableRegistry: ${variableId}`);
     }
 
-    const allObservations = await this.observationReader.getObservations(athleteId, variableId);
+    const everyObservation = await this.observationReader.getObservations(athleteId, variableId);
+    // Separacao por fonte (22/10/2026): para variaveis nao comparaveis entre fontes, a serie usada em TODO o calculo abaixo e' a de UMA fonte so'.
+    const segmentation = await this.segmentBySource(athleteId, definition, everyObservation, sourceKey);
+    const allObservations = segmentation.observations;
     const hasModalityDimension = allObservations.some((o) => o.context.modality != null);
     // 27/09/2026 (bug real achado validando Volume/Aderência/ACWR): algumas variáveis (ver
     // training_load em observation-reader.service.ts) precisam de um total GLOBAL genuinamente
@@ -158,6 +169,7 @@ export class TrainingIntelligenceQueryService {
           : allObservations;
     const availableModalities = [...new Set(allObservations.map((o) => o.context.modality).filter((m): m is string => m != null && m !== 'global'))].sort();
     const evidence = this.buildEvidence(observations, definition);
+    if (segmentation.warning) evidence.comparabilityWarning = evidence.comparabilityWarning ? `${evidence.comparabilityWarning} ${segmentation.warning}` : segmentation.warning;
     const traceable = this.describeObservations(observations);
     const currentWeekContext = this.extractCurrentWeekContext(observations);
 
@@ -185,6 +197,7 @@ export class TrainingIntelligenceQueryService {
         observations: traceable,
         availableModalities,
         evidence,
+        ...segmentation.fields,
       };
     }
 
@@ -264,6 +277,7 @@ export class TrainingIntelligenceQueryService {
       observations: traceable,
       availableModalities,
       evidence,
+      ...segmentation.fields,
     };
   }
 
@@ -286,6 +300,49 @@ export class TrainingIntelligenceQueryService {
       numerator: numerator ?? null,
       denominator: denominator ?? null,
       coveragePercent: coveragePercent ?? null,
+    };
+  }
+
+  /**
+   * Separa as observacoes por FONTE (wearable-source.ts) quando a variavel e' 'not_comparable' entre fontes e ha mais de uma fonte com dado. Com uma fonte so' (ou com a
+   * separacao desligada por WEARABLE_SOURCE_SEGMENTATION_ENABLED=false) devolve as observacoes intactas e nenhum campo novo: comportamento identico ao anterior.
+   * Nenhuma observacao e' alterada ou descartada do banco; aqui so' se escolhe QUAL fonte alimenta este calculo (`requestedSource`, ou a principal).
+   */
+  private async segmentBySource(
+    athleteId: string,
+    definition: VariableDefinition,
+    observations: Observation[],
+    requestedSource?: string,
+  ): Promise<{ observations: Observation[]; warning: string | null; fields: Pick<VariableSnapshotResponse, 'availableSources' | 'mainSource' | 'selectedSource'> }> {
+    const untouched = { observations, warning: null, fields: {} };
+    if (definition.crossSourceComparability !== 'not_comparable' || !isSourceSegmentationEnabled()) return untouched;
+    const groups = new Map<string, Observation[]>();
+    for (const o of observations) {
+      const key = o.context.sourceKey ?? 'origem_desconhecida';
+      const list = groups.get(key);
+      if (list) list.push(o);
+      else groups.set(key, [o]);
+    }
+    // Fonte pedida explicitamente SEMPRE filtra, mesmo que so' reste um grupo (dado pode mudar entre duas leituras): nunca devolve a serie inteira como se fosse daquela fonte.
+    if (groups.size <= 1 && !requestedSource) return untouched;
+    const lastOf = (list: Observation[]) => list.reduce((max, o) => (o.timestamp.getTime() > max ? o.timestamp.getTime() : max), -Infinity);
+    const preferred = (await this.observationReader.preferredSourceProvider?.(athleteId)) ?? null;
+    const activity: SourceActivity[] = [...groups.entries()].map(([key, list]) => ({ key, timestamps: list.map((o) => o.timestamp) }));
+    const ranking = rankSources(activity, preferred, new Date());
+    const mainSource = ranking[0] ?? null;
+    const selectedSource = requestedSource ?? mainSource;
+    // Em ordem de relevancia (a principal primeiro): quem consome pode pegar so' as primeiras.
+    const sources = ranking.map((key) => ({ key, n: groups.get(key)!.length, lastObservationAt: new Date(lastOf(groups.get(key)!)).toISOString() }));
+    const shown = sources.slice(0, 5).map((s) => s.key).join(', ') + (sources.length > 5 ? ` e mais ${sources.length - 5}` : '');
+    // A principal traz o aviso completo; as secundarias, uma frase curta (nao repete a lista em cada fonte).
+    const warning = selectedSource === mainSource
+      ? `Existem observacoes de ${sources.length} fontes diferentes (${shown}) cujos metodos de medicao NAO sao comparaveis entre si; elas nunca foram misturadas. ` +
+        `As estatisticas desta variavel usam SOMENTE a fonte '${selectedSource}'. Diferencas entre fontes ou aparelhos nao devem ser lidas como mudanca fisiologica.`
+      : `Fonte secundaria '${selectedSource}': estatisticas SOMENTE desta fonte; NAO comparaveis com as da fonte principal '${mainSource}'.`;
+    return {
+      observations: observations.filter((o) => (o.context.sourceKey ?? 'origem_desconhecida') === selectedSource),
+      warning,
+      fields: { availableSources: sources, mainSource, selectedSource },
     };
   }
 

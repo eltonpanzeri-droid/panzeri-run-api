@@ -13,6 +13,8 @@
 // - Sempre e' possivel voltar ao registro original (sessionId/checkinId ficam no context).
 
 import { aiActivityWhere, aiBlockedProviders, isHealthBlockedForAi } from '../ai-governance/ai-scope';
+import { resolveExplicitOverride } from '../activity-execution/athlete-primary-source';
+import { sleepSessionRoles, sourceKeyOf } from './wearable-source';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { canonicalModality } from '../activity-execution/canonical-modality';
 import { findStaleAnalysisRowIds } from '../activity-execution/analysis-validity';
@@ -61,6 +63,9 @@ export interface Observation {
     // Saude e recuperacao medidas por relogio (21/10/2026): rastro ate o resumo de origem (sono/HRV/diario) e o dia local que ele informou.
     wearableRecordId?: string;
     calendarDate?: string;
+    // 22/10/2026: fonte da medicao (provedor; no Health Connect, tambem o app de origem) e, so' no sono, o papel da sessao dentro da fonte/dia (ver wearable-source.ts).
+    sourceKey?: string;
+    sessionRole?: 'principal' | 'additional';
     acuteValue?: number;
     chronicValue?: number;
     acuteWindowDays?: number;
@@ -173,6 +178,17 @@ export class ObservationReaderService {
 
   // Ordem total e deterministica: data e, no mesmo instante (ex.: duas sessoes no mesmo dia), o id do registro de origem. Sem isso o "ultimo"
   // valor de um dia com duas sessoes dependia da ordem devolvida pelo banco.
+  // Preferencia EXPLICITA de fonte da aluna (AthletePrimarySource), se houver — usada so' para escolher a serie principal de dados de relogio (ver wearable-source.ts). Falha = sem preferencia.
+  async preferredSourceProvider(athleteId: string): Promise<string | null> {
+    try {
+      return await resolveExplicitOverride(this.prisma as never, athleteId, new Date());
+    } catch (error) {
+      // Sem preferencia explicita a principal e' escolhida so' por atualidade/cobertura; registrar para nao mudar a serie em silencio.
+      console.warn(`Preferencia de fonte indisponivel (athleteId=${athleteId}): ${error instanceof Error ? error.message : error}`);
+      return null;
+    }
+  }
+
   async getObservations(athleteId: string, variableId: string): Promise<Observation[]> {
     const observations = await this.readObservations(athleteId, variableId);
     const tieBreak = (o: Observation) => o.context.sessionId ?? o.context.workoutCompletionId ?? o.context.checkinId ?? o.context.nightlySleepLogId ?? o.context.stressCheckinId ?? o.context.activityLogId ?? o.context.wearableRecordId ?? '';
@@ -489,9 +505,12 @@ export class ObservationReaderService {
       : spec.table === 'hrv'
         ? await this.prisma.wearableHrvSummary.findMany({ where, orderBy })
         : await this.prisma.wearableDailySummary.findMany({ where, orderBy });
+    const allowedRows = rows.filter((row) => !isHealthBlockedForAi(row.provider, spec.category));
+    const roles = spec.table === 'sleep'
+      ? sleepSessionRoles(allowedRows.map((row) => ({ id: row.id, sourceKey: sourceKeyOf(row.provider, row.providerSummaryId), calendarDate: row.calendarDate, durationSec: row.durationSec ?? null, startTimeSec: row.startTimeSec })))
+      : null;
     const observations: Observation[] = [];
-    for (const row of rows) {
-      if (isHealthBlockedForAi(row.provider, spec.category)) continue;
+    for (const row of allowedRows) {
       const value = spec.pick(row);
       if (value == null || !Number.isFinite(value)) continue; // ausencia — nunca vira zero
       observations.push({
@@ -501,7 +520,13 @@ export class ObservationReaderService {
         timestamp: new Date(row.startTimeSec * 1000),
         source: 'wearable_health',
         instrumentVersion: 1,
-        context: { provider: row.provider, wearableRecordId: row.id, calendarDate: row.calendarDate },
+        context: {
+          provider: row.provider,
+          wearableRecordId: row.id,
+          calendarDate: row.calendarDate,
+          sourceKey: sourceKeyOf(row.provider, row.providerSummaryId),
+          ...(roles ? { sessionRole: roles.get(row.id) } : {}),
+        },
       });
     }
     return observations;

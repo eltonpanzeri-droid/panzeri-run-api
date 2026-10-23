@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 
 // O Snapshot do atleta tem teste proprio; aqui so interessa se a FALHA dele vira lacuna explicita.
-jest.mock('../src/training-intelligence/compact-agent-context', () => ({ buildCompactAgentContext: () => ({ athleteId: 'u1', generatedAt: 'x' }) }));
+jest.mock('../src/training-intelligence/compact-agent-context', () => ({ buildCompactAgentContext: () => ({ athleteId: 'u1', generatedAt: 'x' }), limitCompactAgentContext: (context: unknown) => ({ context, integrationDataOmitted: false, sizeChars: 0, maxChars: 0 }) }));
 
 import { PrescriptionAgentService } from '../src/training-plans/prescription-agent.service';
 import { StudentProfileService } from '../src/training-plans/student-profile.service';

@@ -107,6 +107,12 @@ export interface VariableDefinition {
    */
   versionComparability: 'comparable_across_versions' | 'not_comparable_across_versions';
   /**
+   * 22/10/2026 — comparabilidade ENTRE FONTES (relogios/apps diferentes medindo a mesma coisa por metodos diferentes). 'not_comparable': a Camada Matematica NUNCA mistura fontes numa
+   * serie so' (media/linha de base/tendencia/faixa habitual/excursoes sao calculadas por fonte; ver TrainingIntelligenceQueryService e wearable-source.ts). Ausente = comparavel
+   * (comportamento anterior). Toda variavel wearable.* e' 'not_comparable', sem excecao (decisao de Elton, 22/10/2026).
+   */
+  crossSourceComparability?: 'comparable' | 'not_comparable';
+  /**
    * Quando true, sessoes extras (criadas pelo proprio aluno, structure.source==='student' &&
    * structure.type==='extra') sao excluidas da serie desta variavel — reservado para variaveis cujo
    * significado depende de haver uma prescricao de referencia (ex: executionVsPrescribed: nao ha
@@ -1021,6 +1027,7 @@ const WEARABLE_COMMON = {
   dataType: 'numeric_continuous' as const,
   direction: 'not_directional' as const,
   source: 'wearable_health' as const,
+  crossSourceComparability: 'not_comparable' as const,
   allowedMathStrategy: 'ordinal_or_continuous_stats' as const,
   missingPolicy: 'never_impute' as const,
   versionComparability: 'comparable_across_versions' as const,
