@@ -3048,3 +3048,11 @@ h3 {
 .tlRatio { border-color: #7c3aed !important; }
 .tlQuestions { border: 2px dashed #7c3aed; border-radius: 10px; padding: 14px 16px; background: #faf5ff; display: grid; gap: 8px; }
 @media (max-width: 900px) { .tlSummary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* 23/10/2026 (v2) — Carga (propria): filtro por modalidade e origem da data/duracao. */
+.tlViews { display: flex; flex-wrap: wrap; gap: 6px; }
+.tlViews button { padding: 7px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); color: var(--ink); font-size: 13.5px; cursor: pointer; }
+.tlViews button.active { background: #7c3aed; border-color: #7c3aed; color: #ffffff; font-weight: 700; }
+.tlTag { display: inline-block; margin-left: 4px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.tlTag.real { background: var(--accent-soft); color: var(--accent); }
+.tlTag.prog { background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
+.tlShift { font-size: 11.5px; color: var(--muted); }
