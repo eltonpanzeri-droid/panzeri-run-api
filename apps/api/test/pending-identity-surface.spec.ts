@@ -37,7 +37,7 @@ describe('rotas do treinador', () => {
 
   it('o id do treinador vem do token e vai ao servico junto com o aluno da rota', async () => {
     const coachService = { resolveExternalActivityIdentity: jest.fn(async () => ({})), revertExternalActivityIdentity: jest.fn(async () => ({})) };
-    const controller = new CoachController(coachService as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+    const controller = new CoachController(coachService as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
     await controller.resolveExternalActivityIdentity({ sub: 'coach-1' } as never, 'student-1', 'log-1', { decision: 'same' });
     expect(coachService.resolveExternalActivityIdentity).toHaveBeenCalledWith('student-1', 'coach-1', 'log-1', 'same');
     await controller.revertExternalActivityIdentity({ sub: 'coach-1' } as never, 'student-1', 'log-1');

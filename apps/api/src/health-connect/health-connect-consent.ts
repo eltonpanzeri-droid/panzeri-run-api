@@ -11,8 +11,8 @@ import { ConsentCapability } from '../provider-hub/provider-connector';
 export const HEALTH_CONNECT_PROVIDER_ID = 'health_connect';
 
 export const HEALTH_CONNECT_CONSENT: ConsentCapability = {
-  version: '1.1',
-  dateLabel: '22/10/2026',
+  version: '1.2',
+  dateLabel: '23/10/2026',
   title: 'Compartilhe seus dados de saúde e treino pelo Health Connect',
   intro: 'O Health Connect reúne, no seu celular Android, os dados do Samsung Health, do Galaxy Watch e de outros aplicativos. Escolha o que você quer compartilhar com o Panzeri Run.',
   sections: [
@@ -20,7 +20,7 @@ export const HEALTH_CONNECT_CONSENT: ConsentCapability = {
       heading: null,
       paragraphs: [
         'Com sua autorização, o Panzeri Run poderá receber, quando o seu relógio ou aplicativo os disponibilizar, os seus exercícios (tipo, horário, duração, distância, velocidade, frequência cardíaca, potência, cadência, elevação, calorias e percurso GPS), o seu sono, a sua saúde diária (passos, distância, calorias e frequência cardíaca de repouso), a variabilidade da frequência cardíaca (HRV), o VO₂ máximo, a composição corporal e outros indicadores como saturação de oxigênio, temperatura da pele, respiração e nutrição.',
-        'Essas informações serão utilizadas para acompanhar sua evolução, comparar os treinos planejados com os realizados, entender como você se recupera e personalizar seu treinamento. Elas não substituem avaliação médica.',
+        'Essas informações serão utilizadas para acompanhar sua evolução, comparar os treinos planejados com os realizados, entender como você se recupera e personalizar seu treinamento. Seu treinador também verá esses dados no painel dele (por exemplo, seu sono, sua frequência cardíaca de repouso, sua variabilidade e seus passos) para acompanhar sua recuperação e ajustar seu treino. Elas não substituem avaliação médica.',
       ],
     },
     {

@@ -7,6 +7,7 @@ import { RolesGuard } from '../common/roles.guard';
 import { CoachService } from './coach.service';
 import { BusinessIntelligenceService } from './business-intelligence.service';
 import { StudentIntegrationsService } from './student-integrations.service';
+import { StudentHealthRecoveryService, type HealthRecoveryQuery } from './student-health-recovery.service';
 import { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
 import { AthleteStateSnapshotService } from '../training-intelligence/athlete-state-snapshot.service';
 import { parseDashboardQuery } from './dashboard-query.util';
@@ -36,6 +37,7 @@ export class CoachController {
     private readonly contextEvents: ContextEventsService,
     private readonly reassessmentService: ReassessmentService,
     private readonly studentIntegrations: StudentIntegrationsService,
+    private readonly studentHealthRecovery: StudentHealthRecoveryService,
   ) {}
 
   // Passo 4 (25/09/2026) — caminho manual do treinador pra registrar um ContextEvent (viagem,
@@ -416,6 +418,12 @@ export class CoachController {
   @Get('students/:studentId/integrations')
   integrations(@Param('studentId') studentId: string) {
     return this.studentIntegrations.forStudent(studentId);
+  }
+
+  // 23/10/2026 — Aluno > Saude e Recuperacao: SOMENTE LEITURA, periodo livre (from/to), fonte e comparacao entre dois periodos (compareFrom/compareTo). So' aparece o que a aluna autorizou.
+  @Get('students/:studentId/health-recovery')
+  healthRecovery(@Param('studentId') studentId: string, @Query() query: HealthRecoveryQuery) {
+    return this.studentHealthRecovery.forStudent(studentId, query);
   }
 
   @Get('students/:studentId/external-activities')

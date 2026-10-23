@@ -2964,3 +2964,63 @@ h3 {
 .integrationChecks li.ok > span:first-child { background: var(--accent-soft); color: var(--accent); }
 .integrationChecks li.bad > span:first-child { background: var(--danger-soft); color: var(--danger); }
 .integrationChecks small { display: block; color: var(--muted); font-weight: 400; }
+/* 23/10/2026 — Aluno > Saude e Recuperacao (somente leitura). Mesmos tokens das Integracoes. */
+.hrTab { display: grid; gap: 14px; }
+.hrHead h3 { margin: 0 0 4px; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+.hrHead p { margin: 0; color: var(--muted); font-size: 14px; max-width: 78ch; line-height: 1.45; }
+.hrControls { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.hrField { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.hrField input, .hrField select { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 14px; min-width: 150px; }
+.hrField select { min-width: 260px; }
+.hrShortcuts { display: flex; flex-wrap: wrap; gap: 6px; }
+.hrShortcuts button { padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); font-size: 13px; cursor: pointer; }
+.hrShortcuts button:hover { background: var(--accent-soft); border-color: var(--accent); }
+.hrCheck { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink); padding-bottom: 6px; }
+.hrCompareRange { display: flex; gap: 10px; }
+.hrStatus { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.hrStatusItem { display: grid; gap: 2px; text-align: left; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); cursor: pointer; font-size: 13px; }
+.hrStatusItem strong { font-size: 14px; }
+.hrStatusItem span { color: var(--muted); }
+.hrStatusItem em { font-style: normal; font-size: 12px; color: var(--warn); }
+.hrStatusItem.ok span { color: var(--accent); }
+.hrStatusItem.warn span { color: var(--warn); }
+.hrStatusItem.bad span { color: var(--danger); }
+.hrStatusItem.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.hrCard { border: 1px solid var(--line); border-radius: 12px; background: var(--paper); padding: 16px; display: grid; gap: 12px; }
+.hrCard header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.hrCard h4 { margin: 0; font-size: 16px; }
+.hrBadge { padding: 3px 10px; border-radius: 999px; font-size: 12px; background: var(--panel); color: var(--muted); }
+.hrBadge.ok { background: var(--accent-soft); color: var(--accent); }
+.hrBadge.warn { background: var(--warn-soft); color: var(--warn); }
+.hrBadge.bad { background: var(--danger-soft); color: var(--danger); }
+.hrSource { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); }
+.hrSource strong { color: var(--ink); }
+.hrSummary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.hrSummary > div { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); align-content: start; }
+.hrSummary small { color: var(--muted); font-size: 12px; }
+.hrSummary strong { font-size: 15px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.hrSummary em { font-style: normal; font-size: 12px; color: var(--muted); }
+.hrStages { font-size: 13px; color: var(--muted); line-height: 1.6; }
+.hrChart { width: 100%; min-height: 280px; }
+.hrNotice { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 9px 12px; border-radius: 8px; background: var(--panel); color: var(--ink); font-size: 13px; line-height: 1.45; }
+.hrNotice svg { flex: none; margin-top: 2px; }
+.hrNotice.warn { background: var(--warn-soft); color: var(--warn); }
+.hrNotice.bad { background: var(--danger-soft); color: var(--danger); }
+.hrFootnote { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.hrEmpty { color: var(--muted); padding: 16px; border: 1px dashed var(--line); border-radius: 8px; margin: 0; display: grid; gap: 8px; justify-items: start; }
+.hrEmpty p { margin: 0; }
+.hrLink { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font-size: 13px; text-decoration: underline; display: inline-flex; gap: 4px; align-items: center; }
+.hrCompare { border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; }
+.hrCompare h4 { margin: 0; font-size: 14px; display: flex; gap: 6px; align-items: center; }
+.hrCompare table, .hrSessions { width: 100%; border-collapse: collapse; font-size: 13px; }
+.hrCompare th, .hrCompare td, .hrSessions th, .hrSessions td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.hrCompare thead th { color: var(--muted); font-weight: 500; }
+.hrCompare small { font-weight: 400; color: var(--muted); }
+.hrDelta { margin: 0; font-size: 14px; }
+.hrSessions tr.muted td { color: var(--muted); }
+.hrTooltip { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; display: grid; gap: 3px; max-width: 320px; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12); }
+.hrTipSession { color: var(--muted); }
+.hrTipLimit { color: var(--warn); }
+@media (max-width: 900px) { .hrStatus, .hrSummary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .hrField select { min-width: 0; width: 100%; } }
+.hrSessionsWrap { max-height: 380px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.hrSessionsWrap thead th { position: sticky; top: 0; background: var(--panel); }
