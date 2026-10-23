@@ -138,3 +138,50 @@ describe('evidencia pareada: rollback fiel e nunca troca de fonte num dia', () =
     expect(device.durationScope).toMatch(/NAO e necessariamente a duracao total da noite/);
   });
 });
+
+describe('prompt de prescricao: regra de comparabilidade entre fontes (texto aprovado por Elton em 23/10/2026)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { PrescriptionAgentService } = require('../src/training-plans/prescription-agent.service');
+  const weekly = (): string => (new PrescriptionAgentService({ get: jest.fn().mockReturnValue('') } as never, { enqueue: jest.fn() } as never) as any).buildSystemPromptStable();
+
+  it('ensina a nao comparar fontes, a nao ler troca de aparelho como mudanca do corpo e a manter a fonte identificada', () => {
+    const text = weekly();
+    expect(text).toContain('otherSources');
+    expect(text).toContain('mainSource');
+    expect(text).toContain('NAO sao comparaveis');
+    expect(text).toContain('NUNCA compare nem some valores entre fontes');
+    expect(text).toContain('troca de aparelho ou de app');
+    expect(text).toContain('mantenha a fonte identificada');
+    expect(text).toContain('omittedOtherSources');
+    expect(text).toContain('nao ha dado dela disponivel e autorizado, nunca que o valor e zero'); // ancora unica (a frase solta tambem existe no item de byModality)
+  });
+
+  it('AJUSTE 1: nao presume historico curto na fonte recem-selecionada; avalia n, periodo observado e atualidade', () => {
+    const text = weekly();
+    expect(text).toContain('NAO presuma que a mainSource tem historico curto');
+    expect(text).toContain('evidence.n, evidence.observedSpan');
+    expect(text).toContain('evidence.lastObservationAt');
+    expect(text).not.toContain('a serie dela ainda e curta');
+  });
+
+  it('AJUSTE 2: sessao principal de sono nao e o sono total da noite e sessao curta nao prova privacao de sono', () => {
+    const text = weekly();
+    expect(text).toContain('SONO medido por aparelho (vale mesmo com uma fonte so)');
+    expect(text).toContain('de UMA sessao de sono registrada pela fonte, NAO necessariamente o sono total da noite');
+    expect(text).toContain('uma noite dividida pode aparecer como mais de uma observacao');
+    expect(text).toContain('device.durationMin e a duracao da sessao principal da fonte (a maior do dia)');
+    expect(text).toContain('additionalSessions');
+    expect(text).toContain('NAO conclua privacao de sono apenas porque uma sessao, ou a sessao principal, foi curta');
+  });
+
+  it('a regra do sono vale FORA da condicional de varias fontes (item proprio)', () => {
+    const text = weekly();
+    const multiSourceItem = text.slice(text.indexOf('Quando uma entrada em athleteStateContext.variables tiver "otherSources"'), text.indexOf('SONO medido por aparelho'));
+    expect(multiSourceItem.length).toBeGreaterThan(500);
+    expect(multiSourceItem).not.toContain('privacao de sono');
+  });
+
+  it('o prompt estavel e identico entre chamadas (cache nao depende de aluno)', () => {
+    expect(weekly()).toBe(weekly());
+  });
+});

@@ -19,7 +19,8 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
   const FROZEN = {
     // 21/10/2026 (regra do treinador, aprovada por Elton): a metodologia passou a mandar SEMPRE pausa ativa extremamente leve (nunca passiva), para o treino poder ir ao relogio.
     // Muda o texto de conhecimento de metodologia (prompts stable e strength); o prompt da corrida por sessao nao muda.
-    stable: '1d4f754392ff8ed918c0bb81d2be3c30213f7a3eb02c0815fb4cfd1b1a4498e4',
+    // 23/10/2026 (Etapa 1, texto aprovado por Elton): dois itens novos sobre dados de aparelho de varias fontes e sono dividido (so no prompt da semana). Hash anterior: 1d4f7543...b4498e4.
+    stable: '365deae30870dc037a9c3821a635e92a9680569deb99840bd2d1420d3ebe0535',
     safetyOff: '90845a73c34035ad1ae2cdd755ff5c3acd966196e01159ca6640f9257e70af58',
     safetyOn: '4d827cdb6a2977afa4cd38e6838bf968b48ff564fe4655b6aec818b5b089c09b',
     safetyRemove: '8e865b48162c93abcc974f533fc525d97abaa53ac555cf5463762fec6907f987',
