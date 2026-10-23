@@ -8,6 +8,7 @@ import { profileIsConfirmed } from '../zepp/zepp-workout-publisher.service';
 import { ZEPP_WORKOUT_PROFILE } from '../zepp/zepp-workout-profile';
 import { HEALTH_CONNECT_CONSENT } from '../health-connect/health-connect-consent';
 import { LEGACY_CONSENT_DOCUMENTS } from '../legacy-consent/legacy-consent';
+import { grantedPolarHealthCategories, POLAR_HEALTH_CONSENT, type PolarHealthRow } from '../polar/polar-health-consent';
 
 // Painel do treinador — Aluno > Integracoes (21/10/2026). SOMENTE CONSULTA do estado REAL das integracoes da aluna, reaproveitando as tabelas de conexao e de recebimento que ja existem
 // (nenhum segundo sistema de integracoes, nenhum fluxo de conexao alterado). Distingue CONTA CONECTADA de DADO EFETIVAMENTE RECEBIDO: "conectada" vem da conexao; "recebeu dados" vem dos
@@ -113,6 +114,8 @@ export interface IntegrationsRaw {
   hcReceipts?: Record<string, ReceiptStat>;
   // Decisao da aluna sobre o Atlas para Polar/Wahoo ja' conectadas (so' existe depois que ela responde).
   legacyConsent?: Partial<Record<'polar' | 'wahoo', { disconnectedAt: Date | null; grantedPurposes: unknown; purposeConsents: unknown } | null>>;
+  // Saude e recuperacao da Polar (23/10/2026): autorizacao por categoria (linha propria 'polar_health') e o que chegou. Ausente => a aluna ainda nao escolheu.
+  polarHealth?: { row: PolarHealthRow | null; receipts: Record<string, ReceiptStat> };
   zeppLastProcessedEventAt: Date | null;
   zeppWorkoutLastAcceptedAt: Date | null;
   inboundFailures: Array<{ provider: string; eventType: string; status: string; lastError: string | null; updatedAt: Date }>;
@@ -195,11 +198,24 @@ function legacyEntry(provider: 'polar' | 'wahoo' | 'apple_health' | 'health_conn
     disconnectedAt: iso(connection?.disconnectedAt),
     lastSyncAt: iso(completed ?? receipt.lastAt),
     lastSyncBasis: completed ? 'sincronizacao_concluida' : receipt.lastAt ? 'ultimo_dado_recebido' : null,
-    categories: [{ id: 'activity', label: 'Atividades (corridas e treinos)', direction: 'recebe', authorized: connection ? !connection.disconnectedAt : null, lastAt: iso(receipt.lastAt), count: receipt.count, ...(connection ? {} : { note: 'Sem registro de autorização no servidor.' }) }],
+    categories: [
+      { id: 'activity', label: 'Atividades (corridas e treinos)', direction: 'recebe', authorized: connection ? !connection.disconnectedAt : null, lastAt: iso(receipt.lastAt), count: receipt.count, ...(connection ? {} : { note: 'Sem registro de autorização no servidor.' }) },
+      ...(provider === 'polar' ? polarHealthCategories(raw, Boolean(connection) && !connection!.disconnectedAt) : []),
+    ],
     atlas: legacyAtlasView(provider, raw),
     failures,
     warnings,
   };
+}
+
+// Saude e recuperacao da Polar: so' vale com conexao ativa + texto vigente + grupo concedido (a mesma regra da importacao). Nunca ha dado de saude sem autorizacao por categoria.
+function polarHealthCategories(raw: IntegrationsRaw, connected: boolean): IntegrationCategoryView[] {
+  const granted = connected ? new Set<string>(grantedPolarHealthCategories(raw.polarHealth?.row ?? null)) : new Set<string>();
+  const receipts = raw.polarHealth?.receipts ?? {};
+  return POLAR_HEALTH_CONSENT.groups.map((group) => {
+    const r = stat(receipts[group.id]);
+    return { id: group.id, label: group.label, direction: 'recebe' as const, authorized: granted.has(group.id), lastAt: iso(r.lastAt), count: r.count };
+  });
 }
 
 // Atlas para Polar/Wahoo: sem decisao da aluna = comportamento anterior; com decisao = o que ela escolheu (autorizou, nao autorizou/retirou, ou texto desatualizado).
@@ -438,6 +454,15 @@ export class StudentIntegrationsService {
       this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider: 'wahoo', userId } }, select: { disconnectedAt: true, grantedPurposes: true, purposeConsents: true } }),
     ]);
 
+    // Saude da Polar: autorizacao por categoria + o que chegou (provider 'polar' nas tabelas Wearable*).
+    const polarWearableWhere = { userId, provider: 'polar' };
+    const [polarHealthRow, polarSleep, polarHrv, polarDaily] = await Promise.all([
+      this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider: 'polar_health', userId } }, select: { disconnectedAt: true, grantedCategories: true, consentVersion: true, consentTextHash: true } }),
+      agg(this.prisma.wearableSleepSummary.aggregate({ where: polarWearableWhere, _max: { receivedAt: true }, _count: true })),
+      agg(this.prisma.wearableHrvSummary.aggregate({ where: polarWearableWhere, _max: { receivedAt: true }, _count: true })),
+      agg(this.prisma.wearableDailySummary.aggregate({ where: polarWearableWhere, _max: { receivedAt: true }, _count: true })),
+    ]);
+
     const accepted = (lastDelivery?.providerMetadata as { windowAcceptedAt?: unknown } | null)?.windowAcceptedAt;
     const acceptedAt = typeof accepted === 'string' && !Number.isNaN(new Date(accepted).getTime()) ? new Date(accepted) : lastDelivery?.sentAt ?? null;
     const raw: IntegrationsRaw = {
@@ -453,6 +478,7 @@ export class StudentIntegrationsService {
       zepp_activity_route: { lastAt: routeRow?.rawActivity.receivedAt ?? null, count: routeCount },
       zepp_sleep: sleep, zepp_daily: daily, zepp_resting_hr: restingHr, zepp_hrv: hrv,
       healthConnect: hcRow, hcReceipts, legacyConsent: { polar: polarConsentRow, wahoo: wahooConsentRow },
+      polarHealth: { row: polarHealthRow as PolarHealthRow | null, receipts: { sleep: polarSleep, hrv: polarHrv, daily_activity: polarDaily } },
       zeppLastProcessedEventAt: lastEvent?.processedAt ?? null,
       zeppWorkoutLastAcceptedAt: acceptedAt,
       inboundFailures: failedEvents,

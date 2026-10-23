@@ -25,6 +25,7 @@ import { planStartsInFuture, saoPauloDateString } from './src/weekWindow';
 import { ActivityDetailBody, type ActivityDetail } from './src/activityDetail';
 import { Avatar, ProfilePhotoCard, useProfilePhoto } from './src/profilePhoto/ProfilePhoto';
 import { LegacyAtlasConsentCard } from './src/legacyConsent/LegacyAtlasConsentCard';
+import { PolarHealthConsentCard } from './src/polarHealth/PolarHealthConsentCard';
 import { disableBackgroundSync } from './src/healthConnect/backgroundTask';
 import { BrandMark } from './theme/BrandMark';
 import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
@@ -9279,7 +9280,7 @@ function WahooConnect({ accessToken, variant = 'screen' }: { accessToken: string
 function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessToken: string; initialProviderId?: string }) {
   const screens: IntegrationScreens = {
     // Polar/Wahoo ja' conectadas: o pedido do Atlas aparece logo abaixo (so' para quem esta conectada); sem resposta, nada muda.
-    polar: () => (<><PolarConnect accessToken={accessToken} variant="profile" /><LegacyAtlasConsentCard provider="polar" apiUrl={API_URL} accessToken={accessToken} /></>),
+    polar: () => (<><PolarConnect accessToken={accessToken} variant="profile" /><PolarHealthConsentCard apiUrl={API_URL} accessToken={accessToken} /><LegacyAtlasConsentCard provider="polar" apiUrl={API_URL} accessToken={accessToken} /></>),
     strava: () => <StravaSync accessToken={accessToken} />,
     wahoo: () => (<><WahooConnect accessToken={accessToken} /><LegacyAtlasConsentCard provider="wahoo" apiUrl={API_URL} accessToken={accessToken} /></>),
     // Prova tecnica Apple: so aparece no app nativo iOS com extra.appleHealthProof (o proprio card se autolimita).

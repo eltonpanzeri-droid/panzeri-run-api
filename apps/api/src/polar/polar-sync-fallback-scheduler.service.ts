@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { PolarActivityIngestionService } from './polar-activity-ingestion.service';
+import { PolarHealthIngestionService } from './polar-health-ingestion.service';
 
 // Fallback de recuperacao (03/10/2026). Webhook e' o caminho principal; este intervalo cobre
 // atividades que nao entrarem pelo webhook e, enquanto o webhook nao estiver ativo em producao,
@@ -26,6 +27,8 @@ export class PolarSyncFallbackSchedulerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ingestion: PolarActivityIngestionService,
+    // Saude e recuperacao (23/10/2026): so' age com POLAR_HEALTH_ENABLED ligado e so' para quem autorizou. Nao altera o fluxo de exercicios.
+    @Optional() private readonly health?: PolarHealthIngestionService,
   ) {}
 
   @Interval(FALLBACK_INTERVAL_MS)
@@ -54,6 +57,8 @@ export class PolarSyncFallbackSchedulerService {
         }
       }
       this.logger.log(`Fallback Polar: ${stale.length} conexao(oes) elegivel(is), ${synced} sincronizada(s), ${failed} falha(s).`);
+      try { const h = (await this.health?.syncStale(now)) ?? { eligible: 0, synced: 0, failed: 0 }; if (h.eligible > 0) this.logger.log(`Saude Polar: ${h.eligible} elegivel(is), ${h.synced} sincronizada(s), ${h.failed} falha(s).`); }
+      catch (error) { this.logger.warn(`Saude Polar: rotina falhou: ${error instanceof Error ? error.message.slice(0, 100) : 'erro'}`); }
     } finally {
       this.isRunning = false;
     }

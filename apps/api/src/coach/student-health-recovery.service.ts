@@ -21,6 +21,8 @@ type Category = 'sleep' | 'hrv' | 'restingHr' | 'daily';
 const CATEGORY_ID: Record<string, Record<Category, string>> = {
   zepp: { sleep: 'sleep', hrv: 'hrv', restingHr: 'resting_heart_rate', daily: 'daily' },
   health_connect: { sleep: 'sleep', hrv: 'hrv', restingHr: 'resting_hr', daily: 'daily' },
+  // Polar (23/10/2026): a Polar nao tem serie diaria de FC de repouso; essa categoria nunca e' autorizada para ela.
+  polar: { sleep: 'sleep', hrv: 'hrv', restingHr: 'resting_heart_rate_unavailable', daily: 'daily_activity' },
 };
 const INDICATOR_CATEGORY: Record<IndicatorId, Category> = { sleep: 'sleep', hrv: 'hrv', restingHr: 'restingHr', steps: 'daily', activeKcal: 'daily' };
 const INDICATOR_LABEL: Record<IndicatorId, { label: string; unit: string }> = {
@@ -88,7 +90,7 @@ export interface HealthRecoveryResult {
 
 export interface HealthRecoveryQuery { from?: string; to?: string; source?: string; compareFrom?: string; compareTo?: string }
 
-const SOURCE_NAME: Record<string, string> = { zepp: 'Zepp / Amazfit', health_connect: 'Health Connect' };
+const SOURCE_NAME: Record<string, string> = { zepp: 'Zepp / Amazfit', health_connect: 'Health Connect', polar: 'Polar' };
 const ORIGIN_NAME: Record<string, string> = { 'com.sec.android.app.shealth': 'Samsung Health', 'com.google.android.apps.fitness': 'Google Fit', 'fi.polar.polarflow': 'Polar Flow', 'com.garmin.android.apps.connectmobile': 'Garmin Connect', 'com.strava': 'Strava' };
 export function sourceDisplayName(key: string): string {
   if (!key.startsWith('health_connect:')) return SOURCE_NAME[key] ?? key;
@@ -97,7 +99,9 @@ export function sourceDisplayName(key: string): string {
 }
 const METHOD_NOTE: Record<IndicatorId, (key: string) => string | null> = {
   sleep: () => null,
-  hrv: (key) => (key === 'zepp'
+  hrv: (key) => (key === 'polar'
+    ? 'HRV médio da noite (Nightly Recharge) informado pela Polar. Não é a mesma medida da Zepp nem do Health Connect: compare apenas com a própria aluna nesta mesma fonte.'
+    : key === 'zepp'
     ? 'Média de HRV da noite anterior informada pela Zepp. A Zepp não especifica a unidade; compare apenas com a própria aluna nesta mesma fonte.'
     : key.startsWith('health_connect')
       ? 'Média de HRV (RMSSD, em milissegundos) das medições do dia, calculada a partir do Health Connect. Não é a mesma medida da Zepp.'

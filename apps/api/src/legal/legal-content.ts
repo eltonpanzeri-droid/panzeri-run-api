@@ -31,7 +31,7 @@ export const DATA_CATEGORIES = [
 ];
 
 export const WEARABLE_INTRO =
-  'Você pode autorizar serviços externos compatíveis a compartilhar suas atividades com o Panzeri Run. Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo e, conforme o aparelho, com o Apple Saúde (iPhone) e o Health Connect (Android). Em validação, há também a conexão com a Zepp/Amazfit (seção 5A). Outros serviços poderão ser adicionados e, nesse caso, esta política será atualizada.';
+  'Você pode autorizar serviços externos compatíveis a compartilhar suas atividades com o Panzeri Run. Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo e, conforme o aparelho, com o Apple Saúde (iPhone) e o Health Connect (Android). Em validação, há também a conexão com a Zepp/Amazfit (seção 5A). Na Polar, além das atividades, você pode escolher à parte compartilhar sono, recuperação noturna (incluindo a variabilidade da frequência cardíaca, o HRV) e atividade diária (passos, distância e calorias): isso exige sua autorização por grupo no aplicativo, esses dados ficam visíveis ao seu treinador no painel, não são enviados à inteligência artificial e você pode retirar a autorização quando quiser, o que apaga os dados importados daquele grupo. Outros serviços poderão ser adicionados e, nesse caso, esta política será atualizada.';
 
 const WEARABLE_FIELDS = [
   'Dependendo do serviço e das permissões que você conceder, podem ser recebidos dados como:',
@@ -83,7 +83,7 @@ export const AI_PARAGRAPHS = [
 ];
 
 export const DISCONNECT_PARAGRAPH =
-  'Desconectar a Polar ou a Wahoo interrompe novas sincronizações e retira a autorização guardada no Panzeri Run (na Wahoo, a autorização também é revogada na própria Wahoo), mas não apaga automaticamente o histórico já importado. No Strava, desconectar também apaga os dados do Strava guardados.';
+  'Desconectar a Polar ou a Wahoo interrompe novas sincronizações e retira a autorização guardada no Panzeri Run (na Wahoo, a autorização também é revogada na própria Wahoo), mas não apaga automaticamente o histórico já importado. No Strava, desconectar também apaga os dados do Strava guardados. Na Polar, desconectar também encerra a autorização dos dados de saúde e recuperação; para voltar a importá-los, você escolhe de novo os grupos.';
 
 export const DELETE_PARAGRAPHS = [
   'Excluir os dados importados de um serviço é uma ação separada de desconectar. Para a Polar e para a Wahoo, você faz isso no próprio aplicativo (Privacidade e dados), depois de desconectar. Para o Strava, desconectar já apaga os dados do Strava guardados.',

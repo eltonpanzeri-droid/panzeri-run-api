@@ -117,6 +117,9 @@ export class AiDataEligibility {
         if (!(await this.decide(userId, connector.id, { category: healthCategory, destination })).allowed) blockedHealth.add(`${connector.id}:${healthCategory}`);
       }
     }
+    // Polar/Wahoo (23/10/2026): a autorizacao deles sobre o Atlas cobre so' ATIVIDADES. Saude e recuperacao da Polar (sono, HRV, atividade diaria), autorizada apenas para o acompanhamento pelo
+    // treinador, fica FORA da IA: sem uma autorizacao propria sobre o Atlas para saude, essas categorias sao sempre bloqueadas (nunca fail-open).
+    for (const legacy of LEGACY_CONSENT_PROVIDERS) for (const healthCategory of HEALTH_AI_CATEGORIES) blockedHealth.add(`${legacy}:${healthCategory}`);
     return { userId, destination, blocked: [...blocked].sort(), blockedHealth: [...blockedHealth].sort(), computedAt: Date.now() };
   }
 }

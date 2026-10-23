@@ -1,8 +1,9 @@
-import { BadGatewayException, BadRequestException, ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ConflictException, Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderDataDeletionService } from '../activity-execution/provider-data-deletion.service';
+import { PolarHealthConsentService } from './polar-health-consent.service';
 
 const AUTHORIZATION_URL = 'https://flow.polar.com/oauth2/authorization';
 const TOKEN_URL = 'https://polarremote.com/v2/oauth2/token';
@@ -27,6 +28,8 @@ export class PolarService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly providerData?: ProviderDataDeletionService,
+    // Saude e recuperacao (23/10/2026): encerrar a autorizacao ao desconectar e apagar a saude importada ao excluir os dados. Opcional (testes antigos).
+    @Optional() private readonly health?: PolarHealthConsentService,
   ) {}
 
   async connectUrl(userId: string) {
@@ -156,6 +159,9 @@ export class PolarService {
     // Outra requisicao concorrente venceu a corrida: o efeito ja ocorreu, nada mais a fazer.
     if (revoked.count !== 1) return { status: 'already_disconnected', providerRevocation: 'skipped' };
 
+    // Saude da Polar (23/10/2026): desconectar encerra tambem a autorizacao de saude; reconectar exige escolher de novo. (Nao apaga o historico — isso e' a exclusao de dados.)
+    try { await this.health?.revokeOnDisconnect(userId); }
+    catch { /* melhor esforco: a importacao de saude ja exige a conexao Polar ativa, entao ela para de qualquer forma */ }
     const providerRevocation = await this.deregisterAtPolar(connection.polarUserId, connection.accessTokenEncrypted);
     await this.providerData?.recordDisconnection(userId, 'polar', { providerRevocation });
     return { status: 'disconnected', providerRevocation };
@@ -169,7 +175,10 @@ export class PolarService {
     if (connection && !connection.disconnectedAt) {
       throw new ConflictException('Desconecte a Polar antes de excluir os dados importados dela.');
     }
-    return this.providerData.deleteProviderData(userId, 'polar');
+    const result = await this.providerData.deleteProviderData(userId, 'polar');
+    // Saude e recuperacao importadas da Polar (23/10/2026) saem junto com o historico de atividades.
+    await this.health?.eraseImportedData(userId);
+    return result;
   }
 
   private async deregisterAtPolar(polarUserId: string, tokenEncrypted: string | null): Promise<'revoked' | 'not_registered' | 'failed'> {
