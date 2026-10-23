@@ -11,13 +11,13 @@ import { Calculator, FlaskConical, Lightbulb } from 'lucide-react';
 type Group = 'corrida' | 'forca' | 'outras';
 type View = 'geral' | Group;
 type DateSource = 'atividade_vinculada' | 'programada' | 'registro';
-type Note = 'vinculo_distante' | 'atividade_ja_usada' | null;
+type Note = 'vinculo_distante' | 'vinculo_confirmado' | 'atividade_ja_usada' | null;
 type Session = {
   id: string; date: string; dateSource: DateSource; scheduledDate: string | null; shiftDays: number | null; dateZoneAssumed: boolean; activityNote: Note; modality: string | null; group: Group; title: string | null; isExtra: boolean; adjusted: boolean;
-  rpe: number; minutes: number; durationSource: 'informada' | 'atividade_importada'; durationProvider: string | null; load: number;
+  informedMinutes: number | null; rpe: number; minutes: number; durationSource: 'informada' | 'atividade_importada'; durationProvider: string | null; load: number;
 };
 type Excluded = { id: string; date: string; dateSource: DateSource; scheduledDate: string | null; shiftDays: number | null; dateZoneAssumed: boolean; activityNote: Note; modality: string | null; group: Group; title: string | null; isExtra: boolean; reason: 'sem_esforco' | 'sem_duracao' | 'sem_esforco_e_duracao'; rpe: number | null; minutes: number | null };
-type Window = { asOf: string; acuteLoad: number; chronicLoad: number; chronicWeeklyAverage: number; ratio: number | null; chronicDaysCovered: number; excludedInWindow: number; note: string | null };
+type Window = { asOf: string; acuteLoad: number; chronicLoad: number; chronicWeeklyAverage: number; ratio: number | null; chronicDaysCovered: number; sessionsInWindow: number; minSessions: number; excludedInWindow: number; note: string | null };
 type Week = { weekStart: string; weekEnd: string; inProgress: boolean; clipped: boolean; load: number; sessions: number; excluded: number; window: Window };
 type ViewResult = { weeks: Week[]; current: Window; totals: { sessions: number; excluded: number; load: number } };
 type Result = {
@@ -42,15 +42,15 @@ const min2 = (value: number) => value.toLocaleString('pt-BR', { maximumFractionD
 
 const OPEN_QUESTIONS = [
   'Esforço percebido × minutos é a medida certa para a metodologia da Panzeri? (é a mais simples, mas depende de a aluna informar o esforço.)',
-  'A janela de 7 dias (aguda) contra 28 dias (crônica) faz sentido, ou prefere outra janela?',
-  'Quando a aluna não informa a duração, usamos a da atividade importada confirmada para aquele treino. Esse uso está bom, ou prefere que o treino fique sempre de fora?',
+  'A janela de 7 dias (aguda) contra 28 dias (crônica) faz sentido, com o mínimo de 10 treinos nos 28 dias? (decidido em 23/10/2026; fica aqui para reavaliar com dados reais.)',
   'A visão geral soma corrida e força (esforço × tempo). Ela é útil para você, ou prefere olhar só por modalidade?',
   'O Atlas deve enxergar esta carga (só como descrição, nunca como regra) ou fica só no painel?',
   'Nas alunas que usam Polar, a Polar já guarda uma carga por treino (Training Load Pro, em aparelhos compatíveis). Quer comparar a sua carga com a dela?',
 ];
 
 const NOTE_LABEL: Record<NonNullable<Note>, { text: string; title: string }> = {
-  vinculo_distante: { text: 'vínculo distante ignorado', title: 'A atividade vinculada fica a mais de 6 dias do dia programado: não foi usada (vale a data programada).' },
+  vinculo_distante: { text: 'vínculo distante ignorado', title: 'A atividade vinculada fica longe demais do dia programado (mais de 3 dias se o vínculo foi automático; mais de 6 se foi confirmado por pessoa): não foi usada, vale a data programada.' },
+  vinculo_confirmado: { text: 'vínculo confirmado por pessoa', title: 'A atividade fica a mais de 3 dias do dia programado, mas o vínculo foi confirmado pela aluna ou pelo treinador: foi usada.' },
   atividade_ja_usada: { text: 'atividade já usada por outro treino', title: 'A mesma atividade estava vinculada a dois treinos: ficou com o de dia programado mais próximo.' },
 };
 
@@ -152,7 +152,7 @@ export default function StudentTrainingLoad({ studentId, accessToken, apiUrl }: 
           <div className="tlSummary">
             <div><small>Carga nos últimos 7 dias</small><strong>{ua(current.current.acuteLoad)}</strong><em>até {dmy(current.current.asOf)}</em></div>
             <div><small>Média semanal dos últimos 28 dias</small><strong>{ua(current.current.chronicWeeklyAverage)}</strong><em>soma de 28 dias: {ua(current.current.chronicLoad)}</em></div>
-            <div className="tlRatio"><small>Razão (aguda ÷ crônica)</small><strong>{current.current.ratio == null ? '—' : current.current.ratio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong><em>{current.current.ratio == null ? 'ainda não existe' : '1,00 = igual ao hábito dos 28 dias'}</em></div>
+            <div className="tlRatio"><small>Razão (aguda ÷ crônica)</small><strong>{current.current.ratio == null ? '—' : current.current.ratio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong><em>{current.current.ratio == null ? 'ainda não existe' : '1,00 = igual ao hábito dos 28 dias'} · {current.current.sessionsInWindow} de {current.current.minSessions} treinos mínimos nos 28 dias</em></div>
             <div><small>Treinos no período</small><strong>{current.totals.sessions} entraram</strong><em>{current.totals.excluded} ficaram de fora</em></div>
           </div>
           {current.current.note ? <p className="hrNotice warn"><span>{current.current.note}</span></p> : null}
@@ -181,7 +181,7 @@ export default function StudentTrainingLoad({ studentId, accessToken, apiUrl }: 
               </ResponsiveContainer>
             </div>
           )}
-          <p className="hrFootnote">Semana em andamento (ou cortada pelo período) aparece incompleta. A linha roxa só existe a partir de 28 dias de histórico. Não há faixa de “bom”, “ruim” ou de risco de propósito: a métrica descreve, quem interpreta é você.</p>
+          <p className="hrFootnote">Semana em andamento (ou cortada pelo período) aparece incompleta. A linha roxa só existe com 28 dias de histórico e pelo menos 10 treinos nos últimos 28 dias. Não há faixa de “bom”, “ruim” ou de risco de propósito: a métrica descreve, quem interpreta é você.</p>
 
           <h3 className="tlH">Treinos que entraram na conta ({sessions.length})</h3>
           {sessions.length === 0 ? <p className="hrEmpty">Nenhum treino com esforço percebido e duração neste período{view === 'geral' ? '' : ' nesta modalidade'}.</p> : (
@@ -194,7 +194,7 @@ export default function StudentTrainingLoad({ studentId, accessToken, apiUrl }: 
                       <td><DateCell item={s} /></td>
                       <td>{mod(s.modality)}{s.isExtra ? ' · extra' : ''}{s.adjusted ? ' · com ajustes' : ''}</td><td>{s.title ?? '—'}</td>
                       <td>{s.rpe}</td>
-                      <td>{min2(s.minutes)} <span className={`tlTag ${s.durationSource === 'informada' ? 'prog' : 'real'}`}>{s.durationSource === 'informada' ? 'informada pela aluna' : `atividade ${s.durationProvider ? PROVIDER[s.durationProvider] ?? s.durationProvider : 'importada'}`}</span></td>
+                      <td>{min2(s.minutes)} <span className={`tlTag ${s.durationSource === 'informada' ? 'prog' : 'real'}`}>{s.durationSource === 'informada' ? 'informada pela aluna' : `atividade ${s.durationProvider ? PROVIDER[s.durationProvider] ?? s.durationProvider : 'importada'}`}</span>{s.informedMinutes != null ? <div className="tlShift">a aluna informou {min2(s.informedMinutes)} min</div> : null}</td>
                       <td><strong>{s.rpe} × {min2(s.minutes)} = {ua(s.load)}</strong></td>
                     </tr>
                   ))}

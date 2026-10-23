@@ -2,10 +2,11 @@
 //
 // Como é calculada (a mesma explicação aparece na tela do painel):
 //  1. CARGA DA SESSÃO = esforço percebido (1 a 10, que a aluna informa depois do treino) × duração em minutos (método "sRPE", de Foster). Unidade: UA (unidade arbitrária).
-//     A duração é a que a aluna informou; se faltar, e houver UMA atividade importada corretamente vinculada ao treino, usa-se a duração dela (a origem aparece na tela).
+//     Duração: com relógio sincronizado (UMA atividade importada corretamente vinculada ao treino) vale a duração DELA — o app já a preenche sozinho; sem atividade, vale a informada pela aluna. A origem aparece na tela.
 //  2. DATA da carga = o dia em que o treino foi EXECUTADO, quando existe atividade importada vinculada (data real). Sem ela, vale a data PROGRAMADA e a tela marca "só programada". Nunca se inventa data.
 //  3. SEMANA (segunda a domingo) = soma da carga das sessões da semana. Há visões por modalidade (corrida, força, outras) e uma visão GERAL, que é só a soma de cargas sRPE de modalidades diferentes.
 //  4. AGUDA = soma dos últimos 7 dias. CRÔNICA = média semanal dos últimos 28 dias (soma de 28 dias ÷ 4). RAZÃO = aguda ÷ crônica (1,0 = mesma carga do hábito recente), só descritiva.
+//     A razão só existe com 28 dias de histórico E pelo menos 10 treinos nos últimos 28 dias (decisão de Elton, 23/10/2026): com menos que isso a métrica vale pouco e não é mostrada.
 //  5. O que NÃO entra: treino marcado como não feito; treino sem esforço percebido ou sem duração utilizável (nunca vira zero nem é estimado — aparece numa lista própria, com o motivo).
 //
 // Isto DESCREVE o que a aluna fez. NÃO decide treino, NÃO é recomendação, não há faixa de risco e (até decisão de Elton) o Atlas NÃO usa.
@@ -15,6 +16,8 @@ import { canonicalModality } from '../activity-execution/canonical-modality'; //
 export const LOAD_METHOD_VERSION = 'carga-propria v2 (23/10/2026)';
 export const ACUTE_DAYS = 7;
 export const CHRONIC_DAYS = 28;
+// Minimo de treinos (que entraram na conta) nos 28 dias para a razao valer (decisao de Elton, 23/10/2026). Vale por visao: modalidade com menos treinos fica sem razao.
+export const MIN_SESSIONS_IN_WINDOW = 10;
 
 export type LoadGroup = 'corrida' | 'forca' | 'outras';
 export type LoadView = 'geral' | LoadGroup;
@@ -32,6 +35,7 @@ export function modalityGroup(modality: string | null | undefined): LoadGroup {
 
 // De onde vem a data da carga: a atividade importada vinculada (data REAL), a data programada do treino ou, sem sessao programada, o dia do registro. Nunca se inventa data.
 export type DateSource = 'atividade_vinculada' | 'programada' | 'registro';
+export type ActivityNote = 'vinculo_distante' | 'vinculo_confirmado' | 'atividade_ja_usada' | null;
 export type DurationSource = 'informada' | 'atividade_importada';
 
 export interface LoadInputRow {
@@ -51,7 +55,7 @@ export interface LoadInputRow {
   activityDurationMin?: number | null;
   activityProvider?: string | null;
   /** Por que uma atividade vinculada NAO foi usada neste treino (aparece na tela). */
-  activityNote?: 'vinculo_distante' | 'atividade_ja_usada' | null;
+  activityNote?: ActivityNote;
   /** Origem da duracao em durationMin: 'atividade_importada' quando a sessao e' uma extra materializada de uma atividade (a duracao foi COPIADA dela, nao informada pela aluna). */
   durationOrigin?: DurationSource;
   perceivedEffort: number | null;
@@ -61,6 +65,8 @@ export interface LoadInputRow {
 export interface LoadSession {
   id: string; date: string; dateSource: DateSource; scheduledDate: string | null; shiftDays: number | null; dateZoneAssumed: boolean; activityNote: LoadInputRow['activityNote'];
   modality: string | null; group: LoadGroup; title: string | null; isExtra: boolean; adjusted: boolean;
+  /** Duracao que a aluna informou, quando a usada na conta e' a da atividade e ela e' diferente (para o treinador comparar). */
+  informedMinutes: number | null;
   rpe: number; minutes: number; durationSource: DurationSource; durationProvider: string | null; load: number;
 }
 export type ExclusionReason = 'sem_esforco' | 'sem_duracao' | 'sem_esforco_e_duracao';
@@ -77,6 +83,9 @@ export interface LoadWindow {
   ratio: number | null;
   /** Dias da janela crônica que já existem no histórico de cargas (28 = completa). */
   chronicDaysCovered: number;
+  /** Treinos que ENTRARAM na conta nos ultimos 28 dias (e o minimo exigido para a razao existir). */
+  sessionsInWindow: number;
+  minSessions: number;
   /** Sessões que ficaram DE FORA (sem esforço/duração) dentro dos 28 dias: a razão está calculada só com o que foi informado. */
   excludedInWindow: number;
   note: string | null;
@@ -133,10 +142,13 @@ export function classifySessions(rows: LoadInputRow[]): { sessions: LoadSession[
     const usable = (value: number | null | undefined) => (value != null && Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null);
     const informed = usable(row.durationMin);
     const imported = usable(row.activityDurationMin);
-    // A duracao informada pela aluna tem prioridade; a da atividade importada so' entra quando a dela falta (e a atividade esta corretamente vinculada — ver o servico).
-    const minutes = informed != null && informed > 0 ? informed : imported != null && imported > 0 ? imported : null;
+    // Com atividade importada corretamente vinculada (relogio sincronizado) vale a duracao DELA — o app ja' a preenche sozinho (decisao de Elton, 23/10/2026); sem atividade (ou sem duracao nela),
+    // vale a informada pela aluna. A origem fica registrada e, se a da aluna for diferente, ela tambem e' mostrada.
+    const useImported = imported != null && imported > 0;
+    const minutes = useImported ? imported : informed != null && informed > 0 ? informed : null;
     // Sessao extra materializada de atividade: a duracao em durationMin foi COPIADA da atividade (nao e' "informada pela aluna").
-    const durationSource: DurationSource = informed != null && informed > 0 ? row.durationOrigin ?? 'informada' : 'atividade_importada';
+    const durationSource: DurationSource = useImported ? 'atividade_importada' : row.durationOrigin ?? 'informada';
+    const informedMinutes = useImported && informed != null && informed > 0 && informed !== imported && (row.durationOrigin ?? 'informada') === 'informada' ? informed : null;
     const dateSource: DateSource = row.dateSource ?? 'programada';
     const scheduledDate = row.scheduledDate ?? null;
     const shiftDays = dateSource === 'atividade_vinculada' && scheduledDate ? diffDays(scheduledDate, row.date) : null; // dias entre o programado e o executado
@@ -144,7 +156,7 @@ export function classifySessions(rows: LoadInputRow[]): { sessions: LoadSession[
     if (rpe == null || minutes == null) {
       excluded.push({ ...base, reason: rpe == null && minutes == null ? 'sem_esforco_e_duracao' : rpe == null ? 'sem_esforco' : 'sem_duracao', rpe, minutes });
     } else {
-      sessions.push({ ...base, adjusted: row.status === 'adjusted', rpe, minutes, durationSource, durationProvider: durationSource === 'atividade_importada' ? row.activityProvider ?? null : null, load: round1(rpe * minutes) });
+      sessions.push({ ...base, adjusted: row.status === 'adjusted', informedMinutes, rpe, minutes, durationSource, durationProvider: durationSource === 'atividade_importada' ? row.activityProvider ?? null : null, load: round1(rpe * minutes) });
     }
   }
   const byDate = (a: { date: string; id: string }, b: { date: string; id: string }) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1);
@@ -152,7 +164,7 @@ export function classifySessions(rows: LoadInputRow[]): { sessions: LoadSession[
 }
 
 /** Aguda (7 dias), crônica (28 dias) e razão até o dia `asOf` (inclusive). A razão só existe com a janela crônica COMPLETA no histórico. */
-export function windowAt(asOf: string, sessions: LoadSession[], excluded: ExcludedSession[]): LoadWindow {
+export function windowAt(asOf: string, sessions: LoadSession[], excluded: ExcludedSession[], minSessions: number = MIN_SESSIONS_IN_WINDOW): LoadWindow {
   const inRange = (date: string, days: number) => date <= asOf && date >= addDays(asOf, -(days - 1));
   const acuteRaw = sessions.filter((s) => inRange(s.date, ACUTE_DAYS)).reduce((sum, s) => sum + s.load, 0);
   const chronicRaw = sessions.filter((s) => inRange(s.date, CHRONIC_DAYS)).reduce((sum, s) => sum + s.load, 0);
@@ -160,38 +172,40 @@ export function windowAt(asOf: string, sessions: LoadSession[], excluded: Exclud
   const first = [...sessions, ...excluded].map((s) => s.date).sort()[0];
   const chronicDaysCovered = first == null || first > asOf ? 0 : Math.min(CHRONIC_DAYS, diffDays(first, asOf) + 1);
   const excludedInWindow = excluded.filter((s) => inRange(s.date, CHRONIC_DAYS)).length;
+  const sessionsInWindow = sessions.filter((s) => inRange(s.date, CHRONIC_DAYS)).length;
   let ratio: number | null = null;
   let note: string | null = null;
   if (chronicDaysCovered < CHRONIC_DAYS) note = `Histórico curto: só ${chronicDaysCovered} de ${CHRONIC_DAYS} dias — a razão ainda não existe.`;
   else if (chronicAverageRaw <= 0) note = 'Sem carga registrada nos últimos 28 dias — a razão não existe.';
+  else if (sessionsInWindow < minSessions) note = `Poucos treinos: só ${sessionsInWindow} de ${minSessions} nos últimos ${CHRONIC_DAYS} dias — com tão pouca amostra a razão vale pouco e não é mostrada.`;
   else {
     ratio = Math.round((acuteRaw / chronicAverageRaw) * 100) / 100;
     if (excludedInWindow > 0) note = `${excludedInWindow} treino(s) dos últimos 28 dias ficaram de fora por falta de esforço percebido ou duração: a razão usa só o que foi informado.`;
   }
-  return { asOf, acuteLoad: round1(acuteRaw), chronicLoad: round1(chronicRaw), chronicWeeklyAverage: round1(chronicAverageRaw), ratio, chronicDaysCovered, excludedInWindow, note };
+  return { asOf, acuteLoad: round1(acuteRaw), chronicLoad: round1(chronicRaw), chronicWeeklyAverage: round1(chronicAverageRaw), ratio, chronicDaysCovered, sessionsInWindow, minSessions, excludedInWindow, note };
 }
 
 export const METHOD_TEXT = {
   formula: 'Carga da sessão (UA) = esforço percebido (1 a 10) × minutos. Razão = carga dos últimos 7 dias ÷ média semanal dos últimos 28 dias.',
   steps: [
     'Cada treino feito (ou feito com ajustes) vale: esforço percebido que a aluna informou (1 a 10) × duração em minutos = carga da sessão, em UA (unidade arbitrária).',
-    'Duração: vale a que a aluna informou. Se ela não informou e existe UMA atividade importada (relógio/aplicativo) corretamente vinculada ao treino, usa-se a duração dessa atividade, sem duplicar, e a tela mostra de onde veio. Sem nenhuma das duas, o treino fica de fora.',
+    'Duração: quando existe UMA atividade importada (relógio sincronizado) corretamente vinculada ao treino, vale a duração dela, sem duplicar (o app já a preenche sozinho no feedback); a tela mostra de onde veio e, se a aluna informou outro valor, mostra também o dela. Sem atividade, vale a duração que a aluna informou (o feedback só salva com ela). Sem nenhuma das duas, o treino fica de fora.',
     'Data: a carga entra no dia em que o treino foi EXECUTADO, quando existe atividade importada vinculada (data real). Sem atividade, vale a data PROGRAMADA e a tela marca "só programada" (sem sessão programada, vale o dia do registro, marcado "só registro"). Nunca se inventa data.',
     'A carga da semana (segunda a domingo) é a soma das sessões da semana. Há uma visão por modalidade (corrida, força, outras) e a visão GERAL, que é só a soma de cargas sRPE de modalidades diferentes.',
     'Aguda = soma dos últimos 7 dias. Crônica = média semanal dos últimos 28 dias (soma dos 28 dias ÷ 4). Razão = aguda ÷ crônica. Razão 1,0 = mesma carga do hábito recente; acima = semana mais carregada que o hábito; abaixo = mais leve. Atenção: os 28 dias INCLUEM os 7 dias da aguda, o que aproxima a razão de 1,0. É só informação descritiva: não há faixa de risco nem recomendação.',
-    'A razão só aparece quando já existem 28 dias de histórico. Antes disso a tela diz que o histórico é curto.',
+    'A razão só aparece quando já existem 28 dias de histórico E pelo menos 10 treinos nos últimos 28 dias (por visão: uma modalidade com menos de 10 treinos fica sem razão). Com menos que isso a métrica vale pouco, e a tela diz quantos treinos faltam.',
   ],
   leftOut: [
     'Treino marcado como não feito não entra.',
-    'Treino sem esforço percebido, ou sem duração utilizável (nem informada nem de uma atividade vinculada), NÃO entra (nunca vira zero e nada é estimado): aparece na lista "Ficaram de fora", com o motivo.',
-    'A atividade importada só é usada quando está confirmada para aquele treino (uma só, sem duplicar a mesma atividade em dois treinos). Dados do Strava não são usados.',
-    'Não lê a FC nem outras medidas do relógio: só a duração e o dia da atividade vinculada, e só quando a aluna não informou.',
+    'Treino sem esforço percebido, ou sem duração utilizável (nem da atividade vinculada nem informada), NÃO entra (nunca vira zero e nada é estimado): aparece na lista "Ficaram de fora", com o motivo.',
+    'A atividade importada só é usada quando está confirmada para aquele treino (uma só, sem duplicar a mesma atividade em dois treinos). Vínculo automático a mais de 3 dias do dia programado é ignorado; vínculo confirmado por pessoa (aluna ou treinador) vale até 6 dias. Dados do Strava não são usados.',
+    'Não lê a FC nem outras medidas do relógio: só a duração e o dia da atividade vinculada.',
     'É uma descrição do que foi feito. Não é recomendação, e o Atlas ainda não usa esta métrica.',
   ],
   generalViewNote: 'A visão GERAL é a soma de cargas sRPE de modalidades diferentes (corrida, força e outras). A unidade (UA) é a mesma, mas o esforço de cada tipo de treino não é equivalente: use as visões por modalidade para comparar.',
 };
 
-function viewFor(group: LoadView, all: LoadSession[], allExcluded: ExcludedSession[], period: { from: string; to: string }, today: string): LoadViewResult {
+function viewFor(group: LoadView, all: LoadSession[], allExcluded: ExcludedSession[], period: { from: string; to: string }, today: string, minSessions: number): LoadViewResult {
   const pick = <T extends { group: LoadGroup }>(list: T[]) => (group === 'geral' ? list : list.filter((s) => s.group === group));
   const sessionsAll = pick(all);
   const excludedAll = pick(allExcluded);
@@ -208,23 +222,23 @@ function viewFor(group: LoadView, all: LoadSession[], allExcluded: ExcludedSessi
       weekStart, weekEnd, inProgress: weekEnd > today, clipped: shownFrom > weekStart || shownTo < weekEnd,
       load: round1(weekSessions.reduce((sum, s) => sum + s.load, 0)), sessions: weekSessions.length, excluded: excludedAll.filter((s) => inWeek(s.date)).length,
       // A janela cronica de uma semana do periodo olha ate' 28 dias ANTES dela: por isso usa o historico todo, e so' a EXIBICAO e' recortada no periodo.
-      window: windowAt(asOf < today ? asOf : today, sessionsAll, excludedAll),
+      window: windowAt(asOf < today ? asOf : today, sessionsAll, excludedAll, minSessions),
     });
   }
   const shown = sessionsAll.filter((s) => inPeriod(s.date));
   return {
     weeks,
-    current: windowAt(period.to < today ? period.to : today, sessionsAll, excludedAll),
+    current: windowAt(period.to < today ? period.to : today, sessionsAll, excludedAll, minSessions),
     totals: { sessions: shown.length, excluded: excludedAll.filter((s) => inPeriod(s.date)).length, load: round1(shown.reduce((sum, s) => sum + s.load, 0)) },
   };
 }
 
-export function buildTrainingLoad(rows: LoadInputRow[], period: { from: string; to: string }, today: string): TrainingLoadResult {
+export function buildTrainingLoad(rows: LoadInputRow[], period: { from: string; to: string }, today: string, minSessions: number = MIN_SESSIONS_IN_WINDOW): TrainingLoadResult {
   const { sessions: all, excluded: allExcluded } = classifySessions(rows);
   const inPeriod = (date: string) => date >= period.from && date <= period.to;
   const sessions = all.filter((s) => inPeriod(s.date));
   const excluded = allExcluded.filter((s) => inPeriod(s.date));
-  const views = Object.fromEntries(LOAD_VIEWS.map((view) => [view, viewFor(view, all, allExcluded, period, today)])) as Record<LoadView, LoadViewResult>;
+  const views = Object.fromEntries(LOAD_VIEWS.map((view) => [view, viewFor(view, all, allExcluded, period, today, minSessions)])) as Record<LoadView, LoadViewResult>;
   const last = [...sessions].sort((a, b) => (a.date < b.date ? 1 : -1))[0] ?? [...all].sort((a, b) => (a.date < b.date ? 1 : -1))[0] ?? null;
   return {
     method: { version: LOAD_METHOD_VERSION, formula: METHOD_TEXT.formula, steps: METHOD_TEXT.steps, leftOut: METHOD_TEXT.leftOut, generalViewNote: METHOD_TEXT.generalViewNote },

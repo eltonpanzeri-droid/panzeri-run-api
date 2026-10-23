@@ -9,9 +9,11 @@ import { addDays, buildTrainingLoad, type LoadInputRow, type TrainingLoadResult 
 //
 // Atividade importada só vale quando: (a) o vínculo com o treino está ativo; (b) é UMA atividade (vários eventos físicos distintos no mesmo treino = ambíguo, nada é usado); (c) vale a observação
 // CANÔNICA do evento (a mesma regra do resto do sistema: um evento físico = uma observação, sem duplicar); (d) a mesma atividade nunca serve a dois treinos; (e) nunca Strava.
-// Salvaguarda de vinculo: se o dia da atividade vinculada fica a mais de 6 dias do dia programado (o mesmo limite do vinculo manual da aluna), o vinculo e' tratado como suspeito e a atividade
-// NAO e' usada (vale a data programada, com aviso na tela). Evita mover a carga por semanas por causa de um vinculo errado.
-const LINK_MAX_SHIFT_DAYS = 6;
+// Salvaguarda de vinculo (decisao de Elton, 23/10/2026): a partir de 3 dias de diferenca a aluna e' PERGUNTADA se foi um treino extra ou um treino programado para outro dia; portanto um vinculo
+// AUTOMATICO a mais de 3 dias do dia programado e' suspeito e a atividade NAO e' usada (vale a data programada, com aviso na tela). Um vinculo confirmado por PESSOA (aluna ou treinador, origem
+// 'student'/'coach') foi uma decisao consciente e vale ate' 6 dias (o limite do vinculo manual); alem disso tambem e' ignorado. O dia programado ja' reflete um reagendamento feito pela aluna.
+const AUTOMATIC_LINK_MAX_SHIFT_DAYS = 3;
+const CONFIRMED_LINK_MAX_SHIFT_DAYS = 6;
 const COACH_HIDDEN_PROVIDERS = ['strava']; // dados do Strava nao sao exibidos ao treinador (Politica de Privacidade)
 
 const spToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
@@ -22,6 +24,7 @@ const ACTIVITY_SELECT = {
   id: true, provider: true, startedAt: true, utcOffsetMinutes: true, durationSec: true,
   physicalIdentityStatus: true, physicalEventId: true, physicalCanonicalActivityLogId: true,
 } as const;
+interface LinkedActivity { activity: ActivityRow; confirmedByPerson: boolean }
 interface ActivityRow {
   id: string; provider: string; startedAt: Date; utcOffsetMinutes: number | null; durationSec: number | null;
   physicalIdentityStatus: string | null; physicalEventId: string | null; physicalCanonicalActivityLogId: string | null;
@@ -68,15 +71,18 @@ export class StudentTrainingLoadService {
 
     // 1) candidata de cada treino (atividade confirmada, canonica, unica, nunca Strava) e salvaguarda de vinculo distante
     const candidates = new Map<string, { activity: ActivityRow; date: string; shift: number }>();
-    const notes = new Map<string, 'vinculo_distante' | 'atividade_ja_usada'>();
+    const notes = new Map<string, 'vinculo_distante' | 'vinculo_confirmado' | 'atividade_ja_usada'>();
     const dropped = new Set<string>(); // treinos que perderam a atividade para outro (a mesma atividade nao serve a dois)
     for (const c of completions) {
       if (isDeviceExtra(c)) continue;
-      const activity = c.sessionId ? activityBySession.get(c.sessionId) ?? null : null;
-      if (!activity) continue;
+      const linked = c.sessionId ? activityBySession.get(c.sessionId) ?? null : null;
+      if (!linked) continue;
+      const activity = linked.activity;
       const date = activityLocalDate(activity.startedAt, activity.utcOffsetMinutes);
       const shift = c.session?.scheduledDate ? dayDiff(programmedOf(c), date) : 0;
-      if (Math.abs(shift) > LINK_MAX_SHIFT_DAYS) { notes.set(c.id, 'vinculo_distante'); continue; }
+      const limit = linked.confirmedByPerson ? CONFIRMED_LINK_MAX_SHIFT_DAYS : AUTOMATIC_LINK_MAX_SHIFT_DAYS;
+      if (Math.abs(shift) > limit) { notes.set(c.id, 'vinculo_distante'); continue; }
+      if (linked.confirmedByPerson && Math.abs(shift) > AUTOMATIC_LINK_MAX_SHIFT_DAYS) notes.set(c.id, 'vinculo_confirmado'); // aviso informativo: foi confirmado por uma pessoa
       candidates.set(c.id, { activity, date, shift });
     }
     // 2) a mesma atividade nunca serve a dois treinos: fica com o treino cujo dia programado esta mais perto do dia da atividade (empate: o registrado primeiro, depois o id)
@@ -117,23 +123,25 @@ export class StudentTrainingLoadService {
   }
 
   // sessionId -> observacao CANONICA da atividade confirmada. So' entra quando ha exatamente UM evento fisico confirmado para o treino (e nunca Strava).
-  private async linkedActivities(userId: string, sessionIds: string[]): Promise<Map<string, ActivityRow>> {
-    const result = new Map<string, ActivityRow>();
+  private async linkedActivities(userId: string, sessionIds: string[]): Promise<Map<string, LinkedActivity>> {
+    const result = new Map<string, LinkedActivity>();
     if (sessionIds.length === 0) return result;
     const links = await this.prisma.sessionExecutionLink.findMany({
       where: { userId, status: 'active', trainingSessionId: { in: sessionIds } },
-      select: { trainingSessionId: true, activityLog: { select: ACTIVITY_SELECT } },
+      select: { trainingSessionId: true, origin: true, activityLog: { select: ACTIVITY_SELECT } },
     });
     const rows = links.map((l) => l.activityLog as ActivityRow);
     const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } }, select: ACTIVITY_SELECT }) as Promise<ActivityRow[]>);
     const canonicalOf = new Map<string, ActivityRow>();
     for (const pick of picks) for (const member of pick.members) canonicalOf.set(member.id, pick.row);
-    const bySession = new Map<string, Map<string, ActivityRow>>();
+    const bySession = new Map<string, Map<string, LinkedActivity>>();
     for (const link of links) {
       const canonical = canonicalOf.get(link.activityLog.id);
       if (!canonical || COACH_HIDDEN_PROVIDERS.includes(canonical.provider)) continue;
-      const events = bySession.get(link.trainingSessionId) ?? new Map<string, ActivityRow>();
-      events.set(canonical.id, canonical);
+      const confirmed = link.origin === 'student' || link.origin === 'coach';
+      const events = bySession.get(link.trainingSessionId) ?? new Map<string, LinkedActivity>();
+      const previous = events.get(canonical.id);
+      events.set(canonical.id, { activity: canonical, confirmedByPerson: confirmed || previous?.confirmedByPerson === true }); // se algum vinculo do evento foi de uma pessoa, vale como confirmado
       bySession.set(link.trainingSessionId, events);
     }
     for (const [sessionId, events] of bySession) if (events.size === 1) result.set(sessionId, [...events.values()][0]); // 2+ eventos distintos = ambiguo: nada e' usado

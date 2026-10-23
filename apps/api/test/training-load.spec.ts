@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { buildTrainingLoad, classifySessions, modalityGroup, weekStartOf, windowAt, type LoadInputRow } from '../src/coach/training-load';
+import { buildTrainingLoad, classifySessions, MIN_SESSIONS_IN_WINDOW, modalityGroup, weekStartOf, windowAt, type LoadInputRow } from '../src/coach/training-load';
 import { activityLocalDate, StudentTrainingLoadService } from '../src/coach/student-training-load.service';
 
 // 23/10/2026 — Carga de treino PROPRIA (esforco percebido x minutos), v2: data REAL da execucao, visoes por modalidade e duracao da atividade importada vinculada. Metrica descritiva em avaliacao,
@@ -102,7 +102,7 @@ describe('AJUSTE 2 — separacao por modalidade', () => {
   });
 
   it('a razao e a janela sao calculadas por modalidade, de forma independente', () => {
-    const result = buildTrainingLoad(mixed, { from: '2026-10-12', to: '2026-10-18' }, '2026-10-25');
+    const result = buildTrainingLoad(mixed, { from: '2026-10-12', to: '2026-10-18' }, '2026-10-25', 1);
     expect(result.views.corrida.current).toMatchObject({ acuteLoad: 100, chronicWeeklyAverage: 100, ratio: 1 });
     expect(result.views.forca.current).toMatchObject({ acuteLoad: 200, chronicWeeklyAverage: 200, ratio: 1 });
     expect(result.views.geral.current).toMatchObject({ acuteLoad: 300, chronicWeeklyAverage: 300, ratio: 1 });
@@ -119,14 +119,17 @@ describe('AJUSTE 2 — separacao por modalidade', () => {
 });
 
 describe('AJUSTE 3 — duracao da atividade importada vinculada (com origem identificada)', () => {
-  it('a duracao INFORMADA vence; a da atividade so entra quando a dela falta, e a origem fica registrada', () => {
+  it('com atividade vinculada vale a duracao DELA (relogio); a informada so vale sem atividade; a origem fica registrada e a informada divergente aparece', () => {
     const { sessions } = classifySessions([
       row('inf', '2026-10-01', 6, 40, { activityDurationMin: 55, activityProvider: 'polar' }),
+      row('sem', '2026-10-03', 6, 40),
       row('imp', '2026-10-02', 6, null, { activityDurationMin: 55.5, activityProvider: 'polar' }),
     ]);
     const byId = Object.fromEntries(sessions.map((s) => [s.id, s]));
-    expect(byId.inf).toMatchObject({ minutes: 40, durationSource: 'informada', durationProvider: null, load: 240 });
+    expect(byId.inf).toMatchObject({ minutes: 55, durationSource: 'atividade_importada', durationProvider: 'polar', informedMinutes: 40, load: 330 });
+    expect(byId.imp).toMatchObject({ informedMinutes: null });
     expect(byId.imp).toMatchObject({ minutes: 55.5, durationSource: 'atividade_importada', durationProvider: 'polar', load: 333 });
+    expect(byId.sem).toMatchObject({ minutes: 40, durationSource: 'informada', informedMinutes: null, load: 240 }); // sem atividade vale a informada
   });
 
   it('a atividade NAO substitui o esforco percebido: sem esforco continua de fora; sem duracao nem atividade continua de fora', () => {
@@ -153,7 +156,7 @@ describe('aguda, cronica e razao', () => {
   const { sessions } = classifySessions(weekly);
 
   it('aguda = ultimos 7 dias; cronica = soma de 28 dias / 4; razao = aguda / cronica (1,00 = mesmo habito)', () => {
-    const w = windowAt('2026-10-25', sessions, []);
+    const w = windowAt('2026-10-25', sessions, [], 1);
     expect(w.acuteLoad).toBe(100);
     expect(w.chronicLoad).toBe(400);
     expect(w.chronicWeeklyAverage).toBe(100);
@@ -163,11 +166,23 @@ describe('aguda, cronica e razao', () => {
 
   it('semana mais carregada que o habito da razao maior que 1', () => {
     const spike = classifySessions([...weekly.slice(0, 5), row('x', '2026-10-05', 8, 60)]).sessions;
-    const w = windowAt('2026-10-11', spike, []);
+    const w = windowAt('2026-10-11', spike, [], 1);
     expect(w.acuteLoad).toBe(480);
     expect(w.chronicLoad).toBe(780);
     expect(w.chronicWeeklyAverage).toBe(195);
     expect(w.ratio).toBe(2.46);
+  });
+
+  it('MINIMO de 10 treinos nos 28 dias: com menos a razao NAO existe e a nota diz quantos ha; com 10 ou mais ela volta', () => {
+    expect(MIN_SESSIONS_IN_WINDOW).toBe(10);
+    const few = windowAt('2026-10-25', sessions, []);
+    expect(few).toMatchObject({ ratio: null, sessionsInWindow: 4, minSessions: 10 });
+    expect(few.note).toMatch(/Poucos treinos: só 4 de 10 nos últimos 28 dias/);
+    const ten = classifySessions(Array.from({ length: 10 }, (_, i) => row('m' + i, new Date(Date.UTC(2026, 8, 13 + i * 2, 12)).toISOString().slice(0, 10), 5, 20))).sessions; // 13/09..01/10
+    const edge = windowAt('2026-10-10', ten, []);
+    expect(edge.sessionsInWindow).toBe(10);
+    expect(edge.ratio).not.toBeNull();
+    expect(windowAt('2026-10-10', ten.slice(1), []).ratio).toBeNull(); // 9 treinos: sem razao
   });
 
   it('historico curto (menos de 28 dias): a razao NAO existe e a tela diz quantos dias ha', () => {
@@ -179,7 +194,7 @@ describe('aguda, cronica e razao', () => {
 
   it('treinos de fora dentro dos 28 dias: a razao e calculada so com o que foi informado e a nota avisa', () => {
     const { excluded } = classifySessions([row('e', '2026-10-14', null, 40)]);
-    const w = windowAt('2026-10-25', sessions, excluded);
+    const w = windowAt('2026-10-25', sessions, excluded, 1);
     expect(w.ratio).toBe(1);
     expect(w.excludedInWindow).toBe(1);
     expect(w.note).toMatch(/1 treino\(s\) dos últimos 28 dias ficaram de fora/);
@@ -187,14 +202,14 @@ describe('aguda, cronica e razao', () => {
 
   it('cargas minusculas nao viram "sem carga" por arredondamento: a razao usa os valores sem arredondar', () => {
     const tiny = classifySessions(Array.from({ length: 5 }, (_, i) => row('t' + i, new Date(Date.UTC(2026, 8, 1 + i * 7, 12)).toISOString().slice(0, 10), 1, 0.2))).sessions;
-    const w = windowAt('2026-10-05', tiny, []);
+    const w = windowAt('2026-10-05', tiny, [], 1);
     expect(w.chronicLoad).toBeGreaterThan(0);
     expect(w.ratio).not.toBeNull();
     expect(w.note).toBeNull();
   });
 
   it('sem nenhuma carga nos 28 dias: sem razao (nunca divide por zero)', () => {
-    const w = windowAt('2027-03-01', sessions, []);
+    const w = windowAt('2027-03-01', sessions, [], 1);
     expect(w.ratio).toBeNull();
     expect(w.note).toMatch(/Sem carga registrada/);
   });
@@ -213,7 +228,7 @@ describe('resultado completo (o que o painel mostra)', () => {
   ];
 
   it('recorta so a EXIBICAO no periodo: a janela cronica da primeira semana ainda enxerga os 28 dias anteriores', () => {
-    const result = buildTrainingLoad(rows, { from: '2026-10-19', to: '2026-10-25' }, '2026-10-30');
+    const result = buildTrainingLoad(rows, { from: '2026-10-19', to: '2026-10-25' }, '2026-10-30', 1);
     expect(result.sessions.map((s) => s.id)).toEqual(['w7']);
     expect(result.views.geral.weeks).toHaveLength(1);
     expect(result.views.geral.weeks[0]).toMatchObject({ weekStart: '2026-10-19', load: 100, sessions: 1, inProgress: false });
@@ -265,7 +280,7 @@ describe('servico: registros informados + atividade importada confirmada', () =>
     id, provider: 'polar', startedAt: new Date('2026-10-21T13:00:00Z'), utcOffsetMinutes: -180, durationSec: 3300,
     physicalIdentityStatus: null, physicalEventId: null, physicalCanonicalActivityLogId: null, ...over,
   });
-  function service(completions: unknown[], links: Array<{ trainingSessionId: string; activityLog: unknown }> = [], exists = true, canonicalById: Record<string, unknown> = {}) {
+  function service(completions: unknown[], links: Array<{ trainingSessionId: string; origin?: string; activityLog: unknown }> = [], exists = true, canonicalById: Record<string, unknown> = {}) {
     const findMany = jest.fn().mockResolvedValue(completions);
     const linkFindMany = jest.fn().mockResolvedValue(links);
     const activityFindMany = jest.fn(async (args: { where: { id: { in: string[] } } }) => args.where.id.in.map((id) => canonicalById[id]).filter(Boolean));
@@ -289,9 +304,11 @@ describe('servico: registros informados + atividade importada confirmada', () =>
     expect(result.sessions[0]).toMatchObject({ date: '2026-10-21', dateSource: 'atividade_vinculada' }); // programada era 20/10
   });
 
-  it('AJUSTE 3: duracao informada vence; faltando, usa a da atividade vinculada e identifica a origem', async () => {
+  it('AJUSTE 3: com atividade vinculada vale a duracao dela (e mostra a informada); sem atividade vale a informada; identifica a origem', async () => {
     const informed = service([completion('a', { durationMin: 40 })], [{ trainingSessionId: 's-a', activityLog: activity('act1') }]);
-    expect((await run(informed.service)).sessions[0]).toMatchObject({ minutes: 40, durationSource: 'informada' });
+    expect((await run(informed.service)).sessions[0]).toMatchObject({ minutes: 55, durationSource: 'atividade_importada', informedMinutes: 40 });
+    const noLink = service([completion('a', { durationMin: 40 })]);
+    expect((await run(noLink.service)).sessions[0]).toMatchObject({ minutes: 40, durationSource: 'informada', informedMinutes: null });
     const missing = service([completion('a', { durationMin: null })], [{ trainingSessionId: 's-a', activityLog: activity('act1', { provider: 'health_connect', durationSec: 3330 }) }]);
     expect((await run(missing.service)).sessions[0]).toMatchObject({ minutes: 55.5, durationSource: 'atividade_importada', durationProvider: 'health_connect', load: 333 });
   });
@@ -335,11 +352,20 @@ describe('servico: registros informados + atividade importada confirmada', () =>
     expect((await run(svc)).excluded[0]).toMatchObject({ reason: 'sem_esforco', dateSource: 'atividade_vinculada' });
   });
 
-  it('VINCULO DISTANTE (mais de 6 dias do dia programado) e ignorado: vale a data programada e a tela avisa; o deslocamento normal e mostrado', async () => {
+  it('VINCULO DISTANTE (automatico: mais de 3 dias; confirmado por pessoa: mais de 6) e ignorado: vale a data programada e a tela avisa; o deslocamento normal e mostrado', async () => {
     const far = service([completion('a', { durationMin: null })], [{ trainingSessionId: 's-a', activityLog: activity('far', { startedAt: new Date('2026-11-05T13:00:00Z') }) }]);
     const ignored = (await far.service.forStudent('s1', { from: '2026-10-01', to: '2026-11-10' })).excluded[0];
     expect(ignored).toMatchObject({ dateSource: 'programada', date: '2026-10-20', activityNote: 'vinculo_distante', reason: 'sem_duracao' });
     const near = service([completion('a')], [{ trainingSessionId: 's-a', activityLog: activity('near') }]); // executado 21/10, programado 20/10
+    const auto4 = service([completion('a')], [{ trainingSessionId: 's-a', origin: 'automatic', activityLog: activity('auto4', { startedAt: new Date('2026-10-24T13:00:00Z') }) }]); // 4 dias, automatico
+    expect((await run(auto4.service)).sessions[0]).toMatchObject({ dateSource: 'programada', date: '2026-10-20', activityNote: 'vinculo_distante' });
+    const auto3 = service([completion('a')], [{ trainingSessionId: 's-a', origin: 'automatic', activityLog: activity('auto3', { startedAt: new Date('2026-10-23T13:00:00Z') }) }]); // 3 dias: ainda vale
+    expect((await run(auto3.service)).sessions[0]).toMatchObject({ dateSource: 'atividade_vinculada', date: '2026-10-23', shiftDays: 3 });
+    const early = (day: string) => completion('a', { session: { scheduledDate: new Date(`${day}T00:00:00Z`), modality: 'corrida', title: 'Rodagem', structure: {} } });
+    const person4 = service([early('2026-10-18')], [{ trainingSessionId: 's-a', origin: 'student', activityLog: activity('person4', { startedAt: new Date('2026-10-22T13:00:00Z') }) }]); // 4 dias confirmado pela aluna
+    expect((await run(person4.service)).sessions[0]).toMatchObject({ dateSource: 'atividade_vinculada', date: '2026-10-22', shiftDays: 4, activityNote: 'vinculo_confirmado' });
+    const person7 = service([early('2026-10-14')], [{ trainingSessionId: 's-a', origin: 'coach', activityLog: activity('person7', { startedAt: new Date('2026-10-22T13:00:00Z') }) }]); // 8 dias: alem do limite
+    expect((await run(person7.service)).sessions[0]).toMatchObject({ dateSource: 'programada', activityNote: 'vinculo_distante' });
     expect((await run(near.service)).sessions[0]).toMatchObject({ dateSource: 'atividade_vinculada', scheduledDate: '2026-10-20', shiftDays: 1, activityNote: null });
   });
 
@@ -352,7 +378,7 @@ describe('servico: registros informados + atividade importada confirmada', () =>
 
   it('a mesma atividade em dois treinos: fica com o de dia programado MAIS PROXIMO (nao o registrado primeiro); o outro recebe aviso', async () => {
     const shared = activity('same', { startedAt: new Date('2026-10-22T13:00:00Z') }); // executada em 22/10
-    const farther = completion('far', { sessionId: 's-far', completedAt: new Date('2026-10-20T10:00:00Z'), durationMin: null, session: { scheduledDate: new Date('2026-10-18T00:00:00Z'), modality: 'corrida', title: 'Longe', structure: {} } });
+    const farther = completion('far', { sessionId: 's-far', completedAt: new Date('2026-10-20T10:00:00Z'), durationMin: null, session: { scheduledDate: new Date('2026-10-19T00:00:00Z'), modality: 'corrida', title: 'Longe', structure: {} } });
     const closer = completion('close', { sessionId: 's-close', completedAt: new Date('2026-10-23T10:00:00Z'), durationMin: null, session: { scheduledDate: new Date('2026-10-22T00:00:00Z'), modality: 'corrida', title: 'Perto', structure: {} } });
     const { service: svc } = service([farther, closer], [{ trainingSessionId: 's-far', activityLog: shared }, { trainingSessionId: 's-close', activityLog: shared }]);
     const result = await run(svc);
