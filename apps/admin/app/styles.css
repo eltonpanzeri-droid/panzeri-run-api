@@ -3024,3 +3024,27 @@ h3 {
 @media (max-width: 900px) { .hrStatus, .hrSummary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .hrField select { min-width: 0; width: 100%; } }
 .hrSessionsWrap { max-height: 380px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
 .hrSessionsWrap thead th { position: sticky; top: 0; background: var(--panel); }
+/* 23/10/2026 — Aluno > Carga (propria): metrica NOVA em avaliacao, com destaque proposital. */
+.tabNova { position: relative; }
+.tabNovaTag { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #7c3aed; color: #ffffff; font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; }
+.tlTab { display: grid; gap: 14px; }
+.tlBanner { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 10px; border: 2px solid #7c3aed; background: #f5f3ff; color: #3b0764; }
+.tlBanner svg { flex: none; margin-top: 2px; color: #7c3aed; }
+.tlBanner > div > strong { display: block; font-size: 14px; letter-spacing: 0.01em; }
+.tlBanner p { margin: 4px 0 0; font-size: 13.5px; line-height: 1.5; }
+.tlMethod { border: 1px solid var(--line); border-radius: 10px; background: var(--paper); padding: 14px 16px; display: grid; gap: 8px; }
+.tlMethod h3, .tlQuestions h3, .tlH { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: center; }
+.tlMethod h4 { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.tlMethod ol, .tlMethod ul, .tlQuestions ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 13.5px; line-height: 1.5; }
+.tlFormula { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--panel); font-weight: 600; font-size: 13.5px; }
+.tlExample { margin: 0; font-size: 13.5px; }
+.tlVersion { margin: 0; font-size: 12px; color: var(--muted); }
+.tlControls { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.tlSummary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.tlSummary > div { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); align-content: start; }
+.tlSummary small { color: var(--muted); font-size: 12px; }
+.tlSummary strong { font-size: 17px; }
+.tlSummary em { font-style: normal; font-size: 12px; color: var(--muted); }
+.tlRatio { border-color: #7c3aed !important; }
+.tlQuestions { border: 2px dashed #7c3aed; border-radius: 10px; padding: 14px 16px; background: #faf5ff; display: grid; gap: 8px; }
+@media (max-width: 900px) { .tlSummary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

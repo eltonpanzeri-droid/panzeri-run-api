@@ -5,6 +5,7 @@ import { CoachService } from './coach.service';
 import { BusinessIntelligenceService } from './business-intelligence.service';
 import { StudentIntegrationsService } from './student-integrations.service';
 import { StudentHealthRecoveryService } from './student-health-recovery.service';
+import { StudentTrainingLoadService } from './student-training-load.service';
 import { TrainingPlansModule } from '../training-plans/training-plans.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { BackupModule } from '../backup/backup.module';
@@ -21,6 +22,6 @@ import { ActivityExecutionModule } from '../activity-execution/activity-executio
 @Module({
   imports: [TrainingPlansModule, MessagingModule, BackupModule, MeModule, BillingModule, MenstrualCycleModule, TrainingIntelligenceModule, ContextEventsModule, ReassessmentModule, EvolutionModule, ActivityExecutionModule, AccountDeletionModule],
   controllers: [CoachController, CoachToolingController],
-  providers: [CoachService, BusinessIntelligenceService, StudentIntegrationsService, StudentHealthRecoveryService],
+  providers: [CoachService, BusinessIntelligenceService, StudentIntegrationsService, StudentHealthRecoveryService, StudentTrainingLoadService],
 })
 export class CoachModule {}
