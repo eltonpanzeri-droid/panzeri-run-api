@@ -24,17 +24,29 @@ function fixture() {
         return row;
       }),
       update: jest.fn(async ({ where, data }: any) => {
-        const row = { ...shoes.get(where.id), ...data };
+        const { events: _events, ...rest } = data;
+        const row = { ...shoes.get(where.id), ...rest };
         shoes.set(where.id, row);
         return row;
+      }),
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        const row = shoes.get(where.id);
+        if (!row || row.userId !== where.userId || row.status !== where.status) return { count: 0 };
+        shoes.set(where.id, { ...row, ...data });
+        return { count: 1 };
       }),
     },
     shoeUsage: {
       findFirst: jest.fn(async ({ where }: any) => [...shoeUsages.values()].find((u) => u.workoutCompletionId === where.workoutCompletionId && u.userId === where.userId) ?? null),
-      findMany: jest.fn(async ({ where, include }: any) => {
-        const rows = [...shoeUsages.values()].filter((u) => u.shoeId === where.shoeId);
-        if (!include?.workoutCompletion) return rows;
-        return rows.map((u) => ({ ...u, workoutCompletion: workoutCompletions.get(u.workoutCompletionId) }));
+      // Leitura em lote (equipment/shoe-facts.ts): filtra por shoeId (texto ou {in}) e/ou userId e devolve a execucao com a modalidade da sessao.
+      findMany: jest.fn(async ({ where }: any) => {
+        const shoeMatch = (id: string) => (where.shoeId == null ? true : typeof where.shoeId === 'string' ? where.shoeId === id : where.shoeId.in.includes(id));
+        const rows = [...shoeUsages.values()].filter((u) => shoeMatch(u.shoeId) && (where.userId == null || u.userId === where.userId));
+        return rows.map((u) => {
+          const completion = workoutCompletions.get(u.workoutCompletionId);
+          const session = completion?.sessionId ? trainingSessions.get(completion.sessionId) : null;
+          return { ...u, workoutCompletion: { ...completion, session: session ? { modality: session.modality ?? null } : null } };
+        });
       }),
       upsert: jest.fn(async ({ where, create, update }: any) => {
         const existing = [...shoeUsages.values()].find((u) => u.workoutCompletionId === where.workoutCompletionId);
@@ -57,12 +69,15 @@ function fixture() {
       findFirst: jest.fn(async ({ where }: any) => [...workoutCompletions.values()].find((c) => c.id === where.id && c.userId === where.userId) ?? null),
     },
     sessionExecutionLink: {
-      findFirst: jest.fn(async ({ where }: any) => {
-        const row = [...sessionExecutionLinks.values()].find((l) => l.trainingSessionId === where.trainingSessionId && l.status === where.status);
-        if (!row) return null;
-        return { ...row, activityLog: activityLogs.get(row.activityLogId) };
-      }),
+      findMany: jest.fn(async ({ where }: any) => [...sessionExecutionLinks.values()]
+        .filter((l) => l.status === where.status && where.trainingSessionId.in.includes(l.trainingSessionId))
+        .map((l) => ({ ...l, userId: l.userId ?? 'user-a', activityLog: activityLogs.get(l.activityLogId) }))),
     },
+    activityLog: { findMany: jest.fn(async ({ where }: any) => [...activityLogs.values()].filter((a) => where.id.in.includes(a.id))) },
+    targetRace: { findMany: jest.fn(async () => []) },
+    shoePhoto: { findMany: jest.fn(async () => []), findFirst: jest.fn(async () => null), upsert: jest.fn(), deleteMany: jest.fn() },
+    shoeEvent: { findMany: jest.fn(async () => []), create: jest.fn(async () => ({})) },
+    $transaction: async (fn: any) => fn(prisma),
   };
 
   const service = new ShoesService(prisma as unknown as PrismaService);
@@ -86,7 +101,7 @@ function fixture() {
   }
 
   function addActivityLog(overrides: Partial<any> = {}) {
-    const row = { id: nextId('activity'), distanceMeters: null, ...overrides };
+    const row = { id: nextId('activity'), distanceMeters: null, provider: 'polar', startedAt: new Date('2026-10-01T10:00:00Z'), utcOffsetMinutes: -180, durationSec: null, ...overrides };
     activityLogs.set(row.id, row);
     return row;
   }

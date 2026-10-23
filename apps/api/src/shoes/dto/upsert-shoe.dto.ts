@@ -11,6 +11,11 @@ export class UpsertShoeDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(40)
+  version?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(60)
   nickname?: string;
 

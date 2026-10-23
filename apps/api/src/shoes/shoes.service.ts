@@ -1,24 +1,23 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
+import { decodeProfilePhoto } from '../profile-photo/profile-photo.service';
+import { retrospectiveText, round2, type RaceRef } from '../equipment/equipment-core';
+import { loadShoeUsageFacts, type ShoeUsageFact } from '../equipment/shoe-facts';
+import { buildShoeStats, type ShoeStats } from '../equipment/shoe-stats';
 import { UpsertShoeDto } from './dto/upsert-shoe.dto';
 
-// Meus Tenis (04/10/2026). Km acumulado e numero de treinos NUNCA sao armazenados — sempre
-// derivados em tempo de leitura a partir de ShoeUsage + a atividade real por tras dela. Ver
-// comentario completo em schema.prisma (model Shoe/ShoeUsage) pro racional da fonte de distancia.
+// Meus Tenis (04/10/2026) + Equipamentos (23/10/2026). Km acumulado e numero de corridas NUNCA sao armazenados — sempre derivados em tempo de leitura a partir de ShoeUsage + a atividade
+// real por tras dela (ver equipment/shoe-facts.ts, fonte unica compartilhada com o painel). Ciclo de vida (cadastro, edicao, aposentadoria, reativacao) vira ShoeEvent (append-only).
 //
-// Status de WorkoutCompletion considerados "treino valido" pra' contagem: 'done' e 'adjusted'
-// (mesma convencao usada em todo o resto do app — 'missed' nunca e' uma execucao).
-const VALID_COMPLETION_STATUSES = ['done', 'adjusted'];
+// Status de WorkoutCompletion considerados "treino valido" pra' contagem: 'done' e 'adjusted' (mesma convencao do resto do app — 'missed' nunca e' execucao).
 
-// Modalidades em que a pergunta "qual tenis" faz sentido (corrida/esteira) — mesmo agrupamento
-// usado em session-execution-link.service.ts (MODALITY_COMPATIBILITY) pra' corrida/esteira.
+// Modalidades em que a pergunta "qual tenis" faz sentido (corrida/esteira) — mesmo agrupamento usado em session-execution-link.service.ts.
 export const RUNNING_MODALITIES = ['corrida', 'esteira'];
 
-interface UsageRow {
-  completionId: string;
-  completedAt: Date;
-  distanceKm: number | null;
+interface ShoeRow {
+  id: string; brand: string; model: string; version: string | null; nickname: string | null; photoUrl: string | null;
+  status: string; startedUsingAt: Date; retiredAt: Date | null;
 }
 
 @Injectable()
@@ -27,7 +26,7 @@ export class ShoesService {
 
   async list(userId: string) {
     const shoes = await this.prisma.shoe.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
-    const summaries = await Promise.all(shoes.map((shoe) => this.summarize(shoe)));
+    const summaries = await this.summarizeMany(userId, shoes);
     return {
       active: summaries.filter((s) => s.status === 'active'),
       retired: summaries.filter((s) => s.status === 'retired'),
@@ -35,86 +34,118 @@ export class ShoesService {
   }
 
   async create(userId: string, dto: UpsertShoeDto) {
-    const startedUsingAt = new Date(dto.startedUsingAt);
-    if (Number.isNaN(startedUsingAt.getTime())) throw new BadRequestException('Data de inicio de uso invalida.');
+    const startedUsingAt = this.parseDate(dto.startedUsingAt);
     const shoe = await this.prisma.shoe.create({
       data: {
         userId,
         brand: dto.brand.trim(),
         model: dto.model.trim(),
+        version: dto.version?.trim() || null,
         nickname: dto.nickname?.trim() || null,
         photoUrl: dto.photoUrl?.trim() || null,
         startedUsingAt,
+        events: { create: { userId, type: 'registered', details: { startedUsingAt: startedUsingAt.toISOString() } } },
       },
     });
-    return this.summarize(shoe);
+    return (await this.summarizeMany(userId, [shoe]))[0];
   }
 
   async update(userId: string, shoeId: string, dto: UpsertShoeDto) {
     const existing = await this.prisma.shoe.findFirst({ where: { id: shoeId, userId } });
     if (!existing) throw new NotFoundException('Tenis nao encontrado.');
-    const startedUsingAt = new Date(dto.startedUsingAt);
-    if (Number.isNaN(startedUsingAt.getTime())) throw new BadRequestException('Data de inicio de uso invalida.');
+    const startedUsingAt = this.parseDate(dto.startedUsingAt);
+    const next = {
+      brand: dto.brand.trim(),
+      model: dto.model.trim(),
+      version: dto.version?.trim() || null,
+      nickname: dto.nickname?.trim() || null,
+      photoUrl: dto.photoUrl?.trim() || null,
+      startedUsingAt,
+    };
+    // Registra so' o que mudou (antes e depois): a historia do cadastro fica auditavel sem copiar o par inteiro a cada salvamento.
+    const changes: Record<string, Prisma.InputJsonObject> = {};
+    const before: Record<string, string | null> = { brand: existing.brand, model: existing.model, version: existing.version ?? null, nickname: existing.nickname ?? null, startedUsingAt: existing.startedUsingAt.toISOString() };
+    const after: Record<string, string | null> = { brand: next.brand, model: next.model, version: next.version, nickname: next.nickname, startedUsingAt: startedUsingAt.toISOString() };
+    for (const key of Object.keys(before)) if (before[key] !== after[key]) changes[key] = { from: before[key], to: after[key] };
     const shoe = await this.prisma.shoe.update({
       where: { id: shoeId },
-      data: {
-        brand: dto.brand.trim(),
-        model: dto.model.trim(),
-        nickname: dto.nickname?.trim() || null,
-        photoUrl: dto.photoUrl?.trim() || null,
-        startedUsingAt,
-      },
+      data: { ...next, ...(Object.keys(changes).length > 0 ? { events: { create: { userId, type: 'edited', details: changes } } } : {}) },
     });
-    return this.summarize(shoe);
+    return (await this.summarizeMany(userId, [shoe]))[0];
   }
 
-  // Aposentar nunca exclui nem desvincula ShoeUsage — so' tira o par da lista de opcoes
-  // principais (RUNNING_MODALITIES/listActiveForPicker). Nao implementado: exclusao destrutiva de
-  // tenis com historico (pedido explicito pra NAO fazer).
+  // Aposentar nunca exclui nem desvincula ShoeUsage — so' tira o par da lista de opcoes principais (listActiveForPicker) e registra o evento. Devolve a retrospectiva (so' fatos que existem).
   async retire(userId: string, shoeId: string) {
     const existing = await this.prisma.shoe.findFirst({ where: { id: shoeId, userId } });
     if (!existing) throw new NotFoundException('Tenis nao encontrado.');
-    if (existing.status === 'retired') return this.summarize(existing);
-    const shoe = await this.prisma.shoe.update({ where: { id: shoeId }, data: { status: 'retired', retiredAt: new Date() } });
-    return this.summarize(shoe);
+    const shoe = existing.status === 'retired' ? existing : await this.changeStatus(userId, shoeId, 'active', 'retired');
+    const summary = (await this.summarizeMany(userId, [shoe]))[0];
+    return { ...summary, retrospective: await this.retrospectiveFor(userId, shoeId) };
   }
 
-  // Lista enxuta pro seletor do formulario de feedback — so' tenis ativos, com km acumulado (pra'
-  // exibir "327 km" no card de selecao sem pesar o fluxo).
+  // Reativar: volta a aparecer entre os ativos. A data de aposentadoria anterior continua nos eventos (historia); so' o estado atual muda.
+  async reactivate(userId: string, shoeId: string) {
+    const existing = await this.prisma.shoe.findFirst({ where: { id: shoeId, userId } });
+    if (!existing) throw new NotFoundException('Tenis nao encontrado.');
+    const shoe = existing.status === 'active' ? existing : await this.changeStatus(userId, shoeId, 'retired', 'active');
+    return (await this.summarizeMany(userId, [shoe]))[0];
+  }
+
+  // Lista enxuta pro seletor do formulario de feedback — so' tenis ativos, com km acumulado.
   async listActiveForPicker(userId: string) {
     const shoes = await this.prisma.shoe.findMany({ where: { userId, status: 'active' }, orderBy: { createdAt: 'desc' } });
-    const summaries = await Promise.all(shoes.map((shoe) => this.summarize(shoe)));
-    return summaries;
+    return this.summarizeMany(userId, shoes);
   }
 
   async detail(userId: string, shoeId: string) {
     const shoe = await this.prisma.shoe.findFirst({ where: { id: shoeId, userId } });
     if (!shoe) throw new NotFoundException('Tenis nao encontrado.');
-
-    const usages = await this.loadUsageRows(shoeId);
-    const summary = this.computeTotals(usages);
-    const history = usages
+    const facts = await loadShoeUsageFacts(this.prisma, { where: { shoeId } });
+    const stats = buildShoeStats(facts, await this.raceRefs(userId));
+    const summary = (await this.summarizeMany(userId, [shoe], new Map([[shoeId, facts]])))[0];
+    const history = [...facts]
       .sort((a, b) => b.completedAt.getTime() - a.completedAt.getTime())
       .slice(0, 20)
-      .map((u) => ({ completionId: u.completionId, completedAt: u.completedAt.toISOString(), distanceKm: u.distanceKm }));
-
+      .map((fact) => ({ completionId: fact.completionId, completedAt: fact.completedAt.toISOString(), localDate: fact.localDate, distanceKm: fact.distanceKm !== null ? round2(fact.distanceKm) : null }));
+    const events = await this.prisma.shoeEvent.findMany({ where: { shoeId, userId }, orderBy: { occurredAt: 'asc' }, select: { id: true, type: true, occurredAt: true, details: true } });
     return {
-      id: shoe.id,
-      brand: shoe.brand,
-      model: shoe.model,
-      nickname: shoe.nickname,
-      photoUrl: shoe.photoUrl,
-      status: shoe.status,
-      startedUsingAt: shoe.startedUsingAt.toISOString(),
-      retiredAt: shoe.retiredAt?.toISOString() ?? null,
       ...summary,
+      stats,
+      retrospective: summary.status === 'retired' ? this.retroFromStats(stats) : null,
+      events: events.map((event) => ({ id: event.id, type: event.type, occurredAt: event.occurredAt.toISOString(), details: event.details })),
       history,
     };
   }
 
-  // Associa, troca ou remove o tenis de UMA execucao (WorkoutCompletion). shoeId=null remove a
-  // associacao. Upsert por workoutCompletionId (unique): trocar nunca deixa duas linhas ativas pra'
-  // mesma execucao, entao nunca ha' dupla contagem (Casos C/D/E do pedido original).
+  // ── Foto opcional (mesma validacao da foto de perfil: JPEG ja' recortado, <= 60 KB) ──
+  async getPhoto(userId: string, shoeId: string) {
+    const photo = await this.prisma.shoePhoto.findFirst({ where: { shoeId, userId }, select: { data: true, mimeType: true, updatedAt: true } });
+    if (!photo) return { dataUri: null };
+    return { dataUri: `data:${photo.mimeType};base64,${Buffer.from(photo.data).toString('base64')}`, updatedAt: photo.updatedAt.toISOString() };
+  }
+
+  async setPhoto(userId: string, shoeId: string, imageBase64: unknown) {
+    const shoe = await this.prisma.shoe.findFirst({ where: { id: shoeId, userId }, select: { id: true } });
+    if (!shoe) throw new NotFoundException('Tenis nao encontrado.');
+    const buffer = decodeProfilePhoto(imageBase64);
+    const row = await this.prisma.shoePhoto.upsert({
+      where: { shoeId },
+      create: { shoeId, userId, data: buffer, mimeType: 'image/jpeg', byteSize: buffer.length },
+      update: { data: buffer, mimeType: 'image/jpeg', byteSize: buffer.length },
+      select: { updatedAt: true },
+    });
+    return { hasPhoto: true, updatedAt: row.updatedAt.toISOString() };
+  }
+
+  async removePhoto(userId: string, shoeId: string) {
+    const shoe = await this.prisma.shoe.findFirst({ where: { id: shoeId, userId }, select: { id: true } });
+    if (!shoe) throw new NotFoundException('Tenis nao encontrado.');
+    await this.prisma.shoePhoto.deleteMany({ where: { shoeId, userId } });
+    return { hasPhoto: false };
+  }
+
+  // Associa, troca ou remove o tenis de UMA execucao (WorkoutCompletion). shoeId=null remove a associacao. Upsert por workoutCompletionId (unique): trocar nunca deixa duas linhas
+  // ativas pra' mesma execucao, entao nunca ha' dupla contagem.
   async setUsage(userId: string, workoutCompletionId: string, shoeId: string | null) {
     const completion = await this.prisma.workoutCompletion.findFirst({ where: { id: workoutCompletionId, userId } });
     if (!completion) throw new NotFoundException('Registro de treino nao encontrado.');
@@ -138,79 +169,72 @@ export class ShoesService {
     return this.prisma.shoeUsage.findFirst({ where: { workoutCompletionId, userId } });
   }
 
-  // Fonte de distancia (ver racional completo no schema.prisma, model ShoeUsage): atividade
-  // canonica (ActivityLog, via SessionExecutionLink ATIVO) quando existir, senao o que o aluno
-  // digitou no proprio feedback (WorkoutCompletion.distanceKm). Nunca inventa distancia quando
-  // nenhuma das duas fontes tem o dado (Caso H do pedido original).
-  //
-  // 3C.3: a distancia vem da observacao CANONICA do PhysicalEvent (3A) — Polar + Apple do mesmo evento valem UMA distancia. Se o vinculo
-  // ativo (legado ou decisao humana) esta' numa observacao nao-canonica, a distancia e' lida da canonica, sem alterar o vinculo. Atividade
-  // 'unique' segue como antes; sem distancia objetiva, cai no que o aluno digitou (WorkoutCompletion.distanceKm).
-  private async resolveDistanceKm(sessionId: string | null, fallbackDistanceKm: number | null): Promise<number | null> {
-    if (!sessionId) return fallbackDistanceKm;
-    const link = await this.prisma.sessionExecutionLink.findFirst({
-      where: { trainingSessionId: sessionId, status: 'active' },
-      orderBy: { createdAt: 'asc' },
-      include: {
-        activityLog: { select: { id: true, distanceMeters: true, physicalIdentityStatus: true, physicalEventId: true, physicalCanonicalActivityLogId: true } },
-      },
+  // Troca de estado condicional ('so' se ainda estiver em "from"): dois toques seguidos geram UM evento e nunca sobrescrevem retiredAt. Estado e evento na mesma transacao.
+  private async changeStatus(userId: string, shoeId: string, from: 'active' | 'retired', to: 'active' | 'retired') {
+    await this.prisma.$transaction(async (tx) => {
+      const changed = await tx.shoe.updateMany({ where: { id: shoeId, userId, status: from }, data: { status: to, retiredAt: to === 'retired' ? new Date() : null } });
+      if (changed.count === 1) await tx.shoeEvent.create({ data: { shoeId, userId, type: to === 'retired' ? 'retired' : 'reactivated' } });
     });
-    if (!link) return fallbackDistanceKm;
-    const [pick] = await pickCanonicalPerEvent([link.activityLog], (ids) =>
-      this.prisma.activityLog.findMany({
-        where: { userId: link.userId, id: { in: ids } },
-        select: { id: true, distanceMeters: true, physicalIdentityStatus: true, physicalEventId: true, physicalCanonicalActivityLogId: true },
-      }),
-    );
-    const distanceMeters = pick?.row.distanceMeters ?? null;
-    return distanceMeters != null ? distanceMeters / 1000 : fallbackDistanceKm;
+    const shoe = await this.prisma.shoe.findFirst({ where: { id: shoeId, userId } });
+    if (!shoe) throw new NotFoundException('Tenis nao encontrado.');
+    return shoe;
   }
 
-  private async loadUsageRows(shoeId: string): Promise<UsageRow[]> {
-    const usages = await this.prisma.shoeUsage.findMany({
-      where: { shoeId },
-      include: { workoutCompletion: { select: { id: true, sessionId: true, completedAt: true, distanceKm: true, status: true } } },
-    });
-    const valid = usages.filter((u) => VALID_COMPLETION_STATUSES.includes(u.workoutCompletion.status));
-    const rows: UsageRow[] = [];
-    for (const usage of valid) {
-      const distanceKm = await this.resolveDistanceKm(usage.workoutCompletion.sessionId, usage.workoutCompletion.distanceKm);
-      rows.push({ completionId: usage.workoutCompletion.id, completedAt: usage.workoutCompletion.completedAt, distanceKm });
+  // ── internos ──
+  private parseDate(value: string): Date {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) throw new BadRequestException('Data de inicio de uso invalida.');
+    return date;
+  }
+
+  private async raceRefs(userId: string): Promise<RaceRef[]> {
+    const races = await this.prisma.targetRace.findMany({ where: { userId }, select: { raceDate: true, distanceKm: true } });
+    return races.map((race) => ({ raceDate: race.raceDate.toISOString().slice(0, 10), distanceKm: race.distanceKm }));
+  }
+
+  private retroFromStats(stats: ShoeStats): string | null {
+    return retrospectiveText({ totalDistanceKm: stats.totalDistanceKm, runs: stats.runsCount, marathons: stats.marathons.confirmed, halfMarathons: stats.halfMarathons.confirmed, runsOver30: stats.runsOver30Km });
+  }
+
+  private async retrospectiveFor(userId: string, shoeId: string): Promise<string | null> {
+    const facts = await loadShoeUsageFacts(this.prisma, { where: { shoeId } });
+    return this.retroFromStats(buildShoeStats(facts, await this.raceRefs(userId)));
+  }
+
+  // Resumo de varios tenis de um aluno com UMA leitura de fatos (nunca N consultas por tenis).
+  private async summarizeMany(userId: string, shoes: ShoeRow[], prepared?: Map<string, ShoeUsageFact[]>) {
+    if (shoes.length === 0) return [];
+    const factsByShoe = new Map<string, ShoeUsageFact[]>(prepared ?? []);
+    const missing = shoes.filter((shoe) => !factsByShoe.has(shoe.id)).map((shoe) => shoe.id);
+    if (missing.length > 0) {
+      for (const id of missing) factsByShoe.set(id, []);
+      for (const fact of await loadShoeUsageFacts(this.prisma, { where: { userId, shoeIds: missing } })) factsByShoe.get(fact.shoeId)?.push(fact);
     }
-    return rows;
-  }
-
-  // Media calculada SO sobre os treinos com distancia conhecida — dividir pelo total de treinos
-  // (incluindo os sem distancia) subestimaria a media tratando ausencia como zero, violando
-  // "null nao e zero". Null (sem treinos com distancia conhecida) em vez de 0.
-  private computeTotals(usages: UsageRow[]) {
-    const workoutsCount = usages.length;
-    const withDistance = usages.filter((u) => u.distanceKm != null);
-    const totalDistanceKm = withDistance.reduce((sum, u) => sum + (u.distanceKm as number), 0);
-    const averageKmPerWorkout = withDistance.length > 0 ? totalDistanceKm / withDistance.length : null;
-    const sorted = [...usages].sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
-    return {
-      workoutsCount,
-      totalDistanceKm: workoutsCount > 0 ? Math.round(totalDistanceKm * 100) / 100 : 0,
-      averageKmPerWorkout: averageKmPerWorkout != null ? Math.round(averageKmPerWorkout * 100) / 100 : null,
-      firstUsedAt: sorted[0]?.completedAt.toISOString() ?? null,
-      lastUsedAt: sorted[sorted.length - 1]?.completedAt.toISOString() ?? null,
-    };
-  }
-
-  private async summarize(shoe: { id: string; brand: string; model: string; nickname: string | null; photoUrl: string | null; status: string; startedUsingAt: Date; retiredAt: Date | null }) {
-    const usages = await this.loadUsageRows(shoe.id);
-    const totals = this.computeTotals(usages);
-    return {
-      id: shoe.id,
-      brand: shoe.brand,
-      model: shoe.model,
-      nickname: shoe.nickname,
-      photoUrl: shoe.photoUrl,
-      status: shoe.status,
-      startedUsingAt: shoe.startedUsingAt.toISOString(),
-      retiredAt: shoe.retiredAt?.toISOString() ?? null,
-      ...totals,
-    };
+    const photos = await this.prisma.shoePhoto.findMany({ where: { userId, shoeId: { in: shoes.map((shoe) => shoe.id) } }, select: { shoeId: true } });
+    const withPhoto = new Set(photos.map((photo) => photo.shoeId));
+    return shoes.map((shoe) => {
+      const facts = factsByShoe.get(shoe.id) ?? [];
+      const withDistance = facts.filter((fact) => fact.distanceKm != null);
+      const total = withDistance.reduce((sum, fact) => sum + (fact.distanceKm as number), 0);
+      const sorted = [...facts].sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
+      return {
+        id: shoe.id,
+        brand: shoe.brand,
+        model: shoe.model,
+        version: shoe.version ?? null,
+        nickname: shoe.nickname,
+        photoUrl: shoe.photoUrl,
+        hasPhoto: withPhoto.has(shoe.id),
+        status: shoe.status,
+        startedUsingAt: shoe.startedUsingAt.toISOString(),
+        retiredAt: shoe.retiredAt?.toISOString() ?? null,
+        workoutsCount: facts.length,
+        totalDistanceKm: facts.length > 0 ? round2(total) : 0,
+        // Media so' sobre as corridas com distancia conhecida (ausencia nao e' zero); null sem nenhuma.
+        averageKmPerWorkout: withDistance.length > 0 ? round2(total / withDistance.length) : null,
+        firstUsedAt: sorted[0]?.completedAt.toISOString() ?? null,
+        lastUsedAt: sorted[sorted.length - 1]?.completedAt.toISOString() ?? null,
+      };
+    });
   }
 }

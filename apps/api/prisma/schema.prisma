@@ -131,6 +131,8 @@ model User {
   nightlySleepLogs      NightlySleepLog[]
   stressCheckins        StressCheckin[]
   shoes                 Shoe[]
+  shoeEvents            ShoeEvent[]
+  userDevices           UserDevice[]
 
   // 04/09: achado numa revisao pensando em escala — nao existia indice nenhum pros filtros mais
   // usados (painel do treinador, prospectos, crons diarios), todos batem em (role,
@@ -2154,6 +2156,8 @@ model Shoe {
   // multer/S3/storage) — ver diagnostico do bloco "Meus Tenis". Campo existe pro dado ter onde
   // morar quando essa infra existir, mas esta etapa nao constroi picker/upload nenhum.
   photoUrl String?
+  // Versao do modelo (ex.: "5", "v2", "GTX"), opcional — Equipamentos (23/10/2026).
+  version  String?
 
   startedUsingAt DateTime
   // 'active' | 'retired'. Aposentar NAO exclui nem desvincula ShoeUsage — so' tira o par da lista
@@ -2162,11 +2166,78 @@ model Shoe {
   retiredAt      DateTime?
 
   usages ShoeUsage[]
+  events ShoeEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([userId, status])
+}
+
+// Equipamentos (23/10/2026) — fatos datados do ciclo de vida de um tenis: 'registered' | 'retired' | 'reactivated' | 'edited'. Append-only: nunca se edita nem apaga
+// uma linha (aposentar/reativar acrescentam eventos; Shoe.status e' so' o estado atual). Cadastros anteriores a esta tabela ganharam, na migracao, um 'registered'
+// (e um 'retired' quando ja' aposentados) com a data que ja' existia — nada alem disso foi inventado. 'details' guarda so' o que mudou (ex.: marca/modelo/versao antes e depois).
+model ShoeEvent {
+  id         String   @id @default(uuid())
+  shoeId     String
+  shoe       Shoe     @relation(fields: [shoeId], references: [id])
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  type       String
+  occurredAt DateTime @default(now())
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([shoeId, occurredAt])
+  @@index([userId])
+  @@index([type, occurredAt])
+}
+
+// Foto opcional do tenis (23/10/2026): JPEG ja' recortado/comprimido pelo app (<= 60 KB), no proprio banco, mesmo padrao da foto de perfil. Privada ao aluno (e a quem
+// ele pode ver pela rota autenticada). Apagada com a conta (ACCOUNT_DELETE_ORDER).
+model ShoePhoto {
+  shoeId    String   @id
+  userId    String
+  data      Bytes
+  mimeType  String
+  byteSize  Int
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// Equipamentos (23/10/2026) — relogio/dispositivo DO ALUNO, por CAMINHO de chegada. Tres conceitos separados: fabricante != modelo != plataforma de integracao
+// (sourceProvider = polar | health_connect | apple_health | zepp | wahoo...). Os campos observed* guardam o que a fonte informou (proveniencia tecnica, NUNCA sobrescritos
+// por edicao manual); os campos manual* guardam a correcao do aluno, separadamente. Linha reconstruivel a partir das atividades (primeira/ultima vez e contagem sao recalculadas
+// de forma idempotente); a correcao manual e' o unico dado que nao se reconstroi. Strava nunca entra aqui (politica de dados). Ausencia de fabricante/modelo = null, nunca presumida.
+model UserDevice {
+  id                   String    @id @default(uuid())
+  userId               String
+  user                 User      @relation(fields: [userId], references: [id])
+  sourceProvider       String
+  // Detalhe do caminho quando existe (Health Connect: pacote do app de origem). Vazio quando nao se aplica (parte da chave unica).
+  sourceDetail         String    @default("")
+  // Chave normalizada do dispositivo observado (nome/modelo sem acento/caixa); vazio = fonte nao identificou o aparelho.
+  deviceKey            String    @default("")
+  observedManufacturer String?
+  observedModel        String?
+  observedName         String?
+  // Tipo informado pela fonte quando existe (Health Connect): relogio | telefone | pulseira | cinta | anel | outro. null = nao informado.
+  deviceType           String?
+  // 'dispositivo_informou' (a fonte trouxe o fabricante) | 'plataforma_exclusiva' (a plataforma so' atende um fabricante, ex.: Polar) | null (nao se sabe).
+  manufacturerBasis    String?
+  firstSeenAt          DateTime?
+  lastSeenAt           DateTime?
+  activityCount        Int       @default(0)
+  manualManufacturer   String?
+  manualModel          String?
+  manualUpdatedAt      DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([userId, sourceProvider, sourceDetail, deviceKey])
+  @@index([userId])
+  @@index([sourceProvider])
 }
 
 // Vinculo tenis <-> atividade realizada (04/10/2026). Chave pela WorkoutCompletion (nao

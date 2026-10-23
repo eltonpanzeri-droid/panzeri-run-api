@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { ShoesService } from './shoes.service';
@@ -34,6 +34,26 @@ export class ShoesController {
   @Patch(':shoeId')
   update(@CurrentUser() user: CurrentUserPayload, @Param('shoeId') shoeId: string, @Body() dto: UpsertShoeDto) {
     return this.shoes.update(user.sub, shoeId, dto);
+  }
+
+  @Post(':shoeId/reactivate')
+  reactivate(@CurrentUser() user: CurrentUserPayload, @Param('shoeId') shoeId: string) {
+    return this.shoes.reactivate(user.sub, shoeId);
+  }
+
+  @Get(':shoeId/photo')
+  photo(@CurrentUser() user: CurrentUserPayload, @Param('shoeId') shoeId: string) {
+    return this.shoes.getPhoto(user.sub, shoeId);
+  }
+
+  @Put(':shoeId/photo')
+  setPhoto(@CurrentUser() user: CurrentUserPayload, @Param('shoeId') shoeId: string, @Body() body: { imageBase64?: unknown }) {
+    return this.shoes.setPhoto(user.sub, shoeId, body?.imageBase64);
+  }
+
+  @Delete(':shoeId/photo')
+  removePhoto(@CurrentUser() user: CurrentUserPayload, @Param('shoeId') shoeId: string) {
+    return this.shoes.removePhoto(user.sub, shoeId);
   }
 
   @Post(':shoeId/retire')

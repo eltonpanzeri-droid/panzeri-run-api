@@ -10,6 +10,7 @@ import StudentCalendar from './student-calendar';
 import StudentIntegrations from './student-integrations';
 import StudentHealthRecovery from './student-health-recovery';
 import StudentTrainingLoad from './student-training-load';
+import EquipmentIntelligence from './equipment-intelligence';
 import StudentAvatar from './student-avatar';
 import type { CalendarSession } from './student-calendar';
 import { adaptiveChannel } from './ti/channel';
@@ -62,7 +63,7 @@ interface FunnelReport {
   }>;
 }
 
-type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel' | 'raceCalendar' | 'trainingIntelligence' | 'tools' | 'ai';
+type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel' | 'raceCalendar' | 'equipment' | 'trainingIntelligence' | 'tools' | 'ai';
 
 // 15/10/2026: visao por papel (plano de revitalizacao). Por enquanto so organiza o menu; o conteudo das
 // telas por papel vem nas proximas fases. 'tudo' mostra todas as areas.
@@ -1311,7 +1312,7 @@ export default function AdminHome() {
             </button>
             <div>
               <p className="eyebrow">Painel do treinador</p>
-              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : activeView === 'trainingIntelligence' ? 'Training Intelligence' : activeView === 'tools' ? 'Ferramentas' : activeView === 'ai' ? 'Programas e IA' : 'Financeiro'}</h1>
+              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : activeView === 'equipment' ? 'Equipamentos' : activeView === 'trainingIntelligence' ? 'Training Intelligence' : activeView === 'tools' ? 'Ferramentas' : activeView === 'ai' ? 'Programas e IA' : 'Financeiro'}</h1>
               <small className="apiVersion">API {apiVersion}</small>
             </div>
           </div>
@@ -1351,6 +1352,7 @@ export default function AdminHome() {
             { area: 'Alunas', view: 'prospects', label: `Prospectos${prospects?.totals.total != null ? ` (${prospects.totals.total})` : ''}`, icon: <Flame size={19} />, papeis: ['treinador', 'empresario', 'marketing'] },
             { area: 'Alunas', view: 'exStudents', label: `Ex-alunos${exStudents?.total != null ? ` (${exStudents.total})` : ''}`, icon: <UserX size={19} />, papeis: ['treinador', 'empresario'] },
             { area: 'Alunas', view: 'raceCalendar', label: 'Provas', icon: <Flag size={19} />, papeis: ['treinador', 'coordenador'] },
+            { area: 'Alunas', view: 'equipment', label: 'Equipamentos', icon: <Footprints size={19} />, papeis: ['treinador', 'coordenador', 'empresario'] },
             // 15/10/2026 (Fase 4 lote 4.7, decisao de Elton): o Training Intelligence saiu do menu — agora vive dentro da
             // Evolucao de cada aluna. A view 'trainingIntelligence' e o componente foram mantidos (sem botao) para reverter:
             // basta recolocar o item abaixo.
@@ -1993,6 +1995,8 @@ export default function AdminHome() {
         {activeView === 'finance' ? <FinanceView finance={finance} evolution={monthlyEvolution} onRefresh={() => loadFinance()} accessToken={token} onOpenGroup={goToStudentsFilteredByPayment} onOpenProspects={() => changeView('prospects')} /> : null}
 
         {activeView === 'funnel' ? <FunnelView report={funnelReport} loading={loadingFunnel} onRefresh={() => loadFunnel()} accessToken={token} /> : null}
+
+        {activeView === 'equipment' ? <EquipmentIntelligence accessToken={token} apiUrl={API_URL} /> : null}
 
         {activeView === 'raceCalendar' ? <RaceCalendarView races={raceCalendar} loading={loadingRaceCalendar} onRefresh={() => loadRaceCalendar()} /> : null}
 

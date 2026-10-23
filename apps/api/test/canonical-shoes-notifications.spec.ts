@@ -6,7 +6,7 @@ import { NotificationsService } from '../src/notifications/notifications.service
 // 3C.3 — Shoes e notificacoes de atividade: a unidade e' o PhysicalEvent (observacao canonica da 3A), nao cada observacao/provider.
 const ev = (eventId: string, canonicalId: string) => ({ physicalIdentityStatus: 'matched', physicalEventId: eventId, physicalCanonicalActivityLogId: canonicalId });
 const log = (id: string, overrides: Record<string, unknown> = {}) => ({
-  id, userId: 'u1', distanceMeters: 10000, physicalIdentityStatus: 'unique', physicalEventId: null, physicalCanonicalActivityLogId: null, ...overrides,
+  id, userId: 'u1', provider: 'polar', startedAt: new Date('2026-09-30T10:00:00Z'), utcOffsetMinutes: -180, durationSec: null, distanceMeters: 10000, physicalIdentityStatus: 'unique', physicalEventId: null, physicalCanonicalActivityLogId: null, ...overrides,
 }) as Record<string, any>;
 
 describe('3C.3 — Shoes: distancia da observacao canonica', () => {
@@ -15,14 +15,14 @@ describe('3C.3 — Shoes: distancia da observacao canonica', () => {
     const completion = { id: 'c1', sessionId: options.sessionId === undefined ? 's1' : options.sessionId, completedAt: new Date('2026-09-30T10:00:00Z'), distanceKm: options.completionDistanceKm ?? null, status: 'done' };
     const prisma = {
       shoe: { findMany: jest.fn(async () => [shoe]), findFirst: jest.fn(async () => shoe) },
-      shoeUsage: { findMany: jest.fn(async () => [{ id: 'u', shoeId: 'shoe-1', workoutCompletionId: 'c1', workoutCompletion: completion }]) },
+      shoeUsage: { findMany: jest.fn(async () => [{ id: 'u', shoeId: 'shoe-1', userId: 'u1', workoutCompletionId: 'c1', workoutCompletion: { ...completion, session: { modality: 'corrida' } } }]) },
+      shoePhoto: { findMany: jest.fn(async () => []) },
       sessionExecutionLink: {
-        findFirst: jest.fn(async ({ where }: any) => {
-          const row = options.links.find((l) => l.trainingSessionId === where.trainingSessionId && l.status === where.status);
-          return row ? { ...row, activityLog: options.activities.find((a) => a.id === row.activityLogId) } : null;
-        }),
+        findMany: jest.fn(async ({ where }: any) => options.links
+          .filter((l) => l.status === where.status && where.trainingSessionId.in.includes(l.trainingSessionId))
+          .map((l) => ({ ...l, activityLog: options.activities.find((a) => a.id === l.activityLogId) }))),
       },
-      activityLog: { findMany: jest.fn(async ({ where }: any) => options.activities.filter((a) => a.userId === where.userId && where.id.in.includes(a.id))) },
+      activityLog: { findMany: jest.fn(async ({ where }: any) => options.activities.filter((a) => where.id.in.includes(a.id))) },
     };
     return { service: new ShoesService(prisma as unknown as PrismaService), prisma };
   }
