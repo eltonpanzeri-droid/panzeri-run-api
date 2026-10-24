@@ -9499,7 +9499,7 @@ function Anamnese({
             name: cleanName,
             email: cleanEmail,
             birthDate: apiBirthDate,
-            sex: 'prefiro_nao_informar',
+            sex: savedMe?.sex ?? 'prefiro_nao_informar', // 24/10: preserva o sexo salvo (antes fixo, escondia o ciclo menstrual)
             heightCm: Math.round(parsedHeight),
             weightKg: parsedWeight,
           },
@@ -9528,7 +9528,7 @@ function Anamnese({
             name: cleanName,
             email: cleanEmail,
             birthDate: apiBirthDate,
-            sex: 'prefiro_nao_informar',
+            sex: savedMe?.sex ?? 'prefiro_nao_informar', // 24/10: preserva o sexo salvo (antes fixo, escondia o ciclo menstrual)
             heightCm: Math.round(parsedHeight),
             weightKg: parsedWeight,
           },

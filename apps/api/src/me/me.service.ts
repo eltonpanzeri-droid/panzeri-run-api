@@ -766,6 +766,11 @@ export class MeService {
     // ORDEM EXECUTIVA 09/09/2026: sincronizacao reversa WA→answers eliminada.
     // Ver comentario equivalente em updateAvailability para justificativa completa e rollback.
 
+    // (24/10) Versoes antigas do app mandavam sex='prefiro_nao_informar' fixo neste endpoint, apagando "Feminino" e escondendo o ciclo menstrual. Este endpoint nao edita sexo:
+    // o placeholder nunca sobrescreve um valor ja' informado (a edicao de verdade e' PUT /me/profile).
+    const currentSex = (await this.prisma.user.findUnique({ where: { id: userId }, select: { sex: true } }))?.sex ?? null;
+    const sexToSave = dto.profile.sex === 'prefiro_nao_informar' && currentSex ? currentSex : dto.profile.sex;
+
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: userId },
@@ -773,7 +778,7 @@ export class MeService {
           name: dto.profile.name.trim(),
           email: normalizedEmail,
           birthDate: dto.profile.birthDate,
-          sex: dto.profile.sex,
+          sex: sexToSave,
           heightCm: dto.profile.heightCm,
           weightKg: dto.profile.weightKg,
           address: dto.profile.address,
