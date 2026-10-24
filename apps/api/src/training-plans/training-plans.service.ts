@@ -40,6 +40,7 @@ import {
 } from './student-information-context';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WeeklyCheckInService } from './weekly-checkin.service';
+import { executionWeekStart, weekStartOfDate as getWeekStartFromDate } from '../common/weekly-volume';
 import { StudentProfileService, ProfileEventCode } from './student-profile.service';
 import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.service';
 import { AthleteStateSnapshotService } from '../training-intelligence/athlete-state-snapshot.service';
@@ -2581,7 +2582,7 @@ export class TrainingPlansService {
     }
 
     for (const s of relevant) {
-      const week = weekFor(getWeekStartFromDate(s.scheduledDate));
+      const week = weekFor(getWeekStartFromDate(s.scheduledDate)); // a grade mostra a sessao na semana PROGRAMADA
       const linkedActivity = activityBySessionId.get(s.id) ?? null;
       const completionStatus = (s.completion?.status ?? null) as 'done' | 'adjusted' | 'missed' | null;
       // Execucao objetiva prevalece sobre o feedback para distancia; sem vinculo, comportamento legado.
@@ -2601,7 +2602,11 @@ export class TrainingPlansService {
       // sem esforco percebido = pendente). Feedback pendente nunca vira "nao realizado".
       const executionRealized = linkedActivity != null;
       if (executionRealized || completionStatus === 'done' || completionStatus === 'adjusted') {
-        week.totalKmDone += completedDistanceKm ?? 0;
+        // Regra unica de volume (igual a' Evolucao): o km conta na semana do DIA LOCAL DA EXECUCAO quando ha' atividade importada vinculada; sem atividade, na semana programada.
+        const kmWeek = linkedActivity?.startedAt
+          ? weekFor(executionWeekStart(localCalendarDate(linkedActivity.startedAt, linkedActivity.utcOffsetMinutes ?? null), s.scheduledDate.toISOString().slice(0, 10)))
+          : week;
+        kmWeek.totalKmDone += completedDistanceKm ?? 0;
       }
       week.sessions.push({
         id: s.id,
@@ -3618,14 +3623,7 @@ export interface HistoryWeek {
   sessions: HistorySessionSummary[];
 }
 
-/** Retorna 'YYYY-MM-DD' da segunda-feira da semana de uma Date UTC */
-function getWeekStartFromDate(date: Date): string {
-  const day = date.getUTCDay(); // 0=Dom
-  const diff = day === 0 ? -6 : 1 - day;
-  const monday = new Date(date);
-  monday.setUTCDate(date.getUTCDate() + diff);
-  return monday.toISOString().slice(0, 10);
-}
+// getWeekStartFromDate: regra unica de semana em common/weekly-volume.ts.
 
 /** Formata o label da semana em PT-BR (ex: '31 ago.–6 set.') */
 function formatWeekLabel(weekStart: string): string {

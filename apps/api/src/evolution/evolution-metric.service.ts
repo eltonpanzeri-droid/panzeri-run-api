@@ -4,6 +4,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
+import { weekStartOf as getWeekStart } from '../common/weekly-volume';
 import { canonicalModality } from '../activity-execution/canonical-modality';
 import type {
   AdherencePeriod,
@@ -28,14 +29,7 @@ function getTodayBR(): ISODate {
   return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-/** Retorna a segunda-feira da semana de uma data 'YYYY-MM-DD' */
-function getWeekStart(dateStr: ISODate): ISODate {
-  const d = new Date(dateStr + 'T12:00:00Z'); // meio-dia evita drift de DST
-  const day = d.getUTCDay(); // 0=dom, 1=seg, ..., 6=sab
-  const diff = day === 0 ? -6 : 1 - day; // ajuste para segunda-feira
-  d.setUTCDate(d.getUTCDate() + diff);
-  return d.toISOString().slice(0, 10);
-}
+// getWeekStart: regra unica de semana em common/weekly-volume.ts (segunda a domingo; km pertence a' semana do dia local da execucao).
 
 /** Dia local do atleta de um instante UTC, pelo offset do provedor (mesma convencao do motor de reconciliacao) */
 function localIsoDate(startedAt: Date, utcOffsetMinutes: number | null): ISODate {

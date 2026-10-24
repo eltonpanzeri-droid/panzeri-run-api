@@ -24,6 +24,7 @@ import { STRAVA_BUTTON_HEIGHT, STRAVA_BUTTON_WIDTH, STRAVA_COMPATIBLE_LOGO, STRA
 import { planStartsInFuture, saoPauloDateString } from './src/weekWindow';
 import { ActivityDetailBody, type ActivityDetail } from './src/activityDetail';
 import { Avatar, ProfilePhotoCard, useProfilePhoto } from './src/profilePhoto/ProfilePhoto';
+import { AppUpdateBanner } from './src/appUpdate/AppUpdateBanner';
 import { EquipmentScreen } from './src/equipment/EquipmentScreen';
 import { LegacyAtlasConsentCard } from './src/legacyConsent/LegacyAtlasConsentCard';
 import { PolarHealthConsentCard } from './src/polarHealth/PolarHealthConsentCard';
@@ -2166,6 +2167,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
+      <AppUpdateBanner />
       <ErrorBoundary>
         <AppInner />
       </ErrorBoundary>

@@ -3234,3 +3234,57 @@ h3 {
   .eqSheet { width: 100%; height: 92%; border-left: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; animation: none; }
   .eqSwitch { padding-bottom: 8px; }
 }
+
+/* Observatorio Panzeri Run (24/10/2026) — reaproveita os tokens e a estetica do bloco eq* (graficos e cartoes vem de viz.tsx). O modo escuro do painel e' o filtro de inversao existente. */
+.obsRoot { --obs-warn: #b45309; --obs-warn-soft: #fef3c7; }
+.eqKpiSuffix { font-size: 13px; font-weight: 600; color: var(--muted); }
+.obsKpis7 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.obsSynth { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 14px; border-radius: 10px; border: 1px solid #fcd34d; background: var(--obs-warn-soft); color: #78350f; font-size: 13px; line-height: 1.4; }
+.obsSynth svg { flex: none; }
+.obsOff { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 36px 18px; border: 1px dashed var(--line); border-radius: 14px; background: var(--panel); text-align: center; color: var(--muted); }
+.obsOff h3 { margin: 4px 0 0; color: var(--ink); font-size: 17px; }
+.obsOff p { margin: 0; max-width: 520px; font-size: 13.5px; line-height: 1.5; }
+.obsOff small { max-width: 520px; font-size: 12px; }
+.obsModeBar { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.obsModeText { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.obsSeg { align-self: flex-start; flex-wrap: wrap; }
+.obsSelect { display: inline-flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--muted); max-width: 320px; }
+.obsSelect select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font: inherit; font-size: 13px; }
+.obsHidden { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px dashed var(--line); background: var(--panel); color: var(--muted); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.obsTable td { vertical-align: top; }
+.obsTable td:first-child, .obsTable th:first-child { min-width: 118px; }
+.obsRowHidden td { color: var(--muted); }
+.obsTotal td { border-top: 2px solid var(--line); background: var(--panel); }
+.obsLine { position: relative; width: 100%; }
+.obsLine svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
+.obsGrid { stroke: var(--line); stroke-width: 1; }
+.obsAxis { fill: var(--muted); font-size: 11px; }
+.obsAxisTitle { fill: var(--muted); font-size: 11px; }
+.obsCross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.obsLineTip { top: 6px; left: 64px; bottom: auto; transform: none; min-width: 190px; white-space: normal; }
+.obsLineTip small { display: flex; align-items: center; gap: 6px; }
+.obsLineTip i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; flex: none; }
+.obsGrouped { width: 100%; }
+.obsGroupedPlot { display: flex; align-items: flex-end; gap: 14px; border-bottom: 1px solid var(--line); padding-top: 4px; }
+.obsCluster { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; }
+.obsClusterBars { display: flex; align-items: flex-end; justify-content: center; gap: 3px; width: 100%; }
+.obsGBar { position: relative; flex: 1 1 0; max-width: 22px; min-width: 6px; display: flex; align-items: flex-end; height: 100%; outline: none; }
+.obsGBarFill { display: block; width: 100%; border-radius: 4px 4px 0 0; opacity: 0.9; transition: opacity 0.12s; }
+.obsGBar.hover .obsGBarFill, .obsGBar:focus-visible .obsGBarFill { opacity: 1; }
+.obsGBar .eqTip { left: 50%; bottom: calc(100% - 4px); white-space: normal; min-width: 170px; }
+.obsClusterLabel { margin-top: 8px; font-size: 12px; font-weight: 700; color: var(--ink); }
+.obsAxisCap { margin: 8px 0 0; font-size: 11.5px; color: var(--muted); text-align: center; }
+.obsPending { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.obsPending li { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 12.5px; }
+.obsPending li span { color: var(--muted); line-height: 1.45; }
+.obsDl { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 0 0 8px; }
+.obsDl div { padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.obsDl dt { font-size: 11px; color: var(--muted); }
+.obsDl dd { margin: 2px 0 0; font-weight: 700; font-size: 13px; }
+.obsDetails { margin-top: 12px; }
+.obsDetails > summary { cursor: pointer; font-weight: 700; font-size: 13px; padding: 6px 0; color: var(--accent); }
+.obsCheck { align-items: flex-start; padding: 4px 0; }
+.obsCheck span { line-height: 1.4; }
+@media (max-width: 900px) { .obsKpis7 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .obsGroupedPlot { gap: 6px; } .obsGBar { min-width: 4px; } .obsLineTip { min-width: 150px; left: 8px; } .obsTable { font-size: 12px; } }
+@media (max-width: 600px) { .obsLine { overflow-x: auto; } .obsLine svg { min-width: 540px; } .obsSeg button { flex: 1 1 100%; text-align: left; } }
