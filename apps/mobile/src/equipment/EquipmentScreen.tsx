@@ -25,7 +25,7 @@ interface ShoeDetail extends ShoeSummary { stats: ShoeStats; retrospective: stri
 interface DeviceView {
   id: string; platform: string; platformLabel: string; sourceDetail: string | null; manufacturer: string | null;
   manufacturerSource: 'manual' | 'dispositivo_informou' | 'plataforma_exclusiva' | null; model: string | null; modelSource: 'manual' | 'dispositivo_informou' | null;
-  deviceType: string | null; firstSeenAt: string | null; lastSeenAt: string | null; activityCount: number;
+  technicalId?: string | null; deviceType: string | null; firstSeenAt: string | null; lastSeenAt: string | null; activityCount: number;
   observed: { manufacturer: string | null; model: string | null; name: string | null }; corrected: boolean;
 }
 interface PlatformView {
@@ -435,7 +435,8 @@ function DevicesSection({ apiUrl, accessToken }: { apiUrl: string; accessToken: 
           <Text style={st.shoeTitle}>{[d.manufacturer, d.model].filter(Boolean).join(' ') || 'Aparelho não identificado'}</Text>
           {d.deviceType ? <Text style={st.muted}>{TYPE_LABEL[d.deviceType] ?? d.deviceType}</Text> : null}
           <Text style={st.kv}><Text style={st.k}>Fabricante: </Text>{d.manufacturer ?? dash}{d.manufacturer && manufacturerSourceText(d) ? ` (${manufacturerSourceText(d)})` : ''}</Text>
-          <Text style={st.kv}><Text style={st.k}>Modelo: </Text>{d.model ?? dash}{d.model && d.modelSource === 'manual' ? ' (corrigido por você)' : d.model ? ' (informado pelo aparelho)' : ''}</Text>
+          <Text style={st.kv}><Text style={st.k}>Modelo: </Text>{d.model ?? 'Modelo não identificado'}{d.model && d.modelSource === 'manual' ? ' (corrigido por você)' : d.model ? ' (informado pelo aparelho)' : ''}</Text>
+          {!d.model && d.technicalId ? <Text style={st.note}>Identificador técnico recebido (não é um nome comercial): {d.technicalId}</Text> : null}
           <Text style={st.kv}><Text style={st.k}>Plataforma: </Text>{d.platformLabel}</Text>
           {d.platform !== 'manual' ? (
             <>

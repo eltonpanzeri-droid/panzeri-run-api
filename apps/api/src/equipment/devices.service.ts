@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StudentIntegrationsService } from '../coach/student-integrations.service';
-import { PLATFORM_LABEL, effectiveDevice, normalizeKey } from './equipment-core';
+import { PLATFORM_LABEL, effectiveDevice, looksTechnicalIdentifier, normalizeKey } from './equipment-core';
 
 // Equipamentos (23/10/2026) — relogios/dispositivos do ALUNO. Fabricante != modelo != plataforma. O que a fonte informou fica em colunas observed* (proveniencia tecnica, nunca
 // sobrescrita); a correcao do aluno fica em colunas manual* separadas. As linhas sao reconstruidas das atividades de forma idempotente (primeira/ultima vez e contagem recalculadas),
@@ -16,6 +16,8 @@ export interface DeviceView {
   manufacturer: string | null;
   manufacturerSource: 'manual' | 'dispositivo_informou' | 'plataforma_exclusiva' | null;
   model: string | null;
+  // Identificador tecnico informado pela fonte quando nao e' um nome comercial (ex.: run.10092807.huami.com): preservado, nunca exibido como modelo.
+  technicalId: string | null;
   modelSource: 'manual' | 'dispositivo_informou' | null;
   deviceType: string | null;
   firstSeenAt: string | null;
@@ -50,12 +52,13 @@ export class DevicesService {
       manufacturer: effective.manufacturer,
       manufacturerSource: effective.manufacturerSource,
       model: effective.model,
+      technicalId: effective.technicalId,
       modelSource: effective.modelSource,
       deviceType: row.deviceType,
       firstSeenAt: row.firstSeenAt?.toISOString() ?? null,
       lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
       activityCount: row.activityCount,
-      observed: { manufacturer: row.observedManufacturer, model: row.observedModel, name: row.observedName },
+      observed: { manufacturer: row.observedManufacturer, model: looksTechnicalIdentifier(row.observedModel) ? null : row.observedModel, name: row.observedName ?? (looksTechnicalIdentifier(row.observedModel) ? row.observedModel : null) },
       corrected: Boolean(row.manualManufacturer || row.manualModel),
     };
   }

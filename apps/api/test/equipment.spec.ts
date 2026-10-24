@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BadRequestException } from '@nestjs/common';
-import { DISTANCE_BAND_KEYS, bandOf, canonicalManufacturer, deriveDevice, effectiveDevice, emptyBands, addToBands, formatPace, normalizeKey, pooledPace, raceKindOf, retrospectiveText } from '../src/equipment/equipment-core';
+import { DISTANCE_BAND_KEYS, bandOf, canonicalManufacturer, deriveDevice, effectiveDevice, looksTechnicalIdentifier, emptyBands, addToBands, formatPace, normalizeKey, pooledPace, raceKindOf, retrospectiveText } from '../src/equipment/equipment-core';
 import { analyzeEquipment, MIN_PACE_STUDENTS, type AnalysisData, type AnalysisFilters } from '../src/equipment/equipment-analysis';
 import { buildShoeStats } from '../src/equipment/shoe-stats';
 import { parseEquipmentFilters } from '../src/equipment/equipment-intelligence.service';
@@ -112,6 +112,31 @@ describe('nomes e dispositivos', () => {
     expect(deriveDevice('health_connect', { source: { packageName: 'com.garmin.android.apps.connectmobile' }, device: null })).toMatchObject({ manufacturer: 'Garmin', manufacturerBasis: 'plataforma_exclusiva' });
     expect(deriveDevice('health_connect', { source: { packageName: 'com.google.android.apps.fitness' }, device: null })?.manufacturer).toBeNull();
     expect(deriveDevice('zepp', { zepp: { deviceName: 'Amazfit Balance' } })).toMatchObject({ manufacturer: 'Zepp / Amazfit', model: 'Amazfit Balance' });
+  });
+  it('identificador tecnico (run.10092807.huami.com) nunca vira nome de modelo: modelo desconhecido e o identificador preservado', () => {
+    const z = deriveDevice('zepp', { zepp: { deviceName: 'run.10092807.huami.com' } });
+    // a fonte e' guardada como veio (proveniencia); a exibicao e' que nunca trata o identificador como nome comercial
+    expect(z).toMatchObject({ manufacturer: 'Zepp / Amazfit', model: 'run.10092807.huami.com' });
+    expect(effectiveDevice({ observedManufacturer: 'Zepp / Amazfit', observedModel: z!.model, observedName: z!.name, manualManufacturer: null, manualModel: null, manufacturerBasis: z!.manufacturerBasis })).toMatchObject({ model: null, technicalId: 'run.10092807.huami.com' });
+    expect(looksTechnicalIdentifier('Watch7,2')).toBe(true);
+    expect(effectiveDevice({ observedManufacturer: 'Apple', observedModel: 'Watch7,2', observedName: 'Apple Watch', manualManufacturer: null, manualModel: null, manufacturerBasis: 'dispositivo_informou' })).toMatchObject({ model: null, technicalId: 'Watch7,2' });
+    expect(looksTechnicalIdentifier('run.10092807.huami.com')).toBe(true);
+    for (const commercial of ['Amazfit GTR 4', 'Forerunner 265', 'SM-R960', 'Vantage V2', 'Galaxy Watch6', 'Pace 3']) expect(looksTechnicalIdentifier(commercial)).toBe(false);
+    // linha antiga gravada com o identificador no campo de modelo: exibida como modelo desconhecido, identificador preservado
+    const legacy = effectiveDevice({ observedManufacturer: 'Zepp / Amazfit', observedModel: 'run.10092807.huami.com', manualManufacturer: null, manualModel: null, manufacturerBasis: 'plataforma_exclusiva' });
+    expect(legacy).toMatchObject({ model: null, technicalId: 'run.10092807.huami.com', modelSource: null });
+    // a correcao manual da aluna vale como modelo
+    expect(effectiveDevice({ observedManufacturer: null, observedModel: 'run.10092807.huami.com', manualManufacturer: null, manualModel: 'Amazfit Balance', manufacturerBasis: null })).toMatchObject({ model: 'Amazfit Balance', modelSource: 'manual' });
+  });
+  it('painel: grupo "Modelo nao identificado" lista os identificadores tecnicos, sem inventar modelo', () => {
+    const d: AnalysisData = {
+      students: [{ id: 'a', subscriptionStatus: 'active' }, { id: 'b', subscriptionStatus: 'active' }, { id: 'c', subscriptionStatus: 'active' }],
+      devices: ['a', 'b', 'c'].map((id, i) => ({ userId: id, platform: 'zepp', manufacturer: 'Zepp / Amazfit', model: null, technicalId: i === 2 ? 'run.2.huami.com' : 'run.1.huami.com', deviceType: null, firstSeenAt: null, lastSeenAt: null, activityCount: 1 })),
+      shoes: [], facts: [], activeByProvider: new Map(), runnerKm: null,
+    };
+    const r = analyzeEquipment(d, { from: '2026-01-01', to: '2026-10-31', watchBrands: [], watchModels: [], platforms: [], shoeBrands: [], shoeModels: [], shoeStatus: 'all', shoeKmMin: null, shoeKmMax: null, runnerKmMin: null, runnerKmMax: null, studentStatuses: [], bands: [] });
+    expect(r.devices.byModel).toHaveLength(1);
+    expect(r.devices.byModel[0]).toMatchObject({ label: 'Modelo não identificado', students: 3, technicalIds: ['run.1.huami.com', 'run.2.huami.com'] });
   });
   it('Strava nunca entra, nem direto nem via canal de saude', () => {
     expect(deriveDevice('strava', { device: 'x' })).toBeNull();

@@ -38,6 +38,8 @@ export interface AnalysisFilters {
 
 export interface AnalysisStudent { id: string; subscriptionStatus: string }
 export interface AnalysisDevice {
+  // Identificador tecnico do aparelho (nao e' nome comercial): so' aparece nos detalhes de "Modelo nao identificado".
+  technicalId?: string | null;
   userId: string; platform: string; manufacturer: string | null; model: string | null; deviceType: string | null;
   firstSeenAt: Date | null; lastSeenAt: Date | null; activityCount: number;
 }
@@ -124,7 +126,7 @@ export function analyzeEquipment(data: AnalysisData, f: AnalysisFilters, minStud
 
   // ── dispositivos (agregados sobre alunos incluidos) ──
   const manufacturerAcc = new Map<string, { labels: string[]; students: Set<string>; devices: number; activities: number }>();
-  const modelAcc = new Map<string, { manufacturerLabels: string[]; modelLabels: string[]; manufacturerKey: string; students: Set<string>; activities: number }>();
+  const modelAcc = new Map<string, { manufacturerLabels: string[]; modelLabels: string[]; manufacturerKey: string; students: Set<string>; activities: number; technicalIds: Set<string> }>();
   const platformAcc = new Map<string, { students: Set<string>; devices: number; activities: number }>();
   const studentsWithDevice = new Set<string>();
   for (const [userId, devices] of devicesByUser) {
@@ -137,7 +139,8 @@ export function analyzeEquipment(data: AnalysisData, f: AnalysisFilters, minStud
       m.students.add(userId); m.devices += 1; m.activities += device.activityCount;
       manufacturerAcc.set(brandKey, m);
       const modelKey = brandKey + '|' + (normalizeKey(device.model) || 'naoidentificado');
-      const md = modelAcc.get(modelKey) ?? { manufacturerLabels: [], modelLabels: [], manufacturerKey: brandKey, students: new Set<string>(), activities: 0 };
+      const md = modelAcc.get(modelKey) ?? { manufacturerLabels: [], modelLabels: [], manufacturerKey: brandKey, students: new Set<string>(), activities: 0, technicalIds: new Set<string>() };
+      if (!device.model && device.technicalId) md.technicalIds.add(device.technicalId);
       if (device.manufacturer) md.manufacturerLabels.push(device.manufacturer);
       if (device.model) md.modelLabels.push(device.model);
       md.students.add(userId); md.activities += device.activityCount;
@@ -214,6 +217,8 @@ export function analyzeEquipment(data: AnalysisData, f: AnalysisFilters, minStud
       byManufacturer: [...manufacturerAcc.entries()].map(([key, v]) => ({ key, label: key === 'naoidentificado' ? unidentified : dominantLabel(v.labels), students: v.students.size, devices: v.devices, activities: v.students.size >= minStudents ? v.activities : null })).sort(byStudentsThenLabel),
       byModel: [...modelAcc.entries()].map(([key, v]) => ({
         key, manufacturer: v.manufacturerKey === 'naoidentificado' ? unidentified : dominantLabel(v.manufacturerLabels), label: dominantLabel(v.modelLabels) || 'Modelo não identificado', students: v.students.size, activities: v.students.size >= minStudents ? v.activities : null,
+        // Identificadores tecnicos distintos informados pelas fontes (so' quando o modelo nao foi identificado): preservados para consulta, sem inventar nome.
+        technicalIds: [...v.technicalIds].sort().slice(0, 6),
       })).sort(byStudentsThenLabel).slice(0, 200),
       byPlatform: [...platformAcc.entries()].map(([key, v]) => ({
         key, label: key, students: v.students.size, devices: v.devices, activities: v.students.size >= minStudents ? v.activities : null,

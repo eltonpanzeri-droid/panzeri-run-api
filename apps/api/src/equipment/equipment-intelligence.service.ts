@@ -61,14 +61,14 @@ export class EquipmentIntelligenceService {
   private async loadBase() {
     const [students, devices, shoes] = await Promise.all([
       this.prisma.user.findMany({ where: { role: 'student', accountStatus: 'active' }, select: { id: true, subscriptionStatus: true } }),
-      this.prisma.userDevice.findMany({ select: { userId: true, sourceProvider: true, observedManufacturer: true, observedModel: true, manufacturerBasis: true, manualManufacturer: true, manualModel: true, deviceType: true, firstSeenAt: true, lastSeenAt: true, activityCount: true } }),
+      this.prisma.userDevice.findMany({ select: { userId: true, sourceProvider: true, observedManufacturer: true, observedModel: true, observedName: true, manufacturerBasis: true, manualManufacturer: true, manualModel: true, deviceType: true, firstSeenAt: true, lastSeenAt: true, activityCount: true } }),
       this.prisma.shoe.findMany({ select: { id: true, userId: true, brand: true, model: true, status: true } }),
     ]);
     return {
       students,
       devices: devices.map((device) => {
         const effective = effectiveDevice(device);
-        return { userId: device.userId, platform: device.sourceProvider, manufacturer: effective.manufacturer, model: effective.model, deviceType: device.deviceType, firstSeenAt: device.firstSeenAt, lastSeenAt: device.lastSeenAt, activityCount: device.activityCount };
+        return { userId: device.userId, platform: device.sourceProvider, manufacturer: effective.manufacturer, model: effective.model, technicalId: effective.technicalId, deviceType: device.deviceType, firstSeenAt: device.firstSeenAt, lastSeenAt: device.lastSeenAt, activityCount: device.activityCount };
       }),
       shoes,
     };

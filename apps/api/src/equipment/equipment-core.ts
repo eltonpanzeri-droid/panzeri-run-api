@@ -145,6 +145,17 @@ export interface DerivedDevice {
 const asText = (value: unknown, max = 80): string | null => (typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null);
 const asObject = (value: unknown): Record<string, unknown> | null => (value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null);
 
+// Identificador TECNICO (ex.: "run.10092807.huami.com") nao e' nome comercial: nome de aparelho tem espacos ou codigo curto (Forerunner 265, SM-R960); um identificador
+// tem pontos de dominio/versao e nenhum espaco. Quando o "modelo" informado e' assim, ele e' preservado como identificador tecnico, mas NUNCA exibido como modelo (o modelo fica
+// desconhecido: nao se inventa um nome comercial a partir dele).
+export function looksTechnicalIdentifier(value: string | null | undefined): boolean {
+  const text = value?.trim();
+  if (!text || /\s/.test(text)) return false;
+  // Identificador de hardware da Apple (ex.: Watch7,2, iPhone15,2) tambem nao e' nome comercial.
+  if (/^[a-z]+\d+,\d+$/i.test(text)) return true;
+  return /\.(com|cn|net|org|io|br)(\.|$)/i.test(text) || /^[a-z]+\.\d{3,}\./i.test(text) || (text.match(/\./g)?.length ?? 0) >= 2;
+}
+
 // Extrai o dispositivo de UMA atividade a partir do que a PROPRIA fonte informou (providerMetrics). Strava (inclusive via canal de saude) devolve null: nunca entra. Sem evidencia = campos null.
 export function deriveDevice(provider: string, providerMetrics: unknown): DerivedDevice | null {
   if (provider === 'strava') return null;
@@ -186,19 +197,24 @@ export function deriveDevice(provider: string, providerMetrics: unknown): Derive
   } else {
     return null;
   }
+  // O valor informado pela fonte e' guardado como veio (proveniencia). Se for so' um identificador tecnico, effectiveDevice() o exibe como "modelo desconhecido" e preserva o identificador.
   const brandPart = manufacturer && basis === 'dispositivo_informou' ? normalizeKey(manufacturer) : '';
   const deviceKey = model || name ? brandPart + ':' + normalizeKey((model ?? name) as string) : '';
   return { sourceProvider: provider, sourceDetail, deviceKey: deviceKey.slice(0, 80), manufacturer, model, name, deviceType, manufacturerBasis: basis };
 }
 
 // Valor EFETIVO exibido/analisado = a correcao manual da aluna quando existe, senao o observado. O observado nunca e' apagado (colunas separadas).
-export function effectiveDevice(row: { observedManufacturer: string | null; observedModel: string | null; manualManufacturer: string | null; manualModel: string | null; manufacturerBasis: string | null }) {
+export function effectiveDevice(row: { observedManufacturer: string | null; observedModel: string | null; observedName?: string | null; manualManufacturer: string | null; manualModel: string | null; manufacturerBasis: string | null }) {
   const manufacturer = row.manualManufacturer ? canonicalManufacturer(row.manualManufacturer) : canonicalManufacturer(row.observedManufacturer);
-  const model = row.manualModel ?? row.observedModel;
+  // Linhas antigas podem trazer um identificador tecnico no campo de modelo: nunca e' exibido como modelo (a correcao manual da aluna, essa sim, vale como esta).
+  const observedIsTechnical = !row.manualModel && looksTechnicalIdentifier(row.observedModel);
+  const model = row.manualModel ?? (observedIsTechnical ? null : row.observedModel);
+  const technicalId = observedIsTechnical ? row.observedModel : looksTechnicalIdentifier(row.observedName) ? row.observedName ?? null : null;
   return {
     manufacturer,
     model,
+    technicalId,
     manufacturerSource: row.manualManufacturer ? ('manual' as const) : manufacturer ? ((row.manufacturerBasis as 'dispositivo_informou' | 'plataforma_exclusiva' | null) ?? 'dispositivo_informou') : null,
-    modelSource: row.manualModel ? ('manual' as const) : row.observedModel ? ('dispositivo_informou' as const) : null,
+    modelSource: row.manualModel ? ('manual' as const) : model ? ('dispositivo_informou' as const) : null,
   };
 }
