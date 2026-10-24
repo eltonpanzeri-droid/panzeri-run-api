@@ -6250,7 +6250,8 @@ function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: 
       label: 'Percorrido',
       color: '#22c55e',
       data: weeks.map((w) => {
-        const total = (w.kmPercorridos ?? 0) + (w.kmExtras ?? 0);
+        // kmPercorridos JA' INCLUI os extras (contrato da API: evolution.types.ts, "Ja' incluso em kmPercorridos"). Somar kmExtras de novo contava o extra duas vezes (bug 24/10/2026).
+        const total = w.kmPercorridos ?? 0;
         return total > 0 ? total : null;
       }),
     });
@@ -6453,10 +6454,11 @@ function Progress({ accessToken }: { accessToken: string }) {
 
   const chartPeriodWeeks = CHART_PERIODS.find((p) => p.key === chartPeriod)?.weeks ?? 13;
   const slicedWeeks = data?.recentWeeks.slice(-chartPeriodWeeks) ?? [];
-  const periodKm = slicedWeeks.reduce((acc, w) => acc + (w.kmPercorridos ?? 0) + (w.kmExtras ?? 0), 0);
-  const weeksWithKm = slicedWeeks.filter((w) => (w.kmPercorridos ?? 0) + (w.kmExtras ?? 0) > 0).length;
+  // kmPercorridos ja' inclui os extras: nunca somar kmExtras por cima (mesma regra do grafico e do "Total" vindo da API).
+  const periodKm = slicedWeeks.reduce((acc, w) => acc + (w.kmPercorridos ?? 0), 0);
+  const weeksWithKm = slicedWeeks.filter((w) => (w.kmPercorridos ?? 0) > 0).length;
   const avgWeeklyKm = weeksWithKm > 0 ? periodKm / weeksWithKm : 0;
-  const bestWeekKm = slicedWeeks.reduce((best, w) => Math.max(best, (w.kmPercorridos ?? 0) + (w.kmExtras ?? 0)), 0);
+  const bestWeekKm = slicedWeeks.reduce((best, w) => Math.max(best, w.kmPercorridos ?? 0), 0);
 
   function fmtKm(km: number): string {
     if (km === 0) return '—';
