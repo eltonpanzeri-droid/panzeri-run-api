@@ -149,6 +149,59 @@ export async function seedReviewAccount(prisma: PrismaClient, spec: ReviewAccoun
   }, { timeout: 60_000, maxWait: 15_000 });
 }
 
+// Cria UMA semana de programa (plano + sessoes + execucoes das datas que ja passaram). `week`: 0 = semana corrente, 1..4 = passadas (so' muda o volume).
+async function createWeekPlan(tx: Prisma.TransactionClient, id: string, start: Date, week: number, today: Date): Promise<void> {
+  const drafts = buildWeekDrafts(week);
+  const plan = await tx.trainingPlan.create({
+    data: {
+      userId: id, name: week === 0 ? 'Programa da semana' : `Programa da semana ${start.toISOString().slice(0, 10)}`, goal: 'Correr 10 km com conforto',
+      status: week === 0 ? 'active' : 'archived', startDate: start, endDate: addDays(start, 6), generatedBy: 'agent', createdAt: addDays(start, -1),
+      inputSnapshot: { source: 'app-review-demo', synthetic: true } as Prisma.InputJsonObject,
+      aiRecommendation: 'Programa de demonstração com dados sintéticos: mantenha a regularidade e respeite os dias de descanso.',
+    },
+  });
+  for (const draft of drafts) {
+    const scheduledDate = addDays(start, draft.offset);
+    const isRun = draft.modality === 'corrida';
+    const prescription = draft.prescription as { durationMin: number | null; distanceKm?: number | null; representativePaceSecondsPerKm?: number | null };
+    const session = await tx.trainingSession.create({
+      data: {
+        planId: plan.id, userId: id, scheduledDate, weekday: scheduledDate.getUTCDay(), modality: draft.modality, title: draft.title, sessionType: draft.sessionType,
+        locationSuggestion: 'Livre', durationMin: prescription.durationMin ?? undefined, distanceKm: prescription.distanceKm ?? undefined,
+        paceMinSec: isRun && prescription.representativePaceSecondsPerKm != null ? `${Math.floor(prescription.representativePaceSecondsPerKm / 60)}:${String(prescription.representativePaceSecondsPerKm % 60).padStart(2, '0')}` : null,
+        structure: draft.prescription as unknown as Prisma.InputJsonObject, notes: draft.notes, videoRefs: [], origin: 'agent',
+      },
+    });
+    // so' executa o que ja passou (dia anterior a hoje); hoje e o futuro ficam como "a fazer"
+    if (scheduledDate.getTime() >= today.getTime()) continue;
+    const plannedMin = prescription.durationMin ?? 40;
+    const plannedKm = prescription.distanceKm ?? null;
+    const missed = draft.outcome === 'missed';
+    const adjusted = draft.outcome === 'adjusted';
+    const durationMin = missed ? null : Math.round(plannedMin * (adjusted ? 0.85 : 1.02));
+    const distanceKm = missed || plannedKm == null ? null : Number((plannedKm * (adjusted ? 0.85 : 1.01)).toFixed(2));
+    await tx.workoutCompletion.create({
+      data: {
+        userId: id, sessionId: session.id, status: draft.outcome, completedAt: new Date(scheduledDate.getTime() + 11 * 3_600_000),
+        durationMin, distanceKm, avgPaceSecondsKm: durationMin && distanceKm ? pace(distanceKm, durationMin) : null,
+        avgHeartRate: isRun && !missed ? 150 + week : null, maxHeartRate: isRun && !missed ? 172 : null,
+        perceivedEffort: missed ? null : 5 + (draft.sessionType === 'misto' ? 2 : 0), painFlag: 'none',
+        satisfactionElaboracao: missed ? null : 'gostei', satisfactionCapacidade: missed ? null : (adjusted ? 'neutro' : 'amei'),
+        preSleepQuality: missed ? null : 4, prePhysicalFatigue: missed ? null : 2, preStressLevel: missed ? null : 2, preMotivation: missed ? null : 4, postWorkoutFeeling: missed ? null : 4,
+      },
+    });
+  }
+}
+
+// Virada de semana: SO' acrescenta a semana corrente (arquiva o programa ativo anterior). Nunca apaga execucao, feedback, dor nem qualquer registro feito na conta.
+async function rollWeekForward(tx: Prisma.TransactionClient, id: string, now: Date): Promise<void> {
+  const weekStart = startOfWeek(now);
+  const sameWeek = await tx.trainingPlan.findFirst({ where: { userId: id, startDate: weekStart }, orderBy: { createdAt: 'desc' }, select: { id: true } });
+  await tx.trainingPlan.updateMany({ where: { userId: id, status: 'active' }, data: { status: 'archived' } });
+  if (sameWeek) { await tx.trainingPlan.update({ where: { id: sameWeek.id }, data: { status: 'active' } }); return; }
+  await createWeekPlan(tx, id, weekStart, 0, localToday(now));
+}
+
 // Conteudo sintetico (tudo, MENOS acesso/assinatura/senha). Usado pelo seed e pela renovacao automatica diaria.
 async function applyContent(tx: Prisma.TransactionClient, id: string, kind: ReviewKind, now: Date): Promise<void> {
   const persona = PERSONAS[kind];
@@ -173,49 +226,7 @@ async function applyContent(tx: Prisma.TransactionClient, id: string, kind: Revi
       },
     });
 
-    for (let week = 4; week >= 0; week -= 1) {
-      const start = addDays(weekStart, -7 * week);
-      const drafts = buildWeekDrafts(week);
-      const plan = await tx.trainingPlan.create({
-        data: {
-          userId: id, name: week === 0 ? 'Programa da semana' : `Programa da semana ${start.toISOString().slice(0, 10)}`, goal: 'Correr 10 km com conforto',
-          status: week === 0 ? 'active' : 'archived', startDate: start, endDate: addDays(start, 6), generatedBy: 'agent', createdAt: addDays(start, -1),
-          inputSnapshot: { source: 'app-review-demo', synthetic: true } as Prisma.InputJsonObject,
-          aiRecommendation: 'Programa de demonstração com dados sintéticos: mantenha a regularidade e respeite os dias de descanso.',
-        },
-      });
-      for (const draft of drafts) {
-        const scheduledDate = addDays(start, draft.offset);
-        const isRun = draft.modality === 'corrida';
-        const prescription = draft.prescription as { durationMin: number | null; distanceKm?: number | null; representativePaceSecondsPerKm?: number | null };
-        const session = await tx.trainingSession.create({
-          data: {
-            planId: plan.id, userId: id, scheduledDate, weekday: scheduledDate.getUTCDay(), modality: draft.modality, title: draft.title, sessionType: draft.sessionType,
-            locationSuggestion: 'Livre', durationMin: prescription.durationMin ?? undefined, distanceKm: prescription.distanceKm ?? undefined,
-            paceMinSec: isRun && prescription.representativePaceSecondsPerKm != null ? `${Math.floor(prescription.representativePaceSecondsPerKm / 60)}:${String(prescription.representativePaceSecondsPerKm % 60).padStart(2, '0')}` : null,
-            structure: draft.prescription as unknown as Prisma.InputJsonObject, notes: draft.notes, videoRefs: [], origin: 'agent',
-          },
-        });
-        // so' executa o que ja passou (dia anterior a hoje); hoje e o futuro ficam como "a fazer"
-        if (scheduledDate.getTime() >= today.getTime()) continue;
-        const plannedMin = prescription.durationMin ?? 40;
-        const plannedKm = prescription.distanceKm ?? null;
-        const missed = draft.outcome === 'missed';
-        const adjusted = draft.outcome === 'adjusted';
-        const durationMin = missed ? null : Math.round(plannedMin * (adjusted ? 0.85 : 1.02));
-        const distanceKm = missed || plannedKm == null ? null : Number((plannedKm * (adjusted ? 0.85 : 1.01)).toFixed(2));
-        await tx.workoutCompletion.create({
-          data: {
-            userId: id, sessionId: session.id, status: draft.outcome, completedAt: new Date(scheduledDate.getTime() + 11 * 3_600_000),
-            durationMin, distanceKm, avgPaceSecondsKm: durationMin && distanceKm ? pace(distanceKm, durationMin) : null,
-            avgHeartRate: isRun && !missed ? 150 + week : null, maxHeartRate: isRun && !missed ? 172 : null,
-            perceivedEffort: missed ? null : 5 + (draft.sessionType === 'misto' ? 2 : 0), painFlag: 'none',
-            satisfactionElaboracao: missed ? null : 'gostei', satisfactionCapacidade: missed ? null : (adjusted ? 'neutro' : 'amei'),
-            preSleepQuality: missed ? null : 4, prePhysicalFatigue: missed ? null : 2, preStressLevel: missed ? null : 2, preMotivation: missed ? null : 4, postWorkoutFeeling: missed ? null : 4,
-          },
-        });
-      }
-    }
+    for (let week = 4; week >= 0; week -= 1) await createWeekPlan(tx, id, addDays(weekStart, -7 * week), week, today);
 
     await tx.shoe.create({ data: { userId: id, brand: 'ASICS', model: 'Novablast 5', nickname: 'Tênis de treino', startedUsingAt: addDays(weekStart, -60), status: 'active' } });
     await tx.targetRace.create({ data: { userId: id, name: 'Corrida de 10 km (demonstração)', raceDate: addDays(weekStart, 70), distanceKm: 10, targetSeconds: 3600, priority: 'principal', status: 'em_andamento', isFirstTimeAtDistance: true } });
@@ -264,7 +275,7 @@ export async function reviewAccountStatus(prisma: PrismaClient, emails: string[]
   return rows;
 }
 
-// Renovacao automatica (diaria): quando a semana vira e a conta de demonstracao fica sem programa na semana corrente, o CONTEUDO e' reconstruido. Nunca toca em senha,
+// Renovacao automatica (diaria): quando a semana vira e a conta de demonstracao fica sem programa na semana corrente, a semana nova e' ACRESCENTADA (nada e' apagado: feedbacks do revisor ficam). Nunca toca em senha,
 // assinatura, provedor, override nem cobranca (uma compra Sandbox legitima fica). So' age em contas criadas por este modulo (e-mail `revisao-apple-*` + id derivado + marca na entrevista).
 export async function refreshReviewContent(prisma: PrismaClient, now = new Date()): Promise<{ checked: number; refreshed: number }> {
   const weekStart = startOfWeek(now);
@@ -280,7 +291,7 @@ export async function refreshReviewContent(prisma: PrismaClient, now = new Date(
     checked += 1;
     const hasCurrent = await prisma.trainingPlan.findFirst({ where: { userId: user.id, status: 'active', startDate: { in: [weekStart, addDays(weekStart, 7)] } }, select: { id: true } });
     if (hasCurrent) continue;
-    await prisma.$transaction((tx) => applyContent(tx, user.id, kind, now), { timeout: 60_000, maxWait: 15_000 });
+    await prisma.$transaction((tx) => rollWeekForward(tx, user.id, now), { timeout: 60_000, maxWait: 15_000 });
     refreshed += 1;
   }
   return { checked, refreshed };

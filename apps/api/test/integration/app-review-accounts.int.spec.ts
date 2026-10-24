@@ -67,6 +67,53 @@ describe('contas de revisao da App Store (PostgreSQL local de teste)', () => {
     await seedReviewAccount(prisma, expired, new Date(), { resetAccess: true });
   });
 
+  it('a renovacao ACRESCENTA a semana nova sem apagar o que o revisor registrou e nao toca em nenhuma conta real', async () => {
+    const realId = 'conta-real-teste-refresh';
+    const realEmail = 'aluna.real.refresh@example.test';
+    await prisma.workoutCompletion.deleteMany({ where: { userId: realId } });
+    await prisma.trainingSession.deleteMany({ where: { userId: realId } });
+    await prisma.trainingPlan.deleteMany({ where: { userId: realId } });
+    await prisma.user.deleteMany({ where: { id: realId } });
+    await prisma.user.create({ data: { id: realId, email: realEmail, passwordHash: 'x', name: 'Aluna real', sex: 'Feminino', subscriptionStatus: 'active' } });
+    const realPlan = await prisma.trainingPlan.create({ data: { userId: realId, name: 'Real', goal: 'g', status: 'active', startDate: new Date('2020-01-06T00:00:00.000Z'), inputSnapshot: {} } });
+    const realSession = await prisma.trainingSession.create({ data: { planId: realPlan.id, userId: realId, scheduledDate: new Date('2020-01-07T00:00:00.000Z'), weekday: 2, modality: 'corrida', title: 'Corrida', structure: {} } });
+    await prisma.workoutCompletion.create({ data: { userId: realId, sessionId: realSession.id, status: 'done', distanceKm: 5 } });
+    const snapshotReal = async () => JSON.stringify({
+      user: await prisma.user.findUnique({ where: { id: realId } }),
+      plans: await prisma.trainingPlan.findMany({ where: { userId: realId } }),
+      sessions: await prisma.trainingSession.findMany({ where: { userId: realId } }),
+      completions: await prisma.workoutCompletion.findMany({ where: { userId: realId } }),
+    });
+    const realBefore = await snapshotReal();
+
+    await seedReviewAccount(prisma, active);
+    const id = reviewUserId(active.email);
+    // o revisor registra/edita feedback numa execucao existente e cria uma dor
+    const reviewerCompletion = await prisma.workoutCompletion.findFirstOrThrow({ where: { userId: id, status: 'done' }, orderBy: { completedAt: 'desc' } });
+    await prisma.workoutCompletion.update({ where: { id: reviewerCompletion.id }, data: { perceivedEffort: 9, satisfactionElaboracao: 'detestei' } });
+    const completionsBefore = await prisma.workoutCompletion.count({ where: { userId: id } });
+    const plansBefore = await prisma.trainingPlan.count({ where: { userId: id } });
+
+    const nextWeek = new Date(Date.now() + 8 * 86_400_000);
+    expect((await refreshReviewContent(prisma, nextWeek)).refreshed).toBeGreaterThanOrEqual(1);
+
+    expect(await prisma.workoutCompletion.findUniqueOrThrow({ where: { id: reviewerCompletion.id } })).toMatchObject({ perceivedEffort: 9, satisfactionElaboracao: 'detestei' });
+    expect(await prisma.workoutCompletion.count({ where: { userId: id } })).toBeGreaterThanOrEqual(completionsBefore); // nada foi apagado
+    expect(await prisma.trainingPlan.count({ where: { userId: id } })).toBe(plansBefore + 1); // so' a semana nova
+    const activePlans = await prisma.trainingPlan.findMany({ where: { userId: id, status: 'active' } });
+    expect(activePlans).toHaveLength(1);
+    expect(activePlans[0].startDate.getTime()).toBe(startOfWeek(nextWeek).getTime());
+
+    await refreshReviewContent(prisma, nextWeek); // idempotente: segunda execucao nao cria nada
+    expect(await prisma.trainingPlan.count({ where: { userId: id } })).toBe(plansBefore + 1);
+    await seedReviewAccount(prisma, { ...active });
+    expect(await snapshotReal()).toBe(realBefore); // conta real intacta apos seed + renovacoes
+    await prisma.workoutCompletion.deleteMany({ where: { userId: realId } });
+    await prisma.trainingSession.deleteMany({ where: { userId: realId } });
+    await prisma.trainingPlan.deleteMany({ where: { userId: realId } });
+    await prisma.user.deleteMany({ where: { id: realId } });
+  });
+
   it('conta excluida pelo revisor (e-mail anonimizado) e recriada pelo seed com o mesmo id', async () => {
     await seedReviewAccount(prisma, active);
     const id = reviewUserId(active.email);

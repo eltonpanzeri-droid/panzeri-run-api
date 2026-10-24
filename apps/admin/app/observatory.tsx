@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Activity, BarChart3, CalendarDays, Gauge, HeartPulse, Info, ShieldCheck, SlidersHorizontal, TriangleAlert, Users } from 'lucide-react';
-import { Card, ChipGroup, Columns, Empty, HBars, Kpi, Legend, SheetFrame, nf } from './viz';
+import { Card, ChipGroup, Columns, Empty, HBars, Kpi, SheetFrame, nf } from './viz';
 import type { HItem, Option } from './viz';
 
 // Observatório Panzeri Run (24/10/2026). SOMENTE LEITURA e SÓ AGREGADOS: GET /observatory/status e /observatory/analysis. Nenhum nome, e-mail ou id de aluna chega aqui.
@@ -84,9 +84,6 @@ function toQuery(f: Filters): string {
 // ───────── célula suprimida: nunca vira zero ─────────
 function Hidden({ row, min }: { row: { suppressed: boolean; complementary: boolean }; min: number }) {
   return <span className="obsHidden" title={row.complementary ? 'Ocultado por segurança: mostrar este valor permitiria reconstruir outro grupo pequeno por diferença.' : `Menos de ${min} participantes neste grupo: valor oculto para não expor uma aluna.`}>{row.complementary ? 'oculto por segurança' : `oculto (menos de ${min} participantes)`}</span>;
-}
-function Cell<T>({ row, min, children }: { row: Row<T>; min: number; children: (data: T) => React.ReactNode }) {
-  return row.suppressed || row.data == null ? <Hidden row={row} min={min} /> : <>{children(row.data)}</>;
 }
 // O tamanho de um grupo suprimido tambem nao e' mostrado (so' "< N"): o numero exato revelaria o tamanho da celula pequena.
 const pcount = (row: { participants: number | null; suppressed: boolean }, min: number) => (row.suppressed || row.participants == null ? `< ${min}` : nf(row.participants));
@@ -274,7 +271,6 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
 
   const tabs: Array<[Tab, string, React.ReactNode]> = [['panorama', 'Panorama', <BarChart3 key="a" size={15} />], ['treino', 'Treinamento', <Activity key="b" size={15} />], ['dor', 'Dor e recuperação', <HeartPulse key="c" size={15} />], ['qualidade', 'Qualidade dos dados', <ShieldCheck key="d" size={15} />]];
 
-  const painCell = (row: Row<PainMetrics>, fn: (d: PainMetrics) => React.ReactNode) => <Cell row={row} min={min}>{fn}</Cell>;
   const painTable = (caption: string, rows: Array<Row<PainMetrics>>, withBins: boolean) => (
     <Table caption={caption} head={['Grupo', 'Participantes', 'Treinos', 'Km', 'Relatos', 'Relatos / 1.000 km', 'Intensidade média dos relatos', 'Intensidade média geral (por treino)', 'Pontos / 1.000 km', ...(withBins ? ['1–2 /1.000 km', '3–4 /1.000 km', '5–6 /1.000 km', '7–8 /1.000 km', '9–10 /1.000 km', 'Cobertura de feedback', 'Cobertura de nota'] : [])]}>
       {rows.map((row) => (
