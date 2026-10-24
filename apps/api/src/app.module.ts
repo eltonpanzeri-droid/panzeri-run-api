@@ -36,6 +36,7 @@ import { WorkoutDeliveryModule } from './workout-delivery/workout-delivery.modul
 import { ShoesModule } from './shoes/shoes.module';
 import { EquipmentModule } from './equipment/equipment.module';
 import { ObservatoryModule } from './observatory/observatory.module';
+import { AppReviewModule } from './app-review/app-review.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 // ATENCAO (incidente 22/10/2026): este modulo importa ActivityExecutionModule; registrado no INICIO da lista ele mudava a ordem de carregamento dos arquivos e criava uma dependencia
 // circular (TrainingPlansService nao resolvia NotificationsService) — a API nao subia. Mantenha-o por ULTIMO nos imports.
@@ -69,6 +70,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     ShoesModule,
     EquipmentModule,
     ObservatoryModule,
+    AppReviewModule,
     IntegrationsModule,
     LegacyConsentModule,
     TrainingPlansModule,
