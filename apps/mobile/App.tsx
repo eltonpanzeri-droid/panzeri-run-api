@@ -1877,7 +1877,7 @@ function AppInner() {
             notificationsCount={notifications.length}
             onLogout={logout}
             onClose={() => setMenuOpen(false)}
-            isFeminino={savedMe?.sex === 'Feminino'}
+            isFeminino={isFemaleSex(savedMe?.sex)}
             onChange={(tab) => {
               setActiveTab(tab);
               setMenuOpen(false);
@@ -2088,7 +2088,7 @@ function AppInner() {
                 {/* BLOCO 3 (04/10/2026): Perfil concentra o contexto esportivo atual — ciclo
                     menstrual incluido quando aplicavel. Mesma tela/endpoint de sempre ('ciclo'),
                     so um atalho a mais pra chegar la (continua tambem no menu). */}
-                {savedMe?.sex === 'Feminino' && (
+                {isFemaleSex(savedMe?.sex) && (
                   <Pressable style={[styles.secondaryButton, { marginTop: 8 }]} onPress={() => setActiveTab('ciclo')}>
                     <Ionicons name="medical-outline" size={18} color={PRColors.mineral} />
                     <Text style={styles.secondaryButtonText}>Registrar ciclo menstrual</Text>
@@ -10630,6 +10630,11 @@ function HistoryCalendar({ accessToken, onNavigateToWeek }: { accessToken: strin
       )}
     </ScrollView>
   );
+}
+
+// Comparacao tolerante (maiusculas): o menu do ciclo nao pode sumir por diferenca de caixa no cadastro.
+function isFemaleSex(sex?: string | null): boolean {
+  return typeof sex === 'string' && sex.trim().toLowerCase() === 'feminino';
 }
 
 function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, onClose, isFeminino }: { visible: boolean; activeTab: Tab; notificationsCount: number; onChange: (tab: Tab) => void; onLogout: () => void; onClose: () => void; isFeminino: boolean }) {

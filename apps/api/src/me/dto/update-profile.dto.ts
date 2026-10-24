@@ -10,7 +10,8 @@ export class UpdateProfileDto {
   @IsDate()
   birthDate!: Date;
 
-  @IsEnum(['masculino', 'feminino', 'outro', 'prefiro_nao_informar'])
+  // 24/10: o banco e o app usam "Feminino"/"Masculino" (valor da entrevista); as formas minusculas antigas continuam aceitas e sao normalizadas no servidor (normalizeSex).
+  @IsEnum(['masculino', 'feminino', 'outro', 'prefiro_nao_informar', 'Masculino', 'Feminino'])
   sex!: string;
 
   @IsInt()

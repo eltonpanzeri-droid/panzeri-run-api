@@ -638,14 +638,15 @@ export class MeService {
     return { notified: true };
   }
 
-  updateProfile(userId: string, dto: UpdateProfileDto) {
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const currentSex = (await this.prisma.user.findUnique({ where: { id: userId }, select: { sex: true } }))?.sex ?? null;
     return this.prisma.user.update({
       where: { id: userId },
       data: {
         name: dto.name,
         email: dto.email.toLowerCase(),
         birthDate: dto.birthDate,
-        sex: dto.sex,
+        sex: resolveSexToSave(dto.sex, currentSex),
         heightCm: dto.heightCm,
         weightKg: dto.weightKg,
         address: dto.address,
@@ -769,7 +770,7 @@ export class MeService {
     // (24/10) Versoes antigas do app mandavam sex='prefiro_nao_informar' fixo neste endpoint, apagando "Feminino" e escondendo o ciclo menstrual. Este endpoint nao edita sexo:
     // o placeholder nunca sobrescreve um valor ja' informado (a edicao de verdade e' PUT /me/profile).
     const currentSex = (await this.prisma.user.findUnique({ where: { id: userId }, select: { sex: true } }))?.sex ?? null;
-    const sexToSave = dto.profile.sex === 'prefiro_nao_informar' && currentSex ? currentSex : dto.profile.sex;
+    const sexToSave = resolveSexToSave(dto.profile.sex, currentSex);
 
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -1204,6 +1205,19 @@ function decimalValue(value: unknown) {
 
 function roundedMeasurement(value: number) {
   return Math.round(value * 10) / 10;
+}
+
+// Valores canonicos de User.sex (os mesmos da entrevista; o menu do ciclo menstrual compara com "Feminino"). Formas minusculas antigas viram canonicas; o placeholder
+// nunca sobrescreve um sexo ja' informado.
+export function normalizeSex(value: string): string {
+  const lower = value.trim().toLowerCase();
+  if (lower === 'feminino') return 'Feminino';
+  if (lower === 'masculino') return 'Masculino';
+  return value;
+}
+export function resolveSexToSave(incoming: string, current: string | null): string {
+  if (incoming === 'prefiro_nao_informar' && current) return current;
+  return normalizeSex(incoming);
 }
 
 function harrisBenedict(input: { sex: string; birthDate: Date; heightCm: number | null; weightKg: number | null }) {
