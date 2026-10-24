@@ -1,3 +1,5 @@
+import { Optional } from '@nestjs/common';
+import { DeviceRegistryService } from '../equipment/device-registry.service';
 import { BadGatewayException, ConflictException, HttpException, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -53,6 +55,8 @@ export class WahooActivityIngestionService {
     private readonly sessionExecutionLink: SessionExecutionLinkService,
     private readonly activityNotifications: ActivityNotificationService,
     private readonly physicalIdentity?: PhysicalActivityIdentityService,
+    // Registro automatico de dispositivos (23/10/2026). Opcional so' para testes antigos; em producao e' sempre injetado.
+    @Optional() private readonly deviceRegistry?: DeviceRegistryService,
   ) {}
 
   async sync(userId: string): Promise<WahooSyncResult> {
@@ -233,6 +237,7 @@ export class WahooActivityIngestionService {
     } catch (error) {
       this.logger.warn(`Falha ao notificar sincronizacao da atividade ${activityLog.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
+    this.deviceRegistry?.scheduleRefresh(userId); // identifica/atualiza o dispositivo desta aluna (proveniencia preservada, agrupado e nao bloqueante)
     // D2: reconcilia as OUTRAS observacoes cuja identidade/canonica mudou nesta avaliacao (so' o que mudou).
     await this.sessionExecutionLink.reconcileAffectedByIdentity(identity, activityLog.id);
   }

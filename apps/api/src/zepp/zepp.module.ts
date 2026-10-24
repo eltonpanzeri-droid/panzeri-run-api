@@ -17,11 +17,12 @@ import { ZeppActivityEventService } from './zepp-activity-events.service';
 import { ZeppHealthEventService } from './zepp-health-events.service';
 import { ZeppBackfillClient, ZeppBackfillService } from './zepp-backfill.service';
 import { ZeppDataDeletionService } from './zepp-data-deletion.service';
+import { DeviceRegistryModule } from '../equipment/device-registry.module';
 
 // Zepp/Amazfit — Passo 2 da Central Universal de Integracoes: conexao OAuth. Fica inerte ate a Zepp ser configurada (ZEPP_*) E o usuario liberado
 // (ZEPP_ENABLED_USER_IDS, fail-closed). Nao recebe dado de treino.
 @Module({
-  imports: [ProviderHubModule, PrismaModule, WorkoutDeliveryModule, ActivityExecutionModule],
+  imports: [ProviderHubModule, PrismaModule, WorkoutDeliveryModule, ActivityExecutionModule, DeviceRegistryModule],
   controllers: [ZeppController, ZeppWebhookController],
   providers: [ZeppWorkoutClient, ZeppWorkoutPublisherService, ZeppWorkoutSchedulerService, ZeppFitDownloader, ZeppActivityIngestionService, ZeppActivityEventService, ZeppHealthEventService, ZeppBackfillClient, ZeppBackfillService, ZeppDataDeletionService],
   exports: [ZeppWorkoutPublisherService],

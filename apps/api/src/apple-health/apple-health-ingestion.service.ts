@@ -1,3 +1,5 @@
+import { Optional } from '@nestjs/common';
+import { DeviceRegistryService } from '../equipment/device-registry.service';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -38,6 +40,8 @@ export class AppleHealthIngestionService {
     private readonly physicalIdentity?: PhysicalActivityIdentityService,
     // 3B: reconciliacao por PhysicalEvent apos a identidade fisica resolvida. Opcional so' para testes que constroem o servico sem ele.
     private readonly sessionExecutionLink?: SessionExecutionLinkService,
+    // Registro automatico de dispositivos (23/10/2026). Opcional so' para testes antigos; em producao e' sempre injetado.
+    @Optional() private readonly deviceRegistry?: DeviceRegistryService,
   ) {}
 
   private async reconcileSafely(activityLogId: string): Promise<void> {
@@ -67,6 +71,7 @@ export class AppleHealthIngestionService {
         // Identidade fisica cross-provider (Etapa 2) e, DEPOIS dela, a reconciliacao do EVENTO com a prescricao (3B): so' a observacao
         // canonica do evento carrega vinculo/classificacao. Best-effort — nunca derruba a ingestao.
         if (item.status === 'created' && item.activityLogId) {
+          this.deviceRegistry?.scheduleRefresh(userId); // identifica/atualiza o dispositivo desta aluna (proveniencia preservada, agrupado e nao bloqueante)
           const identity = await this.physicalIdentity?.evaluateSafely(item.activityLogId);
           await this.reconcileSafely(item.activityLogId);
           // D2: reconcilia as OUTRAS observacoes cuja identidade/canonica mudou nesta avaliacao (so' o que mudou).

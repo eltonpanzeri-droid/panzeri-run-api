@@ -1,3 +1,5 @@
+import { Optional } from '@nestjs/common';
+import { DeviceRegistryService } from '../equipment/device-registry.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -38,6 +40,8 @@ export class ZeppActivityIngestionService {
     private readonly sessionExecutionLink: SessionExecutionLinkService,
     private readonly activityNotifications: ActivityNotificationService,
     private readonly physicalIdentity?: PhysicalActivityIdentityService,
+    // Registro automatico de dispositivos (23/10/2026). Opcional so' para testes antigos; em producao e' sempre injetado.
+    @Optional() private readonly deviceRegistry?: DeviceRegistryService,
   ) {}
 
   async ingest(userId: string, meta: ZeppIngestMeta, fit: ZeppFitActivity): Promise<ZeppIngestResult> {
@@ -128,6 +132,7 @@ export class ZeppActivityIngestionService {
     } catch (error) {
       this.logger.warn(`Falha ao notificar atividade Zepp ${written.activityLogId}: ${error instanceof Error ? error.message : String(error)}`);
     }
+    this.deviceRegistry?.scheduleRefresh(userId); // identifica/atualiza o relogio desta aluna (proveniencia preservada, agrupado e nao bloqueante)
     try {
       await this.sessionExecutionLink.reconcileAffectedByIdentity(identity, written.activityLogId);
     } catch (error) {

@@ -5,7 +5,7 @@ import { modalityGroup } from '../coach/training-load';
 import { addDays } from '../coach/training-load';
 import { parseDay, validatePeriod } from '../coach/health-recovery';
 import { DISTANCE_BANDS, DISTANCE_BAND_KEYS, PLATFORM_LABEL, dominantLabel, effectiveDevice, normalizeKey, type DistanceBandKey } from './equipment-core';
-import { analyzeEquipment, modelOptionValue, MIN_GROUP_STUDENTS, type AnalysisData, type AnalysisFilters } from './equipment-analysis';
+import { analyzeEquipment, modelOptionValue, type AnalysisData, type AnalysisFilters } from './equipment-analysis';
 import { loadShoeUsageFacts } from './shoe-facts';
 
 // Inteligencia de Equipamentos (23/10/2026) — painel do treinador. SOMENTE LEITURA e SO' AGREGADOS: nenhum nome, id ou e-mail de aluno sai daqui. Strava nunca fornece dado (politica de dados).
@@ -86,7 +86,7 @@ export class EquipmentIntelligenceService {
         entry.labels.push(labelOf(item)); entry.users.add(userOf(item));
         map.set(keyOf(item), entry);
       }
-      return [...map.entries()].map(([value, entry]) => ({ value, label: dominantLabel(entry.labels), students: entry.users.size })).filter((option) => option.students >= MIN_GROUP_STUDENTS).sort((a, b) => b.students - a.students || (a.label < b.label ? -1 : 1));
+      return [...map.entries()].map(([value, entry]) => ({ value, label: dominantLabel(entry.labels), students: entry.users.size })).sort((a, b) => b.students - a.students || (a.label < b.label ? -1 : 1));
     };
     const statuses = new Map<string, number>();
     for (const student of base.students) statuses.set(student.subscriptionStatus, (statuses.get(student.subscriptionStatus) ?? 0) + 1);

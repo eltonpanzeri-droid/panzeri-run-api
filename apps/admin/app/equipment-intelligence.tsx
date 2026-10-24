@@ -12,27 +12,23 @@ type Options = {
 };
 type Band = { key: string; label: string; count: number; distanceKm: number };
 type ShoeGroup = {
-  key: string; label: string; brand?: string; shoes: number; active: number; retired: number; students: number; runs: number; km: number; avgKmPerShoe: number | null;
+  key: string; label: string; brand?: string; shoes: number; active: number; retired: number; students: number; performanceHidden: boolean; runs: number | null; km: number | null; avgKmPerShoe: number | null;
   pace: { secondsPerKm: number; label: string; runs: number } | null; paceHidden: boolean; bands: Band[];
 };
 type Result = {
   generatedAt: string;
   filters: Record<string, unknown>;
   period: { from: string; to: string };
-  // Piso de privacidade: com poucas alunas no resultado a API devolve belowMinimum e os totais nulos.
-  belowMinimum?: boolean;
-  minimumStudents?: number;
   population: { studentsEligible: number; studentsIncluded: number | null; studentsWithDevice: number | null; studentsWithShoe: number | null; studentsSendingData: number | null };
   devices: {
-    byManufacturer: Array<{ key: string; label: string; students: number; devices: number; activities: number }>;
-    byModel: Array<{ key: string; manufacturer: string; label: string; students: number; activities: number }>;
-    byPlatform: Array<{ key: string; label: string; students: number; devices: number; activities: number; studentsSendingData: number }>;
+    byManufacturer: Array<{ key: string; label: string; students: number; devices: number; activities: number | null }>;
+    byModel: Array<{ key: string; manufacturer: string; label: string; students: number; activities: number | null }>;
+    byPlatform: Array<{ key: string; label: string; students: number; devices: number; activities: number | null; studentsSendingData: number }>;
     studentsWithoutDevice: number | null;
-    smallGroupsHidden?: number;
   };
   shoes: {
     totals: { shoes: number | null; active: number | null; retired: number | null; students: number | null; studentsWithoutShoe: number | null };
-    smallGroupsHidden?: number;
+    performanceHidden: boolean;
     byBrand: ShoeGroup[]; byModel: ShoeGroup[];
     kmDistribution: Array<{ key: string; label: string; shoes: number }>;
     distanceBands: Array<{ key: string; label: string; runs: number; km: number }>;
@@ -112,11 +108,12 @@ function ShoeTable({ title, rows, showBrand }: { title: string; rows: ShoeGroup[
                 <td>{nf(row.students)}</td><td className="eqBarCell"><Bar value={row.students} max={max} /></td>
                 <td>{nf(row.shoes)}</td><td>{nf(row.active)} / {nf(row.retired)}</td><td>{nf(row.runs)}</td><td>{nf(row.km, 1)}</td>
                 <td>{row.avgKmPerShoe != null ? nf(row.avgKmPerShoe, 1) : '—'}</td>
-                <td>{row.pace ? row.pace.label : row.paceHidden ? <span className="eqSmall" title="Menos de 3 alunas com tempo e distância: o pace não é mostrado para não expor uma aluna.">amostra pequena</span> : '—'}</td>
+                <td>{row.performanceHidden ? <span className="eqSmall" title="Menos de 3 alunas neste grupo: só a contagem é mostrada; corridas, km, pace e faixas ficam ocultos para não expor uma aluna.">só contagem</span> : row.pace ? row.pace.label : row.paceHidden ? <span className="eqSmall" title="Menos de 3 alunas com tempo e distância: o pace não é mostrado para não expor uma aluna.">amostra pequena</span> : '—'}</td>
               </tr>
               {openKey === row.key ? (
                 <tr className="eqDetailRow"><td colSpan={9}>
                   <div className="eqBandsInline">
+                    {row.performanceHidden ? <span className="eqSmall">Menos de 3 alunas neste grupo: as faixas de distância não são mostradas.</span> : null}
                     {row.bands.map((band) => <span key={band.key} className="eqBandPill"><b>{band.label}</b> {nf(band.count)} corr. · {nf(band.distanceKm, 1)} km</span>)}
                   </div>
                 </td></tr>
@@ -292,8 +289,8 @@ export default function EquipmentIntelligence({ accessToken, apiUrl }: { accessT
             <article><small>Enviando dados no período</small><strong>{nf(r.population.studentsSendingData)}</strong><em>ao menos uma atividade recebida</em></article>
           </div>
 
-          {r.belowMinimum ? <p className="eqEmpty" role="status">Menos de {r.minimumStudents ?? 3} alunas atendem aos filtros: o resultado não é exibido para não identificar alunas individualmente. Afrouxe algum filtro.</p> : null}
-          {!r.belowMinimum && (r.devices.smallGroupsHidden ?? 0) + (r.shoes.smallGroupsHidden ?? 0) > 0 ? <p className="eqSmall">{(r.devices.smallGroupsHidden ?? 0) + (r.shoes.smallGroupsHidden ?? 0)} grupo(s) com menos de {r.minimumStudents ?? 3} alunas não são listados (privacidade).</p> : null}
+          {r.population.studentsIncluded === 0 ? <p className="eqEmpty">Nenhuma aluna atende a todos os filtros ao mesmo tempo. Afrouxe algum filtro.</p> : null}
+          {r.shoes.performanceHidden ? <p className="eqSmall" role="status">Menos de 3 alunas neste resultado: as contagens são exatas, mas corridas, km, pace e faixas de distância ficam ocultos para não expor uma aluna.</p> : null}
 
           <h3 className="eqH">Relógios e dispositivos</h3>
           <div className="eqCols">

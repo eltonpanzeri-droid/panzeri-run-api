@@ -6,6 +6,7 @@ import { analyzeEquipment, MIN_PACE_STUDENTS, type AnalysisData, type AnalysisFi
 import { buildShoeStats } from '../src/equipment/shoe-stats';
 import { parseEquipmentFilters } from '../src/equipment/equipment-intelligence.service';
 import { DevicesService } from '../src/equipment/devices.service';
+import { DeviceRegistryService } from '../src/equipment/device-registry.service';
 import { ShoesService } from '../src/shoes/shoes.service';
 import type { ShoeUsageFact } from '../src/equipment/shoe-facts';
 
@@ -266,16 +267,41 @@ describe('privacidade: piso de alunos e prova com teto', () => {
     facts: Array.from({ length: n }, (_, i) => fact({ shoeId: 'h' + i, userId: 's' + i, distanceKm: 10 + i })),
     activeByProvider: new Map(), runnerKm: null,
   });
-  it('com menos de 3 alunos no resultado nada e devolvido (so o aviso): filtros estreitos nao isolam uma aluna', () => {
+  it('contagens sempre reais, mesmo com base pequena: 2 alunos mostram alunos, marcas, modelos e equipamentos; desempenho fica oculto', () => {
     const r = analyzeEquipment(world(2), filters());
-    expect(r).toMatchObject({ belowMinimum: true, population: { studentsIncluded: null }, shoes: { byBrand: [], byModel: [] }, devices: { byManufacturer: [] } });
+    expect(r.population).toMatchObject({ studentsIncluded: 2, studentsWithDevice: 2, studentsWithShoe: 2 });
+    expect(r.shoes.totals).toMatchObject({ shoes: 2, students: 2 });
+    expect(r.shoes.byBrand.map((b) => [b.label, b.students, b.shoes])).toEqual(expect.arrayContaining([['Marca Rara', 1, 1], ['ASICS', 1, 1]]));
+    expect(r.devices.byManufacturer.map((m) => [m.label, m.students])).toEqual(expect.arrayContaining([['Raro', 1], ['Polar', 1]]));
+    // desempenho (corridas, km, pace, faixas) nao sai para grupos de menos de 3 alunos nem no total do resultado
+    expect(r.shoes.performanceHidden).toBe(true);
+    expect(r.shoes.byBrand.every((b) => b.performanceHidden && b.km === null && b.runs === null && b.pace === null && b.bands.length === 0)).toBe(true);
+    expect(r.shoes.distanceBands).toEqual([]);
+    expect(r.shoes.kmDistribution).toEqual([]);
     expect(JSON.stringify(r)).not.toMatch(/"km":\s*\d/);
   });
-  it('grupos com menos de 3 alunos nao sao listados (so o contador de grupos ocultos); os grandes seguem', () => {
+  it('base maior: grupos com >=3 alunos mostram o desempenho; o grupo de 1 aluno mostra so a contagem', () => {
     const r = analyzeEquipment(world(5), filters());
-    expect(r.shoes.byBrand.map((b) => b.label)).toEqual(['ASICS']);
-    expect(r.shoes.smallGroupsHidden).toBeGreaterThan(0);
-    expect(r.devices.byManufacturer.map((m) => m.label)).toEqual(['Polar']);
+    const asics = r.shoes.byBrand.find((b) => b.label === 'ASICS')!;
+    const rare = r.shoes.byBrand.find((b) => b.label === 'Marca Rara')!;
+    expect(asics).toMatchObject({ students: 4, performanceHidden: false });
+    expect(asics.km).toBeGreaterThan(0);
+    expect(rare).toMatchObject({ students: 1, shoes: 1, performanceHidden: true, km: null });
+    expect(r.shoes.performanceHidden).toBe(false);
+    expect(r.devices.byManufacturer.find((m) => m.label === 'Raro')).toMatchObject({ students: 1, devices: 1 });
+  });
+  it('desempenho exige 3 alunas COM CORRIDA: tres donas de tenis com so uma corredora nao liberam km/corridas/faixas; atividades de relogio de grupo pequeno tambem ficam ocultas', () => {
+    const d = world(5);
+    // tres alunas com ASICS, mas so uma tem corrida associada
+    d.shoes = [0, 1, 2].map((i) => ({ id: 'z' + i, userId: 's' + i, brand: 'ASICS', model: 'X', status: 'active' }));
+    d.facts = [fact({ shoeId: 'z0', userId: 's0', distanceKm: 12 })];
+    const r = analyzeEquipment(d, filters());
+    const asics = r.shoes.byBrand.find((b) => b.label === 'ASICS')!;
+    expect(asics).toMatchObject({ students: 3, shoes: 3, performanceHidden: true, km: null, runs: null });
+    expect(asics.bands).toEqual([]);
+    const raro = r.devices.byManufacturer.find((m) => m.label === 'Raro')!;
+    expect(raro).toMatchObject({ students: 1, devices: 1, activities: null });
+    expect(r.devices.byManufacturer.find((m) => m.label === 'Polar')!.activities).toBeGreaterThan(0);
   });
   it('maratona/meia: tem teto — 50 km num dia de meia nao confirma a meia; aquecimento de 20 km no dia da maratona nao confirma', () => {
     const half = [{ raceDate: '2026-05-10', distanceKm: 21.0975 }];
@@ -432,12 +458,12 @@ describe('dispositivos do aluno: reconstrucao idempotente e proveniencia', () =>
       },
     };
     const integrations = { forStudent: jest.fn(async () => ({ integrations: [] })) };
-    return { svc: new DevicesService(prisma as never, integrations as never), prisma, upserts };
+    return { svc: new DevicesService(prisma as never, integrations as never), registry: new DeviceRegistryService(prisma as never), prisma, upserts };
   }
   const hc = (day: string, manufacturer = 'samsung', model = 'Galaxy Watch6') => ({ provider: 'health_connect', startedAt: new Date(day), providerMetrics: { source: { packageName: 'com.sec.android.app.shealth' }, device: { manufacturer, model, type: 1 } } });
 
   it('agrupa por caminho+aparelho, conta, guarda primeira/ultima vez e NAO mexe na correcao manual no update', async () => {
-    const { svc, upserts } = build([hc('2026-09-01T10:00:00Z'), hc('2026-10-01T10:00:00Z'), { provider: 'strava', startedAt: new Date('2026-10-02'), providerMetrics: { device: 'x' } }]);
+    const { registry: svc, upserts } = build([hc('2026-09-01T10:00:00Z'), hc('2026-10-01T10:00:00Z'), { provider: 'strava', startedAt: new Date('2026-10-02'), providerMetrics: { device: 'x' } }]);
     expect(await svc.refreshForUser('u1')).toBe(1);
     expect(upserts).toHaveLength(1);
     expect(upserts[0].create).toMatchObject({ sourceProvider: 'health_connect', observedManufacturer: 'Samsung', observedModel: 'Galaxy Watch6', activityCount: 2 });
@@ -446,9 +472,30 @@ describe('dispositivos do aluno: reconstrucao idempotente e proveniencia', () =>
     expect(upserts[0].update).not.toHaveProperty('manualModel');
   });
   it('rodar de novo repete o mesmo upsert (mesma chave unica): nao duplica', async () => {
-    const { svc, upserts } = build([hc('2026-09-01T10:00:00Z')]);
+    const { registry: svc, upserts } = build([hc('2026-09-01T10:00:00Z')]);
     await svc.refreshForUser('u1'); await svc.refreshForUser('u1');
     expect(upserts[0].where).toEqual(upserts[1].where);
+  });
+  it('aparelho visto antes sem modelo e depois com modelo: UMA linha so — a antiga sem modelo e removida e a correcao manual dela migra', async () => {
+    const stale = { id: 'old', userId: 'u1', sourceProvider: 'health_connect', sourceDetail: 'com.garmin.android.apps.connectmobile', deviceKey: '', manualManufacturer: 'Garmin', manualModel: null, manualUpdatedAt: new Date('2026-10-01') };
+    const calls: string[] = [];
+    const prisma = {
+      activityLog: { findMany: jest.fn(async () => [
+        { provider: 'health_connect', startedAt: new Date('2026-09-01'), providerMetrics: { source: { packageName: 'com.garmin.android.apps.connectmobile' }, device: null } },
+        { provider: 'health_connect', startedAt: new Date('2026-10-01'), providerMetrics: { source: { packageName: 'com.garmin.android.apps.connectmobile' }, device: { manufacturer: 'Garmin Ltd', model: 'Forerunner 265' } } },
+      ]) },
+      userDevice: {
+        upsert: jest.fn(async (a: any) => { calls.push('upsert:' + a.create.deviceKey); return a.create; }),
+        findFirst: jest.fn(async () => stale),
+        updateMany: jest.fn(async (a: any) => { calls.push('copyManual:' + a.data.manualManufacturer); return { count: 1 }; }),
+        deleteMany: jest.fn(async (a: any) => { calls.push('delete:' + a.where.id); return { count: 1 }; }),
+      },
+    };
+    const registry = new DeviceRegistryService(prisma as never);
+    expect(await registry.refreshForUser('u1')).toBe(1); // um aparelho so
+    expect(prisma.userDevice.upsert).toHaveBeenCalledTimes(1);
+    expect((prisma.userDevice.upsert as jest.Mock).mock.calls[0][0].create).toMatchObject({ activityCount: 2, observedModel: 'Forerunner 265' });
+    expect(calls).toEqual(['upsert:garmin:forerunner265', 'copyManual:Garmin', 'delete:old']);
   });
   it('correcao manual grava so nas colunas manual*; o observado permanece na resposta', async () => {
     const existing = [{ id: 'd1', userId: 'u1', sourceProvider: 'health_connect', sourceDetail: '', deviceKey: '', observedManufacturer: null, observedModel: null, observedName: null, deviceType: null, manufacturerBasis: null, firstSeenAt: null, lastSeenAt: null, activityCount: 3, manualManufacturer: null, manualModel: null }];
@@ -466,6 +513,76 @@ describe('dispositivos do aluno: reconstrucao idempotente e proveniencia', () =>
     const view = await svc.addManual('u1', { manufacturer: 'Coros', model: 'Pace 3' });
     expect(view).toMatchObject({ platform: 'manual', manufacturer: 'Coros', manufacturerSource: 'manual', model: 'Pace 3' });
     await expect(svc.addManual('u1', {})).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('registro automatico de dispositivos: dispara pelas integracoes, agrupa, tem rede de seguranca', () => {
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
+
+  it('varias atividades do mesmo aluno em sequencia viram UMA reconstrucao; alunos diferentes, uma cada; nunca lanca', async () => {
+    const registry = new DeviceRegistryService({} as never);
+    const spy = jest.spyOn(registry, 'refreshForUser').mockResolvedValue(1);
+    registry.scheduleRefresh('u1'); registry.scheduleRefresh('u1'); registry.scheduleRefresh('u1'); registry.scheduleRefresh('u2');
+    expect(spy).not.toHaveBeenCalled(); // nao bloqueia a ingestao: roda depois
+    await jest.advanceTimersByTimeAsync(30_000);
+    expect(spy.mock.calls.map((c) => c[0]).sort()).toEqual(['u1', 'u2']);
+    registry.scheduleRefresh('u1'); // depois de executar, uma nova atividade agenda de novo
+    await jest.advanceTimersByTimeAsync(30_000);
+    expect(spy).toHaveBeenCalledTimes(3);
+    expect(() => registry.scheduleRefresh(undefined as never)).not.toThrow();
+  });
+  it('falha na reconstrucao nunca vira erro nao tratado (so aviso)', async () => {
+    const registry = new DeviceRegistryService({} as never);
+    jest.spyOn(registry, 'refreshForUser').mockRejectedValue(new Error('banco fora'));
+    registry.scheduleRefresh('u1');
+    await expect(jest.advanceTimersByTimeAsync(30_000)).resolves.not.toThrow();
+  });
+  it('varredura de seguranca: alunos com atividade recente OU com atividade e sem nenhum dispositivo registrado', async () => {
+    const group = jest.fn()
+      .mockResolvedValueOnce([{ userId: 'recent' }])
+      .mockResolvedValueOnce([{ userId: 'recent' }, { userId: 'old-without-device' }, { userId: 'old-with-device' }])
+      .mockResolvedValueOnce([{ userId: 'old-with-device' }]);
+    const prisma = { activityLog: { groupBy: jest.fn((args: any) => group(args)) }, userDevice: { groupBy: jest.fn((args: any) => group(args)) } };
+    const registry = new DeviceRegistryService(prisma as never);
+    const spy = jest.spyOn(registry, 'refreshForUser').mockResolvedValue(1);
+    const result = await registry.sweep();
+    expect(spy.mock.calls.map((c) => c[0]).sort()).toEqual(['old-without-device', 'recent']);
+    expect(result.users).toBe(2);
+    expect(JSON.stringify(prisma.activityLog.groupBy.mock.calls)).toContain('strava'); // Strava nunca entra
+  });
+  it('varredura nao roda em duas ao mesmo tempo', async () => {
+    const hold: { release: () => void } = { release: () => undefined };
+    const gate = new Promise<void>((resolve) => { hold.release = resolve; });
+    const prisma = { activityLog: { groupBy: jest.fn(async () => { await gate; return []; }) }, userDevice: { groupBy: jest.fn(async () => []) } };
+    const registry = new DeviceRegistryService(prisma as never);
+    const first = registry.sweep();
+    expect(await registry.sweep()).toEqual({ users: 0 });
+    hold.release();
+    await first;
+  });
+  it('Health Connect: depois de gravar a atividade, agenda a atualizacao dos dispositivos do aluno (e sem o servico nada quebra)', async () => {
+    const { HealthConnectIngestionService } = await import('../src/health-connect/health-connect-ingestion.service');
+    const registry = { scheduleRefresh: jest.fn() };
+    const withRegistry = new (HealthConnectIngestionService as any)({} as never, undefined, undefined, undefined, registry);
+    await (withRegistry as any).afterWrite('created', 'a1', 'u1');
+    expect(registry.scheduleRefresh).toHaveBeenCalledWith('u1');
+    const without = new (HealthConnectIngestionService as any)({} as never);
+    await expect((without as any).afterWrite('created', 'a1', 'u1')).resolves.toBeUndefined();
+  });
+  it('as cinco integracoes (Polar, Wahoo, Zepp, Health Connect, Apple Saude) acionam o registro depois de gravar a atividade', () => {
+    const read = (...p: string[]) => readFileSync(join(__dirname, '..', 'src', ...p), 'utf8');
+    for (const file of ['polar/polar-activity-ingestion.service.ts', 'wahoo/wahoo-activity-ingestion.service.ts', 'zepp/zepp-activity-ingestion.service.ts', 'health-connect/health-connect-ingestion.service.ts', 'apple-health/apple-health-ingestion.service.ts']) {
+      const text = read(...file.split('/'));
+      expect(text).toMatch(/this\.deviceRegistry\?\.scheduleRefresh\(userId\)/);
+      expect(text).toMatch(/@Optional\(\) private readonly deviceRegistry\?: DeviceRegistryService/);
+    }
+    for (const file of ['polar/polar.module.ts', 'wahoo/wahoo.module.ts', 'zepp/zepp.module.ts', 'health-connect/health-connect.module.ts', 'apple-health/apple-health.module.ts']) expect(read(...file.split('/'))).toMatch(/DeviceRegistryModule/);
+  });
+  it('o registro nao chama rede nem IA e a tela do aluno nao dispara reconstrucao', () => {
+    const read = (...p: string[]) => readFileSync(join(__dirname, '..', 'src', ...p), 'utf8');
+    expect(read('equipment', 'device-registry.service.ts')).not.toMatch(/fetch\(|axios|anthropic|openai|HttpService/i);
+    expect(read('equipment', 'devices.service.ts')).not.toMatch(/refreshForUser|refreshAll/);
   });
 });
 

@@ -1,3 +1,5 @@
+import { Optional } from '@nestjs/common';
+import { DeviceRegistryService } from '../equipment/device-registry.service';
 import {
   BadGatewayException,
   ConflictException,
@@ -68,6 +70,8 @@ export class PolarActivityIngestionService {
     private readonly activityNotifications: ActivityNotificationService,
     // Opcional so' para os testes antigos que constroem o servico sem ele; em producao e' sempre injetado.
     private readonly physicalIdentity?: PhysicalActivityIdentityService,
+    // Registro automatico de dispositivos (23/10/2026). Opcional so' para testes antigos; em producao e' sempre injetado.
+    @Optional() private readonly deviceRegistry?: DeviceRegistryService,
   ) {}
 
   // Trava por usuario (03/10/2026): webhook, polling e botao manual sao gatilhos do MESMO sync. Dois
@@ -320,6 +324,8 @@ export class PolarActivityIngestionService {
     } catch (error) {
       this.logger.warn(`Falha ao notificar sincronizacao da atividade ${activityLog.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
+
+    this.deviceRegistry?.scheduleRefresh(userId); // identifica/atualiza o relogio desta aluna (proveniencia preservada, agrupado e nao bloqueante)
 
     // D2: se esta avaliacao mudou a identidade de OUTRAS observacoes (evento desfeito/formado/ambiguo, nova canonica), reconcilia-as (so' o que mudou).
     await this.sessionExecutionLink.reconcileAffectedByIdentity(identity, activityLog.id);

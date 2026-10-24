@@ -6,9 +6,10 @@ import { WahooService } from './wahoo.service';
 import { WahooActivityIngestionService } from './wahoo-activity-ingestion.service';
 import { WahooWebhookService } from './wahoo-webhook.service';
 import { WahooSyncFallbackSchedulerService } from './wahoo-sync-fallback-scheduler.service';
+import { DeviceRegistryModule } from '../equipment/device-registry.module';
 
 @Module({
-  imports: [PrismaModule, ActivityExecutionModule],
+  imports: [PrismaModule, ActivityExecutionModule, DeviceRegistryModule],
   controllers: [WahooController],
   providers: [WahooService, WahooActivityIngestionService, WahooWebhookService, WahooSyncFallbackSchedulerService],
   // Exportado para a exclusao de conta (revogacao) e, nas Etapas 4/5, para quem precisar de getAccessToken().

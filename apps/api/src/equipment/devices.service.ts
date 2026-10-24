@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StudentIntegrationsService } from '../coach/student-integrations.service';
-import { PLATFORM_LABEL, deriveDevice, effectiveDevice, normalizeKey, type DerivedDevice } from './equipment-core';
+import { PLATFORM_LABEL, effectiveDevice, normalizeKey } from './equipment-core';
 
 // Equipamentos (23/10/2026) — relogios/dispositivos do ALUNO. Fabricante != modelo != plataforma. O que a fonte informou fica em colunas observed* (proveniencia tecnica, nunca
 // sobrescrita); a correcao do aluno fica em colunas manual* separadas. As linhas sao reconstruidas das atividades de forma idempotente (primeira/ultima vez e contagem recalculadas),
@@ -26,8 +26,6 @@ export interface DeviceView {
   corrected: boolean;
 }
 
-interface Group { derived: DerivedDevice; count: number; first: Date; last: Date }
-
 const MANUAL_MAX = 60;
 const clean = (value: unknown): string | null => {
   if (value == null) return null;
@@ -40,62 +38,7 @@ const clean = (value: unknown): string | null => {
 @Injectable()
 export class DevicesService {
   constructor(private readonly prisma: PrismaService, private readonly integrations: StudentIntegrationsService) {}
-
-  // Reconstroi as linhas de dispositivo de UM aluno a partir das atividades recebidas (idempotente: rodar de novo nao duplica nem perde a correcao manual).
-  async refreshForUser(userId: string): Promise<number> {
-    const activities = await this.prisma.activityLog.findMany({
-      where: { userId, provider: { not: 'strava' } },
-      select: { provider: true, startedAt: true, providerMetrics: true },
-    });
-    const groups = new Map<string, Group>();
-    for (const activity of activities) {
-      const derived = deriveDevice(activity.provider, activity.providerMetrics);
-      if (!derived) continue;
-      const key = derived.sourceProvider + '|' + derived.sourceDetail + '|' + derived.deviceKey;
-      const group = groups.get(key);
-      if (!group) groups.set(key, { derived, count: 1, first: activity.startedAt, last: activity.startedAt });
-      else {
-        group.count += 1;
-        if (activity.startedAt < group.first) group.first = activity.startedAt;
-        if (activity.startedAt > group.last) group.last = activity.startedAt;
-        // Preenche o que uma observacao anterior nao trazia (mesmo aparelho, mais informacao); nunca troca um valor ja' conhecido.
-        const d = group.derived;
-        d.manufacturer ??= derived.manufacturer; d.model ??= derived.model; d.name ??= derived.name; d.deviceType ??= derived.deviceType; d.manufacturerBasis ??= derived.manufacturerBasis;
-      }
-    }
-    // Aparelho visto antes sem modelo e depois com modelo no MESMO caminho: uma so' linha (a identificada), somando as contagens.
-    for (const [key, group] of [...groups]) {
-      if (group.derived.deviceKey !== '') continue;
-      const siblings = [...groups.values()].filter((other) => other !== group && other.derived.sourceProvider === group.derived.sourceProvider && other.derived.sourceDetail === group.derived.sourceDetail && other.derived.deviceKey !== '');
-      if (siblings.length !== 1) continue;
-      const target = siblings[0];
-      target.count += group.count;
-      if (group.first < target.first) target.first = group.first;
-      if (group.last > target.last) target.last = group.last;
-      groups.delete(key);
-    }
-    for (const group of groups.values()) {
-      const d = group.derived;
-      const data = {
-        observedManufacturer: d.manufacturer, observedModel: d.model, observedName: d.name, deviceType: d.deviceType, manufacturerBasis: d.manufacturerBasis,
-        firstSeenAt: group.first, lastSeenAt: group.last, activityCount: group.count,
-      };
-      await this.prisma.userDevice.upsert({
-        where: { userId_sourceProvider_sourceDetail_deviceKey: { userId, sourceProvider: d.sourceProvider, sourceDetail: d.sourceDetail, deviceKey: d.deviceKey } },
-        create: { userId, sourceProvider: d.sourceProvider, sourceDetail: d.sourceDetail, deviceKey: d.deviceKey, ...data },
-        update: data, // manualManufacturer/manualModel nao fazem parte do update: a correcao do aluno sobrevive
-      });
-    }
-    return groups.size;
-  }
-
-  // Reconstroi para todos os alunos que tem atividade (uso administrativo, em lotes; nao bloqueia: cada aluno e' independente).
-  async refreshAll(): Promise<{ users: number; devices: number }> {
-    const rows = await this.prisma.activityLog.groupBy({ by: ['userId'], where: { provider: { not: 'strava' } } });
-    let devices = 0;
-    for (const row of rows) devices += await this.refreshForUser(row.userId);
-    return { users: rows.length, devices };
-  }
+  // A reconstrucao das linhas e automatica (DeviceRegistryService: a cada atividade recebida e em varredura diaria); aqui so' se le, se corrige e se cadastra.
 
   private view(row: Prisma.UserDeviceGetPayload<object>): DeviceView {
     const effective = effectiveDevice(row);
@@ -119,7 +62,6 @@ export class DevicesService {
 
   // Tela do aluno: dispositivos conhecidos + estado de cada plataforma de integracao (conexao, ultima sincronizacao, tipos de informacao autorizados/recebidos).
   async forStudent(userId: string) {
-    try { await this.refreshForUser(userId); } catch { /* a tela mostra o que ja' esta' gravado; falha de reconstrucao nao derruba a consulta */ }
     const rows = await this.prisma.userDevice.findMany({ where: { userId }, orderBy: [{ lastSeenAt: 'desc' }] });
     const integrations = await this.integrations.forStudent(userId);
     const platforms = integrations.integrations

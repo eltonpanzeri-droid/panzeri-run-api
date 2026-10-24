@@ -38,6 +38,8 @@ const dash = '—';
 const shoeName = (s: Pick<ShoeSummary, 'brand' | 'model' | 'version'>) => [s.brand, s.model, s.version].filter(Boolean).join(' ');
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : dash);
 const fmtKm = (km: number | null | undefined) => (km == null ? dash : String(Math.round(km * 10) / 10).replace('.', ',') + ' km');
+// Data de inicio de uso e' so' um dia (guardada a meia-noite UTC): mostrar em UTC evita voltar um dia no fuso do Brasil.
+const fmtDay = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : dash);
 const monthLabel = (month: string) => month.slice(5) + '/' + month.slice(0, 4);
 
 function dateToInput(iso: string): string {
@@ -59,7 +61,7 @@ function inputToIso(value: string): string | null {
 
 const manufacturerSourceText = (d: DeviceView): string => {
   if (d.manufacturerSource === 'manual') return 'corrigido por você';
-  if (d.manufacturerSource === 'plataforma_exclusiva') return 'pela plataforma (atende uma só marca)';
+  if (d.manufacturerSource === 'plataforma_exclusiva') return 'pela plataforma, que atende uma só marca';
   if (d.manufacturerSource === 'dispositivo_informou') return 'informado pelo aparelho';
   return '';
 };
@@ -226,7 +228,7 @@ function ShoesSection({ apiUrl, accessToken }: { apiUrl: string; accessToken: st
       <ShoeThumb apiUrl={apiUrl} accessToken={accessToken} shoe={shoe} size={44} />
       <View style={{ flex: 1 }}>
         <Text style={st.shoeTitle} numberOfLines={1}>{shoeName(shoe)}</Text>
-        <Text style={st.muted}>{shoe.workoutsCount > 0 ? fmtKm(shoe.totalDistanceKm) : dash} acumulados</Text>
+        <Text style={st.muted}>{shoe.workoutsCount > 0 ? fmtKm(shoe.totalDistanceKm) + ' acumulados' : 'Sem corridas ainda'}</Text>
       </View>
       <View style={[st.pill, shoe.status === 'active' ? st.pillOn : st.pillOff]}>
         <Text style={[st.pillText, { color: shoe.status === 'active' ? '#2E7D4F' : '#8A8578' }]}>{shoe.status === 'active' ? 'Em uso' : 'Aposentado'}</Text>
@@ -276,7 +278,7 @@ function ShoesSection({ apiUrl, accessToken }: { apiUrl: string; accessToken: st
           <View style={{ flex: 1 }}>
             <Text style={st.title}>{shoeName(detail)}</Text>
             {detail.nickname ? <Text style={st.muted}>{detail.nickname}</Text> : null}
-            <Text style={st.muted}>{detail.status === 'active' ? 'Em uso' : 'Aposentado'} · desde {fmtDate(detail.startedUsingAt)}{detail.retiredAt ? ` · aposentado em ${fmtDate(detail.retiredAt)}` : ''}</Text>
+            <Text style={st.muted}>{detail.status === 'active' ? 'Em uso' : 'Aposentado'} · desde {fmtDay(detail.startedUsingAt)}{detail.retiredAt ? ` · aposentado em ${fmtDate(detail.retiredAt)}` : ''}</Text>
           </View>
         </View>
 
@@ -460,7 +462,7 @@ function DevicesSection({ apiUrl, accessToken }: { apiUrl: string; accessToken: 
                 <View style={[st.pill, p.state === 'connected' ? st.pillOn : st.pillOff]}><Text style={[st.pillText, { color: p.state === 'connected' ? '#2E7D4F' : '#8A8578' }]}>{p.stateLabel}</Text></View>
               </View>
               <Text style={st.kv}><Text style={st.k}>Última sincronização: </Text>{fmtDate(p.lastSyncAt)}</Text>
-              <Text style={st.kv}><Text style={st.k}>Atividades recebidas: </Text>{p.activityCount != null && p.activityCount > 0 ? p.activityCount : dash}</Text>
+              {p.activityCount != null && p.activityCount > 0 ? <Text style={st.kv}><Text style={st.k}>Atividades recebidas: </Text>{p.activityCount}</Text> : null}
               {p.categories.length > 0 ? (
                 <View style={{ marginTop: 4 }}>
                   <Text style={st.k}>Informações:</Text>

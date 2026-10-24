@@ -12,9 +12,10 @@ import { PolarHealthIngestionService } from './polar-health-ingestion.service';
 import { PolarHealthController } from './polar-health.controller';
 import { PolarProbeService } from './polar-probe.service';
 import { PolarProbeController } from './polar-probe.controller';
+import { DeviceRegistryModule } from '../equipment/device-registry.module';
 
 @Module({
-  imports: [PrismaModule, ActivityTimeSeriesModule, ActivityExecutionModule],
+  imports: [PrismaModule, ActivityTimeSeriesModule, ActivityExecutionModule, DeviceRegistryModule],
   controllers: [PolarController, PolarHealthController, PolarProbeController],
   providers: [PolarService, PolarActivityIngestionService, PolarSyncFallbackSchedulerService, PolarWebhookService, PolarHealthConsentService, PolarHealthIngestionService, PolarProbeService],
   exports: [PolarService],

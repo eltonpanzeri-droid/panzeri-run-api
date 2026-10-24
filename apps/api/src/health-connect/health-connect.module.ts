@@ -6,9 +6,10 @@ import { HealthConnectIngestionService } from './health-connect-ingestion.servic
 import { HealthConnectConsentService } from './health-connect-consent.service';
 import { HealthConnectHealthService } from './health-connect-health.service';
 import { HealthConnectRouteService } from './health-connect-route.service';
+import { DeviceRegistryModule } from '../equipment/device-registry.module';
 
 @Module({
-  imports: [PrismaModule, ActivityExecutionModule],
+  imports: [PrismaModule, ActivityExecutionModule, DeviceRegistryModule],
   controllers: [HealthConnectController],
   providers: [HealthConnectIngestionService, HealthConnectConsentService, HealthConnectHealthService, HealthConnectRouteService],
   exports: [HealthConnectConsentService],

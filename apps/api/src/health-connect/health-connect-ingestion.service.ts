@@ -1,3 +1,5 @@
+import { Optional } from '@nestjs/common';
+import { DeviceRegistryService } from '../equipment/device-registry.service';
 import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -58,6 +60,8 @@ export class HealthConnectIngestionService {
     private readonly sessionExecutionLink?: SessionExecutionLinkService,
     // Autorizacoes do aluno (22/10/2026). Opcional so' para testes antigos; em producao e' sempre injetado e a ingestao e' fail-closed.
     private readonly consent?: HealthConnectConsentService,
+    // Registro automatico de dispositivos (23/10/2026). Opcional so' para testes antigos; em producao e' sempre injetado.
+    @Optional() private readonly deviceRegistry?: DeviceRegistryService,
   ) {}
 
   async importExercises(userId: string, body: unknown): Promise<HealthConnectImportResult> {
@@ -92,7 +96,7 @@ export class HealthConnectIngestionService {
       try {
         const item = await this.persist(userId, normalized.value);
         items.push(item);
-        if ((item.status === 'created' || item.status === 'updated') && item.activityLogId) await this.afterWrite(item.status, item.activityLogId);
+        if ((item.status === 'created' || item.status === 'updated') && item.activityLogId) await this.afterWrite(item.status, item.activityLogId, userId);
       } catch (error) {
         // Falha de um registro nunca derruba o lote inteiro nem vaza detalhe interno ao cliente.
         this.logger.warn(`Falha ao importar registro Health Connect ${normalized.value.externalId}: ${error instanceof Error ? error.message : String(error)}`);
@@ -111,7 +115,8 @@ export class HealthConnectIngestionService {
   // Identidade fisica cross-provider e, DEPOIS dela, a reconciliacao com a prescricao: so' a observacao canonica do evento carrega vinculo/classificacao.
   // Melhor esforco — nunca derruba a ingestao (o registro ja' esta gravado). Novo: classify (mesmo gatilho da Polar/Wahoo); alterado: reconcileEvent, que
   // recalcula os estados automaticos nao vinculados sem tocar em decisao humana. As OUTRAS observacoes afetadas pela mudanca de identidade (D2) tambem.
-  private async afterWrite(status: 'created' | 'updated', activityLogId: string): Promise<void> {
+  private async afterWrite(status: 'created' | 'updated', activityLogId: string, userId: string): Promise<void> {
+    this.deviceRegistry?.scheduleRefresh(userId); // identifica/atualiza o dispositivo desta aluna (proveniencia preservada, agrupado e nao bloqueante)
     const identity = await this.physicalIdentity?.evaluateSafely(activityLogId);
     try {
       if (status === 'created') await this.sessionExecutionLink?.classify(activityLogId);

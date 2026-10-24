@@ -6,7 +6,9 @@ import type { ShoeUsageFact } from './shoe-facts';
 // Contagem de alunos sempre por alunos UNICOS. Ausencia de informacao nunca vira zero (pace sem dado = null). Pace de um grupo so' aparece com amostra minima (MIN_PACE_STUDENTS).
 
 export const MIN_PACE_STUDENTS = 3;
-// Piso de privacidade (alunos unicos): grupos e totais com menos alunos que isso NAO saem (evita reidentificar uma aluna por filtros muito estreitos ou por diferenca entre consultas).
+// Privacidade (alunos unicos): as CONTAGENS (alunos, equipamentos, marcas, modelos) saem sempre, exatas — nenhum nome, id ou dado individual sai daqui. O que e' desempenho/volume
+// (km, corridas, pace, faixas de distancia, km acumulado) de um grupo so' sai com pelo menos esta quantidade de alunos nele; abaixo disso o grupo mostra so' a contagem. Vale tambem para os
+// totais de desempenho do resultado inteiro (cruzamentos muito especificos). Evita expor o desempenho de uma aluna sem esconder as contagens administrativas.
 export const MIN_GROUP_STUDENTS = 3;
 export const SHOE_KM_BUCKETS = [
   { key: 'sem_corridas', label: 'Sem corridas registradas', min: -1, max: 0 },
@@ -179,45 +181,25 @@ export function analyzeEquipment(data: AnalysisData, f: AnalysisFilters, minStud
     // Pace do grupo: tempo total / distancia total das corridas com os dois dados; so' com amostra minima de ALUNOS (evita expor um aluno).
     const paceStudents = new Set(g.facts.filter((fact) => fact.distanceKm != null && fact.durationSec != null).map((fact) => fact.userId));
     const pace = paceStudents.size >= MIN_PACE_STUDENTS ? pooledPace(g.facts.map((fact) => ({ distanceKm: fact.distanceKm, durationSec: fact.durationSec }))) : null;
+    // Contagens sempre exatas; desempenho (corridas, km, pace, faixas) so' com amostra minima de alunas COM CORRIDA no grupo (nao basta ter tres donas de tenis se so' uma correu com ele).
+    const runStudents = new Set(g.facts.map((fact) => fact.userId));
+    if (runStudents.size < minStudents) {
+      return { shoes: g.shoes, active: g.active, retired: g.retired, students: g.students.size, performanceHidden: true as boolean, runs: null as number | null, km: null as number | null, avgKmPerShoe: null as number | null, pace: null as { secondsPerKm: number; label: string; runs: number } | null, paceHidden: false, bands: [] as BandCount[] };
+    }
     return {
-      shoes: g.shoes, active: g.active, retired: g.retired, students: g.students.size,
-      runs: g.facts.length, km,
-      avgKmPerShoe: g.accumulated.length > 0 ? round2(g.accumulated.reduce((a, b) => a + b, 0) / g.accumulated.length) : null,
-      pace: pace ? { secondsPerKm: pace.secondsPerKm, label: formatPace(pace.secondsPerKm), runs: pace.runs } : null,
+      shoes: g.shoes, active: g.active, retired: g.retired, students: g.students.size, performanceHidden: false as boolean,
+      runs: g.facts.length as number | null, km: km as number | null,
+      avgKmPerShoe: (g.accumulated.length > 0 ? round2(g.accumulated.reduce((a, b) => a + b, 0) / g.accumulated.length) : null) as number | null,
+      pace: (pace ? { secondsPerKm: pace.secondsPerKm, label: formatPace(pace.secondsPerKm), runs: pace.runs } : null) as { secondsPerKm: number; label: string; runs: number } | null,
       paceHidden: paceStudents.size > 0 && paceStudents.size < MIN_PACE_STUDENTS,
       bands: bands as BandCount[],
     };
   };
-  const hideSmall = <T extends { students: number }>(rows: T[]) => ({ rows: rows.filter((row) => row.students >= minStudents), hidden: rows.filter((row) => row.students < minStudents).length });
   const byStudentsThenLabel = <T extends { students: number }>(a: T & { label: string }, b: T & { label: string }) => b.students - a.students || (a.label < b.label ? -1 : 1);
 
   const shoeBrandRows = [...brandAcc.entries()].map(([key, g]) => ({ key, label: dominantLabel(g.spellingsBrand) || unidentified, ...shoeGroup(g) })).sort(byStudentsThenLabel);
   const shoeModelRows = [...shoeModelAcc.entries()].map(([key, g]) => ({ key, brand: dominantLabel(g.spellingsBrand), label: dominantLabel(g.spellingsModel) || unidentified, ...shoeGroup(g) })).sort(byStudentsThenLabel);
   const studentsWithShoe = new Set(shoeEntries.map((entry) => entry.shoe.userId));
-
-  // Poucos alunos no resultado: nada e' devolvido alem do aviso (os filtros isolariam individuos).
-  if (included.length < minStudents) {
-    return {
-      period: { from: f.from, to: f.to },
-      belowMinimum: true as const,
-      minimumStudents: MIN_GROUP_STUDENTS,
-      population: { studentsEligible: eligible.length, studentsIncluded: null, studentsWithDevice: null, studentsWithShoe: null, studentsSendingData: null },
-      devices: { byManufacturer: [], byModel: [], byPlatform: [], studentsWithoutDevice: null, smallGroupsHidden: 0 },
-      shoes: { totals: { shoes: null, active: null, retired: null, students: null, studentsWithoutShoe: null }, byBrand: [], byModel: [], kmDistribution: [], distanceBands: [], smallGroupsHidden: 0 },
-      notes: ['Menos de ' + MIN_GROUP_STUDENTS + ' alunos atendem aos filtros: o resultado não é exibido para não identificar alunas individualmente. Relaxe algum filtro.'],
-    };
-  }
-
-  const manufacturerRows = hideSmall([...manufacturerAcc.entries()].map(([key, v]) => ({ key, label: key === 'naoidentificado' ? unidentified : dominantLabel(v.labels), students: v.students.size, devices: v.devices, activities: v.activities })).sort(byStudentsThenLabel));
-  const deviceModelRows = hideSmall([...modelAcc.entries()].map(([key, v]) => ({
-    key, manufacturer: v.manufacturerKey === 'naoidentificado' ? unidentified : dominantLabel(v.manufacturerLabels), label: dominantLabel(v.modelLabels) || 'Modelo não identificado', students: v.students.size, activities: v.activities,
-  })).sort(byStudentsThenLabel));
-  const platformRows = hideSmall([...platformAcc.entries()].map(([key, v]) => ({
-    key, label: key, students: v.students.size, devices: v.devices, activities: v.activities,
-    studentsSendingData: [...v.students].filter((id) => data.activeByProvider.get(key)?.has(id)).length,
-  })).sort((a, b) => b.students - a.students || (a.key < b.key ? -1 : 1)));
-  const brandRows = hideSmall(shoeBrandRows);
-  const modelRows = hideSmall(shoeModelRows);
 
   return {
     period: { from: f.from, to: f.to },
@@ -229,26 +211,31 @@ export function analyzeEquipment(data: AnalysisData, f: AnalysisFilters, minStud
       studentsSendingData: sendingAny.size,
     },
     devices: {
-      byManufacturer: manufacturerRows.rows,
-      byModel: deviceModelRows.rows.slice(0, 80),
-      byPlatform: platformRows.rows,
+      byManufacturer: [...manufacturerAcc.entries()].map(([key, v]) => ({ key, label: key === 'naoidentificado' ? unidentified : dominantLabel(v.labels), students: v.students.size, devices: v.devices, activities: v.students.size >= minStudents ? v.activities : null })).sort(byStudentsThenLabel),
+      byModel: [...modelAcc.entries()].map(([key, v]) => ({
+        key, manufacturer: v.manufacturerKey === 'naoidentificado' ? unidentified : dominantLabel(v.manufacturerLabels), label: dominantLabel(v.modelLabels) || 'Modelo não identificado', students: v.students.size, activities: v.students.size >= minStudents ? v.activities : null,
+      })).sort(byStudentsThenLabel).slice(0, 200),
+      byPlatform: [...platformAcc.entries()].map(([key, v]) => ({
+        key, label: key, students: v.students.size, devices: v.devices, activities: v.students.size >= minStudents ? v.activities : null,
+        studentsSendingData: [...v.students].filter((id) => data.activeByProvider.get(key)?.has(id)).length,
+      })).sort((a, b) => b.students - a.students || (a.key < b.key ? -1 : 1)),
       studentsWithoutDevice: included.length - studentsWithDevice.size,
-      smallGroupsHidden: manufacturerRows.hidden + deviceModelRows.hidden + platformRows.hidden,
     },
     shoes: {
       totals: { shoes: shoeEntries.length, active: shoeEntries.filter((e) => e.shoe.status === 'active').length, retired: shoeEntries.filter((e) => e.shoe.status === 'retired').length, students: studentsWithShoe.size, studentsWithoutShoe: included.length - studentsWithShoe.size },
-      byBrand: brandRows.rows,
-      byModel: modelRows.rows.slice(0, 80),
-      smallGroupsHidden: brandRows.hidden + modelRows.hidden,
-      kmDistribution: kmBuckets,
-      distanceBands: overallBands.map((band) => ({ key: band.key, label: DISTANCE_BANDS.find((candidate) => candidate.key === band.key)!.label, runs: band.count, km: band.distanceKm })),
+      byBrand: shoeBrandRows,
+      byModel: shoeModelRows.slice(0, 200),
+      // Desempenho agregado do resultado inteiro: so' com amostra minima de alunos (cruzamentos muito especificos nao expoem uma aluna).
+      performanceHidden: included.length < minStudents,
+      kmDistribution: included.length < minStudents ? [] : kmBuckets,
+      distanceBands: included.length < minStudents ? [] : overallBands.map((band) => ({ key: band.key, label: DISTANCE_BANDS.find((candidate) => candidate.key === band.key)!.label, runs: band.count, km: band.distanceKm })),
     },
     notes: [
       'Estatística descritiva da base de alunos: relação entre equipamento e pace/volume NÃO indica que o equipamento causa o resultado.',
       'Alunos contados uma única vez (alunos únicos), mesmo com vários tênis ou dispositivos.',
       'Quilometragem usa só corridas que a aluna associou ao tênis, uma observação por evento físico (Polar + Health Connect do mesmo treino valem uma vez). Musculação não entra.',
       'Pace por tênis é tempo total ÷ distância total das corridas com os dois dados, e só aparece com pelo menos ' + MIN_PACE_STUDENTS + ' alunos na amostra.',
-      'Grupos (marca, modelo, plataforma) com menos de ' + MIN_GROUP_STUDENTS + ' alunos não são listados, e o resultado inteiro só aparece com pelo menos ' + MIN_GROUP_STUDENTS + ' alunos, para não identificar alunas individualmente.',
+      'As contagens (alunos, equipamentos, marcas e modelos) são sempre exatas. Desempenho (km, corridas, pace, faixas de distância) só aparece para grupos com pelo menos ' + MIN_GROUP_STUDENTS + ' alunos, para não expor uma aluna em cruzamentos muito específicos.',
       '"Atividades" dos relógios é o histórico total de atividades recebidas por aquele aparelho (todas as fontes), não só do período; o mesmo treino recebido por dois caminhos aparece nos dois.',
       'Dispositivos e tênis só têm histórico a partir de quando passaram a ser registrados; ausência de dado não é zero.',
     ],
