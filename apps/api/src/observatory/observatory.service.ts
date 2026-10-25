@@ -8,8 +8,8 @@ import { parseObservatoryFilters } from './observatory-filters';
 import { buildSyntheticFacts } from './observatory-synthetic';
 import type { ObsFacts } from './observatory.types';
 
-// Observatorio Panzeri Run (24/10/2026) — SOMENTE ADMIN, atras de feature flag. OBSERVATORY_ENABLED=true liga o modulo; sem OBSERVATORY_REAL_DATA=true ele atende SO' com dados
-// sinteticos (estrutura em teste). Dados de saude sao sensiveis: a habilitacao sobre dados reais exige validacao previa de base legal, finalidade, transparencia e contratos dos provedores.
+// Observatorio Panzeri Run (24/10/2026) — SOMENTE ADMIN. A tela e' SEMPRE visivel (decisao do Elton, 25/10: precisa ver tudo) mas, sem OBSERVATORY_REAL_DATA=true, atende SO' com dados
+// sinteticos (estrutura em teste, com faixa de aviso). Dados de saude sao sensiveis: a habilitacao sobre dados reais exige validacao previa de base legal, finalidade, transparencia e contratos dos provedores.
 // Somente leitura; resposta so' com agregados protegidos (nunca nome, e-mail ou id de aluna).
 
 const spToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
@@ -29,7 +29,6 @@ export class ObservatoryService {
   }
 
   status() {
-    if (!this.flag('OBSERVATORY_ENABLED')) return { enabled: false, dataset: 'synthetic' as const, reason: 'Funcionalidade desativada (OBSERVATORY_ENABLED).' };
     return { enabled: true, dataset: this.flag('OBSERVATORY_REAL_DATA') ? ('real' as const) : ('synthetic' as const) };
   }
 

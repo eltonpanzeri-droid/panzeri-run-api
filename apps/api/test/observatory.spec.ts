@@ -223,13 +223,12 @@ describe('Bloco D — API, acesso e privacidade', () => {
     expect(guard.canActivate(ctx('admin', handler))).toBe(true);
     for (const role of ['coach', 'student', undefined]) expect(() => guard.canActivate(ctx(role, handler))).toThrow(ForbiddenException);
   });
-  it('feature flag desativada por padrao: status informa e a analise e recusada; ligada sem dados reais so serve sinteticos', async () => {
+  it('sem a chave de dados reais a tela funciona SEMPRE, so com dados sinteticos; so OBSERVATORY_REAL_DATA libera dados reais', async () => {
     const config = (values: Record<string, string>) => ({ get: (k: string) => values[k] });
-    const off = new ObservatoryService({} as never, config({}) as never);
-    expect(off.status()).toMatchObject({ enabled: false });
-    await expect(off.analysis({})).rejects.toBeInstanceOf(ForbiddenException);
-    const on = new ObservatoryService({} as never, config({ OBSERVATORY_ENABLED: 'true' }) as never);
+    const on = new ObservatoryService({} as never, config({}) as never);
     expect(on.status()).toEqual({ enabled: true, dataset: 'synthetic' });
+    expect(new ObservatoryService({} as never, config({ OBSERVATORY_ENABLED: 'true' }) as never).status()).toEqual({ enabled: true, dataset: 'synthetic' });
+    expect(new ObservatoryService({} as never, config({ OBSERVATORY_REAL_DATA: 'true' }) as never).status()).toEqual({ enabled: true, dataset: 'real' });
     const result = await on.analysis({});
     expect(result.dataset).toBe('synthetic');
     expect(result.overview.participants).toBeGreaterThan(0);

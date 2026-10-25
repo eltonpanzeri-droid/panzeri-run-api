@@ -3246,3 +3246,6 @@ Confirmadas contra o código de antes da Etapa 1 (`ea06bcb`): mesmas falhas, mes
 ### 24/10/2026 — Painel admin não compilava (`next build`): 2 avisos de lint do Observatório tratados como erro (CORRIGIDO, LOCAL, sem commit)
 - **Causa:** em `apps/admin/app/observatory.tsx`, import `Legend` e helper `painCell` (e o componente `Cell`, que só ele usava) sem uso ⇒ `@typescript-eslint/no-unused-vars` derrubava o `next build` (o `atualizar painel` do Elton falhou; o mesmo build roda no deploy do painel). Eu havia validado só `tsc` + preview em `next dev`, que não roda o lint do build — passei a rodar `next build` ao tocar o admin.
 - **Verificado:** `tsc`, `eslint app` e `next build` do admin passam.
+
+### 25/10/2026 — Observatório: tela sempre visível com dados sintéticos (LOCAL, sem commit)
+- **Decisão do Elton:** "tem que aparecer tudo" — a chave `OBSERVATORY_ENABLED` deixou de ser necessária. `ObservatoryService.status()` agora é sempre `enabled: true`; só `OBSERVATORY_REAL_DATA=true` troca sintético por dado real (continua travado até a base legal/termos). Continua só administrador, com a faixa "Dados sintéticos". Teste do spec atualizado (36 passam); tsc/eslint limpos.
