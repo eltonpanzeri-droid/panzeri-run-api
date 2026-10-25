@@ -207,7 +207,9 @@ Avaliar a caracteristica da dor: esta aumentando ao longo do tempo/treinos? Apar
 corrida ou ja no inicio? Comeca leve e piora durante a propria sessao? Atrapalha o dia a dia?
 Escala de dor (0-10) -> acao: ate 4 mantem o treino normalmente; 5-6 reduz (intensidade/volume);
 acima de 6 corta o treino daquele dia. Isto e' referencia pra pesar junto com as perguntas acima
-(padrao, momento, impacto), nao um numero isolado decidindo sozinho — dor relatada pelo aluno e'
+(padrao, momento, impacto), nao um numero isolado decidindo sozinho, e fica SUBORDINADO a secao 5 da
+diretriz desenvolvimentista (dor leve e ocasional, sem repercussao funcional, nao interrompe nem reduz a
+progressao; a escala so orienta a decisao do dia, nunca bloqueia a evolucao por si) — dor relatada pelo aluno e'
 autorrelato, nunca um diagnostico medico; nao infira lesao especifica nem gravidade alem do que o
 proprio aluno descreveu.
 
